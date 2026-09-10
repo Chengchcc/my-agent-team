@@ -1,6 +1,6 @@
 import type { PluginTool } from "../agent-runtime.js";
 import { builtinAgentNames, isValidWorkflowName, resolveAgent } from "./roles.js";
-import type { SubagentResult, SubagentSpec, SubagentBatchResult } from "./executor.js";
+import type { SubagentBatchResult, SubagentResult, SubagentSpec } from "./executor.js";
 
 export {
   isValidWorkflowName,
@@ -21,28 +21,11 @@ export interface DelegationToolDeps {
   /** 3.4: raw markdown of `<workspace>/.oma/agents/<name>.md`, or null when
    *  absent. The name is already validated before this is called. */
   readonly readAgentDefinition: (name: string) => Promise<string | null>;
-  /** 3.4 Phase 3 control plane. */
-  readonly listSubagents: () => Array<{
-    handle: string;
-    label: string;
-    status: string;
-    partialText?: string;
-    usage?: SubagentResult["usage"];
-  }>;
-  readonly getSubagentOutput: (handle: string) => {
-    handle: string;
-    status: string;
-    partialText?: string;
-    result?: SubagentResult;
-  };
-  readonly stopSubagent: (handle: string) => { ok: boolean; error?: string };
-  /** Inject a message into a RUNNING background task (steer). */
-  readonly steerSubagent: (handle: string, prompt: string) => { ok: boolean; error?: string };
 }
 
-/** The model-facing delegation surface: one fan-out tool (batch + single)
- *  plus its control plane. Script orchestration lives in orchestrate/tool.ts. */
-
+/** The model-facing delegation surface: one fan-out tool (batch + single).
+ *  Control (poll/wait/steer/stop) lives in the coordination hub tool; script
+ *  orchestration lives in orchestrate/tool.ts. */
 export function createDelegationTools(deps: DelegationToolDeps): readonly PluginTool[] {
   const MAX_BATCH_TASKS = 64;
   const task: PluginTool = {
@@ -53,8 +36,7 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
       "semaphore; long results spill to .oma/workflow with a resultPath. Roles: task (full tools), " +
       "explore (read-only), plan (read-only planning), or any .oma/agents/<name>.md definition. " +
       "SINGLE (compat): {agent, prompt, schema?, background?, resume?} — background:true returns a " +
-      "handle immediately (poll via task_output, steer via task_steer while running); " +
-      "{resume, prompt} continues the SAME subagent across Runs in this session.",
+      "handle immediately (poll/wait/steer via hub); {resume, prompt} continues the SAME subagent.",
     executionMode: "serial",
     inputSchema: {
       type: "object",
@@ -241,79 +223,5 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
     },
   };
 
-  const taskList: PluginTool = {
-    name: "task_list",
-    description: "List live task handles (label, status, usage).",
-    executionMode: "serial",
-    inputSchema: { type: "object", properties: {} },
-    async execute() {
-      return { tasks: deps.listSubagents() };
-    },
-  };
-
-  const taskOutput: PluginTool = {
-    name: "task_output",
-    description:
-      "Read a background task by handle: status (running/completed/failed/stopped) " +
-      "and the result once finished.",
-    executionMode: "serial",
-    inputSchema: {
-      type: "object",
-      properties: { handle: { type: "string" } },
-      required: ["handle"],
-    },
-    async execute(args) {
-      const handle = typeof args.handle === "string" ? args.handle.trim() : "";
-      if (!handle) return { ok: false, error: "handle is required" };
-      const out = deps.getSubagentOutput(handle);
-      return {
-        handle: out.handle,
-        status: out.status,
-        ...(out.partialText ? { partialText: out.partialText } : {}),
-        ...(out.result ? { result: out.result } : {}),
-      };
-    },
-  };
-
-  const taskSteer: PluginTool = {
-    name: "task_steer",
-    description:
-      "Inject a follow-up message into a RUNNING background task by handle. The message is " +
-      "queued and delivered at the next safe step boundary. For finished tasks use " +
-      "task({resume, prompt}) instead.",
-    executionMode: "serial",
-    inputSchema: {
-      type: "object",
-      properties: {
-        handle: { type: "string" },
-        prompt: { type: "string" },
-      },
-      required: ["handle", "prompt"],
-    },
-    async execute(args) {
-      const handle = typeof args.handle === "string" ? args.handle.trim() : "";
-      const prompt = typeof args.prompt === "string" ? args.prompt : "";
-      if (!handle) return { ok: false, error: "handle is required" };
-      if (!prompt) return { ok: false, error: "prompt is required" };
-      return deps.steerSubagent(handle, prompt);
-    },
-  };
-
-  const taskStop: PluginTool = {
-    name: "task_stop",
-    description: "Stop a live background task by handle.",
-    executionMode: "serial",
-    inputSchema: {
-      type: "object",
-      properties: { handle: { type: "string" } },
-      required: ["handle"],
-    },
-    async execute(args) {
-      const handle = typeof args.handle === "string" ? args.handle.trim() : "";
-      if (!handle) return { ok: false, error: "handle is required" };
-      return deps.stopSubagent(handle);
-    },
-  };
-
-  return [task, taskList, taskOutput, taskSteer, taskStop];
+  return [task];
 }

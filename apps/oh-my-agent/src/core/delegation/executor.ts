@@ -13,12 +13,13 @@ import {
   type PluginTool,
 } from "../agent-runtime.js";
 import {
-  appendSubagentPartial,
-  getSubagent,
-  listSubagents as listRegisteredSubagents,
-  registerSubagent,
-  updateSubagentStatus,
-} from "./registry.js";
+  appendEntryPartial,
+  getEntry,
+  listEntries,
+  notifyEntryCompletion,
+  registerEntry,
+  updateEntry,
+} from "../coordination/registry.js";
 
 export interface SubagentSpec {
   readonly prompt: string;
@@ -95,6 +96,8 @@ export interface DelegationExecutorOptions {
   readonly tools: readonly PluginTool[];
   readonly workspaceRoot: string;
   readonly workspaceAccess: "read_only" | "read_write";
+  /** Coordination scope: TUI session key or backend run id. */
+  readonly scope: string;
   readonly maxConcurrent: number;
   readonly maxTotal: number;
   readonly emit: (event: OmaLoopEvent) => void;
@@ -128,11 +131,11 @@ export interface DelegationExecutor {
   }): Promise<SubagentBatchResult>;
   /** 3.4 Phase 3 control plane, backed by the process-wide registry. */
   listSubagents(): Array<{
-    handle: string;
-    label: string;
+    id: string;
+    kind: string;
     status: string;
+    label: string;
     partialText: string;
-    usage?: Usage;
   }>;
   getSubagentOutput(handle: string): {
     handle: string;
@@ -301,10 +304,11 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
   ): Promise<SubagentResult> {
     // Phase 2 resume: reuse the registry's pinned spec + store snapshot
     // (later role edits never mutate an existing handle's definition).
-    const existing = input.resumeHandle ? getSubagent(input.resumeHandle) : null;
+    const existing = input.resumeHandle ? getEntry(input.resumeHandle) : null;
     if (input.resumeHandle && !existing) {
-      const active = listRegisteredSubagents()
-        .map((s) => s.handle)
+      const active = listEntries(opts.scope)
+        .filter((r) => r.kind === "subagent")
+        .map((s) => s.id)
         .join(", ");
       return {
         label: input.label ?? input.resumeHandle,
@@ -318,7 +322,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         label: input.label ?? input.resumeHandle!,
         text: "",
         ok: false,
-        error: `subagent "${input.resumeHandle}" is still running; inject a message with task_steer`,
+        error: `subagent "${input.resumeHandle}" is still running; inject a message via hub steer`,
       };
     }
     const spec = existing?.spec ?? input;
@@ -390,25 +394,30 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           ...(sessionGate ? { permissionGate: sessionGate } : {}),
         });
       liveSessions.set(handle, session);
+      const { promise: settle, resolve: settleResolve } = Promise.withResolvers<void>();
       if (!existing) {
-        registerSubagent({
-          handle,
+        registerEntry({
+          id: handle,
+          kind: "subagent",
+          scope: opts.scope,
+          label: spec.label ?? agentId,
+          startedAt: Date.now(),
+          status: "running",
+          finishedAt: null,
+          partialText: "",
+          settle,
+          spec,
+          store,
           sessionId,
           batchId,
           agentId,
-          label: spec.label ?? agentId,
-          spec,
-          store,
-          status: "running",
-          partialText: "",
-          createdAt: Date.now(),
         });
       }
       // Forward the subagent's loop events to the parent stream so surfaces
       // can watch live activity; message text accumulates as partial output.
       const unsubscribeEvents = session.onEvent((ev) => {
         opts.emit({ type: "delegation_agent_event", batchId, agentId, label, event: ev });
-        if (ev.type === "message_update") appendSubagentPartial(handle, ev.text);
+        if (ev.type === "message_update") appendEntryPartial(handle, ev.text);
       });
       const onAbort = (): void => session.stop();
       agentSignal?.addEventListener("abort", onAbort, { once: true });
@@ -573,45 +582,50 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         unsubscribeEvents();
         // Record terminal status on the handle unless a stop already won the
         // race (the background settle path keeps the stopped verdict).
-        const entry = getSubagent(handle);
+        const entry = getEntry(handle);
         if (entry && entry.status !== "stopped") {
           const stopped = entry.stopRequested === true;
-          updateSubagentStatus(
-            handle,
-            stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
-            stopped
+          updateEntry(handle, {
+            status: stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
+            finishedAt: Date.now(),
+            result: stopped
               ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
               : { ...agentResult, status: agentResult.ok ? "completed" : "failed" },
-          );
+          });
         }
+        settleResolve();
+        const settledEntry = getEntry(handle);
+        if (settledEntry) notifyEntryCompletion(settledEntry);
         return agentResult;
       };
 
       // 3.4 Phase 3: fire-and-forget. Acknowledge immediately with the
-      // handle; the result lands on the handle for task_output.
+      // handle; the result lands on the handle for hub output.
       if (spec.background) {
-        updateSubagentStatus(handle, "running");
+        updateEntry(handle, { status: "running" });
         void finish()
           .then((agentResult) => {
-            const e = getSubagent(handle);
+            const e = getEntry(handle);
             if (!e) return;
             const stopped = e.stopRequested === true;
-            updateSubagentStatus(
-              handle,
-              stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
-              stopped
+            updateEntry(handle, {
+              status: stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
+              finishedAt: Date.now(),
+              result: stopped
                 ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
                 : { ...agentResult, status: agentResult.ok ? "completed" : "failed" },
-            );
+            });
+            settleResolve();
+            notifyEntryCompletion(getEntry(handle)!);
           })
           .catch((err) => {
-            const e = getSubagent(handle);
+            const e = getEntry(handle);
             if (!e) return;
             const stopped = e.stopRequested === true;
-            updateSubagentStatus(
-              handle,
-              stopped ? "stopped" : "failed",
-              stopped
+            updateEntry(handle, {
+              status: stopped ? "stopped" : "failed",
+              finishedAt: Date.now(),
+              result: stopped
                 ? { label, text: "", ok: false, error: "stopped", status: "stopped" }
                 : {
                     label,
@@ -620,7 +634,9 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
                     error: err instanceof Error ? err.message : String(err),
                     status: "failed",
                   },
-            );
+            });
+            settleResolve();
+            notifyEntryCompletion(getEntry(handle)!);
           });
         return { label, text: "", ok: true, handle, status: "running" };
       }
@@ -723,24 +739,24 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     }
   }
 
-  // 3.4 Phase 3 control plane, backed by the process-wide registry.
+  // 3.4 Phase 3 control plane, backed by the coordination registry.
   function listSubagents() {
-    return listRegisteredSubagents();
+    return listEntries(opts.scope).filter((r) => r.kind === "subagent");
   }
 
   function getSubagentOutput(handle: string) {
-    const e = getSubagent(handle);
+    const e = getEntry(handle);
     if (!e) return { handle, status: "unknown" };
     if (e.result) {
       // A3 size guard applies to fetched results too.
-      const [spilled] = spillResults([e.result], e.batchId);
+      const [spilled] = spillResults([e.result], e.batchId ?? "orphan");
       return { handle, status: e.status, partialText: e.partialText, result: spilled };
     }
     return { handle, status: e.status, partialText: e.partialText };
   }
 
   function stopSubagent(handle: string) {
-    const e = getSubagent(handle);
+    const e = getEntry(handle);
     if (!e) return { ok: false, error: `unknown subagent handle "${handle}"` };
     e.stopRequested = true;
     const session = liveSessions.get(handle);
@@ -749,7 +765,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
   }
 
   function steerSubagent(handle: string, prompt: string) {
-    const e = getSubagent(handle);
+    const e = getEntry(handle);
     const session = liveSessions.get(handle);
     if (!e) return { ok: false, error: `unknown subagent handle "${handle}"` };
     if (e.status !== "running" || !session) {
@@ -780,7 +796,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
    *  a later Run in this process can resume completed handles. */
   function stopLiveSubagents() {
     for (const [handle, session] of liveSessions) {
-      const e = getSubagent(handle);
+      const e = getEntry(handle);
       if (e?.status === "running") {
         e.stopRequested = true;
         session.stop();

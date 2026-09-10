@@ -21,6 +21,7 @@ export function createDelegationFixture() {
       tools: [],
       workspaceRoot: "/tmp/wf-test",
       workspaceAccess: "read_only" as const,
+      scope: "test",
       maxConcurrent: 2,
       maxTotal: 4,
       emit,

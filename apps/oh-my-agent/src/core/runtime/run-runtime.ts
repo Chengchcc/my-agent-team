@@ -54,6 +54,13 @@ import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
 import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
 import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
 import { createOrchestrateTool } from "../orchestrate/tool.js";
+import {
+  createHubTool,
+  getEntry,
+  listEntries,
+  stopEntry,
+  waitEntries,
+} from "../coordination/index.js";
 import { type ApprovalHandler, approvalTimeoutMs, withApprovalDeadline } from "./approval.js";
 import { fakeProvider } from "./fake-provider.js";
 import {
@@ -165,6 +172,10 @@ export interface RunRuntimeDeps {
   /** --tools filter (CLI): applied to the final tool table (native + MCP +
    *  plugin) at assembly. Undefined = all tools. */
   toolFilter?: ToolFilter;
+  /** Coordination scope for background jobs and subagent handles. TUI
+   *  passes a process-stable key so handles survive follow-up Runs;
+   *  backend defaults to the runId (one Run per process). */
+  coordinationScope?: string;
   /** Standalone modes (tui/print/json): the workspace's own .mcp.json is
    *  repo-controlled, so mount it only when content-trusted (record in
    *  <agentDir>/trusted-plugins.json; /mcp trust records it). Backend RPC
@@ -283,6 +294,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   if (projectSettings.maxToolTimeoutMs !== undefined) {
     process.env.OMA_MAX_TOOL_TIMEOUT_MS = String(projectSettings.maxToolTimeoutMs);
   }
+  const scope = deps.coordinationScope ?? deps.runId;
   const catalog = await deps.modelRuntime.getCatalog();
   // The Run's model is the ONLY budget/summarizer authority. A catalog-first
   // model with a different window would compact at the wrong threshold or
@@ -305,17 +317,18 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     agentTools.push(createEditTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
     const bashToolOpts: {
       workspaceRoot: string;
+      scope: string;
       sandbox?: BashSandbox;
       ptyConsole?: (
         command: string,
         cwd: string,
         env: Record<string, string>,
       ) => Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
-    } = { workspaceRoot: deps.workspaceRoot };
+    } = { workspaceRoot: deps.workspaceRoot, scope };
     if (bashSandbox) bashToolOpts.sandbox = bashSandbox;
     if (deps.bashPtyConsole) bashToolOpts.ptyConsole = deps.bashPtyConsole;
     agentTools.push(createBashTool(bashToolOpts) as unknown as PluginTool);
-    agentTools.push(createEvalTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool);
+    agentTools.push(createEvalTool({ workspaceRoot: deps.workspaceRoot, scope }) as unknown as PluginTool);
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
   // Skips "product-tools" (the manifest path owns it) and names that
@@ -803,6 +816,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     tools: agentTools,
     workspaceRoot: deps.workspaceRoot,
     workspaceAccess: deps.workspaceAccess,
+    scope,
     budgetGate: delegationBudgetGate,
     ...(deps.permissionMode === undefined ? {} : { makePermissionGate: makeSessionPermissionGate }),
     emit: (event) => {
@@ -904,10 +918,6 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
           return null;
         }
       },
-      listSubagents: () => delegationExecutor.listSubagents(),
-      getSubagentOutput: (handle) => delegationExecutor.getSubagentOutput(handle),
-      stopSubagent: (handle) => delegationExecutor.stopSubagent(handle),
-      steerSubagent: (handle, prompt) => delegationExecutor.steerSubagent(handle, prompt),
     }),
   });
   plugins.push({
@@ -935,6 +945,21 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
           return null;
         }
       },
+    }),
+  });
+  plugins.push({
+    name: "hub-tool",
+    tools: createHubTool({
+      scope,
+      list: (s) => listEntries(s),
+      get: (id) => getEntry(id),
+      wait: (o) => waitEntries(o),
+      stop: (id) => {
+        const e = getEntry(id);
+        if (e?.kind === "subagent") return delegationExecutor.stopSubagent(id);
+        return stopEntry(id);
+      },
+      steer: (handle, prompt) => delegationExecutor.steerSubagent(handle, prompt),
     }),
   });
   const pluginRuntime: PluginRuntime = {

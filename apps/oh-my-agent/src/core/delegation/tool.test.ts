@@ -35,22 +35,14 @@ const deps = {
     return { label: spec.label ?? "sub", text: "ok", ok: true };
   },
   readAgentDefinition: async (name: string) => agentDefs.get(name) ?? null,
-  listSubagents: () => [],
-  getSubagentOutput: (handle: string) => ({ handle, status: "unknown" }),
-  stopSubagent: (handle: string) => ({ ok: false, error: `unknown subagent handle "${handle}"` }),
-  steerSubagent: (handle: string) => ({ ok: true }),
 };
 const tools = createDelegationTools(deps);
-const subagentTool = tools.find((t) => t.name === "task")!;
-const subagentListTool = tools.find((t) => t.name === "task_list")!;
-const subagentOutputTool = tools.find((t) => t.name === "task_output")!;
-const subagentSteerTool = tools.find((t) => t.name === "task_steer")!;
-const subagentStopTool = tools.find((t) => t.name === "task_stop")!;
+const taskTool = tools.find((t) => t.name === "task")!;
 
 describe("task batch fan-out (pi shape)", () => {
   test("fans out via runBatch with shared context prepended to every spawn", async () => {
     batchCalls.length = 0;
-    const result = (await subagentTool.execute({
+    const result = (await taskTool.execute({
       context: "SHARED-BG",
       tasks: [
         { name: "one", agent: "explore", task: "investigate A" },
@@ -71,15 +63,15 @@ describe("task batch fan-out (pi shape)", () => {
 
   test("validates batch shape before spawning", async () => {
     batchCalls.length = 0;
-    const missingContext = (await subagentTool.execute({
+    const missingContext = (await taskTool.execute({
       tasks: [{ task: "x" }],
     })) as { error: string };
     expect(missingContext.error).toContain("context is required");
-    const emptyTasks = (await subagentTool.execute({ context: "c", tasks: [] })) as {
+    const emptyTasks = (await taskTool.execute({ context: "c", tasks: [] })) as {
       error: string;
     };
     expect(emptyTasks.error).toContain("non-empty");
-    const dup = (await subagentTool.execute({
+    const dup = (await taskTool.execute({
       context: "c",
       tasks: [
         { task: "a", name: "same" },
@@ -92,7 +84,7 @@ describe("task batch fan-out (pi shape)", () => {
 
   test("unknown role fails the whole call before any spawn", async () => {
     batchCalls.length = 0;
-    const result = (await subagentTool.execute({
+    const result = (await taskTool.execute({
       context: "c",
       tasks: [{ agent: "mystery", task: "x" }],
     })) as { error: string };
@@ -104,7 +96,7 @@ describe("task batch fan-out (pi shape)", () => {
 describe("subagent", () => {
   test("dispatches builtin explore with read-only tools (3.4)", async () => {
     subagentCalls.length = 0;
-    const out = (await subagentTool.execute({ agent: "explore", prompt: "look around" })) as {
+    const out = (await taskTool.execute({ agent: "explore", prompt: "look around" })) as {
       ok?: boolean;
     };
     expect(out.ok).toBe(true);
@@ -119,7 +111,7 @@ describe("subagent", () => {
       "reviewer",
       "---\nname: reviewer\ntools: [read, grep]\nmodel: fake/big\n---\nYou review code carefully.",
     );
-    const out = (await subagentTool.execute({ agent: "reviewer", prompt: "review" })) as {
+    const out = (await taskTool.execute({ agent: "reviewer", prompt: "review" })) as {
       ok?: boolean;
     };
     expect(out.ok).toBe(true);
@@ -131,7 +123,7 @@ describe("subagent", () => {
   });
 
   test("rejects unknown agents with a clear error and the builtin list", async () => {
-    const out = (await subagentTool.execute({ agent: "nope", prompt: "x" })) as {
+    const out = (await taskTool.execute({ agent: "nope", prompt: "x" })) as {
       ok?: boolean;
       error?: string;
     };
@@ -141,13 +133,13 @@ describe("subagent", () => {
   });
 
   test("requires prompt (and agent or resume)", async () => {
-    const noPrompt = (await subagentTool.execute({ agent: "explore" })) as {
+    const noPrompt = (await taskTool.execute({ agent: "explore" })) as {
       ok?: boolean;
       error?: string;
     };
     expect(noPrompt.ok).toBe(false);
     expect(noPrompt.error).toContain("prompt is required");
-    const noAgent = (await subagentTool.execute({ prompt: "x" })) as {
+    const noAgent = (await taskTool.execute({ prompt: "x" })) as {
       ok?: boolean;
       error?: string;
     };
@@ -169,11 +161,11 @@ describe("subagent", () => {
       };
     };
     try {
-      const first = (await subagentTool.execute({ agent: "explore", prompt: "first" })) as {
+      const first = (await taskTool.execute({ agent: "explore", prompt: "first" })) as {
         handle?: string;
       };
       expect(first.handle).toBe(handle);
-      const resumed = (await subagentTool.execute({ resume: handle, prompt: "more" })) as {
+      const resumed = (await taskTool.execute({ resume: handle, prompt: "more" })) as {
         ok?: boolean;
         text?: string;
       };
@@ -203,32 +195,6 @@ describe("parseAgentDefinition", () => {
   });
 });
 
-describe("subagent control plane", () => {
-  test("subagent_output and subagent_stop delegate to the deps", async () => {
-    const out = (await subagentOutputTool.execute({ handle: "sub-x" })) as {
-      status?: string;
-    };
-    expect(out.status).toBe("unknown");
-    const stopped = (await subagentStopTool.execute({ handle: "sub-x" })) as {
-      ok?: boolean;
-      error?: string;
-    };
-    expect(stopped.ok).toBe(false);
-    expect(stopped.error).toContain("unknown subagent handle");
-  });
-
-  test("subagent_list returns the dep list", async () => {
-    const out = (await subagentListTool.execute({})) as { tasks?: unknown[] };
-    expect(out.tasks).toEqual([]);
-  });
-
-  test("requires a handle for output/stop", async () => {
-    const out = (await subagentOutputTool.execute({})) as { ok?: boolean; error?: string };
-    expect(out.ok).toBe(false);
-    expect(out.error).toContain("handle is required");
-  });
-});
-
 describe("delegation tool names", () => {
   test("isValidWorkflowName rejects path segments", () => {
     expect(isValidWorkflowName("audit")).toBe(true);
@@ -237,26 +203,8 @@ describe("delegation tool names", () => {
     expect(isValidWorkflowName("")).toBe(false);
   });
 
-  test("five delegation tools are registered", () => {
-    expect(subagentTool.name).toBe("task");
-    expect(subagentListTool.name).toBe("task_list");
-    expect(subagentOutputTool.name).toBe("task_output");
-    expect(subagentSteerTool.name).toBe("task_steer");
-    expect(subagentStopTool.name).toBe("task_stop");
-    expect(tools).toHaveLength(5);
-  });
-
-  test("task_steer validates handle and prompt, then delegates", async () => {
-    const missingPrompt = (await subagentSteerTool.execute({ handle: "sub-x" })) as {
-      ok?: boolean;
-      error?: string;
-    };
-    expect(missingPrompt.ok).toBe(false);
-    expect(missingPrompt.error).toContain("prompt is required");
-    const ok = (await subagentSteerTool.execute({
-      handle: "sub-x",
-      prompt: "correction",
-    })) as { ok: boolean };
-    expect(ok.ok).toBe(true);
+  test("one delegation tool is registered (control plane moved to hub)", () => {
+    expect(taskTool.name).toBe("task");
+    expect(tools).toHaveLength(1);
   });
 });

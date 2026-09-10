@@ -6,14 +6,14 @@ import type { AIMessageChunk } from "@chengchenccc/message";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
 import type { PluginTool } from "../agent-runtime.js";
 import { createDelegationExecutor, createDelegationFixture } from "./executor.fixture.js";
-import { clearSubagents } from "./registry.js";
+import { clearAll } from "../coordination/registry.js";
 
 const { events, makeDeps } = createDelegationFixture();
 
 describe("createDelegationExecutor", () => {
   afterEach(() => {
     events.length = 0;
-    clearSubagents();
+    clearAll();
   });
   test("subagent state dumps spec + transcript to .session.json (A1/F2)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-state-"));

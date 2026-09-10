@@ -24,6 +24,9 @@ import type { ToolFilter } from "./tool-filter.js";
  *  across Runtimes except the process-level Provider/ModelRuntime. */
 export interface CreateOmaRuntimeOptions {
   runId: string;
+  /** Coordination scope for background jobs and subagent handles. TUI
+   *  passes a process-stable key; defaults to the runId. */
+  coordinationScope?: string;
   /** Canonical `<provider>/<model>` id of the Run's model: the context
    *  budget and summarizer bind to it. */
   modelId: string;
@@ -151,6 +154,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     workspaceRoot: options.workspaceRoot,
     workspaceAccess: options.workspaceAccess,
     runId: options.runId,
+    ...(options.coordinationScope ? { coordinationScope: options.coordinationScope } : {}),
     modelRuntime: options.modelRuntime,
     modelId: options.modelId,
     skillRoots: options.skillRoots,
