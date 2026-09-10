@@ -73,7 +73,12 @@ describe("scanWorkspaceSkillRoots", () => {
     const external = workspace();
     symlinkSync(external, join(skills, "linked-pack"));
 
-    const found = scanWorkspaceSkillRoots(dir).map((p) => p.split("/").pop());
+    // readdir order is filesystem-dependent (this passed locally and failed
+    // on CI with the two entries swapped): the contract is WHICH entries come
+    // back, not their order — the skill plugin sorts for the prompt index.
+    const found = scanWorkspaceSkillRoots(dir)
+      .map((p) => p.split("/").pop())
+      .sort();
     expect(found).toEqual(["linked-pack", "real-pack"]);
   });
 
