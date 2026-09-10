@@ -205,7 +205,8 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       if (inner.type === "message_update") {
         // Live answer text: one streaming line per agent, tail-capped so a
         // chatty subagent cannot balloon the transcript.
-        const liveAgents = (run.liveAgents ??= new Map());
+        run.liveAgents ??= new Map();
+        const liveAgents = run.liveAgents;
         let item = liveAgents.get(event.agentId);
         const chunk = inner.text.replace(/\s+/g, " ").trim();
         if (!chunk) break;
@@ -232,7 +233,8 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
         inner.type === "turn_end" ||
         inner.type === "agent_end"
       ) {
-        const liveAgents = (run.liveAgents ??= new Map());
+        run.liveAgents ??= new Map();
+        const liveAgents = run.liveAgents;
         const item = liveAgents.get(event.agentId);
         if (item) {
           item.streaming = false;
