@@ -80,11 +80,22 @@ bun run lint                   # Biome check + ESLint
 bun run typecheck              # tsc --noEmit across all packages (turbo)
 bun run test                   # Run all tests (turbo)
 bun test                       # Run tests at root
+bun run audit                  # contracts + docs + ui gates (fast)
+bun run audit:coverage         # focused coverage floors for the oma runtime (~60s)
+bun run quality:mutate         # mutation probe: does the suite FAIL when behaviour breaks?
 
 # Scoped commands:
 cd apps/oh-my-agent && bun test --test-name-pattern="agent-loop"
 cd apps/backend && bun run typecheck
 ```
+
+**Testing gates.** `bun run audit:coverage` enforces per-directory averages plus
+per-file floors for the files that carry runtime semantics (loop, permissions,
+protocol, file/bash tools, session). `bun run quality:mutate` breaks one
+behaviour at a time in the source, runs the real suite, and reports which
+mutations survive — a survivor is an untested claim, not a passing feature. Use
+it after touching a security boundary or a lifecycle rule; it costs one full
+suite per mutation, so it is on-demand rather than a CI gate.
 
 **Per-package scripts:** Every package has `build`, `typecheck`, `test` scripts (lint coverage varies by package).
 

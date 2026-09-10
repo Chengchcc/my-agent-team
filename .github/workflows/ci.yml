@@ -43,6 +43,12 @@ jobs:
       - name: Test
         run: bun run test
 
+      # Focused coverage gate: per-directory + critical-file floors for the
+      # agent runtime (whole-repo coverage is diluted by web/tui). Runs the
+      # oh-my-agent suite once more WITH coverage (~60s).
+      - name: Coverage (agent runtime floors)
+        run: bun run audit:coverage
+
       - name: Verify dist fresh for all packages
         run: |
           missing=""
