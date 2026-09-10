@@ -42,7 +42,7 @@ Runtime 状态是 **per-Run、in-memory** 的执行缓存（`core/persistence/`�
 
 ```text
 Agent Context  = canonical product context（跨 Run 持久、可 fork/rollback）
-SessionStore   = 单次 Run 执行缓存（messages + todo + compaction 摘要）
+SessionStore   = 单次 Run 执行缓存（messages + compaction 摘要）
                  子进程退出即销毁；下个 Run 重新 seed full projection
 ```
 
@@ -83,7 +83,7 @@ Full history    写 SessionStore，source=product_history
 
 - model/tool loop（`core/runtime/agent-loop.ts` 唯一真实 loop）
 - native tools（read/write/edit/bash/grep/glob/web/eval——eval 走进程沙箱）+ MCP 工具挂载（mcp-mount 多源合并）
-- retry、compaction、Run-local todo
+- retry、compaction、workspace todo（`.oma/todo.json`，跨 Run 持久）
 - 插件系统：代码加载（native import）、信任矩阵（sha256 + trusted-plugins.json）、marketplace 多源 manifest（见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）
 - HITL 审批管道：permissionMode 门控工具——ask=`approval_request` → `resolve_approval`（超时 fail-closed deny）、deny=直接 block、auto=分类器审查（bash/eval/mcp__*/插件工具逐调用过分类器，write/edit 免审，故障 fail-closed；见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）
 - stream rules（TTSR）：`.oma/rules/*.md` 在 assistant 文本流上匹配，命中即中止本轮、注入 `<system-reminder>` 后同轮重试

@@ -13,7 +13,7 @@ import {
   truncateToWidth,
   wrapTextWithAnsi,
 } from "@chengchenccc/tui";
-import { countRunningJobs } from "../../core/coordination/registry.js";
+import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import {
   cleanHeaderTitle,
@@ -436,7 +436,7 @@ ${item.text ?? ""}`;
     }
     segs.push({ text: formatWorkspace(this.workspaceRoot), fg: "\u001b[38;5;39m" });
     // M-bash/M-eval: surface running background jobs (bash bg_N / eval eval_N).
-    const runningBg = countRunningJobs();
+    const runningBg = defaultRegistry.countRunningJobs();
     if (runningBg > 0) {
       segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: "\u001b[48;5;22m" });
     }

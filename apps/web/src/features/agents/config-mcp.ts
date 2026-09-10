@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeReasoningEffort } from "@chengchenccc/agent-contract";
 import { agentConfigEvents } from "@chengchenccc/api-contract";
 import { useEffect, useRef } from "react";
 import type { AgentRow } from "@/lib/api";
@@ -32,10 +33,7 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
     modelProvider: slash > 0 ? modelId.slice(0, slash) : "unknown",
     modelName: slash > 0 ? modelId.slice(slash + 1) : modelId,
     backendKind: String(rc.runtime ?? base.backendKind),
-    reasoningEffort:
-      rc.reasoning_effort && rc.reasoning_effort !== ""
-        ? (rc.reasoning_effort as "none" | "low" | "high" | "max")
-        : null,
+    reasoningEffort: normalizeReasoningEffort(rc.reasoning_effort) ?? null,
     permissionMode: PERMISSION_MODES.find((m) => m === rc.permission_mode) ?? base.permissionMode,
     maxSteps,
     mcpServers,

@@ -12,14 +12,7 @@ import {
   type OmaSession,
   type PluginTool,
 } from "../agent-runtime.js";
-import {
-  appendEntryPartial,
-  getEntry,
-  listEntries,
-  registerEntry,
-  settleEntry,
-  updateEntry,
-} from "../coordination/registry.js";
+import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
 import { createSpawnPool, GateError } from "./pool.js";
 import { parseAndValidate, spillResults } from "./results.js";
 
@@ -100,6 +93,8 @@ export interface DelegationExecutorOptions {
   readonly workspaceAccess: "read_only" | "read_write";
   /** Coordination scope: TUI session key or backend run id. */
   readonly scope: string;
+  /** Handle/background-job registry (default: the process-wide one). */
+  readonly registry?: CoordinationRegistry;
   readonly maxConcurrent: number;
   readonly maxTotal: number;
   readonly emit: (event: OmaLoopEvent) => void;
@@ -132,7 +127,7 @@ export interface DelegationExecutor {
     items: readonly SubagentSpec[];
     signal?: AbortSignal;
   }): Promise<SubagentBatchResult>;
-  /** 3.4 Phase 3 control plane, backed by the process-wide registry. */
+  /** 3.4 Phase 3 control plane, backed by the injected registry. */
   listSubagents(): Array<{
     id: string;
     kind: string;
@@ -156,8 +151,10 @@ export interface DelegationExecutor {
 const SUBAGENT_SYSTEM_PROMPT = subagentPrompt.trim();
 
 export function createDelegationExecutor(opts: DelegationExecutorOptions): DelegationExecutor {
+  const registry = opts.registry ?? defaultRegistry;
   /** Run-scoped live sessions; the durable handle table (store + pinned spec)
-   *  lives in the process-wide registry so later Runs can resume them. */
+   *  lives in the injected registry, which a long-lived surface (the TUI)
+   *  keeps across Runs so later Runs can resume them. */
   const liveSessions = new Map<string, OmaSession>();
   const pool = createSpawnPool({
     maxConcurrent: opts.maxConcurrent,
@@ -171,9 +168,10 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
   ): Promise<SubagentResult> {
     // Phase 2 resume: reuse the registry's pinned spec + store snapshot
     // (later role edits never mutate an existing handle's definition).
-    const existing = input.resumeHandle ? getEntry(input.resumeHandle) : null;
+    const existing = input.resumeHandle ? registry.getEntry(input.resumeHandle) : null;
     if (input.resumeHandle && !existing) {
-      const active = listEntries(opts.scope)
+      const active = registry
+        .listEntries(opts.scope)
         .filter((r) => r.kind === "subagent")
         .map((s) => s.id)
         .join(", ");
@@ -271,7 +269,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       liveSessions.set(handle, session);
       const { promise: settle, resolve: resolveSettle } = Promise.withResolvers<void>();
       if (!existing) {
-        registerEntry({
+        registry.registerEntry({
           id: handle,
           kind: "subagent",
           scope: opts.scope,
@@ -293,7 +291,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       // can watch live activity; message text accumulates as partial output.
       const unsubscribeEvents = session.onEvent((ev) => {
         opts.emit({ type: "delegation_agent_event", batchId, agentId, label, event: ev });
-        if (ev.type === "message_update") appendEntryPartial(handle, ev.text);
+        if (ev.type === "message_update") registry.appendEntryPartial(handle, ev.text);
       });
       const onAbort = (): void => session.stop();
       agentSignal?.addEventListener("abort", onAbort, { once: true });
@@ -458,14 +456,14 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         unsubscribeEvents();
         // Record terminal status on the handle unless a stop already won the
         // race (the background settle path keeps the stopped verdict).
-        const entry = getEntry(handle);
+        const entry = registry.getEntry(handle);
         if (entry?.status === "stopped") {
-          settleEntry(handle, {
+          registry.settleEntry(handle, {
             result: { ...agentResult, ok: false, error: "stopped", status: "stopped" },
           });
         } else {
           const stopped = entry?.stopRequested === true;
-          settleEntry(handle, {
+          registry.settleEntry(handle, {
             status: stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
             result: stopped
               ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
@@ -478,13 +476,13 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       // 3.4 Phase 3: fire-and-forget. Acknowledge immediately with the
       // handle; the result lands on the handle for hub output.
       if (spec.background) {
-        updateEntry(handle, { status: "running" });
+        registry.updateEntry(handle, { status: "running" });
         void finish()
           .then((agentResult) => {
-            const e = getEntry(handle);
+            const e = registry.getEntry(handle);
             if (!e) return;
             const stopped = e.stopRequested === true;
-            settleEntry(handle, {
+            registry.settleEntry(handle, {
               status: stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
               result: stopped
                 ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
@@ -492,10 +490,10 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
             });
           })
           .catch((err) => {
-            const e = getEntry(handle);
+            const e = registry.getEntry(handle);
             if (!e) return;
             const stopped = e.stopRequested === true;
-            settleEntry(handle, {
+            registry.settleEntry(handle, {
               status: stopped ? "stopped" : "failed",
               result: stopped
                 ? { label, text: "", ok: false, error: "stopped", status: "stopped" }
@@ -589,11 +587,11 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
 
   // 3.4 Phase 3 control plane, backed by the coordination registry.
   function listSubagents() {
-    return listEntries(opts.scope).filter((r) => r.kind === "subagent");
+    return registry.listEntries(opts.scope).filter((r) => r.kind === "subagent");
   }
 
   function getSubagentOutput(handle: string) {
-    const e = getEntry(handle);
+    const e = registry.getEntry(handle);
     if (!e) return { handle, status: "unknown" };
     if (e.result) {
       // A3 size guard applies to fetched results too.
@@ -604,17 +602,17 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
   }
 
   function stopSubagent(handle: string) {
-    const e = getEntry(handle);
+    const e = registry.getEntry(handle);
     if (!e) return { ok: false, error: `unknown subagent handle "${handle}"` };
     e.stopRequested = true;
     const session = liveSessions.get(handle);
     if (session && e.status === "running") session.stop();
-    updateEntry(handle, { status: "stopped" });
+    registry.updateEntry(handle, { status: "stopped" });
     return { ok: true };
   }
 
   function steerSubagent(handle: string, prompt: string) {
-    const e = getEntry(handle);
+    const e = registry.getEntry(handle);
     const session = liveSessions.get(handle);
     if (!e) return { ok: false, error: `unknown subagent handle "${handle}"` };
     if (e.status !== "running" || !session) {
@@ -645,7 +643,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
    *  a later Run in this process can resume completed handles. */
   function stopLiveSubagents() {
     for (const [handle, session] of liveSessions) {
-      const e = getEntry(handle);
+      const e = registry.getEntry(handle);
       if (e?.status === "running") {
         e.stopRequested = true;
         session.stop();

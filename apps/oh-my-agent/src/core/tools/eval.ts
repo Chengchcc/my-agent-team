@@ -1,19 +1,12 @@
 import type { Tool } from "@chengchenccc/message";
 import { runInSandbox } from "@chengchenccc/sandbox";
-import { registerEntry, settleEntry } from "../coordination/registry.js";
+import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
 
 const descriptionParam = {
   type: "string" as const,
   description:
     "Must be the first parameter. A short human-readable summary explaining what this code evaluates.",
 };
-
-function envMs(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 let nextJobSeq = 1;
 
@@ -22,8 +15,17 @@ let nextJobSeq = 1;
  *  where ctx is the JSON `input` object. Output is the returned value; stdout
  *  and stderr are reported alongside. Files written next to the script live
  *  only for the run unless keepWorkspace is set (cwd = workspace eval dir). */
-export function createEvalTool(opts: { workspaceRoot: string; scope: string }): Tool {
+export function createEvalTool(opts: {
+  workspaceRoot: string;
+  scope: string;
+  /** Default per-cell timeout (runtime knobs; never process.env). */
+  timeoutMs?: number;
+  /** Background-job registry (default: the process-wide one). */
+  registry?: CoordinationRegistry;
+}): Tool {
   const scope = opts.scope;
+  const registry = opts.registry ?? defaultRegistry;
+  const defaultTimeoutMs = opts.timeoutMs ?? 30_000;
 
   return {
     name: "eval",
@@ -65,7 +67,7 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
       const {
         code,
         input: ctxInput,
-        timeout = envMs("OMA_EVAL_TIMEOUT_MS", 30_000),
+        timeout = defaultTimeoutMs,
         keepWorkspace = false,
       } = input as {
         code: string;
@@ -126,7 +128,7 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
         let timedOut = false;
         let killed = false;
         const { promise: settle, resolve: resolveSettle } = Promise.withResolvers<void>();
-        const reg = registerEntry({
+        const reg = registry.registerEntry({
           id,
           kind: "eval",
           scope,
@@ -153,7 +155,7 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
         void (async () => {
           const done = await runCell(controller.signal);
           if (timer) clearTimeout(timer);
-          settleEntry(id, {
+          registry.settleEntry(id, {
             status: done.isError ? "failed" : "completed",
             exitCode: done.exitCode,
             timedOut,
@@ -161,7 +163,7 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
             output: done.content.slice(-2000),
             isError: done.isError,
           });
-        })().catch(() => settleEntry(id, { status: "failed" }));
+        })().catch(() => registry.settleEntry(id, { status: "failed" }));
         return {
           content: `Backgrounded as job ${id}; collect with hub { "op": "output", "id": "${id}" } or hub { "op": "wait", "ids": ["${id}"] }.`,
         };

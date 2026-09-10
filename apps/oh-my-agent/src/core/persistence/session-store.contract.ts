@@ -144,33 +144,15 @@ export function runSessionStoreContract(
       expect(parentOfFirstNew ?? null).toBe(before.metadata.leafEntryId);
     });
 
-    test("todo state persists and latest entry wins on read", async () => {
-      await store.appendBatch(sessionId, {
-        entries: [
-          {
-            type: "todo",
-            state: { items: [{ id: "t1", text: "first", status: "pending" }] },
-            createdAt: Date.now(),
-          },
-        ],
-      });
-      await store.appendBatch(sessionId, {
-        entries: [
-          {
-            type: "todo",
-            state: { items: [{ id: "t1", text: "first", status: "done" }] },
-            createdAt: Date.now(),
-          },
-        ],
-      });
-      const branch = await store.readBranch(sessionId);
-      const todoEntries = branch.filter((e) => e.type === "todo");
-      expect(todoEntries).toHaveLength(2);
-      // readTodo scans from the leaf; the latest state is the last todo entry
-      const latest = todoEntries.at(-1) as unknown as {
-        state: { items: Array<{ status: string }> };
-      };
-      expect(latest.state.items[0]?.status).toBe("done");
+    test("an entry outside the message/compaction kinds is rejected", async () => {
+      // The "todo" entry kind was removed with the SessionStore-backed todo
+      // path (todo now lives in the workspace's .oma/todo.json). Validation
+      // must reject it instead of silently accepting a kind with no reader.
+      await expect(
+        store.appendBatch(sessionId, {
+          entries: [{ type: "todo", state: { items: [] }, createdAt: Date.now() }],
+        }),
+      ).rejects.toThrow(/Invalid entry type/);
     });
 
     test("compaction entry does not delete original entries", async () => {

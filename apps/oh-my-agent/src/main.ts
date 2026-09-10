@@ -9,8 +9,6 @@ import { runPrintMode } from "./modes/print-mode.js";
 import { runRpcMode } from "./modes/rpc/rpc-mode.js";
 import { runTuiMode } from "./modes/tui/tui-mode.js";
 
-export const OMA_VERSION = "0.1.0";
-
 /** Parse args, run one CLI invocation, and return the process exit code.
  *  Never calls process.exit() - callers own exit-code assignment so stdout
  *  protocol output can flush. Pure enough to be imported from tests. */
@@ -51,6 +49,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       workspaceRoot: process.cwd(),
       model: args.model,
       sessionId: args.session,
+      ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
+      ...(args.prompt ? { initialPrompt: args.prompt } : {}),
     });
   }
 
@@ -82,7 +82,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     prompt,
     workspaceRoot: process.cwd(),
     modelRuntime,
-    model: args.model,
+    // Both one-shot modes honor --model: `buildCliRunInput` is the only
+    // place the flag is applied, so dropping it here silently ran the
+    // catalog's first model instead.
+    ...(args.model ? { model: args.model } : {}),
     ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
   };
   return args.mode === "json" ? runJsonMode(opts) : runPrintMode(opts);

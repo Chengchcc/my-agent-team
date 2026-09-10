@@ -1,4 +1,4 @@
-import type { BackendEvent, BackendRunOutcome } from "@chengchenccc/agent-contract";
+import type { BackendEvent } from "@chengchenccc/agent-contract";
 
 /** Map Oma transport event envelopes to Backend core events,
  *  namespacing Runtime-specific details under `backend.oma.*`.
@@ -99,38 +99,4 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
         payload: { eventId: event.id, ...event.data },
       };
   }
-}
-
-/** Map a transport outcome to the Backend terminal outcome. The Oma
- *  only produces completed/failed/aborted (timeout is reserved for future
- *  backends). */
-export function mapRunOutcome(outcome: {
-  status: string;
-  messages?: unknown;
-  error?: string;
-  usage?: unknown;
-  title?: string;
-  cliSessionRef?: string;
-  workflow?: unknown;
-}): BackendRunOutcome {
-  // The child's session reference (ADR 0003) survives every terminal status:
-  // the product round-trips it into branch.cliSessionRef for the next run.
-  const ref = outcome.cliSessionRef ? { cliSessionRef: outcome.cliSessionRef } : {};
-  if (outcome.status === "completed") {
-    return {
-      status: "completed",
-      messages: outcome.messages as never,
-      usage: outcome.usage as never,
-      ...(outcome.title ? { title: outcome.title } : {}),
-      ...(outcome.workflow !== undefined ? { workflow: outcome.workflow as never } : {}),
-      ...ref,
-    };
-  }
-  if (outcome.status === "aborted") {
-    return { status: "aborted", error: outcome.error, ...ref };
-  }
-  if (outcome.status === "timeout") {
-    return { status: "timeout", error: outcome.error, ...ref };
-  }
-  return { status: "failed", error: outcome.error ?? "run failed", ...ref };
 }

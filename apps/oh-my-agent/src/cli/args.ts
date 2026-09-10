@@ -59,7 +59,10 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   while (i < argv.length) {
     const arg = argv[i]!;
     if (arg === "-p") {
-      modeFlag = "print";
+      // `-p` means "one-shot with this prompt", NOT "force print mode": an
+      // explicit --mode (either order) must win, or `--mode json -p x` would
+      // silently run print mode and print bare text where JSONL was expected.
+      modeFlag ??= "print";
       args.modeExplicit = true;
     } else if (arg === "--mode") {
       const value = argv[i + 1];

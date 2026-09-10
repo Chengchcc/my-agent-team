@@ -1,4 +1,4 @@
-import type { TodoItem } from "./todo.js";
+import type { TodoItem } from "../tools/todo-store.js";
 
 /** Pi-style typed lifecycle events per runtime/oma.md. */
 export type OmaLoopEvent =

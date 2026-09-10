@@ -9,6 +9,7 @@ import type { ModelRuntime } from "@chengchenccc/ai";
 import { ProcessTerminal, type SlashCommand } from "@chengchenccc/tui";
 import { buildCliRunInput } from "../../cli/initial-input.js";
 import type { OmaLoopEvent } from "../../core/agent-runtime.js";
+import { defaultRegistry } from "../../core/coordination/registry.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 
@@ -357,6 +358,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     for (const w of pluginRt.warnings) pushStatus(`[plugin] ${w}`);
     const runtime = await createOmaRuntime({
       coordinationScope: COORDINATION_SCOPE,
+      // One registry for the whole TUI process: subagent handles and the
+      // bg-job chip survive follow-up Runs (the io layer listens on it).
+      registry: defaultRegistry,
       runId: `tui-${randomUUID()}`,
       modelId: built.run.model.modelId,
       workspaceRoot: opts.workspaceRoot,

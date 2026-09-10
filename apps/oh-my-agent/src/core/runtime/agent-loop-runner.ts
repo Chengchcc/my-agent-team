@@ -201,11 +201,10 @@ async function finalizeLoop(
   // still untitled (OMA_CONV_TITLED=1 marks it titled — the backend sets
   // it at spawn and re-checks on commit). The first turn may be low
   // signal ("hi") and must not permanently suppress the title.
-  if (
-    mutable.status === "completed" &&
-    process.env.OMA_CONV_TITLED !== "1" &&
-    process.env.OMA_TITLE_ENABLED !== "0"
-  ) {
+  // Opt-IN: auto-titling spends an extra model call, so only an embedding
+  // runtime that actually surfaces titles asks for it (run-runtime passes the
+  // resolved knob; a bare session — every harness test — never pays for it).
+  if (mutable.status === "completed" && opts.conversationTitled !== true && opts.titleEnabled) {
     const titleBranch = await readBranchMessages(opts.store, opts.sessionId);
     const titleCtx = buildTitleContext(titleBranch);
     if (titleCtx) {

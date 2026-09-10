@@ -105,6 +105,5 @@ export async function assertSafeUrlDeep(rawUrl: string): Promise<URL> {
 /** Max redirect count for fetch safety */
 export const MAX_REDIRECTS = 5;
 /** Max response bytes before cancellation */
-export const MAX_RESPONSE_BYTES = 20_000;
 /** Fetch timeout in ms */
 export const FETCH_TIMEOUT_MS = 10_000;

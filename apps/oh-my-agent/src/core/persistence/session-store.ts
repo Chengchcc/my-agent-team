@@ -17,7 +17,7 @@ export interface AppendBatchResult {
 export function validateBatch(entries: readonly Record<string, unknown>[]): void {
   for (const entry of entries) {
     const type = entry.type;
-    if (type !== "message" && type !== "compaction" && type !== "todo") {
+    if (type !== "message" && type !== "compaction") {
       throw new Error(`Invalid entry type: ${String(type)}`);
     }
     if (type === "message") {
@@ -28,9 +28,6 @@ export function validateBatch(entries: readonly Record<string, unknown>[]): void
     }
     if (type === "compaction" && typeof entry.summary !== "string") {
       throw new Error("Compaction entry requires a summary string");
-    }
-    if (type === "todo" && typeof entry.state !== "object") {
-      throw new Error("Todo entry requires a state object");
     }
   }
 }

@@ -12,6 +12,9 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
     prompt: opts.prompt,
     workspaceRoot: opts.workspaceRoot,
     modelRuntime: opts.modelRuntime,
+    // `model` is optional: an absent flag must NOT be forwarded as an
+    // explicit undefined key (buildCliRunInput falls back to the catalog).
+    ...(opts.model ? { modelId: opts.model } : {}),
   });
   const pluginRt = await assemblePluginRuntime(built.workspace.root, "json");
   for (const w of pluginRt.warnings) console.error(`[plugin] ${w}`);

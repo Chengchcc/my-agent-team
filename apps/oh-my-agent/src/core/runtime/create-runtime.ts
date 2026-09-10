@@ -11,8 +11,10 @@ import type { Message } from "@chengchenccc/message";
 import type { RunEventEnvelope } from "../../protocol/index.js";
 import { mapRunEvent } from "../../protocol/index.js";
 import type { OmaLoopResult } from "../agent-runtime.js";
+import type { CoordinationRegistry } from "../coordination/registry.js";
 import { extractAutonomousMemory, type MemoryLearnResult } from "../memory/autonomous-memory.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
+import type { RuntimeKnobs } from "../settings/project-settings.js";
 import type { ApprovalHandler } from "./approval.js";
 import type { Plugin } from "./plugin.js";
 import { assembleRunRuntime, type RunRuntime, type RunRuntimeDeps } from "./run-runtime.js";
@@ -61,6 +63,14 @@ export interface CreateOmaRuntimeOptions {
   gateWorkspaceMcp?: boolean;
   /** HITL approval pipeline; absent + ask = fail-closed. */
   approvalHandler?: ApprovalHandler;
+  /** Resolved runtime knobs (settings/env). Omitted = the runtime resolves
+   *  them from `.oma/settings.json` + process env itself. */
+  settings?: RuntimeKnobs;
+  /** Background-work registry. Omitted = a fresh per-Run one (the backend
+   *  runs one process per Run, so nothing must outlive it); a long-lived
+   *  surface (TUI) passes ONE instance so subagent handles and bg-job chips
+   *  survive follow-up Runs. */
+  registry?: CoordinationRegistry;
   /** M-bash: interactive pty console runner (TUI overlay). */
   bashPtyConsole?: (
     command: string,
@@ -170,6 +180,8 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
       : {}),
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
+    ...(options.settings ? { settings: options.settings } : {}),
+    ...(options.registry ? { registry: options.registry } : {}),
   };
   const rt: RunRuntime = await assembleRunRuntime(rtArgs);
 
@@ -286,6 +298,8 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
             memoryLearning = extractAutonomousMemory({
               modelRuntime: options.modelRuntime,
               modelId: options.modelId,
+              enabled: rt.knobs.memoryExtract,
+              ...(rt.knobs.memoryModel ? { memoryModel: rt.knobs.memoryModel } : {}),
               workspaceRoot: options.workspaceRoot,
               runId: options.runId,
               messages: result.messages ?? [],

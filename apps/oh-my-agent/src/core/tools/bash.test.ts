@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { clearAll, getEntry, setEntryCompletionListener } from "../coordination/registry.js";
+import { defaultRegistry } from "../coordination/registry.js";
 import { createBashTool } from "./bash.js";
 
 const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
 
-afterEach(() => clearAll());
+afterEach(() => defaultRegistry.clearAll());
 
 describe("bashTool", () => {
   test("exit code 0 returns stdout", async () => {
@@ -82,19 +82,19 @@ describe("bashTool", () => {
     let partial = "";
     for (let i = 0; i < 40 && !partial.includes("bg-hello"); i++) {
       await new Promise((r) => setTimeout(r, 100));
-      partial = getEntry(jobId)?.partialText ?? "";
+      partial = defaultRegistry.getEntry(jobId)?.partialText ?? "";
     }
     expect(partial).toContain("bg-hello");
 
     // Kill it before sleep finishes (process-group kill via BashSpawn.kill).
-    const e = getEntry(jobId)!;
+    const e = defaultRegistry.getEntry(jobId)!;
     e.kill?.();
     const deadline = Date.now() + 5000;
-    while (getEntry(jobId)?.status === "running" && Date.now() < deadline) {
+    while (defaultRegistry.getEntry(jobId)?.status === "running" && Date.now() < deadline) {
       await Bun.sleep(50);
     }
-    expect(getEntry(jobId)?.killed).toBe(true);
-    expect(getEntry(jobId)?.status).toBe("failed");
+    expect(defaultRegistry.getEntry(jobId)?.killed).toBe(true);
+    expect(defaultRegistry.getEntry(jobId)?.status).toBe("failed");
   }, 20_000);
 
   test("background job timeout kills the job (M-bash)", async () => {
@@ -106,11 +106,11 @@ describe("bashTool", () => {
     });
     const jobId = /bg_\d+/.exec(started.content)?.[0] ?? "";
     const deadline = Date.now() + 10_000;
-    while (getEntry(jobId)?.status === "running" && Date.now() < deadline) {
+    while (defaultRegistry.getEntry(jobId)?.status === "running" && Date.now() < deadline) {
       await Bun.sleep(50);
     }
-    expect(getEntry(jobId)?.timedOut).toBe(true);
-    expect(getEntry(jobId)?.status).toBe("failed");
+    expect(defaultRegistry.getEntry(jobId)?.timedOut).toBe(true);
+    expect(defaultRegistry.getEntry(jobId)?.status).toBe("failed");
   }, 15_000);
 
   test("pty=true allocates a real TTY (M-bash)", async () => {
@@ -165,7 +165,7 @@ describe("bashTool", () => {
 
   test("bg job completion fires the registry completion listener (M-bash)", async () => {
     const events: Array<{ id: string; exitCode: number | null; isError: boolean }> = [];
-    setEntryCompletionListener((e) =>
+    defaultRegistry.setCompletionListener((e) =>
       events.push({ id: e.id, exitCode: e.exitCode ?? null, isError: e.isError === true }),
     );
     const started = await bashTool.execute({
@@ -183,6 +183,72 @@ describe("bashTool", () => {
     expect(settled).toBe(true);
     const event = events.find((e) => e.id === jobId)!;
     expect(event.exitCode).toBe(0);
-    setEntryCompletionListener(null);
+    defaultRegistry.setCompletionListener(null);
   });
+});
+
+describe("bash timeouts are dependencies, not env reads", () => {
+  test("explicit timeouts win over OMA_BASH_TIMEOUT_MS/OMA_MAX_TOOL_TIMEOUT_MS", async () => {
+    // Regression (2026-09-10): the tool read process.env per call, so a
+    // process running many Runs (TUI) could not express per-Run settings and
+    // the runtime had to mutate process.env to configure it.
+    const prevBash = process.env.OMA_BASH_TIMEOUT_MS;
+    process.env.OMA_BASH_TIMEOUT_MS = "600000";
+    try {
+      const tool = createBashTool({
+        workspaceRoot: process.cwd(),
+        scope: "s-env",
+        timeouts: { bashTimeoutMs: 150, maxToolTimeoutMs: 300 },
+      });
+      const started = Date.now();
+      const out = (await tool.execute({
+        description: "must be killed by the injected timeout",
+        command: "sleep 5",
+      })) as { isError?: boolean };
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(out.isError).toBe(true);
+    } finally {
+      if (prevBash === undefined) delete process.env.OMA_BASH_TIMEOUT_MS;
+      else process.env.OMA_BASH_TIMEOUT_MS = prevBash;
+    }
+  }, 15_000);
+});
+
+describe("bash child env hygiene + timeout caps", () => {
+  test("credential-shaped env vars never reach the shell", async () => {
+    // The parent process holds provider keys and per-run product tokens; the
+    // bash child must see tooling (PATH/HOME), never secrets. Mutation-proven
+    // gap: disabling the deny-list filter changed nothing in the suite.
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-sentinel-do-not-leak";
+    try {
+      const tool = createBashTool({ workspaceRoot: process.cwd(), scope: "s-secret" });
+      const out = (await tool.execute({
+        description: "probe the child env",
+        command: "printenv ANTHROPIC_API_KEY || echo ABSENT",
+      })) as { content: string };
+      expect(out.content).toContain("ABSENT");
+      expect(out.content).not.toContain("sk-sentinel-do-not-leak");
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
+    }
+  }, 15_000);
+
+  test("maxToolTimeoutMs clamps a model-supplied timeout", async () => {
+    // The model can ask for timeout: 600000; the run cap must win.
+    const tool = createBashTool({
+      workspaceRoot: process.cwd(),
+      scope: "s-cap",
+      timeouts: { maxToolTimeoutMs: 200 },
+    });
+    const started = Date.now();
+    const out = (await tool.execute({
+      description: "request an absurd timeout",
+      command: "sleep 5",
+      timeout: 600_000,
+    })) as { isError?: boolean };
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(out.isError).toBe(true);
+  }, 15_000);
 });

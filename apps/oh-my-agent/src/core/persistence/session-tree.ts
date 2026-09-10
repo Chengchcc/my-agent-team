@@ -32,14 +32,7 @@ export interface CompactionEntry {
   readonly createdAt: number;
 }
 
-export interface TodoStateEntry {
-  readonly type: "todo";
-  readonly entryId: string;
-  readonly parentId: string | null;
-  readonly state: Readonly<Record<string, unknown>>;
-  readonly createdAt: number;
-}
-export type CodingSessionEntry = MessageEntry | CompactionEntry | TodoStateEntry;
+export type CodingSessionEntry = MessageEntry | CompactionEntry;
 
 export type CodingSessionOperation = {
   readonly type: "leaf_moved";

@@ -111,13 +111,16 @@ export async function classifyPermissionAction(opts: {
   userTexts: readonly string[];
   stream: ClassifierStream;
   timeoutMs?: number;
+  /** Pinned classifier model (`provider/model`). Absent = the Run's model
+   *  (streamModel's own fallback). */
+  modelId?: string;
 }): Promise<PermissionVerdict> {
   try {
     const messages = buildClassifierMessages(opts.toolName, opts.input, opts.userTexts);
     const timeoutMs = opts.timeoutMs ?? classifierTimeoutMs();
     const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
     let text = "";
-    for await (const chunk of opts.stream(messages, signal, classifierModelId())) {
+    for await (const chunk of opts.stream(messages, signal, opts.modelId ?? classifierModelId())) {
       if (chunk.delta?.type === "text") text += chunk.delta.text;
     }
     return parseVerdict(text);

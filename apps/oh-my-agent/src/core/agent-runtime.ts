@@ -15,7 +15,6 @@ export type {
   CodingSessionSnapshot,
   CompactionEntry,
   MessageEntry,
-  TodoStateEntry,
 } from "./persistence/session-tree.js";
 
 // Runtime
@@ -50,6 +49,5 @@ export type { LoopMetaInput } from "./runtime/prompt.js";
 export { renderLoopMeta } from "./runtime/prompt.js";
 export type { RetryOptions } from "./runtime/retry.js";
 export { retryStream } from "./runtime/retry.js";
-export type { TodoItem, TodoState } from "./runtime/todo.js";
 // Todo
-export { readTodo, updateTodo, writeTodo } from "./runtime/todo.js";
+export type { TodoItem, TodoStatus, TodoStore } from "./tools/todo-store.js";

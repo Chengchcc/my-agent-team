@@ -6,7 +6,22 @@ export interface BackendModelRef<K extends string = string> {
   readonly modelId: string;
   /** Thinking-mode effort (Anthropic-format `reasoning` param): none/low/
    *  high/max. Undefined = provider default. */
-  readonly reasoningEffort?: "none" | "low" | "high" | "max";
+  readonly reasoningEffort?: ReasoningEffort;
+}
+
+/** The canonical reasoning-effort rungs. ONE list, shared by the product
+ *  (agent.yml / HTTP / web) and every backend that consumes a model ref. */
+export const REASONING_EFFORTS = ["none", "low", "high", "max"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/** Narrow an untrusted value (DB row, env, wire payload) to the canonical
+ *  enum. Unknown/blank values drop to undefined = "provider default" rather
+ *  than failing a whole Run at the wire schema. */
+export function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  return typeof value === "string" && (REASONING_EFFORTS as readonly string[]).includes(value)
+    ? (value as ReasoningEffort)
+    : undefined;
 }
 
 /** Backend-exposed model metadata. Aggregated by Product Backend across backends. */

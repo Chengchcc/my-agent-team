@@ -1,6 +1,6 @@
 import { childEnv } from "@chengchenccc/agent-contract";
 import type { Tool } from "@chengchenccc/message";
-import { appendEntryPartial, registerEntry, settleEntry } from "../coordination/registry.js";
+import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
 import { ptyWrap, withPtyEnv } from "./bash-pty.js";
 import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";
@@ -14,20 +14,8 @@ const descriptionParam = {
     "Must be the first parameter. A short human-readable summary explaining why this command is being run.",
 };
 
-function envMs(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function defaultBashTimeoutMs(): number {
-  return envMs("OMA_BASH_TIMEOUT_MS", 30_000);
-}
-
-function maxToolTimeoutMs(): number {
-  return envMs("OMA_MAX_TOOL_TIMEOUT_MS", 0);
-}
+const DEFAULT_BASH_TIMEOUT_MS = 30_000;
+const MAX_BASH_TIMEOUT_MS = 600_000;
 
 /** M10: cap captured output — a runaway `yes` must OOM neither the child
  *  nor this process. Streams to onOutput keep flowing; accumulation stops. */
@@ -83,10 +71,18 @@ export function createBashTool(opts: {
     cwd: string,
     env: Record<string, string>,
   ) => Promise<BashPtyResult>;
+  /** Resolved runtime knobs (see resolveRuntimeKnobs): the tool never reads
+   *  process.env, so a long-lived process cannot leak another Run's config. */
+  timeouts?: { bashTimeoutMs?: number; maxToolTimeoutMs?: number };
+  /** Background-job registry (default: the process-wide one). */
+  registry?: CoordinationRegistry;
 }): Tool {
   const sandbox = new WorkspaceSandbox(opts.workspaceRoot);
   const launcher = opts.sandbox ?? new NullBashSandbox(opts.workspaceRoot);
   const scope = opts.scope;
+  const registry = opts.registry ?? defaultRegistry;
+  const defaultTimeoutMs = opts.timeouts?.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS;
+  const maxTimeoutMs = opts.timeouts?.maxToolTimeoutMs ?? 0;
 
   function startJob(
     command: string,
@@ -117,7 +113,7 @@ export function createBashTool(opts: {
       proc.kill();
     };
     const { promise: settle, resolve: resolveSettle } = Promise.withResolvers<void>();
-    const reg = registerEntry({
+    const reg = registry.registerEntry({
       id,
       kind: "bash",
       scope,
@@ -145,7 +141,7 @@ export function createBashTool(opts: {
           job.bytes += value.byteLength;
           if (job.bytes <= MAX_OUTPUT_BYTES) job.output += chunk;
           else job.truncated = true;
-          appendEntryPartial(id, chunk);
+          registry.appendEntryPartial(id, chunk);
         }
       })();
     };
@@ -163,7 +159,7 @@ export function createBashTool(opts: {
         job.finishedAt = Date.now();
         if (job.timer) clearTimeout(job.timer);
         const settled = code === 0 && !job.timedOut && !job.killed;
-        settleEntry(id, {
+        registry.settleEntry(id, {
           status: settled ? "completed" : "failed",
           exitCode: code,
           timedOut: job.timedOut,
@@ -175,7 +171,7 @@ export function createBashTool(opts: {
       .catch(() => {
         job.finishedAt = Date.now();
         if (job.timer) clearTimeout(job.timer);
-        settleEntry(id, { status: "failed" });
+        registry.settleEntry(id, { status: "failed" });
       });
     return job;
   }
@@ -220,7 +216,7 @@ export function createBashTool(opts: {
     async execute(input, signal?: AbortSignal, options?: { onOutput?: (s: string) => void }) {
       const {
         command,
-        timeout = defaultBashTimeoutMs(),
+        timeout = defaultTimeoutMs,
         cwd,
         pty = false,
       } = input as {
@@ -230,8 +226,8 @@ export function createBashTool(opts: {
         pty?: boolean;
       };
 
-      const upper = maxToolTimeoutMs();
-      const cap = upper > 0 ? Math.min(upper, 600_000) : 600_000;
+      const upper = maxTimeoutMs;
+      const cap = upper > 0 ? Math.min(upper, MAX_BASH_TIMEOUT_MS) : MAX_BASH_TIMEOUT_MS;
       const clamped = Math.min(Math.max(timeout, 1), cap);
 
       if (!command) {

@@ -1,5 +1,5 @@
 export type { TransportRunEvent } from "./mapping.js";
-export { mapRunEvent, mapRunOutcome } from "./mapping.js";
+export { mapRunEvent } from "./mapping.js";
 export type {
   AbortCommand,
   EventOutput,
@@ -16,20 +16,14 @@ export type {
 } from "./transport.js";
 export {
   abortCommandSchema,
-  agentIdSchema,
-  branchIdSchema,
   codingAgentCommandSchema,
   codingAgentOutputSchema,
-  conversationIdSchema,
   eventOutputSchema,
   executeCommandSchema,
   executeRunInputSchema,
-  modelCatalogResponseSchema,
   outcomeOutputSchema,
-  productEntryIdSchema,
   responseOutputSchema,
   runEventEnvelopeSchema,
-  runIdSchema,
   steerCommandSchema,
   steerRunInputSchema,
 } from "./transport.js";

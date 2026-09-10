@@ -135,3 +135,90 @@ export function saveProjectModel(root: string, modelId: string): void {
 export function hasProjectSettings(root: string): boolean {
   return existsSync(settingsPath(root));
 }
+
+// ─── Runtime knobs (settings/env → runtime deps) ──────────────────────────
+//
+// The runtime never reads `.oma/settings.json` and never mutates process.env:
+// the mode layer resolves a ProjectSettings file into this plain object and
+// passes it as a dependency. One Run = one knob set, so a long-lived process
+// (the TUI runs many Runs) cannot leak a previous Run's configuration.
+//
+// Precedence: explicit setting → process env (deployment default) → the
+// consumer's own hardcoded default (left undefined here on purpose).
+
+/** Resolved per-Run runtime knobs. Every field is optional: undefined means
+ *  "no opinion" and the consumer applies its documented default. */
+export interface RuntimeKnobs {
+  maxSteps?: number;
+  modelTimeoutMs?: number;
+  mcpTimeoutMs?: number;
+  maxToolTimeoutMs?: number;
+  bashTimeoutMs?: number;
+  evalTimeoutMs?: number;
+  approvalTimeoutMs?: number;
+  permissionClassifierModel?: string;
+  permissionClassifierTimeoutMs?: number;
+  disableWeb?: boolean;
+  titleEnabled?: boolean;
+  conversationTitled?: boolean;
+  memoryExtract?: boolean;
+  memoryModel?: string;
+}
+
+function envNumber(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): number | undefined {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Positive-only env number (0/garbage = unset). */
+function envPositive(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): number | undefined {
+  const n = envNumber(env, name);
+  return n !== undefined && n > 0 ? n : undefined;
+}
+
+/** Resolve the runtime knobs for one Run. `settings` are the workspace's
+ *  own knobs — the RPC path passes ONLY `bashSandbox` there (a workspace file
+ *  must never steer the product's classifier, web, steps or timeouts). */
+export function resolveRuntimeKnobs(
+  settings: ProjectSettings | undefined,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): RuntimeKnobs {
+  const s = settings ?? {};
+  const knobs: RuntimeKnobs = {};
+  const maxSteps = s.maxSteps ?? envPositive(env, "OMA_MAX_STEPS");
+  if (maxSteps !== undefined) knobs.maxSteps = maxSteps;
+  const modelTimeoutMs = s.modelTimeoutMs ?? envPositive(env, "OMA_MODEL_TIMEOUT_MS");
+  if (modelTimeoutMs !== undefined) knobs.modelTimeoutMs = modelTimeoutMs;
+  const mcpTimeoutMs = s.mcpTimeoutMs ?? envNumber(env, "OMA_MCP_TIMEOUT_MS");
+  if (mcpTimeoutMs !== undefined) knobs.mcpTimeoutMs = mcpTimeoutMs;
+  const maxToolTimeoutMs = s.maxToolTimeoutMs ?? envNumber(env, "OMA_MAX_TOOL_TIMEOUT_MS");
+  if (maxToolTimeoutMs !== undefined) knobs.maxToolTimeoutMs = maxToolTimeoutMs;
+  const bashTimeoutMs = s.bashTimeoutMs ?? envPositive(env, "OMA_BASH_TIMEOUT_MS");
+  if (bashTimeoutMs !== undefined) knobs.bashTimeoutMs = bashTimeoutMs;
+  const evalTimeoutMs = envNumber(env, "OMA_EVAL_TIMEOUT_MS");
+  if (evalTimeoutMs !== undefined) knobs.evalTimeoutMs = evalTimeoutMs;
+  const approvalTimeoutMs = envNumber(env, "OMA_APPROVAL_TIMEOUT_MS");
+  if (approvalTimeoutMs !== undefined) knobs.approvalTimeoutMs = approvalTimeoutMs;
+  const classifierModel = s.permissionClassifierModel ?? env.permissionClassifierModel;
+  const classifierModelTrimmed = classifierModel?.trim();
+  if (classifierModelTrimmed) knobs.permissionClassifierModel = classifierModelTrimmed;
+  const classifierTimeoutMs = envNumber(env, "OMA_CLASSIFIER_TIMEOUT_MS");
+  if (classifierTimeoutMs !== undefined) knobs.permissionClassifierTimeoutMs = classifierTimeoutMs;
+  const disableWeb = s.disableWeb ?? (env.OMA_DISABLE_WEB === "1" ? true : undefined);
+  if (disableWeb !== undefined) knobs.disableWeb = disableWeb;
+  const titleEnabled = s.titleEnabled ?? (env.OMA_TITLE_ENABLED === "0" ? false : undefined);
+  if (titleEnabled !== undefined) knobs.titleEnabled = titleEnabled;
+  if (env.OMA_CONV_TITLED === "1") knobs.conversationTitled = true;
+  const memoryExtract = s.memoryExtract ?? (env.OMA_MEMORY_EXTRACT === "0" ? false : undefined);
+  if (memoryExtract !== undefined) knobs.memoryExtract = memoryExtract;
+  if (s.memoryModel) knobs.memoryModel = s.memoryModel;
+  return knobs;
+}

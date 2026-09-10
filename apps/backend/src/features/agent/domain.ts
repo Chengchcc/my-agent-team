@@ -1,4 +1,4 @@
-import type { BackendModelRef } from "@chengchenccc/agent-contract";
+import { type BackendModelRef, normalizeReasoningEffort } from "@chengchenccc/agent-contract";
 import type { AgentConfig } from "./agent-config.js";
 
 /** Agent row (file-first, ADR 0020 decision 1): the DB keeps only the FK
@@ -70,9 +70,13 @@ export interface UpdateAgentInput {
  *  source (ADR 0020). */
 export function agentModelRef(agent: Pick<AgentRow, "config">): BackendModelRef {
   const rc = agent.config.runtime_config;
+  // Normalize the stored string against the canonical enum: a row written
+  // before the enum existed (or hand-edited in agent.yml) must degrade to
+  // "provider default", never fail the child's whole execute payload.
+  const reasoningEffort = normalizeReasoningEffort(rc.reasoning_effort);
   return {
     backendKind: rc.runtime,
     modelId: rc.model_id,
-    ...(rc.reasoning_effort !== "" ? { reasoningEffort: rc.reasoning_effort } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 }

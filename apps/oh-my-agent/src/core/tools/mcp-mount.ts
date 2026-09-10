@@ -195,16 +195,24 @@ export async function testMcpServer(
   }
 }
 
+/** Default per-call timeout for mounted MCP tools (ms): MCP legitimately
+ *  runs longer than file tools. 0 disables the deadline. */
+export const DEFAULT_MCP_CALL_TIMEOUT_MS = 120_000;
+
 /** Per-call timeout for mounted MCP tools (ms). A hung server must never
- * block the Run forever — product tools already bound theirs. Default 120s
- * (MCP tools legitimately run longer than file tools); OMA_MCP_TIMEOUT_MS
- * overrides, 0 disables. */
-export function mcpCallTimeoutMs(): number {
+ *  block the Run forever. Explicit values (run knobs) win; otherwise the
+ *  process env is the deployment default. */
+export function mcpCallTimeoutMs(settings?: {
+  mcpTimeoutMs?: number;
+  maxToolTimeoutMs?: number;
+}): number {
   const raw = process.env.OMA_MCP_TIMEOUT_MS;
-  let n = raw === undefined ? 120_000 : Number(raw);
-  if (!Number.isFinite(n)) n = 120_000;
+  const fromEnv = raw === undefined ? DEFAULT_MCP_CALL_TIMEOUT_MS : Number(raw);
+  let n =
+    settings?.mcpTimeoutMs ?? (Number.isFinite(fromEnv) ? fromEnv : DEFAULT_MCP_CALL_TIMEOUT_MS);
   const capRaw = process.env.OMA_MAX_TOOL_TIMEOUT_MS;
-  const cap = capRaw ? Number(capRaw) : 0;
+  const envCap = capRaw ? Number(capRaw) : 0;
+  const cap = settings?.maxToolTimeoutMs ?? (Number.isFinite(envCap) ? envCap : 0);
   if (Number.isFinite(cap) && cap > 0) n = Math.min(n, cap);
   return n;
 }
@@ -260,7 +268,9 @@ export async function mountWorkspaceMcpServers(
   nativeNames: ReadonlySet<string>,
   pluginServers: readonly PluginMcpConfig[] = [],
   includeWorkspace = true,
+  timeouts?: { mcpTimeoutMs?: number; maxToolTimeoutMs?: number },
 ): Promise<MountedMcpServers> {
+  const callTimeoutMs = mcpCallTimeoutMs(timeouts);
   const servers = includeWorkspace
     ? mergeMcpConfigs(workspaceRoot, pluginServers)
     : mergePluginMcpConfigs(pluginServers);
@@ -302,12 +312,12 @@ export async function mountWorkspaceMcpServers(
         name: qualified,
         description: t.description ?? `MCP tool ${t.name} (server ${name})`,
         inputSchema: (t.inputSchema ?? { type: "object" }) as PluginTool["inputSchema"],
-        timeoutMs: mcpCallTimeoutMs(),
+        timeoutMs: callTimeoutMs,
         async execute(args, signal) {
           const res = await withCallTimeout(
             client.callTool({ name: t.name, arguments: args }),
             `mcp tool ${t.name}`,
-            mcpCallTimeoutMs(),
+            callTimeoutMs,
             signal,
           );
           const text = (res.content ?? [])

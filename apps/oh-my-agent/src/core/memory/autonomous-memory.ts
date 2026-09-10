@@ -67,6 +67,10 @@ interface ExtractResult {
 
 export interface AutonomousMemoryInput {
   modelRuntime: ModelRuntime;
+  /** false = the pass is disabled for this Run (runtime knob). */
+  enabled?: boolean;
+  /** Pinned extract/merge model (`provider/model`); absent = auto-pick. */
+  memoryModel?: string;
   /** Canonical "<provider>/<model>" of the Run's model. */
   modelId: string;
   workspaceRoot: string;
@@ -88,11 +92,11 @@ export async function extractAutonomousMemory(
   input: AutonomousMemoryInput,
 ): Promise<MemoryLearnResult> {
   try {
-    if (process.env.OMA_MEMORY_EXTRACT === "0") return { ran: false, freshFacts: 0 };
+    if (input.enabled === false) return { ran: false, freshFacts: 0 };
     // Default: the cheapest available catalog model (memory extraction is
-    // quality-tolerant); OMA_MEMORY_MODEL explicitly overrides; fall back to
-    // the Run's own model when the catalog is empty/unreadable.
-    const modelRef = await resolveMemoryModel(input.modelRuntime, input.modelId);
+    // quality-tolerant); an explicit memoryModel overrides; fall back to the
+    // Run's own model when the catalog is empty/unreadable.
+    const modelRef = await resolveMemoryModel(input.modelRuntime, input.modelId, input.memoryModel);
     const transcript = buildTranscript(input.messages, input.compactions);
     if (transcript.trim().length === 0) return { ran: false, freshFacts: 0 };
 
@@ -142,8 +146,11 @@ export async function extractAutonomousMemory(
   }
 }
 
-async function resolveMemoryModel(modelRuntime: ModelRuntime, runModelId: string): Promise<string> {
-  const explicit = process.env.OMA_MEMORY_MODEL;
+async function resolveMemoryModel(
+  modelRuntime: ModelRuntime,
+  runModelId: string,
+  explicit?: string,
+): Promise<string> {
   if (explicit) return explicit;
   try {
     const catalog = await modelRuntime.getCatalog();

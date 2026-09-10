@@ -6,7 +6,7 @@ import {
   debugLog,
   type ProjectedHistoryItem,
 } from "@chengchenccc/agent-contract";
-import { type ModelRuntime, resolveModelAlias } from "@chengchenccc/ai";
+import { type ModelRuntime, type ModelRuntimeEntry, resolveModelAlias } from "@chengchenccc/ai";
 import type { AIMessageChunk, JsonSchema, Message } from "@chengchenccc/message";
 import {
   type ContextBudget,
@@ -20,13 +20,8 @@ import {
   type PluginTool,
   type SessionStore,
 } from "../agent-runtime.js";
-import {
-  createHubTool,
-  getEntry,
-  listEntries,
-  stopEntry,
-  waitEntries,
-} from "../coordination/index.js";
+import { createHubTool } from "../coordination/index.js";
+import { type CoordinationRegistry, createCoordinationRegistry } from "../coordination/registry.js";
 import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
 import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
 import { createLearnTool } from "../memory/learn.js";
@@ -34,7 +29,12 @@ import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
 import { createOrchestrateTool } from "../orchestrate/tool.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import { isFileTrusted, readTrustedPlugins } from "../plugins/plugin-trust.js";
-import { loadProjectSettings, type ProjectSettings } from "../settings/project-settings.js";
+import {
+  loadProjectSettings,
+  type ProjectSettings,
+  type RuntimeKnobs,
+  resolveRuntimeKnobs,
+} from "../settings/project-settings.js";
 import { createAskQuestionTool } from "../tools/ask-question.js";
 import { type BashSandbox, resolveBashSandbox } from "../tools/bash-sandbox.js";
 import {
@@ -61,12 +61,17 @@ import {
 } from "../tools/mcp-mount.js";
 import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
-import { createFileTodoStore, readTodoFile } from "../tools/todo-store.js";
-import { type ApprovalHandler, approvalTimeoutMs, withApprovalDeadline } from "./approval.js";
-import { fakeProvider } from "./fake-provider.js";
+import { createFileTodoStore } from "../tools/todo-store.js";
 import {
-  classifierTimeoutMs,
+  type ApprovalHandler,
+  DEFAULT_APPROVAL_TIMEOUT_MS,
+  withApprovalDeadline,
+} from "./approval.js";
+import { fakeProvider } from "./fake-provider.js";
+import { reasoningEffortOptions } from "./model-effort.js";
+import {
   classifyPermissionAction,
+  DEFAULT_CLASSIFIER_TIMEOUT_MS,
   isCriticalDeletion,
 } from "./permission-classifier.js";
 import { loadRuntimeCatalog, registerProvidersFromCatalog } from "./runtime-catalog.js";
@@ -98,9 +103,16 @@ function estimateMessageTokens(message: Message): number {
 /** Default native tool timeout (ms) for file/web/bash unless overridden. */
 const DEFAULT_NATIVE_TOOL_TIMEOUT_MS = 30_000;
 
-function resolveNativeToolTimeout(defaultMs: number): number {
-  const capRaw = process.env.OMA_MAX_TOOL_TIMEOUT_MS;
-  const cap = capRaw ? Number(capRaw) : 0;
+/** Wall-clock cap on ONE model call: a silent/stuck provider must not leave
+ *  the Run in `running` forever (it fails, with no auto-retry). */
+const DEFAULT_MODEL_TIMEOUT_MS = 300_000;
+
+/** Safety ceiling on loop steps. pi's loop has no cap (natural stop or user
+ *  abort terminates); this is a runaway-cost guard, not a design limit. */
+const DEFAULT_MAX_STEPS = 500;
+
+function resolveNativeToolTimeout(defaultMs: number, maxToolTimeoutMs?: number): number {
+  const cap = maxToolTimeoutMs ?? 0;
   if (Number.isFinite(cap) && cap > 0) return Math.min(defaultMs, cap);
   return defaultMs;
 }
@@ -111,8 +123,9 @@ async function withToolTimeout(
   signal: AbortSignal | undefined,
   options: { callId?: string; onOutput?: (partial: string) => void } | undefined,
   defaultMs: number,
+  maxToolTimeoutMs?: number,
 ): Promise<Readonly<Record<string, unknown>>> {
-  const timeoutMs = resolveNativeToolTimeout(defaultMs);
+  const timeoutMs = resolveNativeToolTimeout(defaultMs, maxToolTimeoutMs);
   if (timeoutMs <= 0) return tool.execute(input, signal, options);
   const controller = new AbortController();
   const onAbort = () => controller.abort();
@@ -131,20 +144,38 @@ async function withToolTimeout(
   }
 }
 
-function wrapNativeTool(tool: PluginTool, defaultMs = DEFAULT_NATIVE_TOOL_TIMEOUT_MS): PluginTool {
+function wrapNativeTool(
+  tool: PluginTool,
+  defaultMs = DEFAULT_NATIVE_TOOL_TIMEOUT_MS,
+  maxToolTimeoutMs?: number,
+): PluginTool {
   return {
     ...tool,
-    timeoutMs: resolveNativeToolTimeout(defaultMs),
-    execute: (input, signal, options) => withToolTimeout(tool, input, signal, options, defaultMs),
+    timeoutMs: resolveNativeToolTimeout(defaultMs, maxToolTimeoutMs),
+    execute: (input, signal, options) =>
+      withToolTimeout(tool, input, signal, options, defaultMs, maxToolTimeoutMs),
   };
 }
 
-/** Dependencies for ONE Run's runtime assembly. The runtime is per-Run: a
+/** Resolve one catalog entry by canonical id, honoring the legacy alias
+ *  table. The Run's model is the ONLY budget/summarizer/stream authority —
+ *  a catalog-first model with a different window would compact at the wrong
+ *  threshold, and an unknown id is a hard failure (never a silent fallback). */
+export async function resolveModelEntry(
+  modelRuntime: ModelRuntime,
+  modelId: string,
+): Promise<ModelRuntimeEntry> {
+  const target = resolveModelAlias(modelId);
+  const catalog = await modelRuntime.getCatalog();
+  const model = catalog.models.find((m) => `${m.providerId}/${m.modelId}` === target);
+  if (!model) throw new Error(`model not found in catalog: ${modelId}`);
+  return model;
+}
 
-/** Dependencies for ONE Run's runtime assembly. The runtime is per-Run: a
- *  fresh in-memory SessionStore and a fresh OmaSession are created
- *  for every execute() - no state is shared across Runs except the
- *  process-level Provider/ModelRuntime. */
+/** Deps for ONE Run's runtime assembly. The runtime is per-Run: a fresh
+ *  in-memory SessionStore and a fresh OmaSession are created for every
+ *  execute() - no state is shared across Runs except the process-level
+ *  Provider/ModelRuntime and the injected coordination registry. */
 export interface RunRuntimeDeps {
   workspaceRoot: string;
   /** Gates tool installation: read_only runs omit write/edit/bash. */
@@ -170,6 +201,9 @@ export interface RunRuntimeDeps {
   /** Frozen Run permissionMode (ADR 0020 decision 7). "deny" drops plugin
    *  code components at assembly; native tools are unaffected (MVP scope). */
   permissionMode?: "ask" | "auto" | "deny";
+  /** Resolved runtime knobs (see resolveRuntimeKnobs). Omitted = the runtime
+   *  loads `.oma/settings.json` itself and overlays the process env. */
+  settings?: RuntimeKnobs;
   /** --tools filter (CLI): applied to the final tool table (native + MCP +
    *  plugin) at assembly. Undefined = all tools. */
   toolFilter?: ToolFilter;
@@ -177,6 +211,11 @@ export interface RunRuntimeDeps {
    *  passes a process-stable key so handles survive follow-up Runs;
    *  backend defaults to the runId (one Run per process). */
   coordinationScope?: string;
+  /** Registry backing that scope. Omitted = a fresh per-Run registry (its
+   *  jobs and handle table are dropped on close()): the backend spawns one
+   *  process per Run, so nothing outlives it. A long-lived surface (TUI)
+   *  passes ONE process-wide instance so handles survive follow-up Runs. */
+  registry?: CoordinationRegistry;
   /** Standalone modes (tui/print/json): the workspace's own .mcp.json is
    *  repo-controlled, so mount it only when content-trusted (record in
    *  <agentDir>/trusted-plugins.json; /mcp trust records it). Backend RPC
@@ -199,6 +238,9 @@ export interface RunRuntimeDeps {
 export interface RunRuntime {
   readonly runId: string;
   readonly store: SessionStore;
+  /** Resolved knobs for THIS Run (never the process env): create-runtime
+   *  reads the post-run memory settings from here. */
+  readonly knobs: RuntimeKnobs;
   readonly session: OmaSession;
   /** REAL per-server MCP mount outcomes for this runtime (connect+listTools). */
   readonly mcpMountReports: readonly McpMountReport[];
@@ -246,41 +288,19 @@ export function registerBuiltinProviders(
  *  the model is resolved per run from the AgentRunSnapshot. */
 export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRuntime> {
   const store = createInMemorySessionStore();
-  // `.oma/settings.json` P0 knobs are normalized into the process env for
-  // the compatibility shim: the existing env-reading code paths pick them up
-  // without threading a settings object through every consumer.
-  // ponytail: per-process shim; a future refactor can pass settings as a dep.
-  // M9: the file lives in the agent-writable workspace. Standalone modes
-  // (tui/print/json) honor every knob; backend RPC runs honor ONLY
+  // M9: `.oma/settings.json` lives in the agent-writable workspace. Standalone
+  // modes (tui/print/json) honor every knob; backend RPC runs honor ONLY
   // bashSandbox (enabling it = stricter, fail-safe) — a workspace file must
   // never steer the product's permission classifier, web, steps or timeouts.
+  // Knobs are plain DI values (deps.settings wins, then the process env as a
+  // deployment default): the runtime NEVER writes process.env, so a process
+  // that runs many Runs (the TUI) cannot leak one Run's config into the next.
   const loaded = loadProjectSettings(deps.workspaceRoot);
   const projectSettings: ProjectSettings = deps.gateWorkspaceMcp
     ? loaded
     : { bashSandbox: loaded.bashSandbox };
-  if (projectSettings.maxSteps !== undefined)
-    process.env.OMA_MAX_STEPS = String(projectSettings.maxSteps);
-  if (projectSettings.modelTimeoutMs !== undefined) {
-    process.env.OMA_MODEL_TIMEOUT_MS = String(projectSettings.modelTimeoutMs);
-  }
-  if (projectSettings.mcpTimeoutMs !== undefined) {
-    process.env.OMA_MCP_TIMEOUT_MS = String(projectSettings.mcpTimeoutMs);
-  }
-  if (projectSettings.disableWeb !== undefined) {
-    process.env.OMA_DISABLE_WEB = projectSettings.disableWeb ? "1" : "0";
-  }
-  if (projectSettings.titleEnabled !== undefined) {
-    process.env.OMA_TITLE_ENABLED = projectSettings.titleEnabled ? "1" : "0";
-  }
-  if (projectSettings.memoryExtract !== undefined) {
-    process.env.OMA_MEMORY_EXTRACT = projectSettings.memoryExtract ? "1" : "0";
-  }
-  if (projectSettings.memoryModel !== undefined) {
-    process.env.OMA_MEMORY_MODEL = projectSettings.memoryModel;
-  }
-  if (projectSettings.permissionClassifierModel !== undefined) {
-    process.env.OMA_PERMISSION_CLASSIFIER_MODEL = projectSettings.permissionClassifierModel;
-  }
+  const knobs = deps.settings ?? resolveRuntimeKnobs(projectSettings);
+  const currentModel = await resolveModelEntry(deps.modelRuntime, deps.modelId);
   // OS bash sandbox (BashSandbox design): enabled via .oma/settings.json
   // (TUI /settings or direct edit). resolveBashSandbox throws on
   // enabled-but-tool-missing — the Run fails loudly rather than silently
@@ -292,20 +312,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       enabled: true,
     });
   }
-  if (projectSettings.maxToolTimeoutMs !== undefined) {
-    process.env.OMA_MAX_TOOL_TIMEOUT_MS = String(projectSettings.maxToolTimeoutMs);
-  }
   const scope = deps.coordinationScope ?? deps.runId;
-  const catalog = await deps.modelRuntime.getCatalog();
-  // The Run's model is the ONLY budget/summarizer authority. A catalog-first
-  // model with a different window would compact at the wrong threshold or
-  // overflow the real context.
-  const currentModel = catalog.models.find(
-    (m) => `${m.providerId}/${m.modelId}` === resolveModelAlias(deps.modelId),
-  );
-  if (!currentModel) {
-    throw new Error(`model not found in catalog: ${deps.modelId}`);
-  }
+  const registry = deps.registry ?? createCoordinationRegistry();
   const agentTools: PluginTool[] = [
     createReadTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
     createReadImageTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
@@ -320,17 +328,24 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       workspaceRoot: string;
       scope: string;
       sandbox?: BashSandbox;
+      timeouts?: { bashTimeoutMs?: number; maxToolTimeoutMs?: number };
+      registry?: CoordinationRegistry;
       ptyConsole?: (
         command: string,
         cwd: string,
         env: Record<string, string>,
       ) => Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
-    } = { workspaceRoot: deps.workspaceRoot, scope };
+    } = { workspaceRoot: deps.workspaceRoot, scope, timeouts: knobs, registry };
     if (bashSandbox) bashToolOpts.sandbox = bashSandbox;
     if (deps.bashPtyConsole) bashToolOpts.ptyConsole = deps.bashPtyConsole;
     agentTools.push(createBashTool(bashToolOpts) as unknown as PluginTool);
     agentTools.push(
-      createEvalTool({ workspaceRoot: deps.workspaceRoot, scope }) as unknown as PluginTool,
+      createEvalTool({
+        workspaceRoot: deps.workspaceRoot,
+        scope,
+        registry,
+        ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
+      }) as unknown as PluginTool,
     );
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
@@ -352,6 +367,10 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     new Set(agentTools.map((t) => t.name)),
     deps.pluginMcpServers ?? [],
     includeWorkspaceMcp,
+    {
+      ...(knobs.mcpTimeoutMs !== undefined ? { mcpTimeoutMs: knobs.mcpTimeoutMs } : {}),
+      ...(knobs.maxToolTimeoutMs !== undefined ? { maxToolTimeoutMs: knobs.maxToolTimeoutMs } : {}),
+    },
   );
   const closeMounted = mounted.close;
   // Web tools default ON via the std ports (DDG search + guarded fetch);
@@ -359,16 +378,20 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // appended once (unwrapped; withCallTimeout already binds their per-call
   // timeout) to nativeToolsPlugin below. Pushing them here too duplicated
   // every mounted tool and tripped validatePlugins on real servers.
-  if (process.env.OMA_DISABLE_WEB !== "1") {
+  if (knobs.disableWeb !== true) {
     agentTools.push(
       createPortWebSearchTool(deps.webSearch ?? createDdgWebSearchPort()) as unknown as PluginTool,
       createPortWebFetchTool(deps.webFetch ?? createStdWebFetchPort()) as unknown as PluginTool,
     );
   }
 
-  const bashDefault = Number(process.env.OMA_BASH_TIMEOUT_MS) || DEFAULT_NATIVE_TOOL_TIMEOUT_MS;
+  const bashDefault = knobs.bashTimeoutMs ?? DEFAULT_NATIVE_TOOL_TIMEOUT_MS;
   const nativeTools = agentTools.map((t) =>
-    wrapNativeTool(t, t.name === "bash" ? bashDefault : DEFAULT_NATIVE_TOOL_TIMEOUT_MS),
+    wrapNativeTool(
+      t,
+      t.name === "bash" ? bashDefault : DEFAULT_NATIVE_TOOL_TIMEOUT_MS,
+      knobs.maxToolTimeoutMs,
+    ),
   );
   const nativeToolsPlugin: Plugin = {
     name: "native-tools",
@@ -413,7 +436,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
                         input: args,
                         source: "permission",
                       }),
-                      approvalTimeoutMs(),
+                      approvalDeadlineMs,
                     );
                     if (verdict.decision === "deny") {
                       return {
@@ -465,19 +488,16 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   const nativeTodoWanted = !hasInjectedTodo && todoAllowed;
   if (nativeTodoWanted) {
     const todoStore = createFileTodoStore(deps.workspaceRoot);
-    const todoBase = createTodo({ sessionId: deps.runId, store: todoStore });
+    const todoBase = createTodo({ store: todoStore });
     plugins.push({
       name: todoBase.name,
       hooks: todoBase.hooks,
-      tools: [
-        ...(todoBase.tools ?? []),
-        createTodoReadTool({ sessionId: deps.runId, store: todoStore }),
-      ],
+      tools: [...(todoBase.tools ?? []), createTodoReadTool({ store: todoStore })],
       meta: [
         {
           name: "Current Tasks",
           render: () => {
-            const items = readTodoFile(deps.workspaceRoot);
+            const items = todoStore.read();
             if (items.length === 0) return "None yet. Use todo_write to track tasks.";
             const marks: Record<string, string> = {
               pending: "- [ ]",
@@ -500,11 +520,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // to render the per-loop Meta (workspace/model fact line). The Session is
   // the sole Meta owner; the Run runtime never passes a meta string.
   const resolveModel = async (modelId: string): Promise<{ provider: string; id: string }> => {
-    const catalog = await deps.modelRuntime.getCatalog();
-    const model = catalog.models.find(
-      (m) => `${m.providerId}/${m.modelId}` === resolveModelAlias(modelId),
-    );
-    if (!model) throw new Error(`model not found: ${modelId}`);
+    const model = await resolveModelEntry(deps.modelRuntime, modelId);
     return { provider: model.providerId, id: model.modelId };
   };
 
@@ -554,10 +570,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // Wall-clock cap on a single model call: a silent/stuck provider must not
   // leave the Run in `running` forever. The timeout aborts the call and the
   // Run fails (no auto-retry). Overridable via env for tests.
-  const modelTimeoutMs = (() => {
-    const raw = process.env.OMA_MODEL_TIMEOUT_MS;
-    return raw ? Number(raw) || 300_000 : 300_000;
-  })();
+  const modelTimeoutMs = knobs.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+  const approvalDeadlineMs = knobs.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
 
   /** Advance an async iterator, racing each chunk against the combined
    *  signal. Providers that ignore the signal (e.g. a generator sleeping
@@ -696,7 +710,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       userTexts,
       stream: (messages, signal, modelIdOverride) =>
         streamModel(messages, signal, undefined, modelIdOverride),
-      timeoutMs: classifierTimeoutMs(),
+      timeoutMs: knobs.permissionClassifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS,
+      ...(knobs.permissionClassifierModel ? { modelId: knobs.permissionClassifierModel } : {}),
     });
     if (verdict.verdict === "allow") return undefined;
     // CC auto fallback: a block escalates to the human ONCE per unique
@@ -722,7 +737,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         reason: `classifier: ${verdict.reason}`,
         source: "classifier",
       }),
-      approvalTimeoutMs(),
+      approvalDeadlineMs,
     );
     if (human.decision === "deny") {
       return {
@@ -790,6 +805,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         // The tool call's own id: the ONLY value a human card can resolve
         // against (resolve_approval / the web approval endpoint). Minting a
         // fresh one here silently breaks every approval round-trip.
+        // `?? ""` is a last-resort net for callers that predate the id; the
+        // auto-mode escalation below keeps its own synthetic id.
         callId: callId || `perm-${randomUUID().slice(0, 8)}`,
         toolName,
         input,
@@ -802,7 +819,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       try {
         verdict = await withApprovalDeadline(
           deps.approvalHandler(approvalInput),
-          approvalTimeoutMs(),
+          approvalDeadlineMs,
         );
       } catch (err) {
         return {
@@ -823,14 +840,21 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   const permissionGate =
     deps.permissionMode === undefined ? undefined : makeSessionPermissionGate([]);
 
+  // --tools filter also governs the subagent table: a `--tools read` Run must
+  // not hand its children bash/write. Applied here (the executor receives the
+  // post-filter list) and again to the main session's plugin table below.
+  const subagentTools = deps.toolFilter
+    ? agentTools.filter((t) => toolFilterAllows(deps.toolFilter!, t.name))
+    : agentTools;
   const delegationExecutor = createDelegationExecutor({
+    registry,
     makeSubagentStream:
       (_sessionId, modelIdOverride, responseFormat) => (messages, signal, tools) =>
         streamModel(messages, signal, tools, modelIdOverride, responseFormat),
     modelId: deps.modelId,
     summarize,
     contextBudget,
-    tools: agentTools,
+    tools: subagentTools,
     workspaceRoot: deps.workspaceRoot,
     workspaceAccess: deps.workspaceAccess,
     scope,
@@ -968,16 +992,16 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     name: "hub-tool",
     tools: createHubTool({
       scope,
-      list: (s) => listEntries(s),
-      get: (id) => getEntry(id),
-      wait: (o) => waitEntries(o),
+      list: (s) => registry.listEntries(s),
+      get: (id) => registry.getEntry(id),
+      wait: (o) => registry.waitEntries(o),
       stop: (id) => {
-        const e = getEntry(id);
+        const e = registry.getEntry(id);
         if (e?.kind === "subagent") return delegationExecutor.stopSubagent(id);
-        return stopEntry(id);
+        return registry.stopEntry(id);
       },
       steer: (handle, prompt) => {
-        const e = getEntry(handle);
+        const e = registry.getEntry(handle);
         if (e && e.kind !== "subagent") {
           return {
             ok: false,
@@ -1014,30 +1038,13 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     // an unknown/absent model throws here, which is the authorization
     // boundary (no bypassing the catalog to mint expensive models).
     const modelId = modelIdOverride ?? run.model.modelId;
-    const catalog = await deps.modelRuntime.getCatalog();
-    const model = catalog.models.find(
-      (m) => `${m.providerId}/${m.modelId}` === resolveModelAlias(modelId),
-    );
-    if (!model) throw new Error(`model not found: ${modelId}`);
+    const model = await resolveModelEntry(deps.modelRuntime, modelId);
     const timeoutSignal = AbortSignal.timeout(modelTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-    const reasoningEffort = (run.model as { reasoningEffort?: string }).reasoningEffort;
-    const reasoningOpts =
-      reasoningEffort === "none"
-        ? { thinking: { type: "disabled" as const } }
-        : reasoningEffort === "low" || reasoningEffort === "high" || reasoningEffort === "max"
-          ? {
-              thinking: { type: "adaptive" as const, display: "summarized" as const },
-              effort: (reasoningEffort === "max" ? "xhigh" : reasoningEffort) as
-                | "low"
-                | "high"
-                | "xhigh",
-            }
-          : {};
     const stream = deps.modelRuntime.stream(model.providerId, model.modelId, messages, {
       signal: combined,
       cacheControl: true,
-      ...reasoningOpts,
+      ...reasoningEffortOptions(run.model.reasoningEffort),
       ...(responseFormat ? { responseFormat } : {}),
       tools: tools?.map((t) => ({
         name: t.name,
@@ -1060,7 +1067,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // pi's loop has no step cap: termination is the model's natural stop or
   // user abort. We keep a high safety ceiling (runaway-cost guard) that is
   // env-overridable; 32 was far too small for real tasks.
-  const maxSteps = Number(process.env.OMA_MAX_STEPS) || 500;
+  const maxSteps = knobs.maxSteps ?? DEFAULT_MAX_STEPS;
   // TTSR-style stream rules from .oma/rules/*.md (workspace-scoped).
   const streamRules = loadStreamRules(deps.workspaceRoot);
   // --tools filter (CLI): applied ONCE to the final tool table (native +
@@ -1078,6 +1085,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     store,
     plugins: finalPlugins,
     pluginRuntime,
+    titleEnabled: knobs.titleEnabled ?? true,
+    conversationTitled: knobs.conversationTitled === true,
     maxSteps,
     maxForceContinues: 4,
     modelStream: streamModel,
@@ -1095,6 +1104,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   return {
     runId: deps.runId,
     store,
+    knobs,
     session,
     mcpMountReports: mounted.reports,
     summarize,
@@ -1105,9 +1115,11 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     executeWorkflow: (input) => runScript(input),
     delegationUsage: () => ({ ...delegationUsageAccum }),
     async close() {
-      // Live subagent loops must not outlive the Run; completed handles
-      // stay in the registry for a later Run's resume in this process.
+      // Live subagent loops must not outlive the Run. A per-Run registry is
+      // then dropped entirely (nothing can outlive it); a surface-provided
+      // one keeps completed handles for a later Run's resume.
       delegationExecutor.stopLiveSubagents();
+      if (!deps.registry) registry.clearAll();
       // Tear down mounted MCP clients so no child process or connection
       // outlives the Run. Each close is BOUNDED: a stuck transport (e.g. an
       // SSE socket that never answers close) must not wedge the child.

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { clearAll, getEntry } from "../coordination/registry.js";
+import { defaultRegistry } from "../coordination/registry.js";
 import { createEvalTool } from "./eval.js";
 
 const evalTool = createEvalTool({ workspaceRoot: process.cwd(), scope: "test" });
 
-afterEach(() => clearAll());
+afterEach(() => defaultRegistry.clearAll());
 
 describe("evalTool", () => {
   test("evaluates a snippet and returns the result", async () => {
@@ -37,10 +37,10 @@ describe("evalTool", () => {
     const jobId = /eval_\d+/.exec(started.content)?.[0] ?? "";
 
     const deadline = Date.now() + 10_000;
-    while (getEntry(jobId)?.status === "running" && Date.now() < deadline) {
+    while (defaultRegistry.getEntry(jobId)?.status === "running" && Date.now() < deadline) {
       await Bun.sleep(50);
     }
-    const e = getEntry(jobId)!;
+    const e = defaultRegistry.getEntry(jobId)!;
     expect(e.status).toBe("completed");
     expect(e.output).toContain('"done": true');
   }, 15_000);

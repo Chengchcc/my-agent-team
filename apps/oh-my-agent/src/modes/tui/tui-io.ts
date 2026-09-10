@@ -13,7 +13,7 @@ import {
   TUI,
   truncateToWidth,
 } from "@chengchenccc/tui";
-import { setEntryCompletionListener } from "../../core/coordination/registry.js";
+import { defaultRegistry } from "../../core/coordination/registry.js";
 import {
   appendInputHistory,
   loadInputHistory,
@@ -170,7 +170,7 @@ export function createTerminalIo(
   }
   const bgPending: string[] = [];
   let bgDebounce: ReturnType<typeof setTimeout> | undefined;
-  setEntryCompletionListener((e) => {
+  defaultRegistry.setCompletionListener((e) => {
     const text =
       e.kind === "subagent"
         ? `${e.id} (${e.label}) ${

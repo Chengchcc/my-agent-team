@@ -5,16 +5,6 @@ import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 type InputRec = Record<string, unknown>;
 
-/** Simple cwd-based default - tools resolve relative paths against this. */
-export function withDefaultCwd(tool: Tool, cwd: string): Tool {
-  return {
-    ...tool,
-    execute: async (input: unknown, signal?: AbortSignal) => {
-      const rec = input as InputRec;
-      return tool.execute({ ...rec, cwd: rec.cwd ?? cwd }, signal);
-    },
-  };
-}
 function safePath(cwd: string, userPath: string): string | null {
   try {
     const sandbox = new WorkspaceSandbox(cwd);
@@ -49,14 +39,6 @@ const PROTECTED_FILES: Record<string, true> = {
 function isProtectedPath(cwd: string, full: string): boolean {
   const rel = relative(cwd, full).split(sep).join("/");
   return PROTECTED_FILES[rel] === true;
-}
-/** Resolve a path against a fixed workspace root using realpath containment. */
-export function resolveWorkspacePath(root: string, userPath: string): string | null {
-  try {
-    return new WorkspaceSandbox(root).validate(userPath);
-  } catch {
-    return null;
-  }
 }
 
 const IMAGE_EXTENSIONS = new Set([

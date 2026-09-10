@@ -16,28 +16,57 @@ describe("todo store", () => {
     }
   });
 
-  test("file-backed store appendBatch then readBranch persists todo entries", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "oma-todo2-"));
+  test("junk entries are dropped and an unknown status degrades to pending", () => {
+    // The file is agent-writable and hand-editable: a foreign status must not
+    // reach the renderer, and a malformed row must not break the whole list.
+    const dir = mkdtempSync(join(tmpdir(), "oma-todo-junk-"));
     try {
-      const store = createFileTodoStore(dir);
-      await store.appendBatch("s", {
-        entries: [
-          {
-            type: "todo",
-            state: { items: [{ id: "a", text: "x", status: "in_progress" }] },
-            createdAt: 1,
-          },
-        ],
-      });
-      const branch = await store.readBranch("s");
-      expect(branch).toHaveLength(1);
-      const entry = branch[0];
-      expect(entry?.type).toBe("todo");
-      if (entry?.type === "todo") {
-        expect(entry.state).toEqual({
-          items: [{ id: "a", text: "x", status: "in_progress" }],
-        });
-      }
+      writeTodoFile(dir, []);
+      const path = join(dir, ".oma", "todo.json");
+      Bun.write(
+        path,
+        JSON.stringify({
+          items: [
+            { id: "ok", text: "keep", status: "done" },
+            { id: "weird", text: "unknown status", status: "URGENT" },
+            { id: "no-text", status: "pending" },
+            "not-an-object",
+            null,
+          ],
+        }),
+      );
+      expect(readTodoFile(dir)).toEqual([
+        { id: "ok", text: "keep", status: "done" },
+        { id: "weird", text: "unknown status", status: "pending" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing or corrupt file reads as an empty list, never throws", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-todo-bad-"));
+    try {
+      expect(readTodoFile(dir)).toEqual([]);
+      writeTodoFile(dir, []);
+      Bun.write(join(dir, ".oma", "todo.json"), "{not json");
+      expect(readTodoFile(dir)).toEqual([]);
+      Bun.write(join(dir, ".oma", "todo.json"), JSON.stringify({ items: "nope" }));
+      expect(readTodoFile(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("state survives a restart: a FRESH store instance reads the same list", () => {
+    // The production claim (todo persists across Runs and sessions for
+    // standalone oma): the store is stateless, so a new process must observe
+    // what the previous one wrote.
+    const dir = mkdtempSync(join(tmpdir(), "oma-todo-restart-"));
+    try {
+      createFileTodoStore(dir).write([{ id: "t1", text: "task", status: "in_progress" }]);
+      const reopened = createFileTodoStore(dir);
+      expect(reopened.read()).toEqual([{ id: "t1", text: "task", status: "in_progress" }]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

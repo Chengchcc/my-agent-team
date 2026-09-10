@@ -10,9 +10,8 @@ import {
   textModel,
 } from "./coding-agent-harness.fixture.js";
 import type { Plugin } from "./plugin.js";
-import { readTodo, writeTodo } from "./todo.js";
 
-const { storeFactory, reopenFactory } = createMemoryStores();
+const { storeFactory } = createMemoryStores();
 
 describe("agent loop harness compaction/todo/skill", () => {
   test("10. compaction appends entry and shapes next turn", async () => {
@@ -109,19 +108,6 @@ describe("agent loop harness compaction/todo/skill", () => {
       tokensBefore?: number;
     };
     expect(comp11?.tokensBefore).toBeGreaterThan(0);
-  });
-
-  test("12. todo survives restart", async () => {
-    const store = storeFactory("h12");
-    await createSession(store, "h12");
-    await writeTodo(store, "h12", {
-      items: [{ id: "t1", text: "task", status: "in_progress" }],
-    });
-    if (!reopenFactory) return; // SQLite-only restart
-    const reopened = reopenFactory("h12");
-    const state = await readTodo(reopened, "h12");
-    expect(state.items).toHaveLength(1);
-    expect(state.items[0]?.status).toBe("in_progress");
   });
 
   test("13. skill meta shows index only; skill_load reads body lazily", async () => {

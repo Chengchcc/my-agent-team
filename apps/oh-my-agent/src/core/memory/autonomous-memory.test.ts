@@ -92,14 +92,14 @@ describe("extractAutonomousMemory", () => {
     );
   });
 
-  test("OMA_MEMORY_EXTRACT=0 disables the pipeline", async () => {
-    process.env.OMA_MEMORY_EXTRACT = "0";
+  test("enabled:false disables the pipeline (the env knob resolves into it)", async () => {
     const { runtime, calls } = makeRuntime([JSON.stringify({ facts: [] })]);
     const root = freshWorkspace();
 
     const result = await extractAutonomousMemory({
       modelRuntime: runtime,
       modelId: "fake/m",
+      enabled: false,
       workspaceRoot: root,
       runId: "run-2",
       messages: MESSAGES,
