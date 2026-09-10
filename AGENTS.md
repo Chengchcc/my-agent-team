@@ -210,5 +210,9 @@ Two layers: **packages/workflow** (pure domain: `WorkflowDefinition` DSL, `compu
 - **Session store double:** `createInMemorySessionStore()` from `apps/oh-my-agent/src/core/persistence`
 - **Integration tests:** Use `createOmaSession()` with real plugin hooks and scripted models
 - **Workflow tests:** `packages/workflow` (engine/parse/schema) + `apps/backend/src/features/workflow/service.test.ts` / `trigger-scheduler.test.ts`
-- **Coverage:** No enforced threshold; tests should cover behavior (conditional branches, invariants, error handling), not plumbing
+- **Coverage:** `bun run audit:coverage` enforces per-directory averages plus
+  per-file floors for runtime-bearing files (agent loop, permissions, protocol,
+  HTTP route surfaces, auth, SSE contract) in apps/oh-my-agent and
+  apps/backend. Tests should cover behavior (branches, invariants, error
+  handling), not plumbing
 - **Test helpers:** `@chengchenccc/test-helpers` exports `echoModel()` with `EchoScript` type for deterministic model responses

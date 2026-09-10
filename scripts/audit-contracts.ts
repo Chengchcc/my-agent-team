@@ -30,8 +30,14 @@ const LARK_CAST_DEBT = new Set([
 
 /** Bare process.env readers that are deliberate bridges, not config parsing:
  *  config.ts is the shared parseEnv entry; oma-command.ts forwards provider
- *  keys to the child CLI (T2 env whitelist). */
-const ENV_BRIDGE = new Set(["apps/backend/src/config.ts", "apps/backend/src/infra/oma-command.ts"]);
+ *  keys to the child CLI (T2 env whitelist); app-harness.ts seeds env before
+ *  the dynamic bootstrap imports in route-level tests (same rationale as
+ *  app.test.ts, which is exempt as a *.test.ts file). */
+const ENV_BRIDGE = new Set([
+  "apps/backend/src/config.ts",
+  "apps/backend/src/infra/oma-command.ts",
+  "apps/backend/src/testing/app-harness.ts",
+]);
 
 const failures: string[] = [];
 
