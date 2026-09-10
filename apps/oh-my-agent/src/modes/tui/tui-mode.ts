@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AskQuestionInput,
-  AskQuestionResult,
-  BackendRunInput,
-  BackendRunOutcome,
-} from "@chengchenccc/agent-contract";
+import type { BackendRunInput, BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
-import { ProcessTerminal, type SlashCommand } from "@chengchenccc/tui";
+import { ProcessTerminal } from "@chengchenccc/tui";
 import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaLoopEvent } from "../../core/index.js";
@@ -18,14 +13,9 @@ import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-run
  *  process (registry is keyed by scope, not runId). */
 const COORDINATION_SCOPE = `tui-${process.pid}`;
 
-import type { ToolFilter } from "../../core/runtime/tool-filter.js";
-import {
-  appendSessionMessages,
-  listSessions,
-  type SessionBranchNode,
-} from "../../core/session/session-file.js";
+import { appendSessionMessages, listSessions } from "../../core/session/session-file.js";
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
-import { loadProjectSettings, type ProjectSettings } from "../../core/settings/project-settings.js";
+import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
 import { formatTokens } from "./tui-format.js";
 import {
@@ -37,6 +27,7 @@ import {
   registerIoHandlers,
 } from "./tui-interactive.js";
 import { createTerminalIo } from "./tui-io.js";
+import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
 import { buildSlashSystem } from "./tui-slash.js";
 import {
   addUserInput,
@@ -45,7 +36,6 @@ import {
   hydrateTranscript,
   initialViewState,
   settleSteeredMessages,
-  type TuiViewState,
 } from "./view-state.js";
 
 /** TUI mode: oma's standalone interactive surface. One process = N
@@ -60,99 +50,6 @@ import {
  *
  *  All terminal wiring lives behind the TerminalIo seam so tests can drive
  *  the whole loop headlessly. */
-
-export interface TuiModeOptions {
-  modelRuntime: ModelRuntime;
-  workspaceRoot: string;
-  /** Canonical `<provider>/<model>` id; undefined = first available. */
-  model?: string;
-  /** Resume a specific session file instead of starting fresh. */
-  sessionId?: string;
-  /** Prefill the editor with this text on boot (`oma "prompt"`). The user
-   *  hits Enter to send it like any other input. */
-  initialPrompt?: string;
-  /** --tools filter (CLI): applied to the final tool table. */
-  toolFilter?: ToolFilter;
-}
-
-/** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */
-export type TuiCommand = "toggleThinking" | "toggleToolDetail" | "abort" | "pickModel" | "forkTree";
-
-export interface TuiIo {
-  /** Render the current view state. */
-  render(state: TuiViewState): void;
-  /** Wait for the next user submit; resolves null on quit (Ctrl-D / /exit).
-   *  Submits that arrive while a run is live (busy) are delivered to
-   *  onLiveInput instead - waitForInput only resolves between runs. */
-  waitForInput(): Promise<string | null>;
-  /** Called once when a run goes live or settles, to toggle input mode. */
-  setBusy?(busy: boolean): void;
-  /** Subscriber for inputs submitted while a run is live (steer). */
-  onLiveInput?(handler: ((text: string) => void) | null): void;
-  /** Subscriber for slash commands submitted while a run is live; the
-   *  session loop executes them instead of steering the text (pi's
-   *  LiveCommandController). */
-  onLiveCommand?(handler: ((text: string) => void) | null): void;
-  /** Subscriber for view/abort commands (Esc, ctrl+t, ctrl+o). */
-  onCommand?(handler: ((cmd: TuiCommand) => void) | null): void;
-  /** Register the slash-command list for editor autocomplete. */
-  setSlashCommands?(commands: readonly SlashCommand[]): void;
-  /** Interactive session picker overlay; resolves the chosen session id,
-   *  or null when cancelled. Absent = caller falls back to a text list. */
-  pickSession?(
-    sessions: ReadonlyArray<{
-      id: string;
-      title?: string;
-      preview: string;
-      modifiedAt: number;
-      workspace?: string;
-      forkOf?: string;
-    }>,
-  ): Promise<string | null>;
-  /** Interactive model picker overlay (ctrl+p); resolves the chosen
-   *  canonical `<provider>/<model>` id, or null when cancelled. */
-  pickModel?(
-    models: ReadonlyArray<{ id: string; label: string; description?: string }>,
-  ): Promise<string | null>;
-  /** Interactive approval confirm (HITL); resolves "allow"/"deny", null on
-   *  cancel (treated as deny — fail-closed). Absent = deny. */
-  confirmApproval?(req: { toolName: string; reason?: string }): Promise<"allow" | "deny" | null>;
-  /** Interactive ask_question form (HITL); resolves answers or null on
-   *  cancel/unsupported question kind (fail-closed). */
-  askQuestions?(input: AskQuestionInput): Promise<AskQuestionResult | null>;
-  /** Interactive fork-point picker (pi's user-message selector): lists the
-   *  session's user messages; resolves the chosen 1-based ordinal, or null
-   *  when cancelled. Absent = caller falls back to /fork <n>. */
-  pickForkPoint?(points: ReadonlyArray<{ ordinal: number; text: string }>): Promise<number | null>;
-  /** Interactive branch-tree fork picker: lists the session's parentId-
-   *  chained message nodes; resolves the chosen node id, or null when
-   *  cancelled. Absent = caller falls back to the /fork text path. */
-  pickBranchTree?(nodes: ReadonlyArray<SessionBranchNode>): Promise<string | null>;
-  /** Interactive settings editor; resolves the updated settings or null on
-   *  cancel. Absent = caller falls back to text status. */
-  editSettings?(settings: ProjectSettings): Promise<ProjectSettings | null>;
-  /** Update the fixed header's model/session line. `context` is sticky:
-   *  once set it stays until the next value arrives. */
-  setHeader?(info: { model?: string; sessionId?: string; title?: string; context?: string }): void;
-  /** M-bash: interactive pty console overlay (TUI only). Resolves when
-   *  the command exits or the user kills it (Esc). */
-  runPtyConsole?(
-    command: string,
-    cwd: string,
-    env: Record<string, string>,
-  ): Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
-  /** Prefill the editor text (used for `oma "<prompt>"`). */
-  setInputText?(text: string): void;
-  /** True while the terminal window holds focus (CSI 1004 reporting).
-   *  Absent = always considered focused. */
-  isFocused?(): boolean;
-  /** Subscriber for terminal focus transitions (CSI 1004 reporting). */
-  onFocus?(handler: ((focused: boolean) => void) | null): void;
-  /** Best-effort completion ping (BEL). Absent = silent. */
-  notify?(): void;
-  /** Stop the terminal (restore modes). */
-  close(): void;
-}
 
 /** A saved project model is used only when it still resolves in the catalog;
  *  a stale provider/model must not brick TUI startup. */

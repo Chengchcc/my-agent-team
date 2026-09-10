@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionBranchNode } from "../../core/session/session-file.js";
-import { layoutBranchTree } from "./tui-io.js";
+import { layoutBranchTree } from "./tui-branch-layout.js";
 
 function node(id: string, parentId: string | null, role = "assistant"): SessionBranchNode {
   return { id, parentId, role, text: id, depth: 0 };

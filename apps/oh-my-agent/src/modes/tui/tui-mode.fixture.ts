@@ -1,6 +1,6 @@
 import { createModelRuntime } from "@chengchenccc/ai";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
-import type { TuiCommand, TuiIo } from "./tui-mode.js";
+import type { TuiCommand, TuiIo } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
 
 /** Scripted TuiIo: feeds idle inputs sequentially, captures renders.

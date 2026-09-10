@@ -22,7 +22,7 @@ import { buildSkillIndex } from "../../core/tools/index.js";
 import { listMcpServers, testMcpServer } from "../../core/tools/mcp-mount.js";
 import { buildSessionCommands } from "./tui-commands-session.js";
 import { formatTokens } from "./tui-format.js";
-import type { TuiIo, TuiModeOptions } from "./tui-mode.js";
+import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
 
 export interface CommandDef {

@@ -19,130 +19,24 @@ import {
   loadInputHistory,
   saveInputHistory,
 } from "../../core/session/input-history.js";
-import type { SessionBranchNode } from "../../core/session/session-file.js";
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
 import { runBashPtyConsole } from "./pty-console.js";
 import { SettingsOverlay } from "./settings-overlay.js";
+import { layoutBranchTree } from "./tui-branch-layout.js";
 import { HistorySearchOverlay, OmaTranscriptContainer, PickerOverlay } from "./tui-components.js";
 import { EDITOR_THEME, relativeTime, WELCOME_TIPS } from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
-import type { TuiCommand, TuiIo } from "./tui-mode.js";
+import { pickNotice, pickOne } from "./tui-overlays.js";
 import { TuiRenderShell } from "./tui-render.js";
+import type { TuiCommand, TuiIo } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
 
-/** Pre-order branch-tree rows with git-graph prefixes (pi tree-selector
- *  semantics): indent grows only at branch points, single-child chains stay
- *  flat, ancestors leave "│" rails at their fork columns. */
-export function layoutBranchTree(
-  nodes: ReadonlyArray<SessionBranchNode>,
-): Array<{ node: SessionBranchNode; prefix: string }> {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const childrenOf = new Map<string, SessionBranchNode[]>();
-  const roots: SessionBranchNode[] = [];
-  for (const n of nodes) {
-    if (n.parentId && byId.has(n.parentId)) {
-      const arr = childrenOf.get(n.parentId) ?? [];
-      arr.push(n);
-      childrenOf.set(n.parentId, arr);
-    } else {
-      roots.push(n);
-    }
-  }
-  const multipleRoots = roots.length > 1;
-  type Gutter = { position: number; show: boolean };
-  // [node, lane, justBranched, showConnector, isLast, gutters, isVirtualRootChild]
-  type StackItem = [SessionBranchNode, number, boolean, boolean, boolean, Gutter[], boolean];
-  const rows: Array<{ node: SessionBranchNode; prefix: string }> = [];
-  const stack: StackItem[] = [];
-  for (let i = roots.length - 1; i >= 0; i--) {
-    stack.push([
-      roots[i]!,
-      multipleRoots ? 1 : 0,
-      multipleRoots,
-      multipleRoots,
-      i === roots.length - 1,
-      [],
-      multipleRoots,
-    ]);
-  }
-  while (stack.length > 0) {
-    const [node, lane, justBranched, showConnector, isLast, gutters, isVirtualRootChild] =
-      stack.pop()!;
-    const displayIndent = multipleRoots ? Math.max(0, lane - 1) : lane;
-    const connectorLevel = showConnector && !isVirtualRootChild ? displayIndent - 1 : -1;
-    const cells: string[] = [];
-    for (let level = 0; level < displayIndent; level++) {
-      const gutter = gutters.find((g) => g.position === level);
-      if (level === connectorLevel) cells.push(isLast ? "└─ " : "├─ ");
-      else cells.push(gutter?.show ? "│  " : "   ");
-    }
-    rows.push({ node, prefix: cells.join("") });
-
-    const children = childrenOf.get(node.id) ?? [];
-    const multipleChildren = children.length > 1;
-    const childLane = multipleChildren || (justBranched && lane > 0) ? lane + 1 : lane;
-    const connectorDisplayed = showConnector && !isVirtualRootChild;
-    const childGutters = connectorDisplayed
-      ? [...gutters, { position: Math.max(0, displayIndent - 1), show: !isLast }]
-      : gutters;
-    for (let i = children.length - 1; i >= 0; i--) {
-      stack.push([
-        children[i]!,
-        childLane,
-        multipleChildren,
-        multipleChildren,
-        i === children.length - 1,
-        childGutters,
-        false,
-      ]);
-    }
-  }
-  return rows;
-}
-
-/** One-shot SelectList overlay; resolves the picked value or null on esc. */
-function pickOne(
-  tui: TUI,
-  title: string,
-  items: ReadonlyArray<{ value: string; label: string; description?: string }>,
-): Promise<string | null> {
-  const { promise, resolve } = Promise.withResolvers<string | null>();
-  const list = new SelectList([...items], 10, EDITOR_THEME.selectList, {
-    minPrimaryColumnWidth: 6,
-    maxPrimaryColumnWidth: 42,
-  });
-  const overlayBox = new PickerOverlay(new Text(title, 0, 0), list);
-  const overlay = tui.showOverlay(overlayBox, { width: "70%", anchor: "center" });
-  list.onSelect = (item: { value: string }) => {
-    overlay.hide();
-    resolve(item.value);
-  };
-  list.onCancel = () => {
-    overlay.hide();
-    resolve(null);
-  };
-  return promise;
-}
-
-/** Notice-only overlay; resolves true when dismissed, null is not needed. */
-function pickNotice(tui: TUI, title: string): Promise<boolean> {
-  const { promise, resolve } = Promise.withResolvers<boolean>();
-  const list = new SelectList([{ value: "ok", label: "ok" }], 1, EDITOR_THEME.selectList, {
-    minPrimaryColumnWidth: 2,
-    maxPrimaryColumnWidth: 4,
-  });
-  const overlayBox = new PickerOverlay(new Text(title, 0, 0), list);
-  const overlay = tui.showOverlay(overlayBox, { width: "60%", anchor: "center" });
-  list.onSelect = () => {
-    overlay.hide();
-    resolve(true);
-  };
-  list.onCancel = () => {
-    overlay.hide();
-    resolve(true);
-  };
-  return promise;
-}
+/** TERMINAL WIRING: keys, editor, overlays, history, busy/status, and the
+ *  TuiIo implementation the session loop drives. The pure pieces live next
+ *  door — branch-tree layout in ./tui-branch-layout.ts, modal pickers in
+ *  ./tui-overlays.ts, rendering in ./tui-render.ts, view state in
+ *  ./view-state.ts. What is left here is genuinely the driver: it owns the
+ *  terminal and the closure state the driver's callbacks share. */
 
 export function createTerminalIo(
   terminal: Terminal = new ProcessTerminal(),
