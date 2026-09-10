@@ -1,5 +1,5 @@
 import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
-import type { PluginTool } from "../agent-runtime.js";
+import type { PluginTool } from "../index.js";
 
 function normalizeInput(
   args: Readonly<Record<string, unknown>>,

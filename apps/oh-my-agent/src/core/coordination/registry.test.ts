@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createInMemorySessionStore } from "../agent-runtime.js";
+import { createInMemorySessionStore } from "../index.js";
 import { type CoordinationRegistry, createCoordinationRegistry } from "./registry.js";
 
 /** Each test gets its OWN registry: the table is an injected instance, so

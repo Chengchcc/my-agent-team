@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
-import type { PluginTool } from "../agent-runtime.js";
 import { defaultRegistry } from "../coordination/registry.js";
+import type { PluginTool } from "../index.js";
 import { createDelegationExecutor, createDelegationFixture } from "./executor.fixture.js";
 
 const { events, makeDeps } = createDelegationFixture();

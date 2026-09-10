@@ -1,4 +1,4 @@
-import type { Plugin, PluginTool } from "../agent-runtime.js";
+import type { Plugin, PluginTool } from "../index.js";
 import { normalizeTodoItems, type TodoStore } from "./todo-store.js";
 
 export interface TodoPluginOptions {

@@ -1,5 +1,11 @@
-// Phase 2: Oma Runtime
+// Public surface of the oma runtime core.
 //
+// This file is `core/index.ts` on purpose: it is a BARREL, not the runtime.
+// It used to be `core/agent-runtime.ts`, which read like "the runtime" even
+// though every symbol it exports comes from a subdirectory (the loop lives in
+// ./runtime/, the stores in ./persistence/). Import from here so callers keep
+// one stable seam; read ./runtime/README.md for the loop's file map.
+
 // Persistence
 
 export { createInMemorySessionStore } from "./persistence/in-memory-session-store.js";

@@ -1,4 +1,4 @@
-import type { PluginTool } from "../agent-runtime.js";
+import type { PluginTool } from "../index.js";
 import type { EntryRow, RegistryEntry } from "./registry.js";
 
 export interface HubToolDeps {

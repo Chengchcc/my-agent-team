@@ -1,5 +1,5 @@
-import type { SessionStore } from "../agent-runtime.js";
 import type { SubagentResult, SubagentSpec } from "../delegation/executor.js";
+import type { SessionStore } from "../index.js";
 
 export type EntryStatus = "running" | "completed" | "failed" | "stopped";
 export type EntryKind = "bash" | "eval" | "subagent";

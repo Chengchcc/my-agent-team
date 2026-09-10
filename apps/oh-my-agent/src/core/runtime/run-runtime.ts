@@ -8,6 +8,10 @@ import {
 } from "@chengchenccc/agent-contract";
 import { type ModelRuntime, type ModelRuntimeEntry, resolveModelAlias } from "@chengchenccc/ai";
 import type { AIMessageChunk, JsonSchema, Message } from "@chengchenccc/message";
+import { createHubTool } from "../coordination/index.js";
+import { type CoordinationRegistry, createCoordinationRegistry } from "../coordination/registry.js";
+import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
+import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
 import {
   type ContextBudget,
   type ContextSummarizer,
@@ -19,11 +23,7 @@ import {
   type PluginRuntime,
   type PluginTool,
   type SessionStore,
-} from "../agent-runtime.js";
-import { createHubTool } from "../coordination/index.js";
-import { type CoordinationRegistry, createCoordinationRegistry } from "../coordination/registry.js";
-import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
-import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
+} from "../index.js";
 import { createLearnTool } from "../memory/learn.js";
 import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
 import { createOrchestrateTool } from "../orchestrate/tool.js";

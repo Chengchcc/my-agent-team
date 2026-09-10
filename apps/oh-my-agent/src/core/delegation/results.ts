@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { OmaSession } from "../agent-runtime.js";
+import type { OmaSession } from "../index.js";
 import type { SubagentResult, SubagentSpec } from "./executor.js";
 
 /** A3 fan-in size guard: per-item inline ceiling, total inline budget, and

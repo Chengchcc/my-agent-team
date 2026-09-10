@@ -1,5 +1,5 @@
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
-import type { OmaLoopEvent } from "../../core/agent-runtime.js";
+import type { OmaLoopEvent } from "../../core/index.js";
 
 /** Pure view model for the TUI transcript: folds OmaLoopEvents into the
  *  lines the renderer draws. No terminal I/O - fully unit-testable. */

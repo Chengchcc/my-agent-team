@@ -8,8 +8,8 @@ import type {
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { ProcessTerminal, type SlashCommand } from "@chengchenccc/tui";
 import { buildCliRunInput } from "../../cli/initial-input.js";
-import type { OmaLoopEvent } from "../../core/agent-runtime.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
+import type { OmaLoopEvent } from "../../core/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 

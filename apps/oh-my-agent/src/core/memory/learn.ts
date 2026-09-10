@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PluginTool } from "../agent-runtime.js";
+import type { PluginTool } from "../index.js";
 
 /** Explicit durable-lesson capture (omp learn tool, local backend): newest
  *  first in `.oma/memory/learned.md`, deduplicated by normalized content,

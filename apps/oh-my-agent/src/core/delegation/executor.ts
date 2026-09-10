@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { ProjectedHistoryItem, Usage } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk, JsonSchema, Message } from "@chengchenccc/message";
 import subagentPrompt from "../../prompts/agents/subagent.md" with { type: "text" };
+import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
 import {
   type ContextBudget,
   type ContextSummarizer,
@@ -11,8 +12,7 @@ import {
   type OmaLoopEvent,
   type OmaSession,
   type PluginTool,
-} from "../agent-runtime.js";
-import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
+} from "../index.js";
 import { createSpawnPool, GateError } from "./pool.js";
 import { parseAndValidate, spillResults } from "./results.js";
 

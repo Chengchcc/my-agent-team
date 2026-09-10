@@ -1,5 +1,5 @@
-import type { PluginTool } from "../agent-runtime.js";
 import { isValidWorkflowName } from "../delegation/roles.js";
+import type { PluginTool } from "../index.js";
 
 export interface OrchestrationScriptResult {
   readonly ok: boolean;
