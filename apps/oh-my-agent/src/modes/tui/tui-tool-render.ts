@@ -134,6 +134,32 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean): string[]
   return lines;
 }
 
+/** learn 工具块（omp Learn label + summary 风格）：展示教训正文而非 args JSON。 */
+export function renderLearnTool(item: TranscriptItem, expanded: boolean): string[] {
+  const lines: string[] = ["\u001b[36m  learn\u001b[0m"];
+  const input = item.input as Record<string, unknown> | undefined;
+  const memory = typeof input?.memory === "string" ? input.memory.trim() : "";
+  if (memory) {
+    const text = memory.replace(/\s+/g, " ").slice(0, expanded ? 400 : 160);
+    lines.push(`\u001b[2m    ${text}\u001b[0m`);
+  }
+  const context = typeof input?.context === "string" && input.context.trim() ? input.context.trim() : "";
+  if (context) lines.push(`\u001b[2m    @ ${context.replace(/\s+/g, " ").slice(0, expanded ? 200 : 80)}\u001b[0m`);
+  const result = item.result as Record<string, unknown> | undefined;
+  if (result) {
+    if (result.learned === true) {
+      lines.push("\u001b[32m    ✓ stored\u001b[0m");
+    } else if (result.reason) {
+      lines.push(`\u001b[2m    ${String(result.reason)}\u001b[0m`);
+    } else if (result.error) {
+      lines.push(`\u001b[31m    ${String(result.error)}\u001b[0m`);
+    }
+  } else if (item.streaming) {
+    lines.push("\u001b[2m    ⟳ capturing…\u001b[0m");
+  }
+  return lines;
+}
+
 function todoItems(item: TranscriptItem): Array<{ id: string; text: string; status: string }> {
   const candidates: unknown[] = [];
   const result = item.result as Record<string, unknown> | undefined;

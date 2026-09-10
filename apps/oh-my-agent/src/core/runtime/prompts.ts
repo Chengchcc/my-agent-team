@@ -32,13 +32,36 @@ export function buildSystemPrompt(input: {
   return parts.join("\n\n");
 }
 
-/** Workspace memory summary for prompt injection (absent when the agent
- *  has never written memories). */
+/** Approximate token cap for the memory block injected into the system
+ *  prompt (omp memories.summaryInjectionTokenLimit, ~4 chars/token). */
+const MEMORY_INJECTION_CHARS = 5000;
+
+/** Workspace memory block for prompt injection: the consolidated summary
+ *  plus the tail of explicit lessons (learn tool). Absent when the agent
+ *  has never written memories. */
 export function readMemorySummary(cwd: string): string | undefined {
+  const memDir = join(cwd, ".oma", "memory");
+  let summary = "";
+  let learned = "";
   try {
-    const text = readFileSync(join(cwd, ".oma", "memory", "memory_summary.md"), "utf-8");
-    return text.trim() || undefined;
+    summary = readFileSync(join(memDir, "memory_summary.md"), "utf-8").trim();
   } catch {
-    return undefined;
+    /* no summary yet */
   }
+  try {
+    const lines = readFileSync(join(memDir, "learned.md"), "utf-8")
+      .split("\n")
+      .filter((l) => l.trim());
+    learned = lines.slice(0, 40).join("\n").trim();
+  } catch {
+    /* no lessons yet */
+  }
+  const merged = [summary, learned ? `## Learned lessons\n${learned}` : ""]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+  if (!merged) return undefined;
+  return merged.length > MEMORY_INJECTION_CHARS
+    ? `${merged.slice(0, MEMORY_INJECTION_CHARS)}\n…[memory truncated]`
+    : merged;
 }

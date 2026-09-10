@@ -59,6 +59,7 @@ import {
   withCallTimeout,
 } from "../tools/mcp-mount.js";
 import { createSkill } from "../tools/skill.js";
+import { createLearnTool } from "../memory/learn.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore, readTodoFile } from "../tools/todo-store.js";
 import { type ApprovalHandler, approvalTimeoutMs, withApprovalDeadline } from "./approval.js";
@@ -453,6 +454,14 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // per-mode enableNativeTodo flag.
   const hasInjectedTodo = mounted.tools.some((t) => t.name === "todo_write");
   const todoAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "todo_write") : true;
+  // Explicit durable-lesson capture (omp learn tool, local backend). The
+  // workspace file must never steer the product: read_write workspaces only.
+  if (deps.workspaceAccess === "read_write") {
+    plugins.push({
+      name: "oma-native-learn",
+      tools: [createLearnTool({ workspaceRoot: deps.workspaceRoot })],
+    });
+  }
   const nativeTodoWanted = !hasInjectedTodo && todoAllowed;
   if (nativeTodoWanted) {
     const todoStore = createFileTodoStore(deps.workspaceRoot);

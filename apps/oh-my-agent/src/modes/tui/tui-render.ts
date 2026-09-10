@@ -28,7 +28,7 @@ import {
   summarizeToolArgs,
   USER_TEXT_STYLE,
 } from "./tui-format.js";
-import { renderHubTool, renderTaskTool, renderTodoTool } from "./tui-tool-render.js";
+import { renderHubTool, renderLearnTool, renderTaskTool, renderTodoTool } from "./tui-tool-render.js";
 import { TuiTranscriptReconciler } from "./tui-transcript-reconciler.js";
 import type { TranscriptItem, TuiViewState } from "./view-state.js";
 
@@ -130,6 +130,9 @@ export class TuiItemRenderer {
     }
     if (toolName === "hub") {
       return renderHubTool(item, expanded);
+    }
+    if (toolName === "learn") {
+      return renderLearnTool(item, expanded);
     }
     const failed =
       item.result !== undefined &&

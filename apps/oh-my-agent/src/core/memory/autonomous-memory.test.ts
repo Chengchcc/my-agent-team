@@ -57,12 +57,15 @@ afterEach(() => {
 });
 
 describe("extractAutonomousMemory", () => {
-  test("extracts facts and merges the summary", async () => {
+  test("extracts facts and writes the consolidated summary + MEMORY.md", async () => {
     const { runtime, calls } = makeRuntime([
       JSON.stringify({
         facts: [{ content: "JWT expiry is 15m", context: "auth-service.ts" }],
       }),
-      "## Key Decisions\n- JWT expiry 15m",
+      JSON.stringify({
+        summary: "## Key Decisions\n- JWT expiry 15m",
+        memory: "# Long-term Memory\n## Decisions\n- JWT expiry 15m",
+      }),
     ]);
     const root = freshWorkspace();
 
@@ -83,6 +86,9 @@ describe("extractAutonomousMemory", () => {
     expect(readFileSync(factsFile, "utf-8")).toContain("JWT expiry is 15m");
     expect(readFileSync(join(root, ".oma", "memory", "memory_summary.md"), "utf-8")).toContain(
       "Key Decisions",
+    );
+    expect(readFileSync(join(root, ".oma", "memory", "MEMORY.md"), "utf-8")).toContain(
+      "Long-term Memory",
     );
   });
 

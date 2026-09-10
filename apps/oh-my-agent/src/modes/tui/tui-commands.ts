@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import { readMemorySummary } from "../../core/runtime/prompts.js";
 import { join } from "node:path";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
 import {
@@ -417,6 +418,26 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           `skills (${skills.length}):`,
           ...skills.map((sk) => `  /skill:${sk.name} — ${sk.description || "(no description)"}`),
         ]);
+      },
+    },
+    {
+      name: "memory",
+      description: "view or clear workspace memory (.oma/memory)",
+      argumentHint: "<view|clear>",
+      group: "memory",
+      run: (args) => {
+        const memDir = join(ctx.opts.workspaceRoot, ".oma", "memory");
+        if (args === "clear") {
+          rmSync(memDir, { recursive: true, force: true });
+          ctx.pushStatus("memory cleared");
+          return;
+        }
+        const summary = readMemorySummary(ctx.opts.workspaceRoot);
+        if (!summary) {
+          ctx.pushStatus(`no memory yet (looked in ${memDir})`);
+          return;
+        }
+        ctx.pushStatus(["memory:", ...summary.split("\n").slice(0, 12).map((l) => `  ${l}`)]);
       },
     },
     {

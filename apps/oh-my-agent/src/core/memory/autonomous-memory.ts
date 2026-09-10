@@ -42,11 +42,16 @@ When in doubt, don't write.
 Return STRICT JSON only:
 {"facts":[{"content":"one durable lesson","context":"where it applies (file/module/scope)"}]}`;
 
-const CONSOLIDATE_PROMPT = `You maintain the agent's long-term memory summary
-(memory/memory_summary.md). Merge the NEW facts into the EXISTING summary,
-keeping it a compact digest of durable knowledge. Drop facts already
-covered, and drop anything that is static configuration or re-derivable
-from the repo. Return the new summary text only (markdown), no preamble.`;
+const CONSOLIDATE_PROMPT = `You maintain the agent's long-term memory artifacts
+(.oma/memory/MEMORY.md and .oma/memory/memory_summary.md). Merge the NEW
+facts into the EXISTING artifacts:
+- MEMORY.md: a curated long-term document, grouped thematically, keeping
+  every durable lesson with enough context to act on.
+- memory_summary.md: the compact digest injected into the system prompt
+  at session start.
+Drop facts already covered and anything static or re-derivable from the
+repo. Return STRICT JSON only:
+{"summary":"compact digest","memory":"curated long-term document"}`;
 
 const EXTRACT_TIMEOUT_MS = 60_000;
 const TRANSCRIPT_BUDGET_CHARS = 8_000;
@@ -113,12 +118,19 @@ export async function extractAutonomousMemory(
     writeFileSync(join(factsDir, `${input.runId}.md`), renderFacts(input.runId, fresh), "utf-8");
 
     const oldSummary = readTextOrNull(join(memDir, "memory_summary.md"));
-    const newSummary = await callModel(
+    const oldMemory = readTextOrNull(join(memDir, "MEMORY.md"));
+    const raw = await callModel(
       input.modelRuntime,
       modelRef,
-      `${CONSOLIDATE_PROMPT}\n\n<existing_summary>\n${oldSummary ?? "(none)"}\n</existing_summary>\n\n<new_facts>\n${renderFacts(input.runId, fresh)}\n</new_facts>`,
+      `${CONSOLIDATE_PROMPT}\n\n<existing_summary>\n${oldSummary ?? "(none)"}\n</existing_summary>\n\n<existing_memory>\n${oldMemory ?? "(none)"}\n</existing_memory>\n\n<new_facts>\n${renderFacts(input.runId, fresh)}\n</new_facts>`,
     );
-    if (newSummary) writeFileSync(join(memDir, "memory_summary.md"), newSummary, "utf-8");
+    const consolidated = parseConsolidation(raw);
+    if (consolidated.summary) {
+      writeFileSync(join(memDir, "memory_summary.md"), consolidated.summary, "utf-8");
+    }
+    if (consolidated.memory) {
+      writeFileSync(join(memDir, "MEMORY.md"), consolidated.memory, "utf-8");
+    }
     return { ran: true, freshFacts: fresh.length };
   } catch (err) {
     // Memory is best-effort: never fail or slow the Run over it.
@@ -199,6 +211,20 @@ function parseFacts(raw: string): ExtractedFact[] {
   return parsed.facts.filter(
     (f): f is ExtractedFact => typeof f?.content === "string" && f.content.trim().length > 0,
   );
+}
+
+function parseConsolidation(raw: string): { summary?: string; memory?: string } {
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return {};
+  try {
+    const parsed = JSON.parse(m[0]) as { summary?: unknown; memory?: unknown };
+    return {
+      ...(typeof parsed.summary === "string" && parsed.summary.trim() ? { summary: parsed.summary.trim() } : {}),
+      ...(typeof parsed.memory === "string" && parsed.memory.trim() ? { memory: parsed.memory.trim() } : {}),
+    };
+  } catch {
+    return {};
+  }
 }
 
 function renderFacts(runId: string, facts: readonly ExtractedFact[]): string {
