@@ -4,7 +4,7 @@ import { createHubTool, type HubToolDeps } from "./hub-tool.js";
 function makeDeps(overrides: Partial<HubToolDeps> = {}): HubToolDeps {
   return {
     scope: "s1",
-    list: (scope) => [
+    list: (_scope) => [
       { id: "bg_1", kind: "bash", status: "completed", label: "echo hi", partialText: "hi" },
     ],
     get: (id) =>
@@ -35,7 +35,14 @@ describe("hub tool", () => {
 
   test("jobs passes the scope through and returns rows", async () => {
     let seenScope = "";
-    const [hub] = createHubTool(makeDeps({ list: (scope) => ((seenScope = scope), []) }));
+    const [hub] = createHubTool(
+      makeDeps({
+        list: (scope) => {
+          seenScope = scope;
+          return [];
+        },
+      }),
+    );
     const out = (await hub.execute({ op: "jobs" })) as { items: unknown[] };
     expect(seenScope).toBe("s1");
     expect(out.items).toEqual([]);
@@ -59,7 +66,12 @@ describe("hub tool", () => {
 
   test("steer validates handle and prompt, stop delegates", async () => {
     const stops: string[] = [];
-    const [hub] = createHubTool(makeDeps({ stop: (id) => (stops.push(id), { ok: true }) }));
+    const [hub] = createHubTool(makeDeps({
+        stop: (id) => {
+          stops.push(id);
+          return { ok: true };
+        },
+      }));
     const noPrompt = (await hub.execute({ op: "steer", id: "sub-1" })) as { ok: boolean };
     expect(noPrompt.ok).toBe(false);
     const ok = (await hub.execute({ op: "steer", id: "sub-1", prompt: "go on" })) as {
