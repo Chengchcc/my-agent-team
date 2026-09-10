@@ -1,7 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createEvalTool } from "./eval.js";
+import { clearAll, getEntry } from "../coordination/registry.js";
 
-const evalTool = createEvalTool({ workspaceRoot: process.cwd() });
+const evalTool = createEvalTool({ workspaceRoot: process.cwd(), scope: "test" });
+
+afterEach(() => clearAll());
 
 describe("evalTool", () => {
   test("evaluates a snippet and returns the result", async () => {
@@ -24,12 +27,8 @@ describe("evalTool", () => {
     expect(result.content).toContain('"ok": true');
   }, 15_000);
 
-  test("jobAction=list with no jobs", async () => {
-    const result = await evalTool.execute({ description: "d", jobAction: "list" });
-    expect(result.content).toInclude("no background jobs");
-  });
 
-  test("async=true backgrounds a job; result pollable via jobAction", async () => {
+  test("async=true registers a coordination entry with the result", async () => {
     const started = await evalTool.execute({
       description: "bg",
       code: "export default async () => ({ done: true })",
@@ -38,36 +37,13 @@ describe("evalTool", () => {
     expect(started.content).toMatch(/Backgrounded as job eval_\d+/);
     const jobId = /eval_\d+/.exec(started.content)?.[0] ?? "";
 
-    let polled = "";
-    for (let i = 0; i < 40 && !polled.includes('"done": true'); i++) {
-      await new Promise((r) => setTimeout(r, 100));
-      polled = (await evalTool.execute({ description: "d", jobAction: "output", jobId })).content;
+    const deadline = Date.now() + 10_000;
+    while (getEntry(jobId)?.status === "running" && Date.now() < deadline) {
+      await Bun.sleep(50);
     }
-    expect(polled).toContain("job");
-    expect(polled).toContain('"done": true');
+    const e = getEntry(jobId)!;
+    expect(e.status).toBe("completed");
+    expect(e.output).toContain('"done": true');
   }, 15_000);
 
-  test("jobAction=kill aborts a running job", async () => {
-    const started = await evalTool.execute({
-      description: "bg-long",
-      code: "export default async () => { await Bun.sleep(10_000); return {}; }",
-      async: true,
-      timeout: 0,
-    });
-    const jobId = /eval_\d+/.exec(started.content)?.[0] ?? "";
-    const killed = await evalTool.execute({ description: "d", jobAction: "kill", jobId });
-    expect(killed.content).toInclude("Killed");
-    const output = await evalTool.execute({ description: "d", jobAction: "output", jobId });
-    expect(output.content).toContain("killed");
-  }, 15_000);
-
-  test("unknown jobId errors", async () => {
-    const result = await evalTool.execute({
-      description: "d",
-      jobAction: "output",
-      jobId: "eval_999",
-    });
-    expect(result.isError).toBe(true);
-    expect(result.content).toInclude("unknown job");
-  });
 });

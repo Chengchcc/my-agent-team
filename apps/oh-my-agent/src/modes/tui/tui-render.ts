@@ -13,8 +13,7 @@ import {
   truncateToWidth,
   wrapTextWithAnsi,
 } from "@chengchenccc/tui";
-import { countRunningBashJobs } from "../../core/tools/bash.js";
-import { countRunningEvalJobs } from "../../core/tools/eval.js";
+import { countRunningJobs } from "../../core/coordination/registry.js";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import {
   cleanHeaderTitle,
@@ -29,7 +28,7 @@ import {
   summarizeToolArgs,
   USER_TEXT_STYLE,
 } from "./tui-format.js";
-import { renderTaskTool, renderTodoTool } from "./tui-tool-render.js";
+import { renderHubTool, renderTaskTool, renderTodoTool } from "./tui-tool-render.js";
 import { TuiTranscriptReconciler } from "./tui-transcript-reconciler.js";
 import type { TranscriptItem, TuiViewState } from "./view-state.js";
 
@@ -126,8 +125,11 @@ export class TuiItemRenderer {
     if (toolName === "todo" || toolName === "todo_read" || toolName === "todo_write") {
       return renderTodoTool(item, expanded);
     }
-    if (toolName === "task" || toolName === "task_list" || toolName === "task_output") {
+    if (toolName === "task") {
       return renderTaskTool(item, expanded);
+    }
+    if (toolName === "hub") {
+      return renderHubTool(item, expanded);
     }
     const failed =
       item.result !== undefined &&
@@ -426,7 +428,7 @@ ${item.text ?? ""}`;
     }
     segs.push({ text: formatWorkspace(this.workspaceRoot), fg: "\u001b[38;5;39m" });
     // M-bash/M-eval: surface running background jobs (bash bg_N / eval eval_N).
-    const runningBg = countRunningBashJobs() + countRunningEvalJobs();
+    const runningBg = countRunningJobs();
     if (runningBg > 0) {
       segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: "\u001b[48;5;22m" });
     }

@@ -23,53 +23,17 @@ export function renderTodoTool(item: TranscriptItem, expanded: boolean): string[
   return lines;
 }
 
-/** omp-style plain-list task rendering (no card/box). Covers the
- *  delegation surface: task (batch/single), task_list, task_output. */
+/** omp-style plain-list task rendering (no card/box): batch/single spawn
+ *  surface only — control ops render via renderHubTool. */
 export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[] {
-  const toolName = item.text.replace(/…$/, "");
   const label = typeof item.input?.label === "string" ? item.input.label : "";
-  const title = `${toolName}${label ? ` · ${label}` : ""}`;
-  const lines: string[] = [`\u001b[36m  ${title}\u001b[0m`];
+  const lines: string[] = [`\u001b[36m  task${label ? ` · ${label}` : ""}\u001b[0m`];
   const result = item.result;
-  const asRecord = (v: unknown): Record<string, unknown> =>
-    typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
-  // task_list: { tasks: [{handle, label, status, usage?}] }
-  if (toolName === "task_list" && result && Array.isArray(asRecord(result).tasks)) {
-    const tasks = asRecord(result).tasks as Array<Record<string, unknown>>;
-    if (tasks.length === 0) lines.push("\u001b[2m    (no live tasks)\u001b[0m");
-    for (const t of tasks) {
-      const status = String(t.status ?? "?");
-      const mark =
-        status === "running"
-          ? "\u27f3"
-          : status === "failed" || status === "stopped"
-            ? "\u2718"
-            : "\u2714";
-      lines.push(`\u001b[2m  ${mark} ${String(t.label ?? t.handle ?? "")} [${status}]\u001b[0m`);
-    }
-    return lines;
-  }
-  // task_output: { handle, status, partialText?, result: SubagentResult }
-  if (toolName === "task_output") {
-    const status = String(asRecord(result).status ?? "");
-    if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
-    const partialText = String(asRecord(result).partialText ?? "");
-    if (partialText.trim()) {
-      lines.push(`\u001b[2m    ${partialText.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
-    }
-    const nested = asRecord(result).result;
-    if (nested && typeof nested === "object") {
-      const nestedText = String(asRecord(nested).text ?? "");
-      if (nestedText.trim()) {
-        lines.push(`\u001b[2m    ${nestedText.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
-      }
-    }
-    if (lines.length === 1) lines.push("\u001b[2m    (unknown handle)\u001b[0m");
-    return lines;
-  }
-  const status = String(asRecord(result).status ?? "");
+  const status = result && typeof result === "object" && "status" in result ? String(result.status) : "";
   if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
   // Batch: { ok, content, results: [{index, name, agent, ok, text|error, ...}] }
+  const asRecord = (v: unknown): Record<string, unknown> =>
+    typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
   const results = Array.isArray(asRecord(result).results)
     ? (asRecord(result).results as Array<Record<string, unknown>>)
     : [];
@@ -91,7 +55,6 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
     }
     return lines;
   }
-  // Single mode / script result: content or top-level text.
   const content =
     typeof result?.content === "string"
       ? result.content
@@ -106,6 +69,63 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
     lines.push(`\u001b[2m    ⟳ running…\u001b[0m`);
   } else if (lines.length === 1) {
     lines.push(`\u001b[2m    (done)\u001b[0m`);
+  }
+  return lines;
+}
+
+/** hub 工具块：jobs/output/wait/steer/stop 的纯文本渲染。 */
+export function renderHubTool(item: TranscriptItem, expanded: boolean): string[] {
+  const lines: string[] = ["\u001b[36m  hub\u001b[0m"];
+  const input = item.input as Record<string, unknown> | undefined;
+  const op = typeof input?.op === "string" ? input.op : "";
+  const result = item.result as Record<string, unknown> | undefined;
+  const rows = (v: unknown): Array<Record<string, unknown>> =>
+    Array.isArray(v) ? (v as Array<Record<string, unknown>>) : [];
+  if (op === "jobs" || op === "wait") {
+    const items = rows(result?.items ?? result?.waited);
+    if (items.length === 0) {
+      lines.push(
+        op === "wait"
+          ? `\u001b[2m    ${result?.timedOut ? "timed out" : "nothing to wait for"}\u001b[0m`
+          : "\u001b[2m    (no background work)\u001b[0m",
+      );
+    }
+    for (const r of items) {
+      const status = String(r.status ?? "?");
+      const mark =
+        status === "running" ? "⟳" : status === "failed" || status === "stopped" ? "✘" : "✔";
+      lines.push(
+        `\u001b[2m  ${mark} ${String(r.id)} (${String(r.kind)}) [${status}] ${String(r.label ?? "").slice(0, 60)}\u001b[0m`,
+      );
+      const partial = typeof r.partialText === "string" && r.partialText.trim() ? r.partialText.trim() : "";
+      if (partial) lines.push(`\u001b[2m    ${partial.slice(0, expanded ? 400 : 120)}\u001b[0m`);
+    }
+    if (item.streaming) lines.push("\u001b[2m    ⟳ waiting…\u001b[0m");
+    return lines;
+  }
+  if (op === "output") {
+    const status = String(result?.status ?? "");
+    if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
+    const partial = typeof result?.partialText === "string" ? result.partialText : "";
+    if (partial.trim()) lines.push(`\u001b[2m    ${partial.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    const nested = result?.result;
+    if (nested && typeof nested === "object") {
+      const text = String((nested as Record<string, unknown>).text ?? "");
+      if (text.trim()) lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    }
+    if (lines.length === 1) lines.push("\u001b[2m    (unknown id)\u001b[0m");
+    return lines;
+  }
+  // steer / stop: { ok, error? }
+  const ok = result?.ok;
+  if (result) {
+    lines.push(
+      ok === false
+        ? `\u001b[31m    ${String(result.error ?? "failed")}\u001b[0m`
+        : "\u001b[2m    ok\u001b[0m",
+    );
+  } else if (item.streaming) {
+    lines.push("\u001b[2m    ⟳ waiting…\u001b[0m");
   }
   return lines;
 }

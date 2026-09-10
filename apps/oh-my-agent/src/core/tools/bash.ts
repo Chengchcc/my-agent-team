@@ -3,8 +3,16 @@ import type { Tool } from "@chengchenccc/message";
 import { ptyWrap, withPtyEnv } from "./bash-pty.js";
 import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";
-import { notifyBgJobCompletion } from "./bg-jobs.js";
+import {
+  appendEntryPartial,
+  getEntry,
+  notifyEntryCompletion,
+  registerEntry,
+  updateEntry,
+} from "../coordination/registry.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
+
+let nextJobSeq = 1;
 
 const descriptionParam = {
   type: "string" as const,
@@ -45,22 +53,6 @@ async function cappedText(stream: ReadableStream<Uint8Array>): Promise<string> {
   return total > MAX_OUTPUT_BYTES ? `${out}\n[output truncated at ${MAX_OUTPUT_BYTES} bytes]` : out;
 }
 
-// ─── Background jobs (M-bash) ──────────────────────────────────────────
-
-// Module-scope registry: session-wide for the TUI (jobs started in one
-// message stay pollable in later messages), per-process for the backend
-// (one oma process = one Run). Shared by every createBashTool instance.
-const jobs = new Map<string, BashJob>();
-let nextJobSeq = 1;
-const MAX_JOBS = 32;
-
-/** Running background bash jobs — surfaced by the TUI status bar. */
-export function countRunningBashJobs(): number {
-  let running = 0;
-  for (const j of jobs.values()) if (j.finishedAt === null) running++;
-  return running;
-}
-
 interface BashJob {
   id: string;
   command: string;
@@ -74,6 +66,7 @@ interface BashJob {
   timedOut: boolean;
   killed: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  settleResolve: () => void;
 }
 
 export interface BashPtyResult {
@@ -85,6 +78,8 @@ export interface BashPtyResult {
 
 export function createBashTool(opts: {
   workspaceRoot: string;
+  /** Coordination scope: TUI session key or backend run id. */
+  scope: string;
   /** Launch strategy; default Null = current unconstrained behavior. */
   sandbox?: BashSandbox;
   /** M-bash: interactive pty runner (TUI console overlay). When present,
@@ -97,6 +92,7 @@ export function createBashTool(opts: {
 }): Tool {
   const sandbox = new WorkspaceSandbox(opts.workspaceRoot);
   const launcher = opts.sandbox ?? new NullBashSandbox(opts.workspaceRoot);
+  const scope = opts.scope;
 
   function startJob(
     command: string,
@@ -119,8 +115,31 @@ export function createBashTool(opts: {
       timedOut: false,
       killed: false,
       timer: null,
+      settleResolve: () => {},
     };
-    jobs.set(id, job);
+    const kill = (): void => {
+      job.killed = true;
+      // BashSpawn.kill is SIGKILL-first and covers the process group.
+      proc.kill();
+    };
+    const { promise: settle, resolve: settleResolve } = Promise.withResolvers<void>();
+    job.settleResolve = settleResolve;
+    const reg = registerEntry({
+      id,
+      kind: "bash",
+      scope,
+      label: command,
+      startedAt: job.startedAt,
+      status: "running",
+      finishedAt: null,
+      partialText: "",
+      settle,
+      kill,
+    });
+    if (!reg.ok) {
+      proc.kill();
+      throw new Error(reg.error);
+    }
     const pump = (stream: ReadableStream<Uint8Array>) => {
       void (async () => {
         const reader = stream.getReader();
@@ -128,9 +147,11 @@ export function createBashTool(opts: {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
           job.bytes += value.byteLength;
-          if (job.bytes <= MAX_OUTPUT_BYTES) job.output += decoder.decode(value, { stream: true });
+          if (job.bytes <= MAX_OUTPUT_BYTES) job.output += chunk;
           else job.truncated = true;
+          appendEntryPartial(id, chunk);
         }
       })();
     };
@@ -139,7 +160,7 @@ export function createBashTool(opts: {
     if (timeoutMs > 0) {
       job.timer = setTimeout(() => {
         job.timedOut = true;
-        job.proc.kill();
+        kill();
       }, timeoutMs);
     }
     void proc.exited
@@ -147,19 +168,24 @@ export function createBashTool(opts: {
         job.exitCode = code;
         job.finishedAt = Date.now();
         if (job.timer) clearTimeout(job.timer);
-        notifyBgJobCompletion({
-          id: job.id,
-          kind: "bash",
+        const settled = code === 0 && !job.timedOut && !job.killed;
+        updateEntry(id, {
+          status: settled ? "completed" : "failed",
+          finishedAt: job.finishedAt,
           exitCode: code,
           timedOut: job.timedOut,
           killed: job.killed,
           output: job.output.slice(-2000),
           isError: code !== 0 || job.timedOut,
         });
+        job.settleResolve();
+        const e = getEntry(id);
+        if (e) notifyEntryCompletion(e);
       })
       .catch(() => {
         job.finishedAt = Date.now();
         if (job.timer) clearTimeout(job.timer);
+        job.settleResolve();
       });
     return job;
   }
@@ -181,37 +207,27 @@ export function createBashTool(opts: {
     name: "bash",
     description:
       "Execute a bash shell command. Returns exit code, stdout, and stderr. Default timeout 30s, max 600s. " +
-      "Supports background execution (async) with polling via jobAction, and pseudo-terminal mode (pty) " +
-      "for commands that need a real TTY.",
+      "Supports background execution (async): returns a job id immediately; collect with the hub tool " +
+      "(output/wait/stop). Also supports pseudo-terminal mode (pty) for commands that need a real TTY.",
     inputSchema: {
       type: "object",
       properties: {
         description: descriptionParam,
         command: {
           type: "string",
-          description: "The shell command to execute (omit when jobAction is set)",
+          description: "The shell command to execute",
         },
         async: {
           type: "boolean",
           description:
-            "Run in the background: returns a job id immediately. Poll output with jobAction=output; " +
-            "the job keeps running until its timeout.",
+            "Run in the background: returns a job id immediately. Collect output with the hub tool " +
+            "(output/wait); the job keeps running until its timeout.",
         },
         pty: {
           type: "boolean",
           description:
             "Run under a pseudo-terminal (for commands that need a real TTY: colors, progress bars, " +
             "TUI programs). Ignored when async is true. Falls back with a notice when no pty tool exists.",
-        },
-        jobAction: {
-          type: "string",
-          enum: ["list", "output", "kill"],
-          description:
-            "Manage background jobs: list all, get one job's output/status (needs jobId), or kill it (needs jobId).",
-        },
-        jobId: {
-          type: "string",
-          description: "Background job id (bg_N) for jobAction=output/kill",
         },
         timeout: {
           type: "number",
@@ -230,43 +246,16 @@ export function createBashTool(opts: {
         timeout = defaultBashTimeoutMs(),
         cwd,
         pty = false,
-        jobAction,
-        jobId,
       } = input as {
         command: string;
         timeout?: number;
         cwd?: string;
         pty?: boolean;
-        jobAction?: "list" | "output" | "kill";
-        jobId?: string;
       };
 
       const upper = maxToolTimeoutMs();
       const cap = upper > 0 ? Math.min(upper, 600_000) : 600_000;
       const clamped = Math.min(Math.max(timeout, 1), cap);
-
-      // Background job management (M-bash): polling surface for jobs the
-      // model started with async=true. No command needed.
-      if (jobAction) {
-        if (jobAction === "list") {
-          if (jobs.size === 0) return { content: "(no background jobs)" };
-          const rows = [...jobs.values()].map((j) => {
-            const state = j.finishedAt === null ? "running" : "completed";
-            return `${j.id} [${state}] ${j.command}`;
-          });
-          return { content: rows.join("\n") };
-        }
-        const target = jobId ? jobs.get(jobId) : undefined;
-        if (!target) return { content: `Error: unknown job: ${jobId ?? "(none)"}`, isError: true };
-        if (jobAction === "kill") {
-          if (target.finishedAt === null) {
-            target.killed = true;
-            target.proc.kill();
-          }
-          return { content: `Killed ${target.id}` };
-        }
-        return { content: jobSummary(target) };
-      }
 
       if (!command) {
         return { content: "Error: command is required", isError: true };
@@ -296,22 +285,18 @@ export function createBashTool(opts: {
       let notice = "";
       let effectiveCommand = command;
 
-      // Background execution (M-bash): return a job id immediately; the
-      // model polls via jobAction=output. Runs BEFORE pty handling (pi
+      // Background execution (M-bash): register in the coordination registry
+      // and return a job id immediately. Runs BEFORE pty handling (pi
       // ordering: async wins, jobs stay headless).
       if ((input as { async?: boolean }).async === true) {
-        if (jobs.size >= MAX_JOBS) {
-          return {
-            content:
-              `Error: too many background jobs (${jobs.size}/${MAX_JOBS}); ` +
-              `collect or kill existing jobs first (jobAction=list/output/kill)`,
-            isError: true,
-          };
+        let job: BashJob;
+        try {
+          job = startJob(effectiveCommand, validatedCwd, bashEnv, clamped);
+        } catch (err) {
+          return { content: `Error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
         }
-        const job = startJob(effectiveCommand, validatedCwd, bashEnv, clamped);
-        const tail = job.output.length > 0 ? `${job.output.slice(-2000)}\n` : "";
         return {
-          content: `${tail}Backgrounded as job ${job.id}; fetch output with bash { "jobAction": "output", "jobId": "${job.id}" }.`,
+          content: `Backgrounded as job ${job.id}; collect with hub { "op": "output", "id": "${job.id}" } or hub { "op": "wait", "ids": ["${job.id}"] }.`,
         };
       }
 

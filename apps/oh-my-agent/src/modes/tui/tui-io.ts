@@ -20,7 +20,7 @@ import {
 } from "../../core/session/input-history.js";
 import type { SessionBranchNode } from "../../core/session/session-file.js";
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
-import { setBgJobCompletionListener } from "../../core/tools/bg-jobs.js";
+import { setEntryCompletionListener } from "../../core/coordination/registry.js";
 import { runBashPtyConsole } from "./pty-console.js";
 import { SettingsOverlay } from "./settings-overlay.js";
 import { HistorySearchOverlay, OmaTranscriptContainer, PickerOverlay } from "./tui-components.js";
@@ -156,7 +156,7 @@ export function createTerminalIo(
   // M-bash/M-eval: background job settlements land as transcript blocks.
   // Completions are debounced 1.5s so a finishing batch lands as ONE
   // injected message. OMA_BG_INJECT=0 degrades to transcript notices
-  // (model never sees them; poll via jobAction instead).
+  // (model never sees them; poll via hub output instead).
   const injections: string[] = [];
   function injectUserMessage(text: string): void {
     // Prefer a live waiter; otherwise queue for the next waitForInput.
@@ -170,16 +170,22 @@ export function createTerminalIo(
   }
   const bgPending: string[] = [];
   let bgDebounce: ReturnType<typeof setTimeout> | undefined;
-  setBgJobCompletionListener((c) => {
-    const state = c.killed
-      ? "killed"
-      : c.timedOut
-        ? "timed out"
-        : c.exitCode === null
-          ? "finished"
-          : `exit ${c.exitCode}`;
-    const tail = c.output.trim();
-    bgPending.push(`${c.id} (${c.kind}) ${state}${tail ? `\n${tail}` : ""}`);
+  setEntryCompletionListener((e) => {
+    const text =
+      e.kind === "subagent"
+        ? `${e.id} (${e.label}) ${
+            e.status === "completed" ? "ok" : e.status
+          }${e.result?.text ? `\n${e.result.text.trim().slice(0, 400)}` : ""}`
+        : `${e.id} (${e.kind}) ${
+            e.killed
+              ? "killed"
+              : e.timedOut
+                ? "timed out"
+                : e.exitCode === null || e.exitCode === undefined
+                  ? "finished"
+                  : `exit ${e.exitCode}`
+          }${e.output?.trim() ? `\n${e.output.trim().slice(0, 2000)}` : ""}`;
+    bgPending.push(text);
     if (bgDebounce) clearTimeout(bgDebounce);
     if (process.env.OMA_BG_INJECT === "0") {
       shell.appendNotice(bgPending.join("\n\n"));

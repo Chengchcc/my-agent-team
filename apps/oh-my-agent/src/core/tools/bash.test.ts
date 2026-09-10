@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createBashTool } from "./bash.js";
-import { setBgJobCompletionListener } from "./bg-jobs.js";
+import { clearAll, getEntry, setEntryCompletionListener } from "../coordination/registry.js";
 
-const bashTool = createBashTool({ workspaceRoot: process.cwd() });
+const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
+
+afterEach(() => clearAll());
 
 describe("bashTool", () => {
   test("exit code 0 returns stdout", async () => {
@@ -65,13 +67,10 @@ describe("bashTool", () => {
     await Bun.$`rm -rf ${tmpDir}`.quiet();
   });
 
-  test("jobAction=list with no jobs", async () => {
-    const result = await bashTool.execute({ command: "", jobAction: "list" });
-    expect(result.content).toInclude("no background jobs");
-  });
 
-  test("async=true backgrounds a job; output pollable via jobAction", async () => {
+  test("async=true registers a coordination entry; kill stops the process", async () => {
     const started = await bashTool.execute({
+      description: "d",
       command: "echo bg-hello && sleep 5",
       async: true,
       timeout: 20_000,
@@ -80,39 +79,41 @@ describe("bashTool", () => {
     const jobId = /bg_\d+/.exec(started.content)?.[0] ?? "";
     expect(started.content).not.toInclude("bg-hello");
 
-    // Eventually the output tail captures the echo.
-    let polled = "";
-    for (let i = 0; i < 40 && !polled.includes("bg-hello"); i++) {
+    // Eventually the registry entry captures the echo.
+    let partial = "";
+    for (let i = 0; i < 40 && !partial.includes("bg-hello"); i++) {
       await new Promise((r) => setTimeout(r, 100));
-      polled = (await bashTool.execute({ command: "", jobAction: "output", jobId })).content;
+      partial = getEntry(jobId)?.partialText ?? "";
     }
-    expect(polled).toContain("bg-hello");
+    expect(partial).toContain("bg-hello");
 
-    // Kill it before sleep finishes.
-    const killed = await bashTool.execute({ command: "", jobAction: "kill", jobId });
-    expect(killed.content).toInclude("Killed");
+    // Kill it before sleep finishes (process-group kill via BashSpawn.kill).
+    const e = getEntry(jobId)!;
+    e.kill?.();
+    const deadline = Date.now() + 5000;
+    while (getEntry(jobId)?.status === "running" && Date.now() < deadline) {
+      await Bun.sleep(50);
+    }
+    expect(getEntry(jobId)?.killed).toBe(true);
+    expect(getEntry(jobId)?.status).toBe("failed");
   }, 20_000);
 
   test("background job timeout kills the job (M-bash)", async () => {
     const started = await bashTool.execute({
+      description: "d",
       command: "sleep 30",
       async: true,
       timeout: 300,
     });
     const jobId = /bg_\d+/.exec(started.content)?.[0] ?? "";
-    let summary = "";
-    for (let i = 0; i < 60 && !summary.includes("completed"); i++) {
-      await new Promise((r) => setTimeout(r, 100));
-      summary = (await bashTool.execute({ command: "", jobAction: "output", jobId })).content;
+    const deadline = Date.now() + 10_000;
+    while (getEntry(jobId)?.status === "running" && Date.now() < deadline) {
+      await Bun.sleep(50);
     }
-    expect(summary).toContain("timed out");
+    expect(getEntry(jobId)?.timedOut).toBe(true);
+    expect(getEntry(jobId)?.status).toBe("failed");
   }, 15_000);
 
-  test("unknown jobId errors", async () => {
-    const result = await bashTool.execute({ command: "", jobAction: "output", jobId: "bg_999" });
-    expect(result.isError).toBe(true);
-    expect(result.content).toInclude("unknown job");
-  });
 
   test("pty=true allocates a real TTY (M-bash)", async () => {
     if (Bun.which("script") === null) return;
@@ -164,10 +165,13 @@ describe("bashTool", () => {
     expect(started.content).toMatch(/Backgrounded as job bg_\d+/);
   }, 15_000);
 
-  test("bg job completion fires the settlement listener (M-bash)", async () => {
+  test("bg job completion fires the registry completion listener (M-bash)", async () => {
     const events: Array<{ id: string; exitCode: number | null; isError: boolean }> = [];
-    setBgJobCompletionListener((c) => events.push(c));
+    setEntryCompletionListener((e) =>
+      events.push({ id: e.id, exitCode: e.exitCode ?? null, isError: e.isError === true }),
+    );
     const started = await bashTool.execute({
+      description: "d",
       command: "echo listener-check",
       async: true,
       timeout: 10_000,
@@ -180,9 +184,7 @@ describe("bashTool", () => {
     }
     expect(settled).toBe(true);
     const event = events.find((e) => e.id === jobId)!;
-    expect(event.kind).toBe("bash");
     expect(event.exitCode).toBe(0);
-    expect(event.output).toContain("listener-check");
-    setBgJobCompletionListener(null);
+    setEntryCompletionListener(null);
   });
 });
