@@ -1,3 +1,7 @@
+// NOTE: apps/backend/src/features/skill-pack/skill-index.ts is a COPY of the
+// scanner below (the apps cannot import each other). This side is ahead: it
+// supports `hide` / `user_invocable` frontmatter and resolves duplicate names
+// first-wins ("project overrides user"). Change one, check the other.
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 

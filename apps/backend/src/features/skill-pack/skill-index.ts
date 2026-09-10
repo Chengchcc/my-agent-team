@@ -1,3 +1,26 @@
+// ── COPY of the oma skill scanner ────────────────────────────────────────
+// Source of truth: apps/oh-my-agent/src/core/tools/skills.ts
+//
+// The two apps cannot import each other, but both read the SAME SKILL.md
+// format — oma to build the runtime prompt index, this module to serve the
+// product's skill-pack UI and its MCP tool. They have drifted once already:
+// the oma copy grew `hide` / `userInvocable` frontmatter (omp semantics) and
+// flipped duplicate-name precedence to first-wins ("project overrides user"),
+// neither of which is here.
+//
+// What that means for THIS copy:
+//   * precedence is unobservable today — every call site passes exactly ONE
+//     root, so the override rule never runs (see the two buildSkillIndex
+//     calls in http.ts / tools.ts);
+//   * `hide: true` and `user_invocable: false` are NOT honored: a skill that
+//     oma deliberately keeps out of the model's prompt index is still listed
+//     here. That is defensible for a management UI (it is still loadable) but
+//     it IS a behaviour difference — decide per surface, do not "fix" it by
+//     copying the oma flags blindly.
+//
+// Changing the scanner: make the edit in BOTH files, or move the shared parts
+// into a package. Adding frontmatter semantics to only one side is how the
+// drift started.
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
