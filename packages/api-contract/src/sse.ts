@@ -146,7 +146,7 @@ export const workflowExecutionEvents = {
 // change trigger; the full definition is fetched from the REST endpoint.
 export const workflowDefinitionEvent = z.object({
   event: z.literal("changed"),
-  batchId: z.string(),
+  workflowId: z.string(),
   ts: z.number(),
   data: z.object({
     trigger: z.enum(["save", "mcp"]),
