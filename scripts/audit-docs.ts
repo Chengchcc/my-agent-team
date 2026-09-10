@@ -329,5 +329,5 @@ console.log(
   `audit:docs OK (${pluginDirs.length} plugins, ${tables} tables, CLAUDE.md symlinked, ` +
     `${manifestEntries ?? 0} MANIFEST entries, active-zone links + vocabulary clean, ` +
     `${pathTokens} doc path tokens exist, ${codePathTokens} code paths exist, ` +
-    `${appLinks} app-doc links resolve, fences balanced, 0 orphan pages)`,
+    `${appLinks} app-doc links resolve, fences balanced, ${orphans} orphan pages)`,
 );
