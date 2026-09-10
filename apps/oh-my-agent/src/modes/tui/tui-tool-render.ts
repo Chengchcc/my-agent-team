@@ -49,10 +49,14 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
     }
     return lines;
   }
-  // task_output: { handle, status, result: SubagentResult } — show the nested text.
+  // task_output: { handle, status, partialText?, result: SubagentResult }
   if (toolName === "task_output") {
     const status = String(asRecord(result).status ?? "");
     if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
+    const partialText = String(asRecord(result).partialText ?? "");
+    if (partialText.trim()) {
+      lines.push(`\u001b[2m    ${partialText.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    }
     const nested = asRecord(result).result;
     if (nested && typeof nested === "object") {
       const nestedText = String(asRecord(nested).text ?? "");

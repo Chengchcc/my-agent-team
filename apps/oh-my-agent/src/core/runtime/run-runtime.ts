@@ -907,6 +907,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       listSubagents: () => delegationExecutor.listSubagents(),
       getSubagentOutput: (handle) => delegationExecutor.getSubagentOutput(handle),
       stopSubagent: (handle) => delegationExecutor.stopSubagent(handle),
+      steerSubagent: (handle, prompt) => delegationExecutor.steerSubagent(handle, prompt),
     }),
   });
   plugins.push({
@@ -1053,8 +1054,9 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     executeWorkflow: (input) => runScript(input),
     delegationUsage: () => ({ ...delegationUsageAccum }),
     async close() {
-      // 3.4 Phase 3: background subagents must not outlive the Run.
-      delegationExecutor.abortAllSubagents();
+      // Live subagent loops must not outlive the Run; completed handles
+      // stay in the registry for a later Run's resume in this process.
+      delegationExecutor.stopLiveSubagents();
       // Tear down mounted MCP clients so no child process or connection
       // outlives the Run. Each close is BOUNDED: a stuck transport (e.g. an
       // SSE socket that never answers close) must not wedge the child.

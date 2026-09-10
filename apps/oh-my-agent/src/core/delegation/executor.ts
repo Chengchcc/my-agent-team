@@ -12,6 +12,13 @@ import {
   type OmaSession,
   type PluginTool,
 } from "../agent-runtime.js";
+import {
+  appendSubagentPartial,
+  getSubagent,
+  listSubagents as listRegisteredSubagents,
+  registerSubagent,
+  updateSubagentStatus,
+} from "./registry.js";
 
 export interface SubagentSpec {
   readonly prompt: string;
@@ -119,21 +126,25 @@ export interface DelegationExecutor {
     items: readonly SubagentSpec[];
     signal?: AbortSignal;
   }): Promise<SubagentBatchResult>;
-  /** 3.4 Phase 3 control plane. */
+  /** 3.4 Phase 3 control plane, backed by the process-wide registry. */
   listSubagents(): Array<{
     handle: string;
     label: string;
     status: string;
+    partialText: string;
     usage?: Usage;
   }>;
   getSubagentOutput(handle: string): {
     handle: string;
     status: string;
+    partialText?: string;
     result?: SubagentResult;
   };
   stopSubagent(handle: string): { ok: boolean; error?: string };
-  /** Stop every live subagent (run teardown cascade). */
-  abortAllSubagents(): void;
+  /** Inject a message into a RUNNING subagent's loop (steer). */
+  steerSubagent(handle: string, prompt: string): { ok: boolean; error?: string };
+  /** Run teardown: stop this Run's live loops, keep registry entries. */
+  stopLiveSubagents(): void;
 }
 
 const SUBAGENT_SYSTEM_PROMPT = subagentPrompt.trim();
@@ -237,22 +248,9 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
   let totalSpawned = 0;
   let current = 0;
   const waiters: Array<() => void> = [];
-  /** 3.4 Phase 2: live subagent handles — session + pinned spec snapshot.
-   *  Per-run executor instance, so the table dies with the run. */
-  const subagentHandles = new Map<
-    string,
-    {
-      session: OmaSession;
-      store: ReturnType<typeof createInMemorySessionStore>;
-      sessionId: string;
-      batchId: string;
-      agentId: string;
-      spec: SubagentSpec;
-      status: "running" | "completed" | "failed" | "stopped";
-      result?: SubagentResult;
-      stopRequested?: boolean;
-    }
-  >();
+  /** Run-scoped live sessions; the durable handle table (store + pinned spec)
+   *  lives in the process-wide registry so later Runs can resume them. */
+  const liveSessions = new Map<string, OmaSession>();
 
   async function acquire(signal?: AbortSignal): Promise<void> {
     if (current < opts.maxConcurrent) {
@@ -301,16 +299,26 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     input: { batchId: string; agentId: string } & SubagentSpec,
     signal?: AbortSignal,
   ): Promise<SubagentResult> {
-    // Phase 2 resume: reuse a live handle's session + pinned spec snapshot
-    // (later registry edits never mutate an existing handle's definition).
-    const existing = input.resumeHandle ? subagentHandles.get(input.resumeHandle) : null;
+    // Phase 2 resume: reuse the registry's pinned spec + store snapshot
+    // (later role edits never mutate an existing handle's definition).
+    const existing = input.resumeHandle ? getSubagent(input.resumeHandle) : null;
     if (input.resumeHandle && !existing) {
-      const active = [...subagentHandles.keys()].join(", ");
+      const active = listRegisteredSubagents()
+        .map((s) => s.handle)
+        .join(", ");
       return {
         label: input.label ?? input.resumeHandle,
         text: "",
         ok: false,
         error: `unknown subagent handle "${input.resumeHandle}" (active: ${active || "none"})`,
+      };
+    }
+    if (existing?.status === "running") {
+      return {
+        label: input.label ?? input.resumeHandle!,
+        text: "",
+        ok: false,
+        error: `subagent "${input.resumeHandle}" is still running; inject a message with task_steer`,
       };
     }
     const spec = existing?.spec ?? input;
@@ -358,8 +366,12 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         });
       }
       const sessionGate = opts.makePermissionGate?.([spec.prompt]);
+      const handle = existing ? input.resumeHandle! : `sub-${crypto.randomUUID()}`;
+      // Same-run resume reuses the live session; cross-run revive rebuilds it
+      // on the CURRENT run's model stream (the old stream closed over the
+      // spawning run's activeRun and cannot be reused).
       const session =
-        existing?.session ??
+        liveSessions.get(handle) ??
         createOmaSession({
           sessionId,
           store,
@@ -377,18 +389,27 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           contextBudget: opts.contextBudget,
           ...(sessionGate ? { permissionGate: sessionGate } : {}),
         });
-      const handle = existing ? input.resumeHandle! : `sub-${crypto.randomUUID()}`;
+      liveSessions.set(handle, session);
       if (!existing) {
-        subagentHandles.set(handle, {
-          session,
-          store,
+        registerSubagent({
+          handle,
           sessionId,
           batchId,
           agentId,
+          label: spec.label ?? agentId,
           spec,
+          store,
           status: "running",
+          partialText: "",
+          createdAt: Date.now(),
         });
       }
+      // Forward the subagent's loop events to the parent stream so surfaces
+      // can watch live activity; message text accumulates as partial output.
+      const unsubscribeEvents = session.onEvent((ev) => {
+        opts.emit({ type: "delegation_agent_event", batchId, agentId, label, event: ev });
+        if (ev.type === "message_update") appendSubagentPartial(handle, ev.text);
+      });
       const onAbort = (): void => session.stop();
       agentSignal?.addEventListener("abort", onAbort, { once: true });
       const loopInput = {
@@ -418,9 +439,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
             text: "",
             ok: false,
             error:
-              agentSignal.reason instanceof Error
-                ? agentSignal.reason.message
-                : "subagent aborted",
+              agentSignal.reason instanceof Error ? agentSignal.reason.message : "subagent aborted",
           };
         }
         let result: Awaited<ReturnType<OmaSession["startLoop"]>>;
@@ -452,13 +471,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           /* best-effort */
         }
         const artifacts = [...artifactPaths];
-        // Resume keeps the store alive for the handle; only a fresh dispatch
-        // closes it.
-        if (!existing) {
-          void store.close().catch((err) => {
-            console.error(`[delegation] subagent store close failed for ${sessionId}:`, err);
-          });
-        }
+        // The store stays alive in the registry for cross-Run resume.
         let { text, output, parseError } = parseAndValidate(result, spec.schema);
         if (parseError && !agentSignal?.aborted && result.status === "completed") {
           // A2: one schema-correction turn — the same session re-runs with the
@@ -557,38 +570,57 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           ...(agentResult.error ? { error: agentResult.error } : {}),
           ...(agentResult.usage ? { usage: agentResult.usage } : {}),
         });
+        unsubscribeEvents();
+        // Record terminal status on the handle unless a stop already won the
+        // race (the background settle path keeps the stopped verdict).
+        const entry = getSubagent(handle);
+        if (entry && entry.status !== "stopped") {
+          const stopped = entry.stopRequested === true;
+          updateSubagentStatus(
+            handle,
+            stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
+            stopped
+              ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
+              : { ...agentResult, status: agentResult.ok ? "completed" : "failed" },
+          );
+        }
         return agentResult;
       };
 
       // 3.4 Phase 3: fire-and-forget. Acknowledge immediately with the
-      // handle; the result lands on the handle for subagent_output.
+      // handle; the result lands on the handle for task_output.
       if (spec.background) {
-        const entry = subagentHandles.get(handle);
-        if (entry) entry.status = "running";
+        updateSubagentStatus(handle, "running");
         void finish()
           .then((agentResult) => {
-            const e = subagentHandles.get(handle);
+            const e = getSubagent(handle);
             if (!e) return;
-            if (e.stopRequested) {
-              e.status = "stopped";
-              e.result = { ...agentResult, ok: false, error: "stopped", status: "stopped" };
-            } else {
-              e.status = agentResult.ok ? "completed" : "failed";
-              e.result = { ...agentResult, status: e.status };
-            }
+            const stopped = e.stopRequested === true;
+            updateSubagentStatus(
+              handle,
+              stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
+              stopped
+                ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
+                : { ...agentResult, status: agentResult.ok ? "completed" : "failed" },
+            );
           })
           .catch((err) => {
-            const e = subagentHandles.get(handle);
-            if (e) {
-              e.status = e.stopRequested ? "stopped" : "failed";
-              e.result = {
-                label,
-                text: "",
-                ok: false,
-                error: err instanceof Error ? err.message : String(err),
-                status: e.status,
-              };
-            }
+            const e = getSubagent(handle);
+            if (!e) return;
+            const stopped = e.stopRequested === true;
+            updateSubagentStatus(
+              handle,
+              stopped ? "stopped" : "failed",
+              stopped
+                ? { label, text: "", ok: false, error: "stopped", status: "stopped" }
+                : {
+                    label,
+                    text: "",
+                    ok: false,
+                    error: err instanceof Error ? err.message : String(err),
+                    status: "failed",
+                  },
+            );
           });
         return { label, text: "", ok: true, handle, status: "running" };
       }
@@ -618,10 +650,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
    *  main session reads them back with the read tool); read_only workspaces
    *  degrade to inline truncation. The total-inline budget forces spill
    *  even when no single item exceeds the per-item ceiling. */
-  function spillResults(
-    results: readonly SubagentResult[],
-    batchId: string,
-  ): SubagentResult[] {
+  function spillResults(results: readonly SubagentResult[], batchId: string): SubagentResult[] {
     const total = results.reduce((acc, r) => acc + r.text.length, 0);
     const forceSpill = total > MAX_TOTAL_INLINE_CHARS;
     return results.map((r, i) => {
@@ -694,40 +723,70 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     }
   }
 
-  // 3.4 Phase 3 control plane.
+  // 3.4 Phase 3 control plane, backed by the process-wide registry.
   function listSubagents() {
-    return [...subagentHandles.entries()].map(([handle, e]) => ({
-      handle,
-      label: e.spec.label ?? e.agentId,
-      status: e.status,
-      ...(e.result?.usage ? { usage: e.result.usage } : {}),
-    }));
+    return listRegisteredSubagents();
   }
 
   function getSubagentOutput(handle: string) {
-    const e = subagentHandles.get(handle);
+    const e = getSubagent(handle);
     if (!e) return { handle, status: "unknown" };
     if (e.result) {
       // A3 size guard applies to fetched results too.
       const [spilled] = spillResults([e.result], e.batchId);
-      return { handle, status: e.status, result: spilled };
+      return { handle, status: e.status, partialText: e.partialText, result: spilled };
     }
-    return { handle, status: e.status };
+    return { handle, status: e.status, partialText: e.partialText };
   }
 
   function stopSubagent(handle: string) {
-    const e = subagentHandles.get(handle);
+    const e = getSubagent(handle);
     if (!e) return { ok: false, error: `unknown subagent handle "${handle}"` };
     e.stopRequested = true;
-    e.session.stop();
+    const session = liveSessions.get(handle);
+    if (session && e.status === "running") session.stop();
     return { ok: true };
   }
 
-  function abortAllSubagents() {
-    for (const e of subagentHandles.values()) {
-      e.stopRequested = true;
-      e.session.stop();
+  function steerSubagent(handle: string, prompt: string) {
+    const e = getSubagent(handle);
+    const session = liveSessions.get(handle);
+    if (!e) return { ok: false, error: `unknown subagent handle "${handle}"` };
+    if (e.status !== "running" || !session) {
+      return {
+        ok: false,
+        error: `subagent "${handle}" is not running; follow up with task({resume: "${handle}", prompt})`,
+      };
     }
+    try {
+      session.steer({
+        inputId: `steer-${crypto.randomUUID()}`,
+        message: { role: "user", text: prompt },
+      });
+      return { ok: true };
+    } catch (err) {
+      // The loop may not have started accepting steers yet (background
+      // dispatch race): surface a retryable error instead of throwing.
+      return {
+        ok: false,
+        error: `steer not accepted yet for "${handle}" — retry shortly: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
+    }
+  }
+
+  /** Run teardown: stop this Run's live loops but keep registry entries so
+   *  a later Run in this process can resume completed handles. */
+  function stopLiveSubagents() {
+    for (const [handle, session] of liveSessions) {
+      const e = getSubagent(handle);
+      if (e?.status === "running") {
+        e.stopRequested = true;
+        session.stop();
+      }
+    }
+    liveSessions.clear();
   }
 
   return {
@@ -736,6 +795,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     listSubagents,
     getSubagentOutput,
     stopSubagent,
-    abortAllSubagents,
+    steerSubagent,
+    stopLiveSubagents,
   };
 }

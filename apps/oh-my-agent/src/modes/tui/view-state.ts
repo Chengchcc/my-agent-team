@@ -37,6 +37,9 @@ export interface RunViewState {
   items: TranscriptItem[];
   /** True between agent_start and agent_end. */
   running: boolean;
+  /** Live subagent activity lines keyed by agentId (delegation_agent_event);
+   *  streaming status items updated in place until the agent settles. */
+  liveAgents?: Map<string, TranscriptItem>;
 }
 
 export interface TuiViewState {
@@ -58,7 +61,7 @@ function currentRun(state: TuiViewState): RunViewState | undefined {
 function ensureRunningRun(state: TuiViewState): RunViewState {
   const run = currentRun(state);
   if (run?.running) return run;
-  const fresh: RunViewState = { items: [], running: true };
+  const fresh: RunViewState = { items: [], running: true, liveAgents: new Map() };
   state.runs.push(fresh);
   return fresh;
 }
@@ -196,8 +199,56 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       });
       break;
     }
+    case "delegation_agent_event": {
+      const run = ensureRunningRun(state);
+      const inner = event.event;
+      if (inner.type === "message_update") {
+        // Live answer text: one streaming line per agent, tail-capped so a
+        // chatty subagent cannot balloon the transcript.
+        const liveAgents = (run.liveAgents ??= new Map());
+        let item = liveAgents.get(event.agentId);
+        const chunk = inner.text.replace(/\s+/g, " ").trim();
+        if (!chunk) break;
+        if (!item) {
+          item = {
+            kind: "status",
+            text: `    \u25b6 ${event.label}: ${chunk}`,
+            streaming: true,
+          };
+          liveAgents.set(event.agentId, item);
+          run.items.push(item);
+        } else {
+          const base = item.text.replace(/ \u00b7 live$/, "");
+          item.text = `${base}${chunk} \u00b7 live`.slice(-200);
+        }
+      } else if (inner.type === "tool_execution_start") {
+        run.items.push({
+          kind: "status",
+          text: `    \u2699 ${event.label} \u00b7 ${inner.toolName}`,
+          streaming: false,
+        });
+      } else if (
+        inner.type === "message_end" ||
+        inner.type === "turn_end" ||
+        inner.type === "agent_end"
+      ) {
+        const liveAgents = (run.liveAgents ??= new Map());
+        const item = liveAgents.get(event.agentId);
+        if (item) {
+          item.streaming = false;
+          liveAgents.delete(event.agentId);
+        }
+      }
+      break;
+    }
     case "delegation_agent_completed": {
       const run = ensureRunningRun(state);
+      // Settle the live activity line before the terminal marker.
+      const live = run.liveAgents?.get(event.agentId);
+      if (live) {
+        live.streaming = false;
+        run.liveAgents?.delete(event.agentId);
+      }
       run.items.push({
         kind: "status",
         text: event.ok
@@ -235,7 +286,7 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       for (const item of run?.items ?? []) item.streaming = false;
       break;
     }
-    // todo/queue/recap/delegation events: no v1 transcript rendering.
+    // todo/queue/recap events: no v1 transcript rendering.
     default:
       break;
   }
@@ -250,11 +301,13 @@ export function applyOutcome(state: TuiViewState, outcome: BackendRunOutcome): v
     runs.push({
       items: [{ kind: "error", text: outcome.error ?? "run failed", streaming: false }],
       running: false,
+      liveAgents: new Map(),
     });
   } else if (outcome.status === "aborted") {
     runs.push({
       items: [{ kind: "status", text: "aborted", streaming: false }],
       running: false,
+      liveAgents: new Map(),
     });
   } else if (outcome.status === "completed" && outcome.workflow) {
     const value = JSON.stringify(outcome.workflow.value) ?? "undefined";
@@ -267,6 +320,7 @@ export function applyOutcome(state: TuiViewState, outcome: BackendRunOutcome): v
         },
       ],
       running: false,
+      liveAgents: new Map(),
     });
   }
 }

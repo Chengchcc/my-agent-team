@@ -38,11 +38,13 @@ const deps = {
   listSubagents: () => [],
   getSubagentOutput: (handle: string) => ({ handle, status: "unknown" }),
   stopSubagent: (handle: string) => ({ ok: false, error: `unknown subagent handle "${handle}"` }),
+  steerSubagent: (handle: string) => ({ ok: true }),
 };
 const tools = createDelegationTools(deps);
 const subagentTool = tools.find((t) => t.name === "task")!;
 const subagentListTool = tools.find((t) => t.name === "task_list")!;
 const subagentOutputTool = tools.find((t) => t.name === "task_output")!;
+const subagentSteerTool = tools.find((t) => t.name === "task_steer")!;
 const subagentStopTool = tools.find((t) => t.name === "task_stop")!;
 
 describe("task batch fan-out (pi shape)", () => {
@@ -235,11 +237,26 @@ describe("delegation tool names", () => {
     expect(isValidWorkflowName("")).toBe(false);
   });
 
-  test("four delegation tools are registered", () => {
+  test("five delegation tools are registered", () => {
     expect(subagentTool.name).toBe("task");
     expect(subagentListTool.name).toBe("task_list");
     expect(subagentOutputTool.name).toBe("task_output");
+    expect(subagentSteerTool.name).toBe("task_steer");
     expect(subagentStopTool.name).toBe("task_stop");
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(5);
+  });
+
+  test("task_steer validates handle and prompt, then delegates", async () => {
+    const missingPrompt = (await subagentSteerTool.execute({ handle: "sub-x" })) as {
+      ok?: boolean;
+      error?: string;
+    };
+    expect(missingPrompt.ok).toBe(false);
+    expect(missingPrompt.error).toContain("prompt is required");
+    const ok = (await subagentSteerTool.execute({
+      handle: "sub-x",
+      prompt: "correction",
+    })) as { ok: boolean };
+    expect(ok.ok).toBe(true);
   });
 });

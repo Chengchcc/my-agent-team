@@ -26,14 +26,18 @@ export interface DelegationToolDeps {
     handle: string;
     label: string;
     status: string;
+    partialText?: string;
     usage?: SubagentResult["usage"];
   }>;
   readonly getSubagentOutput: (handle: string) => {
     handle: string;
     status: string;
+    partialText?: string;
     result?: SubagentResult;
   };
   readonly stopSubagent: (handle: string) => { ok: boolean; error?: string };
+  /** Inject a message into a RUNNING background task (steer). */
+  readonly steerSubagent: (handle: string, prompt: string) => { ok: boolean; error?: string };
 }
 
 /** The model-facing delegation surface: one fan-out tool (batch + single)
@@ -49,7 +53,8 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
       "semaphore; long results spill to .oma/workflow with a resultPath. Roles: task (full tools), " +
       "explore (read-only), plan (read-only planning), or any .oma/agents/<name>.md definition. " +
       "SINGLE (compat): {agent, prompt, schema?, background?, resume?} — background:true returns a " +
-      "handle immediately (poll via task_output); {resume, prompt} continues the SAME subagent.",
+      "handle immediately (poll via task_output, steer via task_steer while running); " +
+      "{resume, prompt} continues the SAME subagent across Runs in this session.",
     executionMode: "serial",
     inputSchema: {
       type: "object",
@@ -264,8 +269,33 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
       return {
         handle: out.handle,
         status: out.status,
+        ...(out.partialText ? { partialText: out.partialText } : {}),
         ...(out.result ? { result: out.result } : {}),
       };
+    },
+  };
+
+  const taskSteer: PluginTool = {
+    name: "task_steer",
+    description:
+      "Inject a follow-up message into a RUNNING background task by handle. The message is " +
+      "queued and delivered at the next safe step boundary. For finished tasks use " +
+      "task({resume, prompt}) instead.",
+    executionMode: "serial",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handle: { type: "string" },
+        prompt: { type: "string" },
+      },
+      required: ["handle", "prompt"],
+    },
+    async execute(args) {
+      const handle = typeof args.handle === "string" ? args.handle.trim() : "";
+      const prompt = typeof args.prompt === "string" ? args.prompt : "";
+      if (!handle) return { ok: false, error: "handle is required" };
+      if (!prompt) return { ok: false, error: "prompt is required" };
+      return deps.steerSubagent(handle, prompt);
     },
   };
 
@@ -285,5 +315,5 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
     },
   };
 
-  return [task, taskList, taskOutput, taskStop];
+  return [task, taskList, taskOutput, taskSteer, taskStop];
 }

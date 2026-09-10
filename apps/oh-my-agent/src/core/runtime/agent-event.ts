@@ -72,6 +72,14 @@ export type OmaLoopEvent =
       agentCount: number;
       totalTokens: number;
     }
-  | { type: "delegation_batch_failed"; batchId: string; error: string };
+  | { type: "delegation_batch_failed"; batchId: string; error: string }
+  | {
+      /** Live subagent loop event forwarded to the parent stream. */
+      type: "delegation_agent_event";
+      batchId: string;
+      agentId: string;
+      label: string;
+      event: OmaLoopEvent;
+    };
 
 export type AgentLoopListener = (event: OmaLoopEvent) => void | Promise<void>;

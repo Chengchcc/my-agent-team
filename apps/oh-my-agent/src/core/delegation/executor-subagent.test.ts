@@ -6,12 +6,14 @@ import type { AIMessageChunk } from "@chengchenccc/message";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
 import type { PluginTool } from "../agent-runtime.js";
 import { createDelegationExecutor, createDelegationFixture } from "./executor.fixture.js";
+import { clearSubagents } from "./registry.js";
 
 const { events, makeDeps } = createDelegationFixture();
 
 describe("createDelegationExecutor", () => {
   afterEach(() => {
     events.length = 0;
+    clearSubagents();
   });
   test("subagent state dumps spec + transcript to .session.json (A1/F2)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-state-"));
@@ -251,7 +253,7 @@ describe("createDelegationExecutor", () => {
     expect(out.result?.text).toBe("bg result");
   });
 
-  test("abortAllSubagents stops every background subagent (run teardown)", async () => {
+  test("stopLiveSubagents stops every background subagent (run teardown)", async () => {
     const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
@@ -274,7 +276,7 @@ describe("createDelegationExecutor", () => {
       prompt: "y",
       background: true,
     });
-    exec.abortAllSubagents();
+    exec.stopLiveSubagents();
     const deadline = Date.now() + 2000;
     while (
       exec.getSubagentOutput(a.handle!).status === "running" &&
@@ -338,5 +340,100 @@ describe("createDelegationExecutor", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toBeTruthy(); // deadline reason surfaced (B7)
+  });
+
+  test("live subagent events forward to the parent stream and accumulate partial text", async () => {
+    const exec = createDelegationExecutor({
+      ...makeDeps(),
+      makeSubagentStream: () => createEchoModelStream("live-partial"),
+    });
+    const started = await exec.runSubagent({
+      batchId: "wf-live",
+      agentId: "a1",
+      prompt: "go",
+      background: true,
+    });
+    const deadline = Date.now() + 2000;
+    let out = exec.getSubagentOutput(started.handle!);
+    while (out.status === "running" && Date.now() < deadline) {
+      await Bun.sleep(10);
+      out = exec.getSubagentOutput(started.handle!);
+    }
+    expect(out.status).toBe("completed");
+    expect(out.partialText).toContain("live-partial");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "delegation_agent_event",
+        event: expect.objectContaining({ type: "message_update" }),
+      }),
+    );
+  });
+
+  test("steer injects into a running subagent and rejects when settled", async () => {
+    const exec = createDelegationExecutor({
+      ...makeDeps(),
+      makeSubagentStream: () =>
+        async function* (_messages: unknown, signal?: AbortSignal) {
+          yield { delta: { type: "text", text: "partial" } } as AIMessageChunk;
+          await new Promise<void>((resolve) => {
+            signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+    });
+    const started = await exec.runSubagent({
+      batchId: "wf-s1",
+      agentId: "a1",
+      prompt: "go",
+      background: true,
+    });
+    // Wait until the loop is live (first text chunk forwarded) before
+    // steering: the background launch is asynchronous.
+    const deadline0 = Date.now() + 2000;
+    while (
+      !events.some(
+        (ev) =>
+          ev.type === "delegation_agent_event" &&
+          (ev as { event?: { type?: string } }).event?.type === "message_update",
+      ) &&
+      Date.now() < deadline0
+    ) {
+      await Bun.sleep(10);
+    }
+    expect(exec.steerSubagent(started.handle!, "correction").ok).toBe(true);
+    exec.stopSubagent(started.handle!);
+    const deadline = Date.now() + 2000;
+    while (exec.getSubagentOutput(started.handle!).status === "running" && Date.now() < deadline) {
+      await Bun.sleep(10);
+    }
+    const late = exec.steerSubagent(started.handle!, "late");
+    expect(late.ok).toBe(false);
+    expect(late.error).toContain("not running");
+  });
+
+  test("a completed handle resumes from a second executor instance (cross-run revive)", async () => {
+    const first = createDelegationExecutor({
+      ...makeDeps(),
+      makeSubagentStream: () => createEchoModelStream("first"),
+    });
+    const initial = await first.runSubagent({ batchId: "wf-x1", agentId: "r1", prompt: "go" });
+    const handle = initial.handle!;
+    expect(initial.text).toBe("first");
+    expect(first.getSubagentOutput(handle).status).toBe("completed");
+    first.stopLiveSubagents();
+
+    // A fresh Run builds a new executor with its own stream; the registry
+    // handle revives the stored session under the new stream.
+    const second = createDelegationExecutor({
+      ...makeDeps(),
+      makeSubagentStream: () => createEchoModelStream("follow-up"),
+    });
+    const resumed = await second.runSubagent({
+      batchId: "ignored",
+      agentId: "ignored",
+      prompt: "more",
+      resumeHandle: handle,
+    });
+    expect(resumed.ok).toBe(true);
+    expect(resumed.text).toBe("follow-up");
   });
 });
