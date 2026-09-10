@@ -32,6 +32,7 @@ import { isFileTrusted, readTrustedPlugins } from "../plugins/plugin-trust.js";
 import {
   loadProjectSettings,
   type ProjectSettings,
+  type PruneKnobs,
   type RuntimeKnobs,
   resolveRuntimeKnobs,
 } from "../settings/project-settings.js";
@@ -44,6 +45,7 @@ import {
   createEvalTool,
   createGlobTool,
   createGrepTool,
+  createLsTool,
   createPortWebFetchTool,
   createPortWebSearchTool,
   createReadImageTool,
@@ -154,6 +156,20 @@ function wrapNativeTool(
     timeoutMs: resolveNativeToolTimeout(defaultMs, maxToolTimeoutMs),
     execute: (input, signal, options) =>
       withToolTimeout(tool, input, signal, options, defaultMs, maxToolTimeoutMs),
+  };
+}
+
+/** Settings-shaped prune knobs → the loop's PruneConfig (the only place the
+ *  string list becomes the Set the pruner wants). */
+function toPruneConfig(prune: PruneKnobs): {
+  protectTokens?: number;
+  minimumSavings?: number;
+  protectedTools?: ReadonlySet<string>;
+} {
+  return {
+    ...(prune.protectTokens !== undefined ? { protectTokens: prune.protectTokens } : {}),
+    ...(prune.minimumSavings !== undefined ? { minimumSavings: prune.minimumSavings } : {}),
+    ...(prune.protectedTools ? { protectedTools: new Set(prune.protectedTools) } : {}),
   };
 }
 
@@ -317,6 +333,10 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   const agentTools: PluginTool[] = [
     createReadTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
     createReadImageTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
+    // ls and tree are the two directory views: ls is flat + mtime sorted
+    // (cheap orientation), tree is recursive (structure). Both are read-side,
+    // so they exist in read_only runs too.
+    createLsTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
     createTreeTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
     createGlobTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
     createGrepTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
@@ -1089,6 +1109,9 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     conversationTitled: knobs.conversationTitled === true,
     maxSteps,
     maxForceContinues: 4,
+    // Opt-in: pruning rewrites what the model sees, so it applies only when a
+    // Run was configured for it (see PruneKnobs).
+    ...(knobs.prune ? { pruneConfig: toPruneConfig(knobs.prune) } : {}),
     modelStream: streamModel,
     summarize,
     contextBudget,

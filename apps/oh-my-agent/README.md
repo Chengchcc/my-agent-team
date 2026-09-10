@@ -18,6 +18,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 - mermaid fence 渲染为终端 ASCII 图
 - `/resume` 列表/恢复 session，`/fork <n>` 分支
 - 模型选择持久化到项目级 `.oma/settings.json`（standalone TUI 专用；backend→oma 仍以 `agent.yml` 为默认，可被 run 参数覆盖）
+- `.oma/settings.json` 里的 `prune` 块显式开启读侧工具输出裁剪（`protectTokens` / `minimumSavings` / `protectedTools`），不配就不裁
 - composer loader 实时摘要当前动作（tool intent / thinking 首行）
 
 | Real session | Tools | Mermaid |

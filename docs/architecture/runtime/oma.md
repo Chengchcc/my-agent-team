@@ -82,8 +82,8 @@ Full history    写 SessionStore，source=product_history
 ## Runtime 拥有什么
 
 - model/tool loop（`core/runtime/agent-loop.ts` 唯一真实 loop）
-- native tools（read/write/edit/bash/grep/glob/web/eval——eval 走进程沙箱）+ MCP 工具挂载（mcp-mount 多源合并）
-- retry、compaction、workspace todo（`.oma/todo.json`，跨 Run 持久）
+- native tools（read/read_image/ls/tree/write/edit/bash/grep/glob/web/eval——eval 走进程沙箱；ls 与 tree 是只读目录视图，read_only 也有）+ MCP 工具挂载（mcp-mount 多源合并）
+- retry、compaction、workspace todo（`.oma/todo.json`，跨 Run 持久）、tool-result pruning（读侧截断旧工具输出，由 `.oma/settings.json` 的 `prune` 显式开启）
 - 插件系统：代码加载（native import）、信任矩阵（sha256 + trusted-plugins.json）、marketplace 多源 manifest（见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）
 - HITL 审批管道：permissionMode 门控工具——ask=`approval_request` → `resolve_approval`（超时 fail-closed deny）、deny=直接 block、auto=分类器审查（bash/eval/mcp__*/插件工具逐调用过分类器，write/edit 免审，故障 fail-closed；见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）
 - stream rules（TTSR）：`.oma/rules/*.md` 在 assistant 文本流上匹配，命中即中止本轮、注入 `<system-reminder>` 后同轮重试

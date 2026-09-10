@@ -147,6 +147,24 @@ const MUTATIONS: readonly Mutation[] = [
     nu: "      status: item.status as TodoStatus,",
   },
   {
+    label: "ls tool stops being mounted",
+    file: "src/core/runtime/run-runtime.ts",
+    old: "    createLsTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,\n",
+    nu: "",
+  },
+  {
+    label: "prune knob is ignored (dead seam again)",
+    file: "src/core/runtime/run-runtime.ts",
+    old: "    ...(knobs.prune ? { pruneConfig: toPruneConfig(knobs.prune) } : {}),",
+    nu: "    ...({} as Record<string, never>),",
+  },
+  {
+    label: "prune without bound (protect window ignored)",
+    file: "src/core/runtime/tool-pruning.ts",
+    old: "    if (protectedTokens <= cfg.protectTokens) continue;",
+    nu: "    if (true) continue;",
+  },
+  {
     label: "todo store: malformed rows reach the list",
     file: "src/core/tools/todo-store.ts",
     old: '    if (typeof item.id !== "string" || typeof item.text !== "string") continue;',
@@ -199,7 +217,6 @@ function main(): number {
       holes.push(m.label);
       continue;
     }
-    let restoreFailed = false;
     try {
       writeFileSync(path, original.replace(m.old, m.nu));
       const { failed, tail } = runSuite();
@@ -209,9 +226,8 @@ function main(): number {
     } finally {
       // Byte-for-byte restore: never leave the tree mutated.
       writeFileSync(path, original);
-      restoreFailed = readFileSync(path, "utf8") !== original;
     }
-    if (restoreFailed) {
+    if (readFileSync(path, "utf8") !== original) {
       console.error(`FATAL: failed to restore ${m.file} — restore it by hand`);
       return 2;
     }

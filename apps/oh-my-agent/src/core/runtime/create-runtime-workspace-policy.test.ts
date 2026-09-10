@@ -8,6 +8,7 @@ import {
   createOmaRuntime,
   registerBuiltinProviders,
 } from "./create-runtime.fixture.js";
+import { parseToolFilter } from "./tool-filter.js";
 
 /** Workspace-controlled policy knobs vs Run-level tool gating.
  *
@@ -100,6 +101,49 @@ describe("workspace settings never steer a backend RPC run", () => {
   }, 30_000);
 });
 
+describe("the directory views are mounted", () => {
+  test("read_write advertises ls alongside tree, and --tools can drop it", async () => {
+    async function advertisedTools(filter: string | null): Promise<string[]> {
+      const record = join(ws, `tools-${filter ?? "all"}.json`);
+      const savedProvider = process.env.OMA_FAKE_PROVIDER;
+      const savedRecord = process.env.OMA_FAKE_TOOLS_RECORD;
+      process.env.OMA_FAKE_PROVIDER = "1";
+      process.env.OMA_FAKE_TOOLS_RECORD = record;
+      try {
+        const rt = await createOmaRuntime({
+          runId: `r-ls-${filter ?? "all"}`,
+          modelId: "fake/echo",
+          workspaceRoot: ws,
+          workspaceAccess: "read_write",
+          modelRuntime: fakeRuntime(),
+          skillRoots: [],
+          ...(filter ? { toolFilter: parseToolFilter(filter) } : {}),
+        });
+        try {
+          await (await rt.run(runInput(`r-ls-${filter ?? "all"}`, "read_write"))).outcome;
+        } finally {
+          await rt.close();
+        }
+        return JSON.parse(await Bun.file(record).text()) as string[];
+      } finally {
+        if (savedProvider === undefined) delete process.env.OMA_FAKE_PROVIDER;
+        else process.env.OMA_FAKE_PROVIDER = savedProvider;
+        if (savedRecord === undefined) delete process.env.OMA_FAKE_TOOLS_RECORD;
+        else process.env.OMA_FAKE_TOOLS_RECORD = savedRecord;
+      }
+    }
+
+    const all = await advertisedTools(null);
+    expect(all).toContain("ls");
+    expect(all).toContain("tree");
+
+    // The filter governs it like any other tool.
+    const filtered = await advertisedTools("read,grep");
+    expect(filtered).toContain("read");
+    expect(filtered).not.toContain("ls");
+  }, 30_000);
+});
+
 describe("workspaceAccess gates the tool table", () => {
   test("read_only advertises no write/edit/bash/eval to the model", async () => {
     const record = join(ws, "readonly-tools.json");
@@ -124,8 +168,9 @@ describe("workspaceAccess gates the tool table", () => {
       }
       const advertised = JSON.parse(await Bun.file(record).text()) as string[];
       // Read-side tools survive…
-      expect(advertised).toContain("read");
-      expect(advertised).toContain("grep");
+      for (const kept of ["read", "read_image", "grep", "glob", "ls", "tree"]) {
+        expect(advertised).toContain(kept);
+      }
       // …mutation tools never reach the model.
       for (const denied of ["write", "edit", "bash", "eval"]) {
         expect(advertised).not.toContain(denied);

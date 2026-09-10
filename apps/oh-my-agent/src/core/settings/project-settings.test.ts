@@ -167,3 +167,34 @@ describe("resolveRuntimeKnobs", () => {
     ).toBeUndefined();
   });
 });
+
+describe("prune knobs", () => {
+  test("a partial prune block is validated field by field", () => {
+    const root = mkdtempSync(join(tmpdir(), "oma-prune-"));
+    try {
+      mkdirSync(join(root, ".oma"), { recursive: true });
+      writeFileSync(
+        join(root, ".oma", "settings.json"),
+        JSON.stringify({
+          prune: {
+            protectTokens: 100,
+            minimumSavings: "nope",
+            protectedTools: ["bash", 7],
+          },
+        }),
+        "utf8",
+      );
+      expect(loadProjectSettings(root).prune).toEqual({ protectTokens: 100 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("prune reaches the runtime knobs only when present", () => {
+    expect(resolveRuntimeKnobs(undefined, {}).prune).toBeUndefined();
+    expect(
+      resolveRuntimeKnobs({ prune: { protectTokens: 5, protectedTools: ["skill_load"] } }, {})
+        .prune,
+    ).toEqual({ protectTokens: 5, protectedTools: ["skill_load"] });
+  });
+});

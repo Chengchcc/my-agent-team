@@ -43,6 +43,21 @@ export interface ProjectSettings {
   bashSandbox?: boolean;
   /** Global cap for any per-tool timeout ms; 0 = no limit (omp tools.maxTimeout). */
   maxToolTimeoutMs?: number;
+  /** Read-side tool-result pruning: old tool output outside the protect
+   *  window is replaced by a short summary before each model call (a lighter
+   *  touch than compaction). Absent = pruning OFF — the loop only prunes when
+   *  a run was explicitly configured for it. */
+  prune?: PruneKnobs;
+}
+
+/** Tool-output pruning knobs (see tool-pruning.ts for the mechanics). */
+export interface PruneKnobs {
+  /** Recent tool-result tokens kept intact (default 8000). */
+  protectTokens?: number;
+  /** Minimum tokens saved before a prune is applied (default 500). */
+  minimumSavings?: number;
+  /** Tool names whose output is never pruned (skills, plans, config). */
+  protectedTools?: string[];
 }
 
 function settingsPath(root: string): string {
@@ -104,6 +119,19 @@ export function loadProjectSettings(root: string): ProjectSettings {
     if ("maxToolTimeoutMs" in parsed && typeof parsed.maxToolTimeoutMs === "number") {
       result.maxToolTimeoutMs = parsed.maxToolTimeoutMs;
     }
+    if ("prune" in parsed && typeof parsed.prune === "object" && parsed.prune !== null) {
+      // Every field is optional and independently validated: a typo in one
+      // knob must not throw away the whole block (or the whole file).
+      const raw = parsed.prune as Record<string, unknown>;
+      const prune: PruneKnobs = {};
+      if (typeof raw.protectTokens === "number") prune.protectTokens = raw.protectTokens;
+      if (typeof raw.minimumSavings === "number") prune.minimumSavings = raw.minimumSavings;
+      if (Array.isArray(raw.protectedTools)) {
+        const tools = raw.protectedTools;
+        if (tools.every((t) => typeof t === "string")) prune.protectedTools = tools as string[];
+      }
+      if (Object.keys(prune).length > 0) result.prune = prune;
+    }
     return result;
   } catch {
     return {};
@@ -163,6 +191,8 @@ export interface RuntimeKnobs {
   conversationTitled?: boolean;
   memoryExtract?: boolean;
   memoryModel?: string;
+  /** When present, old tool results are pruned before each model call. */
+  prune?: PruneKnobs;
 }
 
 function envNumber(
@@ -220,5 +250,6 @@ export function resolveRuntimeKnobs(
   const memoryExtract = s.memoryExtract ?? (env.OMA_MEMORY_EXTRACT === "0" ? false : undefined);
   if (memoryExtract !== undefined) knobs.memoryExtract = memoryExtract;
   if (s.memoryModel) knobs.memoryModel = s.memoryModel;
+  if (s.prune) knobs.prune = s.prune;
   return knobs;
 }
