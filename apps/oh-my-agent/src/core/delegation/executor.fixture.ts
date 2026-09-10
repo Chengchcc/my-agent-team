@@ -1,12 +1,12 @@
 import { ProviderError } from "@chengchenccc/ai";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
-import { createWorkflowExecutor } from "./workflow-executor.js";
+import { createDelegationExecutor } from "./executor.js";
 
 process.env.OMA_TITLE_ENABLED = "0";
 
-export { createWorkflowExecutor, ProviderError };
+export { createDelegationExecutor, ProviderError };
 
-export function createWorkflowFixture() {
+export function createDelegationFixture() {
   const events: Array<{ type: string }> = [];
   const emit = (e: unknown): void => {
     events.push(e as { type: string });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateWorkflowScript } from "./workflow-evaluator.js";
+import { evaluateOrchestrationScript } from "./script-runner.js";
 
 const primitives = {
   agent: async (prompt: string) => ({
@@ -12,9 +12,9 @@ const primitives = {
     Promise.all(items.map(fn)),
 };
 
-describe("evaluateWorkflowScript", () => {
+describe("evaluateOrchestrationScript", () => {
   test("runs top-level await scripts with agent + pipeline", async () => {
-    const result = await evaluateWorkflowScript({
+    const result = await evaluateOrchestrationScript({
       script:
         'const found = await agent("find"); const all = await pipeline([1, 2], (x) => agent(String(x))); return all.length;',
       args: undefined,
@@ -24,7 +24,7 @@ describe("evaluateWorkflowScript", () => {
   });
 
   test("args are passed as a global", async () => {
-    const result = await evaluateWorkflowScript({
+    const result = await evaluateOrchestrationScript({
       script: "return args.count * 2;",
       args: { count: 21 },
       primitives: primitives as never,
@@ -34,13 +34,13 @@ describe("evaluateWorkflowScript", () => {
 
   test("fs/process/require are absent inside the sandbox", async () => {
     // typeof never throws for undeclared names: the value proves absence.
-    const processType = await evaluateWorkflowScript({
+    const processType = await evaluateOrchestrationScript({
       script: "return typeof process;",
       args: undefined,
       primitives: primitives as never,
     });
     expect(processType.value).toBe("undefined");
-    const requireType = await evaluateWorkflowScript({
+    const requireType = await evaluateOrchestrationScript({
       script: "return typeof require;",
       args: undefined,
       primitives: primitives as never,
@@ -48,7 +48,7 @@ describe("evaluateWorkflowScript", () => {
     expect(requireType.value).toBe("undefined");
     // Direct access throws.
     await expect(
-      evaluateWorkflowScript({
+      evaluateOrchestrationScript({
         script: "return process;",
         args: undefined,
         primitives: primitives as never,
@@ -58,7 +58,7 @@ describe("evaluateWorkflowScript", () => {
 
   test("the timeout aborts a synchronous infinite loop", async () => {
     await expect(
-      evaluateWorkflowScript({
+      evaluateOrchestrationScript({
         script: "while (true) {}",
         args: undefined,
         primitives: primitives as never,
@@ -69,7 +69,7 @@ describe("evaluateWorkflowScript", () => {
 
   test("the timeout races an async stall", async () => {
     await expect(
-      evaluateWorkflowScript({
+      evaluateOrchestrationScript({
         script: "await new Promise(() => {});",
         args: undefined,
         primitives: primitives as never,

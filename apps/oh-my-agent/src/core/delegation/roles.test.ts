@@ -4,9 +4,9 @@ import {
   isValidWorkflowName,
   parseAgentDefinition,
   resolveAgent,
-} from "./subagent-registry.js";
+} from "./roles.js";
 
-describe("subagent-registry", () => {
+describe("roles", () => {
   test("builtin explore/plan are read-only and task has all tools (claude trio)", async () => {
     const explore = await resolveAgent("explore", async () => null);
     expect(explore?.tools).toEqual(["read", "grep", "glob", "tree", "read_image"]);

@@ -54,11 +54,11 @@ export type OmaLoopEvent =
     }
   | { type: "stream_rule_triggered"; rule: string }
   | { type: "todo_update"; items: readonly TodoItem[] }
-  | { type: "workflow_started"; workflowId: string; label: string; agentCount: number }
-  | { type: "workflow_agent_started"; workflowId: string; agentId: string; label: string }
+  | { type: "delegation_batch_started"; batchId: string; label: string; agentCount: number }
+  | { type: "delegation_agent_started"; batchId: string; agentId: string; label: string }
   | {
-      type: "workflow_agent_completed";
-      workflowId: string;
+      type: "delegation_agent_completed";
+      batchId: string;
       agentId: string;
       label: string;
       ok: boolean;
@@ -66,12 +66,12 @@ export type OmaLoopEvent =
       usage?: unknown;
     }
   | {
-      type: "workflow_completed";
-      workflowId: string;
+      type: "delegation_batch_completed";
+      batchId: string;
       ok: boolean;
       agentCount: number;
       totalTokens: number;
     }
-  | { type: "workflow_failed"; workflowId: string; error: string };
+  | { type: "delegation_batch_failed"; batchId: string; error: string };
 
 export type AgentLoopListener = (event: OmaLoopEvent) => void | Promise<void>;

@@ -1,43 +1,23 @@
 import type { PluginTool } from "../agent-runtime.js";
-import { builtinAgentNames, isValidWorkflowName, resolveAgent } from "./subagent-registry.js";
-import type {
-  WorkflowAgentResult,
-  WorkflowAgentSpec,
-  WorkflowRunResult,
-} from "./workflow-executor.js";
+import { builtinAgentNames, isValidWorkflowName, resolveAgent } from "./roles.js";
+import type { SubagentResult, SubagentSpec, SubagentBatchResult } from "./executor.js";
 
 export {
   isValidWorkflowName,
   parseAgentDefinition,
-  type SubagentRegistryEntry,
-} from "./subagent-registry.js";
+  type AgentRole,
+} from "./roles.js";
 
-export interface WorkflowScriptResult {
-  readonly ok: boolean;
-  readonly totalTokens: number;
-  readonly value: unknown;
-}
-
-export interface WorkflowToolDeps {
-  readonly runWorkflow: (input: {
-    workflowId: string;
+export interface DelegationToolDeps {
+  readonly runBatch: (input: {
+    batchId: string;
     label: string;
-    items: readonly WorkflowAgentSpec[];
+    items: readonly SubagentSpec[];
     signal?: AbortSignal;
-  }) => Promise<WorkflowRunResult>;
-  /** Executes an orchestration script in the vm sandbox (Phase 2). */
-  readonly runScript: (input: { script: string; args?: unknown }) => Promise<WorkflowScriptResult>;
-  /** Persist a script to `<workspace>/.oma/workflow/<name>.js` for reuse. */
-  readonly writeScript: (name: string, content: string) => void;
-  /** Load a saved script by name (B8: `workflow_run({name})` re-runs a
-   *  saved workflow without re-supplying the body). null = not found. */
-  readonly readScript: (name: string) => Promise<string | null>;
-  /** 3.4: dispatch ONE named subagent (workflowId/agentId are minted by the
+  }) => Promise<SubagentBatchResult>;
+  /** 3.4: dispatch ONE named subagent (batchId/agentId are minted by the
    *  wiring closure). `signal` is the calling loop's abort signal. */
-  readonly runSubagent: (
-    spec: WorkflowAgentSpec,
-    signal?: AbortSignal,
-  ) => Promise<WorkflowAgentResult>;
+  readonly runSubagent: (spec: SubagentSpec, signal?: AbortSignal) => Promise<SubagentResult>;
   /** 3.4: raw markdown of `<workspace>/.oma/agents/<name>.md`, or null when
    *  absent. The name is already validated before this is called. */
   readonly readAgentDefinition: (name: string) => Promise<string | null>;
@@ -46,129 +26,28 @@ export interface WorkflowToolDeps {
     handle: string;
     label: string;
     status: string;
-    usage?: WorkflowAgentResult["usage"];
+    usage?: SubagentResult["usage"];
   }>;
   readonly getSubagentOutput: (handle: string) => {
     handle: string;
     status: string;
-    result?: WorkflowAgentResult;
+    result?: SubagentResult;
   };
   readonly stopSubagent: (handle: string) => { ok: boolean; error?: string };
 }
 
-/** Boundary narrowing: tool args arrive from the model as unknown-shaped
- *  JSON - validate each field before it enters the executor. */
-function parseItem(raw: unknown): WorkflowAgentSpec {
-  const item = raw as Record<string, unknown>;
-  const schema = item.schema;
-  const schemaRec: Readonly<Record<string, unknown>> | undefined =
-    schema && typeof schema === "object" && !Array.isArray(schema)
-      ? (schema as Readonly<Record<string, unknown>>)
-      : undefined;
-  return {
-    prompt: String(item.prompt ?? ""),
-    ...(typeof item.label === "string" ? { label: item.label } : {}),
-    ...(schemaRec ? { schema: schemaRec } : {}),
-  };
-}
+/** The model-facing delegation surface: one fan-out tool (batch + single)
+ *  plus its control plane. Script orchestration lives in orchestrate/tool.ts. */
 
-export function createWorkflowTools(deps: WorkflowToolDeps): readonly PluginTool[] {
-  const MAX_BATCH_TASKS = 8;
-  const BATCH_CONCURRENCY = 4;
-  const runWorkflow: PluginTool = {
-    name: "run_workflow",
-    description:
-      "Fan out independent subagent tasks in parallel and aggregate their results. " +
-      "Each item gets its own isolated agent session (same model, file tools). " +
-      "Use for audits, migrations, and multi-source research. " +
-      "Items: [{prompt, schema?, label?}]. Returns per-item text and schema-validated " +
-      "output (1 retry on violation).",
-    executionMode: "serial",
-    inputSchema: {
-      type: "object",
-      properties: {
-        label: { type: "string" },
-        items: {
-          type: "array",
-          maxItems: 64,
-          items: {
-            type: "object",
-            properties: {
-              prompt: { type: "string" },
-              label: { type: "string" },
-              schema: { type: "object" },
-            },
-            required: ["prompt"],
-          },
-        },
-      },
-      required: ["items"],
-    },
-    async execute(args, signal) {
-      const rawItems = Array.isArray(args.items) ? args.items : [];
-      const workflowId = `wf-${crypto.randomUUID()}`;
-      const result = await deps.runWorkflow({
-        workflowId,
-        label: typeof args.label === "string" ? args.label : "workflow",
-        items: rawItems.map(parseItem),
-        ...(signal ? { signal } : {}),
-      });
-      return { items: result.items, totalTokens: result.totalTokens, ok: result.ok };
-    },
-  };
-
-  const runScript: PluginTool = {
-    name: "workflow_run",
-    description:
-      "Run an orchestration script (top-level-await JS) that fans out subagents " +
-      "via agent(prompt, {schema?, label?}) and pipeline(items, fn). Scripts have " +
-      "NO fs/network access - agents do the work. Save reusable scripts with the " +
-      "name argument (written to .oma/workflow/<name>.js), then re-run one later " +
-      "with ONLY the name argument (loads the saved script).",
-    executionMode: "serial",
-    inputSchema: {
-      type: "object",
-      properties: {
-        // script XOR name: either a new body, or a saved workflow to re-run
-        // (the runtime enforces the XOR — at least one must be present).
-        script: { type: "string", maxLength: 32768 },
-        name: { type: "string" },
-        args: { type: "object" },
-      },
-    },
-    async execute(args) {
-      const rawScript = typeof args.script === "string" ? args.script : "";
-      const name = typeof args.name === "string" && args.name.length > 0 ? args.name : null;
-      if (name && !isValidWorkflowName(name)) {
-        return { ok: false, error: `invalid workflow name (allowed: [a-z0-9-], max 64): ${name}` };
-      }
-      if (rawScript && name) deps.writeScript(name, rawScript);
-      let script = rawScript;
-      if (!script && name) {
-        const saved = await deps.readScript(name);
-        if (saved === null) {
-          return { ok: false, error: `workflow "${name}" not found in .oma/workflow` };
-        }
-        script = saved;
-      }
-      if (!script) return { ok: false, error: "script or name is required" };
-      const result = await deps.runScript({ script, args: args.args });
-      return {
-        ok: result.ok,
-        totalTokens: result.totalTokens,
-        value: result.value,
-        scriptSaved: Boolean(rawScript && name),
-      };
-    },
-  };
-
+export function createDelegationTools(deps: DelegationToolDeps): readonly PluginTool[] {
+  const MAX_BATCH_TASKS = 64;
   const task: PluginTool = {
     name: "task",
     description:
       "Fan out subagents. BATCH (preferred): {context, tasks:[{name?, agent?, task, outputSchema?}]} — " +
-      "context is shared background injected into every spawn; items run concurrently (max 4); " +
-      "per-item text is capped at 5000 chars. Roles: task (full tools), explore (read-only), " +
-      "plan (read-only planning), worker (full file tools), or any .oma/agents/<name>.md definition. " +
+      "context is shared background injected into every spawn; items run under the executor " +
+      "semaphore; long results spill to .oma/workflow with a resultPath. Roles: task (full tools), " +
+      "explore (read-only), plan (read-only planning), or any .oma/agents/<name>.md definition. " +
       "SINGLE (compat): {agent, prompt, schema?, background?, resume?} — background:true returns a " +
       "handle immediately (poll via task_output); {resume, prompt} continues the SAME subagent.",
     executionMode: "serial",
@@ -183,7 +62,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly PluginTool
         tasks: {
           type: "array",
           minItems: 1,
-          maxItems: 8,
+          maxItems: 64,
           description: "BATCH: one subagent per item",
           items: {
             type: "object",
@@ -211,8 +90,10 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly PluginTool
       const resume = typeof args.resume === "string" ? args.resume.trim() : "";
 
       // Batch fan-out (pi task.batch shape): required shared context +
-      // per-item spawns under bounded concurrency. Flat single-spawn
-      // params stay accepted (pi runtime is permissive across shapes).
+      // per-item spawns under the executor semaphore. The executor owns
+      // spill, budget/cap gating, abort-on-failure, and the
+      // delegation_batch_* event stream. Flat single-spawn params stay
+      // accepted (pi runtime is permissive across shapes).
       if (Array.isArray(args.tasks)) {
         const context = typeof args.context === "string" ? args.context.trim() : "";
         if (!context) {
@@ -278,51 +159,36 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly PluginTool
             modelId: def.modelId,
           });
         }
-        const results: Array<Record<string, unknown>> = [];
-        let next = 0;
-        const workers = Array.from(
-          { length: Math.min(BATCH_CONCURRENCY, metas.length) },
-          async () => {
-            for (;;) {
-              const index = next++;
-              if (index >= metas.length) return;
-              const meta = metas[index]!;
-              const result = await deps.runSubagent(
-                {
-                  prompt: `${context}\n\n---\n\n${meta.task}`,
-                  label: meta.label,
-                  ...(meta.schema ? { schema: meta.schema } : {}),
-                  systemPrompt: meta.systemPrompt,
-                  ...(meta.tools ? { toolNames: meta.tools } : {}),
-                  ...(meta.modelId ? { modelId: meta.modelId } : {}),
-                },
-                signal,
-              );
-              results[index] = {
-                index: index + 1,
-                name: meta.label,
-                agent: meta.agent,
-                ok: result.ok,
-                text: (result.text ?? "").slice(0, 5000),
-                ...(result.output !== undefined ? { output: result.output } : {}),
-                ...(result.error ? { error: result.error } : {}),
-                ...(result.usage ? { usage: result.usage } : {}),
-                ...(result.handle ? { handle: result.handle } : {}),
-                ...(result.resultPath ? { resultPath: result.resultPath } : {}),
-              };
-            }
-          },
-        );
-        await Promise.all(workers);
+        const batch = await deps.runBatch({
+          batchId: `task-${crypto.randomUUID()}`,
+          label: "task",
+          items: metas.map((meta) => ({
+            prompt: `${context}\n\n---\n\n${meta.task}`,
+            label: meta.label,
+            ...(meta.schema ? { schema: meta.schema } : {}),
+            systemPrompt: meta.systemPrompt,
+            ...(meta.tools ? { toolNames: meta.tools } : {}),
+            ...(meta.modelId ? { modelId: meta.modelId } : {}),
+          })),
+          ...(signal ? { signal } : {}),
+        });
+        const results = batch.items.map((r, i) => ({
+          index: i + 1,
+          name: r.label,
+          agent: metas[i]!.agent,
+          ok: r.ok,
+          text: r.text,
+          ...(r.output !== undefined ? { output: r.output } : {}),
+          ...(r.error ? { error: r.error } : {}),
+          ...(r.usage ? { usage: r.usage } : {}),
+          ...(r.handle ? { handle: r.handle } : {}),
+          ...(r.resultPath ? { resultPath: r.resultPath } : {}),
+        }));
         const lines = results.map(
           (r, i) =>
             `${i + 1}. ${r.name} (${r.agent}) — ${r.ok ? "ok" : "error"}\n${String(r.text ?? r.error ?? "")}`,
         );
-        return {
-          ok: results.every((r) => r.ok !== false),
-          content: lines.join("\n\n"),
-          results,
-        };
+        return { ok: batch.ok, content: lines.join("\n\n"), results };
       }
       if (!prompt) return { ok: false, error: "prompt is required" };
       if (resume) {
@@ -419,5 +285,5 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly PluginTool
     },
   };
 
-  return [runWorkflow, runScript, task, taskList, taskOutput, taskStop];
+  return [task, taskList, taskOutput, taskStop];
 }

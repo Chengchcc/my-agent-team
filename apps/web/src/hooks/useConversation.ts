@@ -490,7 +490,7 @@ export function useConversation(
         (kind: "started" | "agent_started" | "agent_completed" | "completed") => (e: Event) => {
           try {
             const ev = JSON.parse((e as MessageEvent).data) as {
-              workflowId?: string;
+              batchId?: string;
               label?: string;
               agentCount?: number;
               agentId?: string;
@@ -498,10 +498,10 @@ export function useConversation(
               error?: string;
               totalTokens?: number;
             };
-            const workflowId = String(ev.workflowId ?? "");
-            if (!workflowId) return;
+            const batchId = String(ev.batchId ?? "");
+            if (!batchId) return;
             if (kind === "started") {
-              upsertWorkflow(workflowId, () => ({
+              upsertWorkflow(batchId, () => ({
                 label: String(ev.label ?? ""),
                 agentCount: Number(ev.agentCount ?? 0),
                 agents: new Map(),
@@ -511,7 +511,7 @@ export function useConversation(
               return;
             }
             if (kind === "completed") {
-              upsertWorkflow(workflowId, (w) => {
+              upsertWorkflow(batchId, (w) => {
                 if (!w) return w;
                 return { ...w, ok: ev.ok === true, totalTokens: Number(ev.totalTokens ?? 0) };
               });
@@ -528,7 +528,7 @@ export function useConversation(
                       status: "failed",
                       error: String(ev.error ?? ""),
                     };
-            upsertWorkflow(workflowId, (w) => {
+            upsertWorkflow(batchId, (w) => {
               if (!w) return w;
               const agents = new Map(w.agents);
               agents.set(agentId, agentState);
@@ -538,10 +538,10 @@ export function useConversation(
             /* malformed - ignore */
           }
         };
-      es.addEventListener("workflow_started", workflowEvent("started"));
-      es.addEventListener("workflow_agent_started", workflowEvent("agent_started"));
-      es.addEventListener("workflow_agent_completed", workflowEvent("agent_completed"));
-      es.addEventListener("workflow_completed", workflowEvent("completed"));
+      es.addEventListener("delegation_batch_started", workflowEvent("started"));
+      es.addEventListener("delegation_agent_started", workflowEvent("agent_started"));
+      es.addEventListener("delegation_agent_completed", workflowEvent("agent_completed"));
+      es.addEventListener("delegation_batch_completed", workflowEvent("completed"));
     },
     [
       clearRunToolsState,

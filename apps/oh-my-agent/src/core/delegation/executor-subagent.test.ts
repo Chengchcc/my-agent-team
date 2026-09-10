@@ -5,24 +5,24 @@ import { join } from "node:path";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
 import type { PluginTool } from "../agent-runtime.js";
-import { createWorkflowExecutor, createWorkflowFixture } from "./workflow-executor.fixture.js";
+import { createDelegationExecutor, createDelegationFixture } from "./executor.fixture.js";
 
-const { events, makeDeps } = createWorkflowFixture();
+const { events, makeDeps } = createDelegationFixture();
 
-describe("createWorkflowExecutor", () => {
+describe("createDelegationExecutor", () => {
   afterEach(() => {
     events.length = 0;
   });
   test("subagent state dumps spec + transcript to .session.json (A1/F2)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-state-"));
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       workspaceRoot: dir,
       workspaceAccess: "read_write",
     });
     try {
       const result = await exec.runSubagent({
-        workflowId: "wf-state",
+        batchId: "wf-state",
         agentId: "a1",
         prompt: "go",
         systemPrompt: "ROLE BODY",
@@ -60,7 +60,7 @@ describe("createWorkflowExecutor", () => {
         return { ok: true };
       },
     };
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       tools: [writeTool],
       makeSubagentStream: () =>
@@ -79,7 +79,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-art",
+      batchId: "wf-art",
       agentId: "a1",
       prompt: "write a file",
     });
@@ -103,7 +103,7 @@ describe("createWorkflowExecutor", () => {
         return { ok: true };
       },
     };
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       tools: [readTool, writeTool],
       makeSubagentStream: () =>
@@ -114,7 +114,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-role",
+      batchId: "wf-role",
       agentId: "a1",
       prompt: "go",
       systemPrompt: "ROLE PROMPT",
@@ -126,7 +126,7 @@ describe("createWorkflowExecutor", () => {
 
   test("role modelId override reaches the subagent stream (3.4)", async () => {
     const seenModelIds: Array<string | undefined> = [];
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: (_sessionId, modelId) => {
         seenModelIds.push(modelId);
@@ -134,7 +134,7 @@ describe("createWorkflowExecutor", () => {
       },
     });
     await exec.runSubagent({
-      workflowId: "wf-model",
+      batchId: "wf-model",
       agentId: "a1",
       prompt: "go",
       modelId: "fake/big",
@@ -145,7 +145,7 @@ describe("createWorkflowExecutor", () => {
   test("resume continues the same session with its pinned spec (3.4 Phase 2)", async () => {
     const seenSystems: string[] = [];
     let calls = 0;
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* (messages: readonly { role?: string; text?: string }[]) {
@@ -163,14 +163,14 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const first = await exec.runSubagent({
-      workflowId: "wf-resume",
+      batchId: "wf-resume",
       agentId: "a1",
       prompt: "first task",
       systemPrompt: "PINNED ROLE",
     });
     expect(first.handle).toBeTruthy();
     const resumed = await exec.runSubagent({
-      workflowId: "ignored",
+      batchId: "ignored",
       agentId: "ignored",
       prompt: "follow up",
       systemPrompt: "MUTATED ROLE", // registry edit between calls must NOT leak in
@@ -184,9 +184,9 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("resume with an unknown handle errors with the active list", async () => {
-    const exec = createWorkflowExecutor(makeDeps());
+    const exec = createDelegationExecutor(makeDeps());
     const result = await exec.runSubagent({
-      workflowId: "wf-x",
+      batchId: "wf-x",
       agentId: "a1",
       prompt: "go",
       resumeHandle: "sub-missing",
@@ -196,7 +196,7 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("background dispatch returns immediately; stop lands a stopped result (3.4 Phase 3)", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* (_messages: unknown, signal?: AbortSignal) {
@@ -207,7 +207,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const started = await exec.runSubagent({
-      workflowId: "wf-bg",
+      batchId: "wf-bg",
       agentId: "a1",
       prompt: "go",
       background: true,
@@ -226,16 +226,16 @@ describe("createWorkflowExecutor", () => {
     expect(out.status).toBe("stopped");
     expect(out.result?.ok).toBe(false);
     expect(out.result?.error).toBe("stopped");
-    expect(events).toContainEqual(expect.objectContaining({ type: "workflow_agent_completed" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "delegation_agent_completed" }));
   });
 
   test("subagent_output transitions running to completed with the result", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () => createEchoModelStream("bg result"),
     });
     const started = await exec.runSubagent({
-      workflowId: "wf-bg2",
+      batchId: "wf-bg2",
       agentId: "a1",
       prompt: "go",
       background: true,
@@ -252,7 +252,7 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("abortAllSubagents stops every background subagent (run teardown)", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* (_messages: unknown, signal?: AbortSignal) {
@@ -263,13 +263,13 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const a = await exec.runSubagent({
-      workflowId: "wf-c1",
+      batchId: "wf-c1",
       agentId: "a1",
       prompt: "x",
       background: true,
     });
     const b = await exec.runSubagent({
-      workflowId: "wf-c2",
+      batchId: "wf-c2",
       agentId: "a2",
       prompt: "y",
       background: true,
@@ -288,18 +288,18 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("a budget gate refuses background spawns too", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       budgetGate: () => ({ allowed: false, reason: "budget exhausted" }),
     });
     await expect(
-      exec.runSubagent({ workflowId: "wf-bg3", agentId: "a1", prompt: "go", background: true }),
+      exec.runSubagent({ batchId: "wf-bg3", agentId: "a1", prompt: "go", background: true }),
     ).rejects.toThrow(/budget exhausted/);
   });
 
   test("spec schema is passed as responseFormat to the subagent stream (F5)", async () => {
     const seen: Array<{ modelId?: string; responseFormat?: unknown }> = [];
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: (_sessionId, modelId, responseFormat) => {
         seen.push({ modelId, responseFormat });
@@ -307,7 +307,7 @@ describe("createWorkflowExecutor", () => {
       },
     });
     await exec.runSubagent({
-      workflowId: "wf-f5",
+      batchId: "wf-f5",
       agentId: "a1",
       prompt: "go",
       schema: { type: "object" },
@@ -320,7 +320,7 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("perAgentTimeoutMs stops a subagent that exceeds its deadline", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       perAgentTimeoutMs: 20,
       makeSubagentStream: () =>
@@ -332,7 +332,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-timeout",
+      batchId: "wf-timeout",
       agentId: "a1",
       prompt: "slow",
     });

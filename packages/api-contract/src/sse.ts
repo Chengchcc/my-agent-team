@@ -82,37 +82,37 @@ export const runEvents = {
     type: z.literal("backend.oma.todo_update"),
     payload: z.object({ items: z.array(z.unknown()).optional() }).optional(),
   }),
-  workflow_started: z.object({
-    type: z.literal("workflow_started"),
-    workflowId: z.string().optional(),
+  delegation_batch_started: z.object({
+    type: z.literal("delegation_batch_started"),
+    batchId: z.string().optional(),
     label: z.string().optional(),
     agentCount: z.number().optional(),
   }),
-  workflow_agent_started: z.object({
-    type: z.literal("workflow_agent_started"),
-    workflowId: z.string().optional(),
+  delegation_agent_started: z.object({
+    type: z.literal("delegation_agent_started"),
+    batchId: z.string().optional(),
     agentId: z.string().optional(),
     label: z.string().optional(),
   }),
-  workflow_agent_completed: z.object({
-    type: z.literal("workflow_agent_completed"),
-    workflowId: z.string().optional(),
+  delegation_agent_completed: z.object({
+    type: z.literal("delegation_agent_completed"),
+    batchId: z.string().optional(),
     agentId: z.string().optional(),
     label: z.string().optional(),
     ok: z.boolean().optional(),
     error: z.string().optional(),
     usage: z.unknown().optional(),
   }),
-  workflow_completed: z.object({
-    type: z.literal("workflow_completed"),
-    workflowId: z.string().optional(),
+  delegation_batch_completed: z.object({
+    type: z.literal("delegation_batch_completed"),
+    batchId: z.string().optional(),
     ok: z.boolean().optional(),
     agentCount: z.number().optional(),
     totalTokens: z.number().optional(),
   }),
-  workflow_failed: z.object({
-    type: z.literal("workflow_failed"),
-    workflowId: z.string().optional(),
+  delegation_batch_failed: z.object({
+    type: z.literal("delegation_batch_failed"),
+    batchId: z.string().optional(),
     error: z.string().optional(),
   }),
 } as const satisfies SSEEventMap;
@@ -146,7 +146,7 @@ export const workflowExecutionEvents = {
 // change trigger; the full definition is fetched from the REST endpoint.
 export const workflowDefinitionEvent = z.object({
   event: z.literal("changed"),
-  workflowId: z.string(),
+  batchId: z.string(),
   ts: z.number(),
   data: z.object({
     trigger: z.enum(["save", "mcp"]),

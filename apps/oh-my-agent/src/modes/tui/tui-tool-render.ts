@@ -23,15 +23,71 @@ export function renderTodoTool(item: TranscriptItem, expanded: boolean): string[
   return lines;
 }
 
-/** omp-style plain-list task rendering (no card/box). */
+/** omp-style plain-list task rendering (no card/box). Covers the
+ *  delegation surface: task (batch/single), task_list, task_output. */
 export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[] {
+  const toolName = item.text.replace(/…$/, "");
   const label = typeof item.input?.label === "string" ? item.input.label : "";
-  const lines: string[] = [`\u001b[36m  task${label ? ` · ${label}` : ""}\u001b[0m`];
+  const title = `${toolName}${label ? ` · ${label}` : ""}`;
+  const lines: string[] = [`\u001b[36m  ${title}\u001b[0m`];
   const result = item.result;
-  if (result && typeof result === "object" && "status" in result) {
-    const st = String(result.status);
-    lines.push(`\u001b[2m    status: ${st}\u001b[0m`);
+  const asRecord = (v: unknown): Record<string, unknown> =>
+    typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+  // task_list: { tasks: [{handle, label, status, usage?}] }
+  if (toolName === "task_list" && result && Array.isArray(asRecord(result).tasks)) {
+    const tasks = asRecord(result).tasks as Array<Record<string, unknown>>;
+    if (tasks.length === 0) lines.push("\u001b[2m    (no live tasks)\u001b[0m");
+    for (const t of tasks) {
+      const status = String(t.status ?? "?");
+      const mark =
+        status === "running"
+          ? "\u27f3"
+          : status === "failed" || status === "stopped"
+            ? "\u2718"
+            : "\u2714";
+      lines.push(`\u001b[2m  ${mark} ${String(t.label ?? t.handle ?? "")} [${status}]\u001b[0m`);
+    }
+    return lines;
   }
+  // task_output: { handle, status, result: SubagentResult } — show the nested text.
+  if (toolName === "task_output") {
+    const status = String(asRecord(result).status ?? "");
+    if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
+    const nested = asRecord(result).result;
+    if (nested && typeof nested === "object") {
+      const nestedText = String(asRecord(nested).text ?? "");
+      if (nestedText.trim()) {
+        lines.push(`\u001b[2m    ${nestedText.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+      }
+    }
+    if (lines.length === 1) lines.push("\u001b[2m    (unknown handle)\u001b[0m");
+    return lines;
+  }
+  const status = String(asRecord(result).status ?? "");
+  if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
+  // Batch: { ok, content, results: [{index, name, agent, ok, text|error, ...}] }
+  const results = Array.isArray(asRecord(result).results)
+    ? (asRecord(result).results as Array<Record<string, unknown>>)
+    : [];
+  if (results.length > 0) {
+    for (const r of results) {
+      const name = String(r.name ?? "");
+      const agent = String(r.agent ?? "");
+      const mark = r.ok === false ? "\u001b[31m✗\u001b[0m" : "\u001b[32m✔\u001b[0m";
+      lines.push(`  ${mark} \u001b[2m${name}${agent ? ` (${agent})` : ""}\u001b[0m`);
+      const text =
+        typeof r.text === "string" && r.text !== ""
+          ? r.text
+          : typeof r.error === "string"
+            ? r.error
+            : "";
+      if (text.trim()) {
+        lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+      }
+    }
+    return lines;
+  }
+  // Single mode / script result: content or top-level text.
   const content =
     typeof result?.content === "string"
       ? result.content
@@ -42,7 +98,11 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
     const text = content.trim();
     if (text) lines.push(`\u001b[2m    ${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
   }
-  if (lines.length === 1) lines.push(`\u001b[2m    (done)\u001b[0m`);
+  if (item.streaming) {
+    lines.push(`\u001b[2m    ⟳ running…\u001b[0m`);
+  } else if (lines.length === 1) {
+    lines.push(`\u001b[2m    (done)\u001b[0m`);
+  }
   return lines;
 }
 

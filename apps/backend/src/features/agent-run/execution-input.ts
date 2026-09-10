@@ -21,10 +21,10 @@ export const TELEMETRY_EVENT_TYPES = new Set([
   "status",
   "native_tool_started",
   "native_tool_completed",
-  "workflow_started",
-  "workflow_agent_started",
-  "workflow_agent_completed",
-  "workflow_completed",
+  "delegation_batch_started",
+  "delegation_agent_started",
+  "delegation_agent_completed",
+  "delegation_batch_completed",
 ]);
 
 function renderBlock(b: ContentBlock, depth = 0): string {

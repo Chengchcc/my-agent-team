@@ -1,6 +1,6 @@
 import vm from "node:vm";
 
-export interface WorkflowPrimitives {
+export interface OrchestrationPrimitives {
   readonly agent: (
     prompt: string,
     opts?: { schema?: Readonly<Record<string, unknown>>; label?: string },
@@ -20,10 +20,10 @@ export interface EvaluateResult {
  *  require/process/fs/fetch do not exist inside the script. The vm timeout
  *  covers synchronous infinite loops; the caller races the returned promise
  *  against the script budget for async stalls. */
-export async function evaluateWorkflowScript(input: {
+export async function evaluateOrchestrationScript(input: {
   readonly script: string;
   readonly args?: unknown;
-  readonly primitives: WorkflowPrimitives;
+  readonly primitives: OrchestrationPrimitives;
   readonly timeoutMs?: number;
 }): Promise<EvaluateResult> {
   const timeoutMs = input.timeoutMs ?? 60_000;

@@ -95,7 +95,7 @@ export interface OmaRuntime {
 
 /** Add workflow (subagent) usage into a run's terminal usage. Missing
  *  fields default to 0; an all-zero workflow side leaves the base alone. */
-function mergeWorkflowUsage(
+function mergeDelegationUsage(
   base: BackendRunOutcome["usage"],
   wf: BackendRunOutcome["usage"],
 ): BackendRunOutcome["usage"] {
@@ -290,9 +290,9 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
           }
           const outcome = mapLoopResult(result);
           if (outcome.status === "completed") {
-            // Fan-out spend (run_workflow / workflow_run subagents) merges
+            // Fan-out spend (task / workflow_run subagents) merges
             // into the run's terminal usage (B6).
-            return { ...outcome, usage: mergeWorkflowUsage(outcome.usage, rt.workflowUsage()) };
+            return { ...outcome, usage: mergeDelegationUsage(outcome.usage, rt.delegationUsage()) };
           }
           return outcome;
         } catch (caught) {

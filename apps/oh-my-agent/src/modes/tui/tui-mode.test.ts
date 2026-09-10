@@ -108,28 +108,28 @@ describe("view-state folding", () => {
     });
   });
 
-  test("workflow events fold into transcript statuses", () => {
+  test("delegation events fold into transcript statuses", () => {
     const state = initialViewState();
     applyEvent(state, { type: "agent_start" });
-    applyEvent(state, { type: "workflow_started", workflowId: "w", label: "audit", agentCount: 3 });
+    applyEvent(state, { type: "delegation_batch_started", batchId: "w", label: "audit", agentCount: 3 });
     applyEvent(state, {
-      type: "workflow_agent_completed",
-      workflowId: "w",
+      type: "delegation_agent_completed",
+      batchId: "w",
       agentId: "a",
       label: "one",
       ok: true,
     });
     applyEvent(state, {
-      type: "workflow_agent_completed",
-      workflowId: "w",
+      type: "delegation_agent_completed",
+      batchId: "w",
       agentId: "b",
       label: "two",
       ok: false,
       error: "boom",
     });
     applyEvent(state, {
-      type: "workflow_completed",
-      workflowId: "w",
+      type: "delegation_batch_completed",
+      batchId: "w",
       ok: true,
       agentCount: 2,
       totalTokens: 123,

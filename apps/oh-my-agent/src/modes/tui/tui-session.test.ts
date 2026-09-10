@@ -271,8 +271,8 @@ describe("tui session (headless, fake provider)", () => {
         .at(-1)!
         .runs.flatMap((r) => r.items.filter((i) => i.kind === "status"))
         .map((i) => i.text);
-      expect(statuses.some((t) => t.includes("workflow: script"))).toBe(true);
-      expect(statuses.some((t) => t.includes("workflow done"))).toBe(true);
+      expect(statuses.some((t) => t.includes("delegating: script"))).toBe(true);
+      expect(statuses.some((t) => t.includes("delegation done"))).toBe(true);
       expect(statuses.some((t) => t.includes("workflow result: 42"))).toBe(true);
     } finally {
       delete process.env.OMA_SESSION_DIR;

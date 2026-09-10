@@ -31,20 +31,20 @@ export type CoreBackendEvent =
   | { readonly type: "pending_action"; readonly actionId: string }
   | { readonly type: "status"; readonly status: string; readonly error?: string }
   | {
-      readonly type: "workflow_started";
-      readonly workflowId: string;
+      readonly type: "delegation_batch_started";
+      readonly batchId: string;
       readonly label: string;
       readonly agentCount: number;
     }
   | {
-      readonly type: "workflow_agent_started";
-      readonly workflowId: string;
+      readonly type: "delegation_agent_started";
+      readonly batchId: string;
       readonly agentId: string;
       readonly label: string;
     }
   | {
-      readonly type: "workflow_agent_completed";
-      readonly workflowId: string;
+      readonly type: "delegation_agent_completed";
+      readonly batchId: string;
       readonly agentId: string;
       readonly label: string;
       readonly ok: boolean;
@@ -52,8 +52,8 @@ export type CoreBackendEvent =
       readonly usage?: unknown;
     }
   | {
-      readonly type: "workflow_completed";
-      readonly workflowId: string;
+      readonly type: "delegation_batch_completed";
+      readonly batchId: string;
       readonly ok: boolean;
       readonly agentCount: number;
       readonly totalTokens: number;

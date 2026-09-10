@@ -5,21 +5,21 @@ import { join } from "node:path";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
 import {
-  createWorkflowExecutor,
-  createWorkflowFixture,
+  createDelegationExecutor,
+  createDelegationFixture,
   ProviderError,
-} from "./workflow-executor.fixture.js";
+} from "./executor.fixture.js";
 
-const { events, makeDeps } = createWorkflowFixture();
+const { events, makeDeps } = createDelegationFixture();
 
-describe("createWorkflowExecutor", () => {
+describe("createDelegationExecutor", () => {
   afterEach(() => {
     events.length = 0;
   });
-  test("runWorkflow fans out and aggregates with lifecycle events", async () => {
-    const exec = createWorkflowExecutor(makeDeps());
-    const result = await exec.runWorkflow({
-      workflowId: "wf1",
+  test("runBatch fans out and aggregates with lifecycle events", async () => {
+    const exec = createDelegationExecutor(makeDeps());
+    const result = await exec.runBatch({
+      batchId: "wf1",
       label: "audit",
       items: [
         { prompt: "one", label: "a" },
@@ -33,21 +33,21 @@ describe("createWorkflowExecutor", () => {
       "echo:wf:wf1:a1",
       "echo:wf:wf1:a2",
     ]);
-    expect(events.filter((e) => e.type === "workflow_agent_started")).toHaveLength(3);
-    expect(events.filter((e) => e.type === "workflow_agent_completed")).toHaveLength(3);
-    const started = events.find((e) => e.type === "workflow_started") as {
+    expect(events.filter((e) => e.type === "delegation_agent_started")).toHaveLength(3);
+    expect(events.filter((e) => e.type === "delegation_agent_completed")).toHaveLength(3);
+    const started = events.find((e) => e.type === "delegation_batch_started") as {
       agentCount: number;
     };
     expect(started.agentCount).toBe(3);
-    const done = events.find((e) => e.type === "workflow_completed") as { ok: boolean };
+    const done = events.find((e) => e.type === "delegation_batch_completed") as { ok: boolean };
     expect(done.ok).toBe(true);
   });
 
   test("the total cap rejects excess agents with a clear error", async () => {
-    const exec = createWorkflowExecutor(makeDeps());
+    const exec = createDelegationExecutor(makeDeps());
     await expect(
-      exec.runWorkflow({
-        workflowId: "wf2",
+      exec.runBatch({
+        batchId: "wf2",
         label: "big",
         items: Array.from({ length: 5 }, (_, i) => ({ prompt: `p${i}` })),
       }),
@@ -56,14 +56,14 @@ describe("createWorkflowExecutor", () => {
 
   test("a budget gate can refuse new spawns", async () => {
     let budget = 2;
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       budgetGate: () =>
         --budget >= 0 ? { allowed: true } : { allowed: false, reason: "budget exhausted" },
     });
     await expect(
-      exec.runWorkflow({
-        workflowId: "wf3",
+      exec.runBatch({
+        batchId: "wf3",
         label: "gated",
         items: [1, 2, 3].map((i) => ({ prompt: `p${i}` })),
       }),
@@ -71,12 +71,12 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("schema output is parsed from the final JSON text", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () => createEchoModelStream('{"ok":true}'),
     });
     const result = await exec.runSubagent({
-      workflowId: "wf4",
+      batchId: "wf4",
       agentId: "a1",
       prompt: "return json",
       label: "x",
@@ -87,12 +87,12 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("malformed schema output marks the agent failed with the error", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () => createEchoModelStream("not json at all"),
     });
     const result = await exec.runSubagent({
-      workflowId: "wf5",
+      batchId: "wf5",
       agentId: "a1",
       prompt: "return json",
       schema: { type: "object" },
@@ -102,30 +102,30 @@ describe("createWorkflowExecutor", () => {
   });
   test("a rejected spawn releases its concurrency slot (no deadlock)", async () => {
     let allow = false;
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       maxConcurrent: 1,
       budgetGate: () =>
         allow ? { allowed: true } : { allowed: false, reason: "budget exhausted" },
     });
     await expect(
-      exec.runWorkflow({ workflowId: "wf6", label: "denied", items: [{ prompt: "p1" }] }),
+      exec.runBatch({ batchId: "wf6", label: "denied", items: [{ prompt: "p1" }] }),
     ).rejects.toThrow(/budget exhausted/);
     // The rejected spawn released its slot; a later allowed run completes
     // instead of deadlocking on the leaked acquire.
     allow = true;
-    const result = await exec.runWorkflow({
-      workflowId: "wf7",
+    const result = await exec.runBatch({
+      batchId: "wf7",
       label: "ok",
       items: [{ prompt: "p2" }],
     });
     expect(result.ok).toBe(true);
   });
 
-  test("a gate failure aborts in-flight siblings and emits workflow_failed", async () => {
+  test("a gate failure aborts in-flight siblings and emits delegation_batch_failed", async () => {
     const blocked: string[] = [];
     let spawns = 0;
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       maxConcurrent: 2,
       budgetGate: () =>
@@ -144,8 +144,8 @@ describe("createWorkflowExecutor", () => {
       },
     });
     await expect(
-      exec.runWorkflow({
-        workflowId: "wf-gate",
+      exec.runBatch({
+        batchId: "wf-gate",
         label: "gated",
         items: [{ prompt: "a" }, { prompt: "b" }, { prompt: "c" }],
       }),
@@ -155,7 +155,7 @@ describe("createWorkflowExecutor", () => {
     expect(blocked).toHaveLength(1);
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "workflow_failed",
+        type: "delegation_batch_failed",
         error: expect.stringContaining("budget exhausted"),
       }),
     );
@@ -167,7 +167,7 @@ describe("createWorkflowExecutor", () => {
     const a0Gate = new Promise<void>((resolve) => {
       a0Started = resolve;
     });
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       maxConcurrent: 1,
       makeSubagentStream: (sessionId) => {
@@ -192,8 +192,8 @@ describe("createWorkflowExecutor", () => {
       },
     });
     const controller = new AbortController();
-    const p = exec.runWorkflow({
-      workflowId: "wf-queue",
+    const p = exec.runBatch({
+      batchId: "wf-queue",
       label: "queue",
       items: [{ prompt: "a" }, { prompt: "b" }],
       signal: controller.signal,
@@ -203,12 +203,12 @@ describe("createWorkflowExecutor", () => {
     controller.abort();
     await expect(p).rejects.toThrow(/aborted/);
     expect(started).toHaveLength(1); // the queued agent never spawned (B2)
-    expect(events).toContainEqual(expect.objectContaining({ type: "workflow_failed" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "delegation_batch_failed" }));
   });
 
   test("a transient subagent model failure retries (B5, default policy)", async () => {
     let calls = 0;
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* () {
@@ -219,7 +219,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-retry",
+      batchId: "wf-retry",
       agentId: "a1",
       prompt: "go",
     });
@@ -229,7 +229,7 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("a failed subagent loop surfaces its error text (B5)", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* () {
@@ -238,7 +238,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-err",
+      batchId: "wf-err",
       agentId: "a1",
       prompt: "go",
     });
@@ -248,7 +248,7 @@ describe("createWorkflowExecutor", () => {
 
   test("schema violations trigger one correction retry (A2)", async () => {
     let calls = 0;
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* () {
@@ -260,7 +260,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-schema-fix",
+      batchId: "wf-schema-fix",
       agentId: "a1",
       prompt: "return ok json",
       schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
@@ -271,7 +271,7 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("a second schema violation is terminal with the error (A2)", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () =>
         async function* () {
@@ -280,7 +280,7 @@ describe("createWorkflowExecutor", () => {
         },
     });
     const result = await exec.runSubagent({
-      workflowId: "wf-schema-fail",
+      batchId: "wf-schema-fail",
       agentId: "a1",
       prompt: "return ok json",
       schema: { type: "object", required: ["ok"] },
@@ -292,15 +292,15 @@ describe("createWorkflowExecutor", () => {
   test("long item texts spill to .oma/workflow with a resultPath (A3)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-spill-"));
     const longText = "x".repeat(3000);
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       workspaceRoot: dir,
       workspaceAccess: "read_write",
       makeSubagentStream: () => createEchoModelStream(longText),
     });
     try {
-      const result = await exec.runWorkflow({
-        workflowId: "wf-spill",
+      const result = await exec.runBatch({
+        batchId: "wf-spill",
         label: "big",
         items: [{ prompt: "long" }],
       });
@@ -314,12 +314,12 @@ describe("createWorkflowExecutor", () => {
   });
 
   test("read_only workspaces truncate long texts instead of spilling (A3)", async () => {
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: () => createEchoModelStream("y".repeat(3000)),
     });
-    const result = await exec.runWorkflow({
-      workflowId: "wf-ro",
+    const result = await exec.runBatch({
+      batchId: "wf-ro",
       label: "ro",
       items: [{ prompt: "long" }],
     });
@@ -331,7 +331,7 @@ describe("createWorkflowExecutor", () => {
 
   test("the total inline budget forces spill even under the per-item ceiling (A3)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-fuse-"));
-    const exec = createWorkflowExecutor({
+    const exec = createDelegationExecutor({
       ...makeDeps(),
       workspaceRoot: dir,
       workspaceAccess: "read_write",
@@ -339,8 +339,8 @@ describe("createWorkflowExecutor", () => {
       makeSubagentStream: () => createEchoModelStream("z".repeat(1900)),
     });
     try {
-      const result = await exec.runWorkflow({
-        workflowId: "wf-fuse",
+      const result = await exec.runBatch({
+        batchId: "wf-fuse",
         label: "many",
         items: Array.from({ length: 9 }, (_, i) => ({ prompt: `p${i}` })),
       });

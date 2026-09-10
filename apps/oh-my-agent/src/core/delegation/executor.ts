@@ -13,7 +13,7 @@ import {
   type PluginTool,
 } from "../agent-runtime.js";
 
-export interface WorkflowAgentSpec {
+export interface SubagentSpec {
   readonly prompt: string;
   readonly label?: string;
   readonly schema?: Readonly<Record<string, unknown>>;
@@ -34,7 +34,7 @@ export interface WorkflowAgentSpec {
   readonly background?: boolean;
 }
 
-export interface WorkflowAgentResult {
+export interface SubagentResult {
   readonly label: string;
   readonly text: string;
   readonly output?: unknown;
@@ -55,8 +55,8 @@ export interface WorkflowAgentResult {
   readonly status?: "running" | "completed" | "failed" | "stopped";
 }
 
-export interface WorkflowRunResult {
-  readonly items: readonly WorkflowAgentResult[];
+export interface SubagentBatchResult {
+  readonly items: readonly SubagentResult[];
   readonly totalTokens: number;
   readonly ok: boolean;
 }
@@ -73,7 +73,7 @@ export type SubagentModelStream = (
   responseFormat?: JsonSchema,
 ) => AsyncIterable<AIMessageChunk>;
 
-export interface WorkflowExecutorOptions {
+export interface DelegationExecutorOptions {
   /** Build the subagent model stream (same model + reasoning as the run,
    *  unless the role pins a `modelId` override). */
   readonly makeSubagentStream: (
@@ -108,17 +108,17 @@ export interface WorkflowExecutorOptions {
   ) => Promise<{ block: boolean; reason?: string } | undefined>;
 }
 
-export interface WorkflowExecutor {
+export interface DelegationExecutor {
   runSubagent(
-    input: { workflowId: string; agentId: string } & WorkflowAgentSpec,
+    input: { batchId: string; agentId: string } & SubagentSpec,
     signal?: AbortSignal,
-  ): Promise<WorkflowAgentResult>;
-  runWorkflow(input: {
-    workflowId: string;
+  ): Promise<SubagentResult>;
+  runBatch(input: {
+    batchId: string;
     label: string;
-    items: readonly WorkflowAgentSpec[];
+    items: readonly SubagentSpec[];
     signal?: AbortSignal;
-  }): Promise<WorkflowRunResult>;
+  }): Promise<SubagentBatchResult>;
   /** 3.4 Phase 3 control plane. */
   listSubagents(): Array<{
     handle: string;
@@ -129,7 +129,7 @@ export interface WorkflowExecutor {
   getSubagentOutput(handle: string): {
     handle: string;
     status: string;
-    result?: WorkflowAgentResult;
+    result?: SubagentResult;
   };
   stopSubagent(handle: string): { ok: boolean; error?: string };
   /** Stop every live subagent (run teardown cascade). */
@@ -219,7 +219,7 @@ const EXCERPT_CHARS = 400;
  *  parsed output (validated) plus a violation message when it fails. */
 function parseAndValidate(
   result: Awaited<ReturnType<OmaSession["startLoop"]>>,
-  schema: WorkflowAgentSpec["schema"],
+  schema: SubagentSpec["schema"],
 ): { text: string; output?: unknown; parseError?: string } {
   const text = (result.messages?.at(-1)?.text ?? "").trim();
   if (!schema || !text) return { text };
@@ -233,7 +233,7 @@ function parseAndValidate(
   }
 }
 
-export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowExecutor {
+export function createDelegationExecutor(opts: DelegationExecutorOptions): DelegationExecutor {
   let totalSpawned = 0;
   let current = 0;
   const waiters: Array<() => void> = [];
@@ -245,11 +245,11 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
       session: OmaSession;
       store: ReturnType<typeof createInMemorySessionStore>;
       sessionId: string;
-      workflowId: string;
+      batchId: string;
       agentId: string;
-      spec: WorkflowAgentSpec;
+      spec: SubagentSpec;
       status: "running" | "completed" | "failed" | "stopped";
-      result?: WorkflowAgentResult;
+      result?: SubagentResult;
       stopRequested?: boolean;
     }
   >();
@@ -282,25 +282,25 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
     else current--;
   }
 
-  class WorkflowGateError extends Error {}
+  class GateError extends Error {}
 
   function gate(): void {
     if (totalSpawned >= opts.maxTotal) {
-      throw new WorkflowGateError(`workflow exceeds the ${opts.maxTotal}-agent cap`);
+      throw new GateError(`workflow exceeds the ${opts.maxTotal}-agent cap`);
     }
     if (opts.budgetGate) {
       const decision = opts.budgetGate();
       if (!decision.allowed) {
-        throw new WorkflowGateError(decision.reason ?? "workflow budget exhausted");
+        throw new GateError(decision.reason ?? "workflow budget exhausted");
       }
     }
     totalSpawned++;
   }
 
   async function runSubagent(
-    input: { workflowId: string; agentId: string } & WorkflowAgentSpec,
+    input: { batchId: string; agentId: string } & SubagentSpec,
     signal?: AbortSignal,
-  ): Promise<WorkflowAgentResult> {
+  ): Promise<SubagentResult> {
     // Phase 2 resume: reuse a live handle's session + pinned spec snapshot
     // (later registry edits never mutate an existing handle's definition).
     const existing = input.resumeHandle ? subagentHandles.get(input.resumeHandle) : null;
@@ -314,9 +314,9 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
       };
     }
     const spec = existing?.spec ?? input;
-    const workflowId = existing?.workflowId ?? input.workflowId;
+    const batchId = existing?.batchId ?? input.batchId;
     const agentId = existing?.agentId ?? input.agentId;
-    const sessionId = existing?.sessionId ?? `wf:${workflowId}:${agentId}`;
+    const sessionId = existing?.sessionId ?? `wf:${batchId}:${agentId}`;
     await acquire(signal);
     // gate() may throw (cap/budget): it runs inside the try so the acquired
     // concurrency slot is ALWAYS released - a leak here would deadlock every
@@ -331,8 +331,8 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
             : AbortSignal.timeout(opts.perAgentTimeoutMs)
           : signal;
       opts.emit({
-        type: "workflow_agent_started",
-        workflowId,
+        type: "delegation_agent_started",
+        batchId,
         agentId,
         label,
       });
@@ -383,7 +383,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
           session,
           store,
           sessionId,
-          workflowId,
+          batchId,
           agentId,
           spec,
           status: "running",
@@ -408,7 +408,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
         existing
           ? session.startFollowUp({ ...loopInput, history: [], input: inputMsg })
           : session.startLoop({ ...loopInput, history, input: inputMsg });
-      const finish = async (): Promise<WorkflowAgentResult> => {
+      const finish = async (): Promise<SubagentResult> => {
         // Never launch into an already-aborted signal: an abort that landed
         // before the model stream registered its listener would otherwise
         // leave the loop awaiting an abort event that will never fire.
@@ -456,7 +456,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
         // closes it.
         if (!existing) {
           void store.close().catch((err) => {
-            console.error(`[workflow] subagent store close failed for ${sessionId}:`, err);
+            console.error(`[delegation] subagent store close failed for ${sessionId}:`, err);
           });
         }
         let { text, output, parseError } = parseAndValidate(result, spec.schema);
@@ -491,7 +491,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
             ? agentSignal.reason.message
             : "workflow agent timed out"
           : (loopError ?? parseError);
-        const agentResult: WorkflowAgentResult = {
+        const agentResult: SubagentResult = {
           label,
           text,
           ok: result.status === "completed" && !error,
@@ -508,16 +508,16 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
         // the pinned spec snapshot so a verdict dispute can be traced to
         // exactly what the subagent was asked to do.
         const safeName = (s: string): boolean => /^[A-Za-z0-9-]+$/.test(s);
-        if (opts.workspaceAccess === "read_write" && safeName(workflowId) && safeName(agentId)) {
+        if (opts.workspaceAccess === "read_write" && safeName(batchId) && safeName(agentId)) {
           try {
-            const rel = `.oma/workflow/${workflowId}/${agentId}.session.json`;
+            const rel = `.oma/workflow/${batchId}/${agentId}.session.json`;
             const abs = join(opts.workspaceRoot, rel);
             mkdirSync(dirname(abs), { recursive: true });
             writeFileSync(
               abs,
               JSON.stringify(
                 {
-                  workflowId,
+                  batchId,
                   agentId,
                   label,
                   ok: agentResult.ok,
@@ -541,16 +541,16 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
               ),
             );
           } catch (err) {
-            console.error(`[workflow] state dump failed for ${input.agentId}:`, err);
+            console.error(`[delegation] state dump failed for ${input.agentId}:`, err);
           }
         } else if (opts.workspaceAccess !== "read_write") {
           console.warn(
-            `[workflow] read_only workspace: subagent session not dumped for ${agentId}`,
+            `[delegation] read_only workspace: subagent session not dumped for ${agentId}`,
           );
         }
         opts.emit({
-          type: "workflow_agent_completed",
-          workflowId,
+          type: "delegation_agent_completed",
+          batchId,
           agentId,
           label,
           ok: agentResult.ok,
@@ -596,12 +596,12 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
     } catch (err) {
       // Gate failures (cap/budget) are WORKFLOW-level: propagate so the
       // whole fan-out rejects instead of degrading to a failed agent row.
-      if (err instanceof WorkflowGateError) throw err;
+      if (err instanceof GateError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       const label = input.label ?? agentId;
       opts.emit({
-        type: "workflow_agent_completed",
-        workflowId,
+        type: "delegation_agent_completed",
+        batchId,
         agentId,
         label,
         ok: false,
@@ -619,9 +619,9 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
    *  degrade to inline truncation. The total-inline budget forces spill
    *  even when no single item exceeds the per-item ceiling. */
   function spillResults(
-    results: readonly WorkflowAgentResult[],
-    workflowId: string,
-  ): WorkflowAgentResult[] {
+    results: readonly SubagentResult[],
+    batchId: string,
+  ): SubagentResult[] {
     const total = results.reduce((acc, r) => acc + r.text.length, 0);
     const forceSpill = total > MAX_TOTAL_INLINE_CHARS;
     return results.map((r, i) => {
@@ -630,7 +630,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
       if (opts.workspaceAccess !== "read_write") {
         return { ...r, text: `${excerpt}…[truncated]` };
       }
-      const rel = `.oma/workflow/${workflowId}/a${i}.result.md`;
+      const rel = `.oma/workflow/${batchId}/a${i}.result.md`;
       const abs = join(opts.workspaceRoot, rel);
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, r.text);
@@ -638,15 +638,15 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
     });
   }
 
-  async function runWorkflow(input: {
-    workflowId: string;
+  async function runBatch(input: {
+    batchId: string;
     label: string;
-    items: readonly WorkflowAgentSpec[];
+    items: readonly SubagentSpec[];
     signal?: AbortSignal;
-  }): Promise<WorkflowRunResult> {
+  }): Promise<SubagentBatchResult> {
     opts.emit({
-      type: "workflow_started",
-      workflowId: input.workflowId,
+      type: "delegation_batch_started",
+      batchId: input.batchId,
       label: input.label,
       agentCount: input.items.length,
     });
@@ -660,11 +660,11 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
     try {
       const rawResults = await Promise.all(
         input.items.map((item, i) =>
-          runSubagent({ workflowId: input.workflowId, agentId: `a${i}`, ...item }, combined),
+          runSubagent({ batchId: input.batchId, agentId: `a${i}`, ...item }, combined),
         ),
       );
       if (input.signal?.aborted) throw new Error("workflow aborted");
-      const results = spillResults(rawResults, input.workflowId);
+      const results = spillResults(rawResults, input.batchId);
       const totalTokens = results.reduce(
         (acc, r) =>
           acc +
@@ -676,8 +676,8 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
       );
       const ok = results.every((r) => r.ok);
       opts.emit({
-        type: "workflow_completed",
-        workflowId: input.workflowId,
+        type: "delegation_batch_completed",
+        batchId: input.batchId,
         ok,
         agentCount: input.items.length,
         totalTokens,
@@ -686,8 +686,8 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
     } catch (err) {
       controller.abort();
       opts.emit({
-        type: "workflow_failed",
-        workflowId: input.workflowId,
+        type: "delegation_batch_failed",
+        batchId: input.batchId,
         error: err instanceof Error ? err.message : String(err),
       });
       throw err;
@@ -709,7 +709,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
     if (!e) return { handle, status: "unknown" };
     if (e.result) {
       // A3 size guard applies to fetched results too.
-      const [spilled] = spillResults([e.result], e.workflowId);
+      const [spilled] = spillResults([e.result], e.batchId);
       return { handle, status: e.status, result: spilled };
     }
     return { handle, status: e.status };
@@ -732,7 +732,7 @@ export function createWorkflowExecutor(opts: WorkflowExecutorOptions): WorkflowE
 
   return {
     runSubagent,
-    runWorkflow,
+    runBatch,
     listSubagents,
     getSubagentOutput,
     stopSubagent,

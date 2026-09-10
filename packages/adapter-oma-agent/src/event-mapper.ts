@@ -59,25 +59,25 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
       if (status === "stopped") return { type: "status", status: "aborted" };
       return { type: "status", status: "completed" };
     }
-    case "workflow_started":
+    case "delegation_batch_started":
       return {
-        type: "workflow_started",
-        workflowId: String(event.data.workflowId ?? ""),
+        type: "delegation_batch_started",
+        batchId: String(event.data.batchId ?? ""),
         label: String(event.data.label ?? ""),
         agentCount: Number(event.data.agentCount ?? 0),
       };
-    case "workflow_agent_started":
+    case "delegation_agent_started":
       return {
-        type: "workflow_agent_started",
-        workflowId: String(event.data.workflowId ?? ""),
+        type: "delegation_agent_started",
+        batchId: String(event.data.batchId ?? ""),
         agentId: String(event.data.agentId ?? ""),
         label: String(event.data.label ?? ""),
       };
-    case "workflow_agent_completed": {
+    case "delegation_agent_completed": {
       const usage = event.data.usage as Readonly<Record<string, unknown>> | undefined;
       return {
-        type: "workflow_agent_completed",
-        workflowId: String(event.data.workflowId ?? ""),
+        type: "delegation_agent_completed",
+        batchId: String(event.data.batchId ?? ""),
         agentId: String(event.data.agentId ?? ""),
         label: String(event.data.label ?? ""),
         ok: event.data.ok === true,
@@ -85,10 +85,10 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
         ...(usage ? { usage } : {}),
       };
     }
-    case "workflow_completed":
+    case "delegation_batch_completed":
       return {
-        type: "workflow_completed",
-        workflowId: String(event.data.workflowId ?? ""),
+        type: "delegation_batch_completed",
+        batchId: String(event.data.batchId ?? ""),
         ok: event.data.ok === true,
         agentCount: Number(event.data.agentCount ?? 0),
         totalTokens: Number(event.data.totalTokens ?? 0),

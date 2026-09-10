@@ -297,7 +297,7 @@ describe("createOmaRuntime", () => {
     expect(batches[0]!.model.id).toBe("big");
     await rt.close();
   });
-  test("run_workflow fans out subagents and reports workflow events (phase 1)", async () => {
+  test("task batch fans out subagents and reports delegation events", async () => {
     const requests: string[] = [];
     const provider: Provider = {
       id: "fake",
@@ -314,15 +314,16 @@ describe("createOmaRuntime", () => {
         }
         if (!requests.includes("tool")) {
           requests.push("tool");
-          yield { delta: { type: "tool_use", id: "toolu-1", name: "run_workflow" } };
+          yield { delta: { type: "tool_use", id: "toolu-1", name: "task" } };
           yield {
             delta: {
               type: "input_json_delta",
               id: "toolu-1",
               partial_json: JSON.stringify({
-                items: [
-                  { prompt: "one", label: "a" },
-                  { prompt: "two", label: "b" },
+                context: "SHARED-BG",
+                tasks: [
+                  { task: "one", name: "a" },
+                  { task: "two", name: "b" },
                 ],
               }),
             },
@@ -352,10 +353,10 @@ describe("createOmaRuntime", () => {
     expect(outcome.status).toBe("completed");
     // Two subagent streams + one main tool turn + one final main turn.
     expect(requests.filter((r) => r === "subagent")).toHaveLength(2);
-    expect(events).toContain("workflow_started");
-    expect(events).toContain("workflow_agent_started");
-    expect(events).toContain("workflow_agent_completed");
-    expect(events).toContain("workflow_completed");
+    expect(events).toContain("delegation_batch_started");
+    expect(events).toContain("delegation_agent_started");
+    expect(events).toContain("delegation_agent_completed");
+    expect(events).toContain("delegation_batch_completed");
     // Fan-out spend merges into the run's terminal usage (B6): 2 subagents
     // + 1 final main turn (the tool_use turn emits no usage) × (10/3/1).
     expect(outcome.usage).toEqual({
@@ -416,8 +417,8 @@ describe("createOmaRuntime", () => {
     await runtime.close();
     expect(outcome.status).toBe("completed");
     expect(requests.filter((r) => r === "subagent")).toHaveLength(2);
-    expect(events).toContain("workflow_agent_completed");
-    expect(events).toContain("workflow_completed");
+    expect(events).toContain("delegation_agent_completed");
+    expect(events).toContain("delegation_batch_completed");
     // The script persists to the workspace for inspection/re-runs.
     const saved = await Bun.file(join(tmp, ".oma/workflow", "audit.js")).text();
     expect(saved).toBe(script);

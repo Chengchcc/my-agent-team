@@ -50,9 +50,10 @@ import {
 import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore, readTodoFile } from "../tools/todo-store.js";
-import { evaluateWorkflowScript } from "../workflow/workflow-evaluator.js";
-import { createWorkflowExecutor, type WorkflowAgentResult } from "../workflow/workflow-executor.js";
-import { createWorkflowTools, isValidWorkflowName } from "../workflow/workflow-tools.js";
+import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
+import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
+import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
+import { createOrchestrateTool } from "../orchestrate/tool.js";
 import { type ApprovalHandler, approvalTimeoutMs, withApprovalDeadline } from "./approval.js";
 import { fakeProvider } from "./fake-provider.js";
 import {
@@ -200,10 +201,10 @@ export interface RunRuntime {
     script: string;
     args?: unknown;
   }): Promise<{ ok: boolean; totalTokens: number; value: unknown }>;
-  /** Subagent usage accumulated across workflow_agent_completed events
+  /** Subagent usage accumulated across delegation_agent_completed events
    *  (T5/B6): the run's outcome merges it so fan-out spend reaches the
    *  product ledger, not just the advisory gate. */
-  workflowUsage(): {
+  delegationUsage(): {
     inputTokens: number;
     outputTokens: number;
     cacheReadTokens: number;
@@ -292,7 +293,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   if (!currentModel) {
     throw new Error(`model not found in catalog: ${deps.modelId}`);
   }
-  const fileTools: PluginTool[] = [
+  const agentTools: PluginTool[] = [
     createReadTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
     createReadImageTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
     createTreeTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
@@ -300,8 +301,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     createGrepTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
   ];
   if (deps.workspaceAccess === "read_write") {
-    fileTools.push(createWriteTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
-    fileTools.push(createEditTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
+    agentTools.push(createWriteTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
+    agentTools.push(createEditTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
     const bashToolOpts: {
       workspaceRoot: string;
       sandbox?: BashSandbox;
@@ -313,8 +314,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     } = { workspaceRoot: deps.workspaceRoot };
     if (bashSandbox) bashToolOpts.sandbox = bashSandbox;
     if (deps.bashPtyConsole) bashToolOpts.ptyConsole = deps.bashPtyConsole;
-    fileTools.push(createBashTool(bashToolOpts) as unknown as PluginTool);
-    fileTools.push(createEvalTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool);
+    agentTools.push(createBashTool(bashToolOpts) as unknown as PluginTool);
+    agentTools.push(createEvalTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool);
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
   // Skips "product-tools" (the manifest path owns it) and names that
@@ -332,25 +333,25 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   }
   const mounted = await mountWorkspaceMcpServers(
     deps.workspaceRoot,
-    new Set(fileTools.map((t) => t.name)),
+    new Set(agentTools.map((t) => t.name)),
     deps.pluginMcpServers ?? [],
     includeWorkspaceMcp,
   );
   const closeMounted = mounted.close;
   // Web tools default ON via the std ports (DDG search + guarded fetch);
-  // NOTE: mounted MCP tools intentionally do NOT join fileTools — they are
+  // NOTE: mounted MCP tools intentionally do NOT join agentTools — they are
   // appended once (unwrapped; withCallTimeout already binds their per-call
   // timeout) to nativeToolsPlugin below. Pushing them here too duplicated
   // every mounted tool and tripped validatePlugins on real servers.
   if (process.env.OMA_DISABLE_WEB !== "1") {
-    fileTools.push(
+    agentTools.push(
       createPortWebSearchTool(deps.webSearch ?? createDdgWebSearchPort()) as unknown as PluginTool,
       createPortWebFetchTool(deps.webFetch ?? createStdWebFetchPort()) as unknown as PluginTool,
     );
   }
 
   const bashDefault = Number(process.env.OMA_BASH_TIMEOUT_MS) || DEFAULT_NATIVE_TOOL_TIMEOUT_MS;
-  const nativeTools = fileTools.map((t) =>
+  const nativeTools = agentTools.map((t) =>
     wrapNativeTool(t, t.name === "bash" ? bashDefault : DEFAULT_NATIVE_TOOL_TIMEOUT_MS),
   );
   const nativeToolsPlugin: Plugin = {
@@ -581,18 +582,18 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // on the Run; the executor refuses new spawns once the completed agents'
   // usage estimate exceeds it. Advisory - the product dailyCap stays the
   // hard gate. No budget on the run = no gate.
-  let workflowSpentTokens = 0;
-  const workflowUsageAccum = {
+  let delegationSpentTokens = 0;
+  const delegationUsageAccum = {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
   };
-  const workflowBudgetGate = (): { allowed: boolean; reason?: string } => {
+  const delegationBudgetGate = (): { allowed: boolean; reason?: string } => {
     const budget = activeRun?.workflowBudgetTokens;
     if (budget == null) return { allowed: true };
-    if (workflowSpentTokens >= budget) {
-      return { allowed: false, reason: "workflow budget exhausted" };
+    if (delegationSpentTokens >= budget) {
+      return { allowed: false, reason: "delegation budget exhausted" };
     }
     return { allowed: true };
   };
@@ -792,33 +793,33 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   const permissionGate =
     deps.permissionMode === undefined ? undefined : makeSessionPermissionGate([]);
 
-  const workflowExecutor = createWorkflowExecutor({
+  const delegationExecutor = createDelegationExecutor({
     makeSubagentStream:
       (_sessionId, modelIdOverride, responseFormat) => (messages, signal, tools) =>
         streamModel(messages, signal, tools, modelIdOverride, responseFormat),
     modelId: deps.modelId,
     summarize,
     contextBudget,
-    tools: fileTools,
+    tools: agentTools,
     workspaceRoot: deps.workspaceRoot,
     workspaceAccess: deps.workspaceAccess,
-    budgetGate: workflowBudgetGate,
+    budgetGate: delegationBudgetGate,
     ...(deps.permissionMode === undefined ? {} : { makePermissionGate: makeSessionPermissionGate }),
     emit: (event) => {
-      if (event.type === "workflow_agent_completed" && event.usage) {
+      if (event.type === "delegation_agent_completed" && event.usage) {
         const usage = event.usage;
         if (typeof usage === "object") {
           const tokens = (v: unknown): number => (typeof v === "number" && v > 0 ? v : 0);
           const u = usage as Record<string, unknown>;
-          workflowSpentTokens +=
+          delegationSpentTokens +=
             tokens(u.inputTokens) +
             tokens(u.outputTokens) +
             tokens(u.cacheReadTokens) +
             tokens(u.cacheWriteTokens);
-          workflowUsageAccum.inputTokens += tokens(u.inputTokens);
-          workflowUsageAccum.outputTokens += tokens(u.outputTokens);
-          workflowUsageAccum.cacheReadTokens += tokens(u.cacheReadTokens);
-          workflowUsageAccum.cacheWriteTokens += tokens(u.cacheWriteTokens);
+          delegationUsageAccum.inputTokens += tokens(u.inputTokens);
+          delegationUsageAccum.outputTokens += tokens(u.outputTokens);
+          delegationUsageAccum.cacheReadTokens += tokens(u.cacheReadTokens);
+          delegationUsageAccum.cacheWriteTokens += tokens(u.cacheWriteTokens);
         }
       }
       sessionEmit?.(event);
@@ -826,7 +827,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     maxConcurrent: 8,
     maxTotal: 64,
   });
-  // Script runs: one workflowId shared by every agent() the script spawns.
+  // Script runs: one batchId shared by every agent() the script spawns.
   // The vm evaluator has no fs/network; the executor enforces caps/budget.
   const runScript = async ({
     script,
@@ -835,21 +836,21 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     script: string;
     args?: unknown;
   }): Promise<{ ok: boolean; totalTokens: number; value: unknown }> => {
-    const workflowId = `wf-${crypto.randomUUID()}`;
-    const results: WorkflowAgentResult[] = [];
+    const batchId = `wf-${crypto.randomUUID()}`;
+    const results: SubagentResult[] = [];
     sessionEmit?.({
-      type: "workflow_started",
-      workflowId,
+      type: "delegation_batch_started",
+      batchId,
       label: "script",
       agentCount: 0,
     });
-    const { value } = await evaluateWorkflowScript({
+    const { value } = await evaluateOrchestrationScript({
       script,
       args,
       primitives: {
         agent: async (prompt, opts) => {
-          const result = await workflowExecutor.runSubagent({
-            workflowId,
+          const result = await delegationExecutor.runSubagent({
+            batchId,
             agentId: randomUUID(),
             prompt,
             ...(opts?.schema ? { schema: opts.schema } : {}),
@@ -872,8 +873,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     );
     const ok = results.every((r) => r.ok);
     sessionEmit?.({
-      type: "workflow_completed",
-      workflowId,
+      type: "delegation_batch_completed",
+      batchId,
       ok,
       agentCount: results.length,
       totalTokens,
@@ -881,9 +882,36 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     return { ok, totalTokens, value };
   };
   plugins.push({
-    name: "workflow-tools",
-    tools: createWorkflowTools({
-      runWorkflow: (input) => workflowExecutor.runWorkflow(input),
+    name: "delegation-tools",
+    tools: createDelegationTools({
+      runBatch: (input) => delegationExecutor.runBatch(input),
+      runSubagent: (spec, signal) =>
+        delegationExecutor.runSubagent(
+          {
+            ...spec,
+            batchId: `sub-${crypto.randomUUID()}`,
+            agentId: spec.label ?? "sub",
+          },
+          signal,
+        ),
+      readAgentDefinition: async (name) => {
+        if (!isValidWorkflowName(name)) return null;
+        // read_only workspaces have no local agent definitions — builtins only.
+        if (deps.workspaceAccess !== "read_write") return null;
+        try {
+          return await Bun.file(join(deps.workspaceRoot, ".oma", "agents", `${name}.md`)).text();
+        } catch {
+          return null;
+        }
+      },
+      listSubagents: () => delegationExecutor.listSubagents(),
+      getSubagentOutput: (handle) => delegationExecutor.getSubagentOutput(handle),
+      stopSubagent: (handle) => delegationExecutor.stopSubagent(handle),
+    }),
+  });
+  plugins.push({
+    name: "orchestrate-tool",
+    tools: createOrchestrateTool({
       runScript,
       writeScript: (name, content) => {
         // The name is model-supplied: never treat it as a path segment
@@ -906,28 +934,6 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
           return null;
         }
       },
-      runSubagent: (spec, signal) =>
-        workflowExecutor.runSubagent(
-          {
-            ...spec,
-            workflowId: `sub-${crypto.randomUUID()}`,
-            agentId: spec.label ?? "sub",
-          },
-          signal,
-        ),
-      readAgentDefinition: async (name) => {
-        if (!isValidWorkflowName(name)) return null;
-        // read_only workspaces have no local agent definitions — builtins only.
-        if (deps.workspaceAccess !== "read_write") return null;
-        try {
-          return await Bun.file(join(deps.workspaceRoot, ".oma", "agents", `${name}.md`)).text();
-        } catch {
-          return null;
-        }
-      },
-      listSubagents: () => workflowExecutor.listSubagents(),
-      getSubagentOutput: (handle) => workflowExecutor.getSubagentOutput(handle),
-      stopSubagent: (handle) => workflowExecutor.stopSubagent(handle),
     }),
   });
   const pluginRuntime: PluginRuntime = {
@@ -1045,10 +1051,10 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       activeRun = run;
     },
     executeWorkflow: (input) => runScript(input),
-    workflowUsage: () => ({ ...workflowUsageAccum }),
+    delegationUsage: () => ({ ...delegationUsageAccum }),
     async close() {
       // 3.4 Phase 3: background subagents must not outlive the Run.
-      workflowExecutor.abortAllSubagents();
+      delegationExecutor.abortAllSubagents();
       // Tear down mounted MCP clients so no child process or connection
       // outlives the Run. Each close is BOUNDED: a stuck transport (e.g. an
       // SSE socket that never answers close) must not wedge the child.

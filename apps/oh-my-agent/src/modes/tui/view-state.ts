@@ -178,16 +178,25 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       run.items.push({ kind: "status", text: "compacting context…", streaming: false });
       break;
     }
-    case "workflow_started": {
+    case "delegation_batch_started": {
       const run = ensureRunningRun(state);
       run.items.push({
         kind: "status",
-        text: `workflow: ${event.label} (${event.agentCount} agents)`,
+        text: `delegating: ${event.label} (${event.agentCount} agents)`,
         streaming: false,
       });
       break;
     }
-    case "workflow_agent_completed": {
+    case "delegation_agent_started": {
+      const run = ensureRunningRun(state);
+      run.items.push({
+        kind: "status",
+        text: `  \u25b6 ${event.label}`,
+        streaming: false,
+      });
+      break;
+    }
+    case "delegation_agent_completed": {
       const run = ensureRunningRun(state);
       run.items.push({
         kind: "status",
@@ -198,11 +207,11 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       });
       break;
     }
-    case "workflow_completed": {
+    case "delegation_batch_completed": {
       const run = ensureRunningRun(state);
       run.items.push({
         kind: "status",
-        text: `workflow done \u00b7 ${event.totalTokens} tokens`,
+        text: `delegation done \u00b7 ${event.totalTokens} tokens`,
         streaming: false,
       });
       break;
@@ -214,9 +223,9 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       if (event.drained?.length) settleSteeredMessages(state, event.drained);
       break;
     }
-    case "workflow_failed": {
+    case "delegation_batch_failed": {
       const run = ensureRunningRun(state);
-      run.items.push({ kind: "error", text: `workflow: ${event.error}`, streaming: false });
+      run.items.push({ kind: "error", text: `delegation: ${event.error}`, streaming: false });
       break;
     }
     case "agent_end": {

@@ -60,13 +60,14 @@ describe("workflow subagents obey the permission gate", () => {
         }
         if (!requests.includes("tool")) {
           requests.push("tool");
-          yield { delta: { type: "tool_use", id: "t-main", name: "run_workflow" } };
+          yield { delta: { type: "tool_use", id: "t-main", name: "task" } };
           yield {
             delta: {
               type: "input_json_delta",
               id: "t-main",
               partial_json: JSON.stringify({
-                items: [{ prompt: "write a marker file with bash", label: "a" }],
+                context: "ctx",
+                tasks: [{ task: "write a marker file with bash", name: "a" }],
               }),
             },
           };

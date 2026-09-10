@@ -15,7 +15,7 @@
  *  precedent as the oma tools skills parseFrontmatter.
  */
 
-export interface SubagentRegistryEntry {
+export interface AgentRole {
   readonly name: string;
   readonly description: string;
   /** The role body — the executor appends the generic subagent tail. */
@@ -37,7 +37,7 @@ export function isValidWorkflowName(name: string): boolean {
  *  builtin agent definitions (scout/task): a terse role line plus
  *  <directives>/<critical> sections. `explore` and `plan` are strictly
  *  read-only; `task` gets the full executor tool set (tools undefined). */
-const BUILTIN_AGENTS: Readonly<Record<string, SubagentRegistryEntry>> = {
+const BUILTIN_AGENTS: Readonly<Record<string, AgentRole>> = {
   explore: {
     name: "explore",
     description:
@@ -90,7 +90,7 @@ You MUST operate as read-only. You NEVER write, edit, or modify files, nor execu
 
 /** Parse `.oma/agents/*.md` — YAML-subset frontmatter with the four fields
  *  name / description / tools / model; unknown keys are ignored. */
-export function parseAgentDefinition(md: string): SubagentRegistryEntry | null {
+export function parseAgentDefinition(md: string): AgentRole | null {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(md);
   const frontmatter = match?.[1] ?? "";
   const body = (match?.[2] ?? md).trim();
@@ -122,7 +122,7 @@ export async function resolveAgent(
   name: string,
   readAgentDefinition: (name: string) => Promise<string | null>,
   opts: { allowWorkspace?: boolean } = {},
-): Promise<SubagentRegistryEntry | null> {
+): Promise<AgentRole | null> {
   const builtin = BUILTIN_AGENTS[name];
   if (builtin) return builtin;
   if (!isValidWorkflowName(name)) return null;

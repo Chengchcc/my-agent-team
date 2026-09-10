@@ -1,26 +1,36 @@
 import { describe, expect, test } from "bun:test";
-import type { WorkflowAgentSpec } from "./workflow-executor.js";
-import {
-  createWorkflowTools,
-  isValidWorkflowName,
-  parseAgentDefinition,
-} from "./workflow-tools.js";
+import type { SubagentSpec } from "./executor.js";
+import { createDelegationTools, isValidWorkflowName, parseAgentDefinition } from "./tool.js";
 
-const saved = new Map<string, string>();
 const agentDefs = new Map<string, string>();
-const subagentCalls: Array<{ spec: WorkflowAgentSpec; signal?: AbortSignal }> = [];
+const subagentCalls: Array<{ spec: SubagentSpec; signal?: AbortSignal }> = [];
+const batchCalls: Array<{
+  input: {
+    batchId: string;
+    label: string;
+    items: readonly SubagentSpec[];
+    signal?: AbortSignal;
+  };
+}> = [];
 const deps = {
-  runWorkflow: async () => ({ items: [], totalTokens: 0, ok: true }),
-  runScript: async (input: { script: string }) => ({
-    ok: true,
-    totalTokens: 0,
-    value: `ran:${input.script.slice(0, 8)}`,
-  }),
-  writeScript: (name: string, content: string) => {
-    saved.set(name, content);
+  runBatch: async (input: {
+    batchId: string;
+    label: string;
+    items: readonly SubagentSpec[];
+    signal?: AbortSignal;
+  }) => {
+    batchCalls.push({ input });
+    return {
+      items: input.items.map((spec, i) => ({
+        label: spec.label ?? `a${i}`,
+        text: "ok",
+        ok: true,
+      })),
+      totalTokens: 0,
+      ok: true,
+    };
   },
-  readScript: async (name: string) => saved.get(name) ?? null,
-  runSubagent: async (spec: WorkflowAgentSpec, signal?: AbortSignal) => {
+  runSubagent: async (spec: SubagentSpec, signal?: AbortSignal) => {
     subagentCalls.push({ spec, signal });
     return { label: spec.label ?? "sub", text: "ok", ok: true };
   },
@@ -29,17 +39,15 @@ const deps = {
   getSubagentOutput: (handle: string) => ({ handle, status: "unknown" }),
   stopSubagent: (handle: string) => ({ ok: false, error: `unknown subagent handle "${handle}"` }),
 };
-const tools = createWorkflowTools(deps);
-const runScriptTool = tools.find((t) => t.name === "workflow_run")!;
-const runWorkflowTool = tools.find((t) => t.name === "run_workflow")!;
+const tools = createDelegationTools(deps);
 const subagentTool = tools.find((t) => t.name === "task")!;
 const subagentListTool = tools.find((t) => t.name === "task_list")!;
 const subagentOutputTool = tools.find((t) => t.name === "task_output")!;
 const subagentStopTool = tools.find((t) => t.name === "task_stop")!;
 
 describe("task batch fan-out (pi shape)", () => {
-  test("runs items concurrently with shared context prepended to every spawn", async () => {
-    subagentCalls.length = 0;
+  test("fans out via runBatch with shared context prepended to every spawn", async () => {
+    batchCalls.length = 0;
     const result = (await subagentTool.execute({
       context: "SHARED-BG",
       tasks: [
@@ -49,15 +57,18 @@ describe("task batch fan-out (pi shape)", () => {
     })) as { content: string; results: Array<{ name: string; ok: boolean }> };
     expect(result.ok).toBe(true);
     expect(result.results.map((r) => r.name)).toEqual(["one", "two"]);
-    expect(subagentCalls).toHaveLength(2);
-    expect(subagentCalls[0]!.spec.prompt).toContain("SHARED-BG");
-    expect(subagentCalls[0]!.spec.prompt).toContain("investigate A");
-    expect(subagentCalls[1]!.spec.schema).toEqual({ type: "object" });
-    expect(subagentCalls[1]!.spec.systemPrompt).toContain("general-purpose task subagent");
+    expect(batchCalls).toHaveLength(1);
+    const items = batchCalls[0]!.input.items;
+    expect(items).toHaveLength(2);
+    expect(items[0]!.prompt).toContain("SHARED-BG");
+    expect(items[0]!.prompt).toContain("investigate A");
+    expect(items[0]!.label).toBe("one");
+    expect(items[1]!.schema).toEqual({ type: "object" });
+    expect(items[1]!.systemPrompt).toContain("general-purpose task subagent");
   });
 
   test("validates batch shape before spawning", async () => {
-    subagentCalls.length = 0;
+    batchCalls.length = 0;
     const missingContext = (await subagentTool.execute({
       tasks: [{ task: "x" }],
     })) as { error: string };
@@ -74,61 +85,17 @@ describe("task batch fan-out (pi shape)", () => {
       ],
     })) as { error: string };
     expect(dup.error).toContain("duplicate task name");
-    expect(subagentCalls.length).toBe(0);
+    expect(batchCalls.length).toBe(0);
   });
 
   test("unknown role fails the whole call before any spawn", async () => {
-    subagentCalls.length = 0;
+    batchCalls.length = 0;
     const result = (await subagentTool.execute({
       context: "c",
       tasks: [{ agent: "mystery", task: "x" }],
     })) as { error: string };
     expect(result.error).toContain('unknown subagent "mystery"');
-    expect(subagentCalls.length).toBe(0);
-  });
-});
-
-describe("workflow_run", () => {
-  test("saves a script and re-runs it by name only (B8)", async () => {
-    const first = (await runScriptTool.execute({ script: "const a = 1;", name: "audit" })) as {
-      scriptSaved?: boolean;
-      ok?: boolean;
-    };
-    expect(first.scriptSaved).toBe(true);
-    expect(saved.get("audit")).toBe("const a = 1;");
-
-    const second = (await runScriptTool.execute({ name: "audit" })) as {
-      scriptSaved?: boolean;
-      ok?: boolean;
-      value?: unknown;
-    };
-    expect(second.scriptSaved).toBe(false);
-    expect(second.ok).toBe(true);
-    expect(String(second.value)).toContain("ran:const a");
-  });
-
-  test("rejects an unknown saved name", async () => {
-    const out = (await runScriptTool.execute({ name: "missing" })) as {
-      ok?: boolean;
-      error?: string;
-    };
-    expect(out.ok).toBe(false);
-    expect(out.error).toContain("not found");
-  });
-
-  test("rejects path-escape names", async () => {
-    const out = (await runScriptTool.execute({ name: "../evil" })) as {
-      ok?: boolean;
-      error?: string;
-    };
-    expect(out.ok).toBe(false);
-    expect(out.error).toContain("invalid workflow name");
-  });
-
-  test("requires script or name", async () => {
-    const out = (await runScriptTool.execute({})) as { ok?: boolean; error?: string };
-    expect(out.ok).toBe(false);
-    expect(out.error).toContain("script or name");
+    expect(batchCalls.length).toBe(0);
   });
 });
 
@@ -260,7 +227,7 @@ describe("subagent control plane", () => {
   });
 });
 
-describe("workflow tool names", () => {
+describe("delegation tool names", () => {
   test("isValidWorkflowName rejects path segments", () => {
     expect(isValidWorkflowName("audit")).toBe(true);
     expect(isValidWorkflowName("../audit")).toBe(false);
@@ -268,12 +235,11 @@ describe("workflow tool names", () => {
     expect(isValidWorkflowName("")).toBe(false);
   });
 
-  test("all six tools are registered (task = claude Task parity)", () => {
-    expect(runWorkflowTool.name).toBe("run_workflow");
-    expect(runScriptTool.name).toBe("workflow_run");
+  test("four delegation tools are registered", () => {
     expect(subagentTool.name).toBe("task");
     expect(subagentListTool.name).toBe("task_list");
     expect(subagentOutputTool.name).toBe("task_output");
     expect(subagentStopTool.name).toBe("task_stop");
+    expect(tools).toHaveLength(4);
   });
 });
