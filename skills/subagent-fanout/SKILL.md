@@ -1,62 +1,45 @@
 ---
-name: workflow-authoring
+name: subagent-fanout
 description: >
-  Write and run workflow scripts (run_workflow fan-out or workflow_run
-  orchestration scripts) for large-scale subagent tasks: audits, migrations,
-  multi-source research, fix-until-pass loops.
+  Delegate work to subagents (task batch fan-out) and write/run
+  workflow_run orchestration scripts for large-scale subagent tasks:
+  audits, migrations, multi-source research, fix-until-pass loops.
 user_invocable: true
 ---
 
-# Workflow Authoring
+# Subagent Fan-out
 
-You have two workflow tools. Choose the simpler one that fits.
+Two complementary surfaces: the `task` tool for delegating work to
+subagents, and `workflow_run` for orchestration scripts.
 
-## run_workflow — flat fan-out
+## task — batch fan-out (preferred)
 
-For independent tasks: `run_workflow({ label, items: [{prompt, label?, schema?}] })`.
+For independent items: `task({ context, tasks: [{ task, name?, agent?, outputSchema? }] })`.
 
-- Each item = one isolated subagent (same model + file tools, fresh context).
-- The tool returns per-item `{label, text, output?, ok, error?}` plus totals.
-- Use `schema` when you need structured results: the subagent's final text
-  is JSON-parsed into `output`; a non-JSON result marks that item failed.
+- One subagent per item, bounded by the executor semaphore (max 64 items).
+- `context` (required) is shared background prepended to every spawn.
+- `agent` selects a role: `task` (full tools), `explore` (read-only),
+  `plan` (read-only planning), or any `.oma/agents/<name>.md` definition.
+- Long results spill to `.oma/workflow` with a `resultPath` — read them
+  back instead of carrying them inline.
+- Single background dispatch: `task({ agent, prompt, background: true })`
+  returns a handle; poll it with `task_output`, stop with `task_stop`,
+  list live handles with `task_list`. Follow up a finished handle with
+  `task({ resume: <handle>, prompt })`.
 
 ## workflow_run — orchestration script
 
-For loops/branches/intermediate state. The script is top-level-await JS:
+For loops/branches/intermediate state. The script is top-level-await JS
+in a vm sandbox with NO fs/network — agents do the work:
 
-```js
-const found = await agent("List every .ts under src/", { schema: {...} });
-const audits = await pipeline(found.output.files, (f) => agent(`Audit ${f}`, { label: f }));
-return audits;
-```
-
-**Primitives** (the ONLY globals):
-- `agent(prompt, {schema?, label?})` → `{label, text, output, ok, error, usage}`
-- `pipeline(items, fn)` → runs `fn` per item (executor-capped concurrency)
-- `args` — the `args` object you pass to `workflow_run`
-- `return <value>` — the value lands in the tool result as `value`
-
-**Sandbox limits** — the script has NO `fs`, `process`, `require`, `fetch`.
-Agents do the work; the script only orchestrates. 60s script budget;
-8 concurrent / 64 total agents per run (enforced, not bypassable).
-A thrown error or timeout fails the whole call.
-
-**Saving scripts**: pass `name` to `workflow_run` — the script persists to
-`.workflows/<name>.js` in the workspace. Read it back later and re-run the
-same orchestration.
-
-## Patterns
-
-- **Audit fan-out**: one agent lists targets, `pipeline` reviews each, a
-  final `agent` dedupes/ranks the findings.
-- **Fix until pass**: `while` loop: run the check via an agent, retry fixes
-  until PASS or two no-progress rounds.
-- **Parallel migration**: fan out one agent per file, each in its own scope;
-  never let two items edit the same file (shard in the prompts).
+- `agent(prompt, { schema?, label? })` — spawns one subagent, returns its result.
+- `pipeline(items, fn)` — Promise.all over a mapper.
+- Save with `workflow_run({ script, name })` to `.oma/workflow/<name>.js`;
+  re-run later with `workflow_run({ name })` only.
 
 ## Rules
 
 - Subagents inherit the workspace: write conflicts are YOUR sharding
   responsibility.
 - Keep per-item prompts self-contained (subagents see no parent context).
-- Prefer `run_workflow` unless you need a loop or an intermediate value.
+- Prefer a `task` batch unless you need a loop or an intermediate value.
