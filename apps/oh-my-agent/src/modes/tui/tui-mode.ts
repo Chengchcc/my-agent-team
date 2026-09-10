@@ -11,6 +11,11 @@ import { buildCliRunInput } from "../../cli/initial-input.js";
 import type { OmaLoopEvent } from "../../core/agent-runtime.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
+
+/** One interactive TUI session per process; the coordination scope stays
+ *  stable across Runs so subagent handles survive follow-ups in this
+ *  process (registry is keyed by scope, not runId). */
+const COORDINATION_SCOPE = `tui-${process.pid}`;
 import type { ToolFilter } from "../../core/runtime/tool-filter.js";
 import {
   appendSessionMessages,
@@ -350,6 +355,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     const pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
     for (const w of pluginRt.warnings) pushStatus(`[plugin] ${w}`);
     const runtime = await createOmaRuntime({
+      coordinationScope: COORDINATION_SCOPE,
       runId: `tui-${randomUUID()}`,
       modelId: built.run.model.modelId,
       workspaceRoot: opts.workspaceRoot,
