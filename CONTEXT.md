@@ -101,7 +101,7 @@ L1 Contracts    packages/message（协议）、packages/agent-contract（spawn �
 | `@chengchenccc/tui` | oma 支撑 | 终端 UI 工具箱（editor/keys/markdown 渲染/mermaid-ascii/autocomplete/virtual terminal） |
 | `apps/oh-my-agent/src/core/` | oma-native | `createOmaSession()`、agent-loop、plugins（code/trust/resolve/marketplace）、compaction、persistence、session、autonomous-memory 文件读取 |
 | `apps/oh-my-agent/src/core/tools/` | oma-native | bash/grep/glob/edit/write/read/web/ask-question/eval（eval 走 sandbox）工具工厂、mcp-mount（workspace/user/project 多源合并 + `${CLAUDE_PLUGIN_ROOT}`） |
-| `apps/oh-my-agent/src/core/workflow/` | oma-native | 脚本式 workflow executor + subagent registry（Run.workflow 输入路径） |
+| `apps/oh-my-agent/src/core/delegation/` | oma-native | task 派活引擎（executor/roles/results/pool）+ coordination registry 消费方；`core/orchestrate/` = workflow_run 脚本编排（Run.workflow 输入路径） |
 | `@chengchenccc/test-helpers` | test | `echoModel()` 确定性 ChatModel 测试替身 |
 
 ## 铁律（设计哲学核心）
