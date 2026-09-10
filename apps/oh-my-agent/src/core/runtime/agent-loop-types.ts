@@ -63,10 +63,14 @@ export interface OmaSessionOptions {
   /** Native-tool permission gate (run-runtime, ADR 0020 permissionMode): runs
    *  AFTER plugin beforeTool hooks; a block result prevents execution. Native
    *  high-risk tools (bash/write/edit/mcp__*) route here so ask/deny apply to
-   *  them too — one pipeline for plugin AND native tools. */
+   *  them too — one pipeline for plugin AND native tools.
+   *  `callId` is the tool call being judged: it is the ONLY key a human
+   *  approval card can resolve against (`resolve_approval` command), so the
+   *  gate must not invent its own. */
   readonly permissionGate?: (
     toolName: string,
     input: unknown,
+    callId: string,
   ) => Promise<{ block: boolean; reason?: string } | undefined>;
   /** Resolve the model display identity for a run's model ref, used to render
    *  the per-loop Meta. Optional: when omitted (tests), Meta omits the model line. */
@@ -84,6 +88,13 @@ export interface OmaSessionOptions {
    *  exceed limit * triggerRatio before a model turn, compact once. Leave
    *  undefined to disable proactive compaction. */
   readonly contextBudget?: ContextBudget;
+  /** Auto-title the conversation when it is still untitled (default FALSE:
+   *  titling costs one extra model call, so the embedding runtime opts in).
+   *  Passed as a dependency so the loop never reads process.env. */
+  readonly titleEnabled?: boolean;
+  /** The product already titled this conversation: suppresses generation
+   *  (backend sets OMA_CONV_TITLED=1 at spawn → resolved into this option). */
+  readonly conversationTitled?: boolean;
   /** Tool-output pruning config. When set, old tool
    *  results outside the protect window are truncated to a summary before
    *  each model call — a lighter touch than full compaction. Protected

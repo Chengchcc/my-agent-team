@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,15 @@ import { runRpcMode } from "./rpc-mode.js";
  *  cli-modes.test.ts. */
 
 const tmp = mkdtempSync(join(tmpdir(), "rpc-mode-test-"));
-process.env.OMA_SESSION_DIR = join(tmp, "sessions");
+// Scoped to this file's lifetime: a module-scope write would leak into every
+// later test file in the same process (bun loads files in order).
+const SESSION_DIR = join(tmp, "sessions");
+beforeAll(() => {
+  process.env.OMA_SESSION_DIR = SESSION_DIR;
+});
+afterAll(() => {
+  delete process.env.OMA_SESSION_DIR;
+});
 
 const FAKE_MODEL: Model = {
   id: "echo",
@@ -54,9 +62,11 @@ interface Harness {
   stop(): void;
 }
 
-function makeHarness(opts: { slowMs?: number } = {}): Harness {
+function makeHarness(opts: { slowMs?: number; provider?: Provider } = {}): Harness {
   const modelRuntime: ModelRuntime = createModelRuntime();
-  modelRuntime.registerProvider(opts.slowMs ? slowProvider(opts.slowMs) : fakeProvider({}));
+  modelRuntime.registerProvider(
+    opts.provider ?? (opts.slowMs ? slowProvider(opts.slowMs) : fakeProvider({})),
+  );
   let stdinController: ReadableStreamDefaultController<Uint8Array>;
   const stdin = new ReadableStream<Uint8Array>({
     start(c) {
@@ -263,6 +273,70 @@ describe("RPC mode (in-process)", () => {
 });
 
 describe("rpc approval wire", () => {
+  test("ask-mode NATIVE tool emits approval_request with the tool call id", async () => {
+    // Regression (2026-09-10): the native-tool gate hardcoded callId: "",
+    // which no surface could resolve (resolve_approval requires min(1)) — the
+    // web card appeared and every Allow click timed out into a deny.
+    const prevTool = process.env.OMA_FAKE_TOOL;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([{ name: "bash", input: { command: "true" } }]);
+    try {
+      const h = makeHarness({ provider: fakeProvider(process.env) });
+      h.write(
+        JSON.stringify({
+          ...EXECUTE,
+          input: {
+            ...EXECUTE.input,
+            input: { inputId: "in-native", message: { role: "user", text: "go" } },
+            run: { ...EXECUTE.input.run, runId: "r-native", permissionMode: "ask" },
+          },
+        }),
+      );
+      await waitFor(() =>
+        h.lines().some((l) => {
+          try {
+            return (
+              (JSON.parse(l) as { event?: { type?: string } }).event?.type === "approval_request"
+            );
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const request = h
+        .lines()
+        .map((l) => JSON.parse(l) as { event?: { type?: string; data?: { callId?: string } } })
+        .find((o) => o.event?.type === "approval_request");
+      const callId = request?.event?.data?.callId;
+      expect(callId).toBeTruthy();
+      expect(callId).toMatch(/toolu-/);
+      // The id minted by the gate is the one the wire accepts: resolving it
+      // must be acknowledged (this is the round-trip the empty callId broke).
+      h.write(
+        JSON.stringify({
+          id: "ap-native",
+          type: "resolve_approval",
+          runId: "r-native",
+          callId,
+          decision: "deny",
+        }),
+      );
+      await waitFor(() =>
+        h.lines().some((l) => {
+          try {
+            const o = JSON.parse(l) as { type?: string; command?: string; success?: boolean };
+            return o.type === "response" && o.command === "resolve_approval";
+          } catch {
+            return false;
+          }
+        }),
+      );
+      await h.exitCode.catch(() => -1);
+    } finally {
+      if (prevTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = prevTool;
+    }
+  }, 15_000);
+
   test("ask-mode plugin tool emits approval_request; resolve_approval allow executes it", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "rpc-appr-ws-"));
     const agent = mkdtempSync(join(tmpdir(), "rpc-appr-agent-"));
@@ -333,8 +407,24 @@ describe("rpc approval wire", () => {
         }),
       );
       await waitFor(() => outLines.some((l) => l.includes("GATED-OK")));
+      // Regression (2026-09-10): the ack envelope must actually reach stdout
+      // AND the reader must survive it. The old bug ran the tool (so this
+      // test passed) while emitResponse threw inside the reader loop, which
+      // then died with exit 1 — killing steer/abort for the rest of the Run.
+      await waitFor(() =>
+        outLines.some((l) => {
+          try {
+            const o = JSON.parse(l) as { type?: string; command?: string; success?: boolean };
+            return o.type === "response" && o.command === "resolve_approval" && o.success === true;
+          } catch {
+            return false;
+          }
+        }),
+      );
       ctrl.stop();
-      await ctrl.promise.catch(() => {});
+      const code = await ctrl.promise.catch(() => -1);
+      // The old bug killed the reader with a zod error → exit 1.
+      expect(code).toBe(0);
     } finally {
       delete process.env.OMA_FAKE_TOOL;
       if (savedAgentDir === undefined) delete process.env.OMA_CODING_AGENT_DIR;

@@ -66,10 +66,26 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
   // Serialized output: whole lines, in order, never interleaved.
   let writeChain: Promise<void> = Promise.resolve();
   const emit = (output: OmaOutput): void => {
-    const line = JSON.stringify(output);
-    writeChain = writeChain.then(() => {
-      write(`${line}\n`);
-    });
+    let line: string;
+    try {
+      line = JSON.stringify(output);
+    } catch {
+      // A non-serializable envelope (e.g. a BigInt in a tool result) must
+      // not take down the writer.
+      log("omitted non-serializable output envelope");
+      return;
+    }
+    writeChain = writeChain
+      // Both callbacks are errors-as-values: the reader loop `for await`s
+      // stdin and drives emit synchronously, so a write failure surfacing
+      // as a rejection anywhere in this chain would kill the command loop
+      // (steer/abort/resolve_approval stop being read for the rest of the
+      // run). A dead peer becomes a logged no-op instead.
+      .then(
+        () => write(`${line}\n`),
+        (err: unknown) => log(`output write skipped: ${redactError(err)}`),
+      )
+      .then(undefined, (err: unknown) => log(`output write failed: ${redactError(err)}`));
   };
   const emitResponse = (
     id: string,
@@ -77,15 +93,23 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     success: boolean,
     error?: string,
   ): void => {
-    emit(
-      responseOutputSchema.parse({
+    let envelope: OmaOutput;
+    try {
+      envelope = responseOutputSchema.parse({
         id,
         type: "response",
         command,
         success,
         ...(success ? {} : { error: error ?? "command failed" }),
-      }),
-    );
+      });
+    } catch (caught) {
+      // Contract drift guard: a response envelope that fails to validate
+      // (schema vs command union) is a bug, but not worth killing the
+      // command loop over — the peer times out on its own.
+      log(`response envelope invalid (${command}): ${redactError(caught)}`);
+      return;
+    }
+    emit(envelope);
   };
 
   let runtime: OmaRuntime | null = null;

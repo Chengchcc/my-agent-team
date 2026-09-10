@@ -117,7 +117,10 @@ export const responseOutputSchema = z.object({
   // (no command id exists to echo back).
   id: z.string().max(64),
   type: z.literal("response"),
-  command: z.enum(["execute", "steer", "abort"]),
+  // Must list EVERY command type the adapter can send (see the mirrored
+  // schema in packages/adapter-oma-agent/src/protocol.ts + its drift test):
+  // a missing member makes the child's own emitResponse throw.
+  command: z.enum(["execute", "steer", "abort", "resolve_approval"]),
   success: z.boolean(),
   data: z.record(z.unknown()).optional(),
   error: z.string().optional(),

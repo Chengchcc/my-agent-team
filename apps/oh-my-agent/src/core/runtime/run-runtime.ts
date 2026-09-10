@@ -679,6 +679,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   const autoGateDecision = async (
     toolName: string,
     input: unknown,
+    callId: string,
     userTexts: readonly string[],
   ): Promise<{ block: boolean; reason?: string } | undefined> => {
     // Hard circuit breaker (nothing downstream can override it,
@@ -714,7 +715,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     escalatedActions.add(actionKey);
     const human = await withApprovalDeadline(
       deps.approvalHandler({
-        callId: `cls-${randomUUID().slice(0, 8)}`,
+        // Same key discipline as the ask gate: the card must be resolvable.
+        callId: callId || `cls-${randomUUID().slice(0, 8)}`,
         toolName,
         input,
         reason: `classifier: ${verdict.reason}`,
@@ -739,6 +741,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     async (
       toolName: string,
       input: unknown,
+      callId: string,
     ): Promise<{ block: boolean; reason?: string } | undefined> => {
       if (deps.permissionMode === undefined) return undefined;
       if (deps.permissionMode === "auto") {
@@ -747,7 +750,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         // swallows gate exceptions as "no verdict" (= allow), so any
         // error in here must convert to a block, never propagate.
         try {
-          return await autoGateDecision(toolName, input, [
+          return await autoGateDecision(toolName, input, callId, [
             ...intentTexts,
             ...(await recentUserTexts()),
           ]);
@@ -784,7 +787,10 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         source: "permission";
         sandboxed?: boolean;
       } = {
-        callId: "",
+        // The tool call's own id: the ONLY value a human card can resolve
+        // against (resolve_approval / the web approval endpoint). Minting a
+        // fresh one here silently breaks every approval round-trip.
+        callId: callId || `perm-${randomUUID().slice(0, 8)}`,
         toolName,
         input,
         source: "permission",

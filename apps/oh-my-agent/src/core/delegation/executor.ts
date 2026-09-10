@@ -117,6 +117,7 @@ export interface DelegationExecutorOptions {
   ) => (
     toolName: string,
     input: unknown,
+    callId: string,
   ) => Promise<{ block: boolean; reason?: string } | undefined>;
 }
 

@@ -224,7 +224,7 @@ export async function executeTools(
       // apply to native high-risk tools too.
       if (!blocked && opts.permissionGate) {
         try {
-          const verdict = await opts.permissionGate(call.name, input);
+          const verdict = await opts.permissionGate(call.name, input, call.id);
           if (verdict?.block) {
             blocked = true;
             if (verdict.reason) blockReason = verdict.reason;
