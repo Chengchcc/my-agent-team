@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { TranscriptItem } from "./view-state.js";
 import { renderLearnTool, renderTaskTool } from "./tui-tool-render.js";
+import type { TranscriptItem } from "./view-state.js";
 
 function item(input: Record<string, unknown>, result?: unknown, streaming = false): TranscriptItem {
   return {

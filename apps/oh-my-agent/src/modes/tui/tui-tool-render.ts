@@ -143,8 +143,12 @@ export function renderLearnTool(item: TranscriptItem, expanded: boolean): string
     const text = memory.replace(/\s+/g, " ").slice(0, expanded ? 400 : 160);
     lines.push(`\u001b[2m    ${text}\u001b[0m`);
   }
-  const context = typeof input?.context === "string" && input.context.trim() ? input.context.trim() : "";
-  if (context) lines.push(`\u001b[2m    @ ${context.replace(/\s+/g, " ").slice(0, expanded ? 200 : 80)}\u001b[0m`);
+  const context =
+    typeof input?.context === "string" && input.context.trim() ? input.context.trim() : "";
+  if (context)
+    lines.push(
+      `\u001b[2m    @ ${context.replace(/\s+/g, " ").slice(0, expanded ? 200 : 80)}\u001b[0m`,
+    );
   const result = item.result as Record<string, unknown> | undefined;
   if (result) {
     if (result.learned === true) {

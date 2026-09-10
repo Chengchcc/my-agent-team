@@ -29,6 +29,7 @@ import {
 } from "../coordination/index.js";
 import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
 import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
+import { createLearnTool } from "../memory/learn.js";
 import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
 import { createOrchestrateTool } from "../orchestrate/tool.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
@@ -59,7 +60,6 @@ import {
   withCallTimeout,
 } from "../tools/mcp-mount.js";
 import { createSkill } from "../tools/skill.js";
-import { createLearnTool } from "../memory/learn.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore, readTodoFile } from "../tools/todo-store.js";
 import { type ApprovalHandler, approvalTimeoutMs, withApprovalDeadline } from "./approval.js";

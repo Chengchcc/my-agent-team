@@ -219,8 +219,12 @@ function parseConsolidation(raw: string): { summary?: string; memory?: string } 
   try {
     const parsed = JSON.parse(m[0]) as { summary?: unknown; memory?: unknown };
     return {
-      ...(typeof parsed.summary === "string" && parsed.summary.trim() ? { summary: parsed.summary.trim() } : {}),
-      ...(typeof parsed.memory === "string" && parsed.memory.trim() ? { memory: parsed.memory.trim() } : {}),
+      ...(typeof parsed.summary === "string" && parsed.summary.trim()
+        ? { summary: parsed.summary.trim() }
+        : {}),
+      ...(typeof parsed.memory === "string" && parsed.memory.trim()
+        ? { memory: parsed.memory.trim() }
+        : {}),
     };
   } catch {
     return {};

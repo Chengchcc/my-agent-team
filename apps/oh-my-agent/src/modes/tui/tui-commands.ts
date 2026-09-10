@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
-import { readMemorySummary } from "../../core/runtime/prompts.js";
 import { join } from "node:path";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
 import {
@@ -13,6 +12,7 @@ import {
 } from "../../core/plugins/plugin-marketplace.js";
 import { trustFile, trustPlugin } from "../../core/plugins/plugin-trust.js";
 import type { OmaRuntime } from "../../core/runtime/create-runtime.js";
+import { readMemorySummary } from "../../core/runtime/prompts.js";
 import {
   loadProjectSettings,
   saveProjectModel,
@@ -437,7 +437,13 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.pushStatus(`no memory yet (looked in ${memDir})`);
           return;
         }
-        ctx.pushStatus(["memory:", ...summary.split("\n").slice(0, 12).map((l) => `  ${l}`)]);
+        ctx.pushStatus([
+          "memory:",
+          ...summary
+            .split("\n")
+            .slice(0, 12)
+            .map((l) => `  ${l}`),
+        ]);
       },
     },
     {

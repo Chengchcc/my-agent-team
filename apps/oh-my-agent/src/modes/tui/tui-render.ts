@@ -28,7 +28,12 @@ import {
   summarizeToolArgs,
   USER_TEXT_STYLE,
 } from "./tui-format.js";
-import { renderHubTool, renderLearnTool, renderTaskTool, renderTodoTool } from "./tui-tool-render.js";
+import {
+  renderHubTool,
+  renderLearnTool,
+  renderTaskTool,
+  renderTodoTool,
+} from "./tui-tool-render.js";
 import { TuiTranscriptReconciler } from "./tui-transcript-reconciler.js";
 import type { TranscriptItem, TuiViewState } from "./view-state.js";
 
