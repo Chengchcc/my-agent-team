@@ -239,7 +239,17 @@ const DOC_FILES = [
   ...readdirSync(join(ROOT, "knowledge-packs/my-agent-team"))
     .filter((f) => f.endsWith(".md"))
     .map((f) => `knowledge-packs/my-agent-team/${f}`),
-] as const;
+  // App-level entry docs. They ship next to the code an agent actually edits,
+  // so a stale claim here is read as truth — the 2026-09-10 review found
+  // README.md still naming two packages that had been DELETED (ADR 0024) and
+  // AGENTS.md linking a doc path that does not exist. Both are the same class
+  // of rot the repo-level files were already gated against.
+  "apps/oh-my-agent/README.md",
+  "apps/oh-my-agent/AGENTS.md",
+  "apps/backend/README.md",
+  "apps/web/README.md",
+  "apps/lark-bot/README.md",
+].filter((rel) => existsSync(join(ROOT, rel))) as readonly string[];
 let pathTokens = 0;
 for (const rel of DOC_FILES) {
   let text = readFileSync(join(ROOT, rel), "utf8");
@@ -275,9 +285,36 @@ for (const rel of DOC_FILES) {
   }
 }
 
+// 13. App docs: relative markdown links must resolve, measured from the
+// FILE's own directory (the active-zone linker above only covers
+// docs/architecture + docs/prd). An app README linking ../../docs/... that
+// no longer exists is the exact rot this catches.
+const APP_DOC_FILES = [
+  "apps/oh-my-agent/README.md",
+  "apps/oh-my-agent/AGENTS.md",
+  "apps/backend/README.md",
+  "apps/web/README.md",
+  "apps/lark-bot/README.md",
+].filter((rel) => existsSync(join(ROOT, rel)));
+let appLinks = 0;
+for (const rel of APP_DOC_FILES) {
+  const text = readFileSync(join(ROOT, rel), "utf8");
+  for (const m of text.matchAll(/\]\(([^()\s]+)\)/g)) {
+    const target = m[1] ?? "";
+    if (!target || /^(?:[a-z]+:|#)/i.test(target)) continue; // url scheme / anchor
+    const clean = target.split("#")[0] ?? "";
+    if (!clean || clean.startsWith("<")) continue;
+    appLinks++;
+    const resolved = normalize(join(ROOT, dirname(rel), clean));
+    if (!existsSync(resolved)) {
+      fail(`${rel} links a missing path: ${target}`);
+    }
+  }
+}
+
 // 10. W3: code fences must balance — an unclosed ``` swallows every
 // following section on the rendered page (bit us in AGENTS.md 2026-08).
-for (const rel of DOC_FILES) {
+for (const rel of [...DOC_FILES, ...APP_DOC_FILES]) {
   const text = readFileSync(join(ROOT, rel), "utf8");
   const fences = (text.match(/^```/gm) ?? []).length;
   if (fences % 2 === 1) fail(`${rel} has ${fences} fence markers (unclosed code block)`);
@@ -292,5 +329,5 @@ console.log(
   `audit:docs OK (${pluginDirs.length} plugins, ${tables} tables, CLAUDE.md symlinked, ` +
     `${manifestEntries ?? 0} MANIFEST entries, active-zone links + vocabulary clean, ` +
     `${pathTokens} doc path tokens exist, ${codePathTokens} code paths exist, ` +
-    `fences balanced, 0 orphan pages)`,
+    `${appLinks} app-doc links resolve, fences balanced, 0 orphan pages)`,
 );

@@ -34,7 +34,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 | `json` | 一次 Run；stdout 全部事件 JSONL + 恰好一个 terminal outcome 行 |
 | `rpc` | 每 Run 一次 `execute` + 可选的 `steer`/`abort`；命令走 stdin，`event`/`outcome`/`response` 走 stdout（严格 LF JSONL，stdout 只承载协议） |
 
-`--mode rpc` 是 Adapter 使用的模式。协议 schema 与事件/outcome mapping 定义在契约包 `@chengchenccc/agent-backend`，两侧共用同一份。
+`--mode rpc` 是 Adapter 使用的模式。wire schema 归**本 app 所有**（`src/protocol/`），Adapter 侧保留一份独立的解析/映射副本（`packages/adapter-oma-agent/src/{protocol,event-mapper}.ts`）——两份靠 fixture + `src/protocol/drift.test.ts` 对齐，不共享包（ADR 0024）。改协议：先改这里，再改 adapter 那份，drift 测试会挡住漏改。
 
 ## Runtime
 
@@ -44,7 +44,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 - `steer(input)` 注入 live loop；`stop()` 中止；
 - `close()` 拆除 MCP clients 与 SessionStore。
 
-Runtime 内部由 `packages/agent` 提供：OmaSession（model/tool loop、retry、compaction、插件、todo）与 in-memory SessionStore。seed 时把 **full Product history + meta + input** 原子写入，Run 结束即销毁。
+Runtime 主体就在本 app 的 `src/core/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/persistence/`）。seed 时把 **full Product history + meta + input** 原子写入，Run 结束即销毁。
 
 ## 运行
 
@@ -76,5 +76,5 @@ src/
 
 ## 相关文档
 
-- [架构 Wiki — Oma](docs/architecture/runtime/oma.md)
-- [Agent Backend 协议](docs/architecture/execution/agent-backend.md)
+- [架构 Wiki — Oma](../../docs/architecture/runtime/oma.md)
+- [Agent Backend 协议](../../docs/architecture/execution/agent-backend.md)

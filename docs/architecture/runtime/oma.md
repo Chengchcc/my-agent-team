@@ -91,7 +91,7 @@ Full history    写 SessionStore，source=product_history
 
 ## 事件与终态
 
-子进程把 Runtime 事件包装为 `RunEventEnvelope` 发 stdout；Adapter 用 `@chengchenccc/agent-contract` 的映射函数转 `BackendEvent` / `BackendRunOutcome`（completed/failed/aborted/timeout）。outcome 是唯一终态权威，事件流永不决定终态。
+子进程把 Runtime 事件包装为 `RunEventEnvelope` 发 stdout；Adapter 用自己的映射（`packages/adapter-oma-agent/src/event-mapper.ts`，与 child 的 `src/protocol/mapping.ts` 是**两份独立实现**，ADR 0024）转成 `BackendEvent` / `BackendRunOutcome`（completed/failed/aborted/timeout）。outcome 是唯一终态权威，事件流永不决定终态。
 
 ## 不变量
 

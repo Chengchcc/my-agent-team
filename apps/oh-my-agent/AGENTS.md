@@ -92,7 +92,7 @@ src/
 ## Related docs
 
 - [docs/architecture/index.llm.md](../../docs/architecture/index.llm.md) — repo doc hub
-- [docs/architecture/oma.md](../../docs/architecture/oma.md)
+- [docs/architecture/runtime/oma.md](../../docs/architecture/runtime/oma.md) — the oma runtime wiki
 - [docs/architecture/runtime/compaction.md](../../docs/architecture/runtime/compaction.md)
 - [docs/architecture/plugins/oma-plugins.md](../../docs/architecture/plugins/oma-plugins.md)
 - [docs/architecture/backend/overview.md](../../docs/architecture/backend/overview.md)
