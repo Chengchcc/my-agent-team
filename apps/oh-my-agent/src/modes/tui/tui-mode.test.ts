@@ -111,7 +111,12 @@ describe("view-state folding", () => {
   test("delegation events fold into transcript statuses", () => {
     const state = initialViewState();
     applyEvent(state, { type: "agent_start" });
-    applyEvent(state, { type: "delegation_batch_started", batchId: "w", label: "audit", agentCount: 3 });
+    applyEvent(state, {
+      type: "delegation_batch_started",
+      batchId: "w",
+      label: "audit",
+      agentCount: 3,
+    });
     applyEvent(state, {
       type: "delegation_agent_completed",
       batchId: "w",
