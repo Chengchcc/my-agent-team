@@ -180,19 +180,6 @@ export function createBashTool(opts: {
     return job;
   }
 
-  function jobSummary(job: BashJob): string {
-    const state = job.finishedAt === null ? "running" : "completed";
-    const secs = Math.round(((job.finishedAt ?? Date.now()) - job.startedAt) / 1000);
-    const flag = job.timedOut ? ", timed out" : job.killed ? ", killed" : "";
-    const lines = [`job ${job.id} [${state}${flag}] ${secs}s`, `command: ${job.command}`];
-    if (job.truncated) lines.push(`[output truncated at ${MAX_OUTPUT_BYTES} bytes]`);
-    lines.push(job.output.length > 0 ? job.output : "(no output)");
-    if (job.finishedAt !== null && job.exitCode !== null && job.exitCode !== 0) {
-      lines.push(`Command exited with code ${job.exitCode}`);
-    }
-    return lines.join("\n");
-  }
-
   return {
     name: "bash",
     description:
