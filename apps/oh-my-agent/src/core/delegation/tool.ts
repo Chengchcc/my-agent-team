@@ -1,11 +1,11 @@
 import type { PluginTool } from "../agent-runtime.js";
-import { builtinAgentNames, isValidWorkflowName, resolveAgent } from "./roles.js";
 import type { SubagentBatchResult, SubagentResult, SubagentSpec } from "./executor.js";
+import { builtinAgentNames, isValidWorkflowName, resolveAgent } from "./roles.js";
 
 export {
+  type AgentRole,
   isValidWorkflowName,
   parseAgentDefinition,
-  type AgentRole,
 } from "./roles.js";
 
 export interface DelegationToolDeps {

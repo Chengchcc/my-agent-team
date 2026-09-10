@@ -66,12 +66,14 @@ describe("hub tool", () => {
 
   test("steer validates handle and prompt, stop delegates", async () => {
     const stops: string[] = [];
-    const [hub] = createHubTool(makeDeps({
+    const [hub] = createHubTool(
+      makeDeps({
         stop: (id) => {
           stops.push(id);
           return { ok: true };
         },
-      }));
+      }),
+    );
     const noPrompt = (await hub.execute({ op: "steer", id: "sub-1" })) as { ok: boolean };
     expect(noPrompt.ok).toBe(false);
     const ok = (await hub.execute({ op: "steer", id: "sub-1", prompt: "go on" })) as {
