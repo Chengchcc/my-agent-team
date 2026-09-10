@@ -326,6 +326,6 @@ export class SandboxTimeoutError extends Error {
 function mkTempDir(): string {
   return resolve(
     tmpdir(),
-    "sandbox-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
+    `sandbox-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   );
 }
