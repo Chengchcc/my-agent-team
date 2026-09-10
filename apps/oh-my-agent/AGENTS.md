@@ -31,12 +31,13 @@ src/
   cli.ts               # entrypoint
   main.ts              # mode dispatch + argument parsing
   core/
-    create-runtime.ts  # createOmaSession / createCodingAgentRuntime
-    run-runtime.ts     # RunRuntimeDeps, createOmaRuntime
-    agent-loop.ts      # message/model/tool loop
-    plugin.ts          # Plugin + hooks + validatePlugins
-    plugin-runtime.ts  # runtime capabilities injected into hooks
-    tool-filter.ts     # --tools whitelist/blacklist
+    runtime/README.md  # reading order + file map (start here)
+    runtime/create-runtime.ts  # createOmaRuntime: the per-Run facade
+    runtime/run-runtime.ts     # assembleRunRuntime: tools, gates, plugins
+    runtime/agent-loop.ts      # createOmaSession (the loop factory)
+    runtime/plugin.ts          # Plugin + hooks + validatePlugins
+    runtime/plugin-runtime.ts  # runtime capabilities injected into hooks
+    runtime/tool-filter.ts     # --tools whitelist/blacklist
   modes/
     print-mode.ts
     json-mode.ts

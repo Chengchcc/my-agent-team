@@ -3,7 +3,12 @@ import type { SessionStore } from "./session-store.js";
 import type { CodingSessionMetadata } from "./session-tree.js";
 
 /** Reusable contract suite for SessionStore implementations.
- *  Each adapter test imports and invokes this. */
+ *
+ *  NOT a test file itself (`bun test` only picks up `*.test.ts`): each
+ *  adapter's own test imports and invokes this, so every implementation is
+ *  held to one behaviour list. The `.test-helper` suffix makes that role
+ *  visible in the filename — as `session-store.contract.ts` it read like
+ *  production code that happens to import bun:test. */
 export function runSessionStoreContract(
   name: string,
   factory: () => Promise<SessionStore>,

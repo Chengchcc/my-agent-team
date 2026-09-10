@@ -1101,6 +1101,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       }))
     : plugins;
   const session = createOmaSession({
+    // Per-Run store ⇒ session id == run id (see core/runtime/README.md).
     sessionId: deps.runId,
     store,
     plugins: finalPlugins,

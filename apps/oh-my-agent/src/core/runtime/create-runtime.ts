@@ -251,6 +251,8 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
       // The Run's store is seeded with the full Product history + the current
       // input by the loop itself (buildLoopInput appends history + meta +
       // input atomically). Create the session root first.
+      // NOTE: the SessionStore is per-Run, so its session id IS the run id —
+      // durable conversation identity belongs to the product backend.
       await rt.store.create({
         sessionId: options.runId,
         backendKind: "oma",
