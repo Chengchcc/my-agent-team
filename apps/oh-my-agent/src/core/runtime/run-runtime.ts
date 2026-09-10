@@ -836,7 +836,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     script: string;
     args?: unknown;
   }): Promise<{ ok: boolean; totalTokens: number; value: unknown }> => {
-    const batchId = `wf-${crypto.randomUUID()}`;
+    const batchId = `script-${crypto.randomUUID()}`;
     const results: SubagentResult[] = [];
     sessionEmit?.({
       type: "delegation_batch_started",

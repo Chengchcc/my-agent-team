@@ -235,7 +235,7 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       for (const item of run?.items ?? []) item.streaming = false;
       break;
     }
-    // todo/queue/recap/workflow events: no v1 transcript rendering.
+    // todo/queue/recap/delegation events: no v1 transcript rendering.
     default:
       break;
   }

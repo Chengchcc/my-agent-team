@@ -259,12 +259,12 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       current++;
       return;
     }
-    if (signal?.aborted) throw new Error("workflow aborted while queued");
+    if (signal?.aborted) throw new Error("delegation aborted while queued");
     await new Promise<void>((resolve, reject) => {
       const onAbort = (): void => {
         const idx = waiters.indexOf(fire);
         if (idx >= 0) waiters.splice(idx, 1);
-        reject(new Error("workflow aborted while queued"));
+        reject(new Error("delegation aborted while queued"));
       };
       const fire = (): void => {
         signal?.removeEventListener("abort", onAbort);
@@ -286,12 +286,12 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
 
   function gate(): void {
     if (totalSpawned >= opts.maxTotal) {
-      throw new GateError(`workflow exceeds the ${opts.maxTotal}-agent cap`);
+      throw new GateError(`delegation exceeds the ${opts.maxTotal}-agent cap`);
     }
     if (opts.budgetGate) {
       const decision = opts.budgetGate();
       if (!decision.allowed) {
-        throw new GateError(decision.reason ?? "workflow budget exhausted");
+        throw new GateError(decision.reason ?? "delegation budget exhausted");
       }
     }
     totalSpawned++;
@@ -420,7 +420,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
             error:
               agentSignal.reason instanceof Error
                 ? agentSignal.reason.message
-                : "workflow agent aborted",
+                : "subagent aborted",
           };
         }
         let result: Awaited<ReturnType<OmaSession["startLoop"]>>;
@@ -489,7 +489,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         const error = agentSignal?.aborted
           ? agentSignal.reason instanceof Error
             ? agentSignal.reason.message
-            : "workflow agent timed out"
+            : "subagent timed out"
           : (loopError ?? parseError);
         const agentResult: SubagentResult = {
           label,
@@ -663,7 +663,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           runSubagent({ batchId: input.batchId, agentId: `a${i}`, ...item }, combined),
         ),
       );
-      if (input.signal?.aborted) throw new Error("workflow aborted");
+      if (input.signal?.aborted) throw new Error("delegation aborted");
       const results = spillResults(rawResults, input.batchId);
       const totalTokens = results.reduce(
         (acc, r) =>
