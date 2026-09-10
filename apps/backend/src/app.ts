@@ -58,6 +58,26 @@ export function createApp(token: string, features: FeatureSet) {
   } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
+    // `as: "global"` + registration BEFORE the feature plugins are `.use()`d:
+    // an onError registered after the chain (1.4.29) never saw errors thrown
+    // inside plugin routes — Elysia answered those with raw-text default
+    // responses (`404 "Execution not found"`) and the JSON contract below was
+    // dead code outside NOT_FOUND. Elysia 1.4.30 fixed cross-instance error
+    // delivery; head-of-chain registration keeps us independent of that
+    // regression surface (runtime-proven 2026-09-10, route-level tests).
+    .onError({ as: "global" }, ({ code, error, set }) => {
+      if (error instanceof DomainError) {
+        set.status = error.status;
+        return { error: error.message };
+      }
+      if (error instanceof HttpError) {
+        set.status = error.status;
+        return { error: error.message };
+      }
+      if (code === "NOT_FOUND") return { error: "Not found" };
+      set.status = 500;
+      return { error: "Internal server error" };
+    })
     // Auth hook MUST live on the MAIN app instance: a separate
     // `new Elysia({name}).onBeforeHandle()` mounted via `.use()` is
     // plugin-scoped — Elysia never applied it to these routes, which left
@@ -85,20 +105,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(providers)
     .use(mcp)
     .use(knowledge)
-    .use(models)
-    .onError(({ code, error, set }) => {
-      if (error instanceof DomainError) {
-        set.status = error.status;
-        return { error: error.message };
-      }
-      if (error instanceof HttpError) {
-        set.status = error.status;
-        return { error: error.message };
-      }
-      if (code === "NOT_FOUND") return { error: "Not found" };
-      set.status = 500;
-      return { error: "Internal server error" };
-    });
+    .use(models);
 }
 
 export type App = ReturnType<typeof createApp>;

@@ -1,3 +1,4 @@
+import { HttpError } from "../../infra/errors.js";
 import {
   type ArtifactContent,
   type ArtifactMeta,
@@ -27,7 +28,7 @@ export function createArtifactService(port: ArtifactPort): ArtifactService {
     async download(url) {
       const ref = parseArtifactUrl(url);
       const rec = await port.get(ref);
-      if (!rec) throw new Error(`artifact not found: ${url}`);
+      if (!rec) throw new HttpError(`artifact not found: ${url}`, 404);
       return {
         content: rec.content,
         encoding: rec.encoding,

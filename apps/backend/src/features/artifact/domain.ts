@@ -1,3 +1,4 @@
+import { HttpError } from "../../infra/errors.js";
 /** Artifact domain model: single-file artifacts addressed by
  *  `artifacts://<folder>/<filename>` URLs, stored under backend dataDir. */
 
@@ -38,7 +39,7 @@ export interface ArtifactContent {
  *  malformed URLs / path escapes. */
 export function parseArtifactUrl(url: string): ArtifactRef {
   const m = /^artifacts:\/\/([^?]+)$/.exec(url.trim());
-  if (!m) throw new Error(`invalid artifact URL: ${url}`);
+  if (!m) throw new HttpError(`invalid artifact URL: ${url}`, 400);
   const [folder, filename] = splitPath(m[1]!);
   return { folder, filename };
 }
@@ -47,7 +48,7 @@ export function parseArtifactUrl(url: string): ArtifactRef {
 export function splitPath(path: string): [string, string] {
   const normalized = path.replace(/\\/g, "/");
   if (normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized)) {
-    throw new Error(`unsafe artifact path: ${path}`);
+    throw new HttpError(`unsafe artifact path: ${path}`, 400);
   }
   const parts = normalized.split("/").filter(Boolean);
   if (parts.length < 2) throw new Error(`artifact path must be folder/filename: ${path}`);
@@ -55,11 +56,11 @@ export function splitPath(path: string): [string, string] {
   const folder = parts.join("/");
   for (const p of parts) {
     if (p === ".." || p === "." || p.startsWith("/") || /^[a-zA-Z]:/.test(p)) {
-      throw new Error(`unsafe artifact folder segment: ${p}`);
+      throw new HttpError(`unsafe artifact folder segment: ${p}`, 400);
     }
   }
   if (filename === ".." || filename === "." || filename.includes("/") || filename === "*") {
-    throw new Error(`unsafe artifact filename: ${filename}`);
+    throw new HttpError(`unsafe artifact filename: ${filename}`, 400);
   }
   return [folder, filename];
 }
