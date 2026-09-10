@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createEvalTool } from "./eval.js";
 import { clearAll, getEntry } from "../coordination/registry.js";
+import { createEvalTool } from "./eval.js";
 
 const evalTool = createEvalTool({ workspaceRoot: process.cwd(), scope: "test" });
 
@@ -27,7 +27,6 @@ describe("evalTool", () => {
     expect(result.content).toContain('"ok": true');
   }, 15_000);
 
-
   test("async=true registers a coordination entry with the result", async () => {
     const started = await evalTool.execute({
       description: "bg",
@@ -45,5 +44,4 @@ describe("evalTool", () => {
     expect(e.status).toBe("completed");
     expect(e.output).toContain('"done": true');
   }, 15_000);
-
 });

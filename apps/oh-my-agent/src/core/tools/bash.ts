@@ -1,13 +1,9 @@
 import { childEnv } from "@chengchenccc/agent-contract";
 import type { Tool } from "@chengchenccc/message";
+import { appendEntryPartial, registerEntry, settleEntry } from "../coordination/registry.js";
 import { ptyWrap, withPtyEnv } from "./bash-pty.js";
 import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";
-import {
-  appendEntryPartial,
-  registerEntry,
-  settleEntry,
-} from "../coordination/registry.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 let nextJobSeq = 1;
@@ -287,7 +283,10 @@ export function createBashTool(opts: {
         try {
           job = startJob(effectiveCommand, validatedCwd, bashEnv, clamped);
         } catch (err) {
-          return { content: `Error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+          return {
+            content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
         }
         return {
           content: `Backgrounded as job ${job.id}; collect with hub { "op": "output", "id": "${job.id}" } or hub { "op": "wait", "ids": ["${job.id}"] }.`,

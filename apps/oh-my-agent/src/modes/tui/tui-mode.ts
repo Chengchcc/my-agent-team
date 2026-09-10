@@ -16,6 +16,7 @@ import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-run
  *  stable across Runs so subagent handles survive follow-ups in this
  *  process (registry is keyed by scope, not runId). */
 const COORDINATION_SCOPE = `tui-${process.pid}`;
+
 import type { ToolFilter } from "../../core/runtime/tool-filter.js";
 import {
   appendSessionMessages,

@@ -20,6 +20,17 @@ import {
   type PluginTool,
   type SessionStore,
 } from "../agent-runtime.js";
+import {
+  createHubTool,
+  getEntry,
+  listEntries,
+  stopEntry,
+  waitEntries,
+} from "../coordination/index.js";
+import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
+import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
+import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
+import { createOrchestrateTool } from "../orchestrate/tool.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import { isFileTrusted, readTrustedPlugins } from "../plugins/plugin-trust.js";
 import { loadProjectSettings, type ProjectSettings } from "../settings/project-settings.js";
@@ -50,17 +61,6 @@ import {
 import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore, readTodoFile } from "../tools/todo-store.js";
-import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
-import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
-import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
-import { createOrchestrateTool } from "../orchestrate/tool.js";
-import {
-  createHubTool,
-  getEntry,
-  listEntries,
-  stopEntry,
-  waitEntries,
-} from "../coordination/index.js";
 import { type ApprovalHandler, approvalTimeoutMs, withApprovalDeadline } from "./approval.js";
 import { fakeProvider } from "./fake-provider.js";
 import {
@@ -328,7 +328,9 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     if (bashSandbox) bashToolOpts.sandbox = bashSandbox;
     if (deps.bashPtyConsole) bashToolOpts.ptyConsole = deps.bashPtyConsole;
     agentTools.push(createBashTool(bashToolOpts) as unknown as PluginTool);
-    agentTools.push(createEvalTool({ workspaceRoot: deps.workspaceRoot, scope }) as unknown as PluginTool);
+    agentTools.push(
+      createEvalTool({ workspaceRoot: deps.workspaceRoot, scope }) as unknown as PluginTool,
+    );
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
   // Skips "product-tools" (the manifest path owns it) and names that
@@ -962,7 +964,10 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       steer: (handle, prompt) => {
         const e = getEntry(handle);
         if (e && e.kind !== "subagent") {
-          return { ok: false, error: `"${handle}" is a ${e.kind} job; only subagent handles can be steered` };
+          return {
+            ok: false,
+            error: `"${handle}" is a ${e.kind} job; only subagent handles can be steered`,
+          };
         }
         return delegationExecutor.steerSubagent(handle, prompt);
       },

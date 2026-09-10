@@ -13,6 +13,7 @@ import {
   TUI,
   truncateToWidth,
 } from "@chengchenccc/tui";
+import { setEntryCompletionListener } from "../../core/coordination/registry.js";
 import {
   appendInputHistory,
   loadInputHistory,
@@ -20,7 +21,6 @@ import {
 } from "../../core/session/input-history.js";
 import type { SessionBranchNode } from "../../core/session/session-file.js";
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
-import { setEntryCompletionListener } from "../../core/coordination/registry.js";
 import { runBashPtyConsole } from "./pty-console.js";
 import { SettingsOverlay } from "./settings-overlay.js";
 import { HistorySearchOverlay, OmaTranscriptContainer, PickerOverlay } from "./tui-components.js";

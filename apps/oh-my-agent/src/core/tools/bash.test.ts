@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createBashTool } from "./bash.js";
 import { clearAll, getEntry, setEntryCompletionListener } from "../coordination/registry.js";
+import { createBashTool } from "./bash.js";
 
 const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
 
@@ -67,7 +67,6 @@ describe("bashTool", () => {
     await Bun.$`rm -rf ${tmpDir}`.quiet();
   });
 
-
   test("async=true registers a coordination entry; kill stops the process", async () => {
     const started = await bashTool.execute({
       description: "d",
@@ -113,7 +112,6 @@ describe("bashTool", () => {
     expect(getEntry(jobId)?.timedOut).toBe(true);
     expect(getEntry(jobId)?.status).toBe("failed");
   }, 15_000);
-
 
   test("pty=true allocates a real TTY (M-bash)", async () => {
     if (Bun.which("script") === null) return;

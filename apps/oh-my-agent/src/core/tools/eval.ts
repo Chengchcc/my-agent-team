@@ -1,9 +1,6 @@
 import type { Tool } from "@chengchenccc/message";
 import { runInSandbox } from "@chengchenccc/sandbox";
-import {
-  registerEntry,
-  settleEntry,
-} from "../coordination/registry.js";
+import { registerEntry, settleEntry } from "../coordination/registry.js";
 
 const descriptionParam = {
   type: "string" as const,

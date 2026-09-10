@@ -29,7 +29,8 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
   const label = typeof item.input?.label === "string" ? item.input.label : "";
   const lines: string[] = [`\u001b[36m  task${label ? ` · ${label}` : ""}\u001b[0m`];
   const result = item.result;
-  const status = result && typeof result === "object" && "status" in result ? String(result.status) : "";
+  const status =
+    result && typeof result === "object" && "status" in result ? String(result.status) : "";
   if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
   // Batch: { ok, content, results: [{index, name, agent, ok, text|error, ...}] }
   const asRecord = (v: unknown): Record<string, unknown> =>
@@ -97,7 +98,8 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean): string[]
       lines.push(
         `\u001b[2m  ${mark} ${String(r.id)} (${String(r.kind)}) [${status}] ${String(r.label ?? "").slice(0, 60)}\u001b[0m`,
       );
-      const partial = typeof r.partialText === "string" && r.partialText.trim() ? r.partialText.trim() : "";
+      const partial =
+        typeof r.partialText === "string" && r.partialText.trim() ? r.partialText.trim() : "";
       if (partial) lines.push(`\u001b[2m    ${partial.slice(0, expanded ? 400 : 120)}\u001b[0m`);
     }
     if (item.streaming) lines.push("\u001b[2m    ⟳ waiting…\u001b[0m");
@@ -107,11 +109,13 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean): string[]
     const status = String(result?.status ?? "");
     if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
     const partial = typeof result?.partialText === "string" ? result.partialText : "";
-    if (partial.trim()) lines.push(`\u001b[2m    ${partial.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    if (partial.trim())
+      lines.push(`\u001b[2m    ${partial.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
     const nested = result?.result;
     if (nested && typeof nested === "object") {
       const text = String((nested as Record<string, unknown>).text ?? "");
-      if (text.trim()) lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+      if (text.trim())
+        lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
     }
     if (lines.length === 1) lines.push("\u001b[2m    (unknown id)\u001b[0m");
     return lines;
