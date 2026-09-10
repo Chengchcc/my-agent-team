@@ -1,6 +1,6 @@
 import type { PluginTool } from "../agent-runtime.js";
 import type { SubagentBatchResult, SubagentResult, SubagentSpec } from "./executor.js";
-import { builtinAgentNames, isValidWorkflowName, resolveAgent } from "./roles.js";
+import { builtinAgentNames, resolveAgent } from "./roles.js";
 
 export {
   type AgentRole,
