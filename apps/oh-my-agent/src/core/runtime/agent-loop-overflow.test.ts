@@ -13,7 +13,6 @@ import type { Plugin } from "./plugin.js";
 
 // Title generation performs an extra ephemeral model call; keep counts
 // deterministic.
-process.env.OMA_TITLE_ENABLED = "0";
 
 const LOOP_RUN: AgentRunSnapshot<"oma"> = {
   runId: "ovf-run",

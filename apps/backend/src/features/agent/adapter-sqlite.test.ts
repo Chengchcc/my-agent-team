@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 import { buildAgentConfig, serializeAgentYaml } from "./agent-config.js";
+import { agentModelRef } from "./domain.js";
 
 const db = openDb(":memory:");
 const adapter = sqliteAgentAdapter(db);
@@ -106,5 +107,27 @@ describe("agent config allowed_senders (H7)", () => {
 
   test("defaults to an empty allowlist (single-operator allow-all)", () => {
     expect(cfg("a-h7b", "H7b").lark.allowed_senders).toEqual([]);
+  });
+});
+
+describe("agentModelRef normalizes the stored reasoning effort", () => {
+  const row = (reasoning_effort: string) =>
+    ({
+      config: {
+        runtime_config: {
+          runtime: "oma",
+          model_id: "fake/echo",
+          reasoning_effort,
+        },
+      },
+    }) as unknown as Parameters<typeof agentModelRef>[0];
+
+  test("valid rungs pass through, junk degrades to provider default", () => {
+    expect(agentModelRef(row("high")).reasoningEffort).toBe("high");
+    expect(agentModelRef(row("")).reasoningEffort).toBeUndefined();
+    // A row from before the enum (or a hand-edited agent.yml) must not fail
+    // the child's whole execute payload at the wire schema.
+    expect(agentModelRef(row("medium")).reasoningEffort).toBeUndefined();
+    expect(agentModelRef(row("XHIGH")).reasoningEffort).toBeUndefined();
   });
 });

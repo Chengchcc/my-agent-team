@@ -85,7 +85,10 @@ describe("workspace .mcp.json standalone trust gate", () => {
       const out = await seg.outcome;
       await rt.close();
       expect(out.status).toBe("completed");
-      expect(await Bun.file(record).text()).not.toContain('"echo"');
+      // Assert the FULLY QUALIFIED mounted name: a bare "echo" substring
+      // never appears in the recorded array, so the old form passed even with
+      // the gate removed (mutation-proven 2026-09-10).
+      expect(await Bun.file(record).text()).not.toContain("mcp__echo-server__echo");
 
       // Trusted: server mounts (record now contains the mounted tool names).
       trustFile(join(workspace, ".mcp.json"));

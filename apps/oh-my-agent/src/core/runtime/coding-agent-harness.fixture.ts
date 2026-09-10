@@ -8,8 +8,6 @@ import { createInMemorySessionStore } from "../persistence/in-memory-session-sto
 import type { SessionStore } from "../persistence/session-store.js";
 import type { CodingLoopInput } from "./loop-input.js";
 
-process.env.OMA_TITLE_ENABLED = "0";
-
 export type StoreFactory = (sid: string) => SessionStore;
 export type ReopenFactory = (sid: string) => SessionStore;
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -19,7 +19,18 @@ import {
 
 const dir = `/tmp/oma-session-${Math.random().toString(36).slice(2, 8)}`;
 mkdirSync(dir, { recursive: true });
-process.env.OMA_SESSION_DIR = dir;
+// OMA_SESSION_DIR is scoped to THIS file (set in beforeAll, restored in
+// afterAll) instead of written at module load: a module-scope write leaks into
+// every test file loaded afterwards — bun shares one process and loads files in
+// order, so one file's env silently becomes another file's configuration.
+// Most calls below pass `dir` explicitly; the env only covers the APIs that
+// resolve the session root themselves (loadSessionMessages/listSessions/fork*).
+beforeAll(() => {
+  process.env.OMA_SESSION_DIR = dir;
+});
+afterAll(() => {
+  delete process.env.OMA_SESSION_DIR;
+});
 beforeEach(
   () => rmSync(dir, { recursive: true, force: true }) || mkdirSync(dir, { recursive: true }),
 );

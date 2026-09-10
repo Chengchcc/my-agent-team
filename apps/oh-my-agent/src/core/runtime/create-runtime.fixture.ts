@@ -6,8 +6,6 @@ import type { AIMessageChunk, Message } from "@chengchenccc/message";
 import { createOmaRuntime } from "./create-runtime.js";
 import { registerBuiltinProviders } from "./run-runtime.js";
 
-process.env.OMA_TITLE_ENABLED = "0";
-
 export { createModelRuntime, createOmaRuntime, registerBuiltinProviders };
 
 export function createRuntimeTestContext() {

@@ -2,8 +2,6 @@ import { ProviderError } from "@chengchenccc/ai";
 import { createEchoModelStream } from "../__fixtures__/echo-model.js";
 import { createDelegationExecutor } from "./executor.js";
 
-process.env.OMA_TITLE_ENABLED = "0";
-
 export { createDelegationExecutor, ProviderError };
 
 export function createDelegationFixture() {

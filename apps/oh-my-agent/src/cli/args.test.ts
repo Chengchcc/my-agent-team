@@ -4,6 +4,17 @@ import { fakeProvider } from "../core/runtime/fake-provider.js";
 import { parseArgs, UsageError } from "./args.js";
 import { buildCliRunInput, mergeInitialInput, readPipedStdin } from "./initial-input.js";
 
+describe("mode precedence", () => {
+  test("an explicit --mode is never overridden by -p, in either order", () => {
+    expect(parseArgs(["--mode", "json", "-p", "x"]).mode).toBe("json");
+    expect(parseArgs(["-p", "x", "--mode", "json"]).mode).toBe("json");
+    expect(parseArgs(["-p", "x"]).mode).toBe("print");
+    expect(parseArgs(["x"]).mode).toBe("print");
+    expect(parseArgs(["x"]).modeExplicit).toBe(false);
+    expect(parseArgs(["-p", "x"]).modeExplicit).toBe(true);
+  });
+});
+
 describe("parseArgs (syntax only)", () => {
   test("-p sets print mode with the positional prompt", () => {
     expect(parseArgs(["-p", "fix this"])).toEqual({

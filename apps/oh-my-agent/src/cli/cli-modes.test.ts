@@ -87,6 +87,23 @@ describe("oma CLI (spawned)", () => {
     expect(res.stdout.split("\n").length).toBe(2);
   }, 15_000);
 
+  test("json mode honors --model (the flag is not silently dropped)", async () => {
+    // Regression (2026-09-10): main.ts forwarded `model` to print mode only,
+    // so `--mode json --model …` ran the catalog's first entry instead.
+    const res = await spawnCli(["--mode", "json", "--model", "fake/echo2", "-p", "x"]);
+    expect(res.exitCode).toBe(0);
+    const lines = res.stdout
+      .trim()
+      .split("\n")
+      .map(
+        (l) => JSON.parse(l) as { type: string; outcome?: { messages?: Array<{ text?: string }> } },
+      );
+    const outcome = lines.find((l) => l.type === "outcome");
+    expect(outcome).toBeDefined();
+    const text = (outcome?.outcome?.messages ?? []).map((m) => m.text ?? "").join("\n");
+    expect(text).toContain("done2");
+  }, 15_000);
+
   test("print mode persists the completed turn to a session file", async () => {
     const sessionDir = mkdtempSync(join(tmpdir(), "oma-sess-"));
     const res = await spawnCli(["-p", "fix this"], { OMA_SESSION_DIR: sessionDir });

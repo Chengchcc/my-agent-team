@@ -8,8 +8,6 @@ import { createOmaSession } from "./agent-loop.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import type { Plugin } from "./plugin.js";
 
-process.env.OMA_TITLE_ENABLED = "0";
-
 const fakeSummarize = async <T>(messages: readonly T[]): Promise<string> =>
   `[Summary of ${messages.length} messages]`;
 
