@@ -6,6 +6,12 @@ export interface SkillIndexEntry {
   readonly description: string;
   readonly root: string;
   readonly relativePath: string;
+  /** Frontmatter `hide: true`: still loadable via skill_load, but never
+   *  listed in the system-prompt index (omp semantics). */
+  readonly hide?: boolean;
+  /** Frontmatter `user_invocable: false` (or kebab variant): not exposed as
+   *  a /skill:<name> command. */
+  readonly userInvocable?: boolean;
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -34,11 +40,13 @@ function canonicalRoot(root: string): string | null {
 const MAX_ENTRIES = 1000;
 
 /** Scan configured roots for SKILL.md files, parse frontmatter for
- *  name + description. Deterministic order by root then name. */
+ *  name + description (+ hide / user_invocable). Deterministic order by
+ *  name. */
 export function buildSkillIndex(roots: readonly string[]): SkillIndexEntry[] {
-  // Roots are ordered by precedence (earliest = highest priority for the
-  // Product Skill Pack contract). A later root overrides an earlier one for
-  // the same skill name; the final index keeps exactly one entry per name.
+  // Roots are ordered by precedence: EARLIER root wins for the same skill
+  // name (workspace .oma/skills beats plugin/.claude/.codex roots, matching
+  // the "project overrides user" contract). First-wins, so later duplicates
+  // are dropped.
   const byName = new Map<string, SkillIndexEntry>();
   for (const root of roots) {
     const canonical = canonicalRoot(root);
@@ -46,7 +54,7 @@ export function buildSkillIndex(roots: readonly string[]): SkillIndexEntry[] {
     const scanned: SkillIndexEntry[] = [];
     scanDir(canonical, canonical, scanned);
     for (const entry of scanned) {
-      byName.set(entry.name, entry);
+      if (!byName.has(entry.name)) byName.set(entry.name, entry);
     }
   }
   // Deterministic Meta order: sort by name.
@@ -76,6 +84,8 @@ function scanDir(root: string, currentDir: string, entries: SkillIndexEntry[]): 
           description: parsed.description,
           root,
           relativePath: fullPath.slice(root.length + 1),
+          ...(parsed.hide ? { hide: true } : {}),
+          ...(parsed.userInvocable ? {} : { userInvocable: false }),
         });
       }
       continue;
@@ -88,7 +98,9 @@ function scanDir(root: string, currentDir: string, entries: SkillIndexEntry[]): 
   }
 }
 
-function parseFrontmatter(path: string): { name: string; description: string } | null {
+function parseFrontmatter(
+  path: string,
+): { name: string; description: string; hide: boolean; userInvocable: boolean } | null {
   try {
     const content = readFileSync(path, "utf8");
     const match = content.match(/^---\n([\s\S]*?)\n---/);
@@ -96,7 +108,21 @@ function parseFrontmatter(path: string): { name: string; description: string } |
     const frontmatter = match[1] ?? "";
     const name = frontmatter.match(/name:\s*(.+)/)?.[1]?.trim();
     if (!name) return null;
-    return { name, description: parseDescription(frontmatter) };
+    const bool = (key: string, fallback: boolean): boolean => {
+      const m = frontmatter.match(new RegExp(`^${key}:\\s*(true|false)\\s*$`, "m"));
+      return m ? m[1] === "true" : fallback;
+    };
+    return {
+      name,
+      description: parseDescription(frontmatter),
+      hide: bool("hide", false),
+      // omp accepts both the camel and kebab spelling; default true.
+      userInvocable:
+        bool("user_invocable", true) &&
+        bool("user-invocable", true) &&
+        bool("disableModelInvocation", true) &&
+        bool("disable-model-invocation", true),
+    };
   } catch {
     return null;
   }

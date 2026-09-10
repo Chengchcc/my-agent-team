@@ -27,8 +27,10 @@ export function createSkill(opts: SkillOptions): Plugin {
   const metaProvider: MetaSectionProvider = {
     name: "Skills",
     render(): string {
-      if (index.length === 0) return "No skills available.";
-      return index.map((s) => `- **${s.name}**: ${s.description}`).join("\n");
+      // hide:true skills stay loadable but never occupy the prompt index.
+      const visible = index.filter((s) => !s.hide);
+      if (visible.length === 0) return "No skills available.";
+      return visible.map((s) => `- **${s.name}**: ${s.description}`).join("\n");
     },
   };
 

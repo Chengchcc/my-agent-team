@@ -9,7 +9,7 @@ function tmpDir(label: string): string {
 }
 
 describe("skill", () => {
-  test("buildSkillIndex later root overrides earlier root on name collision", async () => {
+  test("buildSkillIndex earlier root wins on a name collision", async () => {
     const first = tmpDir("first");
     const second = tmpDir("second");
     mkdirSync(first, { recursive: true });
@@ -19,17 +19,47 @@ describe("skill", () => {
 
     const entries = buildSkillIndex([first, second]);
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.root).toBe(realpathSync(second));
+    expect(entries[0]?.root).toBe(realpathSync(first));
 
     const skill = createSkill({ roots: [first, second] });
     const tool = skill.tools?.find((t) => t.name === "skill_load");
     expect(tool).toBeDefined();
     const result = await tool!.execute({ name: "same" });
     if ("body" in result && typeof result.body === "string") {
-      expect(result.body).toContain("SECOND body");
+      expect(result.body).toContain("FIRST body");
     }
     rmSync(first, { recursive: true, force: true });
     rmSync(second, { recursive: true, force: true });
+  });
+
+  test("hide:true skills stay loadable but leave the prompt index", async () => {
+    const root = tmpDir("hide");
+    mkdirSync(join(root, "secret"), { recursive: true });
+    writeFileSync(
+      join(root, "secret", "SKILL.md"),
+      "---\nname: secret\nhide: true\n---\n\nHidden.",
+    );
+    const entries = buildSkillIndex([root]);
+    expect(entries[0]?.hide).toBe(true);
+    const skill = createSkill({ roots: [root] });
+    const meta = skill.meta?.[0];
+    const rendered = meta?.render();
+    expect(rendered).not.toContain("secret");
+    const tool = skill.tools?.find((t) => t.name === "skill_load");
+    const loaded = await tool!.execute({ name: "secret" });
+    expect(loaded.body).toContain("Hidden.");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("user_invocable: false is reflected in the index", () => {
+    const root = tmpDir("invocable");
+    mkdirSync(join(root, "quiet"), { recursive: true });
+    writeFileSync(
+      join(root, "quiet", "SKILL.md"),
+      "---\nname: quiet\nuser_invocable: false\n---\n\nQuiet.",
+    );
+    expect(buildSkillIndex([root])[0]?.userInvocable).toBe(false);
+    rmSync(root, { recursive: true, force: true });
   });
 
   test("skill_load works through a symlinked root", async () => {
