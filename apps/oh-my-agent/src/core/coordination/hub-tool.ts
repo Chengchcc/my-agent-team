@@ -23,8 +23,8 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
       "Unified coordination for background work. jobs: snapshot of all background " +
       "bash/eval jobs and task subagents (id, kind, status, label, partial). output: " +
       "fetch one entry by id (streaming partialText while running, final result when " +
-      "settled). wait: block until the given ids (default: all running) settle or " +
-      "timeoutMs (0 = indefinite) elapses. steer: inject a message into a RUNNING " +
+      "settled). wait: block until one of the given ids settles (default: all running) " +
+      "or timeoutMs (0 = indefinite) elapses; returns the settled snapshot. steer: inject a message into a RUNNING " +
       "subagent. stop: kill a bash/eval job or stop a subagent.",
     executionMode: "serial",
     inputSchema: {

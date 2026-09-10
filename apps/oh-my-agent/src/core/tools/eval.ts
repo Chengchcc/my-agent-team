@@ -1,10 +1,8 @@
 import type { Tool } from "@chengchenccc/message";
 import { runInSandbox } from "@chengchenccc/sandbox";
 import {
-  getEntry,
-  notifyEntryCompletion,
   registerEntry,
-  updateEntry,
+  settleEntry,
 } from "../coordination/registry.js";
 
 const descriptionParam = {
@@ -130,7 +128,7 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
         const controller = new AbortController();
         let timedOut = false;
         let killed = false;
-        const { promise: settle, resolve: settleResolve } = Promise.withResolvers<void>();
+        const { promise: settle, resolve: resolveSettle } = Promise.withResolvers<void>();
         const reg = registerEntry({
           id,
           kind: "eval",
@@ -141,6 +139,7 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
           finishedAt: null,
           partialText: "",
           settle,
+          resolveSettle,
           kill: () => {
             killed = true;
             controller.abort();
@@ -157,19 +156,15 @@ export function createEvalTool(opts: { workspaceRoot: string; scope: string }): 
         void (async () => {
           const done = await runCell(controller.signal);
           if (timer) clearTimeout(timer);
-          updateEntry(id, {
+          settleEntry(id, {
             status: done.isError ? "failed" : "completed",
-            finishedAt: Date.now(),
             exitCode: done.exitCode,
             timedOut,
             killed,
             output: done.content.slice(-2000),
             isError: done.isError,
           });
-          settleResolve();
-          const e = getEntry(id);
-          if (e) notifyEntryCompletion(e);
-        })().catch(() => settleResolve());
+        })().catch(() => settleEntry(id, { status: "failed" }));
         return {
           content: `Backgrounded as job ${id}; collect with hub { "op": "output", "id": "${id}" } or hub { "op": "wait", "ids": ["${id}"] }.`,
         };

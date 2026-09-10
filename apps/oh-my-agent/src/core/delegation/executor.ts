@@ -16,8 +16,8 @@ import {
   appendEntryPartial,
   getEntry,
   listEntries,
-  notifyEntryCompletion,
   registerEntry,
+  settleEntry,
   updateEntry,
 } from "../coordination/registry.js";
 
@@ -317,6 +317,14 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         error: `unknown subagent handle "${input.resumeHandle}" (active: ${active || "none"})`,
       };
     }
+    if (existing && existing.kind !== "subagent") {
+      return {
+        label: input.label ?? input.resumeHandle!,
+        text: "",
+        ok: false,
+        error: `"${input.resumeHandle}" is a ${existing.kind} job, not a subagent handle`,
+      };
+    }
     if (existing?.status === "running") {
       return {
         label: input.label ?? input.resumeHandle!,
@@ -394,7 +402,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           ...(sessionGate ? { permissionGate: sessionGate } : {}),
         });
       liveSessions.set(handle, session);
-      const { promise: settle, resolve: settleResolve } = Promise.withResolvers<void>();
+      const { promise: settle, resolve: resolveSettle } = Promise.withResolvers<void>();
       if (!existing) {
         registerEntry({
           id: handle,
@@ -406,6 +414,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           finishedAt: null,
           partialText: "",
           settle,
+          resolveSettle,
           spec,
           store,
           sessionId,
@@ -583,19 +592,19 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         // Record terminal status on the handle unless a stop already won the
         // race (the background settle path keeps the stopped verdict).
         const entry = getEntry(handle);
-        if (entry && entry.status !== "stopped") {
-          const stopped = entry.stopRequested === true;
-          updateEntry(handle, {
+        if (entry?.status === "stopped") {
+          settleEntry(handle, {
+            result: { ...agentResult, ok: false, error: "stopped", status: "stopped" },
+          });
+        } else {
+          const stopped = entry?.stopRequested === true;
+          settleEntry(handle, {
             status: stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
-            finishedAt: Date.now(),
             result: stopped
               ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
               : { ...agentResult, status: agentResult.ok ? "completed" : "failed" },
           });
         }
-        settleResolve();
-        const settledEntry = getEntry(handle);
-        if (settledEntry) notifyEntryCompletion(settledEntry);
         return agentResult;
       };
 
@@ -608,23 +617,19 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
             const e = getEntry(handle);
             if (!e) return;
             const stopped = e.stopRequested === true;
-            updateEntry(handle, {
+            settleEntry(handle, {
               status: stopped ? "stopped" : agentResult.ok ? "completed" : "failed",
-              finishedAt: Date.now(),
               result: stopped
                 ? { ...agentResult, ok: false, error: "stopped", status: "stopped" }
                 : { ...agentResult, status: agentResult.ok ? "completed" : "failed" },
             });
-            settleResolve();
-            notifyEntryCompletion(getEntry(handle)!);
           })
           .catch((err) => {
             const e = getEntry(handle);
             if (!e) return;
             const stopped = e.stopRequested === true;
-            updateEntry(handle, {
+            settleEntry(handle, {
               status: stopped ? "stopped" : "failed",
-              finishedAt: Date.now(),
               result: stopped
                 ? { label, text: "", ok: false, error: "stopped", status: "stopped" }
                 : {
@@ -635,8 +640,6 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
                     status: "failed",
                   },
             });
-            settleResolve();
-            notifyEntryCompletion(getEntry(handle)!);
           });
         return { label, text: "", ok: true, handle, status: "running" };
       }
@@ -761,6 +764,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     e.stopRequested = true;
     const session = liveSessions.get(handle);
     if (session && e.status === "running") session.stop();
+    updateEntry(handle, { status: "stopped" });
     return { ok: true };
   }
 

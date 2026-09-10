@@ -175,7 +175,7 @@ export function createTerminalIo(
       e.kind === "subagent"
         ? `${e.id} (${e.label}) ${
             e.status === "completed" ? "ok" : e.status
-          }${e.result?.text ? `\n${e.result.text.trim().slice(0, 400)}` : ""}`
+          }${e.result?.text?.trim() ? `\n${e.result.text.trim().slice(0, 400)}` : e.partialText.trim() ? `\n${e.partialText.trim().slice(0, 400)}` : ""}`
         : `${e.id} (${e.kind}) ${
             e.killed
               ? "killed"

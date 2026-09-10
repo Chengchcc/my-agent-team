@@ -60,7 +60,7 @@ describe("coordination registry", () => {
     expect(stopEntry("missing").ok).toBe(false);
   });
 
-  test("stopEntry marks subagents stopRequested without killing", () => {
+  test("stopEntry rejects subagent ids (executor owns that stop)", () => {
     registerEntry({
       id: "sub-1",
       kind: "subagent",
@@ -72,8 +72,9 @@ describe("coordination registry", () => {
       partialText: "",
       store: createInMemorySessionStore(),
     });
-    expect(stopEntry("sub-1").ok).toBe(true);
-    expect(getEntry("sub-1")?.stopRequested).toBe(true);
+    const out = stopEntry("sub-1");
+    expect(out.ok).toBe(false);
+    expect(String(out.error)).toContain("delegation executor");
   });
 
   test("waitEntries resolves when jobs settle and times out otherwise", async () => {

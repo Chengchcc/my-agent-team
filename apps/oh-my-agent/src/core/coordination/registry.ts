@@ -14,6 +14,8 @@ export interface RegistryEntry {
   finishedAt: number | null;
   partialText: string;
   settle?: Promise<void>;
+  resolveSettle?: () => void;
+  notified?: boolean;
   output?: string;
   exitCode?: number | null;
   killed?: boolean;
@@ -123,17 +125,18 @@ export async function waitEntries(opts: {
   );
   if (watched.length === 0) return { settled: [], timedOut: false };
   const running = watched.filter((e) => e.status === "running" && e.settle);
+  if (running.length === 0) {
+    // Nothing to wait for (all watched entries already settled): never hang.
+    const settled = watched.filter((e) => e.status !== "running").map(row);
+    return { settled, timedOut: false };
+  }
   const deadline = opts.timeoutMs > 0 ? Date.now() + opts.timeoutMs : null;
   const timer: Promise<"timeout"> = deadline
     ? new Promise((resolve) => setTimeout(() => resolve("timeout"), deadline - Date.now()))
     : new Promise(() => {});
-  if (running.length > 0) {
-    // pi hub wait semantics: the FIRST settle resolves the wait; the result
-    // is a snapshot split into settled vs still-running rows.
-    await Promise.race([Promise.race(running.map((e) => e.settle!)), timer]);
-  } else if (deadline) {
-    await timer;
-  }
+  // pi hub wait semantics: the FIRST settle resolves the wait; the result
+  // is a snapshot split into settled vs still-running rows.
+  await Promise.race([Promise.race(running.map((e) => e.settle!)), timer]);
   const settled = watched.filter((e) => e.status !== "running").map(row);
   return { settled, timedOut: settled.length === 0 };
 }
@@ -142,8 +145,10 @@ export function stopEntry(id: string): { ok: boolean; error?: string } {
   const e = entries.get(id);
   if (!e) return { ok: false, error: `unknown id "${id}"` };
   if (e.kind === "subagent") {
-    e.stopRequested = true;
-    return { ok: true };
+    return {
+      ok: false,
+      error: `subagent "${id}" must be stopped through the delegation executor`,
+    };
   }
   if (e.status !== "running") return { ok: true };
   try {
@@ -154,21 +159,28 @@ export function stopEntry(id: string): { ok: boolean; error?: string } {
   return { ok: true };
 }
 
+/** Settle one entry: patch status/result/output, stamp finishedAt, resolve
+ *  its settle promise and fire the completion listener exactly once. */
+export function settleEntry(id: string, patch: Partial<RegistryEntry>): void {
+  const e = entries.get(id);
+  if (!e) return;
+  updateEntry(id, { finishedAt: e.finishedAt ?? Date.now(), ...patch });
+  e.resolveSettle?.();
+  notifyEntryCompletion(getEntry(id)!);
+}
+
 export function setEntryCompletionListener(cb: ((entry: RegistryEntry) => void) | null): void {
   completionListener = cb;
 }
 
 export function notifyEntryCompletion(entry: RegistryEntry): void {
-  if (!completionListener) return;
+  if (entry.notified || !completionListener) return;
+  entry.notified = true;
   try {
     completionListener(entry);
   } catch {
     /* a broken UI listener never breaks the job */
   }
-}
-
-export function clearScope(scope: string): void {
-  for (const [id, e] of entries) if (e.scope === scope) entries.delete(id);
 }
 
 export function clearAll(): void {

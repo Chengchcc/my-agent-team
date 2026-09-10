@@ -5,10 +5,8 @@ import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";
 import {
   appendEntryPartial,
-  getEntry,
-  notifyEntryCompletion,
   registerEntry,
-  updateEntry,
+  settleEntry,
 } from "../coordination/registry.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
@@ -122,8 +120,7 @@ export function createBashTool(opts: {
       // BashSpawn.kill is SIGKILL-first and covers the process group.
       proc.kill();
     };
-    const { promise: settle, resolve: settleResolve } = Promise.withResolvers<void>();
-    job.settleResolve = settleResolve;
+    const { promise: settle, resolve: resolveSettle } = Promise.withResolvers<void>();
     const reg = registerEntry({
       id,
       kind: "bash",
@@ -134,6 +131,7 @@ export function createBashTool(opts: {
       finishedAt: null,
       partialText: "",
       settle,
+      resolveSettle,
       kill,
     });
     if (!reg.ok) {
@@ -169,23 +167,19 @@ export function createBashTool(opts: {
         job.finishedAt = Date.now();
         if (job.timer) clearTimeout(job.timer);
         const settled = code === 0 && !job.timedOut && !job.killed;
-        updateEntry(id, {
+        settleEntry(id, {
           status: settled ? "completed" : "failed",
-          finishedAt: job.finishedAt,
           exitCode: code,
           timedOut: job.timedOut,
           killed: job.killed,
           output: job.output.slice(-2000),
           isError: code !== 0 || job.timedOut,
         });
-        job.settleResolve();
-        const e = getEntry(id);
-        if (e) notifyEntryCompletion(e);
       })
       .catch(() => {
         job.finishedAt = Date.now();
         if (job.timer) clearTimeout(job.timer);
-        job.settleResolve();
+        settleEntry(id, { status: "failed" });
       });
     return job;
   }

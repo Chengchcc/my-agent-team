@@ -959,7 +959,13 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         if (e?.kind === "subagent") return delegationExecutor.stopSubagent(id);
         return stopEntry(id);
       },
-      steer: (handle, prompt) => delegationExecutor.steerSubagent(handle, prompt),
+      steer: (handle, prompt) => {
+        const e = getEntry(handle);
+        if (e && e.kind !== "subagent") {
+          return { ok: false, error: `"${handle}" is a ${e.kind} job; only subagent handles can be steered` };
+        }
+        return delegationExecutor.steerSubagent(handle, prompt);
+      },
     }),
   });
   const pluginRuntime: PluginRuntime = {

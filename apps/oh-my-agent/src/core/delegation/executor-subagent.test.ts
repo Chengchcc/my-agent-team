@@ -221,7 +221,7 @@ describe("createDelegationExecutor", () => {
     exec.stopSubagent(started.handle!);
     const deadline = Date.now() + 2000;
     let out = exec.getSubagentOutput(started.handle!);
-    while (out.status === "running" && Date.now() < deadline) {
+    while ((out.status === "running" || !out.result) && Date.now() < deadline) {
       await Bun.sleep(10);
       out = exec.getSubagentOutput(started.handle!);
     }
@@ -244,7 +244,7 @@ describe("createDelegationExecutor", () => {
     });
     const deadline = Date.now() + 2000;
     let out = exec.getSubagentOutput(started.handle!);
-    while (out.status === "running" && Date.now() < deadline) {
+    while ((out.status === "running" || !out.result) && Date.now() < deadline) {
       await Bun.sleep(10);
       out = exec.getSubagentOutput(started.handle!);
     }
@@ -355,7 +355,7 @@ describe("createDelegationExecutor", () => {
     });
     const deadline = Date.now() + 2000;
     let out = exec.getSubagentOutput(started.handle!);
-    while (out.status === "running" && Date.now() < deadline) {
+    while ((out.status === "running" || !out.result) && Date.now() < deadline) {
       await Bun.sleep(10);
       out = exec.getSubagentOutput(started.handle!);
     }
