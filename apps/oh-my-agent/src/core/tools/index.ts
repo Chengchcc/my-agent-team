@@ -1,5 +1,6 @@
 // standalone tools
 export { createBashTool } from "./bash.js";
+export { createBrowserTool, resolveChromeExecutable } from "./browser.js";
 export { createEvalTool } from "./eval.js";
 export { createEditTool, createReadTool, createWriteTool } from "./file-tools.js";
 export { createGlobTool } from "./glob.js";

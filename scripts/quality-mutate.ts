@@ -77,6 +77,20 @@ const MUTATIONS: readonly Mutation[] = [
     nu: "    if (false) {",
   },
   {
+    label: "browser drops out of the ask/deny high-risk set",
+    app: "oh-my-agent",
+    file: "src/core/runtime/run-runtime.ts",
+    old: "    bash: true,\n    browser: true,\n    eval: true,",
+    nu: "    bash: true,\n    eval: true,",
+  },
+  {
+    label: "browser exempt from the auto classifier gate",
+    app: "oh-my-agent",
+    file: "src/core/runtime/run-runtime.ts",
+    old: '      toolName === "browser" ||\n',
+    nu: "",
+  },
+  {
     label: "classifier fails OPEN instead of closed",
     app: "oh-my-agent",
     file: "src/core/runtime/permission-classifier.ts",

@@ -227,6 +227,29 @@ describe("permissionMode auto classifier gate (CC alignment)", () => {
       expect(escalations).toBe(1); // only the human-deny case escalated
     }),
   );
+
+  test(
+    "browser gates like bash: deny blocks outright, auto consults the classifier",
+    withFakes(async () => {
+      const call = [{ name: "browser", input: { action: "open", url: "about:blank" } }];
+      const denied = await autoRun({
+        runId: "r-browser-deny",
+        script: call,
+        text: '{"verdict":"allow"}',
+        permissionMode: "deny",
+      });
+      expect(denied).toContain("browser: blocked by permissionMode=deny");
+
+      const auto = await autoRun({
+        runId: "r-browser-auto",
+        script: call,
+        text: '{"verdict":"block","reason":"no browsing in this run"}',
+        permissionMode: "auto",
+      });
+      expect(auto).toContain("blocked by classifier");
+      expect(auto).toContain("no browsing in this run");
+    }),
+  );
 });
 
 test("injected MCP todo_write wins over native todo (backend-injected priority)", async () => {

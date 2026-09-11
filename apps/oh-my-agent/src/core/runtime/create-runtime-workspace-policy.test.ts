@@ -171,8 +171,9 @@ describe("workspaceAccess gates the tool table", () => {
       for (const kept of ["read", "read_image", "grep", "glob", "ls", "tree"]) {
         expect(advertised).toContain(kept);
       }
-      // …mutation tools never reach the model.
-      for (const denied of ["write", "edit", "bash", "eval"]) {
+      // …mutation tools never reach the model (browser drives a real
+      // browser process and writes screenshots into the workspace).
+      for (const denied of ["write", "edit", "bash", "eval", "browser"]) {
         expect(advertised).not.toContain(denied);
       }
     } finally {

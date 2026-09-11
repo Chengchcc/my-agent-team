@@ -40,6 +40,7 @@ import { createAskQuestionTool } from "../tools/ask-question.js";
 import { type BashSandbox, resolveBashSandbox } from "../tools/bash-sandbox.js";
 import {
   createBashTool,
+  createBrowserTool,
   createDdgWebSearchPort,
   createEditTool,
   createEvalTool,
@@ -367,6 +368,12 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
       }) as unknown as PluginTool,
     );
+    // Interactive web (JS/interaction/screenshots): browser is a headless
+    // Chromium subprocess — read_only runs don't get it (it writes
+    // screenshots into the workspace and drives real sessions).
+    agentTools.push(
+      createBrowserTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
+    );
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
   // Skips "product-tools" (the manifest path owns it) and names that
@@ -665,6 +672,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // (legacy standalone default, unchanged).
   const HIGH_RISK_NATIVE_TOOLS: Record<string, true> = {
     bash: true,
+    browser: true,
     eval: true,
     write: true,
     edit: true,
@@ -680,6 +688,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   const classifierGated = (toolName: string): boolean =>
     !isProductMounted(toolName) &&
     (toolName === "bash" ||
+      toolName === "browser" ||
       toolName === "eval" ||
       toolName.startsWith("mcp__") ||
       pluginCodeToolNames.has(toolName));
