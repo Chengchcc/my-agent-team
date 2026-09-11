@@ -96,12 +96,23 @@ export function fakeProvider(
       }
       // Model-dependent text makes `--model` observable end to end.
       // OMA_FAKE_TEXT overrides it (e.g. a JSON workflow verdict).
-      yield {
-        delta: {
-          type: "text",
-          text: env.OMA_FAKE_TEXT ?? (model.id === "echo2" ? "done2" : "done"),
-        },
-      };
+      // OMA_FAKE_TEXT_LINES streams one delta per line with an inter-delta
+      // gap (OMA_FAKE_TEXT_DELAY_MS) — the paint-cadence test regime.
+      if (env.OMA_FAKE_TEXT_LINES) {
+        const lines = env.OMA_FAKE_TEXT_LINES.split("\n");
+        const delayMs = Number(env.OMA_FAKE_TEXT_DELAY_MS ?? 0);
+        for (const line of lines) {
+          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+          yield { delta: { type: "text", text: `${line}\n` } };
+        }
+      } else {
+        yield {
+          delta: {
+            type: "text",
+            text: env.OMA_FAKE_TEXT ?? (model.id === "echo2" ? "done2" : "done"),
+          },
+        };
+      }
       yield { usage: { input: 10, output: 3, cacheRead: 1, cacheCreate: 0 } };
       yield { stopReason: "end_turn" };
     },

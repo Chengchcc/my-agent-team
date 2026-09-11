@@ -527,3 +527,63 @@ describe("tui paint stability (differential frame writes)", () => {
     }
   }, 45_000);
 });
+
+describe("streaming paint cadence (text deltas reach the screen incrementally)", () => {
+  test("long markdown keeps up with the model stream (no backlog dump)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-cadence-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-cadence-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    // ~120 deltas of realistic markdown (paragraphs + lists + a code fence),
+    // 5ms apart: ~600ms of model stream. A painter that keeps up shows the
+    // tail within a few hundred ms of the last delta; a backlog dump shows
+    // the screen frozen mid-document and then jumping to the end.
+    const lines: string[] = [];
+    for (let i = 0; i < 120; i++) {
+      if (i % 12 === 0) lines.push(`## Section ${i / 12}`);
+      else if (i % 5 === 0) lines.push(`- bullet item ${i} with some trailing description text`);
+      else lines.push(`paragraph ${i}: the renderer walks tokens and wraps them for the terminal.`);
+    }
+    lines.push("```ts");
+    lines.push("const answer = 42;");
+    lines.push("```");
+    lines.push("FINAL_MARKER_LINE");
+    process.env.OMA_FAKE_TEXT_LINES = lines.join("\n");
+    process.env.OMA_FAKE_TEXT_DELAY_MS = "5";
+    try {
+      const vt = new VirtualTerminal(100, 24);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+      const started = Date.now();
+      await typeAndSubmit(vt, "long answer please");
+      // Poll for the final marker; record when it shows.
+      let markerAt = -1;
+      const deadline = started + 20_000;
+      while (Date.now() < deadline) {
+        if (screen(vt).includes("FINAL_MARKER_LINE")) {
+          markerAt = Date.now() - started;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      // Model stream itself: last delta lands ~600ms after submit (+ spawn).
+      // Allow slack for startup; the failure mode is SECONDS of lag.
+      expect(markerAt).toBeGreaterThan(0);
+      expect(markerAt).toBeLessThan(3500);
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TEXT_LINES;
+      delete process.env.OMA_FAKE_TEXT_DELAY_MS;
+      delete process.env.OMA_TITLE_ENABLED;
+      delete process.env.OMA_MEMORY_EXTRACT;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 40_000);
+});

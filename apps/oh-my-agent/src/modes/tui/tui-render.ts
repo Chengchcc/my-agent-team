@@ -272,13 +272,11 @@ export class TuiRenderShell {
   private readonly reconciler: TuiTranscriptReconciler;
   lastLiveStartRow = 0;
   lastTotalRows = 0;
-  /** Busy-state paint throttle: while a run is live, message_update deltas
-   *  can arrive far faster than any terminal can comfortably repaint (and a
-   *  repaint of the growing tail region is a full rewrite — see the frame
-   *  painter). Reconcile always runs (in-memory, cheap); the PAINT is capped
-   *  and the loader's own tick carries the latest state between caps. */
-  private lastPaintRequestAt = 0;
-  private static readonly BUSY_PAINT_MIN_INTERVAL_MS = 66;
+  /** Coalescing window for live-run renders (see render()). */
+  private static readonly RENDER_COALESCE_MS = 50;
+  private lastRenderWorkAt = 0;
+  private latestState: TuiViewState | null = null;
+  private coalescedTimer: ReturnType<typeof setTimeout> | undefined;
   /** Session id the header block was last printed for (cc-style: the
    *  banner scrolls away with the transcript and re-prints per session). */
   private lastPrintedSession: string | null = null;
@@ -296,6 +294,9 @@ export class TuiRenderShell {
   }
 
   setBusy(busy: boolean, loader: Loader | null, busySeconds: number): void {
+    // A settle must land the final state immediately, not wait for the
+    // coalescing window.
+    if (!busy && this.busy) this.flushPendingRender();
     this.busy = busy;
     this.loader = loader;
     this.busySeconds = busySeconds;
@@ -470,6 +471,42 @@ ${item.text ?? ""}`;
   }
 
   render(state: TuiViewState): void {
+    // Coalescing: the runtime emits one event per streamed delta and AWAITS
+    // the handler, so per-delta render cost sits directly on the model-stream
+    // critical path (an O(n) markdown re-render per delta turned a 0.6s
+    // stream into a 6-7s one — the "stall then dump" symptom). While a run
+    // is live, remember the latest state and do the expensive work at most
+    // once per interval; the scheduled fire renders the newest state.
+    this.latestState = state;
+    const now = Date.now();
+    if (this.busy && now - this.lastRenderWorkAt < TuiRenderShell.RENDER_COALESCE_MS) {
+      this.scheduleCoalescedRender(now);
+      return;
+    }
+    this.renderNow(state);
+  }
+
+  /** One pending coalesced render at a time; it fires with the LATEST state. */
+  private scheduleCoalescedRender(now: number): void {
+    if (this.coalescedTimer !== undefined) return;
+    const wait = Math.max(1, TuiRenderShell.RENDER_COALESCE_MS - (now - this.lastRenderWorkAt));
+    this.coalescedTimer = setTimeout(() => {
+      this.coalescedTimer = undefined;
+      const state = this.latestState;
+      if (state) this.renderNow(state);
+    }, wait);
+  }
+
+  /** Flush a pending coalesced render immediately (settle / quit). */
+  flushPendingRender(): void {
+    if (this.coalescedTimer !== undefined) {
+      clearTimeout(this.coalescedTimer);
+      this.coalescedTimer = undefined;
+    }
+    if (this.latestState) this.renderNow(this.latestState);
+  }
+
+  private renderNow(state: TuiViewState): void {
     this.setCurrentState(state);
     this.transcript.setDeferCommit(
       state.runs.some(
@@ -492,17 +529,10 @@ ${item.text ?? ""}`;
       this.transcript.addChild(new Text(`\u001b[33m  ${this.welcomeTip}\u001b[0m`, 0, 0));
     }
     this.renderIdleFooter();
-    const force = result.didReset;
-    if (
-      this.busy &&
-      !force &&
-      Date.now() - this.lastPaintRequestAt < TuiRenderShell.BUSY_PAINT_MIN_INTERVAL_MS
-    ) {
-      // Loader tick (its own timer calls requestRender unthrottled) will
-      // paint with this reconcile's state within the interval.
-      return;
-    }
-    this.lastPaintRequestAt = Date.now();
-    this.tui.requestRender(force);
+    this.tui.requestRender(result.didReset);
+    // Cooldown from COMPLETION: a single render can cost 100ms+ on a long
+    // markdown tail, so a window measured from the start would already be
+    // expired when the next delta arrives — no coalescing.
+    this.lastRenderWorkAt = Date.now();
   }
 }
