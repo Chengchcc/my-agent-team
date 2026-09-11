@@ -28,7 +28,7 @@ class FakeEventSource {
   }
 }
 
-const previous = globalThis.EventSource;
+const _previous = globalThis.EventSource;
 globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
 
 const map = { tick: z.object({ n: z.number() }) };

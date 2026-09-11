@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { Browser, Page } from "puppeteer-core";
 import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
 
 /** browser: open, reuse, close, and script headless Chromium tabs
@@ -13,8 +14,7 @@ import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
  *  block cannot be interrupted; the tool timeout closes the page, which is
  *  the escape hatch. Upgrade path: port omp's tab-worker when that bites. */
 
-type Browser = import("puppeteer-core").Browser;
-type Page = import("puppeteer-core").Page;
+
 
 /** Async-function constructor for `run` bodies (same trust level as the
  *  eval tool: the model writes the code; it runs with process access). */

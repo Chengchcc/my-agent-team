@@ -58,7 +58,7 @@ function userContextPath(): string {
  *  the walk did NOT load. Surfaced as pointers, never as content. */
 function deeperContextPointers(cwd: string, loaded: ReadonlySet<string>): string[] {
   const pointers: string[] = [];
-  let entries: string[] = [];
+  let entries: string[];
   try {
     entries = readdirSync(cwd);
   } catch {
