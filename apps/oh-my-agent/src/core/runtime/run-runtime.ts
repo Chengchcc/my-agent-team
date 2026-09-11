@@ -25,6 +25,8 @@ import {
   type SessionStore,
 } from "../index.js";
 import { createLearnTool } from "../memory/learn.js";
+import { backfillLearnedLessons, getVectorMemory } from "../memory/vector-memory.js";
+import { createRecallTool, createRetainTool } from "../memory/vector-tools.js";
 import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
 import { createOrchestrateTool } from "../orchestrate/tool.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
@@ -224,6 +226,9 @@ export interface RunRuntimeDeps {
   /** --tools filter (CLI): applied to the final tool table (native + MCP +
    *  plugin) at assembly. Undefined = all tools. */
   toolFilter?: ToolFilter;
+  /** Standalone modes only: mount the vector memory tools (recall/retain)
+   *  and the learn double-write into the workspace memory DB. */
+  vectorMemory?: boolean;
   /** Coordination scope for background jobs and subagent handles. TUI
    *  passes a process-stable key so handles survive follow-up Runs;
    *  backend defaults to the runId (one Run per process). */
@@ -509,8 +514,26 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   if (deps.workspaceAccess === "read_write") {
     plugins.push({
       name: "oma-native-learn",
-      tools: [createLearnTool({ workspaceRoot: deps.workspaceRoot })],
+      tools: [
+        createLearnTool({
+          workspaceRoot: deps.workspaceRoot,
+          vector: deps.vectorMemory ? getVectorMemory(deps.workspaceRoot) : null,
+        }),
+      ],
     });
+    // Vector memory (standalone-only: the product RPC path keeps its own
+    // memory semantics; a workspace file never steers it). One lazy
+    // (store, provider) per workspace; missing model = FTS-only recall.
+    if (deps.vectorMemory) {
+      const vector = getVectorMemory(deps.workspaceRoot);
+      if (vector) {
+        void backfillLearnedLessons(vector, deps.workspaceRoot).catch(() => {});
+        plugins.push({
+          name: "oma-native-vector-memory",
+          tools: [createRecallTool(vector), createRetainTool(vector)],
+        });
+      }
+    }
   }
   const nativeTodoWanted = !hasInjectedTodo && todoAllowed;
   if (nativeTodoWanted) {

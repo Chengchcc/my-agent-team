@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
+import { getVectorMemory, memoryDbPath } from "../../core/memory/vector-memory.js";
 import {
   addMarketplace,
   installPlugin,
@@ -507,9 +508,19 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.pushStatus("memory cleared");
           return;
         }
+        const vec = memoryDbPath(ctx.opts.workspaceRoot);
+        const vecLine = existsSync(vec)
+          ? (() => {
+              const mem = getVectorMemory(ctx.opts.workspaceRoot);
+              const health = mem?.provider?.unavailableReason
+                ? `DEGRADED — ${mem.provider.unavailableReason}`
+                : (mem?.provider?.model ?? "fts-only");
+              return `vector: ${mem?.store.count() ?? 0} memories indexed (${health})`;
+            })()
+          : "vector: no index yet";
         const summary = readMemorySummary(ctx.opts.workspaceRoot);
         if (!summary) {
-          ctx.pushStatus(`no memory yet (looked in ${memDir})`);
+          ctx.pushStatus([`no memory yet (looked in ${memDir})`, vecLine]);
           return;
         }
         ctx.pushStatus([

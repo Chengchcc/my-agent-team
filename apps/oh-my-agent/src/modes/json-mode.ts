@@ -1,5 +1,6 @@
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import { buildCliRunInput } from "../cli/initial-input.js";
+import { vectorMemoryEnabled } from "../core/memory/vector-memory.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
@@ -36,6 +37,7 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
       : {}),
     ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
     ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+    vectorMemory: vectorMemoryEnabled(built.workspace.root),
     sessionTranscript: session.messages.length
       ? session.messages.map((m, i) => ({
           productEntryId: `session:${i}`,

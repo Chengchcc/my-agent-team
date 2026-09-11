@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
 import { buildCliRunInput } from "../cli/initial-input.js";
+import { vectorMemoryEnabled } from "../core/memory/vector-memory.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
@@ -66,6 +67,7 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
       : {}),
     ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
     ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+    vectorMemory: vectorMemoryEnabled(built.workspace.root),
     sessionTranscript: session.messages.length
       ? session.messages.map((m, i) => ({
           productEntryId: `session:${i}`,

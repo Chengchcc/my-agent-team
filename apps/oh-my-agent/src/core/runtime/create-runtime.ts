@@ -13,6 +13,7 @@ import { mapRunEvent } from "../../protocol/index.js";
 import type { CoordinationRegistry } from "../coordination/registry.js";
 import type { OmaLoopResult } from "../index.js";
 import { extractAutonomousMemory, type MemoryLearnResult } from "../memory/autonomous-memory.js";
+import { getVectorMemory } from "../memory/vector-memory.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import type { RuntimeKnobs } from "../settings/project-settings.js";
 import type { ApprovalHandler } from "./approval.js";
@@ -50,6 +51,9 @@ export interface CreateOmaRuntimeOptions {
   onPersistMessages?: (messages: readonly Message[]) => void;
   /** --tools filter (CLI): applied to the final tool table. */
   toolFilter?: ToolFilter;
+  /** Standalone-only: mount vector memory tools + the learn/facts
+   *  double-write into the workspace memory DB. */
+  vectorMemory?: boolean;
   /** Assembled plugin code components (from assemblePluginRuntime, mode
    *  layer). The runtime mounts them; it never reads the registry. */
   pluginComponents?: {
@@ -180,6 +184,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
       : {}),
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
+    ...(options.vectorMemory ? { vectorMemory: true } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.registry ? { registry: options.registry } : {}),
   };
@@ -299,6 +304,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
             // TUI busy state) on a second model call the user cannot abort.
             memoryLearning = extractAutonomousMemory({
               modelRuntime: options.modelRuntime,
+              vector: options.vectorMemory ? getVectorMemory(options.workspaceRoot) : null,
               modelId: options.modelId,
               enabled: rt.knobs.memoryExtract,
               ...(rt.knobs.memoryModel ? { memoryModel: rt.knobs.memoryModel } : {}),

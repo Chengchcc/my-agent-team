@@ -46,5 +46,9 @@
     "type": "git",
     "url": "git+https://github.com/Chengchcc/my-agent-team.git",
     "directory": "apps/oh-my-agent"
+  },
+  "optionalDependencies": {
+    "fastembed": "2.1.0",
+    "onnxruntime-node": "1.21.0"
   }
 }

@@ -27,9 +27,12 @@ used_by:
 | `eval` | 执行 | TS/JS 片段，`@chengchenccc/sandbox` 子进程；`timeout:0` = 无死线 | ❌ | **门禁** |
 | `browser` | 执行 | headless Chromium（puppeteer-core，进程级共享浏览器 + 命名 tab）：`open/close/run`；run 以 AsyncFunction 执行 `tab` API（goto/observe/screenshot/click/type/fill/evaluate/…）；截图存 `.oma/screenshots` 并回传 vision block；run 超时杀 page 兜底 | ❌ | **门禁** |
 | `web_search` / `web_fetch` | 网络 | DDG 搜索 / 带守卫的抓取（`disableWeb` 关闭） | ✅ | 免审 |
+| `learn` | 记忆 | 显式记 lesson → `learned.md`（文件是真源）+ 向量索引双写（best-effort，索引失败文件层照赢） | ✅ | 免审 |
 | `skill_load` | 会话 | 渐进加载 skill（skills/ 目录 SKILL.md 索引） | ✅ | 免审 |
 | `todo_read` / `todo_write` | 会话 | workspace todo（`.oma/todo.json`，跨 Run 持久；状态归一化在 store） | 写 ❌ | 写 ❌（ask 下门禁） |
 | `ask_question` | 会话 | HITL 问询：TUI 弹面板 / RPC 走命令；无管道时 fail-closed | ✅ | 免审 |
+| `recall` | 记忆 | 混合检索 `.oma/memory/memory.db`（暴力 cosine + FTS5/LIKE → RRF 融合，veracity/时效加权；fastembed 本地 embedding，模型经 hf-mirror 预填缓存——上游 CDN 已死）；注入摘要截断时的第二召回面 | ❌ | 免审 |
+| `retain` | 记忆 | 显式写一条可检索记忆（learn 是文件+索引双写，retain 只写索引） | ❌ | 免审 |
 | `task` | 委派 | 子代理（硬隔离叶子：只有文件工具+按 access 的 bash/eval；0 层递归；支持 batch 与角色） | 按 access | 子代理**共享**主会话权限门 |
 | `workflow_run` | 委派 | vm 沙箱 workflow 脚本（agent() 子代理） | 按 access | 同上 |
 | `hub` | 协作 | 子代理/后台作业协调（TUI 跨 Run 句柄；backend 每 Run 新建） | — | — |
@@ -49,6 +52,10 @@ used_by:
 - `<repo-rules>`：AGENTS.md 链——从 repo root（`.git` 边界）到 cwd 逐层，远的在前、cwd 最显著；用户级 `~/.oma/AGENTS.md` 收尾；字节相同的副本保留更显著者（omp context-files 语义，ponytail 裁剪：单约定、无 `@` imports）
 - `<available_knowledge>`：`knowledge/index.md`（桥接生成的参考索引）
 - `<dir-context>`：cwd 下一层子目录里未加载的 AGENTS.md 列为指针（改该目录前先读）
+
+## 记忆（向量层）
+
+`.oma/memory/memory.db`（bun:sqlite + FTS5，external-content 触发器同步）。写入路径：`learn` 双写、自动管线 facts 入库（source=autonomous）、`retain` 显式、首次打开时 learned.md 一次性回填（store 为空才跑）。读取路径：注入窗口（不变）+ `recall` 混合检索。卫生字段（veracity/recall_count/last_recalled/valid_until/superseded_by）第一天建表即在；superseded/expired/false 行任何声部都不出。knob：`.oma/settings.json` 的 `memoryVector: { enabled?, model? }`（standalone 默认开；product RPC 路径不挂）。模型默认 `intfloat/multilingual-e5-small`（384 维 int8，zh/en 混合），缓存于 `<agentDir>/models`，可用 `OMA_EMBEDDING_CACHE` 迁移。网络降级：模型获取失败时 FTS 声部照常应答且 recall 结果/`/memory` 标注 DEGRADED；HTTP 硬拒绝在缓存目录写 24h 负缓存标记（新进程秒断、不重付网络等待，超时类瞬态失败不标记），`OMA_EMBEDDINGS=off` 手动关断，测试经 bunfig preload 设 `OMA_VECTOR_MEMORY=0` 全局压制。
 
 ## 超时与预算
 

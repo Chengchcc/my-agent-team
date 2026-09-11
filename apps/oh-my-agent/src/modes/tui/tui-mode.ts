@@ -6,6 +6,7 @@ import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaLoopEvent } from "../../core/index.js";
+import { vectorMemoryEnabled } from "../../core/memory/vector-memory.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import { resolvePermissionMode } from "../../core/settings/project-settings.js";
@@ -340,6 +341,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         : {}),
       ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
       ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+      vectorMemory: vectorMemoryEnabled(built.workspace.root),
       sessionTranscript: session.messages.length
         ? session.messages.map((m, i) => ({
             productEntryId: `session:${i}`,

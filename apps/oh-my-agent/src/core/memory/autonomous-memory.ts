@@ -2,6 +2,8 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { extractText, type Message } from "@chengchenccc/message";
+import type { EmbeddingProvider } from "./embeddings.js";
+import type { VectorMemoryStore } from "./vector-store.js";
 
 /**
  * Autonomous memory pipeline (v1, OMP AutoLearn-style but per-Run).
@@ -65,8 +67,17 @@ interface ExtractResult {
   facts: ExtractedFact[];
 }
 
+/** Vector index double-write target (store + optional embedding provider). */
+export interface VectorMemoryInput {
+  store: VectorMemoryStore;
+  provider: EmbeddingProvider | null;
+}
+
 export interface AutonomousMemoryInput {
   modelRuntime: ModelRuntime;
+  /** Optional vector index: fresh facts double-write into it (best-effort,
+   *  exactly like the learn tool). */
+  vector?: VectorMemoryInput | null;
   /** false = the pass is disabled for this Run (runtime knob). */
   enabled?: boolean;
   /** Pinned extract/merge model (`provider/model`); absent = auto-pick. */
@@ -120,6 +131,23 @@ export async function extractAutonomousMemory(
 
     mkdirSync(factsDir, { recursive: true });
     writeFileSync(join(factsDir, `${input.runId}.md`), renderFacts(input.runId, fresh), "utf-8");
+
+    // Vector index double-write: best-effort per fact (an embedding failure
+    // must never fail the memory pass); the file layer stays the truth.
+    if (input.vector) {
+      const { retainMemory } = await import("./vector-recall.js");
+      for (const fact of fresh) {
+        try {
+          await retainMemory(input.vector.store, input.vector.provider, {
+            content: fact.content,
+            ...(fact.context ? { context: fact.context } : {}),
+            source: "autonomous",
+          });
+        } catch {
+          /* index-only loss */
+        }
+      }
+    }
 
     const oldSummary = readTextOrNull(join(memDir, "memory_summary.md"));
     const oldMemory = readTextOrNull(join(memDir, "MEMORY.md"));

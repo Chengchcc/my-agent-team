@@ -173,7 +173,7 @@ describe("workspaceAccess gates the tool table", () => {
       }
       // …mutation tools never reach the model (browser drives a real
       // browser process and writes screenshots into the workspace).
-      for (const denied of ["write", "edit", "bash", "eval", "browser"]) {
+      for (const denied of ["write", "edit", "bash", "eval", "browser", "recall", "retain"]) {
         expect(advertised).not.toContain(denied);
       }
     } finally {

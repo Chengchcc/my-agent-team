@@ -43,6 +43,9 @@ export interface ProjectSettings {
   bashSandbox?: boolean;
   /** Global cap for any per-tool timeout ms; 0 = no limit (omp tools.maxTimeout). */
   maxToolTimeoutMs?: number;
+  /** Vector memory (standalone): hybrid recall over .oma/memory/memory.db.
+   *  enabled defaults to TRUE; model pins the fastembed model id. */
+  memoryVector?: { enabled?: boolean; model?: string };
   /** Standalone permission gate (ADR 0020): "ask" cards every high-risk
    *  tool, "auto" runs the classifier, "deny" blocks them. Absent = ungated
    *  (legacy default). The product RPC path never reads this — its
@@ -120,6 +123,17 @@ export function loadProjectSettings(root: string): ProjectSettings {
     }
     if ("bashSandbox" in parsed && typeof parsed.bashSandbox === "boolean") {
       result.bashSandbox = parsed.bashSandbox;
+    }
+    if (
+      "memoryVector" in parsed &&
+      typeof parsed.memoryVector === "object" &&
+      parsed.memoryVector !== null
+    ) {
+      const raw = parsed.memoryVector as Record<string, unknown>;
+      const mv: { enabled?: boolean; model?: string } = {};
+      if (typeof raw.enabled === "boolean") mv.enabled = raw.enabled;
+      if (typeof raw.model === "string" && raw.model.trim()) mv.model = raw.model.trim();
+      if (Object.keys(mv).length > 0) result.memoryVector = mv;
     }
     if (
       "permissionMode" in parsed &&

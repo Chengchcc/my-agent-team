@@ -9,7 +9,8 @@ Operational rules:
 2) The injected summary is a WINDOW, not the archive: it truncates at
    ~5000 chars (`…[memory truncated]`) and shows only the newest 40
    learned lessons. When it is truncated, or when you need lessons/facts
-   beyond it, grep and read the full artifacts yourself:
+   beyond it, use the `recall` tool (hybrid vector+keyword search over the
+   memory DB) first; grep the full artifacts for anything it misses:
    `.oma/memory/MEMORY.md`, `.oma/memory/learned.md`,
    `.oma/memory/facts/*.md`.
 3) Trust memory for heuristics and process context. Trust current repo

@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginTool } from "../index.js";
+import type { VectorMemory } from "./vector-memory.js";
+import { retainMemory } from "./vector-recall.js";
 
 /** Explicit durable-lesson capture (omp learn tool, local backend): newest
  *  first in `.oma/memory/learned.md`, deduplicated by normalized content,
@@ -20,7 +22,10 @@ function normalize(content: string): string {
   return content.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-export function createLearnTool(opts: { workspaceRoot: string }): PluginTool {
+export function createLearnTool(opts: {
+  workspaceRoot: string;
+  vector?: VectorMemory | null;
+}): PluginTool {
   const memDir = join(opts.workspaceRoot, ".oma", "memory");
   const learnedPath = join(memDir, "learned.md");
 
@@ -76,6 +81,19 @@ export function createLearnTool(opts: { workspaceRoot: string }): PluginTool {
       }
       const next = [line, ...existing].slice(0, MAX_LESSONS);
       writeLessons(next);
+      // Vector double-write (best-effort index update; the file stays the
+      // source of truth).
+      if (opts.vector) {
+        try {
+          await retainMemory(opts.vector.store, opts.vector.provider, {
+            content: cappedContent,
+            ...(cappedContext ? { context: cappedContext } : {}),
+            source: "learn",
+          });
+        } catch {
+          /* file layer already won */
+        }
+      }
       return { learned: true, count: next.length };
     },
   };
