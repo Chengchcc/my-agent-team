@@ -106,6 +106,7 @@ Full history    写 SessionStore，source=product_history
 
 ## 关联页面
 
+- [Oma Tools](./oma-tools.md)
 - [Oma 插件与 HITL](../plugins/oma-plugins.md)
 - [Agent Backend](../execution/agent-backend.md)
 - [Agent Context](../agents/context.md)

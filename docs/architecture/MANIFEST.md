@@ -32,6 +32,7 @@
 - `docs/architecture/runs/output-and-live-updates.md`
 - `docs/architecture/runtime/oma.md`
 - `docs/architecture/runtime/compaction.md`
+- `docs/architecture/runtime/oma-tools.md`
 - `docs/architecture/security/overview.md`
 - `docs/architecture/security/oma-kernel.md`
 - `docs/architecture/surfaces/lark.md`
