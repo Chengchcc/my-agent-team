@@ -8,6 +8,7 @@ import {
   type OutputBlockSection,
   renderStatusBar,
   renderToolHeader,
+  Spacer,
   Text,
   type TUI,
   truncateToWidth,
@@ -272,6 +273,17 @@ export class TuiRenderShell {
   private readonly reconciler: TuiTranscriptReconciler;
   lastLiveStartRow = 0;
   lastTotalRows = 0;
+  /** CC-style rotating gerunds for the busy loader (no tool intent). */
+  private static readonly WORKING_WORDS: readonly string[] = [
+    "thinking",
+    "pondering",
+    "brewing",
+    "conjuring",
+    "scheming",
+    "reasoning",
+    "vibing",
+    "cooking",
+  ];
   /** Coalescing window for live-run renders (see render()). */
   private static readonly RENDER_COALESCE_MS = 50;
   private lastRenderWorkAt = 0;
@@ -354,10 +366,6 @@ export class TuiRenderShell {
     if (this.headerSession)
       infoLines.push(`\u001b[2m  session:\u001b[0m ${this.headerSession.slice(0, 8)}`);
     if (this.headerContext) infoLines.push(`\u001b[2m  context:\u001b[0m ${this.headerContext}`);
-    if (!this.welcomeTipShown && this.welcomeTip) {
-      infoLines.push(`\u001b[33m  ${this.welcomeTip}\u001b[0m`);
-      this.welcomeTipShown = true;
-    }
 
     const combined: string[] = [];
     const rows = Math.max(banner.length, infoLines.length);
@@ -423,10 +431,17 @@ export class TuiRenderShell {
     if (!this.busy || !this.loader) return;
     const summary = this.currentActivitySummary();
     const seconds = this.busySeconds > 0 ? ` · ${this.busySeconds}s` : "";
-    const msg = summary
-      ? `${summary}${seconds} (esc to abort)`
-      : `working…${seconds} (esc to abort)`;
-    this.loader.setMessage(msg);
+    // CC-style rotating gerunds while the model composes (no tool intent):
+    // the word advances every ~3 busy seconds, derived from busySeconds so
+    // no extra timer is needed.
+    const label =
+      summary ??
+      `${
+        TuiRenderShell.WORKING_WORDS[
+          Math.floor(this.busySeconds / 3) % TuiRenderShell.WORKING_WORDS.length
+        ]
+      }…`;
+    this.loader.setMessage(`${label}${seconds} (esc to abort)`);
   }
 
   addStatusBar(): void {
@@ -523,8 +538,14 @@ export class TuiRenderShell {
     );
     this.lastLiveStartRow = result.liveStartRow;
     this.lastTotalRows = result.totalRows;
-    if (state.runs.length === 0 && this.welcomeTip && this.transcript.children.length === 0) {
+    // First-open welcome tip: lives in the BODY (below the header card,
+    // with breathing room) instead of the header card — the header is
+    // otherwise flush against the composer on a fresh start.
+    if (!this.welcomeTipShown && this.welcomeTip) {
+      this.welcomeTipShown = true;
+      this.transcript.addChild(new Spacer(1));
       this.transcript.addChild(new Text(`\u001b[33m  ${this.welcomeTip}\u001b[0m`, 0, 0));
+      this.transcript.addChild(new Spacer(1));
     }
     this.renderIdleFooter();
     this.tui.requestRender(result.didReset);
