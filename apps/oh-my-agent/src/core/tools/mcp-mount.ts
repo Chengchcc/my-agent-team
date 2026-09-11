@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import type { PluginTool } from "../index.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import { killProcessTree } from "../runtime/process-tree.js";
@@ -63,7 +63,37 @@ function expandEnvVars(value: string): string {
   });
 }
 
-async function connectServer(name: string, server: McpJsonServer): Promise<McpClientLike | null> {
+/** Validate a stdio server command BEFORE spawn (P1). .mcp.json lives in
+ *  the workspace and is agent-writable; a missing/non-executable command
+ *  must surface as a clear per-server failure ("server absent"), not a
+ *  deep SDK spawn error. Returns null when the command resolves. */
+export function validateMcpCommand(command: string, workspaceRoot: string): string | null {
+  if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
+    const resolved = isAbsolute(command) ? command : join(workspaceRoot, command);
+    if (!existsSync(resolved)) return `command not found: ${command}`;
+    if (!statSync(resolved).isFile()) return `command is not a file: ${command}`;
+    try {
+      // biome-ignore lint/correctness/noNodejsModules: boundary module
+      accessSync(resolved, constants.X_OK);
+    } catch {
+      return `command not executable: ${command}`;
+    }
+    return null;
+  }
+  // Bare name: search PATH.
+  for (const dir of (process.env.PATH ?? "").split(":")) {
+    if (!dir) continue;
+    const candidate = join(dir, command);
+    if (existsSync(candidate) && statSync(candidate).isFile()) return null;
+  }
+  return `command not found on PATH: ${command}`;
+}
+
+async function connectServer(
+  name: string,
+  server: McpJsonServer,
+  workspaceRoot: string,
+): Promise<McpClientLike | null> {
   try {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     let stdioRootPid: number | null = null;
@@ -88,6 +118,8 @@ async function connectServer(name: string, server: McpJsonServer): Promise<McpCl
       listTools = () => client.listTools();
       closeSdk = () => client.close();
     } else if (server.command) {
+      const invalid = validateMcpCommand(server.command, workspaceRoot);
+      if (invalid) throw new Error(invalid);
       const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
       const env = server.env
         ? Object.fromEntries(Object.entries(server.env).map(([k, v]) => [k, expandEnvVars(v)]))
@@ -138,10 +170,13 @@ export function listMcpServers(workspaceRoot: string): McpServerInfo[] {
     .map(([name, server]) => {
       if (server.url) return { name, kind: "url" as const, detail: server.url };
       if (server.command) {
+        const problem = validateMcpCommand(server.command, workspaceRoot);
         return {
           name,
           kind: "stdio" as const,
-          detail: [server.command, ...(server.args ?? [])].join(" "),
+          detail:
+            [server.command, ...(server.args ?? [])].join(" ") +
+            (problem ? ` — NOT MOUNTED: ${problem}` : ""),
         };
       }
       return { name, kind: "invalid" as const, detail: "no command or url" };
@@ -170,7 +205,7 @@ export async function testMcpServer(
   });
   let client: McpClientLike | null;
   try {
-    client = await Promise.race([connectServer(name, server), timeout]);
+    client = await Promise.race([connectServer(name, server, workspaceRoot), timeout]);
   } finally {
     clearTimeout(timer);
   }
@@ -278,7 +313,16 @@ export async function mountWorkspaceMcpServers(
   const reports: McpMountReport[] = [];
   const clients: McpClientLike[] = [];
   for (const [name, server] of Object.entries(servers)) {
-    const client = await connectServer(name, server);
+    // P1: a broken command fails ITS server with the reason, never a
+    // half-mounted run.
+    if (server.command && !server.url) {
+      const invalid = validateMcpCommand(server.command, workspaceRoot);
+      if (invalid) {
+        reports.push({ server: name, ok: false, toolsCount: 0, error: invalid });
+        continue;
+      }
+    }
+    const client = await connectServer(name, server, workspaceRoot);
     if (!client) {
       reports.push({ server: name, ok: false, toolsCount: 0, error: "connect failed" });
       continue;

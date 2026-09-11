@@ -1,5 +1,14 @@
 import { describe, expect, test, vi } from "bun:test";
-import { mcpCallTimeoutMs, withCallTimeout } from "./mcp-mount.js";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  listMcpServers,
+  mcpCallTimeoutMs,
+  mountWorkspaceMcpServers,
+  validateMcpCommand,
+  withCallTimeout,
+} from "./mcp-mount.js";
 
 describe("withCallTimeout", () => {
   test("times out a hanging call with the tool label", async () => {
@@ -48,5 +57,59 @@ describe("mcpCallTimeoutMs", () => {
     process.env.OMA_MCP_TIMEOUT_MS = "abc";
     expect(mcpCallTimeoutMs()).toBe(120_000);
     delete process.env.OMA_MCP_TIMEOUT_MS;
+  });
+});
+
+describe("validateMcpCommand (P1)", () => {
+  test("absolute missing / non-file / non-executable are rejected", () => {
+    expect(validateMcpCommand("/definitely/not/here", "/tmp")).toBe(
+      "command not found: /definitely/not/here",
+    );
+    expect(validateMcpCommand("/tmp", "/tmp")).toContain("not a file");
+  });
+
+  test("relative paths resolve against the workspace", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-mcp-cmd-"));
+    try {
+      expect(validateMcpCommand("./missing.sh", dir)).toBe("command not found: ./missing.sh");
+      const script = join(dir, "run.sh");
+      writeFileSync(script, "#!/bin/sh\nexit 0\n");
+      chmodSync(script, 0o644);
+      expect(validateMcpCommand("./run.sh", dir)).toBe("command not executable: ./run.sh");
+      chmodSync(script, 0o755);
+      expect(validateMcpCommand("./run.sh", dir)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare names search PATH", () => {
+    expect(validateMcpCommand("sh", "/tmp")).toBeNull();
+    expect(validateMcpCommand("definitely-not-a-bin-xyz", "/tmp")).toBe(
+      "command not found on PATH: definitely-not-a-bin-xyz",
+    );
+  });
+});
+
+describe("mount + listing surface invalid commands", () => {
+  test("a bad command fails ITS server with the reason (never a half mount)", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "oma-mcp-bad-"));
+    try {
+      writeFileSync(
+        join(ws, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: { broken: { command: "./nope.sh", args: [] } },
+        }),
+      );
+      const mounted = await mountWorkspaceMcpServers(ws, new Set());
+      const report = mounted.reports.find((r) => r.server === "broken");
+      expect(report?.ok).toBe(false);
+      expect(report?.error).toContain("command not found");
+      expect(mounted.tools).toHaveLength(0);
+      const listing = listMcpServers(ws);
+      expect(listing[0]?.detail).toContain("NOT MOUNTED");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 });
