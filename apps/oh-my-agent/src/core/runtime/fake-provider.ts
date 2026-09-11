@@ -80,6 +80,17 @@ export function fakeProvider(
       // OMA_FAKE_THINKING emits a reasoning delta before the text so the
       // thinking-transcript path (thinking_update events, TUI ctrl+t) is
       // testable end to end.
+      if (env.OMA_FAKE_THINKING_LINES) {
+        // Streaming reasoning: one delta per line with an inter-delta gap
+        // (OMA_FAKE_THINKING_DELAY_MS), so TUI paints interleave with live
+        // tail growth (loader-overdraw + cursor-flicker regressions).
+        const lines = env.OMA_FAKE_THINKING_LINES.split("\n");
+        const delayMs = Number(env.OMA_FAKE_THINKING_DELAY_MS ?? 0);
+        for (const line of lines) {
+          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+          yield { delta: { type: "reasoning", text: `${line}\n` } };
+        }
+      }
       if (env.OMA_FAKE_THINKING) {
         yield { delta: { type: "reasoning", text: env.OMA_FAKE_THINKING } };
       }

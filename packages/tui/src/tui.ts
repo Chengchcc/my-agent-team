@@ -1470,8 +1470,27 @@ export class TUI extends Container {
     const newTop = Math.max(0, Math.min(startTop + historyRows.length, height - rows));
     let buffer = "\x1b[?2026h";
     if (destructiveReset) buffer += "\x1b[H\x1b[3J\x1b[2J";
+    // Frame advance = history rows appended this frame. After those appends
+    // the screen content that sits under new viewport slot i is the OLD
+    // window's row (i + advance) — both when the appends scrolled the
+    // terminal (full-height frames) and when the window slid down over the
+    // scrollback (short frames). Rows equal under that mapping are already
+    // correct on screen and are skipped.
+    // Sound minimal differential: only frames WITHOUT history appends and
+    // with an unchanged window origin may skip byte-identical rows. Scroll
+    // frames (history pushes shift screen content by an amount the provider
+    // may disagree with — its commit granularity differs from the slice)
+    // stay on the full sequential write; generalizing the skip to detected
+    // shifts corrupted the scrollback interplay (H-rows landing in V-slots)
+    // and was reverted.
+    const differential =
+      !destructiveReset &&
+      historyRows.length === 0 &&
+      this.providerWindow.length === rows &&
+      rows > 0 &&
+      newTop === this.providerViewportTop;
     const pushed = Math.max(0, startTop + historyRows.length + rows - height);
-    if (pushed > this.providerViewportTop && this.providerWindow.length > 0) {
+    if (!differential && pushed > this.providerViewportTop && this.providerWindow.length > 0) {
       buffer += `\x1b[${this.providerViewportTop + 1};1H\x1b[J`;
     }
     buffer += `\x1b[${startTop + 1};1H`;
@@ -1481,10 +1500,38 @@ export class TUI extends Container {
       buffer += `\x1b[2K${line}`;
       screenRow++;
     }
-    for (let index = 0; index < rows; index++) {
-      if (index > 0 || screenRow > startTop) buffer += "\r\n";
-      buffer += `\x1b[2K${viewport[index] ?? ""}`;
-      screenRow++;
+    // Differential viewport write: frames without history appends and with
+    // an unchanged window origin rewrite ONLY the rows whose bytes changed.
+    // Terminals without synchronized-output support (tmux 3.3a ignores
+    // DECSET 2026) would otherwise blank-and-rewrite every row on every
+    // spinner tick — visible as constant transcript flicker. Frames that
+    // scroll (history pushes shift screen content) fall back to the full
+    // sequential write; the byte-identical skip is unsound there.
+    if (differential) {
+      let runStart = -1;
+      const flushRun = (endExclusive: number): void => {
+        if (runStart < 0) return;
+        buffer += `\x1b[${newTop + runStart + 1};1H`;
+        for (let k = runStart; k < endExclusive; k++) {
+          if (k > runStart) buffer += "\r\n";
+          buffer += `\x1b[2K${viewport[k] ?? ""}`;
+        }
+        runStart = -1;
+      };
+      for (let index = 0; index < rows; index++) {
+        if (this.providerWindow[index] !== viewport[index]) {
+          if (runStart < 0) runStart = index;
+        } else {
+          flushRun(index);
+        }
+      }
+      flushRun(rows);
+    } else {
+      for (let index = 0; index < rows; index++) {
+        if (index > 0 || screenRow > startTop) buffer += "\r\n";
+        buffer += `\x1b[2K${viewport[index] ?? ""}`;
+        screenRow++;
+      }
     }
     if (newTop + rows < height) buffer += `\x1b[${newTop + rows + 1};1H\x1b[J`;
     if (cursorPos !== null && rows > 0) {

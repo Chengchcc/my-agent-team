@@ -105,7 +105,9 @@ export function createTerminalIo(
     },
   };
   const editor = new Editor(tui, editorTheme);
-  shell.renderHeader();
+  // The header is emitted by setHeader() once the session identity is known
+  // (runTuiSession always calls it). Rendering here too would print a second,
+  // session-less banner into the transcript.
   let pending: ((value: string | null) => void) | null = null;
   let busy = false;
   let liveHandler: ((text: string) => void) | null = null;

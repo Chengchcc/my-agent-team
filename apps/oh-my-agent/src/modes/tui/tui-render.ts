@@ -272,6 +272,13 @@ export class TuiRenderShell {
   private readonly reconciler: TuiTranscriptReconciler;
   lastLiveStartRow = 0;
   lastTotalRows = 0;
+  /** Busy-state paint throttle: while a run is live, message_update deltas
+   *  can arrive far faster than any terminal can comfortably repaint (and a
+   *  repaint of the growing tail region is a full rewrite — see the frame
+   *  painter). Reconcile always runs (in-memory, cheap); the PAINT is capped
+   *  and the loader's own tick carries the latest state between caps. */
+  private lastPaintRequestAt = 0;
+  private static readonly BUSY_PAINT_MIN_INTERVAL_MS = 66;
   /** Session id the header block was last printed for (cc-style: the
    *  banner scrolls away with the transcript and re-prints per session). */
   private lastPrintedSession: string | null = null;
@@ -485,10 +492,17 @@ ${item.text ?? ""}`;
       this.transcript.addChild(new Text(`\u001b[33m  ${this.welcomeTip}\u001b[0m`, 0, 0));
     }
     this.renderIdleFooter();
-    if (result.didReset) {
-      this.tui.requestRender(true);
-    } else {
-      this.tui.requestRender();
+    const force = result.didReset;
+    if (
+      this.busy &&
+      !force &&
+      Date.now() - this.lastPaintRequestAt < TuiRenderShell.BUSY_PAINT_MIN_INTERVAL_MS
+    ) {
+      // Loader tick (its own timer calls requestRender unthrottled) will
+      // paint with this reconcile's state within the interval.
+      return;
     }
+    this.lastPaintRequestAt = Date.now();
+    this.tui.requestRender(force);
   }
 }
