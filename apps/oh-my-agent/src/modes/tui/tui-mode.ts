@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { BackendRunInput, BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { ProcessTerminal } from "@chengchenccc/tui";
+import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaLoopEvent } from "../../core/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
+import { resolvePermissionMode } from "../../core/settings/project-settings.js";
 
 /** One interactive TUI session per process; the coordination scope stays
  *  stable across Runs so subagent handles survive follow-ups in this
@@ -93,6 +95,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   let pendingPrompt: string | undefined;
   /** Workflow script queued by /workflow: injected into the next run input. */
   let pendingWorkflowScript: string | undefined;
+  /** /permission session override: wins over the --permission flag and the
+   *  settings file for every subsequent run this session. */
+  let permissionOverride: PermissionFlag | undefined;
 
   function pushStatus(lines: string | readonly string[], replacePrefix?: string): void {
     const items = (typeof lines === "string" ? [lines] : lines).map((text) => ({
@@ -183,6 +188,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     set pendingFocusRecap(value) {
       pendingFocusRecap = value;
     },
+    get permissionOverride() {
+      return permissionOverride;
+    },
+    set permissionOverride(value) {
+      permissionOverride = value;
+    },
     pushStatus,
     listModels: () => listModels(ctx),
     listModelRows: () => listModelRows(ctx),
@@ -242,6 +253,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       workspaceRoot: opts.workspaceRoot,
       modelRuntime: opts.modelRuntime,
       modelId,
+      permissionMode: resolvePermissionMode(
+        permissionOverride ?? opts.permissionMode,
+        opts.workspaceRoot,
+      ),
+      readOnly: opts.readOnly,
     });
     modelId = built.run.model.modelId;
     // /workflow queued a script: this run executes the vm workflow instead
@@ -261,7 +277,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       runId: `tui-${randomUUID()}`,
       modelId: built.run.model.modelId,
       workspaceRoot: opts.workspaceRoot,
-      workspaceAccess: "read_write",
+      workspaceAccess: opts.readOnly ? "read_only" : "read_write",
       modelRuntime: opts.modelRuntime,
       skillRoots: built.run.skillRoots ?? [],
       gateWorkspaceMcp: true,

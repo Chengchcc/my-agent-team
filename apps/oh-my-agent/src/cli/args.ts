@@ -1,5 +1,7 @@
 export type CliMode = "print" | "json" | "rpc" | "tui";
 
+export type PermissionFlag = "ask" | "auto" | "deny" | "off";
+
 export interface CliArgs {
   mode: CliMode;
   /** True when -p/--mode was given explicitly; a bare positional prompt
@@ -9,8 +11,14 @@ export interface CliArgs {
   listModels: boolean;
   /** Canonical `<provider>/<model>` id; undefined = first available model. */
   model?: string;
-  /** Resume a session file by id (TUI mode). */
+  /** Resume a session file by id (all modes; TUI and one-shot). */
   session?: string;
+  /** --continue: resume the workspace's most recent session. */
+  continueLast?: boolean;
+  /** Standalone permission gate; undefined = .oma/settings.json decides. */
+  permission?: PermissionFlag;
+  /** --read-only: run with no write/edit/bash/eval tools. */
+  readOnly?: boolean;
   /** Tool filter: comma-separated tool names or groups. Plain names form a
    *  whitelist (ONLY those tools run); `!name` entries form a blacklist
    *  (all but those). Applied to the FINAL tool table (native + MCP +
@@ -30,11 +38,13 @@ Usage:
   oma --mode json "<prompt>"     json mode: all events + one outcome as JSONL
   oma --mode rpc                 rpc mode: stdin/stdout JSONL protocol
   oma --list-models              print the model catalog as JSON
+  oma --continue                 resume the most recent session
+  oma --session <id> -p "..."    one-shot follow-up on a session
+  oma --permission ask -p "..."  gate bash/write/mcp behind approval cards
+  oma --read-only -p "..."       research-only run (no mutating tools)
   oma --model <provider/model> -p "<prompt>"
                                           pick a model by canonical id
                                           (default: first available model)
-  oma --tools todo_write,read -p "..."    only these tools enter the Run
-  oma --tools '!todo_write' -p "..."      all tools except todo_write
 
 Piped stdin (print/json modes):
   cat file | oma -p "Review"
@@ -43,6 +53,7 @@ Piped stdin (print/json modes):
 `;
 
 const MODES = ["print", "json", "rpc", "tui"];
+const PERMISSIONS = ["ask", "auto", "deny", "off"];
 
 /** Parse argv SYNTAX only: whether a run actually has an input (prompt or
  *  piped stdin) is decided in main() after stdin is read. */
@@ -103,6 +114,23 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       const value = arg.slice("--session=".length);
       if (!value) throw new UsageError("--session requires a session id");
       args.session = value;
+    } else if (arg === "--continue" || arg === "-c") {
+      args.continueLast = true;
+    } else if (arg === "--read-only") {
+      args.readOnly = true;
+    } else if (arg === "--permission") {
+      const value = argv[i + 1];
+      if (!value || !PERMISSIONS.includes(value)) {
+        throw new UsageError(`--permission requires one of: ${PERMISSIONS.join(" | ")}`);
+      }
+      args.permission = value as PermissionFlag;
+      i++;
+    } else if (arg.startsWith("--permission=")) {
+      const value = arg.slice("--permission=".length);
+      if (!PERMISSIONS.includes(value)) {
+        throw new UsageError(`--permission requires one of: ${PERMISSIONS.join(" | ")}`);
+      }
+      args.permission = value as PermissionFlag;
     } else if (arg === "--tools") {
       const value = argv[i + 1];
       if (!value || value.startsWith("-")) {

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
 import { fakeProvider } from "../core/runtime/fake-provider.js";
+import { resolvePermissionMode } from "../core/settings/project-settings.js";
 import { parseArgs, UsageError } from "./args.js";
 import { buildCliRunInput, mergeInitialInput, readPipedStdin } from "./initial-input.js";
 
@@ -154,6 +158,50 @@ describe("buildCliRunInput model selection", () => {
       modelRuntime: runtime(),
     });
     expect(input.metadata).toBeUndefined();
+  });
+});
+
+describe("permission mode resolution", () => {
+  test("explicit flag wins over the workspace setting; off = ungated", () => {
+    const ws = mkdtempSync(join(tmpdir(), "oma-perm-"));
+    try {
+      mkdirSync(join(ws, ".oma"), { recursive: true });
+      writeFileSync(join(ws, ".oma", "settings.json"), JSON.stringify({ permissionMode: "ask" }));
+      expect(resolvePermissionMode(undefined, ws)).toBe("ask");
+      expect(resolvePermissionMode("deny", ws)).toBe("deny");
+      expect(resolvePermissionMode("off", ws)).toBeUndefined();
+      expect(resolvePermissionMode(undefined, join(ws, "nope"))).toBeUndefined();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  test("buildCliRunInput carries permissionMode and readOnly into the run input", async () => {
+    const rt = createModelRuntime();
+    rt.registerProvider(fakeProvider({}));
+    const input = await buildCliRunInput({
+      prompt: "x",
+      workspaceRoot: "/tmp",
+      modelRuntime: rt,
+      permissionMode: "ask",
+      readOnly: true,
+    });
+    expect(input.run.permissionMode).toBe("ask");
+    expect(input.workspace.access).toBe("read_only");
+  });
+});
+
+describe("resume + gating flags (argv syntax)", () => {
+  test("--continue / --read-only / --permission parse", () => {
+    expect(parseArgs(["--continue"]).continueLast).toBe(true);
+    expect(parseArgs(["-c"]).continueLast).toBe(true);
+    expect(parseArgs(["--read-only"]).readOnly).toBe(true);
+    expect(parseArgs(["--permission", "auto", "-p", "x"]).permission).toBe("auto");
+    expect(parseArgs(["--permission=off"]).permission).toBe("off");
+  });
+
+  test("--permission rejects unknown modes", () => {
+    expect(() => parseArgs(["--permission", "yolo"])).toThrow(/--permission requires/);
   });
 });
 

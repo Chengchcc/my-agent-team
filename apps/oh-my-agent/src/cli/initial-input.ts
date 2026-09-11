@@ -109,6 +109,10 @@ export async function buildCliRunInput(opts: {
   modelRuntime: ModelRuntime;
   /** Canonical `<provider>/<model>` id; undefined = first available. */
   modelId?: string;
+  /** Standalone permission gate. undefined = ungated (legacy default). */
+  permissionMode?: "ask" | "auto" | "deny";
+  /** --read-only: advertise no write/edit/bash/eval to the model. */
+  readOnly?: boolean;
 }): Promise<BackendRunInput<"oma">> {
   const catalog = await opts.modelRuntime.getCatalog();
   const model = opts.modelId
@@ -141,9 +145,13 @@ export async function buildCliRunInput(opts: {
       }),
       configRevision: 0,
     },
-    workspace: { root: opts.workspaceRoot, access: "read_write" },
+    workspace: { root: opts.workspaceRoot, access: opts.readOnly ? "read_only" : "read_write" },
     // Standalone agent: no product conversation/agent/branch identity.
   };
-  if (skillRoots.length === 0) return input;
-  return { ...input, run: { ...input.run, skillRoots } };
+  const run = {
+    ...input.run,
+    ...(skillRoots.length > 0 ? { skillRoots } : {}),
+    ...(opts.permissionMode ? { permissionMode: opts.permissionMode } : {}),
+  };
+  return { ...input, run };
 }

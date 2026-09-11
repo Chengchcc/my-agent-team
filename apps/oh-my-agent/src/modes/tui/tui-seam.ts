@@ -27,6 +27,10 @@ export interface TuiModeOptions {
   initialPrompt?: string;
   /** --tools filter (CLI): applied to the final tool table. */
   toolFilter?: ToolFilter;
+  /** --permission CLI flag; undefined = .oma/settings.json decides. */
+  permissionMode?: "ask" | "auto" | "deny" | "off";
+  /** --read-only: run every session turn with no mutating tools. */
+  readOnly?: boolean;
 }
 
 /** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */

@@ -43,6 +43,11 @@ export interface ProjectSettings {
   bashSandbox?: boolean;
   /** Global cap for any per-tool timeout ms; 0 = no limit (omp tools.maxTimeout). */
   maxToolTimeoutMs?: number;
+  /** Standalone permission gate (ADR 0020): "ask" cards every high-risk
+   *  tool, "auto" runs the classifier, "deny" blocks them. Absent = ungated
+   *  (legacy default). The product RPC path never reads this — its
+   *  permissionMode arrives frozen in the run snapshot. */
+  permissionMode?: "ask" | "auto" | "deny";
   /** Read-side tool-result pruning: old tool output outside the protect
    *  window is replaced by a short summary before each model call (a lighter
    *  touch than compaction). Absent = pruning OFF — the loop only prunes when
@@ -115,6 +120,14 @@ export function loadProjectSettings(root: string): ProjectSettings {
     }
     if ("bashSandbox" in parsed && typeof parsed.bashSandbox === "boolean") {
       result.bashSandbox = parsed.bashSandbox;
+    }
+    if (
+      "permissionMode" in parsed &&
+      (parsed.permissionMode === "ask" ||
+        parsed.permissionMode === "auto" ||
+        parsed.permissionMode === "deny")
+    ) {
+      result.permissionMode = parsed.permissionMode;
     }
     if ("maxToolTimeoutMs" in parsed && typeof parsed.maxToolTimeoutMs === "number") {
       result.maxToolTimeoutMs = parsed.maxToolTimeoutMs;
@@ -252,4 +265,18 @@ export function resolveRuntimeKnobs(
   if (s.memoryModel) knobs.memoryModel = s.memoryModel;
   if (s.prune) knobs.prune = s.prune;
   return knobs;
+}
+
+/** Effective standalone permission mode: an explicit choice (CLI flag,
+ *  /permission override) wins; the workspace setting is the default.
+ *  "off" (a TUI override) and absent both resolve to undefined = ungated. */
+export function resolvePermissionMode(
+  explicit?: "ask" | "auto" | "deny" | "off",
+  workspaceRoot?: string,
+): "ask" | "auto" | "deny" | undefined {
+  if (explicit) return explicit === "off" ? undefined : explicit;
+  const fromSettings = workspaceRoot
+    ? loadProjectSettings(workspaceRoot).permissionMode
+    : undefined;
+  return fromSettings;
 }

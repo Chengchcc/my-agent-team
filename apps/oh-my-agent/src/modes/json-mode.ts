@@ -3,6 +3,7 @@ import { buildCliRunInput } from "../cli/initial-input.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
+import { persistSessionTurn, resolveSession } from "../core/session/session-loop.js";
 import type { CliRunOptions } from "./print-mode.js";
 
 /** JSON mode: one Run; stdout gets ALL events as JSONL plus exactly one
@@ -15,7 +16,10 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
     // `model` is optional: an absent flag must NOT be forwarded as an
     // explicit undefined key (buildCliRunInput falls back to the catalog).
     ...(opts.model ? { modelId: opts.model } : {}),
+    permissionMode: opts.permissionMode,
+    readOnly: opts.readOnly,
   });
+  const session = resolveSession(opts.sessionId);
   const pluginRt = await assemblePluginRuntime(built.workspace.root, "json");
   for (const w of pluginRt.warnings) console.error(`[plugin] ${w}`);
   const runtime = await createOmaRuntime({
@@ -32,6 +36,12 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
       : {}),
     ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
     ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+    sessionTranscript: session.messages.length
+      ? session.messages.map((m, i) => ({
+          productEntryId: `session:${i}`,
+          message: m as never,
+        }))
+      : undefined,
     onEvent: (envelope) => {
       // Raw runtime event object, e.g. {"type":"agent_start"}.
       process.stdout.write(`${JSON.stringify({ type: "event", event: envelope.data })}\n`);
@@ -43,6 +53,17 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
     process.stdout.write(
       `${JSON.stringify({ type: "outcome", outcome } satisfies { type: "outcome"; outcome: BackendRunOutcome })}\n`,
     );
+    // --continue correctness: a resumed one-shot run must also leave its
+    // turn in the session file (stdout stays clean; files are not stdout).
+    if (outcome.status === "completed") {
+      await persistSessionTurn({
+        sessionId: session.sessionId,
+        dir: session.dir,
+        cwd: opts.workspaceRoot,
+        runtime,
+        messages: [built.input.message, ...(outcome.messages ?? [])],
+      });
+    }
     return outcome.status === "completed" ? 0 : 1;
   } finally {
     await runtime.close().catch(() => {});

@@ -1,14 +1,23 @@
 import { createModelRuntime } from "@chengchenccc/ai";
-import { parseArgs, UsageError } from "./cli/args.js";
+import { type CliArgs, parseArgs, UsageError } from "./cli/args.js";
 import { mergeInitialInput, readPipedStdin } from "./cli/initial-input.js";
 import { buildBackendModelCatalog } from "./core/runtime/model-catalog.js";
 import { registerBuiltinProviders } from "./core/runtime/run-runtime.js";
 import { parseToolFilter } from "./core/runtime/tool-filter.js";
+import { listSessions } from "./core/session/session-file.js";
+import { resolvePermissionMode } from "./core/settings/project-settings.js";
 import { runJsonMode } from "./modes/json-mode.js";
 import { runPrintMode } from "./modes/print-mode.js";
 import { runRpcMode } from "./modes/rpc/rpc-mode.js";
 import { runTuiMode } from "./modes/tui/tui-mode.js";
 
+/** --session <id> wins; --continue resolves the workspace's newest session
+ *  (missing files degrade to a fresh session downstream). */
+function resolveSessionArg(args: CliArgs): string | undefined {
+  if (args.session) return args.session;
+  if (args.continueLast) return listSessions()[0]?.id;
+  return undefined;
+}
 /** Parse args, run one CLI invocation, and return the process exit code.
  *  Never calls process.exit() - callers own exit-code assignment so stdout
  *  protocol output can flush. Pure enough to be imported from tests. */
@@ -48,7 +57,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       modelRuntime,
       workspaceRoot: process.cwd(),
       model: args.model,
-      sessionId: args.session,
+      sessionId: resolveSessionArg(args),
+      ...(args.permission ? { permissionMode: args.permission } : {}),
+      ...(args.readOnly ? { readOnly: true } : {}),
       ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
       ...(args.prompt ? { initialPrompt: args.prompt } : {}),
     });
@@ -62,7 +73,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       modelRuntime,
       workspaceRoot: process.cwd(),
       model: args.model,
-      sessionId: args.session,
+      sessionId: resolveSessionArg(args),
+      ...(args.permission ? { permissionMode: args.permission } : {}),
+      ...(args.readOnly ? { readOnly: true } : {}),
       ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
       ...(args.prompt ? { initialPrompt: args.prompt } : {}),
     });
@@ -86,6 +99,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     // place the flag is applied, so dropping it here silently ran the
     // catalog's first model instead.
     ...(args.model ? { model: args.model } : {}),
+    sessionId: resolveSessionArg(args),
+    permissionMode: resolvePermissionMode(args.permission, process.cwd()),
     ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
   };
   return args.mode === "json" ? runJsonMode(opts) : runPrintMode(opts);

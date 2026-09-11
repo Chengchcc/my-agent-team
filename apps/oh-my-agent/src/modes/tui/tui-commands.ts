@@ -62,6 +62,8 @@ export interface TuiSessionContext {
   lastContextTokens?: number;
   pendingFocusRecap?: string;
   runCommandText?: (text: string) => Promise<void>;
+  /** Session permission-mode override (/permission): "off" = ungated. */
+  permissionOverride?: "ask" | "auto" | "deny" | "off";
   pickModelInteractive: () => Promise<void>;
   forkTreeInteractive: () => Promise<void>;
 }
@@ -141,6 +143,31 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         saveProjectSettings(ctx.opts.workspaceRoot, updated);
         ctx.pushStatus("settings saved");
         ctx.io.render(ctx.state);
+      },
+    },
+    {
+      name: "permission",
+      description: "show or set the permission gate (ask/auto/deny/off)",
+      argumentHint: "[ask|auto|deny|off]",
+      group: "settings",
+      live: true,
+      run: (args) => {
+        const value = args.trim();
+        if (!value) {
+          const effective =
+            ctx.permissionOverride ??
+            ctx.opts.permissionMode ??
+            loadProjectSettings(ctx.opts.workspaceRoot).permissionMode ??
+            "off (ungated)";
+          ctx.pushStatus(`permission: ${effective} — /permission ask|auto|deny|off`);
+          return;
+        }
+        if (value !== "ask" && value !== "auto" && value !== "deny" && value !== "off") {
+          ctx.pushStatus(`unknown mode "${value}" — /permission ask|auto|deny|off`);
+          return;
+        }
+        ctx.permissionOverride = value;
+        ctx.pushStatus(`permission: ${value} (this session — .oma/settings.json persists it)`);
       },
     },
     {

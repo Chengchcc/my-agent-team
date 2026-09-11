@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
+import { listSessions, loadSessionMessages } from "../core/session/session-file.js";
 import { runPrintMode } from "../modes/print-mode.js";
 import type { OmaOutput } from "../protocol/index.js";
 
@@ -331,7 +332,76 @@ describe("print mode (in-process): memory persistence", () => {
     } finally {
       if (savedTitle === undefined) delete process.env.OMA_TITLE_ENABLED;
       else process.env.OMA_TITLE_ENABLED = savedTitle;
+    }
+  });
+});
+
+describe("print mode (in-process): session resume", () => {
+  test("--sessionId seeds the transcript and appends in place", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-print-resume-"));
+    const sessions = mkdtempSync(join(tmpdir(), "oma-print-resume-s-"));
+    const savedDir = process.env.OMA_SESSION_DIR;
+    const savedTitle = process.env.OMA_TITLE_ENABLED;
+    const savedMemory = process.env.OMA_MEMORY_EXTRACT;
+    process.env.OMA_SESSION_DIR = sessions;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    const seen: string[] = [];
+    try {
+      const modelRuntime = createModelRuntime();
+      modelRuntime.registerProvider({
+        id: "probe",
+        name: "Probe",
+        getModels: () => [
+          {
+            id: "m",
+            name: "M",
+            provider: "probe",
+            api: "anthropic-messages",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200_000,
+            maxTokens: 8192,
+          },
+        ],
+        async *stream(_model, messages: ReadonlyArray<{ text?: string }>) {
+          seen.push(messages.map((m) => m.text ?? "").join("\n"));
+          yield { delta: { type: "text", text: `answer ${seen.length}` } };
+          yield { stopReason: "end_turn" };
+        },
+      });
+      expect(await runPrintMode({ prompt: "turn one", workspaceRoot: dir, modelRuntime })).toBe(0);
+      const [first] = listSessions();
+      expect(first).toBeDefined();
+      expect(
+        await runPrintMode({
+          prompt: "turn two",
+          workspaceRoot: dir,
+          modelRuntime,
+          sessionId: first!.id,
+        }),
+      ).toBe(0);
+      // Same session file: both turns appended in place.
+      const messages = loadSessionMessages(first!.id, sessions);
+      const text = messages.map((m) => String((m as { text?: string }).text ?? "")).join("\n");
+      expect(text).toContain("turn one");
+      expect(text).toContain("turn two");
+      expect(text).toContain("answer 1");
+      expect(text).toContain("answer 2");
+      // The second run SAW the first turn (transcript seeding), proving
+      // resume is not just persistence but context continuity.
+      expect(seen[1]).toContain("turn one");
+      expect(seen[1]).toContain("answer 1");
+    } finally {
+      if (savedDir === undefined) delete process.env.OMA_SESSION_DIR;
+      else process.env.OMA_SESSION_DIR = savedDir;
+      if (savedTitle === undefined) delete process.env.OMA_TITLE_ENABLED;
+      else process.env.OMA_TITLE_ENABLED = savedTitle;
+      if (savedMemory === undefined) delete process.env.OMA_MEMORY_EXTRACT;
+      else process.env.OMA_MEMORY_EXTRACT = savedMemory;
       rmSync(dir, { recursive: true, force: true });
+      rmSync(sessions, { recursive: true, force: true });
     }
   });
 });

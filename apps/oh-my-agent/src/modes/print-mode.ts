@@ -5,8 +5,7 @@ import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
 import type { ToolFilter } from "../core/runtime/tool-filter.js";
-import { newSessionId } from "../core/session/session-file.js";
-import { persistSessionTurn } from "../core/session/session-loop.js";
+import { persistSessionTurn, resolveSession } from "../core/session/session-loop.js";
 
 export interface CliRunOptions {
   prompt: string;
@@ -16,6 +15,13 @@ export interface CliRunOptions {
   model?: string;
   /** --tools filter (CLI): applied to the final tool table. */
   toolFilter?: ToolFilter;
+  /** Standalone permission gate (already resolved through settings). */
+  permissionMode?: "ask" | "auto" | "deny";
+  /** --read-only: advertise no write/edit/bash/eval. */
+  readOnly?: boolean;
+  /** Resume a session file: transcript seeds the run, the turn appends
+   *  in place (--session / --continue). Absent = a fresh session. */
+  sessionId?: string;
 }
 /** Final assistant text of an outcome Message: the plain `text` field, or the
  *  concatenated text blocks. Never falls back to placeholder text. */
@@ -40,8 +46,10 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
     workspaceRoot: opts.workspaceRoot,
     modelRuntime: opts.modelRuntime,
     modelId: opts.model,
+    permissionMode: opts.permissionMode,
+    readOnly: opts.readOnly,
   });
-  const sessionId = newSessionId();
+  const session = resolveSession(opts.sessionId);
   const pluginRt = await assemblePluginRuntime(built.workspace.root, "print");
   for (const w of pluginRt.warnings) console.error(`[plugin] ${w}`);
   const runtime = await createOmaRuntime({
@@ -58,13 +66,20 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
       : {}),
     ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
     ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+    sessionTranscript: session.messages.length
+      ? session.messages.map((m, i) => ({
+          productEntryId: `session:${i}`,
+          message: m as never,
+        }))
+      : undefined,
   });
   try {
     const segment = await runtime.run(built);
     const outcome = await segment.outcome;
     if (outcome.status === "completed") {
       await persistSessionTurn({
-        sessionId,
+        sessionId: session.sessionId,
+        dir: session.dir,
         cwd: opts.workspaceRoot,
         runtime,
         // One-shot mode: no real-time hook, write the whole turn at once.
