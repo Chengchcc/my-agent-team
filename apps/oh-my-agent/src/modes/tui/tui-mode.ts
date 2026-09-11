@@ -98,6 +98,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** /permission session override: wins over the --permission flag and the
    *  settings file for every subsequent run this session. */
   let permissionOverride: PermissionFlag | undefined;
+  /** /paste queue: rides the next submitted message, then clears. */
+  let pendingImages: Array<{
+    mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    base64: string;
+  }> = [];
 
   function pushStatus(lines: string | readonly string[], replacePrefix?: string): void {
     const items = (typeof lines === "string" ? [lines] : lines).map((text) => ({
@@ -194,6 +199,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     set permissionOverride(value) {
       permissionOverride = value;
     },
+    get pendingImages() {
+      return pendingImages;
+    },
+    set pendingImages(value) {
+      pendingImages = value;
+    },
     pushStatus,
     listModels: () => listModels(ctx),
     listModelRows: () => listModelRows(ctx),
@@ -212,10 +223,30 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     void runCommandText(text).then(() => io.render(state));
   });
 
+  /** `!cmd`: run a shell command locally in the PTY console (pi's bang
+   *  escape). Output lands in the transcript; the model sees nothing. */
+  const runShellEscape = async (text: string): Promise<void> => {
+    const command = text.slice(1).trim();
+    if (!command) return;
+    addUserInput(state, text);
+    if (!io.runPtyConsole) {
+      pushStatus("shell escape not supported by this driver");
+      return;
+    }
+    const result = await io.runPtyConsole(command, opts.workspaceRoot, {
+      ...(Object.fromEntries(
+        Object.entries(process.env).filter((entry) => entry[1] !== undefined),
+      ) as Record<string, string>),
+    });
+    const lines = [`$ ${command}`];
+    if (result.tail.trim()) lines.push(...result.tail.trimEnd().split("\n"));
+    lines.push(result.killed ? "[killed]" : `[exit: ${result.exitCode ?? "signal"}]`);
+    pushStatus(lines);
+  };
+
   /** Steers rejected while the loop was settling; drained as the next
    *  Run's prompt when the current Run ends (pi's followUp fallback). */
   const pendingFollowUps: string[] = [];
-
   for (;;) {
     io.render(state);
     // Steers that arrived while the previous loop was settling are drained
@@ -236,6 +267,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       if (!text) continue;
     }
 
+    if (text.startsWith("!")) {
+      void runShellEscape(text).then(() => io.render(state));
+      continue;
+    }
     if (text.startsWith("/")) {
       await runCommandText(text);
       if (quitting) return 0;
@@ -246,6 +281,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       pendingPrompt = undefined;
     }
 
+    // Queued /paste images ride this message, then clear.
+    const images = pendingImages.splice(0);
+    if (images.length > 0) pushStatus(`[${images.length} image(s) attached]`);
     if (!fromFollowUp) addUserInput(state, text);
 
     const built = await buildCliRunInput({
@@ -258,6 +296,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         opts.workspaceRoot,
       ),
       readOnly: opts.readOnly,
+      ...(images.length > 0 ? { images } : {}),
     });
     modelId = built.run.model.modelId;
     // /workflow queued a script: this run executes the vm workflow instead
@@ -339,6 +378,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       // follow-up queue and is delivered as the next Run's input — the
       // message is never dropped (pi's AgentBusyError -> followUp).
       const steerHandler = (text: string): void => {
+        // `!cmd` during a live run: local shell, never steered.
+        if (text.startsWith("!")) {
+          void runShellEscape(text).then(() => io.render(state));
+          return;
+        }
         addUserInput(state, text, true);
         io.render(state);
         runtime

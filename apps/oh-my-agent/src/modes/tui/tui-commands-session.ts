@@ -1,4 +1,5 @@
 import {
+  appendSessionCompaction,
   deleteSession,
   forkSession,
   listAllSessions,
@@ -106,6 +107,69 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
           title: ctx.sessionTitle,
         });
         ctx.pushStatus(`new session: ${ctx.session.sessionId}`);
+      },
+    },
+    {
+      name: "compact",
+      description: "summarize the session so far and fold the transcript",
+      group: "session",
+      run: async () => {
+        const msgs = ctx.session.messages;
+        if (msgs.length < 4) {
+          ctx.pushStatus("nothing to compact yet");
+          return;
+        }
+        ctx.pushStatus("compacting…");
+        ctx.io.render(ctx.state);
+        const catalog = await ctx.opts.modelRuntime.getCatalog();
+        const canonical =
+          ctx.modelId ??
+          (() => {
+            const first = catalog.models.find((m) => m.available !== false);
+            return first ? `${first.providerId}/${first.modelId}` : undefined;
+          })();
+        if (!canonical) {
+          ctx.pushStatus("compact: no available model");
+          return;
+        }
+        const slash = canonical.indexOf("/");
+        try {
+          const chunks: string[] = [];
+          const signal = AbortSignal.timeout(120_000);
+          for await (const chunk of ctx.opts.modelRuntime.stream(
+            canonical.slice(0, slash),
+            canonical.slice(slash + 1),
+            [
+              {
+                role: "system",
+                text: "Summarize the following conversation messages, preserving tool calls, results, decisions and next steps.",
+              },
+              ...msgs,
+            ] as never,
+            { signal },
+          )) {
+            if (chunk.delta?.type === "text") chunks.push(chunk.delta.text);
+          }
+          const summary = chunks.join("").trim();
+          if (!summary) {
+            ctx.pushStatus("compact: model returned an empty summary");
+            return;
+          }
+          appendSessionCompaction(ctx.session.sessionId, summary, ctx.session.dir);
+          // Mirror the file-folding shape (loadSessionMessages) in memory so
+          // the live transcript and a later resume agree.
+          ctx.session.messages = [
+            {
+              role: "user",
+              text: `<previous_session_summary>\n${summary}\n</previous_session_summary>`,
+            },
+          ];
+          ctx.state.runs.length = 0;
+          ctx.pushStatus(`compacted: ${summary.slice(0, 160)}${summary.length > 160 ? "…" : ""}`);
+          ctx.io.render(ctx.state);
+        } catch (err) {
+          ctx.pushStatus(`compact failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       },
     },
     {

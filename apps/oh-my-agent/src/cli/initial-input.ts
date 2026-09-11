@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
+import type { Message } from "@chengchenccc/message";
 import { enabledPluginSkillRoots } from "../core/plugins/plugin-marketplace.js";
 import { buildSystemPrompt, readMemorySummary } from "../core/runtime/prompts.js";
 import { agentDir } from "../core/session/session-file.js";
@@ -99,10 +100,35 @@ export function mergeInitialInput(input: { prompt?: string; piped?: string }): s
   return parts.join("\n\n");
 }
 
+/** User message with optional vision images: blocks form when images ride
+ *  along (the providers map user image blocks natively); plain text otherwise. */
+function buildUserMessage(
+  prompt: string,
+  images?: ReadonlyArray<{
+    mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    base64: string;
+  }>,
+): Message {
+  if (!images || images.length === 0) return { role: "user", text: prompt };
+  return {
+    role: "user",
+    text: prompt,
+    blocks: [
+      { type: "text", text: prompt },
+      ...images.map((img) => ({
+        type: "image" as const,
+        mediaType: img.mediaType,
+        base64: img.base64,
+      })),
+    ],
+  };
+}
+
 /** Build the BackendRunInput for a one-shot CLI run: current cwd as the
  *  workspace, empty Product history, the requested model (canonical
  *  `<provider>/<model>` id) or the first available model, no Product Tools,
  *  no system prompt. */
+
 export async function buildCliRunInput(opts: {
   prompt: string;
   workspaceRoot: string;
@@ -113,6 +139,11 @@ export async function buildCliRunInput(opts: {
   permissionMode?: "ask" | "auto" | "deny";
   /** --read-only: advertise no write/edit/bash/eval to the model. */
   readOnly?: boolean;
+  /** Clipboard/pasted images riding this prompt (vision input). */
+  images?: ReadonlyArray<{
+    mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    base64: string;
+  }>;
 }): Promise<BackendRunInput<"oma">> {
   const catalog = await opts.modelRuntime.getCatalog();
   const model = opts.modelId
@@ -133,7 +164,7 @@ export async function buildCliRunInput(opts: {
   const input: BackendRunInput<"oma"> = {
     input: {
       inputId: `cli-in-${randomUUID()}`,
-      message: { role: "user", text: opts.prompt },
+      message: buildUserMessage(opts.prompt, opts.images),
     },
     run: {
       runId,

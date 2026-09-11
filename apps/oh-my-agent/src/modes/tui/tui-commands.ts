@@ -20,6 +20,7 @@ import {
 } from "../../core/settings/project-settings.js";
 import { buildSkillIndex } from "../../core/tools/index.js";
 import { listMcpServers, testMcpServer } from "../../core/tools/mcp-mount.js";
+import { sniffMediaType } from "../../core/tools/read-image.js";
 import { buildSessionCommands } from "./tui-commands-session.js";
 import { formatTokens } from "./tui-format.js";
 import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
@@ -64,10 +65,30 @@ export interface TuiSessionContext {
   runCommandText?: (text: string) => Promise<void>;
   /** Session permission-mode override (/permission): "off" = ungated. */
   permissionOverride?: "ask" | "auto" | "deny" | "off";
+  /** Images queued by /paste: ride the next submitted message, then clear. */
+  pendingImages?: Array<{
+    mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    base64: string;
+  }>;
   pickModelInteractive: () => Promise<void>;
   forkTreeInteractive: () => Promise<void>;
 }
 
+/** Clipboard image via the platform reader (Linux X11/Wayland). Returns
+ *  null when no reader is available or the clipboard holds no image. */
+function clipboardImage(): { mediaType: "image/png"; bytes: Uint8Array } | null {
+  const readers: string[][] = [
+    ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
+    ["wl-paste", "--type", "image/png", "--no-newline"],
+  ];
+  for (const cmd of readers) {
+    const proc = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "ignore" });
+    if (proc.exitCode === 0 && proc.stdout.byteLength > 0) {
+      return { mediaType: "image/png", bytes: new Uint8Array(proc.stdout) };
+    }
+  }
+  return null;
+}
 export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
   const commands: ReadonlyArray<{
     name: string;
@@ -94,6 +115,33 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         ctx.pushStatus(
           groups.flatMap(([group, entries]) => [`[${group}]`, ...entries.map((e) => `  ${e}`)]),
+        );
+      },
+    },
+    {
+      name: "paste",
+      description: "attach the clipboard image to the next message",
+      group: "general",
+      live: true,
+      run: () => {
+        const img = clipboardImage();
+        if (!img) {
+          ctx.pushStatus("no image on the clipboard (needs xclip or wl-paste)");
+          return;
+        }
+        if (img.bytes.byteLength > 5 * 1024 * 1024) {
+          ctx.pushStatus(`clipboard image too large (${img.bytes.byteLength} bytes > 5MB)`);
+          return;
+        }
+        const sniffed = sniffMediaType(img.bytes) ?? img.mediaType;
+        let binary = "";
+        for (const byte of img.bytes) binary += String.fromCharCode(byte);
+        ctx.pendingImages = [
+          ...(ctx.pendingImages ?? []),
+          { mediaType: sniffed as "image/png", base64: btoa(binary) },
+        ];
+        ctx.pushStatus(
+          `image attached (${Math.round(img.bytes.byteLength / 1024)}kB) — sends with your next message`,
         );
       },
     },

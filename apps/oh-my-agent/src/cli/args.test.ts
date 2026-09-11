@@ -160,7 +160,6 @@ describe("buildCliRunInput model selection", () => {
     expect(input.metadata).toBeUndefined();
   });
 });
-
 describe("permission mode resolution", () => {
   test("explicit flag wins over the workspace setting; off = ungated", () => {
     const ws = mkdtempSync(join(tmpdir(), "oma-perm-"));
@@ -188,6 +187,37 @@ describe("permission mode resolution", () => {
     });
     expect(input.run.permissionMode).toBe("ask");
     expect(input.workspace.access).toBe("read_only");
+  });
+});
+
+describe("vision images on the CLI run input", () => {
+  test("images become text+image blocks on the user message", async () => {
+    const rt = createModelRuntime();
+    rt.registerProvider(fakeProvider({}));
+    const input = await buildCliRunInput({
+      prompt: "look at this",
+      workspaceRoot: "/tmp",
+      modelRuntime: rt,
+      images: [{ mediaType: "image/png", base64: "aGk=" }],
+    });
+    const msg = input.input.message as {
+      blocks?: Array<{ type: string; text?: string; mediaType?: string }>;
+    };
+    expect(msg.blocks).toHaveLength(2);
+    expect(msg.blocks?.[0]?.type).toBe("text");
+    expect(msg.blocks?.[0]?.text).toBe("look at this");
+    expect(msg.blocks?.[1]).toMatchObject({ type: "image", mediaType: "image/png" });
+  });
+
+  test("no images keeps the plain text message", async () => {
+    const rt = createModelRuntime();
+    rt.registerProvider(fakeProvider({}));
+    const input = await buildCliRunInput({
+      prompt: "plain",
+      workspaceRoot: "/tmp",
+      modelRuntime: rt,
+    });
+    expect((input.input.message as { blocks?: unknown }).blocks).toBeUndefined();
   });
 });
 
