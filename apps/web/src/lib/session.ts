@@ -9,7 +9,7 @@ function env() {
 /** Test hook: bun test shares one process across files (alphabetical load
  *  order), so the first file that touches this module freezes the env
  *  snapshot for every later file. Tests that need different env values
- *  reset the cache after writing process.env. */
+ *  reset the cache after writing process env entries. */
 export function resetEnvCacheForTests(): void {
   _env = undefined;
 }
