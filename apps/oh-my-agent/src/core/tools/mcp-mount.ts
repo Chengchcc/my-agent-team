@@ -73,7 +73,6 @@ export function validateMcpCommand(command: string, workspaceRoot: string): stri
     if (!existsSync(resolved)) return `command not found: ${command}`;
     if (!statSync(resolved).isFile()) return `command is not a file: ${command}`;
     try {
-      // biome-ignore lint/correctness/noNodejsModules: boundary module
       accessSync(resolved, constants.X_OK);
     } catch {
       return `command not executable: ${command}`;
