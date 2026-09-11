@@ -119,6 +119,7 @@ export function createTerminalIo(
   let busySeconds = 0;
   let elapsedTimer: Timer | undefined;
   let focused = true;
+  let frozen = false;
 
   // Persistent prompt history (pi's HistoryStorage): loaded newest-first,
   // fed to the editor (up/down recall, in-memory cap 100) and appended on
@@ -357,7 +358,24 @@ export function createTerminalIo(
   tui.terminal.write("\x1b[?1004h");
 
   return {
+    setFrozen(next: boolean) {
+      if (frozen === next) return;
+      frozen = next;
+      if (frozen) {
+        // Zero writes while frozen: stop the loader animation and the
+        // elapsed-seconds timer (both would requestRender via setMessage).
+        loader?.stop();
+        clearInterval(elapsedTimer);
+        elapsedTimer = undefined;
+      } else {
+        if (busy) startElapsedTimer();
+        loader?.start();
+        shell.updateWorkingMessage();
+        tui.requestRender();
+      }
+    },
     render(state: TuiViewState) {
+      if (frozen) return;
       shell.render(state);
     },
     waitForInput() {

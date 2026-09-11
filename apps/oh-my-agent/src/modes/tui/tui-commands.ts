@@ -66,6 +66,8 @@ export interface TuiSessionContext {
   runCommandText?: (text: string) => Promise<void>;
   /** Session permission-mode override (/permission): "off" = ungated. */
   permissionOverride?: "ask" | "auto" | "deny" | "off";
+  /** Render freeze (/freeze): io swallows paints until toggled off. */
+  frozen?: boolean;
   /** Images queued by /paste: ride the next submitted message, then clear. */
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
@@ -413,6 +415,27 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       run: () => {
         ctx.state.showToolDetail = !ctx.state.showToolDetail;
         ctx.pushStatus(`tool detail ${ctx.state.showToolDetail ? "expanded" : "collapsed"}`);
+      },
+    },
+    {
+      name: "freeze",
+      description: "pause terminal output — scroll freely, /freeze to resume",
+      group: "view",
+      live: true,
+      run: () => {
+        const next = !(ctx.io.setFrozen ? ctx.frozen : false);
+        if (!ctx.io.setFrozen) {
+          ctx.pushStatus("freeze not supported by this driver");
+          return;
+        }
+        ctx.io.setFrozen(next);
+        ctx.frozen = next;
+        ctx.pushStatus(
+          next
+            ? "output frozen — scroll freely; /freeze to resume (stream continues in background)"
+            : "output resumed",
+        );
+        ctx.io.render(ctx.state);
       },
     },
     {

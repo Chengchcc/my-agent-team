@@ -39,6 +39,11 @@ export type TuiCommand = "toggleThinking" | "toggleToolDetail" | "abort" | "pick
 export interface TuiIo {
   /** Render the current view state. */
   render(state: TuiViewState): void;
+  /** Freeze/unfreeze terminal output. While frozen, io.render is a no-op and
+   *  the loader/elapsed timers pause — zero terminal writes, so the user can
+   *  scroll the native scrollback (even mid-stream) without being yanked
+   *  back. Unfreezing repaints once with the latest state. */
+  setFrozen?(next: boolean): void;
   /** Wait for the next user submit; resolves null on quit (Ctrl-D / /exit).
    *  Submits that arrive while a run is live (busy) are delivered to
    *  onLiveInput instead - waitForInput only resolves between runs. */
