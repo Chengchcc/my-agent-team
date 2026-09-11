@@ -390,9 +390,17 @@ export class TUI extends Container {
   /** Global callback for debug key (Shift+Ctrl+D). Called before input is forwarded to focused component. */
   public onDebug?: () => void;
   private renderRequested = false;
+  /** Duration of the previous frame (drives adaptive backpressure). */
+  private lastFrameCostMs = 0;
   private renderTimer: NodeJS.Timeout | undefined;
   private lastRenderAt = 0;
   private static readonly MIN_RENDER_INTERVAL_MS = 16;
+  /** Adaptive backpressure (omp #4145): the next frame starts no sooner than
+   *  last_frame_start + 2 × last_frame_cost, targeting a ~50% render duty
+   *  cycle so a heavy frame (long markdown tail) cannot saturate the loop and
+   *  starve input/loader paints. Capped so a one-off spike cannot lock the
+   *  UI. */
+  private static readonly MAX_ADAPTIVE_RENDER_MS = 200;
   private cursorRow = 0; // Logical cursor row (end of rendered content)
   private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
   private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
@@ -855,7 +863,9 @@ export class TUI extends Container {
         }
         this.renderRequested = false;
         this.lastRenderAt = performance.now();
+        const frameStart = this.lastRenderAt;
         this.doRender();
+        this.lastFrameCostMs = performance.now() - frameStart;
       });
       return;
     }
@@ -869,7 +879,10 @@ export class TUI extends Container {
       return;
     }
     const elapsed = performance.now() - this.lastRenderAt;
-    const delay = Math.max(0, TUI.MIN_RENDER_INTERVAL_MS - elapsed);
+    const cadenceDelay = Math.max(0, TUI.MIN_RENDER_INTERVAL_MS - elapsed);
+    const adaptiveFloor = Math.min(TUI.MAX_ADAPTIVE_RENDER_MS, this.lastFrameCostMs * 2);
+    const adaptiveDelay = Math.max(0, adaptiveFloor - elapsed);
+    const delay = Math.max(cadenceDelay, adaptiveDelay);
     this.renderTimer = setTimeout(() => {
       this.renderTimer = undefined;
       if (this.stopped || !this.renderRequested) {
@@ -877,7 +890,9 @@ export class TUI extends Container {
       }
       this.renderRequested = false;
       this.lastRenderAt = performance.now();
+      const frameStart = this.lastRenderAt;
       this.doRender();
+      this.lastFrameCostMs = performance.now() - frameStart;
       if (this.renderRequested) {
         this.scheduleRender();
       }

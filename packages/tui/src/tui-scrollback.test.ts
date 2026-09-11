@@ -52,3 +52,40 @@ describe("TUI provider native scrollback", () => {
     expect(vt.getViewport().slice(-5)).toEqual(["V0", "V1", "V2", "V3", "V4"]);
   });
 });
+
+describe("adaptive render backpressure (omp #4145 port)", () => {
+  test("a slow frame pushes the next ordinary paint out proportionally", async () => {
+    const vt = new VirtualTerminal(40, 8);
+    const tui = new TUI(vt);
+    let frames = 0;
+    tui.setFrameProvider({
+      renderFrame({ rows }: { rows: number }) {
+        frames++;
+        // EVERY frame is expensive — the long-markdown-tail regime the
+        // backpressure exists for (~80ms of work per paint).
+        const end = performance.now() + 80;
+        while (performance.now() < end) {
+          /* spin */
+        }
+        return { viewport: Array.from({ length: rows }, (_, i) => `row ${i} #${frames}`) };
+      },
+      acknowledgeHistory: () => {},
+    });
+    tui.requestRender();
+    await new Promise((r) => setTimeout(r, 200));
+    const afterFirst = frames;
+    // Hammer ordinary requests for 300ms: with adaptive backpressure the
+    // first (120ms) frame forces the following paint to wait ~240ms, so
+    // only a couple more frames land instead of one per request.
+    const until = Date.now() + 300;
+    while (Date.now() < until) {
+      tui.requestRender();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const total = frames - afterFirst;
+    expect(afterFirst).toBeGreaterThanOrEqual(1);
+    // Adaptive floor = 2 × 80ms = 160ms per frame; 300ms of hammering must
+    // yield a handful of frames, not one per request (~60 without it).
+    expect(total).toBeLessThanOrEqual(4);
+  }, 20_000);
+});
