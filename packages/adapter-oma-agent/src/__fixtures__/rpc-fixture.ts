@@ -49,7 +49,7 @@ if (argv.includes("--list-models")) {
       ],
     })}\n`,
   );
-  process.exit(0);
+  process.exitCode = 0;
 }
 
 const scenario = process.env.RPC_FIXTURE_SCENARIO ?? "normal";
@@ -120,7 +120,11 @@ async function main(): Promise<void> {
               success: false,
               error: "simulated execute failure",
             });
-            process.exit(0);
+            // Natural exit, NOT process.exit(): a synchronous exit can race
+            // the stdout pipe flush and drop the rejection response (CI saw
+            // "process exited (code 0)" instead of the message). Returning
+            // lets Bun flush before the process ends.
+            return;
           }
         }
         // The record carries the spawn cwd (= Run workspace root) so tests
@@ -152,7 +156,7 @@ async function main(): Promise<void> {
             success: false,
             error: "simulated execute failure",
           });
-          process.exit(0);
+          return; // natural exit: flush the rejection response (see above)
         }
         out({ id: cmd.id, type: "response", command: "execute", success: true });
         if (scenario === "exit-before-outcome") {
@@ -307,7 +311,9 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((err: unknown) => {
-  process.stderr.write(`[rpc-fixture] ${err instanceof Error ? err.message : String(err)}\n`);
-  process.exit(1);
-});
+if (!argv.includes("--list-models")) {
+  void main().catch((err: unknown) => {
+    process.stderr.write(`[rpc-fixture] ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
+}
