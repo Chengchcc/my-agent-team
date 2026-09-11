@@ -1,5 +1,5 @@
-import type { NextRequest } from "next/server";
 import { describe, expect, mock, test } from "bun:test";
+import type { NextRequest } from "next/server";
 
 // The route's only dependency worth pinning here is the session gate.
 // proxyRequest itself is covered by src/lib/bff.test.ts — this file asserts
