@@ -154,9 +154,13 @@ export class TuiItemRenderer {
     const wall = wallMs === undefined ? "—" : `${(wallMs / 1000).toFixed(2)}s`;
     const timeoutMs = item.timeoutMs;
     const timeout = timeoutMs === undefined ? "—" : `${(timeoutMs / 1000).toFixed(0)}s`;
+    // omp-style segmented header: tool label (bold, state color) · input
+    // summary (cyan — the highlighted part) · wall/timeout (dim).
+    const argSummary = item.input !== undefined ? summarizeToolArgs(toolName, item.input) : "";
     const header = renderToolHeader({
       icon: mark,
       title: toolName,
+      description: argSummary ? `\u001b[36m${argSummary}\u001b[0m` : undefined,
       meta: [`\u001b[2m⟦Wall: ${wall} | Timeout: ${timeout}⟧\u001b[0m`],
       titleColor,
     });
@@ -169,8 +173,6 @@ export class TuiItemRenderer {
         for (const line of prettyJson(item.input).split("\n")) {
           lines.push(`\u001b[2m${line}\u001b[0m`);
         }
-      } else {
-        lines.push(`\u001b[2m└ ${summarizeToolArgs(toolName, item.input)}\u001b[0m`);
       }
       sections.push({ lines });
     }
