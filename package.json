@@ -6,8 +6,7 @@
   "packageManager": "bun@1.3.14",
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "packages/sandbox"
+    "packages/*"
   ],
   "scripts": {
     "build": "turbo run build",
@@ -24,8 +23,9 @@
     "test": "turbo run test --concurrency=1",
     "typecheck": "turbo run typecheck --concurrency=1",
     "audit:contracts": "bun run scripts/audit-contracts.ts",
+    "audit:workspace": "bun run scripts/audit-workspace.ts",
     "audit:docs": "bun run scripts/audit-docs.ts",
-    "audit": "bun run audit:contracts && bun run audit:docs && bun run audit:ui",
+    "audit": "bun run audit:contracts && bun run audit:workspace && bun run audit:docs && bun run audit:ui",
     "audit:ui": "bun run scripts/audit-ui.ts",
     "audit:coverage": "bun run scripts/audit-coverage.ts",
     "quality:mutate": "bun run scripts/quality-mutate.ts",

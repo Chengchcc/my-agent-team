@@ -39,14 +39,17 @@ L5 Surfaces     Frontend web / IM bot - talk HTTP/SSE to backend
 L4 Backend      Multi-agent service (Elysia HTTP, auth, tenancy, runner pool)
 L3 Adapter      packages/adapter-* - child process boundary (spawn / JSONL RPC / steer / abort / approval)
 L2 Runtime      apps/oh-my-agent/src/core - createOmaSession(): model/tool loop, plugins, compaction, todo
-L1 Protocols    Type contracts: Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/message, agent-contract, workflow)
+L1 Protocols    Type contracts: Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/message, agent-contract, api-contract, workflow)
 ```
 
-**Package dependency graph:**
-- Leaves: `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/workflow`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/tui`
-- Contracts: `@chengchenccc/agent-contract` (spawn-neutral `AgentBackend`; the 4 adapters implement it)
+**Package dependency graph** (`audit:workspace` fails if a workspace member is
+missing from this list; `@chengchenccc/` is the scope of every name below):
+- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`
+- Contracts: `@chengchenccc/agent-contract` (spawn-neutral `AgentBackend`), `@chengchenccc/api-contract` (HTTP `App` + SSE event maps — the web↔backend wire, type-only)
+- Adapters (child-process boundary): `@chengchenccc/adapter-oma-agent`, `@chengchenccc/adapter-claude-agent`, `@chengchenccc/adapter-pi-agent`, `@chengchenccc/adapter-omp-agent` (the 4 implement `AgentBackend`), `@chengchenccc/adapter-mcp` (MCP client mount — not an `AgentBackend`)
+- Runtime support: `@chengchenccc/ai` (provider + model registry, `AnthropicChatModel`), `@chengchenccc/test-helpers` (`echoModel()`)
 - Plugins: 0 plugins as standalone packages; oma-native todo/progressive-skill live in `apps/oh-my-agent/src/core`
-- Apps: `@chengchenccc/backend` (consumes all), `@chengchenccc/web` (Next.js), `@chengchenccc/lark-bot`, `@chengchenccc/oh-my-agent` (oma CLI)
+- Apps: `@chengchenccc/backend` (consumes all), `@chengchenccc/oh-my-agent` (oma CLI + runtime), `@chengchenccc/web` (Next.js), `@chengchenccc/lark-bot`
 
 **Data flow:** Backend is the single truth source. Frontend uses Eden Treaty typed client to call BFF proxy (`/api/bff/[...path]`) which forwards to backend with auth headers. SSE events from backend flow through Next.js BFF to React Query subscriptions.
 
@@ -80,7 +83,7 @@ bun run lint                   # Biome check + ESLint
 bun run typecheck              # tsc --noEmit across all packages (turbo)
 bun run test                   # Run all tests (turbo)
 bun test                       # Run tests at root
-bun run audit                  # contracts + docs + ui gates (fast)
+bun run audit                  # contracts + workspace + docs + ui gates (fast)
 bun run audit:coverage         # focused coverage floors for the oma runtime (~60s)
 bun run quality:mutate         # mutation probe: does the suite FAIL when behaviour breaks?
 

@@ -12,6 +12,8 @@
 
 `audit:docs` 门禁：活区相对链接必须存在(死链 >0 即红)、MANIFEST 收编文件必须存在、活区不得教已删除概念(词表见 `scripts/audit-docs.ts`)。
 
+`audit:workspace` 门禁：`workspaces` glob 覆盖全部 `apps/*`|`packages/*` 成员且无冗余 pattern、根 `tsconfig.json` references 与磁盘上有 `tsconfig.json` 的成员双向一致、AGENTS.md 包图必须点名每个成员(见 `scripts/audit-workspace.ts`)。
+
 ## 整体架构
 
 1. `system-overview.md`

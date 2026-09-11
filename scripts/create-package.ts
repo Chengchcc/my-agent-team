@@ -31,6 +31,23 @@ function assertSafeDirectoryName(value: string): void {
   }
 }
 
+/** Root tsconfig.json is a solution-style `references` file that CI never runs.
+ *  A member missing from it is silently excluded from `tsc -b` and invisible to
+ *  every gate (audit:workspace W2 catches it, but the sanctioned create path
+ *  should not introduce the drift in the first place). */
+export async function registerProjectReference(relativeDir: string): Promise<void> {
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const config = JSON.parse(await readFile(tsconfigPath, "utf8")) as {
+    references?: { path: string }[];
+  };
+  const entry = `./${relativeDir}`;
+  const paths = new Set((config.references ?? []).map((ref) => ref.path));
+  if (paths.has(entry)) return;
+  paths.add(entry);
+  config.references = [...paths].sort().map((p) => ({ path: p }));
+  await writeFile(tsconfigPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 async function replacePlaceholders(
   filePath: string,
   replacements: Record<string, string>,
@@ -119,14 +136,19 @@ async function main(): Promise<void> {
   }
 
   const relativeTarget = path.relative(rootDir, targetDir);
+  await registerProjectReference(relativeTarget);
   console.log(`Created ${relativeTarget}`);
+  console.log("Registered in root tsconfig.json references");
   console.log("Next steps:");
   console.log("  bun install");
+  console.log(`  bun run audit:workspace   # AGENTS.md graph must name it too`);
   console.log(`  bun run --filter ${packageName.trim()} typecheck`);
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exitCode = 1;
-});
+if (import.meta.main) {
+  main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exitCode = 1;
+  });
+}
