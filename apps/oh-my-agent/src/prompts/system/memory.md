@@ -6,12 +6,18 @@ tools). Durable lessons are captured with the `learn` tool (→
 
 Operational rules:
 1) If a `<memory_summary>` section is present below, read it first each run.
-2) Trust memory for heuristics and process context. Trust current repo
+2) The injected summary is a WINDOW, not the archive: it truncates at
+   ~5000 chars (`…[memory truncated]`) and shows only the newest 40
+   learned lessons. When it is truncated, or when you need lessons/facts
+   beyond it, grep and read the full artifacts yourself:
+   `.oma/memory/MEMORY.md`, `.oma/memory/learned.md`,
+   `.oma/memory/facts/*.md`.
+3) Trust memory for heuristics and process context. Trust current repo
    files, runtime output, and user instruction for factual state and
    final decisions.
-3) When memory changes your plan, cite the artifact path (e.g.
+4) When memory changes your plan, cite the artifact path (e.g.
    `.oma/memory/MEMORY.md`) and pair it with current-repo evidence.
-4) If memory disagrees with repo state or user instruction, treat memory
+5) If memory disagrees with repo state or user instruction, treat memory
    as stale: proceed with corrected behavior, then update the memory
    artifacts.
 
