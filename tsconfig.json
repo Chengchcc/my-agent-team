@@ -5,18 +5,20 @@
     { "path": "./apps/oh-my-agent" },
     { "path": "./apps/lark-bot" },
     { "path": "./apps/web" },
-    { "path": "./packages/adapter-oma-agent" },
+    { "path": "./packages/adapter-claude-agent" },
     { "path": "./packages/adapter-mcp" },
-    { "path": "./packages/agent" },
-    { "path": "./packages/agent-backend" },
+    { "path": "./packages/adapter-oma-agent" },
+    { "path": "./packages/adapter-omp-agent" },
+    { "path": "./packages/adapter-pi-agent" },
+    { "path": "./packages/agent-contract" },
     { "path": "./packages/ai" },
     { "path": "./packages/api-contract" },
     { "path": "./packages/config" },
-    { "path": "./packages/conversation" },
-    { "path": "./packages/core" },
-    { "path": "./packages/loop" },
     { "path": "./packages/message" },
+    { "path": "./packages/sandbox" },
+    { "path": "./packages/source-fetch" },
     { "path": "./packages/test-helpers" },
-    { "path": "./packages/tools-common" }
+    { "path": "./packages/tui" },
+    { "path": "./packages/workflow" }
   ]
 }
