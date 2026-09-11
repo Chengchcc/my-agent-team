@@ -401,12 +401,10 @@ export class TuiRenderShell {
               : "";
           return summary.trim() ? `${name} · ${summary}` : name;
         }
-        if (item.kind === "assistant" && item.streaming) {
-          const source = `${item.thinking ?? ""}
-${item.text ?? ""}`;
-          const first = source.split("\n", 1)[0]?.trim() ?? "";
-          if (first) return first.length > 80 ? `${first.slice(0, 80)}…` : first;
-        }
+        // Streaming assistant/thinking text is NEVER mirrored into the loader:
+        // the transcript already renders it, and a content-identical loader
+        // line reads as a duplicated message (omp keeps its working loader
+        // static for the same reason).
       }
     }
     // Fallback: a busy run with a tool item (even if the streaming flag is

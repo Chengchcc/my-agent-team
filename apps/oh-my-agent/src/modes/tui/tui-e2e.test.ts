@@ -553,3 +553,51 @@ describe("tui paint stability (differential frame writes)", () => {
     }
   }, 40_000);
 });
+
+describe("loader content policy (omp parity)", () => {
+  test("the loader never mirrors streaming thinking/assistant text", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-loader-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-loader-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    // Collapsed thinking renders its FIRST line in the transcript; the old
+    // loader mirrored that same first line — the reported duplication.
+    // 20 thinking deltas at 30ms hold the run busy ~600ms with the loader up.
+    process.env.OMA_FAKE_THINKING_LINES = [
+      "distinctive thinking first line marker",
+      ...Array.from({ length: 19 }, (_, i) => `thinking continuation ${i}`),
+    ].join("\n");
+    process.env.OMA_FAKE_THINKING_DELAY_MS = "30";
+    try {
+      const vt = new VirtualTerminal(100, 24);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+      await typeAndSubmit(vt, "go");
+      // While busy: the collapsed thinking row shows the first line; the
+      // loader row must be status-only, never an echo of that line.
+      let loaderRow: string | undefined;
+      let sawMarker = false;
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const scr = screen(vt);
+        if (scr.includes("distinctive thinking first line marker")) sawMarker = true;
+        loaderRow = scr.split("\n").find((l) => l.includes("esc to abort"));
+        if (sawMarker && loaderRow) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(sawMarker).toBe(true);
+      expect(loaderRow).toBeDefined();
+      expect(loaderRow).not.toContain("distinctive");
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_THINKING_LINES;
+      delete process.env.OMA_FAKE_THINKING_DELAY_MS;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
