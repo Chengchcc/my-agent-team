@@ -81,18 +81,19 @@ export function createLearnTool(opts: {
       }
       const next = [line, ...existing].slice(0, MAX_LESSONS);
       writeLessons(next);
-      // Vector double-write (best-effort index update; the file stays the
-      // source of truth).
+      // Vector double-write: the index update must never gate the lesson.
+      // learned.md already holds it, and a cold provider begins by fetching
+      // ~135MB of ONNX weights — awaiting that inside a tool call stalls the
+      // run for minutes. Fire-and-forget; the file is the source of truth and
+      // the DB is only an index.
       if (opts.vector) {
-        try {
-          await retainMemory(opts.vector.store, opts.vector.provider, {
-            content: cappedContent,
-            ...(cappedContext ? { context: cappedContext } : {}),
-            source: "learn",
-          });
-        } catch {
+        void retainMemory(opts.vector.store, opts.vector.provider, {
+          content: cappedContent,
+          ...(cappedContext ? { context: cappedContext } : {}),
+          source: "learn",
+        }).catch(() => {
           /* file layer already won */
-        }
+        });
       }
       return { learned: true, count: next.length };
     },

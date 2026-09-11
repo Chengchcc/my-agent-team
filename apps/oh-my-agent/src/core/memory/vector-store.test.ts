@@ -176,6 +176,37 @@ describe("self-review regressions", () => {
     expect(needleSegments("=> --")).toEqual([]);
   });
 
+  test("backfill reconciles incrementally: a lesson that missed the index is healed", async () => {
+    const { getVectorMemory, backfillLearnedLessons, resetVectorMemoryForTests } = await import(
+      "./vector-memory.js"
+    );
+    resetVectorMemoryForTests();
+    const ws = join(tmp, `bf2-${crypto.randomUUID()}`);
+    mkdirSync(join(ws, ".oma", "memory"), { recursive: true });
+    const learned = join(ws, ".oma", "memory", "learned.md");
+    writeFileSync(learned, "- [2026-09-11] first lesson\n");
+    const saved = process.env.OMA_EMBEDDINGS;
+    process.env.OMA_EMBEDDINGS = "off"; // no network in unit tests
+    try {
+      const memory = getVectorMemory(ws)!;
+      expect(await backfillLearnedLessons(memory, ws)).toBe(1);
+
+      // A lesson appended while the fire-and-forget index write never landed:
+      // the store is NON-empty, so a one-shot backfill would never see it.
+      writeFileSync(learned, "- [2026-09-11] second lesson\n- [2026-09-11] first lesson\n");
+      expect(await backfillLearnedLessons(memory, ws)).toBe(1);
+      expect(memory.store.count()).toBe(2);
+
+      // Steady state: nothing new, nothing re-added.
+      expect(await backfillLearnedLessons(memory, ws)).toBe(0);
+      expect(memory.store.count()).toBe(2);
+    } finally {
+      if (saved === undefined) delete process.env.OMA_EMBEDDINGS;
+      else process.env.OMA_EMBEDDINGS = saved;
+    }
+    resetVectorMemoryForTests();
+  });
+
   test("backfill is single-flight: concurrent calls embed once", async () => {
     const { getVectorMemory, backfillLearnedLessons, resetVectorMemoryForTests } = await import(
       "./vector-memory.js"

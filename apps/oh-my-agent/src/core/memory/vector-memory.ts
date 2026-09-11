@@ -67,9 +67,13 @@ export function resetVectorMemoryForTests(): void {
  *  cold start would otherwise race two identical backfills (double embed). */
 const backfillInFlight = new WeakMap<VectorMemory, Promise<number>>();
 
-/** One-time backfill of the existing learned.md into the store (only when
- *  the store is empty — later lessons arrive via the learn double-write).
- *  Best-effort: embedding failures land FTS-only rows. */
+/** Reconcile learned.md into the store: retain every lesson the index is
+ *  missing, skip the ones it already holds. Incremental rather than one-shot,
+ *  because the learn double-write is fire-and-forget — a process that exits
+ *  before the async index write lands would otherwise lose that lesson
+ *  permanently. The per-lesson existence check runs BEFORE embedding, so a
+ *  steady-state pass costs N index lookups and no inference. Best-effort:
+ *  embedding failures land FTS-only rows. */
 export function backfillLearnedLessons(
   memory: VectorMemory,
   workspaceRoot: string,
@@ -82,7 +86,6 @@ export function backfillLearnedLessons(
 }
 
 async function runBackfill(memory: VectorMemory, workspaceRoot: string): Promise<number> {
-  if (memory.store.count() > 0) return 0;
   const learned = join(workspaceRoot, ".oma", "memory", "learned.md");
   if (!existsSync(learned)) return 0;
   const lines = readFileSync(learned, "utf8")
@@ -94,8 +97,14 @@ async function runBackfill(memory: VectorMemory, workspaceRoot: string): Promise
     // Format: - [date] **context** content  |  - [date] content
     const m = /^-\s*\[\d{4}-\d{2}-\d{2}\]\s+(?:\*\*(.+?)\*\*\s+)?(.+)$/.exec(line);
     if (!m) continue;
+    const content = m[2]!;
+    // Already indexed: skip. This is what keeps a steady-state pass free (no
+    // embedding) and keeps `added` honest — retainMemory returns the EXISTING
+    // id for a duplicate, so it cannot be used to tell "wrote" from "already
+    // there".
+    if (memory.store.byContent(content)) continue;
     const id = await retainMemory(memory.store, memory.provider, {
-      content: m[2]!,
+      content,
       ...(m[1] ? { context: m[1] } : {}),
       source: "backfill",
     });

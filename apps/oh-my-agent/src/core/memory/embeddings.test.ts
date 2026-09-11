@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_EMBEDDING_MODEL, ensureEmbeddingModel } from "./embeddings.js";
@@ -91,5 +91,87 @@ describe("ensureEmbeddingModel negative cache", () => {
     const result = await ensureEmbeddingModel(MODEL, dir, { hosts: DEAD_HOSTS });
     expect(result.ok).toBe(true);
     expect(existsSync(join(modelDir, ".unavailable"))).toBe(false);
+  });
+});
+
+describe("ensureEmbeddingModel resume", () => {
+  test("continues a partial with a Range request instead of deleting it", async () => {
+    const dir = cache();
+    const modelDir = join(dir, MODEL);
+    mkdirSync(modelDir, { recursive: true });
+    const onnx = "model_optimized.onnx";
+    const body = "ONNXBYTES";
+    // 5 of 9 bytes already on disk from a prior aborted attempt.
+    writeFileSync(join(modelDir, `${onnx}.partial`), body.slice(0, 5));
+
+    const ranges: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const range = req.headers.get("range");
+        if (range) ranges.push(range);
+        const start = range ? Number(range.match(/bytes=(\d+)-/)?.[1] ?? 0) : 0;
+        if (range) {
+          const slice = body.slice(start);
+          return new Response(slice, {
+            status: 206,
+            headers: {
+              "content-range": `bytes ${start}-${body.length - 1}/${body.length}`,
+              "content-length": String(slice.length),
+            },
+          });
+        }
+        return new Response(body, {
+          status: 200,
+          headers: { "content-length": String(body.length) },
+        });
+      },
+    });
+    try {
+      const result = await ensureEmbeddingModel(MODEL, dir, {
+        hosts: [`http://127.0.0.1:${server.port}`],
+      });
+      expect(result.ok).toBe(true);
+      expect(ranges.some((r) => r.startsWith("bytes=5-"))).toBe(true);
+      expect(readFileSync(join(modelDir, onnx), "utf-8")).toBe(body);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a transient failure keeps the partial for a later resume", async () => {
+    const dir = cache();
+    const modelDir = join(dir, MODEL);
+    mkdirSync(modelDir, { recursive: true });
+    const partial = join(modelDir, "config.json.partial");
+    writeFileSync(partial, "half");
+    const result = await ensureEmbeddingModel(MODEL, dir, { hosts: DEAD_HOSTS });
+    expect(result.ok).toBe(false);
+    expect(readFileSync(partial, "utf-8")).toBe("half");
+  });
+
+  test("a held download lock defers to the other process", async () => {
+    const dir = cache();
+    const modelDir = join(dir, MODEL);
+    mkdirSync(modelDir, { recursive: true });
+    // Our own pid is unambiguously alive, so the lock reads as held.
+    writeFileSync(join(modelDir, ".download.lock"), String(process.pid));
+    const result = await ensureEmbeddingModel(MODEL, dir, { hosts: DEAD_HOSTS });
+    expect(result.ok).toBe(false);
+    expect(result.missing).toContain("in progress");
+  });
+
+  test("sweeps legacy <name>.<pid>.tmp partials but keeps the resumable one", async () => {
+    const dir = cache();
+    const modelDir = join(dir, MODEL);
+    mkdirSync(modelDir, { recursive: true });
+    const legacy = join(modelDir, "config.json.48930.tmp");
+    const resumable = join(modelDir, "config.json.partial");
+    writeFileSync(legacy, "stale bytes from an older build");
+    writeFileSync(resumable, "half");
+    const result = await ensureEmbeddingModel(MODEL, dir, { hosts: DEAD_HOSTS });
+    expect(result.ok).toBe(false); // the sweep runs before the failed fetch
+    expect(existsSync(legacy)).toBe(false);
+    expect(readFileSync(resumable, "utf-8")).toBe("half");
   });
 });

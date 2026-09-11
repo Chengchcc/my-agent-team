@@ -5,8 +5,10 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { agentDir } from "../session/session-file.js";
 
@@ -77,11 +79,22 @@ const TOKENIZER_FILES = [
  *  huggingface.co is blocked pay a full connect-timeout per file otherwise. */
 const DOWNLOAD_HOSTS = ["https://hf-mirror.com", "https://huggingface.co"];
 const FETCH_TIMEOUT_MS = 60_000;
-/** Inline first-attempt cap for the onnx weights: this attempt runs INSIDE
+/** Inline per-attempt cap for the onnx weights: this attempt runs INSIDE
  * a tool call (recall/learn), so a hanging connection must not stall the
- * run for minutes. File-level resume means a slow link just makes progress
- * across processes instead of in one sitting. */
+ * run for minutes. Bytes stream to disk and resume via Range (fetchToFile),
+ * so a slow link advances the file across attempts and processes instead of
+ * restarting it. */
 const ONNX_FETCH_TIMEOUT_MS = 60_000;
+
+/** One writer per model dir at a time: two processes resuming the same
+ * partial would interleave bytes. A lock whose owner is gone (or older than
+ * the stale window) is stolen rather than blocking downloads forever. */
+const DOWNLOAD_LOCK = ".download.lock";
+const DOWNLOAD_LOCK_STALE_MS = 10 * 60 * 1000;
+
+/** Resumable on-disk partial. Stable (no pid) by design — that is what lets a
+ *  later process continue it instead of deleting it. */
+const PARTIAL_SUFFIX = ".partial";
 
 /** Negative cache: a durable fetch failure (HTTP refusal) marks the model
  * unavailable in the cache dir for 24h, so every new process degrades to
@@ -95,9 +108,10 @@ export function embeddingCacheDir(): string {
   return process.env.OMA_EMBEDDING_CACHE ?? join(agentDir(), "models");
 }
 
-/** Fetch outcome: ok, a durable HTTP status, or a transient network
- * failure (timeout / DNS / refused — never negatively cached). */
-type FetchOutcome = { ok: true } | { ok: false; status?: number };
+/** Fetch outcome: ok, a durable HTTP status (negative-cacheable), or a
+ *  transient failure — timeout / DNS / refused / incomplete body. Transients
+ *  are never negatively cached and leave their partial bytes on disk. */
+type FetchOutcome = { ok: true } | { ok: false; status?: number } | { ok: false; incomplete: true };
 
 function readTextOrNull(path: string): string | null {
   try {
@@ -107,21 +121,138 @@ function readTextOrNull(path: string): string | null {
   }
 }
 
-async function downloadTo(url: string, dest: string, timeoutMs: number): Promise<FetchOutcome> {
+/** Total size a response advertises, when it does. A 206 body is only a
+ *  suffix, so the total lives in Content-Range; otherwise Content-Length is
+ *  the whole file. Undefined = chunked/unknown, where a clean stream end is
+ *  the only completion signal. */
+function advertisedTotal(res: Response): number | undefined {
+  const range = res.headers.get("content-range");
+  if (range) {
+    const total = Number(range.split("/")[1]);
+    if (Number.isFinite(total)) return total;
+  }
+  const length = res.headers.get("content-length");
+  if (length) {
+    const n = Number(length);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+/** Stream one URL into `dest`, resuming from whatever is already there via
+ *  Range. Chunks are written as they arrive, so an aborted stream keeps its
+ *  progress — that is what makes the 60s tool-call cap survivable on a slow
+ *  link: each process advances the file instead of restarting it. */
+async function fetchToFile(url: string, dest: string, timeoutMs: number): Promise<FetchOutcome> {
+  let have = 0;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) return { ok: false, status: res.status };
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.byteLength === 0) return { ok: false };
-    await Bun.write(dest, bytes);
+    have = statSync(dest).size;
+  } catch {
+    /* nothing downloaded yet */
+  }
+  const headers: Record<string, string> = {};
+  if (have > 0) headers.Range = `bytes=${have}-`;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) {
+      // A stale partial can outgrow the remote and earn a 416; drop it so the
+      // next attempt starts clean instead of failing forever. Transient, not
+      // a durable refusal to cache.
+      if (res.status === 416 && have > 0) {
+        rmSync(dest, { force: true });
+        return { ok: false, incomplete: true };
+      }
+      return { ok: false, status: res.status };
+    }
+    // Server ignored the Range and replayed the whole file: start over.
+    const resuming = res.status === 206 && have > 0;
+    if (!resuming) have = 0;
+    const expected = advertisedTotal(res);
+    handle = await open(dest, resuming ? "a" : "w");
+    const reader = res.body?.getReader();
+    if (!reader) return { ok: false };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.byteLength > 0) {
+        await handle.write(value);
+        have += value.byteLength;
+      }
+    }
+    await handle.close();
+    handle = undefined;
+    if (have === 0) return { ok: false };
+    if (expected !== undefined && have < expected) return { ok: false, incomplete: true };
     return { ok: true };
   } catch {
-    return { ok: false };
+    return { ok: false, incomplete: true };
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+/** Liveness probe for a lock owner (signal 0 = existence check, no delivery). */
+function ownerAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Acquire the per-model download lock, or return null when a live process
+ *  already holds it. The caller must invoke the returned release fn. */
+function acquireDownloadLock(modelDir: string): (() => void) | null {
+  const lockPath = join(modelDir, DOWNLOAD_LOCK);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      return () => rmSync(lockPath, { force: true });
+    } catch {
+      let owner = Number.NaN;
+      try {
+        owner = Number(readFileSync(lockPath, "utf-8").trim());
+      } catch {
+        /* raced away */
+      }
+      let ageMs = Number.POSITIVE_INFINITY;
+      try {
+        ageMs = Date.now() - statSync(lockPath).mtimeMs;
+      } catch {
+        /* raced away */
+      }
+      if (Number.isFinite(owner) && ownerAlive(owner) && ageMs < DOWNLOAD_LOCK_STALE_MS) {
+        return null;
+      }
+      rmSync(lockPath, { force: true });
+    }
+  }
+  return null;
+}
+
+/** Remove partials left by the pre-`.partial` naming (`<name>.<pid>.tmp`).
+ *  They are unreadable by the current resume path, so without this sweep an
+ *  interrupted download from an older build leaks its bytes until someone
+ *  clears the cache by hand. Runs under the download lock. */
+function sweepLegacyPartials(modelDir: string, dest: string): void {
+  const base = dest.split("/").pop()!;
+  try {
+    for (const entry of readdirSync(modelDir)) {
+      if (entry.startsWith(`${base}.`) && entry.endsWith(".tmp")) {
+        rmSync(join(modelDir, entry), { force: true });
+      }
+    }
+  } catch {
+    /* nothing to sweep */
   }
 }
 
 /** Bring <cacheDir>/<model>/ to the layout fastembed expects. Idempotent:
- *  every existing file is skipped; downloads land as .tmp then rename. */
+ *  every existing file is skipped; downloads stream to a stable `.partial`
+ *  and rename on completion, so an interrupted transfer is resumed (Range)
+ *  rather than restarted. Serialized by a per-model lock. */
 export async function ensureEmbeddingModel(
   model: string,
   cacheDir = embeddingCacheDir(),
@@ -156,44 +287,46 @@ export async function ensureEmbeddingModel(
     { repo: spec.onnxRepo, path: spec.onnxPath, dest: join(modelDir, spec.fileName) },
   ];
 
-  for (const file of wanted) {
-    if (existsSync(file.dest) && Bun.file(file.dest).size > 0) continue;
-    // Sweep orphaned partials from crashed downloads (any pid) first.
-    const base = file.dest.split("/").pop()!;
+  // Serialize downloads per model dir: two writers resuming the same partial
+  // would interleave bytes and corrupt the model.
+  const missing = wanted.filter((f) => !(existsSync(f.dest) && Bun.file(f.dest).size > 0));
+  if (missing.length > 0) {
+    const release = acquireDownloadLock(modelDir);
+    if (!release) return { ok: false, missing: "download already in progress in another process" };
     try {
-      for (const entry of readdirSync(modelDir)) {
-        if (entry.startsWith(`${base}.`) && entry.endsWith(".tmp")) {
-          rmSync(join(modelDir, entry), { force: true });
+      for (const file of missing) {
+        sweepLegacyPartials(modelDir, file.dest);
+        // Stable resume target: no pid suffix, so a partial carries across
+        // processes and is continued rather than deleted.
+        const tmp = `${file.dest}${PARTIAL_SUFFIX}`;
+        let fetched = false;
+        let durableRefusal: number | undefined;
+        for (const host of hosts) {
+          const outcome = await fetchToFile(
+            `${host}/${file.repo}/resolve/main/${file.path}`,
+            tmp,
+            file.path.endsWith(".onnx") ? ONNX_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS,
+          );
+          if (outcome.ok) {
+            fetched = true;
+            break;
+          }
+          if ("status" in outcome) durableRefusal ??= outcome.status;
         }
+        if (!fetched) {
+          if (durableRefusal !== undefined) {
+            writeFileSync(
+              markerPath,
+              `${new Date().toISOString()}\nHTTP ${durableRefusal} from every host\n`,
+            );
+          }
+          return { ok: false, missing: `${file.repo}/${file.path}` };
+        }
+        renameSync(tmp, file.dest);
       }
-    } catch {
-      /* nothing to sweep */
+    } finally {
+      release();
     }
-    const tmp = `${file.dest}.${process.pid}.tmp`;
-    let fetched = false;
-    let durableRefusal: number | undefined;
-    for (const host of hosts) {
-      const outcome = await downloadTo(
-        `${host}/${file.repo}/resolve/main/${file.path}`,
-        tmp,
-        file.path.endsWith(".onnx") ? ONNX_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS,
-      );
-      if (outcome.ok) {
-        fetched = true;
-        break;
-      }
-      durableRefusal ??= outcome.status;
-    }
-    if (!fetched) {
-      if (durableRefusal !== undefined) {
-        writeFileSync(
-          markerPath,
-          `${new Date().toISOString()}\nHTTP ${durableRefusal} from every host\n`,
-        );
-      }
-      return { ok: false, missing: `${file.repo}/${file.path}` };
-    }
-    renameSync(tmp, file.dest);
   }
   // Complete model: clear any stale negative marker.
   if (existsSync(markerPath)) rmSync(markerPath, { force: true });
