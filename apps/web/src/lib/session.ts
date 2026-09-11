@@ -6,6 +6,14 @@ function env() {
   return _env;
 }
 
+/** Test hook: bun test shares one process across files (alphabetical load
+ *  order), so the first file that touches this module freezes the env
+ *  snapshot for every later file. Tests that need different env values
+ *  reset the cache after writing process.env. */
+export function resetEnvCacheForTests(): void {
+  _env = undefined;
+}
+
 function getSessionSecret(): string {
   const secret = env().SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET env is required");

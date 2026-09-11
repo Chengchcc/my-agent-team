@@ -6,9 +6,13 @@ process.env.SESSION_SECRET = "test-hmac-secret";
 process.env.SESSION_COOKIE_SECURE = "1";
 process.env.BACKEND_AUTH_TOKEN = "be-secret";
 
-const { clearCookieHeader, createSession, readSession, sessionCookieHeader } = await import(
-  "./session"
-);
+const {
+  clearCookieHeader,
+  createSession,
+  readSession,
+  resetEnvCacheForTests,
+  sessionCookieHeader,
+} = await import("./session");
 
 const COOKIE = "maw_session";
 
@@ -41,6 +45,9 @@ describe("session round-trip", () => {
   beforeEach(() => {
     delete process.env.SESSION_COOKIE_SECURE;
     process.env.SESSION_COOKIE_SECURE = "1";
+    // Earlier test files (alphabetical load) may have frozen the module's
+    // env cache without the secure opt-in; re-parse per test.
+    resetEnvCacheForTests();
   });
 
   test("createSession → readSession returns the same userId", async () => {
@@ -95,6 +102,11 @@ describe("readSession rejections (all → null, never a throw)", () => {
 });
 
 describe("cookie headers", () => {
+  beforeEach(() => {
+    process.env.SESSION_COOKIE_SECURE = "1";
+    resetEnvCacheForTests();
+  });
+
   test("session cookie carries HttpOnly, SameSite=Lax, Path=/, Secure opt-in", () => {
     const header = sessionCookieHeader("v");
     expect(header).toContain(`${COOKIE}=v`);
