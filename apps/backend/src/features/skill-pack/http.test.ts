@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api, setupTestApp, type TestApp } from "../../testing/app-harness.js";
+import { api, setupTestApp, type TestApp, TOKEN } from "../../testing/app-harness.js";
 
 const SKILL = `---
 name: greeter
@@ -118,5 +118,41 @@ describe("skill-pack routes", () => {
   test("delete of an unknown pack is a 404", async () => {
     const res = await api(harness, "DELETE", `${BASE}/no-such-pack`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("skill-pack mutation routes", () => {
+  test("upload registers a zip-sourced pack and answers 202", async () => {
+    const form = new FormData();
+    form.set("name", "zippy");
+    form.set("description", "uploaded pack");
+    // Minimal end-of-central-directory record: the install session owns the
+    // real unzip; the route contract under test is registration + 202.
+    form.set(
+      "file",
+      new File([Buffer.concat([Buffer.from("PK\x05\x06"), Buffer.alloc(18)])], "pack.zip"),
+    );
+    const res = await harness.app.handle(
+      new Request(`http://localhost${BASE}/upload`, {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN },
+        body: form,
+      }),
+    );
+    expect(res.status).toBe(202);
+    const pack = (await res.json()) as { id: string; sourceKind: string };
+    expect(pack.sourceKind).toBe("zip");
+  });
+
+  test("sync on a non-git pack is a 400 with the reason", async () => {
+    const res = await api(harness, "POST", `${BASE}/builtin/sync`, {});
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("Cannot sync non-git pack");
+  });
+
+  test("deleting the builtin pack is refused (immutable), 409", async () => {
+    const res = await api(harness, "DELETE", `${BASE}/builtin`);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBeTruthy();
   });
 });
