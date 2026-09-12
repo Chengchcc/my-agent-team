@@ -24,11 +24,30 @@ into `agent-loop-run.ts` when you need tool-execution detail. Note that
 
 | File | What it is |
 |---|---|
-| `run-runtime.ts` | `assembleRunRuntime()`: tool table, MCP mounts, permission gates, plugins, budgets, subagents. Big by design — it is the ONE place that resolves "what does this Run get". |
-| `create-runtime.ts` | `createOmaRuntime()`: the per-Run facade the modes use (`run/steer/stop/close` + outcome mapping). |
+| `run-runtime.ts` | `assembleRunRuntime()`: the ONE place that resolves "what does this Run get". Internally a sequence of named stage builders (same file): `buildNativeToolStage` (tool table + MCP mount + timeout wrap), `buildModelPlumbing` (summarizer / budget / caps), `createRunPermissionGates` (ADR 0020 gates), `createDelegationStack` (subagents + vm scripts + hub plugin). Add a capability by extending a stage, not by growing the orchestration body. |
+| `create-runtime.ts` | `createOmaRuntime()`: the per-Run facade the modes use (`run/steer/stop/close` + outcome mapping). `RunRuntimeDeps` extends its options type — shared fields have ONE definition. |
 | `runtime-catalog.ts` / `model-catalog.ts` | models.yml loading and the Backend catalog projection. |
 | `model-effort.ts` | The single reasoning-effort → provider-options mapping. |
 | `tool-filter.ts` / `tool-pruning.ts` | `--tools` filtering; read-side pruning of old tool results (opt-in via settings `prune`). |
+
+## Child-agent subsystems (how they relate)
+
+Three core modules cooperate; the seams are deliberate:
+
+- `delegation/` — the **executor**: spawns subagent loops (role files under
+  `.oma/agents/`), enforces caps/budget, and the `delegation-tools` plugin
+  (`delegation_batch` fan-out).
+- `orchestrate/` — the **script engine**: `evaluateOrchestrationScript` runs a
+  vm-sandboxed JS script whose `agent()`/`pipeline()` primitives route INTO the
+  delegation executor. The `orchestrate-tool` plugin (and the Run input's
+  `workflow` field) are its surfaces.
+- `coordination/` — the **handle ledger**: `CoordinationRegistry` tracks
+  background jobs and subagent handles per scope; the `hub-tool` plugin is its
+  model-facing query/steer/stop surface. The registry outlives a Run only when
+  a long-lived surface (TUI) passes its own instance.
+
+ run-runtime's `createDelegationStack` wires the three together; usage
+ accounting and the budget gate stay at that call site.
 
 ## Supporting policy
 

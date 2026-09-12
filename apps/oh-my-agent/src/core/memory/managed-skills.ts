@@ -1,6 +1,15 @@
-import { lstatSync, mkdirSync, readFileSync, rmSync, type Stats, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  type Stats,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "../session/session-file.js";
+import { buildSkillIndex } from "../tools/skills.js";
 
 /** Managed-skills primitives for the `learn` tool (omp managed-skills port).
  *  Managed skills live isolated in `<agentDir>/managed-skills` and resolve
@@ -134,4 +143,35 @@ export function deleteManagedSkill(name: string): void {
 /** Read a managed skill body (frontmatter-stripped). Test helper. */
 export function readManagedSkillBody(name: string): string {
   return readFileSync(join(managedSkillsDir(), sanitizeSkillName(name), "SKILL.md"), "utf-8");
+}
+
+export interface SkillArg {
+  action: "create" | "update";
+  name: string;
+  description: string;
+  body: string;
+}
+
+export function parseSkillArg(raw: unknown): SkillArg | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const o = raw as Record<string, unknown>;
+  const action = o.action === "update" ? "update" : o.action === "create" ? "create" : null;
+  const name = typeof o.name === "string" ? o.name : "";
+  const description = typeof o.description === "string" ? o.description : "";
+  const body = typeof o.body === "string" ? o.body : "";
+  if (!action || !name || !description || !body) return null;
+  return { action, name, description, body };
+}
+
+/** Whether an authored (non-managed) skill already claims `name`. */
+export function isClaimedByAuthoredSkill(name: string, roots: readonly string[]): boolean {
+  let managedRoot: string | null = null;
+  try {
+    managedRoot = realpathSync(managedSkillsDir());
+  } catch {
+    managedRoot = null;
+  }
+  return buildSkillIndex(roots).some(
+    (e) => e.name === name.trim().toLowerCase() && e.root !== managedRoot,
+  );
 }

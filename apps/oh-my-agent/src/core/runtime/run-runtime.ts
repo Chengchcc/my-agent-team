@@ -24,7 +24,8 @@ import {
   type PluginTool,
   type SessionStore,
 } from "../index.js";
-import { createLearnTool, createManageSkillTool } from "../memory/learn.js";
+import { createLearnTool } from "../memory/learn.js";
+import { createManageSkillTool } from "../memory/manage-skill.js";
 import { managedSkillsDir } from "../memory/managed-skills.js";
 import { backfillLearnedLessons, getVectorMemory } from "../memory/vector-memory.js";
 import { createRecallTool, createRetainTool } from "../memory/vector-tools.js";

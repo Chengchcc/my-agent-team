@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkill } from "../tools/skill.js";
 import { buildSkillIndex } from "../tools/skills.js";
-import { createLearnTool, createManageSkillTool } from "./learn.js";
+import { createLearnTool } from "./learn.js";
+import { createManageSkillTool } from "./manage-skill.js";
 import { managedSkillsDir } from "./managed-skills.js";
 
 const tmpDirs: string[] = [];

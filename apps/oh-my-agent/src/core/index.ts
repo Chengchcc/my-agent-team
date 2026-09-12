@@ -5,6 +5,9 @@
 // though every symbol it exports comes from a subdirectory (the loop lives in
 // ./runtime/, the stores in ./store/). Import from here so callers keep
 // one stable seam; read ./runtime/README.md for the loop's file map.
+// Honest scope: in-app consumers mostly import submodules directly; this
+// barrel serves the app's public `src/index.ts` re-exports and tests that
+// want the loop's whole contract in one import.
 
 // Persistence
 
