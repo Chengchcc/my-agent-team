@@ -600,4 +600,101 @@ describe("loader content policy (omp parity)", () => {
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  test("todo live chrome stays pinned while the transcript scrolls", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-todo-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-todo-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "todo_write",
+        input: {
+          items: [
+            { id: "1", text: "plan the work", status: "done" },
+            { id: "2", text: "build the chrome", status: "in_progress" },
+            { id: "3", text: "verify the chrome", status: "pending" },
+          ],
+        },
+      },
+    ]);
+    process.env.OMA_FAKE_TEXT_LINES = Array.from({ length: 40 }, (_, n) => `fill ${n}`).join("\n");
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "track tasks");
+      // todo_update landed: the pinned chrome counter is on screen.
+      await waitForText(vt, "1/3 done", 5_000);
+      // Long output scrolls the transcript past the 30-row viewport; the
+      // chrome must stay pinned, not scrolled away with the todo block.
+      await waitForText(vt, "fill 39", 5_000);
+      expect(screen(vt)).toContain("1/3 done");
+      // The chrome renders exactly once — no scrollback duplication from
+      // the variable-height pinned block shifting frame geometry.
+      const occurrences = screen(vt).split("1/3 done").length - 1;
+      expect(occurrences).toBe(1);
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      delete process.env.OMA_FAKE_TEXT_LINES;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("ask_question overlays a picker and returns the picked answer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: {
+          questions: [
+            {
+              id: "q1",
+              kind: "select",
+              question: "Pick one",
+              options: [
+                { value: "alpha", label: "alpha" },
+                { value: "beta", label: "beta" },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "ask me");
+      // The HITL overlay opens with the question.
+      await waitForText(vt, "Pick one", 5_000);
+      // Enter picks the first option; the answer flows back into the tool
+      // result and the run completes (fake provider falls back to text).
+      vt.sendInput("\r");
+      await waitForText(vt, "alpha", 5_000);
+      await waitForText(vt, "done", 5_000);
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
