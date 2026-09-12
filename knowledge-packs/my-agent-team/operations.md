@@ -19,7 +19,7 @@ Scoped examples:
 ## Testing model doubles
 
 - echoModel() from @chengchenccc/test-helpers: deterministic scripted ChatModel
-- createInMemorySessionStore() from apps/oh-my-agent/src/core/persistence (session store double)
+- createInMemorySessionStore() from apps/oh-my-agent/src/core/store (session store double)
 - Workflow tests: packages/workflow engine/parse/schema + apps/backend features/workflow service/trigger-scheduler tests
 
 ## Resource switching

@@ -210,7 +210,7 @@ Two layers: **packages/workflow** (pure domain: `WorkflowDefinition` DSL, `compu
 - **Framework:** `bun:test` (`describe`/`test`/`expect`)
 - **Location:** `*.test.ts` files beside source
 - **Model mocking:** Define scripted `ChatModel` implementations that yield predetermined turns. `echoModel()` from `@chengchenccc/test-helpers` provides a reusable factory.
-- **Session store double:** `createInMemorySessionStore()` from `apps/oh-my-agent/src/core/persistence`
+- **Session store double:** `createInMemorySessionStore()` from `apps/oh-my-agent/src/core/store`
 - **Integration tests:** Use `createOmaSession()` with real plugin hooks and scripted models
 - **Workflow tests:** `packages/workflow` (engine/parse/schema) + `apps/backend/src/features/workflow/service.test.ts` / `trigger-scheduler.test.ts`
 - **Coverage:** `bun run audit:coverage` enforces per-directory averages plus
