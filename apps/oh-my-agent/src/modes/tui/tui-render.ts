@@ -278,6 +278,9 @@ export class TuiRenderShell {
   private loader: Loader | null = null;
   private busySeconds = 0;
   private currentState: TuiViewState | null = null;
+  get viewState(): TuiViewState | null {
+    return this.currentState;
+  }
   statusLineText = "";
   private readonly itemRenderer: TuiItemRenderer;
   private readonly reconciler: TuiTranscriptReconciler;

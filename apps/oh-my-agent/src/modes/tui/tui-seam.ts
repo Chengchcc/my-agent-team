@@ -44,6 +44,9 @@ export interface TuiIo {
    *  scroll the native scrollback (even mid-stream) without being yanked
    *  back. Unfreezing repaints once with the latest state. */
   setFrozen?(next: boolean): void;
+  /** Toggle the full-screen transcript viewer (own scroll state, immune to
+   *  stream-induced scroll-on-output yanking). */
+  showTranscript?(): void;
   /** Wait for the next user submit; resolves null on quit (Ctrl-D / /exit).
    *  Submits that arrive while a run is live (busy) are delivered to
    *  onLiveInput instead - waitForInput only resolves between runs. */

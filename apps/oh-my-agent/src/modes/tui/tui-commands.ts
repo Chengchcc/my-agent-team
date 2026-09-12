@@ -418,6 +418,15 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       },
     },
     {
+      name: "transcript",
+      description: "full-screen transcript viewer (own scrolling; q closes)",
+      group: "view",
+      live: true,
+      run: () => {
+        ctx.io.showTranscript?.();
+      },
+    },
+    {
       name: "freeze",
       description: "pause terminal output — scroll freely, /freeze to resume",
       group: "view",

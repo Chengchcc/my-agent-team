@@ -22,12 +22,13 @@ import {
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
 import { runBashPtyConsole } from "./pty-console.js";
 import { SettingsOverlay } from "./settings-overlay.js";
+import { TranscriptViewer } from "./transcript-viewer.js";
 import { layoutBranchTree } from "./tui-branch-layout.js";
 import { HistorySearchOverlay, OmaTranscriptContainer, PickerOverlay } from "./tui-components.js";
 import { EDITOR_THEME, relativeTime, WELCOME_TIPS } from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
 import { pickNotice, pickOne } from "./tui-overlays.js";
-import { TuiRenderShell } from "./tui-render.js";
+import { TuiItemRenderer, TuiRenderShell } from "./tui-render.js";
 import type { TuiCommand, TuiIo } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
 
@@ -120,6 +121,8 @@ export function createTerminalIo(
   let elapsedTimer: Timer | undefined;
   let focused = true;
   let frozen = false;
+  let transcriptOpen = false;
+  let transcriptHandle: { hide(): void } | undefined;
 
   // Persistent prompt history (pi's HistoryStorage): loaded newest-first,
   // fed to the editor (up/down recall, in-memory cap 100) and appended on
@@ -358,6 +361,35 @@ export function createTerminalIo(
   tui.terminal.write("\x1b[?1004h");
 
   return {
+    showTranscript() {
+      if (transcriptOpen) {
+        transcriptHandle?.hide();
+        transcriptOpen = false;
+        transcriptHandle = undefined;
+        tui.requestRender();
+        return;
+      }
+      const viewer = new TranscriptViewer({
+        tui,
+        terminal,
+        getRuns: () => shell.viewState?.runs ?? [],
+        state: shell.viewState!,
+        itemRenderer: new TuiItemRenderer(tui),
+        onClose: () => {
+          transcriptOpen = false;
+          transcriptHandle?.hide();
+          transcriptHandle = undefined;
+          tui.requestRender();
+        },
+      });
+      transcriptHandle = tui.showOverlay(viewer, {
+        width: "100%",
+        maxHeight: "100%",
+        anchor: "top-left",
+      });
+      transcriptOpen = true;
+      tui.requestRender();
+    },
     setFrozen(next: boolean) {
       if (frozen === next) return;
       frozen = next;
