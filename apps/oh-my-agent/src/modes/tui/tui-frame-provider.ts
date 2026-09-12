@@ -1,6 +1,7 @@
 import type { Container, Editor, TerminalFrameProvider } from "@chengchenccc/tui";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import type { TuiRenderShell } from "./tui-render.js";
+import { renderTodoChrome } from "./tui-tool-render.js";
 
 export interface OmaFrameProviderOptions {
   transcript: OmaTranscriptContainer;
@@ -11,7 +12,9 @@ export interface OmaFrameProviderOptions {
 
 /** Composes the bounded mutable viewport (live transcript tail + status/
  *  editor). The header prints INTO the transcript once per session
- *  (cc-style) and scrolls away with content — it is not live chrome. */
+ *  (cc-style) and scrolls away with content — it is not live chrome; the
+ *  todo snapshot is the opposite: live chrome pinned above the status
+ *  area, never scrolled away. */
 export function createOmaFrameProvider({
   transcript,
   statusContainer,
@@ -21,7 +24,8 @@ export function createOmaFrameProvider({
   return {
     renderFrame({ columns, rows }) {
       const width = columns;
-      const after = [...statusContainer.render(width), ...editor.render(width)];
+      const todo = renderTodoChrome(shell.viewState?.todoItems ?? [], width);
+      const after = [...todo, ...statusContainer.render(width), ...editor.render(width)];
       const available = Math.max(0, rows - after.length);
       const target = Math.max(0, shell.lastTotalRows - available);
       const boundary = Math.min(shell.lastLiveStartRow, target);

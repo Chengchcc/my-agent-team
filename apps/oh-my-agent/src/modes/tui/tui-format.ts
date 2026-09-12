@@ -81,7 +81,21 @@ export const TOOL_ARG_SUMMARIES: Record<string, (input: Record<string, unknown>)
     const path = typeof i.path === "string" ? ` ${i.path}` : "";
     return `${pattern}${path}`;
   },
-  glob: (i) => (typeof i.pattern === "string" ? i.pattern : ""),
+  hub: (i) => {
+    const op = typeof i.op === "string" ? i.op : "";
+    if (op === "wait") {
+      return Array.isArray(i.ids) ? `wait ${i.ids.length} job(s)` : "wait all jobs";
+    }
+    const id = typeof i.id === "string" ? i.id : "";
+    if (op === "steer" && typeof i.prompt === "string") {
+      return `steer ${id}: ${i.prompt.slice(0, 40)}`;
+    }
+    return [op, id].filter(Boolean).join(" ");
+  },
+  task: (i) => {
+    const label = typeof i.label === "string" ? i.label : "";
+    return label || "fan out subagents";
+  },
 };
 
 export function summarizeToolArgs(

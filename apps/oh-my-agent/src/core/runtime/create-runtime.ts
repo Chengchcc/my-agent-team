@@ -1,4 +1,6 @@
 import type {
+  AskQuestionInput,
+  AskQuestionResult,
   BackendInputMessage,
   BackendRunInput,
   BackendRunOutcome,
@@ -67,6 +69,8 @@ export interface CreateOmaRuntimeOptions {
   gateWorkspaceMcp?: boolean;
   /** HITL approval pipeline; absent + ask = fail-closed. */
   approvalHandler?: ApprovalHandler;
+  /** HITL ask pipeline (ask_question tool); absent = the tool fails closed. */
+  askHandler?: (input: AskQuestionInput) => Promise<AskQuestionResult | null>;
   /** Resolved runtime knobs (settings/env). Omitted = the runtime resolves
    *  them from `.oma/settings.json` + process env itself. */
   settings?: RuntimeKnobs;
@@ -187,6 +191,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     ...(options.vectorMemory ? { vectorMemory: true } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.registry ? { registry: options.registry } : {}),
+    askHandler: options.askHandler,
   };
   const rt: RunRuntime = await assembleRunRuntime(rtArgs);
 

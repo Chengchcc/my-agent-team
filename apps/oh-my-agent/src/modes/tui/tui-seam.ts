@@ -46,6 +46,9 @@ export interface TuiIo {
   waitForInput(): Promise<string | null>;
   /** Called once when a run goes live or settles, to toggle input mode. */
   setBusy?(busy: boolean): void;
+  /** Undelivered steer count while a run is live (omp pending messages):
+   *  drives the busy loader's "N queued — enter sends now" affordance. */
+  setQueuedCount?(count: number): void;
   /** Subscriber for inputs submitted while a run is live (steer). */
   onLiveInput?(handler: ((text: string) => void) | null): void;
   /** Subscriber for slash commands submitted while a run is live; the

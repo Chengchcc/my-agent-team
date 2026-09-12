@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentRunSnapshot,
+  type AskQuestionInput,
+  type AskQuestionResult,
   debugLog,
   type ProjectedHistoryItem,
 } from "@chengchenccc/agent-contract";
@@ -247,6 +249,9 @@ export interface RunRuntimeDeps {
   /** HITL approval pipeline (spec): resolves the ask-mode gate and
    *  tools' options.request. Absent + ask = fail-closed error results. */
   approvalHandler?: ApprovalHandler;
+  /** HITL ask pipeline (ask_question tool): resolves options.ask for the
+   *  native tool. Absent = the tool fails closed with an error result. */
+  askHandler?: (input: AskQuestionInput) => Promise<AskQuestionResult | null>;
   /** M-bash: interactive pty console runner (TUI overlay). Present in TUI
    *  mode only — pty:true bash calls hand off here; absent = headless
    *  script-capture fallback. */
@@ -1152,6 +1157,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     ...(streamRules.length > 0 ? { streamRules } : {}),
     ...(deps.onPersistMessages ? { onPersistMessages: deps.onPersistMessages } : {}),
     ...(permissionGate ? { permissionGate } : {}),
+    askHandler: deps.askHandler,
   });
 
   // Bind the plugin runtime's emit to the session's emit (two-phase init).

@@ -19,6 +19,7 @@ const COORDINATION_SCOPE = `tui-${process.pid}`;
 import { appendSessionMessages, listSessions } from "../../core/session/session-file.js";
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
 import { loadProjectSettings } from "../../core/settings/project-settings.js";
+import { readTodoFile } from "../../core/tools/todo-store.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
 import { formatTokens } from "./tui-format.js";
 import {
@@ -40,6 +41,10 @@ import {
   initialViewState,
   settleSteeredMessages,
 } from "./view-state.js";
+
+/** addUserInput's third arg: render as a dim » pending echo (steered into
+ *  a live run / queued) instead of a fresh user bubble. */
+const AS_PENDING_ECHO = true;
 
 /** TUI mode: oma's standalone interactive surface. One process = N
  *  consecutive Runs over ONE session file; each Run is its own Runtime
@@ -75,6 +80,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   let session = resolveSession(opts.sessionId);
   const state = initialViewState();
   hydrateTranscript(state, session.messages);
+  // Live-chrome seed: the workspace todo file persists across sessions;
+  // todo_update events keep the snapshot fresh while runs stream.
+  state.todoItems = readTodoFile(opts.workspaceRoot);
   let modelId: string | undefined;
   if (opts.model) {
     modelId = opts.model;
@@ -249,6 +257,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Steers rejected while the loop was settling; drained as the next
    *  Run's prompt when the current Run ends (pi's followUp fallback). */
   const pendingFollowUps: string[] = [];
+  /** Steers accepted into the live run but not yet drained by the loop.
+   *  Empty-submit interrupts the run so these send immediately; if the run
+   *  ends first, they move to pendingFollowUps — never dropped. */
+  const pendingSteerTexts: string[] = [];
   for (;;) {
     io.render(state);
     // Steers that arrived while the previous loop was settling are drained
@@ -353,7 +365,16 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       // screen incrementally; the TUI's requestRender throttles/coalesces,
       // so high-frequency chunk events are safe here.
       onEvent: (envelope) => {
-        applyEvent(state, envelope.data as OmaLoopEvent);
+        const event = envelope.data as OmaLoopEvent;
+        applyEvent(state, event);
+        // Steers the loop actually injected are no longer "queued".
+        if (event.type === "queue_update" && event.drained) {
+          for (const drained of event.drained) {
+            const idx = pendingSteerTexts.indexOf(drained);
+            if (idx >= 0) pendingSteerTexts.splice(idx, 1);
+          }
+          io.setQueuedCount?.(pendingSteerTexts.length);
+        }
         io.render(state);
       },
       // Real-time session persistence (pi appendMessage): every
@@ -386,16 +407,34 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           void runShellEscape(text).then(() => io.render(state));
           return;
         }
-        addUserInput(state, text, true);
+        // omp empty-submit: stop waiting — interrupt the run so queued
+        // input is processed immediately instead of at the next boundary.
+        if (!text) {
+          if (pendingSteerTexts.length > 0 || pendingFollowUps.length > 0) {
+            pushStatus("interrupting — queued message sends now");
+            io.render(state);
+            void runtime.stop();
+          }
+          return;
+        }
+        addUserInput(state, text, AS_PENDING_ECHO);
         io.render(state);
+        pendingSteerTexts.push(text);
+        io.setQueuedCount?.(pendingSteerTexts.length);
         runtime
           .steer({
             inputId: `steer-${randomUUID()}`,
             message: { role: "user", text },
           })
           .catch(() => {
+            // Rejected because the loop is settling: the message becomes
+            // the next Run's input — never dropped (pi AgentBusyError ->
+            // followUp).
+            const idx = pendingSteerTexts.indexOf(text);
+            if (idx >= 0) pendingSteerTexts.splice(idx, 1);
             pendingFollowUps.push(text);
             pushStatus("queued: run is settling — sends when it ends");
+            io.setQueuedCount?.(pendingSteerTexts.length);
             io.render(state);
           });
       };
@@ -414,6 +453,13 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
 
     applyOutcome(state, outcome);
     io.setBusy?.(false);
+    // Steers the run never drained (interrupt, maxSteps, settling race)
+    // are never dropped: they become the next Run's prompt (omp's
+    // post-unwind queue drain).
+    if (pendingSteerTexts.length > 0) {
+      pendingFollowUps.push(...pendingSteerTexts.splice(0));
+      io.setQueuedCount?.(0);
+    }
     // Long runs often outlast the user's attention: ping when the terminal
     // lost focus so switching back is prompted (pi's desktop-notify analog).
     if (io.isFocused?.() === false) {

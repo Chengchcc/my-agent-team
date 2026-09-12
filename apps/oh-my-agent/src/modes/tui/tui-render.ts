@@ -282,6 +282,9 @@ export class TuiRenderShell {
     return this.currentState;
   }
   statusLineText = "";
+  /** Undelivered steers (omp pending-messages): surfaced in the busy
+   *  loader as the "enter sends now" affordance. */
+  private queuedCount = 0;
   private readonly itemRenderer: TuiItemRenderer;
   private readonly reconciler: TuiTranscriptReconciler;
   lastLiveStartRow = 0;
@@ -329,6 +332,11 @@ export class TuiRenderShell {
 
   setBusySeconds(busySeconds: number): void {
     this.busySeconds = busySeconds;
+  }
+
+  setQueuedCount(count: number): void {
+    this.queuedCount = count;
+    this.updateWorkingMessage();
   }
 
   setCurrentState(state: TuiViewState): void {
@@ -454,7 +462,8 @@ export class TuiRenderShell {
           Math.floor(this.busySeconds / 3) % TuiRenderShell.WORKING_WORDS.length
         ]
       }…`;
-    this.loader.setMessage(`${label}${seconds} (esc to abort)`);
+    const queued = this.queuedCount > 0 ? ` · ${this.queuedCount} queued — enter sends now` : "";
+    this.loader.setMessage(`${label}${seconds}${queued} (esc to abort)`);
   }
 
   addStatusBar(): void {

@@ -6,6 +6,7 @@ import { createModelRuntime } from "@chengchenccc/ai";
 import { sessionDirFor } from "../../core/session/session-file.js";
 import { scriptedIo, testModelRuntime } from "./tui-mode.fixture.js";
 import { runTuiSession } from "./tui-mode.js";
+import { applyEvent, initialViewState } from "./view-state.js";
 
 describe("tui session (headless, fake provider)", () => {
   test("assistant text renders incrementally while the run streams", async () => {
@@ -638,4 +639,92 @@ describe("tui session (headless, fake provider)", () => {
       rmSync(sessionDir, { recursive: true, force: true });
     }
   }, 15_000);
+
+  test("todo_update folds into the live-chrome todo snapshot", () => {
+    const state = initialViewState();
+    applyEvent(state, {
+      type: "todo_update",
+      items: [{ id: "t1", text: "plan", status: "in_progress" }],
+    });
+    expect(state.todoItems).toEqual([{ id: "t1", text: "plan", status: "in_progress" }]);
+  });
+
+  test("empty submit interrupts the run and sends the queued steer now", async () => {
+    const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-queue-"));
+    process.env.OMA_SESSION_DIR = sessionDir;
+    const savedTitle = process.env.OMA_TITLE_ENABLED;
+    const savedExtract = process.env.OMA_MEMORY_EXTRACT;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    const userTextsPerCall: string[][] = [];
+    try {
+      const modelRuntime = createModelRuntime();
+      modelRuntime.registerProvider({
+        id: "probe",
+        name: "Probe",
+        getModels: () => [
+          {
+            id: "m",
+            name: "M",
+            provider: "probe",
+            api: "anthropic-messages",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200_000,
+            maxTokens: 8192,
+          },
+        ],
+        async *stream(_model, messages, opts) {
+          userTextsPerCall.push(messages.filter((m) => m.role === "user").map((m) => m.text ?? ""));
+          if (userTextsPerCall.length === 1) {
+            // First run: hang until the abort lands — only the empty-submit
+            // interrupt can end it.
+            await new Promise<never>((_resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error("test timeout")), 10_000);
+              opts?.signal?.addEventListener(
+                "abort",
+                () => {
+                  clearTimeout(timer);
+                  reject(new Error("aborted"));
+                },
+                { once: true },
+              );
+            });
+          }
+          yield { delta: { type: "text", text: "second run done" } };
+          yield { usage: { input: 1, output: 1, cacheRead: 0, cacheCreate: 0 } };
+          yield { stopReason: "end_turn" };
+        },
+      });
+      const io = scriptedIo(["go"]);
+      const done = runTuiSession({ modelRuntime, workspaceRoot: sessionDir }, io);
+      // Wait until the first run is live, then queue a steer and interrupt.
+      while (!io.renders.some((snap) => snap.runs.some((r) => r.running))) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      io.submitLive("queued message");
+      await new Promise((r) => setTimeout(r, 20));
+      io.submitLive("");
+      await done;
+
+      // The first run was interrupted; the queued steer was recovered as
+      // the next Run's prompt and reached the model verbatim.
+      expect(userTextsPerCall.length).toBe(2);
+      expect(userTextsPerCall[1]!.join(" ")).toContain("queued message");
+      // The » echo settled into a normal user item in the transcript.
+      const last = io.renders.at(-1)!;
+      const settled = last.runs.some((r) =>
+        r.items.some((i) => i.kind === "user" && !i.pending && i.text === "queued message"),
+      );
+      expect(settled).toBe(true);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      if (savedTitle === undefined) delete process.env.OMA_TITLE_ENABLED;
+      else process.env.OMA_TITLE_ENABLED = savedTitle;
+      if (savedExtract === undefined) delete process.env.OMA_MEMORY_EXTRACT;
+      else process.env.OMA_MEMORY_EXTRACT = savedExtract;
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

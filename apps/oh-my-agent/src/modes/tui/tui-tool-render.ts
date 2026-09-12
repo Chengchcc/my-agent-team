@@ -1,3 +1,5 @@
+import { truncateToWidth } from "@chengchenccc/tui";
+import type { TodoItem } from "../../core/index.js";
 import type { TranscriptItem } from "./view-state.js";
 
 /** omp-style plain-list todo rendering (no card/box). */
@@ -74,11 +76,44 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
   return lines;
 }
 
+/** Live chrome (pinned above the editor): a compact snapshot of the
+ *  current todo list. Unlike the transcript todo block this never scrolls
+ *  away — the user always sees where the run stands. */
+export function renderTodoChrome(items: readonly TodoItem[], width: number): string[] {
+  if (items.length === 0) return [];
+  const marks: Record<string, string> = {
+    pending: "\u001b[2m○\u001b[0m",
+    in_progress: "\u001b[36m●\u001b[0m",
+    done: "\u001b[2m✓\u001b[0m",
+    cancelled: "\u001b[2m✗\u001b[0m",
+  };
+  const done = items.filter((t) => t.status === "done").length;
+  const lines = [`\u001b[2m  todo\u001b[0m ${done}/${items.length} done`];
+  const MAX_ROWS = 6;
+  for (const t of items.slice(0, MAX_ROWS)) {
+    const mark = marks[t.status] ?? marks.pending;
+    const text = t.status === "done" ? `\u001b[2m${t.text}\u001b[0m` : t.text;
+    lines.push(truncateToWidth(`  ${mark} ${text}`, width));
+  }
+  if (items.length > MAX_ROWS) {
+    lines.push(`\u001b[2m  … ${items.length - MAX_ROWS} more\u001b[0m`);
+  }
+  return lines;
+}
 /** hub 工具块：jobs/output/wait/steer/stop 的纯文本渲染。 */
 export function renderHubTool(item: TranscriptItem, expanded: boolean): string[] {
-  const lines: string[] = ["\u001b[36m  hub\u001b[0m"];
   const input = item.input as Record<string, unknown> | undefined;
   const op = typeof input?.op === "string" ? input.op : "";
+  const header = op
+    ? `\u001b[36m  hub\u001b[0m \u001b[2m· ${op}\u001b[0m`
+    : "\u001b[36m  hub\u001b[0m";
+  const lines: string[] = [header];
+  // While executing there is no result yet: show the running op instead of
+  // a misleading empty-list/unknown-id fallback.
+  if (item.result === undefined && item.streaming) {
+    lines.push(`\u001b[2m    ⟳ ${op || "running"}…\u001b[0m`);
+    return lines;
+  }
   const result = item.result as Record<string, unknown> | undefined;
   const rows = (v: unknown): Array<Record<string, unknown>> =>
     Array.isArray(v) ? (v as Array<Record<string, unknown>>) : [];
@@ -102,20 +137,29 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean): string[]
         typeof r.partialText === "string" && r.partialText.trim() ? r.partialText.trim() : "";
       if (partial) lines.push(`\u001b[2m    ${partial.slice(0, expanded ? 400 : 120)}\u001b[0m`);
     }
-    if (item.streaming) lines.push("\u001b[2m    ⟳ waiting…\u001b[0m");
     return lines;
   }
   if (op === "output") {
+    if (result?.ok === false) {
+      lines.push(`\u001b[31m    ${String(result.error ?? "failed")}\u001b[0m`);
+      return lines;
+    }
     const status = String(result?.status ?? "");
     if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
     const partial = typeof result?.partialText === "string" ? result.partialText : "";
-    if (partial.trim())
+    if (partial.trim()) {
       lines.push(`\u001b[2m    ${partial.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    }
+    const output = typeof result?.output === "string" ? result.output : "";
+    if (output.trim()) {
+      lines.push(`\u001b[2m    ${output.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    }
     const nested = result?.result;
     if (nested && typeof nested === "object") {
       const text = String((nested as Record<string, unknown>).text ?? "");
-      if (text.trim())
+      if (text.trim()) {
         lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+      }
     }
     if (lines.length === 1) lines.push("\u001b[2m    (unknown id)\u001b[0m");
     return lines;

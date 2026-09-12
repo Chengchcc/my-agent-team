@@ -1,5 +1,5 @@
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
-import type { OmaLoopEvent } from "../../core/index.js";
+import type { OmaLoopEvent, TodoItem } from "../../core/index.js";
 
 /** Pure view model for the TUI transcript: folds OmaLoopEvents into the
  *  lines the renderer draws. No terminal I/O - fully unit-testable. */
@@ -48,10 +48,13 @@ export interface TuiViewState {
   showThinking: boolean;
   /** ctrl+o: show full tool args/result JSON (default: one-line previews). */
   showToolDetail: boolean;
+  /** Latest todo snapshot (todo_update events): rendered as live chrome
+   *  pinned above the editor, never scrolled away with the transcript. */
+  todoItems: readonly TodoItem[];
 }
 
 export function initialViewState(): TuiViewState {
-  return { runs: [], showThinking: false, showToolDetail: false };
+  return { runs: [], showThinking: false, showToolDetail: false, todoItems: [] };
 }
 
 function currentRun(state: TuiViewState): RunViewState | undefined {
@@ -288,7 +291,12 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       for (const item of run?.items ?? []) item.streaming = false;
       break;
     }
-    // todo/queue/recap events: no v1 transcript rendering.
+    case "todo_update":
+      // Live chrome state only — the transcript keeps its own todo tool
+      // block (write history); this snapshot drives the pinned panel.
+      state.todoItems = [...event.items];
+      break;
+    // queue/recap events: handled above / no v1 transcript rendering.
     default:
       break;
   }

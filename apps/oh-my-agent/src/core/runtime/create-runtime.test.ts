@@ -115,6 +115,47 @@ describe("createOmaRuntime", () => {
     await rt.close();
   });
 
+  test("askHandler wires the native ask_question through execution", async () => {
+    const savedFake = process.env.OMA_FAKE_PROVIDER;
+    const savedTool = process.env.OMA_FAKE_TOOL;
+    process.env.OMA_FAKE_PROVIDER = "1";
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: { questions: [{ id: "q1", question: "pick", options: ["a", "b"] }] },
+      },
+    ]);
+    try {
+      const modelRuntime = createModelRuntime();
+      registerBuiltinProviders(modelRuntime, process.env);
+      const asked: unknown[] = [];
+      const rt = await createOmaRuntime({
+        runId: "r-ask",
+        modelId: "fake/echo",
+        workspaceRoot: tmp,
+        workspaceAccess: "read_write",
+        modelRuntime,
+        skillRoots: [],
+        askHandler: async (input) => {
+          asked.push(input);
+          return { answers: [{ id: "q1", selectedValues: ["b"], freeText: "" }] };
+        },
+      });
+      const segment = await rt.run(runInput("r-ask"));
+      const outcome = await segment.outcome;
+      await rt.close();
+      expect(asked).toHaveLength(1);
+      const raw = JSON.stringify(outcome.messages);
+      expect(raw).toContain("selectedValues");
+      expect(raw).toContain('"b"');
+    } finally {
+      if (savedFake === undefined) delete process.env.OMA_FAKE_PROVIDER;
+      else process.env.OMA_FAKE_PROVIDER = savedFake;
+      if (savedTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = savedTool;
+    }
+  });
+
   test("stop before run() starts settles aborted without running", async () => {
     const record: Message[][] = [];
     const runtime = await createOmaRuntime({

@@ -1,3 +1,4 @@
+import * as os from "node:os";
 import type { Plugin } from "./plugin.js";
 
 /** Inputs for rendering the per-loop <system-reminder> Meta user message.
@@ -34,6 +35,7 @@ export function renderLoopMeta(input: LoopMetaInput): string {
   // Workspace / runtime facts
   const wsParts: string[] = [`Workspace root: ${input.workspace.root}`];
   if (input.workspace.cwd) wsParts.push(`Working directory: ${input.workspace.cwd}`);
+  wsParts.push(`OS: ${os.type()} ${os.release()} (${os.arch()})`);
   if (input.model) wsParts.push(`Model: ${input.model.provider}/${input.model.id}`);
   const ws = section("Workspace", wsParts.join("\n"));
   if (ws) sections.push(ws);

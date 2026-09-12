@@ -212,7 +212,12 @@ export function createTerminalIo(
       // being steered into the model as literal text; anything else steers
       // immediately — the session loop queues a rejected steer as the next
       // Run's input, so nothing is lost either way.
-      if (!trimmed) return;
+      // Empty submit while busy = omp's "stop waiting": the session loop
+      // interrupts the run so queued input is processed immediately.
+      if (!trimmed) {
+        if (liveHandler) liveHandler("");
+        return;
+      }
       if (trimmed.startsWith("/")) {
         if (liveCommandHandler) liveCommandHandler(trimmed);
         return;
@@ -403,6 +408,9 @@ export function createTerminalIo(
         shell.renderIdleFooter();
       }
       tui.requestRender();
+    },
+    setQueuedCount(count: number) {
+      shell.setQueuedCount(count);
     },
     onLiveInput(handler) {
       liveHandler = handler;

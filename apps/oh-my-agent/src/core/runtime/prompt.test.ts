@@ -32,6 +32,7 @@ describe("renderLoopMeta", () => {
     expect(meta).toContain("math");
     expect(meta).toContain("Workspace root: /ws");
     expect(meta).toContain("anthropic/claude-sonnet");
+    expect(meta).toContain("OS: ");
   });
 
   test("omits empty plugin sections", () => {
