@@ -24,7 +24,10 @@ function catalogPaths(env: Record<string, string | undefined>): string[] {
   }
   const paths: string[] = [];
   if (env.OMA_HOME) paths.push(join(env.OMA_HOME, "models.yml"));
-  paths.push(join(homedir(), ".oma", "models.yml"));
+  // env.HOME (not homedir()) so the lookup is injectable: homedir() is read
+  // from the OS and memoized, leaving tests to depend on whatever ~/.oma the
+  // developer happens to have.
+  paths.push(join(env.HOME ?? homedir(), ".oma", "models.yml"));
   paths.push(resolve(".oma", "models.yml"));
   return paths;
 }

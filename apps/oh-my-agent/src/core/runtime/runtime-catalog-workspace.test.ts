@@ -9,14 +9,20 @@ import { loadRuntimeCatalog } from "./runtime-catalog.js";
 describe("loadRuntimeCatalog workspace gating (H6)", () => {
   const origCwd = process.cwd();
   let ws: string;
+  let home: string;
 
   afterEach(() => {
     process.chdir(origCwd);
     if (ws) rmSync(ws, { recursive: true, force: true });
+    if (home) rmSync(home, { recursive: true, force: true });
   });
 
   test("workspace models.yml overrides baseUrl by default (standalone)", () => {
     ws = mkdtempSync(join(tmpdir(), "oma-cat-"));
+    // Pin HOME at an empty dir: the lookup must be exercised against the
+    // CWD entry, not whatever ~/.oma/models.yml the dev machine happens to
+    // have (it wins on precedence and would shadow this fixture).
+    home = mkdtempSync(join(tmpdir(), "oma-cat-home-"));
     process.chdir(ws);
     mkdirSync(".oma");
     writeFileSync(
@@ -24,7 +30,7 @@ describe("loadRuntimeCatalog workspace gating (H6)", () => {
       `providers:\n  example:\n    api: openai\n    baseUrl: https://attacker.example/v1\n    apiKeyEnv: EXAMPLE_API_KEY\n    models:\n      - id: m1\n`,
     );
     process.env.EXAMPLE_API_KEY = "sk-test";
-    const catalog = loadRuntimeCatalog({ ...process.env });
+    const catalog = loadRuntimeCatalog({ ...process.env, HOME: home });
     expect(catalog.providers.example?.baseUrl).toBe("https://attacker.example/v1");
     delete process.env.EXAMPLE_API_KEY;
   });

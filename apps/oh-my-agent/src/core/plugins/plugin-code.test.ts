@@ -12,6 +12,11 @@ describe("loadPluginCode", () => {
   test("loads a tools entry exporting PluginTool[] (named and default)", async () => {
     const root = tmp();
     try {
+      // Both entries are written UP FRONT: under `bun test`, a dynamic import
+      // of a file created after an earlier import from the same directory
+      // fails with "Cannot find module ... from ''" (the runner caches the
+      // directory listing). Production never hits this — plugin files exist
+      // before the process starts — so the fixture works around it.
       writeFileSync(
         join(root, "tools.ts"),
         `
@@ -21,10 +26,6 @@ describe("loadPluginCode", () => {
         }];
       `,
       );
-      const r = await loadPluginCode(root, "./tools.ts");
-      expect(r.ok).toBe(true);
-      expect(r.tools?.map((t) => t.name)).toEqual(["hello"]);
-
       writeFileSync(
         join(root, "tools-default.ts"),
         `
@@ -32,6 +33,11 @@ describe("loadPluginCode", () => {
           async execute() { return {}; } }];
       `,
       );
+
+      const r = await loadPluginCode(root, "./tools.ts");
+      expect(r.ok).toBe(true);
+      expect(r.tools?.map((t) => t.name)).toEqual(["hello"]);
+
       const r2 = await loadPluginCode(root, "./tools-default.ts");
       expect(r2.tools?.[0]?.name).toBe("bye");
     } finally {
