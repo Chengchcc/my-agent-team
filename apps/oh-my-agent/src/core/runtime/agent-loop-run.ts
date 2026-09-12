@@ -1,7 +1,7 @@
 import type { Usage } from "@chengchenccc/agent-contract";
 import { debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
-import type { SessionStore } from "../persistence/session-store.js";
+import type { SessionStore } from "../store/session-store.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import type {
   ModelTurn,

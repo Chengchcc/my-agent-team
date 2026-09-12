@@ -4,7 +4,7 @@ import type {
   ProjectedHistoryItem,
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
-import type { AppendBatchInput } from "../persistence/session-store.js";
+import type { AppendBatchInput } from "../store/session-store.js";
 export interface LoopInputResult {
   readonly batch: AppendBatchInput;
   readonly systemPrompt: string;

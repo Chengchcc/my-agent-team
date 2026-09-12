@@ -1,5 +1,5 @@
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
-import type { SessionStore } from "../persistence/session-store.js";
+import type { SessionStore } from "../store/session-store.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 
 /** Runtime capabilities injected into plugin hooks. Mirrors a subset of

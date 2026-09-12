@@ -1,7 +1,7 @@
 import type { BackendInputMessage } from "@chengchenccc/agent-contract";
 import { ProviderError } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
-import type { MessageEntry } from "../persistence/session-tree.js";
+import type { MessageEntry } from "../store/session-tree.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import {
   buildTextAssistantEntry,

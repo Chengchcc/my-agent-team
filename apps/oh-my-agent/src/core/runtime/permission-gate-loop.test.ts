@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AIMessageChunk } from "@chengchenccc/core";
-import { createInMemorySessionStore } from "../persistence/in-memory-session-store.js";
+import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import { createOmaSession } from "./agent-loop.js";
 
 const LOOP_RUN = {

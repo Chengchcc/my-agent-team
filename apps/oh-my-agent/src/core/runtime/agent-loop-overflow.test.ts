@@ -5,7 +5,7 @@ import type {
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk } from "@chengchenccc/message";
-import { createInMemorySessionStore } from "../persistence/in-memory-session-store.js";
+import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import type { ContextBudget } from "./agent-loop.js";
 import { createOmaSession } from "./agent-loop.js";
 import type { CodingLoopInput } from "./loop-input.js";

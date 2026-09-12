@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AIMessageChunk } from "@chengchenccc/core";
-import { createInMemorySessionStore } from "../persistence/in-memory-session-store.js";
 import { createOmaSession } from "../runtime/agent-loop.js";
+import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import { addMarketplace, installPlugin } from "./plugin-marketplace.js";
 import { assemblePluginRuntime } from "./plugin-resolve.js";
 

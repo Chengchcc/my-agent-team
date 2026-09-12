@@ -1,6 +1,6 @@
 import type { Message } from "@chengchenccc/message";
-import type { SessionStore } from "../persistence/session-store.js";
-import type { CodingSessionEntry } from "../persistence/session-tree.js";
+import type { SessionStore } from "../store/session-store.js";
+import type { CodingSessionEntry } from "../store/session-tree.js";
 
 export interface CompactionResult {
   readonly entryId: string;

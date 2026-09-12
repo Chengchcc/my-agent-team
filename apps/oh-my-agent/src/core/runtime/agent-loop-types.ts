@@ -5,7 +5,7 @@ import type {
   Usage,
 } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
-import type { SessionStore } from "../persistence/session-store.js";
+import type { SessionStore } from "../store/session-store.js";
 import type { AgentLoopListener, OmaLoopEvent } from "./agent-event.js";
 import type { ApprovalHandler } from "./approval.js";
 import type { CompactionBudget } from "./compaction.js";

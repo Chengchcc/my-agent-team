@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createInMemorySessionStore } from "../persistence/in-memory-session-store.js";
+import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import { compactSession } from "./compaction.js";
 
 async function setup(messages: Array<Record<string, unknown>>) {

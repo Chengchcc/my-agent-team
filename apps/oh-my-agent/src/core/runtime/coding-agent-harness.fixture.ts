@@ -4,8 +4,8 @@ import type {
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk } from "@chengchenccc/message";
-import { createInMemorySessionStore } from "../persistence/in-memory-session-store.js";
-import type { SessionStore } from "../persistence/session-store.js";
+import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
+import type { SessionStore } from "../store/session-store.js";
 import type { CodingLoopInput } from "./loop-input.js";
 
 export type StoreFactory = (sid: string) => SessionStore;

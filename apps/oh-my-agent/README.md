@@ -44,7 +44,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 - `steer(input)` 注入 live loop；`stop()` 中止；
 - `close()` 拆除 MCP clients 与 SessionStore。
 
-Runtime 主体就在本 app 的 `src/core/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/persistence/`）。seed 时把 **full Product history + meta + input** 原子写入，Run 结束即销毁。
+Runtime 主体就在本 app 的 `src/core/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/store/`）。seed 时把 **full Product history + meta + input** 原子写入，Run 结束即销毁。
 
 ## 运行
 

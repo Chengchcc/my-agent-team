@@ -38,7 +38,7 @@ Product Backend → Adapter (packages/adapter-oma-agent)
 
 ## per-Run 状态：in-memory SessionStore
 
-Runtime 状态是 **per-Run、in-memory** 的执行缓存（`core/persistence/`），不是产品历史：
+Runtime 状态是 **per-Run、in-memory** 的执行缓存（`core/store/`），不是产品历史：
 
 ```text
 Agent Context  = canonical product context（跨 Run 持久、可 fork/rollback）

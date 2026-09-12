@@ -3,25 +3,10 @@
 // This file is `core/index.ts` on purpose: it is a BARREL, not the runtime.
 // It used to be `core/agent-runtime.ts`, which read like "the runtime" even
 // though every symbol it exports comes from a subdirectory (the loop lives in
-// ./runtime/, the stores in ./persistence/). Import from here so callers keep
+// ./runtime/, the stores in ./store/). Import from here so callers keep
 // one stable seam; read ./runtime/README.md for the loop's file map.
 
 // Persistence
-
-export { createInMemorySessionStore } from "./persistence/in-memory-session-store.js";
-export type {
-  AppendBatchInput,
-  AppendBatchResult,
-  SessionStore,
-} from "./persistence/session-store.js";
-export type {
-  CodingSessionEntry,
-  CodingSessionMetadata,
-  CodingSessionOperation,
-  CodingSessionSnapshot,
-  CompactionEntry,
-  MessageEntry,
-} from "./persistence/session-tree.js";
 
 // Runtime
 export type { AgentLoopListener, OmaLoopEvent } from "./runtime/agent-event.js";
@@ -55,5 +40,19 @@ export type { LoopMetaInput } from "./runtime/prompt.js";
 export { renderLoopMeta } from "./runtime/prompt.js";
 export type { RetryOptions } from "./runtime/retry.js";
 export { retryStream } from "./runtime/retry.js";
+export { createInMemorySessionStore } from "./store/in-memory-session-store.js";
+export type {
+  AppendBatchInput,
+  AppendBatchResult,
+  SessionStore,
+} from "./store/session-store.js";
+export type {
+  CodingSessionEntry,
+  CodingSessionMetadata,
+  CodingSessionOperation,
+  CodingSessionSnapshot,
+  CompactionEntry,
+  MessageEntry,
+} from "./store/session-tree.js";
 // Todo
 export type { TodoItem, TodoStatus, TodoStore } from "./tools/todo-store.js";

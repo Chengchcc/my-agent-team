@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { AgentRunSnapshot } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
-import { createInMemorySessionStore } from "../persistence/in-memory-session-store.js";
-import type { SessionStore } from "../persistence/session-store.js";
+import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
+import type { SessionStore } from "../store/session-store.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import { createOmaSession } from "./agent-loop.js";
 import type { CodingLoopInput } from "./loop-input.js";
