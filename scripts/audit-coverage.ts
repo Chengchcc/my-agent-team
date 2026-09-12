@@ -42,7 +42,7 @@ const GATES: readonly AppGate[] = [
       { dir: "src/core/delegation", min: 85 },
       { dir: "src/core/tools", min: 86 },
       { dir: "src/core/coordination", min: 90 },
-      { dir: "src/core/persistence", min: 91 },
+      { dir: "src/core/store", min: 91 },
       { dir: "src/core/session", min: 90 },
       { dir: "src/core/plugins", min: 88 },
       { dir: "src/protocol", min: 92 },
@@ -80,7 +80,7 @@ const GATES: readonly AppGate[] = [
       "src/core/delegation/roles.ts": 95,
       // Session persistence
       "src/core/session/session-file.ts": 95,
-      "src/core/persistence/session-store.ts": 82,
+      "src/core/store/session-store.ts": 82,
     },
   },
   {
