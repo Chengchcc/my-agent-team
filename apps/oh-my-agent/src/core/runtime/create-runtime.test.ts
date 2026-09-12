@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
@@ -79,6 +80,40 @@ describe("createOmaRuntime", () => {
     expect(meta).toBeDefined();
     expect(meta!.text).toContain("**test-skill**");
     await runtime.close();
+  });
+  test("managed skills join the index on read_write runs even when not in skillRoots", async () => {
+    const agent = mkdtempSync(join(tmpdir(), "oma-managed-agent-"));
+    const savedDir = process.env.OMA_CODING_AGENT_DIR;
+    process.env.OMA_CODING_AGENT_DIR = agent;
+    try {
+      mkdirSync(join(agent, "managed-skills", "minted"), { recursive: true });
+      writeFileSync(
+        join(agent, "managed-skills", "minted", "SKILL.md"),
+        "---\nname: minted\ndescription: Minted this run\n---\n\nBody",
+      );
+      const record: Message[][] = [];
+      const runtime = await createOmaRuntime({
+        runId: "r-managed",
+        modelId: "fake/echo",
+        workspaceRoot: tmp,
+        workspaceAccess: "read_write",
+        modelRuntime: makeModelRuntime(record),
+        // The managed dir is NOT passed here on purpose: the runtime appends
+        // it for mutable runs so same-run manage_skill mints are loadable.
+        skillRoots: [],
+      });
+      const segment = await runtime.run(runInput("r-managed"));
+      const { outcome } = await settle(segment);
+      expect(outcome.status).toBe("completed");
+      const meta = record[0]!.find((m) => m.role === "user" && m.text?.includes("minted"));
+      expect(meta).toBeDefined();
+      expect(meta!.text).toContain("Minted this run");
+      await runtime.close();
+    } finally {
+      if (savedDir === undefined) delete process.env.OMA_CODING_AGENT_DIR;
+      else process.env.OMA_CODING_AGENT_DIR = savedDir;
+      rmSync(agent, { recursive: true, force: true });
+    }
   });
 
   test("steer injects into the live loop", async () => {

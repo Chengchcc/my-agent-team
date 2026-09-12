@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, readFileSync, type Stats, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, rmSync, type Stats, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "../session/session-file.js";
 
@@ -110,6 +110,25 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
   }
   writeFileSync(file, content, "utf-8");
   return { path: file };
+}
+
+/** Delete a managed skill directory. Throws when it does not exist. */
+export function deleteManagedSkill(name: string): void {
+  const safe = sanitizeSkillName(name);
+  const dir = join(managedSkillsDir(), safe);
+  // Refuse to follow a symlinked skill dir (rm would delete the target).
+  let dirStat: Stats;
+  try {
+    dirStat = lstatSync(dir);
+  } catch (err) {
+    throw new Error(`Managed skill "${safe}" does not exist.`, { cause: err });
+  }
+  if (dirStat.isSymbolicLink()) {
+    throw new Error(
+      `Managed skill "${safe}" is a symlink; refusing to delete outside the managed directory.`,
+    );
+  }
+  rmSync(dir, { recursive: true });
 }
 
 /** Read a managed skill body (frontmatter-stripped). Test helper. */

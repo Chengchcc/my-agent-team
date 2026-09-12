@@ -26,7 +26,8 @@ import {
   type PluginTool,
   type SessionStore,
 } from "../index.js";
-import { createLearnTool } from "../memory/learn.js";
+import { createLearnTool, createManageSkillTool } from "../memory/learn.js";
+import { managedSkillsDir } from "../memory/managed-skills.js";
 import { backfillLearnedLessons, getVectorMemory } from "../memory/vector-memory.js";
 import { createRecallTool, createRetainTool } from "../memory/vector-tools.js";
 import { evaluateOrchestrationScript } from "../orchestrate/script-runner.js";
@@ -434,7 +435,16 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     name: "native-tools",
     tools: [...nativeTools, ...mounted.tools],
   };
-  const plugins: Plugin[] = [nativeToolsPlugin, createSkill({ roots: deps.skillRoots })];
+  // Managed-skills dir joins discovery on MUTABLE runs (dead-last): a skill
+  // minted this run is loadable via skill_load in the same run, and
+  // manage_skill's refresh re-scans it. Read-only runs keep the frozen roots.
+  const managedRoot = managedSkillsDir();
+  const skillRoots =
+    deps.workspaceAccess === "read_write" && !deps.skillRoots.includes(managedRoot)
+      ? [...deps.skillRoots, managedRoot]
+      : deps.skillRoots;
+  const skillPlugin = createSkill({ roots: skillRoots });
+  const plugins: Plugin[] = [nativeToolsPlugin, skillPlugin];
   // Plugin code-tool names (post native-conflict filter): the auto-mode
   // classifier gate needs them by name — plugin tools have no naming
   // convention, so membership is collected at assembly.
@@ -524,6 +534,12 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
           workspaceRoot: deps.workspaceRoot,
           vector: deps.vectorMemory ? getVectorMemory(deps.workspaceRoot) : null,
           skillRoots: deps.skillRoots,
+        }),
+        // Direct managed-skill CRUD with live index refresh (omp parity:
+        // learn defers discovery to a later session, manage_skill doesn't).
+        createManageSkillTool({
+          skillRoots: deps.skillRoots,
+          refreshSkills: () => skillPlugin.refresh(),
         }),
       ],
     });

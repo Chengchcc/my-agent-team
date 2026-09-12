@@ -20,9 +20,14 @@ function isWithinRoot(root: string, target: string): boolean {
  *  Absorbed from @chengchenccc/plugin-progressive-skill; the shared index
  *  builder now lives in ./skills.ts (tools-common merged into oma). Skill loading is
  *  progressive by definition: the index stays in context, the body loads
- *  on demand. */
-export function createSkill(opts: SkillOptions): Plugin {
-  const index = buildSkillIndex(opts.roots);
+ *  on demand. `refresh()` re-scans the roots so mid-run skill mutations
+ *  (manage_skill) are visible to skill_load and later Meta renders; the
+ *  run's already-baked prompt index refreshes on the next run. */
+export function createSkill(opts: SkillOptions): Plugin & { refresh(): void } {
+  let index = buildSkillIndex(opts.roots);
+  const refresh = (): void => {
+    index = buildSkillIndex(opts.roots);
+  };
 
   const metaProvider: MetaSectionProvider = {
     name: "Skills",
@@ -73,5 +78,6 @@ export function createSkill(opts: SkillOptions): Plugin {
     name: "progressive-skill",
     tools: [skillLoadTool],
     meta: [metaProvider],
+    refresh,
   };
 }

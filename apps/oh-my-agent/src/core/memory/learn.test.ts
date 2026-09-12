@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSkill } from "../tools/skill.js";
 import { buildSkillIndex } from "../tools/skills.js";
-import { createLearnTool } from "./learn.js";
+import { createLearnTool, createManageSkillTool } from "./learn.js";
 import { managedSkillsDir } from "./managed-skills.js";
 
 const tmpDirs: string[] = [];
@@ -153,5 +154,105 @@ describe("learn tool skill minting", () => {
     expect(res.learned).toBe(false);
     expect(res.reason).toContain("duplicate");
     expect(res.skill?.name).toBe("release-flow");
+  });
+});
+
+describe("manage_skill tool", () => {
+  let agent: string;
+  beforeEach(() => {
+    agent = mkdtempSync(join(tmpdir(), "oma-manage-agent-"));
+    process.env.OMA_CODING_AGENT_DIR = agent;
+  });
+  afterEach(() => {
+    delete process.env.OMA_CODING_AGENT_DIR;
+    rmSync(agent, { recursive: true, force: true });
+  });
+
+  function makeTool(skillPlugin: ReturnType<typeof createSkill>) {
+    return createManageSkillTool({
+      skillRoots: [],
+      refreshSkills: () => skillPlugin.refresh(),
+    });
+  }
+
+  test("create/update/delete round-trip with live index refresh", async () => {
+    const skillPlugin = createSkill({ roots: [managedSkillsDir()] });
+    const load = skillPlugin.tools?.find((t) => t.name === "skill_load");
+    expect(load).toBeDefined();
+    const tool = makeTool(skillPlugin);
+
+    // Absent before create.
+    const before = (await load!.execute({ name: "hot-skill" })) as { error?: string };
+    expect(before.error).toContain("not found");
+
+    // create → same-run hot refresh: skill_load + meta render both see it.
+    const created = (await tool.execute({
+      action: "create",
+      name: "hot-skill",
+      description: "when to use",
+      body: "# Hot\n\nBody",
+    })) as { action: string; path: string };
+    expect(created.action).toBe("create");
+    const loaded = (await load!.execute({ name: "hot-skill" })) as { body?: string };
+    expect(loaded.body).toContain("# Hot");
+    expect(skillPlugin.meta?.[0]?.render()).toContain("hot-skill");
+
+    // update → body changes.
+    await tool.execute({
+      action: "update",
+      name: "hot-skill",
+      description: "when to use",
+      body: "# Hot v2",
+    });
+    const reloaded = (await load!.execute({ name: "hot-skill" })) as { body?: string };
+    expect(reloaded.body).toContain("# Hot v2");
+
+    // delete → gone from index and disk.
+    const deleted = (await tool.execute({ action: "delete", name: "hot-skill" })) as {
+      deleted: string;
+    };
+    expect(deleted.deleted).toBe("hot-skill");
+    const after = (await load!.execute({ name: "hot-skill" })) as { error?: string };
+    expect(after.error).toContain("not found");
+    expect(skillPlugin.meta?.[0]?.render()).not.toContain("hot-skill");
+  });
+
+  test("delete nonexistent and missing create/update fields are errors", async () => {
+    const skillPlugin = createSkill({ roots: [managedSkillsDir()] });
+    const tool = makeTool(skillPlugin);
+    const gone = (await tool.execute({ action: "delete", name: "nope" })) as {
+      error?: string;
+      isError?: boolean;
+    };
+    expect(gone.isError).toBe(true);
+    expect(gone.error).toContain("does not exist");
+    const missing = (await tool.execute({ action: "create", name: "half-skill", body: "b" })) as {
+      error?: string;
+    };
+    expect(missing.error).toContain("description and a body");
+    const badAction = (await tool.execute({ action: "rename", name: "x" })) as {
+      error?: string;
+    };
+    expect(badAction.error).toContain("required");
+  });
+
+  test("create refuses a name an authored skill claims", async () => {
+    const authored = mkdtempSync(join(tmpdir(), "oma-manage-authored-"));
+    tmpDirs.push(authored);
+    mkdirSync(join(authored, "claimed"), { recursive: true });
+    writeFileSync(join(authored, "claimed", "SKILL.md"), "---\nname: claimed\n---\n\nAuthored.");
+    const skillPlugin = createSkill({ roots: [authored, managedSkillsDir()] });
+    const tool = createManageSkillTool({
+      skillRoots: [authored],
+      refreshSkills: () => skillPlugin.refresh(),
+    });
+    const res = (await tool.execute({
+      action: "create",
+      name: "claimed",
+      description: "d",
+      body: "b",
+    })) as { error?: string; isError?: boolean };
+    expect(res.isError).toBe(true);
+    expect(res.error).toContain("authored skill");
   });
 });
