@@ -7,6 +7,17 @@ import { createBrowserTool, resolveChromeExecutable } from "./browser.js";
 const tmp = mkdtempSync(join(tmpdir(), "oma-browser-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
+/** The integration tests below drive a REAL headless Chromium (data: URLs
+ *  only, no network). CI runners ship one; a dev box may not — skip rather
+ *  than fail, the same precedent as the bwrap/seatbelt suites. */
+const HAS_CHROMIUM = (() => {
+  try {
+    return existsSync(resolveChromeExecutable());
+  } catch {
+    return false;
+  }
+})();
+
 describe("resolveChromeExecutable", () => {
   test("PUPPETEER_EXECUTABLE_PATH wins", () => {
     const saved = process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -31,7 +42,9 @@ describe("browser tool", () => {
     const noCode = await tool.execute({ action: "run", name: "nope" });
     expect(noCode.isError).toBe(true);
   });
+});
 
+(HAS_CHROMIUM ? describe : describe.skip)("browser tool (requires chromium)", () => {
   test("open/run/close against a data: URL (real chromium, no network)", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });
     const open = await tool.execute({

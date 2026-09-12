@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
@@ -40,24 +40,65 @@ const DEFAULT_TIMEOUT_S = 30;
 const MAX_OBSERVE_BYTES = 12_000;
 const MAX_EXTRACT_CHARS = 20_000;
 
+/** Puppeteer cache layouts, newest version first. Chromium's cache directory
+ *  name (and the binary inside it) is platform-specific. */
+function chromeCacheCandidates(cacheDir: string): string[] {
+  const layouts: ReadonlyArray<readonly [dir: string, binary: string]> =
+    process.platform === "darwin"
+      ? [
+          [
+            "chrome-mac-arm64",
+            "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+          ],
+          [
+            "chrome-mac-x64",
+            "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+          ],
+          ["chrome-mac-arm64", "Chromium.app/Contents/MacOS/Chromium"],
+          ["chrome-mac-x64", "Chromium.app/Contents/MacOS/Chromium"],
+        ]
+      : process.platform === "win32"
+        ? [
+            ["chrome-win64", "chrome.exe"],
+            ["chrome-win32", "chrome.exe"],
+          ]
+        : [
+            ["chrome-linux64", "chrome"],
+            ["chrome-linux", "chrome"],
+          ];
+  let versions: string[];
+  try {
+    versions = readdirSync(cacheDir).sort().reverse();
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const version of versions) {
+    for (const [dir, binary] of layouts) out.push(join(cacheDir, version, dir, binary));
+  }
+  return out;
+}
+
+/** System-browser fallbacks: the well-known install locations for the
+ *  platforms whose package managers do not guarantee a `which`-able name. */
+const SYSTEM_BROWSER_CANDIDATES = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+];
+
 /** Resolve the Chromium executable: PUPPETEER_EXECUTABLE_PATH, then the
- *  puppeteer cache (newest chrome-linux-*), then a system browser. */
+ *  puppeteer cache for this platform, then a system browser. Throws when
+ *  nothing is installed — callers surface that as a tool error. */
 export function resolveChromeExecutable(): string {
   const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH;
   if (fromEnv) return fromEnv;
-  const cache = join(homedir(), ".cache", "puppeteer", "chrome");
-  try {
-    const versions = readdirSync(cache)
-      .filter((d) => d.startsWith("linux-"))
-      .sort()
-      .reverse();
-    for (const v of versions) {
-      if (!readdirSync(join(cache, v)).includes("chrome-linux64")) continue;
-      return join(cache, v, "chrome-linux64", "chrome");
-    }
-  } catch {
-    /* no cache dir */
-  }
+  const fromCache = chromeCacheCandidates(join(homedir(), ".cache", "puppeteer", "chrome")).find(
+    (p) => existsSync(p),
+  );
+  if (fromCache) return fromCache;
+  const fromSystem = SYSTEM_BROWSER_CANDIDATES.find((p) => existsSync(p));
+  if (fromSystem) return fromSystem;
   for (const bin of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
     const found = Bun.spawnSync(["which", bin], { stdout: "pipe", stderr: "ignore" });
     if (found.exitCode === 0) {
