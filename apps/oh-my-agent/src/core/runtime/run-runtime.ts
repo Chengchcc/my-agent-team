@@ -9,7 +9,7 @@ import {
   type ProjectedHistoryItem,
 } from "@chengchenccc/agent-contract";
 import { type ModelRuntime, type ModelRuntimeEntry, resolveModelAlias } from "@chengchenccc/ai";
-import type { AIMessageChunk, JsonSchema, Message } from "@chengchenccc/message";
+import type { AIMessageChunk, JsonSchema, Message, Tool } from "@chengchenccc/message";
 import { createHubTool } from "../coordination/index.js";
 import { type CoordinationRegistry, createCoordinationRegistry } from "../coordination/registry.js";
 import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
@@ -311,51 +311,93 @@ export function registerBuiltinProviders(
   registerProvidersFromCatalog(runtime, catalog, env);
 }
 
-/** Build the complete Runtime assembly for exactly ONE Run. The Run's
- *  in-memory SessionStore is created here (never shared with other Runs);
- *  the model is resolved per run from the AgentRunSnapshot. */
-export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRuntime> {
-  const store = createInMemorySessionStore();
-  // M9: `.oma/settings.json` lives in the agent-writable workspace. Standalone
-  // modes (tui/print/json) honor every knob; backend RPC runs honor ONLY
-  // bashSandbox (enabling it = stricter, fail-safe) — a workspace file must
-  // never steer the product's permission classifier, web, steps or timeouts.
-  // Knobs are plain DI values (deps.settings wins, then the process env as a
-  // deployment default): the runtime NEVER writes process.env, so a process
-  // that runs many Runs (the TUI) cannot leak one Run's config into the next.
-  const loaded = loadProjectSettings(deps.workspaceRoot);
-  const projectSettings: ProjectSettings = deps.gateWorkspaceMcp
-    ? loaded
-    : { bashSandbox: loaded.bashSandbox };
-  const knobs = deps.settings ?? resolveRuntimeKnobs(projectSettings);
-  const currentModel = await resolveModelEntry(deps.modelRuntime, deps.modelId);
-  // OS bash sandbox (BashSandbox design): enabled via .oma/settings.json
-  // (TUI /settings or direct edit). resolveBashSandbox throws on
-  // enabled-but-tool-missing — the Run fails loudly rather than silently
-  // running unconstrained.
-  let bashSandbox: BashSandbox | undefined;
-  if (projectSettings.bashSandbox) {
-    bashSandbox = resolveBashSandbox({
-      workspaceRoot: deps.workspaceRoot,
-      enabled: true,
-    });
+/** Advance an async iterator, racing each chunk against the combined
+ *  signal. Providers that ignore the signal (e.g. a generator sleeping
+ *  forever) can no longer hold the Run hostage: abort rejects immediately
+ *  instead of waiting for the provider to notice. Pure module helper —
+ *  shared by the run's summarizer and the main model stream. */
+async function nextBounded<T>(
+  iter: AsyncIterator<T>,
+  combined: AbortSignal,
+  timeoutSignal: AbortSignal,
+): Promise<IteratorResult<T>> {
+  if (combined.aborted) {
+    throw new Error(timeoutSignal.aborted ? "model timed out" : "model call aborted");
   }
-  const scope = deps.coordinationScope ?? deps.runId;
-  const registry = deps.registry ?? createCoordinationRegistry();
+  let settled = false;
+  const { promise, resolve, reject } = Promise.withResolvers<IteratorResult<T>>();
+  const onAbort = () => {
+    settled = true;
+    void iter.return?.().catch(() => {});
+    reject(new Error(timeoutSignal.aborted ? "model timed out" : "model call aborted"));
+  };
+  combined.addEventListener("abort", onAbort, { once: true });
+  iter
+    .next()
+    .then(
+      (r) => {
+        if (settled) return; // aborted already; drop the late chunk
+        resolve(r);
+      },
+      (err) => {
+        if (!settled) reject(err);
+      },
+    )
+    .finally(() => combined.removeEventListener("abort", onAbort));
+  return promise;
+}
+
+/** Adapt a tools-common `Tool` (sync-or-async, `{content}` result) to the
+ *  runtime's PluginTool (always-async record result). Pure structural
+ *  variance — the await normalizes the sync voice, the spread preserves the
+ *  result object. Single adaptation point for every native tool. */
+function toPluginTool(t: Tool): PluginTool {
+  return {
+    name: t.name,
+    description: t.description,
+    ...(t.inputSchema ? { inputSchema: t.inputSchema } : {}),
+    ...(t.executionMode ? { executionMode: t.executionMode } : {}),
+    async execute(args, signal, options) {
+      const result = await t.execute(args, signal, options);
+      return { ...result };
+    },
+  };
+}
+
+/** Tool-table stage of the Run assembly: native file/bash/web/eval tools,
+ *  .mcp.json + plugin MCP mounting, per-tool timeout wrapping. `agentTools`
+ *  is the PRE-wrap table (subagent tools derive from it — no MCP, wrapped
+ *  timeouts only on the main path). */
+async function buildNativeToolStage(
+  deps: RunRuntimeDeps,
+  ctx: {
+    knobs: RuntimeKnobs;
+    bashSandbox: BashSandbox | undefined;
+    scope: string;
+    registry: CoordinationRegistry;
+  },
+): Promise<{
+  agentTools: PluginTool[];
+  nativeToolsPlugin: Plugin;
+  closeMounted: () => Promise<void>;
+  mcpReports: readonly McpMountReport[];
+  mountedToolNames: ReadonlySet<string>;
+}> {
+  const { knobs, bashSandbox, scope, registry } = ctx;
   const agentTools: PluginTool[] = [
-    createReadTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
-    createReadImageTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
+    toPluginTool(createReadTool({ cwd: deps.workspaceRoot })),
+    toPluginTool(createReadImageTool({ cwd: deps.workspaceRoot })),
     // ls and tree are the two directory views: ls is flat + mtime sorted
     // (cheap orientation), tree is recursive (structure). Both are read-side,
     // so they exist in read_only runs too.
-    createLsTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
-    createTreeTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,
-    createGlobTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
-    createGrepTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
+    toPluginTool(createLsTool({ cwd: deps.workspaceRoot })),
+    toPluginTool(createTreeTool({ cwd: deps.workspaceRoot })),
+    toPluginTool(createGlobTool({ workspaceRoot: deps.workspaceRoot })),
+    toPluginTool(createGrepTool({ workspaceRoot: deps.workspaceRoot })),
   ];
   if (deps.workspaceAccess === "read_write") {
-    agentTools.push(createWriteTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
-    agentTools.push(createEditTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);
+    agentTools.push(toPluginTool(createWriteTool({ cwd: deps.workspaceRoot })));
+    agentTools.push(toPluginTool(createEditTool({ cwd: deps.workspaceRoot })));
     const bashToolOpts: {
       workspaceRoot: string;
       scope: string;
@@ -370,21 +412,21 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     } = { workspaceRoot: deps.workspaceRoot, scope, timeouts: knobs, registry };
     if (bashSandbox) bashToolOpts.sandbox = bashSandbox;
     if (deps.bashPtyConsole) bashToolOpts.ptyConsole = deps.bashPtyConsole;
-    agentTools.push(createBashTool(bashToolOpts) as unknown as PluginTool);
+    agentTools.push(toPluginTool(createBashTool(bashToolOpts)));
     agentTools.push(
-      createEvalTool({
-        workspaceRoot: deps.workspaceRoot,
-        scope,
-        registry,
-        ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
-      }) as unknown as PluginTool,
+      toPluginTool(
+        createEvalTool({
+          workspaceRoot: deps.workspaceRoot,
+          scope,
+          registry,
+          ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
+        }),
+      ),
     );
     // Interactive web (JS/interaction/screenshots): browser is a headless
     // Chromium subprocess — read_only runs don't get it (it writes
     // screenshots into the workspace and drives real sessions).
-    agentTools.push(
-      createBrowserTool({ workspaceRoot: deps.workspaceRoot }) as unknown as PluginTool,
-    );
+    agentTools.push(toPluginTool(createBrowserTool({ workspaceRoot: deps.workspaceRoot })));
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
   // Skips "product-tools" (the manifest path owns it) and names that
@@ -410,7 +452,6 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       ...(knobs.maxToolTimeoutMs !== undefined ? { maxToolTimeoutMs: knobs.maxToolTimeoutMs } : {}),
     },
   );
-  const closeMounted = mounted.close;
   // Web tools default ON via the std ports (DDG search + guarded fetch);
   // NOTE: mounted MCP tools intentionally do NOT join agentTools — they are
   // appended once (unwrapped; withCallTimeout already binds their per-call
@@ -418,8 +459,8 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // every mounted tool and tripped validatePlugins on real servers.
   if (knobs.disableWeb !== true) {
     agentTools.push(
-      createPortWebSearchTool(deps.webSearch ?? createDdgWebSearchPort()) as unknown as PluginTool,
-      createPortWebFetchTool(deps.webFetch ?? createStdWebFetchPort()) as unknown as PluginTool,
+      createPortWebSearchTool(deps.webSearch ?? createDdgWebSearchPort()),
+      createPortWebFetchTool(deps.webFetch ?? createStdWebFetchPort()),
     );
   }
 
@@ -435,159 +476,30 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     name: "native-tools",
     tools: [...nativeTools, ...mounted.tools],
   };
-  // Managed-skills dir joins discovery on MUTABLE runs (dead-last): a skill
-  // minted this run is loadable via skill_load in the same run, and
-  // manage_skill's refresh re-scans it. Read-only runs keep the frozen roots.
-  const managedRoot = managedSkillsDir();
-  const skillRoots =
-    deps.workspaceAccess === "read_write" && !deps.skillRoots.includes(managedRoot)
-      ? [...deps.skillRoots, managedRoot]
-      : deps.skillRoots;
-  const skillPlugin = createSkill({ roots: skillRoots });
-  const plugins: Plugin[] = [nativeToolsPlugin, skillPlugin];
-  // Plugin code-tool names (post native-conflict filter): the auto-mode
-  // classifier gate needs them by name — plugin tools have no naming
-  // convention, so membership is collected at assembly.
-  const pluginCodeToolNames = new Set<string>();
-  if (deps.codePlugins?.length) {
-    if (deps.permissionMode !== "deny") {
-      // Native wins on tool-name conflicts (spec conflict matrix).
-      const nativeNames = new Set(plugins.flatMap((p) => (p.tools ?? []).map((t) => t.name)));
-      const askGate = deps.permissionMode === "ask";
-      for (const cp of deps.codePlugins) {
-        const tools = (cp.tools ?? [])
-          .filter((t) => !nativeNames.has(t.name))
-          .map((t) => {
-            pluginCodeToolNames.add(t.name);
-            return t;
-          })
-          .map((t) =>
-            askGate
-              ? {
-                  ...t,
-                  async execute(
-                    args: Readonly<Record<string, unknown>>,
-                    signal?: AbortSignal,
-                    options?: Parameters<PluginTool["execute"]>[2],
-                  ) {
-                    if (!deps.approvalHandler) {
-                      return {
-                        error: `${t.name}: approval required but no pipeline configured`,
-                        isError: true,
-                      };
-                    }
-                    const verdict = await withApprovalDeadline(
-                      deps.approvalHandler({
-                        callId: options?.callId ?? "",
-                        toolName: t.name,
-                        input: args,
-                        source: "permission",
-                      }),
-                      approvalDeadlineMs,
-                    );
-                    if (verdict.decision === "deny") {
-                      return {
-                        error: `${t.name}: denied — ${verdict.reason ?? "user denied"}`,
-                        isError: true,
-                      };
-                    }
-                    return t.execute(args, signal, options);
-                  },
-                }
-              : t,
-          );
-        plugins.push({
-          name: cp.name,
-          ...(cp.hooks ? { hooks: cp.hooks } : {}),
-          ...(tools.length ? { tools } : {}),
-        });
-      }
-    }
-    // permissionMode "deny" drops plugin code components entirely (MVP
-    // enforcement point); native tools are unaffected and the Run proceeds.
-  }
-  // Native ask_question (oh-my-pi style HITL): same conflict rule as todo —
-  // the backend can inject its own MCP ask_question (product surfaces); the
-  // injected one wins, standalone workspaces get the native tool.
-  const hasInjectedAsk = mounted.tools.some((t) => t.name === "ask_question");
-  const askAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "ask_question") : true;
-  if (!hasInjectedAsk && askAllowed) {
-    plugins.push({
-      name: "oma-native-ask",
-      tools: [createAskQuestionTool()],
-    });
-  }
-  // Native todo (.oma/todo.json): installed when NOTHING else already
-  // provides todo_write (the backend injects its own MCP todo_write into
-  // RPC workspaces — the specific injection wins over the built-in default;
-  // standalone workspaces get the native one). One rule replaces the old
-  // per-mode enableNativeTodo flag.
-  const hasInjectedTodo = mounted.tools.some((t) => t.name === "todo_write");
-  const todoAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "todo_write") : true;
-  // Explicit durable-lesson capture (omp learn tool, local backend). The
-  // workspace file must never steer the product: read_write workspaces only.
-  if (deps.workspaceAccess === "read_write") {
-    plugins.push({
-      name: "oma-native-learn",
-      tools: [
-        createLearnTool({
-          workspaceRoot: deps.workspaceRoot,
-          vector: deps.vectorMemory ? getVectorMemory(deps.workspaceRoot) : null,
-          skillRoots: deps.skillRoots,
-        }),
-        // Direct managed-skill CRUD with live index refresh (omp parity:
-        // learn defers discovery to a later session, manage_skill doesn't).
-        createManageSkillTool({
-          skillRoots: deps.skillRoots,
-          refreshSkills: () => skillPlugin.refresh(),
-        }),
-      ],
-    });
-    // Vector memory (standalone-only: the product RPC path keeps its own
-    // memory semantics; a workspace file never steers it). One lazy
-    // (store, provider) per workspace; missing model = FTS-only recall.
-    if (deps.vectorMemory) {
-      const vector = getVectorMemory(deps.workspaceRoot);
-      if (vector) {
-        void backfillLearnedLessons(vector, deps.workspaceRoot).catch(() => {});
-        plugins.push({
-          name: "oma-native-vector-memory",
-          tools: [createRecallTool(vector), createRetainTool(vector)],
-        });
-      }
-    }
-  }
-  const nativeTodoWanted = !hasInjectedTodo && todoAllowed;
-  if (nativeTodoWanted) {
-    const todoStore = createFileTodoStore(deps.workspaceRoot);
-    const todoBase = createTodo({ store: todoStore });
-    plugins.push({
-      name: todoBase.name,
-      hooks: todoBase.hooks,
-      tools: [...(todoBase.tools ?? []), createTodoReadTool({ store: todoStore })],
-      meta: [
-        {
-          name: "Current Tasks",
-          render: () => {
-            const items = todoStore.read();
-            if (items.length === 0) return "None yet. Use todo_write to track tasks.";
-            const marks: Record<string, string> = {
-              pending: "- [ ]",
-              in_progress: "- [~]",
-              done: "- [x]",
-              cancelled: "- [ ]",
-            };
-            return items
-              .map((t) => `${marks[t.status] ?? "- [ ]"} ${t.text} (id: ${t.id})`)
-              .join("\n");
-          },
-        },
-      ],
-    });
-  }
+  return {
+    agentTools,
+    nativeToolsPlugin,
+    closeMounted: mounted.close,
+    mcpReports: mounted.reports,
+    mountedToolNames: new Set(mounted.tools.map((t) => t.name)),
+  };
+}
 
-  let activeRun: AgentRunSnapshot<"oma"> | null = null;
-
+/** Model plumbing stage: everything bound to the RUN's model — display
+ *  identity, the compaction summarizer (same provider/credentials, no
+ *  catalog-first surprises), the context budget from the run model's
+ *  window, and the wall-clock caps. */
+function buildModelPlumbing(
+  deps: RunRuntimeDeps,
+  ctx: { currentModel: ModelRuntimeEntry; knobs: RuntimeKnobs },
+): {
+  resolveModel: (modelId: string) => Promise<{ provider: string; id: string }>;
+  summarize: ContextSummarizer;
+  contextBudget: ContextBudget;
+  modelTimeoutMs: number;
+  approvalDeadlineMs: number;
+} {
+  const { currentModel, knobs } = ctx;
   // Resolve the model display identity for a run's ref - used by the Session
   // to render the per-loop Meta (workspace/model fact line). The Session is
   // the sole Meta owner; the Run runtime never passes a meta string.
@@ -595,6 +507,12 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     const model = await resolveModelEntry(deps.modelRuntime, modelId);
     return { provider: model.providerId, id: model.modelId };
   };
+
+  // Wall-clock cap on a single model call: a silent/stuck provider must not
+  // leave the Run in `running` forever. The timeout aborts the call and the
+  // Run fails (no auto-retry). Overridable via env for tests.
+  const modelTimeoutMs = knobs.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+  const approvalDeadlineMs = knobs.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
 
   // Summarizer: call the RUN's model through ModelRuntime with full Message[]
   // input and AbortSignal support. Same provider/credentials as the run -
@@ -638,75 +556,45 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     limit: currentModel.contextWindow,
     triggerRatio: 0.7,
   };
+  return { resolveModel, summarize, contextBudget, modelTimeoutMs, approvalDeadlineMs };
+}
 
-  // Wall-clock cap on a single model call: a silent/stuck provider must not
-  // leave the Run in `running` forever. The timeout aborts the call and the
-  // Run fails (no auto-retry). Overridable via env for tests.
-  const modelTimeoutMs = knobs.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
-  const approvalDeadlineMs = knobs.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
+/** The run's model-stream shape (main loop voice; subagents and the
+ *  classifier ride the same stream). */
+type RunModelStream = (
+  messages: readonly Message[],
+  signal?: AbortSignal,
+  tools?: readonly PluginTool[],
+  modelIdOverride?: string,
+  responseFormat?: JsonSchema,
+) => AsyncIterable<AIMessageChunk>;
 
-  /** Advance an async iterator, racing each chunk against the combined
-   *  signal. Providers that ignore the signal (e.g. a generator sleeping
-   *  forever) can no longer hold the Run hostage: abort rejects immediately
-   *  instead of waiting for the provider to notice. */
-  const nextBounded = async <T>(
-    iter: AsyncIterator<T>,
-    combined: AbortSignal,
-    timeoutSignal: AbortSignal,
-  ): Promise<IteratorResult<T>> => {
-    if (combined.aborted) {
-      throw new Error(timeoutSignal.aborted ? "model timed out" : "model call aborted");
-    }
-    let settled = false;
-    return new Promise((resolve, reject) => {
-      const onAbort = () => {
-        settled = true;
-        void iter.return?.().catch(() => {});
-        reject(new Error(timeoutSignal.aborted ? "model timed out" : "model call aborted"));
-      };
-      combined.addEventListener("abort", onAbort, { once: true });
-      iter
-        .next()
-        .then(
-          (r) => {
-            if (settled) return; // aborted already; drop the late chunk
-            resolve(r);
-          },
-          (err) => {
-            if (!settled) reject(err);
-          },
-        )
-        .finally(() => combined.removeEventListener("abort", onAbort));
-    });
-  };
+/** One session's permission gate verdict. */
+type SessionPermissionGate = (
+  toolName: string,
+  input: unknown,
+  callId: string,
+) => Promise<{ block: boolean; reason?: string } | undefined>;
 
-  // PluginRuntime: gives hooks access to model stream, store, workspace,
-  // emit, and abort signal. Plugins capture config in closures; rt provides
-  // runtime capabilities at call time.
-  // Two-phase: sessionEmit is bound after session creation (the session's
-  // emit method doesn't exist until createOmaSession returns).
-  let sessionEmit: ((event: OmaLoopEvent) => void) | null = null;
-  // The workflow executor rides the SAME model stream + summarizer as the
-  // main loop; subagents get the file tools only (no workflow/product tools).
-  // Product budget gate (T11a): the Loop freezes its remaining daily budget
-  // on the Run; the executor refuses new spawns once the completed agents'
-  // usage estimate exceeds it. Advisory - the product dailyCap stays the
-  // hard gate. No budget on the run = no gate.
-  let delegationSpentTokens = 0;
-  const delegationUsageAccum = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-  };
-  const delegationBudgetGate = (): { allowed: boolean; reason?: string } => {
-    const budget = activeRun?.workflowBudgetTokens;
-    if (budget == null) return { allowed: true };
-    if (delegationSpentTokens >= budget) {
-      return { allowed: false, reason: "delegation budget exhausted" };
-    }
-    return { allowed: true };
-  };
+/** Permission-gate stage (ADR 0020): "deny" blocks outright; "ask" routes
+ *  high-risk tools through the approval pipeline; "auto" routes
+ *  effect-escaping tools through the classifier with one human escalation
+ *  per unique action. The factory also serves every workflow subagent —
+ *  same policy, own intent texts. Absent permissionMode = ungated. */
+function createRunPermissionGates(
+  deps: RunRuntimeDeps,
+  ctx: {
+    knobs: RuntimeKnobs;
+    store: SessionStore;
+    streamModel: RunModelStream;
+    pluginCodeToolNames: ReadonlySet<string>;
+    approvalDeadlineMs: number;
+  },
+): {
+  permissionGate: SessionPermissionGate | undefined;
+  makeSessionPermissionGate: (intentTexts: readonly string[]) => SessionPermissionGate;
+} {
+  const { knobs, store, streamModel, pluginCodeToolNames, approvalDeadlineMs } = ctx;
   // Native-tool permission gate (ADR 0020): "deny" blocks outright; "ask"
   // routes high-risk tools through the SAME approvalHandler as plugin code
   // tools (one pipeline). "auto" (CC auto-mode alignment, 2026-09) routes
@@ -913,7 +801,39 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     };
   const permissionGate =
     deps.permissionMode === undefined ? undefined : makeSessionPermissionGate([]);
+  return { permissionGate, makeSessionPermissionGate };
+}
 
+/** Delegation/orchestration stack: the subagent executor, the vm-script
+ *  runner both workflow_run and the Run's `workflow` input ride, and the
+ *  three surface plugins (delegation-tools / orchestrate-tool / hub-tool).
+ *  `emit` carries the accounting side effects (budget + usage accumulation
+ *  + session event fan-out) — the stack itself stays pure wiring. */
+function createDelegationStack(
+  deps: RunRuntimeDeps,
+  ctx: {
+    registry: CoordinationRegistry;
+    scope: string;
+    agentTools: readonly PluginTool[];
+    summarize: ContextSummarizer;
+    contextBudget: ContextBudget;
+    makeSessionPermissionGate?: (intentTexts: readonly string[]) => SessionPermissionGate;
+    streamModel: RunModelStream;
+    budgetGate: () => { allowed: boolean; reason?: string };
+    emit: (event: OmaLoopEvent) => void;
+  },
+): {
+  delegationExecutor: ReturnType<typeof createDelegationExecutor>;
+  runScript: (input: { script: string; args?: unknown }) => Promise<{
+    ok: boolean;
+    totalTokens: number;
+    value: unknown;
+  }>;
+  plugins: Plugin[];
+} {
+  const { registry, scope, agentTools, summarize, contextBudget, streamModel, budgetGate, emit } =
+    ctx;
+  const { makeSessionPermissionGate } = ctx;
   // --tools filter also governs the subagent table: a `--tools read` Run must
   // not hand its children bash/write. Applied here (the executor receives the
   // post-filter list) and again to the main session's plugin table below.
@@ -932,26 +852,10 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     workspaceRoot: deps.workspaceRoot,
     workspaceAccess: deps.workspaceAccess,
     scope,
-    budgetGate: delegationBudgetGate,
-    ...(deps.permissionMode === undefined ? {} : { makePermissionGate: makeSessionPermissionGate }),
+    budgetGate,
+    ...(makeSessionPermissionGate ? { makePermissionGate: makeSessionPermissionGate } : {}),
     emit: (event) => {
-      if (event.type === "delegation_agent_completed" && event.usage) {
-        const usage = event.usage;
-        if (typeof usage === "object") {
-          const tokens = (v: unknown): number => (typeof v === "number" && v > 0 ? v : 0);
-          const u = usage as Record<string, unknown>;
-          delegationSpentTokens +=
-            tokens(u.inputTokens) +
-            tokens(u.outputTokens) +
-            tokens(u.cacheReadTokens) +
-            tokens(u.cacheWriteTokens);
-          delegationUsageAccum.inputTokens += tokens(u.inputTokens);
-          delegationUsageAccum.outputTokens += tokens(u.outputTokens);
-          delegationUsageAccum.cacheReadTokens += tokens(u.cacheReadTokens);
-          delegationUsageAccum.cacheWriteTokens += tokens(u.cacheWriteTokens);
-        }
-      }
-      sessionEmit?.(event);
+      emit(event);
     },
     maxConcurrent: 8,
     maxTotal: 64,
@@ -967,7 +871,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   }): Promise<{ ok: boolean; totalTokens: number; value: unknown }> => {
     const batchId = `script-${crypto.randomUUID()}`;
     const results: SubagentResult[] = [];
-    sessionEmit?.({
+    emit({
       type: "delegation_batch_started",
       batchId,
       label: "script",
@@ -1001,7 +905,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       0,
     );
     const ok = results.every((r) => r.ok);
-    sessionEmit?.({
+    emit({
       type: "delegation_batch_completed",
       batchId,
       ok,
@@ -1010,82 +914,359 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     });
     return { ok, totalTokens, value };
   };
-  plugins.push({
-    name: "delegation-tools",
-    tools: createDelegationTools({
-      runBatch: (input) => delegationExecutor.runBatch(input),
-      runSubagent: (spec, signal) =>
-        delegationExecutor.runSubagent(
-          {
-            ...spec,
-            batchId: `sub-${crypto.randomUUID()}`,
-            agentId: spec.label ?? "sub",
+  const delegationTools = createDelegationTools({
+    runBatch: (input) => delegationExecutor.runBatch(input),
+    runSubagent: (spec, signal) =>
+      delegationExecutor.runSubagent(
+        {
+          ...spec,
+          batchId: `sub-${crypto.randomUUID()}`,
+          agentId: spec.label ?? "sub",
+        },
+        signal,
+      ),
+    readAgentDefinition: async (name) => {
+      if (!isValidWorkflowName(name)) return null;
+      // read_only workspaces have no local agent definitions — builtins only.
+      if (deps.workspaceAccess !== "read_write") return null;
+      try {
+        return await Bun.file(join(deps.workspaceRoot, ".oma", "agents", `${name}.md`)).text();
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  const orchestrateTools = createOrchestrateTool({
+    runScript,
+    writeScript: (name, content) => {
+      // The name is model-supplied: never treat it as a path segment
+      // (a "../" escape would write outside the workspace).
+      if (!isValidWorkflowName(name)) {
+        throw new Error(`invalid workflow name (allowed: [a-z0-9-], max 64): ${name}`);
+      }
+      if (deps.workspaceAccess !== "read_write") {
+        throw new Error("workflow scripts cannot be saved in a read_only workspace");
+      }
+      const dir = join(deps.workspaceRoot, ".oma/workflow");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${name}.js`), content);
+    },
+    readScript: async (name) => {
+      if (!isValidWorkflowName(name)) return null;
+      try {
+        return await Bun.file(join(deps.workspaceRoot, ".oma/workflow", `${name}.js`)).text();
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  const hubTools = createHubTool({
+    scope,
+    list: (s) => registry.listEntries(s),
+    get: (id) => registry.getEntry(id),
+    wait: (o) => registry.waitEntries(o),
+    stop: (id) => {
+      const e = registry.getEntry(id);
+      if (e?.kind === "subagent") return delegationExecutor.stopSubagent(id);
+      return registry.stopEntry(id);
+    },
+    steer: (handle, prompt) => {
+      const e = registry.getEntry(handle);
+      if (e && e.kind !== "subagent") {
+        return {
+          ok: false,
+          error: `"${handle}" is a ${e.kind} job; only subagent handles can be steered`,
+        };
+      }
+      return delegationExecutor.steerSubagent(handle, prompt);
+    },
+  });
+
+  return {
+    delegationExecutor,
+    runScript,
+    plugins: [
+      { name: "delegation-tools", tools: delegationTools },
+      { name: "orchestrate-tool", tools: orchestrateTools },
+      { name: "hub-tool", tools: hubTools },
+    ],
+  };
+}
+
+/** Build the complete Runtime assembly for exactly ONE Run. The Run's
+ *  in-memory SessionStore is created here (never shared with other Runs);
+ *  the model is resolved per run from the AgentRunSnapshot. */
+export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRuntime> {
+  const store = createInMemorySessionStore();
+  // M9: `.oma/settings.json` lives in the agent-writable workspace. Standalone
+  // modes (tui/print/json) honor every knob; backend RPC runs honor ONLY
+  // bashSandbox (enabling it = stricter, fail-safe) — a workspace file must
+  // never steer the product's permission classifier, web, steps or timeouts.
+  // Knobs are plain DI values (deps.settings wins, then the process env as a
+  // deployment default): the runtime NEVER writes process.env, so a process
+  // that runs many Runs (the TUI) cannot leak one Run's config into the next.
+  const loaded = loadProjectSettings(deps.workspaceRoot);
+  const projectSettings: ProjectSettings = deps.gateWorkspaceMcp
+    ? loaded
+    : { bashSandbox: loaded.bashSandbox };
+  const knobs = deps.settings ?? resolveRuntimeKnobs(projectSettings);
+  const currentModel = await resolveModelEntry(deps.modelRuntime, deps.modelId);
+  // OS bash sandbox (BashSandbox design): enabled via .oma/settings.json
+  // (TUI /settings or direct edit). resolveBashSandbox throws on
+  // enabled-but-tool-missing — the Run fails loudly rather than silently
+  // running unconstrained.
+  let bashSandbox: BashSandbox | undefined;
+  if (projectSettings.bashSandbox) {
+    bashSandbox = resolveBashSandbox({
+      workspaceRoot: deps.workspaceRoot,
+      enabled: true,
+    });
+  }
+  const scope = deps.coordinationScope ?? deps.runId;
+  const registry = deps.registry ?? createCoordinationRegistry();
+  const toolStage = await buildNativeToolStage(deps, {
+    knobs,
+    bashSandbox,
+    scope,
+    registry,
+  });
+  const { agentTools, nativeToolsPlugin, closeMounted } = toolStage;
+  // Managed-skills dir joins discovery on MUTABLE runs (dead-last): a skill
+  // minted this run is loadable via skill_load in the same run, and
+  // manage_skill's refresh re-scans it. Read-only runs keep the frozen roots.
+  const managedRoot = managedSkillsDir();
+  const skillRoots =
+    deps.workspaceAccess === "read_write" && !deps.skillRoots.includes(managedRoot)
+      ? [...deps.skillRoots, managedRoot]
+      : deps.skillRoots;
+  const skillPlugin = createSkill({ roots: skillRoots });
+  const plugins: Plugin[] = [nativeToolsPlugin, skillPlugin];
+  // Plugin code-tool names (post native-conflict filter): the auto-mode
+  // classifier gate needs them by name — plugin tools have no naming
+  // convention, so membership is collected at assembly.
+  const pluginCodeToolNames = new Set<string>();
+  if (deps.codePlugins?.length) {
+    if (deps.permissionMode !== "deny") {
+      // Native wins on tool-name conflicts (spec conflict matrix).
+      const nativeNames = new Set(plugins.flatMap((p) => (p.tools ?? []).map((t) => t.name)));
+      const askGate = deps.permissionMode === "ask";
+      for (const cp of deps.codePlugins) {
+        const tools = (cp.tools ?? [])
+          .filter((t) => !nativeNames.has(t.name))
+          .map((t) => {
+            pluginCodeToolNames.add(t.name);
+            return t;
+          })
+          .map((t) =>
+            askGate
+              ? {
+                  ...t,
+                  async execute(
+                    args: Readonly<Record<string, unknown>>,
+                    signal?: AbortSignal,
+                    options?: Parameters<PluginTool["execute"]>[2],
+                  ) {
+                    if (!deps.approvalHandler) {
+                      return {
+                        error: `${t.name}: approval required but no pipeline configured`,
+                        isError: true,
+                      };
+                    }
+                    const verdict = await withApprovalDeadline(
+                      deps.approvalHandler({
+                        callId: options?.callId ?? "",
+                        toolName: t.name,
+                        input: args,
+                        source: "permission",
+                      }),
+                      approvalDeadlineMs,
+                    );
+                    if (verdict.decision === "deny") {
+                      return {
+                        error: `${t.name}: denied — ${verdict.reason ?? "user denied"}`,
+                        isError: true,
+                      };
+                    }
+                    return t.execute(args, signal, options);
+                  },
+                }
+              : t,
+          );
+        plugins.push({
+          name: cp.name,
+          ...(cp.hooks ? { hooks: cp.hooks } : {}),
+          ...(tools.length ? { tools } : {}),
+        });
+      }
+    }
+    // permissionMode "deny" drops plugin code components entirely (MVP
+    // enforcement point); native tools are unaffected and the Run proceeds.
+  }
+  // Native ask_question (oh-my-pi style HITL): same conflict rule as todo —
+  // the backend can inject its own MCP ask_question (product surfaces); the
+  // injected one wins, standalone workspaces get the native tool.
+  const hasInjectedAsk = toolStage.mountedToolNames.has("ask_question");
+  const askAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "ask_question") : true;
+  if (!hasInjectedAsk && askAllowed) {
+    plugins.push({
+      name: "oma-native-ask",
+      tools: [createAskQuestionTool()],
+    });
+  }
+  // Native todo (.oma/todo.json): installed when NOTHING else already
+  // provides todo_write (the backend injects its own MCP todo_write into
+  // RPC workspaces — the specific injection wins over the built-in default;
+  // standalone workspaces get the native one). One rule replaces the old
+  // per-mode enableNativeTodo flag.
+  const hasInjectedTodo = toolStage.mountedToolNames.has("todo_write");
+  const todoAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "todo_write") : true;
+  // Explicit durable-lesson capture (omp learn tool, local backend). The
+  // workspace file must never steer the product: read_write workspaces only.
+  if (deps.workspaceAccess === "read_write") {
+    plugins.push({
+      name: "oma-native-learn",
+      tools: [
+        createLearnTool({
+          workspaceRoot: deps.workspaceRoot,
+          vector: deps.vectorMemory ? getVectorMemory(deps.workspaceRoot) : null,
+          skillRoots: deps.skillRoots,
+        }),
+        // Direct managed-skill CRUD with live index refresh (omp parity:
+        // learn defers discovery to a later session, manage_skill doesn't).
+        createManageSkillTool({
+          skillRoots: deps.skillRoots,
+          refreshSkills: () => skillPlugin.refresh(),
+        }),
+      ],
+    });
+    // Vector memory (standalone-only: the product RPC path keeps its own
+    // memory semantics; a workspace file never steers it). One lazy
+    // (store, provider) per workspace; missing model = FTS-only recall.
+    if (deps.vectorMemory) {
+      const vector = getVectorMemory(deps.workspaceRoot);
+      if (vector) {
+        void backfillLearnedLessons(vector, deps.workspaceRoot).catch(() => {});
+        plugins.push({
+          name: "oma-native-vector-memory",
+          tools: [createRecallTool(vector), createRetainTool(vector)],
+        });
+      }
+    }
+  }
+  const nativeTodoWanted = !hasInjectedTodo && todoAllowed;
+  if (nativeTodoWanted) {
+    const todoStore = createFileTodoStore(deps.workspaceRoot);
+    const todoBase = createTodo({ store: todoStore });
+    plugins.push({
+      name: todoBase.name,
+      hooks: todoBase.hooks,
+      tools: [...(todoBase.tools ?? []), createTodoReadTool({ store: todoStore })],
+      meta: [
+        {
+          name: "Current Tasks",
+          render: () => {
+            const items = todoStore.read();
+            if (items.length === 0) return "None yet. Use todo_write to track tasks.";
+            const marks: Record<string, string> = {
+              pending: "- [ ]",
+              in_progress: "- [~]",
+              done: "- [x]",
+              cancelled: "- [ ]",
+            };
+            return items
+              .map((t) => `${marks[t.status] ?? "- [ ]"} ${t.text} (id: ${t.id})`)
+              .join("\n");
           },
-          signal,
-        ),
-      readAgentDefinition: async (name) => {
-        if (!isValidWorkflowName(name)) return null;
-        // read_only workspaces have no local agent definitions — builtins only.
-        if (deps.workspaceAccess !== "read_write") return null;
-        try {
-          return await Bun.file(join(deps.workspaceRoot, ".oma", "agents", `${name}.md`)).text();
-        } catch {
-          return null;
-        }
-      },
-    }),
+        },
+      ],
+    });
+  }
+
+  let activeRun: AgentRunSnapshot<"oma"> | null = null;
+
+  // Model plumbing: display-identity resolver, summarizer, compaction
+  // budget, and the wall-clock caps — all bound to the RUN's model.
+  const { resolveModel, summarize, contextBudget, modelTimeoutMs, approvalDeadlineMs } =
+    buildModelPlumbing(deps, { currentModel, knobs });
+
+  // PluginRuntime: gives hooks access to model stream, store, workspace,
+  // emit, and abort signal. Plugins capture config in closures; rt provides
+  // runtime capabilities at call time.
+  // Two-phase: sessionEmit is bound after session creation (the session's
+  // emit method doesn't exist until createOmaSession returns).
+  let sessionEmit: ((event: OmaLoopEvent) => void) | null = null;
+  // The workflow executor rides the SAME model stream + summarizer as the
+  // main loop; subagents get the file tools only (no workflow/product tools).
+  // Product budget gate (T11a): the Loop freezes its remaining daily budget
+  // on the Run; the executor refuses new spawns once the completed agents'
+  // usage estimate exceeds it. Advisory - the product dailyCap stays the
+  // hard gate. No budget on the run = no gate.
+  let delegationSpentTokens = 0;
+  const delegationUsageAccum = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  const delegationBudgetGate = (): { allowed: boolean; reason?: string } => {
+    const budget = activeRun?.workflowBudgetTokens;
+    if (budget == null) return { allowed: true };
+    if (delegationSpentTokens >= budget) {
+      return { allowed: false, reason: "delegation budget exhausted" };
+    }
+    return { allowed: true };
+  };
+  // Permission gates (ADR 0020): one pipeline for native + plugin tools;
+  //  subagent sessions get the same policy with their own intent texts.
+  const { permissionGate, makeSessionPermissionGate } = createRunPermissionGates(deps, {
+    knobs,
+    store,
+    streamModel,
+    pluginCodeToolNames,
+    approvalDeadlineMs,
   });
-  plugins.push({
-    name: "orchestrate-tool",
-    tools: createOrchestrateTool({
-      runScript,
-      writeScript: (name, content) => {
-        // The name is model-supplied: never treat it as a path segment
-        // (a "../" escape would write outside the workspace).
-        if (!isValidWorkflowName(name)) {
-          throw new Error(`invalid workflow name (allowed: [a-z0-9-], max 64): ${name}`);
-        }
-        if (deps.workspaceAccess !== "read_write") {
-          throw new Error("workflow scripts cannot be saved in a read_only workspace");
-        }
-        const dir = join(deps.workspaceRoot, ".oma/workflow");
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, `${name}.js`), content);
-      },
-      readScript: async (name) => {
-        if (!isValidWorkflowName(name)) return null;
-        try {
-          return await Bun.file(join(deps.workspaceRoot, ".oma/workflow", `${name}.js`)).text();
-        } catch {
-          return null;
-        }
-      },
-    }),
+
+  // --tools filter also governs the subagent table: a `--tools read` Run must
+  // not hand its children bash/write. Applied here (the executor receives the
+  // post-filter list) and again to the main session's plugin table below.
+  const delegationEmit = (event: OmaLoopEvent): void => {
+    if (event.type === "delegation_agent_completed" && event.usage) {
+      const usage = event.usage;
+      if (typeof usage === "object") {
+        const tokens = (v: unknown): number => (typeof v === "number" && v > 0 ? v : 0);
+        const u = usage as Record<string, unknown>;
+        delegationSpentTokens +=
+          tokens(u.inputTokens) +
+          tokens(u.outputTokens) +
+          tokens(u.cacheReadTokens) +
+          tokens(u.cacheWriteTokens);
+        delegationUsageAccum.inputTokens += tokens(u.inputTokens);
+        delegationUsageAccum.outputTokens += tokens(u.outputTokens);
+        delegationUsageAccum.cacheReadTokens += tokens(u.cacheReadTokens);
+        delegationUsageAccum.cacheWriteTokens += tokens(u.cacheWriteTokens);
+      }
+    }
+    sessionEmit?.(event);
+  };
+  const {
+    delegationExecutor,
+    runScript,
+    plugins: delegationPlugins,
+  } = createDelegationStack(deps, {
+    registry,
+    scope,
+    agentTools,
+    summarize,
+    contextBudget,
+    makeSessionPermissionGate,
+    streamModel,
+    budgetGate: delegationBudgetGate,
+    emit: delegationEmit,
   });
-  plugins.push({
-    name: "hub-tool",
-    tools: createHubTool({
-      scope,
-      list: (s) => registry.listEntries(s),
-      get: (id) => registry.getEntry(id),
-      wait: (o) => registry.waitEntries(o),
-      stop: (id) => {
-        const e = registry.getEntry(id);
-        if (e?.kind === "subagent") return delegationExecutor.stopSubagent(id);
-        return registry.stopEntry(id);
-      },
-      steer: (handle, prompt) => {
-        const e = registry.getEntry(handle);
-        if (e && e.kind !== "subagent") {
-          return {
-            ok: false,
-            error: `"${handle}" is a ${e.kind} job; only subagent handles can be steered`,
-          };
-        }
-        return delegationExecutor.steerSubagent(handle, prompt);
-      },
-    }),
-  });
+  plugins.push(...delegationPlugins);
+
   const pluginRuntime: PluginRuntime = {
     streamModel: (providerId, modelId, messages, opts) =>
       deps.modelRuntime.stream(providerId, modelId, messages, opts),
@@ -1185,7 +1366,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     store,
     knobs,
     session,
-    mcpMountReports: mounted.reports,
+    mcpMountReports: toolStage.mcpReports,
     summarize,
     contextBudget,
     setActiveRun(run) {
