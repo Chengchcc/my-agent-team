@@ -71,7 +71,7 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
   try {
     dirStat = lstatSync(dir);
   } catch {
-    dirStat = null;
+    /* absent dir */
   }
   if (dirStat?.isSymbolicLink()) {
     throw new Error(
@@ -88,6 +88,9 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
       if ((err as { code?: string }).code === "EEXIST") {
         throw new Error(
           `Managed skill "${name}" already exists. Use action "update" to change it.`,
+          {
+            cause: err,
+          },
         );
       }
       throw err;
