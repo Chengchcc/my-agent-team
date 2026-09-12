@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { extname, relative, resolve, sep } from "node:path";
 import type { Tool } from "@chengchenccc/message";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
@@ -37,7 +44,17 @@ const PROTECTED_FILES: Record<string, true> = {
 };
 
 function isProtectedPath(cwd: string, full: string): boolean {
-  const rel = relative(cwd, full).split(sep).join("/");
+  // `full` comes from WorkspaceSandbox, which resolves the root's realpath;
+  // canonicalize `cwd` the same way or a symlinked workspace root (macOS
+  // /tmp -> /private/tmp) makes `relative` walk up to `../../private/...` and
+  // every protected entry misses — the H1 write-any-.mcp.json bypass.
+  let root = cwd;
+  try {
+    root = realpathSync(cwd);
+  } catch {
+    /* cwd vanished between validate and check; fall back to the raw path */
+  }
+  const rel = relative(root, full).split(sep).join("/");
   return PROTECTED_FILES[rel] === true;
 }
 

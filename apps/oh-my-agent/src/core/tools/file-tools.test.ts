@@ -1,5 +1,13 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEditTool, createReadTool, createWriteTool } from "./file-tools.js";
@@ -30,11 +38,51 @@ describe("write/edit protect product config files (H1)", () => {
       new_string: "b",
     });
     expect(res.isError).toBe(true);
+    // Pin the REASON: the file does not exist here, so a plain `isError`
+    // would also pass on "file not found" and hide a bypass.
+    expect(String(res.content)).toMatch(/product-managed/);
   });
 
   test("write still allows normal files", async () => {
     const res = await createWriteTool({ cwd }).execute({ path: "notes/a.md", content: "hi" });
     expect(res.isError).toBeUndefined();
+  });
+});
+
+/** The workspace root itself is routinely a symlink (macOS /tmp, a linked
+ *  agent dir, a worktree). The protected-path lookup compares `cwd` against
+ *  paths already realpath-resolved by WorkspaceSandbox, so an uncanonicalized
+ *  `cwd` silently unprotects every product-managed file. */
+describe("protected config files behind a symlinked workspace root", () => {
+  const real = mkdtempSync(join(tmpdir(), "oma-prot-real-"));
+  const link = `${real}-link`;
+  symlinkSync(real, link);
+
+  afterAll(() => {
+    rmSync(link, { force: true });
+    rmSync(real, { recursive: true, force: true });
+  });
+
+  test("write refuses .mcp.json through the symlink", async () => {
+    const res = await createWriteTool({ cwd: link }).execute({
+      path: ".mcp.json",
+      content: "{}",
+    });
+    expect(res.isError).toBe(true);
+    expect(String(res.content)).toMatch(/product-managed/);
+    expect(existsSync(join(real, ".mcp.json"))).toBe(false);
+  });
+
+  test("edit refuses .oma/settings.json through the symlink", async () => {
+    mkdirSync(join(real, ".oma"), { recursive: true });
+    writeFileSync(join(real, ".oma", "settings.json"), "{}");
+    const res = await createEditTool({ cwd: link }).execute({
+      path: ".oma/settings.json",
+      old_string: "{}",
+      new_string: '{"bashSandbox":false}',
+    });
+    expect(res.isError).toBe(true);
+    expect(readFileSync(join(real, ".oma", "settings.json"), "utf8")).toBe("{}");
   });
 });
 
