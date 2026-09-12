@@ -25,6 +25,7 @@ import {
   MAX_DIFF_LINES,
   prettyJson,
   renderGitSegment,
+  styleBashLine,
   summarizeResult,
   summarizeToolArgs,
   USER_TEXT_STYLE,
@@ -154,13 +155,9 @@ export class TuiItemRenderer {
     const wall = wallMs === undefined ? "—" : `${(wallMs / 1000).toFixed(2)}s`;
     const timeoutMs = item.timeoutMs;
     const timeout = timeoutMs === undefined ? "—" : `${(timeoutMs / 1000).toFixed(0)}s`;
-    // omp-style segmented header: tool label (bold, state color) · input
-    // summary (cyan — the highlighted part) · wall/timeout (dim).
-    const argSummary = item.input !== undefined ? summarizeToolArgs(toolName, item.input) : "";
     const header = renderToolHeader({
       icon: mark,
       title: toolName,
-      description: argSummary ? `\u001b[36m${argSummary}\u001b[0m` : undefined,
       meta: [`\u001b[2m⟦Wall: ${wall} | Timeout: ${timeout}⟧\u001b[0m`],
       titleColor,
     });
@@ -173,6 +170,17 @@ export class TuiItemRenderer {
         for (const line of prettyJson(item.input).split("\n")) {
           lines.push(`\u001b[2m${line}\u001b[0m`);
         }
+      } else if (toolName === "bash" && typeof item.input.command === "string") {
+        // omp formatBashCommandLines: dim `$ ` prefix, then the command with
+        // per-segment highlighting (strings/keywords/flags/comments).
+        const command = item.input.command as string;
+        const cmdLines = command.split("\n");
+        lines.push(`\u001b[2m└ \u001b[0m\u001b[2m$ \u001b[0m${styleBashLine(cmdLines[0] ?? "")}`);
+        for (const extra of cmdLines.slice(1)) {
+          lines.push(`\u001b[2m  \u001b[0m${styleBashLine(extra)}`);
+        }
+      } else {
+        lines.push(`\u001b[2m└ ${summarizeToolArgs(toolName, item.input)}\u001b[0m`);
       }
       sections.push({ lines });
     }

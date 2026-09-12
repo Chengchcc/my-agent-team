@@ -106,6 +106,60 @@ export const EDITOR_THEME: EditorTheme = {
   },
 };
 
+/** Bash keywords that get a distinct color in tool command lines. */
+const BASH_KEYWORDS = new Set([
+  "if",
+  "then",
+  "else",
+  "elif",
+  "fi",
+  "for",
+  "while",
+  "until",
+  "do",
+  "done",
+  "case",
+  "esac",
+  "function",
+  "in",
+  "select",
+  "return",
+  "export",
+  "local",
+]);
+
+const styleBash = {
+  keyword: (s: string) => `\u001b[35m${s}\u001b[0m`,
+  string: (s: string) => `\u001b[36m${s}\u001b[0m`,
+  comment: (s: string) => `\u001b[2m${s}\u001b[0m`,
+  flag: (s: string) => `\u001b[33m${s}\u001b[0m`,
+};
+
+/** Style one bash command line: strings cyan, comments dim, keywords
+ *  magenta, flags yellow — unmatched runs stay default, so the row reads as
+ *  partially highlighted (omp formatBashCommandLines-style; its
+ *  highlightCode is a Rust FFI, this is the ~30-line equivalent). */
+export function styleBashLine(line: string): string {
+  const out: string[] = [];
+  const re = /("(?:[^"\\]|\\.)*")|('(?:[^'])*')|(#[^\n]*)|(\S+)/g;
+  let last = 0;
+  for (const m of line.matchAll(re)) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    if (m[1]) out.push(styleBash.string(m[1]));
+    else if (m[2]) out.push(styleBash.string(m[2]));
+    else if (m[3]) out.push(styleBash.comment(m[3]));
+    else {
+      const word = m[0]!;
+      if (word.startsWith("-") && word.length > 1) out.push(styleBash.flag(word));
+      else if (BASH_KEYWORDS.has(word)) out.push(styleBash.keyword(word));
+      else out.push(word);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out.join("");
+}
+
 /** Compact relative age for the session picker's label column. */
 export function relativeTime(modifiedAt: number): string {
   const minutes = Math.floor((Date.now() - modifiedAt) / 60_000);
