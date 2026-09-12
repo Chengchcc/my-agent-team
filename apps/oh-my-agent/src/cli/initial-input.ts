@@ -5,6 +5,7 @@ import { isAbsolute, join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
+import { managedSkillsDir } from "../core/memory/managed-skills.js";
 import { enabledPluginSkillRoots } from "../core/plugins/plugin-marketplace.js";
 import { buildSystemPrompt, readMemorySummary } from "../core/runtime/prompts.js";
 import { agentDir } from "../core/session/session-file.js";
@@ -53,6 +54,12 @@ export function resolveStandaloneSkillRoots(workspaceRoot: string): string[] {
   }
   for (const dir of enabledPluginSkillRoots(workspaceRoot)) {
     if (!roots.includes(dir)) roots.push(dir);
+  }
+  // Managed skills (learn-tool minted) resolve DEAD-LAST: any authored skill
+  // of the same name shadows them (omp managed-skills semantics).
+  const managed = managedSkillsDir();
+  if (!roots.includes(managed) && existsSync(managed) && statSync(managed).isDirectory()) {
+    roots.push(managed);
   }
   return roots;
 }

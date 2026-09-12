@@ -523,6 +523,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         createLearnTool({
           workspaceRoot: deps.workspaceRoot,
           vector: deps.vectorMemory ? getVectorMemory(deps.workspaceRoot) : null,
+          skillRoots: deps.skillRoots,
         }),
       ],
     });

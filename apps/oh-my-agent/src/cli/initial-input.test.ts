@@ -63,4 +63,25 @@ describe("resolveStandaloneSkillRoots", () => {
       rmSync(agent, { recursive: true, force: true });
     }
   });
+
+  test("managed-skills dir resolves dead-last when it exists", () => {
+    const ws = mkdtempSync(join(tmpdir(), "oma-skills-managed-ws-"));
+    const agent = mkdtempSync(join(tmpdir(), "oma-skills-managed-agent-"));
+    process.env.OMA_CODING_AGENT_DIR = agent;
+    try {
+      mkdirSync(join(ws, ".oma", "skills"), { recursive: true });
+      mkdirSync(join(agent, "skills"), { recursive: true });
+      mkdirSync(join(agent, "managed-skills"), { recursive: true });
+      const roots = resolveStandaloneSkillRoots(ws);
+      expect(roots).toEqual([
+        join(ws, ".oma", "skills"),
+        join(agent, "skills"),
+        join(agent, "managed-skills"),
+      ]);
+    } finally {
+      delete process.env.OMA_CODING_AGENT_DIR;
+      rmSync(ws, { recursive: true, force: true });
+      rmSync(agent, { recursive: true, force: true });
+    }
+  });
 });
