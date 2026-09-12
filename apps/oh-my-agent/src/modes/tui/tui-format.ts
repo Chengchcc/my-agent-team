@@ -96,7 +96,71 @@ export const TOOL_ARG_SUMMARIES: Record<string, (input: Record<string, unknown>)
     const label = typeof i.label === "string" ? i.label : "";
     return label || "fan out subagents";
   },
+  todo_write: (i) => {
+    if (!Array.isArray(i.items)) return "update task list";
+    const first = i.items.find(
+      (v): v is { text: string } =>
+        typeof v === "object" && v !== null && "text" in v && typeof v.text === "string",
+    );
+    const head = first ? `: ${first.text.slice(0, 40)}` : "";
+    return `${i.items.length} item(s)${head}`;
+  },
+  learn: (i) => {
+    const memory = typeof i.memory === "string" ? i.memory.replace(/\s+/g, " ").slice(0, 60) : "";
+    return memory || "capture a lesson";
+  },
+  ask_question: (i) => {
+    const first = Array.isArray(i.questions) ? i.questions[0] : undefined;
+    if (
+      typeof first === "object" &&
+      first !== null &&
+      "question" in first &&
+      typeof first.question === "string"
+    ) {
+      return first.question.slice(0, 60);
+    }
+    return "ask the user";
+  },
+  eval: (i) => {
+    const code = typeof i.code === "string" ? (i.code.split("\n", 1)[0] ?? "") : "";
+    return code.trim().slice(0, 60) || "run sandboxed code";
+  },
+  workflow_run: (i) => {
+    if (typeof i.name === "string" && i.name) return i.name;
+    return "run a workflow script";
+  },
+  browser: (i) => {
+    const action = typeof i.action === "string" ? i.action : "";
+    const url = typeof i.url === "string" ? ` ${i.url}` : "";
+    return `${action}${url}`.trim() || "browser";
+  },
+  web_search: (i) => (typeof i.query === "string" ? i.query : "search the web"),
+  web_fetch: (i) => (typeof i.url === "string" ? i.url : "fetch a url"),
+  ls: (i) => dirSummary(i),
+  tree: (i) => dirSummary(i),
+  skill_load: (i) => {
+    const name = typeof i.name === "string" ? i.name : "";
+    return name || "load a skill";
+  },
+  read_image: (i) => {
+    const path = typeof i.path === "string" ? i.path : "";
+    return path || "read an image";
+  },
+  recall: (i) => {
+    const query = typeof i.query === "string" ? i.query : "";
+    return query || "recall memories";
+  },
+  retain: (i) => {
+    const content =
+      typeof i.content === "string" ? i.content.replace(/\s+/g, " ").slice(0, 60) : "";
+    return content || "retain a fact";
+  },
 };
+
+function dirSummary(i: Record<string, unknown>): string {
+  const path = typeof i.path === "string" ? i.path : "";
+  return path || ".";
+}
 
 export function summarizeToolArgs(
   toolName: string,

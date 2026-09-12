@@ -143,4 +143,44 @@ describe("hub/task loader summaries", () => {
     expect(summarizeToolArgs("task", { label: "refactor" })).toBe("refactor");
     expect(summarizeToolArgs("task", {})).toBe("fan out subagents");
   });
+  test("every remaining native tool summarizes without JSON", () => {
+    expect(
+      summarizeToolArgs("todo_write", {
+        items: [
+          { id: "1", text: "plan the work", status: "pending" },
+          { id: "2", text: "build", status: "pending" },
+        ],
+      }),
+    ).toBe("2 item(s): plan the work");
+    expect(summarizeToolArgs("todo_write", {})).toBe("update task list");
+    expect(summarizeToolArgs("learn", { memory: "always re-read after edit" })).toBe(
+      "always re-read after edit",
+    );
+    expect(
+      summarizeToolArgs("ask_question", {
+        questions: [{ id: "q1", kind: "select", question: "Pick one" }],
+      }),
+    ).toBe("Pick one");
+    expect(
+      summarizeToolArgs("eval", { code: "export default async (ctx) => ctx.value\n// more" }),
+    ).toBe("export default async (ctx) => ctx.value");
+    expect(summarizeToolArgs("workflow_run", { script: "x".repeat(500) })).toBe(
+      "run a workflow script",
+    );
+    expect(summarizeToolArgs("browser", { action: "open", url: "https://example.com" })).toBe(
+      "open https://example.com",
+    );
+    expect(summarizeToolArgs("web_search", { query: "bun sqlite fts5" })).toBe("bun sqlite fts5");
+    expect(summarizeToolArgs("web_fetch", { url: "https://example.com" })).toBe(
+      "https://example.com",
+    );
+    expect(summarizeToolArgs("ls", { path: "src" })).toBe("src");
+    expect(summarizeToolArgs("tree", {})).toBe(".");
+    expect(summarizeToolArgs("skill_load", { name: "diagnose" })).toBe("diagnose");
+    expect(summarizeToolArgs("read_image", { path: "shot.png" })).toBe("shot.png");
+    expect(summarizeToolArgs("recall", { query: "edit tool lessons" })).toBe("edit tool lessons");
+    expect(summarizeToolArgs("retain", { content: "CI runs drizzle gen first" })).toBe(
+      "CI runs drizzle gen first",
+    );
+  });
 });
