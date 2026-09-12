@@ -104,9 +104,6 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
   }> = [];
-  /** /freeze: while true, paints are swallowed (io gate) — state keeps
-   *  updating so unfreeze shows everything at once. */
-  let outputFrozen = false;
 
   function pushStatus(lines: string | readonly string[], replacePrefix?: string): void {
     const items = (typeof lines === "string" ? [lines] : lines).map((text) => ({
@@ -209,12 +206,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     set pendingImages(value) {
       pendingImages = value;
     },
-    get frozen() {
-      return outputFrozen;
-    },
-    set frozen(value) {
-      outputFrozen = value;
-    },
+
     pushStatus,
     listModels: () => listModels(ctx),
     listModelRows: () => listModelRows(ctx),
@@ -362,7 +354,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       // so high-frequency chunk events are safe here.
       onEvent: (envelope) => {
         applyEvent(state, envelope.data as OmaLoopEvent);
-        if (!outputFrozen) io.render(state);
+        io.render(state);
       },
       // Real-time session persistence (pi appendMessage): every
       // conversational persist (user prompt, steer, assistant, tool result)
