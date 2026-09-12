@@ -6,7 +6,6 @@ import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaLoopEvent } from "../../core/index.js";
-import { vectorMemoryEnabled } from "../../core/memory/vector-memory.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import { resolvePermissionMode } from "../../core/settings/project-settings.js";
@@ -20,6 +19,7 @@ import { appendSessionMessages, listSessions } from "../../core/session/session-
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
 import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { readTodoFile } from "../../core/tools/todo-store.js";
+import { standaloneRuntimeOptions } from "../shared.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
 import { formatTokens } from "./tui-format.js";
 import {
@@ -322,75 +322,72 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     const pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
     for (const w of pluginRt.warnings) pushStatus(`[plugin] ${w}`);
-    const runtime = await createOmaRuntime({
-      coordinationScope: COORDINATION_SCOPE,
-      // One registry for the whole TUI process: subagent handles and the
-      // bg-job chip survive follow-up Runs (the io layer listens on it).
-      registry: defaultRegistry,
-      runId: `tui-${randomUUID()}`,
-      modelId: built.run.model.modelId,
-      workspaceRoot: opts.workspaceRoot,
-      workspaceAccess: opts.readOnly ? "read_only" : "read_write",
-      modelRuntime: opts.modelRuntime,
-      skillRoots: built.run.skillRoots ?? [],
-      gateWorkspaceMcp: true,
-      // M-bash: pty:true bash calls open the interactive console overlay.
-      bashPtyConsole: (command, cwd, env) => io.runPtyConsole!(command, cwd, env),
-      // HITL: interactive approval overlay; absent picker or cancel = deny.
-      approvalHandler: async (req) => {
-        const verdict = await io.confirmApproval?.({
-          toolName: req.toolName,
-          ...(req.reason ? { reason: req.reason } : {}),
-        });
-        return verdict === "allow"
-          ? { decision: "allow" }
-          : { decision: "deny", reason: "user denied" };
-      },
-      // HITL ask_question: interactive overlay; absent/cancel = null (tool
-      // fails closed with "no answer").
-      ...(io.askQuestions ? { askHandler: io.askQuestions } : {}),
-      ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-        ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
-        : {}),
-      ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
-      ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
-      vectorMemory: vectorMemoryEnabled(built.workspace.root),
-      sessionTranscript: session.messages.length
-        ? session.messages.map((m, i) => ({
-            productEntryId: `session:${i}`,
-            message: m as never,
-          }))
-        : undefined,
-      // Render on every event so model chunks (message_update) hit the
-      // screen incrementally; the TUI's requestRender throttles/coalesces,
-      // so high-frequency chunk events are safe here.
-      onEvent: (envelope) => {
-        const event = envelope.data as OmaLoopEvent;
-        applyEvent(state, event);
-        // Steers the loop actually injected are no longer "queued".
-        if (event.type === "queue_update" && event.drained) {
-          for (const drained of event.drained) {
-            const idx = pendingSteerTexts.indexOf(drained);
-            if (idx >= 0) pendingSteerTexts.splice(idx, 1);
-          }
-          io.setQueuedCount?.(pendingSteerTexts.length);
-        }
-        io.render(state);
-      },
-      // Real-time session persistence (pi appendMessage): every
-      // conversational persist (user prompt, steer, assistant, tool result)
-      // lands in the session file immediately, so even a killed/failed
-      // process leaves its context for the next turn.
-      onPersistMessages: (messages) => {
-        appendSessionMessages(session.sessionId, opts.workspaceRoot, messages, session.dir);
-        // The session file is wire-loose; the in-memory transcript keeps the
-        // same loose shape so it round-trips into sessionTranscript verbatim.
-        session.messages = [
-          ...session.messages,
-          ...messages.map((m) => ({ ...m }) as Record<string, unknown>),
-        ];
-      },
-    });
+    const runtime = await createOmaRuntime(
+      standaloneRuntimeOptions(
+        built,
+        {
+          modelRuntime: opts.modelRuntime,
+          ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+          session,
+        },
+        {
+          coordinationScope: COORDINATION_SCOPE,
+          // One registry for the whole TUI process: subagent handles and the
+          // bg-job chip survive follow-up Runs (the io layer listens on it).
+          registry: defaultRegistry,
+          runId: `tui-${randomUUID()}`,
+          workspaceRoot: opts.workspaceRoot,
+          workspaceAccess: opts.readOnly ? "read_only" : "read_write",
+          // M-bash: pty:true bash calls open the interactive console overlay.
+          bashPtyConsole: (command, cwd, env) => io.runPtyConsole!(command, cwd, env),
+          // HITL: interactive approval overlay; absent picker or cancel = deny.
+          approvalHandler: async (req) => {
+            const verdict = await io.confirmApproval?.({
+              toolName: req.toolName,
+              ...(req.reason ? { reason: req.reason } : {}),
+            });
+            return verdict === "allow"
+              ? { decision: "allow" }
+              : { decision: "deny", reason: "user denied" };
+          },
+          // HITL ask_question: interactive overlay; absent/cancel = null (tool
+          // fails closed with "no answer").
+          ...(io.askQuestions ? { askHandler: io.askQuestions } : {}),
+          ...(pluginRt.plugins.length || pluginRt.mcpServers.length
+            ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
+            : {}),
+          // Render on every event so model chunks (message_update) hit the
+          // screen incrementally; the TUI's requestRender throttles/coalesces,
+          // so high-frequency chunk events are safe here.
+          onEvent: (envelope) => {
+            const event = envelope.data as OmaLoopEvent;
+            applyEvent(state, event);
+            // Steers the loop actually injected are no longer "queued".
+            if (event.type === "queue_update" && event.drained) {
+              for (const drained of event.drained) {
+                const idx = pendingSteerTexts.indexOf(drained);
+                if (idx >= 0) pendingSteerTexts.splice(idx, 1);
+              }
+              io.setQueuedCount?.(pendingSteerTexts.length);
+            }
+            io.render(state);
+          },
+          // Real-time session persistence (pi appendMessage): every
+          // conversational persist (user prompt, steer, assistant, tool result)
+          // lands in the session file immediately, so even a killed/failed
+          // process leaves its context for the next turn.
+          onPersistMessages: (messages) => {
+            appendSessionMessages(session.sessionId, opts.workspaceRoot, messages, session.dir);
+            // The session file is wire-loose; the in-memory transcript keeps the
+            // same loose shape so it round-trips into sessionTranscript verbatim.
+            session.messages = [
+              ...session.messages,
+              ...messages.map((m) => ({ ...m }) as Record<string, unknown>),
+            ];
+          },
+        },
+      ),
+    );
     io.setBusy?.(true);
     liveRuntime = runtime;
 

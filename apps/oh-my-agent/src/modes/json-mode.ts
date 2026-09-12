@@ -1,11 +1,11 @@
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import { buildCliRunInput } from "../cli/initial-input.js";
-import { vectorMemoryEnabled } from "../core/memory/vector-memory.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
 import { persistSessionTurn, resolveSession } from "../core/session/session-loop.js";
 import type { CliRunOptions } from "./print-mode.js";
+import { standaloneRuntimeOptions } from "./shared.js";
 
 /** JSON mode: one Run; stdout gets ALL events as JSONL plus exactly one
  *  terminal outcome line; then the process exits. stderr for logs only. */
@@ -23,32 +23,26 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
   const session = resolveSession(opts.sessionId);
   const pluginRt = await assemblePluginRuntime(built.workspace.root, "json");
   for (const w of pluginRt.warnings) console.error(`[plugin] ${w}`);
-  const runtime = await createOmaRuntime({
-    runId: built.run.runId,
-    modelId: built.run.model.modelId,
-    workspaceRoot: built.workspace.root,
-    workspaceAccess: built.workspace.access,
-    modelRuntime: opts.modelRuntime,
-    skillRoots: built.run.skillRoots ?? [],
-    gateWorkspaceMcp: true,
-    approvalHandler: denyAllApprovals,
-    ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-      ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
-      : {}),
-    ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
-    ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
-    vectorMemory: vectorMemoryEnabled(built.workspace.root),
-    sessionTranscript: session.messages.length
-      ? session.messages.map((m, i) => ({
-          productEntryId: `session:${i}`,
-          message: m as never,
-        }))
-      : undefined,
-    onEvent: (envelope) => {
-      // Raw runtime event object, e.g. {"type":"agent_start"}.
-      process.stdout.write(`${JSON.stringify({ type: "event", event: envelope.data })}\n`);
-    },
-  });
+  const runtime = await createOmaRuntime(
+    standaloneRuntimeOptions(
+      built,
+      {
+        modelRuntime: opts.modelRuntime,
+        ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+        session,
+      },
+      {
+        approvalHandler: denyAllApprovals,
+        ...(pluginRt.plugins.length || pluginRt.mcpServers.length
+          ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
+          : {}),
+        onEvent: (envelope) => {
+          // Raw runtime event object, e.g. {"type":"agent_start"}.
+          process.stdout.write(`${JSON.stringify({ type: "event", event: envelope.data })}\n`);
+        },
+      },
+    ),
+  );
   try {
     const segment = await runtime.run(built);
     const outcome = await segment.outcome;

@@ -1,12 +1,12 @@
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
 import { buildCliRunInput } from "../cli/initial-input.js";
-import { vectorMemoryEnabled } from "../core/memory/vector-memory.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
 import type { ToolFilter } from "../core/runtime/tool-filter.js";
 import { persistSessionTurn, resolveSession } from "../core/session/session-loop.js";
+import { standaloneRuntimeOptions } from "./shared.js";
 
 export interface CliRunOptions {
   prompt: string;
@@ -53,28 +53,22 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
   const session = resolveSession(opts.sessionId);
   const pluginRt = await assemblePluginRuntime(built.workspace.root, "print");
   for (const w of pluginRt.warnings) console.error(`[plugin] ${w}`);
-  const runtime = await createOmaRuntime({
-    runId: built.run.runId,
-    modelId: built.run.model.modelId,
-    workspaceRoot: built.workspace.root,
-    workspaceAccess: built.workspace.access,
-    modelRuntime: opts.modelRuntime,
-    skillRoots: built.run.skillRoots ?? [],
-    gateWorkspaceMcp: true,
-    approvalHandler: denyAllApprovals,
-    ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-      ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
-      : {}),
-    ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
-    ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
-    vectorMemory: vectorMemoryEnabled(built.workspace.root),
-    sessionTranscript: session.messages.length
-      ? session.messages.map((m, i) => ({
-          productEntryId: `session:${i}`,
-          message: m as never,
-        }))
-      : undefined,
-  });
+  const runtime = await createOmaRuntime(
+    standaloneRuntimeOptions(
+      built,
+      {
+        modelRuntime: opts.modelRuntime,
+        ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
+        session,
+      },
+      {
+        approvalHandler: denyAllApprovals,
+        ...(pluginRt.plugins.length || pluginRt.mcpServers.length
+          ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
+          : {}),
+      },
+    ),
+  );
   try {
     const segment = await runtime.run(built);
     const outcome = await segment.outcome;
