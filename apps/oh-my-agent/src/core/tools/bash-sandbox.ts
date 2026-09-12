@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 
 /** Bash launch strategy (design: docs/superpowers/specs/2026-09-03-bash-sandbox-design.md).
  * A sandbox wraps the actual spawn so the OS enforces filesystem + network
@@ -116,29 +116,41 @@ export class BwrapBashSandbox implements BashSandbox {
   }
 }
 
-/** Seatbelt profile template (macOS). (deny default) + explicit allows for
- * system reads, workspace read/write, and process execution; network denied.
- * Placeholders: {WORKSPACE} (absolute workspace root), {BASH} (bash path) —
- * escaped for scheme string literals. Profile is UNTESTED on real macOS
- * (no darwin box in CI); first macOS run must iterate the allow list (see
- * spec §profile-draft caveat). */
+/** Seatbelt profile template (macOS). `(deny default)` + explicit allows:
+ * process execution, system-wide reads, writes only inside the workspace (plus
+ * /private/tmp and the character devices bash redirects to); network denied.
+ * Placeholder: {WORKSPACE} — the workspace root, realpath-resolved and escaped
+ * for scheme string literals.
+ *
+ * Three things that are NOT negotiable here (all learned the hard way on
+ * macOS 26 — before them the confinement was silently OFF or bash aborted):
+ *
+ * 1. `(allow file-ioctl)`, NEVER `file-ioctl*`: the star form makes the parser
+ *    report "unbound variable: file-ioctl*" and sandbox-exec exits 65, i.e.
+ *    every command fails while the tool still claims to be sandboxed.
+ * 2. `(allow file-read*)` rather than an enumerated read list: bash aborts
+ *    (SIGABRT, no diagnostic) unless `/` and the workspace's whole ancestor
+ *    chain are readable, and dyld's cache paths move between macOS releases.
+ *    Reading everything matches the Linux strategy, where bwrap does
+ *    `--ro-bind / /`: the enforced boundaries are the WRITE set and the
+ *    network, both of which stay restricted below.
+ * 3. The device literals: without them `2>/dev/null` is denied, which does not
+ *    fail loudly — bash writes "Operation not permitted" to the real stderr
+ *    and continues, so command semantics silently drift from unsandboxed. */
 const SEATBELT_PROFILE = `(version 1)
 (deny default)
 (allow process*)
-(allow file-read*
-  (subpath "/usr/lib")
-  (subpath "/usr/local/lib")
-  (subpath "/System/Library")
-  (subpath "/bin")
-  (subpath "/usr/bin")
-  (subpath "/usr/local/bin")
-  (subpath "/opt/homebrew/bin")
-  (literal "{BASH}")
-  (subpath "{WORKSPACE}"))
+(allow file-read*)
 (allow file-write*
   (subpath "{WORKSPACE}")
-  (subpath "/private/tmp"))
-(allow file-ioctl*)
+  (subpath "/private/tmp")
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/stdout")
+  (literal "/dev/stderr")
+  (literal "/dev/tty")
+  (subpath "/dev/fd"))
+(allow file-ioctl)
 (allow sysctl*)
 (allow mach-lookup)
 (deny network*)
@@ -158,10 +170,15 @@ export class SeatbeltBashSandbox implements BashSandbox {
     const bashPath = Bun.which("bash") ?? "/bin/bash";
     // Seatbelt string literals need escaped backslashes and quotes.
     const sbEscape = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const profile = SEATBELT_PROFILE.replaceAll(
-      "{WORKSPACE}",
-      sbEscape(this.workspaceRoot),
-    ).replaceAll("{BASH}", sbEscape(bashPath));
+    // The kernel matches vnode paths, so a symlinked workspace root must be
+    // canonicalized or the write allowance never matches the real tree.
+    let workspace = this.workspaceRoot;
+    try {
+      workspace = realpathSync(this.workspaceRoot);
+    } catch {
+      /* not created yet; the raw path is the best available literal */
+    }
+    const profile = SEATBELT_PROFILE.replaceAll("{WORKSPACE}", sbEscape(workspace));
     const profileDir = `${this.workspaceRoot}/.oma`;
     mkdirSync(profileDir, { recursive: true });
     const profilePath = `${profileDir}/.seatbelt-${crypto.randomUUID().slice(0, 8)}.sb`;

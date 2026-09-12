@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBashTool } from "./bash.js";
@@ -203,36 +210,53 @@ describe("resolveBashSandbox factory", () => {
     );
     expect(String(out.content)).toContain("net-blocked");
   });
+
+  test("stderr redirection to /dev/null is permitted (no silent semantics drift)", async () => {
+    // Regression: with write only allowed under the workspace, `2>/dev/null`
+    // was denied and bash printed "Operation not permitted" to the real
+    // stderr while continuing — commands behaved differently from unsandboxed.
+    const { out } = await run("no-such-binary 2>/dev/null; echo rc=$?");
+    expect(String(out.content)).toContain("rc=127");
+    expect(String(out.content)).not.toContain("Operation not permitted");
+  });
 });
 
-// Profile generation is pure logic: placeholders substituted, escapes
-// applied. Runs on every platform — the only Seatbelt surface testable off
-// macOS. Spawns sandbox-exec with a profile that denies process*, which
-// must fail fast everywhere sandbox-exec exists.
+// Profile generation: placeholders substituted, content well-formed, and the
+// per-spawn artifact cleaned up. Runs on every platform — Windows/Linux have
+// no sandbox-exec, so the spawn throws there while the profile write (which
+// happens first) is still observable.
 describe("Seatbelt profile generation (platform-independent)", () => {
   test("spawn writes the profile into <ws>/.oma and cleans up after exit", async () => {
     const ws = mkdtempSync(join(tmpdir(), "seatbelt-prof-"));
     const sb = new SeatbeltBashSandbox(ws);
-    // sandbox-exec missing off darwin → Bun.spawn throws ENOENT. The
-    // profile write happens BEFORE the spawn, so the artifact is on disk.
+    let profilePath: string | undefined;
+    let content = "";
     try {
       const p = sb.spawn("echo hi", { cwd: ws });
+      // Read BEFORE awaiting: the profile is written synchronously inside
+      // spawn() and removed by the exit handler, so it is only observable here.
+      const dir = join(ws, ".oma");
+      const name = existsSync(dir)
+        ? readdirSync(dir).find((f) => f.startsWith(".seatbelt-"))
+        : undefined;
+      if (name) {
+        profilePath = join(dir, name);
+        content = readFileSync(profilePath, "utf8");
+      }
       await p.exited.catch(() => undefined);
     } catch {
-      /* ENOENT expected off darwin */
+      /* sandbox-exec missing off darwin → Bun.spawn throws ENOENT */
     }
-    const dirEntries = join(ws, ".oma");
-    const files = existsSync(dirEntries) ? readdirSync(dirEntries) : [];
-    // Either the profile is still there (spawn failed before cleanup) or it
-    // was removed (process exited) — never a crash before the write.
-    expect(Array.isArray(files)).toBe(true);
     if (IS_DARWIN) {
-      const profile = files.find((f) => f.startsWith(".seatbelt-"));
-      expect(profile).toBeDefined();
-      const content = readFileSync(join(dirEntries, profile!), "utf8");
+      expect(profilePath).toBeDefined();
       expect(content).toContain("(deny default)");
-      expect(content).toContain(ws); // {WORKSPACE} substituted
-      expect(content).not.toContain("{BASH}"); // {BASH} substituted
+      // {WORKSPACE} is substituted with the CANONICAL root (macOS /tmp is a
+      // symlink to /private/tmp; the kernel matches vnode paths).
+      expect(content).toContain(realpathSync(ws));
+      expect(content).not.toContain("{WORKSPACE}");
+      expect(content).toContain("(deny network*)");
+      // Cleanup contract: the profile never outlives its spawn.
+      expect(existsSync(profilePath!)).toBe(false);
     }
   });
 });

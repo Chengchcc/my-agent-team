@@ -1,7 +1,8 @@
 # 设计提案:Bash 工具沙箱化(`BashSandbox` 注入式接口)
 
-日期:2026-09-03 | 状态:**提案,未实施**(实施时点:网络化部署准入,见
-[oma 内核安全面 §网络化准入门槛](../../architecture/security/oma-kernel.md))
+日期:2026-09-03 | 状态:**P1–P4 已实施**(Seatbelt profile 于 2026-09-12 在
+macOS 26.4 实测修正,见 §实测修订;网络白名单与 P5 仍待网络化部署准入,
+见 [oma 内核安全面 §网络化准入门槛](../../architecture/security/oma-kernel.md))
 
 ## 目标
 
@@ -87,6 +88,21 @@ WORKSPACE_ROOT/SESSION_TMP 由 `writeProfile()` 运行时替换;网络白名单�
 未来从 run config 注入。这是「能跑编译/测试/npm install」的最小集,完整集
 实施时用真实任务迭代。
 
+#### 实测修订(2026-09-12,macOS 26.4)
+
+上述草稿**在真机上完全不可用**,实测结论(证据见
+`apps/oh-my-agent/src/core/tools/bash-sandbox.test.ts`):
+
+| 草稿写法 | 实测行为 | 修法 |
+|---|---|---|
+| `(allow file-ioctl*)` | `sandbox-exec` 报 `unbound variable: file-ioctl*` 并 exit 65——**整个沙箱静默失效**,命令全挂 | 去掉 `*`:`(allow file-ioctl)` |
+| 枚举式 `file-read*` 白名单 | bash 直接 SIGABRT(无任何诊断信息):`/` 与 workspace 的**全部祖先目录**必须可读,且 dyld 缓存路径随 macOS 版本漂移 | 改为 `(allow file-read*)`,与 Linux 侧 bwrap `--ro-bind / /` 的姿态对齐;强制边界收敛为**写入集 + 网络** |
+| 无设备白名单 | `2>/dev/null` 被拒;bash 把 "Operation not permitted" 打到真实 stderr 后继续跑,命令语义与沙箱外**静默漂移** | 显式放行 `/dev/null`、`/dev/zero`、`/dev/stdout`、`/dev/stderr`、`/dev/tty`、`/dev/fd` |
+| `WORKSPACE_ROOT` 未规范化 | 内核按 vnode 真实路径匹配,符号链接的 workspace(如 macOS `/tmp`)写入白名单不命中 | 替换前 `realpathSync` 工作区根 |
+
+`{BASH}` 占位符已删除(读全开后可省)。安全姿态说明:读全开**不弱于** Linux
+路径(那里已是 `--ro-bind / /`);防外泄仍由 `(deny network*)` 承担。
+
 ## 网络层是必须的,不是可选的
 
 文件系统隔离防「读不该读的」,网络隔离防「把读到的送出去」——**没有网络
@@ -140,7 +156,7 @@ input 或 approval_request 事件上加 `sandboxed: boolean`)。
 | 项 | 状态 |
 |---|---|
 | 注入式接口形态 | 高置信(对齐 oma 既有注入点,签名已核实) |
-| Seatbelt profile 草稿 | **未实测**(scheme 语法需实施时验证) |
+| Seatbelt profile 草稿 | **已实测修正**(2026-09-12,macOS 26.4;草稿原样会在真机上静默失效,见 §实测修订) |
 | bwrap 参数 | 高置信(CC 官方文档同款) |
 | enabled 开关注入点 | 未决(见下) |
 
