@@ -125,18 +125,10 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean): string[]
           ? `\u001b[2m    ${result?.timedOut ? "timed out" : "nothing to wait for"}\u001b[0m`
           : "\u001b[2m    (no background work)\u001b[0m",
       );
+      return lines;
     }
-    for (const r of items) {
-      const status = String(r.status ?? "?");
-      const mark =
-        status === "running" ? "⟳" : status === "failed" || status === "stopped" ? "✘" : "✔";
-      lines.push(
-        `\u001b[2m  ${mark} ${String(r.id)} (${String(r.kind)}) [${status}] ${String(r.label ?? "").slice(0, 60)}\u001b[0m`,
-      );
-      const partial =
-        typeof r.partialText === "string" && r.partialText.trim() ? r.partialText.trim() : "";
-      if (partial) lines.push(`\u001b[2m    ${partial.slice(0, expanded ? 400 : 120)}\u001b[0m`);
-    }
+    const timedOut = op === "wait" && result?.timedOut === true;
+    lines.push(...renderJobTree(items, timedOut, expanded));
     return lines;
   }
   if (op === "output") {
@@ -240,4 +232,64 @@ function todoItems(item: TranscriptItem): Array<{ id: string; text: string; stat
       text: (v as { text: string }).text,
       status: (v as { status: string }).status,
     }));
+}
+
+/** omp hub-jobs tree: a counts header ("waiting on N of M · X done"),
+ *  running-first sort, and ├─/└─ connector rows with the partial-output
+ *  preview nested under each job. */
+function renderJobTree(
+  items: Array<Record<string, unknown>>,
+  timedOut: boolean,
+  expanded: boolean,
+): string[] {
+  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+  const statusOf = (r: Record<string, unknown>): string => String(r.status ?? "?");
+  const ORDER: Record<string, number> = { running: 0, failed: 1, stopped: 2, completed: 3 };
+  const sorted = [...items].sort((a, b) => (ORDER[statusOf(a)] ?? 9) - (ORDER[statusOf(b)] ?? 9));
+  const running = items.filter((r) => statusOf(r) === "running").length;
+  const failed = items.filter((r) => {
+    const s = statusOf(r);
+    return s === "failed" || s === "stopped";
+  }).length;
+  const done = items.length - running - failed;
+  const meta: string[] = [];
+  if (done > 0) meta.push(`${done} done`);
+  if (failed > 0) meta.push(`${failed} failed`);
+  if (timedOut) meta.push("timed out");
+  const head =
+    running > 0
+      ? `waiting on ${running} of ${items.length} job(s)`
+      : `${items.length} job(s) settled`;
+  const header = [`  ${head}`, ...meta].join(" · ");
+  const lines: string[] = [dim(header)];
+
+  const max = expanded ? 12 : 6;
+  const shown = sorted.slice(0, max);
+  const truncated = sorted.length > shown.length;
+  shown.forEach((r, i) => {
+    const st = statusOf(r);
+    const isLast = i === shown.length - 1 && !truncated;
+    const branch = isLast ? "└─" : "├─";
+    const JOB_ICONS: Record<string, string> = {
+      running: "\u001b[36m⟳\u001b[0m",
+      failed: "\u001b[31m✘\u001b[0m",
+      stopped: "\u001b[31m✘\u001b[0m",
+      completed: "\u001b[32m✔\u001b[0m",
+    };
+    const icon = JOB_ICONS[st] ?? "\u001b[32m✔\u001b[0m";
+    const rest = dim(` ${String(r.id)} (${String(r.kind)}) ${String(r.label ?? "").slice(0, 60)}`);
+    lines.push(`  ${branch} ${icon}${rest}`);
+    // Nested preview: first non-empty partial line under the branch.
+    const partial = typeof r.partialText === "string" ? r.partialText : "";
+    const preview = partial
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (preview) {
+      const cont = isLast ? " " : "│";
+      lines.push(dim(`  ${cont}   ${preview.slice(0, expanded ? 400 : 120)}`));
+    }
+  });
+  if (truncated) lines.push(dim(`  … ${sorted.length - shown.length} more · (ctrl+o)`));
+  return lines;
 }

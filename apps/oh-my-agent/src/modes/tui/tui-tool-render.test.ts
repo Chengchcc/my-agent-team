@@ -64,7 +64,7 @@ describe("renderHubTool", () => {
     expect(lines.join("\n")).not.toContain("no background work");
   });
 
-  test("jobs result renders rows; output op renders the output field", () => {
+  test("jobs result renders an omp-style tree; output op renders the output field", () => {
     const jobs = renderHubTool(
       {
         kind: "tool",
@@ -72,13 +72,30 @@ describe("renderHubTool", () => {
         streaming: false,
         input: { op: "jobs" },
         result: {
-          items: [{ id: "bg_1", kind: "bash", status: "running", label: "echo hi" }],
+          items: [
+            { id: "bg_2", kind: "bash", status: "completed", label: "done thing" },
+            {
+              id: "bg_1",
+              kind: "bash",
+              status: "running",
+              label: "echo hi",
+              partialText: "partial out",
+            },
+          ],
         },
       },
       false,
     );
-    expect(jobs.join("\n")).toContain("bg_1");
-    expect(jobs.join("\n")).toContain("[running]");
+    const text = jobs.join("\n");
+    // Counts header (omp "waiting on N of M").
+    expect(text).toContain("waiting on 1 of 2 job(s)");
+    expect(text).toContain("1 done");
+    // Running-first sort: bg_1's tree row lands above bg_2's.
+    expect(text.indexOf("bg_1")).toBeLessThan(text.indexOf("bg_2"));
+    // Tree connectors and the nested partial preview.
+    expect(text).toContain("\u251c\u2500");
+    expect(text).toContain("\u2514\u2500");
+    expect(text).toContain("partial out");
 
     const out = renderHubTool(
       {
@@ -94,6 +111,42 @@ describe("renderHubTool", () => {
     expect(joined).toContain("completed");
     expect(joined).toContain("hello world");
     expect(joined).not.toContain("unknown id");
+  });
+  test("wait result tree: settled header, timed-out marker, truncation cap", () => {
+    const mk = (n: number, status: string) => ({
+      id: `bg_${n}`,
+      kind: "bash",
+      status,
+      label: `job ${n}`,
+    });
+    const waited = renderHubTool(
+      {
+        kind: "tool",
+        text: "hub",
+        streaming: false,
+        input: { op: "wait", ids: ["bg_1"] },
+        result: {
+          waited: [
+            mk(1, "completed"),
+            mk(2, "completed"),
+            mk(3, "failed"),
+            mk(4, "completed"),
+            mk(5, "completed"),
+            mk(6, "completed"),
+            mk(7, "completed"),
+          ],
+          timedOut: true,
+        },
+      },
+      false,
+    );
+    const text = waited.join("\n");
+    expect(text).toContain("7 job(s) settled");
+    expect(text).toContain("6 done");
+    expect(text).toContain("1 failed");
+    expect(text).toContain("timed out");
+    // Collapsed cap: 6 rows shown, overflow marker for the 7th.
+    expect(text).toContain("1 more");
   });
 });
 
