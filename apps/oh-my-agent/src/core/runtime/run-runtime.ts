@@ -3,8 +3,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentRunSnapshot,
-  type AskQuestionInput,
-  type AskQuestionResult,
   debugLog,
   type ProjectedHistoryItem,
 } from "@chengchenccc/agent-contract";
@@ -70,11 +68,8 @@ import {
 import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
-import {
-  type ApprovalHandler,
-  DEFAULT_APPROVAL_TIMEOUT_MS,
-  withApprovalDeadline,
-} from "./approval.js";
+import { DEFAULT_APPROVAL_TIMEOUT_MS, withApprovalDeadline } from "./approval.js";
+import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
 import { fakeProvider } from "./fake-provider.js";
 import { reasoningEffortOptions } from "./model-effort.js";
 import {
@@ -84,7 +79,7 @@ import {
 } from "./permission-classifier.js";
 import { loadRuntimeCatalog, registerProvidersFromCatalog } from "./runtime-catalog.js";
 import { loadStreamRules } from "./stream-rules.js";
-import { type ToolFilter, toolFilterAllows } from "./tool-filter.js";
+import { toolFilterAllows } from "./tool-filter.js";
 
 /** Token estimation via content char/4 (approx 1 token per 4 chars of
  *  English/code). More accurate than JSON.stringify char/4 which includes
@@ -194,73 +189,24 @@ export async function resolveModelEntry(
   return model;
 }
 
-/** Deps for ONE Run's runtime assembly. The runtime is per-Run: a fresh
- *  in-memory SessionStore and a fresh OmaSession are created for every
- *  execute() - no state is shared across Runs except the process-level
- *  Provider/ModelRuntime and the injected coordination registry. */
-export interface RunRuntimeDeps {
-  workspaceRoot: string;
-  /** Gates tool installation: read_only runs omit write/edit/bash. */
-  workspaceAccess: "read_only" | "read_write";
-  runId: string;
-  modelRuntime: ModelRuntime;
-  /** Canonical `<provider>/<model>` id of the Run's model. The context
-   *  budget and the summarizer bind to THIS model - never the catalog's
-   *  first entry (which may be a different window or a different provider). */
-  modelId: string;
-  /** Skill pack roots (absolute dirs scanned for SKILL.md). Frozen per Run. */
-  skillRoots: readonly string[];
+/** Deps for ONE Run's runtime assembly. Extends the mode-facing
+ *  CreateOmaRuntimeOptions as the SINGLE source of shared fields (a new
+ *  option automatically reaches the assembly — the two bags can no longer
+ *  drift) minus the facade-only fields (onEvent / sessionTranscript /
+ *  pluginComponents), plus the assembly-only mounts below. The runtime is
+ *  per-Run: a fresh in-memory SessionStore and a fresh OmaSession are
+ *  created for every execute() — no state is shared across Runs except the
+ *  process-level Provider/ModelRuntime and the injected coordination
+ *  registry. */
+export interface RunRuntimeDeps
+  extends Omit<CreateOmaRuntimeOptions, "onEvent" | "sessionTranscript" | "pluginComponents"> {
   webSearch?: WebSearchPort;
   webFetch?: WebFetchPort;
-  /** Real-time session-file persistence (pi appendMessage): fires after
-   *  every conversational persist with the canonical messages written. */
-  onPersistMessages?: (messages: readonly Message[]) => void;
   /** Loaded plugin code components (mode layer already applied the trust
    *  policy); the runtime only mounts them. */
   codePlugins?: readonly Plugin[];
   /** Plugin .mcp.json configs (already trust-approved by the mode layer). */
   pluginMcpServers?: readonly PluginMcpConfig[];
-  /** Frozen Run permissionMode (ADR 0020 decision 7). "deny" drops plugin
-   *  code components at assembly; native tools are unaffected (MVP scope). */
-  permissionMode?: "ask" | "auto" | "deny";
-  /** Resolved runtime knobs (see resolveRuntimeKnobs). Omitted = the runtime
-   *  loads `.oma/settings.json` itself and overlays the process env. */
-  settings?: RuntimeKnobs;
-  /** --tools filter (CLI): applied to the final tool table (native + MCP +
-   *  plugin) at assembly. Undefined = all tools. */
-  toolFilter?: ToolFilter;
-  /** Standalone modes only: mount the vector memory tools (recall/retain)
-   *  and the learn double-write into the workspace memory DB. */
-  vectorMemory?: boolean;
-  /** Coordination scope for background jobs and subagent handles. TUI
-   *  passes a process-stable key so handles survive follow-up Runs;
-   *  backend defaults to the runId (one Run per process). */
-  coordinationScope?: string;
-  /** Registry backing that scope. Omitted = a fresh per-Run registry (its
-   *  jobs and handle table are dropped on close()): the backend spawns one
-   *  process per Run, so nothing outlives it. A long-lived surface (TUI)
-   *  passes ONE process-wide instance so handles survive follow-up Runs. */
-  registry?: CoordinationRegistry;
-  /** Standalone modes (tui/print/json): the workspace's own .mcp.json is
-   *  repo-controlled, so mount it only when content-trusted (record in
-   *  <agentDir>/trusted-plugins.json; /mcp trust records it). Backend RPC
-   *  leaves this unset — the workspace bridge writes that file and the
-   *  product owns it. */
-  gateWorkspaceMcp?: boolean;
-  /** HITL approval pipeline (spec): resolves the ask-mode gate and
-   *  tools' options.request. Absent + ask = fail-closed error results. */
-  approvalHandler?: ApprovalHandler;
-  /** HITL ask pipeline (ask_question tool): resolves options.ask for the
-   *  native tool. Absent = the tool fails closed with an error result. */
-  askHandler?: (input: AskQuestionInput) => Promise<AskQuestionResult | null>;
-  /** M-bash: interactive pty console runner (TUI overlay). Present in TUI
-   *  mode only — pty:true bash calls hand off here; absent = headless
-   *  script-capture fallback. */
-  readonly bashPtyConsole?: (
-    command: string,
-    cwd: string,
-    env: Record<string, string>,
-  ) => Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
 }
 
 export interface RunRuntime {
