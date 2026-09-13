@@ -58,8 +58,12 @@ export function resolveStandaloneSkillRoots(workspaceRoot: string): string[] {
   // Managed skills (learn-tool minted) resolve DEAD-LAST: any authored skill
   // of the same name shadows them (omp managed-skills semantics).
   const managed = managedSkillsDir();
-  if (!roots.includes(managed) && existsSync(managed) && statSync(managed).isDirectory()) {
-    roots.push(managed);
+  if (!roots.includes(managed)) {
+    try {
+      if (statSync(managed).isDirectory()) roots.push(managed);
+    } catch {
+      /* absent managed dir */
+    }
   }
   return roots;
 }

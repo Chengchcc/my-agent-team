@@ -1,7 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginTool } from "../index.js";
-import { isClaimedByAuthoredSkill, parseSkillArg, writeManagedSkill } from "./managed-skills.js";
+import {
+  authoredCollisionMessage,
+  isClaimedByAuthoredSkill,
+  parseSkillArg,
+  writeManagedSkill,
+} from "./managed-skills.js";
 import type { VectorMemory } from "./vector-memory.js";
 import { retainMemory } from "./vector-recall.js";
 
@@ -116,36 +121,48 @@ export function createLearnTool(opts: {
           /* file layer already won */
         });
       }
-      const base = {
-        learned: !duplicate,
-        ...(duplicate ? { reason: "duplicate lesson already captured" } : { count: next.length }),
-      };
-      const skill = parseSkillArg(args.skill);
-      if (!skill) return base;
-      try {
-        // A managed skill resolves below any authored skill of the same name
-        // (dead-last root), so minting one under a claimed name writes a file
-        // that never surfaces. Refuse instead of reporting a false "Created".
-        if (
-          skill.action === "create" &&
-          isClaimedByAuthoredSkill(skill.name, opts.skillRoots ?? [])
-        ) {
+      let base: Record<string, unknown>;
+      if (duplicate) {
+        base = { learned: false, reason: "duplicate lesson already captured" };
+      } else {
+        base = { learned: true, count: next.length };
+      }
+      // A malformed skill arg must not pass silently: the model asked for a
+      // skill mint and would read success-without-skill as done. Partial
+      // outcome (lesson already won) with an explicit error.
+      if (args.skill !== undefined) {
+        const skill = parseSkillArg(args.skill);
+        if (!skill) {
           return {
             ...base,
-            error: `an authored skill named "${skill.name}" already exists; managed skills cannot override it — choose a different name`,
+            error:
+              'skill needs action ("create"|"update"), name, description, and body — nothing was minted',
             isError: true,
           };
         }
-        const { path } = writeManagedSkill(skill);
-        return { ...base, skill: { name: skill.name, path } };
-      } catch (err) {
-        // Partial outcome: the lesson already won; the skill did not.
-        return {
-          ...base,
-          error: `lesson ${duplicate ? "already captured" : "stored"}, but the managed skill could not be written: ${err instanceof Error ? err.message : String(err)}`,
-          isError: true,
-        };
+        try {
+          // A managed skill resolves below any authored skill of the same
+          // name (dead-last root), so minting one under a claimed name
+          // writes a file that never surfaces. Refuse instead of reporting
+          // a false "Created".
+          if (
+            skill.action === "create" &&
+            isClaimedByAuthoredSkill(skill.name, opts.skillRoots ?? [])
+          ) {
+            return { ...base, error: authoredCollisionMessage(skill.name), isError: true };
+          }
+          const { path } = writeManagedSkill(skill);
+          return { ...base, skill: { name: skill.name, path } };
+        } catch (err) {
+          // Partial outcome: the lesson already won; the skill did not.
+          return {
+            ...base,
+            error: `lesson ${duplicate ? "already captured" : "stored"}, but the managed skill could not be written: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
       }
+      return base;
     },
   };
 }

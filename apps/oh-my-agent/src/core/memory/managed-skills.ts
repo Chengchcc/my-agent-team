@@ -1,20 +1,13 @@
-import {
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  type Stats,
-  writeFileSync,
-} from "node:fs";
+import { lstatSync, mkdirSync, realpathSync, rmSync, type Stats, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "../session/session-file.js";
 import { buildSkillIndex } from "../tools/skills.js";
 
-/** Managed-skills primitives for the `learn` tool (omp managed-skills port).
- *  Managed skills live isolated in `<agentDir>/managed-skills` and resolve
- *  dead-last in skill discovery, so an authored skill of the same name always
- *  shadows them. The user-authored roots are never written by this module. */
+/** Managed-skills primitives for the `learn` / `manage_skill` tools (omp
+ *  managed-skills port). Managed skills live isolated in
+ *  `<agentDir>/managed-skills` and resolve dead-last in skill discovery, so
+ *  an authored skill of the same name always shadows them. The
+ *  user-authored roots are never written by this module. */
 
 /** Hard cap on a managed SKILL.md body to keep generated skills bounded. */
 export const MAX_MANAGED_SKILL_BYTES = 64_000;
@@ -59,6 +52,24 @@ export interface WriteManagedSkillInput {
   body: string;
 }
 
+/** Reject when the managed-skills ROOT itself is a symlink: lstat on a child
+ *  follows intermediate components, so a symlinked root would let an
+ *  otherwise valid name write/delete outside the isolated directory (e.g.
+ *  onto authored skills). A missing root is fine (first mint). */
+function assertManagedRootSafe(): void {
+  let rootStat: Stats | null;
+  try {
+    rootStat = lstatSync(managedSkillsDir());
+  } catch {
+    rootStat = null;
+  }
+  if (rootStat?.isSymbolicLink()) {
+    throw new Error(
+      "The managed-skills root is a symlink; refusing to operate outside the managed directory.",
+    );
+  }
+}
+
 /** Create or update a managed `SKILL.md`. Returns the resolved file path.
  *  create fails when the skill already exists; update fails when it does not. */
 export function writeManagedSkill(input: WriteManagedSkillInput): { path: string } {
@@ -72,6 +83,7 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
   if (bytes > MAX_MANAGED_SKILL_BYTES) {
     throw new Error(`Managed skill is ${bytes} bytes; the limit is ${MAX_MANAGED_SKILL_BYTES}.`);
   }
+  assertManagedRootSafe();
   const dir = join(managedSkillsDir(), name);
   const file = join(dir, "SKILL.md");
   // lstat does not follow the final component: a symlinked skill dir would
@@ -106,8 +118,9 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
     }
     return { path: file };
   }
-  // update: the file must already exist and be a plain file (not a symlink
-  // someone pointed at an authored skill).
+  // update: the file must already exist, be a plain file (not a symlink
+  // someone pointed at an authored skill), and must not share an inode with
+  // a user-authored file via hard link.
   let fileStat: Stats;
   try {
     fileStat = lstatSync(file);
@@ -117,6 +130,11 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
   if (fileStat.isSymbolicLink()) {
     throw new Error(`Managed skill "${name}" SKILL.md is a symlink; refusing to overwrite it.`);
   }
+  if (fileStat.nlink > 1) {
+    throw new Error(
+      `Managed skill "${name}" SKILL.md has ${fileStat.nlink} hard links; refusing to overwrite a file that may be user-authored elsewhere.`,
+    );
+  }
   writeFileSync(file, content, "utf-8");
   return { path: file };
 }
@@ -124,6 +142,7 @@ export function writeManagedSkill(input: WriteManagedSkillInput): { path: string
 /** Delete a managed skill directory. Throws when it does not exist. */
 export function deleteManagedSkill(name: string): void {
   const safe = sanitizeSkillName(name);
+  assertManagedRootSafe();
   const dir = join(managedSkillsDir(), safe);
   // Refuse to follow a symlinked skill dir (rm would delete the target).
   let dirStat: Stats;
@@ -140,19 +159,9 @@ export function deleteManagedSkill(name: string): void {
   rmSync(dir, { recursive: true });
 }
 
-/** Read a managed skill body (frontmatter-stripped). Test helper. */
-export function readManagedSkillBody(name: string): string {
-  return readFileSync(join(managedSkillsDir(), sanitizeSkillName(name), "SKILL.md"), "utf-8");
-}
-
-export interface SkillArg {
-  action: "create" | "update";
-  name: string;
-  description: string;
-  body: string;
-}
-
-export function parseSkillArg(raw: unknown): SkillArg | null {
+/** Parse a model-supplied `skill` argument into the write input. Returns
+ *  null when the shape is wrong (missing action/name/description/body). */
+export function parseSkillArg(raw: unknown): WriteManagedSkillInput | null {
   if (typeof raw !== "object" || raw === null) return null;
   const o = raw as Record<string, unknown>;
   const action = o.action === "update" ? "update" : o.action === "create" ? "create" : null;
@@ -174,4 +183,9 @@ export function isClaimedByAuthoredSkill(name: string, roots: readonly string[])
   return buildSkillIndex(roots).some(
     (e) => e.name === name.trim().toLowerCase() && e.root !== managedRoot,
   );
+}
+
+/** Shared refusal message for minting under a claimed name. */
+export function authoredCollisionMessage(name: string): string {
+  return `an authored skill named "${name}" already exists; managed skills cannot override it — choose a different name`;
 }

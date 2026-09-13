@@ -56,6 +56,11 @@ export interface CreateOmaRuntimeOptions {
   /** Standalone-only: mount vector memory tools + the learn/facts
    *  double-write into the workspace memory DB. */
   vectorMemory?: boolean;
+  /** Standalone modes only (print/json/tui via shared.ts): mount the local
+   *  memory surface — the learn tool (learned.md + managed-skill minting)
+   *  and manage_skill. The product RPC path leaves this unset: its memory
+   *  semantics are the backend's, and the surface stays frozen. */
+  localMemory?: boolean;
   /** Assembled plugin code components (from assemblePluginRuntime, mode
    *  layer). The runtime mounts them; it never reads the registry. */
   pluginComponents?: {
@@ -189,6 +194,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
     ...(options.vectorMemory ? { vectorMemory: true } : {}),
+    ...(options.localMemory ? { localMemory: true } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.registry ? { registry: options.registry } : {}),
     askHandler: options.askHandler,

@@ -23,7 +23,15 @@ function isWithinRoot(root: string, target: string): boolean {
  *  on demand. `refresh()` re-scans the roots so mid-run skill mutations
  *  (manage_skill) are visible to skill_load and later Meta renders; the
  *  run's already-baked prompt index refreshes on the next run. */
-export function createSkill(opts: SkillOptions): Plugin & { refresh(): void } {
+export interface SkillModule {
+  /** The plugin to mount (skill_load tool + index Meta). */
+  readonly plugin: Plugin;
+  /** Re-scan the roots so mid-run skill mutations (manage_skill) are
+   *  visible to skill_load and later Meta renders. */
+  refresh(): void;
+}
+
+export function createSkill(opts: SkillOptions): SkillModule {
   let index = buildSkillIndex(opts.roots);
   const refresh = (): void => {
     index = buildSkillIndex(opts.roots);
@@ -75,9 +83,7 @@ export function createSkill(opts: SkillOptions): Plugin & { refresh(): void } {
   };
 
   return {
-    name: "progressive-skill",
-    tools: [skillLoadTool],
-    meta: [metaProvider],
+    plugin: { name: "progressive-skill", tools: [skillLoadTool], meta: [metaProvider] },
     refresh,
   };
 }

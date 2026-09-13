@@ -1,5 +1,6 @@
 import type { PluginTool } from "../index.js";
 import {
+  authoredCollisionMessage,
   deleteManagedSkill,
   isClaimedByAuthoredSkill,
   parseSkillArg,
@@ -64,10 +65,7 @@ export function createManageSkillTool(opts: {
           return { error: `"${action}" needs both a description and a body`, isError: true };
         }
         if (action === "create" && isClaimedByAuthoredSkill(name, opts.skillRoots)) {
-          return {
-            error: `an authored skill named "${name}" already exists; managed skills cannot override it — choose a different name`,
-            isError: true,
-          };
+          return { error: authoredCollisionMessage(name), isError: true };
         }
         const { path } = writeManagedSkill(skill);
         opts.refreshSkills();

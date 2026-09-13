@@ -30,12 +30,10 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
         modelRuntime: opts.modelRuntime,
         ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
         session,
+        pluginRt,
       },
       {
         approvalHandler: denyAllApprovals,
-        ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-          ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
-          : {}),
         onEvent: (envelope) => {
           // Raw runtime event object, e.g. {"type":"agent_start"}.
           process.stdout.write(`${JSON.stringify({ type: "event", event: envelope.data })}\n`);

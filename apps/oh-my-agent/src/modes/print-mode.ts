@@ -60,13 +60,9 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
         modelRuntime: opts.modelRuntime,
         ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
         session,
+        pluginRt,
       },
-      {
-        approvalHandler: denyAllApprovals,
-        ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-          ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
-          : {}),
-      },
+      { approvalHandler: denyAllApprovals },
     ),
   );
   try {

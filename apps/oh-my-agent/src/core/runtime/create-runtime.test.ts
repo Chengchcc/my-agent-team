@@ -116,6 +116,38 @@ describe("createOmaRuntime", () => {
     }
   });
 
+  test("read_only runs keep frozen roots: the managed dir never joins", async () => {
+    const agent = mkdtempSync(join(tmpdir(), "oma-managed-ro-"));
+    const savedDir = process.env.OMA_CODING_AGENT_DIR;
+    process.env.OMA_CODING_AGENT_DIR = agent;
+    try {
+      mkdirSync(join(agent, "managed-skills", "minted-ro"), { recursive: true });
+      writeFileSync(
+        join(agent, "managed-skills", "minted-ro", "SKILL.md"),
+        "---\nname: minted-ro\ndescription: Must not surface\n---\n\nBody",
+      );
+      const record: Message[][] = [];
+      const runtime = await createOmaRuntime({
+        runId: "r-managed-ro",
+        modelId: "fake/echo",
+        workspaceRoot: tmp,
+        workspaceAccess: "read_only",
+        modelRuntime: makeModelRuntime(record),
+        skillRoots: [],
+      });
+      const segment = await runtime.run(runInput("r-managed-ro"));
+      const { outcome } = await settle(segment);
+      expect(outcome.status).toBe("completed");
+      const meta = record[0]!.find((m) => m.role === "user" && m.text?.includes("minted-ro"));
+      expect(meta).toBeUndefined();
+      await runtime.close();
+    } finally {
+      if (savedDir === undefined) delete process.env.OMA_CODING_AGENT_DIR;
+      else process.env.OMA_CODING_AGENT_DIR = savedDir;
+      rmSync(agent, { recursive: true, force: true });
+    }
+  });
+
   test("steer injects into the live loop", async () => {
     const record: Message[][] = [];
     const runtime = createModelRuntime();

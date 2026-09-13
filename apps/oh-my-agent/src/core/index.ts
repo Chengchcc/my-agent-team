@@ -9,9 +9,7 @@
 // barrel serves the app's public `src/index.ts` re-exports and tests that
 // want the loop's whole contract in one import.
 
-// Persistence
-
-// Runtime
+// Store + Runtime
 export type { AgentLoopListener, OmaLoopEvent } from "./runtime/agent-event.js";
 export type {
   ContextBudget,
@@ -43,6 +41,7 @@ export type { LoopMetaInput } from "./runtime/prompt.js";
 export { renderLoopMeta } from "./runtime/prompt.js";
 export type { RetryOptions } from "./runtime/retry.js";
 export { retryStream } from "./runtime/retry.js";
+// Store (per-Run in-memory SessionStore; the DURABLE session file lives in ./session/)
 export { createInMemorySessionStore } from "./store/in-memory-session-store.js";
 export type {
   AppendBatchInput,

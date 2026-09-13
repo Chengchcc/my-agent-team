@@ -27,6 +27,7 @@ describe("permissionMode auto classifier gate (CC alignment)", () => {
       reason?: string;
       source?: string;
     }) => Promise<{ decision: "allow" | "deny"; reason?: string }>;
+    localMemory?: boolean;
   }): Promise<string> => {
     process.env.OMA_FAKE_TOOL = JSON.stringify(opts.script);
     process.env.OMA_FAKE_TEXT = opts.text;
@@ -59,6 +60,7 @@ describe("permissionMode auto classifier gate (CC alignment)", () => {
       ...(opts.permissionMode ? { permissionMode: opts.permissionMode } : {}),
       ...(pluginComponents ? { pluginComponents } : {}),
       ...(opts.approvalHandler ? { approvalHandler: opts.approvalHandler as never } : {}),
+      ...(opts.localMemory ? { localMemory: true } : {}),
     });
     const seg = await rt.run(runInput(opts.runId));
     const out = await seg.outcome;
@@ -367,4 +369,163 @@ test("--tools filter: blacklist (!name) keeps everything else", async () => {
     if (savedFake === undefined) delete process.env.OMA_FAKE_PROVIDER;
     else process.env.OMA_FAKE_PROVIDER = savedFake;
   }
+});
+
+describe("local memory tools under the permission gate", () => {
+  const withAgentDir = (fn: (agent: string) => Promise<void>) => async () => {
+    const agent = mkdtempSync(join(tmpdir(), "oma-gate-agent-"));
+    const saved = process.env.OMA_CODING_AGENT_DIR;
+    process.env.OMA_CODING_AGENT_DIR = agent;
+    try {
+      await fn(agent);
+    } finally {
+      if (saved === undefined) delete process.env.OMA_CODING_AGENT_DIR;
+      else process.env.OMA_CODING_AGENT_DIR = saved;
+      rmSync(agent, { recursive: true, force: true });
+    }
+  };
+  const fakes = (fn: () => Promise<void>) => async () => {
+    const saved = ["OMA_FAKE_PROVIDER", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"].map(
+      (k) => process.env[k],
+    );
+    process.env.OMA_FAKE_PROVIDER = "1";
+    try {
+      await fn();
+    } finally {
+      saved.forEach((v, i) => {
+        const k = ["OMA_FAKE_PROVIDER", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"][i]!;
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      });
+    }
+  };
+
+  test(
+    "ask: learn and manage_skill route through the approval pipeline; deny blocks the write",
+    fakes(
+      withAgentDir(async (agent) => {
+        process.env.OMA_FAKE_TOOL = JSON.stringify([
+          { name: "learn", input: { memory: "gated lesson" } },
+          {
+            name: "manage_skill",
+            input: { action: "create", name: "gated", description: "d", body: "b" },
+          },
+        ]);
+        process.env.OMA_FAKE_TEXT = "done";
+        const modelRuntime = createModelRuntime();
+        registerBuiltinProviders(modelRuntime, process.env);
+        const rt = await createOmaRuntime({
+          runId: "r-learn-gate",
+          modelId: "fake/echo",
+          workspaceRoot: tmp,
+          workspaceAccess: "read_write",
+          modelRuntime,
+          skillRoots: [],
+          localMemory: true,
+          permissionMode: "ask",
+          approvalHandler: async () => ({ decision: "deny", reason: "not allowed" }),
+        });
+        const out = await (await rt.run(runInput("r-learn-gate"))).outcome;
+        await rt.close();
+        const raw = JSON.stringify(out.messages);
+        expect(raw).toContain("denied");
+        // Blocked BEFORE execution: neither write happened.
+        expect(existsSync(join(agent, "managed-skills", "gated"))).toBe(false);
+        expect(existsSync(join(tmp, ".oma", "memory", "learned.md"))).toBe(false);
+      }),
+    ),
+  );
+
+  test(
+    "auto: plain learn stays ungated; the skill branch routes through the classifier",
+    fakes(
+      withAgentDir(async (agent) => {
+        process.env.OMA_FAKE_TOOL = JSON.stringify([
+          { name: "learn", input: { memory: "plain lesson" } },
+          {
+            name: "learn",
+            input: {
+              memory: "skill lesson",
+              skill: { action: "create", name: "cls", description: "d", body: "B" },
+            },
+          },
+        ]);
+        // The fake script is exhausted by the time the classifier's stream
+        // call runs, so this text doubles as the classifier verdict.
+        process.env.OMA_FAKE_TEXT = '{"verdict":"allow"}';
+        const modelRuntime = createModelRuntime();
+        registerBuiltinProviders(modelRuntime, process.env);
+        const rt = await createOmaRuntime({
+          runId: "r-learn-cls",
+          modelId: "fake/echo",
+          workspaceRoot: tmp,
+          workspaceAccess: "read_write",
+          modelRuntime,
+          skillRoots: [],
+          localMemory: true,
+          permissionMode: "auto",
+        });
+        await (await rt.run(runInput("r-learn-cls"))).outcome;
+        await rt.close();
+        // Plain lesson: no gate, file written.
+        expect(existsSync(join(tmp, ".oma", "memory", "learned.md"))).toBe(true);
+        // Skill branch: classifier allowed -> managed skill minted.
+        expect(existsSync(join(agent, "managed-skills", "cls", "SKILL.md"))).toBe(true);
+      }),
+    ),
+  );
+
+  test(
+    "auto: manage_skill blocked by a fail-closed classifier verdict",
+    fakes(
+      withAgentDir(async (agent) => {
+        process.env.OMA_FAKE_TOOL = JSON.stringify([
+          {
+            name: "manage_skill",
+            input: { action: "create", name: "blocked", description: "d", body: "b" },
+          },
+        ]);
+        process.env.OMA_FAKE_TEXT = "garbage the classifier cannot parse";
+        const modelRuntime = createModelRuntime();
+        registerBuiltinProviders(modelRuntime, process.env);
+        const rt = await createOmaRuntime({
+          runId: "r-ms-cls",
+          modelId: "fake/echo",
+          workspaceRoot: tmp,
+          workspaceAccess: "read_write",
+          modelRuntime,
+          skillRoots: [],
+          localMemory: true,
+          permissionMode: "auto",
+        });
+        const out = await (await rt.run(runInput("r-ms-cls"))).outcome;
+        await rt.close();
+        const raw = JSON.stringify(out.messages);
+        expect(raw).toContain("blocked by classifier");
+        expect(existsSync(join(agent, "managed-skills", "blocked"))).toBe(false);
+      }),
+    ),
+  );
+
+  test(
+    "without localMemory (product RPC shape) the local memory tools are not mounted",
+    fakes(async () => {
+      process.env.OMA_FAKE_TOOL = JSON.stringify([{ name: "learn", input: { memory: "x" } }]);
+      process.env.OMA_FAKE_TEXT = "done";
+      const modelRuntime = createModelRuntime();
+      registerBuiltinProviders(modelRuntime, process.env);
+      const rt = await createOmaRuntime({
+        runId: "r-learn-absent",
+        modelId: "fake/echo",
+        workspaceRoot: tmp,
+        workspaceAccess: "read_write",
+        modelRuntime,
+        skillRoots: [],
+        // localMemory deliberately NOT set (rpc-mode never passes it)
+      });
+      const out = await (await rt.run(runInput("r-learn-absent"))).outcome;
+      await rt.close();
+      expect(JSON.stringify(out.messages)).toContain("Unknown tool: learn");
+    }),
+  );
 });

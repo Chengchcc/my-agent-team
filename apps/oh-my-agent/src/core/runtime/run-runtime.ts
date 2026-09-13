@@ -557,6 +557,11 @@ function createRunPermissionGates(
     write: true,
     edit: true,
     create_file: true,
+    // learn/manage_skill write files; the skill branch writes OUTSIDE the
+    // workspace (<agentDir>/managed-skills), so the workspace-sandbox
+    // exemption cannot cover them (omp marks both approval="write").
+    learn: true,
+    manage_skill: true,
   };
   // Product-owned mounts (workspace-bridge: features.ts names them
   // "product-tools" / "knowledge") are consented-by-design read/context
@@ -565,11 +570,15 @@ function createRunPermissionGates(
   const PRODUCT_MOUNTED_PREFIXES = ["mcp__product-tools__", "mcp__knowledge__"];
   const isProductMounted = (toolName: string): boolean =>
     PRODUCT_MOUNTED_PREFIXES.some((p) => toolName.startsWith(p));
-  const classifierGated = (toolName: string): boolean =>
+  const classifierGated = (toolName: string, input: unknown): boolean =>
     !isProductMounted(toolName) &&
     (toolName === "bash" ||
       toolName === "browser" ||
       toolName === "eval" ||
+      toolName === "manage_skill" ||
+      // learn is workspace-only EXCEPT its skill branch (writes agentDir):
+      // gate exactly that (omp's args.skill ? "write" : "read").
+      (toolName === "learn" && (input as { skill?: unknown } | null)?.skill !== undefined) ||
       toolName.startsWith("mcp__") ||
       pluginCodeToolNames.has(toolName));
   /** Escalated (human-reviewed) actions this Run, keyed toolName+input.
@@ -669,7 +678,7 @@ function createRunPermissionGates(
     ): Promise<{ block: boolean; reason?: string } | undefined> => {
       if (deps.permissionMode === undefined) return undefined;
       if (deps.permissionMode === "auto") {
-        if (!classifierGated(toolName)) return undefined;
+        if (!classifierGated(toolName, input)) return undefined;
         // The auto gate must be fail-CLOSED end to end: the agent loop
         // swallows gate exceptions as "no verdict" (= allow), so any
         // error in here must convert to a block, never propagate.
@@ -988,7 +997,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     deps.workspaceAccess === "read_write" && !deps.skillRoots.includes(managedRoot)
       ? [...deps.skillRoots, managedRoot]
       : deps.skillRoots;
-  const skillPlugin = createSkill({ roots: skillRoots });
+  const { plugin: skillPlugin, refresh: refreshSkills } = createSkill({ roots: skillRoots });
   const plugins: Plugin[] = [nativeToolsPlugin, skillPlugin];
   // Plugin code-tool names (post native-conflict filter): the auto-mode
   // classifier gate needs them by name — plugin tools have no naming
@@ -1069,9 +1078,11 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // per-mode enableNativeTodo flag.
   const hasInjectedTodo = toolStage.mountedToolNames.has("todo_write");
   const todoAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "todo_write") : true;
-  // Explicit durable-lesson capture (omp learn tool, local backend). The
-  // workspace file must never steer the product: read_write workspaces only.
-  if (deps.workspaceAccess === "read_write") {
+  // Explicit durable-lesson capture + managed-skill CRUD (omp learn/manage_skill).
+  // STANDALONE-ONLY (localMemory, set by print/json/tui via shared.ts): the
+  // product RPC path keeps its own memory semantics — a workspace file must
+  // never steer the product, and the product surface stays frozen.
+  if (deps.workspaceAccess === "read_write" && deps.localMemory) {
     plugins.push({
       name: "oma-native-learn",
       tools: [
@@ -1084,7 +1095,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
         // learn defers discovery to a later session, manage_skill doesn't).
         createManageSkillTool({
           skillRoots: deps.skillRoots,
-          refreshSkills: () => skillPlugin.refresh(),
+          refreshSkills,
         }),
       ],
     });

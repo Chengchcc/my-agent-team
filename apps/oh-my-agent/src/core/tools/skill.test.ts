@@ -21,7 +21,7 @@ describe("skill", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.root).toBe(realpathSync(first));
 
-    const skill = createSkill({ roots: [first, second] });
+    const { plugin: skill } = createSkill({ roots: [first, second] });
     const tool = skill.tools?.find((t) => t.name === "skill_load");
     expect(tool).toBeDefined();
     const result = await tool!.execute({ name: "same" });
@@ -41,7 +41,7 @@ describe("skill", () => {
     );
     const entries = buildSkillIndex([root]);
     expect(entries[0]?.hide).toBe(true);
-    const skill = createSkill({ roots: [root] });
+    const { plugin: skill } = createSkill({ roots: [root] });
     const meta = skill.meta?.[0];
     const rendered = meta?.render();
     expect(rendered).not.toContain("secret");
@@ -71,7 +71,7 @@ describe("skill", () => {
       "---\nname: doc\n---\n\nRead ${SKILL_DIR}/notes.md",
     );
     symlinkSync(realDir, linkRoot);
-    const skill = createSkill({ roots: [linkRoot] });
+    const { plugin: skill } = createSkill({ roots: [linkRoot] });
     const tool = skill.tools?.find((t) => t.name === "skill_load");
     const result = await tool!.execute({ name: "doc" });
     if ("body" in result && typeof result.body === "string") {

@@ -329,6 +329,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           modelRuntime: opts.modelRuntime,
           ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
           session,
+          pluginRt,
         },
         {
           coordinationScope: COORDINATION_SCOPE,
@@ -353,9 +354,6 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // HITL ask_question: interactive overlay; absent/cancel = null (tool
           // fails closed with "no answer").
           ...(io.askQuestions ? { askHandler: io.askQuestions } : {}),
-          ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-            ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
-            : {}),
           // Render on every event so model chunks (message_update) hit the
           // screen incrementally; the TUI's requestRender throttles/coalesces,
           // so high-frequency chunk events are safe here.

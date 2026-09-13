@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkill } from "../tools/skill.js";
@@ -169,18 +169,16 @@ describe("manage_skill tool", () => {
     rmSync(agent, { recursive: true, force: true });
   });
 
-  function makeTool(skillPlugin: ReturnType<typeof createSkill>) {
-    return createManageSkillTool({
-      skillRoots: [],
-      refreshSkills: () => skillPlugin.refresh(),
-    });
+  function makeTool(skillModule: ReturnType<typeof createSkill>) {
+    return createManageSkillTool({ skillRoots: [], refreshSkills: skillModule.refresh });
   }
 
   test("create/update/delete round-trip with live index refresh", async () => {
-    const skillPlugin = createSkill({ roots: [managedSkillsDir()] });
+    const skillModule = createSkill({ roots: [managedSkillsDir()] });
+    const skillPlugin = skillModule.plugin;
     const load = skillPlugin.tools?.find((t) => t.name === "skill_load");
     expect(load).toBeDefined();
-    const tool = makeTool(skillPlugin);
+    const tool = makeTool(skillModule);
 
     // Absent before create.
     const before = (await load!.execute({ name: "hot-skill" })) as { error?: string };
@@ -242,11 +240,8 @@ describe("manage_skill tool", () => {
     tmpDirs.push(authored);
     mkdirSync(join(authored, "claimed"), { recursive: true });
     writeFileSync(join(authored, "claimed", "SKILL.md"), "---\nname: claimed\n---\n\nAuthored.");
-    const skillPlugin = createSkill({ roots: [authored, managedSkillsDir()] });
-    const tool = createManageSkillTool({
-      skillRoots: [authored],
-      refreshSkills: () => skillPlugin.refresh(),
-    });
+    const { refresh } = createSkill({ roots: [authored, managedSkillsDir()] });
+    const tool = createManageSkillTool({ skillRoots: [authored], refreshSkills: refresh });
     const res = (await tool.execute({
       action: "create",
       name: "claimed",
@@ -255,5 +250,22 @@ describe("manage_skill tool", () => {
     })) as { error?: string; isError?: boolean };
     expect(res.isError).toBe(true);
     expect(res.error).toContain("authored skill");
+  });
+
+  test("malformed skill arg is a loud partial outcome, not silent success", async () => {
+    const root = freshWorkspace();
+    const tool = createLearnTool({ workspaceRoot: root });
+    const res = (await tool.execute({
+      memory: "lesson seven",
+      skill: { action: "create", name: "half-skill", description: "no body" },
+    })) as { learned: boolean; error?: string; isError?: boolean };
+    expect(res.learned).toBe(true);
+    expect(res.isError).toBe(true);
+    expect(res.error).toContain("nothing was minted");
+    // The lesson still won; nothing was minted.
+    expect(readFileSync(join(root, ".oma", "memory", "learned.md"), "utf-8")).toContain(
+      "lesson seven",
+    );
+    expect(existsSync(join(managedSkillsDir(), "half-skill"))).toBe(false);
   });
 });
