@@ -130,7 +130,7 @@ export class TuiItemRenderer {
   private renderTool(item: TranscriptItem, expanded: boolean): string[] {
     const toolName = item.text.replace(/…$/, "");
     if (toolName === "todo" || toolName === "todo_read" || toolName === "todo_write") {
-      return renderTodoTool(item, expanded);
+      return renderTodoTool(item, expanded, this.tui.terminal.columns);
     }
     if (toolName === "task") {
       return renderTaskTool(item, expanded);

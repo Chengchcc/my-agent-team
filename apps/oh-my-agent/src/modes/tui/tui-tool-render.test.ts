@@ -5,6 +5,7 @@ import {
   renderLearnTool,
   renderTaskTool,
   renderTodoChrome,
+  renderTodoTool,
 } from "./tui-tool-render.js";
 import type { TranscriptItem } from "./view-state.js";
 
@@ -235,5 +236,39 @@ describe("hub/task loader summaries", () => {
     expect(summarizeToolArgs("retain", { content: "CI runs drizzle gen first" })).toBe(
       "CI runs drizzle gen first",
     );
+  });
+});
+
+describe("renderTodoTool", () => {
+  const COLLAPSED = false;
+  // eslint/no-control-regex: build ESC at runtime instead of a literal.
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+  const plain = (lines: string[]): string[] => lines.map((l) => l.replace(ANSI, ""));
+
+  test("renders an omp-style framed box with header and checkbox body", () => {
+    const lines = renderTodoTool(
+      item({
+        items: [
+          { id: "1", text: "plan", status: "done" },
+          { id: "2", text: "build", status: "in_progress" },
+          { id: "3", text: "verify", status: "pending" },
+        ],
+      }),
+      COLLAPSED,
+      60,
+    );
+    const out = plain(lines);
+    expect(out[0]).toStartWith("┌───");
+    expect(out[0]).toContain("todo 1/3 done");
+    expect(out[1]).toStartWith("│ ✓ plan");
+    expect(out[1]).toMatch(/│$/);
+    expect(out.at(-1)).toStartWith("└──");
+    for (const line of out) expect(line).toHaveLength(60);
+  });
+
+  test("empty list keeps the box with a placeholder body", () => {
+    const out = plain(renderTodoTool(item({ items: [] }), COLLAPSED, 40));
+    expect(out[0]).toContain("todo empty");
+    expect(out.join("\n")).toContain("(no items)");
   });
 });

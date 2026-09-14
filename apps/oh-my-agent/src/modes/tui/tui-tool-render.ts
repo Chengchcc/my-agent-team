@@ -1,28 +1,42 @@
-import { truncateToWidth } from "@chengchenccc/tui";
+import { renderOutputBlock, renderToolHeader, truncateToWidth } from "@chengchenccc/tui";
 import type { TodoItem } from "../../core/index.js";
 import type { TranscriptItem } from "./view-state.js";
 
-/** omp-style plain-list todo rendering (no card/box). */
-export function renderTodoTool(item: TranscriptItem, expanded: boolean): string[] {
-  const lines: string[] = ["\u001b[36m  todo\u001b[0m"];
+/** omp-style todo box: framed header ("☑ todo · done/total") + checkbox body.
+ * The transcript reconciler already pads item groups with a Spacer(1), so the
+ * box gets its breathing room from the existing layout. */
+export function renderTodoTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
   const items = todoItems(item);
-  if (items.length === 0) return ["\u001b[36m  todo\u001b[0m", "\u001b[2m    (no items)\u001b[0m"];
-  for (const it of items) {
-    const mark =
-      it.status === "done"
-        ? "\u001b[32m✓\u001b[0m"
-        : it.status === "in_progress"
-          ? "\u001b[33m●\u001b[0m"
-          : it.status === "cancelled"
-            ? "\u001b[31m✗\u001b[0m"
-            : "\u001b[2m☐\u001b[0m";
-    lines.push(`  ${mark} ${it.text}`);
+  const done = items.filter((i) => i.status === "done").length;
+  const header = renderToolHeader({
+    icon: "☑",
+    title: "todo",
+    meta: [items.length > 0 ? `${done}/${items.length} done` : "empty"],
+    titleColor: "\u001b[36m",
+  });
+  const body: string[] = [];
+  if (items.length === 0) {
+    body.push("\u001b[2m(no items)\u001b[0m");
+  } else {
+    for (const it of items) body.push(`${todoMark(it.status)} ${it.text}`);
   }
-  if (!expanded) {
+  if (!expanded && items.length > 0) {
     const open = items.filter((i) => i.status !== "done" && i.status !== "cancelled").length;
-    if (open > 0) lines.push(`\u001b[2m    ${open} open — (ctrl+o for full list)\u001b[0m`);
+    if (open > 0) body.push(`\u001b[2m${open} open — (ctrl+o for full list)\u001b[0m`);
   }
-  return lines;
+  return renderOutputBlock({
+    header,
+    state: item.streaming ? "running" : "success",
+    sections: [{ lines: body }],
+    width,
+  });
+}
+
+function todoMark(status: string): string {
+  if (status === "done") return "\u001b[32m✓\u001b[0m";
+  if (status === "in_progress") return "\u001b[33m●\u001b[0m";
+  if (status === "cancelled") return "\u001b[31m✗\u001b[0m";
+  return "\u001b[2m☐\u001b[0m";
 }
 
 /** omp-style plain-list task rendering (no card/box): batch/single spawn
