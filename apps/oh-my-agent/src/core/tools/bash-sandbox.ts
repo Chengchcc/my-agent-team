@@ -46,8 +46,19 @@ function wrapBunSpawn(proc: Bun.Subprocess): BashSpawn {
 }
 
 /** Current behavior, made explicit: plain `bash -c` with a validated cwd, no
- * OS-level confinement (ADR 0026 semi-trusted baseline). Setsid gives us a
- * killable process group when available. */
+ * OS-level confinement (ADR 0026 semi-trusted baseline).
+ *
+ * Terminal isolation (non-negotiable): a headless command must never share
+ * the TUI's controlling terminal. `detached: true` is a portable setsid (new
+ * session, no controlling tty — verified sid==pid on Bun), so /dev/tty opens
+ * FAIL instead of painting a password prompt over the TUI and stealing
+ * keystrokes from the editor (a real scp session did exactly that: ssh's
+ * readpassphrase and the TUI competed for the same fd — the ESC of a Kitty
+ * CSI-u sequence went to ssh, the printable tail "[99;1:3u" was typed into
+ * the editor as garbage). `stdin: "ignore"` closes the stdin half of the same
+ * hole. Interactive commands belong in the pty console (pty: true). The old
+ * Linux-only `setsid` binary wrapper is gone: macOS has no setsid, so it
+ * silently degraded there. */
 export class NullBashSandbox implements BashSandbox {
   readonly workspaceRoot: string;
 
@@ -56,16 +67,14 @@ export class NullBashSandbox implements BashSandbox {
   }
 
   spawn(command: string, opts: { cwd: string; env?: Readonly<Record<string, string>> }): BashSpawn {
-    const hasSetsid = Bun.which("setsid") !== null;
-    const proc = Bun.spawn(
-      hasSetsid ? ["setsid", "bash", "-c", command] : ["bash", "-c", command],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-        cwd: opts.cwd,
-        ...(opts.env ? { env: opts.env } : {}),
-      },
-    );
+    const proc = Bun.spawn(["bash", "-c", command], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+      detached: true,
+      cwd: opts.cwd,
+      ...(opts.env ? { env: opts.env } : {}),
+    });
     return wrapBunSpawn(proc);
   }
 }
@@ -108,6 +117,8 @@ export class BwrapBashSandbox implements BashSandbox {
       {
         stdout: "pipe",
         stderr: "pipe",
+        stdin: "ignore",
+        detached: true,
         cwd: opts.cwd,
         ...(opts.env ? { env: opts.env } : {}),
       },
@@ -186,6 +197,8 @@ export class SeatbeltBashSandbox implements BashSandbox {
     const proc = Bun.spawn(["sandbox-exec", "-f", profilePath, bashPath, "-c", command], {
       stdout: "pipe",
       stderr: "pipe",
+      stdin: "ignore",
+      detached: true,
       cwd: opts.cwd,
       ...(opts.env ? { env: opts.env } : {}),
     });

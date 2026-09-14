@@ -66,6 +66,49 @@ describe("bash tool + BashSandbox injection (P1)", () => {
   });
 });
 
+// Terminal isolation (the scp session): a headless child must never share the
+// TUI's controlling terminal — otherwise ssh's readpassphrase paints its
+// password prompt over the TUI and both readers fight for the same fd.
+describe("headless bash never shares the TUI terminal", () => {
+  const runInSandbox = async (sandbox: BashSandbox, command: string) => {
+    const ws = mkdtempSync(join(tmpdir(), "bash-tty-"));
+    const tool = createBashTool({ workspaceRoot: ws, sandbox });
+    return await tool.execute({ description: "d", command });
+  };
+
+  test("NullBashSandbox: stdin is /dev/null, never the editor's fd", async () => {
+    if (IS_DARWIN) return; // the /proc probe is Linux-only
+    const ws = mkdtempSync(join(tmpdir(), "bash-tty-stdin-"));
+    const out = await runInSandbox(new NullBashSandbox(ws), "readlink /proc/self/fd/0");
+    // Contract: the child's stdin is an isolated /dev/null. NOTE this is
+    // environment-masked in CI (bun test's own stdin is already /dev/null);
+    // it goes red the moment the suite runs with a tty on stdin — which is
+    // exactly the TUI case that produced the scp regression.
+    expect(String(out.content)).toContain("/dev/null");
+  });
+
+  test("NullBashSandbox: child leads its own session (portable setsid)", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "bash-tty-null-"));
+    const out = await runInSandbox(
+      new NullBashSandbox(ws),
+      "echo sid=$(ps -o sid= -p $$ | tr -d ' ') pid=$$",
+    );
+    const text = String(out.content);
+    const sid = /sid=(\d+)/.exec(text)?.[1];
+    const pid = /pid=(\d+)/.exec(text)?.[1];
+    expect(sid).toBeDefined();
+    // sid == pid ⟺ new session (no controlling tty). Linux reached this via
+    // the setsid BINARY even pre-fix; macOS has none — that is the pin.
+    expect(sid).toBe(pid);
+  });
+
+  test("a read never blocks on the user's keystrokes", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "bash-tty-read-"));
+    const out = await runInSandbox(new NullBashSandbox(ws), 'read -r line; echo "read-exit:$?"');
+    expect(String(out.content)).toContain("read-exit:1");
+  });
+});
+
 // P3 acceptance: real bubblewrap runs, and the OS-enforced boundaries hold.
 // Skipped when bwrap is absent (e.g. macOS dev machines) — the factory test
 // below still pins the unavailability error.
@@ -96,6 +139,19 @@ describe("bash tool + BashSandbox injection (P1)", () => {
       "timeout 3 bash -c 'echo x > /dev/tcp/1.1.1.1/80' 2>/dev/null && echo NET-OPEN || echo net-blocked",
     );
     expect(String(out.content)).toContain("net-blocked");
+  });
+
+  test("child leads its own session — the TUI's terminal is unreachable", async () => {
+    // Pre-fix the bwrap path had NO session isolation at all (not even the
+    // Linux setsid wrapper the Null path used), so a password prompt inside
+    // the sandbox could still paint over the TUI. bwrap itself becomes the
+    // session leader, so the pin is "different session from the parent",
+    // not sid == pid (that holds only when the command IS the leader).
+    const parentSid = execSync(`ps -o sid= -p ${process.pid}`).toString().trim();
+    const { out } = await run("echo sid=$(ps -o sid= -p $$ | tr -d ' ')");
+    const sid = /sid=(\d+)/.exec(String(out.content))?.[1];
+    expect(sid).toBeDefined();
+    expect(sid).not.toBe(parentSid);
   });
 
   test("workspace under /tmp is not shadowed by the private tmpfs", async () => {
