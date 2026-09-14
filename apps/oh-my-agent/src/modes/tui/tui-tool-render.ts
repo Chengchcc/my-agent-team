@@ -1,9 +1,4 @@
-import {
-  type OutputBlockState,
-  renderOutputBlock,
-  renderToolHeader,
-  truncateToWidth,
-} from "@chengchenccc/tui";
+import { type OutputBlockState, renderOutputBlock, renderToolHeader } from "@chengchenccc/tui";
 import type { TodoItem } from "../../core/index.js";
 import type { TranscriptItem } from "./view-state.js";
 
@@ -58,11 +53,14 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
   return lines;
 }
 
-/** Live chrome (pinned above the editor): a compact snapshot of the
- *  current todo list. Unlike the transcript todo block this never scrolls
- *  away — the user always sees where the run stands. */
+/** Live chrome (pinned above the editor): the single todo surface. Framed
+ * like every other block; once nothing is open (all done/cancelled, or the
+ * list is empty) the component stops rendering entirely — a finished list
+ * has no business occupying viewport. */
 export function renderTodoChrome(items: readonly TodoItem[], width: number): string[] {
   if (items.length === 0) return [];
+  const open = items.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
+  if (open === 0) return [];
   const marks: Record<string, string> = {
     pending: "\u001b[2m○\u001b[0m",
     in_progress: "\u001b[36m●\u001b[0m",
@@ -70,18 +68,31 @@ export function renderTodoChrome(items: readonly TodoItem[], width: number): str
     cancelled: "\u001b[2m✗\u001b[0m",
   };
   const done = items.filter((t) => t.status === "done").length;
-  const lines = [`\u001b[2m  todo\u001b[0m ${done}/${items.length} done`];
+  const header = renderToolHeader({
+    icon: "☑",
+    title: "todo",
+    meta: [`${done}/${items.length} done`],
+    titleColor: "\u001b[36m",
+  });
   const MAX_ROWS = 6;
+  const body: string[] = [];
   for (const t of items.slice(0, MAX_ROWS)) {
     const mark = marks[t.status] ?? marks.pending;
     const text = t.status === "done" ? `\u001b[2m${t.text}\u001b[0m` : t.text;
-    lines.push(truncateToWidth(`  ${mark} ${text}`, width));
+    body.push(`${mark} ${text}`);
   }
   if (items.length > MAX_ROWS) {
-    lines.push(`\u001b[2m  … ${items.length - MAX_ROWS} more\u001b[0m`);
+    body.push(`\u001b[2m… ${items.length - MAX_ROWS} more\u001b[0m`);
   }
-  return lines;
+  return renderOutputBlock({
+    header,
+    // Ambient chrome: the "success" state's dim-gray border.
+    state: "success",
+    sections: [{ lines: body }],
+    width,
+  });
 }
+
 /** hub 工具块：jobs/output/wait/steer/stop 的盒子渲染（omp framedBlock 风格）。
  * 计数头（"waiting on N of M · X done"）并入标题栏 meta，正文只留树/详情。 */
 export function renderHubTool(item: TranscriptItem, expanded: boolean, width: number): string[] {

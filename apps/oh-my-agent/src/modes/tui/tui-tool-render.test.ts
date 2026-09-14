@@ -157,6 +157,9 @@ describe("renderHubTool", () => {
 });
 
 describe("renderTodoChrome", () => {
+  // eslint/no-control-regex: build ESC at runtime instead of a literal.
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
   test("empty list renders nothing; items get marks and a counter", () => {
     expect(renderTodoChrome([], 80)).toEqual([]);
     const lines = renderTodoChrome(
@@ -165,13 +168,29 @@ describe("renderTodoChrome", () => {
         { id: "2", text: "build", status: "in_progress" },
         { id: "3", text: "verify", status: "pending" },
       ],
-      80,
+      60,
     );
-    const joined = lines.join("\n");
-    expect(joined).toContain("1/3 done");
+    const plain = lines.map((l) => l.replace(ANSI, ""));
+    expect(plain[0]).toStartWith("┌───");
+    expect(plain[0]).toContain("todo 1/3 done");
+    const joined = plain.join("\n");
     expect(joined).toContain("plan");
     expect(joined).toContain("build");
     expect(joined).toContain("verify");
+    expect(plain.at(-1)).toStartWith("└──");
+  });
+
+  test("a fully settled list stops rendering the component", () => {
+    const allDone = [
+      { id: "1", text: "plan", status: "done" },
+      { id: "2", text: "build", status: "done" },
+    ];
+    expect(renderTodoChrome(allDone, 60)).toEqual([]);
+    const allSettled = [
+      { id: "1", text: "plan", status: "done" },
+      { id: "2", text: "build", status: "cancelled" },
+    ];
+    expect(renderTodoChrome(allSettled, 60)).toEqual([]);
   });
 
   test("caps at 6 rows with an overflow marker", () => {
@@ -180,10 +199,10 @@ describe("renderTodoChrome", () => {
       text: `t${n}`,
       status: "pending",
     }));
-    const lines = renderTodoChrome(items, 80);
-    // header + 6 shown rows + overflow line
-    expect(lines).toHaveLength(8);
-    expect(lines.at(-1)).toContain("2 more");
+    const lines = renderTodoChrome(items, 60).map((l) => l.replace(ANSI, ""));
+    // box top + 6 shown rows + overflow line + box bottom
+    expect(lines).toHaveLength(9);
+    expect(lines.at(-2)).toContain("2 more");
   });
 });
 
