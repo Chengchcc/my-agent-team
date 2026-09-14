@@ -44,7 +44,6 @@ export interface LiveAgentLine {
   label: string;
   /** Latest activity: "▶ started" / "⚙ label · tool" / answer tail. */
   text: string;
-  settled: boolean;
 }
 
 export interface TuiViewState {
@@ -216,13 +215,16 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
         agentId: event.agentId,
         label: event.label,
         text: `▶ ${event.label}`,
-        settled: false,
       });
       break;
     }
     case "delegation_agent_event": {
-      const line = state.liveAgents.get(event.agentId);
-      if (!line) break;
+      let line = state.liveAgents.get(event.agentId);
+      if (!line) {
+        // Agent started outside this view (resume): adopt a live line now.
+        line = { agentId: event.agentId, label: event.label, text: `▶ ${event.label}` };
+        state.liveAgents.set(event.agentId, line);
+      }
       const inner = event.event;
       if (inner.type === "tool_execution_start") {
         line.text = `⚙ ${event.label} · ${inner.toolName}`;

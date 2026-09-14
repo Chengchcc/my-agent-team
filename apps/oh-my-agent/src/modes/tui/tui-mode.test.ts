@@ -167,6 +167,22 @@ describe("view-state folding", () => {
     expect(state.liveAgents.size).toBe(0);
   });
 
+  test("delegation event for an unseen agent adopts a chrome line (resume)", () => {
+    const state = initialViewState();
+    applyEvent(state, { type: "agent_start" });
+    // No delegation_agent_started seen (session resumed mid-run): the first
+    // forwarded event must still adopt a live line, not drop it.
+    applyEvent(state, {
+      type: "delegation_agent_event",
+      batchId: "b",
+      agentId: "late",
+      label: "late-joiner",
+      event: { type: "tool_execution_start", toolName: "read", callId: "c", input: {} },
+    });
+    expect(state.liveAgents.size).toBe(1);
+    expect(state.liveAgents.get("late")?.text).toBe("⚙ late-joiner · read");
+  });
+
   test("delegation events fold into transcript statuses", () => {
     const state = initialViewState();
     applyEvent(state, { type: "agent_start" });
