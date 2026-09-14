@@ -281,6 +281,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
   private pasteMode: boolean = false;
   private pasteBuffer: string = "";
   private pendingKittyPrintableCodepoint: number | undefined;
+  private extendedEscFlush = false;
 
   constructor(options: StdinBufferOptions = {}) {
     super();
@@ -380,6 +381,24 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 
     if (this.buffer.length > 0) {
       this.timeout = setTimeout(() => {
+        // A bare ESC flushed by timeout may be the first byte of a Kitty
+        // CSI-u sequence whose tail is still in flight: when the event loop
+        // was blocked (a long render frame), the timer fires BEFORE the
+        // pending stdin read, splitting the sequence — the tail then leaks
+        // into the editor as printable text ("[99;1:3u"). Re-arm ONCE so a
+        // straggler tail merges; a real Esc press costs one extra window.
+        if (this.buffer === "\x1b" && !this.extendedEscFlush) {
+          this.extendedEscFlush = true;
+          this.timeout = setTimeout(() => {
+            this.extendedEscFlush = false;
+            const flushed = this.flush();
+            for (const sequence of flushed) {
+              this.emitDataSequence(sequence);
+            }
+          }, this.timeoutMs);
+          return;
+        }
+        this.extendedEscFlush = false;
         const flushed = this.flush();
 
         for (const sequence of flushed) {

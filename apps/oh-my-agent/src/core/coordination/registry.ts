@@ -64,6 +64,11 @@ export interface CoordinationRegistry {
   }): Promise<{ settled: EntryRow[]; timedOut: boolean }>;
   stopEntry(id: string): { ok: boolean; error?: string };
   countRunningJobs(): number;
+  /** Delivery suppression (omp acknowledgeDeliveries): mark settled ids
+   * whose results a TOOL RESULT already carried to the model, so the
+   * surface settlement injection skips them (no duplicate turn). */
+  acknowledgeDeliveries(ids: readonly string[]): void;
+  isDeliveryAcknowledged(id: string): boolean;
   settleEntry(id: string, patch: Partial<RegistryEntry>): void;
   setCompletionListener(cb: ((entry: RegistryEntry) => void) | null): void;
   notifyEntryCompletion(entry: RegistryEntry): void;
@@ -74,6 +79,7 @@ export interface CoordinationRegistry {
 export function createCoordinationRegistry(): CoordinationRegistry {
   const entries = new Map<string, RegistryEntry>();
   let completionListener: ((entry: RegistryEntry) => void) | null = null;
+  const ackedDeliveries = new Set<string>();
 
   function prune(): void {
     const now = Date.now();
@@ -209,8 +215,17 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     completionListener = cb;
   }
 
+  function acknowledgeDeliveries(ids: readonly string[]): void {
+    for (const id of ids) ackedDeliveries.add(id);
+  }
+
+  function isDeliveryAcknowledged(id: string): boolean {
+    return ackedDeliveries.has(id);
+  }
+
   function clearAll(): void {
     entries.clear();
+    ackedDeliveries.clear();
   }
 
   return {
@@ -222,6 +237,8 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     waitEntries,
     stopEntry,
     countRunningJobs,
+    acknowledgeDeliveries,
+    isDeliveryAcknowledged,
     settleEntry,
     setCompletionListener,
     notifyEntryCompletion,

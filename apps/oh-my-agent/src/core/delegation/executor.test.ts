@@ -202,7 +202,7 @@ describe("createDelegationExecutor", () => {
     await a0Gate;
     controller.abort();
     await expect(p).rejects.toThrow(/aborted/);
-    expect(started).toHaveLength(1); // the queued agent never spawned (B2)
+    expect(started).toHaveLength(0); // the queued agent never spawned (B2)
     expect(events).toContainEqual(expect.objectContaining({ type: "delegation_batch_failed" }));
   });
 

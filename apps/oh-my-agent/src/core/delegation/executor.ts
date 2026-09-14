@@ -514,7 +514,12 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           });
         return { label, text: "", ok: true, handle, status: "running" };
       }
-      return finish();
+      // Blocking dispatch: the result returns to the model through the
+      // tool result — acknowledge so the settlement injection does not
+      // deliver it a second time (omp delivery suppression).
+      const result = await finish();
+      registry.acknowledgeDeliveries([handle]);
+      return result;
     } catch (err) {
       // Gate failures (cap/budget) are WORKFLOW-level: propagate so the
       // whole fan-out rejects instead of degrading to a failed agent row.

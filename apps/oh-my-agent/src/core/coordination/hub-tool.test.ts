@@ -95,6 +95,30 @@ describe("hub tool", () => {
     expect(out.outputTruncated).toBe(true);
   });
 
+  test("jobs/output/wait acknowledge settled rows (delivery suppression)", async () => {
+    const acked: string[] = [];
+    const [hub] = createHubTool(
+      makeDeps({
+        acknowledge: (ids) => acked.push(...ids),
+        list: () => [
+          { id: "bg_done", kind: "bash", status: "completed", label: "x", partialText: "" },
+          { id: "bg_run", kind: "bash", status: "running", label: "y", partialText: "" },
+        ],
+        wait: async () => ({
+          settled: [{ id: "w1", kind: "eval", status: "completed", label: "w", partialText: "" }],
+          timedOut: false,
+        }),
+      }),
+    );
+    await hub.execute({ op: "jobs" });
+    // Only the settled row is acked; running rows must keep their injection.
+    expect(acked).toEqual(["bg_done"]);
+    await hub.execute({ op: "output", id: "bg_1" });
+    expect(acked).toEqual(["bg_done", "bg_1"]);
+    await hub.execute({ op: "wait" });
+    expect(acked).toEqual(["bg_done", "bg_1", "w1"]);
+  });
+
   test("steer validates handle and prompt, stop delegates", async () => {
     const stops: string[] = [];
     const [hub] = createHubTool(

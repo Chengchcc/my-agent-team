@@ -76,7 +76,15 @@ export function createTerminalIo(
   const bgPending: JobSettlement[] = [];
   let bgDebounce: Timer | undefined;
   defaultRegistry.setCompletionListener((e) => {
+    // Delivery suppression (omp): a hub snapshot/output or blocking task
+    // result already carried this job to the model — no second turn.
+    if (defaultRegistry.isDeliveryAcknowledged(e.id)) return;
     const durationMs = (e.finishedAt ?? Date.now()) - e.startedAt;
+    // Preview gap fix: an output that fits INLINE_MAX travels WHOLE (the
+    // old slice(0, PREVIEW_MAX) silently dropped 1500..4000-char tails with
+    // no artifact pointer); only spilled (> INLINE_MAX) outputs preview.
+    const fullText = e.kind === "subagent" ? (e.result?.text ?? e.partialText) : (e.output ?? "");
+    const spilled = fullText.length > SETTLEMENT_INLINE_MAX;
     let settlement: JobSettlement;
     if (e.kind === "subagent") {
       const ok = e.status === "completed";
@@ -87,7 +95,7 @@ export function createTerminalIo(
         outcome: ok ? "ok" : e.status,
         ok,
         durationMs,
-        preview: full.slice(0, SETTLEMENT_PREVIEW_MAX),
+        preview: spilled ? full.slice(0, SETTLEMENT_PREVIEW_MAX) : full,
       };
     } else {
       const killed = e.killed === true;
@@ -107,7 +115,7 @@ export function createTerminalIo(
         outcome,
         ok,
         durationMs,
-        preview: full.trim().slice(0, SETTLEMENT_PREVIEW_MAX),
+        preview: spilled ? full.trim().slice(0, SETTLEMENT_PREVIEW_MAX) : full.trim(),
       };
     }
     // Long output spills to .oma/artifacts so the conversation context only

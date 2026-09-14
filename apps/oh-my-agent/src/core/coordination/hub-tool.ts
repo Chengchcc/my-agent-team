@@ -12,8 +12,9 @@ export interface HubToolDeps {
   }) => Promise<{ settled: EntryRow[]; timedOut: boolean }>;
   readonly stop: (id: string) => { ok: boolean; error?: string };
   readonly steer: (handle: string, prompt: string) => { ok: boolean; error?: string };
+  /** Delivery suppression: ack settled ids this tool result showed. */
+  readonly acknowledge?: (ids: readonly string[]) => void;
 }
-
 /** Unified coordination surface for background work (pi hub, jobs half):
  *  bash/eval process jobs and delegation subagents in one registry view. */
 
@@ -114,12 +115,17 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
       switch (op) {
         case "jobs": {
           const items = deps.list(deps.scope);
+          // A snapshot is the delivery (omp contract): settled rows this
+          // result carries are acknowledged so no duplicate settlement
+          // injection follows.
+          deps.acknowledge?.(items.filter((r) => r.status !== "running").map((r) => r.id));
           return { content: formatJobRowsMarkdown(items), items };
         }
         case "output": {
           if (!id) return { ok: false, error: "id is required" };
           const e = deps.get(id);
           if (!e) return { ok: false, error: `unknown id "${id}"` };
+          if (e.status !== "running") deps.acknowledge?.([e.id]);
           const out: Record<string, unknown> = {
             id: e.id,
             kind: e.kind,
@@ -144,6 +150,7 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
           // onUpdate every 500ms): onOutput feeds the TUI's tool_output
           // tail so the block is alive instead of a frozen spinner.
           const out = await streamWait(deps, { ids, timeoutMs }, options?.onOutput);
+          deps.acknowledge?.(out.settled.map((r) => r.id));
           const text = out.timedOut
             ? "Wait timed out with nothing newly settled."
             : formatJobRowsMarkdown(out.settled);

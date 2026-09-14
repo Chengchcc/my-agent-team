@@ -585,4 +585,95 @@ describe("tui e2e live/scrollback/fork", () => {
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  test("settlement injection: whole inline output travels; acked jobs stay silent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ack-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ack-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    const seenUserTexts: string[] = [];
+    const modelRuntime = createModelRuntime();
+    modelRuntime.registerProvider({
+      id: "probe",
+      name: "Probe",
+      getModels: () => [
+        { id: "m", name: "M", provider: "probe", maxTokens: 1024, contextWindow: 200_000 },
+      ],
+      async *stream(_model, messages) {
+        for (const m of messages) {
+          if (m.role === "user") seenUserTexts.push(m.text ?? "");
+        }
+        yield { delta: { type: "text", text: "done" } };
+        yield { usage: { input: 1, output: 1, cacheRead: 0, cacheCreate: 0 } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+    const register = (id: string) =>
+      defaultRegistry.registerEntry({
+        id,
+        kind: "bash",
+        scope: `tui-${process.pid}`,
+        label: "job",
+        startedAt: Date.now(),
+        status: "running",
+        finishedAt: null,
+        partialText: "",
+        settle: Promise.resolve(),
+        resolveSettle: () => {},
+        kill: () => {},
+      });
+    try {
+      const vt = new VirtualTerminal(100, 40);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession({ modelRuntime, workspaceRoot: dir, model: "probe/m" }, io);
+      await typeAndSubmit(vt, "go");
+      await waitForText(vt, "done", 5_000);
+
+      // Job A: 2000 chars — fits INLINE_MAX, must arrive WHOLE (preview gap).
+      register("bg_whole");
+      const whole = `${"w".repeat(1_900)}WHOLE_TAIL_MARKER`;
+      defaultRegistry.settleEntry("bg_whole", {
+        status: "completed",
+        exitCode: 0,
+        output: whole,
+        isError: false,
+      });
+      // Job B: acknowledged BEFORE settle (a hub snapshot delivered it).
+      register("bg_acked");
+      defaultRegistry.acknowledgeDeliveries(["bg_acked"]);
+      defaultRegistry.settleEntry("bg_acked", {
+        status: "completed",
+        exitCode: 0,
+        output: "ACKED_SHOULD_NOT_APPEAR",
+        isError: false,
+      });
+
+      // The full text reaches the MODEL input (the on-screen row only shows
+      // the first 120 chars) — poll the probe provider's capture.
+      const deadline = Date.now() + 8_000;
+      for (;;) {
+        if (seenUserTexts.some((t) => t.includes("WHOLE_TAIL_MARKER"))) break;
+        if (Date.now() > deadline) throw new Error("whole output never reached the model");
+        await Bun.sleep(100);
+      }
+      await waitForText(vt, "done", 5_000);
+      const injections = seenUserTexts.filter((t) => t.startsWith("[background jobs finished]"));
+      // The whole 2000-char job arrived complete in its injection.
+      expect(injections.some((t) => t.includes("WHOLE_TAIL_MARKER"))).toBe(true);
+      // The acknowledged job produced NO injection: its id never reached the model.
+      expect(injections.some((t) => t.includes("bg_acked"))).toBe(false);
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+      io.close();
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_TITLE_ENABLED;
+      delete process.env.OMA_MEMORY_EXTRACT;
+      defaultRegistry.setCompletionListener(null);
+      defaultRegistry.clearAll();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
