@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
@@ -727,4 +735,44 @@ describe("tui session (headless, fake provider)", () => {
       rmSync(sessionDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  test("/new starts with an empty todo - no leakage from the previous session", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "oma-tui-todo-"));
+    const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-todo-sess-"));
+    process.env.OMA_SESSION_DIR = sessionDir;
+    const savedFakeTool = process.env.OMA_FAKE_TOOL;
+    try {
+      // Session 1: the model writes one todo item.
+      process.env.OMA_FAKE_TOOL = JSON.stringify([
+        {
+          name: "todo_write",
+          input: { items: [{ id: "t1", text: "old session task", status: "pending" }] },
+        },
+      ]);
+      const io = scriptedIo(["plan something", "/new", "/exit"]);
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
+      expect(code).toBe(0);
+
+      // After /new the live chrome must show NO todo items from the
+      // previous session, and nothing may sit in the new session's scope.
+      const last = io.renders[io.renders.length - 1]!;
+      expect(last.todoItems).toHaveLength(0);
+      // The write went to session 1's SCOPED file — the legacy workspace
+      // todo.json stays absent (a chrome-only reset would leave the next
+      // run's Meta leaking the old items through the store).
+      const scopedDir = join(ws, ".oma", "todo");
+      const scoped = existsSync(scopedDir) ? readdirSync(scopedDir) : [];
+      expect(scoped).toHaveLength(1);
+      expect(JSON.parse(readFileSync(join(scopedDir, scoped[0]!), "utf-8")).items[0]?.text).toBe(
+        "old session task",
+      );
+      expect(existsSync(join(ws, ".oma", "todo.json"))).toBe(false);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      if (savedFakeTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = savedFakeTool;
+      rmSync(ws, { recursive: true, force: true });
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
+  });
 });

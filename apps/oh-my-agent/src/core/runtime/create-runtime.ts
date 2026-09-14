@@ -61,6 +61,11 @@ export interface CreateOmaRuntimeOptions {
    *  and manage_skill. The product RPC path leaves this unset: its memory
    *  semantics are the backend's, and the surface stays frozen. */
   localMemory?: boolean;
+  /** Session scope for the native todo store (`.oma/todo/<scope>.json`):
+   *  standalone modes pass the durable session id so a session never
+   *  inherits another session's list. Absent = the legacy workspace-global
+   *  todo.json (product shape). */
+  todoScope?: string;
   /** Assembled plugin code components (from assemblePluginRuntime, mode
    *  layer). The runtime mounts them; it never reads the registry. */
   pluginComponents?: {
@@ -195,6 +200,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
     ...(options.vectorMemory ? { vectorMemory: true } : {}),
     ...(options.localMemory ? { localMemory: true } : {}),
+    ...(options.todoScope ? { todoScope: options.todoScope } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.registry ? { registry: options.registry } : {}),
     askHandler: options.askHandler,

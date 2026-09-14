@@ -80,9 +80,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   let session = resolveSession(opts.sessionId);
   const state = initialViewState();
   hydrateTranscript(state, session.messages);
-  // Live-chrome seed: the workspace todo file persists across sessions;
+  // Live-chrome seed: todo is SESSION-scoped (.oma/todo/<id>.json);
   // todo_update events keep the snapshot fresh while runs stream.
-  state.todoItems = readTodoFile(opts.workspaceRoot);
+  state.todoItems = readTodoFile(opts.workspaceRoot, session.sessionId);
   let modelId: string | undefined;
   if (opts.model) {
     modelId = opts.model;

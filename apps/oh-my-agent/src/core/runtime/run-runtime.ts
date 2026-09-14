@@ -1115,7 +1115,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   }
   const nativeTodoWanted = !hasInjectedTodo && todoAllowed;
   if (nativeTodoWanted) {
-    const todoStore = createFileTodoStore(deps.workspaceRoot);
+    const todoStore = createFileTodoStore(deps.workspaceRoot, deps.todoScope);
     const todoBase = createTodo({ store: todoStore });
     plugins.push({
       name: todoBase.name,

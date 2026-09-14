@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /** One task in the agent's list. */
 export type TodoStatus = "pending" | "in_progress" | "done" | "cancelled";
@@ -45,14 +45,30 @@ export function normalizeTodoItems(values: readonly unknown[]): TodoItem[] {
   return out;
 }
 
-/** Standalone oma's local todo store: a single `.oma/todo.json` in the
- *  workspace, so todo_write persists across Runs and sessions (unlike the
- *  per-Run in-memory SessionStore). Backend-invoked RPC mode gets todo via the
- *  backend-injected MCP, never this file. */
+/** Standalone oma's local todo store. Session-scoped: `.oma/todo/<scope>.json`
+ *  per durable session (TUI/print/json pass their session id), so a new or
+ *  resumed session never inherits another session's list, while todo_write
+ *  still persists across the Runs of ONE session. Without a scope the store
+ *  falls back to the legacy workspace-global `.oma/todo.json` (the product
+ *  RPC shape - the backend normally injects its own MCP todo anyway). */
 const TODO_REL_PATH = ".oma/todo.json";
+const TODO_DIR = ".oma/todo";
 
-export function readTodoFile(workspaceRoot: string): readonly TodoItem[] {
-  const path = join(workspaceRoot, TODO_REL_PATH);
+/** Filename-safe scope: the session id may be user-supplied (--session), so
+ *  strip everything outside [A-Za-z0-9_-]; an empty result falls back to the
+ *  legacy file (no traversal, no surprises). */
+function safeScope(scope: string): string | null {
+  const safe = scope.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+  return safe.length > 0 ? safe : null;
+}
+
+export function todoFilePath(workspaceRoot: string, scope?: string): string {
+  const safe = scope ? safeScope(scope) : null;
+  return safe ? join(workspaceRoot, TODO_DIR, `${safe}.json`) : join(workspaceRoot, TODO_REL_PATH);
+}
+
+export function readTodoFile(workspaceRoot: string, scope?: string): readonly TodoItem[] {
+  const path = todoFilePath(workspaceRoot, scope);
   if (!existsSync(path)) return [];
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as { items?: unknown };
@@ -63,16 +79,20 @@ export function readTodoFile(workspaceRoot: string): readonly TodoItem[] {
   }
 }
 
-export function writeTodoFile(workspaceRoot: string, items: readonly TodoItem[]): void {
-  const path = join(workspaceRoot, TODO_REL_PATH);
-  mkdirSync(join(workspaceRoot, ".oma"), { recursive: true });
+export function writeTodoFile(
+  workspaceRoot: string,
+  items: readonly TodoItem[],
+  scope?: string,
+): void {
+  const path = todoFilePath(workspaceRoot, scope);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify({ items }, null, 2)}\n`);
 }
 
-/** The workspace-file TodoStore: one `todo.json` per workspace. */
-export function createFileTodoStore(workspaceRoot: string): TodoStore {
+/** The workspace-file TodoStore (optionally session-scoped). */
+export function createFileTodoStore(workspaceRoot: string, scope?: string): TodoStore {
   return {
-    read: () => readTodoFile(workspaceRoot),
-    write: (items) => writeTodoFile(workspaceRoot, items),
+    read: () => readTodoFile(workspaceRoot, scope),
+    write: (items) => writeTodoFile(workspaceRoot, items, scope),
   };
 }

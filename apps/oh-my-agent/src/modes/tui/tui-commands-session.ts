@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import {
   appendSessionCompaction,
   deleteSession,
@@ -8,6 +9,7 @@ import {
   sessionDirFor,
 } from "../../core/session/session-file.js";
 import { resolveSession } from "../../core/session/session-loop.js";
+import { readTodoFile, todoFilePath } from "../../core/tools/todo-store.js";
 import type { CommandDef, TuiSessionContext } from "./tui-commands.js";
 import { hydrateTranscript } from "./view-state.js";
 
@@ -50,6 +52,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
             const dir = all && summary?.workspace ? sessionDirFor(summary.workspace) : undefined;
             ctx.session = resolveSession(picked, dir);
             ctx.sessionTitle = summary?.title;
+            ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
             hydrateTranscript(ctx.state, ctx.session.messages);
             ctx.io.setHeader?.({
               model: ctx.modelId,
@@ -82,6 +85,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         ctx.session = resolveSession(matches[0]!.id, undefined);
         ctx.sessionTitle = matches[0]!.title;
+        ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
         ctx.io.setHeader?.({
           model: ctx.modelId,
@@ -100,6 +104,10 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
       run: () => {
         ctx.session = resolveSession();
         ctx.sessionTitle = undefined;
+        // Todo is session-scoped: a fresh session starts with an empty
+        // list — the previous session's items must not leak into the
+        // chrome or the next run's Meta.
+        ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
         ctx.io.setHeader?.({
           model: ctx.modelId,
@@ -223,6 +231,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         ctx.session = resolveSession(newId, ctx.session.dir);
         ctx.sessionTitle = undefined;
+        ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
         ctx.io.setHeader?.({ model: ctx.modelId, sessionId: ctx.session.sessionId });
         ctx.pushStatus(
@@ -262,8 +271,17 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.pushStatus("usage: /delete <ctx.session-id>");
           return;
         }
-        if (!deleteSession(args)) ctx.pushStatus(`no ctx.session: ${args}`);
-        else ctx.pushStatus(`deleted ctx.session: ${args}`);
+        if (!deleteSession(args)) {
+          ctx.pushStatus(`no ctx.session: ${args}`);
+        } else {
+          // The session's scoped todo file dies with it.
+          try {
+            rmSync(todoFilePath(ctx.opts.workspaceRoot, args), { force: true });
+          } catch {
+            /* best effort */
+          }
+          ctx.pushStatus(`deleted ctx.session: ${args}`);
+        }
       },
     },
   ];

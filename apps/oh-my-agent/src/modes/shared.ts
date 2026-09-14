@@ -48,6 +48,7 @@ export function standaloneRuntimeOptions(
     skillRoots: built.run.skillRoots ?? [],
     gateWorkspaceMcp: true,
     localMemory: true,
+    todoScope: opts.session.sessionId,
     ...(built.run.permissionMode ? { permissionMode: built.run.permissionMode } : {}),
     ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
     ...(opts.pluginRt.plugins.length || opts.pluginRt.mcpServers.length
