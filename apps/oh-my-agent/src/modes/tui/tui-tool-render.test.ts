@@ -54,10 +54,13 @@ describe("renderTaskTool", () => {
 });
 
 describe("renderHubTool", () => {
+  const COLLAPSED = false;
+
   test("streaming shows the running op, not a fallback", () => {
     const lines = renderHubTool(
       { kind: "tool", text: "hub\u2026", streaming: true, input: { op: "jobs" } },
-      false,
+      COLLAPSED,
+      60,
     );
     expect(lines[0]).toContain("hub");
     expect(lines[0]).toContain("jobs");
@@ -85,7 +88,8 @@ describe("renderHubTool", () => {
           ],
         },
       },
-      false,
+      COLLAPSED,
+      60,
     );
     const text = jobs.join("\n");
     // Counts header (omp "waiting on N of M").
@@ -106,7 +110,8 @@ describe("renderHubTool", () => {
         input: { op: "output", id: "bg_1" },
         result: { id: "bg_1", status: "completed", output: "hello world" },
       },
-      false,
+      COLLAPSED,
+      60,
     );
     const joined = out.join("\n");
     expect(joined).toContain("completed");
@@ -139,7 +144,8 @@ describe("renderHubTool", () => {
           timedOut: true,
         },
       },
-      false,
+      COLLAPSED,
+      60,
     );
     const text = waited.join("\n");
     expect(text).toContain("7 job(s) settled");

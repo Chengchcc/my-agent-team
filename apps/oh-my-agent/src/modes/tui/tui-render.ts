@@ -136,7 +136,7 @@ export class TuiItemRenderer {
       return renderTaskTool(item, expanded);
     }
     if (toolName === "hub") {
-      return renderHubTool(item, expanded);
+      return renderHubTool(item, expanded, this.tui.terminal.columns);
     }
     if (toolName === "learn") {
       return renderLearnTool(item, expanded);

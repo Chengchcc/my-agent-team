@@ -1,4 +1,9 @@
-import { renderOutputBlock, renderToolHeader, truncateToWidth } from "@chengchenccc/tui";
+import {
+  type OutputBlockState,
+  renderOutputBlock,
+  renderToolHeader,
+  truncateToWidth,
+} from "@chengchenccc/tui";
 import type { TodoItem } from "../../core/index.js";
 import type { TranscriptItem } from "./view-state.js";
 
@@ -114,74 +119,73 @@ export function renderTodoChrome(items: readonly TodoItem[], width: number): str
   }
   return lines;
 }
-/** hub 工具块：jobs/output/wait/steer/stop 的纯文本渲染。 */
-export function renderHubTool(item: TranscriptItem, expanded: boolean): string[] {
+/** hub 工具块：jobs/output/wait/steer/stop 的盒子渲染（omp framedBlock 风格）。
+ * 计数头（"waiting on N of M · X done"）并入标题栏 meta，正文只留树/详情。 */
+export function renderHubTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
   const input = item.input as Record<string, unknown> | undefined;
   const op = typeof input?.op === "string" ? input.op : "";
-  const header = op
-    ? `\u001b[36m  hub\u001b[0m \u001b[2m· ${op}\u001b[0m`
-    : "\u001b[36m  hub\u001b[0m";
-  const lines: string[] = [header];
-  // While executing there is no result yet: show the running op instead of
-  // a misleading empty-list/unknown-id fallback.
-  if (item.result === undefined && item.streaming) {
-    lines.push(`\u001b[2m    ⟳ ${op || "running"}…\u001b[0m`);
-    return lines;
-  }
   const result = item.result as Record<string, unknown> | undefined;
+  const meta: string[] = [];
+  const body: string[] = [];
+  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
   const rows = (v: unknown): Array<Record<string, unknown>> =>
     Array.isArray(v) ? (v as Array<Record<string, unknown>>) : [];
-  if (op === "jobs" || op === "wait") {
+  const maxChars = expanded ? 400 : 160;
+
+  // While executing there is no result yet: show the running op instead of
+  // a misleading empty-list/unknown-id fallback.
+  if (result === undefined && item.streaming) {
+    body.push(dim(`⟳ ${op || "running"}…`));
+  } else if (op === "jobs" || op === "wait") {
     const items = rows(result?.items ?? result?.waited);
-    if (items.length === 0) {
-      lines.push(
-        op === "wait"
-          ? `\u001b[2m    ${result?.timedOut ? "timed out" : "nothing to wait for"}\u001b[0m`
-          : "\u001b[2m    (no background work)\u001b[0m",
-      );
-      return lines;
-    }
     const timedOut = op === "wait" && result?.timedOut === true;
-    lines.push(...renderJobTree(items, timedOut, expanded));
-    return lines;
-  }
-  if (op === "output") {
-    if (result?.ok === false) {
-      lines.push(`\u001b[31m    ${String(result.error ?? "failed")}\u001b[0m`);
-      return lines;
-    }
-    const status = String(result?.status ?? "");
-    if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
-    const partial = typeof result?.partialText === "string" ? result.partialText : "";
-    if (partial.trim()) {
-      lines.push(`\u001b[2m    ${partial.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
-    }
-    const output = typeof result?.output === "string" ? result.output : "";
-    if (output.trim()) {
-      lines.push(`\u001b[2m    ${output.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
-    }
-    const nested = result?.result;
-    if (nested && typeof nested === "object") {
-      const text = String((nested as Record<string, unknown>).text ?? "");
-      if (text.trim()) {
-        lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    if (items.length === 0) {
+      if (op === "wait") {
+        body.push(dim(timedOut ? "timed out" : "nothing to wait for"));
+      } else {
+        body.push(dim("(no background work)"));
       }
+    } else {
+      const tree = renderJobTree(items, timedOut, expanded);
+      meta.push(tree.meta);
+      body.push(...tree.lines);
     }
-    if (lines.length === 1) lines.push("\u001b[2m    (unknown id)\u001b[0m");
-    return lines;
+  } else if (op === "output") {
+    if (result?.ok === false) {
+      body.push(`\u001b[31m${String(result.error ?? "failed")}\u001b[0m`);
+    } else {
+      const status = String(result?.status ?? "");
+      if (status) body.push(dim(`status: ${status}`));
+      const partial = typeof result?.partialText === "string" ? result.partialText : "";
+      if (partial.trim()) body.push(dim(partial.trim().slice(0, maxChars)));
+      const output = typeof result?.output === "string" ? result.output : "";
+      if (output.trim()) body.push(dim(output.trim().slice(0, maxChars)));
+      const nested = result?.result;
+      if (nested && typeof nested === "object") {
+        const text = String((nested as Record<string, unknown>).text ?? "");
+        if (text.trim()) body.push(dim(text.trim().slice(0, maxChars)));
+      }
+      if (body.length === 0) body.push(dim("(unknown id)"));
+    }
+  } else {
+    // steer / stop: { ok, error? }
+    if (result?.ok === false) {
+      body.push(`\u001b[31m${String(result.error ?? "failed")}\u001b[0m`);
+    } else if (result !== undefined) {
+      body.push(dim("ok"));
+    }
   }
-  // steer / stop: { ok, error? }
-  const ok = result?.ok;
-  if (result) {
-    lines.push(
-      ok === false
-        ? `\u001b[31m    ${String(result.error ?? "failed")}\u001b[0m`
-        : "\u001b[2m    ok\u001b[0m",
-    );
-  } else if (item.streaming) {
-    lines.push("\u001b[2m    ⟳ waiting…\u001b[0m");
-  }
-  return lines;
+
+  let state: OutputBlockState = "success";
+  if (item.streaming) state = "running";
+  if (result?.ok === false) state = "error";
+  const header = renderToolHeader({
+    icon: "◎",
+    title: op ? `hub · ${op}` : "hub",
+    meta,
+    titleColor: "\u001b[36m",
+  });
+  return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
 }
 
 /** learn 工具块（omp Learn label + summary 风格）：展示教训正文而非 args JSON。 */
@@ -248,14 +252,14 @@ function todoItems(item: TranscriptItem): Array<{ id: string; text: string; stat
     }));
 }
 
-/** omp hub-jobs tree: a counts header ("waiting on N of M · X done"),
- *  running-first sort, and ├─/└─ connector rows with the partial-output
- *  preview nested under each job. */
+/** omp hub-jobs tree: counts meta ("waiting on N of M · X done") for the box
+ * header, plus running-first-sorted ├─/└─ rows with the partial-output
+ * preview nested under each job. */
 function renderJobTree(
   items: Array<Record<string, unknown>>,
   timedOut: boolean,
   expanded: boolean,
-): string[] {
+): { meta: string; lines: string[] } {
   const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
   const statusOf = (r: Record<string, unknown>): string => String(r.status ?? "?");
   const ORDER: Record<string, number> = { running: 0, failed: 1, stopped: 2, completed: 3 };
@@ -266,17 +270,17 @@ function renderJobTree(
     return s === "failed" || s === "stopped";
   }).length;
   const done = items.length - running - failed;
-  const meta: string[] = [];
-  if (done > 0) meta.push(`${done} done`);
-  if (failed > 0) meta.push(`${failed} failed`);
-  if (timedOut) meta.push("timed out");
+  const counts: string[] = [];
+  if (done > 0) counts.push(`${done} done`);
+  if (failed > 0) counts.push(`${failed} failed`);
+  if (timedOut) counts.push("timed out");
   const head =
     running > 0
       ? `waiting on ${running} of ${items.length} job(s)`
       : `${items.length} job(s) settled`;
-  const header = [`  ${head}`, ...meta].join(" · ");
-  const lines: string[] = [dim(header)];
+  const meta = [head, ...counts].join(" · ");
 
+  const lines: string[] = [];
   const max = expanded ? 12 : 6;
   const shown = sorted.slice(0, max);
   const truncated = sorted.length > shown.length;
@@ -305,5 +309,5 @@ function renderJobTree(
     }
   });
   if (truncated) lines.push(dim(`  … ${sorted.length - shown.length} more · (ctrl+o)`));
-  return lines;
+  return { meta, lines };
 }
