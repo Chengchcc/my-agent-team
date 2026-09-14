@@ -20,10 +20,11 @@ import {
   cleanHeaderTitle,
   contextColor,
   formatWorkspace,
-  gitStatus,
+  gitStatusCached,
   MARKDOWN_THEME,
   MAX_DIFF_LINES,
   prettyJson,
+  refreshGitStatus,
   renderGitSegment,
   styleBashLine,
   summarizeResult,
@@ -380,7 +381,7 @@ export class TuiRenderShell {
     infoLines.push(
       `\u001b[2m  workspace:\u001b[0m \u001b[38;5;39m${formatWorkspace(this.workspaceRoot)}\u001b[0m`,
     );
-    const hGit = gitStatus(this.workspaceRoot);
+    const hGit = gitStatusCached(this.workspaceRoot);
     if (hGit) infoLines.push(`\u001b[2m  git:\u001b[0m ${renderGitSegment(hGit)}`);
     if (this.headerSession)
       infoLines.push(`\u001b[2m  session:\u001b[0m ${this.headerSession.slice(0, 8)}`);
@@ -465,7 +466,9 @@ export class TuiRenderShell {
   }
 
   addStatusBar(): void {
-    const git = gitStatus(this.workspaceRoot);
+    // Cached read + background refresh: never a sync spawn on the Enter path.
+    const git = gitStatusCached(this.workspaceRoot);
+    void refreshGitStatus(this.workspaceRoot);
     const segs: Array<{
       text: string;
       chip?: boolean;

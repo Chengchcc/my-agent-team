@@ -21,7 +21,7 @@ import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { readTodoFile } from "../../core/tools/todo-store.js";
 import { standaloneRuntimeOptions } from "../shared.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
-import { formatTokens } from "./tui-format.js";
+import { formatTokens, refreshGitStatus } from "./tui-format.js";
 import {
   forkTreeInteractive,
   lastRunRecap,
@@ -77,6 +77,11 @@ async function savedModelIsAvailable(
 
 /** The full interactive session loop, driver-agnostic. */
 export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<number> {
+  // Kick the async git refresh immediately (fire-and-forget: boot stays
+  // synchronous until the io handlers are registered, and no sync spawn
+  // ever blocks the Enter path). The cold-boot header card may miss the
+  // git line; the status bar shows it as soon as the cache lands.
+  void refreshGitStatus(opts.workspaceRoot);
   let session = resolveSession(opts.sessionId);
   const state = initialViewState();
   hydrateTranscript(state, session.messages);
@@ -133,7 +138,6 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
 
   /** Compact recap text for the most recent run: last assistant message
    *  first line, falling back to the auto title. */
-
   io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
   // `oma "<prompt>"` opens the TUI with the prompt prefilled in the editor.
   if (opts.initialPrompt) io.setInputText?.(opts.initialPrompt);

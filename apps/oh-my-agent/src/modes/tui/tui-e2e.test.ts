@@ -41,6 +41,43 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  test("Enter submit never blocks on sync subprocess spawns (git status is async)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-nospawn-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-nospawn-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    const realSpawnSync = Bun.spawnSync;
+    let spawnSyncCalls = 0;
+    Bun.spawnSync = ((...args: Parameters<typeof Bun.spawnSync>) => {
+      spawnSyncCalls++;
+      return realSpawnSync(...args);
+    }) as typeof Bun.spawnSync;
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+      await vt.waitForRender();
+      // Baseline after boot (the header may legitimately prime git once).
+      const baseline = spawnSyncCalls;
+      await typeAndSubmit(vt, "hello");
+      await waitForText(vt, "done", 5_000);
+      // The submit path (setBusy -> addStatusBar -> git) must not spawn
+      // synchronously: each spawnSync blocks the event loop ~30-150ms,
+      // which is exactly the felt "Enter stall".
+      expect(spawnSyncCalls).toBe(baseline);
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      Bun.spawnSync = realSpawnSync;
+      delete process.env.OMA_SESSION_DIR;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
   test("user input echoes, assistant answer renders, session persists", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-sess-"));

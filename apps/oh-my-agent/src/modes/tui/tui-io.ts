@@ -237,7 +237,6 @@ export function createTerminalIo(
     recordHistory(text);
     resolve(text);
   };
-
   // Esc/ctrl+t/ctrl+o are intercepted before the editor sees them. Esc
   // aborts a live run (pi's app.interrupt); ctrl+t and ctrl+o toggle the
   // thinking-block and tool-detail views globally.

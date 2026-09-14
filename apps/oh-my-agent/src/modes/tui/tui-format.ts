@@ -334,27 +334,65 @@ export function cleanHeaderTitle(title: string): string {
   return ` — ${truncated}`;
 }
 
-/** Compact git branch + dirty count for the idle status line. */
-export function gitStatus(workspaceRoot: string): string {
+/** Compact git branch + dirty count for the idle status line.
+ *
+ * ASYNC + CACHED: the old Bun.spawnSync pair blocked the event loop
+ * ~60-300ms on real repos — setBusy() runs this on every Enter, which is
+ * exactly the felt "submit stall". Render paths read the cache
+ * (gitStatusCached) and kick a background refresh; boot awaits one prime. */
+let gitCache: { root: string; value: string; at: number } | undefined;
+let gitInflight: Promise<string> | undefined;
+const GIT_TTL_MS = 2_000;
+
+async function runGitStatus(workspaceRoot: string): Promise<string> {
   try {
-    const branchResult = Bun.spawnSync([
-      "git",
-      "-C",
-      workspaceRoot,
-      "rev-parse",
-      "--abbrev-ref",
-      "HEAD",
+    const branchProc = Bun.spawn(
+      ["git", "-C", workspaceRoot, "rev-parse", "--abbrev-ref", "HEAD"],
+      { stdout: "pipe", stderr: "ignore" },
+    );
+    const [branchOut] = await Promise.all([
+      new Response(branchProc.stdout).text(),
+      branchProc.exited,
     ]);
-    if (branchResult.exitCode !== 0) return "";
-    const branch = branchResult.stdout.toString().trim();
+    if (branchProc.exitCode !== 0) return "";
+    const branch = branchOut.trim();
     if (!branch) return "";
-    const porcelain = Bun.spawnSync(["git", "-C", workspaceRoot, "status", "--porcelain"]);
-    if (porcelain.exitCode !== 0) return branch;
-    const changes = porcelain.stdout.toString().split("\n").filter(Boolean).length;
+    const porcelainProc = Bun.spawn(["git", "-C", workspaceRoot, "status", "--porcelain"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const [porcelainOut] = await Promise.all([
+      new Response(porcelainProc.stdout).text(),
+      porcelainProc.exited,
+    ]);
+    if (porcelainProc.exitCode !== 0) return branch;
+    const changes = porcelainOut.split("\n").filter(Boolean).length;
     return changes > 0 ? `${branch}+${changes}` : branch;
   } catch {
     return "";
   }
+}
+
+/** Refresh the cache in the background (throttled); resolves to the
+ * freshest value — boot awaits it once so the header card is complete. */
+export function refreshGitStatus(workspaceRoot: string): Promise<string> {
+  if (gitCache?.root === workspaceRoot && Date.now() - gitCache.at < GIT_TTL_MS) {
+    return Promise.resolve(gitCache.value);
+  }
+  gitInflight ??= runGitStatus(workspaceRoot)
+    .then((value) => {
+      gitCache = { root: workspaceRoot, value, at: Date.now() };
+      return value;
+    })
+    .finally(() => {
+      gitInflight = undefined;
+    });
+  return gitInflight;
+}
+
+/** Last cached git segment ("" until the first refresh lands). */
+export function gitStatusCached(workspaceRoot: string): string {
+  return gitCache?.root === workspaceRoot ? gitCache.value : "";
 }
 
 /** Shorten the workspace path for display (~/... when under HOME). */
