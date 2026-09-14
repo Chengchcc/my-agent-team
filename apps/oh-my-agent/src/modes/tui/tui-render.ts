@@ -26,6 +26,7 @@ import {
   prettyJson,
   refreshGitStatus,
   renderGitSegment,
+  shimmerText,
   styleBashLine,
   summarizeResult,
   summarizeToolArgs,
@@ -89,7 +90,11 @@ export class TuiItemRenderer {
       case "tool":
         return this.renderTool(item, state.showToolDetail);
       case "status":
-        return [`\u001b[2m  [${item.text}]\u001b[0m`];
+        // Streaming status lines (live subagent activity) carry the light
+        // sweep; settled ones render static dim.
+        return item.streaming
+          ? [`  [${shimmerText(item.text)}]`]
+          : [`\u001b[2m  [${item.text}]\u001b[0m`];
       case "error":
         return [`\u001b[31m  error: ${item.text}\u001b[0m`];
     }

@@ -1,5 +1,6 @@
 import { type OutputBlockState, renderOutputBlock, renderToolHeader } from "@chengchenccc/tui";
 import type { TodoItem } from "../../core/index.js";
+import { shimmerText } from "./tui-format.js";
 import type { TranscriptItem } from "./view-state.js";
 
 /** task 工具块（omp jobs-tree 风格）：每个 subagent 一行结果 + 预览。 */
@@ -49,7 +50,8 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
     if (text) body.push(`\u001b[2m${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
   }
   if (item.streaming) {
-    body.push("\u001b[2m⟳ running…\u001b[0m");
+    // Light sweep on the live indicator (same shimmer as the agent lines).
+    body.push(shimmerText("\u27f3 running\u2026"));
   } else if (body.length === 0) {
     body.push("\u001b[2m(done)\u001b[0m");
   }
@@ -120,7 +122,7 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
   // While executing there is no result yet: show the running op instead of
   // a misleading empty-list/unknown-id fallback.
   if (result === undefined && item.streaming) {
-    body.push(dim(`⟳ ${op || "running"}…`));
+    body.push(shimmerText(`⟳ ${op || "running"}…`));
   } else if (op === "jobs" || op === "wait") {
     const items = rows(result?.items ?? result?.waited);
     const timedOut = op === "wait" && result?.timedOut === true;
@@ -246,7 +248,10 @@ function renderJobTree(
       completed: "\u001b[32m✔\u001b[0m",
     };
     const icon = JOB_ICONS[st] ?? "\u001b[32m✔\u001b[0m";
-    const rest = dim(` ${String(r.id)} (${String(r.kind)}) ${String(r.label ?? "").slice(0, 60)}`);
+    const rowText = ` ${String(r.id)} (${String(r.kind)}) ${String(r.label ?? "").slice(0, 60)}`;
+    // omp jobs.ts: running rows shimmer their label while the block is live;
+    // settled rows render static dim so scrollback never freezes a band.
+    const rest = st === "running" ? shimmerText(rowText) : dim(rowText);
     lines.push(`  ${branch} ${icon}${rest}`);
     // Nested preview: first non-empty partial line under the branch.
     const partial = typeof r.partialText === "string" ? r.partialText : "";

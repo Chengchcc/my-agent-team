@@ -412,6 +412,49 @@ export function renderGitSegment(git: string): string {
   return `\u001b[38;5;39m${git.slice(0, plus)}\u001b[0m\u001b[38;5;172m${git.slice(plus)}\u001b[0m`;
 }
 
+/** omp classic-shimmer port: a cosine light band sweeps left→right across
+ * streaming text (live subagent activity lines, running tool bodies).
+ * Three tiers — dim (base) → normal → bold-bright at the crest — emitted
+ * one ANSI pair per same-tier run, not per char. Time-sampled per frame;
+ * settled lines render static dim so scrollback never freezes a band. */
+const SHIMMER_SPEED_CELLS_PER_S = 30;
+const SHIMMER_PADDING = 10;
+const SHIMMER_BAND_HALF = 6;
+
+export function shimmerText(text: string, now: number = Date.now()): string {
+  const chars = Array.from(text);
+  const period = chars.length + SHIMMER_PADDING * 2;
+  const pos = ((now / 1000) * SHIMMER_SPEED_CELLS_PER_S) % period;
+  const TIER_OPEN = {
+    low: "\u001b[2m",
+    mid: "\u001b[37m",
+    high: "\u001b[1m\u001b[97m",
+  } as const;
+  type Tier = keyof typeof TIER_OPEN;
+  let out = "";
+  let run = "";
+  let tier: Tier | null = null;
+  const flush = (): void => {
+    if (tier !== null && run) out += `${TIER_OPEN[tier]}${run}\u001b[0m`;
+    run = "";
+  };
+  for (let i = 0; i < chars.length; i++) {
+    const dist = Math.abs(i + SHIMMER_PADDING - pos);
+    let next: Tier = "low";
+    if (dist < SHIMMER_BAND_HALF) {
+      const intensity = 0.5 * (1 + Math.cos((Math.PI * dist) / SHIMMER_BAND_HALF));
+      next = intensity >= 0.65 ? "high" : intensity >= 0.22 ? "mid" : "low";
+    }
+    if (next !== tier) {
+      flush();
+      tier = next;
+    }
+    run += chars[i];
+  }
+  flush();
+  return out;
+}
+
 /** Threshold color for context percent (omp contextPct). */
 export function contextColor(ctx: string): string {
   const m = ctx.match(/(\d+)%/);

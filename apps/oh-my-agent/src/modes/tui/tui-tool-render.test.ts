@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { summarizeToolArgs } from "./tui-format.js";
+import { shimmerText, summarizeToolArgs } from "./tui-format.js";
 import {
   renderHubTool,
   renderLearnTool,
@@ -52,8 +52,10 @@ describe("renderTaskTool", () => {
       COLLAPSED,
       60,
     );
-    expect(lines.join("\n")).not.toContain("(done)");
-    expect(lines.join("\n")).toContain("running");
+    // The running indicator shimmers: assert on ANSI-stripped text.
+    const plain = lines.map((l) => l.replace(ANSI, "")).join("\n");
+    expect(plain).not.toContain("(done)");
+    expect(plain).toContain("running");
   });
 
   test("batch results render as a framed box, one row per agent", () => {
@@ -82,8 +84,31 @@ describe("renderTaskTool", () => {
   });
 });
 
+describe("shimmerText", () => {
+  test("band sweeps deterministically: crest moves with time, tiers emit runs", () => {
+    const text = "packages-analysis · read the index file";
+    const t1 = shimmerText(text, 1_000);
+    const t2 = shimmerText(text, 1_500);
+    // Same input+time is deterministic.
+    expect(shimmerText(text, 1_000)).toBe(t1);
+    // The sweep advances: different band position.
+    expect(t2).not.toBe(t1);
+    // All plain text survives ANSI tier runs.
+    // eslint/no-control-regex: build ESC at runtime instead of a literal.
+    const strip = (s: string): string =>
+      s.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+    expect(strip(t1)).toBe(text);
+    // A crest passes somewhere in this window: high tier (bright bold) present.
+    expect(
+      [0, 250, 500, 750, 1_000, 1_250].some((ms) => shimmerText(text, ms).includes("\u001b[97m")),
+    ).toBe(true);
+  });
+});
+
 describe("renderHubTool", () => {
   const COLLAPSED = false;
+  // eslint/no-control-regex: build ESC at runtime instead of a literal.
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
   test("streaming shows the running op, not a fallback", () => {
     const lines = renderHubTool(
@@ -120,15 +145,16 @@ describe("renderHubTool", () => {
       COLLAPSED,
       60,
     );
-    const text = jobs.join("\n");
+    // Running rows shimmer (band splits text with ANSI runs): strip first.
+    const text = jobs.map((l) => l.replace(ANSI, "")).join("\n");
     // Counts header (omp "waiting on N of M").
     expect(text).toContain("waiting on 1 of 2 job(s)");
     expect(text).toContain("1 done");
     // Running-first sort: bg_1's tree row lands above bg_2's.
     expect(text.indexOf("bg_1")).toBeLessThan(text.indexOf("bg_2"));
     // Tree connectors and the nested partial preview.
-    expect(text).toContain("\u251c\u2500");
-    expect(text).toContain("\u2514\u2500");
+    expect(text).toContain("├─");
+    expect(text).toContain("└─");
     expect(text).toContain("partial out");
 
     const out = renderHubTool(
