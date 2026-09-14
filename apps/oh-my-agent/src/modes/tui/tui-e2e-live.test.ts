@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
 import { VirtualTerminal } from "@chengchenccc/tui";
+import { defaultRegistry } from "../../core/coordination/registry.js";
 import { appendSessionMessages } from "../../core/session/session-file.js";
 import {
   fakeModelRuntime,
@@ -493,6 +494,93 @@ describe("tui e2e live/scrollback/fork", () => {
       expect(await sessionDone).toBe(0);
     } finally {
       delete process.env.OMA_SESSION_DIR;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+  test("bg job settlement injects the sentinel without a user-bubble echo", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-settle-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-settle-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    // The probe provider captures every model input; the fake provider
+    // would not let us assert what the settlement carried into the run.
+    const seenUserTexts: string[] = [];
+    const modelRuntime = createModelRuntime();
+    modelRuntime.registerProvider({
+      id: "probe",
+      name: "Probe",
+      getModels: () => [
+        {
+          id: "m",
+          name: "M",
+          provider: "probe",
+          maxTokens: 1024,
+          contextWindow: 200_000,
+        },
+      ],
+      async *stream(_model, messages) {
+        for (const m of messages) {
+          if (m.role === "user") seenUserTexts.push(m.text ?? "");
+        }
+        yield { delta: { type: "text", text: "done" } };
+        yield { usage: { input: 1, output: 1, cacheRead: 0, cacheCreate: 0 } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+    try {
+      const vt = new VirtualTerminal(100, 40);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession({ modelRuntime, workspaceRoot: dir, model: "probe/m" }, io);
+
+      await typeAndSubmit(vt, "start something");
+      await waitForText(vt, "done", 5_000);
+
+      // Settle a bash job on the SAME process-wide registry the io layer
+      // listens on; the 1.5s debounce then injects the sentinel text.
+      defaultRegistry.registerEntry({
+        id: "bg_settle1",
+        kind: "bash",
+        scope: `tui-${process.pid}`,
+        label: "echo settled",
+        startedAt: Date.now(),
+        status: "running",
+        finishedAt: null,
+        partialText: "",
+        settle: Promise.resolve(),
+        resolveSettle: () => {},
+        kill: () => {},
+      });
+      defaultRegistry.settleEntry("bg_settle1", {
+        status: "completed",
+        exitCode: 0,
+        output: "settled-output",
+        isError: false,
+      });
+
+      // The transcript block lands (appendNotice) ...
+      await waitForText(vt, "bg_settle1", 5_000);
+      await waitForText(vt, "settled-output", 5_000);
+      // ... and the model receives the sentinel text as the next run input.
+      await waitForText(vt, "done", 5_000);
+      const sentinelSeen = seenUserTexts.some((t) => t.startsWith("[background jobs finished]"));
+      expect(sentinelSeen).toBe(true);
+      // The sentinel run renders NO user bubble: the only user item in the
+      // final view state is the originally typed prompt.
+      const rendered = screen(vt);
+      expect(rendered).toContain("start something");
+      expect(rendered).not.toContain("[background jobs finished]");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+      io.close();
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_TITLE_ENABLED;
+      delete process.env.OMA_MEMORY_EXTRACT;
+      defaultRegistry.setCompletionListener(null);
+      defaultRegistry.clearAll();
       rmSync(dir, { recursive: true, force: true });
       rmSync(sessDir, { recursive: true, force: true });
     }

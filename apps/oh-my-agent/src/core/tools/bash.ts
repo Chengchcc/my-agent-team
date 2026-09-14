@@ -164,7 +164,9 @@ export function createBashTool(opts: {
           exitCode: code,
           timedOut: job.timedOut,
           killed: job.killed,
-          output: job.output.slice(-2000),
+          output: job.truncated
+            ? `${job.output}\n[output truncated at ${MAX_OUTPUT_BYTES} bytes]`
+            : job.output,
           isError: code !== 0 || job.timedOut,
         });
       })

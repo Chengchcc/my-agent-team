@@ -122,10 +122,32 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
   // While executing there is no result yet: show the running op instead of
   // a misleading empty-list/unknown-id fallback.
   if (result === undefined && item.streaming) {
-    body.push(shimmerText(`⟳ ${op || "running"}…`));
-  } else if (op === "jobs" || op === "wait") {
+    const snapshot = item.output?.trim().split("\n").slice(-2) ?? [];
+    const lines = [`\u001b[2m${shimmerText(`⟳ ${op || "running"}…`)}\u001b[0m`, ...snapshot];
+    return renderOutputBlock({
+      header: renderToolHeader({
+        icon: "◎",
+        title: op ? `hub · ${op}` : "hub",
+        titleColor: "\u001b[36m",
+      }),
+      state: "running",
+      sections: [{ lines }],
+      width,
+    });
+  }
+  // Streaming wait with an existing result is still live: keep the last
+  // snapshot visible below the result body (poll continuity).
+  const liveSnapshot =
+    item.streaming && item.output ? item.output.trim().split("\n").slice(-2) : [];
+  for (const line of liveSnapshot) body.push(`\u001b[2m${line}\u001b[0m`);
+
+  if (op === "jobs" || op === "wait") {
     const items = rows(result?.items ?? result?.waited);
     const timedOut = op === "wait" && result?.timedOut === true;
+    // omp jobs.ts: agents (subagent handles) render as their OWN tree so
+    // they never skew the job counts or the "waiting on N" title.
+    const jobs = items.filter((r) => r.kind !== "subagent");
+    const agents = items.filter((r) => r.kind === "subagent");
     if (items.length === 0) {
       if (op === "wait") {
         body.push(dim(timedOut ? "timed out" : "nothing to wait for"));
@@ -133,9 +155,16 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
         body.push(dim("(no background work)"));
       }
     } else {
-      const tree = renderJobTree(items, timedOut, expanded);
-      meta.push(tree.meta);
-      body.push(...tree.lines);
+      if (jobs.length > 0) {
+        const tree = renderJobTree(jobs, timedOut, expanded);
+        meta.push(tree.meta);
+        body.push(...tree.lines);
+      }
+      if (agents.length > 0) {
+        const tree = renderAgentTree(agents, expanded);
+        meta.push(`${agents.length} agent${agents.length === 1 ? "" : "s"}`);
+        body.push(...tree.lines);
+      }
     }
   } else if (op === "output") {
     if (result?.ok === false) {
@@ -146,6 +175,9 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
       const partial = typeof result?.partialText === "string" ? result.partialText : "";
       if (partial.trim()) body.push(dim(partial.trim().slice(0, maxChars)));
       const output = typeof result?.output === "string" ? result.output : "";
+      if (result?.outputTruncated === true) {
+        body.push(dim(`… output truncated (last ${output.length} chars)`));
+      }
       if (output.trim()) body.push(dim(output.trim().slice(0, maxChars)));
       const nested = result?.result;
       if (nested && typeof nested === "object") {
@@ -266,4 +298,47 @@ function renderJobTree(
   });
   if (truncated) lines.push(dim(`  … ${sorted.length - shown.length} more · (ctrl+o)`));
   return { meta, lines };
+}
+
+/** Subagent handles as their own tree (omp agents run outside job control):
+ * same row shape as the job tree but no counts meta — the header already
+ * carries "N agents". */
+function renderAgentTree(
+  items: Array<Record<string, unknown>>,
+  expanded: boolean,
+): { lines: string[] } {
+  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+  const statusOf = (r: Record<string, unknown>): string => String(r.status ?? "?");
+  const ORDER: Record<string, number> = { running: 0, failed: 1, stopped: 2, completed: 3 };
+  const sorted = [...items].sort((a, b) => (ORDER[statusOf(a)] ?? 9) - (ORDER[statusOf(b)] ?? 9));
+  const lines: string[] = [dim("  agents")];
+  const max = expanded ? 12 : 6;
+  const shown = sorted.slice(0, max);
+  const truncated = sorted.length > shown.length;
+  const ICONS: Record<string, string> = {
+    running: "\u001b[36m⟳\u001b[0m",
+    failed: "\u001b[31m✘\u001b[0m",
+    stopped: "\u001b[31m✘\u001b[0m",
+    completed: "\u001b[32m✔\u001b[0m",
+  };
+  shown.forEach((r, i) => {
+    const st = statusOf(r);
+    const isLast = i === shown.length - 1 && !truncated;
+    const branch = isLast ? "└─" : "├─";
+    const icon = ICONS[st] ?? "\u001b[32m✔\u001b[0m";
+    const rowText = ` ${String(r.id)} ${String(r.label ?? "").slice(0, 60)}`;
+    const rest = st === "running" ? shimmerText(rowText) : dim(rowText);
+    lines.push(`  ${branch} ${icon}${rest}`);
+    const partial = typeof r.partialText === "string" ? r.partialText : "";
+    const preview = partial
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (preview) {
+      const cont = isLast ? " " : "│";
+      lines.push(dim(`  ${cont}   ${preview.slice(0, expanded ? 400 : 120)}`));
+    }
+  });
+  if (truncated) lines.push(dim(`  … ${sorted.length - shown.length} more · (ctrl+o)`));
+  return { lines };
 }

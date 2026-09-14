@@ -501,9 +501,12 @@ export class TuiRenderShell {
   /** Background job settlement (M-bash/M-eval): append a visible block
    *  with the exit state and output tail. Native scrollback is
    *  append-only, so this lands as a new transcript block rather than
-   *  rewriting the original "Backgrounded as job …" line. */
-  appendNotice(text: string): void {
-    this.transcript.addChild(new Text(`\u001b[36m  ⏵ ${text}\u001b[0m`, 0, 0));
+   *  rewriting the original "Backgrounded as job …" line. Accepts one
+   *  line or pre-styled rows. */
+  appendNotice(lines: string | readonly string[]): void {
+    const rows = typeof lines === "string" ? [`\u001b[36m  \u23f5 ${lines}\u001b[0m`] : lines;
+    if (rows.length === 0) return;
+    for (const line of rows) this.transcript.addChild(new Text(line, 0, 0));
     this.tui.requestRender();
   }
 

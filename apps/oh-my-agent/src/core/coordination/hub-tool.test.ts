@@ -64,6 +64,37 @@ describe("hub tool", () => {
     expect(ok.output).toBe("hi");
   });
 
+  test("output caps oversized settled output to the tail and flags it", async () => {
+    const big = `${"y".repeat(15_000)}END`;
+    const [hub] = createHubTool(
+      makeDeps({
+        get: (id) =>
+          id === "bg_1"
+            ? {
+                id: "bg_1",
+                kind: "bash",
+                scope: "s1",
+                label: "big",
+                startedAt: 0,
+                status: "completed",
+                finishedAt: 1,
+                partialText: "",
+                output: big,
+                exitCode: 0,
+                isError: false,
+              }
+            : undefined,
+      }),
+    );
+    const out = (await hub.execute({ op: "output", id: "bg_1" })) as {
+      output: string;
+      outputTruncated?: boolean;
+    };
+    expect(out.output.length).toBe(10_000);
+    expect(out.output.endsWith("END")).toBe(true);
+    expect(out.outputTruncated).toBe(true);
+  });
+
   test("steer validates handle and prompt, stop delegates", async () => {
     const stops: string[] = [];
     const [hub] = createHubTool(
@@ -108,4 +139,36 @@ describe("hub tool", () => {
     const out = (await hub.execute({ op: "nope" })) as { ok: boolean };
     expect(out.ok).toBe(false);
   });
+
+  test("wait streams live running snapshots through onOutput until settle", async () => {
+    const running: Array<Record<string, unknown>> = [
+      { id: "bg_9", kind: "bash", status: "running", label: "sleep", partialText: "" },
+    ];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const snapshots: string[] = [];
+    const [hub] = createHubTool(
+      makeDeps({
+        list: () => running as never,
+        wait: async () => {
+          await gate;
+          return { settled: [], timedOut: false };
+        },
+      }),
+    );
+    const done = hub.execute({ op: "wait", timeoutMs: 5_000 }, undefined, {
+      onOutput: (t) => snapshots.push(t),
+    });
+    // The 500ms interval must fire at least one live snapshot while the
+    // wait is gated. Await the settle, not a fixed sleep.
+    await Bun.sleep(700);
+    expect(snapshots.some((t) => t.includes("waiting · 1 running (bg_9)"))).toBe(true);
+    release?.();
+    await done;
+    const count = snapshots.length;
+    await Bun.sleep(150);
+    expect(snapshots.length).toBe(count);
+  }, 10_000);
 });

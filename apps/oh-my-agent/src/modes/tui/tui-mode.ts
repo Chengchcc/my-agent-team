@@ -21,7 +21,7 @@ import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { readTodoFile } from "../../core/tools/todo-store.js";
 import { standaloneRuntimeOptions } from "../shared.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
-import { formatTokens, refreshGitStatus } from "./tui-format.js";
+import { formatTokens, refreshGitStatus, SETTLEMENT_SENTINEL } from "./tui-format.js";
 import {
   forkTreeInteractive,
   lastRunRecap,
@@ -302,7 +302,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // Queued /paste images ride this message, then clear.
     const images = pendingImages.splice(0);
     if (images.length > 0) pushStatus(`[${images.length} image(s) attached]`);
-    if (!fromFollowUp) addUserInput(state, text);
+    // Settlement injections already rendered their transcript block via
+    // appendNotice (tui-io) — no second echo as a user bubble.
+    if (!fromFollowUp && !text.startsWith(SETTLEMENT_SENTINEL)) addUserInput(state, text);
 
     const built = await buildCliRunInput({
       prompt: text,

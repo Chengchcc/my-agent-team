@@ -1,12 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { shimmerText, summarizeToolArgs } from "./tui-format.js";
+import {
+  formatDurationMs,
+  formatSettlementText,
+  type JobSettlement,
+  renderSettlementRows,
+  SETTLEMENT_SENTINEL,
+  shimmerText,
+  summarizeToolArgs,
+} from "./tui-format.js";
 import {
   renderHubTool,
   renderLearnTool,
   renderTaskTool,
   renderTodoChrome,
 } from "./tui-tool-render.js";
-import type { TranscriptItem } from "./view-state.js";
+
+// eslint/no-control-regex: build ESC at runtime instead of a literal.
+const ANSI_STRIP = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 function item(input: Record<string, unknown>, result?: unknown, streaming = false): TranscriptItem {
   return {
@@ -316,5 +326,50 @@ describe("hub/task loader summaries", () => {
     expect(summarizeToolArgs("retain", { content: "CI runs drizzle gen first" })).toBe(
       "CI runs drizzle gen first",
     );
+  });
+});
+
+describe("job settlement text + rows", () => {
+  const entries: readonly JobSettlement[] = [
+    {
+      id: "bg_3",
+      kindLabel: "bash",
+      outcome: "exit 0",
+      ok: true,
+      durationMs: 4_233,
+      preview: "72 pass\n0 fail",
+    },
+    {
+      id: "bg_4",
+      kindLabel: "eval",
+      outcome: "timed out",
+      ok: false,
+      durationMs: 30_000,
+      preview: "",
+      artifactPath: "/ws/.oma/artifacts/bg_4.txt",
+    },
+  ];
+
+  test("model text: sentinel + one section per job with duration and spill pointer", () => {
+    const text = formatSettlementText(entries);
+    expect(text.startsWith(SETTLEMENT_SENTINEL)).toBe(true);
+    expect(text).toContain("── bg_3 (bash) exit 0 · 4.2s ──");
+    expect(text).toContain("72 pass");
+    expect(text).toContain("timed out");
+    expect(text).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
+  });
+
+  test("display rows: ok/fail marks, preview line, spill pointer", () => {
+    const plain = renderSettlementRows(entries).map((l) => l.replace(ANSI_STRIP, ""));
+    expect(plain[0]).toContain("✔ bg_3 · bash · exit 0 · 4.2s");
+    expect(plain[1]).toContain("72 pass");
+    expect(plain[2]).toContain("✘ bg_4 · eval · timed out · 30.0s");
+    expect(plain[3]).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
+  });
+
+  test("duration formatting tiers", () => {
+    expect(formatDurationMs(820)).toBe("820ms");
+    expect(formatDurationMs(4_233)).toBe("4.2s");
+    expect(formatDurationMs(63_000)).toBe("1m03s");
   });
 });

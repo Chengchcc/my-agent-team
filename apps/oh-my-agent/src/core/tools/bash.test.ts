@@ -97,6 +97,21 @@ describe("bashTool", () => {
     expect(defaultRegistry.getEntry(jobId)?.status).toBe("failed");
   }, 20_000);
 
+  test("bg settle keeps FULL output (settlement spill threshold reachable)", async () => {
+    const started = await bashTool.execute({
+      description: "d",
+      command: "printf 'x%.0s' $(seq 1 5000)",
+      async: true,
+      timeout: 10_000,
+    });
+    const jobId = /bg_\d+/.exec(started.content)?.[0] ?? "";
+    const entry = defaultRegistry.getEntry(jobId)!;
+    await entry.settle; // resolved by settleEntry on process exit
+    // >4k chars settles whole: the TUI settlement spill (tui-io) fires off
+    // this, and hub output re-caps for the model — neither may see 2000-loss.
+    expect(entry.output?.length).toBe(5_000);
+  }, 15_000);
+
   test("background job timeout kills the job (M-bash)", async () => {
     const started = await bashTool.execute({
       description: "d",

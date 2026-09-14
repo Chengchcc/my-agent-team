@@ -16,6 +16,71 @@ export interface HubToolDeps {
 
 /** Unified coordination surface for background work (pi hub, jobs half):
  *  bash/eval process jobs and delegation subagents in one registry view. */
+
+/** Model-facing markdown for a job snapshot (omp buildJobResult flavor):
+ * Completed sections with label + fenced preview, Still Running bullets.
+ * The TUI keeps rendering from the structured rows; only the tool_result
+ * text changes from a JSON dump to readable markdown. */
+function formatJobRowsMarkdown(rows: readonly EntryRow[]): string {
+  const lines: string[] = [];
+  const completed = rows.filter((r) => r.status !== "running");
+  const running = rows.filter((r) => r.status === "running");
+  if (completed.length > 0) {
+    lines.push(`## Completed (${completed.length})`, "");
+    for (const j of completed) {
+      lines.push(`### ${j.id} [${j.kind}] — ${j.status}`);
+      lines.push(`Label: ${j.label}`);
+      if (j.partialText.trim()) lines.push("```", j.partialText.trim(), "```");
+      lines.push("");
+    }
+  }
+  if (running.length > 0) {
+    lines.push(`## Still Running (${running.length})`, "");
+    for (const j of running) lines.push(`- \`${j.id}\` [${j.kind}] — ${j.label}`);
+  }
+  return lines.length === 0 ? "No background work." : lines.join("\n").trimEnd();
+}
+
+/** Model-facing cap on one hub output fetch: settled registry output is
+ * uncapped truth, so the tool result carries only the tail. */
+const HUB_OUTPUT_MAX_CHARS = 10_000;
+
+/** A `wait` that streams live "still waiting on N" snapshots through
+ * onOutput every SNAPSHOT_MS until the underlying wait resolves. The
+ * snapshots list the running job ids so the TUI block stays informative
+ * without a second tree. */
+const WAIT_SNAPSHOT_MS = 500;
+
+async function streamWait(
+  deps: HubToolDeps,
+  opts: { ids?: readonly string[]; timeoutMs: number },
+  onOutput: ((text: string) => void) | undefined,
+): Promise<{ settled: EntryRow[]; timedOut: boolean }> {
+  const wait = deps.wait({ ids: opts.ids, scope: deps.scope, timeoutMs: opts.timeoutMs });
+  if (!onOutput) return wait;
+  let snapshot = "";
+  const timer = setInterval(() => {
+    // Single-line running summary: ids + count, no full tree (the result
+    // block owns the tree when the wait settles).
+    const running = deps
+      .list(deps.scope)
+      .filter((r) => r.status === "running")
+      .map((r) => r.id);
+    const watched = opts.ids ? running.filter((id) => opts.ids?.includes(id)) : running;
+    const next = `waiting · ${watched.length} running (${watched.slice(0, 5).join(", ")})`;
+    if (next !== snapshot) {
+      snapshot = next;
+      onOutput(`${next}\n`);
+    }
+  }, WAIT_SNAPSHOT_MS);
+  timer.unref?.();
+  try {
+    return await wait;
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
   const hub: PluginTool = {
     name: "hub",
@@ -38,7 +103,7 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
       },
       required: ["op"],
     },
-    async execute(args) {
+    async execute(args, _signal, options) {
       const op = typeof args.op === "string" ? args.op : "";
       const id = typeof args.id === "string" ? args.id.trim() : "";
       const ids = Array.isArray(args.ids)
@@ -47,27 +112,42 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
       const prompt = typeof args.prompt === "string" ? args.prompt : "";
       const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : 60_000;
       switch (op) {
-        case "jobs":
-          return { items: deps.list(deps.scope) };
+        case "jobs": {
+          const items = deps.list(deps.scope);
+          return { content: formatJobRowsMarkdown(items), items };
+        }
         case "output": {
           if (!id) return { ok: false, error: "id is required" };
           const e = deps.get(id);
           if (!e) return { ok: false, error: `unknown id "${id}"` };
-          return {
+          const out: Record<string, unknown> = {
             id: e.id,
             kind: e.kind,
             status: e.status,
             label: e.label,
-            ...(e.partialText ? { partialText: e.partialText } : {}),
-            ...(e.output !== undefined ? { output: e.output } : {}),
-            ...(e.exitCode !== undefined ? { exitCode: e.exitCode } : {}),
-            ...(e.isError !== undefined ? { isError: e.isError } : {}),
-            ...(e.result ? { result: e.result } : {}),
           };
+          if (e.partialText) out.partialText = e.partialText;
+          if (e.output !== undefined) {
+            // Settled output is uncapped truth; cap the model-facing tail here.
+            out.output = e.output.slice(-HUB_OUTPUT_MAX_CHARS);
+            if (e.output.length > HUB_OUTPUT_MAX_CHARS) {
+              out.outputTruncated = true;
+            }
+          }
+          if (e.exitCode !== undefined) out.exitCode = e.exitCode;
+          if (e.isError !== undefined) out.isError = e.isError;
+          if (e.result) out.result = e.result;
+          return out;
         }
         case "wait": {
-          const out = await deps.wait({ ids, scope: deps.scope, timeoutMs });
-          return { waited: out.settled, timedOut: out.timedOut };
+          // Live snapshot while waiting (omp job-watching waits stream
+          // onUpdate every 500ms): onOutput feeds the TUI's tool_output
+          // tail so the block is alive instead of a frozen spinner.
+          const out = await streamWait(deps, { ids, timeoutMs }, options?.onOutput);
+          const text = out.timedOut
+            ? "Wait timed out with nothing newly settled."
+            : formatJobRowsMarkdown(out.settled);
+          return { content: text, waited: out.settled, timedOut: out.timedOut };
         }
         case "steer": {
           if (!id) return { ok: false, error: "id is required" };

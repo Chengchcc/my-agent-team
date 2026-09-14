@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   applyBackgroundToLine,
   CombinedAutocompleteProvider,
@@ -24,7 +26,16 @@ import { runBashPtyConsole } from "./pty-console.js";
 import { SettingsOverlay } from "./settings-overlay.js";
 import { layoutBranchTree } from "./tui-branch-layout.js";
 import { HistorySearchOverlay, OmaTranscriptContainer, PickerOverlay } from "./tui-components.js";
-import { EDITOR_THEME, relativeTime, WELCOME_TIPS } from "./tui-format.js";
+import {
+  EDITOR_THEME,
+  formatSettlementText,
+  type JobSettlement,
+  relativeTime,
+  renderSettlementRows,
+  SETTLEMENT_INLINE_MAX,
+  SETTLEMENT_PREVIEW_MAX,
+  WELCOME_TIPS,
+} from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
 import { pickNotice, pickOne } from "./tui-overlays.js";
 import { TuiRenderShell } from "./tui-render.js";
@@ -62,34 +73,72 @@ export function createTerminalIo(
     }
     injections.push(text);
   }
-  const bgPending: string[] = [];
-  let bgDebounce: ReturnType<typeof setTimeout> | undefined;
+  const bgPending: JobSettlement[] = [];
+  let bgDebounce: Timer | undefined;
   defaultRegistry.setCompletionListener((e) => {
-    const text =
-      e.kind === "subagent"
-        ? `${e.id} (${e.label}) ${
-            e.status === "completed" ? "ok" : e.status
-          }${e.result?.text?.trim() ? `\n${e.result.text.trim().slice(0, 400)}` : e.partialText.trim() ? `\n${e.partialText.trim().slice(0, 400)}` : ""}`
-        : `${e.id} (${e.kind}) ${
-            e.killed
-              ? "killed"
-              : e.timedOut
-                ? "timed out"
-                : e.exitCode === null || e.exitCode === undefined
-                  ? "finished"
-                  : `exit ${e.exitCode}`
-          }${e.output?.trim() ? `\n${e.output.trim().slice(0, 2000)}` : ""}`;
-    bgPending.push(text);
-    if (bgDebounce) clearTimeout(bgDebounce);
+    const durationMs = (e.finishedAt ?? Date.now()) - e.startedAt;
+    let settlement: JobSettlement;
+    if (e.kind === "subagent") {
+      const ok = e.status === "completed";
+      const full = e.result?.text?.trim() || e.partialText.trim();
+      settlement = {
+        id: e.id,
+        kindLabel: e.label,
+        outcome: ok ? "ok" : e.status,
+        ok,
+        durationMs,
+        preview: full.slice(0, SETTLEMENT_PREVIEW_MAX),
+      };
+    } else {
+      const killed = e.killed === true;
+      const timedOut = e.timedOut === true;
+      const ok =
+        !killed &&
+        !timedOut &&
+        (e.exitCode === null || e.exitCode === undefined || e.exitCode === 0);
+      let outcome = "finished";
+      if (killed) outcome = "killed";
+      else if (timedOut) outcome = "timed out";
+      else if (e.exitCode !== null && e.exitCode !== undefined) outcome = `exit ${e.exitCode}`;
+      const full = e.output ?? "";
+      settlement = {
+        id: e.id,
+        kindLabel: e.kind,
+        outcome,
+        ok,
+        durationMs,
+        preview: full.trim().slice(0, SETTLEMENT_PREVIEW_MAX),
+      };
+    }
+    // Long output spills to .oma/artifacts so the conversation context only
+    // ever carries a preview + pointer (omp async-result spill analog).
+    const fullLen = (e.kind === "subagent" ? (e.result?.text ?? e.partialText) : (e.output ?? ""))
+      .length;
+    if (fullLen > SETTLEMENT_INLINE_MAX) {
+      const artifactDir = join(workspaceRoot, ".oma", "artifacts");
+      mkdirSync(artifactDir, { recursive: true });
+      const artifactPath = join(artifactDir, `${e.id}.txt`);
+      writeFileSync(
+        artifactPath,
+        e.kind === "subagent" ? (e.result?.text ?? e.partialText) : (e.output ?? ""),
+        "utf8",
+      );
+      settlement.artifactPath = artifactPath;
+    }
+    bgPending.push(settlement);
+    clearTimeout(bgDebounce);
     if (process.env.OMA_BG_INJECT === "0") {
-      shell.appendNotice(bgPending.join("\n\n"));
+      // Display-only: the transcript block lands, the model never sees it
+      // (poll via hub output instead).
+      shell.appendNotice(renderSettlementRows(bgPending));
       bgPending.length = 0;
       return;
     }
     bgDebounce = setTimeout(() => {
-      const joined = bgPending.join("\n\n---\n\n");
-      bgPending.length = 0;
-      if (joined) injectUserMessage(`[background jobs finished]\n${joined}`);
+      const batch = bgPending.splice(0);
+      if (batch.length === 0) return;
+      shell.appendNotice(renderSettlementRows(batch));
+      injectUserMessage(formatSettlementText(batch));
     }, 1_500);
     bgDebounce.unref?.();
   });

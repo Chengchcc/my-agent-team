@@ -455,6 +455,70 @@ export function shimmerText(text: string, now: number = Date.now()): string {
   return out;
 }
 
+/** ── Background job settlement (omp async-result analog) ──────────────────
+ * A settled bg job produces ONE structured entry that feeds both audiences:
+ * the model (text injected as the next run input, prefixed by the sentinel
+ * so the session loop skips the user-bubble echo) and the user (compact
+ * transcript rows). Output longer than INLINE_MAX spills to a file; the
+ * model text then carries a preview + the file path instead of the blob. */
+export interface JobSettlement {
+  id: string;
+  /** "bash" | "eval" | the subagent's label. */
+  kindLabel: string;
+  /** "exit 0" / "killed" / "timed out" / "ok" / subagent status. */
+  outcome: string;
+  ok: boolean;
+  durationMs: number;
+  /** Inline preview (already capped). */
+  preview: string;
+  /** Absolute path of the spilled full output, when it spilled. */
+  artifactPath?: string;
+}
+
+export const SETTLEMENT_SENTINEL = "[background jobs finished]";
+export const SETTLEMENT_INLINE_MAX = 4_000;
+export const SETTLEMENT_PREVIEW_MAX = 1_500;
+
+export function formatDurationMs(ms: number): string {
+  if (ms < 1_000) return `${Math.max(0, Math.round(ms))}ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1_000);
+  return `${minutes}m${seconds.toString().padStart(2, "0")}s`;
+}
+
+/** Model-facing text (omp async-result.md flavor): sentinel + one section
+ * per job with preview, spill note when the full output went to a file. */
+export function formatSettlementText(entries: readonly JobSettlement[]): string {
+  const sections = entries.map((e) => {
+    const head = `\u2500\u2500 ${e.id} (${e.kindLabel}) ${e.outcome} \u00b7 ${formatDurationMs(e.durationMs)} \u2500\u2500`;
+    const lines = [head];
+    if (e.preview.trim()) lines.push(e.preview.trim());
+    if (e.artifactPath) lines.push(`full output: ${e.artifactPath}`);
+    return lines.join("\n");
+  });
+  return [SETTLEMENT_SENTINEL, ...sections].join("\n\n");
+}
+
+/** User-facing transcript rows: one status row per job (omp
+ * "Background job completed" row) + preview + spill pointer. */
+export function renderSettlementRows(entries: readonly JobSettlement[]): string[] {
+  const rows: string[] = [];
+  for (const e of entries) {
+    const mark = e.ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
+    rows.push(
+      `  ${mark} \u001b[36m${e.id}\u001b[0m \u001b[2m\u00b7 ${e.kindLabel} \u00b7 ${e.outcome} \u00b7 ${formatDurationMs(e.durationMs)}\u001b[0m`,
+    );
+    const firstLine = e.preview
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (firstLine) rows.push(`\u001b[2m    ${firstLine.slice(0, 120)}\u001b[0m`);
+    if (e.artifactPath) rows.push(`\u001b[2m    full output: ${e.artifactPath}\u001b[0m`);
+  }
+  return rows;
+}
+
 /** Threshold color for context percent (omp contextPct). */
 export function contextColor(ctx: string): string {
   const m = ctx.match(/(\d+)%/);

@@ -160,7 +160,7 @@ export function createEvalTool(opts: {
             exitCode: done.exitCode,
             timedOut,
             killed,
-            output: done.content.slice(-2000),
+            output: done.content,
             isError: done.isError,
           });
         })().catch(() => registry.settleEntry(id, { status: "failed" }));
