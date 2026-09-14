@@ -42,13 +42,43 @@ describe("renderLearnTool", () => {
 });
 
 describe("renderTaskTool", () => {
+  const COLLAPSED = false;
+  // eslint/no-control-regex: build ESC at runtime instead of a literal.
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
   test("streaming task never shows a fake done marker", () => {
     const lines = renderTaskTool(
       { kind: "tool", text: "task…", streaming: true, input: {} },
-      false,
+      COLLAPSED,
+      60,
     );
     expect(lines.join("\n")).not.toContain("(done)");
     expect(lines.join("\n")).toContain("running");
+  });
+
+  test("batch results render as a framed box, one row per agent", () => {
+    const lines = renderTaskTool(
+      {
+        kind: "tool",
+        text: "task",
+        streaming: false,
+        input: { label: "explore" },
+        result: {
+          results: [
+            { name: "packages-analysis", agent: "explore", ok: true, text: "found 19 members" },
+            { name: "backend-probe", agent: "explore", ok: false, error: "max steps exceeded (8)" },
+          ],
+        },
+      },
+      COLLAPSED,
+      62,
+    );
+    const plain = lines.map((l) => l.replace(ANSI, ""));
+    expect(plain[0]).toStartWith("┌───");
+    expect(plain[0]).toContain("task · explore 2 agents");
+    expect(plain.join("\n")).toContain("✔ packages-analysis (explore)");
+    expect(plain.join("\n")).toContain("✗ backend-probe (explore)");
+    expect(plain.at(-1)).toStartWith("└──");
   });
 });
 

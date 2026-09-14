@@ -108,6 +108,61 @@ describe("view-state folding", () => {
     });
   });
 
+  test("subagent activity updates one line in place, never per-tool spam", () => {
+    const state = initialViewState();
+    applyEvent(state, { type: "agent_start" });
+    applyEvent(state, {
+      type: "delegation_batch_started",
+      batchId: "b",
+      label: "task",
+      agentCount: 1,
+    });
+    applyEvent(state, {
+      type: "delegation_agent_started",
+      batchId: "b",
+      agentId: "a1",
+      label: "packages-analysis",
+    });
+    // A dozen tool calls must NOT create a dozen transcript items.
+    for (const tool of ["tree", "read", "read", "read", "glob", "read"]) {
+      applyEvent(state, {
+        type: "delegation_agent_event",
+        batchId: "b",
+        agentId: "a1",
+        label: "packages-analysis",
+        event: { type: "tool_execution_start", toolName: tool, callId: "c", input: {} },
+      });
+    }
+    applyEvent(state, {
+      type: "delegation_agent_event",
+      batchId: "b",
+      agentId: "a1",
+      label: "packages-analysis",
+      event: { type: "message_update", text: "found 19 workspace members" },
+    });
+    applyEvent(state, {
+      type: "delegation_agent_event",
+      batchId: "b",
+      agentId: "a1",
+      label: "packages-analysis",
+      event: { type: "agent_end", status: "completed" },
+    });
+    applyEvent(state, {
+      type: "delegation_agent_completed",
+      batchId: "b",
+      agentId: "a1",
+      label: "packages-analysis",
+      ok: true,
+    });
+    const statuses = state.runs[0]!.items.map((i) => i.text);
+    // batch header + exactly ONE agent line (settled marker), no ⚙ leftovers.
+    expect(statuses).toHaveLength(2);
+    expect(statuses[1]).toBe("  \u2714 packages-analysis");
+    expect(statuses.join("\n")).not.toContain("\u2699");
+    // Mid-stream the single line showed the live activity: the map is gone
+    // after completion, but the in-place mutation happened on that one item.
+  });
+
   test("delegation events fold into transcript statuses", () => {
     const state = initialViewState();
     applyEvent(state, { type: "agent_start" });

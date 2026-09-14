@@ -16,6 +16,12 @@ import {
 import { createSpawnPool, GateError } from "./pool.js";
 import { parseAndValidate, spillResults } from "./results.js";
 
+/** Runaway-cost guard matching the main loop's ceiling (run-runtime's
+ * DEFAULT_MAX_STEPS = 500): termination is the model's natural stop or the
+ * user's abort, not a design limit. The old 8 died mid-investigation on
+ * ordinary multi-file reads (tree + a dozen reads already overflows it). */
+const SUBAGENT_MAX_STEPS = 500;
+
 export interface SubagentSpec {
   readonly prompt: string;
   readonly label?: string;
@@ -253,7 +259,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           sessionId,
           store,
           plugins: [{ name: "subagent-tools", tools: subagentTools }],
-          maxSteps: 8,
+          maxSteps: SUBAGENT_MAX_STEPS,
           maxForceContinues: 2,
           // Transient model failures (429/timeout) retry via the loop's
           // default retryStream policy (maxAttempts 3).

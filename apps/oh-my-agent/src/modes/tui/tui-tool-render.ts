@@ -2,27 +2,27 @@ import { type OutputBlockState, renderOutputBlock, renderToolHeader } from "@che
 import type { TodoItem } from "../../core/index.js";
 import type { TranscriptItem } from "./view-state.js";
 
-/** omp-style plain-list task rendering (no card/box): batch/single spawn
- *  surface only — control ops render via renderHubTool. */
-export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[] {
+/** task 工具块（omp jobs-tree 风格）：每个 subagent 一行结果 + 预览。 */
+export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
   const label = typeof item.input?.label === "string" ? item.input.label : "";
-  const lines: string[] = [`\u001b[36m  task${label ? ` · ${label}` : ""}\u001b[0m`];
   const result = item.result;
-  const status =
-    result && typeof result === "object" && "status" in result ? String(result.status) : "";
-  if (status) lines.push(`\u001b[2m    status: ${status}\u001b[0m`);
-  // Batch: { ok, content, results: [{index, name, agent, ok, text|error, ...}] }
   const asRecord = (v: unknown): Record<string, unknown> =>
     typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+  // Batch: { ok, content, results: [{index, name, agent, ok, text|error, ...}] }
   const results = Array.isArray(asRecord(result).results)
     ? (asRecord(result).results as Array<Record<string, unknown>>)
     : [];
+  const body: string[] = [];
+  const meta: string[] = [];
+  let failed = false;
   if (results.length > 0) {
+    meta.push(`${results.length} agent${results.length === 1 ? "" : "s"}`);
     for (const r of results) {
+      if (r.ok === false) failed = true;
       const name = String(r.name ?? "");
       const agent = String(r.agent ?? "");
       const mark = r.ok === false ? "\u001b[31m✗\u001b[0m" : "\u001b[32m✔\u001b[0m";
-      lines.push(`  ${mark} \u001b[2m${name}${agent ? ` (${agent})` : ""}\u001b[0m`);
+      body.push(`${mark} \u001b[2m${name}${agent ? ` (${agent})` : ""}\u001b[0m`);
       const text =
         typeof r.text === "string" && r.text !== ""
           ? r.text
@@ -30,27 +30,38 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[
             ? r.error
             : "";
       if (text.trim()) {
-        lines.push(`\u001b[2m    ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
+        body.push(`\u001b[2m  ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
       }
     }
-    return lines;
-  }
-  const content =
-    typeof result?.content === "string"
-      ? result.content
-      : typeof result?.text === "string"
-        ? result.text
+  } else {
+    const status =
+      result && typeof result === "object" && "status" in result
+        ? String((result as Record<string, unknown>).status)
         : "";
-  if (content) {
+    if (status) body.push(`\u001b[2mstatus: ${status}\u001b[0m`);
+    const content =
+      typeof result?.content === "string"
+        ? result.content
+        : typeof result?.text === "string"
+          ? result.text
+          : "";
     const text = content.trim();
-    if (text) lines.push(`\u001b[2m    ${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
+    if (text) body.push(`\u001b[2m${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
   }
   if (item.streaming) {
-    lines.push(`\u001b[2m    ⟳ running…\u001b[0m`);
-  } else if (lines.length === 1) {
-    lines.push(`\u001b[2m    (done)\u001b[0m`);
+    body.push("\u001b[2m⟳ running…\u001b[0m");
+  } else if (body.length === 0) {
+    body.push("\u001b[2m(done)\u001b[0m");
   }
-  return lines;
+  let state: OutputBlockState = item.streaming ? "running" : "success";
+  if (failed) state = "error";
+  const header = renderToolHeader({
+    icon: "▶",
+    title: `task${label ? ` · ${label}` : ""}`,
+    meta,
+    titleColor: "\u001b[36m",
+  });
+  return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
 }
 
 /** Live chrome (pinned above the editor): the single todo surface. Framed

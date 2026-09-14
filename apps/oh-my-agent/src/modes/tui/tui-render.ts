@@ -132,7 +132,7 @@ export class TuiItemRenderer {
       return [];
     }
     if (toolName === "task") {
-      return renderTaskTool(item, expanded);
+      return renderTaskTool(item, expanded, this.tui.terminal.columns);
     }
     if (toolName === "hub") {
       return renderHubTool(item, expanded, this.tui.terminal.columns);
