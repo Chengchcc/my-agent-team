@@ -40,6 +40,12 @@ import type { TranscriptItem, TuiViewState } from "./view-state.js";
  *  Extracted from tui-io.ts to keep the io assembly file under 500 lines. */
 export class TuiItemRenderer {
   private readonly markdownCache = new WeakMap<TranscriptItem, Markdown>();
+  /** Items seen while streaming: their first settled render must use a
+   *  FRESH Markdown instance. The streaming instance carries frozen-prefix
+   *  state whose output can differ from a cold render of the final text;
+   *  settled rows commit to scrollback immutably, so the settle frame has
+   *  to be the canonical render (what /resume replays). */
+  private readonly streamedItems = new WeakSet<TranscriptItem>();
   private readonly itemLineCache = new WeakMap<
     TranscriptItem,
     { lines: string[]; showThinking: boolean; showToolDetail: boolean; width: number }
@@ -106,6 +112,13 @@ export class TuiItemRenderer {
     paddingY: number,
     style?: DefaultTextStyle,
   ): string[] {
+    if (item.streaming) {
+      this.streamedItems.add(item);
+    } else if (this.streamedItems.has(item)) {
+      // Settle transition: force the cold render (see streamedItems doc).
+      this.streamedItems.delete(item);
+      this.markdownCache.delete(item);
+    }
     let md = this.markdownCache.get(item);
     if (!md) {
       md = new Markdown(item.text, paddingX, paddingY, MARKDOWN_THEME, style);
