@@ -11,6 +11,7 @@ import {
 import {
   renderHubTool,
   renderLearnTool,
+  renderLiveAgentsChrome,
   renderTaskTool,
   renderTodoChrome,
 } from "./tui-tool-render.js";
@@ -56,16 +57,28 @@ describe("renderTaskTool", () => {
   // eslint/no-control-regex: build ESC at runtime instead of a literal.
   const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
-  test("streaming task never shows a fake done marker", () => {
+  test("streaming task renders EMPTY — live progress lives in chrome (ADR 0028)", () => {
     const lines = renderTaskTool(
       { kind: "tool", text: "task…", streaming: true, input: {} },
       COLLAPSED,
       60,
     );
-    // The running indicator shimmers: assert on ANSI-stripped text.
-    const plain = lines.map((l) => l.replace(ANSI, "")).join("\n");
-    expect(plain).not.toContain("(done)");
-    expect(plain).toContain("running");
+    expect(lines).toEqual([]);
+  });
+
+  test("live agent chrome block: framed, shimmered lines, empty when idle", () => {
+    // Idle: nothing rendered (the panel unmounts).
+    expect(renderLiveAgentsChrome([], 60)).toEqual([]);
+    const lines = renderLiveAgentsChrome(
+      [{ text: "⚙ packages-protocols · read" }, { text: "▶ backend" }],
+      70,
+    );
+    const plain = lines.map((l) => l.replace(ANSI, ""));
+    const joined = plain.join("\n");
+    expect(joined).toContain("agents");
+    expect(joined).toContain("2 live");
+    expect(joined).toContain("⚙ packages-protocols · read");
+    expect(joined).toContain("▶ backend");
   });
 
   test("batch results render as a framed box, one row per agent", () => {

@@ -199,6 +199,12 @@ export function createTerminalIo(
     }, 1000);
   }
 
+  /** ADR 0028: chrome repaint cadence while busy — animates the pinned
+   *  live-agent block (and any other chrome shimmer) without touching the
+   *  transcript's scrollback-committed rows. */
+  const CHROME_REPAINT_MS = 100;
+  let chromeRepaintTimer: Timer | undefined;
+
   /** Derive a short human-readable summary for the currently streaming
    *  activity (omp's intent/working message). Prefer a live tool intent;
    *  when the model is composing a response, surface the first line of its
@@ -426,7 +432,9 @@ export function createTerminalIo(
       // The animated status line: a braille spinner + "working (Ns)" while
       // a run is live, removed when it settles. Loader drives its own timer
       // and calls requestRender on every frame; the elapsed timer ticks the
-      // seconds.
+      // seconds; the chrome repaint driver (ADR 0028) animates the pinned
+      // live-agent block — chrome has no scrollback semantics, so a fixed
+      // cadence timer is safe there (the transcript never gets one).
       statusContainer.clear();
       if (next) {
         shell.addStatusBar();
@@ -445,8 +453,11 @@ export function createTerminalIo(
         shell.setBusy(true, loader, 0);
         shell.updateWorkingMessage();
         startElapsedTimer();
+        chromeRepaintTimer = setInterval(() => tui.requestRender(), CHROME_REPAINT_MS);
+        chromeRepaintTimer.unref?.();
       } else {
         clearInterval(elapsedTimer);
+        clearInterval(chromeRepaintTimer);
         busySeconds = 0;
         if (loader) {
           loader.stop();
@@ -692,6 +703,7 @@ export function createTerminalIo(
     },
     close() {
       clearInterval(elapsedTimer);
+      clearInterval(chromeRepaintTimer);
       clearTimeout(quitTimer);
       clearTimeout(escTimer);
       dismissQuitHint();

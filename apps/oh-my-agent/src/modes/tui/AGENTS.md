@@ -9,6 +9,23 @@ Framework-level renderer/scrollback/cursor contracts live in
 `dist`**: after editing that package, `bun run build` there before trusting any
 test in this directory.
 
+
+## Component layering (ADR 0028)
+
+Live state renders as **chrome** (pinned above the editor, repainted every
+frame, never committed to scrollback); results land in the **transcript**
+(append-only, durable, survives resume replay). Decision tree and rationale:
+`docs/adr/0028-tui-component-layering.md`.
+
+- todo snapshot, live subagent activity (`state.liveAgents`, fed by
+  `delegation_agent_started/event/completed`) → chrome. The task tool box
+  renders **empty while streaming**; the settled result tree + `✔/✘`
+  terminal markers stay in the transcript.
+- chrome has a repaint driver: a 100ms interval calls `requestRender` while
+  busy (`tui-io.ts`, `CHROME_REPAINT_MS`). The transcript must NEVER get a
+  fixed-cadence repaint driver — committed rows are immutable and a timer
+  there risks scrollback corruption. Chrome lines may shimmer freely.
+
 ## Data flow
 
 ```

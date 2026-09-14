@@ -123,7 +123,8 @@ describe("view-state folding", () => {
       agentId: "a1",
       label: "packages-analysis",
     });
-    // A dozen tool calls must NOT create a dozen transcript items.
+    // A dozen tool calls must NOT create a dozen transcript items — and
+    // (ADR 0028) the live activity line lives in CHROME, not the transcript.
     for (const tool of ["tree", "read", "read", "read", "glob", "read"]) {
       applyEvent(state, {
         type: "delegation_agent_event",
@@ -133,6 +134,9 @@ describe("view-state folding", () => {
         event: { type: "tool_execution_start", toolName: tool, callId: "c", input: {} },
       });
     }
+    // Mid-stream: one chrome line, updated in place to the latest tool.
+    expect(state.liveAgents.size).toBe(1);
+    expect(state.liveAgents.get("a1")?.text).toBe("⚙ packages-analysis · read");
     applyEvent(state, {
       type: "delegation_agent_event",
       batchId: "b",
@@ -159,8 +163,8 @@ describe("view-state folding", () => {
     expect(statuses).toHaveLength(2);
     expect(statuses[1]).toBe("  \u2714 packages-analysis");
     expect(statuses.join("\n")).not.toContain("\u2699");
-    // Mid-stream the single line showed the live activity: the map is gone
-    // after completion, but the in-place mutation happened on that one item.
+    // The chrome panel drained: live lines are gone once the agent settles.
+    expect(state.liveAgents.size).toBe(0);
   });
 
   test("delegation events fold into transcript statuses", () => {

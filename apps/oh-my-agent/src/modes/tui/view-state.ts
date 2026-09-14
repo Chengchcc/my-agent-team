@@ -37,9 +37,14 @@ export interface RunViewState {
   items: TranscriptItem[];
   /** True between agent_start and agent_end. */
   running: boolean;
-  /** Live subagent activity lines keyed by agentId (delegation_agent_event);
-   *  streaming status items updated in place until the agent settles. */
-  liveAgents?: Map<string, TranscriptItem>;
+}
+
+export interface LiveAgentLine {
+  agentId: string;
+  label: string;
+  /** Latest activity: "▶ started" / "⚙ label · tool" / answer tail. */
+  text: string;
+  settled: boolean;
 }
 
 export interface TuiViewState {
@@ -51,10 +56,20 @@ export interface TuiViewState {
   /** Latest todo snapshot (todo_update events): rendered as live chrome
    *  pinned above the editor, never scrolled away with the transcript. */
   todoItems: readonly TodoItem[];
+  /** Live subagent activity (delegation events), rendered as live chrome
+   *  like todo — pinned above the editor while agents run, gone when the
+   *  batch settles. The transcript keeps only the terminal ✔/✘ markers. */
+  liveAgents: Map<string, LiveAgentLine>;
 }
 
 export function initialViewState(): TuiViewState {
-  return { runs: [], showThinking: false, showToolDetail: false, todoItems: [] };
+  return {
+    runs: [],
+    showThinking: false,
+    showToolDetail: false,
+    todoItems: [],
+    liveAgents: new Map(),
+  };
 }
 
 function currentRun(state: TuiViewState): RunViewState | undefined {
@@ -64,7 +79,7 @@ function currentRun(state: TuiViewState): RunViewState | undefined {
 function ensureRunningRun(state: TuiViewState): RunViewState {
   const run = currentRun(state);
   if (run?.running) return run;
-  const fresh: RunViewState = { items: [], running: true, liveAgents: new Map() };
+  const fresh: RunViewState = { items: [], running: true };
   state.runs.push(fresh);
   return fresh;
 }
@@ -194,71 +209,47 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       break;
     }
     case "delegation_agent_started": {
-      // One live line per agent, updated IN PLACE (omp AgentActivitySnapshot):
-      // ▶ started → ⚙ current tool → ▶ answer tail → ✔/✗ settled. Never one
-      // transcript item per subagent tool call — that spams the transcript.
-      const run = ensureRunningRun(state);
-      run.liveAgents ??= new Map();
-      const item: TranscriptItem = {
-        kind: "status",
-        text: `  \u25b6 ${event.label}`,
-        streaming: true,
-      };
-      run.liveAgents.set(event.agentId, item);
-      run.items.push(item);
+      // Live chrome (todo-style): one pinned line per agent, updated IN
+      // PLACE. Never a transcript item per subagent tool call — and never a
+      // transcript item at all until the agent settles.
+      state.liveAgents.set(event.agentId, {
+        agentId: event.agentId,
+        label: event.label,
+        text: `▶ ${event.label}`,
+        settled: false,
+      });
       break;
     }
     case "delegation_agent_event": {
-      const run = ensureRunningRun(state);
+      const line = state.liveAgents.get(event.agentId);
+      if (!line) break;
       const inner = event.event;
-      run.liveAgents ??= new Map();
-      const liveAgents = run.liveAgents;
-      let item = liveAgents.get(event.agentId);
-      if (!item) {
-        // Agent started outside this view (resume): adopt a live line now.
-        item = { kind: "status", text: `  \u25b6 ${event.label}`, streaming: true };
-        liveAgents.set(event.agentId, item);
-        run.items.push(item);
-      }
       if (inner.type === "tool_execution_start") {
-        item.text = `  \u2699 ${event.label} \u00b7 ${inner.toolName}`;
-        item.streaming = true;
+        line.text = `⚙ ${event.label} · ${inner.toolName}`;
       } else if (inner.type === "message_update") {
         // Live answer text: tail-capped so a chatty subagent cannot balloon
-        // the line. A tool line resets the buffer; an answer line accumulates.
+        // the pinned line. A tool line resets; an answer line accumulates.
         const chunk = inner.text.replace(/\s+/g, " ").trim();
         if (chunk) {
-          const answerPrefix = `  \u25b6 ${event.label}: `;
-          const inAnswer = item.text.startsWith(answerPrefix) || item.text.endsWith("\u00b7 live");
-          const base = inAnswer ? item.text.replace(/ \u00b7 live$/, "") : answerPrefix;
-          item.text = `${base}${chunk} \u00b7 live`.slice(-200);
-          item.streaming = true;
+          const answerPrefix = `▶ ${event.label}: `;
+          const inAnswer = line.text.startsWith(answerPrefix) || line.text.endsWith("· live");
+          const base = inAnswer ? line.text.replace(/ · live$/, "") : answerPrefix;
+          line.text = `${base}${chunk} · live`.slice(-200);
         }
-      } else if (inner.type === "message_end" || inner.type === "turn_end") {
-        // More turns may follow: pause the line, keep the map entry.
-        item.streaming = false;
-      } else if (inner.type === "agent_end") {
-        // delegation_agent_completed owns the terminal text + delete; here
-        // we only stop the live spinner (the agent loop itself is done).
-        item.streaming = false;
       }
+      // message_end/turn_end/agent_end: keep the last activity text; the
+      // terminal ✔/✘ marker lands via delegation_agent_completed.
       break;
     }
     case "delegation_agent_completed": {
-      const run = ensureRunningRun(state);
-      // The live activity line becomes the terminal marker IN PLACE; agents
-      // without a live line (started before this view) fall back to a push.
-      const live = run.liveAgents?.get(event.agentId);
+      // The terminal marker stays in the transcript (durable record); the
+      // live chrome line drops out of the pinned panel.
+      state.liveAgents.delete(event.agentId);
       const text = event.ok
         ? `  \u2714 ${event.label}`
         : `  \u2718 ${event.label}: ${event.error ?? "failed"}`;
-      if (live) {
-        live.text = text;
-        live.streaming = false;
-        run.liveAgents?.delete(event.agentId);
-      } else {
-        run.items.push({ kind: "status", text, streaming: false });
-      }
+      const run = ensureRunningRun(state);
+      run.items.push({ kind: "status", text, streaming: false });
       break;
     }
     case "delegation_batch_completed": {
@@ -310,13 +301,11 @@ export function applyOutcome(state: TuiViewState, outcome: BackendRunOutcome): v
     runs.push({
       items: [{ kind: "error", text: outcome.error ?? "run failed", streaming: false }],
       running: false,
-      liveAgents: new Map(),
     });
   } else if (outcome.status === "aborted") {
     runs.push({
       items: [{ kind: "status", text: "aborted", streaming: false }],
       running: false,
-      liveAgents: new Map(),
     });
   } else if (outcome.status === "completed" && outcome.workflow) {
     const value = JSON.stringify(outcome.workflow.value) ?? "undefined";
@@ -329,7 +318,6 @@ export function applyOutcome(state: TuiViewState, outcome: BackendRunOutcome): v
         },
       ],
       running: false,
-      liveAgents: new Map(),
     });
   }
 }

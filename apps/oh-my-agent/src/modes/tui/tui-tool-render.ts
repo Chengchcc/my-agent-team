@@ -3,8 +3,11 @@ import type { TodoItem } from "../../core/index.js";
 import { shimmerText } from "./tui-format.js";
 import type { TranscriptItem } from "./view-state.js";
 
-/** task 工具块（omp jobs-tree 风格）：每个 subagent 一行结果 + 预览。 */
+/** task 工具块(ADR 0028):streaming 期间 live 进度在 chrome(`liveAgents`
+ * pinned 块)，盒子本体渲染空——settle 后才落终局结果树进 transcript。
+ * chrome 块渲染在 renderLiveAgentsChrome(与本函数并列)。 */
 export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
+  if (item.streaming) return [];
   const label = typeof item.input?.label === "string" ? item.input.label : "";
   const result = item.result;
   const asRecord = (v: unknown): Record<string, unknown> =>
@@ -35,6 +38,7 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
       }
     }
   } else {
+    // Settled single (compat) spawn result.
     const status =
       result && typeof result === "object" && "status" in result
         ? String((result as Record<string, unknown>).status)
@@ -49,13 +53,10 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
     const text = content.trim();
     if (text) body.push(`\u001b[2m${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
   }
-  if (item.streaming) {
-    // Light sweep on the live indicator (same shimmer as the agent lines).
-    body.push(shimmerText("\u27f3 running\u2026"));
-  } else if (body.length === 0) {
+  if (body.length === 0) {
     body.push("\u001b[2m(done)\u001b[0m");
   }
-  let state: OutputBlockState = item.streaming ? "running" : "success";
+  let state: OutputBlockState = "success";
   if (failed) state = "error";
   const header = renderToolHeader({
     icon: "▶",
@@ -64,6 +65,29 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
     titleColor: "\u001b[36m",
   });
   return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
+}
+
+/** ADR 0028: live subagent activity as chrome (pinned above the editor,
+ * like todo). One shimmering line per running agent, updated in place by
+ * view-state; the block disappears entirely when no agent is live. */
+export function renderLiveAgentsChrome(
+  agents: readonly { text: string }[],
+  width: number,
+): string[] {
+  if (agents.length === 0) return [];
+  const header = renderToolHeader({
+    icon: "▶",
+    title: "agents",
+    meta: [`${agents.length} live`],
+    titleColor: "\u001b[36m",
+  });
+  const max = 6;
+  const shown = agents.slice(0, max);
+  const body = shown.map((a) => `  ${shimmerText(a.text)}`);
+  if (agents.length > shown.length) {
+    body.push(`\u001b[2m  … ${agents.length - shown.length} more\u001b[0m`);
+  }
+  return renderOutputBlock({ header, state: "running", sections: [{ lines: body }], width });
 }
 
 /** Live chrome (pinned above the editor): the single todo surface. Framed
