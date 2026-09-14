@@ -292,8 +292,9 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       break;
     }
     case "todo_update":
-      // Live chrome state only — the transcript keeps its own todo tool
-      // block (write history); this snapshot drives the pinned panel.
+      // Todo is chrome-only: this snapshot drives the pinned panel above
+      // the editor; todo tool calls render nothing in the transcript
+      // (TuiItemRenderer.renderTool returns [] for them).
       state.todoItems = [...event.items];
       break;
     // queue/recap events: handled above / no v1 transcript rendering.

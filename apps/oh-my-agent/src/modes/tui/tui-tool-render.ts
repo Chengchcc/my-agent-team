@@ -7,43 +7,6 @@ import {
 import type { TodoItem } from "../../core/index.js";
 import type { TranscriptItem } from "./view-state.js";
 
-/** omp-style todo box: framed header ("☑ todo · done/total") + checkbox body.
- * The transcript reconciler already pads item groups with a Spacer(1), so the
- * box gets its breathing room from the existing layout. */
-export function renderTodoTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
-  const items = todoItems(item);
-  const done = items.filter((i) => i.status === "done").length;
-  const header = renderToolHeader({
-    icon: "☑",
-    title: "todo",
-    meta: [items.length > 0 ? `${done}/${items.length} done` : "empty"],
-    titleColor: "\u001b[36m",
-  });
-  const body: string[] = [];
-  if (items.length === 0) {
-    body.push("\u001b[2m(no items)\u001b[0m");
-  } else {
-    for (const it of items) body.push(`${todoMark(it.status)} ${it.text}`);
-  }
-  if (!expanded && items.length > 0) {
-    const open = items.filter((i) => i.status !== "done" && i.status !== "cancelled").length;
-    if (open > 0) body.push(`\u001b[2m${open} open — (ctrl+o for full list)\u001b[0m`);
-  }
-  return renderOutputBlock({
-    header,
-    state: item.streaming ? "running" : "success",
-    sections: [{ lines: body }],
-    width,
-  });
-}
-
-function todoMark(status: string): string {
-  if (status === "done") return "\u001b[32m✓\u001b[0m";
-  if (status === "in_progress") return "\u001b[33m●\u001b[0m";
-  if (status === "cancelled") return "\u001b[31m✗\u001b[0m";
-  return "\u001b[2m☐\u001b[0m";
-}
-
 /** omp-style plain-list task rendering (no card/box): batch/single spawn
  *  surface only — control ops render via renderHubTool. */
 export function renderTaskTool(item: TranscriptItem, expanded: boolean): string[] {
@@ -216,40 +179,6 @@ export function renderLearnTool(item: TranscriptItem, expanded: boolean): string
     lines.push("\u001b[2m    ⟳ capturing…\u001b[0m");
   }
   return lines;
-}
-
-function todoItems(item: TranscriptItem): Array<{ id: string; text: string; status: string }> {
-  const candidates: unknown[] = [];
-  const result = item.result as Record<string, unknown> | undefined;
-  if (result) {
-    if (Array.isArray(result.items)) candidates.push(...result.items);
-    const content = typeof result.content === "string" ? result.content : "";
-    if (content) {
-      try {
-        const parsed = JSON.parse(content) as Record<string, unknown>;
-        if (Array.isArray(parsed.items)) candidates.push(...parsed.items);
-      } catch {
-        // keep raw string path below
-      }
-    }
-  }
-  if (item.input && Array.isArray(item.input.items))
-    candidates.push(...(item.input.items as unknown[]));
-  return candidates
-    .filter(
-      (v): v is { id: string; text: string; status: string } =>
-        typeof v === "object" &&
-        v !== null &&
-        "text" in v &&
-        typeof (v as { text: unknown }).text === "string" &&
-        "status" in v &&
-        typeof (v as { status: unknown }).status === "string",
-    )
-    .map((v) => ({
-      id: "id" in v && typeof v.id === "string" ? v.id : "",
-      text: (v as { text: string }).text,
-      status: (v as { status: string }).status,
-    }));
 }
 
 /** omp hub-jobs tree: counts meta ("waiting on N of M · X done") for the box

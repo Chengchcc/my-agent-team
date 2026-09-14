@@ -30,12 +30,7 @@ import {
   summarizeToolArgs,
   USER_TEXT_STYLE,
 } from "./tui-format.js";
-import {
-  renderHubTool,
-  renderLearnTool,
-  renderTaskTool,
-  renderTodoTool,
-} from "./tui-tool-render.js";
+import { renderHubTool, renderLearnTool, renderTaskTool } from "./tui-tool-render.js";
 import { TuiTranscriptReconciler } from "./tui-transcript-reconciler.js";
 import type { TranscriptItem, TuiViewState } from "./view-state.js";
 
@@ -129,8 +124,11 @@ export class TuiItemRenderer {
 
   private renderTool(item: TranscriptItem, expanded: boolean): string[] {
     const toolName = item.text.replace(/…$/, "");
+    // Todo renders chrome-only (pinned snapshot above the editor): the
+    // transcript stays quiet — the loader's activity summary already
+    // surfaces the running todo_write call.
     if (toolName === "todo" || toolName === "todo_read" || toolName === "todo_write") {
-      return renderTodoTool(item, expanded, this.tui.terminal.columns);
+      return [];
     }
     if (toolName === "task") {
       return renderTaskTool(item, expanded);
