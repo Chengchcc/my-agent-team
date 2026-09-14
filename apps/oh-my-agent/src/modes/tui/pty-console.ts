@@ -90,6 +90,9 @@ export function runBashPtyConsole(
         setTimeout(() => {
           tui.setFocus(null);
           handle.hide();
+          // The pty child owned the terminal: re-assert raw mode + Kitty
+          // keyboard flags before handing it back to the editor.
+          tui.terminal.reassertTerminalState();
           tui.requestRender(true);
           settle(code);
         }, 120);
@@ -97,6 +100,7 @@ export function runBashPtyConsole(
       .catch(() => {
         tui.setFocus(null);
         handle.hide();
+        tui.terminal.reassertTerminalState();
         settle(null);
       });
   });

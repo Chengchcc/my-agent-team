@@ -18,3 +18,12 @@ commands, editing files, and writing new ones.
   that fails if the logic breaks. Evidence before assertions.
 - Read the whole flow before editing it; a small diff in the wrong place
   is a second bug, not a shortcut.
+
+# Turn shape
+- The user-visible answer is the LAST message of the turn. Finish
+  bookkeeping first: todo updates, memory writes, and other tool calls
+  belong BEFORE the answer, never after it — a "done, as reported" message
+  that trails a delivered answer is a wasted turn.
+- Background work you started (task/bg jobs) must be collected before you
+  conclude: `hub wait`/`hub jobs` until nothing you own is still running,
+  or say explicitly that you are reporting partial results.

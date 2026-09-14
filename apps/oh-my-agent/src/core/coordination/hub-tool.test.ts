@@ -95,6 +95,26 @@ describe("hub tool", () => {
     expect(out.outputTruncated).toBe(true);
   });
 
+  test("jobs snapshot elides output past the budget and points at hub output", async () => {
+    // A 6-agent fan-out used to put ~25k chars of fenced output into one
+    // result; past the budget the body is elided per job.
+    const big = "x".repeat(5_000);
+    const rows = Array.from({ length: 6 }, (_, i) => ({
+      id: `sub_${i}`,
+      kind: "subagent" as const,
+      status: "completed" as const,
+      label: `agent-${i}`,
+      partialText: big,
+    }));
+    const [hub] = createHubTool(makeDeps({ list: () => rows }));
+    const out = (await hub.execute({ op: "jobs" })) as { content: string };
+    // First body fits the budget; the rest are elided with a fetch hint.
+    expect(out.content).toContain("x".repeat(1_000));
+    expect(out.content).toContain('fetch with hub { "op": "output", "id": "sub_5" }');
+    // Total stays well under the old 25k flood (6 × 5000).
+    expect(out.content.length).toBeLessThan(12_000);
+  });
+
   test("jobs/output/wait acknowledge settled rows (delivery suppression)", async () => {
     const acked: string[] = [];
     const [hub] = createHubTool(

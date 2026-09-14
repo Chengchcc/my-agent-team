@@ -12,6 +12,7 @@ import {
   listSessions,
   loadSessionBranchNodes,
   loadSessionMessages,
+  readSessionTitle,
   renameSession,
   sessionDir,
   sessionDirFor,
@@ -81,6 +82,16 @@ describe("session-file title", () => {
     const listed = listSessions().find((s) => s.id === "t2");
     expect(listed?.title).toBeUndefined();
     expect(listed?.preview).toBe("hello");
+  });
+
+  test("readSessionTitle returns the last title, undefined when untitled", () => {
+    appendSessionMessages("t3", dir, [{ role: "user", text: "hi" }]);
+    expect(readSessionTitle("t3")).toBeUndefined();
+    appendSessionTitle("t3", "First Title");
+    appendSessionTitle("t3", "Second Title");
+    expect(readSessionTitle("t3")).toBe("Second Title");
+    // Unknown id / torn file: no throw, no title.
+    expect(readSessionTitle("no-such-session")).toBeUndefined();
   });
 });
 

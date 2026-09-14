@@ -11,7 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
-import { sessionDirFor } from "../../core/session/session-file.js";
+import {
+  appendSessionMessages,
+  appendSessionTitle,
+  sessionDirFor,
+} from "../../core/session/session-file.js";
 import { scriptedIo, testModelRuntime } from "./tui-mode.fixture.js";
 import { runTuiSession } from "./tui-mode.js";
 import { applyEvent, initialViewState } from "./view-state.js";
@@ -624,6 +628,52 @@ describe("tui session (headless, fake provider)", () => {
       rmSync(agentRoot, { recursive: true, force: true });
     }
   }, 15_000);
+  test("a session that already has a title spends no title call per turn", async () => {
+    const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-titled-"));
+    const workspace = mkdtempSync(join(tmpdir(), "oma-tui-titled-ws-"));
+    process.env.OMA_SESSION_DIR = sessionDir;
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    const sessionId = "titled-0001";
+    appendSessionMessages(
+      sessionId,
+      workspace,
+      [
+        { role: "user", text: "seed question" },
+        { role: "assistant", text: "seed answer" },
+      ],
+      sessionDir,
+    );
+    appendSessionTitle(sessionId, "Existing Title", sessionDir);
+    const calls: string[] = [];
+    try {
+      const modelRuntime = createModelRuntime();
+      modelRuntime.registerProvider({
+        id: "probe",
+        name: "Probe",
+        getModels: () => [
+          { id: "m", name: "M", provider: "probe", maxTokens: 1024, contextWindow: 200_000 },
+        ],
+        async *stream(_model, messages) {
+          const prompt = messages.map((m) => m.text ?? "").join("\n");
+          calls.push(prompt.includes("Write a 3-7 word title") ? "title" : "loop");
+          yield { delta: { type: "text", text: "done" } };
+          yield { usage: { input: 1, output: 1, cacheRead: 0, cacheCreate: 0 } };
+          yield { stopReason: "end_turn" };
+        },
+      });
+      const io = scriptedIo(["hi"]);
+      await runTuiSession({ modelRuntime, workspaceRoot: workspace, sessionId }, io);
+      // One turn, one call: the already-titled session must not re-title
+      // (pre-fix this list was ["loop", "title"] on EVERY turn).
+      expect(calls).toEqual(["loop"]);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_MEMORY_EXTRACT;
+      rmSync(sessionDir, { recursive: true, force: true });
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   test("/exit requires a second confirmation", async () => {
     const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-exit-"));
     process.env.OMA_SESSION_DIR = sessionDir;

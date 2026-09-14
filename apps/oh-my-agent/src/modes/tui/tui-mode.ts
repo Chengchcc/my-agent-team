@@ -8,14 +8,21 @@ import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaLoopEvent } from "../../core/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
-import { resolvePermissionMode } from "../../core/settings/project-settings.js";
+import {
+  resolvePermissionMode,
+  resolveRuntimeKnobs,
+} from "../../core/settings/project-settings.js";
 
 /** One interactive TUI session per process; the coordination scope stays
  *  stable across Runs so subagent handles survive follow-ups in this
  *  process (registry is keyed by scope, not runId). */
 const COORDINATION_SCOPE = `tui-${process.pid}`;
 
-import { appendSessionMessages, listSessions } from "../../core/session/session-file.js";
+import {
+  appendSessionMessages,
+  listSessions,
+  readSessionTitle,
+} from "../../core/session/session-file.js";
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
 import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { readTodoFile } from "../../core/tools/todo-store.js";
@@ -339,6 +346,16 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         },
         {
           coordinationScope: COORDINATION_SCOPE,
+          // Title churn fix: once the session file carries a title, mark the
+          // conversation titled so the loop stops spending a model call per
+          // completed turn (the TUI re-reads it each run, so a fresh title
+          // from this run lands before the next one is considered).
+          settings: {
+            ...resolveRuntimeKnobs(loadProjectSettings(opts.workspaceRoot)),
+            ...(readSessionTitle(session.sessionId, session.dir) !== undefined
+              ? { conversationTitled: true }
+              : {}),
+          },
           // One registry for the whole TUI process: subagent handles and the
           // bg-job chip survive follow-up Runs (the io layer listens on it).
           registry: defaultRegistry,

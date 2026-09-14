@@ -93,7 +93,11 @@ export {
   type StdinBufferOptions,
 } from "./stdin-buffer.ts";
 // Terminal interface and implementations
-export { ProcessTerminal, type Terminal } from "./terminal.ts";
+export {
+  KITTY_KEYBOARD_SET_FLAGS,
+  ProcessTerminal,
+  type Terminal,
+} from "./terminal.ts";
 // Terminal colors
 export {
   parseOsc11BackgroundColor,

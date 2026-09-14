@@ -75,6 +75,10 @@ export class VirtualTerminal implements Terminal {
     // lines === 0: no movement
   }
 
+  reassertTerminalState(): void {
+    // Virtual terminal: no host modes to repair.
+  }
+
   hideCursor(): void {
     this.xterm.write("\x1b[?25l");
   }

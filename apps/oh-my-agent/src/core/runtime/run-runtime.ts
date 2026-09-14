@@ -58,6 +58,8 @@ import {
   createStdWebFetchPort,
   createTreeTool,
   createWriteTool,
+  MAX_BASH_TIMEOUT_MS,
+  MAX_EVAL_TIMEOUT_MS,
   type WebFetchPort,
   type WebSearchPort,
 } from "../tools/index.js";
@@ -141,11 +143,33 @@ async function withToolTimeout(
       tool.name,
       timeoutMs,
       signal,
-    );
+    ).catch((err: unknown) => {
+      // The WRAPPER firing means the tool never returned on its own. For a
+      // command waiting on input the model needs the supported path, not a
+      // bare "timed out".
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes("timed out after")) throw err;
+      throw new Error(
+        `${message}. If the command waits for input (password, confirmation), it needs the ` +
+          "interactive pty console: re-run it with pty: true, or use a non-interactive form " +
+          "(e.g. key-based ssh/scp).",
+      );
+    });
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/** Wrapper deadline per tool (exported contract test): tools that enforce
+ *  their OWN per-call deadline (bash/eval, from the model's `timeout` arg)
+ *  must get a backstop ABOVE their ceiling, or the wrapper kills the call
+ *  before the tool's timer can (the "asked for 60000, died at 30000ms"
+ *  regression). Everything else keeps the generic default. */
+export function wrapperBackstopMs(toolName: string): number {
+  if (toolName === "bash") return MAX_BASH_TIMEOUT_MS;
+  if (toolName === "eval") return MAX_EVAL_TIMEOUT_MS;
+  return DEFAULT_NATIVE_TOOL_TIMEOUT_MS;
 }
 
 function wrapNativeTool(
@@ -411,13 +435,16 @@ async function buildNativeToolStage(
     );
   }
 
-  const bashDefault = knobs.bashTimeoutMs ?? DEFAULT_NATIVE_TOOL_TIMEOUT_MS;
+  // Per-call timeout ownership: bash/eval enforce their OWN deadline (from
+  // the model's per-call `timeout` arg) and only need a wrapper backstop
+  // ABOVE their ceilings — the default 30s wrapper used to kill a 60s bash
+  // before the tool's own timer could fire ("bash timed out after 30000ms"
+  // for a call that asked for 60000). Set the wrapper default to each tool's
+  // own ceiling so the tool always owns the deadline; the wrapper still
+  // catches a wedged tool (passthrough hang) and still applies
+  // knobs.maxToolTimeoutMs as an explicit operator cap.
   const nativeTools = agentTools.map((t) =>
-    wrapNativeTool(
-      t,
-      t.name === "bash" ? bashDefault : DEFAULT_NATIVE_TOOL_TIMEOUT_MS,
-      knobs.maxToolTimeoutMs,
-    ),
+    wrapNativeTool(t, wrapperBackstopMs(t.name), knobs.maxToolTimeoutMs),
   );
   const nativeToolsPlugin: Plugin = {
     name: "native-tools",

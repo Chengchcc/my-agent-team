@@ -15,7 +15,10 @@ const descriptionParam = {
 };
 
 const DEFAULT_BASH_TIMEOUT_MS = 30_000;
-const MAX_BASH_TIMEOUT_MS = 600_000;
+/** Per-call ceiling for the model's `timeout` arg (also the runtime's
+ *  wrapper backstop — the tool owns the deadline, the wrapper just catches a
+ *  wedged process). */
+export const MAX_BASH_TIMEOUT_MS = 600_000;
 
 /** M10: cap captured output — a runaway `yes` must OOM neither the child
  *  nor this process. Streams to onOutput keep flowing; accumulation stops. */

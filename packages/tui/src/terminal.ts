@@ -13,6 +13,10 @@ const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = "\x1b]9;4;3\x07";
 const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
 const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
+/** Re-assert form of the Kitty keyboard flags: CSI = flags u SETS them.
+ *  (The startup query uses the PUSH form `CSI > flags u`; repeating a push
+ *  on every re-assert would grow the terminal's flag stack.) */
+export const KITTY_KEYBOARD_SET_FLAGS = `\x1b[=${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u`;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c`;
 
@@ -85,6 +89,16 @@ export interface Terminal {
   // Cursor visibility
   hideCursor(): void; // Hide the cursor
   showCursor(): void; // Show the cursor
+
+  /**
+   * Re-assert the terminal modes this app owns: raw mode, the Kitty
+   * keyboard-protocol flags, and the hidden cursor. A child process (pty
+   * console, shell escape, an interactive command that grabbed /dev/tty)
+   * may leave any of them modified; callers re-assert after such a child
+   * exits so the user's next keystroke decodes normally instead of leaking
+   * raw escape bytes into the editor.
+   */
+  reassertTerminalState(): void;
 
   // Clear operations
   clearLine(): void; // Clear current line
@@ -492,6 +506,21 @@ export class ProcessTerminal implements Terminal {
       process.stdout.write(`\x1b[${-lines}A`);
     }
     // lines === 0: no movement
+  }
+
+  reassertTerminalState(): void {
+    // Raw mode: children routinely flip it back to cooked (echo on).
+    if (process.stdin.setRawMode) {
+      process.stdin.setRawMode(true);
+    }
+    // Kitty keyboard flags: re-SET (CSI = flags u) rather than push, so
+    // repeated re-asserts cannot grow the terminal's flag stack. A child
+    // that cleared them would otherwise leave every keystroke as a legacy
+    // byte while the app keeps parsing CSI-u.
+    if (this._kittyProtocolActive) {
+      process.stdout.write(KITTY_KEYBOARD_SET_FLAGS);
+    }
+    this.hideCursor();
   }
 
   hideCursor(): void {

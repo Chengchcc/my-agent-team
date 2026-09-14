@@ -480,7 +480,12 @@ export class TuiRenderShell {
         ]
       }…`;
     const queued = this.queuedCount > 0 ? ` · ${this.queuedCount} queued — enter sends now` : "";
-    this.loader.setMessage(`${label}${seconds}${queued} (esc to abort)`);
+    // Long-running tool: tell the user what is going on and where the
+    // interactive path lives — a command waiting on a password otherwise
+    // looks like a freeze (and the wrong answer is trying to type at it).
+    const long =
+      this.busySeconds >= 30 ? " · long-running — esc aborts; prompts need pty:true" : "";
+    this.loader.setMessage(`${label}${seconds}${queued}${long} (esc to abort)`);
   }
 
   addStatusBar(): void {

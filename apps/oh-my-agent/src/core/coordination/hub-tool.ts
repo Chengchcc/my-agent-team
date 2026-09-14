@@ -28,10 +28,24 @@ function formatJobRowsMarkdown(rows: readonly EntryRow[]): string {
   const running = rows.filter((r) => r.status === "running");
   if (completed.length > 0) {
     lines.push(`## Completed (${completed.length})`, "");
+    // Snapshot budget: a 6-agent fan-out used to put ~25k chars of fenced
+    // output into one tool result. Past the budget the body is elided and
+    // the model is pointed at the per-job fetch instead.
+    let budget = HUB_SNAPSHOT_MAX_CHARS;
     for (const j of completed) {
       lines.push(`### ${j.id} [${j.kind}] — ${j.status}`);
       lines.push(`Label: ${j.label}`);
-      if (j.partialText.trim()) lines.push("```", j.partialText.trim(), "```");
+      const body = j.partialText.trim();
+      if (body) {
+        if (body.length <= budget) {
+          lines.push("```", body, "```");
+          budget -= body.length;
+        } else {
+          lines.push(
+            `(output elided — ${body.length} chars; fetch with hub { "op": "output", "id": "${j.id}" })`,
+          );
+        }
+      }
       lines.push("");
     }
   }
@@ -45,6 +59,11 @@ function formatJobRowsMarkdown(rows: readonly EntryRow[]): string {
 /** Model-facing cap on one hub output fetch: settled registry output is
  * uncapped truth, so the tool result carries only the tail. */
 const HUB_OUTPUT_MAX_CHARS = 10_000;
+
+/** Total fenced-output budget for one hub jobs/wait snapshot (see
+ *  formatJobRowsMarkdown): keeps a many-agent fan-out from flooding the
+ *  context with output the model can fetch per-id on demand. */
+const HUB_SNAPSHOT_MAX_CHARS = 8_000;
 
 /** A `wait` that streams live "still waiting on N" snapshots through
  * onOutput every SNAPSHOT_MS until the underlying wait resolves. The

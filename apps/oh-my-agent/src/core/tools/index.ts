@@ -1,7 +1,7 @@
 // standalone tools
-export { createBashTool } from "./bash.js";
+export { createBashTool, MAX_BASH_TIMEOUT_MS } from "./bash.js";
 export { createBrowserTool, resolveChromeExecutable } from "./browser.js";
-export { createEvalTool } from "./eval.js";
+export { createEvalTool, MAX_EVAL_TIMEOUT_MS } from "./eval.js";
 export { createEditTool, createReadTool, createWriteTool } from "./file-tools.js";
 export { createGlobTool } from "./glob.js";
 export { createGrepTool } from "./grep.js";

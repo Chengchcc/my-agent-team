@@ -15,6 +15,11 @@ let nextJobSeq = 1;
  *  where ctx is the JSON `input` object. Output is the returned value; stdout
  *  and stderr are reported alongside. Files written next to the script live
  *  only for the run unless keepWorkspace is set (cwd = workspace eval dir). */
+/** Per-call ceiling for eval cells: `timeout: 0` (no deadline) still needs a
+ *  wrapper backstop, so the runtime wraps eval at this value instead of the
+ *  generic 30s. */
+export const MAX_EVAL_TIMEOUT_MS = 600_000;
+
 export function createEvalTool(opts: {
   workspaceRoot: string;
   scope: string;
