@@ -158,12 +158,23 @@ describe("view-state folding", () => {
       label: "packages-analysis",
       ok: true,
     });
+    // Settled agents stay in the CHROME panel (verdict beside peers) until
+    // the batch lands its markers in the transcript — a lone ✗ mid-flight
+    // would sit in the transcript while its siblings were still live.
+    const live = state.liveAgents.get("a1");
+    expect(live?.outcome?.ok).toBe(true);
+    expect(state.runs[0]!.items.map((i) => i.text)).toEqual(["delegating: task (1 agents)"]);
+    // Batch completion: markers land as one block, panel unmounts.
+    applyEvent(state, {
+      type: "delegation_batch_completed",
+      batchId: "b",
+      ok: true,
+      agentCount: 1,
+      totalTokens: 42,
+    });
     const statuses = state.runs[0]!.items.map((i) => i.text);
-    // batch header + exactly ONE agent line (settled marker), no ⚙ leftovers.
-    expect(statuses).toHaveLength(2);
-    expect(statuses[1]).toBe("  \u2714 packages-analysis");
+    expect(statuses).toContain("  \u2714 packages-analysis");
     expect(statuses.join("\n")).not.toContain("\u2699");
-    // The chrome panel drained: live lines are gone once the agent settles.
     expect(state.liveAgents.size).toBe(0);
   });
 

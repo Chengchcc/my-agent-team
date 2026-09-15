@@ -71,23 +71,45 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
  * like todo). One shimmering line per running agent, updated in place by
  * view-state; the block disappears entirely when no agent is live. */
 export function renderLiveAgentsChrome(
-  agents: readonly { text: string }[],
+  agents: readonly {
+    label: string;
+    text: string;
+    outcome?: { ok: boolean; error?: string };
+  }[],
   width: number,
 ): string[] {
   if (agents.length === 0) return [];
+  const settled = agents.filter((a) => a.outcome).length;
+  const running = agents.length - settled;
   const header = renderToolHeader({
-    icon: "▶",
+    icon: "\u25b6",
     title: "agents",
-    meta: [`${agents.length} live`],
+    meta: [
+      running > 0 ? `${running} running` : `${settled} settled`,
+      ...(running > 0 && settled > 0 ? [`${settled} done`] : []),
+    ],
     titleColor: "\u001b[36m",
   });
   const max = 6;
   const shown = agents.slice(0, max);
-  const body = shown.map((a) => `  ${shimmerText(a.text)}`);
+  const body = shown.map((a) => {
+    // Settled rows state their verdict (a failure keeps its error text
+    // visible beside its still-running peers); running rows sweep.
+    if (a.outcome) {
+      const mark = a.outcome.ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
+      const detail = a.outcome.ok ? "" : `: ${a.outcome.error ?? "failed"}`;
+      return `  ${mark} ${a.label}${detail}`;
+    }
+    return `  ${shimmerText(a.text)}`;
+  });
   if (agents.length > shown.length) {
     body.push(`\u001b[2m  … ${agents.length - shown.length} more\u001b[0m`);
   }
-  return renderOutputBlock({ header, state: "running", sections: [{ lines: body }], width });
+  // The panel is "running" while any agent is still live, "error" once a
+  // settled failure is the most informative state, success when all passed.
+  const failed = agents.some((a) => a.outcome && !a.outcome.ok);
+  const state: OutputBlockState = running > 0 ? "running" : failed ? "error" : "success";
+  return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
 }
 
 /** Live chrome (pinned above the editor): the single todo surface. Framed
@@ -113,10 +135,18 @@ export function renderTodoChrome(items: readonly TodoItem[], width: number): str
   });
   const MAX_ROWS = 6;
   const body: string[] = [];
+  // Only the FIRST open row sweeps ("what am I doing now"); further
+  // in_progress rows stay static so the chrome does not turn into a
+  // fairground when a list is overly eager with its statuses.
+  const sweepingId = items.find((t) => t.status === "in_progress")?.id;
   for (const t of items.slice(0, MAX_ROWS)) {
     const mark = marks[t.status] ?? marks.pending;
-    const text = t.status === "done" ? `\u001b[2m${t.text}\u001b[0m` : t.text;
-    body.push(`${mark} ${text}`);
+    if (t.status === "in_progress" && t.id === sweepingId)
+      body.push(`${mark} ${shimmerText(t.text)}`);
+    // Finished rows go dim + struck through: a closed item reads as crossed
+    // out, not as another line of work.
+    else if (t.status === "done") body.push(`${mark} \u001b[2m\u001b[9m${t.text}\u001b[0m`);
+    else body.push(`${mark} ${t.text}`);
   }
   if (items.length > MAX_ROWS) {
     body.push(`\u001b[2m… ${items.length - MAX_ROWS} more\u001b[0m`);

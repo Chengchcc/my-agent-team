@@ -67,19 +67,31 @@ describe("renderTaskTool", () => {
     expect(lines).toEqual([]);
   });
 
-  test("live agent chrome block: framed, shimmered lines, empty when idle", () => {
+  test("live agent chrome: running rows sweep, settled rows state their verdict", () => {
     // Idle: nothing rendered (the panel unmounts).
     expect(renderLiveAgentsChrome([], 60)).toEqual([]);
     const lines = renderLiveAgentsChrome(
-      [{ text: "⚙ packages-protocols · read" }, { text: "▶ backend" }],
-      70,
+      [
+        { label: "packages-protocols", text: "⚙ packages-protocols · read" },
+        {
+          label: "backend",
+          text: "▶ backend",
+          outcome: { ok: false, error: "max steps exceeded" },
+        },
+        { label: "web", text: "▶ web", outcome: { ok: true } },
+      ],
+      90,
     );
     const plain = lines.map((l) => l.replace(ANSI, ""));
     const joined = plain.join("\n");
     expect(joined).toContain("agents");
-    expect(joined).toContain("2 live");
+    // Counts split running vs settled once a batch starts finishing.
+    expect(joined).toContain("1 running");
+    expect(joined).toContain("2 done");
     expect(joined).toContain("⚙ packages-protocols · read");
-    expect(joined).toContain("▶ backend");
+    // A failure keeps its error visible beside its live peers.
+    expect(joined).toContain("✘ backend: max steps exceeded");
+    expect(joined).toContain("✔ web");
   });
 
   test("batch results render as a framed box, one row per agent", () => {
@@ -340,6 +352,42 @@ describe("hub/task loader summaries", () => {
     expect(summarizeToolArgs("retain", { content: "CI runs drizzle gen first" })).toBe(
       "CI runs drizzle gen first",
     );
+  });
+});
+
+describe("renderTodoChrome (sweep + strikethrough)", () => {
+  const COLLAPSED = false;
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+  const item = (id: string, text: string, status: string) =>
+    ({ id, text, status }) as unknown as Parameters<typeof renderTodoChrome>[0][number];
+
+  test("only the first in-progress row sweeps; done rows are struck through", () => {
+    const lines = renderTodoChrome(
+      [
+        item("1", "finished step", "done"),
+        item("2", "current step", "in_progress"),
+        item("3", "another live step", "in_progress"),
+        item("4", "todo step", "pending"),
+      ],
+      70,
+    );
+    const raw = lines.join("\n");
+    // The open row carries SGR runs that plain text would not (sweep bands).
+    const swept = lines.filter((l) => l.includes("current step"));
+    expect(swept[0]?.includes("\u001b[")).toBe(true);
+    // The second in-progress row renders plain (no sweep) — only the first
+    // open item is "what am I doing now".
+    const second = lines.find((l) => l.includes("another live step")) ?? "";
+    expect(second.includes("\u001b[1m\u001b[97m")).toBe(false);
+    // Done: dim + strikethrough (SGR 9), not a plain dim line.
+    expect(raw).toContain("\u001b[9m");
+    expect(raw).toContain("finished step");
+  });
+
+  test("an empty or fully closed list renders nothing (panel unmounts)", () => {
+    expect(renderTodoChrome([], 70)).toEqual([]);
+    expect(renderTodoChrome([item("1", "done thing", "done")], 70)).toEqual([]);
+    expect(renderTodoChrome([item("1", "dropped", "cancelled")], 70)).toEqual([]);
   });
 });
 

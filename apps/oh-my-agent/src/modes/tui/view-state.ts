@@ -44,6 +44,10 @@ export interface LiveAgentLine {
   label: string;
   /** Latest activity: "▶ started" / "⚙ label · tool" / answer tail. */
   text: string;
+  /** Set when this agent settled. The line STAYS in the panel (a failed
+   *  sibling belongs beside its live peers, not alone in the transcript)
+   *  until delegation_batch_completed lands the batch's terminal markers. */
+  outcome?: { ok: boolean; error?: string };
 }
 
 export interface TuiViewState {
@@ -244,18 +248,33 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       break;
     }
     case "delegation_agent_completed": {
-      // The terminal marker stays in the transcript (durable record); the
-      // live chrome line drops out of the pinned panel.
-      state.liveAgents.delete(event.agentId);
-      const text = event.ok
-        ? `  \u2714 ${event.label}`
-        : `  \u2718 ${event.label}: ${event.error ?? "failed"}`;
-      const run = ensureRunningRun(state);
-      run.items.push({ kind: "status", text, streaming: false });
+      // Settle the chrome line IN PLACE (✓/✗ + error stays visible beside its
+      // still-running peers). The transcript gets the markers as one block
+      // when the batch completes — a lone ✗ landing mid-flight while its
+      // siblings are still in the pinned panel reads as a split brain.
+      let line = state.liveAgents.get(event.agentId);
+      if (!line) {
+        line = { agentId: event.agentId, label: event.label, text: `\u25b6 ${event.label}` };
+        state.liveAgents.set(event.agentId, line);
+      }
+      line.outcome = { ok: event.ok, ...(event.error ? { error: event.error } : {}) };
       break;
     }
     case "delegation_batch_completed": {
       const run = ensureRunningRun(state);
+      // The batch is done: land every agent's terminal marker as the durable
+      // record, then let the panel unmount.
+      for (const line of state.liveAgents.values()) {
+        if (!line.outcome) continue;
+        run.items.push({
+          kind: "status",
+          text: line.outcome.ok
+            ? `  \u2714 ${line.label}`
+            : `  \u2718 ${line.label}: ${line.outcome.error ?? "failed"}`,
+          streaming: false,
+        });
+      }
+      state.liveAgents.clear();
       run.items.push({
         kind: "status",
         text: `delegation done \u00b7 ${event.totalTokens} tokens`,
@@ -272,6 +291,19 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
     }
     case "delegation_batch_failed": {
       const run = ensureRunningRun(state);
+      // Same rule as the success path: terminal markers first, then the
+      // batch-level error, then unmount the panel.
+      for (const line of state.liveAgents.values()) {
+        if (!line.outcome) continue;
+        run.items.push({
+          kind: "status",
+          text: line.outcome.ok
+            ? `  \u2714 ${line.label}`
+            : `  \u2718 ${line.label}: ${line.outcome.error ?? "failed"}`,
+          streaming: false,
+        });
+      }
+      state.liveAgents.clear();
       run.items.push({ kind: "error", text: `delegation: ${event.error}`, streaming: false });
       break;
     }
