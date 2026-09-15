@@ -30,10 +30,10 @@ import {
   EDITOR_THEME,
   formatSettlementText,
   type JobSettlement,
-  relativeTime,
   renderSettlementRows,
   SETTLEMENT_INLINE_MAX,
   SETTLEMENT_PREVIEW_MAX,
+  sessionStamp,
   WELCOME_TIPS,
 } from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
@@ -506,7 +506,9 @@ export function createTerminalIo(
         const workspace = s.workspace ? ` [${s.workspace}]` : "";
         return {
           value: s.id,
-          label: relativeTime(s.modifiedAt),
+          // Newest-first list with an absolute stamp: equal-looking
+          // relative labels ("now", "1m") made the order unreadable.
+          label: sessionStamp(s.modifiedAt),
           description: `${base}${fork}${workspace}`,
         };
       });

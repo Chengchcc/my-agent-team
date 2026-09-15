@@ -239,15 +239,17 @@ export function styleBashLine(line: string): string {
 }
 
 /** Compact relative age for the session picker's label column. */
-export function relativeTime(modifiedAt: number): string {
-  const minutes = Math.floor((Date.now() - modifiedAt) / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d`;
-  return `${Math.floor(days / 30)}mo`;
+/** Sortable local timestamp for the session picker: MM-DD HH:MM. The
+ *  picker lists newest-first, and a coarse "2m"/"now" label made distinct
+ *  sessions look identical (and ordered arbitrarily) whenever they were
+ *  touched in the same minute. */
+export function sessionStamp(modifiedAt: number, now: number = Date.now()): string {
+  const d = new Date(modifiedAt);
+  const p = (n: number): string => String(n).padStart(2, "0");
+  const stamp = `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  // Past years keep the year prefix so the rendered column is monotonic:
+  // MM-DD alone sorts 12-31 above 01-01 of the NEXT year.
+  return d.getFullYear() === new Date(now).getFullYear() ? stamp : `${d.getFullYear()}-${stamp}`;
 }
 
 /** Markdown theme for assistant output: plain readable text with ANSI

@@ -5,6 +5,7 @@ import {
   type JobSettlement,
   renderSettlementRows,
   SETTLEMENT_SENTINEL,
+  sessionStamp,
   shimmerText,
   summarizeToolArgs,
 } from "./tui-format.js";
@@ -339,6 +340,24 @@ describe("hub/task loader summaries", () => {
     expect(summarizeToolArgs("retain", { content: "CI runs drizzle gen first" })).toBe(
       "CI runs drizzle gen first",
     );
+  });
+});
+
+describe("sessionStamp (resume picker order)", () => {
+  test("renders a sortable MM-DD HH:MM stamp, distinct within a minute", () => {
+    const a = sessionStamp(new Date(2026, 8, 15, 9, 5).getTime());
+    const b = sessionStamp(new Date(2026, 8, 15, 9, 6).getTime());
+    expect(a).toBe("09-15 09:05");
+    expect(b).toBe("09-15 09:06");
+    // Same-minute sessions stay distinguishable (the relative label made them
+    // all read "now"/"1m" and the newest-first order unreadable).
+    expect(a).not.toBe(b);
+    // Lexicographic order matches chronological order for the stamp form.
+    expect(a < b).toBe(true);
+    expect(
+      sessionStamp(new Date(2026, 11, 31, 23, 59).getTime()) <
+        sessionStamp(new Date(2027, 0, 1, 0, 0).getTime()),
+    ).toBe(true);
   });
 });
 

@@ -61,6 +61,12 @@ export interface CreateOmaRuntimeOptions {
    *  and manage_skill. The product RPC path leaves this unset: its memory
    *  semantics are the backend's, and the surface stays frozen. */
   localMemory?: boolean;
+  /** Nesting depth of this Run inside a delegation tree. Subagents are built
+   *  with createOmaSession directly today (no memory pass), but if one ever
+   *  routes through createOmaRuntime the pass must stay with the owner:
+   *  depth > 0 skips the autonomous memory pass (omp gates its AutoLearn
+   *  controller on taskDepth === 0 the same way). */
+  agentDepth?: number;
   /** Session scope for the native todo store (`.oma/todo/<scope>.json`):
    *  standalone modes pass the durable session id so a session never
    *  inherits another session's list. Absent = the legacy workspace-global
@@ -332,7 +338,9 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
               0,
             );
             const minToolCalls = rt.knobs.memoryMinToolCalls ?? DEFAULT_MEMORY_MIN_TOOL_CALLS;
-            if (toolCalls >= minToolCalls) {
+            // Memory belongs to the owner Run: a nested (delegated) Run never
+            // writes the workspace's long-term memory, however substantive.
+            if ((options.agentDepth ?? 0) === 0 && toolCalls >= minToolCalls) {
               const branch = await rt.store.readBranch(options.runId);
               const compactions: string[] = [];
               for (const entry of branch) {

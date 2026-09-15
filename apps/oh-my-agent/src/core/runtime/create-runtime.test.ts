@@ -595,7 +595,7 @@ describe("createOmaRuntime", () => {
     //
     // The contract signal is `memoryLearning()` itself: it is created only when
     // the gate passes (undefined == this run never started a pass).
-    const run = async (runId: string, toolScript: string) => {
+    const run = async (runId: string, toolScript: string, agentDepth?: number) => {
       const saved = process.env.OMA_FAKE_PROVIDER;
       const savedTool = process.env.OMA_FAKE_TOOL;
       process.env.OMA_FAKE_PROVIDER = "1";
@@ -610,6 +610,7 @@ describe("createOmaRuntime", () => {
         modelRuntime,
         skillRoots: [],
         settings: { titleEnabled: false, memoryExtract: true },
+        ...(agentDepth !== undefined ? { agentDepth } : {}),
       });
       try {
         const segment = await rt.run(runInput(runId));
@@ -640,6 +641,14 @@ describe("createOmaRuntime", () => {
       JSON.stringify(Array.from({ length: 5 }, () => ({ name: "glob", input: { pattern: "*" } }))),
     );
     expect(high).toBe(true);
+    // A nested (delegated) Run never writes the owner's long-term memory, no
+    // matter how substantive — depth gates it, not tool count (omp parity).
+    const nested = await run(
+      "r-gate-nested",
+      JSON.stringify(Array.from({ length: 6 }, () => ({ name: "glob", input: { pattern: "*" } }))),
+      1,
+    );
+    expect(nested).toBe(false);
   }, 30_000);
 
   test("native todo installs when no MCP todo_write is injected (standalone)", async () => {
