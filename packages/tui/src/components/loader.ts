@@ -18,6 +18,10 @@ export class Loader extends Text {
   private frames = [...DEFAULT_FRAMES];
   private intervalMs = DEFAULT_INTERVAL_MS;
   private currentFrame = 0;
+  /** Sweep position, INDEPENDENT of currentFrame: the spinner index wraps at
+   *  frames.length (10), so reusing it capped the light band to the first ~10
+   *  cells of the message instead of sweeping the whole line. */
+  private sweepStep = 0;
   private intervalId: NodeJS.Timeout | null = null;
   private ui: TUI | null = null;
   private renderIndicatorVerbatim = false;
@@ -73,6 +77,7 @@ export class Loader extends Text {
         ? indicator.intervalMs
         : DEFAULT_INTERVAL_MS;
     this.currentFrame = 0;
+    this.sweepStep = 0;
     this.start();
   }
 
@@ -83,28 +88,34 @@ export class Loader extends Text {
     }
     this.intervalId = setInterval(() => {
       this.currentFrame = (this.currentFrame + 1) % this.frames.length;
+      this.sweepStep += 1;
       this.updateDisplay();
     }, this.intervalMs);
   }
 
-  /** Moving light sweep across the message (omp shimmer-lite). */
+  /** Moving light sweep across the message (omp classic-shimmer shape: a
+   *  cosine band ~2x BAND_HALF cells wide, three tiers, entering and leaving
+   *  from outside the text). The rest stays in the base message color so the
+   *  line stays legible while the band travels. */
   private animateMessage(message: string): string {
     if (!message) return "";
-    // Sweep a short accent band across the text; the rest stays in the
-    // base message color so the line stays legible while it moves.
+    const chars = Array.from(message);
+    const BAND_HALF = 6;
+    const period = chars.length + BAND_HALF * 2;
+    const pos = this.sweepStep % period;
     const base = this.messageColorFn;
-    const period = message.length + 4;
-    const start = this.currentFrame % period;
     let out = "";
-    for (let i = 0; i < message.length; i++) {
-      const dist = Math.abs(i - start);
-      if (dist < 1) {
-        out += `\u001b[1m\u001b[36m${message[i]}\u001b[0m`;
-      } else if (dist < 2) {
-        out += `\u001b[36m${message[i]}\u001b[0m`;
-      } else {
-        out += base(message[i]);
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]!;
+      const dist = Math.abs(i + BAND_HALF - pos);
+      if (dist >= BAND_HALF) {
+        out += base(ch);
+        continue;
       }
+      const intensity = 0.5 * (1 + Math.cos((Math.PI * dist) / BAND_HALF));
+      if (intensity >= 0.65) out += `\u001b[1m\u001b[36m${ch}\u001b[0m`;
+      else if (intensity >= 0.22) out += `\u001b[36m${ch}\u001b[0m`;
+      else out += base(ch);
     }
     return out;
   }
