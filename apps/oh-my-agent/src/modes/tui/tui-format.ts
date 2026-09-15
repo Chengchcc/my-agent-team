@@ -252,21 +252,36 @@ export function sessionStamp(modifiedAt: number, now: number = Date.now()): stri
   return d.getFullYear() === new Date(now).getFullYear() ? stamp : `${d.getFullYear()}-${stamp}`;
 }
 
-/** Markdown theme for assistant output: plain readable text with ANSI
- *  emphasis — bold/italic/links/code styled, headings bold, no colors
- *  beyond dim (pi renders through its theme; oma keeps it monochrome+dim
- *  so the cyan user bubble stays the only saturated element). */
+/** Markdown theme for assistant output, aligned to omp's `md*` palette
+ *  (modes/theme/dark.json): amber headings, purple inline code, blue code
+ *  blocks, accent bullets. The old theme was "bold, no colors", which left a
+ *  long report reading as one undifferentiated slab — headings had no visual
+ *  weight beyond bold, and dim bullets vanished into the background.
+ *  256-color forms of omp's truecolor values (pip's 16-color terminals). */
+/** omp's `heading` is a COLOR-only function (#febc38): the renderer adds
+ *  bold (h2) and bold+underline (h1) per level, so bolding here would double
+ *  the escape and flatten the level difference. */
+const MD_HEADING = (s: string): string => `\u001b[38;5;214m${s}\u001b[0m`;
+const MD_MARKER = (s: string): string => `\u001b[38;5;240m${s}\u001b[0m`; // dim: level info, quiet
+const MD_CODE = (s: string): string => `\u001b[38;5;183m${s}\u001b[0m`; // #e5c1ff
+const MD_CODE_BLOCK = (s: string): string => `\u001b[38;5;117m${s}\u001b[0m`; // #9CDCFE
+
 export const MARKDOWN_THEME: MarkdownTheme = {
-  heading: (s) => `\u001b[1m${s}\u001b[0m`,
-  link: (s) => `\u001b[4m${s}\u001b[0m`,
+  heading: MD_HEADING,
+  // The level-3+ `###` run stays readable as a level marker without shouting:
+  // omp paints it in the heading color, we dim it (same information, less ink).
+  headingMarker: MD_MARKER,
+  link: (s) => `\u001b[38;5;33m${s}\u001b[0m`, // #0088fa
   linkUrl: (s) => `\u001b[2m${s}\u001b[0m`,
-  code: (s) => `\u001b[36m${s}\u001b[0m`,
-  codeBlock: (s) => `\u001b[36m${s}\u001b[0m`,
-  codeBlockBorder: (s) => `\u001b[2m${s}\u001b[0m`,
-  quote: (s) => `\u001b[2m${s}\u001b[0m`,
-  quoteBorder: (s) => `\u001b[2m${s}\u001b[0m`,
-  hr: (s) => `\u001b[2m${s}\u001b[0m`,
-  listBullet: (s) => `\u001b[2m${s}\u001b[0m`,
+  code: MD_CODE,
+  codeBlock: MD_CODE_BLOCK,
+  codeBlockBorder: (s) => `\u001b[38;5;245m${s}\u001b[0m`,
+  quote: (s) => `\u001b[38;5;245m${s}\u001b[0m`,
+  quoteBorder: (s) => `\u001b[38;5;240m${s}\u001b[0m`,
+  hr: (s) => `\u001b[38;5;240m${s}\u001b[0m`,
+  // omp: mdListBullet = accent. oma's accent is the loader cyan — a dim bullet
+  // was invisible against a translucent background.
+  listBullet: (s) => `\u001b[36m${s}\u001b[0m`,
   bold: (s) => `\u001b[1m${s}\u001b[0m`,
   italic: (s) => `\u001b[3m${s}\u001b[0m`,
   strikethrough: (s) => `\u001b[9m${s}\u001b[0m`,

@@ -217,6 +217,33 @@ function graphemeWidth(segment: string): number {
 /**
  * Calculate the visible width of a string in terminal columns.
  */
+/** OSC 66 text-sizing spans: `\x1b]66;<meta>;<payload>` (BEL or ST). The
+ *  payload is visible and scales by its `s=` factor, but the escape stripper
+ *  drops the whole span — so the width is added back at scale, or the frame's
+ *  padding math would treat a sized heading as a zero-width line. */
+const OSC66_SPAN = /\x1b\]66;([^;]*);([\s\S]*?)(?:\x07|\x1b\\)/g;
+/** Sequencing/control bytes are illegal inside an OSC 66 payload. */
+const OSC66_UNSAFE = /[\x00-\x1f\x7f]/g;
+
+export function encodeTextSized(text: string, scale: number): string {
+  if (scale <= 1) return text;
+  return `\x1b]66;s=${scale};${text.replace(OSC66_UNSAFE, " ")}\x1b\\`;
+}
+
+function textSizingSpansWidth(text: string): number {
+  let total = 0;
+  for (const match of text.matchAll(OSC66_SPAN)) {
+    const scale = Number(/s=(\d+)/.exec(match[1] ?? "")?.[1] ?? "1");
+    if (!Number.isFinite(scale) || scale <= 1) continue;
+    let payloadWidth = 0;
+    for (const { segment } of graphemeSegmenter.segment(match[2] ?? "")) {
+      payloadWidth += graphemeWidth(segment);
+    }
+    total += scale * payloadWidth;
+  }
+  return total;
+}
+
 export function visibleWidth(str: string): number {
   if (str.length === 0) {
     return 0;
@@ -261,6 +288,8 @@ export function visibleWidth(str: string): number {
   for (const { segment } of graphemeSegmenter.segment(clean)) {
     width += graphemeWidth(segment);
   }
+  // A sized span survives the strip as nothing; add it back at its scale.
+  width += textSizingSpansWidth(str);
 
   // Cache result
   if (widthCache.size >= WIDTH_CACHE_SIZE) {

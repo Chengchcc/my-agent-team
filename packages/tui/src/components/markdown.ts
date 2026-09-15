@@ -1,9 +1,11 @@
 import { Marked, type Token, Tokenizer, type Tokens } from "marked";
 import { resolveMermaidAscii } from "../mermaid.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
+import { textSizingEnabled } from "../text-sizing.ts";
 import type { Component } from "../tui.ts";
 import {
   applyBackgroundToLine,
+  encodeTextSized,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
@@ -159,6 +161,11 @@ export interface DefaultTextStyle {
  */
 export interface MarkdownTheme {
   heading: (text: string) => string;
+  /** Style for the `###`-run that marks a level-3+ heading. Optional: absent
+   *  means the marker rides the heading style (omp's behaviour). A theme can
+   *  dim it instead, so the level stays readable without shouting over the
+   *  heading text. */
+  headingMarker?: (text: string) => string;
   link: (text: string) => string;
   linkUrl: (text: string) => string;
   code: (text: string) => string;
@@ -503,8 +510,28 @@ export class Markdown implements Component {
         };
 
         const headingText = this.renderInlineTokens(token.tokens || [], headingStyleContext);
+        // h1 at double size (omp parity, OSC 66): the terminal draws the glyph
+        // twice as large over two rows, so the line is emitted only when the
+        // doubled width still fits and the second row is reserved as a blank.
+        // Off by default — see text-sizing.ts for why an unsupported terminal
+        // must never receive the sequence.
+        if (headingLevel === 1 && textSizingEnabled() && !token.tokens?.some(needsSizing)) {
+          const plain = plainInlineText(token.tokens || []);
+          const plainWidth = visibleWidth(plain);
+          if (plainWidth > 0 && 2 * plainWidth <= width) {
+            lines.push(headingStyleFn(encodeTextSized(plain, 2)));
+            lines.push("");
+            if (nextTokenType && nextTokenType !== "space") {
+              lines.push("");
+            }
+            break;
+          }
+        }
+        const markerFn = this.theme.headingMarker;
         const styledHeading =
-          headingLevel >= 3 ? headingStyleFn(headingPrefix) + headingText : headingText;
+          headingLevel >= 3
+            ? (markerFn ? markerFn(headingPrefix) : headingStyleFn(headingPrefix)) + headingText
+            : headingText;
         lines.push(styledHeading);
         if (nextTokenType && nextTokenType !== "space") {
           lines.push(""); // Add spacing after headings (unless space token follows)
@@ -1048,4 +1075,29 @@ export class Markdown implements Component {
     }
     return lines;
   }
+}
+
+/** Plain text of an inline token run. An OSC 66 payload must be plain: any
+ *  styling inside it would leak escape bytes into the sized span, so callers
+ *  only size runs where every child is text. */
+function plainInlineText(tokens: readonly Token[]): string {
+  let out = "";
+  for (const token of tokens) {
+    if ("text" in token && typeof token.text === "string") {
+      out += token.text;
+      continue;
+    }
+    if ("tokens" in token && Array.isArray(token.tokens)) {
+      out += plainInlineText(token.tokens as Token[]);
+      continue;
+    }
+    if ("raw" in token && typeof token.raw === "string") out += token.raw;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/** A child that must keep its own styling (code, emphasis, links) — a heading
+ *  containing one stays at normal size. */
+function needsSizing(token: Token): boolean {
+  return token.type !== "text";
 }

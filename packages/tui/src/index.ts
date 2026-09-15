@@ -118,6 +118,11 @@ export {
   setCellDimensions,
 } from "./terminal-image.ts";
 export {
+  setTextSizingEnabled,
+  textSizingEnabled,
+  textSizingSupported,
+} from "./text-sizing.ts";
+export {
   type Component,
   Container,
   CURSOR_MARKER,

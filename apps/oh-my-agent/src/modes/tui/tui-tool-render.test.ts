@@ -4,6 +4,7 @@ import {
   formatDurationMs,
   formatSettlementText,
   type JobSettlement,
+  MARKDOWN_THEME,
   renderSettlementRows,
   SETTLEMENT_SENTINEL,
   sessionStamp,
@@ -131,6 +132,26 @@ describe("renderTaskTool", () => {
     const plain = lines.map((l) => l.replace(ANSI, ""));
     expect(plain[0]).toStartWith("┌───");
     expect(plain.join("\n")).toContain("one agent finished");
+  });
+});
+
+describe("MARKDOWN_THEME (omp palette)", () => {
+  // A long report read as one slab while headings were "bold, no color" and
+  // bullets were dim: omp's md* palette carries the hierarchy instead.
+  test("headings are amber-bold and the level marker is quiet", () => {
+    expect(MARKDOWN_THEME.heading("x")).toContain("\u001b[38;5;214m");
+    // Color only: the renderer adds bold/underline per level (omp parity).
+    expect(MARKDOWN_THEME.heading("x")).not.toContain("\u001b[1m");
+    // The level-3+ `###` run must not compete with the heading text.
+    expect(MARKDOWN_THEME.headingMarker?.("### ")).toContain("\u001b[38;5;240m");
+  });
+
+  test("inline code, code blocks and bullets are distinguishable from body text", () => {
+    expect(MARKDOWN_THEME.code("x")).toContain("\u001b[38;5;183m");
+    expect(MARKDOWN_THEME.codeBlock("x")).toContain("\u001b[38;5;117m");
+    // omp: mdListBullet = accent. A dim bullet disappeared into the
+    // background on a translucent terminal.
+    expect(MARKDOWN_THEME.listBullet("- ")).toContain("\u001b[36m");
   });
 });
 
