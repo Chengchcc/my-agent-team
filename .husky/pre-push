@@ -1,12 +1,58 @@
-# Lint only files changed relative to the push destination. The full turbo
-# lint (15 packages) routinely OOMs on this 3.5GB box under earlyoom.
-BASE=$(git rev-parse --verify --quiet @{push} 2>/dev/null || git rev-parse --verify --quiet origin/master)
-CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.ts' '*.tsx' '*.js' '*.mjs' '*.css' '*.json' ':!bun.lock' 2>/dev/null)
+#!/bin/sh
+# Lint only the files THIS push changes. The pre-push contract hands the refs on
+# stdin (<local ref> <local sha> <remote ref> <remote sha>), which names the
+# pushed range exactly. Recomputing a base locally (@{push}) can be stale, and
+# then the hook lints a whole branch's worth of files instead of this push's
+# handful — minutes of eslint with no output, longer than the connection
+# survives mid-push (observed: `Connection to github.com closed by remote host`
+# right after the hook finished, while the same push with --no-verify landed in
+# 9 seconds; 3 files lint in 20s, 61 files take minutes).
+#
+# Still not the full turbo lint: 15 packages routinely OOMs on this 3.5GB box
+# under earlyoom.
+#
+# POSIX sh only — husky runs this with sh, where a bash array is a syntax error.
+list_changed() {
+  git diff --name-only --diff-filter=ACMR "$1" -- \
+    '*.ts' '*.tsx' '*.js' '*.mjs' '*.css' '*.json' ':!bun.lock' 2>/dev/null
+}
+
+RANGES=""
+if [ ! -t 0 ]; then
+  while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # A deleted ref has nothing to lint.
+    [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+    # A brand-new branch has no remote side: fall back to the upstream tip.
+    if [ -z "$remote_sha" ] || [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+      remote_sha=$(git rev-parse --verify --quiet origin/master 2>/dev/null || true)
+      [ -z "$remote_sha" ] && continue
+    fi
+    RANGES="$RANGES $remote_sha..$local_sha"
+  done
+fi
+
+# Manual run (no hook stdin): fall back to the upstream.
+if [ -z "$RANGES" ]; then
+  BASE=$(git rev-parse --verify --quiet @{push} 2>/dev/null || git rev-parse --verify --quiet origin/master 2>/dev/null || true)
+  if [ -z "$BASE" ]; then
+    echo "pre-push: no base to diff against, skipping"
+    exit 0
+  fi
+  RANGES=" $BASE..HEAD"
+fi
+
+CHANGED=""
+for range in $RANGES; do
+  CHANGED="$CHANGED
+$(list_changed "$range")"
+done
+CHANGED=$(printf '%s\n' "$CHANGED" | sed '/^$/d' | sort -u)
+
 if [ -z "$CHANGED" ]; then
   echo "pre-push: no changed lintable files, skipping"
   exit 0
 fi
-COUNT=$(echo $CHANGED | wc -w)
+COUNT=$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')
 echo "pre-push: biome + eslint on $COUNT changed files"
 bunx biome check $CHANGED || exit 1
 bunx eslint $CHANGED
