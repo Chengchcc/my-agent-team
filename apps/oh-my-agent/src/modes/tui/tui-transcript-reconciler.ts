@@ -22,6 +22,12 @@ export class TuiTranscriptReconciler {
   private lastShowThinking = false;
   private lastShowToolDetail = false;
 
+  /** Re-attach transcript chrome that lives OUTSIDE the reconciled item
+   *  groups (the header card) right after a wipe. It must run inside reset(),
+   *  not after reconcile(): a reset may land after the groups were re-added,
+   *  and a late re-append would put the header below them. */
+  constructor(private readonly onReset?: (transcript: OmaTranscriptContainer) => void) {}
+
   reconcile(
     transcript: OmaTranscriptContainer,
     runs: readonly RunViewState[],
@@ -108,6 +114,7 @@ export class TuiTranscriptReconciler {
     transcript.clear();
     this.orderKeys.length = 0;
     this.groups.clear();
+    this.onReset?.(transcript);
   }
 
   /** Remove a group's children while KEEPING its key (the item still exists;

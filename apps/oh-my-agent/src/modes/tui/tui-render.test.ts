@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Markdown, TUI, VirtualTerminal } from "@chengchenccc/tui";
+import { Container, Markdown, TUI, VirtualTerminal } from "@chengchenccc/tui";
+import { OmaTranscriptContainer } from "./tui-components.js";
 import { MARKDOWN_THEME } from "./tui-format.js";
-import { TuiItemRenderer } from "./tui-render.js";
+import { TuiItemRenderer, TuiRenderShell } from "./tui-render.js";
 import { initialViewState, type TranscriptItem } from "./view-state.js";
 
 const stripAnsi = (s: string): string =>
@@ -52,5 +53,40 @@ describe("TuiItemRenderer settle renders cold", () => {
     expect(renderer.renderItem(item, state)).toEqual(settled);
     // Sanity: the cold render itself is well-formed (bold consumed).
     expect(stripAnsi(settled.join("\n"))).not.toContain("**");
+  });
+});
+
+describe("header survives a transcript reset (the /new case)", () => {
+  const headerRows = (transcript: OmaTranscriptContainer): number =>
+    transcript.children.filter((c) => c.render(100).some((l) => l.includes("workspace:"))).length;
+
+  test("a wiped transcript keeps exactly one header card", () => {
+    const tui = new TUI(new VirtualTerminal(100, 30));
+    const transcript = new OmaTranscriptContainer();
+    const shell = new TuiRenderShell(tui, transcript, new Container(), "/ws", "");
+    const state = initialViewState();
+
+    shell.setHeader("fake/model", "session-one", "First");
+    expect(headerRows(transcript)).toBe(1);
+
+    // /new: a fresh session id plus an emptied item list — the reconcile sees
+    // a shrink, resets the container, and the header card is not a reconciled
+    // group, so nothing would re-add it.
+    shell.setHeader("fake/model", "session-two", "");
+    shell.render(state);
+    expect(headerRows(transcript)).toBe(1);
+
+    // Re-rendering the same state must not stack a second copy.
+    shell.render(state);
+    shell.render(state);
+    expect(headerRows(transcript)).toBe(1);
+  });
+
+  test("a reset before any header was printed stays quiet", () => {
+    const tui = new TUI(new VirtualTerminal(100, 30));
+    const transcript = new OmaTranscriptContainer();
+    const shell = new TuiRenderShell(tui, transcript, new Container(), "/ws", "");
+    shell.render(initialViewState());
+    expect(headerRows(transcript)).toBe(0);
   });
 });

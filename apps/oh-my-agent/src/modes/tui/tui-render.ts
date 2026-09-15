@@ -1,6 +1,7 @@
 import {
   CachedOutputBlock,
   Card,
+  type Component,
   type Container,
   type DefaultTextStyle,
   type Loader,
@@ -325,6 +326,9 @@ export class TuiRenderShell {
   /** Session id the header block was last printed for (cc-style: the
    *  banner scrolls away with the transcript and re-prints per session). */
   private lastPrintedSession: string | null = null;
+  /** The card's own children, so a session change can drop the previous one:
+   *  the header is chrome, and chrome must exist exactly once. */
+  private headerChildren: Component[] = [];
   private welcomeTipShown = false;
 
   constructor(
@@ -335,7 +339,13 @@ export class TuiRenderShell {
     private readonly welcomeTip: string,
   ) {
     this.itemRenderer = new TuiItemRenderer(tui);
-    this.reconciler = new TuiTranscriptReconciler();
+    // A reset clears the whole container, header card included — and the
+    // header is not a reconciled group, so nothing would bring it back. That
+    // is what /new looked like: a wiped transcript with no header, and
+    // lastPrintedSession already advanced so it never re-printed.
+    this.reconciler = new TuiTranscriptReconciler((transcript) => {
+      if (this.lastPrintedSession !== null) this.appendHeaderCard(transcript);
+    });
   }
 
   setBusy(busy: boolean, loader: Loader | null, busySeconds: number): void {
@@ -381,6 +391,15 @@ export class TuiRenderShell {
     if (this.lastPrintedSession !== null && this.headerSession === this.lastPrintedSession) {
       return;
     }
+    this.appendHeaderCard(this.transcript);
+    this.lastPrintedSession = this.headerSession;
+  }
+
+  /** Emit the header card into a transcript, replacing any card already
+   *  there. Split out of renderHeader() so a reconcile reset can re-emit the
+   *  SAME bytes without touching the session-change gate. */
+  private appendHeaderCard(into: OmaTranscriptContainer): void {
+    this.removeHeaderCard(into);
     const banner = [
       "\u001b[36m  ██████╗ ███╗   ███╗ █████╗ \u001b[0m",
       "\u001b[36m ██╔═══██╗████╗ ████║██╔══██╗\u001b[0m",
@@ -420,10 +439,25 @@ export class TuiRenderShell {
         border: { color: (s: string) => `\u001b[2m${s}\u001b[0m` },
       },
     );
+    const fresh: Component[] = [];
     for (const line of headerCard.render(this.tui.terminal.columns)) {
-      this.transcript.addChild(new Text(truncateToWidth(line, this.tui.terminal.columns), 0, 0));
+      const child = new Text(truncateToWidth(line, this.tui.terminal.columns), 0, 0);
+      into.addChild(child);
+      fresh.push(child);
     }
-    this.lastPrintedSession = this.headerSession;
+    this.headerChildren = fresh;
+  }
+
+  /** Drop the previous card. A container wipe has already taken it, and the
+   *  index probe then just finds nothing. */
+  private removeHeaderCard(from: OmaTranscriptContainer): void {
+    const children = this.headerChildren;
+    this.headerChildren = [];
+    const first = children[0];
+    if (!first) return;
+    const start = from.children.indexOf(first);
+    if (start === -1) return;
+    for (let i = 0; i < children.length; i++) from.children.splice(start, 1);
   }
 
   currentActivitySummary(): string | undefined {
