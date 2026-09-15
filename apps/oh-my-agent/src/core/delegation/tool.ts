@@ -46,7 +46,11 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
         context: {
           type: "string",
           description:
-            "BATCH: shared background injected into every spawn's prompt (required with tasks)",
+            "BATCH: shared background injected into every spawn's prompt (required with tasks). " +
+            "Write it as markdown sections — '# Goal' (what the batch accomplishes), " +
+            "'# Constraints' (rules and session decisions), '# Contract' (shared interfaces). " +
+            "This text is what the user's task panel shows while the batch runs, so the " +
+            "sections are read as the batch's brief.",
         },
         tasks: {
           type: "array",

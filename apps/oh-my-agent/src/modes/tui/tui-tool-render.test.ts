@@ -385,9 +385,12 @@ describe("renderFanoutBriefChrome (the batch's Goal/Constraints card)", () => {
   const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
   const strip = (s: string): string => s.replace(ANSI, "");
 
-  test("renders its own framed card with the brief's sections", () => {
+  test("renders its own framed card, headings recognised by the # contract", () => {
+    // The task tool's `context` description mandates `# Goal` / `# Constraints`
+    // / `# Contract`: the card recognises those markers instead of guessing
+    // from capitalization.
     const card = renderFanoutBriefChrome(
-      "Goal\n\nRead-only repo analysis of my-agent-team.\n\nConstraints\n- Use read/glob/grep only.",
+      "# Goal\n\nRead-only repo analysis of my-agent-team.\n\n# Constraints\n- Use read/glob/grep only.",
       100,
     );
     const plain = card.map(strip);
@@ -397,6 +400,14 @@ describe("renderFanoutBriefChrome (the batch's Goal/Constraints card)", () => {
     expect(text).toContain("Goal");
     expect(text).toContain("Read-only repo analysis of my-agent-team.");
     expect(text).toContain("Constraints");
+    // The marker is consumed, not printed; the heading keeps bold weight.
+    expect(text).not.toContain("# Goal");
+    const headingLine = card.find((l) => strip(l).includes("Goal")) ?? "";
+    expect(headingLine).toContain("\u001b[1m");
+    // A capitalized bullet is NOT a heading (it stays dim prose).
+    const bulletLine = card.find((l) => strip(l).includes("Use read/glob")) ?? "";
+    expect(bulletLine).toContain("\u001b[2m");
+    expect(bulletLine).not.toContain("\u001b[1m");
     expect(plain.at(-1)).toStartWith("└──");
   });
 

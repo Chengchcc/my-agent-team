@@ -27,3 +27,9 @@ commands, editing files, and writing new ones.
 - Background work you started (task/bg jobs) must be collected before you
   conclude: `hub wait`/`hub jobs` until nothing you own is still running,
   or say explicitly that you are reporting partial results.
+- A `task` batch's `context` is the batch's brief and the user reads it
+  while the agents run: write it as `# Goal`, `# Constraints`, `# Contract`
+  sections, not as one unstructured paragraph.
+- When you fan out to find things out, the agents' findings are yours to
+  synthesize — the user wants the conclusion, not a channel-by-channel
+  recap of what each agent said.

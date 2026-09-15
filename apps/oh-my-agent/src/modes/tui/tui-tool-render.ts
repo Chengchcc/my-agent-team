@@ -61,11 +61,16 @@ export function renderFanoutBriefChrome(goal: string, width: number, expanded = 
   const body = shown.map((l) => {
     const trimmed = l.trim();
     if (!trimmed) return "";
-    // Section headers ("Goal", "Constraints") keep their weight; prose dims.
-    const isHeader = /^[A-Z][A-Za-z /-]{2,24}$/.test(trimmed);
-    return isHeader
-      ? `  \u001b[1m${trimmed.slice(0, 140)}\u001b[0m`
-      : `  \u001b[2m${trimmed.slice(0, 140)}\u001b[0m`;
+    // Section headers are the CONTRACT (`# Goal` / `# Constraints` /
+    // `# Contract`, see the task tool's `context` description), so they are
+    // recognised by their marker rather than guessed from capitalization.
+    // Bare capitalized lines in a bullet list ("- Use read/glob only") are
+    // NOT headers.
+    const heading = /^#{1,3}\s+/.test(trimmed);
+    const text = heading ? trimmed.replace(/^#{1,3}\s+/, "") : trimmed;
+    return heading
+      ? `  \u001b[1m${text.slice(0, 140)}\u001b[0m`
+      : `  \u001b[2m${text.slice(0, 140)}\u001b[0m`;
   });
   if (lines.length > shown.length) {
     body.push(`\u001b[2m  … ${lines.length - shown.length} more \u27e6ctrl+o\u27e7\u001b[0m`);
