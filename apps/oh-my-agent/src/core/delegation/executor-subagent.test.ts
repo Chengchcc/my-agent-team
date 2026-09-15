@@ -321,6 +321,49 @@ describe("createDelegationExecutor", () => {
     });
   });
 
+  test("a subagent's yielded payload IS the result — no text parsing (omp yield parity)", async () => {
+    // The child's prose is deliberately unparseable: only the tool path can
+    // produce `output`. Regression proof for the fan-out failure where the
+    // child wrote valid JSON inside a markdown fence.
+    let call = 0;
+    const exec = createDelegationExecutor({
+      ...makeDeps(),
+      makeSubagentStream: () =>
+        async function* () {
+          call += 1;
+          if (call > 1) {
+            yield { delta: { type: "text", text: "no further turns" } } as AIMessageChunk;
+            yield { stopReason: "end_turn" } as AIMessageChunk;
+            return;
+          }
+          yield { delta: { type: "text", text: "Let me report. " } } as AIMessageChunk;
+          yield { delta: { type: "tool_use", id: "toolu-y1", name: "yield" } } as AIMessageChunk;
+          yield {
+            delta: {
+              type: "input_json_delta",
+              id: "toolu-y1",
+              partial_json: JSON.stringify({ summary: "yielded payload" }),
+            },
+          } as AIMessageChunk;
+          yield { stopReason: "tool_use" } as AIMessageChunk;
+        },
+    });
+    const result = await exec.runSubagent({
+      batchId: "wf-yield",
+      agentId: "a1",
+      prompt: "go",
+      schema: {
+        type: "object",
+        properties: { summary: { type: "string" } },
+        required: ["summary"],
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toEqual({ summary: "yielded payload" });
+    // The prose never became the result.
+    expect(result.text).not.toContain("yielded payload");
+  });
+
   test("perAgentTimeoutMs stops a subagent that exceeds its deadline", async () => {
     const exec = createDelegationExecutor({
       ...makeDeps(),
