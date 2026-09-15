@@ -355,9 +355,79 @@ describe("hub/task loader summaries", () => {
   });
 });
 
-describe("renderTodoChrome (sweep + strikethrough)", () => {
-  const COLLAPSED = false;
+describe("renderLiveAgentsChrome (goal, telemetry, expand)", () => {
   const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+  const strip = (s: string): string => s.replace(ANSI, "");
+
+  test("shows the batch brief, per-agent telemetry and the expand hint", () => {
+    const agents = [
+      {
+        label: "MapPackages",
+        text: "⚙ MapPackages · grep",
+        toolCalls: 32,
+        requests: 6,
+        tokens: 21_000,
+      },
+      {
+        label: "AnalyzeBackend",
+        text: "⚙ AnalyzeBackend · read",
+        toolCalls: 14,
+        requests: 2,
+        tokens: 4_000,
+      },
+      { label: "AnalyzeWorkflow", text: "▶ AnalyzeWorkflow" },
+      { label: "AnalyzeWeb", text: "▶ AnalyzeWeb" },
+      { label: "AnalyzeRuntime", text: "▶ AnalyzeRuntime" },
+      { label: "AnalyzeDocs", text: "▶ AnalyzeDocs" },
+      { label: "AnalyzeAdapters", text: "▶ AnalyzeAdapters" },
+    ];
+    const collapsed = renderLiveAgentsChrome(
+      agents,
+      100,
+      false,
+      "Read-only repo analysis\nNo edits.",
+    );
+    const text = strip(collapsed.join("\n"));
+    // The shared brief answers "what is this batch doing".
+    expect(text).toContain("Read-only repo analysis");
+    // Telemetry: tool calls, requests, tokens.
+    expect(text).toContain("32 ⚒");
+    expect(text).toContain("6 req");
+    expect(text).toContain("21k tok");
+    // Collapsed caps at 6 with an actionable hint, not a silent drop.
+    expect(text).toContain("… 1 more agent (1 running) ⟦ctrl+o⟧");
+
+    const expanded = strip(
+      renderLiveAgentsChrome(agents, 100, true, "Read-only repo analysis").join("\n"),
+    );
+    expect(expanded).toContain("AnalyzeAdapters");
+    expect(expanded).not.toContain("⟦ctrl+o⟧");
+  });
+
+  test("a settled failure keeps its error visible beside live peers", () => {
+    const text = strip(
+      renderLiveAgentsChrome(
+        [
+          {
+            label: "backend",
+            text: "▶ backend",
+            outcome: { ok: false, error: "max steps exceeded" },
+          },
+          { label: "web", text: "⚙ web · grep" },
+        ],
+        90,
+      ).join("\n"),
+    );
+    expect(text).toContain("✘ backend");
+    expect(text).toContain("max steps exceeded");
+    expect(text).toContain("1 running");
+  });
+});
+
+describe("renderTodoChrome (sweep + strikethrough)", () => {
+  // eslint/no-control-regex: build ESC at runtime instead of a literal.
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+  const strip = (s: string): string => s.replace(ANSI, "");
   const item = (id: string, text: string, status: string) =>
     ({ id, text, status }) as unknown as Parameters<typeof renderTodoChrome>[0][number];
 
@@ -372,16 +442,19 @@ describe("renderTodoChrome (sweep + strikethrough)", () => {
       70,
     );
     const raw = lines.join("\n");
-    // The open row carries SGR runs that plain text would not (sweep bands).
-    const swept = lines.filter((l) => l.includes("current step"));
-    expect(swept[0]?.includes("\u001b[")).toBe(true);
-    // The second in-progress row renders plain (no sweep) — only the first
-    // open item is "what am I doing now".
-    const second = lines.find((l) => l.includes("another live step")) ?? "";
-    expect(second.includes("\u001b[1m\u001b[97m")).toBe(false);
-    // Done: dim + strikethrough (SGR 9), not a plain dim line.
-    expect(raw).toContain("\u001b[9m");
-    expect(raw).toContain("finished step");
+    // The sweep splits the label into per-tier SGR runs, so count runs on the
+    // stripped-text match instead of looking for the label as one substring.
+    const runs = (s: string): number =>
+      (s.match(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")) ?? []).length;
+    const swept = lines.find((l) => strip(l).includes("current step")) ?? "";
+    const second = lines.find((l) => strip(l).includes("another live step")) ?? "";
+    // Phase-independent discriminator: shimmerText always wraps at least one
+    // tier run around the label, so the swept row carries strictly more SGR
+    // sequences than a plain sibling (block border + mark are identical).
+    expect(runs(swept)).toBeGreaterThan(runs(second));
+    // Done: dim + strikethrough (SGR 9) around the label text.
+    expect(raw).toContain("\u001b[2m\u001b[9mfinished step\u001b[0m");
+    expect(strip(raw)).toContain("finished step");
   });
 
   test("an empty or fully closed list renders nothing (panel unmounts)", () => {
@@ -439,12 +512,14 @@ describe("job settlement text + rows", () => {
     expect(text).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
   });
 
-  test("display rows: ok/fail marks, preview line, spill pointer", () => {
+  test("display rows: one line per success, preview + spill only for failures", () => {
     const plain = renderSettlementRows(entries).map((l) => l.replace(ANSI_STRIP, ""));
+    // Success is the fact alone — its output already reached the model.
     expect(plain[0]).toContain("✔ bg_3 · bash · exit 0 · 4.2s");
-    expect(plain[1]).toContain("72 pass");
-    expect(plain[2]).toContain("✘ bg_4 · eval · timed out · 30.0s");
-    expect(plain[3]).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
+    expect(plain[1]).not.toContain("72 pass");
+    // Failure keeps its error preview and the artifact pointer.
+    expect(plain[1]).toContain("✘ bg_4 · eval · timed out · 30.0s");
+    expect(plain[2]).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
   });
 
   test("duration formatting tiers", () => {

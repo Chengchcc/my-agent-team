@@ -178,6 +178,64 @@ describe("view-state folding", () => {
     expect(state.liveAgents.size).toBe(0);
   });
 
+  test("a task fan-out keeps the detail in the panel, one summary in the transcript", () => {
+    const state = initialViewState();
+    applyEvent(state, { type: "agent_start" });
+    applyEvent(state, {
+      type: "delegation_batch_started",
+      batchId: "t",
+      label: "task",
+      agentCount: 2,
+      source: "task",
+    });
+    for (const [agentId, label] of [
+      ["a1", "packages"],
+      ["a2", "backend"],
+    ] as const) {
+      applyEvent(state, { type: "delegation_agent_started", batchId: "t", agentId, label });
+    }
+    applyEvent(state, {
+      type: "delegation_agent_event",
+      batchId: "t",
+      agentId: "a1",
+      label: "packages",
+      event: { type: "tool_execution_start", toolName: "grep", callId: "c", input: {} },
+    });
+    applyEvent(state, {
+      type: "delegation_agent_completed",
+      batchId: "t",
+      agentId: "a1",
+      label: "packages",
+      ok: true,
+    });
+    applyEvent(state, {
+      type: "delegation_agent_completed",
+      batchId: "t",
+      agentId: "a2",
+      label: "backend",
+      ok: false,
+      error: "max steps exceeded",
+    });
+    // Mid-flight: the panel owns everything, the transcript stays quiet —
+    // no "delegating:" line, no per-agent marks.
+    expect(state.runs[0]!.items.map((i) => i.text)).toEqual([]);
+    expect(state.liveAgents.get("a2")?.outcome?.error).toBe("max steps exceeded");
+    applyEvent(state, {
+      type: "delegation_batch_completed",
+      batchId: "t",
+      ok: false,
+      agentCount: 2,
+      totalTokens: 99,
+    });
+    const statuses = state.runs[0]!.items.map((i) => i.text);
+    // One durable summary + the failures a user must still be able to find.
+    expect(statuses).toEqual([
+      "  \u2714 2 subagents \u00b7 99 tokens",
+      "  \u2718 backend: max steps exceeded",
+    ]);
+    expect(state.liveAgents.size).toBe(0);
+  });
+
   test("delegation event for an unseen agent adopts a chrome line (resume)", () => {
     const state = initialViewState();
     applyEvent(state, { type: "agent_start" });

@@ -858,6 +858,7 @@ function createDelegationStack(
       type: "delegation_batch_started",
       batchId,
       label: "script",
+      source: "workflow",
       agentCount: 0,
     });
     const { value } = await evaluateOrchestrationScript({

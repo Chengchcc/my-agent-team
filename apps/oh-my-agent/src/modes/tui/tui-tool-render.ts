@@ -75,8 +75,13 @@ export function renderLiveAgentsChrome(
     label: string;
     text: string;
     outcome?: { ok: boolean; error?: string };
+    toolCalls?: number;
+    requests?: number;
+    tokens?: number;
   }[],
   width: number,
+  expanded = false,
+  goal?: string,
 ): string[] {
   if (agents.length === 0) return [];
   const settled = agents.filter((a) => a.outcome).length;
@@ -90,20 +95,48 @@ export function renderLiveAgentsChrome(
     ],
     titleColor: "\u001b[36m",
   });
-  const max = 6;
+  // ctrl+o expands the panel to every agent (same gesture as tool detail);
+  // collapsed it caps at 6 and says so, instead of silently dropping rows.
+  const max = expanded ? Number.MAX_SAFE_INTEGER : 6;
   const shown = agents.slice(0, max);
-  const body = shown.map((a) => {
-    // Settled rows state their verdict (a failure keeps its error text
-    // visible beside its still-running peers); running rows sweep.
-    if (a.outcome) {
-      const mark = a.outcome.ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
-      const detail = a.outcome.ok ? "" : `: ${a.outcome.error ?? "failed"}`;
-      return `  ${mark} ${a.label}${detail}`;
-    }
-    return `  ${shimmerText(a.text)}`;
-  });
+  const body: string[] = [];
+  // The batch's shared brief (task `context`): "what is this fan-out doing"
+  // without opening a tool result. Collapsed: first 2 non-empty lines.
+  if (goal) {
+    const lines = goal
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .slice(0, expanded ? 8 : 2);
+    for (const line of lines) body.push(`\u001b[2m  ${line.slice(0, 140)}\u001b[0m`);
+    body.push("");
+  }
+  body.push(
+    ...shown.map((a) => {
+      // Settled rows state their verdict (a failure keeps its error text
+      // visible beside its still-running peers); running rows sweep.
+      // Telemetry tail (omp per-row shape): what the agent has spent so far —
+      // the part a watcher actually tracks. Absent counts render nothing.
+      const tel: string[] = [];
+      if ((a.toolCalls ?? 0) > 0) tel.push(`${a.toolCalls} \u2692`);
+      if ((a.requests ?? 0) > 0) tel.push(`${a.requests} req`);
+      if ((a.tokens ?? 0) > 0) tel.push(`${Math.round((a.tokens ?? 0) / 1000)}k tok`);
+      const tail = tel.length > 0 ? ` \u001b[2m\u00b7 ${tel.join(" \u00b7 ")}\u001b[0m` : "";
+      if (a.outcome) {
+        const mark = a.outcome.ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
+        const detail = a.outcome.ok ? "" : `\u001b[31m: ${a.outcome.error ?? "failed"}\u001b[0m`;
+        return `  ${mark} ${a.label}${tail}${detail}`;
+      }
+      return `  ${shimmerText(a.text)}${tail}`;
+    }),
+  );
   if (agents.length > shown.length) {
-    body.push(`\u001b[2m  … ${agents.length - shown.length} more\u001b[0m`);
+    const hidden = agents.length - shown.length;
+    const hiddenRunning = agents.slice(max).filter((a) => !a.outcome).length;
+    const state = hiddenRunning > 0 ? `${hiddenRunning} running` : "settled";
+    body.push(
+      `\u001b[2m  … ${hidden} more agent${hidden === 1 ? "" : "s"} (${state}) \u27e6ctrl+o\u27e7\u001b[0m`,
+    );
   }
   // The panel is "running" while any agent is still live, "error" once a
   // settled failure is the most informative state, success when all passed.

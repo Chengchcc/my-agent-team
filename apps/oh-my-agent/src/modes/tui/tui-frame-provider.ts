@@ -28,6 +28,8 @@ export function createOmaFrameProvider({
       const agents = renderLiveAgentsChrome(
         [...(shell.viewState?.liveAgents.values() ?? [])],
         width,
+        shell.viewState?.showToolDetail === true,
+        shell.viewState?.fanoutGoal,
       );
       const after = [...todo, ...agents, ...statusContainer.render(width), ...editor.render(width)];
       const available = Math.max(0, rows - after.length);

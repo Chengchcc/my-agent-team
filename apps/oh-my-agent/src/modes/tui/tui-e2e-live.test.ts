@@ -568,9 +568,11 @@ describe("tui e2e live/scrollback/fork", () => {
         isError: false,
       });
 
-      // The transcript block lands (appendNotice) ...
+      // The transcript block lands (appendNotice). A success row is the fact
+      // alone — its output reached the model, so no preview line is rendered
+      // (failures keep theirs; see renderSettlementRows).
       await waitForText(vt, "bg_settle1", 5_000);
-      await waitForText(vt, "settled-output", 5_000);
+      await waitForText(vt, "exit 0", 5_000);
       // ... and the model receives the sentinel text as the next run input.
       await waitForText(vt, "done", 5_000);
       const sentinelSeen = seenUserTexts.some((t) => t.startsWith("[background jobs finished]"));

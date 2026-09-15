@@ -504,6 +504,11 @@ export function formatSettlementText(entries: readonly JobSettlement[]): string 
 
 /** User-facing transcript rows: one status row per job (omp
  * "Background job completed" row) + preview + spill pointer. */
+/** One settled job, one line (omp's "Background job completed" row). A
+ *  SUCCESS row is deliberately just the fact — its output already reached the
+ *  model, and the panel/transcript carries the substance. A FAILURE keeps its
+ *  preview and artifact pointer: a user needs the error text and the way to
+ *  the full output without digging. */
 export function renderSettlementRows(entries: readonly JobSettlement[]): string[] {
   const rows: string[] = [];
   for (const e of entries) {
@@ -511,11 +516,12 @@ export function renderSettlementRows(entries: readonly JobSettlement[]): string[
     rows.push(
       `  ${mark} \u001b[36m${e.id}\u001b[0m \u001b[2m\u00b7 ${e.kindLabel} \u00b7 ${e.outcome} \u00b7 ${formatDurationMs(e.durationMs)}\u001b[0m`,
     );
+    if (e.ok) continue;
     const firstLine = e.preview
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0);
-    if (firstLine) rows.push(`\u001b[2m    ${firstLine.slice(0, 120)}\u001b[0m`);
+    if (firstLine) rows.push(`\u001b[31m    ${firstLine.slice(0, 120)}\u001b[0m`);
     if (e.artifactPath) rows.push(`\u001b[2m    full output: ${e.artifactPath}\u001b[0m`);
   }
   return rows;

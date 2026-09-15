@@ -59,13 +59,18 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
       if (status === "stopped") return { type: "status", status: "aborted" };
       return { type: "status", status: "completed" };
     }
-    case "delegation_batch_started":
+    case "delegation_batch_started": {
+      // `source` is a closed union on the wire: only the two known values
+      // survive, anything else is treated as absent (conservative render).
+      const source = event.data.source;
       return {
         type: "delegation_batch_started",
         batchId: String(event.data.batchId ?? ""),
         label: String(event.data.label ?? ""),
         agentCount: Number(event.data.agentCount ?? 0),
+        ...(source === "task" || source === "workflow" ? { source } : {}),
       };
+    }
     case "delegation_agent_started":
       return {
         type: "delegation_agent_started",

@@ -37,6 +37,11 @@ export interface RunViewState {
   items: TranscriptItem[];
   /** True between agent_start and agent_end. */
   running: boolean;
+  /** Source of the fan-out whose lines currently belong to the pinned panel.
+   *  "task" = the panel carries the detail, so the transcript keeps only a
+   *  one-line summary (+ failures); undefined / "workflow" = no panel, the
+   *  transcript keeps its per-agent status lines. */
+  fanoutSource?: "task" | "workflow";
 }
 
 export interface LiveAgentLine {
@@ -48,10 +53,19 @@ export interface LiveAgentLine {
    *  sibling belongs beside its live peers, not alone in the transcript)
    *  until delegation_batch_completed lands the batch's terminal markers. */
   outcome?: { ok: boolean; error?: string };
+  /** Progress telemetry, the part a user actually watches: tool calls made,
+   *  model requests issued, tokens spent (omp shows the same trio per row). */
+  toolCalls?: number;
+  requests?: number;
+  tokens?: number;
 }
 
 export interface TuiViewState {
   runs: RunViewState[];
+  /** The current fan-out's shared brief (task `context`): the panel shows it
+   *  so the pinned block answers "what is this batch doing" without the user
+   *  opening a tool result. Cleared with the panel. */
+  fanoutGoal?: string;
   /** ctrl+t: show full thinking blocks (default: collapsed first line). */
   showThinking: boolean;
   /** ctrl+o: show full tool args/result JSON (default: one-line previews). */
@@ -145,6 +159,12 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
     }
     case "tool_execution_start": {
       const run = ensureRunningRun(state);
+      // A task batch's shared brief rides the tool call: hoist it to the
+      // panel so the fan-out's goal is visible while its agents run.
+      if (event.toolName === "task") {
+        const context = (event.input as { context?: unknown } | undefined)?.context;
+        if (typeof context === "string" && context.trim()) state.fanoutGoal = context.trim();
+      }
       const item: TranscriptItem = {
         kind: "tool",
         text: `${event.toolName}…`,
@@ -204,6 +224,12 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
     }
     case "delegation_batch_started": {
       const run = ensureRunningRun(state);
+      run.fanoutSource = event.source;
+      // A `task` fan-out lives in the pinned panel: the transcript keeps only
+      // the batch summary the panel cannot express lasting state for. Any
+      // other source (workflow/script, or an unlabelled producer) keeps the
+      // status line it has always had.
+      if (event.source === "task") break;
       run.items.push({
         kind: "status",
         text: `delegating: ${event.label} (${event.agentCount} agents)`,
@@ -232,6 +258,10 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       const inner = event.event;
       if (inner.type === "tool_execution_start") {
         line.text = `⚙ ${event.label} · ${inner.toolName}`;
+        line.toolCalls = (line.toolCalls ?? 0) + 1;
+      } else if (inner.type === "message_end") {
+        // One completed assistant turn == one model request.
+        line.requests = (line.requests ?? 0) + 1;
       } else if (inner.type === "message_update") {
         // Live answer text: tail-capped so a chatty subagent cannot balloon
         // the pinned line. A tool line resets; an answer line accumulates.
@@ -258,28 +288,65 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
         state.liveAgents.set(event.agentId, line);
       }
       line.outcome = { ok: event.ok, ...(event.error ? { error: event.error } : {}) };
+      // Token spend lands with the terminal event (usage is per-run).
+      const usage = event.usage as
+        | {
+            inputTokens?: number;
+            outputTokens?: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+          }
+        | undefined;
+      if (usage) {
+        const n = (v: unknown): number => (typeof v === "number" && v > 0 ? v : 0);
+        line.tokens =
+          n(usage.inputTokens) +
+          n(usage.outputTokens) +
+          n(usage.cacheReadTokens) +
+          n(usage.cacheWriteTokens);
+      }
+      // task fan-out: the panel owns the verdict (see batch_completed).
       break;
     }
     case "delegation_batch_completed": {
       const run = ensureRunningRun(state);
-      // The batch is done: land every agent's terminal marker as the durable
-      // record, then let the panel unmount.
-      for (const line of state.liveAgents.values()) {
-        if (!line.outcome) continue;
+      const settled = [...state.liveAgents.values()].filter((l) => l.outcome);
+      const failed = settled.filter((l) => l.outcome && !l.outcome.ok);
+      if (run.fanoutSource === "task") {
+        // The panel carried the per-agent detail live; the transcript keeps a
+        // one-line durable summary (plus the failures, which a user needs to
+        // find later without opening an artifact).
         run.items.push({
           kind: "status",
-          text: line.outcome.ok
-            ? `  \u2714 ${line.label}`
-            : `  \u2718 ${line.label}: ${line.outcome.error ?? "failed"}`,
+          text: `  \u2714 ${settled.length} subagent${settled.length === 1 ? "" : "s"} \u00b7 ${event.totalTokens} tokens`,
+          streaming: false,
+        });
+        for (const line of failed) {
+          run.items.push({
+            kind: "status",
+            text: `  \u2718 ${line.label}: ${line.outcome?.error ?? "failed"}`,
+            streaming: false,
+          });
+        }
+      } else {
+        for (const line of settled) {
+          run.items.push({
+            kind: "status",
+            text: line.outcome?.ok
+              ? `  \u2714 ${line.label}`
+              : `  \u2718 ${line.label}: ${line.outcome?.error ?? "failed"}`,
+            streaming: false,
+          });
+        }
+        run.items.push({
+          kind: "status",
+          text: `delegation done \u00b7 ${event.totalTokens} tokens`,
           streaming: false,
         });
       }
       state.liveAgents.clear();
-      run.items.push({
-        kind: "status",
-        text: `delegation done \u00b7 ${event.totalTokens} tokens`,
-        streaming: false,
-      });
+      run.fanoutSource = undefined;
+      state.fanoutGoal = undefined;
       break;
     }
     case "queue_update": {
@@ -291,19 +358,20 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
     }
     case "delegation_batch_failed": {
       const run = ensureRunningRun(state);
-      // Same rule as the success path: terminal markers first, then the
-      // batch-level error, then unmount the panel.
-      for (const line of state.liveAgents.values()) {
-        if (!line.outcome) continue;
-        run.items.push({
-          kind: "status",
-          text: line.outcome.ok
-            ? `  \u2714 ${line.label}`
-            : `  \u2718 ${line.label}: ${line.outcome.error ?? "failed"}`,
-          streaming: false,
-        });
+      const settled = [...state.liveAgents.values()].filter((l) => l.outcome);
+      if (run.fanoutSource !== "task") {
+        for (const line of settled) {
+          run.items.push({
+            kind: "status",
+            text: line.outcome?.ok
+              ? `  \u2714 ${line.label}`
+              : `  \u2718 ${line.label}: ${line.outcome?.error ?? "failed"}`,
+            streaming: false,
+          });
+        }
       }
       state.liveAgents.clear();
+      run.fanoutSource = undefined;
       run.items.push({ kind: "error", text: `delegation: ${event.error}`, streaming: false });
       break;
     }
@@ -330,6 +398,9 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
 export function applyOutcome(state: TuiViewState, outcome: BackendRunOutcome): void {
   const run = currentRun(state);
   if (run) run.running = false;
+  // A finished run cannot leave a fan-out panel behind: its goal goes with it
+  // (the panel itself is driven by liveAgents, which the batch events clear).
+  state.fanoutGoal = undefined;
   const runs = state.runs;
   if (outcome.status === "failed") {
     runs.push({

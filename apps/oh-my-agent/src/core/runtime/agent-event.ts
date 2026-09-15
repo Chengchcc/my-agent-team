@@ -54,7 +54,20 @@ export type OmaLoopEvent =
     }
   | { type: "stream_rule_triggered"; rule: string }
   | { type: "todo_update"; items: readonly TodoItem[] }
-  | { type: "delegation_batch_started"; batchId: string; label: string; agentCount: number }
+  /** Which surface produced this fan-out. The TUI renders a `task` batch in
+   *  its live panel (so the transcript keeps only a batch summary line) while
+   *  a `workflow`/script fan-out has no panel and must keep its transcript
+   *  status lines. Explicit rather than inferred from `label`: the label is
+   *  caller-controlled (`orchestrate` accepts `opts.label`), so inferring
+   *  would silently mis-render. Absent = unknown source: consumers keep the
+   *  pre-existing behavior (transcript status lines). */
+  | {
+      type: "delegation_batch_started";
+      batchId: string;
+      label: string;
+      agentCount: number;
+      source?: "task" | "workflow";
+    }
   | { type: "delegation_agent_started"; batchId: string; agentId: string; label: string }
   | {
       type: "delegation_agent_completed";

@@ -131,6 +131,8 @@ export interface DelegationExecutor {
     batchId: string;
     label: string;
     items: readonly SubagentSpec[];
+    /** Which surface dispatched this fan-out (see OmaLoopEvent). */
+    source?: "task" | "workflow";
     signal?: AbortSignal;
   }): Promise<SubagentBatchResult>;
   /** 3.4 Phase 3 control plane, backed by the injected registry. */
@@ -544,6 +546,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     batchId: string;
     label: string;
     items: readonly SubagentSpec[];
+    source?: "task" | "workflow";
     signal?: AbortSignal;
   }): Promise<SubagentBatchResult> {
     opts.emit({
@@ -551,6 +554,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       batchId: input.batchId,
       label: input.label,
       agentCount: input.items.length,
+      ...(input.source ? { source: input.source } : {}),
     });
     // Own controller: a gate failure (cap/budget) or abort must stop
     // in-flight siblings (B1) instead of orphaning them while Promise.all

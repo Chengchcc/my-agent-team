@@ -13,6 +13,8 @@ export interface DelegationToolDeps {
     batchId: string;
     label: string;
     items: readonly SubagentSpec[];
+    /** Which surface dispatched this fan-out (see OmaLoopEvent). */
+    source?: "task" | "workflow";
     signal?: AbortSignal;
   }) => Promise<SubagentBatchResult>;
   /** 3.4: dispatch ONE named subagent (batchId/agentId are minted by the
@@ -149,6 +151,7 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
         const batch = await deps.runBatch({
           batchId: `task-${crypto.randomUUID()}`,
           label: "task",
+          source: "task",
           items: metas.map((meta) => ({
             prompt: `${context}\n\n---\n\n${meta.task}`,
             label: meta.label,
