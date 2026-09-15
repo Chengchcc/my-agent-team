@@ -161,7 +161,22 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
           }
           if (e.exitCode !== undefined) out.exitCode = e.exitCode;
           if (e.isError !== undefined) out.isError = e.isError;
-          if (e.result) out.result = e.result;
+          if (e.result) {
+            // The subagent's `text` is uncapped truth (a 67k-char report was
+            // one job); cap the model-facing copy to the same budget as
+            // `output` so one fetch cannot flood the context.
+            const text = typeof e.result.text === "string" ? e.result.text : "";
+            if (text.length > HUB_OUTPUT_MAX_CHARS) {
+              out.result = {
+                ...e.result,
+                text: text.slice(0, HUB_OUTPUT_MAX_CHARS),
+                textTruncated: true,
+                textFullLength: text.length,
+              };
+            } else {
+              out.result = e.result;
+            }
+          }
           return out;
         }
         case "wait": {

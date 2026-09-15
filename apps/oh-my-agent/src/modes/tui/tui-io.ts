@@ -76,9 +76,6 @@ export function createTerminalIo(
   const bgPending: JobSettlement[] = [];
   let bgDebounce: Timer | undefined;
   defaultRegistry.setCompletionListener((e) => {
-    // Delivery suppression (omp): a hub snapshot/output or blocking task
-    // result already carried this job to the model — no second turn.
-    if (defaultRegistry.isDeliveryAcknowledged(e.id)) return;
     const durationMs = (e.finishedAt ?? Date.now()) - e.startedAt;
     // Preview gap fix: an output that fits INLINE_MAX travels WHOLE (the
     // old slice(0, PREVIEW_MAX) silently dropped 1500..4000-char tails with
@@ -118,19 +115,15 @@ export function createTerminalIo(
         preview: spilled ? full.trim().slice(0, SETTLEMENT_PREVIEW_MAX) : full.trim(),
       };
     }
-    // Long output spills to .oma/artifacts so the conversation context only
-    // ever carries a preview + pointer (omp async-result spill analog).
-    const fullLen = (e.kind === "subagent" ? (e.result?.text ?? e.partialText) : (e.output ?? ""))
-      .length;
-    if (fullLen > SETTLEMENT_INLINE_MAX) {
+    // Spill FIRST, unconditionally: the artifact is the full-output record
+    // for a job whose delivery may still be suppressed below — a hub
+    // snapshot that already carried the result must not also be the reason
+    // the only copy of the tail is lost.
+    if (spilled) {
       const artifactDir = join(workspaceRoot, ".oma", "artifacts");
       mkdirSync(artifactDir, { recursive: true });
       const artifactPath = join(artifactDir, `${e.id}.txt`);
-      writeFileSync(
-        artifactPath,
-        e.kind === "subagent" ? (e.result?.text ?? e.partialText) : (e.output ?? ""),
-        "utf8",
-      );
+      writeFileSync(artifactPath, fullText, "utf8");
       settlement.artifactPath = artifactPath;
     }
     bgPending.push(settlement);
@@ -145,8 +138,15 @@ export function createTerminalIo(
     bgDebounce = setTimeout(() => {
       const batch = bgPending.splice(0);
       if (batch.length === 0) return;
-      shell.appendNotice(renderSettlementRows(batch));
-      injectUserMessage(formatSettlementText(batch));
+      // Suppression is decided HERE, not at settle time: a blocking task
+      // batch (or the model's own hub snapshot) acknowledges its handles a
+      // few milliseconds AFTER the synchronous completion listener queued
+      // them, and the debounce window is 1.5s — checking at settle time let
+      // every agent of a fan-out wake the model again ("already reported").
+      const live = batch.filter((s) => !defaultRegistry.isDeliveryAcknowledged(s.id));
+      if (live.length === 0) return;
+      shell.appendNotice(renderSettlementRows(live));
+      injectUserMessage(formatSettlementText(live));
     }, 1_500);
     bgDebounce.unref?.();
   });

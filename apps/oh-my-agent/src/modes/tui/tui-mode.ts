@@ -398,12 +398,20 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // lands in the session file immediately, so even a killed/failed
           // process leaves its context for the next turn.
           onPersistMessages: (messages) => {
-            appendSessionMessages(session.sessionId, opts.workspaceRoot, messages, session.dir);
+            // Settlement injections are RUN INPUTS, not user turns: they must
+            // reach the model (they are the delivery) but never enter the
+            // session file, or /resume replays them as phantom user bubbles
+            // ("background jobs finished" blocks the user never typed).
+            const persistable = messages.filter(
+              (m) => !(m.role === "user" && (m.text ?? "").startsWith(SETTLEMENT_SENTINEL)),
+            );
+            if (persistable.length === 0) return;
+            appendSessionMessages(session.sessionId, opts.workspaceRoot, persistable, session.dir);
             // The session file is wire-loose; the in-memory transcript keeps the
             // same loose shape so it round-trips into sessionTranscript verbatim.
             session.messages = [
               ...session.messages,
-              ...messages.map((m) => ({ ...m }) as Record<string, unknown>),
+              ...persistable.map((m) => ({ ...m }) as Record<string, unknown>),
             ];
           },
         },

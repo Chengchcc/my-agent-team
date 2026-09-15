@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
@@ -586,6 +586,81 @@ describe("tui e2e live/scrollback/fork", () => {
     }
   }, 30_000);
 
+  test("settlement: an ack landing INSIDE the debounce window suppresses the turn", async () => {
+    // The real fan-out race: the completion listener queues synchronously at
+    // settle, but a blocking task batch / the model's hub snapshot acks a few
+    // ms later — inside the 1.5s debounce. Deciding suppression at settle
+    // time let every agent of a fan-out wake the model again (6 duplicate
+    // turns in session 86e69cb5).
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ackrace-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ackrace-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    const seenUserTexts: string[] = [];
+    const modelRuntime = createModelRuntime();
+    modelRuntime.registerProvider({
+      id: "probe",
+      name: "Probe",
+      getModels: () => [
+        { id: "m", name: "M", provider: "probe", maxTokens: 1024, contextWindow: 200_000 },
+      ],
+      async *stream(_model, messages) {
+        for (const m of messages) {
+          if (m.role === "user") seenUserTexts.push(m.text ?? "");
+        }
+        yield { delta: { type: "text", text: "done" } };
+        yield { usage: { input: 1, output: 1, cacheRead: 0, cacheCreate: 0 } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+    try {
+      const vt = new VirtualTerminal(100, 40);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession({ modelRuntime, workspaceRoot: dir, model: "probe/m" }, io);
+      await typeAndSubmit(vt, "go");
+      await waitForText(vt, "done", 5_000);
+
+      defaultRegistry.registerEntry({
+        id: "bg_race",
+        kind: "bash",
+        scope: `tui-${process.pid}`,
+        label: "job",
+        startedAt: Date.now(),
+        status: "running",
+        finishedAt: null,
+        partialText: "",
+        settle: Promise.resolve(),
+        resolveSettle: () => {},
+        kill: () => {},
+      });
+      defaultRegistry.settleEntry("bg_race", {
+        status: "completed",
+        exitCode: 0,
+        output: "RACE_SHOULD_NOT_APPEAR",
+        isError: false,
+      });
+      // Ack AFTER the listener already queued it, still inside the window.
+      await Bun.sleep(300);
+      defaultRegistry.acknowledgeDeliveries(["bg_race"]);
+      await Bun.sleep(2_000);
+      expect(seenUserTexts.some((t) => t.includes("RACE_SHOULD_NOT_APPEAR"))).toBe(false);
+      // The full-output artifact is still written (suppression must not eat
+      // the only copy of a long result).
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+      io.close();
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_TITLE_ENABLED;
+      delete process.env.OMA_MEMORY_EXTRACT;
+      defaultRegistry.setCompletionListener(null);
+      defaultRegistry.clearAll();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("settlement injection: whole inline output travels; acked jobs stay silent", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ack-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ack-sess-"));
@@ -663,6 +738,13 @@ describe("tui e2e live/scrollback/fork", () => {
       expect(injections.some((t) => t.includes("WHOLE_TAIL_MARKER"))).toBe(true);
       // The acknowledged job produced NO injection: its id never reached the model.
       expect(injections.some((t) => t.includes("bg_acked"))).toBe(false);
+      // The injection is a RUN INPUT, not a user turn: it must not be in the
+      // session file, or /resume replays a phantom "background jobs
+      // finished" bubble the user never typed.
+      const sessionFiles = readdirSync(sessDir).filter((f) => f.endsWith(".jsonl"));
+      expect(sessionFiles.length).toBeGreaterThan(0);
+      const raw = readFileSync(join(sessDir, sessionFiles[0]!), "utf8");
+      expect(raw).not.toContain("[background jobs finished]");
       await quitTui(vt);
       expect(await sessionDone).toBe(0);
       io.close();

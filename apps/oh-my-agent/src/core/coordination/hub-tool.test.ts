@@ -95,6 +95,36 @@ describe("hub tool", () => {
     expect(out.outputTruncated).toBe(true);
   });
 
+  test("output caps an oversized subagent result.text like `output`", async () => {
+    // A 67k-char subagent report was one hub output fetch; the model-facing
+    // copy must respect the same budget as the bash/eval `output` field.
+    const big = "z".repeat(40_000);
+    const [hub] = createHubTool(
+      makeDeps({
+        get: (id) =>
+          id === "sub_1"
+            ? {
+                id: "sub_1",
+                kind: "subagent",
+                scope: "s1",
+                label: "docs",
+                startedAt: 0,
+                status: "completed",
+                finishedAt: 1,
+                partialText: "",
+                result: { label: "docs", text: big, ok: true },
+              }
+            : undefined,
+      }),
+    );
+    const out = (await hub.execute({ op: "output", id: "sub_1" })) as {
+      result: { text: string; textTruncated?: boolean; textFullLength?: number };
+    };
+    expect(out.result.text.length).toBe(10_000);
+    expect(out.result.textTruncated).toBe(true);
+    expect(out.result.textFullLength).toBe(40_000);
+  });
+
   test("jobs snapshot elides output past the budget and points at hub output", async () => {
     // A 6-agent fan-out used to put ~25k chars of fenced output into one
     // result; past the budget the body is elided per job.
