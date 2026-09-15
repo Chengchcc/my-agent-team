@@ -15,6 +15,7 @@ import {
 } from "../index.js";
 import { createSpawnPool, GateError } from "./pool.js";
 import { parseAndValidate, spillResults } from "./results.js";
+import { createYieldTool } from "./yield-tool.js";
 
 /** Runaway-cost guard matching the main loop's ceiling (run-runtime's
  * DEFAULT_MAX_STEPS = 500): termination is the model's natural stop or the
@@ -255,12 +256,30 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       // Same-run resume reuses the live session; cross-run revive rebuilds it
       // on the CURRENT run's model stream (the old stream closed over the
       // spawning run's activeRun and cannot be reused).
+      // A schema-bearing spawn gets a `yield` tool: the payload arrives as
+      // tool arguments (provider-parsed) instead of model prose the parent
+      // would have to JSON.parse out of a markdown fence. Only NEW sessions
+      // wire it — a resumed session's tools are already bound to the capture
+      // closure of the spawn that created it, so a resume falls back to the
+      // text parser below.
+      let yielded: unknown;
+      const reused = liveSessions.get(handle);
       const session =
-        liveSessions.get(handle) ??
+        reused ??
         createOmaSession({
           sessionId,
           store,
-          plugins: [{ name: "subagent-tools", tools: subagentTools }],
+          plugins: [
+            { name: "subagent-tools", tools: subagentTools },
+            ...(spec.schema
+              ? [
+                  {
+                    name: "subagent-yield",
+                    tools: [createYieldTool(spec.schema, (payload) => (yielded = payload))],
+                  },
+                ]
+              : []),
+          ],
           maxSteps: SUBAGENT_MAX_STEPS,
           maxForceContinues: 2,
           // Transient model failures (429/timeout) retry via the loop's
@@ -364,13 +383,20 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
         const artifacts = [...artifactPaths];
         // The store stays alive in the registry for cross-Run resume.
         let { text, output, parseError } = parseAndValidate(result, spec.schema);
+        // A yielded payload is authoritative: the schema was enforced on the
+        // tool arguments, so there is nothing to parse (and nothing to fail).
+        if (yielded !== undefined) {
+          output = yielded;
+          parseError = undefined;
+        }
         if (parseError && !agentSignal?.aborted && result.status === "completed") {
           // A2: one schema-correction turn — the same session re-runs with the
           // produced messages as history plus an explicit fix instruction. A
           // second violation is terminal.
           const correction =
             `Your previous final message did not match the required output schema. ` +
-            `Return ONLY the corrected JSON. Error: ${parseError}`;
+            `Call the \`yield\` tool with the corrected payload (no markdown code fence, ` +
+            `no prose around it). Error: ${parseError}`;
           result = await launch(
             (result.messages ?? []).map((message, i) => ({
               // Synthetic identity: the in-memory subagent store never

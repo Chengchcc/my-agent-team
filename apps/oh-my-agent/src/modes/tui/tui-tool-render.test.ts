@@ -556,7 +556,7 @@ describe("job settlement text + rows", () => {
       ok: false,
       durationMs: 30_000,
       preview: "",
-      artifactPath: "/ws/.oma/artifacts/bg_4.txt",
+      artifactPath: ".oma/artifacts/bg_4.txt",
     },
   ];
 
@@ -566,7 +566,8 @@ describe("job settlement text + rows", () => {
     expect(text).toContain("── bg_3 (bash) exit 0 · 4.2s ──");
     expect(text).toContain("72 pass");
     expect(text).toContain("timed out");
-    expect(text).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
+    // Workspace-relative: the model's cwd is the workspace root.
+    expect(text).toContain("full output: .oma/artifacts/bg_4.txt");
   });
 
   test("display rows: one line per success, preview + spill only for failures", () => {
@@ -576,7 +577,7 @@ describe("job settlement text + rows", () => {
     expect(plain[1]).not.toContain("72 pass");
     // Failure keeps its error preview and the artifact pointer.
     expect(plain[1]).toContain("✘ bg_4 · eval · timed out · 30.0s");
-    expect(plain[2]).toContain("full output: /ws/.oma/artifacts/bg_4.txt");
+    expect(plain[2]).toContain("full output: .oma/artifacts/bg_4.txt");
   });
 
   test("duration formatting tiers", () => {

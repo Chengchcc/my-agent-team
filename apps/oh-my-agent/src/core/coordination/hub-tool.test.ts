@@ -138,6 +138,39 @@ describe("hub tool", () => {
     expect(second.content).not.toContain("B-BODY");
   });
 
+  test("output extracts a field by dot path (omp agent://id?q= without a URL scheme)", async () => {
+    const entry = {
+      id: "sub_1",
+      kind: "subagent" as const,
+      scope: "s1",
+      label: "docs",
+      startedAt: 0,
+      status: "completed" as const,
+      finishedAt: 1,
+      partialText: "",
+      result: {
+        label: "docs",
+        text: "raw prose",
+        ok: true,
+        output: { summary: "adapter layer", files: [{ path: "a.ts" }, { path: "b.ts" }] },
+      },
+    };
+    const [hub] = createHubTool(makeDeps({ get: (id) => (id === "sub_1" ? entry : undefined) }));
+    const top = (await hub.execute({ op: "output", id: "sub_1", path: "summary" })) as {
+      value?: unknown;
+    };
+    expect(top.value).toBe("adapter layer");
+    const nested = (await hub.execute({ op: "output", id: "sub_1", path: "files.1.path" })) as {
+      value?: unknown;
+    };
+    expect(nested.value).toBe("b.ts");
+    // A miss is a normal result, not a throw.
+    const miss = (await hub.execute({ op: "output", id: "sub_1", path: "nope.deep" })) as {
+      error?: string;
+    };
+    expect(miss.error).toContain("no field");
+  });
+
   test("output caps an oversized subagent result.text like `output`", async () => {
     // A 67k-char subagent report was one hub output fetch; the model-facing
     // copy must respect the same budget as the bash/eval `output` field.

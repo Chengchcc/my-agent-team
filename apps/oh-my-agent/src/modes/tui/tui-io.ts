@@ -122,9 +122,11 @@ export function createTerminalIo(
     if (spilled) {
       const artifactDir = join(workspaceRoot, ".oma", "artifacts");
       mkdirSync(artifactDir, { recursive: true });
-      const artifactPath = join(artifactDir, `${e.id}.txt`);
-      writeFileSync(artifactPath, fullText, "utf8");
-      settlement.artifactPath = artifactPath;
+      writeFileSync(join(artifactDir, `${e.id}.txt`), fullText, "utf8");
+      // Publish a WORKSPACE-RELATIVE pointer: the model's cwd is the
+      // workspace, and an absolute path goes stale the moment the workspace
+      // is moved or the session is resumed elsewhere.
+      settlement.artifactPath = join(".oma", "artifacts", `${e.id}.txt`);
     }
     bgPending.push(settlement);
     clearTimeout(bgDebounce);

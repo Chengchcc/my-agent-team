@@ -3,10 +3,9 @@ import { dirname, join } from "node:path";
 import type { OmaSession } from "../index.js";
 import type { SubagentResult, SubagentSpec } from "./executor.js";
 
-/** A3 fan-in size guard: per-item inline ceiling, total inline budget, and
- *  the excerpt length kept in the tool result when a text is spilled. */
+/** A3 fan-in size guard: per-item inline ceiling (read_only fallback) and the
+ *  excerpt length kept inline when a text is spilled to its artifact. */
 const MAX_INLINE_ITEM_CHARS = 2000;
-const MAX_TOTAL_INLINE_CHARS = 16_000;
 const EXCERPT_CHARS = 400;
 
 /** A2: minimal JSON-Schema subset validator for model-supplied output
@@ -80,6 +79,28 @@ export function validateJsonSchema(
   return undefined;
 }
 
+/** The JSON payload inside a model reply. Models habitually wrap structured
+ *  output in a markdown fence (```json … ```), which JSON.parse rejects
+ *  outright — a real 7-agent fan-out lost 5 subagents to exactly that. Strip
+ *  the fence, then fall back to the widest brace/bracket span (a reply may
+ *  also carry prose before or after the payload). Returns the input
+ *  unchanged when nothing looks like a payload. */
+function extractJsonText(raw: string): string {
+  const text = raw.trim();
+  const fenced = /^```[a-zA-Z0-9_-]*\s*\n?([\s\S]*?)\n?```$/.exec(text);
+  const body = (fenced?.[1] ?? text).trim();
+  try {
+    JSON.parse(body);
+    return body;
+  } catch {
+    /* prose-wrapped or an unterminated fence (a streamed cut) */
+  }
+  const start = body.search(/[{[]/);
+  if (start === -1) return body;
+  const end = Math.max(body.lastIndexOf("}"), body.lastIndexOf("]"));
+  return end > start ? body.slice(start, end + 1) : body.slice(start);
+}
+
 /** Parse the loop's final text against the optional schema. Returns the
  *  parsed output (validated) plus a violation message when it fails. */
 export function parseAndValidate(
@@ -89,7 +110,7 @@ export function parseAndValidate(
   const text = (result.messages?.at(-1)?.text ?? "").trim();
   if (!schema || !text) return { text };
   try {
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = JSON.parse(extractJsonText(text)) as unknown;
     const schemaError = validateJsonSchema(parsed, schema);
     if (schemaError) return { text, parseError: `schema validation failed: ${schemaError}` };
     return { text, output: parsed };
@@ -108,13 +129,20 @@ export function spillResults(
   batchId: string,
   opts: { workspaceRoot: string; workspaceAccess: "read_only" | "read_write" },
 ): SubagentResult[] {
-  const total = results.reduce((acc, r) => acc + r.text.length, 0);
-  const forceSpill = total > MAX_TOTAL_INLINE_CHARS;
   return results.map((r, i) => {
-    if (!forceSpill && r.text.length <= MAX_INLINE_ITEM_CHARS) return r;
+    // Artifact-first (omp always writes `<id>.md`): the full text lands on
+    // disk and the tool result carries a bounded preview plus the pointer.
+    // The old "spill only when large" rule made the inline text the single
+    // carrier, so the fan-in had to choose between flooding the context and
+    // losing the tail — and a caller wanting the detail had no addressable
+    // copy to read. One small file per agent is the cheaper trade.
     const excerpt = r.text.slice(0, EXCERPT_CHARS);
     if (opts.workspaceAccess !== "read_write") {
-      return { ...r, text: `${excerpt}…[truncated]` };
+      // read_only has nowhere to spill to: bound the inline text instead.
+      return {
+        ...r,
+        text: r.text.length > MAX_INLINE_ITEM_CHARS ? `${excerpt}…[truncated]` : r.text,
+      };
     }
     const rel = `.oma/workflow/${batchId}/a${i}.result.md`;
     const abs = join(opts.workspaceRoot, rel);

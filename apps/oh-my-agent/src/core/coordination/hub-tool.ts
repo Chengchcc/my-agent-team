@@ -71,6 +71,34 @@ const HUB_OUTPUT_MAX_CHARS = 10_000;
  *  context with output the model can fetch per-id on demand. */
 const HUB_SNAPSHOT_MAX_CHARS = 8_000;
 
+/** Dot-path lookup over a job's structured result (`summary`, `files.0.path`).
+ *  Objects, arrays and numbers-in-paths; anything else is a miss. */
+function readDotPath(value: unknown, path: string): unknown {
+  let cursor: unknown = value;
+  for (const segment of path.split(".")) {
+    if (cursor === null || cursor === undefined) return undefined;
+    if (typeof cursor === "string") {
+      // A JSON string payload (a bash job's output) is worth one parse attempt.
+      try {
+        cursor = JSON.parse(cursor) as unknown;
+      } catch {
+        return undefined;
+      }
+    }
+    if (Array.isArray(cursor)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= cursor.length) return undefined;
+      cursor = cursor[index];
+      continue;
+    }
+    if (typeof cursor !== "object") return undefined;
+    const record = cursor as Record<string, unknown>;
+    if (!(segment in record)) return undefined;
+    cursor = record[segment];
+  }
+  return cursor;
+}
+
 /** A `wait` that streams live "still waiting on N" snapshots through
  * onOutput every SNAPSHOT_MS until the underlying wait resolves. The
  * snapshots list the running job ids so the TUI block stays informative
@@ -126,6 +154,12 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
         ids: { type: "array", items: { type: "string" } },
         prompt: { type: "string" },
         timeoutMs: { type: "number" },
+        path: {
+          type: "string",
+          description:
+            "output: dot path into the job's structured result (e.g. `summary`, `files.0.path`) " +
+            "— returns just that field instead of the whole payload",
+        },
       },
       required: ["op"],
     },
@@ -136,6 +170,7 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
         ? (args.ids as unknown[]).filter((v): v is string => typeof v === "string")
         : undefined;
       const prompt = typeof args.prompt === "string" ? args.prompt : "";
+      const fieldPath = typeof args.path === "string" ? args.path.trim() : "";
       const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : 60_000;
       switch (op) {
         case "jobs": {
@@ -173,6 +208,17 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
             if (e.output.length > HUB_OUTPUT_MAX_CHARS) {
               out.outputTruncated = true;
             }
+          }
+          if (fieldPath) {
+            // omp reaches a field with `agent://<id>?q=<path>`; oma keeps one
+            // syntax for id-addressed reads and puts the path here instead.
+            // The structured payload (yield/parsed) is the source; a bash job's
+            // own output is the fallback.
+            const payload = e.result?.output ?? e.result?.text ?? e.output;
+            const picked = readDotPath(payload, fieldPath);
+            return picked === undefined
+              ? { id: e.id, path: fieldPath, error: `no field "${fieldPath}" on ${e.id}` }
+              : { id: e.id, path: fieldPath, value: picked };
           }
           if (e.exitCode !== undefined) out.exitCode = e.exitCode;
           if (e.isError !== undefined) out.isError = e.isError;
