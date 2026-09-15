@@ -32,6 +32,11 @@ export interface ProjectSettings {
   memoryExtract?: boolean;
   /** Memory extraction model (env OMA_MEMORY_MODEL). */
   memoryModel?: string;
+  /** Minimum tool calls in a run before the autonomous memory pass runs
+   *  (omp autolearn.minToolCalls, default 5): a turn that only acknowledged
+   *  or chatted has nothing durable to extract and must not spend two model
+   *  calls per settled job. */
+  memoryMinToolCalls?: number;
   /** permissionMode=auto classifier model (env OMA_PERMISSION_CLASSIFIER_MODEL).
    *  Absent = the Run's model. */
   permissionClassifierModel?: string;
@@ -111,6 +116,9 @@ export function loadProjectSettings(root: string): ProjectSettings {
     }
     if ("memoryModel" in parsed && typeof parsed.memoryModel === "string") {
       result.memoryModel = parsed.memoryModel;
+    }
+    if ("memoryMinToolCalls" in parsed && typeof parsed.memoryMinToolCalls === "number") {
+      result.memoryMinToolCalls = parsed.memoryMinToolCalls;
     }
     if (
       "permissionClassifierModel" in parsed &&
@@ -218,6 +226,7 @@ export interface RuntimeKnobs {
   conversationTitled?: boolean;
   memoryExtract?: boolean;
   memoryModel?: string;
+  memoryMinToolCalls?: number;
   /** When present, old tool results are pruned before each model call. */
   prune?: PruneKnobs;
 }
@@ -276,6 +285,14 @@ export function resolveRuntimeKnobs(
   if (env.OMA_CONV_TITLED === "1") knobs.conversationTitled = true;
   const memoryExtract = s.memoryExtract ?? (env.OMA_MEMORY_EXTRACT === "0" ? false : undefined);
   if (memoryExtract !== undefined) knobs.memoryExtract = memoryExtract;
+  const memoryMinToolCalls =
+    s.memoryMinToolCalls ??
+    (env.OMA_MEMORY_MIN_TOOL_CALLS !== undefined
+      ? Number.parseInt(env.OMA_MEMORY_MIN_TOOL_CALLS, 10)
+      : undefined);
+  if (memoryMinToolCalls !== undefined && Number.isFinite(memoryMinToolCalls)) {
+    knobs.memoryMinToolCalls = memoryMinToolCalls;
+  }
   if (s.memoryModel) knobs.memoryModel = s.memoryModel;
   if (s.prune) knobs.prune = s.prune;
   return knobs;

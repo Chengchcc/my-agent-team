@@ -953,6 +953,7 @@ function createDelegationStack(
     // omp delivery suppression: hub snapshot/output = the delivery; the
     // settlement injection skips acknowledged ids.
     acknowledge: (ids) => registry.acknowledgeDeliveries(ids),
+    isDelivered: (id) => registry.isDeliveryAcknowledged(id),
     stop: (id) => {
       const e = registry.getEntry(id);
       if (e?.kind === "subagent") return delegationExecutor.stopSubagent(id);

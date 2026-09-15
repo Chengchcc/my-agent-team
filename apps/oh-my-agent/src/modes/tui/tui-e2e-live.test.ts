@@ -437,7 +437,16 @@ describe("tui e2e live/scrollback/fork", () => {
         io,
       );
       await vt.waitForRender();
-      const prompts = ["first-turn-history", "second-turn-history", "third-turn-history"];
+      // Four turns is the honest overflow: the earlier version leaned on the
+      // memory pass's "learning…" status rows to exceed 20 lines, and that
+      // pass is now gated on run substance (nothing to learn in a trivial
+      // turn, so no rows).
+      const prompts = [
+        "first-turn-history",
+        "second-turn-history",
+        "third-turn-history",
+        "fourth-turn-history",
+      ];
       for (const prompt of prompts) {
         await typeAndSubmit(vt, prompt);
         await waitForText(vt, "done", 5_000);

@@ -95,6 +95,49 @@ describe("hub tool", () => {
     expect(out.outputTruncated).toBe(true);
   });
 
+  test("jobs elides bodies already delivered, keeps the row (task/hub overlap)", async () => {
+    // A blocking task batch returns its results inline; the same handles must
+    // not show up AGAIN with bodies in the next hub snapshot (omp: an inline
+    // spawn is a row without a body). Rows stay so the fan-out state is still
+    // visible, and the first snapshot still carries its own bodies.
+    const delivered = new Set<string>();
+    const rows = [
+      {
+        id: "sub_a",
+        kind: "subagent" as const,
+        status: "completed" as const,
+        label: "a",
+        partialText: "A-BODY",
+      },
+      {
+        id: "sub_b",
+        kind: "subagent" as const,
+        status: "completed" as const,
+        label: "b",
+        partialText: "B-BODY",
+      },
+    ];
+    const [hub] = createHubTool(
+      makeDeps({
+        list: () => rows,
+        acknowledge: (ids) => {
+          for (const id of ids) delivered.add(id);
+        },
+        isDelivered: (id) => delivered.has(id),
+      }),
+    );
+    const first = (await hub.execute({ op: "jobs" })) as { content: string };
+    // First snapshot: both bodies are news.
+    expect(first.content).toContain("A-BODY");
+    expect(first.content).toContain("B-BODY");
+    // Second snapshot: rows still listed, bodies elided (already delivered).
+    const second = (await hub.execute({ op: "jobs" })) as { content: string };
+    expect(second.content).toContain("sub_a");
+    expect(second.content).toContain("sub_b");
+    expect(second.content).not.toContain("A-BODY");
+    expect(second.content).not.toContain("B-BODY");
+  });
+
   test("output caps an oversized subagent result.text like `output`", async () => {
     // A 67k-char subagent report was one hub output fetch; the model-facing
     // copy must respect the same budget as the bash/eval `output` field.

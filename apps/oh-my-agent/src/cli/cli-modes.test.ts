@@ -289,7 +289,11 @@ describe("print mode (in-process): memory persistence", () => {
   test("awaits the background learn pass before returning", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-print-learn-"));
     const savedTitle = process.env.OMA_TITLE_ENABLED;
+    const savedMin = process.env.OMA_MEMORY_MIN_TOOL_CALLS;
     process.env.OMA_TITLE_ENABLED = "0"; // keep the model-call count deterministic
+    // This test isolates the learn-pass plumbing with a trivial turn; the
+    // substance gate (default 5 tool calls) is exercised in its own test.
+    process.env.OMA_MEMORY_MIN_TOOL_CALLS = "0";
     try {
       const replies = [
         "done",

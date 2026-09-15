@@ -100,6 +100,11 @@ export interface CreateOmaRuntimeOptions {
 /** One Runtime = one Run. The loop runs directly in-process; steer injects
  *  into the live loop; stop aborts it; close tears down MCP clients and the
  *  SessionStore. */
+/** omp autolearn.minToolCalls default: below this many tool executions a
+ *  completed run has nothing durable to extract, so the autonomous memory
+ *  pass is skipped (it costs two model calls). */
+const DEFAULT_MEMORY_MIN_TOOL_CALLS = 5;
+
 export interface OmaRuntime {
   /** Start the Run's loop. Returns the segment whose outcome is the Run's
    *  ONLY terminal result. A Runtime accepts exactly one run(). */
@@ -312,24 +317,41 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
             // Autonomous memory: extract durable facts from this Run's
             // transcript + compaction summaries, persist to the workspace.
             // Best-effort — never affects the outcome.
-            const branch = await rt.store.readBranch(options.runId);
-            const compactions: string[] = [];
-            for (const entry of branch) {
-              if (entry.type === "compaction" && entry.summary) compactions.push(entry.summary);
+            //
+            // Substance gate (omp autolearn.minToolCalls, default 5): the
+            // pass costs two model calls, so a run that merely acknowledged
+            // ("all agents finished, report above") or chatted must not pay
+            // for it. Settlement-injected runs are exactly that shape — this
+            // gate is what stops one learn pass per settled background job.
+            const toolCalls = (result.messages ?? []).reduce(
+              (n, m) =>
+                n +
+                ((m as { blocks?: readonly { type?: string }[] }).blocks ?? []).filter(
+                  (b) => b.type === "tool_use",
+                ).length,
+              0,
+            );
+            const minToolCalls = rt.knobs.memoryMinToolCalls ?? DEFAULT_MEMORY_MIN_TOOL_CALLS;
+            if (toolCalls >= minToolCalls) {
+              const branch = await rt.store.readBranch(options.runId);
+              const compactions: string[] = [];
+              for (const entry of branch) {
+                if (entry.type === "compaction" && entry.summary) compactions.push(entry.summary);
+              }
+              // FIRE-AND-FORGET: awaiting here blocks the outcome (and the
+              // TUI busy state) on a second model call the user cannot abort.
+              memoryLearning = extractAutonomousMemory({
+                modelRuntime: options.modelRuntime,
+                vector: options.vectorMemory ? getVectorMemory(options.workspaceRoot) : null,
+                modelId: options.modelId,
+                enabled: rt.knobs.memoryExtract,
+                ...(rt.knobs.memoryModel ? { memoryModel: rt.knobs.memoryModel } : {}),
+                workspaceRoot: options.workspaceRoot,
+                runId: options.runId,
+                messages: result.messages ?? [],
+                compactions,
+              });
             }
-            // FIRE-AND-FORGET: awaiting here blocks the outcome (and the
-            // TUI busy state) on a second model call the user cannot abort.
-            memoryLearning = extractAutonomousMemory({
-              modelRuntime: options.modelRuntime,
-              vector: options.vectorMemory ? getVectorMemory(options.workspaceRoot) : null,
-              modelId: options.modelId,
-              enabled: rt.knobs.memoryExtract,
-              ...(rt.knobs.memoryModel ? { memoryModel: rt.knobs.memoryModel } : {}),
-              workspaceRoot: options.workspaceRoot,
-              runId: options.runId,
-              messages: result.messages ?? [],
-              compactions,
-            });
           }
           const outcome = mapLoopResult(result);
           if (outcome.status === "completed") {

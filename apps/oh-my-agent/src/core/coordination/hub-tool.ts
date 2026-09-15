@@ -14,6 +14,9 @@ export interface HubToolDeps {
   readonly steer: (handle: string, prompt: string) => { ok: boolean; error?: string };
   /** Delivery suppression: ack settled ids this tool result showed. */
   readonly acknowledge?: (ids: readonly string[]) => void;
+  /** True when a job's result already reached the model through an earlier
+   *  tool result (inline task batch) or a previous hub fetch. */
+  readonly isDelivered?: (id: string) => boolean;
 }
 /** Unified coordination surface for background work (pi hub, jobs half):
  *  bash/eval process jobs and delegation subagents in one registry view. */
@@ -22,7 +25,10 @@ export interface HubToolDeps {
  * Completed sections with label + fenced preview, Still Running bullets.
  * The TUI keeps rendering from the structured rows; only the tool_result
  * text changes from a JSON dump to readable markdown. */
-function formatJobRowsMarkdown(rows: readonly EntryRow[]): string {
+function formatJobRowsMarkdown(
+  rows: readonly EntryRow[],
+  isDelivered: (id: string) => boolean = () => false,
+): string {
   const lines: string[] = [];
   const completed = rows.filter((r) => r.status !== "running");
   const running = rows.filter((r) => r.status === "running");
@@ -35,7 +41,7 @@ function formatJobRowsMarkdown(rows: readonly EntryRow[]): string {
     for (const j of completed) {
       lines.push(`### ${j.id} [${j.kind}] — ${j.status}`);
       lines.push(`Label: ${j.label}`);
-      const body = j.partialText.trim();
+      const body = isDelivered(j.id) ? "" : j.partialText.trim();
       if (body) {
         if (body.length <= budget) {
           lines.push("```", body, "```");
@@ -137,8 +143,17 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
           // A snapshot is the delivery (omp contract): settled rows this
           // result carries are acknowledged so no duplicate settlement
           // injection follows.
+          // Snapshot the delivered set BEFORE this call acks: a body is
+          // elided only when an EARLIER result already carried it (this
+          // snapshot's own rows are still news to the model).
+          const deliveredBefore = new Set(
+            items.filter((r) => deps.isDelivered?.(r.id) === true).map((r) => r.id),
+          );
           deps.acknowledge?.(items.filter((r) => r.status !== "running").map((r) => r.id));
-          return { content: formatJobRowsMarkdown(items), items };
+          return {
+            content: formatJobRowsMarkdown(items, (id) => deliveredBefore.has(id)),
+            items,
+          };
         }
         case "output": {
           if (!id) return { ok: false, error: "id is required" };

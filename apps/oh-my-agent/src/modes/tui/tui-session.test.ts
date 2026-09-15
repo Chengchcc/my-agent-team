@@ -530,7 +530,10 @@ describe("tui session (headless, fake provider)", () => {
     const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-learn-"));
     process.env.OMA_SESSION_DIR = sessionDir;
     const savedTitle = process.env.OMA_TITLE_ENABLED;
+    const savedMin = process.env.OMA_MEMORY_MIN_TOOL_CALLS;
     process.env.OMA_TITLE_ENABLED = "0"; // keep model-call count deterministic
+    // Isolates the TUI learn indicator; the substance gate has its own test.
+    process.env.OMA_MEMORY_MIN_TOOL_CALLS = "0";
     try {
       const replies = [
         "done",

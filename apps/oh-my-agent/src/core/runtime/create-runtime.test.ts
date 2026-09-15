@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
+import type { Model, Provider } from "@chengchenccc/ai";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
 import {
   createModelRuntime,
@@ -587,6 +588,60 @@ describe("createOmaRuntime", () => {
     expect(requests).toEqual(["subagent"]);
     expect(outcome.usage).toEqual({ inputTokens: 0, outputTokens: 14 });
   });
+  test("memory pass is gated on run substance (omp minToolCalls)", async () => {
+    // A settlement-injected / acknowledgment run has ~no tool calls: the pass
+    // costs two model calls and must be skipped. Pre-fix it ran on EVERY
+    // completed run — one learn pass per settled background job.
+    //
+    // The contract signal is `memoryLearning()` itself: it is created only when
+    // the gate passes (undefined == this run never started a pass).
+    const run = async (runId: string, toolScript: string) => {
+      const saved = process.env.OMA_FAKE_PROVIDER;
+      const savedTool = process.env.OMA_FAKE_TOOL;
+      process.env.OMA_FAKE_PROVIDER = "1";
+      process.env.OMA_FAKE_TOOL = toolScript;
+      const modelRuntime = createModelRuntime();
+      registerBuiltinProviders(modelRuntime, process.env);
+      const rt = await createOmaRuntime({
+        runId,
+        modelId: "fake/echo",
+        workspaceRoot: tmp,
+        workspaceAccess: "read_write",
+        modelRuntime,
+        skillRoots: [],
+        settings: { titleEnabled: false, memoryExtract: true },
+      });
+      try {
+        const segment = await rt.run(runInput(runId));
+        await segment.outcome;
+        const learning = rt.memoryLearning();
+        // Await inside so the pass finishes before close(); the boolean also
+        // survives the async-return flattening the test would otherwise hit.
+        await learning?.catch(() => {});
+        return learning !== undefined;
+      } finally {
+        await rt.close();
+        if (saved === undefined) delete process.env.OMA_FAKE_PROVIDER;
+        else process.env.OMA_FAKE_PROVIDER = saved;
+        if (savedTool === undefined) delete process.env.OMA_FAKE_TOOL;
+        else process.env.OMA_FAKE_TOOL = savedTool;
+      }
+    };
+
+    // 1 tool call < 5: no pass is created.
+    const low = await run(
+      "r-gate-low",
+      JSON.stringify([{ name: "glob", input: { pattern: "*" } }]),
+    );
+    expect(low).toBe(false);
+    // 5 tool calls: the pass runs.
+    const high = await run(
+      "r-gate-high",
+      JSON.stringify(Array.from({ length: 5 }, () => ({ name: "glob", input: { pattern: "*" } }))),
+    );
+    expect(high).toBe(true);
+  }, 30_000);
+
   test("native todo installs when no MCP todo_write is injected (standalone)", async () => {
     const savedFake = process.env.OMA_FAKE_PROVIDER;
     const savedTool = process.env.OMA_FAKE_TOOL;
