@@ -336,6 +336,8 @@ describe("print mode (in-process): memory persistence", () => {
     } finally {
       if (savedTitle === undefined) delete process.env.OMA_TITLE_ENABLED;
       else process.env.OMA_TITLE_ENABLED = savedTitle;
+      if (savedMin === undefined) delete process.env.OMA_MEMORY_MIN_TOOL_CALLS;
+      else process.env.OMA_MEMORY_MIN_TOOL_CALLS = savedMin;
     }
   });
 });

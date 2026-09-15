@@ -586,6 +586,8 @@ describe("tui session (headless, fake provider)", () => {
       delete process.env.OMA_SESSION_DIR;
       if (savedTitle === undefined) delete process.env.OMA_TITLE_ENABLED;
       else process.env.OMA_TITLE_ENABLED = savedTitle;
+      if (savedMin === undefined) delete process.env.OMA_MEMORY_MIN_TOOL_CALLS;
+      else process.env.OMA_MEMORY_MIN_TOOL_CALLS = savedMin;
       rmSync(sessionDir, { recursive: true, force: true });
     }
   }, 15_000);
