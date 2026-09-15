@@ -10,6 +10,7 @@ import {
   summarizeToolArgs,
 } from "./tui-format.js";
 import {
+  renderFanoutBriefChrome,
   renderHubTool,
   renderLearnTool,
   renderLiveAgentsChrome,
@@ -94,29 +95,41 @@ describe("renderTaskTool", () => {
     expect(joined).toContain("✔ web");
   });
 
-  test("batch results render as a framed box, one row per agent", () => {
+  test("a BATCH renders no box at all — the panel owns it, transcript owns the summary", () => {
+    // ADR 0028: the pinned panel carried identity/progress; the batch summary
+    // (+ failures) is the durable transcript line. The box would be a third
+    // copy of the same facts, so it is transparent before AND after the call.
+    const batch = {
+      kind: "tool" as const,
+      text: "task",
+      streaming: false,
+      input: { label: "explore" },
+      result: {
+        results: [
+          { name: "packages-analysis", agent: "explore", ok: true, text: "found 19 members" },
+          { name: "backend-probe", agent: "explore", ok: false, error: "max steps exceeded (8)" },
+        ],
+      },
+    };
+    expect(renderTaskTool(batch, COLLAPSED, 62)).toEqual([]);
+    expect(renderTaskTool({ ...batch, streaming: true }, COLLAPSED, 62)).toEqual([]);
+  });
+
+  test("a single (compat) spawn keeps its box — it has no panel", () => {
     const lines = renderTaskTool(
       {
         kind: "tool",
         text: "task",
         streaming: false,
         input: { label: "explore" },
-        result: {
-          results: [
-            { name: "packages-analysis", agent: "explore", ok: true, text: "found 19 members" },
-            { name: "backend-probe", agent: "explore", ok: false, error: "max steps exceeded (8)" },
-          ],
-        },
+        result: { content: "one agent finished", status: "completed" },
       },
       COLLAPSED,
       62,
     );
     const plain = lines.map((l) => l.replace(ANSI, ""));
     expect(plain[0]).toStartWith("┌───");
-    expect(plain[0]).toContain("task · explore 2 agents");
-    expect(plain.join("\n")).toContain("✔ packages-analysis (explore)");
-    expect(plain.join("\n")).toContain("✗ backend-probe (explore)");
-    expect(plain.at(-1)).toStartWith("└──");
+    expect(plain.join("\n")).toContain("one agent finished");
   });
 });
 
@@ -158,12 +171,45 @@ describe("renderHubTool", () => {
     expect(lines.join("\n")).not.toContain("no background work");
   });
 
-  test("jobs result renders an omp-style tree; output op renders the output field", () => {
+  test("a SETTLED hub call renders nothing — the panel + summary own the facts", () => {
+    // ADR 0028: the jobs/wait tree lived in the pinned panel while it ran, the
+    // batch summary and settlement rows are the durable record, and an output
+    // fetch's payload already reached the model. The box is a third copy.
+    const jobs = {
+      kind: "tool" as const,
+      text: "hub",
+      streaming: false,
+      input: { op: "jobs" },
+      result: {
+        items: [
+          { id: "bg_2", kind: "bash", status: "completed", label: "done thing" },
+          {
+            id: "bg_1",
+            kind: "bash",
+            status: "running",
+            label: "echo hi",
+            partialText: "partial out",
+          },
+        ],
+      },
+    };
+    expect(renderHubTool(jobs, COLLAPSED, 60)).toEqual([]);
+    const output = {
+      kind: "tool" as const,
+      text: "hub",
+      streaming: false,
+      input: { op: "output", id: "bg_1" },
+      result: { id: "bg_1", status: "completed", output: "hello world" },
+    };
+    expect(renderHubTool(output, COLLAPSED, 60)).toEqual([]);
+  });
+
+  test("a RUNNING hub call still shows its tree / output (that is its only surface)", () => {
     const jobs = renderHubTool(
       {
         kind: "tool",
         text: "hub",
-        streaming: false,
+        streaming: true,
         input: { op: "jobs" },
         result: {
           items: [
@@ -181,35 +227,15 @@ describe("renderHubTool", () => {
       COLLAPSED,
       60,
     );
-    // Running rows shimmer (band splits text with ANSI runs): strip first.
     const text = jobs.map((l) => l.replace(ANSI, "")).join("\n");
-    // Counts header (omp "waiting on N of M").
     expect(text).toContain("waiting on 1 of 2 job(s)");
     expect(text).toContain("1 done");
-    // Running-first sort: bg_1's tree row lands above bg_2's.
     expect(text.indexOf("bg_1")).toBeLessThan(text.indexOf("bg_2"));
-    // Tree connectors and the nested partial preview.
     expect(text).toContain("├─");
     expect(text).toContain("└─");
     expect(text).toContain("partial out");
-
-    const out = renderHubTool(
-      {
-        kind: "tool",
-        text: "hub",
-        streaming: false,
-        input: { op: "output", id: "bg_1" },
-        result: { id: "bg_1", status: "completed", output: "hello world" },
-      },
-      COLLAPSED,
-      60,
-    );
-    const joined = out.join("\n");
-    expect(joined).toContain("completed");
-    expect(joined).toContain("hello world");
-    expect(joined).not.toContain("unknown id");
   });
-  test("wait result tree: settled header, timed-out marker, truncation cap", () => {
+  test("a RUNNING wait shows its tree: settled header, timed-out marker, cap", () => {
     const mk = (n: number, status: string) => ({
       id: `bg_${n}`,
       kind: "bash",
@@ -220,7 +246,7 @@ describe("renderHubTool", () => {
       {
         kind: "tool",
         text: "hub",
-        streaming: false,
+        streaming: true,
         input: { op: "wait", ids: ["bg_1"] },
         result: {
           waited: [
@@ -355,7 +381,36 @@ describe("hub/task loader summaries", () => {
   });
 });
 
-describe("renderLiveAgentsChrome (goal, telemetry, expand)", () => {
+describe("renderFanoutBriefChrome (the batch's Goal/Constraints card)", () => {
+  const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+  const strip = (s: string): string => s.replace(ANSI, "");
+
+  test("renders its own framed card with the brief's sections", () => {
+    const card = renderFanoutBriefChrome(
+      "Goal\n\nRead-only repo analysis of my-agent-team.\n\nConstraints\n- Use read/glob/grep only.",
+      100,
+    );
+    const plain = card.map(strip);
+    expect(plain[0]).toStartWith("┌───");
+    expect(plain[0]).toContain("task brief");
+    const text = plain.join("\n");
+    expect(text).toContain("Goal");
+    expect(text).toContain("Read-only repo analysis of my-agent-team.");
+    expect(text).toContain("Constraints");
+    expect(plain.at(-1)).toStartWith("└──");
+  });
+
+  test("collapsed caps the body and points at ctrl+o; an empty brief renders nothing", () => {
+    expect(renderFanoutBriefChrome("", 80)).toEqual([]);
+    const long = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+    const collapsed = strip(renderFanoutBriefChrome(long, 80, false).join("\n"));
+    expect(collapsed).toContain("… 14 more ⟦ctrl+o⟧");
+    const expanded = strip(renderFanoutBriefChrome(long, 80, true).join("\n"));
+    expect(expanded).toContain("line 13");
+  });
+});
+
+describe("renderLiveAgentsChrome (telemetry, expand)", () => {
   const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
   const strip = (s: string): string => s.replace(ANSI, "");
 
@@ -381,15 +436,8 @@ describe("renderLiveAgentsChrome (goal, telemetry, expand)", () => {
       { label: "AnalyzeDocs", text: "▶ AnalyzeDocs" },
       { label: "AnalyzeAdapters", text: "▶ AnalyzeAdapters" },
     ];
-    const collapsed = renderLiveAgentsChrome(
-      agents,
-      100,
-      false,
-      "Read-only repo analysis\nNo edits.",
-    );
+    const collapsed = renderLiveAgentsChrome(agents, 100, false);
     const text = strip(collapsed.join("\n"));
-    // The shared brief answers "what is this batch doing".
-    expect(text).toContain("Read-only repo analysis");
     // Telemetry: tool calls, requests, tokens.
     expect(text).toContain("32 ⚒");
     expect(text).toContain("6 req");
@@ -397,9 +445,7 @@ describe("renderLiveAgentsChrome (goal, telemetry, expand)", () => {
     // Collapsed caps at 6 with an actionable hint, not a silent drop.
     expect(text).toContain("… 1 more agent (1 running) ⟦ctrl+o⟧");
 
-    const expanded = strip(
-      renderLiveAgentsChrome(agents, 100, true, "Read-only repo analysis").join("\n"),
-    );
+    const expanded = strip(renderLiveAgentsChrome(agents, 100, true).join("\n"));
     expect(expanded).toContain("AnalyzeAdapters");
     expect(expanded).not.toContain("⟦ctrl+o⟧");
   });

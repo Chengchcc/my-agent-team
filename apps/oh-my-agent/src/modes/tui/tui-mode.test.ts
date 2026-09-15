@@ -228,11 +228,15 @@ describe("view-state folding", () => {
       totalTokens: 99,
     });
     const statuses = state.runs[0]!.items.map((i) => i.text);
-    // One durable summary + the failures a user must still be able to find.
-    expect(statuses).toEqual([
-      "  \u2714 2 subagents \u00b7 99 tokens",
-      "  \u2718 backend: max steps exceeded",
-    ]);
+    // One compact row per agent (omp's "Background job completed" shape):
+    // who ran, how long, and the failure's reason.
+    expect(statuses).toHaveLength(2);
+    // eslint/no-control-regex: build ESC at runtime instead of a literal.
+    const esc = String.fromCharCode(27);
+    expect(statuses[0]).toMatch(new RegExp(`^${esc}\\[32m\\u2714${esc}\\[0m packages \\(`));
+    expect(statuses[1]).toContain("\u2718");
+    expect(statuses[1]).toContain("backend");
+    expect(statuses[1]).toContain("max steps exceeded");
     expect(state.liveAgents.size).toBe(0);
   });
 

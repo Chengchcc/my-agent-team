@@ -3,68 +3,79 @@ import type { TodoItem } from "../../core/index.js";
 import { shimmerText } from "./tui-format.js";
 import type { TranscriptItem } from "./view-state.js";
 
-/** task 工具块(ADR 0028):streaming 期间 live 进度在 chrome(`liveAgents`
- * pinned 块)，盒子本体渲染空——settle 后才落终局结果树进 transcript。
- * chrome 块渲染在 renderLiveAgentsChrome(与本函数并列)。 */
 export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
-  if (item.streaming) return [];
-  const label = typeof item.input?.label === "string" ? item.input.label : "";
   const result = item.result;
   const asRecord = (v: unknown): Record<string, unknown> =>
     typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
-  // Batch: { ok, content, results: [{index, name, agent, ok, text|error, ...}] }
   const results = Array.isArray(asRecord(result).results)
     ? (asRecord(result).results as Array<Record<string, unknown>>)
     : [];
+  // ADR 0028 shape for a BATCH: the pinned panel carried identity + progress
+  // while it ran, and delegation_batch_completed landed the durable summary
+  // (+ failures) in the transcript. The tool box would be a third copy of the
+  // same facts, so it is transparent — before AND after the call. A single
+  // (compat) spawn has no panel and keeps its box.
+  if (item.streaming) return [];
+  if (results.length > 0) return [];
+  const label = typeof item.input?.label === "string" ? item.input.label : "";
   const body: string[] = [];
   const meta: string[] = [];
-  let failed = false;
-  if (results.length > 0) {
-    meta.push(`${results.length} agent${results.length === 1 ? "" : "s"}`);
-    for (const r of results) {
-      if (r.ok === false) failed = true;
-      const name = String(r.name ?? "");
-      const agent = String(r.agent ?? "");
-      const mark = r.ok === false ? "\u001b[31m✗\u001b[0m" : "\u001b[32m✔\u001b[0m";
-      body.push(`${mark} \u001b[2m${name}${agent ? ` (${agent})` : ""}\u001b[0m`);
-      const text =
-        typeof r.text === "string" && r.text !== ""
-          ? r.text
-          : typeof r.error === "string"
-            ? r.error
-            : "";
-      if (text.trim()) {
-        body.push(`\u001b[2m  ${text.trim().slice(0, expanded ? 400 : 160)}\u001b[0m`);
-      }
-    }
-  } else {
-    // Settled single (compat) spawn result.
-    const status =
-      result && typeof result === "object" && "status" in result
-        ? String((result as Record<string, unknown>).status)
+  // Settled single (compat) spawn result.
+  const status =
+    result && typeof result === "object" && "status" in result
+      ? String((result as Record<string, unknown>).status)
+      : "";
+  if (status) body.push(`\u001b[2mstatus: ${status}\u001b[0m`);
+  const content =
+    typeof result?.content === "string"
+      ? result.content
+      : typeof result?.text === "string"
+        ? result.text
         : "";
-    if (status) body.push(`\u001b[2mstatus: ${status}\u001b[0m`);
-    const content =
-      typeof result?.content === "string"
-        ? result.content
-        : typeof result?.text === "string"
-          ? result.text
-          : "";
-    const text = content.trim();
-    if (text) body.push(`\u001b[2m${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
-  }
-  if (body.length === 0) {
-    body.push("\u001b[2m(done)\u001b[0m");
-  }
-  let state: OutputBlockState = "success";
-  if (failed) state = "error";
+  const text = content.trim();
+  if (text) body.push(`\u001b[2m${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
+  if (body.length === 0) body.push("\u001b[2m(done)\u001b[0m");
+  const state: OutputBlockState = "success";
   const header = renderToolHeader({
-    icon: "▶",
-    title: `task${label ? ` · ${label}` : ""}`,
+    icon: "\u25b6",
+    title: `task${label ? ` \u00b7 ${label}` : ""}`,
     meta,
     titleColor: "\u001b[36m",
   });
   return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
+}
+
+/** The fan-out's brief as its OWN card (omp renders the task batch's shared
+ *  Goal/Constraints as a framed block above the agent rows): the user reads
+ *  what the batch is for before watching who is doing it. Body lines keep the
+ *  source's section shape — the model writes "Goal\n…\nConstraints\n…", so
+ *  the card shows exactly that, dimmed, capped per window size. */
+export function renderFanoutBriefChrome(goal: string, width: number, expanded = false): string[] {
+  const lines = goal
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, ""))
+    .filter((l, i, all) => l.trim().length > 0 || (i > 0 && i < all.length - 1));
+  if (lines.length === 0) return [];
+  const max = expanded ? 14 : 6;
+  const shown = lines.slice(0, max);
+  const body = shown.map((l) => {
+    const trimmed = l.trim();
+    if (!trimmed) return "";
+    // Section headers ("Goal", "Constraints") keep their weight; prose dims.
+    const isHeader = /^[A-Z][A-Za-z /-]{2,24}$/.test(trimmed);
+    return isHeader
+      ? `  \u001b[1m${trimmed.slice(0, 140)}\u001b[0m`
+      : `  \u001b[2m${trimmed.slice(0, 140)}\u001b[0m`;
+  });
+  if (lines.length > shown.length) {
+    body.push(`\u001b[2m  … ${lines.length - shown.length} more \u27e6ctrl+o\u27e7\u001b[0m`);
+  }
+  const header = renderToolHeader({
+    icon: "\u21f6",
+    title: "task brief",
+    titleColor: "\u001b[36m",
+  });
+  return renderOutputBlock({ header, state: "running", sections: [{ lines: body }], width });
 }
 
 /** ADR 0028: live subagent activity as chrome (pinned above the editor,
@@ -81,7 +92,6 @@ export function renderLiveAgentsChrome(
   }[],
   width: number,
   expanded = false,
-  goal?: string,
 ): string[] {
   if (agents.length === 0) return [];
   const settled = agents.filter((a) => a.outcome).length;
@@ -100,17 +110,6 @@ export function renderLiveAgentsChrome(
   const max = expanded ? Number.MAX_SAFE_INTEGER : 6;
   const shown = agents.slice(0, max);
   const body: string[] = [];
-  // The batch's shared brief (task `context`): "what is this fan-out doing"
-  // without opening a tool result. Collapsed: first 2 non-empty lines.
-  if (goal) {
-    const lines = goal
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0)
-      .slice(0, expanded ? 8 : 2);
-    for (const line of lines) body.push(`\u001b[2m  ${line.slice(0, 140)}\u001b[0m`);
-    body.push("");
-  }
   body.push(
     ...shown.map((a) => {
       // Settled rows state their verdict (a failure keeps its error text
@@ -206,6 +205,11 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
     Array.isArray(v) ? (v as Array<Record<string, unknown>>) : [];
   const maxChars = expanded ? 400 : 160;
 
+  // Settled hub calls are transparent: the panel carried a jobs/wait tree
+  // live, the batch summary + settlement rows are the durable record, and the
+  // output fetch's payload went to the model. The box would be a third copy.
+  // While RUNNING it is the one place the wait's progress is visible — keep it.
+  if (!item.streaming) return [];
   // While executing there is no result yet: show the running op instead of
   // a misleading empty-list/unknown-id fallback.
   if (result === undefined && item.streaming) {

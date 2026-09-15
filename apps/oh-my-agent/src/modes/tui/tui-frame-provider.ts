@@ -1,7 +1,11 @@
 import type { Container, Editor, TerminalFrameProvider } from "@chengchenccc/tui";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import type { TuiRenderShell } from "./tui-render.js";
-import { renderLiveAgentsChrome, renderTodoChrome } from "./tui-tool-render.js";
+import {
+  renderFanoutBriefChrome,
+  renderLiveAgentsChrome,
+  renderTodoChrome,
+} from "./tui-tool-render.js";
 
 export interface OmaFrameProviderOptions {
   transcript: OmaTranscriptContainer;
@@ -25,13 +29,24 @@ export function createOmaFrameProvider({
     renderFrame({ columns, rows }) {
       const width = columns;
       const todo = renderTodoChrome(shell.viewState?.todoItems ?? [], width);
+      // Two pinned blocks, in reading order: WHAT the fan-out is for (brief),
+      // then WHO is doing it (live rows). The brief unmounts with the panel.
+      const expanded = shell.viewState?.showToolDetail === true;
+      const brief = shell.viewState?.fanoutGoal
+        ? renderFanoutBriefChrome(shell.viewState.fanoutGoal, width, expanded)
+        : [];
       const agents = renderLiveAgentsChrome(
         [...(shell.viewState?.liveAgents.values() ?? [])],
         width,
-        shell.viewState?.showToolDetail === true,
-        shell.viewState?.fanoutGoal,
+        expanded,
       );
-      const after = [...todo, ...agents, ...statusContainer.render(width), ...editor.render(width)];
+      const after = [
+        ...todo,
+        ...brief,
+        ...agents,
+        ...statusContainer.render(width),
+        ...editor.render(width),
+      ];
       const available = Math.max(0, rows - after.length);
       const target = Math.max(0, shell.lastTotalRows - available);
       const boundary = Math.min(shell.lastLiveStartRow, target);

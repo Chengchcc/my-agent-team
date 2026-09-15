@@ -1,5 +1,6 @@
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { OmaLoopEvent, TodoItem } from "../../core/index.js";
+import { formatDurationMs } from "./tui-format.js";
 
 /** Pure view model for the TUI transcript: folds OmaLoopEvents into the
  *  lines the renderer draws. No terminal I/O - fully unit-testable. */
@@ -58,6 +59,9 @@ export interface LiveAgentLine {
   toolCalls?: number;
   requests?: number;
   tokens?: number;
+  /** Wall-clock start, for the settled row's "(2m9s)" (omp's row shape). */
+  startedAt?: number;
+  durationMs?: number;
 }
 
 export interface TuiViewState {
@@ -245,6 +249,7 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
         agentId: event.agentId,
         label: event.label,
         text: `▶ ${event.label}`,
+        startedAt: Date.now(),
       });
       break;
     }
@@ -288,6 +293,7 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
         state.liveAgents.set(event.agentId, line);
       }
       line.outcome = { ok: event.ok, ...(event.error ? { error: event.error } : {}) };
+      line.durationMs ??= line.startedAt !== undefined ? Date.now() - line.startedAt : undefined;
       // Token spend lands with the terminal event (usage is per-run).
       const usage = event.usage as
         | {
@@ -311,20 +317,21 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
     case "delegation_batch_completed": {
       const run = ensureRunningRun(state);
       const settled = [...state.liveAgents.values()].filter((l) => l.outcome);
-      const failed = settled.filter((l) => l.outcome && !l.outcome.ok);
       if (run.fanoutSource === "task") {
-        // The panel carried the per-agent detail live; the transcript keeps a
-        // one-line durable summary (plus the failures, which a user needs to
-        // find later without opening an artifact).
-        run.items.push({
-          kind: "status",
-          text: `  \u2714 ${settled.length} subagent${settled.length === 1 ? "" : "s"} \u00b7 ${event.totalTokens} tokens`,
-          streaming: false,
-        });
-        for (const line of failed) {
+        // The panel carried the detail live; the transcript keeps one compact
+        // row per agent (omp's "Background job completed [task] <name>
+        // (2m9s)"): a later reader sees WHICH agents ran and how long each
+        // took, and failures keep their reason — without a third copy of the
+        // output.
+        for (const line of settled) {
+          const ok = line.outcome?.ok === true;
+          const mark = ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
+          const took =
+            line.durationMs !== undefined ? ` (${formatDurationMs(line.durationMs)})` : "";
+          const reason = ok ? "" : `: ${line.outcome?.error ?? "failed"}`;
           run.items.push({
             kind: "status",
-            text: `  \u2718 ${line.label}: ${line.outcome?.error ?? "failed"}`,
+            text: `${mark} ${line.label}${took}${reason}`,
             streaming: false,
           });
         }

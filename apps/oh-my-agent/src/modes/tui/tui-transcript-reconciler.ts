@@ -53,10 +53,21 @@ export class TuiTranscriptReconciler {
     let liveStartRow = -1;
     for (const { key, item } of items) {
       const lines = renderItem(item);
-      if (lines.length === 0) continue;
       const existing = this.groups.get(key);
+      if (lines.length === 0) {
+        // A box may go TRANSPARENT (a settled task/hub call renders nothing:
+        // its detail is durable in the panel + summary line, and the box was
+        // only ever a live probe). Dropping the group's children keeps the
+        // scrollback honest — the last streaming frame must not freeze there.
+        // An empty group means "transparent"; a later non-empty render
+        // re-appends it (ctrl+o expands a settled box again).
+        if (existing && existing.length > 0) {
+          this.emptyGroup(transcript, key, existing);
+        }
+        continue;
+      }
       let startRow: number;
-      if (existing) {
+      if (existing && existing.length > 0) {
         startRow = transcript.children.indexOf(existing[0]!);
         if (startRow === -1) {
           startRow = transcript.children.length;
@@ -97,6 +108,24 @@ export class TuiTranscriptReconciler {
     transcript.clear();
     this.orderKeys.length = 0;
     this.groups.clear();
+  }
+
+  /** Remove a group's children while KEEPING its key (the item still exists;
+   *  it just renders nothing right now). */
+  private emptyGroup(
+    transcript: OmaTranscriptContainer,
+    key: string,
+    oldChildren: readonly Component[],
+  ): void {
+    const start = transcript.children.indexOf(oldChildren[0]!);
+    if (start === -1) {
+      this.groups.set(key, []);
+      return;
+    }
+    for (let i = 0; i < oldChildren.length; i++) {
+      transcript.children.splice(start, 1);
+    }
+    this.groups.set(key, []);
   }
 
   private updateGroup(
