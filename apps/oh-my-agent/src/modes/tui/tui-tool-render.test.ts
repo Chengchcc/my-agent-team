@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SHIMMER_TIER_OPEN } from "@chengchenccc/tui";
 import {
   formatDurationMs,
   formatSettlementText,
@@ -147,10 +148,13 @@ describe("shimmerText", () => {
     const strip = (s: string): string =>
       s.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
     expect(strip(t1)).toBe(text);
-    // A crest passes somewhere in this window: high tier (bright bold) present.
-    expect(
-      [0, 250, 500, 750, 1_000, 1_250].some((ms) => shimmerText(text, ms).includes("\u001b[97m")),
-    ).toBe(true);
+    // A crest passes somewhere in this window, and it wears the LOADER's
+    // accent: the sweep and the spinner are one animation, so a crest in its
+    // own color (bright white used to be hardcoded here) is the bug.
+    const window = [0, 250, 500, 750, 1_000, 1_250].map((ms) => shimmerText(text, ms));
+    expect(window.some((s) => s.includes(SHIMMER_TIER_OPEN.high))).toBe(true);
+    expect(window.some((s) => s.includes(SHIMMER_TIER_OPEN.mid))).toBe(true);
+    expect(window.join("")).not.toContain("\u001b[97m");
   });
 });
 

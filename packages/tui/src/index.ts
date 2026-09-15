@@ -20,7 +20,12 @@ export {
   type EditorTheme,
 } from "./components/editor.ts";
 export { Input } from "./components/input.ts";
-export { Loader, type LoaderIndicatorOptions } from "./components/loader.ts";
+export {
+  Loader,
+  type LoaderIndicatorOptions,
+  SHIMMER_TIER_OPEN,
+  type ShimmerTier,
+} from "./components/loader.ts";
 export {
   type DefaultTextStyle,
   Markdown,

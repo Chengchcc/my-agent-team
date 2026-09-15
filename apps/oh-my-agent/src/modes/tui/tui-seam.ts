@@ -60,7 +60,10 @@ export interface TuiIo {
   /** Register the slash-command list for editor autocomplete. */
   setSlashCommands?(commands: readonly SlashCommand[]): void;
   /** Interactive session picker overlay; resolves the chosen session id,
-   *  or null when cancelled. Absent = caller falls back to a text list. */
+   *  or null when cancelled. Absent = caller falls back to a text list.
+   *  `currentSessionId` is the session being driven right now: its row must
+   *  not be deletable, or the live append would recreate a bare file and the
+   *  history would be gone. */
   pickSession?(
     sessions: ReadonlyArray<{
       id: string;
@@ -70,6 +73,7 @@ export interface TuiIo {
       workspace?: string;
       forkOf?: string;
     }>,
+    currentSessionId?: string,
   ): Promise<string | null>;
   /** Interactive model picker overlay (ctrl+p); resolves the chosen
    *  canonical `<provider>/<model>` id, or null when cancelled. */

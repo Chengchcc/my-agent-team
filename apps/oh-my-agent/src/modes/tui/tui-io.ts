@@ -37,7 +37,7 @@ import {
   WELCOME_TIPS,
 } from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
-import { pickNotice, pickOne } from "./tui-overlays.js";
+import { deletePickedSession, pickNotice, pickOne } from "./tui-overlays.js";
 import { TuiRenderShell } from "./tui-render.js";
 import type { TuiCommand, TuiIo } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
@@ -500,28 +500,30 @@ export function createTerminalIo(
         new CombinedAutocompleteProvider([...commands], workspaceRoot),
       );
     },
-    pickSession(sessions) {
+    pickSession(sessions, currentSessionId) {
       const { promise, resolve } = Promise.withResolvers<string | null>();
-      const items = sessions.map((s) => {
-        const base = s.title ?? (s.preview || s.id.slice(0, 8));
-        const fork = s.forkOf ? ` \u2442 ${s.forkOf.slice(0, 8)}` : "";
-        const workspace = s.workspace ? ` [${s.workspace}]` : "";
-        return {
-          value: s.id,
-          // Newest-first list with an absolute stamp: equal-looking
-          // relative labels ("now", "1m") made the order unreadable.
-          label: sessionStamp(s.modifiedAt),
-          description: `${base}${fork}${workspace}`,
-        };
-      });
-      const list = new SelectList(items, 10, EDITOR_THEME.selectList, {
+      const rows = [...sessions];
+      const build = (): Array<{ value: string; label: string; description: string }> =>
+        rows.map((s) => {
+          const base = s.title ?? (s.preview || s.id.slice(0, 8));
+          const fork = s.forkOf ? ` \u2442 ${s.forkOf.slice(0, 8)}` : "";
+          const workspace = s.workspace ? ` [${s.workspace}]` : "";
+          return {
+            value: s.id,
+            // The stamp is absolute, not relative: equal-looking relative
+            // labels ("now", "1m") made the caller-supplied newest-first
+            // order unreadable.
+            label: sessionStamp(s.modifiedAt),
+            description: `${base}${fork}${workspace}`,
+          };
+        });
+      const HINT = "  resume session — select, enter, ctrl+d delete, esc";
+      const header = new Text(HINT, 0, 0);
+      const list = new SelectList(build(), 10, EDITOR_THEME.selectList, {
         minPrimaryColumnWidth: 6,
         maxPrimaryColumnWidth: 8,
       });
-      const overlayBox = new PickerOverlay(
-        new Text("  resume session — select, enter, esc", 0, 0),
-        list,
-      );
+      const overlayBox = new PickerOverlay(header, list);
       const overlay = tui.showOverlay(overlayBox, { width: "60%", anchor: "center" });
       list.onSelect = (item) => {
         overlay.hide();
@@ -530,6 +532,21 @@ export function createTerminalIo(
       list.onCancel = () => {
         overlay.hide();
         resolve(null);
+      };
+      list.onDelete = (item) => {
+        const note = (text: string): void => {
+          header.setText(text);
+          tui.requestRender();
+        };
+        const outcome = deletePickedSession(rows, item.value, currentSessionId);
+        if (!outcome.deleted) {
+          if (outcome.message) note(`  ${outcome.message}`);
+          return;
+        }
+        const index = rows.findIndex((s) => s.id === item.value);
+        if (index !== -1) rows.splice(index, 1);
+        list.setItems(build());
+        note(rows.length === 0 ? "  no sessions left — esc to close" : HINT);
       };
       return promise;
     },

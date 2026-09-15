@@ -43,7 +43,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         if (!args || all) {
           // Interactive overlay when the ctx.io supports it; text list otherwise.
           if (ctx.io.pickSession) {
-            const picked = await ctx.io.pickSession(sessions.slice(0, 20));
+            const picked = await ctx.io.pickSession(sessions.slice(0, 20), ctx.session.sessionId);
             if (!picked) {
               ctx.pushStatus("resume cancelled");
               return;

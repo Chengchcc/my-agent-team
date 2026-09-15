@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendSessionCompaction,
@@ -92,6 +92,29 @@ describe("session-file title", () => {
     expect(readSessionTitle("t3")).toBe("Second Title");
     // Unknown id / torn file: no throw, no title.
     expect(readSessionTitle("no-such-session")).toBeUndefined();
+  });
+});
+
+describe("listSessions order (resume picker)", () => {
+  test("newest first, regardless of filesystem order", () => {
+    // readdir returns filesystem order, which is why an unsorted list looked
+    // arbitrary — and why the picker's slice(0, 20) cut an arbitrary subset
+    // rather than the 20 most recent. Explicit mtimes pin the assertion.
+    const now = Date.now();
+    for (const [id, minutesAgo] of [
+      ["old", 60],
+      ["new", 1],
+      ["mid", 30],
+    ] as const) {
+      const cwd = `/tmp/ws-${id}`;
+      appendSessionMessages(id, cwd, [{ role: "user", text: id }], dir);
+      utimesSync(
+        join(dir, `${id}.jsonl`),
+        new Date(now - minutesAgo * 60_000),
+        new Date(now - minutesAgo * 60_000),
+      );
+    }
+    expect(listSessions().map((s) => s.id)).toEqual(["new", "mid", "old"]);
   });
 });
 

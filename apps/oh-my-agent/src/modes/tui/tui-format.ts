@@ -1,5 +1,5 @@
 import type { DefaultTextStyle, EditorTheme, MarkdownTheme } from "@chengchenccc/tui";
-import { applyBackgroundToLine, truncateToWidth } from "@chengchenccc/tui";
+import { applyBackgroundToLine, SHIMMER_TIER_OPEN, truncateToWidth } from "@chengchenccc/tui";
 
 export const MAX_TOOL_ARGS = 200;
 export const MAX_TOOL_DETAIL = 8_000;
@@ -427,11 +427,9 @@ export function shimmerText(text: string, now: number = Date.now()): string {
   const chars = Array.from(text);
   const period = chars.length + SHIMMER_PADDING * 2;
   const pos = ((now / 1000) * SHIMMER_SPEED_CELLS_PER_S) % period;
-  const TIER_OPEN = {
-    low: "\u001b[2m",
-    mid: "\u001b[37m",
-    high: "\u001b[1m\u001b[97m",
-  } as const;
+  // Same palette as the loader's message band (SHIMMER_TIER_OPEN): the sweep
+  // and the spinner are one animation, so they must not be two colors.
+  const TIER_OPEN = SHIMMER_TIER_OPEN;
   type Tier = keyof typeof TIER_OPEN;
   let out = "";
   let run = "";

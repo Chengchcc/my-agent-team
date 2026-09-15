@@ -39,6 +39,7 @@ export interface Keybindings {
   "tui.select.pageDown": true;
   "tui.select.confirm": true;
   "tui.select.cancel": true;
+  "tui.select.delete": true;
 }
 
 export type Keybinding = keyof Keybindings;
@@ -141,6 +142,13 @@ export const TUI_KEYBINDINGS = {
   "tui.select.confirm": {
     defaultKeys: "enter",
     description: "Confirm selection",
+  },
+  "tui.select.delete": {
+    // An explicit chord, not a bare letter: the picker's list is the only
+    // thing on screen, but deletion is unrecoverable, so it should never
+    // come from a stray keypress.
+    defaultKeys: "ctrl+d",
+    description: "Delete selection",
   },
   "tui.select.cancel": {
     defaultKeys: ["escape", "ctrl+c"],

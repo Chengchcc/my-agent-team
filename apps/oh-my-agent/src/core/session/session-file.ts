@@ -171,7 +171,10 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
 
 /** Session files of the current workspace, newest first. */
 export function listSessions(): SessionSummary[] {
-  return scanSessionDir(sessionDir());
+  // Newest first. readdir order is filesystem order, so leaving this unsorted
+  // made the resume picker's order arbitrary — and made its slice(0, 20) cut
+  // an arbitrary subset rather than the 20 most recent.
+  return scanSessionDir(sessionDir()).sort((a, b) => b.modifiedAt - a.modifiedAt);
 }
 
 /** Session files across EVERY workspace, newest first. Covers both the

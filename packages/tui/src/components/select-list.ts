@@ -49,6 +49,9 @@ export class SelectList implements Component {
   public onSelect?: (item: SelectItem) => void;
   public onCancel?: () => void;
   public onSelectionChange?: (item: SelectItem) => void;
+  /** Fired on the delete binding. The owner removes the item and calls
+   *  setItems — the list does not mutate its collection behind its back. */
+  public onDelete?: (item: SelectItem) => void;
 
   constructor(
     items: SelectItem[],
@@ -61,6 +64,15 @@ export class SelectList implements Component {
     this.maxVisible = maxVisible;
     this.theme = theme;
     this.layout = layout;
+  }
+
+  /** Replace the collection (after a delete, a reload). Selection is clamped
+   *  so it never points past the new end. */
+  setItems(items: readonly SelectItem[]): void {
+    this.items = [...items];
+    this.filteredItems = this.items;
+    this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, this.items.length - 1));
+    this.notifySelectionChange();
   }
 
   setFilter(filter: string): void {
@@ -143,6 +155,13 @@ export class SelectList implements Component {
       const selectedItem = this.filteredItems[this.selectedIndex];
       if (selectedItem && this.onSelect) {
         this.onSelect(selectedItem);
+      }
+    }
+    // Delete
+    else if (kb.matches(keyData, "tui.select.delete")) {
+      const selectedItem = this.filteredItems[this.selectedIndex];
+      if (selectedItem && this.onDelete) {
+        this.onDelete(selectedItem);
       }
     }
     // Escape or Ctrl+C

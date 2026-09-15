@@ -14,6 +14,21 @@ const DEFAULT_INTERVAL_MS = 80;
 /**
  * Loader component that updates with an optional spinning animation.
  */
+/** The one light-sweep palette. The loader's message band and every
+ *  consumer's shimmer (oma's chrome rows, tool bodies) read from here, so the
+ *  "working" animations cannot drift into different colors: cyan is the
+ *  spinner accent, so band and spinner read as one animation. */
+export const SHIMMER_TIER_OPEN = {
+  /** Base tier: dim, the resting color of an unsettled line. */
+  low: "\u001b[2m",
+  /** Mid band: the spinner's own cyan. */
+  mid: "\u001b[36m",
+  /** Crest: bold cyan. */
+  high: "\u001b[1m\u001b[36m",
+} as const;
+
+export type ShimmerTier = keyof typeof SHIMMER_TIER_OPEN;
+
 export class Loader extends Text {
   private frames = [...DEFAULT_FRAMES];
   private intervalMs = DEFAULT_INTERVAL_MS;
@@ -113,8 +128,8 @@ export class Loader extends Text {
         continue;
       }
       const intensity = 0.5 * (1 + Math.cos((Math.PI * dist) / BAND_HALF));
-      if (intensity >= 0.65) out += `\u001b[1m\u001b[36m${ch}\u001b[0m`;
-      else if (intensity >= 0.22) out += `\u001b[36m${ch}\u001b[0m`;
+      if (intensity >= 0.65) out += `${SHIMMER_TIER_OPEN.high}${ch}\u001b[0m`;
+      else if (intensity >= 0.22) out += `${SHIMMER_TIER_OPEN.mid}${ch}\u001b[0m`;
       else out += base(ch);
     }
     return out;
