@@ -102,7 +102,13 @@ fi
 cleanup_cgroup() {
   [ -n "$CHILD_CGROUP" ] && [ -d "$CHILD_CGROUP" ] || return 0
   echo 1 > "$CHILD_CGROUP/cgroup.kill" 2>/dev/null || true
-  rmdir "$CHILD_CGROUP" 2>/dev/null || true
+  # rmdir right after cgroup.kill races the kernel reaping the tasks (EBUSY),
+  # which used to leave an empty memguard.* cgroup behind on every stop.
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    rmdir "$CHILD_CGROUP" 2>/dev/null && return 0
+    sleep 0.2
+  done
 }
 trap cleanup_cgroup EXIT
 # bash does NOT run the EXIT trap when it dies from an untrapped signal, which
