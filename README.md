@@ -48,6 +48,58 @@ my-agent-team 是一个**团队级 Agent 运行时**。每个 Agent 有独立的
 
 ## 🚀 快速开始
 
+两种走法：装一个能用的（oma 和 backend + web 一起下发），或者在源码仓库里跑开发环境。
+
+### 装一个能用的
+
+一行命令装好 oma 和整套后端 + Web：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | sh
+```
+
+脚本按顺序做三件事：装 [Bun](https://bun.sh)（缺了才装）、装 `@chengchenccc/oh-my-agent`、把栈产物下到 `~/.oma/stack/`。它不会替你启动服务。
+
+启动：
+
+```bash
+oma --up
+```
+
+它把地址和登录口令一起打印出来，浏览器打开 `http://127.0.0.1:3001/login` 即可。口令存在 `~/.oma/stack-secrets.json`（权限 0600），`oma --stack-status` 也能随时查。服务只绑 `127.0.0.1`，不上局域网。
+
+不想用脚本就手动装：
+
+```bash
+bun add -g @chengchenccc/oh-my-agent
+oma --stack-fetch   # 下载并校验栈产物；装包时的 postinstall 已尝试过一次
+oma --up
+```
+
+日常会用到的三条命令：
+
+| 命令 | 做什么 |
+|---|---|
+| `oma --up` | 前台起整个栈，Ctrl-C 时按依赖逆序优雅收掉 |
+| `oma --stack-status` | 装了哪个版本、当前跑没跑、登录口令 |
+| `oma --stack-fetch` | 只下载校验产物，幂等；删掉版本目录可强制重下 |
+
+产物和状态分开落盘，升级换代码不动数据：
+
+```
+~/.oma/stack/versions/<版本>/   代码：backend bundle、drizzle 迁移、资源、web
+~/.oma/stack-data/              数据：SQLite、Agent 工作区、workflow
+~/.oma/stack-secrets.json       登录口令与后端 token
+```
+
+**依赖：** `bun`、`tar`、`zstd`。模型 Key 按下面「配置模型 Provider」给（`ANTHROPIC_API_KEY` 等），`oma --up` 会把当前环境透传给后端。
+
+装好的 oma 单独用也没问题：直接敲 `oma` 开 TUI，`oma -p "..."` 跑一次性问答。
+
+> 一行命令默认装 npm 上的 `latest`，需要一个自带 `oma --up` 的版本（0.2.0 起）。如果 `oma --up` 报未知选项，说明装到的是更早的版本，先用下面的源码方式。
+
+### 从源码跑（开发）
+
 **前置条件：** [Bun](https://bun.sh) >= 1.3
 
 ```bash
@@ -104,7 +156,7 @@ providers:
 
 详细架构见 [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)（执行链、分层、不变量）。
 
-> **Oma 启动方式**：开发环境 `bun run dev` 开箱即用，Backend 自动用 Bun 运行 `apps/oh-my-agent/src/cli.ts`，无需全局安装或 `bun link`。生产环境通过 `OMA_BIN` 指向构建后的 `apps/oh-my-agent/dist/cli.js` 绝对路径（详见 `apps/backend/.env.example`）。
+> **Oma 启动方式**：`oma --up` 会把 `OMA_BIN` 指向自己的可执行文件，Backend 每个 Run 用它 spawn `oma --mode rpc`，不用手工配。源码开发时 `bun run dev` 直接跑 `apps/oh-my-agent/src/cli.ts`。只有手工部署（不用 `oma --up`）才需要自己把 `OMA_BIN` 指到 `apps/oh-my-agent/dist/cli.js` 绝对路径（详见 `apps/backend/.env.example`）。
 > **npm 包**：`@chengchenccc/oh-my-agent` —— [https://www.npmjs.com/package/@chengchenccc/oh-my-agent](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
 
 ## 🔐 安全模型（单操作员）
