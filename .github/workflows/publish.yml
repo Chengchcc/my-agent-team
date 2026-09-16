@@ -10,7 +10,7 @@ on:
 permissions:
   contents: write # tag + GitHub Release notes generation
   id-token: write # npm provenance via GitHub OIDC — no long-lived NPM_TOKEN
-  attestations: write # build provenance for the stack artifact
+  attestations: write # build provenance for the gateway artifact
 
 jobs:
   publish:
@@ -100,18 +100,18 @@ jobs:
             echo ">>> publishing $p"
             (cd "$p" && npm publish --access public --tag "$DIST_TAG")
           done
-      - name: Pack the stack artifact
-        run: bash scripts/pack-stack.sh --version "${GITHUB_REF_NAME#v}" --out dist-stack
+      - name: Pack the gateway artifact
+        run: bash scripts/pack-gateway.sh --version "${GITHUB_REF_NAME#v}" --out dist-gateway
 
       - name: Attest the artifact provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist-stack/oma-stack-*.tar.zst
+          subject-path: dist-gateway/oma-gateway-*.tar.zst
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            dist-stack/oma-stack-*.tar.zst
-            dist-stack/SHA256SUMS
+            dist-gateway/oma-gateway-*.tar.zst
+            dist-gateway/SHA256SUMS

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# pack-stack.sh — build the shippable oma stack artifact (backend + web).
+# pack-gateway.sh — build the shippable oma gateway artifact (backend + web).
 #
 # This is the single source of truth for the artifact layout, used by both
 # .github/workflows/artifact-probe.yml (verify it boots) and publish.yml
 # (attach it to the tag's release). Two copies of this logic would drift.
 #
 # Layout inside the tarball:
-#   stack.json                 — manifest oma reads (components/ports/runtime)
+#   gateway.json                 — manifest oma reads (components/ports/runtime)
 #   backend/main.js            — backend bundled to one platform-independent file
 #   backend/drizzle/backend/   — drizzle migrations (a bundled entry cannot
 #                                resolve the source-relative path, so the
@@ -16,7 +16,7 @@
 #   web/apps/web/public/monaco/vs — self-hosted editor assets (gitignored, so
 #                                they are NOT in a checkout and must be added)
 #
-# Usage: bash scripts/pack-stack.sh [--version V] [--out DIR]
+# Usage: bash scripts/pack-gateway.sh [--version V] [--out DIR]
 #        Run it AFTER `bun run build`: the backend bundle inlines workspace
 #        packages from their dist/ output, so a stale dist ships stale behaviour.
 # Env:   STACK_ROOT — repo root override (test seam; defaults to this script's ..)
@@ -25,7 +25,7 @@ set -euo pipefail
 
 ROOT="${STACK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 VERSION=""
-OUT="$ROOT/dist-stack"
+OUT="$ROOT/dist-gateway"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
     --out) OUT="${2:?--out needs a value}"; shift 2 ;;
     --out=*) OUT="${1#*=}"; shift ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
-    *) echo "pack-stack: unknown argument: $1" >&2; exit 2 ;;
+    *) echo "pack-gateway: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
@@ -43,13 +43,13 @@ if [ -z "$VERSION" ]; then
 fi
 
 WEB="$ROOT/apps/web"
-die() { echo "pack-stack: FAIL — $*" >&2; exit 1; }
+die() { echo "pack-gateway: FAIL — $*" >&2; exit 1; }
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 # ── backend: one file + migrations + the child MCP entry ──────────
-echo "pack-stack: bundling backend"
+echo "pack-gateway: bundling backend"
 ( cd "$ROOT" && bun build apps/backend/src/main.ts --target=bun --outfile="$STAGE/backend/main.js" )
 # Spawned per agent workspace as `bun <entry>` (process.execPath + args), so it
 # needs its own bundle; the manifest points KNOWLEDGE_MCP_SERVER_BIN at it.
@@ -61,21 +61,21 @@ cp -r "$ROOT/apps/backend/drizzle/." "$STAGE/backend/drizzle/"
 # These are repo-relative paths in source (skills/, knowledge-packs/, the
 # workflow showcase). A bundle cannot resolve them, so they ship next to it and
 # BACKEND_RESOURCES_DIR points at this directory.
-echo "pack-stack: staging resources"
+echo "pack-gateway: staging resources"
 mkdir -p "$STAGE/resources/workflow-showcase"
 cp -r "$ROOT/skills/." "$STAGE/resources/skills/"
 cp -r "$ROOT/knowledge-packs/." "$STAGE/resources/knowledge-packs/"
 cp -r "$ROOT/apps/backend/src/features/workflow/showcase/." "$STAGE/resources/workflow-showcase/"
 
 # ── web: standalone tree + static + self-hosted monaco ────────────
-echo "pack-stack: assembling web payload"
+echo "pack-gateway: assembling web payload"
 STANDALONE="$(find "$WEB/.next" -maxdepth 6 -type d -name standalone -print -quit 2>/dev/null || true)"
 [ -n "$STANDALONE" ] || die "no .next/standalone — build web with output: standalone first"
 SERVER="$(find "$STANDALONE" -maxdepth 5 -name server.js -print -quit)"
 [ -n "$SERVER" ] || die "no server.js under $STANDALONE"
 APPDIR="$(dirname "$SERVER")"
 APPREL="${APPDIR#"$STANDALONE"/}"
-echo "pack-stack: standalone entry = $APPREL/server.js"
+echo "pack-gateway: standalone entry = $APPREL/server.js"
 
 mkdir -p "$STAGE/web"
 cp -r "$STANDALONE/." "$STAGE/web/"
@@ -94,7 +94,7 @@ mkdir -p "$STAGE/web/$APPREL/public/monaco"
 cp -r "$MONACO" "$STAGE/web/$APPREL/public/monaco/vs"
 
 # ── manifest (the contract oma consumes) ──────────────────────────
-cat > "$STAGE/stack.json" <<JSON
+cat > "$STAGE/gateway.json" <<JSON
 {
   "schemaVersion": 1,
   "name": "my-agent-team",
@@ -141,7 +141,7 @@ cat > "$STAGE/stack.json" <<JSON
 JSON
 
 # ── fail-closed checks ────────────────────────────────────────────
-echo "pack-stack: checks"
+echo "pack-gateway: checks"
 [ -s "$STAGE/backend/main.js" ] || die "backend bundle is empty"
 [ -s "$STAGE/backend/knowledge-mcp.js" ] || die "knowledge MCP bundle missing"
 [ -f "$STAGE/backend/drizzle/backend/meta/_journal.json" ] || die "migrations journal missing"
@@ -156,23 +156,23 @@ NATIVE="$(find "$STAGE" \( -name '*.node' -o -name '*.so*' \) -print -quit)"
 CACHE="$(find "$STAGE" -maxdepth 6 -type d -name cache -path '*/.next/*' -print -quit)"
 [ -z "$CACHE" ] || die "build cache leaked in: $CACHE"
 
-bun -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$STAGE/stack.json" \
-  || die "stack.json is not valid JSON"
-echo "pack-stack: ok — no natives, no build cache, manifest valid"
+bun -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$STAGE/gateway.json" \
+  || die "gateway.json is not valid JSON"
+echo "pack-gateway: ok — no natives, no build cache, manifest valid"
 
 # ── package ───────────────────────────────────────────────────────
 mkdir -p "$OUT"
-TAR="$OUT/oma-stack-$VERSION.tar.zst"
+TAR="$OUT/oma-gateway-$VERSION.tar.zst"
 tar --zstd -cf "$TAR" -C "$STAGE" .
 ( cd "$OUT" && sha256sum "$(basename "$TAR")" > SHA256SUMS )
 
 RAW=$(du -sb "$STAGE" | cut -f1)
 PACKED=$(stat -c %s "$TAR")
-echo "pack-stack: $TAR — $(numfmt --to=iec "$RAW") raw -> $(numfmt --to=iec "$PACKED") packed"
+echo "pack-gateway: $TAR — $(numfmt --to=iec "$RAW") raw -> $(numfmt --to=iec "$PACKED") packed"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
-    echo "## oma stack artifact $VERSION"
+    echo "## oma gateway artifact $VERSION"
     echo
     echo "| part | size |"
     echo "|---|---|"
@@ -187,4 +187,4 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
-echo "pack-stack: done"
+echo "pack-gateway: done"

@@ -1,64 +1,66 @@
 import { describe, expect, test } from "bun:test";
 import {
   componentDir,
-  parseStackManifest,
+  GatewayManifestError,
+  parseGatewayManifest,
   resolveComponentEnv,
   resolvePlaceholders,
-  StackManifestError,
   startupOrder,
 } from "./manifest.js";
 
 const minimal = {
   schemaVersion: 1,
-  name: "test-stack",
+  name: "test-gateway",
   version: "1.2.3",
   components: [{ name: "backend", runtime: "bun", cwd: "backend", entry: "main.js" }],
 };
 
-describe("parseStackManifest", () => {
+describe("parseGatewayManifest", () => {
   test("accepts a minimal manifest and defaults the optional arrays", () => {
-    const manifest = parseStackManifest(minimal);
+    const manifest = parseGatewayManifest(minimal);
     expect(manifest.components[0]?.secrets).toEqual([]);
     expect(manifest.components[0]?.env).toEqual({});
     expect(manifest.components[0]?.runtime).toBe("bun");
   });
 
   test("rejects an unknown schemaVersion instead of guessing", () => {
-    expect(() => parseStackManifest({ ...minimal, schemaVersion: 2 })).toThrow(StackManifestError);
+    expect(() => parseGatewayManifest({ ...minimal, schemaVersion: 2 })).toThrow(
+      GatewayManifestError,
+    );
   });
 
   test("rejects a component without an entry", () => {
     expect(() =>
-      parseStackManifest({
+      parseGatewayManifest({
         ...minimal,
         components: [{ name: "backend", runtime: "bun", cwd: "backend" }],
       }),
-    ).toThrow(StackManifestError);
+    ).toThrow(GatewayManifestError);
   });
 });
 
 describe("placeholders", () => {
   const ctx = {
-    root: "/opt/stack",
-    dataDir: "/home/u/.oma/stack-data",
+    root: "/opt/gateway",
+    dataDir: "/home/u/.oma/gateway-data",
     omaBin: "/usr/local/bin/oma",
     secrets: { BACKEND_AUTH_TOKEN: "s3cret" },
   };
 
   test("resolves root, dataDir, omaBin and secrets", () => {
-    expect(resolvePlaceholders("{root}/backend/main.js", ctx)).toBe("/opt/stack/backend/main.js");
-    expect(resolvePlaceholders("{dataDir}/backend", ctx)).toBe("/home/u/.oma/stack-data/backend");
+    expect(resolvePlaceholders("{root}/backend/main.js", ctx)).toBe("/opt/gateway/backend/main.js");
+    expect(resolvePlaceholders("{dataDir}/backend", ctx)).toBe("/home/u/.oma/gateway-data/backend");
     expect(resolvePlaceholders("{omaBin}", ctx)).toBe("/usr/local/bin/oma");
     expect(resolvePlaceholders("{secret:BACKEND_AUTH_TOKEN}", ctx)).toBe("s3cret");
   });
 
   test("throws on an unknown placeholder or a missing secret", () => {
-    expect(() => resolvePlaceholders("{nope}", ctx)).toThrow(StackManifestError);
-    expect(() => resolvePlaceholders("{secret:MISSING}", ctx)).toThrow(StackManifestError);
+    expect(() => resolvePlaceholders("{nope}", ctx)).toThrow(GatewayManifestError);
+    expect(() => resolvePlaceholders("{secret:MISSING}", ctx)).toThrow(GatewayManifestError);
   });
 
   test("resolves every env value of a component", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       ...minimal,
       components: [
         {
@@ -76,7 +78,7 @@ describe("placeholders", () => {
     });
     const env = resolveComponentEnv(manifest.components[0]!, ctx);
     expect(env).toEqual({
-      BACKEND_DATA_DIR: "/home/u/.oma/stack-data/backend",
+      BACKEND_DATA_DIR: "/home/u/.oma/gateway-data/backend",
       OMA_BIN: "/usr/local/bin/oma",
       BACKEND_AUTH_TOKEN: "s3cret",
     });
@@ -94,15 +96,15 @@ describe("placeholders", () => {
           secrets: [],
           dependsOn: [],
         },
-        "/opt/stack",
+        "/opt/gateway",
       ),
-    ).toBe("/opt/stack/web/apps/web");
+    ).toBe("/opt/gateway/web/apps/web");
   });
 });
 
 describe("startupOrder", () => {
   test("starts dependencies before dependents, keeping declaration order", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       ...minimal,
       components: [
         { name: "web", runtime: "bun", cwd: "web", entry: "server.js", dependsOn: ["backend"] },
@@ -114,20 +116,20 @@ describe("startupOrder", () => {
   });
 
   test("rejects a dependency cycle", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       ...minimal,
       components: [
         { name: "a", runtime: "bun", cwd: "a", entry: "m.js", dependsOn: ["b"] },
         { name: "b", runtime: "bun", cwd: "b", entry: "m.js", dependsOn: ["a"] },
       ],
     });
-    expect(() => startupOrder(manifest)).toThrow(StackManifestError);
+    expect(() => startupOrder(manifest)).toThrow(GatewayManifestError);
   });
 });
 
 describe("declared secrets", () => {
   test("a component that declares a secret gets it injected under its own name", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       schemaVersion: 1,
       name: "t",
       version: "1.0.0",
@@ -151,7 +153,7 @@ describe("declared secrets", () => {
   });
 
   test("an explicit env entry wins over the injected secret", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       schemaVersion: 1,
       name: "t",
       version: "1.0.0",
@@ -176,7 +178,7 @@ describe("declared secrets", () => {
   });
 
   test("a declared secret the launcher does not have is a manifest error", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       schemaVersion: 1,
       name: "t",
       version: "1.0.0",
@@ -191,6 +193,6 @@ describe("declared secrets", () => {
         omaBin: "/bin/oma",
         secrets: {},
       }),
-    ).toThrow(StackManifestError);
+    ).toThrow(GatewayManifestError);
   });
 });

@@ -1,6 +1,6 @@
 name: Artifact probe
 
-# Acceptance test for the shippable stack: build → pack (scripts/pack-stack.sh)
+# Acceptance test for the shippable gateway: build → pack (scripts/pack-gateway.sh)
 # → boot both halves from the unpacked tarball → assert the product answers.
 # It also answers the two questions the artifact plan rests on: the payload size
 # /platform-independence and whether the standalone server runs on Bun.
@@ -34,22 +34,22 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Pack the stack artifact
-        run: bash scripts/pack-stack.sh --version "probe-${GITHUB_SHA::7}" --out /tmp/dist
+      - name: Pack the gateway artifact
+        run: bash scripts/pack-gateway.sh --version "probe-${GITHUB_SHA::7}" --out /tmp/dist
 
       - name: Unpack and check the manifest contract
         run: |
           set -euo pipefail
-          mkdir -p /tmp/stack
-          tar --zstd -xf /tmp/dist/oma-stack-*.tar.zst -C /tmp/stack
+          mkdir -p /tmp/gateway
+          tar --zstd -xf /tmp/dist/oma-gateway-*.tar.zst -C /tmp/gateway
           echo "=== payload top level ==="
-          du -sh /tmp/stack/* | sort -h
-          # stack.json is the contract a launcher consumes: every path it names
+          du -sh /tmp/gateway/* | sort -h
+          # gateway.json is the contract a launcher consumes: every path it names
           # must exist in the tarball, or the artifact ships broken.
           bun -e '
             const fs = require("fs"), path = require("path");
-            const root = "/tmp/stack";
-            const m = JSON.parse(fs.readFileSync(path.join(root, "stack.json"), "utf8"));
+            const root = "/tmp/gateway";
+            const m = JSON.parse(fs.readFileSync(path.join(root, "gateway.json"), "utf8"));
             for (const c of m.components) {
               const entry = path.join(root, c.cwd, c.entry);
               if (!fs.existsSync(entry)) throw new Error(`missing entry for ${c.name}: ${entry}`);
@@ -61,12 +61,12 @@ jobs:
             }
             console.log("manifest ok:", m.components.map((c) => `${c.name}:${c.port}`).join(", "));
           '
-          echo "| payload (unpacked) | $(du -sh /tmp/stack | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| payload (unpacked) | $(du -sh /tmp/gateway | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Boot both halves from the artifact
         run: |
           set -euo pipefail
-          mkdir -p /tmp/stack-data/backend
+          mkdir -p /tmp/gateway-data/backend
           export BACKEND_AUTH_TOKEN=probe-token
           # Mock model: the agent Run below must exercise the real call path
           # without a key or quota.
@@ -74,17 +74,17 @@ jobs:
           for _ in $(seq 1 20); do grep -q "listening" /tmp/mock.log && break; sleep 0.5; done
           # Backend half. OMA_BIN is what the real launcher fills with its own
           # executable; here the repo's built CLI stands in.
-          ( cd /tmp/stack/backend && \
-            BACKEND_DATA_DIR=/tmp/stack-data/backend \
-            BACKEND_MIGRATIONS_DIR=/tmp/stack/backend/drizzle/backend \
-            BACKEND_RESOURCES_DIR=/tmp/stack/resources \
-            KNOWLEDGE_MCP_SERVER_BIN=/tmp/stack/backend/knowledge-mcp.js \
+          ( cd /tmp/gateway/backend && \
+            BACKEND_DATA_DIR=/tmp/gateway-data/backend \
+            BACKEND_MIGRATIONS_DIR=/tmp/gateway/backend/drizzle/backend \
+            BACKEND_RESOURCES_DIR=/tmp/gateway/resources \
+            KNOWLEDGE_MCP_SERVER_BIN=/tmp/gateway/backend/knowledge-mcp.js \
             OMA_BIN="$GITHUB_WORKSPACE/apps/oh-my-agent/dist/cli.js" \
             ANTHROPIC_AUTH_TOKEN=mock-key \
             ANTHROPIC_BASE_URL=http://127.0.0.1:8099/v1 \
             bun main.js > /tmp/backend.log 2>&1 & )
           # Web half: the standalone entry must be run from its app directory.
-          ( cd /tmp/stack/web/apps/web && \
+          ( cd /tmp/gateway/web/apps/web && \
             BACKEND_URL=http://127.0.0.1:3000 \
             BACKEND_AUTH_TOKEN="$BACKEND_AUTH_TOKEN" \
             SESSION_SECRET=probe-session-secret \
@@ -195,8 +195,8 @@ jobs:
       - name: Upload the artifact
         uses: actions/upload-artifact@v4
         with:
-          name: oma-stack-probe
+          name: oma-gateway-probe
           path: |
-            /tmp/dist/oma-stack-*.tar.zst
+            /tmp/dist/oma-gateway-*.tar.zst
             /tmp/dist/SHA256SUMS
           retention-days: 5

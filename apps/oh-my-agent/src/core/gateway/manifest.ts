@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
-/** One deployable process inside the stack artifact (see scripts/pack-stack.sh,
+/** One deployable process inside the gateway artifact (see scripts/pack-gateway.sh,
  *  which writes the manifest). */
-export const stackComponentSchema = z.object({
+export const gatewayComponentSchema = z.object({
   name: z.string().min(1),
   /** Runtime that hosts the entry. "bun" is what the artifact ships. */
   runtime: z.enum(["bun", "node"]),
@@ -21,38 +21,38 @@ export const stackComponentSchema = z.object({
   secrets: z.array(z.string()).default([]),
   dependsOn: z.array(z.string()).default([]),
 });
-export type StackComponent = z.infer<typeof stackComponentSchema>;
+export type GatewayComponent = z.infer<typeof gatewayComponentSchema>;
 
-export const stackManifestSchema = z.object({
+export const gatewayManifestSchema = z.object({
   schemaVersion: z.literal(1),
   name: z.string().min(1),
   version: z.string().min(1),
-  components: z.array(stackComponentSchema).min(1),
+  components: z.array(gatewayComponentSchema).min(1),
 });
-export type StackManifest = z.infer<typeof stackManifestSchema>;
+export type GatewayManifest = z.infer<typeof gatewayManifestSchema>;
 
-export class StackManifestError extends Error {}
+export class GatewayManifestError extends Error {}
 
-export function parseStackManifest(raw: unknown): StackManifest {
-  const parsed = stackManifestSchema.safeParse(raw);
+export function parseGatewayManifest(raw: unknown): GatewayManifest {
+  const parsed = gatewayManifestSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new StackManifestError(
-      `invalid stack manifest: ${parsed.error.issues[0]?.message ?? "?"}`,
+    throw new GatewayManifestError(
+      `invalid gateway manifest: ${parsed.error.issues[0]?.message ?? "?"}`,
     );
   }
   return parsed.data;
 }
 
-export function readStackManifest(path: string): StackManifest {
+export function readGatewayManifest(path: string): GatewayManifest {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch (err: unknown) {
-    throw new StackManifestError(
+    throw new GatewayManifestError(
       `cannot read ${path}: ${err instanceof Error ? err.message : err}`,
     );
   }
-  return parseStackManifest(raw);
+  return parseGatewayManifest(raw);
 }
 
 export interface PlaceholderContext {
@@ -75,15 +75,15 @@ export function resolvePlaceholders(value: string, ctx: PlaceholderContext): str
     if (token.startsWith("secret:")) {
       const name = token.slice("secret:".length);
       const secret = ctx.secrets[name];
-      if (secret === undefined) throw new StackManifestError(`manifest wants secret ${name}`);
+      if (secret === undefined) throw new GatewayManifestError(`manifest wants secret ${name}`);
       return secret;
     }
-    throw new StackManifestError(`unknown placeholder {${token}}`);
+    throw new GatewayManifestError(`unknown placeholder {${token}}`);
   });
 }
 
 export function resolveComponentEnv(
-  component: StackComponent,
+  component: GatewayComponent,
   ctx: PlaceholderContext,
 ): Record<string, string> {
   const env: Record<string, string> = {};
@@ -93,7 +93,7 @@ export function resolveComponentEnv(
   for (const name of component.secrets) {
     const secret = ctx.secrets[name];
     if (secret === undefined) {
-      throw new StackManifestError(`component ${component.name} declares secret ${name}`);
+      throw new GatewayManifestError(`component ${component.name} declares secret ${name}`);
     }
     env[name] = secret;
   }
@@ -103,22 +103,22 @@ export function resolveComponentEnv(
   return env;
 }
 
-export function componentDir(component: StackComponent, root: string): string {
+export function componentDir(component: GatewayComponent, root: string): string {
   return `${root}/${component.cwd}`.replace(/\/+/g, "/");
 }
 
 /** Components in startup order: dependencies first, declaration order between
- *  independents (a topological sort would be overkill for a 2-process stack,
+ *  independents (a topological sort would be overkill for a 2-process gateway,
  *  but an explicit dependsOn must not be ignored). */
-export function startupOrder(manifest: StackManifest): StackComponent[] {
-  const ordered: StackComponent[] = [];
+export function startupOrder(manifest: GatewayManifest): GatewayComponent[] {
+  const ordered: GatewayComponent[] = [];
   const remaining = [...manifest.components];
   while (remaining.length > 0) {
     const ready = remaining.filter((c) =>
       c.dependsOn.every((dep) => ordered.some((o) => o.name === dep)),
     );
     if (ready.length === 0) {
-      throw new StackManifestError(
+      throw new GatewayManifestError(
         `circular dependsOn among: ${remaining.map((c) => c.name).join(", ")}`,
       );
     }

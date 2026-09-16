@@ -281,3 +281,37 @@ describe("--tools", () => {
     expect(() => parseArgs(["--tools=", "-p", "hi"])).toThrow(UsageError);
   });
 });
+
+describe("oma gateway <command>", () => {
+  test("parses every verb", () => {
+    expect(parseArgs(["gateway", "up"]).gateway).toBe("up");
+    expect(parseArgs(["gateway", "down"]).gateway).toBe("down");
+    expect(parseArgs(["gateway", "fetch"]).gateway).toBe("fetch");
+    expect(parseArgs(["gateway", "status"]).gateway).toBe("status");
+  });
+
+  test("up takes --detach/-d and a pinned artifact version", () => {
+    const args = parseArgs(["gateway", "up", "-d", "--version", "0.2.0"]);
+    expect(args.gateway).toBe("up");
+    expect(args.gatewayDetach).toBe(true);
+    expect(args.gatewayVersion).toBe("0.2.0");
+    expect(parseArgs(["gateway", "up", "--detach"]).gatewayDetach).toBe(true);
+  });
+
+  test("needs a command, and rejects commands and options it does not know", () => {
+    expect(() => parseArgs(["gateway"])).toThrow(UsageError);
+    expect(() => parseArgs(["gateway", "--version", "1.0.0"])).toThrow(UsageError);
+    expect(() => parseArgs(["gateway", "restart"])).toThrow(/unknown gateway command/);
+    expect(() => parseArgs(["gateway", "up", "--nope"])).toThrow(/unknown gateway option/);
+    expect(() => parseArgs(["gateway", "up", "--version"])).toThrow(UsageError);
+  });
+
+  test("'gateway' is reserved only as the first word, and -p still escapes it", () => {
+    // Further in, it is just a word in a prompt.
+    expect(parseArgs(["explain", "gateway", "up"]).prompt).toBe("explain gateway up");
+    // And the documented escape hatch keeps it usable as a prompt.
+    const escaped = parseArgs(["-p", "gateway up"]);
+    expect(escaped.prompt).toBe("gateway up");
+    expect(escaped.gateway).toBeUndefined();
+  });
+});

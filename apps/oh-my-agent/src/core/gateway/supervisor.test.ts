@@ -2,18 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { parseStackManifest, type StackComponent } from "./manifest.js";
-import { resolveOmaBin, StackStartError, startStack } from "./supervisor.js";
+import { type GatewayComponent, parseGatewayManifest } from "./manifest.js";
+import { GatewayStartError, resolveOmaBin, startGateway } from "./supervisor.js";
 
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
 function writeStack(components: unknown[], files: Record<string, string>): string {
-  const root = tempDir("oma-stack-");
+  const root = tempDir("oma-gateway-");
   writeFileSync(
-    join(root, "stack.json"),
-    JSON.stringify({ schemaVersion: 1, name: "test-stack", version: "1.0.0", components }),
+    join(root, "gateway.json"),
+    JSON.stringify({ schemaVersion: 1, name: "test-gateway", version: "1.0.0", components }),
   );
   for (const [rel, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, rel)), { recursive: true });
@@ -42,7 +42,7 @@ async function fetchFails(url: string): Promise<boolean> {
   return false;
 }
 
-describe("startStack", () => {
+describe("startGateway", () => {
   test("gates on health, prefixes child logs, and stops what it started", async () => {
     const port = freePort();
     const root = writeStack(
@@ -65,7 +65,7 @@ describe("startStack", () => {
     const home = tempDir("oma-home-");
     const logs: string[] = [];
     try {
-      const handle = await startStack({
+      const handle = await startGateway({
         dir: root,
         home,
         log: (line) => logs.push(line),
@@ -90,13 +90,13 @@ describe("startStack", () => {
     }
   }, 30_000);
 
-  test("a component that dies on its own settles the stack with its code", async () => {
+  test("a component that dies on its own settles the gateway with its code", async () => {
     const root = writeStack([{ name: "beta", runtime: "bun", cwd: "svc", entry: "beta.js" }], {
       "svc/beta.js": 'console.log("beta up");\nsetTimeout(() => process.exit(3), 200);\n',
     });
     const home = tempDir("oma-home-");
     try {
-      const handle = await startStack({ dir: root, home, log: () => {} });
+      const handle = await startGateway({ dir: root, home, log: () => {} });
       const code = await Promise.race([
         handle.done,
         new Promise<number>((r) => {
@@ -114,7 +114,9 @@ describe("startStack", () => {
     const root = tempDir("oma-empty-");
     const home = tempDir("oma-home-");
     try {
-      await expect(startStack({ dir: root, home, log: () => {} })).rejects.toThrow(StackStartError);
+      await expect(startGateway({ dir: root, home, log: () => {} })).rejects.toThrow(
+        GatewayStartError,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
@@ -134,13 +136,13 @@ describe("resolveOmaBin", () => {
 
 describe("component parsing used by the supervisor", () => {
   test("a component without dependsOn is standalone", () => {
-    const manifest = parseStackManifest({
+    const manifest = parseGatewayManifest({
       schemaVersion: 1,
       name: "t",
       version: "1.0.0",
       components: [{ name: "a", runtime: "bun", cwd: "a", entry: "m.js" }],
     });
-    const component: StackComponent = manifest.components[0]!;
+    const component: GatewayComponent = manifest.components[0]!;
     expect(component.dependsOn).toEqual([]);
   });
 });

@@ -1,16 +1,16 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { currentVersion, ensureSecrets, omaHome, omaVersion, stackPaths } from "./install.js";
+import { currentVersion, ensureSecrets, gatewayPaths, omaHome, omaVersion } from "./artifact.js";
 import {
   componentDir,
-  readStackManifest,
+  type GatewayComponent,
+  type GatewayManifest,
+  readGatewayManifest,
   resolveComponentEnv,
-  type StackComponent,
-  type StackManifest,
   startupOrder,
 } from "./manifest.js";
 
-export class StackStartError extends Error {}
+export class GatewayStartError extends Error {}
 
 type Piped = Bun.Subprocess<"ignore", "pipe", "pipe">;
 
@@ -32,14 +32,14 @@ export function resolveOmaBin(): string {
       // not executable — try the next candidate
     }
   }
-  throw new StackStartError(
+  throw new GatewayStartError(
     `no executable oma entry found (tried ${candidates.join(", ")}) — install oma, or run 'bun run build' first`,
   );
 }
 
 /** Secret names the launcher must generate: the ones a component declares plus
  *  every {secret:NAME} its env mentions. */
-function requiredSecrets(manifest: StackManifest): string[] {
+function requiredSecrets(manifest: GatewayManifest): string[] {
   const names = new Set<string>();
   for (const component of manifest.components) {
     for (const name of component.secrets) names.add(name);
@@ -52,7 +52,7 @@ function requiredSecrets(manifest: StackManifest): string[] {
   return [...names].sort();
 }
 
-export interface UpOptions {
+export interface GatewayRunOptions {
   home?: string;
   /** Version to run; defaults to the recorded current version, then oma's own. */
   version?: string;
@@ -62,14 +62,14 @@ export interface UpOptions {
   log?: (line: string) => void;
   healthTimeoutMs?: number;
   pollIntervalMs?: number;
-  /** Stops the stack (tests); production wiring uses process signals. */
+  /** Stops the gateway (tests); production wiring uses process signals. */
   signal?: AbortSignal;
   /** Called once every component is up, before waiting (the CLI prints URLs). */
-  onReady?: (handle: StackHandle) => void;
+  onReady?: (handle: GatewayHandle) => void;
 }
 
-export interface StackHandle {
-  manifest: StackManifest;
+export interface GatewayHandle {
+  manifest: GatewayManifest;
   dir: string;
   secrets: Record<string, string>;
   /** Idempotent: SIGTERM everyone in reverse start order, then SIGKILL. */
@@ -80,28 +80,27 @@ export interface StackHandle {
 
 /** Start every component in the manifest, gate on health, stream prefixed logs
  *  and keep the whole tree in step. */
-export async function startStack(opts: UpOptions = {}): Promise<StackHandle> {
+export async function startGateway(opts: GatewayRunOptions = {}): Promise<GatewayHandle> {
   const home = opts.home ?? omaHome();
-  const paths = stackPaths(home);
+  const paths = gatewayPaths(home);
   const log = opts.log ?? (() => {});
-  let version = opts.version ?? process.env.OMA_STACK_VERSION;
-  if (!version) version = currentVersion(home);
-  if (!version) version = omaVersion();
+  const requested = opts.version ?? process.env.OMA_GATEWAY_VERSION;
+  const version = requested ?? currentVersion(home) ?? omaVersion();
   const dir = opts.dir ?? join(paths.versions, version);
-  const manifestPath = join(dir, "stack.json");
+  const manifestPath = join(dir, "gateway.json");
   if (!existsSync(manifestPath)) {
-    throw new StackStartError(
-      `no stack at ${dir} — run 'oma --stack-fetch' first (or 'oma --stack-status')`,
+    throw new GatewayStartError(
+      `no gateway at ${dir} — run 'oma gateway fetch' first (or 'oma gateway status')`,
     );
   }
-  const manifest = readStackManifest(manifestPath);
+  const manifest = readGatewayManifest(manifestPath);
 
   const secrets = await ensureSecrets(home, requiredSecrets(manifest));
   const omaBin = resolveOmaBin();
   const bunPath = opts.bunPath ?? process.execPath;
 
   const order = startupOrder(manifest);
-  const running: { component: StackComponent; proc: Piped }[] = [];
+  const running: { component: GatewayComponent; proc: Piped }[] = [];
   const prefix = (name: string, line: string): void => log(`[${name}] ${line}`);
 
   async function pump(name: string, stream: ReadableStream<Uint8Array> | undefined): Promise<void> {
@@ -160,7 +159,7 @@ export async function startStack(opts: UpOptions = {}): Promise<StackHandle> {
         }
       }
     }
-    // Whether the stack was stopped explicitly or a child died, done must
+    // Whether the gateway was stopped explicitly or a child died, done must
     // settle — that is the only thing a caller can wait on.
     settle(exitCode);
   }
@@ -189,7 +188,7 @@ export async function startStack(opts: UpOptions = {}): Promise<StackHandle> {
       void pump(component.name, proc.stderr);
       void proc.exited.then((code) => {
         if (!stopRequested) {
-          log(`${component.name} exited with ${code} — shutting the stack down`);
+          log(`${component.name} exited with ${code} — shutting the gateway down`);
           void stop(code);
         }
       });
@@ -215,7 +214,7 @@ export async function startStack(opts: UpOptions = {}): Promise<StackHandle> {
           });
         }
         if (!healthy) {
-          throw new StackStartError(`${component.name} never became healthy at ${url}`);
+          throw new GatewayStartError(`${component.name} never became healthy at ${url}`);
         }
         log(`${component.name} healthy at ${url}`);
       }
@@ -237,15 +236,15 @@ export async function startStack(opts: UpOptions = {}): Promise<StackHandle> {
 }
 
 /** Run until a signal or a component dies. Returns the exit code. This is the
- *  only entry point that owns process signals: a stack started without them
+ *  only entry point that owns process signals: a gateway started without them
  *  would be orphaned on Ctrl-C. */
-export async function upStack(opts: UpOptions = {}): Promise<number> {
+export async function runGateway(opts: GatewayRunOptions = {}): Promise<number> {
   const controller = new AbortController();
   const onSignal = (): void => controller.abort();
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
   try {
-    const handle = await startStack({ ...opts, signal: controller.signal });
+    const handle = await startGateway({ ...opts, signal: controller.signal });
     opts.onReady?.(handle);
     return await handle.done;
   } finally {

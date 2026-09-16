@@ -2,9 +2,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { readStackManifest, type StackManifest } from "./manifest.js";
+import { type GatewayManifest, readGatewayManifest } from "./manifest.js";
 
-export class StackInstallError extends Error {}
+export class GatewayArtifactError extends Error {}
 
 export const DEFAULT_STACK_REPO = "Chengchcc/my-agent-team";
 
@@ -17,11 +17,11 @@ export function omaHome(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /** The launcher's on-disk layout, in one place: code lives under
- *  stack/versions/<version>/, state under stack-data/ so an upgrade that swaps
+ *  gateway/versions/<version>/, state under gateway-data/ so an upgrade that swaps
  *  code keeps databases, workspaces and workflows. */
-export interface StackPaths {
+export interface GatewayPaths {
   home: string;
-  stack: string;
+  root: string;
   versions: string;
   /** Text file naming the active version. */
   current: string;
@@ -29,15 +29,15 @@ export interface StackPaths {
   secrets: string;
 }
 
-export function stackPaths(home: string = omaHome()): StackPaths {
-  const stack = join(home, "stack");
+export function gatewayPaths(home: string = omaHome()): GatewayPaths {
+  const root = join(home, "gateway");
   return {
     home,
-    stack,
-    versions: join(stack, "versions"),
-    current: join(stack, "current"),
-    data: join(home, "stack-data"),
-    secrets: join(home, "stack-secrets.json"),
+    root,
+    versions: join(root, "versions"),
+    current: join(root, "current"),
+    data: join(home, "gateway-data"),
+    secrets: join(home, "gateway-secrets.json"),
   };
 }
 
@@ -50,7 +50,7 @@ export function omaVersion(): string {
     const version: unknown = parsed.version;
     if (typeof version === "string") return version;
   }
-  throw new StackInstallError(`no version found in ${pkgPath}`);
+  throw new GatewayArtifactError(`no version found in ${pkgPath}`);
 }
 
 export interface ReleaseLocation {
@@ -59,16 +59,16 @@ export interface ReleaseLocation {
 }
 
 /** Where a version's artifact lives. GitHub releases by default; a mirror (or a
- *  local test server) via OMA_STACK_BASE_URL, which must serve the same paths. */
+ *  local test server) via OMA_GATEWAY_BASE_URL, which must serve the same paths. */
 export function releaseLocation(
   version: string,
   env: NodeJS.ProcessEnv = process.env,
 ): ReleaseLocation {
-  const repo = env.OMA_STACK_REPO ?? DEFAULT_STACK_REPO;
+  const repo = env.OMA_GATEWAY_REPO ?? DEFAULT_STACK_REPO;
   const base = (
-    env.OMA_STACK_BASE_URL ?? `https://github.com/${repo}/releases/download/v${version}`
+    env.OMA_GATEWAY_BASE_URL ?? `https://github.com/${repo}/releases/download/v${version}`
   ).replace(/\/+$/, "");
-  return { tarball: `${base}/oma-stack-${version}.tar.zst`, sums: `${base}/SHA256SUMS` };
+  return { tarball: `${base}/oma-gateway-${version}.tar.zst`, sums: `${base}/SHA256SUMS` };
 }
 
 export async function sha256File(path: string): Promise<string> {
@@ -83,7 +83,7 @@ export function parseSums(sums: string, fileName: string): string {
     const match = /^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$/.exec(line.trim());
     if (match && match[2] === fileName) return (match[1] ?? "").toLowerCase();
   }
-  throw new StackInstallError(`SHA256SUMS has no entry for ${fileName}`);
+  throw new GatewayArtifactError(`SHA256SUMS has no entry for ${fileName}`);
 }
 
 async function download(url: string, dest: string): Promise<void> {
@@ -91,10 +91,12 @@ async function download(url: string, dest: string): Promise<void> {
   try {
     res = await fetch(url, { redirect: "follow" });
   } catch (err: unknown) {
-    throw new StackInstallError(`cannot reach ${url}: ${err instanceof Error ? err.message : err}`);
+    throw new GatewayArtifactError(
+      `cannot reach ${url}: ${err instanceof Error ? err.message : err}`,
+    );
   }
-  if (!res.ok) throw new StackInstallError(`${url} -> HTTP ${res.status}`);
-  if (!res.body) throw new StackInstallError(`${url} returned no body`);
+  if (!res.ok) throw new GatewayArtifactError(`${url} -> HTTP ${res.status}`);
+  if (!res.body) throw new GatewayArtifactError(`${url} returned no body`);
   // NOT `Bun.write(dest, res)`: on Bun 1.3.14 that hangs forever on a ~13MB
   // body (fetch returns 200 in 8ms, the write never lands). Streaming by hand
   // also keeps a 60MB artifact out of memory.
@@ -110,9 +112,9 @@ async function download(url: string, dest: string): Promise<void> {
 
 async function unpack(tarball: string, dest: string): Promise<void> {
   await mkdir(dest, { recursive: true });
-  if (!Bun.which("tar")) throw new StackInstallError("tar not found on PATH");
+  if (!Bun.which("tar")) throw new GatewayArtifactError("tar not found on PATH");
   if (!Bun.which("zstd")) {
-    throw new StackInstallError("zstd not found on PATH — the stack artifact is a .tar.zst");
+    throw new GatewayArtifactError("zstd not found on PATH — the gateway artifact is a .tar.zst");
   }
   const proc = Bun.spawn(["tar", "--zstd", "-xf", tarball, "-C", dest], {
     stdout: "ignore",
@@ -121,19 +123,19 @@ async function unpack(tarball: string, dest: string): Promise<void> {
   const code = await proc.exited;
   if (code !== 0) {
     const stderr = await new Response(proc.stderr).text();
-    throw new StackInstallError(`tar failed (exit ${code}): ${stderr.trim()}`);
+    throw new GatewayArtifactError(`tar failed (exit ${code}): ${stderr.trim()}`);
   }
 }
 
 /** Read the launcher's secrets without generating anything (status paths). */
 export function readSecrets(home: string): Record<string, string> {
-  const path = stackPaths(home).secrets;
+  const path = gatewayPaths(home).secrets;
   if (!existsSync(path)) return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    throw new StackInstallError(`${path} is not valid JSON — fix or delete it`);
+    throw new GatewayArtifactError(`${path} is not valid JSON — fix or delete it`);
   }
   const secrets: Record<string, string> = {};
   if (typeof parsed === "object" && parsed !== null) {
@@ -145,7 +147,7 @@ export function readSecrets(home: string): Record<string, string> {
 }
 
 /** Read the launcher's secrets, generating any missing one. 0600: they
- *  authenticate the local single-user stack. */
+ *  authenticate the local single-user gateway. */
 export async function ensureSecrets(
   home: string,
   names: readonly string[],
@@ -159,7 +161,7 @@ export async function ensureSecrets(
     generated = true;
   }
   if (generated) {
-    const path = stackPaths(home).secrets;
+    const path = gatewayPaths(home).secrets;
     await mkdir(home, { recursive: true });
     await writeFile(path, `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
     await chmod(path, 0o600);
@@ -178,48 +180,48 @@ export interface FetchResult {
   version: string;
   dir: string;
   downloaded: boolean;
-  manifest: StackManifest;
+  manifest: GatewayManifest;
   sha256?: string;
 }
 
-/** Download, verify and unpack one stack version. Idempotent: a version that is
+/** Download, verify and unpack one gateway version. Idempotent: a version that is
  *  already unpacked is reused (delete its directory to force a re-fetch). */
-export async function fetchStack(opts: FetchOptions = {}): Promise<FetchResult> {
+export async function fetchGatewayArtifact(opts: FetchOptions = {}): Promise<FetchResult> {
   const env = opts.env ?? process.env;
-  const paths = stackPaths(opts.home ?? omaHome(env));
+  const paths = gatewayPaths(opts.home ?? omaHome(env));
   const version = opts.version ?? omaVersion();
   const log = opts.log ?? (() => {});
   const dir = join(paths.versions, version);
-  const manifestPath = join(dir, "stack.json");
+  const manifestPath = join(dir, "gateway.json");
 
   if (existsSync(join(dir, INSTALL_MARKER)) && existsSync(manifestPath)) {
-    log(`stack ${version} already installed at ${dir}`);
-    return { version, dir, downloaded: false, manifest: readStackManifest(manifestPath) };
+    log(`gateway ${version} already installed at ${dir}`);
+    return { version, dir, downloaded: false, manifest: readGatewayManifest(manifestPath) };
   }
 
   const { tarball: tarballUrl, sums: sumsUrl } = releaseLocation(version, env);
   const tmp = join(paths.versions, `.tmp-${version}-${process.pid}`);
-  const tarball = join(tmp, `oma-stack-${version}.tar.zst`);
+  const tarball = join(tmp, `oma-gateway-${version}.tar.zst`);
   const unpacked = join(tmp, "unpacked");
   await mkdir(tmp, { recursive: true });
 
   try {
     log(`downloading ${tarballUrl}`);
     const sums = await fetch(sumsUrl, { redirect: "follow" });
-    if (!sums.ok) throw new StackInstallError(`${sumsUrl} -> HTTP ${sums.status}`);
-    const expected = parseSums(await sums.text(), `oma-stack-${version}.tar.zst`);
+    if (!sums.ok) throw new GatewayArtifactError(`${sumsUrl} -> HTTP ${sums.status}`);
+    const expected = parseSums(await sums.text(), `oma-gateway-${version}.tar.zst`);
 
     await download(tarballUrl, tarball);
     const actual = await sha256File(tarball);
     if (actual !== expected) {
-      throw new StackInstallError(
+      throw new GatewayArtifactError(
         `checksum mismatch for ${version}: expected ${expected.slice(0, 12)}…, got ${actual.slice(0, 12)}…`,
       );
     }
     log(`verified sha256 ${actual.slice(0, 12)}…`);
 
     await unpack(tarball, unpacked);
-    const manifest = readStackManifest(join(unpacked, "stack.json"));
+    const manifest = readGatewayManifest(join(unpacked, "gateway.json"));
 
     await rm(dir, { recursive: true, force: true });
     await mkdir(paths.versions, { recursive: true });
@@ -232,7 +234,7 @@ export async function fetchStack(opts: FetchOptions = {}): Promise<FetchResult> 
         2,
       )}\n`,
     );
-    await mkdir(paths.stack, { recursive: true });
+    await mkdir(paths.root, { recursive: true });
     await writeFile(paths.current, `${version}\n`);
     log(`installed ${version} at ${dir}`);
     return { version, dir, downloaded: true, manifest, sha256: actual };
@@ -242,7 +244,7 @@ export async function fetchStack(opts: FetchOptions = {}): Promise<FetchResult> 
 }
 
 export function installedVersions(home: string = omaHome()): string[] {
-  const dir = stackPaths(home).versions;
+  const dir = gatewayPaths(home).versions;
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((name) => !name.startsWith("."))
@@ -251,7 +253,7 @@ export function installedVersions(home: string = omaHome()): string[] {
 
 export function currentVersion(home: string = omaHome()): string | undefined {
   try {
-    const value = readFileSync(stackPaths(home).current, "utf8").trim();
+    const value = readFileSync(gatewayPaths(home).current, "utf8").trim();
     return value.length > 0 ? value : undefined;
   } catch {
     return undefined;

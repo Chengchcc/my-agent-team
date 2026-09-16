@@ -570,12 +570,15 @@ describe("tui session (headless, fake provider)", () => {
           .at(-1)!
           .runs.flatMap((r) => r.items.filter((i) => i.kind === "status"))
           .map((i) => i.text);
-      // The learn pass is background fire-and-forget: drain microtasks (the
-      // fake provider resolves without timers) until the result status lands.
+      // The learn pass is background fire-and-forget. Yield to timers and I/O,
+      // not just microtasks: on a loaded box the pass awaits real work, and a
+      // microtask-only spin can never advance it (that made this test flaky in
+      // the full suite while passing in isolation).
       let statuses = statusTexts();
-      for (let i = 0; i < 5_000; i++) {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
         if (statuses.some((t) => t !== "memory: learning…" && t.startsWith("memory: "))) break;
-        await Promise.resolve();
+        await Bun.sleep(5);
         statuses = statusTexts();
       }
       // omp AutoLearn-style indicator: the result replaces the in-flight

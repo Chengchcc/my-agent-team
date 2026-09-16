@@ -5,15 +5,15 @@ import { join } from "node:path";
 import {
   currentVersion,
   ensureSecrets,
-  fetchStack,
+  fetchGatewayArtifact,
+  GatewayArtifactError,
+  gatewayPaths,
   installedVersions,
   parseSums,
   readSecrets,
   releaseLocation,
-  StackInstallError,
   sha256File,
-  stackPaths,
-} from "./install.js";
+} from "./artifact.js";
 
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -21,7 +21,7 @@ function tempDir(prefix: string): string {
 
 const manifest = JSON.stringify({
   schemaVersion: 1,
-  name: "test-stack",
+  name: "test-gateway",
   version: "1.2.3",
   components: [{ name: "backend", runtime: "bun", cwd: "backend", entry: "main.js" }],
 });
@@ -33,17 +33,17 @@ async function serveRelease(
   opts: { corruptSums?: boolean } = {},
 ): Promise<{ baseUrl: string; close: () => void }> {
   const stage = tempDir("oma-stage-");
-  writeFileSync(join(stage, "stack.json"), manifest);
+  writeFileSync(join(stage, "gateway.json"), manifest);
   mkdirSync(join(stage, "backend"));
   writeFileSync(join(stage, "backend", "main.js"), 'console.log("backend");\n');
   // The tarball must live OUTSIDE the packed directory, or tar reports
   // "file changed as we read it".
   const artifactDir = tempDir("oma-artifact-");
-  const tarball = join(artifactDir, `oma-stack-${version}.tar.zst`);
+  const tarball = join(artifactDir, `oma-gateway-${version}.tar.zst`);
   const tar = Bun.spawnSync(["tar", "--zstd", "-cf", tarball, "-C", stage, "."]);
   if (tar.exitCode !== 0) throw new Error(`tar failed: ${tar.stderr.toString()}`);
   const digest = await sha256File(tarball);
-  const sums = `${opts.corruptSums ? "0".repeat(64) : digest}  oma-stack-${version}.tar.zst\n`;
+  const sums = `${opts.corruptSums ? "0".repeat(64) : digest}  oma-gateway-${version}.tar.zst\n`;
   const tarballBytes = Bun.file(tarball);
 
   const server = Bun.serve({
@@ -52,7 +52,7 @@ async function serveRelease(
     fetch(req) {
       const path = new URL(req.url).pathname;
       if (path.endsWith("/SHA256SUMS")) return new Response(sums);
-      if (path.endsWith(`/oma-stack-${version}.tar.zst`)) return new Response(tarballBytes);
+      if (path.endsWith(`/oma-gateway-${version}.tar.zst`)) return new Response(tarballBytes);
       return new Response("not found", { status: 404 });
     },
   });
@@ -72,16 +72,16 @@ describe("releaseLocation", () => {
   test("targets the GitHub release for a version", () => {
     const loc = releaseLocation("0.2.0", {});
     expect(loc.tarball).toBe(
-      "https://github.com/Chengchcc/my-agent-team/releases/download/v0.2.0/oma-stack-0.2.0.tar.zst",
+      "https://github.com/Chengchcc/my-agent-team/releases/download/v0.2.0/oma-gateway-0.2.0.tar.zst",
     );
     expect(loc.sums.endsWith("/SHA256SUMS")).toBe(true);
   });
 
   test("honors a mirror and a repo override", () => {
-    expect(releaseLocation("1.0.0", { OMA_STACK_BASE_URL: "http://localhost:9/x/" }).tarball).toBe(
-      "http://localhost:9/x/oma-stack-1.0.0.tar.zst",
-    );
-    expect(releaseLocation("1.0.0", { OMA_STACK_REPO: "me/other" }).tarball).toContain(
+    expect(
+      releaseLocation("1.0.0", { OMA_GATEWAY_BASE_URL: "http://localhost:9/x/" }).tarball,
+    ).toBe("http://localhost:9/x/oma-gateway-1.0.0.tar.zst");
+    expect(releaseLocation("1.0.0", { OMA_GATEWAY_REPO: "me/other" }).tarball).toContain(
       "github.com/me/other",
     );
   });
@@ -90,14 +90,14 @@ describe("releaseLocation", () => {
 describe("parseSums", () => {
   test("finds the entry and tolerates the binary marker", () => {
     const digest = "a".repeat(64);
-    expect(parseSums(`${digest}  *oma-stack-1.0.0.tar.zst\n`, "oma-stack-1.0.0.tar.zst")).toBe(
+    expect(parseSums(`${digest}  *oma-gateway-1.0.0.tar.zst\n`, "oma-gateway-1.0.0.tar.zst")).toBe(
       digest,
     );
   });
 
   test("throws when the file is not listed", () => {
     expect(() => parseSums(`${"b".repeat(64)}  other.tar.zst\n`, "wanted.tar.zst")).toThrow(
-      StackInstallError,
+      GatewayArtifactError,
     );
   });
 });
@@ -119,7 +119,7 @@ describe("secrets", () => {
     const home = tempDir("oma-home-");
     const first = await ensureSecrets(home, ["BACKEND_AUTH_TOKEN", "SESSION_SECRET"]);
     expect(first.BACKEND_AUTH_TOKEN).toMatch(/^[0-9a-f]{48}$/);
-    expect(statSync(stackPaths(home).secrets).mode & 0o777).toBe(0o600);
+    expect(statSync(gatewayPaths(home).secrets).mode & 0o777).toBe(0o600);
 
     const second = await ensureSecrets(home, ["BACKEND_AUTH_TOKEN", "MOCK_PASSWORD"]);
     expect(second.BACKEND_AUTH_TOKEN).toBe(first.BACKEND_AUTH_TOKEN);
@@ -129,21 +129,26 @@ describe("secrets", () => {
   });
 });
 
-describe("fetchStack", () => {
+describe("fetchGatewayArtifact", () => {
   test.skipIf(!HAS_ZSTD)("downloads, verifies, unpacks, then reuses the install", async () => {
     const home = tempDir("oma-home-");
     const release = await serveRelease("1.2.3");
-    const env = { OMA_STACK_BASE_URL: release.baseUrl };
+    const env = { OMA_GATEWAY_BASE_URL: release.baseUrl };
     try {
       const logs: string[] = [];
-      const first = await fetchStack({ home, version: "1.2.3", env, log: (l) => logs.push(l) });
+      const first = await fetchGatewayArtifact({
+        home,
+        version: "1.2.3",
+        env,
+        log: (l) => logs.push(l),
+      });
       expect(first.downloaded).toBe(true);
       expect(first.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(installedVersions(home)).toEqual(["1.2.3"]);
       expect(currentVersion(home)).toBe("1.2.3");
       expect(logs.some((l) => l.includes("verified sha256"))).toBe(true);
 
-      const second = await fetchStack({ home, version: "1.2.3", env });
+      const second = await fetchGatewayArtifact({ home, version: "1.2.3", env });
       expect(second.downloaded).toBe(false);
     } finally {
       release.close();
@@ -156,10 +161,10 @@ describe("fetchStack", () => {
     const release = await serveRelease("2.0.0", { corruptSums: true });
     try {
       await expect(
-        fetchStack({
+        fetchGatewayArtifact({
           home,
           version: "2.0.0",
-          env: { OMA_STACK_BASE_URL: release.baseUrl },
+          env: { OMA_GATEWAY_BASE_URL: release.baseUrl },
         }),
       ).rejects.toThrow(/checksum mismatch/);
       expect(installedVersions(home)).toEqual([]);
