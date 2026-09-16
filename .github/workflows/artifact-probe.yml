@@ -68,6 +68,10 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/stack-data/backend
           export BACKEND_AUTH_TOKEN=probe-token
+          # Mock model: the agent Run below must exercise the real call path
+          # without a key or quota.
+          bun "$GITHUB_WORKSPACE/scripts/mock-anthropic.ts" > /tmp/mock.log 2>&1 &
+          for _ in $(seq 1 20); do grep -q "listening" /tmp/mock.log && break; sleep 0.5; done
           # Backend half. OMA_BIN is what the real launcher fills with its own
           # executable; here the repo's built CLI stands in.
           ( cd /tmp/stack/backend && \
@@ -76,6 +80,8 @@ jobs:
             BACKEND_RESOURCES_DIR=/tmp/stack/resources \
             KNOWLEDGE_MCP_SERVER_BIN=/tmp/stack/backend/knowledge-mcp.js \
             OMA_BIN="$GITHUB_WORKSPACE/apps/oh-my-agent/dist/cli.js" \
+            ANTHROPIC_AUTH_TOKEN=mock-key \
+            ANTHROPIC_BASE_URL=http://127.0.0.1:8099/v1 \
             bun main.js > /tmp/backend.log 2>&1 & )
           # Web half: the standalone entry must be run from its app directory.
           ( cd /tmp/stack/web/apps/web && \
@@ -143,6 +149,48 @@ jobs:
           [ "$SSR" = "200" ] || { echo "FAIL: authenticated SSR page failed"; exit 1; }
           case "$BFF" in *"Not found"*) ;; *) echo "FAIL: BFF proxy did not reach the backend"; exit 1 ;; esac
           echo "ok: the artifact boots and serves the product end to end"
+
+      - name: Run one agent Run end to end
+        run: |
+          set -euo pipefail
+          API=http://127.0.0.1:3000
+          H="x-auth-token: probe-token"
+          json() { python3 -c "import json,sys; print(json.load(sys.stdin)['$1'])"; }
+
+          AGENT=$(curl -s -X POST -H "$H" -H 'content-type: application/json' \
+            -d '{"name":"probe-agent","model":{"provider":"anthropic","model":"claude-haiku-4-5"}}' \
+            "$API/api/agents")
+          AGENT_ID=$(echo "$AGENT" | json id)
+          CONV=$(curl -s -X POST -H "$H" -H 'content-type: application/json' \
+            -d "{\"agentId\":\"$AGENT_ID\"}" "$API/api/conversations")
+          CONV_ID=$(echo "$CONV" | json conversationId)
+          echo "agent=$AGENT_ID conversation=$CONV_ID"
+
+          curl -s -X POST -H "$H" -H 'content-type: application/json' \
+            -d '{"content":"hello from the artifact acceptance run"}' \
+            "$API/api/conversations/$CONV_ID/messages" > /tmp/dispatch.json
+          cat /tmp/dispatch.json; echo
+
+          EXPORT=""
+          for _ in $(seq 1 60); do
+            EXPORT=$(curl -s -H "$H" "$API/api/conversations/$CONV_ID/export" || true)
+            case "$EXPORT" in *"mock-model reply"*) break ;; esac
+            sleep 1
+          done
+
+          echo "=== conversation ==="; echo "$EXPORT" | tail -6
+          echo "=== mock log ==="; cat /tmp/mock.log 2>/dev/null || echo "(mock log not on this filesystem)"
+          if [ -f /tmp/mock.log ]; then
+            grep -q "POST /v1/messages" /tmp/mock.log \
+              && echo "model call observed in the mock log" \
+              || echo "note: mock log has no request line"
+          fi
+
+          case "$EXPORT" in
+            *"mock-model reply"*) echo "ok: an agent Run completed through the artifact" ;;
+            *) echo "FAIL: no assistant turn in the ledger"; tail -30 /tmp/backend.log; exit 1 ;;
+          esac
+          echo "| agent Run | completed (mocked model) |" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
       - name: Upload the artifact
         uses: actions/upload-artifact@v4
