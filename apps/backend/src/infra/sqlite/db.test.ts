@@ -1,6 +1,16 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { openDb } from "./db.js";
 
 // ─── Test 1: openDb creates file and runs drizzle-kit migrations ───
@@ -643,4 +653,41 @@ describe("Phase 1 constraints", () => {
     expect(db.query("SELECT * FROM agent_run WHERE run_id='r5'").all()).toHaveLength(0);
     db.close();
   });
+});
+
+// ─── Bundled-artifact contract: an explicit migrations folder ───
+// A `bun build` single-file backend cannot resolve the source-relative
+// drizzle/backend path, so the deployment ships drizzle/ beside the entry and
+// points BACKEND_MIGRATIONS_DIR at it (BackendConfig.migrationsDir).
+
+test("openDb honors an explicit migrations folder and rejects a bogus one", () => {
+  const src = resolve(import.meta.dirname, "../../../drizzle/backend");
+  const tmpDir = mkdtempSync(join(tmpdir(), "oma-migrations-"));
+  const copied = join(tmpDir, "drizzle-backend");
+  cpSync(src, copied, { recursive: true });
+
+  const tmpPath = `/tmp/test-backend-db-migdir-${Math.random().toString(36).slice(2, 8)}.db`;
+  const db = openDb(tmpPath, { migrationsDir: copied });
+
+  const names = (
+    db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
+  ).map((t) => t.name);
+  expect(names).toContain("agents");
+  const applied = db.query("SELECT count(*) AS n FROM __drizzle_migrations").get() as { n: number };
+  expect(applied.n).toBeGreaterThan(0);
+  db.close();
+
+  // The override is really used, not silently ignored: a folder without
+  // meta/_journal.json must fail the open instead of producing an empty DB.
+  const bogusPath = `/tmp/test-backend-db-bogus-${Math.random().toString(36).slice(2, 8)}.db`;
+  expect(() => openDb(bogusPath, { migrationsDir: join(tmpDir, "nope") })).toThrow();
+
+  rmSync(tmpDir, { recursive: true, force: true });
+  for (const p of [tmpPath, bogusPath]) {
+    try {
+      unlinkSync(p);
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
 });

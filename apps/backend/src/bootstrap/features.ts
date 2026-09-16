@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ClaudeBackend, ClaudeModelCatalog } from "@chengchenccc/adapter-claude-agent";
 import { OmaBackend, OmaModelCatalog } from "@chengchenccc/adapter-oma-agent";
@@ -893,7 +893,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     port: sqliteKnowledgePackAdapter(db),
     dataDir: config.dataDir,
     idGen: ulid,
-    builtinRoot: resolve(import.meta.dir, "../../../../knowledge-packs"),
+    builtinRoot: config.knowledgePacksDir,
   });
 
   // Builtin project knowledge pack: installed once, then available to every agent.
@@ -952,33 +952,19 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       access: "read_write",
     }),
   });
-  // Builtin showcase: seed the default workflow into dataDir/workflows when
-  // the user has none yet (first boot / empty install).
+  // Builtin showcase: seed the sample workflows on first boot (user has none
+  // yet) from <resources>/workflow-showcase. A packaged stack may ship without
+  // them, so a missing directory is skipped, not fatal.
   {
     const wfDir = join(config.dataDir, "workflows");
     mkdirSync(wfDir, { recursive: true });
     const existing = readdirSync(wfDir).filter((f) => f.endsWith(".workflow.json"));
-    if (existing.length === 0) {
-      const showcaseDir = join(import.meta.dir, "..", "features", "workflow", "showcase");
-      for (const f of readdirSync(showcaseDir)) {
+    if (existing.length === 0 && existsSync(config.workflowShowcaseDir)) {
+      for (const f of readdirSync(config.workflowShowcaseDir)) {
         if (f.endsWith(".workflow.json")) {
-          copyFileSync(join(showcaseDir, f), join(wfDir, f));
+          copyFileSync(join(config.workflowShowcaseDir, f), join(wfDir, f));
           console.log(`[bootstrap] seeded showcase workflow: ${f}`);
         }
-      }
-    }
-  }
-
-  // Builtin showcase workflows: seed skill-generated samples into
-  // dataDir/workflows on first boot (empty dir only).
-  {
-    const wfDir = join(config.dataDir, "workflows");
-    mkdirSync(wfDir, { recursive: true });
-    const existing = readdirSync(wfDir).filter((f) => f.endsWith(".workflow.json"));
-    if (existing.length === 0) {
-      const showcaseDir = join(import.meta.dir, "features", "workflow", "showcase");
-      for (const f of readdirSync(showcaseDir)) {
-        if (f.endsWith(".workflow.json")) copyFileSync(join(showcaseDir, f), join(wfDir, f));
       }
     }
   }

@@ -1,9 +1,12 @@
 name: Artifact probe
 
-# Answers the two questions the artifact plan rests on, on a runner that can
-# actually build (a small dev box cannot: `next build` hangs there):
-#   1. how big is the web payload, and is it platform-independent?
-#   2. does the standalone server boot under Bun (one runtime, not two)?
+# Acceptance test for the shippable stack: build → pack (scripts/pack-stack.sh)
+# → boot both halves from the unpacked tarball → assert the product answers.
+# It also answers the two questions the artifact plan rests on: the payload size
+# /platform-independence and whether the standalone server runs on Bun.
+# A small dev box cannot build this (`next build` hangs there), which is exactly
+# why the artifact is produced and verified on a runner.
+#
 # Run manually: gh workflow run artifact-probe.yml
 on:
   workflow_dispatch:
@@ -28,152 +31,124 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build (backend dist + web standalone)
+      - name: Build
         run: bun run build
 
-      - name: Assemble the web payload
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          # In a monorepo the standalone tree mirrors the file-tracing root, so
-          # the entry is <standalone>/<app path>/server.js, not
-          # <standalone>/server.js. Discover it instead of assuming.
-          STANDALONE=$(find . -maxdepth 6 -type d -name standalone -path "*/.next/*" -print -quit)
-          if [ -z "$STANDALONE" ]; then
-            echo "FAIL: no .next/standalone produced — is output: standalone applied?"
-            echo "--- apps/web/.next ---"; ls -la .next | head -20
-            exit 1
-          fi
-          SERVER=$(find "$STANDALONE" -maxdepth 5 -name server.js -print -quit)
-          if [ -z "$SERVER" ]; then
-            echo "FAIL: no server.js under $STANDALONE"
-            find "$STANDALONE" -maxdepth 3 | head -30
-            exit 1
-          fi
-          APPDIR=$(dirname "$SERVER")
-          APPREL=${APPDIR#"$STANDALONE/"}
-          echo "standalone dir : $STANDALONE"
-          echo "server entry   : $SERVER"
-          echo "app path inside: $APPREL"
-          echo "--- layout ---"
-          find "$STANDALONE" -maxdepth 2 | sed 's|^|  |' | head -20
-          # The documented recipe: static assets and public/ are not traced.
-          cp -r .next/static "$APPDIR/.next/static"
-          [ -d public ] && cp -r public "$APPDIR/public" || true
-          rm -rf /tmp/web-payload
-          mkdir -p /tmp/web-payload
-          cp -r "$STANDALONE/." /tmp/web-payload/
-          printf '%s' "$APPREL" > /tmp/web-payload-appdir
+      - name: Pack the stack artifact
+        run: bash scripts/pack-stack.sh --version "probe-${GITHUB_SHA::7}" --out /tmp/dist
 
-      - name: Measure
+      - name: Unpack and check the manifest contract
         run: |
           set -euo pipefail
-          P=/tmp/web-payload
-          APP=$(cat /tmp/web-payload-appdir)
-          sz() { du -sh "$1" 2>/dev/null | cut -f1 || true; }
-          NEXTPKG=$(find $P -maxdepth 8 -type d -path "*/node_modules/next" -print -quit)
-          {
-            echo "## Artifact probe"
-            echo
-            echo "| part | size |"
-            echo "|---|---|"
-            echo "| web payload (standalone whole tree) | $(sz $P) |"
-            echo "| — traced runtime (node_modules) | $(sz $P/node_modules) |"
-            echo "| — next package inside it | $(sz "${NEXTPKG:-$P/node_modules/next}") |"
-            echo "| — app server code (.next/server) | $(sz "$P/$APP/.next/server") |"
-            echo "| web build dir on disk (with cache) | $(sz apps/web/.next) |"
-            echo "| — of which build cache (.next/cache) | $(sz apps/web/.next/cache) |"
-            echo
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "=== web payload breakdown ==="
-          du -sh $P/* 2>/dev/null | sort -h | tail -8
-          echo
-          echo "=== biggest traced deps ==="
-          if [ -d $P/node_modules/.bun ]; then
-            du -sh $P/node_modules/.bun/* 2>/dev/null | sort -h | tail -12
-          else
-            du -sh $P/node_modules/* 2>/dev/null | sort -h | tail -12
-          fi
-          echo
-          echo "=== .next/cache must NOT be in the payload ==="
-          CACHE=$(find $P -maxdepth 6 -type d -name cache -path "*/.next/*" -print -quit)
-          if [ -n "$CACHE" ]; then
-            echo "FAIL: build cache leaked into the payload at $CACHE"
-            exit 1
-          fi
-          echo "ok: no .next/cache"
+          mkdir -p /tmp/stack
+          tar --zstd -xf /tmp/dist/oma-stack-*.tar.zst -C /tmp/stack
+          echo "=== payload top level ==="
+          du -sh /tmp/stack/* | sort -h
+          # stack.json is the contract a launcher consumes: every path it names
+          # must exist in the tarball, or the artifact ships broken.
+          bun -e '
+            const fs = require("fs"), path = require("path");
+            const root = "/tmp/stack";
+            const m = JSON.parse(fs.readFileSync(path.join(root, "stack.json"), "utf8"));
+            for (const c of m.components) {
+              const entry = path.join(root, c.cwd, c.entry);
+              if (!fs.existsSync(entry)) throw new Error(`missing entry for ${c.name}: ${entry}`);
+              for (const [k, v] of Object.entries(c.env)) {
+                if (!String(v).startsWith("{root}")) continue;
+                const p = String(v).replace("{root}", root);
+                if (!fs.existsSync(p)) throw new Error(`env ${k} points at a missing path: ${p}`);
+              }
+            }
+            console.log("manifest ok:", m.components.map((c) => `${c.name}:${c.port}`).join(", "));
+          '
+          echo "| payload (unpacked) | $(du -sh /tmp/stack | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Check platform independence (web)
+      - name: Boot both halves from the artifact
         run: |
           set -euo pipefail
-          P=/tmp/web-payload
-          echo "=== native binaries in the payload ==="
-          # -print -quit, not `| grep -q`: grep exits early, find takes SIGPIPE,
-          # and with pipefail that reads as "no natives found".
-          NATIVE=$(find $P \( -name "*.node" -o -name "*.so*" \) -print -quit)
-          if [ -n "$NATIVE" ]; then
-            find $P \( -name "*.node" -o -name "*.so*" \) | sed 's|^|  |'
-            echo
-            echo "FAIL: platform-specific natives traced in — either keep them out"
-            echo "(images.unoptimized, no next/image) or publish one artifact per platform."
-            exit 1
-          fi
-          echo "ok: payload is platform-independent JS"
-          echo "| natives in web payload | none |" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p /tmp/stack-data/backend
+          export BACKEND_AUTH_TOKEN=probe-token
+          # Backend half. OMA_BIN is what the real launcher fills with its own
+          # executable; here the repo's built CLI stands in.
+          ( cd /tmp/stack/backend && \
+            BACKEND_DATA_DIR=/tmp/stack-data/backend \
+            BACKEND_MIGRATIONS_DIR=/tmp/stack/backend/drizzle/backend \
+            BACKEND_RESOURCES_DIR=/tmp/stack/resources \
+            KNOWLEDGE_MCP_SERVER_BIN=/tmp/stack/backend/knowledge-mcp.js \
+            OMA_BIN="$GITHUB_WORKSPACE/apps/oh-my-agent/dist/cli.js" \
+            bun main.js > /tmp/backend.log 2>&1 & )
+          # Web half: the standalone entry must be run from its app directory.
+          ( cd /tmp/stack/web/apps/web && \
+            BACKEND_URL=http://127.0.0.1:3000 \
+            BACKEND_AUTH_TOKEN="$BACKEND_AUTH_TOKEN" \
+            SESSION_SECRET=probe-session-secret \
+            MOCK_USER_ID=user-001 MOCK_PASSWORD=probe-password \
+            NODE_ENV=production PORT=3001 HOSTNAME=127.0.0.1 \
+            bun server.js > /tmp/web.log 2>&1 & )
 
-      - name: Package and report size
-        run: |
-          set -euo pipefail
-          cd /tmp/web-payload
-          SIZE_RAW=$(du -sb . | cut -f1)
-          tar --zstd -cf /tmp/oma-stack-web.tar.zst .
-          SIZE_TAR=$(stat -c %s /tmp/oma-stack-web.tar.zst)
-          echo "web payload: $(numfmt --to=iec "$SIZE_RAW") raw -> $(numfmt --to=iec "$SIZE_TAR") as tar.zst"
-          echo "| web payload, tar.zst | $(numfmt --to=iec "$SIZE_TAR") |" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Bundle the backend (measure only)
-        run: |
-          set -euo pipefail
-          bun build apps/backend/src/main.ts --target=bun --outfile=/tmp/backend-main.js
-          echo "backend bundle: $(numfmt --to=iec "$(stat -c %s /tmp/backend-main.js)") raw"
-          echo "| backend bundle (single file, platform-independent) | $(numfmt --to=iec "$(stat -c %s /tmp/backend-main.js)") |" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Boot the standalone server under Bun
-        run: |
-          set -euo pipefail
-          APP=$(cat /tmp/web-payload-appdir)
-          cd "/tmp/web-payload/$APP"
-          # Minimal env: BACKEND_AUTH_TOKEN is the only var parseEnv requires.
-          # No backend is started here — /login renders without one and /today
-          # only needs middleware, which is what this probe checks.
-          BACKEND_URL=http://127.0.0.1:3000 \
-          BACKEND_AUTH_TOKEN=probe-token \
-          SESSION_SECRET=probe-session-secret \
-          NODE_ENV=production \
-          PORT=3001 HOSTNAME=127.0.0.1 \
-            bun server.js > /tmp/web.log 2>&1 &
-          WEB=$!
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 40); do
+            curl -sf -o /dev/null http://127.0.0.1:3000/health && \
             curl -sf -o /dev/null http://127.0.0.1:3001/login && break
             sleep 1
           done
-          LOGIN=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/login || echo 000)
-          GATED=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/today || echo 000)
-          kill "$WEB" 2>/dev/null || true
-          echo "runtime: bun $(bun --version)"
-          echo "GET /login -> $LOGIN (expect 200, real SSR)"
-          echo "GET /today -> $GATED (expect 307, middleware)"
-          echo
-          echo "=== server log ==="; cat /tmp/web.log
-          echo "| bun server: /login | $LOGIN |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| bun server: /today (gated) | $GATED |" >> "$GITHUB_STEP_SUMMARY"
-          [ "$LOGIN" = "200" ] || { echo "FAIL: /login did not render"; exit 1; }
-          [ "$GATED" = "307" ] || { echo "FAIL: /today was not gated"; exit 1; }
-          echo "ok: standalone boots under Bun and serves SSR"
 
-      - name: Upload the payload
+          HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/health)
+          LOGIN_PAGE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/login)
+          GATED=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/today)
+
+          JAR=/tmp/cookies.txt; rm -f "$JAR"
+          AUTH=$(curl -s -c "$JAR" -o /dev/null -w "%{http_code}" \
+            -X POST -H "content-type: application/json" \
+            -d '{"userId":"user-001","password":"probe-password"}' \
+            http://127.0.0.1:3001/api/auth/login)
+          SESSION=$(curl -s -b "$JAR" -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/auth/session)
+          # The money path: a Server Component reading the backend with the
+          # privileged token through the shipped artifact.
+          SSR=$(curl -s -b "$JAR" -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/workflows)
+          # BFF proxy: the backend's own "Not found" shape proves the request
+          # reached it (there is no /api/health route).
+          BFF=$(curl -s -b "$JAR" http://127.0.0.1:3001/api/bff/health || true)
+
+          {
+            echo "| check | result |"
+            echo "|---|---|"
+            echo "| backend /health | $HEALTH |"
+            echo "| web /login (SSR) | $LOGIN_PAGE |"
+            echo "| web /today (gated) | $GATED |"
+            echo "| login POST | $AUTH |"
+            echo "| /api/auth/session | $SESSION |"
+            echo "| /workflows (SSR + privileged backend read) | $SSR |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "backend /health   -> $HEALTH (expect 200)"
+          echo "web /login        -> $LOGIN_PAGE (expect 200)"
+          echo "web /today        -> $GATED (expect 307)"
+          echo "login POST        -> $AUTH (expect 302)"
+          echo "session           -> $SESSION (expect 200)"
+          echo "/workflows        -> $SSR (expect 200)"
+          echo "bff proxy body    -> $BFF"
+          echo
+          echo "=== backend log ==="; head -20 /tmp/backend.log
+          echo "=== web log ==="; head -20 /tmp/web.log
+
+          # Runtime: bun only. `bun run next ...` would land on Node because of
+          # the bin shebang; the standalone entry is invoked with bun directly.
+          echo "runtime: bun $(bun --version)"
+
+          [ "$HEALTH" = "200" ] || { echo "FAIL: backend did not come up"; exit 1; }
+          [ "$LOGIN_PAGE" = "200" ] || { echo "FAIL: web did not render"; exit 1; }
+          [ "$GATED" = "307" ] || { echo "FAIL: middleware did not gate"; exit 1; }
+          [ "$AUTH" = "302" ] || { echo "FAIL: login failed"; exit 1; }
+          [ "$SESSION" = "200" ] || { echo "FAIL: no session after login"; exit 1; }
+          [ "$SSR" = "200" ] || { echo "FAIL: authenticated SSR page failed"; exit 1; }
+          case "$BFF" in *"Not found"*) ;; *) echo "FAIL: BFF proxy did not reach the backend"; exit 1 ;; esac
+          echo "ok: the artifact boots and serves the product end to end"
+
+      - name: Upload the artifact
         uses: actions/upload-artifact@v4
         with:
-          name: oma-stack-web-probe
-          path: /tmp/oma-stack-web.tar.zst
+          name: oma-stack-probe
+          path: |
+            /tmp/dist/oma-stack-*.tar.zst
+            /tmp/dist/SHA256SUMS
           retention-days: 5

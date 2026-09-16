@@ -21,6 +21,18 @@ export const envSchema = z.object({
   BACKEND_PORT: z.coerce.number().int().positive().default(3000),
   BACKEND_HOST: z.string().default("127.0.0.1"),
   BACKEND_DATA_DIR: z.string().optional(),
+  BACKEND_MIGRATIONS_DIR: z
+    .string()
+    .optional()
+    .describe(
+      "Drizzle migrations folder. Defaults to the source-relative drizzle/backend, which a bundled artifact cannot resolve: it ships drizzle/ next to the entry and points this at it.",
+    ),
+  BACKEND_RESOURCES_DIR: z
+    .string()
+    .optional()
+    .describe(
+      "Root of the stack's file resources (skills/, knowledge-packs/, workflow-showcase/). Defaults to the repo root, which a source checkout has; a packaged stack ships resources/ and points this at it.",
+    ),
   BACKEND_WORKSPACE_ROOT: z.string().optional(),
   BACKEND_TEMPLATE_DIR: z.string().optional(),
   BACKEND_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),

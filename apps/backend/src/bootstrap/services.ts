@@ -21,7 +21,7 @@ export interface BackendServices {
 
 export function createBackendServices(config?: BackendConfig): BackendServices {
   const cfg = config ?? loadConfig();
-  const db = openDb(`${cfg.dataDir}/backend.db`);
+  const db = openDb(`${cfg.dataDir}/backend.db`, { migrationsDir: cfg.migrationsDir });
 
   const settingsSvc = createSettingsService({
     port: sqliteSettingsAdapter(db),

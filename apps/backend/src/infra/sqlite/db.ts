@@ -5,7 +5,15 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "../db/schema.js";
 
-export function openDb(dbPath: string): Database {
+export interface OpenDbOptions {
+  /** Drizzle migrations folder. Defaults to the path relative to this source
+   *  file, which a bundled artifact (`bun build` single file) cannot resolve —
+   *  deployments ship `drizzle/` beside the entry and set
+   *  BACKEND_MIGRATIONS_DIR (wired through BackendConfig.migrationsDir). */
+  migrationsDir?: string;
+}
+
+export function openDb(dbPath: string, opts: OpenDbOptions = {}): Database {
   // Ensure parent directory exists (SQLite doesn't create it)
   const dir = path.dirname(dbPath);
   const dirExisted = existsSync(dir);
@@ -39,7 +47,8 @@ export function openDb(dbPath: string): Database {
   // The schema is used only for the drizzle instance type; migrate() reads SQL files
   // from the migrations folder and tracks applied migrations in __drizzle_migrations__.
   const db = drizzle(sqlite, { schema, casing: "snake_case" });
-  const migrationsFolder = path.resolve(import.meta.dirname, "../../../drizzle/backend");
+  const migrationsFolder =
+    opts.migrationsDir ?? path.resolve(import.meta.dirname, "../../../drizzle/backend");
   migrate(db, { migrationsFolder });
 
   return sqlite;
