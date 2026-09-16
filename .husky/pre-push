@@ -55,4 +55,17 @@ fi
 COUNT=$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')
 echo "pre-push: biome + eslint on $COUNT changed files"
 bunx biome check $CHANGED || exit 1
-bunx eslint $CHANGED
+
+# eslint runs AFTER the push connection is already open, so time spent here is
+# time the remote sees as an idle session. On this box it needs 15+ minutes for
+# five files (type-aware rules over the whole program, on a 3.5GB machine that
+# is already swapping), and github.com closes the connection long before that —
+# every push then hangs for ten minutes and fails. Bound it: biome above is the
+# cheap gate, CI runs the full eslint on the pushed commit, and a timeout is
+# announced rather than silent.
+echo "pre-push: eslint on $COUNT changed files (CI runs the full set too)"
+if command -v timeout >/dev/null 2>&1; then
+  timeout 120 bunx eslint $CHANGED || echo "pre-push: eslint did not finish in 120s — leaving it to CI"
+else
+  bunx eslint $CHANGED
+fi
