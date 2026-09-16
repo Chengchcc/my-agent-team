@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   credentialLines,
   runGatewayDown,
   runGatewayFetch,
+  runGatewayPasswd,
   runGatewayStatus,
 } from "./gateway-commands.js";
 
@@ -108,5 +109,39 @@ describe("credentialLines", () => {
     const lines = credentialLines(home, {}, true);
     expect(lines.join("\n")).not.toContain("user-001 /");
     expect(lines.join("\n")).toContain("gateway-secrets.json");
+  });
+});
+
+describe("runGatewayPasswd", () => {
+  test("rotates the password in the secrets file, keeping the other secrets", async () => {
+    const home = tempHome();
+    try {
+      mkdirSync(join(home, "gateway"), { recursive: true });
+      writeFileSync(
+        join(home, "gateway-secrets.json"),
+        JSON.stringify({ BACKEND_AUTH_TOKEN: "keep-me", MOCK_PASSWORD: "old" }),
+      );
+      const logs: string[] = [];
+      const code = await runGatewayPasswd({ home, log: (line) => logs.push(line) });
+      expect(code).toBe(0);
+      const written = JSON.parse(readFileSync(join(home, "gateway-secrets.json"), "utf8"));
+      expect(written.BACKEND_AUTH_TOKEN).toBe("keep-me");
+      expect(written.MOCK_PASSWORD).toMatch(/^[0-9a-f]{48}$/);
+      expect(logs.join("\n")).toContain("restart to apply");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses before the first up (no secrets file to rotate)", async () => {
+    const home = tempHome();
+    try {
+      const logs: string[] = [];
+      const code = await runGatewayPasswd({ home, log: (line) => logs.push(line) });
+      expect(code).toBe(1);
+      expect(logs.join("\n")).toContain("no secrets at");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

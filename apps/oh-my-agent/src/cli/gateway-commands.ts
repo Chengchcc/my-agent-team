@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   currentVersion,
@@ -16,12 +17,13 @@ import {
   stopDetachedGateway,
   tailDaemonLog,
 } from "../core/gateway/daemon.js";
+import { diagnoseGateway, type GatewayCheck } from "../core/gateway/doctor.js";
 import { readGatewayManifest } from "../core/gateway/manifest.js";
 import { runGateway } from "../core/gateway/supervisor.js";
 
 /** The gateway domain's verbs. `oma gateway <verb>` is the CLI surface for
  *  backend + web: fetch their artifact, run it, report on it. */
-export const GATEWAY_VERBS = ["up", "down", "fetch", "status"] as const;
+export const GATEWAY_VERBS = ["up", "down", "fetch", "status", "doctor", "passwd"] as const;
 export type GatewayCommand = (typeof GATEWAY_VERBS)[number];
 
 export const GATEWAY_USAGE = `oma gateway <command>
@@ -31,6 +33,8 @@ export const GATEWAY_USAGE = `oma gateway <command>
   down      stop a detached gateway
   fetch     download, verify and unpack the gateway artifact for a version
   status    which version is installed, is it running, is it answering
+  doctor    why nothing can run: artifact, tools, catalog, keys, ports, oma bin
+  passwd    replace the login password with a fresh random one
 
   --version <v>   artifact version for up/fetch (default: oma's own)
 
@@ -223,6 +227,48 @@ export async function runGatewayUp(opts: GatewayCommandOptions = {}): Promise<nu
   }
 }
 
+/** `oma gateway passwd`: rotate the login password. Generated, never read from
+ *  argv — an argument would land in shell history and process listings.
+ *  Takes effect on the next start, because the web component reads it from its
+ *  environment. */
+export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promise<number> {
+  const home = opts.home ?? omaHome();
+  const log = loggerFor(opts, "stdout");
+  const secretsPath = gatewayPaths(home).secrets;
+  if (!existsSync(secretsPath)) {
+    log(`no secrets at ${secretsPath} — run 'oma gateway up' once first`);
+    return 1;
+  }
+  const password = crypto
+    .getRandomValues(new Uint8Array(24))
+    .reduce((hex, byte) => hex + byte.toString(16).padStart(2, "0"), "");
+  const secrets = { ...readSecrets(home), MOCK_PASSWORD: password };
+  await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
+  log(`login password replaced: user-001 / ${password}`);
+  log("restart to apply: oma gateway down && oma gateway up -d");
+  return 0;
+}
+
+/** `oma gateway doctor`: check the deployment and say how to fix what is wrong. */
+export async function runGatewayDoctor(opts: GatewayCommandOptions = {}): Promise<number> {
+  const home = opts.home ?? omaHome();
+  const log = loggerFor(opts, "stdout");
+  const checks: GatewayCheck[] = await diagnoseGateway({ home });
+  log(`oma gateway doctor (home: ${home})`);
+  for (const check of checks) {
+    log(`${check.ok ? "✓" : "✗"} ${check.id.padEnd(9)} ${check.detail}`);
+    if (check.fix) log(`  ${check.ok ? "note" : "fix"}: ${check.fix}`);
+  }
+  const failed = checks.filter((check) => !check.ok);
+  log("");
+  log(
+    failed.length === 0
+      ? "no problems found"
+      : `${failed.length} problem(s): ${failed.map((c) => c.id).join(", ")}`,
+  );
+  return failed.length === 0 ? 0 : 1;
+}
+
 /** `oma gateway down`: stop whatever `up -d` started. */
 export async function runGatewayDown(opts: GatewayCommandOptions = {}): Promise<number> {
   const home = opts.home ?? omaHome();
@@ -305,5 +351,7 @@ export async function runGatewayCommand(
   if (verb === "up") return runGatewayUp(opts);
   if (verb === "down") return runGatewayDown(opts);
   if (verb === "fetch") return runGatewayFetch(opts);
+  if (verb === "doctor") return runGatewayDoctor(opts);
+  if (verb === "passwd") return runGatewayPasswd(opts);
   return runGatewayStatus(opts);
 }
