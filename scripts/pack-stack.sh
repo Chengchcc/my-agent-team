@@ -111,6 +111,8 @@ cat > "$STAGE/stack.json" <<JSON
         "BACKEND_DATA_DIR": "{dataDir}/backend",
         "BACKEND_MIGRATIONS_DIR": "{root}/backend/drizzle/backend",
         "BACKEND_RESOURCES_DIR": "{root}/resources",
+        "BACKEND_HOST": "127.0.0.1",
+        "BACKEND_PORT": "3000",
         "KNOWLEDGE_MCP_SERVER_BIN": "{root}/backend/knowledge-mcp.js",
         "OMA_BIN": "{omaBin}"
       },
@@ -128,7 +130,9 @@ cat > "$STAGE/stack.json" <<JSON
         "BACKEND_AUTH_TOKEN": "{secret:BACKEND_AUTH_TOKEN}",
         "SESSION_SECRET": "{secret:SESSION_SECRET}",
         "MOCK_USER_ID": "user-001",
-        "MOCK_PASSWORD": "{secret:MOCK_PASSWORD}"
+        "MOCK_PASSWORD": "{secret:MOCK_PASSWORD}",
+        "PORT": "3001",
+        "HOSTNAME": "127.0.0.1"
       },
       "dependsOn": ["backend"]
     }

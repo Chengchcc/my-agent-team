@@ -19,6 +19,14 @@ export interface CliArgs {
   permission?: PermissionFlag;
   /** --read-only: run with no write/edit/bash/eval tools. */
   readOnly?: boolean;
+  /** --up: run the whole stack (backend + web) in the foreground. */
+  up?: boolean;
+  /** --stack-fetch: download, verify and unpack the stack artifact. */
+  stackFetch?: boolean;
+  /** --stack-status: report what is installed and whether it answers. */
+  stackStatus?: boolean;
+  /** --stack-version <v>: which artifact version to fetch or run. */
+  stackVersion?: string;
   /** Tool filter: comma-separated tool names or groups. Plain names form a
    *  whitelist (ONLY those tools run); `!name` entries form a blacklist
    *  (all but those). Applied to the FINAL tool table (native + MCP +
@@ -38,6 +46,11 @@ Usage:
   oma --mode json "<prompt>"     json mode: all events + one outcome as JSONL
   oma --mode rpc                 rpc mode: stdin/stdout JSONL protocol
   oma --list-models              print the model catalog as JSON
+  oma --up                       start the backend + web stack (foreground,
+                                          Ctrl-C stops it)
+  oma --stack-fetch              download the stack artifact for this version
+  oma --stack-status             what is installed, and is it answering
+  oma --stack-version <v>        artifact version for --up/--stack-fetch
   oma --continue                 resume the most recent session
   oma --session <id> -p "..."    one-shot follow-up on a session
   oma --permission ask -p "..."  gate bash/write/mcp behind approval cards
@@ -90,6 +103,23 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       }
       modeFlag = value;
       args.modeExplicit = true;
+    } else if (arg === "--up") {
+      args.up = true;
+    } else if (arg === "--stack-fetch") {
+      args.stackFetch = true;
+    } else if (arg === "--stack-status") {
+      args.stackStatus = true;
+    } else if (arg === "--stack-version") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new UsageError("--stack-version requires a version like 0.2.0");
+      }
+      args.stackVersion = value;
+      i++;
+    } else if (arg.startsWith("--stack-version=")) {
+      const value = arg.slice("--stack-version=".length);
+      if (!value) throw new UsageError("--stack-version requires a version like 0.2.0");
+      args.stackVersion = value;
     } else if (arg === "--list-models") {
       args.listModels = true;
     } else if (arg === "--model") {

@@ -1,6 +1,7 @@
 import { createModelRuntime } from "@chengchenccc/ai";
 import { type CliArgs, parseArgs, UsageError } from "./cli/args.js";
 import { mergeInitialInput, readPipedStdin } from "./cli/initial-input.js";
+import { runStackFetch, runStackStatus, runStackUp } from "./cli/stack-commands.js";
 import { buildBackendModelCatalog } from "./core/runtime/model-catalog.js";
 import { registerBuiltinProviders } from "./core/runtime/run-runtime.js";
 import { parseToolFilter } from "./core/runtime/tool-filter.js";
@@ -31,6 +32,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     const catalog = await buildBackendModelCatalog({ modelRuntime });
     process.stdout.write(`${JSON.stringify(catalog)}\n`);
     return 0;
+  }
+
+  // Stack commands never read stdin and never touch a session: keep them ahead
+  // of the rpc/tui/stdin paths so `oma --up` works from a pipe or a postinstall.
+  if (args.stackStatus || args.stackFetch || args.up) {
+    const stackOpts = args.stackVersion ? { version: args.stackVersion } : {};
+    if (args.stackStatus) return runStackStatus(stackOpts);
+    if (args.stackFetch) return runStackFetch(stackOpts);
+    return runStackUp(stackOpts);
   }
 
   if (args.mode === "rpc") {
