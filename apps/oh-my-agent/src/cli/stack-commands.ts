@@ -24,7 +24,9 @@ export interface StackCommandOptions {
  *  fetches. `npm_lifecycle_event` is set while a package's postinstall runs. */
 function inMonorepoCheckoutPostinstall(): boolean {
   if (process.env.npm_lifecycle_event !== "postinstall") return false;
-  const packageRoot = resolve(import.meta.dirname, "../../..");
+  // src/cli (dist/cli) is TWO levels under the package root — unlike
+  // core/stack/*, which sits three. Getting this wrong made the guard a no-op.
+  const packageRoot = resolve(import.meta.dirname, "../..");
   return existsSync(join(packageRoot, "..", "..", "turbo.json"));
 }
 
