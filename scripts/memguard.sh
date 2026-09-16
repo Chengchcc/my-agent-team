@@ -92,6 +92,13 @@ PARENT="$(pick_parent || true)"
 CHILD_CGROUP=""
 CAPABLE=0
 if [ -n "${PARENT:-}" ]; then
+  # A SIGKILLed wrapper never runs its EXIT trap, so empty memguard.* cgroups
+  # accumulate. Reap them here: empty means no processes, so it is safe.
+  for leftover in "$PARENT"/memguard.*; do
+    [ -d "$leftover" ] || continue
+    [ -s "$leftover/cgroup.procs" ] && continue
+    rmdir "$leftover" 2>/dev/null || true
+  done
   CHILD_CGROUP="${PARENT}/memguard.$$"
   if mkdir -p "$CHILD_CGROUP" 2>/dev/null &&
      echo "$LIMIT_BYTES" > "$CHILD_CGROUP/memory.max" 2>/dev/null; then
