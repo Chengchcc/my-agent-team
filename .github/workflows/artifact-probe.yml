@@ -1,0 +1,148 @@
+name: Artifact probe
+
+# Answers the two questions the artifact plan rests on, on a runner that can
+# actually build (a small dev box cannot: `next build` hangs there):
+#   1. how big is the web payload, and is it platform-independent?
+#   2. does the standalone server boot under Bun (one runtime, not two)?
+# Run manually: gh workflow run artifact-probe.yml
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install system deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep zstd
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build (backend dist + web standalone)
+        run: bun run build
+
+      - name: Assemble the web payload
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          test -f .next/standalone/server.js
+          # The documented Next standalone recipe: static assets and public/
+          # are NOT traced, they must be merged in.
+          cp -r .next/static .next/standalone/.next/static
+          [ -d public ] && cp -r public .next/standalone/public || true
+          rm -rf /tmp/web-payload
+          mkdir -p /tmp/web-payload
+          cp -r .next/standalone/. /tmp/web-payload/
+
+      - name: Measure
+        run: |
+          set -euo pipefail
+          P=/tmp/web-payload
+          sz() { du -sh "$1" 2>/dev/null | cut -f1 || true; }
+          NEXTPKG=$(find $P -maxdepth 6 -type d -path "*/node_modules/next" -print -quit)
+          {
+            echo "## Artifact probe"
+            echo
+            echo "| part | size |"
+            echo "|---|---|"
+            echo "| web payload (standalone + static + public) | $(sz $P) |"
+            echo "| — traced runtime (node_modules) | $(sz $P/node_modules) |"
+            echo "| — next package inside it | $(sz "${NEXTPKG:-$P/node_modules/next}") |"
+            echo "| — app server code (.next/server) | $(sz $P/.next/server) |"
+            echo "| web build dir on disk (with cache) | $(sz apps/web/.next) |"
+            echo "| — of which build cache (.next/cache) | $(sz apps/web/.next/cache) |"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "=== web payload breakdown ==="
+          du -sh $P/* 2>/dev/null | sort -h | tail -8
+          echo
+          echo "=== .next/cache must NOT be in the payload ==="
+          if [ -d $P/.next/cache ]; then
+            echo "FAIL: build cache leaked into the payload"
+            exit 1
+          fi
+          echo "ok: no .next/cache"
+
+      - name: Check platform independence (web)
+        run: |
+          set -euo pipefail
+          P=/tmp/web-payload
+          echo "=== native binaries in the payload ==="
+          # -print -quit, not `| grep -q`: grep exits early, find takes SIGPIPE,
+          # and with pipefail that reads as "no natives found".
+          NATIVE=$(find $P \( -name "*.node" -o -name "*.so*" \) -print -quit)
+          if [ -n "$NATIVE" ]; then
+            find $P \( -name "*.node" -o -name "*.so*" \) | sed 's|^|  |'
+            echo
+            echo "FAIL: platform-specific natives traced in — either keep them out"
+            echo "(images.unoptimized, no next/image) or publish one artifact per platform."
+            exit 1
+          fi
+          echo "ok: payload is platform-independent JS"
+          echo "| natives in web payload | none |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package and report size
+        run: |
+          set -euo pipefail
+          cd /tmp/web-payload
+          SIZE_RAW=$(du -sb . | cut -f1)
+          tar --zstd -cf /tmp/oma-stack-web.tar.zst .
+          SIZE_TAR=$(stat -c %s /tmp/oma-stack-web.tar.zst)
+          echo "web payload: $(numfmt --to=iec "$SIZE_RAW") raw -> $(numfmt --to=iec "$SIZE_TAR") as tar.zst"
+          echo "| web payload, tar.zst | $(numfmt --to=iec "$SIZE_TAR") |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bundle the backend (measure only)
+        run: |
+          set -euo pipefail
+          bun build apps/backend/src/main.ts --target=bun --outfile=/tmp/backend-main.js
+          echo "backend bundle: $(numfmt --to=iec "$(stat -c %s /tmp/backend-main.js)") raw"
+          echo "| backend bundle (single file, platform-independent) | $(numfmt --to=iec "$(stat -c %s /tmp/backend-main.js)") |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Boot the standalone server under Bun
+        run: |
+          set -euo pipefail
+          cd /tmp/web-payload
+          # Minimal env: BACKEND_AUTH_TOKEN is the only var parseEnv requires.
+          # No backend is started here — /login renders without one and /today
+          # only needs middleware, which is what this probe checks.
+          BACKEND_URL=http://127.0.0.1:3000 \
+          BACKEND_AUTH_TOKEN=probe-token \
+          SESSION_SECRET=probe-session-secret \
+          NODE_ENV=production \
+          PORT=3001 HOSTNAME=127.0.0.1 \
+            bun server.js > /tmp/web.log 2>&1 &
+          WEB=$!
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:3001/login && break
+            sleep 1
+          done
+          LOGIN=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/login || echo 000)
+          GATED=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/today || echo 000)
+          kill "$WEB" 2>/dev/null || true
+          echo "runtime: bun $(bun --version)"
+          echo "GET /login -> $LOGIN (expect 200, real SSR)"
+          echo "GET /today -> $GATED (expect 307, middleware)"
+          echo
+          echo "=== server log ==="; cat /tmp/web.log
+          echo "| bun server: /login | $LOGIN |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| bun server: /today (gated) | $GATED |" >> "$GITHUB_STEP_SUMMARY"
+          [ "$LOGIN" = "200" ] || { echo "FAIL: /login did not render"; exit 1; }
+          [ "$GATED" = "307" ] || { echo "FAIL: /today was not gated"; exit 1; }
+          echo "ok: standalone boots under Bun and serves SSR"
+
+      - name: Upload the payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: oma-stack-web-probe
+          path: /tmp/oma-stack-web.tar.zst
+          retention-days: 5

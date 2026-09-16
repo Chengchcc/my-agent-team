@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: [],
+  // Self-contained server bundle: `next build` also emits .next/standalone
+  // (server.js + the traced runtime), which is what the shipped artifact runs.
+  // `next start` against .next still works unchanged.
+  output: "standalone",
+  // The app has zero next/image usages, so the optimizer buys nothing while
+  // its optional sharp/libvips native deps (platform-specific, ~40MB) land in
+  // the standalone trace. Turning it off keeps the artifact portable.
+  images: { unoptimized: true },
   // Route renames (UI review 3.5): /work -> /today, /agentic-workflow ->
   // /workflows; team overview flip: /team/agents* -> /team* (agent detail
   // now lives at /team/[agentId]). Old paths keep working via redirects.
