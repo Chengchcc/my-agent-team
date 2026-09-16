@@ -94,7 +94,7 @@ cat ~/.oma/gateway-secrets.json
 
 想换成自己记得住的，改文件里的 `MOCK_PASSWORD`，再 `oma gateway down && oma gateway up -d`。`export MOCK_PASSWORD=...` 对 gateway 不起作用：产物清单里的值优先于进程环境。登录页只填密码，`user-001` 只是标识。
 
-> 源码方式（`bun run dev`）读的是 `apps/web/.env` 里的 `MOCK_PASSWORD`，`.env.example` 给的是 `admin`，但 `scripts/predev.sh` 首次运行会把它换成随机值。
+> 源码方式（`bun run dev`）的口令来自 web 的 `MOCK_PASSWORD`：模板在 `apps/web/.env.example`（值是 `admin`），`scripts/predev.sh` 首次运行会把它换成随机值，生成的文件不进版本库。
 
 不想用脚本就手动装：
 
