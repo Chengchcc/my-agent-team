@@ -7,6 +7,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { KpiTile, MonoLabel, StatusPill, type StatusTone } from "@/components/patterns";
+import { RunBlockerCard } from "@/components/RunBlockerCard";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { formatNextRun, nextCronRun } from "@/components/workflow/cron-next";
 import { useAgentList } from "@/features/agents/hooks";
@@ -218,6 +219,7 @@ export default function TodayPage() {
         }
       />
       <PageBody size="wide" className="space-y-4">
+        <RunBlockerCard />
         <p
           suppressHydrationWarning
           className="font-mono text-[10px] uppercase tracking-kicker text-(--faint)"

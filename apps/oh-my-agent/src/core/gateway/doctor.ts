@@ -132,7 +132,7 @@ export async function diagnoseGateway(opts: DoctorOptions = {}): Promise<Gateway
         : "no builtin provider key in this environment",
     ...(present.length === 0
       ? {
-          fix: "export a key and restart, e.g. DEEPSEEK_API_KEY=... oma gateway down && oma gateway up -d",
+          fix: "add one in the web UI (Settings -> Provider keys: stored server-side, no restart), or export it and restart the gateway",
         }
       : {}),
   });
@@ -157,7 +157,7 @@ export async function diagnoseGateway(opts: DoctorOptions = {}): Promise<Gateway
       id: "models",
       ok: false,
       detail: "no runnable model: an agent Run would fail here",
-      fix: "add a provider key to the environment the gateway runs in (builtin), or put a models.yml where OMA_HOME points (custom)",
+      fix: "for a builtin provider add its key in the web UI (Settings -> Provider keys); for a custom provider put models.yml where OMA_HOME points and restart",
     });
   }
 
