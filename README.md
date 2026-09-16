@@ -67,6 +67,8 @@ bun add -g @chengchenccc/oh-my-agent@rc
 
 脚本按顺序做三件事：装 [Bun](https://bun.sh)（缺了才装）、装 `@chengchenccc/oh-my-agent`、把 gateway 产物下到 `~/.oma/gateway/`。它不会替你启动服务。
 
+> Bun 默认不执行依赖的 postinstall（`bun add -g` 会提示 `Blocked N postinstalls`），所以产物不会在装包时自动下载：上面的一行命令和下面的手动安装都会显式跑一次 `oma gateway fetch`。想看被拦下了哪些脚本，用 `bun pm -g untrusted`。
+
 启动（前台，Ctrl-C 收掉）：
 
 ```bash
@@ -87,7 +89,7 @@ oma gateway down       # 停掉后台那个
 
 ```bash
 bun add -g @chengchenccc/oh-my-agent
-oma gateway fetch   # 下载并校验 gateway 产物；装包时的 postinstall 已尝试过一次
+oma gateway fetch   # 下载并校验 gateway 产物（这一步不能省，见下）
 oma gateway up
 ```
 

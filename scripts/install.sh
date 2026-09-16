@@ -37,8 +37,9 @@ command -v oma >/dev/null 2>&1 || \
   say "note: oma is installed but not on PATH yet — add \$HOME/.bun/bin to PATH"
 
 # ── 3. the gateway artifact (backend + web) ─────────────────────────
-# Best effort here: the package's postinstall already tries, and `oma gateway up`
-# retries with full logs. A failure must not fail the install.
+# This step is not redundant: Bun blocks dependency postinstalls by default, so
+# nothing else would have downloaded the artifact. Best effort anyway — a
+# failure must not fail the install, and `oma gateway up` retries with logs.
 if [ "${OMA_SKIP_GATEWAY_FETCH:-0}" = "1" ]; then
   say "==> skipping the gateway download (OMA_SKIP_GATEWAY_FETCH=1)"
 else
