@@ -10,7 +10,8 @@
 ![Drizzle ORM](https://img.shields.io/badge/ORM-Drizzle-2962FF?style=flat-square)
 ![Elysia](https://img.shields.io/badge/http-Elysia-2C2C2C?style=flat-square)
 ![MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-[![npm version](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
+<!-- 0.2.0 发正式版后，把这个 badge 改回 /v/@chengchenccc/oh-my-agent（latest） -->
+[![npm version (rc)](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent/rc?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
 
 ---
@@ -55,7 +56,13 @@ my-agent-team 是一个**团队级 Agent 运行时**。每个 Agent 有独立的
 一行命令装好 oma 和整套后端 + Web：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
+```
+
+`OMA_VERSION=rc` 走 npm 的 `rc` 通道，因为 `oma gateway` 这套命令目前只在预发布版里（`0.2.0-rc.1`）；等 `0.2.0` 正式版发到 `latest` 之后，把那截去掉即可。想直接装包也行：
+
+```bash
+bun add -g @chengchenccc/oh-my-agent@rc
 ```
 
 脚本按顺序做三件事：装 [Bun](https://bun.sh)（缺了才装）、装 `@chengchenccc/oh-my-agent`、把 gateway 产物下到 `~/.oma/gateway/`。它不会替你启动服务。
@@ -108,7 +115,7 @@ oma gateway up
 
 装好的 oma 单独用也没问题：直接敲 `oma` 开 TUI，`oma -p "..."` 跑一次性问答。
 
-> 一行命令默认装 npm 上的 `latest`，需要一个自带 `oma gateway up` 的版本（0.2.0 起）。如果 `oma gateway up` 报未知选项，说明装到的是更早的版本，先用下面的源码方式。
+> 装完如果 `oma gateway` 报未知命令，说明拿到的是 `latest` 上的 0.1.x（还没有 gateway 命令面）：改用 `@rc`，或者走下面的源码方式。
 
 ### 从源码跑（开发）
 
@@ -169,7 +176,7 @@ providers:
 详细架构见 [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)（执行链、分层、不变量）。
 
 > **Oma 启动方式**：`oma gateway up` 会把 `OMA_BIN` 指向自己的可执行文件，Backend 每个 Run 用它 spawn `oma --mode rpc`，不用手工配。源码开发时 `bun run dev` 直接跑 `apps/oh-my-agent/src/cli.ts`。只有手工部署（不用 `oma gateway up`）才需要自己把 `OMA_BIN` 指到 `apps/oh-my-agent/dist/cli.js` 绝对路径（详见 `apps/backend/.env.example`）。
-> **npm 包**：`@chengchenccc/oh-my-agent` —— [https://www.npmjs.com/package/@chengchenccc/oh-my-agent](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
+> **npm 包**：`@chengchenccc/oh-my-agent` —— [npmjs](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)。`latest` 停在 0.1.x，带 `gateway` 命令的预发布在 `rc` 通道：`bun add -g @chengchenccc/oh-my-agent@rc`。
 
 ## 🔐 安全模型（单操作员）
 
