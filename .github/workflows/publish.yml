@@ -1,11 +1,27 @@
 name: Publish
 
 # Tag-driven release: push a tag like v0.2.0 and every publishable package
-# in the oma dependency closure ships to npm at that version (lockstep).
+# in the oma dependency closure ships to npm at that version (lockstep), and the
+# gateway artifact is attached to the GitHub release.
+#
+# Rehearse it without shipping anything:
+#   gh workflow run publish.yml -f dry_run=true -f version=0.2.0-dryrun
+# That builds, stamps and packs exactly like a release, then stops before the
+# npm publish and the release creation.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, stamp and pack only: no npm publish, no GitHub release"
+        type: boolean
+        default: true
+      version:
+        description: "Version to stamp and pack (dry runs only; a tag overrides it)"
+        type: string
+        required: false
 
 permissions:
   contents: write # tag + GitHub Release notes generation
@@ -32,9 +48,21 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Resolve the release version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "$GITHUB_REF_NAME" ] || [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          [ -n "$VERSION" ] || { echo "no version: pass -f version=… for a dry run"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "releasing $VERSION (dry_run=${{ inputs.dry_run }})"
+
       - name: Stamp tag version into publishable packages
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${{ steps.version.outputs.version }}"
           node -e '
             const fs = require("fs");
             const tag = process.argv[1];
@@ -80,6 +108,7 @@ jobs:
           done
 
       - name: Publish (topological order, provenance on)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
@@ -89,7 +118,7 @@ jobs:
           # prerelease versions (rc/beta/alpha) go to a matching dist-tag so
           # `npm i oma` never resolves to a prerelease
           DIST_TAG=latest
-          case "${GITHUB_REF_NAME#v}" in
+          case "${{ steps.version.outputs.version }}" in
             *-rc.*) DIST_TAG=rc ;;
             *-beta.*) DIST_TAG=beta ;;
             *-alpha.*) DIST_TAG=alpha ;;
@@ -101,14 +130,16 @@ jobs:
             (cd "$p" && npm publish --access public --tag "$DIST_TAG")
           done
       - name: Pack the gateway artifact
-        run: bash scripts/pack-gateway.sh --version "${GITHUB_REF_NAME#v}" --out dist-gateway
+        run: bash scripts/pack-gateway.sh --version "${{ steps.version.outputs.version }}" --out dist-gateway
 
       - name: Attest the artifact provenance
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist-gateway/oma-gateway-*.tar.zst
 
       - name: Create GitHub release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
