@@ -127,6 +127,15 @@ export async function runGatewayStatus(opts: GatewayCommandOptions = {}): Promis
   log(`gateway home: ${paths.home}`);
   log(`versions:   ${versions.length > 0 ? versions.join(", ") : "(none installed)"}`);
   log(`current:    ${current ?? "(none)"}`);
+  // Which catalog the gateway's children will read: product runs deliberately
+  // ignore ~/.oma/models.yml (the agent's own bash tool can write there), so a
+  // custom provider only counts when OMA_HOME points at its models.yml.
+  const catalogHome = process.env.OMA_HOME;
+  log(
+    catalogHome
+      ? `catalog:    ${catalogHome}/models.yml via OMA_HOME`
+      : "catalog:    built-in providers only (OMA_HOME unset — a custom models.yml is not read)",
+  );
   if (versions.length === 0) {
     log(`install one: oma gateway fetch   (oma ${omaVersion()})`);
     return 1;

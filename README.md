@@ -126,6 +126,10 @@ oma gateway up
 
 **依赖：** `bun`、`tar`、`zstd`。模型 Key 按下面「配置模型 Provider」给（`ANTHROPIC_API_KEY` 等），`oma gateway up` 会把当前环境透传给后端。
 
+> **自定义 provider 在 gateway 里多一道门。** 独立 CLI 会依次读 `$OMA_HOME/models.yml`、`~/.oma/models.yml`、`./.oma/models.yml`；但产品里的 agent 子进程**只读 `$OMA_HOME/models.yml`** —— 工作区和 `~/.oma` 都是 agent 自己的 bash 工具能写的地方，读它们等于允许一次 Run 劫持下一次的 provider baseUrl 和 key。所以要在 gateway 里用自定义 provider：把 `models.yml` 放到某个目录，并**启动 gateway 时把 `OMA_HOME` 指到它**（后台常驻就写进服务单元）。`oma gateway status` 会打印它当前用的是哪份目录。
+>
+> 另外 provider 的 key 也要在那个环境里（`apiKeyEnv` 声明的名字，如 `ZAI_API_KEY`），否则会看到模型却跑不动，报 `model not found in catalog: <provider>/<model>`。
+
 装好的 oma 单独用也没问题：直接敲 `oma` 开 TUI，`oma -p "..."` 跑一次性问答。
 
 > 装完如果 `oma gateway` 报未知命令，说明拿到的是 `latest` 上的 0.1.x（还没有 gateway 命令面）：改用 `@rc`，或者走下面的源码方式。
