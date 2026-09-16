@@ -83,7 +83,18 @@ oma gateway status     # 版本、进程、健康、登录口令
 oma gateway down       # 停掉后台那个
 ```
 
-前台后台都会把地址和登录口令打印出来，浏览器打开 `http://127.0.0.1:3001/login` 即可。口令存在 `~/.oma/gateway-secrets.json`（权限 0600）。服务只绑 `127.0.0.1`，不上局域网。
+前台后台都会把地址和登录口令打印出来，浏览器打开 `http://127.0.0.1:3001/login` 即可。服务只绑 `127.0.0.1`，不上局域网。
+
+口令不是固定的：首次启动时随机生成，写进 `~/.oma/gateway-secrets.json`（权限 0600），忘了随时再查：
+
+```bash
+oma gateway status                     # 打印 user-001 / <口令>
+cat ~/.oma/gateway-secrets.json
+```
+
+想换成自己记得住的，改文件里的 `MOCK_PASSWORD`，再 `oma gateway down && oma gateway up -d`。`export MOCK_PASSWORD=...` 对 gateway 不起作用：产物清单里的值优先于进程环境。登录页只填密码，`user-001` 只是标识。
+
+> 源码方式（`bun run dev`）读的是 `apps/web/.env` 里的 `MOCK_PASSWORD`，`.env.example` 给的是 `admin`，但 `scripts/predev.sh` 首次运行会把它换成随机值。
 
 不想用脚本就手动装：
 
