@@ -95,7 +95,9 @@ export async function startDetachedGateway(opts: StartDetachedOptions): Promise<
   const gateway = gatewayPaths(opts.home);
   await mkdir(gateway.root, { recursive: true });
   const paths = daemonPaths(opts.home);
-  const logFd = openSync(paths.log, "a");
+  // 0600: the log carries the supervisor's own output, and nothing that runs
+  // unattended should be world-readable.
+  const logFd = openSync(paths.log, "a", 0o600);
   let pid: number;
   try {
     const proc = Bun.spawn([...opts.command], {

@@ -15,6 +15,19 @@ import type { BackendConfig } from "../config.js";
  *  keeps stdin open for JSONL — a permanent deadlock. Never a shell string:
  *  `executable` + explicit `args` only (no argument injection). Secrets
  *  travel exclusively via env. */
+/** Every `*_API_KEY` in the environment, whatever provider it belongs to. The
+ *  child only reads the names its catalog declares, so forwarding the whole
+ *  family costs nothing and lets custom providers authenticate. */
+export function collectApiKeyEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key.endsWith("_API_KEY")) out[key] = value;
+  }
+  return out;
+}
+
 export function resolveOmaCommand(
   config: BackendConfig,
   opts: {
@@ -24,17 +37,15 @@ export function resolveOmaCommand(
 ): OmaCommandConfig {
   const env = {
     // Provider credentials reach the child via env only (the child's
-    // registerProvidersFromCatalog reads process.env). Forward the
-    // provider env subset + runtime catalog location; the child resolves
-    // which providers have keys. No provider is required — a clean machine
-    // with zero keys still boots; agents get configured later.
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    // registerProvidersFromCatalog reads process.env). Forward every *_API_KEY
+    // plus the anthropic proxy pair: the built-in providers are a fixed set,
+    // but a custom provider in ~/.oma/models.yml names its own apiKeyEnv
+    // (ZAI_API_KEY and friends), and a fixed allow-list made those invisible to
+    // both runs and the model catalog — the CLI in a shell saw them, the
+    // gateway did not.
+    ...collectApiKeyEnv(process.env),
     ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
     ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
-    GROQ_API_KEY: process.env.GROQ_API_KEY,
-    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     OMA_HOME: process.env.OMA_HOME,
     // H6: the oma child's CWD is the agent-writable workspace — never load
     // a workspace-level models.yml from product runs (provider baseUrl

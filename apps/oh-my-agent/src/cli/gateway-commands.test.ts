@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runGatewayDown, runGatewayFetch, runGatewayStatus } from "./gateway-commands.js";
+import {
+  credentialLines,
+  runGatewayDown,
+  runGatewayFetch,
+  runGatewayStatus,
+} from "./gateway-commands.js";
 
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), "oma-cli-home-"));
@@ -78,5 +83,30 @@ describe("runGatewayDown", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("credentialLines", () => {
+  const home = "/tmp/oma-cred-home";
+  const secrets = { MOCK_PASSWORD: "deadbeefcafe" };
+
+  test("echoes the password on an interactive terminal", () => {
+    const lines = credentialLines(home, secrets, true);
+    expect(lines.join("\n")).toContain("deadbeefcafe");
+    // …and always says where to get it again.
+    expect(lines.join("\n")).toContain("oma gateway status");
+    expect(lines.join("\n")).toContain("gateway-secrets.json");
+  });
+
+  test("keeps the password out of non-interactive output (detached runs log to a file)", () => {
+    const lines = credentialLines(home, secrets, false);
+    expect(lines.join("\n")).not.toContain("deadbeefcafe");
+    expect(lines.join("\n")).toContain("oma gateway status");
+  });
+
+  test("still points at the file when no password has been generated", () => {
+    const lines = credentialLines(home, {}, true);
+    expect(lines.join("\n")).not.toContain("user-001 /");
+    expect(lines.join("\n")).toContain("gateway-secrets.json");
   });
 });

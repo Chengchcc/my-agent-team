@@ -56,15 +56,30 @@ describe("resolveOmaCommand", () => {
   });
 
   test("forwards provider env subset, merged with caller env", () => {
-    const result = resolveOmaCommand(baseConfig, { env: { EXTRA: "1" } });
+    const savedKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-anth-test";
+    try {
+      const result = resolveOmaCommand(baseConfig, { env: { EXTRA: "1" } });
+      expect(result.env).toMatchObject({ EXTRA: "1" });
+      expect(result.env?.ANTHROPIC_API_KEY).toBe("sk-anth-test");
+      expect(Object.keys(result.env ?? {})).toContain("OMA_HOME");
+    } finally {
+      if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = savedKey;
+    }
+  });
 
-    expect(result.env).toMatchObject({ EXTRA: "1" });
-    // Provider env keys are always present in the child env (forwarded from
-    // process.env, possibly undefined — the child resolves which providers
-    // have keys via its own catalog registration).
-    expect("ANTHROPIC_API_KEY" in (result.env ?? {})).toBe(true);
-    expect("DEEPSEEK_API_KEY" in (result.env ?? {})).toBe(true);
-    expect("OMA_HOME" in (result.env ?? {})).toBe(true);
+  test("forwards custom provider keys, not just the built-in five", () => {
+    // A provider declared in ~/.oma/models.yml names its key via apiKeyEnv; a
+    // fixed allow-list meant the CLI in a shell saw its models and the gateway
+    // did not, because the child never received that key.
+    process.env.TEST_CUSTOM_API_KEY = "custom-key-value";
+    try {
+      const result = resolveOmaCommand(baseConfig);
+      expect(result.env?.TEST_CUSTOM_API_KEY).toBe("custom-key-value");
+    } finally {
+      delete process.env.TEST_CUSTOM_API_KEY;
+    }
   });
 
   test("no product-tools token at the command layer — it is per-run", () => {

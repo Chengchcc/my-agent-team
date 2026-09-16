@@ -44,6 +44,22 @@ export function isGatewayCommand(value: string): value is GatewayCommand {
   return false;
 }
 
+/** What to tell the operator about logging in. The password is only echoed on
+ *  an interactive terminal: a detached run's stdout is redirected into a log
+ *  file, and a secret must not be filed away there. The pointer is always
+ *  printed, so a missed banner is never a dead end. */
+export function credentialLines(
+  home: string,
+  secrets: Record<string, string>,
+  interactive: boolean,
+): string[] {
+  const lines: string[] = [];
+  const password = secrets.MOCK_PASSWORD;
+  if (password && interactive) lines.push(`login: user-001 / ${password}`);
+  lines.push(`login password: oma gateway status   (or read ${gatewayPaths(home).secrets})`);
+  return lines;
+}
+
 export interface GatewayCommandOptions {
   home?: string;
   version?: string;
@@ -186,7 +202,9 @@ export async function runGatewayUp(opts: GatewayCommandOptions = {}): Promise<nu
           `gateway ${handle.manifest.version} is up (${handle.manifest.components.length} processes)`,
         );
         log(`open http://127.0.0.1:${web?.port ?? 3001}/login`);
-        if (handle.secrets.MOCK_PASSWORD) log(`login: user-001 / ${handle.secrets.MOCK_PASSWORD}`);
+        for (const line of credentialLines(home, handle.secrets, process.stdout.isTTY === true)) {
+          log(line);
+        }
         log("Ctrl-C stops the gateway");
       },
     });
@@ -242,11 +260,16 @@ async function startGatewayDetached(
       try {
         const res = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) });
         if (res.ok) {
-          const password = readSecrets(opts.home).MOCK_PASSWORD;
           opts.log("");
           opts.log(`gateway ${opts.version} is up in the background (pid ${daemon.pid})`);
           opts.log(`open http://127.0.0.1:${web?.port ?? 3001}/login`);
-          if (password) opts.log(`login: user-001 / ${password}`);
+          for (const line of credentialLines(
+            opts.home,
+            readSecrets(opts.home),
+            process.stdout.isTTY === true,
+          )) {
+            opts.log(line);
+          }
           opts.log("stop it with: oma gateway down");
           return 0;
         }
