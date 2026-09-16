@@ -10,6 +10,18 @@ const nextConfig: NextConfig = {
   // its optional sharp/libvips native deps (platform-specific, ~40MB) land in
   // the standalone trace. Turning it off keeps the artifact portable.
   images: { unoptimized: true },
+  // The tracer follows static requires, not the runtime path, so sharp/libvips
+  // land in the payload even with image optimization off — and they are the
+  // only platform-specific binaries there (~33MB, linux-gnu + linux-musl).
+  // Nothing needs them: no next/image in the app, unoptimized on top.
+  outputFileTracingExcludes: {
+    "*": [
+      "**/node_modules/@img/**",
+      "**/node_modules/sharp/**",
+      // bun's isolated store nests deps one level deeper (.bun/<pkg>@<ver>/)
+      "**/node_modules/.bun/@img*/**",
+    ],
+  },
   // Route renames (UI review 3.5): /work -> /today, /agentic-workflow ->
   // /workflows; team overview flip: /team/agents* -> /team* (agent detail
   // now lives at /team/[agentId]). Old paths keep working via redirects.

@@ -88,6 +88,13 @@ jobs:
           echo "=== web payload breakdown ==="
           du -sh $P/* 2>/dev/null | sort -h | tail -8
           echo
+          echo "=== biggest traced deps ==="
+          if [ -d $P/node_modules/.bun ]; then
+            du -sh $P/node_modules/.bun/* 2>/dev/null | sort -h | tail -12
+          else
+            du -sh $P/node_modules/* 2>/dev/null | sort -h | tail -12
+          fi
+          echo
           echo "=== .next/cache must NOT be in the payload ==="
           CACHE=$(find $P -maxdepth 6 -type d -name cache -path "*/.next/*" -print -quit)
           if [ -n "$CACHE" ]; then
