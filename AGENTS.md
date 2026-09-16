@@ -197,6 +197,8 @@ Two layers: **packages/workflow** (pure domain: `WorkflowDefinition` DSL, `compu
 ## Runtime/Tooling Preferences
 
 - **Runtime:** Bun only (do not suggest Node.js-specific APIs)
+- **Next runtime:** `next`'s bin carries a `#!/usr/bin/env node` shebang, so `bun run <script>` executes Next under **Node**. To run it on Bun, invoke the file explicitly (`bun node_modules/next/dist/bin/next start`); verified working for SSR, middleware redirects, route handlers, and Server Components that read the backend with the privileged token.
+- **Heavy builds:** `next build` (and `turbo run build`) exceed a small dev box (2 cores / 3.5GB): it hangs for over an hour at "Creating an optimized production build" with near-zero CPU and drives RAM to 99%. Run it under `bash scripts/memguard.sh --limit 2G -- <cmd>`, or in CI — which is where release artifacts get built anyway.
 - **Package manager:** `bun install` (bun.lock)
 - **Formatting:** Biome (space/2/100, single quotes)
 - **Linting:** Biome (recommended rules) + ESLint (TS-specific: `consistent-type-imports`, `no-unused-vars`)
