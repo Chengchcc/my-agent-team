@@ -25,3 +25,6 @@ apps/web/public/monaco/
 
 # Stack artifact build output (scripts/pack-stack.sh)
 dist-stack/
+
+# npm pack output
+*.tgz
