@@ -174,3 +174,45 @@ describe("fetchGatewayArtifact", () => {
     }
   });
 });
+
+describe("download stall", () => {
+  test.skipIf(!HAS_ZSTD)(
+    "a wedged download fails fast instead of hanging",
+    async () => {
+      const home = tempDir("oma-home-");
+      // Valid sums for the name, but the tarball body never finishes.
+      const sums = `${"a".repeat(64)}  oma-gateway-3.0.0.tar.zst\n`;
+      const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch(req) {
+          const path = new URL(req.url).pathname;
+          if (path.endsWith("/SHA256SUMS")) return new Response(sums);
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("partial"));
+                // …and then nothing, forever.
+              },
+            }),
+          );
+        },
+      });
+      try {
+        await expect(
+          fetchGatewayArtifact({
+            home,
+            version: "3.0.0",
+            env: { OMA_GATEWAY_BASE_URL: `http://127.0.0.1:${server.port}` },
+            stallMs: 300,
+          }),
+        ).rejects.toThrow(/stalled/);
+        expect(installedVersions(home)).toEqual([]);
+      } finally {
+        server.stop(true);
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+    20_000,
+  );
+});

@@ -86,7 +86,24 @@ export function parseSums(sums: string, fileName: string): string {
   throw new GatewayArtifactError(`SHA256SUMS has no entry for ${fileName}`);
 }
 
-async function download(url: string, dest: string): Promise<void> {
+/** How long a download may go without delivering a byte before it is called
+ *  dead. A slow-but-moving transfer is fine; a wedged one must not hang an
+ *  install (a postinstall sat for 10 minutes before this existed). */
+const DEFAULT_STALL_MS = 60_000;
+
+async function withStallTimeout<T>(work: Promise<T>, ms: number, onStall: () => Error): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stall = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(onStall()), ms);
+  });
+  try {
+    return await Promise.race([work, stall]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function download(url: string, dest: string, stallMs: number): Promise<void> {
   let res: Response;
   try {
     res = await fetch(url, { redirect: "follow" });
@@ -102,10 +119,22 @@ async function download(url: string, dest: string): Promise<void> {
   // also keeps a 60MB artifact out of memory.
   const writer = Bun.file(dest).writer();
   const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    writer.write(value);
+  try {
+    for (;;) {
+      const { done, value } = await withStallTimeout(
+        reader.read(),
+        stallMs,
+        () =>
+          new GatewayArtifactError(
+            `download stalled for ${Math.round(stallMs / 1000)}s at ${url} — check the connection, then retry`,
+          ),
+      );
+      if (done) break;
+      writer.write(value);
+    }
+  } catch (err: unknown) {
+    await reader.cancel().catch(() => {});
+    throw err;
   }
   await writer.end();
 }
@@ -174,6 +203,8 @@ export interface FetchOptions {
   version?: string;
   env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
+  /** No-byte allowance before a download is declared dead (test seam). */
+  stallMs?: number;
 }
 
 export interface FetchResult {
@@ -211,7 +242,7 @@ export async function fetchGatewayArtifact(opts: FetchOptions = {}): Promise<Fet
     if (!sums.ok) throw new GatewayArtifactError(`${sumsUrl} -> HTTP ${sums.status}`);
     const expected = parseSums(await sums.text(), `oma-gateway-${version}.tar.zst`);
 
-    await download(tarballUrl, tarball);
+    await download(tarballUrl, tarball, opts.stallMs ?? DEFAULT_STALL_MS);
     const actual = await sha256File(tarball);
     if (actual !== expected) {
       throw new GatewayArtifactError(
