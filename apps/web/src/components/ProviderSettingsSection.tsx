@@ -2,6 +2,7 @@
 
 import { KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { CustomProviderKeys } from "@/components/CustomProviderKeys";
 import { MonoLabel, StatusPill } from "@/components/patterns";
 import { Button } from "@/components/ui/button";
 import {
@@ -85,6 +86,7 @@ export function ProviderSettingsSection() {
             ))}
           </div>
         )}
+        <CustomProviderKeys />
       </div>
 
       <Dialog

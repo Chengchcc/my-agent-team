@@ -8,3 +8,10 @@ export function providersQuery() {
     queryFn: api.listProviders,
   });
 }
+
+export function customProviderKeysQuery() {
+  return queryOptions({
+    queryKey: providerKeys.customKeys,
+    queryFn: api.listCustomProviderKeys,
+  });
+}

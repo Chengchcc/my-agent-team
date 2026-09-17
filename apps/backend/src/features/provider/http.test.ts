@@ -78,3 +78,49 @@ describe("providerRoutes", () => {
     expect(res.status).toBe(422);
   });
 });
+
+describe("custom key routes", () => {
+  test("PUT stores a key, GET lists the name without the value", async () => {
+    let changed = 0;
+    const app = new Elysia().use(
+      providerRoutes(createProviderService(makeSettings()), { onChange: () => (changed += 1) }),
+    );
+    const put = await app.handle(
+      new Request("http://test/api/providers/env/ZAI_API_KEY", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ apiKey: "zai-secret" }),
+      }),
+    );
+    expect(put.status).toBe(200);
+    expect(changed).toBe(1);
+
+    const res = await app.handle(new Request("http://test/api/providers/env"));
+    const body = (await res.json()) as { keys: Array<{ name: string; configured: boolean }> };
+    expect(body.keys).toEqual([{ name: "ZAI_API_KEY", configured: true }]);
+    expect(JSON.stringify(body)).not.toContain("zai-secret");
+  });
+
+  test("a bad name is rejected", async () => {
+    const app = new Elysia().use(providerRoutes(createProviderService(makeSettings())));
+    const res = await app.handle(
+      new Request("http://test/api/providers/env/nope", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ apiKey: "x" }),
+      }),
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  test("DELETE removes it", async () => {
+    const svc = createProviderService(makeSettings());
+    svc.setCustomKey("ZAI_API_KEY", "zai-secret");
+    const app = new Elysia().use(providerRoutes(svc));
+    const res = await app.handle(
+      new Request("http://test/api/providers/env/ZAI_API_KEY", { method: "DELETE" }),
+    );
+    expect(res.status).toBe(200);
+    expect(svc.listCustomKeys()).toEqual([]);
+  });
+});

@@ -22,5 +22,20 @@ export function providerRoutes(svc: ProviderService, opts: { onChange?: () => vo
       svc.clear(id);
       opts.onChange?.();
       return { ok: true };
+    })
+    .get("/api/providers/env", () => ({ keys: svc.listCustomKeys() }))
+    .put(
+      "/api/providers/env/:name",
+      ({ params: { name }, body }) => {
+        svc.setCustomKey(name, body.apiKey);
+        opts.onChange?.();
+        return { ok: true, keys: svc.listCustomKeys() };
+      },
+      { body: t.Object({ apiKey: t.String({ minLength: 1 }) }) },
+    )
+    .delete("/api/providers/env/:name", ({ params: { name } }) => {
+      svc.clearCustomKey(name);
+      opts.onChange?.();
+      return { ok: true, keys: svc.listCustomKeys() };
     });
 }

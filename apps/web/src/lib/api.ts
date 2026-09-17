@@ -453,6 +453,30 @@ export const api = {
       }>;
     };
   },
+  // Provider keys added by name (for providers only a models.yml knows)
+  listCustomProviderKeys: async () => {
+    const resp = await fetch("/api/bff/providers/env", { credentials: "include" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()) as { keys: Array<{ name: string; configured: boolean }> };
+  },
+  setCustomProviderKey: async (name: string, apiKey: string) => {
+    const resp = await fetch(`/api/bff/providers/env/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()) as { ok: boolean };
+  },
+  clearCustomProviderKey: async (name: string) => {
+    const resp = await fetch(`/api/bff/providers/env/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()) as { ok: boolean };
+  },
   // Login password (direct fetch - route not visible to Eden treaty)
   getAuthPassword: async () => {
     const resp = await fetch("/api/bff/auth/password", { credentials: "include" });

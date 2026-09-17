@@ -1,6 +1,11 @@
 import { ValidationError } from "../../infra/domain-errors.js";
 import type { SettingsService } from "../settings/index.js";
-import type { ProviderDefinition, ProviderInfo, StoredProviderConfig } from "./domain.js";
+import type {
+  CustomKeyInfo,
+  ProviderDefinition,
+  ProviderInfo,
+  StoredProviderConfig,
+} from "./domain.js";
 
 export const KNOWN_PROVIDERS: ProviderDefinition[] = [
   {
@@ -19,10 +24,24 @@ export interface ProviderService {
   list(): ProviderInfo[];
   set(id: string, input: { apiKey?: string; baseUrl?: string }): ProviderInfo;
   clear(id: string): void;
+  /** Keys added by name, for providers the builtin list does not know (see
+   *  $OMA_HOME/models.yml and its apiKeyEnv). Values never leave the server. */
+  listCustomKeys(): CustomKeyInfo[];
+  setCustomKey(name: string, value: string): void;
+  clearCustomKey(name: string): void;
   getProviderEnv(): Record<string, string | undefined>;
 }
 
 const storageKey = (id: string) => `provider.${id}`;
+
+/** One KV row holds every custom key: atomic to update, and the settings read
+ *  path masks its values by their own names (they all end in _API_KEY). */
+const CUSTOM_ENV_KEY = "providerEnv";
+
+/** A name a provider (or a models.yml entry's apiKeyEnv) would look up. */
+export function isProviderKeyName(name: string): boolean {
+  return /^[A-Z][A-Z0-9_]*_API_KEY$/.test(name);
+}
 
 function definitionOf(id: string): ProviderDefinition {
   const def = KNOWN_PROVIDERS.find((d) => d.id === id);
@@ -38,6 +57,16 @@ export function createProviderService(settingsSvc: SettingsService): ProviderSer
   function configured(def: ProviderDefinition): boolean {
     const s = stored(def.id);
     return Boolean(s.apiKey || process.env[def.apiKeyEnv]);
+  }
+
+  function customEnv(): Record<string, string> {
+    const stored = settingsSvc.get<Record<string, string>>(CUSTOM_ENV_KEY);
+    if (typeof stored !== "object" || stored === null) return {};
+    const env: Record<string, string> = {};
+    for (const [name, value] of Object.entries(stored)) {
+      if (typeof value === "string" && value.length > 0) env[name] = value;
+    }
+    return env;
   }
 
   return {
@@ -75,6 +104,27 @@ export function createProviderService(settingsSvc: SettingsService): ProviderSer
       settingsSvc.set<StoredProviderConfig>(storageKey(id), {});
     },
 
+    listCustomKeys() {
+      return Object.keys(customEnv())
+        .sort()
+        .map((name) => ({ name, configured: true }));
+    },
+
+    setCustomKey(name, value) {
+      if (!isProviderKeyName(name)) {
+        throw new ValidationError(`expected a name like ZAI_API_KEY, got "${name}"`);
+      }
+      const trimmed = value.trim();
+      if (!trimmed) throw new ValidationError(`provider key ${name} needs a value`);
+      settingsSvc.set(CUSTOM_ENV_KEY, { ...customEnv(), [name]: trimmed });
+    },
+
+    clearCustomKey(name) {
+      const next = customEnv();
+      delete next[name];
+      settingsSvc.set(CUSTOM_ENV_KEY, next);
+    },
+
     getProviderEnv() {
       const env: Record<string, string | undefined> = {};
       for (const def of KNOWN_PROVIDERS) {
@@ -82,7 +132,8 @@ export function createProviderService(settingsSvc: SettingsService): ProviderSer
         if (s.apiKey) env[def.apiKeyEnv] = s.apiKey;
         if (s.baseUrl && def.baseUrlEnv) env[def.baseUrlEnv] = s.baseUrl;
       }
-      return env;
+      // An explicitly added key wins over a builtin of the same name.
+      return { ...env, ...customEnv() };
     },
   };
 }
