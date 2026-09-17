@@ -432,6 +432,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         const row = await agentSvc.getById(agentId);
         return row?.config ?? null;
       },
+      // The tool proposes to an EXISTING agent's edit page; an unknown id has
+      // no page to adopt the change, so the call must fail instead of
+      // reporting a proposal nobody will ever see.
+      agentExists: (agentId) => agentSvc.exists(agentId),
       configEvents: agentConfigEvents,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);

@@ -18,11 +18,51 @@ import type { AgentConfigEventBus } from "./agent-config-events.js";
 export interface AgentConfigMcpServerOptions {
   /** Read the current agent config (from the service cache) by id. */
   readonly readConfig: (agentId: string) => Promise<unknown>;
+  /** Required: without it agent_write would report a proposal for an id that
+   *  has no edit page to adopt it — a false success. */
+  readonly agentExists: (agentId: string) => Promise<boolean>;
   readonly host?: string;
   /** 0 = ephemeral port. */
   readonly port?: number;
   /** Emit a "changed" event after agent_write (SSE live refresh). */
   readonly configEvents?: AgentConfigEventBus;
+}
+
+/** One tool call, transport-free. Throws on a bad call — the MCP layer maps
+ *  that to isError. Exported so the semantics stay testable without an SSE
+ *  round trip. */
+export async function callAgentConfigTool(
+  deps: {
+    readConfig: (agentId: string) => Promise<unknown>;
+    agentExists: (agentId: string) => Promise<boolean>;
+    configEvents?: AgentConfigEventBus;
+  },
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const agentId = typeof args.agentId === "string" ? args.agentId : "";
+  if (!agentId) throw new Error("agentId required");
+  if (name === "agent_read") {
+    return JSON.stringify(await deps.readConfig(agentId), null, 2);
+  }
+  if (name === "agent_write") {
+    if (typeof args.config !== "object" || args.config === null) {
+      throw new Error("config (object) required");
+    }
+    // No agent row = no workspace, no run, and no edit page to adopt the
+    // proposal: reporting success there is a lie the model would relay.
+    if (!(await deps.agentExists(agentId))) {
+      throw new Error(
+        `unknown agent: ${agentId} — this tool proposes changes to an EXISTING agent; create the agent on the Team page first`,
+      );
+    }
+    // NO file write. The proposed config is pushed to the edit page over the
+    // agent-config SSE; the form shows it as an unsaved edit and the user
+    // commits it with Save. The live agent.yml is untouched.
+    deps.configEvents?.emit(agentId, { trigger: "mcp", config: args.config });
+    return `proposed update for ${agentId} (${randomUUID().slice(0, 8)}) — NOT saved: open /team/${agentId}/edit, review the unsaved change and Save to apply`;
+  }
+  throw new Error(`unknown tool: ${name}`);
 }
 
 export interface AgentConfigMcpServer {
@@ -58,7 +98,7 @@ export async function createAgentConfigMcpServer(
         {
           name: "agent_write",
           description:
-            "Propose a new config for an agent by its id. The edit page adopts it as an unsaved edit; the user commits with Save. Never writes agent.yml directly.",
+            "Propose a new config for an EXISTING agent by its id. The edit page (/team/<id>/edit) adopts it as an unsaved edit; the user commits with Save. Never writes agent.yml directly and cannot create agents.",
           inputSchema: {
             type: "object",
             properties: {
@@ -72,34 +112,14 @@ export async function createAgentConfigMcpServer(
     }));
 
     s.setRequestHandler(CallToolRequestSchema, async (req) => {
-      const name = req.params.name;
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-      const agentId = typeof args.agentId === "string" ? args.agentId : "";
       try {
-        if (name === "agent_read") {
-          if (!agentId) throw new Error("agentId required");
-          const config = await readConfig(agentId);
-          return { content: [{ type: "text", text: JSON.stringify(config, null, 2) }] };
-        }
-        if (name === "agent_write") {
-          if (!agentId) throw new Error("agentId required");
-          if (typeof args.config !== "object" || args.config === null) {
-            throw new Error("config (object) required");
-          }
-          // NO file write. The proposed config is pushed to the edit page over
-          // the agent-config SSE; the form shows it as an unsaved edit and the
-          // user commits it with Save. The live agent.yml is untouched.
-          configEvents?.emit(agentId, { trigger: "mcp", config: args.config });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `proposed update for ${agentId} (${randomUUID().slice(0, 8)}) — review in the editor and save to apply`,
-              },
-            ],
-          };
-        }
-        return { content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true };
+        const text = await callAgentConfigTool(
+          { readConfig, agentExists: opts.agentExists, configEvents },
+          req.params.name,
+          args,
+        );
+        return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
           content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],
