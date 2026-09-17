@@ -1,45 +1,151 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
+import { BACKEND_KINDS } from "@chengchenccc/agent-contract";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { AgentConfigEventBus } from "./agent-config-events.js";
 
-/** Agent-config MCP server: lets a chat agent read/write an agent's config
+/** Agent-config MCP server: lets a chat agent read/write/create agents
  *  through ordinary MCP tools. This is how the agent edit page's chat
  *  proposes config changes — `agent_write` emits a "changed" SSE event with
  *  the proposed config; the left form adopts it as an unsaved edit and the
  *  user commits it with Save. The live agent.yml is never touched until the
  *  user saves (mirrors the workflow editor's propose→review→save cadence).
+ *  `agent_create` is the exception: it CREATES for real, through the agent
+ *  service, because a brand-new agent has no workspace, no row and no edit
+ *  page for a proposal to land in.
  *
  *  Bound to 127.0.0.1; tools are narrow reads/writes scoped to one agent id. */
 
-export interface AgentConfigMcpServerOptions {
+/** The create subset the MCP tool accepts. Deliberately smaller than the
+ *  HTTP create body: no workspacePath/mcpServers/knowledgePacks (they need
+ *  ids a model cannot validate) and no `id` (the service mints one, exactly
+ *  like the HTTP route). */
+export interface AgentProxyCreateInput {
+  name: string;
+  model: { provider: string; model: string };
+  backendKind?: string;
+  reasoningEffort?: "none" | "low" | "high" | "max";
+  permissionMode?: "ask" | "auto" | "deny";
+}
+
+export interface AgentCreateBudget {
+  readonly max: number;
+  readonly windowMs: number;
+}
+
+/** A model in a loop can mint agents faster than a human can delete them.
+ *  Five per ten minutes is far above any honest request and far below a
+ *  runaway; the counter is per process (one backend = one counter). */
+export const DEFAULT_AGENT_CREATE_BUDGET: AgentCreateBudget = { max: 5, windowMs: 10 * 60_000 };
+
+/** Returns the "spend one create" guard: throws once the window is spent and
+ *  refills when the window rolls over. */
+export function createCreateBudget(
+  budget: AgentCreateBudget = DEFAULT_AGENT_CREATE_BUDGET,
+): () => void {
+  let windowStart = Date.now();
+  let used = 0;
+  return () => {
+    const now = Date.now();
+    if (now - windowStart >= budget.windowMs) {
+      windowStart = now;
+      used = 0;
+    }
+    if (used >= budget.max) {
+      throw new Error(
+        `agent create budget spent (${budget.max} per ${Math.round(budget.windowMs / 60_000)}min) — ask the user to create agents in the Team page`,
+      );
+    }
+    used++;
+  };
+}
+
+export interface AgentConfigMcpDeps {
   /** Read the current agent config (from the service cache) by id. */
   readonly readConfig: (agentId: string) => Promise<unknown>;
   /** Required: without it agent_write would report a proposal for an id that
    *  has no edit page to adopt it — a false success. */
   readonly agentExists: (agentId: string) => Promise<boolean>;
+  /** Create through the agent service (row + workspace + onCreate chain).
+   *  Never a file write: a hand-made workspace dir is invisible to list(). */
+  readonly createAgent: (input: AgentProxyCreateInput) => Promise<{ id: string }>;
+  /** Spend-guard for agent_create; throws when the budget is exhausted. */
+  readonly reserveCreate: () => void;
+  /** Emit a "changed" event after agent_write (SSE live refresh). */
+  readonly configEvents?: AgentConfigEventBus;
+}
+
+export interface AgentConfigMcpServerOptions extends Omit<AgentConfigMcpDeps, "reserveCreate"> {
   readonly host?: string;
   /** 0 = ephemeral port. */
   readonly port?: number;
-  /** Emit a "changed" event after agent_write (SSE live refresh). */
-  readonly configEvents?: AgentConfigEventBus;
+  /** Test seam; defaults to the process-wide create budget. */
+  readonly reserveCreate?: () => void;
+}
+
+/** Trimmed non-empty string, or null. */
+function str(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+/** Narrow the model's agent_create arguments. Throws on anything unusable so
+ *  the mistake comes back as a tool error instead of a half-created agent. */
+export function readAgentCreateInput(args: Record<string, unknown>): AgentProxyCreateInput {
+  const name = str(args.name);
+  if (!name) throw new Error("name required");
+  const model = typeof args.model === "object" && args.model !== null ? args.model : null;
+  const provider = model && "provider" in model ? str(model.provider) : null;
+  const modelName = model && "model" in model ? str(model.model) : null;
+  if (!provider || !modelName) {
+    throw new Error(
+      'model required, e.g. { "provider": "anthropic", "model": "claude-sonnet-4-6" }',
+    );
+  }
+  const rawKind = str(args.backendKind);
+  const backendKind = BACKEND_KINDS.find((kind) => kind === rawKind);
+  if (rawKind && !backendKind) {
+    throw new Error(`backendKind must be one of ${BACKEND_KINDS.join(", ")}`);
+  }
+  const EFFORTS = ["none", "low", "high", "max"] as const;
+  const reasoningEffort = EFFORTS.find((e) => e === str(args.reasoningEffort));
+  if (str(args.reasoningEffort) && !reasoningEffort) {
+    throw new Error(`reasoningEffort must be one of ${EFFORTS.join(", ")}`);
+  }
+  const MODES = ["ask", "auto", "deny"] as const;
+  const permissionMode = MODES.find((m) => m === str(args.permissionMode));
+  if (str(args.permissionMode) && !permissionMode) {
+    throw new Error(`permissionMode must be one of ${MODES.join(", ")}`);
+  }
+  return {
+    name,
+    model: { provider, model: modelName },
+    ...(backendKind ? { backendKind } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(permissionMode ? { permissionMode } : {}),
+  };
 }
 
 /** One tool call, transport-free. Throws on a bad call — the MCP layer maps
  *  that to isError. Exported so the semantics stay testable without an SSE
  *  round trip. */
 export async function callAgentConfigTool(
-  deps: {
-    readConfig: (agentId: string) => Promise<unknown>;
-    agentExists: (agentId: string) => Promise<boolean>;
-    configEvents?: AgentConfigEventBus;
-  },
+  deps: AgentConfigMcpDeps,
   name: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  if (name === "agent_create") {
+    const input = readAgentCreateInput(args);
+    deps.reserveCreate();
+    // Through the agent service, like the HTTP route: materialize the
+    // workspace, write agent.yml, insert the row and run onCreate (builtin
+    // skill pack + workspace reconcile). A file write would create a ghost.
+    const row = await deps.createAgent(input);
+    const runtime = input.backendKind ? `, runtime ${input.backendKind}` : "";
+    return `created agent "${input.name}" (id: ${row.id}) — model ${input.model.provider}/${input.model.model}${runtime}. It carries the builtin skills; the user can refine it at /team/${row.id}/edit`;
+  }
   const agentId = typeof args.agentId === "string" ? args.agentId : "";
   if (!agentId) throw new Error("agentId required");
   if (name === "agent_read") {
@@ -53,7 +159,7 @@ export async function callAgentConfigTool(
     // proposal: reporting success there is a lie the model would relay.
     if (!(await deps.agentExists(agentId))) {
       throw new Error(
-        `unknown agent: ${agentId} — this tool proposes changes to an EXISTING agent; create the agent on the Team page first`,
+        `unknown agent: ${agentId} — this tool proposes changes to an EXISTING agent; create it with agent_create or on the Team page first`,
       );
     }
     // NO file write. The proposed config is pushed to the edit page over the
@@ -74,7 +180,8 @@ export interface AgentConfigMcpServer {
 export async function createAgentConfigMcpServer(
   opts: AgentConfigMcpServerOptions,
 ): Promise<AgentConfigMcpServer> {
-  const { readConfig, configEvents } = opts;
+  const { readConfig, agentExists, createAgent, configEvents } = opts;
+  const reserveCreate = opts.reserveCreate ?? createCreateBudget();
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
 
@@ -85,6 +192,39 @@ export async function createAgentConfigMcpServer(
     );
     s.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
+        {
+          name: "agent_create",
+          description:
+            "Create a NEW agent (a teammate) for the user: real agent row + workspace + builtin skills. Use it when the user asks for another agent; pass a display name and the model to run it on (take your own from the Workspace system reminder if the user has no preference). The user can refine it at /team/<id>/edit.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Display name, e.g. Code Reviewer." },
+              model: {
+                type: "object",
+                properties: {
+                  provider: { type: "string" },
+                  model: { type: "string" },
+                },
+                required: ["provider", "model"],
+                description:
+                  'Canonical model pair, e.g. { "provider": "anthropic", "model": "claude-sonnet-4-6" }.',
+              },
+              backendKind: {
+                type: "string",
+                enum: [...BACKEND_KINDS],
+                description: "Runtime backend (default oma).",
+              },
+              reasoningEffort: { type: "string", enum: ["none", "low", "high", "max"] },
+              permissionMode: {
+                type: "string",
+                enum: ["ask", "auto", "deny"],
+                description: "Tool-approval posture (default ask; auto = classifier-gated).",
+              },
+            },
+            required: ["name", "model"],
+          },
+        },
         {
           name: "agent_read",
           description:
@@ -115,7 +255,7 @@ export async function createAgentConfigMcpServer(
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
       try {
         const text = await callAgentConfigTool(
-          { readConfig, agentExists: opts.agentExists, configEvents },
+          { readConfig, agentExists, createAgent, reserveCreate, configEvents },
           req.params.name,
           args,
         );

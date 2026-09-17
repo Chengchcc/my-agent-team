@@ -61,7 +61,8 @@ workspace/
 
 ## 关键代码路径
 
-- `apps/backend/src/features/agent/workspace.ts`（seed 布局）· `workspace-bridge.ts`(reconcile)· `agent-config.ts`（agent.yml zod+序列化）
+- **agent 造 agent**：唯一面是 agent-config MCP 的 `agent_create`（默认启用，oma 侧挂载为 `mcp__agent-config__agent_create`）。它调 `agentSvc.create()`，因此 materialize 工作区 / 写 agent.yml / 插 DB 行 / `onCreate`（builtin pack + reconcile）与 `POST /api/agents` 完全同源；参数只收 name + model（+ backendKind/reasoningEffort/permissionMode），不含 workspacePath/mcpServers/knowledgePacks/id。**不要试图用文件写创建**：目标目录在 workspace 之外（沙箱拒绝），且只有目录没有 DB 行的"幽灵 agent"对 `list()`/`getById()` 不存在。防跑飞：每进程 5 次 / 10 分钟（`createCreateBudget`），权限走 `mcp__*` 既有闸门（ask 出卡 / auto 走分类器）。
+- `apps/backend/src/features/agent/workspace.ts`（seed 布局）· `workspace-bridge.ts`(reconcile)· `agent-config.ts`（agent.yml zod+序列化）· `agent-config-mcp.ts`（agent_read/agent_write 提案 + agent_create）
 - `apps/backend/src/features/agent-run/execution.ts`（buildRunInput：flat-text 桥 + cliSessionRef 透传 + outcome 回写）
 - `packages/agent-contract/src/kinds.ts`(BACKEND_KINDS)· 四个 adapter 包
 - `apps/oh-my-agent/src/core/settings/workspace-context.ts`（cwd meta 读取）· `session-file.ts`（session 持久化）· `product-tools-manifest.ts`(cwd manifest)

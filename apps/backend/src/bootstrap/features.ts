@@ -436,6 +436,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // no page to adopt the change, so the call must fail instead of
       // reporting a proposal nobody will ever see.
       agentExists: (agentId) => agentSvc.exists(agentId),
+      // agent_create goes through the SAME service as POST /api/agents, so
+      // the workspace, agent.yml, row and onCreate (builtin pack + bridge
+      // reconcile) all happen. A file write from the agent could not: the
+      // sandbox stops it and a bare workspace dir is invisible to list().
+      createAgent: async (input) => {
+        const row = await agentSvc.create(input);
+        return { id: row.id };
+      },
       configEvents: agentConfigEvents,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);
