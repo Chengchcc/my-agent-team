@@ -21,7 +21,7 @@ used_by:
 
 ```text
 workspace/
-  agent.yml              # 唯一真源(名字/模型/effort/permission/workspace)
+  agent.yml              # 描述符(创建/更新时由 backend 写出的导出形态；当前无读回，见下)
   AGENTS.md / CLAUDE.md  # 通用行为约定(symlink)
   SOUL.md                # Agent 身份
   USER.md                # 用户偏好
@@ -34,7 +34,8 @@ workspace/
   memory/MEMORY.md  memory/facts/*.md   # 记忆(agent 自写)
 ```
 
-- **file-first**：agent.yml 是描述符（人可手写），manifest.json 是桥接索引（机器生成）；DB 只存 id/workspacePath/时间 + config JSON 缓存。
+- **file-first（意图）**：agent.yml 是描述符（人可手写），manifest.json 是桥接索引（机器生成）；DB 只存 id/workspacePath/时间 + config JSON 缓存。
+- **实际读路径（2026-09-17 核实）**：今天**没有任何代码读 agent.yml** —— `serializeAgentYaml` 只在 create/update 时写文件（`features/agent/service.ts`），所有读取（`getById`/`list`/HTTP 响应/派发）都走 DB 的 `config` 列（`adapter-sqlite.parseRow`）。所以手改 agent.yml 不生效，会在下一次 PATCH 被缓存覆盖；「file-first 读回」仍是未实现的意图（ADR 0020 decision 1）。副作用是**当前的安全属性**：agent 能用 write 工具改自己工作区里的 agent.yml（沙箱内允许），但它不会生效——若将来真做 file-first 读回，这条就变成自提权路径（改自己的模型/permission/mcp），必须同时加校验与桥接守卫。
 - **Workspace Bridge**（`apps/backend/src/features/agent/workspace-bridge.ts`）：幂等 reconcile，skill 软链按 kind 建、.mcp.json 单一 writer、product-tools manifest 写入；触发点 = agent create/update、skill pack 安装/分配、mcp server 增删改。
 - 人类可以直接编辑工作区文件；Web 的 Workspace tab 只读浏览（两条只读路由，resolve+realpath 防穿越）。
 
