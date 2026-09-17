@@ -3,6 +3,7 @@
 import { normalizeReasoningEffort } from "@chengchenccc/agent-contract";
 import { agentConfigEvents } from "@chengchenccc/api-contract";
 import { useEffect, useRef } from "react";
+import type { AgentDraft } from "@/components/agent-form-types";
 import type { AgentRow } from "@/lib/api";
 import { typedSource } from "@/lib/typed-source";
 
@@ -44,6 +45,36 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
       enabled: Boolean(lk.enabled ?? base.lark?.enabled),
       botDisplayName: String(lk.bot_display_name ?? base.lark?.botDisplayName ?? ""),
     },
+  };
+}
+
+/** Map a chat-proposed config to the create page's draft (see AgentDraft for
+ *  what is deliberately dropped). */
+export function agentConfigToDraft(config: unknown): AgentDraft {
+  const c = (config ?? {}) as Record<string, unknown>;
+  const rc = (c.runtime_config ?? {}) as Record<string, unknown>;
+  const modelId = String(rc.model_id ?? "");
+  const slash = modelId.indexOf("/");
+  const maxSteps = typeof rc.max_steps === "number" && rc.max_steps > 0 ? rc.max_steps : null;
+  const effort = normalizeReasoningEffort(rc.reasoning_effort);
+  const permissionMode = PERMISSION_MODES.find((m) => m === rc.permission_mode);
+  const name = typeof c.name === "string" && c.name.trim() !== "" ? c.name : undefined;
+  const backendKind = typeof rc.runtime === "string" && rc.runtime !== "" ? rc.runtime : undefined;
+  return {
+    ...(name ? { name } : {}),
+    ...(backendKind ? { backendKind } : {}),
+    modelProvider: slash > 0 ? modelId.slice(0, slash) : "",
+    modelName: slash > 0 ? modelId.slice(slash + 1) : modelId,
+    ...(effort ? { reasoningEffort: effort } : {}),
+    ...(permissionMode ? { permissionMode } : {}),
+    maxSteps,
+    mcpServers: Array.isArray(rc.mcp_servers)
+      ? rc.mcp_servers.map((s) => {
+          const row = (s ?? {}) as { server_id?: unknown; enabled?: unknown };
+          return { serverId: String(row.server_id ?? ""), enabled: Boolean(row.enabled) };
+        })
+      : [],
+    knowledgePacks: Array.isArray(rc.knowledge_packs) ? (rc.knowledge_packs as string[]) : [],
   };
 }
 

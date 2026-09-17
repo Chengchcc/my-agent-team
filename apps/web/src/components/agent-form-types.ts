@@ -13,3 +13,18 @@ export const agentFormSchema = z.object({
 });
 
 export type AgentFormValues = z.infer<typeof agentFormSchema>;
+
+/** What the create page's chat may propose for an agent that does not exist
+ *  yet. Deliberately narrower than AgentRow: a draft must never carry another
+ *  agent's identity, workspacePath or lark credentials into the form. */
+export interface AgentDraft {
+  name?: string;
+  backendKind?: string;
+  modelProvider?: string;
+  modelName?: string;
+  reasoningEffort?: "none" | "low" | "high" | "max";
+  permissionMode?: "ask" | "auto" | "deny";
+  maxSteps?: number | null;
+  mcpServers?: Array<{ serverId: string; enabled: boolean }>;
+  knowledgePacks?: string[];
+}

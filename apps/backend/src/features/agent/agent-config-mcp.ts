@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { BACKEND_KINDS } from "@chengchenccc/agent-contract";
+import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -155,18 +156,24 @@ export async function callAgentConfigTool(
     if (typeof args.config !== "object" || args.config === null) {
       throw new Error("config (object) required");
     }
+    // The create page binds its chat to AGENT_DRAFT_ID: no agent row exists
+    // yet, only the form that adopts this proposal.
+    const isDraft = agentId === AGENT_DRAFT_ID;
     // No agent row = no workspace, no run, and no edit page to adopt the
     // proposal: reporting success there is a lie the model would relay.
-    if (!(await deps.agentExists(agentId))) {
+    if (!isDraft && !(await deps.agentExists(agentId))) {
       throw new Error(
         `unknown agent: ${agentId} — this tool proposes changes to an EXISTING agent; create it with agent_create or on the Team page first`,
       );
     }
-    // NO file write. The proposed config is pushed to the edit page over the
-    // agent-config SSE; the form shows it as an unsaved edit and the user
-    // commits it with Save. The live agent.yml is untouched.
+    // NO file write. The proposed config is pushed to the edit page (or the
+    // create page's form for the draft id) over the agent-config SSE; the
+    // form shows it as an unsaved edit and the user commits it with Save.
     deps.configEvents?.emit(agentId, { trigger: "mcp", config: args.config });
-    return `proposed update for ${agentId} (${randomUUID().slice(0, 8)}) — NOT saved: open /team/${agentId}/edit, review the unsaved change and Save to apply`;
+    const id8 = randomUUID().slice(0, 8);
+    return isDraft
+      ? `proposed a new-agent config (${id8}) — NOT created: the create page (/team/new/edit) filled its form, and the user commits it with Create`
+      : `proposed update for ${agentId} (${id8}) — NOT saved: open /team/${agentId}/edit, review the unsaved change and Save to apply`;
   }
   throw new Error(`unknown tool: ${name}`);
 }
@@ -195,7 +202,7 @@ export async function createAgentConfigMcpServer(
         {
           name: "agent_create",
           description:
-            "Create a NEW agent (a teammate) for the user: real agent row + workspace + builtin skills. Use it when the user asks for another agent; pass a display name and the model to run it on (take your own from the Workspace system reminder if the user has no preference). The user can refine it at /team/<id>/edit.",
+            'Create a NEW agent (a teammate) for the user: real agent row + workspace + builtin skills. Use it when the user asks for another agent and is NOT on the create page; pass a display name and the model to run it on (take your own from the Workspace system reminder if the user has no preference). On the create page (agentId "new") use agent_write with agentId "new" instead, so the user reviews the form before anything is created.',
           inputSchema: {
             type: "object",
             properties: {
@@ -238,7 +245,7 @@ export async function createAgentConfigMcpServer(
         {
           name: "agent_write",
           description:
-            "Propose a new config for an EXISTING agent by its id. The edit page (/team/<id>/edit) adopts it as an unsaved edit; the user commits with Save. Never writes agent.yml directly and cannot create agents.",
+            'Propose a config: for an EXISTING agent by its id (the edit page /team/<id>/edit adopts it as an unsaved edit), or for a new agent with agentId "new" (the create page /team/new/edit fills its form). The user commits with Save/Create. Never writes agent.yml directly.',
           inputSchema: {
             type: "object",
             properties: {

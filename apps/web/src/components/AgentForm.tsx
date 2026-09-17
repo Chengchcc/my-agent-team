@@ -9,7 +9,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { AgentFormLarkSection } from "@/components/AgentFormLarkSection";
 import { AgentFormResourceSection } from "@/components/AgentFormResourceSection";
-import type { AgentFormValues } from "@/components/agent-form-types";
+import type { AgentDraft, AgentFormValues } from "@/components/agent-form-types";
 import { agentFormSchema } from "@/components/agent-form-types";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +42,10 @@ import { ProviderSetupInline } from "./ProviderSetupInline";
 
 interface AgentFormProps {
   editAgent?: AgentRow;
+  /** Values the create page's chat proposed. Seeds the form exactly like
+   *  `editAgent` does, but NEVER switches it into edit mode — the user still
+   *  commits with Create. */
+  draft?: AgentDraft;
   onSuccess?: () => void;
   triggerLabel?: string;
   /** Render the form inline (no trigger / no overlay) for the agent edit page's
@@ -49,7 +53,13 @@ interface AgentFormProps {
   alwaysOpen?: boolean;
 }
 
-export function AgentForm({ editAgent, onSuccess, triggerLabel, alwaysOpen }: AgentFormProps) {
+export function AgentForm({
+  editAgent,
+  draft,
+  onSuccess,
+  triggerLabel,
+  alwaysOpen,
+}: AgentFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEdit = !!editAgent;
@@ -133,7 +143,8 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel, alwaysOpen }: Ag
     [modelGroups, modelValue],
   );
 
-  // Reset form when editAgent changes
+  // Reset form when editAgent changes, or when the create page's chat
+  // proposes a draft (which must NOT flip the form into edit mode).
   useEffect(() => {
     if (editAgent) {
       form.reset({
@@ -155,8 +166,27 @@ export function AgentForm({ editAgent, onSuccess, triggerLabel, alwaysOpen }: Ag
       );
       setSelectedKnowledgeIds(editAgent.knowledgePacks ?? []);
       setSetupSession(null);
+      return;
     }
-  }, [editAgent, form]);
+    if (!draft) return;
+    form.reset({
+      name: draft.name ?? "",
+      backendKind: draft.backendKind ?? "oma",
+      model:
+        draft.modelProvider && draft.modelName
+          ? `${draft.modelProvider}/${draft.modelName}`
+          : (draft.modelName ?? ""),
+      reasoningEffort: draft.reasoningEffort ?? "",
+      permissionMode: draft.permissionMode ?? "ask",
+      maxSteps: draft.maxSteps?.toString() ?? "",
+      // No workspacePath: a draft never inherits another agent's workspace.
+      workspacePath: "",
+      enableLark: false,
+      botDisplayName: "",
+    });
+    setSelectedMcpIds((draft.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId));
+    setSelectedKnowledgeIds(draft.knowledgePacks ?? []);
+  }, [editAgent, draft, form]);
 
   // New agents: default the model to the first catalog entry of the
   // selected backend kind once loaded. Keeps the current value if it is

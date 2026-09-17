@@ -1,16 +1,29 @@
 "use client";
 
+import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
+import { useState } from "react";
 import { AgentForm } from "@/components/AgentForm";
 import { AgentEditorLayout } from "@/components/agent-editor-layout";
+import type { AgentDraft } from "@/components/agent-form-types";
 import { PageHeader } from "@/components/page";
 import { ChatPanel } from "@/components/workflow/ChatPanel";
+import { agentConfigToDraft, useAgentConfigEvents } from "@/features/agents/config-mcp";
 
 /** Create-agent page: a persistent create form on the left and a chat on the
- *  right. Before the agent exists, the chat is a "config assistant" bound to
- *  the default agent (agent:chat:new) — you can discuss how to shape the new
- *  agent while filling the form. Submitting the form navigates to
- *  /team/<id>/edit, where the chat targets the real agent config. */
+ *  right. The chat runs a REAL agent, whose agent-config MCP tools let it
+ *  propose a full config under the reserved draft id (AGENT_DRAFT_ID); this
+ *  page adopts that proposal into the form as an unsaved create, and the user
+ *  commits it with Create. Submitting navigates to /team/<id>/edit, where the
+ *  chat targets the real agent config. */
 export default function NewAgentEditPage() {
+  const [draft, setDraft] = useState<AgentDraft | null>(null);
+
+  // Same SSE + adopt mechanism as the edit page, on the draft id: no agent
+  // row exists yet, so the form is the adoption surface.
+  useAgentConfigEvents(AGENT_DRAFT_ID, {
+    onProposed: (config) => setDraft(agentConfigToDraft(config)),
+  });
+
   return (
     <AgentEditorLayout
       header={
@@ -23,25 +36,25 @@ export default function NewAgentEditPage() {
           title="Create Agent"
         />
       }
-      left={<AgentForm alwaysOpen />}
+      left={<AgentForm alwaysOpen draft={draft ?? undefined} />}
       chat={
         <ChatPanel
-          conversationId="agent:chat:new"
+          conversationId={`agent:chat:${AGENT_DRAFT_ID}`}
           title="Chat"
           contextBlock={[
             "<agent-context>",
-            "<agentId>new</agentId>",
+            `<agentId>${AGENT_DRAFT_ID}</agentId>`,
             "<name>New Agent</name>",
             "<state>creating</state>",
             "</agent-context>",
           ]
             .filter(Boolean)
             .join("\n")}
-          placeholder="Discuss how to configure the new agent…"
+          placeholder="Describe the agent you want — it fills the form…"
           suggestions={[
-            "Pick a model for code review work",
-            "Should this agent allow auto-approve?",
-            "Which knowledge pack should it use?",
+            "A code reviewer on my own model, approval on",
+            "An archivist that keeps notes, reasoning effort high",
+            "A researcher with web access, auto permission",
           ]}
         />
       }

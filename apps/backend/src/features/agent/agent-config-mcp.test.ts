@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
 import { AgentConfigEventBus } from "./agent-config-events.js";
 import {
   type AgentProxyCreateInput,
@@ -69,6 +70,20 @@ describe("agent-config MCP tools", () => {
     await expect(
       callAgentConfigTool(d, "agent_write", { agentId: "ghost", config }),
     ).rejects.toThrow(/unknown agent/);
+  });
+
+  test("agent_write under the draft id proposes for the create page", async () => {
+    const { d, events } = deps();
+    const stream = events.subscribe(AGENT_DRAFT_ID);
+    const text = await callAgentConfigTool(d, "agent_write", {
+      agentId: AGENT_DRAFT_ID,
+      config: { ...config, name: "Drafted" },
+    });
+    expect(text).toContain("NOT created");
+    expect(text).toContain("/team/new/edit");
+    const ev = await stream[Symbol.asyncIterator]().next();
+    expect(ev.value?.agentId).toBe(AGENT_DRAFT_ID);
+    expect(ev.value?.data.trigger).toBe("mcp");
   });
 
   test("agent_create creates through the service and reports the new id", async () => {

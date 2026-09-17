@@ -176,6 +176,12 @@ export const agentConfigEvent = z.object({
   }),
 });
 
+/** Reserved pseudo-agent id for the create page (`/team/new/edit`). Its chat
+ *  binds the conversation AND the config-event subscription to this id, and
+ *  the agent-config MCP `agent_write` accepts a proposal under it while no
+ *  agent row exists — the form is the adoption surface, not an agent. */
+export const AGENT_DRAFT_ID = "new";
+
 export const agentConfigEvents = {
   changed: agentConfigEvent,
 } as const satisfies SSEEventMap;
