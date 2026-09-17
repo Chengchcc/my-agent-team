@@ -126,7 +126,7 @@ describe("runGatewayPasswd", () => {
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(join(home, "gateway-secrets.json"), "utf8"));
       expect(written.BACKEND_AUTH_TOKEN).toBe("keep-me");
-      expect(written.MOCK_PASSWORD).toMatch(/^[0-9a-f]{48}$/);
+      expect(written.MOCK_PASSWORD).toMatch(/^[A-HJ-NP-Za-km-z2-9]{22}$/);
       expect(logs.join("\n")).toContain("restart to apply");
     } finally {
       rmSync(home, { recursive: true, force: true });

@@ -157,6 +157,35 @@ async function unpack(tarball: string, dest: string): Promise<void> {
 }
 
 /** Read the launcher's secrets without generating anything (status paths). */
+/** Human-typed login password. Entropy comes from length, not from requiring
+ *  character classes: 22 chars over a 56-symbol alphabet is ~128 bits. The
+ *  alphabet drops look-alikes (l, 1, I, O, 0) and shell-hostile punctuation,
+ *  because the person typing it may be reading it off a terminal on another
+ *  device. */
+const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+const PASSWORD_LENGTH = 22;
+
+export function generatePassword(): string {
+  // Rejection sampling keeps the alphabet uniform (256 % 56 is not zero).
+  const ceiling = Math.floor(256 / PASSWORD_ALPHABET.length) * PASSWORD_ALPHABET.length;
+  let password = "";
+  while (password.length < PASSWORD_LENGTH) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(PASSWORD_LENGTH))) {
+      if (byte >= ceiling) continue;
+      password += PASSWORD_ALPHABET.charAt(byte % PASSWORD_ALPHABET.length);
+      if (password.length === PASSWORD_LENGTH) break;
+    }
+  }
+  return password;
+}
+
+/** Internal tokens (backend auth, session signing): never typed, so the cheap
+ *  hex encoding is fine. */
+function generateToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function readSecrets(home: string): Record<string, string> {
   const path = gatewayPaths(home).secrets;
   if (!existsSync(path)) return {};
@@ -185,8 +214,9 @@ export async function ensureSecrets(
   let generated = false;
   for (const name of names) {
     if (existing[name]) continue;
-    const bytes = crypto.getRandomValues(new Uint8Array(24));
-    existing[name] = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    // MOCK_PASSWORD is the one a human retypes at the login page; the rest are
+    // machine-to-machine tokens.
+    existing[name] = name === "MOCK_PASSWORD" ? generatePassword() : generateToken();
     generated = true;
   }
   if (generated) {

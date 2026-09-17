@@ -49,7 +49,7 @@ fi
 # documented example defaults (M16: dev-token / admin are one-guess
 # credentials once the backend leaves loopback).
 regen_secret() {
-  local file="$1" key="$2" default="$3"
+  local file="$1" key="$2" default="$3" style="${4:-hex}"
   local current
   current="$(grep -E "^${key}=" "$file" 2>/dev/null | head -n1 | sed -E "s/^${key}=//; s/[[:space:]]*#.*$//; s/[[:space:]]*$//" || true)"
   if [ -n "$current" ] && [ "$current" != "$default" ]; then
@@ -60,7 +60,17 @@ regen_secret() {
     exit 1
   fi
   local secret
-  secret="$(openssl rand -hex 24)"
+  if [ "$style" = "password" ]; then
+    # Same rule as the gateway generator: ~128 bits of entropy, an alphabet
+    # without look-alikes (l/1/I/O/0), because this one gets typed by a human.
+    secret="$(LC_ALL=C tr -dc 'A-HJ-NP-Za-km-z2-9' < /dev/urandom 2>/dev/null | head -c 22 || true)"
+    if [ "${#secret}" -ne 22 ]; then
+      echo "ERROR: could not generate a password for $key" >&2
+      exit 1
+    fi
+  else
+    secret="$(openssl rand -hex 24)"
+  fi
   if grep -qE "^${key}=" "$file"; then
     local tmp
     tmp="$(mktemp)"
@@ -91,7 +101,7 @@ if [ -f "$BACKEND_ENV" ]; then
 fi
 if [ -f "$WEB_ENV" ]; then
   regen_secret "$WEB_ENV" "SESSION_SECRET" ""
-  regen_secret "$WEB_ENV" "MOCK_PASSWORD" "admin"
+  regen_secret "$WEB_ENV" "MOCK_PASSWORD" "admin" "password"
   chmod 600 "$WEB_ENV"
 fi
 

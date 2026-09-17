@@ -5,6 +5,7 @@ import {
   currentVersion,
   fetchGatewayArtifact,
   gatewayPaths,
+  generatePassword,
   installedVersions,
   omaHome,
   omaVersion,
@@ -239,9 +240,7 @@ export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promis
     log(`no secrets at ${secretsPath} — run 'oma gateway up' once first`);
     return 1;
   }
-  const password = crypto
-    .getRandomValues(new Uint8Array(24))
-    .reduce((hex, byte) => hex + byte.toString(16).padStart(2, "0"), "");
+  const password = generatePassword();
   const secrets = { ...readSecrets(home), MOCK_PASSWORD: password };
   await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
   log(`login password replaced: user-001 / ${password}`);

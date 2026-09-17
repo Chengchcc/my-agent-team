@@ -123,7 +123,10 @@ describe("secrets", () => {
 
     const second = await ensureSecrets(home, ["BACKEND_AUTH_TOKEN", "MOCK_PASSWORD"]);
     expect(second.BACKEND_AUTH_TOKEN).toBe(first.BACKEND_AUTH_TOKEN);
-    expect(second.MOCK_PASSWORD).toMatch(/^[0-9a-f]{48}$/);
+    // The login password is the one a human retypes: ~128 bits over an
+    // alphabet without look-alikes (l, 1, I, O, 0) instead of 48 hex chars.
+    expect(second.MOCK_PASSWORD).toMatch(/^[A-HJ-NP-Za-km-z2-9]{22}$/);
+    expect(second.MOCK_PASSWORD).not.toMatch(/[l1IO0]/);
     expect(readSecrets(home).SESSION_SECRET).toBe(first.SESSION_SECRET);
     rmSync(home, { recursive: true, force: true });
   });
