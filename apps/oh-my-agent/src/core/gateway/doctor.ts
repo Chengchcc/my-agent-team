@@ -290,7 +290,7 @@ export async function diagnoseGateway(opts: DoctorOptions = {}): Promise<Gateway
     } catch {
       writable = false;
     }
-    let freeMb = 0;
+    let freeMb: number;
     try {
       const fs = statfsSync(dataDir);
       freeMb = Math.round((Number(fs.bavail) * Number(fs.bsize)) / (1024 * 1024));
