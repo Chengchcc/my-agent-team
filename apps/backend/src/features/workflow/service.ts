@@ -4,7 +4,6 @@ import {
   type EngineState,
   type NodeRunner,
   type NodeRunResult,
-  parseWorkflow,
   routeOutgoing,
   type StoreApi,
   validateBySchema,
@@ -50,8 +49,6 @@ export interface AgentRunnerDeps {
     exists(url: string): Promise<boolean>;
   };
   resolveDefaultModel?: (agentId: string) => Promise<unknown>;
-  /** Runs a prompt through an agent and returns the final text. */
-  chatAgent?: (prompt: string) => Promise<string>;
   resolveRepoWorkspace?: (
     repo: string,
     agentId: string,
@@ -101,11 +98,6 @@ export interface WorkflowExecutionService {
   listExecutionEvents(
     executionId: string,
   ): Promise<Array<{ seq: number; executionId: string; event: string; data: unknown; ts: number }>>;
-  chatPatch(
-    workflowId: string,
-    definition: unknown,
-    instruction: string,
-  ): Promise<{ definition: unknown }>;
   getPendingHuman(
     executionId: string,
     nodeId: string,
@@ -733,16 +725,6 @@ export function createWorkflowExecutionService(
     },
     async getExecution(id) {
       return deps.port.getExecution(id);
-    },
-    async chatPatch(_workflowId, definition, instruction) {
-      if (!deps.chatAgent) throw new HttpError("chat agent not configured", 501);
-      const prompt = `Current workflow DSL:\n${JSON.stringify(definition, null, 2)}\n\nRequest: ${instruction}\n\nFollow the agentic-workflow-dsl skill: return the ENTIRE updated DSL as a single JSON object, no markdown fence, no prose.`;
-      const text = await deps.chatAgent(prompt);
-      const m = text.match(/\{[\s\S]*\}/);
-      if (!m) throw new HttpError("chat agent returned no JSON object", 502);
-      const parsed = JSON.parse(m[0]);
-      const validated = parseWorkflow(parsed);
-      return { definition: validated };
     },
     async listNodeRuns(id) {
       return deps.port.listNodeRuns(id);
