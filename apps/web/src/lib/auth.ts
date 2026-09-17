@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { parseEnv } from "@chengchenccc/config";
+import { createServerClient } from "./client";
 import { clearCookieHeader, createSession, readSession, sessionCookieHeader } from "./session";
 
 let _env: ReturnType<typeof parseEnv> | undefined;
@@ -35,8 +36,28 @@ export function timingSafeEqualPassword(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
+/** Whether a password set in the console matches. `undefined` means none is
+ *  set (the launcher's password still applies) or the backend cannot answer —
+ *  an unreachable backend must not lock the operator out of their own console. */
+async function storedPasswordMatches(password: string): Promise<boolean | undefined> {
+  try {
+    const config = env();
+    const res = await createServerClient(
+      config.BACKEND_URL,
+      config.BACKEND_AUTH_TOKEN,
+    ).api.auth.verify.post({ password });
+    if (res.error || !res.data) return undefined;
+    return res.data.source === "stored" ? res.data.verified : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function login(password: string): Promise<{ cookie: string } | { error: string }> {
-  if (!timingSafeEqualPassword(password, mockPassword())) return { error: "Invalid password" };
+  const fromStore = await storedPasswordMatches(password);
+  const accepted =
+    fromStore === undefined ? timingSafeEqualPassword(password, mockPassword()) : fromStore;
+  if (!accepted) return { error: "Invalid password" };
   const session = await createSession(mockUserId());
   return { cookie: sessionCookieHeader(session) };
 }

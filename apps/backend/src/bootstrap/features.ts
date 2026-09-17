@@ -46,6 +46,7 @@ import {
   createArtifactFsAdapter,
   createArtifactService,
 } from "../features/artifact/index.js";
+import { authRoutes, createPasswordService } from "../features/auth/index.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
 import {
@@ -1052,6 +1053,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     artifacts: artifactRoutes(artifactService),
     productTools,
     settings: settingsRoutes(settingsSvc),
+
+    auth: authRoutes(createPasswordService(settingsSvc)),
 
     providers: providerRoutes(providerSvc, { onChange: refreshOmaProviderEnv }),
 

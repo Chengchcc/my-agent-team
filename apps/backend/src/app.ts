@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import type { agentRoutes } from "./features/agent/http.js";
 import type { agentRunRoutes } from "./features/agent-run/http.js";
 import type { artifactRoutes } from "./features/artifact/http.js";
+import type { authRoutes } from "./features/auth/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { knowledgeRoutes } from "./features/knowledge/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
@@ -27,6 +28,7 @@ export interface FeatureSet {
   mcp: ReturnType<typeof mcpRoutes>;
   knowledge: ReturnType<typeof knowledgeRoutes>;
   settings: ReturnType<typeof settingsRoutes>;
+  auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;
   models: ReturnType<typeof modelRoutes>;
   workflowExecutions: ReturnType<typeof workflowRoutes>;
@@ -49,6 +51,7 @@ export function createApp(token: string, features: FeatureSet) {
     knowledge,
 
     settings,
+    auth,
     providers,
     models,
     agentRuns,
@@ -102,6 +105,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(projects)
     .use(skillPacks)
     .use(settings)
+    .use(auth)
     .use(providers)
     .use(mcp)
     .use(knowledge)

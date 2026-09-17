@@ -244,8 +244,45 @@ export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promis
   const secrets = { ...readSecrets(home), MOCK_PASSWORD: password };
   await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
   log(`login password replaced: user-001 / ${password}`);
-  log("restart to apply: oma gateway down && oma gateway up -d");
+
+  // A password set in the console is stored as a hash and wins over this file,
+  // so push the new one there too when the gateway is up — otherwise rotating
+  // here would silently not take effect.
+  const pushed = await pushPasswordToRunningGateway(secrets, password);
+  if (pushed) {
+    log("the running gateway took it too (console-set password updated)");
+  } else {
+    log("restart to apply: oma gateway down && oma gateway up -d");
+    log(
+      "note: a password set in the web console wins over this file — change it there if you used that",
+    );
+  }
   return 0;
+}
+
+/** Update the console-set password (a hash in the backend's settings) when the
+ *  gateway is reachable. Returns false when it is not: the file value then
+ *  applies after the next start. */
+async function pushPasswordToRunningGateway(
+  secrets: Record<string, string>,
+  password: string,
+): Promise<boolean> {
+  const token = secrets.BACKEND_AUTH_TOKEN;
+  if (!token) return false;
+  try {
+    const res = await fetch(
+      `${process.env.BACKEND_URL ?? "http://127.0.0.1:3000"}/api/auth/password`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-auth-token": token },
+        body: JSON.stringify({ password }),
+        signal: AbortSignal.timeout(2000),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** `oma gateway doctor`: check the deployment and say how to fix what is wrong. */

@@ -92,7 +92,12 @@ oma gateway status                     # 打印 user-001 / <口令>
 cat ~/.oma/gateway-secrets.json
 ```
 
-想换成自己记得住的，改文件里的 `MOCK_PASSWORD`，再 `oma gateway down && oma gateway up -d`。`export MOCK_PASSWORD=...` 对 gateway 不起作用：产物清单里的值优先于进程环境。登录页只填密码，`user-001` 只是标识。
+想换成自己记得住的，有两条路：
+
+- **Web 设置页**（推荐）：Settings → Login password → Change password。只存 **argon2id 哈希**，**立即生效、不用重启**；
+- **命令行**：改 `~/.oma/gateway-secrets.json` 里的 `MOCK_PASSWORD`，或直接 `oma gateway passwd`（生成一个新的随机口令）。gateway 在运行时 `passwd` 会连后端那份哈希一起更新；没运行时需要重启。
+
+两者同时存在时**设置页那份（哈希）优先**。`export MOCK_PASSWORD=...` 对 gateway 不起作用：产物清单里的值优先于进程环境。登录页只填密码，`user-001` 只是标识。
 
 > 源码方式（`bun run dev`）的口令来自 web 的 `MOCK_PASSWORD`：模板在 `apps/web/.env.example`（值是 `admin`），`scripts/predev.sh` 首次运行会把它换成随机值，生成的文件不进版本库。
 

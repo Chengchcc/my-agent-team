@@ -453,6 +453,22 @@ export const api = {
       }>;
     };
   },
+  // Login password (direct fetch - route not visible to Eden treaty)
+  getAuthPassword: async () => {
+    const resp = await fetch("/api/bff/auth/password", { credentials: "include" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()) as { configured: boolean };
+  },
+  setAuthPassword: async (password: string) => {
+    const resp = await fetch("/api/bff/auth/password", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()) as { ok: boolean };
+  },
   // Providers (direct fetch - route not visible to Eden treaty)
   listProviders: async () => {
     const resp = await fetch("/api/bff/providers", { credentials: "include" });

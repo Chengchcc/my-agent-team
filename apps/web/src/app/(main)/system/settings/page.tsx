@@ -2,6 +2,7 @@
 
 import { Activity, Cpu, Database, KeyRound, Server } from "lucide-react";
 import { useState } from "react";
+import { LoginPasswordSection } from "@/components/LoginPasswordSection";
 import { ProviderSettingsSection } from "@/components/ProviderSettingsSection";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { KpiTile, MonoLabel, StatusPill } from "@/components/patterns";
@@ -116,6 +117,7 @@ export default function SettingsPage() {
         </div>
 
         <ProviderSettingsSection />
+        <LoginPasswordSection />
         <SystemInfoSection info={info} />
       </PageBody>
     </Page>

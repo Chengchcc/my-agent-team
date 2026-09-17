@@ -4,12 +4,21 @@ import { KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { MonoLabel, StatusPill } from "@/components/patterns";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useClearProvider, useProviders, useSetProvider } from "@/features/providers/hooks";
 
-/** Provider key management in the Agent OS card language: a list of provider
- *  rows with a configured status pill and an inline Set/Update form. */
+/** Provider key management in the Agent OS card language: a status row per
+ *  provider, and a dialog for the one you are setting (the form used to expand
+ *  under the list, which pushed the section around as you clicked). */
 export function ProviderSettingsSection() {
   const { data, isLoading } = useProviders();
   const setProvider = useSetProvider();
@@ -29,6 +38,7 @@ export function ProviderSettingsSection() {
     });
     setApiKey("");
     setBaseUrl("");
+    setSelected("");
   }
 
   return (
@@ -75,61 +85,79 @@ export function ProviderSettingsSection() {
             ))}
           </div>
         )}
-
-        {selected && current && (
-          <div className="mt-4 space-y-2 rounded-md border border-(--hairline) bg-(--canvas-soft) p-3">
-            <div>
-              <Label className="text-[10px] uppercase tracking-kicker text-(--mute)">
-                {current.name} API key
-              </Label>
-              <Input
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={`${current.apiKeyEnv} value`}
-                type="password"
-                autoComplete="off"
-                className="mt-1"
-              />
-            </div>
-            {current.apiKeyEnv === "ANTHROPIC_API_KEY" && (
-              <div>
-                <Label className="text-[10px] uppercase tracking-kicker text-(--mute)">
-                  Base URL
-                </Label>
-                <Input
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="Optional proxy base URL"
-                  autoComplete="off"
-                  className="mt-1"
-                />
-              </div>
-            )}
-            <div className="flex gap-2 pt-1">
-              <Button size="sm" onClick={save} disabled={setProvider.isPending}>
-                Save
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelected("")}>
-                Cancel
-              </Button>
-              {current.configured && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-(--err)"
-                  onClick={() => {
-                    void clearProvider.mutateAsync(current.id);
-                    setSelected("");
-                  }}
-                >
-                  <Trash2 className="size-3" />
-                  Clear
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
       </div>
+
+      <Dialog
+        open={selected !== ""}
+        onOpenChange={(open) => {
+          if (!open) setSelected("");
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {current && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{current.name} API key</DialogTitle>
+                <DialogDescription>
+                  Stored on the server and handed to agent runs; nothing is sent to the browser
+                  after saving.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-[10px] uppercase tracking-kicker text-(--mute)">
+                    {current.apiKeyEnv}
+                  </Label>
+                  <Input
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder={`${current.apiKeyEnv} value`}
+                    type="password"
+                    autoComplete="off"
+                    className="mt-1"
+                  />
+                </div>
+                {current.apiKeyEnv === "ANTHROPIC_API_KEY" && (
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-kicker text-(--mute)">
+                      Base URL
+                    </Label>
+                    <Input
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder="Optional proxy base URL"
+                      autoComplete="off"
+                      className="mt-1"
+                    />
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                {current.configured && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-(--err)"
+                    onClick={() => {
+                      void clearProvider.mutateAsync(current.id);
+                      setSelected("");
+                    }}
+                  >
+                    <Trash2 className="size-3" />
+                    Clear
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setSelected("")}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={() => void save()} disabled={setProvider.isPending}>
+                  Save
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
