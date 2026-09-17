@@ -381,8 +381,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     emitAsk: (input) => broadcastAskEvent?.(input),
   });
   let productToolsMcp: Awaited<ReturnType<typeof createProductToolsMcpServer>> | null = null;
+  // Default set: product-tools + agent-config + workflow. The workflow DSL
+  // server is NOT optional in practice — `<dataDir>/workflows/*.workflow.json`
+  // sits outside every agent workspace, so the file tools refuse it ("path
+  // escapes workspace") and this MCP server is the agent's only read path
+  // into a definition. Leaving it off silently breaks the workflow editor
+  // chat and the agentic-workflow-dsl skill.
   const enabledMcpServers = new Set(
-    (config.enabledMcpServers ?? "product-tools,agent")
+    (config.enabledMcpServers ?? "product-tools,agent,workflow")
       .split(",")
       .map((x) => x.trim())
       .filter(Boolean),

@@ -64,6 +64,15 @@ cron 到点(Bun.cron trigger-scheduler) / 手动 POST / 模板实例化
 - workflow execution 是编排层身份：execution / node_run / pending_human 三表只描述「图跑到哪了」，不承载对话事实
 - 脚本式 `BackendRunInput.workflow`（ADR 0025 遗留的 Run 级脚本输入）是另一条独立路径：oma child 内的 `core/workflow/workflow-executor.ts` 直接执行脚本 + subagent registry
 
+## 定义文件的读写面（agent 侧）
+
+`dataDir/workflows/*.workflow.json` 在**每个 agent workspace 之外**（workspace = `dataDir/agents/<id>`，项目会话是 `dataDir/projects/<id>`），所以 read/write/edit/glob/grep 一律返回 `path escapes workspace` —— 这是工作区沙箱的边界，不是缺陷。Agent 只有一条通路：
+
+- 内置 workflow MCP server（`features/workflow/mcp.ts`，127.0.0.1 短时 SSE，**默认启用**，见 `ENABLED_MCP_SERVERS`）暴露 `workflow_read` / `workflow_write`，由 workspace bridge 写进每个 agent 的 `.mcp.json`（oma 侧挂载为 `mcp__workflow__workflow_read` / `mcp__workflow__workflow_write`）
+- `workflow_write` 只**提案**：过 `parseWorkflow` 校验后经 definition SSE 推给编辑器，作为未保存改动，用户 Ctrl/Cmd+S 才落盘（HTTP PUT 是唯一的落盘写路径）
+
+排障判据：agent 说「看不到 / 打不开 workflow」时，先看该 workspace 的 `.mcp.json` 有没有 `workflow` 条目 —— 缺了就是 MCP 默认值问题，不是沙箱问题。
+
 ## 不变量
 
 1. 引擎纯函数；路由完成时冻结，永不重算

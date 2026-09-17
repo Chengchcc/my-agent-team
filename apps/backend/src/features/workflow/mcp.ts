@@ -3,16 +3,17 @@ import { mkdirSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { join } from "node:path";
+import { parseWorkflow } from "@chengchenccc/workflow";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { WorkflowDefinitionEventBus } from "./definition-events.js";
 
-/** Workflow DSL MCP server: lets a chat agent read/write a workflow
- *  definition file (`<workflowDir>/<id>.workflow.json`) through ordinary MCP
- *  tools. This is how the workflow-editor chat updates the DSL — the agent
- *  reads the current JSON, applies the instruction, writes it back. The
- *  editor then repolls the definition.
+/** Workflow DSL MCP server: the ONLY way a Run reads or changes a workflow
+ *  definition. Definitions live at `<workflowDir>/<id>.workflow.json` —
+ *  outside every agent workspace, so the file tools refuse them. The agent
+ *  calls workflow_read for the current JSON and workflow_write with a full
+ *  validated replacement, which the editor adopts as an unsaved change.
  *
  *  Reuses the SSE transport shape from product-tools (the Oma Worker's
  *  SSEClientTransport speaks it). No per-run bearer here: the server is
@@ -43,6 +44,37 @@ function safePath(workflowDir: string, workflowId: string): string {
   return join(workflowDir, `${workflowId}.workflow.json`);
 }
 
+/** One tool call, transport-free. Throws on a bad call — the MCP layer maps
+ *  that to isError. Exported so the semantics stay testable without an SSE
+ *  round trip. */
+export function callWorkflowTool(
+  deps: { workflowDir: string; definitionEvents?: WorkflowDefinitionEventBus },
+  name: string,
+  args: Record<string, unknown>,
+): string {
+  const workflowId = typeof args.workflowId === "string" ? args.workflowId : "";
+  if (name === "workflow_read") {
+    if (!workflowId) throw new Error("workflowId required");
+    return readFileSync(safePath(deps.workflowDir, workflowId), "utf8");
+  }
+  if (name === "workflow_write") {
+    if (!workflowId) throw new Error("workflowId required");
+    if (typeof args.definition !== "object" || args.definition === null) {
+      throw new Error("definition (object) required");
+    }
+    // Same trust boundary as the HTTP PUT: a proposal the editor would refuse
+    // on Save must be a failed tool call, not a silent no-op the model only
+    // discovers a round trip later.
+    parseWorkflow(args.definition);
+    // NO file write. The agent's proposed DSL is pushed to the editor over the
+    // definition SSE; the editor shows it as an unsaved edit and the user
+    // commits it with (Ctrl/Cmd)S. The live file is never touched until then.
+    deps.definitionEvents?.emit(workflowId, { trigger: "mcp", definition: args.definition });
+    return `proposed update for ${workflowId} (${randomUUID().slice(0, 8)}) — NOT saved: the editor holds it as an unsaved change and the user applies it with Ctrl/Cmd+S`;
+  }
+  throw new Error(`unknown tool: ${name}`);
+}
+
 export async function createWorkflowMcpServer(
   opts: WorkflowMcpServerOptions,
 ): Promise<WorkflowMcpServer> {
@@ -58,7 +90,7 @@ export async function createWorkflowMcpServer(
         {
           name: "workflow_read",
           description:
-            "Read a workflow definition file by its id (filename stem). Returns the raw .workflow.json content.",
+            "Read a workflow definition by its id (filename stem, e.g. nighttime-report). Workflow files live outside the agent workspace, so the file tools cannot reach them — use this.",
           inputSchema: {
             type: "object",
             properties: { workflowId: { type: "string" } },
@@ -68,7 +100,7 @@ export async function createWorkflowMcpServer(
         {
           name: "workflow_write",
           description:
-            "Overwrite a workflow definition file by its id with the given JSON definition (validated by parseWorkflow on next load).",
+            "Propose a full replacement definition for a workflow (validated by parseWorkflow). NOT persisted: the editor holds it as an unsaved change and the user applies it with Ctrl/Cmd+S.",
           inputSchema: {
             type: "object",
             properties: {
@@ -82,36 +114,10 @@ export async function createWorkflowMcpServer(
     }));
 
     s.setRequestHandler(CallToolRequestSchema, async (req) => {
-      const name = req.params.name;
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-      const workflowId = typeof args.workflowId === "string" ? args.workflowId : "";
       try {
-        if (name === "workflow_read") {
-          if (!workflowId) throw new Error("workflowId required");
-          const file = safePath(workflowDir, workflowId);
-          const raw = readFileSync(file, "utf8");
-          return { content: [{ type: "text", text: raw }] };
-        }
-        if (name === "workflow_write") {
-          if (!workflowId) throw new Error("workflowId required");
-          if (typeof args.definition !== "object" || args.definition === null) {
-            throw new Error("definition (object) required");
-          }
-          // NO file write. The agent's proposed DSL is pushed to the editor
-          // over the definition SSE; the editor shows it as an unsaved edit
-          // and the user commits it with (Ctrl/Cmd)S. The live file is never
-          // touched until the user saves.
-          definitionEvents?.emit(workflowId, { trigger: "mcp", definition: args.definition });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `proposed update for ${workflowId} (${randomUUID().slice(0, 8)}) — review in the editor and save to apply`,
-              },
-            ],
-          };
-        }
-        return { content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true };
+        const text = callWorkflowTool({ workflowDir, definitionEvents }, req.params.name, args);
+        return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
           content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],

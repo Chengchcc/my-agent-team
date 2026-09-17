@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 process.env.BACKEND_AUTH_TOKEN = "test-token";
@@ -123,12 +123,17 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
     .all() as Array<{ pack_id: string }>;
   expect(packRows.map((r) => r.pack_id)).toContain("builtin");
 
-  // The workspace reconcile materialized the skills links (.mcp.json is
-  // written only when the agent has MCP servers - this bare config has
-  // none; the link proves the onCreate reconcile ran).
+  // The workspace reconcile materialized the skills links + the bridged
+  // .mcp.json. The workflow server must be in the DEFAULT enabled set: it is
+  // the only read path into <dataDir>/workflows for a run (the file tools are
+  // sandboxed to the agent workspace), so dropping it silently kills the
+  // workflow-editor chat and the agentic-workflow-dsl skill.
   const workspace = `${dir}/agents/default`;
-  const { existsSync } = await import("node:fs");
   expect(existsSync(`${workspace}/.oma/skills`)).toBe(true);
+  const mcp = JSON.parse(readFileSync(`${workspace}/.mcp.json`, "utf8")) as {
+    mcpServers: Record<string, unknown>;
+  };
+  expect(Object.keys(mcp.mcpServers)).toContain("workflow");
 
   await installed.dispose();
   await services.mcpClientManager.disconnectAll();

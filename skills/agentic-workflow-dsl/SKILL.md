@@ -23,6 +23,22 @@ bun <skill-dir>/reference/validate.js path/to/x.workflow.json
 
 Exit 0 + `VALID <id>` = legal; exit 1 = one violation per line.
 
+## The definition file (product backend runs)
+
+In the product the definition lives at `<backend-dataDir>/workflows/<id>.workflow.json`
+— **outside the agent workspace**, so `read`/`write`/`edit`/`glob`/`grep` refuse
+it with `path escapes workspace`, whatever path you construct. Reach it through
+the injected workflow MCP tools instead (oma exposes them as
+`mcp__workflow__workflow_read` / `mcp__workflow__workflow_write`):
+
+- `workflow_read { workflowId }` → the raw JSON.
+- `workflow_write { workflowId, definition }` → validated by `parseWorkflow`,
+  then surfaced in the workflow editor as an **unsaved** change; the user
+  applies it with Ctrl/Cmd+S. A successful call means "proposed", not "saved".
+
+The `workflowId` is the filename stem (`nighttime-report`), never a path.
+Standalone oma (no backend) injects no such tools — edit the file directly there.
+
 ## Shape
 
 ```jsonc
