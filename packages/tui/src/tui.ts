@@ -1484,7 +1484,13 @@ export class TUI extends Container {
       : Math.min(this.providerViewportTop, Math.max(0, height - 1));
     const newTop = Math.max(0, Math.min(startTop + historyRows.length, height - rows));
     let buffer = "\x1b[?2026h";
-    if (destructiveReset) buffer += "\x1b[H\x1b[3J\x1b[2J";
+    if (destructiveReset) {
+      buffer += "\x1b[H\x1b[2J";
+      // Purge scrollback only when a rewrap actually misaligns the rows
+      // above (width change). A plain repaint reset (didReset from the
+      // reconciler) must keep the user's committed history.
+      if (widthChanged) buffer += "\x1b[3J";
+    }
     // Frame advance = history rows appended this frame. After those appends
     // the screen content that sits under new viewport slot i is the OLD
     // window's row (i + advance) — both when the appends scrolled the
