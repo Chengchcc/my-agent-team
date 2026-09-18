@@ -1,0 +1,1 @@
+{"ts":"2026-09-18T16:20:00+08:00","branch":"rsi/fix-observe-gh-flag","base":"30650aa6","cause":"gh run list --status unsupported on installed gh; Observe step hard-failed every run","files":[".oma/skills/self-improve/SKILL.md"],"guard":"pass","ci":"pending","pr":10,"merged":false}
