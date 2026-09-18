@@ -14,8 +14,12 @@ apps/web/tsconfig.tsbuildinfo
 .claude/skills
 .agents
 
-# oma workspace runtime data (memory, product-tools, skills)
-.oma/
+# oma workspace runtime data (memory, product-tools). The RSI harness
+# surfaces (rules/skills/rsi) stay tracked — they are the evolved object.
+.oma/*
+!.oma/rules/
+!.oma/skills/
+!.oma/rsi/
 
 # Quality Playbook run artifacts
 quality/

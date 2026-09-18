@@ -1,0 +1,12 @@
+{
+  "$comment": "Dogfood RSI edit scope for oma-on-oma. allow = globs the self-improve loop may edit; deny = hard block, deny always wins. This file guards itself: rsi-guard.ts hard-denies it regardless of these lists, so loosening scope requires a human-reviewed PR without the rsi label.",
+  "allow": [".oma/skills/**", ".oma/rules/**", ".oma/rsi/**", "skills/**", "docs/**"],
+  "deny": [
+    "**/*.test.ts",
+    ".github/**",
+    "scripts/**",
+    "packages/config/src/env.ts",
+    "**/package.json",
+    "bun.lock"
+  ]
+}

@@ -96,3 +96,22 @@ jobs:
             echo "All package dists present and fresh"
           fi
           exit $err
+
+  # Dogfood RSI gate: on PRs the self-improve loop opens (label "rsi"), fail
+  # when the diff touches anything outside .oma/rsi/scope.json's allow-list.
+  # scripts/ and scope.json itself are deny-listed there, so the improving
+  # agent cannot weaken its own gate. The verify job above remains the score.
+  rsi-gate:
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'rsi')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: RSI scope guard
+        run: bun scripts/rsi-guard.ts origin/${{ github.base_ref }}...HEAD
