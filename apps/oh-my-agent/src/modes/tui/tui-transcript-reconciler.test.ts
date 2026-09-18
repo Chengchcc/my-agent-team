@@ -99,5 +99,8 @@ describe("TuiTranscriptReconciler didReset heuristic", () => {
     const rows = transcript.children
       .flatMap((child) => child.render(80))
       .map((line) => line.trimEnd());
+    expect(rows).toContain("status:pushed before tool");
+    expect(rows).toContain("tool:bash");
+    expect(rows.indexOf("status:pushed before tool")).toBeLessThan(rows.indexOf("tool:bash"));
   });
 });

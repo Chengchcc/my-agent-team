@@ -571,6 +571,7 @@ describe("tui paint stability (differential frame writes)", () => {
       await waitForText(vt, "done", 10_000);
       const ESC = String.fromCharCode(27);
       const destructive = (writes.join("").match(new RegExp(`${ESC}\\[(2J|3J)`, "g")) ?? []).length;
+      expect(destructive).toBe(0);
 
       await quitTui(vt);
       expect(await sessionDone).toBe(0);
