@@ -532,6 +532,56 @@ describe("tui paint stability (differential frame writes)", () => {
     }
   }, 30_000);
 
+  test("steer submit and drain paint no destructive frame", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-steer-paint-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-steer-paint-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    // Long-enough tool so both the submit echo AND the loop's drain of the
+    // steer land inside the measured window.
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      { name: "bash", input: { description: "hold", command: "sleep 2" } },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const writes: string[] = [];
+      const origWrite = vt.write.bind(vt);
+      Object.defineProperty(vt, "write", {
+        value: (d: string): void => {
+          writes.push(d);
+          origWrite(d);
+        },
+      });
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+      await typeAndSubmit(vt, "go");
+      await waitForText(vt, "sleep 2", 5_000);
+
+      // Steer mid-run: submit (pending echo) + drain (queue_update settle).
+      // Both used to trip the reconciler's positional-key check (an item
+      // born empty never entered orderKeys) → didReset → a destructive
+      // \x1b[H\x1b[3J\x1b[2J frame that also purged the scrollback.
+      writes.length = 0;
+      vt.sendInput("mid correction");
+      await vt.waitForRender();
+      vt.sendInput("\r");
+      await waitForText(vt, "\u00bb mid correction", 5_000);
+      await waitForText(vt, "done", 10_000);
+      const ESC = String.fromCharCode(27);
+      const destructive = (writes.join("").match(new RegExp(`${ESC}\\[(2J|3J)`, "g")) ?? []).length;
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("long markdown keeps up with the model stream (no backlog dump)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-cadence-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-cadence-sess-"));

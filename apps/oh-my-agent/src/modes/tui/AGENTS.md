@@ -55,12 +55,23 @@ anything synchronous here is on the model-stream critical path.
 
 ## Reconciler
 
-- Item keys are **positional**: `` `${runIndex}:${itemIndex}` ``. Any change in
-  item count or order at an index triggers `reset(transcript)` + `didReset`,
-  which forces a destructive frame (`requestRender(true)`).
-- Therefore: **never insert/remove items mid-list while streaming**; append
-  only. A status item pushed in the middle rewrites every later key and costs
-  a full transcript rebuild per frame.
+- Item keys are **positional**: `` `${runIndex}:${itemIndex}` ``. `didReset`
+  compares the current key list against `lastKeys` — the FULL snapshot of the
+  previous reconcile, including items that rendered empty. Removal or reorder
+  (prefix mismatch) triggers `reset(transcript)` + a destructive frame
+  (`requestRender(true)`); pure suffix appends and items born transparent
+  (empty assistant placeholder) never reset.
+- Do NOT derive the comparison list from render-time group pushes: an item
+  that renders zero rows on first sight never enters `orderKeys`, and the
+  drift detonates a full clear + scrollback purge on the next reconcile
+  (this is the steer-flicker bug, pinned by tui-e2e.test.ts "steer submit
+  and drain paint no destructive frame").
+- A destructive frame clears the screen but purges scrollback (`\x1b[3J`)
+  **only when the width changed** — a rewrap is the only thing that
+  misaligns committed rows above the viewport.
+- Insertion mid-list self-heals WITHOUT a reset: positional keys recycle
+  (`1:0` goes to the newcomer), `updateGroup` swaps the recycled slot's rows
+  in place, and the shifted item appends fresh — final order is correct.
 - `itemLineCache` skips caching while `item.streaming` — a streaming item
   re-renders every frame by design (see the markdown cost note in the package
   doc). Cache validity covers thinking/tool-detail/width, **not text**, so

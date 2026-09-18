@@ -21,6 +21,10 @@ export class TuiTranscriptReconciler {
   private readonly groups = new Map<string, Component[]>();
   private lastShowThinking = false;
   private lastShowToolDetail = false;
+  /** Item keys of the previous reconcile (FULL list, including items that
+   *  rendered empty). The didReset heuristic compares against this, so an
+   *  item born transparent cannot desynchronize the check. */
+  private lastKeys: string[] = [];
 
   /** Re-attach transcript chrome that lives OUTSIDE the reconciled item
    *  groups (the header card) right after a wipe. It must run inside reset(),
@@ -45,9 +49,13 @@ export class TuiTranscriptReconciler {
     const flagsChanged =
       state.showThinking !== this.lastShowThinking ||
       state.showToolDetail !== this.lastShowToolDetail;
+    // Reset heuristic compares against the FULL item-key snapshot of the
+    // previous reconcile — not the render-time group pushes below. An item
+    // born transparent (empty assistant placeholder) never pushes its key,
+    // so a push-based list drifts out of alignment and detonates a full
+    // clear+scrollback-purge on the NEXT reconcile (e.g. a steer echo).
     const removed =
-      keys.length < this.orderKeys.length ||
-      this.orderKeys.some((key, index) => key !== keys[index]);
+      this.lastKeys.length > keys.length || this.lastKeys.some((key, index) => key !== keys[index]);
     let didReset = false;
     if (flagsChanged || removed) {
       this.reset(transcript);
@@ -94,6 +102,9 @@ export class TuiTranscriptReconciler {
       }
       if (liveStartRow === -1 && item.streaming) liveStartRow = startRow;
     }
+
+    // Snapshot for the next reconcile's removal check (full item list).
+    this.lastKeys = keys;
 
     // Drop stale groups that are no longer in the item list (compaction).
     if (this.orderKeys.some((key) => !keys.includes(key))) {
