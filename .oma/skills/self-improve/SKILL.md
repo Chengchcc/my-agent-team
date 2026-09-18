@@ -13,8 +13,12 @@ One Run = one candidate. Phases run in order; never merge phases.
 
 ## 1. Observe (read-only)
 
-- CI failures: `gh run list --branch master --status failure --limit 5`,
-  then `gh run view <id> --log-failed`.
+- CI failures (`gh run list` has no `--status` flag — filter the JSON):
+  ```sh
+  gh run list --branch master --limit 20 --json databaseId,conclusion \
+    --jq '.[] | select(.conclusion=="failure") | .databaseId'
+  gh run view <id> --log-failed
+  ```
 - Past candidates: read `.oma/rsi/lineage.jsonl` — a cause already tried and
   red needs a DIFFERENT edit, not a retry.
 - Pick ONE cause. Nothing red and no clear win? End the Run with "no
