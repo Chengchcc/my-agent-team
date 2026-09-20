@@ -2,14 +2,21 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkNavigationAllowed, createBrowserTool, resolveChromeExecutable } from "./browser.js";
+import {
+  canLaunchChromium,
+  checkNavigationAllowed,
+  createBrowserTool,
+  resolveChromeExecutable,
+} from "./browser.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "oma-browser-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /** The integration tests below drive a REAL headless Chromium (data: URLs
- *  only, no network). CI runners ship one; a dev box may not — skip rather
- *  than fail, the same precedent as the bwrap/seatbelt suites. */
+ *  only, no network). Existence of the executable is NOT enough: on some
+ *  boxes the cached Chrome for Testing exists but cannot start (seen on
+ *  macOS/arm64) — gate on a bounded LAUNCH probe so a broken environment
+ *  skips with signal instead of failing red (bwrap/seatbelt precedent). */
 const HAS_CHROMIUM = (() => {
   try {
     return existsSync(resolveChromeExecutable());
@@ -17,6 +24,7 @@ const HAS_CHROMIUM = (() => {
     return false;
   }
 })();
+const CAN_LAUNCH = HAS_CHROMIUM && (await canLaunchChromium());
 
 describe("resolveChromeExecutable", () => {
   test("PUPPETEER_EXECUTABLE_PATH wins", () => {
@@ -157,7 +165,7 @@ describe("browser tool", () => {
   });
 });
 
-(HAS_CHROMIUM ? describe : describe.skip)("browser tool (requires chromium)", () => {
+(CAN_LAUNCH ? describe : describe.skip)("browser tool (requires a launchable chromium)", () => {
   test("open/run/close against a data: URL (real chromium, no network)", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });
     const open = await tool.execute({
@@ -198,7 +206,14 @@ describe("browser tool", () => {
 
   test("run timeout kills the tab (recoverable)", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });
-    await tool.execute({ action: "open", name: "stuck", url: "data:text/html,<p>hi</p>" });
+    const open = await tool.execute({
+      action: "open",
+      name: "stuck",
+      url: "data:text/html,<p>hi</p>",
+    });
+    // The precondition is part of the contract: a failed launch must be a
+    // LOUD failure here, never a vacuous pass through the timeout path.
+    expect(open.isError).not.toBe(true);
     const stuck = await tool.execute({
       action: "run",
       name: "stuck",

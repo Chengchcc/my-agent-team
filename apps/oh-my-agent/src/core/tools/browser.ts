@@ -141,6 +141,33 @@ async function getSharedBrowser(): Promise<Browser> {
   }
 }
 
+/** Launchability probe (bounded): the executable EXISTING says nothing on
+ *  boxes whose cached Chrome for Testing cannot start (seen on macOS/arm64).
+ *  Integration tests gate on this instead of file existence, so a broken
+ *  environment skips with signal rather than failing red — and a vacuous
+ *  pass cannot hide behind a launch that never worked. */
+export async function canLaunchChromium(boundMs = 8_000): Promise<boolean> {
+  let timer: Timer | undefined;
+  try {
+    const browser = await Promise.race([
+      getSharedBrowser(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("probe timeout")), boundMs);
+        timer.unref?.();
+      }),
+    ]);
+    const page = await browser.newPage();
+    tabs.set("__probe__", { name: "__probe__", page });
+    await page.goto("data:text/html,<title>probe</title>");
+    await releaseTab("__probe__"); // last tab out closes the shared browser
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Release one tab; when the last tab goes, the tool-owned headless browser
  *  closes with it. */
 async function releaseTab(name: string): Promise<string> {

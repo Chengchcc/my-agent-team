@@ -129,17 +129,21 @@ describe("headless bash never shares the TUI terminal", () => {
 
   test("NullBashSandbox: child leads its own session (portable setsid)", async () => {
     const ws = mkdtempSync(join(tmpdir(), "bash-tty-null-"));
+    // BSD ps (macOS) has no `sid` keyword; pgid exists everywhere. A
+    // detached child (setsid semantics) leads its own session AND group,
+    // so pgid == pid is the portable pin; where sid IS reported (Linux)
+    // it must agree.
     const out = await runInSandbox(
       new NullBashSandbox(ws),
-      "echo sid=$(ps -o sid= -p $$ | tr -d ' ') pid=$$",
+      "echo pgid=$(ps -o pgid= -p $$ | tr -d ' ') sid=$(ps -o sid= -p $$ 2>/dev/null | tr -d ' ') pid=$$",
     );
     const text = String(out.content);
+    const pgid = /pgid=(\d+)/.exec(text)?.[1];
     const sid = /sid=(\d+)/.exec(text)?.[1];
     const pid = /pid=(\d+)/.exec(text)?.[1];
-    expect(sid).toBeDefined();
-    // sid == pid ⟺ new session (no controlling tty). Linux reached this via
-    // the setsid BINARY even pre-fix; macOS has none — that is the pin.
-    expect(sid).toBe(pid);
+    expect(pgid).toBeDefined();
+    expect(pgid).toBe(pid);
+    if (sid !== undefined) expect(sid).toBe(pid);
   });
 
   test("a read never blocks on the user's keystrokes", async () => {
@@ -187,11 +191,11 @@ describe("headless bash never shares the TUI terminal", () => {
     // the sandbox could still paint over the TUI. bwrap itself becomes the
     // session leader, so the pin is "different session from the parent",
     // not sid == pid (that holds only when the command IS the leader).
-    const parentSid = execSync(`ps -o sid= -p ${process.pid}`).toString().trim();
-    const { out } = await run("echo sid=$(ps -o sid= -p $$ | tr -d ' ')");
-    const sid = /sid=(\d+)/.exec(String(out.content))?.[1];
-    expect(sid).toBeDefined();
-    expect(sid).not.toBe(parentSid);
+    const parentPgid = execSync(`ps -o pgid= -p ${process.pid}`).toString().trim();
+    const { out } = await run("echo pgid=$(ps -o pgid= -p $$ | tr -d ' ')");
+    const pgid = /pgid=(\d+)/.exec(String(out.content))?.[1];
+    expect(pgid).toBeDefined();
+    expect(pgid).not.toBe(parentPgid);
   });
 
   test("workspace under /tmp is not shadowed by the private tmpfs", async () => {
