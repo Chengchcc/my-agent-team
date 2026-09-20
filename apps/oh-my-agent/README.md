@@ -53,7 +53,7 @@ bun run --cwd apps/oh-my-agent dev -- -p "hello"    # source CLI (dev)
 bun apps/oh-my-agent/src/cli.ts -p "hello"          # source CLI, direct
 
 bun run --cwd apps/oh-my-agent build                # → dist/cli.js (executable)
-apps/oh-my-agent/dist/cli.js -p "hello"             # built binary
+./dist/cli.js -p "hello"                            # built binary (inside apps/oh-my-agent)
 
 cd apps/oh-my-agent && bun link                     # optional local install
 oma -p "hello"                              # then run from anywhere
