@@ -352,6 +352,20 @@ describe("createOmaRuntime", () => {
     // BOTH the model stream and the summarizer used the run model.
     expect(batches.length).toBeGreaterThanOrEqual(2);
     for (const b of batches) expect(b.model.id).toBe("small");
+    // compactions() reports whether the summary describes the WHOLE branch.
+    // This run compacts mid-loop (the summary is followed by more messages), so
+    // it must say false: folding the durable transcript on that summary would
+    // drop the messages it never described.
+    const compactions = await rt.compactions();
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]!.replacesEarlierMessages).toBe(false);
+    expect(typeof compactions[0]!.summary).toBe("string");
+    // contextUsage() must agree with what the loop considers live: the two
+    // 15K-char history messages were covered by the compaction, so counting
+    // them would leave the meter at ~7.5K right after it brought the context
+    // down (and contradict the loop's own threshold decision).
+    const usage = await rt.contextUsage();
+    expect(usage?.estimatedTokens).toBeLessThan(100);
     await rt.close();
   });
 

@@ -12,8 +12,10 @@ export interface AppendBatchResult {
   readonly appendedIds: readonly string[];
 }
 
-/** Validate a batch before any write. Throws on the first invalid entry so
- *  both adapters fail atomically with identical semantics. */
+/** Validate a batch before any write. Throws on the first invalid entry, so a
+ *  store rejects the whole batch atomically (the in-memory adapter is the only
+ *  implementation today; the durable path is session-file.ts, a separate JSONL
+ *  log that does not implement this interface). */
 export function validateBatch(entries: readonly Record<string, unknown>[]): void {
   for (const entry of entries) {
     const type = entry.type;

@@ -38,7 +38,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 
 ## Runtime
 
-`createOmaRuntime()`（`src/core/create-runtime.ts`）构造一个 Runtime = 一个 Run：
+`createOmaRuntime()`（`src/core/runtime/create-runtime.ts`）构造一个 Runtime = 一个 Run：
 
 - `run(input)` 返回唯一 segment，其 `outcome` 是 Run 的唯一终态；
 - `steer(input)` 注入 live loop；`stop()` 中止；

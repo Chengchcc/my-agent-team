@@ -48,7 +48,7 @@ export function loadRuntimeCatalog(
 /** Deep-merge two catalogs: override providers/models win; new entries added.
  *  Provider-level fields (api, baseUrl, apiKeyEnv) are overridden when present.
  *  Within a provider, models merge by id. */
-export function mergeCatalogs(base: CatalogSpec, override: CatalogSpec): CatalogSpec {
+function mergeCatalogs(base: CatalogSpec, override: CatalogSpec): CatalogSpec {
   const providers: Record<string, ProviderSpec> = { ...base.providers };
   for (const [pid, oSpec] of Object.entries(override.providers)) {
     const bSpec = providers[pid];

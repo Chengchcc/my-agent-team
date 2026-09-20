@@ -10,7 +10,7 @@ import { buildSkillIndex } from "../tools/skills.js";
  *  user-authored roots are never written by this module. */
 
 /** Hard cap on a managed SKILL.md body to keep generated skills bounded. */
-export const MAX_MANAGED_SKILL_BYTES = 64_000;
+const MAX_MANAGED_SKILL_BYTES = 64_000;
 
 const SKILL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -22,7 +22,7 @@ export function managedSkillsDir(): string {
 /** Validate + normalize a managed-skill name. Throws on anything outside the
  *  strict allowlist so a bad name can never escape managedSkillsDir()
  *  (blocks `..`, slashes, empty, and uppercase). */
-export function sanitizeSkillName(raw: string): string {
+function sanitizeSkillName(raw: string): string {
   const name = raw.trim().toLowerCase();
   if (!SKILL_NAME_PATTERN.test(name)) {
     throw new Error(

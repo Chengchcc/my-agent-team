@@ -1,6 +1,6 @@
 /** Shared PTY helpers for bash-tool pty mode and the TUI pty console. */
 
-export function shellQuote(s: string): string {
+function shellQuote(s: string): string {
   return `'${s.replaceAll("'", `'\\''`)}'`;
 }
 

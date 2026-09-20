@@ -523,7 +523,8 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     // Compaction happened mid-run: surface what was folded away so the
     // user knows the context was summarized.
-    for (const summary of await runtime.compactions()) {
+    for (const compaction of await runtime.compactions()) {
+      const summary = compaction.summary;
       pushStatus(`compacted: ${summary.slice(0, 160)}${summary.length > 160 ? "…" : ""}`);
     }
     // omp AutoLearn-style indicator: the run's background memory-learn pass

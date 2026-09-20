@@ -283,7 +283,17 @@ export function createBashTool(opts: {
 
       // Interactive pty (M-bash): when a TUI console runner is injected,
       // pty:true hands the command to the overlay (user-interactive).
-      if (pty && opts.ptyConsole) {
+      //
+      // NOT under an OS sandbox: the overlay spawns its own bare `bash -c`
+      // (modes/tui/pty-console.ts), so delegating to it would silently void the
+      // confinement the user opted into. A sandboxed Run falls through to the
+      // launcher-spawned script-bridge pty below, which IS confined (it goes
+      // through this same launcher).
+      const ptyOverlay = pty && opts.ptyConsole !== undefined && opts.sandbox === undefined;
+      if (pty && opts.ptyConsole !== undefined && opts.sandbox !== undefined) {
+        notice = "pty overlay skipped: the OS sandbox is active, so it ran inside the sandbox";
+      }
+      if (ptyOverlay && opts.ptyConsole) {
         const done = await opts.ptyConsole(command, validatedCwd, withPtyEnv(bashEnv));
         const tail = done.tail.trim();
         const failed = !done.killed && done.exitCode !== null && done.exitCode !== 0;
@@ -297,10 +307,10 @@ export function createBashTool(opts: {
           isError: failed,
         };
       }
-      if (pty) {
+      if (pty && !ptyOverlay) {
         const wrapped = ptyWrap(command);
         if (wrapped === null) {
-          notice = "pty requested but unavailable in this environment; ran without a terminal";
+          notice ||= "pty requested but unavailable in this environment; ran without a terminal";
         } else {
           effectiveCommand = wrapped;
           Object.assign(bashEnv, withPtyEnv({}));

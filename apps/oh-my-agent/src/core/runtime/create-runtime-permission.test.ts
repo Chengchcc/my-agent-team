@@ -254,6 +254,131 @@ describe("permissionMode auto classifier gate (CC alignment)", () => {
   );
 });
 
+/** The product mounts were exempt from the gate by SERVER NAME
+ *  (`startsWith("mcp__product-tools__")`), so every tool they exposed inherited
+ *  it — including the two that write outside the workspace, which therefore ran
+ *  ungated even under permissionMode "deny". The exemption is now an explicit
+ *  list of consented capabilities (reads + the run's own scratch/interaction
+ *  state), and anything else a product server exposes is gated by default. */
+describe("product-mounted tools are gated by capability, not by server name", () => {
+  /** Mounts `product-tools` from the echo fixture with the given tool names. */
+  async function productMount(opts: {
+    runId: string;
+    tools: string;
+    permissionMode: "ask" | "auto" | "deny";
+    call: string;
+    text?: string;
+    echoText?: string;
+  }): Promise<string> {
+    process.env.OMA_FAKE_PROVIDER = "1";
+    process.env.MCP_ECHO_TOOLS = opts.tools;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      { name: `mcp__product-tools__${opts.call}`, input: { echo: opts.echoText ?? "x" } },
+    ]);
+    process.env.OMA_FAKE_TEXT = opts.text ?? "";
+    const ws = mkdtempSync(join(tmpdir(), "oma-product-gate-"));
+    writeFileSync(
+      join(ws, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          "product-tools": {
+            command: "bun",
+            args: [join(import.meta.dir, "../__fixtures__/mcp-echo-server.ts")],
+            env: { MCP_ECHO_TOOLS: opts.tools },
+          },
+        },
+      }),
+    );
+    const modelRuntime = createModelRuntime();
+    registerBuiltinProviders(modelRuntime, process.env);
+    const rt = await createOmaRuntime({
+      runId: opts.runId,
+      modelId: "fake/echo",
+      workspaceRoot: ws,
+      workspaceAccess: "read_write",
+      modelRuntime,
+      skillRoots: [],
+      permissionMode: opts.permissionMode,
+    });
+    const seg = await rt.run(runInput(opts.runId));
+    const out = await seg.outcome;
+    await rt.close();
+    try {
+      rmSync(ws, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+    return JSON.stringify(out.messages);
+  }
+
+  test("deny: a consented read runs, a product WRITE is blocked", async () => {
+    // artifact_upload writes backend artifact storage: not a read, not
+    // consented, so deny must actually deny it.
+    const blocked = await productMount({
+      runId: "r-prod-deny-write",
+      tools: "artifact_upload",
+      permissionMode: "deny",
+      call: "artifact_upload",
+    });
+    expect(blocked).toContain("blocked by permissionMode=deny");
+    // The tool never ran. The echo fixture's RESULT carries "meta" (its args
+    // alone would too, so the marker must be result-only).
+    expect(blocked).not.toContain("meta");
+
+    // history_recent is a read of the run's own conversation: still consented.
+    const allowed = await productMount({
+      runId: "r-prod-deny-read",
+      tools: "history_recent",
+      permissionMode: "deny",
+      call: "history_recent",
+    });
+    expect(allowed).toContain("meta"); // the fixture answered
+    expect(allowed).not.toContain("blocked by permissionMode=deny");
+
+    // history_retain WRITES the ledger, but the product already consented to
+    // it: the backend's workspace bridge pre-allows exactly
+    // history_recent/search/around/retain so unattended runs never see an
+    // approval prompt. Gating it here would put a card (or a deadline deny) in
+    // front of an ordinary product run.
+    const retained = await productMount({
+      runId: "r-prod-deny-retain",
+      tools: "history_retain",
+      permissionMode: "deny",
+      call: "history_retain",
+    });
+    expect(retained).toContain("meta");
+    expect(retained).not.toContain("blocked by permissionMode=deny");
+  });
+
+  test("auto: a product WRITE is classified, a consented read is not", async () => {
+    // The classifier answers from OMA_FAKE_TEXT; a block verdict must reach the
+    // tool as an error, which proves the call was classified at all.
+    const classified = await productMount({
+      runId: "r-prod-auto-write",
+      tools: "artifact_upload",
+      permissionMode: "auto",
+      call: "artifact_upload",
+      text: '{"verdict":"block","reason":"product artifact write"}',
+    });
+    expect(classified).toContain("blocked by classifier");
+    // The classifier's reason rides the tool result, and the tool never ran.
+    expect(classified).toContain("product artifact write");
+    expect(classified).not.toContain("meta");
+
+    // history_search is a consented read: the classifier must NOT be consulted,
+    // so its "block everything" verdict never reaches the tool.
+    const notClassified = await productMount({
+      runId: "r-prod-auto-read",
+      tools: "history_search",
+      permissionMode: "auto",
+      call: "history_search",
+      text: '{"verdict":"block","reason":"never"}',
+    });
+    expect(notClassified).not.toContain("blocked by classifier");
+    expect(notClassified).toContain("meta"); // the fixture answered
+  });
+});
+
 test("injected MCP todo_write wins over native todo (backend-injected priority)", async () => {
   const savedFake = process.env.OMA_FAKE_PROVIDER;
   const savedTool = process.env.OMA_FAKE_TOOL;

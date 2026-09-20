@@ -31,6 +31,42 @@ describe("resolveChromeExecutable", () => {
   });
 });
 
+/** action=open was a raw navigation primitive: web_fetch refused private hosts
+ *  and non-http schemes while the browser happily opened them. The guard runs
+ *  BEFORE getSharedBrowser(), so these need no Chromium. */
+describe("browser tool refuses URLs its sibling web_fetch refuses", () => {
+  test("a private host, a file:// path and a malformed URL are refused", async () => {
+    const tool = createBrowserTool({ workspaceRoot: tmp });
+    const loopback = await tool.execute({
+      action: "open",
+      name: "x",
+      url: "http://127.0.0.1:3000/",
+    });
+    expect(loopback.isError).toBe(true);
+    expect(String(loopback.content)).toContain("Blocked host");
+
+    const lan = await tool.execute({ action: "open", name: "x", url: "http://192.168.1.5/admin" });
+    expect(lan.isError).toBe(true);
+    expect(String(lan.content)).toContain("Blocked host");
+
+    const file = await tool.execute({ action: "open", name: "x", url: "file:///etc/passwd" });
+    expect(file.isError).toBe(true);
+    expect(String(file.content)).toContain("Blocked protocol");
+
+    const bogus = await tool.execute({ action: "open", name: "x", url: "not a url" });
+    expect(bogus.isError).toBe(true);
+    expect(String(bogus.content)).toContain("invalid URL");
+  });
+
+  test("offline schemes stay allowed (data: is how the tool is driven offline)", async () => {
+    const tool = createBrowserTool({ workspaceRoot: tmp });
+    // No Chromium here: the guard passes, so the failure is the browser launch,
+    // never a refusal.
+    const res = await tool.execute({ action: "open", name: "x", url: "data:text/html,<p>hi</p>" });
+    expect(String(res.content)).not.toContain("refused to open");
+  });
+});
+
 describe("browser tool", () => {
   test("run requires an open tab; unknown action rejected", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });

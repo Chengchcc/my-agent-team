@@ -66,5 +66,5 @@ workspace/
 - `apps/backend/src/features/agent/workspace.ts`（seed 布局）· `workspace-bridge.ts`(reconcile)· `agent-config.ts`（agent.yml zod+序列化）· `agent-config-mcp.ts`（agent_read/agent_write 提案 + agent_create）
 - `apps/backend/src/features/agent-run/execution.ts`（buildRunInput：flat-text 桥 + cliSessionRef 透传 + outcome 回写）
 - `packages/agent-contract/src/kinds.ts`(BACKEND_KINDS)· 四个 adapter 包
-- `apps/oh-my-agent/src/core/settings/workspace-context.ts`（cwd meta 读取）· `session-file.ts`（session 持久化）· `product-tools-manifest.ts`(cwd manifest)
+- `apps/oh-my-agent/src/core/settings/workspace-context.ts`（cwd meta 读取）· `session-file.ts`（session 持久化）· `features/product-tools/manifest.ts`(backend manifest) · 子进程从 cwd 的 `.oma/product-tools.json` 读取
 - Web：AgentForm（kind 条件字段：claude 无 provider、pi 无 effort、pi/omp 无 permission）+ agent 详情 Workspace tab

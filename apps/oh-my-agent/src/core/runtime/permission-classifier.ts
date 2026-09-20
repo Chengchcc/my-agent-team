@@ -136,11 +136,24 @@ export async function classifyPermissionAction(opts: {
  *  the filesystem root, a top-level system directory, home, or a glob under
  *  a shell variable (empty expansion deletes from root). Deterministic,
  *  runs BEFORE the classifier, and NOTHING overrides it — the model must
- *  re-issue a narrower, named path. $() and backtick substitution ARE
- *  caught (the separator split lands rm in command position of a segment)
- *  and a quoted binary ("rm" -rf /) is caught by quote-stripping;
- *  `command rm`, `\rm`, and variable commands ($CMD) are NOT — the
- *  classifier prompt's destruction rule is the second layer.
+ *  re-issue a narrower, named path.
+ *
+ *  Command position is found by walking past forms that shift it, since a
+ *  wrapper (`bash -c "rm -rf /"`), an exec prefix (`nice rm -rf /`) or an
+ *  absolute binary (`/bin/rm`) otherwise hides the delete: $()/backtick
+ *  substitution (the segment split lands rm in command position), the wrappers
+ *  listed in SHELL_WRAPPERS, their flags and `VAR=value` assignments, plus
+ *  quoting/escaping on the binary itself ("rm" / \rm / /bin/rm).
+ *
+ *  Ceiling (the classifier prompt's destruction rule is the second layer): an
+ *  rm behind a variable or a computed command ($CMD, `$(printf rm)`), behind a
+ *  wrapper not in the set (`chroot / rm -rf /`), and the mirror-image
+ *  ambiguity — a wrapper OPTION's argument read as command position, so
+ *  `command -v rm /etc` and `sudo -u root rm -rf /` are judged wrongly (the
+ *  first is a false positive, the second a miss). A token scan cannot resolve
+ *  that; a real shell parser is the fix, and the ponytail note below is the
+ *  standing invitation to write one.
+ *
  *  ponytail: token scan, not a shell AST; move to a real parser if models
  *  start hiding critical deletes in the remaining forms. */
 const TOP_LEVEL_DIRS =
@@ -158,16 +171,76 @@ function isCriticalTarget(token: string): boolean {
   return false;
 }
 
+/** Shell prefixes that put the real command later in the same segment.
+ *  `bash -c "rm -rf /"` was the whole bypass: the first token was `bash`. */
+const SHELL_WRAPPERS = new Set([
+  // Shells: `bash -c "rm -rf /"` was the original bypass.
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+  "ash",
+  // Exec prefixes that take no option argument, so the next bare token really
+  // is the command: `nice rm -rf /`, `eval 'rm -rf /'`, `busybox rm -rf /`.
+  "nice",
+  "ionice",
+  "setsid",
+  "stdbuf",
+  "time",
+  "eval",
+  "exec",
+  "busybox",
+  "toybox",
+  // Privilege/environment prefixes.
+  "env",
+  "nohup",
+  "sudo",
+  "doas",
+  "su",
+  "runuser",
+  "command",
+  "xargs",
+]);
+
+/** The binary a token names once the shell has stripped quoting (`"rm"`),
+ *  escaping (`\rm`) and any directory prefix (`/bin/rm`, `./rm`). */
+function binaryName(token: string): string {
+  const unquoted = token.replace(/^["']+|["']+$/g, "");
+  const unescaped = unquoted.startsWith("\\") ? unquoted.slice(1) : unquoted;
+  return unescaped.replace(/^.*\//, "");
+}
+
 export function isCriticalDeletion(command: string): boolean {
-  // rm/rmdir must be in COMMAND POSITION (first token of a segment split
-  // on shell separators incl. newline and backtick substitution — quotes on
-  // the binary itself are stripped). "echo about rm /etc" is prose.
+  // rm/rmdir must be in COMMAND POSITION: the first token of a segment (split
+  // on shell separators incl. newline and backtick substitution) once wrappers,
+  // their flags and `VAR=value` assignments are walked past. "echo about rm
+  // /etc" is prose — its command position is `echo`, so it is not our business.
   const segments = command.split(/[;&|()`\n]/);
   for (const segment of segments) {
-    const tokens = segment.trim().split(/\s+/);
-    const first = (tokens[0] ?? "").replace(/^["']+|["']+$/g, "");
-    if (!/^(rm|rmdir)$/.test(first)) continue;
-    for (let j = 1; j < tokens.length; j++) {
+    const tokens = segment
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length > 0);
+    let i = 0;
+    while (i < tokens.length) {
+      const token = tokens[i]!;
+      if (/^[A-Za-z_]\w*=/.test(token)) {
+        i++; // env assignment FOO=1
+        continue;
+      }
+      if (SHELL_WRAPPERS.has(binaryName(token))) {
+        i++; // nested wrappers: bash -c "sh -c 'rm -rf /'"
+        continue;
+      }
+      if (token.startsWith("-")) {
+        i++; // wrapper flag (-c, -lc, -0, ...)
+        continue;
+      }
+      break;
+    }
+    if (!/^(rm|rmdir)$/.test(binaryName(tokens[i] ?? ""))) continue;
+    for (let j = i + 1; j < tokens.length; j++) {
       const token = tokens[j]!;
       if (token.startsWith("-")) continue; // flags
       if (isCriticalTarget(token)) return true;

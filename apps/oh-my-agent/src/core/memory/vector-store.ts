@@ -89,10 +89,6 @@ function toRow(raw: RawRow): MemoryRow {
   };
 }
 
-export function normalizeMemoryContent(content: string): string {
-  return content.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
 export function openVectorMemoryStore(dbPath: string): VectorMemoryStore {
   const db = new Database(dbPath, { create: true });
   db.exec("PRAGMA journal_mode = WAL");

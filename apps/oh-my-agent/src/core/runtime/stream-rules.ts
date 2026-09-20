@@ -7,8 +7,15 @@ import type { StreamRule } from "../index.js";
  * `<root>/.oma/rules/*.md`. Frontmatter `condition: <regex>` is required;
  * the body below the frontmatter is the reminder text injected when the
  * rule matches mid-stream. Rule name = filename without `.md`.
- * Fail-open: an unreadable file, missing condition, empty body, or invalid
- * regex is skipped — rules must never block session startup. */
+ *
+ *  Fail-open: an unreadable file, missing condition, empty body, or invalid
+ *  regex is skipped — rules must never block session startup.
+ *
+ *  Two silent no-ops were NOT fail-open, they were fail-dead: the value is
+ *  read from the raw `condition:` line (no YAML parse), so a quoted pattern
+ *  compiled WITH its quotes and never matched anything, and the frontmatter
+ *  anchor required bare LF, so a CRLF rule file dropped every rule in it. Both
+ *  now load as written. */
 export function loadStreamRules(root: string): StreamRule[] {
   const dir = join(root, ".oma", "rules");
   let files: string[];
@@ -23,10 +30,18 @@ export function loadStreamRules(root: string): StreamRule[] {
   for (const file of files) {
     try {
       const content = readFileSync(join(dir, file), "utf8");
-      const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1];
-      const condition = frontmatter?.match(/^condition:\s*(.+)$/m)?.[1]?.trim();
+      // \r?\n: a CRLF rule file must load, not silently yield no rules.
+      const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
+      const raw = frontmatter?.match(/^condition:\s*(.+)$/m)?.[1]?.trim();
+      // One matching pair of quotes is YAML syntax, not part of the pattern:
+      // `condition: 'foo|bar'` must compile to foo|bar.
+      const condition =
+        raw &&
+        ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"')))
+          ? raw.slice(1, -1)
+          : raw;
       if (!condition) continue;
-      const message = content.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+      const message = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
       if (!message) continue;
       rules.push({
         name: file.replace(/\.md$/, ""),

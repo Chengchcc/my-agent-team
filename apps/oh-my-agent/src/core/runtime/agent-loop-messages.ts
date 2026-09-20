@@ -68,7 +68,12 @@ export function buildToolBatch(
     }
     orderedWithCollapsedThinking.push(b);
   }
-  if (!thinkingInserted && turn.thinking) {
+  // Gate on the BLOCK, not on the text: a redacted_thinking block carries a
+  // signature and no reasoning text at all (agent-loop-run.ts reasoning_signature),
+  // so testing turn.thinking alone dropped it — and a replayed tool_use without
+  // its redacted_thinking block is rejected by the provider (400). Same
+  // predicate buildThinkingBlock uses.
+  if (!thinkingInserted && (turn.thinking || turn.thinkingSignature)) {
     orderedWithCollapsedThinking.push(collapsedThinking);
   }
 

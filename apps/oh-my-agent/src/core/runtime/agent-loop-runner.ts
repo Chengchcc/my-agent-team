@@ -17,7 +17,7 @@ import {
   streamModelTurn,
 } from "./agent-loop-run.js";
 import type { OmaLoopResult, OmaSession, OmaSessionOptions } from "./agent-loop-types.js";
-import { compactSession } from "./compaction.js";
+import { compactSession, latestCompaction } from "./compaction.js";
 import {
   estimateContextTokens,
   isSilentContextOverflow,
@@ -58,7 +58,6 @@ interface LoopStepState {
   messages: Message[];
   forceContinues: number;
   overflowCompacted: boolean;
-  thresholdCompacted: boolean;
   usageAnchor: UsageAnchor | null;
   naturalStop: boolean;
   runError: string | undefined;
@@ -237,15 +236,56 @@ async function finalizeLoop(
   };
 }
 
-export type TurnControl = { action: "break" } | { action: "return"; result: OmaLoopResult };
+type TurnControl = { action: "break" } | { action: "return"; result: OmaLoopResult };
 
 /** Run one model-turn retry loop (prune/compact/stream/handle). Returns
  *  "break" when the turn completed, or a terminal result. */
-export async function runModelTurnLoop(
+async function runModelTurnLoop(
   ctx: LoopRunnerContext,
   stepState: LoopStepState,
 ): Promise<TurnControl> {
   const { opts, emit, persist, state, callCtx, tokenEstimateCache, mutable } = ctx;
+  /** One proactive compaction recovery, shared by the threshold trigger and the
+   *  two overflow triggers (silent + provider error).
+   *
+   *  It compacts down to the TRIGGER (`limit * triggerRatio`), not to `limit`.
+   *  Sizing the retained tail to `limit` while the trigger sits at
+   *  `limit * triggerRatio` left a freshly compacted branch over the threshold
+   *  by construction, so the next iteration compacted again — summarizing
+   *  entries the previous compaction had just retained. Targeting the trigger
+   *  brings the estimate under it, which is what quiets the gate.
+   *
+   *  There is deliberately NO "already compacted" flag. One was tried and had
+   *  to be re-armed from state that the loop cannot observe (the check right
+   *  after a recovery already sees the new turn's growth), so it silently
+   *  disabled proactive compaction for the rest of the Run. The no-progress
+   *  case is handled where the decision belongs: compactSession returns an
+   *  empty result when a cut would cover nothing new, so triggering on the
+   *  budget alone can neither loop nor summarize twice for nothing. */
+  const runCompactionRecovery = async (): Promise<void> => {
+    stepState.usageAnchor = null;
+    tokenEstimateCache.clear();
+    await emit({ type: "compaction_start" });
+    const contextBudget = opts.contextBudget!;
+    const result = await compactSession(
+      opts.store,
+      opts.sessionId,
+      opts.summarize,
+      mutable.controller?.signal,
+      {
+        estimate: contextBudget.estimate,
+        // Down to the proactive trigger, so the loop settles instead of
+        // compacting again next iteration — but never above the WINDOW: a
+        // deployment can configure a trigger above it (tests do, to isolate an
+        // overflow), and an overflow recovery must still compact then.
+        limit: contextBudget.limit * Math.min(1, contextBudget.triggerRatio),
+      },
+    );
+    await emit({ type: "compaction_end" });
+    if (result.coveredIds.length > 0) {
+      stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
+    }
+  };
   // One step = at most one model call. Overflow recovery stays INSIDE
   while (true) {
     // Prune old tool-result content: a lighter
@@ -266,29 +306,37 @@ export async function runModelTurnLoop(
     let callBoundaryId: string | null = null;
     if (opts.contextBudget) {
       const branch = await opts.store.readBranch(opts.sessionId);
-      const msgEntries = branch.filter((e): e is MessageEntry => e.type === "message");
+      // Only LIVE entries: after a compaction the covered prefix is no longer
+      // sent, but the branch still holds it. Counting it (the pre-fix behavior)
+      // kept the estimate above the threshold right after a compaction, so the
+      // very next iteration fired a SECOND compaction that re-summarized
+      // already-covered entries and cut further into the retained tail.
+      const compaction = latestCompaction(branch);
+      const coveredIds = compaction?.coveredIds ?? null;
+      const msgEntries = branch.filter(
+        (e): e is MessageEntry => e.type === "message" && !(coveredIds?.has(e.entryId) ?? false),
+      );
+      // The summary replaces the covered prefix on the wire, so it costs
+      // tokens too (it is a CompactionEntry, not a MessageEntry) — but only
+      // while there is no anchor: an anchor's token count comes from a call
+      // whose prompt already contained this summary.
+      const summaryTokens =
+        compaction && !stepState.usageAnchor
+          ? opts.contextBudget.estimate({ role: "user", text: compaction.summary })
+          : 0;
       callBoundaryId = msgEntries.at(-1)?.entryId ?? null;
-      if (!stepState.thresholdCompacted) {
-        const totalTokens = estimateContextTokens(msgEntries, stepState.usageAnchor, (e) =>
+      const totalTokens =
+        estimateContextTokens(msgEntries, stepState.usageAnchor, (e) =>
           tokenEstimateCache.estimate(e.entryId, e.message, opts.contextBudget!.estimate),
-        );
-        const overThreshold =
-          totalTokens > opts.contextBudget.limit * opts.contextBudget.triggerRatio;
-        if (overThreshold) {
-          stepState.thresholdCompacted = true;
-          stepState.usageAnchor = null;
-          tokenEstimateCache.clear();
-          await emit({ type: "compaction_start" });
-          await compactSession(
-            opts.store,
-            opts.sessionId,
-            opts.summarize,
-            mutable.controller?.signal,
-            opts.contextBudget,
-          );
-          await emit({ type: "compaction_end" });
-          stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
-        }
+        ) + summaryTokens;
+      const overThreshold =
+        totalTokens > opts.contextBudget.limit * opts.contextBudget.triggerRatio;
+      if (overThreshold) {
+        // Fires whenever the live context exceeds the trigger. Re-firing is
+        // safe because compactSession no-ops when nothing new can be covered,
+        // so a context that cannot shrink does not buy a summarizer call per
+        // iteration — and a Run that keeps growing keeps compacting.
+        await runCompactionRecovery();
       }
     }
 
@@ -328,18 +376,7 @@ export async function runModelTurnLoop(
         isSilentContextOverflow(turn.usage, turn.stopReason, opts.contextBudget.limit);
       if (silentOverflow) {
         stepState.overflowCompacted = true;
-        stepState.usageAnchor = null;
-        tokenEstimateCache.clear();
-        await emit({ type: "compaction_start" });
-        await compactSession(
-          opts.store,
-          opts.sessionId,
-          opts.summarize,
-          mutable.controller?.signal,
-          opts.contextBudget,
-        );
-        await emit({ type: "compaction_end" });
-        stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
+        await runCompactionRecovery();
         continue;
       }
       // TTSR stream-rule hit: discard the partial turn (nothing was
@@ -487,18 +524,7 @@ export async function runModelTurnLoop(
       // Overflow: one-shot compaction recovery inside the same turn.
       if (err instanceof ProviderError && err.kind === "overflow" && !stepState.overflowCompacted) {
         stepState.overflowCompacted = true;
-        stepState.usageAnchor = null;
-        tokenEstimateCache.clear();
-        await emit({ type: "compaction_start" });
-        await compactSession(
-          opts.store,
-          opts.sessionId,
-          opts.summarize,
-          mutable.controller?.signal,
-          opts.contextBudget,
-        );
-        await emit({ type: "compaction_end" });
-        stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
+        await runCompactionRecovery();
         continue; // retry model call in the SAME turn, no extra step
       }
       // Anything else is terminal: retryStream already applied its
@@ -543,7 +569,6 @@ export async function runLoop(
       messages: initialMessages,
       forceContinues: 0,
       overflowCompacted: false,
-      thresholdCompacted: false,
       usageAnchor: null,
       naturalStop: false,
       runError: undefined,

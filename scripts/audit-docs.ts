@@ -312,6 +312,41 @@ for (const rel of APP_DOC_FILES) {
   }
 }
 
+// 14. App/package docs: a path that starts at a SOURCE ROOT must resolve —
+// relative to the doc's own directory or to the repo root. Check #9 only knew
+// repo-rooted tokens (`packages/...`), so an app README's
+// `src/core/create-runtime.ts` (exactly the form an agent reads and copies) was
+// never verified, and packages/README.md kept pointing at `src/core/todo.ts`
+// for months.
+//
+// Deliberately narrow. A wider shape ("any token with a code extension") flags
+// two legitimate, unfixable forms — indented tree listings whose entries are
+// relative to an implied parent (`runtime/plugin-runtime.ts` under `src/core/`)
+// and product names that look like files (`Next.js`) — and a noisy gate gets
+// disabled instead of fixed. Requiring a recognized root keeps the signal on
+// "this exact path, as written, resolves nowhere".
+const REL_ROOT = /^(?:src|apps|packages|docs|scripts|skills|tests|knowledge-packs)\//;
+const APP_REL_PATH =
+  /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|json|jsonl|md|yaml|yml|sh|sql|css)$/;
+const NEIGHBORHOOD_DOCS = [
+  "packages/README.md",
+  ...readdirSync(join(ROOT, "packages"))
+    .filter((n) => existsSync(join(ROOT, "packages", n, "README.md")))
+    .map((n) => `packages/${n}/README.md`),
+].filter((rel) => existsSync(join(ROOT, rel)));
+let relPathTokens = 0;
+for (const rel of [...APP_DOC_FILES, ...NEIGHBORHOOD_DOCS]) {
+  const text = readFileSync(join(ROOT, rel), "utf8");
+  const words = text.split(/[`\s|(),;:[\]"'“”‘’（）：]+/).map((w) => w.replace(/[.,;。、]+$/, ""));
+  for (const token of new Set(words)) {
+    if (!REL_ROOT.test(token) || !APP_REL_PATH.test(token)) continue;
+    relPathTokens++;
+    const docRelative = normalize(join(ROOT, dirname(rel), token));
+    if (existsSync(docRelative) || existsSync(join(ROOT, token))) continue;
+    fail(`${rel} references missing path: ${token}`);
+  }
+}
+
 // 10. W3: code fences must balance — an unclosed ``` swallows every
 // following section on the rendered page (bit us in AGENTS.md 2026-08).
 for (const rel of [...DOC_FILES, ...APP_DOC_FILES]) {
@@ -328,6 +363,7 @@ if (failures.length > 0) {
 console.log(
   `audit:docs OK (${pluginDirs.length} plugins, ${tables} tables, CLAUDE.md symlinked, ` +
     `${manifestEntries ?? 0} MANIFEST entries, active-zone links + vocabulary clean, ` +
-    `${pathTokens} doc path tokens exist, ${codePathTokens} code paths exist, ` +
+    `${pathTokens} doc path tokens exist, ${relPathTokens} doc-relative path tokens exist, ` +
+    `${codePathTokens} code paths exist, ` +
     `${appLinks} app-doc links resolve, fences balanced, ${orphans} orphan pages)`,
 );

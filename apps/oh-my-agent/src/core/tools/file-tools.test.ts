@@ -198,6 +198,35 @@ describe("edit semantics", () => {
     ).toBe(true);
   });
 
+  /** String.prototype.replace expands `$&`/`$$`/`$'`/`` $` ``/`$n` in a STRING
+   *  replacement. new_string is arbitrary model text, so a `$`-bearing edit must
+   *  land verbatim — the old code reported success and wrote other bytes. */
+  test("new_string is written literally, not as a replacement template", async () => {
+    const p = await seed("value = OLD;");
+    const res = await createEditTool({ cwd }).execute({
+      path: p,
+      old_string: "OLD",
+      new_string: "$&_v2$1$$",
+    });
+    expect(res.isError).toBeUndefined();
+    expect((await createReadTool({ cwd }).execute({ path: p })).content).toBe(
+      "1\tvalue = $&_v2$1$$;",
+    );
+  });
+
+  /** Same intent through the replace_all (split/join) branch: both paths must
+   *  produce identical bytes, or the tool has two different semantics. */
+  test("replace_all writes the same literal bytes", async () => {
+    const p = await seed("OLD and OLD");
+    await createEditTool({ cwd }).execute({
+      path: p,
+      old_string: "OLD",
+      new_string: "$'$$",
+      replace_all: true,
+    });
+    expect((await createReadTool({ cwd }).execute({ path: p })).content).toBe("1\t$'$$ and $'$$");
+  });
+
   test("write creates parent directories and reports the byte count", async () => {
     const res = await createWriteTool({ cwd }).execute({
       path: "deep/nested/dir/f.txt",

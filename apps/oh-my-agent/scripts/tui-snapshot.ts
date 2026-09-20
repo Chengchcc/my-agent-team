@@ -3,15 +3,18 @@
  *  SGR) per toggle state. Style diffing without a real terminal.
  *  Usage: bun scripts/tui-snapshot.ts [outDir]  (SNAP_COLS/SNAP_ROWS env) */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
 import { VirtualTerminal } from "@chengchenccc/tui";
-import { registerBuiltinProviders } from "../src/core/run-runtime.js";
+import { registerBuiltinProviders } from "../src/core/runtime/run-runtime.js";
 import { createTerminalIo, runTuiSession } from "../src/modes/tui/tui-mode.js";
 
 const outDir = process.argv[2] ?? tmpdir();
+// The documented usage passes any directory; create it rather than dying at the
+// first write (the snapshots are the whole point of the script).
+mkdirSync(outDir, { recursive: true });
 const cols = Number(process.env.SNAP_COLS ?? 100);
 const rows = Number(process.env.SNAP_ROWS ?? 32);
 

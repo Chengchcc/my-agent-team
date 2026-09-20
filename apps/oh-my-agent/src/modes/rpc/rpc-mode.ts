@@ -366,8 +366,13 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     // messages) so the next run resumes the transcript (ADR 0003).
     if (outcome.status === "completed" && outcome.messages?.length) {
       appendSessionMessages(sessionId, process.cwd(), [inputMessage, ...outcome.messages]);
-      for (const summary of await runtime.compactions()) {
-        appendSessionCompaction(sessionId, summary);
+      for (const compaction of await runtime.compactions()) {
+        appendSessionCompaction(
+          sessionId,
+          compaction.summary,
+          undefined,
+          compaction.replacesEarlierMessages,
+        );
       }
     }
     const outcomeWithRef: BackendRunOutcome = {

@@ -5,9 +5,9 @@ Compaction 是长对话保持上下文可用性的核心机制：当对话 token
 ## 关键实现文件
 
 - `apps/oh-my-agent/src/core/runtime/compaction.ts` — `compactSession()`：切点计算、tool 配对调整、摘要写回
-- `apps/oh-my-agent/src/core/runtime/prompts.ts` — 摘要 prompt 模板（8 段 markdown）
+- `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — `createRuntimeSummarize()`：摘要用的模型与 prompt（单条 system 文本，非 8 段模板）
 - `apps/oh-my-agent/src/core/store/session-tree.ts` — 条目类型（message / compaction）
-- `apps/oh-my-agent/src/core/store/session-store.ts` — 上下文重建（buildContext）
+- `apps/oh-my-agent/src/core/runtime/agent-loop-run.ts` — `readBranchMessages()`：上下文重建（按最新 compaction 的 `coversEntryIds` 过滤，摘要置顶）
 
 > Compaction 是 Oma 子进程内部的 Run-local 机制，随子进程销毁。Product Backend 不做 compaction；产品侧对应概念是 Agent Context 的 Product Summary。
 

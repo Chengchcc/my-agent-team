@@ -55,10 +55,24 @@ export function newSessionId(): string {
 }
 
 /** Load the transcript messages of a session file (wire-loose shape).
- *  Missing/corrupt files yield [] (the caller falls back to a fresh
- *  session). A compaction event REPLACES everything recorded before it:
- *  the summary becomes one context message, later turns stay live — so a
- *  resumed session does not re-inflate the context it already compacted. */
+ *  Missing/corrupt files yield [] (the caller falls back to a fresh session).
+ *
+ *  A compaction event carries `replacesEarlierMessages`: whether its summary
+ *  describes everything written before it. Only then is folding lossless —
+ *  the summary becomes one context message and later turns stay live.
+ *
+ *  Why a flag and not a count: the count would have to be expressed in THIS
+ *  file's message-event space, but the run that produces the summary counts
+ *  coverage over its own session branch, and the two spaces do not align —
+ *  the branch also holds entries that never reach the file (re-seeded
+ *  `product_history`, the `meta` entry) and folds a prior summary into a
+ *  single entry. A count in the wrong space lands past the real boundary and
+ *  DELETES messages the summary never described. The flag cannot be
+ *  mis-indexed: when the summary does not describe the whole file, the
+ *  transcript is simply left intact (a resume may re-summarize, never lose).
+ *
+ *  Events without the field (files written before it existed) keep the
+ *  historical behavior: the summary replaces everything before it. */
 export function loadSessionMessages(
   id: string,
   dir: string = sessionDir(),
@@ -66,6 +80,9 @@ export function loadSessionMessages(
   const path = join(dir, `${id}.jsonl`);
   if (!existsSync(path)) return [];
   const messages: Record<string, unknown>[] = [];
+  let summary: string | undefined;
+  /** Index up to which the latest summary folds; undefined = do not fold. */
+  let foldFrom: number | undefined;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
@@ -75,20 +92,29 @@ export function loadSessionMessages(
         type?: string;
         message?: Record<string, unknown>;
         summary?: string;
+        replacesEarlierMessages?: unknown;
       };
       if (evt.type === "message" && evt.message?.role) messages.push(evt.message);
       else if (evt.type === "compaction" && typeof evt.summary === "string") {
-        messages.length = 0;
-        messages.push({
-          role: "user",
-          text: `<previous_session_summary>\n${evt.summary}\n</previous_session_summary>`,
-        });
+        // The LATEST event decides the whole fold (its summary supersedes the
+        // older ones), evaluated in this file's own index space: everything
+        // parsed before it.
+        summary = evt.summary;
+        foldFrom = evt.replacesEarlierMessages === false ? undefined : messages.length;
       }
     } catch {
       /* skip malformed line */
     }
   }
-  return messages;
+  if (summary === undefined) return messages;
+  if (foldFrom === undefined) return messages; // summary covers only part of the file
+  return [
+    {
+      role: "user",
+      text: `<previous_session_summary>\n${summary}\n</previous_session_summary>`,
+    },
+    ...messages.slice(foldFrom),
+  ];
 }
 
 export interface SessionSummary {
@@ -288,6 +314,10 @@ export function appendSessionCompaction(
   id: string,
   summary: string,
   dir: string = sessionDir(),
+  /** Whether this summary describes EVERYTHING already in the file, which is
+   *  what makes folding on load lossless. Omit when unknown: the load path
+   *  then keeps the transcript intact instead of folding it. */
+  replacesEarlierMessages?: boolean,
 ): void {
   const path = join(dir, `${id}.jsonl`);
   if (!existsSync(path)) return;
@@ -297,6 +327,7 @@ export function appendSessionCompaction(
       type: "compaction",
       timestamp: new Date().toISOString(),
       summary,
+      ...(replacesEarlierMessages !== undefined ? { replacesEarlierMessages } : {}),
     })}\n`,
   );
 }

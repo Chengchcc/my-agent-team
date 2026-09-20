@@ -46,6 +46,23 @@ function adjustCutForToolPairs(messages: readonly CodingSessionEntry[], cutIdx: 
   return cut;
 }
 
+/** The latest compaction in a branch, if any: its summary and the entry ids it
+ *  covered. Single source for "which entries are still live" — the branch
+ *  rebuild (agent-loop-run) and the threshold estimator (agent-loop-runner)
+ *  must agree, or the estimator counts entries the model no longer receives. */
+export function latestCompaction(entries: readonly CodingSessionEntry[]): {
+  summary: string;
+  coveredIds: ReadonlySet<string>;
+} | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e?.type === "compaction") {
+      return { summary: e.summary, coveredIds: new Set(e.coversEntryIds) };
+    }
+  }
+  return null;
+}
+
 interface CutPlan {
   cutIdx: number;
   tokensBefore?: number;
@@ -70,6 +87,11 @@ function findCut(messages: readonly CodingSessionEntry[], budget?: CompactionBud
     remaining -= tokens[cutIdx]!;
     cutIdx++;
   }
+  // Never cover the newest message. The summary is prepended to whatever
+  // survives, so a cut that covers everything leaves the model with an empty
+  // conversation — not even the summary. One oversized entry (a huge
+  // tool_result is enough) drives cutIdx to messages.length without this.
+  cutIdx = Math.min(cutIdx, messages.length - 1);
   return { cutIdx, tokensBefore };
 }
 
@@ -103,6 +125,17 @@ export async function compactSession(
   const coveredIds = coveredEntries.map((m) => m.entryId);
   const retainedIds = messages.slice(cutIdx).map((m) => m.entryId);
   const coveredMessages = coveredEntries.map((m) => (m as { message: Message }).message);
+
+  const alreadyCovered = latestCompaction(branch)?.coveredIds;
+  if (alreadyCovered && coveredIds.every((id) => alreadyCovered.has(id))) {
+    return { entryId: "", coveredIds: [] };
+  }
+  // The no-progress guard: a cut that covers nothing new (everything it would
+  // cover is already covered by an earlier compaction) buys nothing and would
+  // append an identical CompactionEntry on every loop iteration. This is what
+  // lets the loop trigger compaction purely on the budget — there is no
+  // "already compacted" flag to get stuck in, because compaction itself is the
+  // thing that decides whether it can still do useful work.
 
   const summary = await summarizer(coveredMessages, signal);
 

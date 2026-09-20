@@ -55,12 +55,125 @@ describe("session-file compaction round-trip", () => {
     expect(loaded[1]).toEqual({ role: "user", text: "after compaction" });
   });
 
+  /** The run writes messages AS THEY ARE PERSISTED (TUI: in real time) and the
+   *  compaction event at the END of the run, while its summary describes only
+   *  the oldest prefix. Folding everything before the event therefore swallowed
+   *  exchanges the summary never saw — the agent silently forgot its latest
+   *  turns on resume.
+   *
+   *  The event says whether it may fold. `false` = the summary covers only part
+   *  of the file; the transcript stays intact (a resume may re-summarize, it
+   *  never loses). */
+  test("an event that does not cover the whole file leaves the transcript intact", () => {
+    appendSessionMessages("s-partial", dir, [
+      { role: "user", text: "q1" },
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "q2" },
+      { role: "assistant", text: "a2" },
+    ]);
+    appendSessionCompaction("s-partial", "q1 summarized", dir, false);
+    appendSessionMessages("s-partial", dir, [{ role: "user", text: "q3" }]);
+
+    expect(loadSessionMessages("s-partial")).toEqual([
+      { role: "user", text: "q1" },
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "q2" },
+      { role: "assistant", text: "a2" },
+      { role: "user", text: "q3" },
+    ]);
+  });
+
+  test("an event that covers the whole file folds it, and later turns stay live", () => {
+    appendSessionMessages("s-whole", dir, [
+      { role: "user", text: "q1" },
+      { role: "assistant", text: "a1" },
+    ]);
+    appendSessionCompaction("s-whole", "q1/a1 summarized", dir, true);
+    appendSessionMessages("s-whole", dir, [{ role: "user", text: "q2" }]);
+
+    expect(loadSessionMessages("s-whole")).toEqual([
+      {
+        role: "user",
+        text: "<previous_session_summary>\nq1/a1 summarized\n</previous_session_summary>",
+      },
+      { role: "user", text: "q2" },
+    ]);
+  });
+
+  /** A later event must not un-fold what an earlier one folded either: the
+   *  latest event decides, so a partial-but-newer summary cannot resurrect the
+   *  whole transcript — and a whole-file summary after a partial one simply
+   *  folds everything, which is correct for its own coverage. */
+  test("the latest event decides the fold", () => {
+    appendSessionMessages("s-latest", dir, [{ role: "user", text: "q1" }]);
+    appendSessionCompaction("s-latest", "partial", dir, false);
+    appendSessionMessages("s-latest", dir, [{ role: "assistant", text: "a1" }]);
+    appendSessionCompaction("s-latest", "everything", dir, true);
+
+    expect(loadSessionMessages("s-latest")).toEqual([
+      {
+        role: "user",
+        text: "<previous_session_summary>\neverything\n</previous_session_summary>",
+      },
+    ]);
+  });
+
   test("without compaction the full transcript replays", () => {
     appendSessionMessages("s2", dir, [
       { role: "user", text: "q" },
       { role: "assistant", text: "a" },
     ]);
     expect(loadSessionMessages("s2")).toHaveLength(2);
+  });
+});
+
+/** The handoff the defect actually lived in: the runtime reports a compaction,
+ *  the mode writes it, the loader reads it back. A unit test on
+ *  appendSessionCompaction alone cannot catch a number/flag that is right in
+ *  file space and wrong as produced. */
+describe("persistSessionTurn wires runtime compactions into the file", () => {
+  const makeRuntime = (
+    compactions: readonly { summary: string; replacesEarlierMessages: boolean }[],
+  ) => ({ compactions: async () => compactions }) as never;
+
+  test("a partial compaction is recorded as non-folding", async () => {
+    const { persistSessionTurn } = await import("./session-loop.js");
+
+    await persistSessionTurn({
+      sessionId: "s-wire-partial",
+      cwd: dir,
+      runtime: makeRuntime([{ summary: "oldest half", replacesEarlierMessages: false }]),
+      messages: [
+        { role: "user", text: "q1" },
+        { role: "assistant", text: "a1" },
+      ],
+      dir,
+    });
+
+    // Nothing is lost: the transcript replays in full.
+    expect(loadSessionMessages("s-wire-partial")).toEqual([
+      { role: "user", text: "q1" },
+      { role: "assistant", text: "a1" },
+    ]);
+  });
+
+  test("a whole-branch compaction is recorded as folding", async () => {
+    const { persistSessionTurn } = await import("./session-loop.js");
+
+    await persistSessionTurn({
+      sessionId: "s-wire-whole",
+      cwd: dir,
+      runtime: makeRuntime([{ summary: "all of it", replacesEarlierMessages: true }]),
+      messages: [{ role: "user", text: "q1" }],
+      dir,
+    });
+
+    expect(loadSessionMessages("s-wire-whole")).toEqual([
+      {
+        role: "user",
+        text: "<previous_session_summary>\nall of it\n</previous_session_summary>",
+      },
+    ]);
   });
 });
 

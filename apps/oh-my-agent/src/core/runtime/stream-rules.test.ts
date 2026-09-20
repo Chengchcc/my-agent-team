@@ -36,4 +36,29 @@ describe("loadStreamRules", () => {
     const rules = loadStreamRules(tmp);
     expect(rules.map((r) => r.name)).toEqual(["valid"]);
   });
+
+  /** Two inputs loaded fine and then matched NOTHING: the pattern was taken
+   *  from the raw `condition:` line, so it compiled with its YAML quotes, and
+   *  the frontmatter anchor required bare LF, so a CRLF file dropped every
+   *  rule silently. Neither surfaced an error. */
+  test("a YAML-quoted pattern loads without its quotes", () => {
+    const dir = join(tmp, ".oma", "rules");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "single.md"), "---\ncondition: 'foo|bar'\n---\n\nReminder.");
+    writeFileSync(join(dir, "double.md"), '---\ncondition: "baz"\n---\n\nReminder.');
+    const rules = loadStreamRules(tmp);
+    expect(rules.map((r) => r.pattern.source)).toEqual(["baz", "foo|bar"]);
+    // The real proof: it matches the bare text it was written for.
+    expect(rules.find((r) => r.name === "single")?.pattern.test("bar")).toBe(true);
+  });
+
+  test("a CRLF rule file loads its rules", () => {
+    const dir = join(tmp, ".oma", "rules");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "crlf.md"), "---\r\ncondition: leaked\r\n---\r\n\r\nDo not leak.\r\n");
+    const rules = loadStreamRules(tmp);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.pattern.source).toBe("leaked");
+    expect(rules[0]?.message).toBe("Do not leak.");
+  });
 });

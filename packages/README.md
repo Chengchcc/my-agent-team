@@ -53,6 +53,6 @@ Product Backend (apps/backend)
 ## 从哪读起
 
 - **想理解整体**：`core` → `agent-backend` → `adapter-oma-agent`，这条线就是执行链。
-- **想加 Oma 能力**：先看 `agent` 的插件契约，再照着 `apps/oh-my-agent/src/core/todo.ts` / `skill.ts` 的结构；recap 在 TUI focus-resume 逻辑里实现。
+- **想加 Oma 能力**：先看 `agent` 的插件契约，再照着 `apps/oh-my-agent/src/core/tools/todo.ts` / `tools/skill.ts` 的结构；recap 在 TUI focus-resume 逻辑里实现。
 - **想接新模型厂商**：看 `ai` 的 Provider 接口，照着 `AnthropicChatModel` 写适配器。
 - **在做后端**：`agent-backend`（契约）→ `adapter-oma-agent`（child 边界）→ `apps/backend` 的 agent-run feature（执行编排）。

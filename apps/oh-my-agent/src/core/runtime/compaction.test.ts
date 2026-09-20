@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
+import { readBranchMessages } from "./agent-loop-run.js";
 import { compactSession } from "./compaction.js";
 
 async function setup(messages: Array<Record<string, unknown>>) {
@@ -236,5 +237,179 @@ describe("compactSession", () => {
     expect(comp).toBeTruthy();
     expect(comp.tokensBefore).toBe(12);
     expect(comp.retainedEntryIds?.length).toBe(3);
+  });
+
+  /** A single entry bigger than the whole budget drove the cut to
+   *  messages.length, covering every message — and the summary went with them,
+   *  because it was prepended to the SURVIVORS. The model then saw a system
+   *  prompt and nothing else. */
+  test("an oversized newest message is never covered", async () => {
+    const { store, sid } = await setup([
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m1" },
+        createdAt: 1,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m2" },
+        createdAt: 2,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m3" },
+        createdAt: 3,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m4" },
+        createdAt: 4,
+      },
+    ]);
+    // Every message (3) is over the limit (2): the raw cut runs to the end.
+    const budget = { estimate: () => 3, limit: 2 };
+    const result = await compactSession(
+      store,
+      sid,
+      async (msgs) => `[sum:${msgs.length}]`,
+      undefined,
+      budget,
+    );
+    expect(result.coveredIds).toHaveLength(3);
+
+    const sent = await readBranchMessages(store, sid);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]?.text).toBe("[Context summary: [sum:3]]");
+    expect(sent[1]?.text).toBe("m4");
+  });
+
+  /** Defense in depth: even if a CompactionEntry covers the whole branch (an
+   *  older file, a hand-built store), the summary must still be sent. */
+  test("a compaction covering every message still sends the summary", async () => {
+    const store = createInMemorySessionStore();
+    const sid = "compaction-all-covered";
+    await store.create({
+      sessionId: sid,
+      backendKind: "oma",
+      workspaceRoot: "/ws",
+      leafEntryId: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const appended = await store.appendBatch(sid, {
+      entries: [
+        {
+          type: "message",
+          role: "user",
+          source: "prompt",
+          message: { role: "user", text: "m1" },
+          createdAt: 1,
+        },
+        {
+          type: "message",
+          role: "user",
+          source: "prompt",
+          message: { role: "user", text: "m2" },
+          createdAt: 2,
+        },
+        {
+          type: "message",
+          role: "user",
+          source: "prompt",
+          message: { role: "user", text: "m3" },
+          createdAt: 3,
+        },
+      ],
+    });
+    await store.appendBatch(sid, {
+      entries: [
+        {
+          type: "compaction",
+          summary: "everything so far",
+          coversEntryIds: appended.appendedIds,
+          createdAt: 4,
+        },
+      ],
+    });
+
+    const sent = await readBranchMessages(store, sid);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toBe("[Context summary: everything so far]");
+  });
+
+  /** The no-progress guard, which is what lets the loop trigger compaction
+   *  purely on the budget: a cut that would cover only already-covered entries
+   *  buys nothing, and without this it would append an identical
+   *  CompactionEntry (plus a summarizer call) on every iteration. */
+  test("a cut that covers nothing new is a no-op, not a duplicate entry", async () => {
+    const { store, sid } = await setup([
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m1" },
+        createdAt: 1,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m2" },
+        createdAt: 2,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m3" },
+        createdAt: 3,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m4" },
+        createdAt: 4,
+      },
+    ]);
+    // Over budget, so the cut reaches past the first two messages.
+    const budget = { estimate: () => 3, limit: 8 };
+    let calls = 0;
+    const first = await compactSession(
+      store,
+      sid,
+      async (msgs) => {
+        calls++;
+        return `[sum:${msgs.length}]`;
+      },
+      undefined,
+      budget,
+    );
+    expect(first.coveredIds.length).toBeGreaterThan(0);
+    expect(calls).toBe(1);
+
+    // Same budget, same branch: the second run would re-cover the same ids.
+    const again = await compactSession(
+      store,
+      sid,
+      async () => {
+        calls++;
+        return "second";
+      },
+      undefined,
+      budget,
+    );
+    expect(again.coveredIds).toHaveLength(0);
+    expect(calls).toBe(1); // the summarizer was not called a second time
+    const branch = await store.readBranch(sid);
+    expect(branch.filter((e) => e.type === "compaction")).toHaveLength(1);
   });
 });

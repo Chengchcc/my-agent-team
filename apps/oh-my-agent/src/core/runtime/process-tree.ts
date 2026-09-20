@@ -6,7 +6,7 @@
  *  reparented to init, so a post-close pgrep -P walk cannot find them.
  *  Collect the whole descendant tree BEFORE closing, then SIGKILL every
  *  pid after the SDK close. */
-export function collectDescendants(pid: number): number[] {
+function collectDescendants(pid: number): number[] {
   const descendants: number[] = [];
   const queue = [pid];
   while (queue.length > 0) {

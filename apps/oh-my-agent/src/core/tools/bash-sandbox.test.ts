@@ -56,6 +56,46 @@ describe("bash tool + BashSandbox injection (P1)", () => {
     expect(String(out.content)).toContain("sbx");
   });
 
+  /** The TUI pty overlay spawns its own bare `bash -c`, so delegating to it
+   *  while an OS sandbox is active silently voids the confinement the user
+   *  opted into. The sandboxed path must win: launcher-spawned script-bridge. */
+  test("an active OS sandbox wins over the pty console overlay", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "bash-pty-sbx-"));
+    const spawned: string[] = [];
+    const ptyCalls: string[] = [];
+    const tool = createBashTool({
+      workspaceRoot: ws,
+      scope: "t",
+      sandbox: recordingSandbox(ws, spawned),
+      ptyConsole: async (command) => {
+        ptyCalls.push(command);
+        return { exitCode: 0, tail: "from-the-overlay", killed: false };
+      },
+    });
+    const out = await tool.execute({ description: "d", command: "echo sandboxed", pty: true });
+    expect(ptyCalls).toEqual([]);
+    expect(spawned).toHaveLength(1);
+    expect(String(out.content)).toContain("sandboxed");
+    expect(String(out.content)).not.toContain("from-the-overlay");
+    expect(String(out.content)).toContain("pty overlay skipped");
+  });
+
+  test("without a sandbox the pty console still gets the command", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "bash-pty-nosbx-"));
+    const ptyCalls: string[] = [];
+    const tool = createBashTool({
+      workspaceRoot: ws,
+      scope: "t",
+      ptyConsole: async (command) => {
+        ptyCalls.push(command);
+        return { exitCode: 0, tail: "from-the-overlay", killed: false };
+      },
+    });
+    const out = await tool.execute({ description: "d", command: "echo interactive", pty: true });
+    expect(ptyCalls).toEqual(["echo interactive"]);
+    expect(String(out.content)).toContain("from-the-overlay");
+  });
+
   test("default (no injection) still runs plain bash — zero-regression P1", async () => {
     const ws = mkdtempSync(join(tmpdir(), "bash-def-"));
     writeFileSync(join(ws, "marker.txt"), "ok");

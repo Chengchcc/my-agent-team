@@ -19,6 +19,7 @@ import { getVectorMemory } from "../memory/vector-memory.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import type { RuntimeKnobs } from "../settings/project-settings.js";
 import type { ApprovalHandler } from "./approval.js";
+import { latestCompaction } from "./compaction.js";
 import type { Plugin } from "./plugin.js";
 import { assembleRunRuntime, type RunRuntime, type RunRuntimeDeps } from "./run-runtime.js";
 import type { ToolFilter } from "./tool-filter.js";
@@ -111,6 +112,20 @@ export interface CreateOmaRuntimeOptions {
  *  pass is skipped (it costs two model calls). */
 const DEFAULT_MEMORY_MIN_TOOL_CALLS = 5;
 
+/** One compaction produced by a Run.
+ *
+ *  `replacesEarlierMessages` is true only when the summary describes EVERY
+ *  message live in the run's branch — the one condition under which a durable
+ *  transcript can fold it losslessly. It is deliberately not a count: coverage
+ *  is measured over the branch, while the session file indexes its own message
+ *  events, and the two spaces differ (branch-only entries such as
+ *  `product_history`/`meta` never reach the file). A count in the wrong space
+ *  silently drops messages; a flag cannot. */
+export interface CompactionSummary {
+  readonly summary: string;
+  readonly replacesEarlierMessages: boolean;
+}
+
 export interface OmaRuntime {
   /** Start the Run's loop. Returns the segment whose outcome is the Run's
    *  ONLY terminal result. A Runtime accepts exactly one run(). */
@@ -122,8 +137,10 @@ export interface OmaRuntime {
   stop(): Promise<void>;
   /** Close MCP clients and the in-memory Store. Call after the run settles. */
   close(): Promise<void>;
-  /** Compaction summaries from this run's loop; read before close(). */
-  compactions(): Promise<string[]>;
+  /** Compaction summaries from this run's loop; read before close(). Each
+   *  carries whether it describes the whole branch, which is what the durable
+   *  session file needs to fold safely (see loadSessionMessages). */
+  compactions(): Promise<readonly CompactionSummary[]>;
   /** Estimated context footprint of the run's branch under the run model's
    *  window — the same estimate/limit pair the compactor decides on. Read
    *  before close(). */
@@ -347,6 +364,8 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
               for (const entry of branch) {
                 if (entry.type === "compaction" && entry.summary) compactions.push(entry.summary);
               }
+              // (The memory transcript wants the text only; the durable
+              // session file is the consumer that needs the coverage boundary.)
               // FIRE-AND-FORGET: awaiting here blocks the outcome (and the
               // TUI busy state) on a second model call the user cannot abort.
               memoryLearning = extractAutonomousMemory({
@@ -416,11 +435,22 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
 
     /** Compaction summaries produced by this run's loop (empty when the
      *  run never compacted). Read the store BEFORE close(). */
-    async compactions(): Promise<string[]> {
+    async compactions(): Promise<readonly CompactionSummary[]> {
       const branch = await rt.store.readBranch(options.runId);
-      const summaries: string[] = [];
+      const liveEntries = branch.filter((e) => e.type === "message").map((e) => e.entryId);
+      const summaries: CompactionSummary[] = [];
       for (const entry of branch) {
-        if (entry.type === "compaction" && entry.summary) summaries.push(entry.summary);
+        if (entry.type === "compaction" && entry.summary) {
+          const covered = new Set(entry.coversEntryIds);
+          summaries.push({
+            summary: entry.summary,
+            // "Describes the branch" is checked against the branch AS IT IS
+            // NOW: a compaction that ran mid-run has messages persisted after
+            // it, which it cannot describe, so it must not fold them away.
+            replacesEarlierMessages:
+              liveEntries.length > 0 && liveEntries.every((id) => covered.has(id)),
+          });
+        }
       }
       return summaries;
     },
@@ -431,9 +461,14 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
       const budget = rt.contextBudget;
       if (!budget) return undefined;
       const branch = await rt.store.readBranch(options.runId);
+      // Live entries only, like the loop's threshold check: counting the
+      // covered prefix would leave the meter above the window right after a
+      // compaction that just brought the context down.
+      const coveredIds = latestCompaction(branch)?.coveredIds ?? null;
       let estimatedTokens = 0;
       for (const entry of branch) {
         if (entry.type !== "message") continue;
+        if (coveredIds?.has(entry.entryId)) continue;
         estimatedTokens += budget.estimate(entry.message);
       }
       return { estimatedTokens, limit: budget.limit };

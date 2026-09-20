@@ -1,4 +1,5 @@
 import type { Message } from "@chengchenccc/message";
+import { estimateMessageTokens } from "./context-estimate.js";
 
 /** Configuration for old tool-result pruning. */
 export interface PruneConfig {
@@ -33,20 +34,13 @@ function isAlreadyPruned(message: Message): boolean {
   );
 }
 
-/** Estimate token count of a message (same proxy as contextBudget: char/4). */
-function estimateTokens(message: Message): number {
-  // Blocks are canonical content; text is a display fallback. When blocks
-  // exist, count their content only — avoids double-counting text+blocks.
-  if (message.blocks && message.blocks.length > 0) {
-    let chars = 0;
-    for (const b of message.blocks) {
-      if (b.type === "tool_result" && typeof b.content === "string") chars += b.content.length;
-      else if (b.type === "text") chars += b.text.length;
-    }
-    return Math.ceil(chars / 4);
-  }
-  return Math.ceil((message.text?.length ?? 0) / 4);
-}
+/** Same estimator the compaction budget uses (context-estimate.ts), so the
+ *  pruning window and "savedTokens" are on the budget's scale. A local copy
+ *  that counted different block types made those numbers incomparable.
+ *
+ *  Note: the loop still decides compaction on the STORED entries, so a pruned
+ *  result does not by itself lower the threshold estimate. */
+const estimateTokens = estimateMessageTokens;
 
 /** Prune old tool-result content from a message list.
  *

@@ -11,6 +11,7 @@ import type {
   TurnBlock,
 } from "./agent-loop-types.js";
 import { matchStreamRule, safeParseJson } from "./agent-loop-utils.js";
+import { latestCompaction } from "./compaction.js";
 import type { TurnUsage } from "./context-estimate.js";
 import type { Plugin, PluginTool } from "./plugin.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
@@ -354,40 +355,30 @@ export async function readBranchMessages(
   sessionId: string,
 ): Promise<Message[]> {
   const entries = await store.readBranch(sessionId);
+  const compaction = latestCompaction(entries);
+  const compactionSummary = compaction?.summary ?? null;
+  const coveredIds = compaction?.coveredIds ?? null;
 
-  // Find latest CompactionEntry
-  let compactionSummary: string | null = null;
-  let coveredIds: Set<string> | null = null;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i]?.type === "compaction") {
-      const comp = entries[i] as { summary: string; coversEntryIds: readonly string[] };
-      compactionSummary = comp.summary;
-      coveredIds = new Set(comp.coversEntryIds);
-      break;
-    }
-  }
-
-  return entries
+  const retained = entries
     .filter((e) => {
       if (e.type !== "message") return false;
       if (coveredIds?.has(e.entryId)) return false;
       return true;
     })
-    .map((e) => {
-      const msg = (e as { message: Message }).message;
-      // Prepend compaction summary as a system note if entries were compacted
-      return msg;
-    })
-    .flatMap((msg, _i, _arr) => {
-      // Insert summary as first user message if compaction applied
-      if (_i === 0 && compactionSummary && coveredIds && coveredIds.size > 0) {
-        return [
-          { role: "user" as const, text: `[Context summary: ${compactionSummary}]` } as Message,
-          msg,
-        ];
-      }
-      return [msg];
-    });
+    .map((e) => (e as { message: Message }).message);
+
+  // The summary is prepended whenever a compaction applied, INDEPENDENTLY of
+  // whether any message survived it: inserted inside the map it would be
+  // dropped whenever the compaction covered the whole branch, leaving the
+  // model a system prompt and nothing else. compactSession clamps the cut, so
+  // this is the second layer of the same guarantee.
+  if (compactionSummary && coveredIds && coveredIds.size > 0) {
+    return [
+      { role: "user", text: `[Context summary: ${compactionSummary}]` } as Message,
+      ...retained,
+    ];
+  }
+  return retained;
 }
 
 // re-exported type convenience for the caller

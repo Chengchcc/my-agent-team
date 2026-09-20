@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@chengchenccc/message";
+import { estimateMessageTokens } from "./context-estimate.js";
 import { pruneOldToolResults } from "./tool-pruning.js";
 
 /** Build a tool message with tool_result content. */
@@ -31,8 +32,12 @@ describe("pruneOldToolResults", () => {
       toolMsg(bigContent, "tu3"),
     ];
 
+    // The window is deliberately not equal to one result's cost (each is
+    // 4000 chars ≈ 1004 tokens with framing): the invariant under test is
+    // "results outside the window are pruned, the newest inside it survives",
+    // not the arithmetic of a knife-edge boundary.
     const { messages, savedTokens } = pruneOldToolResults(msgs, {
-      protectTokens: 1_000,
+      protectTokens: 1_500,
       minimumSavings: 100,
     });
 
@@ -82,6 +87,26 @@ describe("pruneOldToolResults", () => {
     });
 
     expect(savedTokens).toBe(0);
+  });
+
+  /** Pruning and the compaction budget must be on ONE scale: a local copy of
+   *  the estimator that counted different block types made `savedTokens`
+   *  incomparable to the budget the pruner is subtracted from. */
+  test("savedTokens are measured with the shared estimator", () => {
+    const content = "y".repeat(4_000);
+    const msgs: Message[] = [
+      assistantWithToolUse("a1", "bash", "tu1"),
+      toolMsg(content, "tu1"),
+      assistantWithToolUse("a2", "bash", "tu2"),
+      { role: "user", text: "next" },
+    ];
+    const { messages, savedTokens } = pruneOldToolResults(msgs, {
+      protectTokens: 10,
+      minimumSavings: 1,
+    });
+    // The saving it reports must be the shared estimator's difference between
+    // the original and the message it actually returned.
+    expect(savedTokens).toBe(estimateMessageTokens(msgs[1]!) - estimateMessageTokens(messages[1]!));
   });
 
   test("no tool messages → unchanged", () => {

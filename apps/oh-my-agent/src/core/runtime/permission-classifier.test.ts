@@ -87,11 +87,72 @@ describe("isCriticalDeletion", () => {
     }
   });
 
-  test("remaining ceiling: command/escape/variable forms", () => {
+  /** Every form that shifts command position away from token 0 used to hide
+   *  the delete completely: `bash -c "rm -rf /"` reported `false`, and the
+   *  guard is documented as the layer NOTHING overrides. */
+  test("shell wrappers, escaping and absolute binaries cannot hide the delete", () => {
+    for (const cmd of [
+      'bash -c "rm -rf /"',
+      "bash -c 'rm -rf /'",
+      'sh -c "rm -rf /etc"',
+      "bash -lc 'rm -rf $HOME'",
+      "bash -c \"sh -c 'rm -rf /'\"",
+      "env FOO=1 rm -rf /",
+      "nohup rm -rf /",
+      "sudo rm -rf /",
+      "command rm -rf /",
+      "xargs rm -rf /",
+      // Exec prefixes with no option argument: the next bare token is the
+      // command, so these are the same bypass as `bash -c`.
+      "nice rm -rf /",
+      "ionice rm -rf /",
+      "setsid rm -rf /",
+      "busybox rm -rf /",
+      "toybox rm -rf /",
+      "time rm -rf /",
+      "env nice rm -rf /",
+      "eval 'rm -rf /'",
+      "exec rm -rf /",
+      "/bin/rm -rf /",
+      "\\rm -rf /",
+      "./rm -rf /",
+      "rmdir /etc",
+      "/usr/bin/rmdir /",
+    ]) {
+      expect(isCriticalDeletion(cmd)).toBe(true);
+    }
+  });
+
+  /** The wrapper walk must not turn every wrapped command into a hit: the
+   *  command after the wrapper decides, not the presence of "rm" somewhere. */
+  test("a wrapped benign command stays benign", () => {
+    for (const cmd of [
+      'bash -c "echo rm /etc"',
+      "bash -c 'rm -rf ./build'",
+      'bash -c "ls /etc"',
+      'bash -c "rm -rf /tmp/scratch"',
+      "env FOO=1 ls /etc",
+      "rm -rf ./build && bash -c 'ls -la'",
+      "rmlint /etc",
+      "timeout 5 ls /etc",
+    ]) {
+      expect(isCriticalDeletion(cmd)).toBe(false);
+    }
+  });
+
+  test("remaining ceiling: substituted and variable commands", () => {
     expect(isCriticalDeletion("echo $(rm -rf /)")).toBe(true);
-    expect(isCriticalDeletion("command rm -rf /")).toBe(false);
-    expect(isCriticalDeletion("\\rm -rf /")).toBe(false);
     expect(isCriticalDeletion("$CMD")).toBe(false);
+  });
+
+  /** The ceiling the doc comment now states explicitly, pinned so it cannot
+   *  drift into a claim of total coverage: a command that is computed rather
+   *  than written is invisible to a token scan, and the classifier prompt's
+   *  destruction rule is the layer that catches it. */
+  test("documented ceiling: computed commands are the classifier's job", () => {
+    expect(isCriticalDeletion("$(printf rm) -rf /")).toBe(false);
+    expect(isCriticalDeletion("chroot / rm -rf /")).toBe(false);
+    expect(isCriticalDeletion("CMD=rm; $CMD -rf /")).toBe(false);
   });
 });
 

@@ -37,8 +37,15 @@ export async function persistSessionTurn(opts: {
   if (opts.messages && opts.messages.length > 0) {
     appendSessionMessages(opts.sessionId, opts.cwd, opts.messages, opts.dir);
   }
-  for (const summary of await opts.runtime.compactions()) {
-    appendSessionCompaction(opts.sessionId, summary, opts.dir);
+  for (const compaction of await opts.runtime.compactions()) {
+    // The flag rides the event: a summary that does NOT describe the whole
+    // file must not fold it, or a resume drops the messages it never saw.
+    appendSessionCompaction(
+      opts.sessionId,
+      compaction.summary,
+      opts.dir,
+      compaction.replacesEarlierMessages,
+    );
   }
   if (opts.title) appendSessionTitle(opts.sessionId, opts.title, opts.dir);
   if (opts.summary) appendSessionSummary(opts.sessionId, opts.summary, opts.dir);

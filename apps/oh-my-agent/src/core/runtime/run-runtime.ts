@@ -72,6 +72,7 @@ import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, withApprovalDeadline } from "./approval.js";
+import { estimateMessageTokens } from "./context-estimate.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
 import { fakeProvider } from "./fake-provider.js";
 import { reasoningEffortOptions } from "./model-effort.js";
@@ -84,27 +85,9 @@ import { loadRuntimeCatalog, registerProvidersFromCatalog } from "./runtime-cata
 import { loadStreamRules } from "./stream-rules.js";
 import { toolFilterAllows } from "./tool-filter.js";
 
-/** Token estimation via content char/4 (approx 1 token per 4 chars of
- *  English/code). More accurate than JSON.stringify char/4 which includes
- *  ~30% syntax overhead from key names, quotes, braces. Counts actual text +
- *  block content, adds a fixed overhead per message for role/structure
- *  framing. Swap for a real tokenizer (tiktoken, provider SDK) by replacing
- *  this function — the ContextBudget.estimate interface is the extension
- *  point. */
-function estimateMessageTokens(message: Message): number {
-  let chars = message.text?.length ?? 0;
-  if (message.blocks) {
-    for (const b of message.blocks) {
-      if (b.type === "text") chars += b.text.length;
-      else if (b.type === "tool_use") chars += JSON.stringify(b.input).length;
-      else if (b.type === "tool_result" && typeof b.content === "string") chars += b.content.length;
-      else if (b.type === "thinking" && typeof b.text === "string") chars += b.text.length;
-    }
-  }
-  // ~4 chars/token for content + 4 tokens framing overhead per message
-  // (role tag, separators — matches Anthropic's documented overhead).
-  return Math.ceil(chars / 4) + 4;
-}
+// The estimator lives in context-estimate.ts: pruning and the compaction
+// budget must measure the same quantity, or pruning's savedTokens are not
+// comparable to the budget they are subtracted from.
 
 /** Default native tool timeout (ms) for file/web/bash unless overridden. */
 const DEFAULT_NATIVE_TOOL_TIMEOUT_MS = 30_000;
@@ -583,7 +566,6 @@ function createRunPermissionGates(
     eval: true,
     write: true,
     edit: true,
-    create_file: true,
     // learn/manage_skill write files; the skill branch writes OUTSIDE the
     // workspace (<agentDir>/managed-skills), so the workspace-sandbox
     // exemption cannot cover them (omp marks both approval="write").
@@ -591,14 +573,43 @@ function createRunPermissionGates(
     manage_skill: true,
   };
   // Product-owned mounts (workspace-bridge: features.ts names them
-  // "product-tools" / "knowledge") are consented-by-design read/context
-  // surfaces with their own per-run auth — never gate them, or ask/deny
-  // modes would demand a human click per history_* call.
-  const PRODUCT_MOUNTED_PREFIXES = ["mcp__product-tools__", "mcp__knowledge__"];
-  const isProductMounted = (toolName: string): boolean =>
-    PRODUCT_MOUNTED_PREFIXES.some((p) => toolName.startsWith(p));
+  // "product-tools" / "knowledge") are consented-by-design, bearer-scoped
+  // surfaces: reads of the run's own conversation / knowledge / artifact
+  // storage, the run's todo scratch state, and the interactive ask. They stay
+  // OUTSIDE the gate, or ask/deny modes would demand a human click per
+  // history_* call.
+  //
+  // An explicit ALLOWLIST, deliberately not a server-name prefix. The prefix
+  // rule (`startsWith("mcp__product-tools__")`) handed the exemption to every
+  // tool the product-tools server exposes — `artifact_upload` (writes backend
+  // artifact storage) among them — and never matched the knowledge server at
+  // all. The allowlist gates artifact_upload by default (in a run that has
+  // write access it can be approved; under "deny" it is refused) and keeps the
+  // reads ungated, knowledge included. A tool a product server adds later is
+  // gated until it is listed here on purpose.
+  const PRODUCT_MOUNTED_CONSENTED = new Set([
+    "mcp__knowledge__knowledge_search",
+    "mcp__knowledge__knowledge_read",
+    "mcp__product-tools__history_recent",
+    "mcp__product-tools__history_search",
+    "mcp__product-tools__history_around",
+    // history_retain writes the ledger, but the PRODUCT already consented to
+    // it: the backend pre-allows exactly history_recent/search/around/retain
+    // so unattended runs don't hit a permission prompt
+    // (apps/backend/src/features/agent/workspace-bridge.ts writeClaudeSettings).
+    // Gating it here would put an approval card — or a deadline deny — in front
+    // of an ordinary product run.
+    "mcp__product-tools__history_retain",
+    "mcp__product-tools__artifact_download",
+    // The run's own scratch state / a question to the human: the native
+    // todo_write and ask_question are ungated too (not HIGH_RISK_NATIVE_TOOLS).
+    "mcp__product-tools__todo_write",
+    "mcp__product-tools__ask_question",
+  ]);
+  const isConsentedProductTool = (toolName: string): boolean =>
+    PRODUCT_MOUNTED_CONSENTED.has(toolName);
   const classifierGated = (toolName: string, input: unknown): boolean =>
-    !isProductMounted(toolName) &&
+    !isConsentedProductTool(toolName) &&
     (toolName === "bash" ||
       toolName === "browser" ||
       toolName === "eval" ||
@@ -706,9 +717,11 @@ function createRunPermissionGates(
       if (deps.permissionMode === undefined) return undefined;
       if (deps.permissionMode === "auto") {
         if (!classifierGated(toolName, input)) return undefined;
-        // The auto gate must be fail-CLOSED end to end: the agent loop
-        // swallows gate exceptions as "no verdict" (= allow), so any
-        // error in here must convert to a block, never propagate.
+        // The auto gate must be fail-CLOSED end to end: any error in here
+        // must convert to a block, never propagate. The loop also catches a
+        // throwing gate and blocks ("permission gate error — fail closed",
+        // pinned by permission-gate-loop.test.ts); this try/catch is
+        // defense-in-depth with the block reason naming the real cause.
         try {
           return await autoGateDecision(toolName, input, callId, [
             ...intentTexts,
@@ -724,7 +737,7 @@ function createRunPermissionGates(
         }
       }
       const isHighRisk =
-        !isProductMounted(toolName) &&
+        !isConsentedProductTool(toolName) &&
         (HIGH_RISK_NATIVE_TOOLS[toolName] === true || toolName.startsWith("mcp__"));
       if (!isHighRisk) return undefined;
       if (deps.permissionMode === "deny") {
@@ -1041,6 +1054,14 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       const nativeNames = new Set(plugins.flatMap((p) => (p.tools ?? []).map((t) => t.name)));
       const askGate = deps.permissionMode === "ask";
       for (const cp of deps.codePlugins) {
+        // A shadowed plugin tool is dropped, not merged (spec conflict
+        // matrix). Say so: an operator debugging a missing tool otherwise gets
+        // no signal at all.
+        for (const t of cp.tools ?? []) {
+          if (nativeNames.has(t.name)) {
+            debugLog("oma", `plugin tool "${t.name}" shadowed by a native tool; dropped`);
+          }
+        }
         const tools = (cp.tools ?? [])
           .filter((t) => !nativeNames.has(t.name))
           .map((t) => {

@@ -1,10 +1,4 @@
-import {
-  assertSafeUrl,
-  assertSafeUrlDeep,
-  FETCH_TIMEOUT_MS,
-  MAX_REDIRECTS,
-  UrlGuardError,
-} from "./url-guard.js";
+import { assertSafeUrlDeep, FETCH_TIMEOUT_MS, MAX_REDIRECTS, UrlGuardError } from "./url-guard.js";
 import type { WebFetchPort, WebSearchPort } from "./web-ports.js";
 
 /** Max bytes read from a fetched page (fetch port is heavier than the
@@ -50,7 +44,10 @@ export function createStdWebFetchPort(): WebFetchPort {
         if ([301, 302, 303, 307, 308].includes(resp.status)) {
           const location = resp.headers.get("location");
           if (!location) throw new Error(`redirect without location from ${current}`);
-          current = assertSafeUrl(new URL(location, current).toString()).toString();
+          // Deep guard, not the sync one: a redirect to `http://internal.corp/`
+          // passed the sync check (it never resolves DNS) while the first hop
+          // was deep-guarded — the redirect was the way around it.
+          current = (await assertSafeUrlDeep(new URL(location, current).toString())).toString();
           continue;
         }
         if (!resp.ok) throw new Error(`HTTP ${resp.status} from ${current}`);

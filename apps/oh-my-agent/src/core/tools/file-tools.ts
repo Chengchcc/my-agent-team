@@ -275,9 +275,14 @@ export function createEditTool(opts: { cwd: string }): Tool {
           };
         }
 
+        // newStr is model-supplied text, so it must land verbatim: with a
+        // STRING replacement, String.replace expands `$&`, `$$`, `$'`, `` $` ``
+        // and `$n` against the match, so the tool would report success while
+        // writing different bytes. The replace_all branch (split/join) has no
+        // such expansion, so both paths must agree here.
         const newContent = replaceAll
           ? content.split(oldStr).join(newStr)
-          : content.replace(oldStr, newStr);
+          : content.replace(oldStr, () => newStr);
         writeFileSync(full, newContent, "utf-8");
         const count = replaceAll ? occurrences : 1;
         return { content: `Replaced ${count} occurrence${count === 1 ? "" : "s"} in ${rec.path}` };

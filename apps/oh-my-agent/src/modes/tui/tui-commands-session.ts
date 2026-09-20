@@ -164,7 +164,9 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
             ctx.pushStatus("compact: model returned an empty summary");
             return;
           }
-          appendSessionCompaction(ctx.session.sessionId, summary, ctx.session.dir);
+          // /compact folds the in-memory transcript to this summary, so the
+          // event really does replace everything before it.
+          appendSessionCompaction(ctx.session.sessionId, summary, ctx.session.dir, true);
           // Mirror the file-folding shape (loadSessionMessages) in memory so
           // the live transcript and a later resume agree.
           ctx.session.messages = [

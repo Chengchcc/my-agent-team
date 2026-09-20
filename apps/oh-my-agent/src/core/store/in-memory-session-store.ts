@@ -86,8 +86,9 @@ export function createInMemorySessionStore(): SessionStore {
         const oldLeaf = s.metadata.leafEntryId;
         (s.metadata as unknown as Record<string, unknown>).leafEntryId = parentId;
         (s.metadata as unknown as Record<string, unknown>).updatedAt = Date.now();
-        // Mirror SQLite: entries + leaf_moved operation + cache are one logical
-        // transaction. The operation log lets reopen() reconstruct the leaf.
+        // Entries + leaf_moved operation + cache are one logical transaction
+        // (the property the durable store would need too). The operation log
+        // lets reopen() reconstruct the leaf.
         s.operations.push({ type: "leaf_moved", entryId: parentId!, fromLeafId: oldLeaf });
       }
 

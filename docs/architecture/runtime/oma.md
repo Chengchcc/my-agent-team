@@ -19,7 +19,7 @@ used_by:
 Product Backend → Adapter (packages/adapter-oma-agent)
   → spawn oma --mode rpc
     → createOmaRuntime(): per-Run Runtime
-      → model/tool loop（core/runtime/agent-loop.ts）
+      → model/tool loop（core/runtime/agent-loop-runner.ts；agent-loop.ts 是 session 工厂）
       → BackendRunOutcome → stdout → exit
 ```
 
@@ -81,7 +81,7 @@ Full history    写 SessionStore，source=product_history
 
 ## Runtime 拥有什么
 
-- model/tool loop（`core/runtime/agent-loop.ts` 唯一真实 loop）
+- model/tool loop（`core/runtime/agent-loop-runner.ts` 是唯一的 loop 实体：`runModelTurnLoop` + `runLoop`；`core/runtime/agent-loop.ts` 只是 `createOmaSession()` 的组装层）
 - native tools（read/read_image/ls/tree/write/edit/bash/grep/glob/web/eval——eval 走进程沙箱；ls 与 tree 是只读目录视图，read_only 也有）+ MCP 工具挂载（mcp-mount 多源合并）
 - retry、compaction、workspace todo（`.oma/todo.json`，跨 Run 持久）、tool-result pruning（读侧截断旧工具输出，由 `.oma/settings.json` 的 `prune` 显式开启）
 - 插件系统：代码加载（native import）、信任矩阵（sha256 + trusted-plugins.json）、marketplace 多源 manifest（见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）

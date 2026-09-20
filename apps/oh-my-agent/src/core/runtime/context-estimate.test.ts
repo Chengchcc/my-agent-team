@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { Message } from "@chengchenccc/message";
 import {
   estimateContextTokens,
+  estimateMessageTokens,
   isSilentContextOverflow,
   type UsageAnchor,
   usageTotalTokens,
@@ -79,6 +81,71 @@ describe("isSilentContextOverflow (oh-my-pi)", () => {
   test("no usage or non-positive limit never overflows", () => {
     expect(isSilentContextOverflow(undefined, "end_turn", 4000)).toBe(false);
     expect(isSilentContextOverflow({ inputTokens: 9999 }, "end_turn", 0)).toBe(false);
+  });
+});
+
+/** One estimator for the compaction budget AND tool-result pruning. The old
+ *  pair disagreed on tool messages: one counted `text` (the UI's clean copy)
+ *  AND the tool_result block (the same payload), so the tool-heavy turns that
+ *  dominate a long run were estimated at ~2x. These cases pin the wire
+ *  mapping in packages/ai/.../anthropic-messages.ts, not just a number. */
+describe("estimateMessageTokens (wire-accurate)", () => {
+  test("a tool message counts its tool_result ONCE, never text + block", () => {
+    const content = "x".repeat(40);
+    const msg: Message = {
+      role: "tool",
+      text: content,
+      blocks: [{ type: "tool_result", tool_use_id: "tu1", content }],
+    };
+    // 40 chars / 4 = 10, + 4 framing. A second copy of `text` would give 24.
+    expect(estimateMessageTokens(msg)).toBe(14);
+  });
+
+  test("an assistant message without a text block still counts its text", () => {
+    // The adapter appends `text` as a trailing text block, so it reaches the
+    // model and must be counted.
+    const msg: Message = {
+      role: "assistant",
+      text: "efgh",
+      blocks: [{ type: "thinking", text: "abcd" }],
+    };
+    expect(estimateMessageTokens(msg)).toBe(6); // (4 + 4)/4 + 4
+  });
+
+  test("a text block already carrying the text is not counted twice", () => {
+    const msg: Message = {
+      role: "assistant",
+      text: "efgh",
+      blocks: [{ type: "text", text: "efgh" }],
+    };
+    expect(estimateMessageTokens(msg)).toBe(5); // 4/4 + 4
+  });
+
+  test("no blocks falls back to text", () => {
+    expect(estimateMessageTokens({ role: "user", text: "abcdefgh" })).toBe(6);
+    expect(estimateMessageTokens({ role: "user" })).toBe(4);
+  });
+
+  test("tool_use input and a thinking signature are counted", () => {
+    const msg: Message = {
+      role: "assistant",
+      blocks: [
+        { type: "thinking", text: "", signature: "abcd" },
+        { type: "tool_use", id: "t", name: "bash", input: { description: "xxxxxxxx" } },
+      ],
+    };
+    // signature 4 + JSON.stringify({description:"xxxxxxxx"}) = 26 chars.
+    expect(estimateMessageTokens(msg)).toBe(Math.ceil(30 / 4) + 4);
+  });
+
+  test("image payloads do not inflate the estimate", () => {
+    // base64 is ~1.33 chars/byte while an image costs ~1 token per 750 bytes;
+    // char/4 would over-count by ~1000x and compact far too early.
+    const msg: Message = {
+      role: "user",
+      blocks: [{ type: "image", mediaType: "image/png", base64: "A".repeat(40_000) }],
+    };
+    expect(estimateMessageTokens(msg)).toBe(4);
   });
 });
 

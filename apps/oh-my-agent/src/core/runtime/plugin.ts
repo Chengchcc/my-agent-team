@@ -97,9 +97,17 @@ export interface Plugin {
   readonly meta?: readonly MetaSectionProvider[];
 }
 
+/** Fails closed on every collision class that is unambiguous: duplicate plugin
+ *  names, duplicate tool names, and duplicate meta-section names. The meta
+ *  check used to be missing, and renderMeta simply emitted `## <name>` twice —
+ *  two context sections that look like one, with no error anywhere.
+ *
+ *  Hook "collisions" are not a collision: every plugin's hook runs, in plugin
+ *  order, by design. */
 export function validatePlugins(plugins: readonly Plugin[]): void {
   const names = new Set<string>();
   const toolNames = new Set<string>();
+  const metaNames = new Set<string>();
   for (const p of plugins) {
     if (names.has(p.name)) throw new Error(`Duplicate plugin name: ${p.name}`);
     names.add(p.name);
@@ -107,6 +115,11 @@ export function validatePlugins(plugins: readonly Plugin[]): void {
       if (toolNames.has(t.name))
         throw new Error(`Duplicate tool name: ${t.name} (plugin ${p.name})`);
       toolNames.add(t.name);
+    }
+    for (const m of p.meta ?? []) {
+      if (metaNames.has(m.name))
+        throw new Error(`Duplicate meta section: ${m.name} (plugin ${p.name})`);
+      metaNames.add(m.name);
     }
   }
 }
