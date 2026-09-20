@@ -51,6 +51,79 @@ describe("TUI provider native scrollback", () => {
     expect(scroll.filter((l) => l.startsWith("H"))).toEqual(["H0", "H1", "H2"]);
     expect(vt.getViewport().slice(-5)).toEqual(["V0", "V1", "V2", "V3", "V4"]);
   });
+
+  test("requestRender(true) repaints the screen but never purges scrollback", async () => {
+    const vt = new VirtualTerminal(20, 5);
+    const tui = new TUI(vt);
+    let frame = 0;
+    tui.setFrameProvider({
+      renderFrame() {
+        frame++;
+        const viewport =
+          frame <= 2 ? ["V0", "V1", "V2", "V3", "V4"] : ["W0", "W1", "W2", "W3", "W4"];
+        if (frame === 1) return { viewport, history: { id: 1, rows: ["H0", "H1"] } };
+        return { viewport };
+      },
+      acknowledgeHistory() {},
+    });
+    tui.start();
+    // frame 1 carries history, its ack recurses into frame 2; the frame
+    // counter is the deterministic drain signal.
+    while (frame < 2) await vt.waitForRender();
+    expect(vt.getScrollBuffer().some((l) => l.startsWith("H0"))).toBe(true);
+
+    // The production triggers: transcript reconcile reset (/new, resume)
+    // and PTY overlay exit. Faking a width change here used to emit CSI 3 J
+    // and wipe the committed history.
+    tui.requestRender(true);
+    while (frame < 3) await vt.waitForRender();
+    expect(vt.getScrollBuffer().some((l) => l.startsWith("H0"))).toBe(true);
+    expect(vt.getViewport().some((l) => l.startsWith("W0"))).toBe(true);
+  });
+
+  test("a real width change replays the committed history at the new width", async () => {
+    const vt = new VirtualTerminal(20, 5);
+    const tui = new TUI(vt);
+    let replayed = 0;
+    let frame = 0;
+    let frontier = 0;
+    let nextId = 1;
+    let historyRows = ["H0-0123456789abcdef", "H1-0123456789abcdef"];
+    tui.setFrameProvider({
+      beginHistoryReplay() {
+        replayed++;
+        frontier = 0;
+        nextId = 100;
+        // Re-laid-out at the new width, like a re-wrapping transcript.
+        historyRows = ["H0-0123", "H1-0123"];
+      },
+      renderFrame() {
+        frame++;
+        if (frontier < historyRows.length) {
+          const rows = historyRows.slice(frontier);
+          frontier += rows.length;
+          return { viewport: ["V*"], history: { id: nextId++, rows } };
+        }
+        return { viewport: ["V*"] };
+      },
+      acknowledgeHistory() {},
+    });
+    tui.start();
+    while (frame < 2) await vt.waitForRender();
+    expect(vt.getScrollBuffer().some((l) => l.includes("H0-0123456789abcdef"))).toBe(true);
+
+    vt.resize(10, 5);
+    // Replay frame re-offers the whole prefix (frame 3) and its ack recurses
+    // once more (frame 4) before the stream settles.
+    while (frame < 4) await vt.waitForRender();
+
+    // The purge happened (old-width rows gone) but the provider replayed
+    // its committed prefix, so the history survives re-wrapped.
+    expect(replayed).toBe(1);
+    const scroll = vt.getScrollBuffer().join("\n");
+    expect(scroll).not.toContain("H0-0123456789abcdef");
+    expect(scroll).toContain("H0-0123");
+  });
 });
 
 describe("adaptive render backpressure (omp #4145 port)", () => {

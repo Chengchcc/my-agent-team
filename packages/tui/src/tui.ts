@@ -845,13 +845,18 @@ export class TUI extends Container {
 
   requestRender(force = false): void {
     if (force) {
+      // Forced repaint clears the SCREEN, never the user's native
+      // scrollback. Faking a resize here (previousWidth=-1) used to make
+      // the renderer treat it as a width change and purge scrollback with
+      // CSI 3 J — after a transcript reset or a PTY overlay exit the
+      // committed history vanished. providerForceRepaint drives the clear
+      // in both render paths; only a REAL width change may purge.
       this.previousLines = [];
-      this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
-      this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
       this.cursorRow = 0;
       this.hardwareCursorRow = 0;
       this.maxLinesRendered = 0;
       this.previousViewportTop = 0;
+      this.providerForceRepaint = true;
       if (this.renderTimer) {
         clearTimeout(this.renderTimer);
         this.renderTimer = undefined;
@@ -1456,6 +1461,13 @@ export class TUI extends Container {
   private renderProviderFrame(width: number, height: number): void {
     const provider = this.frameProvider;
     if (!provider || width <= 0 || height <= 0) return;
+    // A REAL width change rewraps everything; the purge below (CSI 3 J)
+    // drops the old-width scrollback rows, so the provider must replay its
+    // committed prefix at the new width first or that history is lost
+    // forever (the provider's frontier still says "already delivered").
+    if (this.previousWidth !== 0 && this.previousWidth !== width) {
+      provider.beginHistoryReplay?.();
+    }
     const plan = provider.renderFrame({ columns: width, rows: height });
     let viewport = [...plan.viewport];
     if (viewport.length > height) viewport = viewport.slice(0, height);
@@ -1672,6 +1684,16 @@ export class TUI extends Container {
       const msg = `[${new Date().toISOString()}] fullRender: ${reason} (prev=${this.previousLines.length}, new=${newLines.length}, height=${height})\n`;
       fs.appendFileSync(logPath, msg);
     };
+
+    // Forced repaint (requestRender(true)): full clear of the SCREEN, but
+    // the user's native scrollback survives — only a real width change
+    // takes the clearScrollback route below.
+    if (this.providerForceRepaint) {
+      logRedraw("forced repaint");
+      fullRender(true);
+      this.providerForceRepaint = false;
+      return;
+    }
 
     // First render - just output everything without clearing (assumes clean screen)
     if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
