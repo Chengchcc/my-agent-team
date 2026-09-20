@@ -76,6 +76,12 @@ export interface CoordinationRegistry {
    *  session has since installed (single-slot setCompletionListener(null)
    *  would). */
   removeCompletionListener(cb: (entry: RegistryEntry) => void): void;
+  /** Kill every RUNNING entry that owns a kill callback (bash/eval bg
+   *  jobs). Run teardown: the table is about to be dropped, so the children
+   *  must go with it — clearAll() alone frees the bookkeeping and orphans
+   *  the processes. Subagents are excluded (the delegation executor owns
+   *  those) and settled entries have nothing to kill. */
+  stopRunningEntries(scope?: string): number;
   notifyEntryCompletion(entry: RegistryEntry): void;
   /** Drop every entry (Run teardown). */
   clearAll(): void;
@@ -224,6 +230,21 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     if (completionListener === cb) completionListener = null;
   }
 
+  function stopRunningEntries(scope?: string): number {
+    let stopped = 0;
+    for (const e of entries.values()) {
+      if (e.status !== "running" || e.kind === "subagent" || !e.kill) continue;
+      if (scope !== undefined && e.scope !== scope) continue;
+      try {
+        e.kill();
+        stopped++;
+      } catch {
+        /* a broken kill never blocks the rest of teardown */
+      }
+    }
+    return stopped;
+  }
+
   function acknowledgeDeliveries(ids: readonly string[]): void {
     for (const id of ids) ackedDeliveries.add(id);
   }
@@ -251,6 +272,7 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     settleEntry,
     setCompletionListener,
     removeCompletionListener,
+    stopRunningEntries,
     notifyEntryCompletion,
     clearAll,
   };

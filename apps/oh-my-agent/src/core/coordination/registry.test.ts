@@ -132,6 +132,37 @@ describe("coordination registry", () => {
     reg.settleEntry("bg_3", { status: "completed" });
     expect(seen).toEqual(["mine:bg_1", "next:bg_2"]);
   });
+  test("stopRunningEntries kills live process children (Run teardown)", async () => {
+    const proc = Bun.spawn(["sleep", "30"]);
+    let killed = false;
+    reg.registerEntry({
+      ...processEntry("bg_live", "s1"),
+      kill: () => {
+        killed = true;
+        proc.kill();
+      },
+    });
+    // Settled entry: its kill must NOT run (nothing to stop).
+    reg.registerEntry({
+      ...processEntry("bg_done", "s1"),
+      kill: () => {
+        throw new Error("settled entry must not be killed");
+      },
+    });
+    reg.settleEntry("bg_done", { status: "completed", exitCode: 0 });
+    // No kill callback: skipped, not counted.
+    reg.registerEntry(processEntry("bg_handle", "s1"));
+    // Different scope: out of the teardown's reach.
+    reg.registerEntry({ ...processEntry("bg_other", "s2"), kill: () => void killed });
+
+    expect(reg.stopRunningEntries("s1")).toBe(1);
+    expect(killed).toBe(true);
+    // Signal death: Bun's exited resolves to 128+signal (143 for SIGTERM);
+    // natural exit of `sleep 30` would be 0, and the test would hang.
+    expect(await proc.exited).not.toBe(0);
+    // Scope filter kept the other run's job alive.
+    expect(reg.getEntry("bg_other")?.status).toBe("running");
+  });
 });
 
 describe("registry instances", () => {

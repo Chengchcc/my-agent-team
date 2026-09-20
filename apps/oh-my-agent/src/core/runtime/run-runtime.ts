@@ -1408,7 +1408,13 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       // then dropped entirely (nothing can outlive it); a surface-provided
       // one keeps completed handles for a later Run's resume.
       delegationExecutor.stopLiveSubagents();
-      if (!deps.registry) registry.clearAll();
+      if (!deps.registry) {
+        // Kill what this Run owns BEFORE dropping the table: bg bash/eval
+        // children must not outlive the Run just because the bookkeeping
+        // did (clearAll alone orphans the processes).
+        registry.stopRunningEntries();
+        registry.clearAll();
+      }
       // Tear down mounted MCP clients so no child process or connection
       // outlives the Run. Each close is BOUNDED: a stuck transport (e.g. an
       // SSE socket that never answers close) must not wedge the child.
