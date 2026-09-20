@@ -17,7 +17,7 @@ import {
   truncateToWidth,
   tuiTheme,
 } from "@chengchenccc/tui";
-import { defaultRegistry } from "../../core/coordination/registry.js";
+import { defaultRegistry, type RegistryEntry } from "../../core/coordination/registry.js";
 import {
   appendInputHistory,
   loadInputHistory,
@@ -78,7 +78,10 @@ export function createTerminalIo(
   }
   const bgPending: JobSettlement[] = [];
   let bgDebounce: Timer | undefined;
-  defaultRegistry.setCompletionListener((e) => {
+  // Named + removed in close(): this is a PROCESS-GLOBAL slot. An anonymous
+  // listener here leaks the whole io (shell, editor, injection queue) into
+  // every future bg-job settlement after the TUI exits.
+  const onRegistrySettled = (e: RegistryEntry): void => {
     const durationMs = (e.finishedAt ?? Date.now()) - e.startedAt;
     // Preview gap fix: an output that fits INLINE_MAX travels WHOLE (the
     // old slice(0, PREVIEW_MAX) silently dropped 1500..4000-char tails with
@@ -154,7 +157,8 @@ export function createTerminalIo(
       injectUserMessage(formatSettlementText(live));
     }, 1_500);
     bgDebounce.unref?.();
-  });
+  };
+  defaultRegistry.setCompletionListener(onRegistrySettled);
   const editorTheme: EditorTheme = {
     ...EDITOR_THEME,
     topBorder: (width: number): string => {
@@ -752,6 +756,8 @@ export function createTerminalIo(
       tui.terminal.write("\x07");
     },
     close() {
+      defaultRegistry.removeCompletionListener(onRegistrySettled);
+      clearTimeout(bgDebounce);
       clearInterval(elapsedTimer);
       clearInterval(chromeRepaintTimer);
       clearTimeout(quitTimer);

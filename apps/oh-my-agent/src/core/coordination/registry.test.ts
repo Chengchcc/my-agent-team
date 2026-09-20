@@ -105,6 +105,33 @@ describe("coordination registry", () => {
     expect(out.ok).toBe(false);
     expect(String((out as { error: string }).error)).toContain("too many running jobs");
   });
+  test("removeCompletionListener removes only ITS callback (TUI close semantics)", () => {
+    const seen: string[] = [];
+    const mine =
+      (id: string) =>
+      (entry: { id: string }): void =>
+        void seen.push(`${id}:${entry.id}`);
+    const first = mine("mine");
+    const next = mine("next");
+    reg.setCompletionListener(first);
+    reg.registerEntry(processEntry("bg_1", "s1"));
+    reg.settleEntry("bg_1", { status: "completed" });
+    expect(seen).toEqual(["mine:bg_1"]);
+
+    // A newer session replaced the slot: removing the OLD listener must not
+    // clobber the new one (plain setCompletionListener(null) would).
+    reg.setCompletionListener(next);
+    reg.removeCompletionListener(first);
+    reg.registerEntry(processEntry("bg_2", "s1"));
+    reg.settleEntry("bg_2", { status: "completed" });
+    expect(seen).toEqual(["mine:bg_1", "next:bg_2"]);
+
+    // Removing the CURRENT listener silences further settlements.
+    reg.removeCompletionListener(next);
+    reg.registerEntry(processEntry("bg_3", "s1"));
+    reg.settleEntry("bg_3", { status: "completed" });
+    expect(seen).toEqual(["mine:bg_1", "next:bg_2"]);
+  });
 });
 
 describe("registry instances", () => {

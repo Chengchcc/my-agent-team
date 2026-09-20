@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Container, Markdown, TUI, tuiTheme, VirtualTerminal } from "@chengchenccc/tui";
+import { Container, Markdown, Text, TUI, tuiTheme, VirtualTerminal } from "@chengchenccc/tui";
 import { OmaTranscriptContainer } from "./tui-components.js";
 import { MARKDOWN_THEME } from "./tui-format.js";
 import { TuiItemRenderer, TuiRenderShell } from "./tui-render.js";
@@ -92,6 +92,44 @@ describe("tool card border carries the state verdict", () => {
       result: { content: "[exit: 0]" },
     });
     expect(top).toContain(tuiTheme.success);
+  });
+});
+
+/** The commit frontier must be fitted against PHYSICAL rows: a Text that
+ *  wraps at the current width renders several rows, so the old
+ *  childCount-minus-available arithmetic committed mid-block on narrow
+ *  terminals and after resizes. */
+describe("OmaTranscriptContainer.fitTailBoundary", () => {
+  const build = (): OmaTranscriptContainer => {
+    const c = new OmaTranscriptContainer();
+    c.addChild(new Text("short", 0, 0)); // 1 row @10
+    c.addChild(new Text("0123456789A", 0, 0)); // wraps to 2 rows @10
+    c.addChild(new Text("tail", 0, 0)); // 1 row
+    return c;
+  };
+
+  test("counts wrapped rows, not children", () => {
+    // Heights [1,2,1]; budget 2 keeps only the last child live → commit [0,2)
+    // = 3 physical rows. The old arithmetic (3 children − 2) said 1.
+    expect(build().fitTailBoundary(10, 2)).toBe(2);
+    expect(build().fitTailBoundary(10, 4)).toBe(0); // everything fits
+  });
+
+  test("a streaming child never commits (liveStart clamp)", () => {
+    // Budget 2 walks the boundary to child 2; liveStart=1 must stop it AT
+    // the streaming child (commit [0,1), keep 1..2 live).
+    expect(build().fitTailBoundary(10, 2, 1)).toBe(1);
+    // Everything streaming: commit nothing.
+    expect(build().fitTailBoundary(10, 2, 0)).toBe(0);
+    // Budget fits all: boundary 0 regardless of liveStart.
+    expect(build().fitTailBoundary(10, 4, 2)).toBe(0);
+  });
+
+  test("a last child taller than the budget stays live (no blank viewport)", () => {
+    const c = new OmaTranscriptContainer();
+    c.addChild(new Text("x", 0, 0)); // 1 row
+    c.addChild(new Text("0123456789ABCDEF", 0, 0)); // 2 rows @10
+    expect(c.fitTailBoundary(10, 1)).toBe(1);
   });
 });
 

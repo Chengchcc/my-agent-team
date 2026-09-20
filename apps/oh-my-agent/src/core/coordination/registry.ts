@@ -71,6 +71,11 @@ export interface CoordinationRegistry {
   isDeliveryAcknowledged(id: string): boolean;
   settleEntry(id: string, patch: Partial<RegistryEntry>): void;
   setCompletionListener(cb: ((entry: RegistryEntry) => void) | null): void;
+  /** Remove THIS callback only. A TUI session installs a listener and must
+   *  remove it on close without clobbering whichever listener a NEWER
+   *  session has since installed (single-slot setCompletionListener(null)
+   *  would). */
+  removeCompletionListener(cb: (entry: RegistryEntry) => void): void;
   notifyEntryCompletion(entry: RegistryEntry): void;
   /** Drop every entry (Run teardown). */
   clearAll(): void;
@@ -215,6 +220,10 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     completionListener = cb;
   }
 
+  function removeCompletionListener(cb: (entry: RegistryEntry) => void): void {
+    if (completionListener === cb) completionListener = null;
+  }
+
   function acknowledgeDeliveries(ids: readonly string[]): void {
     for (const id of ids) ackedDeliveries.add(id);
   }
@@ -241,6 +250,7 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     isDeliveryAcknowledged,
     settleEntry,
     setCompletionListener,
+    removeCompletionListener,
     notifyEntryCompletion,
     clearAll,
   };

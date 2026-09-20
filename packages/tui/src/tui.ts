@@ -820,6 +820,9 @@ export class TUI extends Container {
     for (const child of this.children) {
       (child as Component & { beginHistoryFlush?: () => void }).beginHistoryFlush?.();
     }
+    // The frame provider is NOT a root child — flush it explicitly, or the
+    // provider's pending history batch never reaches the scrollback on exit.
+    this.frameProvider?.beginHistoryFlush?.();
     if (this.renderTimer) {
       clearTimeout(this.renderTimer);
       this.renderTimer = undefined;
@@ -836,6 +839,13 @@ export class TUI extends Container {
       } else if (lineDiff < 0) {
         this.terminal.write(`\x1b[${-lineDiff}A`);
       }
+      this.terminal.write("\r\n");
+    } else if (this.frameProvider && this.providerWindow.length > 0) {
+      // Provider mode never fills previousLines; the last frame placed the
+      // viewport at providerViewportTop. Park below it so shell output after
+      // exit does not land on the last frame's row.
+      const lastRow = this.providerViewportTop + this.providerWindow.length;
+      this.terminal.write(`\x1b[${lastRow + 1};1H`);
       this.terminal.write("\r\n");
     }
 

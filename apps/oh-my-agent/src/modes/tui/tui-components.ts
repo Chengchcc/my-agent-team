@@ -236,6 +236,30 @@ export class OmaTranscriptContainer
     return out;
   }
 
+  /** Child-index commit boundary for a viewport budget: the largest prefix
+   *  whose rendered tail fits `availableRows` PHYSICAL rows. The previous
+   *  arithmetic (childCount - availableRows, in the frame provider)
+   *  silently assumed one row per child; a Text that wraps at the current
+   *  width renders several, which drifted the frontier mid-block on narrow
+   *  terminals and resizes. The LAST child always stays live (a block
+   *  taller than the whole viewport still shows its tail, never a blank
+   *  transcript), and `liveStartChild` keeps streaming groups out of the
+   *  scrollback. */
+  fitTailBoundary(width: number, availableRows: number, liveStartChild?: number): number {
+    const n = this.children.length;
+    if (n === 0) return 0;
+    let boundary = n - 1;
+    let used = this.children[n - 1]!.render(width).length;
+    for (let i = n - 2; i >= 0; i--) {
+      const height = this.children[i]!.render(width).length;
+      if (used + height > availableRows) break;
+      used += height;
+      boundary = i;
+    }
+    if (liveStartChild !== undefined) boundary = Math.min(boundary, Math.max(0, liveStartChild));
+    return boundary;
+  }
+
   /** Frame provider viewport = full render; history = uncommitted frontier
    *  rows to append to native scrollback. */
   renderFrame(opts: { columns: number; rows: number }): FramePlan {

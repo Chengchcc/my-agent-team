@@ -124,6 +124,27 @@ describe("TUI provider native scrollback", () => {
     expect(scroll).not.toContain("H0-0123456789abcdef");
     expect(scroll).toContain("H0-0123");
   });
+
+  test("stop() flushes the frame provider (not only root children)", async () => {
+    const vt = new VirtualTerminal(20, 5);
+    const tui = new TUI(vt);
+    let flushed = 0;
+    tui.setFrameProvider({
+      renderFrame() {
+        return { viewport: ["V0", "V1", "V2", "V3", "V4"] };
+      },
+      acknowledgeHistory() {},
+      beginHistoryFlush() {
+        flushed++;
+      },
+    });
+    tui.start();
+    await vt.waitForRender();
+    tui.stop();
+    // The provider is not a root child; without the explicit call its
+    // pending history batch never drained on exit.
+    expect(flushed).toBe(1);
+  });
 });
 
 describe("adaptive render backpressure (omp #4145 port)", () => {

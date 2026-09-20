@@ -1,4 +1,4 @@
-import type { Component, Container, Editor, TerminalFrameProvider } from "@chengchenccc/tui";
+import type { Component, Container, TerminalFrameProvider } from "@chengchenccc/tui";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import type { TuiRenderShell } from "./tui-render.js";
 import {
@@ -10,7 +10,10 @@ import {
 export interface OmaFrameProviderOptions {
   transcript: OmaTranscriptContainer;
   statusContainer: Container;
-  editor: Editor;
+  /** The editor slot. Only Component is required — `bottom` swaps it for a
+   *  docked panel per frame; typing it Editor forced callers (and tests)
+   *  into casts the body never justified. */
+  editor: Component;
   shell: TuiRenderShell;
   /** The bottom region: normally the editor, but a HITL panel (ask_question)
    *  DOCKED here while it is live — the input row is replaced rather than
@@ -69,8 +72,11 @@ export function createOmaFrameProvider({
         ...bottomComponent.render(width),
       ];
       const available = Math.max(0, rows - after.length);
-      const target = Math.max(0, shell.lastTotalRows - available);
-      const boundary = Math.min(shell.lastLiveStartRow, target);
+      // Commit boundary in child units, fitted against PHYSICAL rows: a
+      // wrapped child renders several rows, so the previous
+      // childCount-minus-available arithmetic drifted the frontier
+      // mid-block on narrow terminals and after resizes.
+      const boundary = transcript.fitTailBoundary(width, available, shell.lastLiveStartRow);
       transcript.setNativeScrollbackCommittedRows(boundary);
       const active = available > 0 ? transcript.renderViewport(width, available) : [];
       const viewport = [...active, ...after];
