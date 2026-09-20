@@ -54,7 +54,7 @@ async function runWithTitle(
   runId: string,
   knobs: RuntimeKnobs | undefined,
   titleReply: string,
-): Promise<{ status: string; title?: string; calls: string[] }> {
+): Promise<{ status: string; title?: string; summary?: string; calls: string[] }> {
   const { provider, seen } = titleAwareProvider([titleReply]);
   const modelRuntime = createModelRuntime();
   modelRuntime.registerProvider(provider);
@@ -72,6 +72,7 @@ async function runWithTitle(
     return {
       status: outcome.status,
       ...(outcome.title ? { title: outcome.title } : {}),
+      ...(outcome.status === "completed" && outcome.summary ? { summary: outcome.summary } : {}),
       // The memory pass is fire-and-forget and races the assertion; it is not
       // what this file tests.
       calls: seen.filter((c) => c !== "memory"),
@@ -88,6 +89,31 @@ describe("auto-title is a runtime dependency (knob + outcome.title)", () => {
     expect(res.title).toBe("Fix login flow");
     // Exactly one extra model call, distinguishable from the loop's turn.
     expect(res.calls).toEqual(["loop", "title"]);
+  }, 20_000);
+
+  test("title and summary ride the SAME call (outcome.summary)", async () => {
+    // One ephemeral call must produce both: a second call would double the
+    // per-session cost of a resume-list nicety. The tag order is the prompt's.
+    const res = await runWithTitle(
+      "r-title-summary",
+      undefined,
+      "<title>Fix login flow</title>\n<summary>The login button is dead on mobile; the OAuth callback is the suspect.</summary>",
+    );
+    expect(res.title).toBe("Fix login flow");
+    expect(res.summary).toBe(
+      "The login button is dead on mobile; the OAuth callback is the suspect.",
+    );
+    expect(res.calls).toEqual(["loop", "title"]);
+  }, 20_000);
+
+  test("a title-only reply leaves the summary unset (no fabricated sentence)", async () => {
+    const res = await runWithTitle(
+      "r-title-summary-absent",
+      undefined,
+      "<title>Fix login flow</title>",
+    );
+    expect(res.title).toBe("Fix login flow");
+    expect(res.summary).toBeUndefined();
   }, 20_000);
 
   test("settings.titleEnabled=false suppresses the call AND the title", async () => {

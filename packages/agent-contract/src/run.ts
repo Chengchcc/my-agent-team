@@ -81,6 +81,9 @@ export type BackendRunOutcome =
       readonly messages?: readonly Message[];
       readonly usage?: Usage;
       readonly title?: string;
+      /** One-sentence session summary from the same call as `title`.
+       *  CLI-side only (the resume list); products ignore it. */
+      readonly summary?: string;
       /** CLI-side session reference (ADR 0002): claude session_id or a
        *  pi/omp session file path. Product Backend persists it on the
        *  branch (agent_context_branch.cli_session_ref) as the runtime

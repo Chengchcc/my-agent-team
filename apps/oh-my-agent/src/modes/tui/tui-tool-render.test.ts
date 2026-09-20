@@ -5,8 +5,10 @@ import {
   formatSettlementText,
   type JobSettlement,
   MARKDOWN_THEME,
+  relativeAge,
   renderSettlementRows,
   SETTLEMENT_SENTINEL,
+  sessionRow,
   sessionStamp,
   shimmerText,
   summarizeToolArgs,
@@ -561,6 +563,71 @@ describe("sessionStamp (resume picker order)", () => {
       sessionStamp(new Date(2026, 11, 31, 23, 59).getTime()) <
         sessionStamp(new Date(2027, 0, 1, 0, 0).getTime()),
     ).toBe(true);
+  });
+});
+
+describe("relativeAge (resume picker time column)", () => {
+  const now = new Date(2026, 8, 15, 12, 0).getTime();
+  const ago = (ms: number): string => relativeAge(now - ms, now);
+
+  test("ladders minutes -> hours -> days -> months -> years", () => {
+    expect(ago(0)).toBe("just now");
+    expect(ago(45_000)).toBe("just now");
+    expect(ago(5 * 60_000)).toBe("5m ago");
+    expect(ago(3 * 3_600_000)).toBe("3h ago");
+    expect(ago(50 * 3_600_000)).toBe("2d ago");
+    expect(ago(45 * 86_400_000)).toBe("1mo ago");
+    expect(ago(400 * 86_400_000)).toBe("1y ago");
+  });
+
+  test("a future mtime (clock skew) reads as just now, never negative", () => {
+    expect(relativeAge(now + 60_000, now)).toBe("just now");
+  });
+});
+
+describe("sessionRow (one shape for picker, listing and completion)", () => {
+  const now = new Date(2026, 8, 15, 12, 0).getTime();
+  const base = {
+    id: "abcdefgh-0000-0000-0000-000000000000",
+    modifiedAt: now - 3 * 3_600_000,
+  };
+
+  test("the time column carries the stamp AND the age", () => {
+    // The stamp is what the newest-first order is read from; the age is the
+    // at-a-glance reading the user asked for. The old 6..8 column clamp
+    // truncated the stamp to "09-15" and showed neither.
+    expect(sessionRow(base, now).label).toBe("09-15 09:00 · 3h ago");
+    expect(sessionRow(base, now).label.length).toBeLessThanOrEqual(26);
+  });
+
+  test("description is title — summary; markers stay attached", () => {
+    expect(
+      sessionRow({ ...base, title: "Fix login", summary: "OAuth callback suspect." }, now),
+    ).toEqual({
+      label: "09-15 09:00 · 3h ago",
+      description: "Fix login — OAuth callback suspect.",
+    });
+    expect(
+      sessionRow(
+        {
+          ...base,
+          title: "Fix login",
+          summary: "OAuth callback suspect.",
+          forkOf: "12345678-0000-0000-0000-000000000000",
+          workspace: "/tmp/other",
+        },
+        now,
+      ).description,
+    ).toBe("Fix login — OAuth callback suspect. \u2442 12345678 [/tmp/other]");
+  });
+
+  test("falls back to the preview, then the id stub, when nothing was generated", () => {
+    expect(sessionRow({ ...base, preview: "hello resume" }, now).description).toBe("hello resume");
+    expect(sessionRow({ ...base, preview: "" }, now).description).toBe("abcdefgh");
+    // A summary without a title stands alone (the preview is the weaker signal).
+    expect(
+      sessionRow({ ...base, summary: "Only a summary.", preview: "hi" }, now).description,
+    ).toBe("Only a summary.");
   });
 });
 

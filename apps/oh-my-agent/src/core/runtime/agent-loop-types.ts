@@ -142,6 +142,10 @@ export interface OmaLoopResult {
   readonly error?: string;
   /** Auto-generated conversation title (first Run only; backend guards). */
   readonly title?: string;
+  /** One-sentence session summary from the same call as the title. The CLI
+   *  persists it as the session's `summary` event, which the resume list
+   *  shows next to the title; products (backend) ignore it. */
+  readonly summary?: string;
 }
 
 export interface OmaSession {

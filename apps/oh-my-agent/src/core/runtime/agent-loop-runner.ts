@@ -30,7 +30,7 @@ import type { TokenEstimateCache } from "./message-cache.js";
 import type { PluginTool } from "./plugin.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
 import { renderLoopMeta } from "./prompt.js";
-import { buildTitleContext, generateTitle } from "./title.js";
+import { buildTitleContext, generateTitleAndSummary } from "./title.js";
 import { pruneOldToolResults } from "./tool-pruning.js";
 
 export interface LoopRunnerMutable {
@@ -197,6 +197,7 @@ async function finalizeLoop(
   }
 
   let title: string | undefined;
+  let summary: string | undefined;
   // Auto-title retries on EVERY completed turn while the conversation is
   // still untitled (OMA_CONV_TITLED=1 marks it titled — the backend sets
   // it at spawn and re-checks on commit). The first turn may be low
@@ -208,7 +209,9 @@ async function finalizeLoop(
     const titleBranch = await readBranchMessages(opts.store, opts.sessionId);
     const titleCtx = buildTitleContext(titleBranch);
     if (titleCtx) {
-      title = (await generateTitle(mutable.rt, titleCtx)) ?? undefined;
+      const generated = await generateTitleAndSummary(mutable.rt, titleCtx);
+      title = generated.title ?? undefined;
+      summary = generated.summary ?? undefined;
     }
   }
 
@@ -230,6 +233,7 @@ async function finalizeLoop(
     usage: state.runUsage,
     error: runError,
     title,
+    summary,
   };
 }
 

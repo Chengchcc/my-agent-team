@@ -159,6 +159,7 @@ export const outcomeOutputSchema = z.object({
       })
       .optional(),
     title: z.string().optional(),
+    summary: z.string().optional(),
     cliSessionRef: z.string().optional(),
     workflow: z
       .object({

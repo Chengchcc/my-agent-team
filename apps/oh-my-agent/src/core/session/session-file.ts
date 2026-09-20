@@ -96,6 +96,8 @@ export interface SessionSummary {
   readonly modifiedAt: number;
   /** Auto title from the last completed run's title event, when present. */
   readonly title?: string;
+  /** One-sentence content summary (the `summary` event), when present. */
+  readonly summary?: string;
   /** First user message text (truncated), fallback when no title exists. */
   readonly preview: string;
   /** Workspace root the session was created in (from the file header's
@@ -109,6 +111,7 @@ export interface SessionSummary {
 interface SessionFileEvent {
   type?: string;
   title?: string;
+  summary?: string;
   cwd?: string;
   message?: { role?: string; text?: string };
   parentId?: string;
@@ -124,6 +127,7 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
     const path = join(dir, entry);
     let preview = "";
     let title: string | undefined;
+    let summaryText: string | undefined;
     let headerCwd: string | undefined;
     let forkOf: string | undefined;
     try {
@@ -137,6 +141,10 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
         }
         if (evt.type === "title" && typeof evt.title === "string") {
           title = evt.title;
+          continue;
+        }
+        if (evt.type === "summary" && typeof evt.summary === "string") {
+          summaryText = evt.summary;
           continue;
         }
         if (evt.type === "fork_of" && typeof evt.parentId === "string") {
@@ -157,10 +165,12 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
       modifiedAt: number;
       preview: string;
       title?: string;
+      summary?: string;
       workspace?: string;
       forkOf?: string;
     } = { id, modifiedAt: statSync(path).mtimeMs, preview };
     if (title !== undefined) summary.title = title;
+    if (summaryText !== undefined) summary.summary = summaryText;
     if (workspace !== undefined) summary.workspace = workspace;
     else if (headerCwd !== undefined) summary.workspace = headerCwd;
     if (forkOf !== undefined) summary.forkOf = forkOf;
@@ -231,6 +241,26 @@ export function appendSessionTitle(id: string, title: string, dir: string = sess
       type: "title",
       timestamp: new Date().toISOString(),
       title,
+    })}\n`,
+  );
+}
+
+/** Append a summary event: a one-sentence description of what the session is
+ *  about, produced by the same ephemeral call as the title. Last one wins in
+ *  listings (the resume list shows it next to the title). */
+export function appendSessionSummary(
+  id: string,
+  summary: string,
+  dir: string = sessionDir(),
+): void {
+  const path = join(dir, `${id}.jsonl`);
+  if (!existsSync(path)) return;
+  appendFileSync(
+    path,
+    `${JSON.stringify({
+      type: "summary",
+      timestamp: new Date().toISOString(),
+      summary,
     })}\n`,
   );
 }

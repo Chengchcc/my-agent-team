@@ -2,6 +2,7 @@ import type { SlashCommand } from "@chengchenccc/tui";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
 import { buildSkillIndex } from "../../core/tools/index.js";
 import type { CommandDef, TuiSessionContext } from "./tui-commands.js";
+import { sessionRow } from "./tui-format.js";
 
 export interface SlashSystem {
   commandsWithSkills: CommandDef[];
@@ -54,7 +55,8 @@ export function buildSlashSystem(ctx: TuiSessionContext, commands: CommandDef[])
           .map((s) => ({
             value: s.id,
             label: s.id,
-            description: s.title ?? (s.preview || undefined),
+            // Same row description as the picker/listing (title — summary).
+            description: sessionRow(s).description,
           }));
     }
     return command;

@@ -397,6 +397,9 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
           id: "m1",
           message: { role: "user", text: "hello resume" },
         }),
+        // The generated pair the loop persists after a completed turn.
+        JSON.stringify({ type: "title", title: "Greet resume" }),
+        JSON.stringify({ type: "summary", summary: "Saying hello to check resume." }),
       ].join("\n"),
     );
     try {
@@ -412,7 +415,12 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       await vt.waitForRender();
       const overlay = screen(vt);
       expect(overlay).toContain("resume session");
-      expect(overlay).toContain("hello resume");
+      // The time column carries the full stamp AND the relative age: the old
+      // 6..8 column clamp truncated it to "09-20" and showed neither, which
+      // made the newest-first order unreadable.
+      expect(overlay).toMatch(/\d{2}-\d{2} \d{2}:\d{2} · just now/);
+      // The row is `title — summary`, not the raw first user message.
+      expect(overlay).toContain("Greet resume — Saying hello to check resume.");
 
       // Esc cancels: overlay closes, transcript notes the cancel.
       vt.sendInput("\x1b");

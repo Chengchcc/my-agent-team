@@ -68,6 +68,7 @@ export interface TuiIo {
     sessions: ReadonlyArray<{
       id: string;
       title?: string;
+      summary?: string;
       preview: string;
       modifiedAt: number;
       workspace?: string;

@@ -175,6 +175,7 @@ function mapLoopResult(result: OmaLoopResult): BackendRunOutcome {
         status: "completed",
         ...(result.usage ? { usage: result.usage } : {}),
         ...(result.title ? { title: result.title } : {}),
+        ...(result.summary ? { summary: result.summary } : {}),
       },
       result.messages,
     );

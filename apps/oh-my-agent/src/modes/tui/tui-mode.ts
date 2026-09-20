@@ -501,7 +501,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       cwd: opts.workspaceRoot,
       runtime,
       dir: session.dir,
-      ...(outcome.status === "completed" ? { title: outcome.title } : {}),
+      ...(outcome.status === "completed" ? { title: outcome.title, summary: outcome.summary } : {}),
     });
     if (outcome.status === "completed") {
       sessionTitle = outcome.title ?? sessionTitle;

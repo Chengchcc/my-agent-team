@@ -238,7 +238,6 @@ export function styleBashLine(line: string): string {
   return out.join("");
 }
 
-/** Compact relative age for the session picker's label column. */
 /** Sortable local timestamp for the session picker: MM-DD HH:MM. The
  *  picker lists newest-first, and a coarse "2m"/"now" label made distinct
  *  sessions look identical (and ordered arbitrarily) whenever they were
@@ -250,6 +249,59 @@ export function sessionStamp(modifiedAt: number, now: number = Date.now()): stri
   // Past years keep the year prefix so the rendered column is monotonic:
   // MM-DD alone sorts 12-31 above 01-01 of the NEXT year.
   return d.getFullYear() === new Date(now).getFullYear() ? stamp : `${d.getFullYear()}-${stamp}`;
+}
+
+/** Relative age — the at-a-glance half of the resume picker's time column.
+ *  The absolute stamp stays next to it: age alone was unreadable for ordering
+ *  (sessions touched in the same minute all read "now"), the stamp alone made
+ *  the reader do date arithmetic. */
+export function relativeAge(modifiedAt: number, now: number = Date.now()): string {
+  const minutes = Math.floor(Math.max(0, now - modifiedAt) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+/** The fields a resume row needs. Structural on purpose: the picker, the text
+ *  listing and /resume's argument completion all pass their own row shape. */
+export interface SessionRowInput {
+  readonly id: string;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly preview?: string;
+  readonly modifiedAt: number;
+  readonly workspace?: string;
+  readonly forkOf?: string;
+}
+
+/** One resume-list row: `label` is the time column (absolute stamp + age),
+ *  `description` is title — summary. Single home for the row shape so the
+ *  picker, the text fallback listing and the completion hint cannot drift
+ *  apart (they each carried their own copy of `title ?? preview`). */
+export function sessionRow(
+  session: SessionRowInput,
+  now: number = Date.now(),
+): { label: string; description: string } {
+  const base = session.title ?? (session.preview || session.id.slice(0, 8));
+  // A summary without a title stands alone (the preview is a weaker signal
+  // than a generated sentence, so it never outranks it).
+  const description = session.summary
+    ? session.title
+      ? `${base} — ${session.summary}`
+      : session.summary
+    : base;
+  const fork = session.forkOf ? ` \u2442 ${session.forkOf.slice(0, 8)}` : "";
+  const workspace = session.workspace ? ` [${session.workspace}]` : "";
+  return {
+    label: `${sessionStamp(session.modifiedAt, now)} · ${relativeAge(session.modifiedAt, now)}`,
+    description: `${description}${fork}${workspace}`,
+  };
 }
 
 /** Markdown theme for assistant output, aligned to omp's `md*` palette

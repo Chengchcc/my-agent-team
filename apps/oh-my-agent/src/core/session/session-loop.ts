@@ -2,6 +2,7 @@ import type { OmaRuntime } from "../runtime/create-runtime.js";
 import {
   appendSessionCompaction,
   appendSessionMessages,
+  appendSessionSummary,
   appendSessionTitle,
   loadSessionMessages,
   newSessionId,
@@ -15,7 +16,7 @@ import {
  *  messages + compaction summaries) is appended after the run. */
 
 /** Finalize a turn in the session file: writes compaction summaries and the
- *  auto title. Conversational messages are written in REAL TIME via
+ *  auto title/summary. Conversational messages are written in REAL TIME via
  *  createOmaRuntime's onPersistMessages (pi appendMessage) when the caller
  *  wires it; `messages` is the fallback batch for one-shot modes (print)
  *  that do not use real-time persistence. */
@@ -27,6 +28,8 @@ export async function persistSessionTurn(opts: {
   messages?: readonly unknown[];
   /** The run's auto-generated title (outcome.title), when present. */
   title?: string;
+  /** The run's one-sentence session summary (outcome.summary), when present. */
+  summary?: string;
   /** Session directory; defaults to the current workspace. Cross-workspace
    *  resumes pass the source workspace's dir so new turns append there. */
   dir?: string;
@@ -38,6 +41,7 @@ export async function persistSessionTurn(opts: {
     appendSessionCompaction(opts.sessionId, summary, opts.dir);
   }
   if (opts.title) appendSessionTitle(opts.sessionId, opts.title, opts.dir);
+  if (opts.summary) appendSessionSummary(opts.sessionId, opts.summary, opts.dir);
 }
 
 /** Resolve the session for a new TUI turn: a --session id resumes that

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   appendSessionCompaction,
   appendSessionMessages,
+  appendSessionSummary,
   appendSessionTitle,
   deleteSession,
   forkSession,
@@ -92,6 +93,33 @@ describe("session-file title", () => {
     expect(readSessionTitle("t3")).toBe("Second Title");
     // Unknown id / torn file: no throw, no title.
     expect(readSessionTitle("no-such-session")).toBeUndefined();
+  });
+});
+
+describe("session-file summary", () => {
+  test("summary event surfaces in listSessions; last one wins; no message side effect", () => {
+    appendSessionMessages("s-title", dir, [{ role: "user", text: "fix the login bug" }]);
+    appendSessionTitle("s-title", "Fix login bug");
+    appendSessionSummary("s-title", "Tracing the OAuth callback.");
+    appendSessionSummary("s-title", "OAuth callback had a dropped state param.");
+
+    const listed = listSessions().find((s) => s.id === "s-title");
+    expect(listed?.summary).toBe("OAuth callback had a dropped state param.");
+    // Title and summary coexist: the resume row renders `title — summary`.
+    expect(listed?.title).toBe("Fix login bug");
+    // A summary is metadata, not context: replay/compaction are unaffected.
+    expect(loadSessionMessages("s-title")).toHaveLength(1);
+  });
+
+  test("session without a summary event lists without one (no fabricated text)", () => {
+    appendSessionMessages("s-none", dir, [{ role: "user", text: "hello" }]);
+    appendSessionTitle("s-none", "Greeting");
+    expect(listSessions().find((s) => s.id === "s-none")?.summary).toBeUndefined();
+  });
+
+  test("appending to a missing session is a no-op, never a bare file", () => {
+    appendSessionSummary("s-missing", "should not exist");
+    expect(existsSync(join(dir, "s-missing.jsonl"))).toBe(false);
   });
 });
 

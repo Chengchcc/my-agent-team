@@ -56,6 +56,7 @@ export interface TuiSessionContext {
   listSessions: () => Array<{
     id: string;
     title?: string;
+    summary?: string;
     preview?: string;
     workspace?: string;
     modifiedAt: number;

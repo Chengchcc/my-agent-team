@@ -33,7 +33,7 @@ import {
   renderSettlementRows,
   SETTLEMENT_INLINE_MAX,
   SETTLEMENT_PREVIEW_MAX,
-  sessionStamp,
+  sessionRow,
   WELCOME_TIPS,
 } from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
@@ -505,26 +505,27 @@ export function createTerminalIo(
       const rows = [...sessions];
       const build = (): Array<{ value: string; label: string; description: string }> =>
         rows.map((s) => {
-          const base = s.title ?? (s.preview || s.id.slice(0, 8));
-          const fork = s.forkOf ? ` \u2442 ${s.forkOf.slice(0, 8)}` : "";
-          const workspace = s.workspace ? ` [${s.workspace}]` : "";
-          return {
-            value: s.id,
-            // The stamp is absolute, not relative: equal-looking relative
-            // labels ("now", "1m") made the caller-supplied newest-first
-            // order unreadable.
-            label: sessionStamp(s.modifiedAt),
-            description: `${base}${fork}${workspace}`,
-          };
+          // One row shape for every resume surface (see sessionRow): the time
+          // column carries the absolute stamp AND the relative age, so the
+          // "3h ago" reading never costs the sortable order.
+          const { label, description } = sessionRow(s);
+          return { value: s.id, label, description };
         });
       const HINT = "  resume session — select, enter, ctrl+d delete, esc";
       const header = new Text(HINT, 0, 0);
+      // The label column is sized for `MM-DD HH:MM · 3h ago` (~20 cells) and
+      // the wide past-year form `2025-09-20 14:05 · 12mo ago` (26): the
+      // previous 6..8 clamp silently truncated the stamp to "09-20", dropping
+      // the time the newest-first order is read from.
       const list = new SelectList(build(), 10, EDITOR_THEME.selectList, {
-        minPrimaryColumnWidth: 6,
-        maxPrimaryColumnWidth: 8,
+        minPrimaryColumnWidth: 12,
+        maxPrimaryColumnWidth: 28,
       });
       const overlayBox = new PickerOverlay(header, list);
-      const overlay = tui.showOverlay(overlayBox, { width: "60%", anchor: "center" });
+      // Wider than the other pickers: a resume row carries time + age + title
+      // + summary, and the summary is the part worth reading (a 60% overlay
+      // cut it off mid-word at 100 columns).
+      const overlay = tui.showOverlay(overlayBox, { width: "80%", anchor: "center" });
       list.onSelect = (item) => {
         overlay.hide();
         resolve(item.value);

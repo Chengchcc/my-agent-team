@@ -11,6 +11,7 @@ import {
 import { resolveSession } from "../../core/session/session-loop.js";
 import { readTodoFile, todoFilePath } from "../../core/tools/todo-store.js";
 import type { CommandDef, TuiSessionContext } from "./tui-commands.js";
+import { sessionRow } from "./tui-format.js";
 import { hydrateTranscript } from "./view-state.js";
 
 export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
@@ -66,10 +67,10 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
           }
           ctx.pushStatus(
             sessions.slice(0, 20).map((s) => {
-              const when = new Date(s.modifiedAt).toISOString().slice(0, 16).replace("T", " ");
-              const workspace = s.workspace ? ` [${s.workspace}]` : "";
-              const fork = s.forkOf ? ` \u2442 ${s.forkOf.slice(0, 8)}` : "";
-              return `${when}  ${s.id}${fork}${workspace}  ${s.title ?? s.preview}`;
+              // Same row shape as the picker: the id stays in the text listing
+              // because this fallback is where /resume <prefix> is typed from.
+              const { label, description } = sessionRow(s);
+              return `${label}  ${s.id}  ${description}`;
             }),
           );
           return;
