@@ -10,7 +10,13 @@ import { type AsciiRenderOptions, renderMermaidASCII } from "./vendor/mermaid-as
 
 export type { AsciiRenderOptions as MermaidAsciiRenderOptions };
 
-/** Memoized renders (and failures), keyed on source + options + direction. */
+/** Memoized renders (and failures), keyed on source + options + direction.
+ *  Bounded: an assistant can emit unbounded distinct diagrams across a
+ *  long session, and the cache holds rendered ASCII (plus failed renders)
+ *  by strong reference — without a cap it grows until process exit.
+ *  Insertion order gives a cheap FIFO eviction; re-hits do not reorder
+ *  (ponytail: a true LRU matters only if diagrams repeat non-uniformly). */
+const CACHE_CAP = 64;
 const cache = new Map<string, string | null>();
 
 /** Widest rendered row in display columns (Bun wcwidth-style). */
@@ -36,6 +42,11 @@ function renderVariant(
   const options: AsciiRenderOptions = direction ? { ...baseOptions, direction } : baseOptions;
   const ascii = renderMermaidAsciiSafe(source, options);
   cache.set(key, ascii);
+  while (cache.size > CACHE_CAP) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
   return ascii;
 }
 

@@ -23,6 +23,9 @@ export function runBashPtyConsole(
     env: Record<string, string>;
     cols?: number;
     rows?: number;
+    /** Run abort / TUI close: SIGKILLs the child so the overlay promise
+     *  settles and the process cannot outlive the session. */
+    signal?: AbortSignal;
   },
 ): Promise<PtyConsoleResult> {
   const cols = Math.max(40, Math.min(opts.cols ?? tui.terminal.columns - 4, 140));
@@ -40,11 +43,35 @@ export function runBashPtyConsole(
   let tail = "";
   let killed = false;
   let done = false;
+  // Resize forwarding: the pty is sized once via stty at spawn; on a real
+  // terminal resize we push the new size INTO the child so full-screen
+  // programs redraw correctly. ponytail ceiling: the pane's own geometry
+  // stays at spawn size (a true re-layout means recreating the AnsiConsole
+  // mid-overlay); sliceByColumn clips the residual overflow.
+  const onResize = (): void => {
+    if (done) return;
+    proc.stdin.write(`stty rows ${tui.terminal.rows} cols ${tui.terminal.columns}\n`);
+  };
+  process.stdout.on("resize", onResize);
+  const teardownListener = (): void => {
+    process.stdout.removeListener("resize", onResize);
+  };
+  if (opts.signal) {
+    opts.signal.addEventListener(
+      "abort",
+      () => {
+        killed = true;
+        proc.kill("SIGKILL");
+      },
+      { once: true },
+    );
+  }
 
   return new Promise<PtyConsoleResult>((resolve) => {
     const settle = (exitCode: number | null) => {
       if (done) return;
       done = true;
+      teardownListener();
       resolve({ exitCode, tail: tail.slice(-TAIL_CAP), killed });
     };
 
@@ -88,6 +115,12 @@ export function runBashPtyConsole(
       .then((code) => {
         // Let the last output flush into the pane before teardown.
         setTimeout(() => {
+          if (tui.isStopped) {
+            // The TUI closed while the console was up: writing modes into
+            // the user's restored terminal would leak escapes.
+            settle(code);
+            return;
+          }
           tui.setFocus(null);
           handle.hide();
           // The pty child owned the terminal: re-assert raw mode + Kitty
@@ -98,6 +131,7 @@ export function runBashPtyConsole(
         }, 120);
       })
       .catch(() => {
+        teardownListener();
         tui.setFocus(null);
         handle.hide();
         tui.terminal.reassertTerminalState();

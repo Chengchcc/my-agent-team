@@ -73,6 +73,7 @@ export function createBashTool(opts: {
     command: string,
     cwd: string,
     env: Record<string, string>,
+    signal?: AbortSignal,
   ) => Promise<BashPtyResult>;
   /** Resolved runtime knobs (see resolveRuntimeKnobs): the tool never reads
    *  process.env, so a long-lived process cannot leak another Run's config. */
@@ -294,7 +295,7 @@ export function createBashTool(opts: {
         notice = "pty overlay skipped: the OS sandbox is active, so it ran inside the sandbox";
       }
       if (ptyOverlay && opts.ptyConsole) {
-        const done = await opts.ptyConsole(command, validatedCwd, withPtyEnv(bashEnv));
+        const done = await opts.ptyConsole(command, validatedCwd, withPtyEnv(bashEnv), signal);
         const tail = done.tail.trim();
         const failed = !done.killed && done.exitCode !== null && done.exitCode !== 0;
         const flag = done.killed

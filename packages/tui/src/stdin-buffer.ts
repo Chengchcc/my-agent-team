@@ -17,6 +17,7 @@
  * MIT License - Copyright (c) 2025 opentui
  */
 
+import { StringDecoder } from "node:string_decoder";
 import { EventEmitter } from "events";
 
 const ESC = "\x1b";
@@ -282,6 +283,9 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
   private pasteBuffer: string = "";
   private pendingKittyPrintableCodepoint: number | undefined;
   private extendedEscFlush = false;
+  /** Survives across process() calls so a UTF-8 char split between two
+   *  Buffer chunks decodes once, not as two replacement characters. */
+  private decoder: StringDecoder | null = null;
 
   constructor(options: StdinBufferOptions = {}) {
     super();
@@ -295,15 +299,20 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
       this.timeout = null;
     }
 
-    // Handle high-byte conversion (for compatibility with parseKeypress)
-    // If buffer has single byte > 127, convert to ESC + (byte - 128)
+    // Handle high-byte conversion (for compatibility with parseKeypress).
+    // If buffer has single byte > 127, convert to ESC + (byte - 128).
+    // Everything else goes through a PERSISTENT StringDecoder: a UTF-8
+    // character split across two Buffer chunks must not decode as two
+    // replacement characters (emoji/CJK paste or fast typing).
     let str: string;
     if (Buffer.isBuffer(data)) {
       if (data.length === 1 && data[0]! > 127) {
         const byte = data[0]! - 128;
         str = `\x1b${String.fromCharCode(byte)}`;
+        this.decoder = null; // resync: the hack consumed a raw byte
       } else {
-        str = data.toString();
+        if (!this.decoder) this.decoder = new StringDecoder("utf8");
+        str = this.decoder.write(data);
       }
     } else {
       str = data;

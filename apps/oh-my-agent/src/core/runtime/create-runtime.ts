@@ -101,6 +101,7 @@ export interface CreateOmaRuntimeOptions {
     command: string,
     cwd: string,
     env: Record<string, string>,
+    signal?: AbortSignal,
   ) => Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
 }
 

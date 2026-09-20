@@ -117,6 +117,8 @@ export interface Terminal {
  */
 export class ProcessTerminal implements Terminal {
   private wasRaw = false;
+  private wasEncoding: BufferEncoding | null = null;
+  private wasFlowing: boolean | null = null;
   private inputHandler?: (data: string) => void;
   private resizeHandler?: () => void;
   private _kittyProtocolActive = false;
@@ -154,8 +156,13 @@ export class ProcessTerminal implements Terminal {
     this.inputHandler = onInput;
     this.resizeHandler = onResize;
 
-    // Save previous state and enable raw mode
+    // Save previous state and enable raw mode. Encoding and flow state are
+    // saved too: as a LIBRARY, stop() must leave stdin the way it found it —
+    // an embedder's next readline/prompt would otherwise sit on a paused,
+    // forced-UTF8 stream (audit P2).
     this.wasRaw = process.stdin.isRaw || false;
+    this.wasEncoding = process.stdin.readableEncoding;
+    this.wasFlowing = process.stdin.readableFlowing;
     if (process.stdin.setRawMode) {
       process.stdin.setRawMode(true);
     }
@@ -476,6 +483,13 @@ export class ProcessTerminal implements Terminal {
     if (process.stdin.setRawMode) {
       process.stdin.setRawMode(this.wasRaw);
     }
+    // Restore the encoding/flow we borrowed. Flow: resume only if the
+    // stream was flowing before us. Encoding: a null (Buffer-mode) restore
+    // is not expressible in the typed surface (setEncoding lacks null);
+    // utf8-mode stdin is compatible with readline/prompt, so leaving it is
+    // the documented ceiling rather than a cast around the type.
+    process.stdin.setEncoding(this.wasEncoding ?? undefined);
+    if (this.wasFlowing) process.stdin.resume();
   }
 
   write(data: string): void {

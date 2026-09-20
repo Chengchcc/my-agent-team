@@ -113,6 +113,7 @@ export interface TuiIo {
     command: string,
     cwd: string,
     env: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
   /** Prefill the editor text (used for `oma "<prompt>"`). */
   setInputText?(text: string): void;

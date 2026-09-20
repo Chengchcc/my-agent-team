@@ -76,6 +76,9 @@ export function createTerminalIo(
     }
     injections.push(text);
   }
+  // The live pty console's kill switch: close() must not leave the pty
+  // child (and its overlay promise) dangling past the session.
+  let abortActivePty: (() => void) | null = null;
   const bgPending: JobSettlement[] = [];
   let bgDebounce: Timer | undefined;
   // Named + removed in close(): this is a PROCESS-GLOBAL slot. An anonymous
@@ -739,8 +742,15 @@ export function createTerminalIo(
       const handle = tui.showOverlay(box, { width: "70%", anchor: "center" });
       return promise;
     },
-    runPtyConsole(command, cwd, env) {
-      return runBashPtyConsole(tui, { command, cwd, env });
+    runPtyConsole(command, cwd, env, signal) {
+      const ac = new AbortController();
+      abortActivePty = () => ac.abort();
+      // Either trigger kills the console: the RUN aborting (tool signal)
+      // or the session closing (close() backstop).
+      signal?.addEventListener("abort", () => ac.abort(), { once: true });
+      return runBashPtyConsole(tui, { command, cwd, env, signal: ac.signal }).finally(() => {
+        abortActivePty = null;
+      });
     },
     setHeader(info) {
       shell.setHeader(info.model ?? "", info.sessionId ?? "", info.title ?? "", info.context);
@@ -756,8 +766,8 @@ export function createTerminalIo(
       tui.terminal.write("\x07");
     },
     close() {
+      abortActivePty?.();
       defaultRegistry.removeCompletionListener(onRegistrySettled);
-      clearTimeout(bgDebounce);
       clearInterval(elapsedTimer);
       clearInterval(chromeRepaintTimer);
       clearTimeout(quitTimer);

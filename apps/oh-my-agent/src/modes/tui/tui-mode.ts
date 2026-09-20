@@ -368,7 +368,8 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           workspaceRoot: opts.workspaceRoot,
           workspaceAccess: opts.readOnly ? "read_only" : "read_write",
           // M-bash: pty:true bash calls open the interactive console overlay.
-          bashPtyConsole: (command, cwd, env) => io.runPtyConsole!(command, cwd, env),
+          bashPtyConsole: (command, cwd, env, signal) =>
+            io.runPtyConsole!(command, cwd, env, signal),
           // HITL: interactive approval overlay; absent picker or cancel = deny.
           approvalHandler: async (req) => {
             const verdict = await io.confirmApproval?.({

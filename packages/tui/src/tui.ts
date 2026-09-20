@@ -415,6 +415,11 @@ export class TUI extends Container {
   private providerForceRepaint = false;
   private fullRedrawCount = 0;
   private stopped = false;
+  /** True once stop() ran: late async teardown (a pty overlay's deferred
+   *  cleanup) must not write terminal modes into the user's restored shell. */
+  get isStopped(): boolean {
+    return this.stopped;
+  }
   private pendingOsc11BackgroundReplies = 0;
   private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
   private terminalColorSchemeListeners = new Set<(scheme: TerminalColorScheme) => void>();

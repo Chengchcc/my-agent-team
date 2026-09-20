@@ -40,3 +40,19 @@ describe("StdinBuffer bare-ESC flush extension", () => {
     expect(emitted).toEqual(["\x1b[99;1:3u"]);
   });
 });
+
+describe("StdinBuffer cross-chunk UTF-8 (Buffer input)", () => {
+  test("a character split across two Buffer chunks decodes once", async () => {
+    const buf = new StdinBuffer({ timeout: 10 });
+    const emitted: string[] = [];
+    buf.on("data", (s) => emitted.push(s));
+    const bytes = Buffer.from("😀", "utf8"); // 4 code units
+    buf.process(bytes.subarray(0, 2));
+    buf.process(bytes.subarray(2));
+    await wait(30);
+    const joined = emitted.join("");
+    // Per-chunk toString() used to yield TWO replacement characters here.
+    expect(joined).toContain("😀");
+    expect(joined).not.toContain("\uFFFD");
+  });
+});

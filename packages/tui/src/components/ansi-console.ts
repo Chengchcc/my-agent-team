@@ -1,5 +1,6 @@
 import xterm from "@xterm/headless";
 import type { Component } from "../tui.ts";
+import { sliceByColumn } from "../utils.ts";
 import { lineToAnsi } from "../virtual-terminal.ts";
 
 const XtermTerminal = xterm.Terminal;
@@ -62,7 +63,7 @@ export class AnsiConsole implements Component {
       this.cachedWidth = width;
       this.dirty = false;
     }
-    return this.cached.map((line) => line.slice(0, width));
+    return this.cached.map((line) => sliceByColumn(line, 0, width, true));
   }
 
   handleInput(data: string): void {
