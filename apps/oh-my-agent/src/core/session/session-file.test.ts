@@ -441,6 +441,40 @@ describe("session branch tree", () => {
   });
 });
 
+/** Session ids reach the filesystem and callers supply them (RPC resume,
+ *  TUI rename/delete): every public API must refuse a path-shaped id at the
+ *  boundary instead of escaping the session dir. */
+describe("session id traversal boundary", () => {
+  const BAD = ["../escape", "..", "/abs/id", "a\\b", "sub/dir", ".", "with space", "nul\x00"];
+
+  test("load/append/delete/rename/fork all reject path-shaped ids", () => {
+    for (const id of BAD) {
+      expect(() => appendSessionMessages(id, dir, [{ role: "user", text: "x" }])).toThrow(
+        /invalid session id/,
+      );
+      expect(() => deleteSession(id, dir)).toThrow(/invalid session id/);
+      expect(() => renameSession(id, "t", dir)).toThrow(/invalid session id/);
+      expect(() => forkSession(id, dir)).toThrow(/invalid session id/);
+    }
+  });
+
+  test("a traversal id cannot touch anything outside the session dir", () => {
+    const outside = join(dir, "..", "oma-traversal-probe.jsonl");
+    expect(() =>
+      appendSessionMessages("../oma-traversal-probe", dir, [{ role: "user", text: "x" }]),
+    ).toThrow(/invalid session id/);
+    expect(existsSync(outside)).toBe(false);
+  });
+
+  test("legit id shapes still pass (uuid, alnum, dashes, underscores)", () => {
+    const uuid = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
+    appendSessionMessages(uuid, dir, [{ role: "user", text: "ok" }]);
+    expect(loadSessionMessages(uuid, dir).length).toBe(1);
+    expect(() => loadSessionMessages("tree2", dir)).not.toThrow();
+    expect(() => loadSessionMessages("a_b-c", dir)).not.toThrow();
+  });
+});
+
 /** Read every parsed JSON event of a session file (test helper). */
 function loadSessionEvents(id: string): Record<string, unknown>[] {
   const lines = readFileSync(join(dir, `${id}.jsonl`), "utf8")

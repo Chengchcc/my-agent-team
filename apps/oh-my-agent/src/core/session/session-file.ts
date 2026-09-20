@@ -46,8 +46,25 @@ export function sessionDir(): string {
   return process.env.OMA_SESSION_DIR ?? sessionDirFor(process.cwd());
 }
 
+/** Session ids reach the FILESYSTEM, and callers supply them (RPC resume,
+ *  TUI rename/delete): validate at this boundary. A path-shaped id
+ *  ("../x", "/abs", "a\\b", "..", trailing dots) would otherwise escape the
+ *  session directory and read/append/rename/delete outside it. Legit ids
+ *  are newSessionId() UUIDs (hex + dashes). */
+export function assertSafeSessionId(id: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error(`invalid session id: ${JSON.stringify(id.slice(0, 40))}`);
+  }
+  return id;
+}
+
+/** The single place a session id becomes a path. */
+function sessionFilePath(id: string, dir: string): string {
+  return join(dir, `${assertSafeSessionId(id)}.jsonl`);
+}
+
 export function sessionPath(id: string): string {
-  return join(sessionDir(), `${id}.jsonl`);
+  return sessionFilePath(id, sessionDir());
 }
 
 export function newSessionId(): string {
@@ -85,7 +102,7 @@ export function loadSessionMessages(
   id: string,
   dir: string = sessionDir(),
 ): Record<string, unknown>[] {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return [];
   const messages: Record<string, unknown>[] = [];
   /** The latest summary that MAY fold, with the index it folds from. A later
@@ -244,7 +261,7 @@ export function listAllSessions(): SessionSummary[] {
  *  the TUI to mark a session titled so the loop stops re-generating one on
  *  every completed turn. */
 export function readSessionTitle(id: string, dir: string = sessionDir()): string | undefined {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
@@ -269,7 +286,7 @@ export function readSessionTitle(id: string, dir: string = sessionDir()): string
  *  loop after each completed run. Last one wins in listings. Also the
  *  primitive for /rename: appending a new title overrides the display. */
 export function appendSessionTitle(id: string, title: string, dir: string = sessionDir()): void {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return;
   appendFileSync(
     path,
@@ -289,7 +306,7 @@ export function appendSessionSummary(
   summary: string,
   dir: string = sessionDir(),
 ): void {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return;
   appendFileSync(
     path,
@@ -303,7 +320,7 @@ export function appendSessionSummary(
 
 /** Delete a session file. Returns false when it did not exist. */
 export function deleteSession(id: string, dir: string = sessionDir()): boolean {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return false;
   rmSync(path, { force: true });
   return true;
@@ -312,7 +329,7 @@ export function deleteSession(id: string, dir: string = sessionDir()): boolean {
 /** Rename a session's display title (last-wins title event). Returns false
  *  when the session file does not exist. */
 export function renameSession(id: string, title: string, dir: string = sessionDir()): boolean {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return false;
   appendSessionTitle(id, title, dir);
   return true;
@@ -329,7 +346,7 @@ export function appendSessionCompaction(
    *  then keeps the transcript intact instead of folding it. */
   replacesEarlierMessages?: boolean,
 ): void {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return;
   appendFileSync(
     path,
@@ -359,7 +376,7 @@ export function loadSessionBranchNodes(
   id: string,
   dir: string = sessionDir(),
 ): SessionBranchNode[] {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, "utf8")
     .split("\n")
@@ -430,7 +447,7 @@ function copySessionThrough(
   dir: string,
   markerFields: Record<string, unknown>,
 ): string | null {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return null;
   const lines = readFileSync(path, "utf8")
     .split("\n")
@@ -449,7 +466,7 @@ function copySessionThrough(
     /* keep the original header line */
   }
   const marker = JSON.stringify({ type: "fork_of", parentId: id, ...markerFields });
-  writeFileSync(join(dir, `${newId}.jsonl`), `${[...kept, marker].join("\n")}\n`);
+  writeFileSync(sessionFilePath(newId, dir), `${[...kept, marker].join("\n")}\n`);
   return newId;
 }
 
@@ -460,7 +477,7 @@ export function forkSession(
   ordinal: number,
   dir: string = sessionDir(),
 ): string | null {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return null;
   const lines = readFileSync(path, "utf8")
     .split("\n")
@@ -493,7 +510,7 @@ export function forkSessionAtEvent(
   eventId: string,
   dir: string = sessionDir(),
 ): string | null {
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return null;
   const lines = readFileSync(path, "utf8")
     .split("\n")
@@ -545,7 +562,7 @@ export function appendSessionMessages(
   dir: string = sessionDir(),
 ): void {
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${id}.jsonl`);
+  const path = sessionFilePath(id, dir);
   const cacheKey = `${dir}:${id}`;
   if (!existsSync(path)) {
     writeFileSync(
