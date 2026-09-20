@@ -14,6 +14,7 @@ import {
   summarizeToolArgs,
 } from "./tui-format.js";
 import {
+  renderAskTool,
   renderFanoutBriefChrome,
   renderHubTool,
   renderLearnTool,
@@ -676,5 +677,77 @@ describe("job settlement text + rows", () => {
     expect(formatDurationMs(820)).toBe("820ms");
     expect(formatDurationMs(4_233)).toBe("4.2s");
     expect(formatDurationMs(63_000)).toBe("1m03s");
+  });
+});
+
+describe("renderAskTool (the durable record of a HITL ask)", () => {
+  const askItem = (result: unknown, streaming = false): TranscriptItem => ({
+    kind: "tool",
+    text: "ask_question",
+    streaming,
+    input: {
+      questions: [
+        {
+          id: "q1",
+          kind: "select",
+          question: "Pick one",
+          header: "Scope",
+          options: [
+            { value: "a", label: "alpha" },
+            { value: "b", label: "beta" },
+          ],
+        },
+      ],
+    },
+    ...(result !== undefined ? { result: result as Readonly<Record<string, unknown>> } : {}),
+  });
+
+  test("while the ask is live the panel owns it: the transcript stays quiet", () => {
+    // The docked panel is on screen and the loader line names the question — a
+    // second copy in the transcript would be the same facts twice.
+    expect(renderAskTool(askItem(undefined, true), false, 80)).toEqual([]);
+  });
+
+  test("a settled ask lists the options with the chosen one marked — never raw JSON", () => {
+    const text = renderAskTool(
+      askItem({ answers: [{ id: "q1", selectedValues: ["b"] }] }),
+      false,
+      80,
+    )
+      .join("\n")
+      .replace(ANSI_STRIP, "");
+    expect(text).toContain("1. Scope");
+    expect(text).toContain("Pick one");
+    expect(text).toContain("\u25c9 beta"); // chosen
+    expect(text).toContain("\u25cb alpha"); // offered, not chosen
+    // The old generic card dumped {"answers":[...]} here.
+    expect(text).not.toContain("selectedValues");
+    expect(text).not.toContain('{"answers"');
+  });
+
+  test("a free-text answer says where it came from", () => {
+    const selectOther = renderAskTool(
+      askItem({ answers: [{ id: "q1", selectedValues: [], freeText: "nope" }] }),
+      false,
+      80,
+    )
+      .join("\n")
+      .replace(ANSI_STRIP, "");
+    expect(selectOther).toContain("Other: \u201cnope\u201d");
+  });
+
+  test("a cancelled ask is recorded as cancelled, not as a tool failure", () => {
+    const text = renderAskTool(askItem({ error: "ask pipeline returned no answer" }), false, 80)
+      .join("\n")
+      .replace(ANSI_STRIP, "");
+    expect(text).toContain("cancelled");
+    expect(text).toContain("1. Scope");
+  });
+
+  test("an unanswered question in a partially answered form is called out", () => {
+    const text = renderAskTool(askItem({ answers: [{ id: "q1", selectedValues: [] }] }), false, 80)
+      .join("\n")
+      .replace(ANSI_STRIP, "");
+    expect(text).toContain("unanswered");
   });
 });

@@ -1,4 +1,4 @@
-import type { Container, Editor, TerminalFrameProvider } from "@chengchenccc/tui";
+import type { Component, Container, Editor, TerminalFrameProvider } from "@chengchenccc/tui";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import type { TuiRenderShell } from "./tui-render.js";
 import {
@@ -12,6 +12,24 @@ export interface OmaFrameProviderOptions {
   statusContainer: Container;
   editor: Editor;
   shell: TuiRenderShell;
+  /** The bottom region: normally the editor, but a HITL panel (ask_question)
+   *  DOCKED here while it is live — the input row is replaced rather than
+   *  covered, so a question the model is blocked on cannot be mistaken for a
+   *  transient overlay. Resolved per frame (the provider is built once). */
+  bottom?: () => Component;
+}
+
+/** A bottom-region component that sizes itself to the live viewport. Chrome is
+ *  allowed to change height here (the transcript window simply shrinks); a
+ *  DOCKED panel needs the real row count to clamp itself to a fraction of it,
+ *  and it must not read `process.stdout` — the frame provider's `rows` is the
+ *  authority, which is also what the VirtualTerminal tests drive. */
+interface ViewportSized {
+  setViewportRows(rows: number): void;
+}
+
+function isViewportSized(component: Component): component is Component & ViewportSized {
+  return typeof (component as { setViewportRows?: unknown }).setViewportRows === "function";
 }
 
 /** Composes the bounded mutable viewport (live transcript tail + status/
@@ -24,10 +42,13 @@ export function createOmaFrameProvider({
   statusContainer,
   editor,
   shell,
+  bottom,
 }: OmaFrameProviderOptions): TerminalFrameProvider {
   return {
     renderFrame({ columns, rows }) {
       const width = columns;
+      const bottomComponent = bottom?.() ?? editor;
+      if (isViewportSized(bottomComponent)) bottomComponent.setViewportRows(rows);
       const todo = renderTodoChrome(shell.viewState?.todoItems ?? [], width);
       // Two pinned blocks, in reading order: WHAT the fan-out is for (brief),
       // then WHO is doing it (live rows). The brief unmounts with the panel.
@@ -45,7 +66,7 @@ export function createOmaFrameProvider({
         ...brief,
         ...agents,
         ...statusContainer.render(width),
-        ...editor.render(width),
+        ...bottomComponent.render(width),
       ];
       const available = Math.max(0, rows - after.length);
       const target = Math.max(0, shell.lastTotalRows - available);

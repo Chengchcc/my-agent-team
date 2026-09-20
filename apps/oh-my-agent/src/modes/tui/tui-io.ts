@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AskQuestionResult } from "@chengchenccc/agent-contract";
 import {
   applyBackgroundToLine,
   CombinedAutocompleteProvider,
@@ -22,6 +23,7 @@ import {
   saveInputHistory,
 } from "../../core/session/input-history.js";
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
+import { AskPanel } from "./ask-panel.js";
 import { runBashPtyConsole } from "./pty-console.js";
 import { SettingsOverlay } from "./settings-overlay.js";
 import { layoutBranchTree } from "./tui-branch-layout.js";
@@ -37,7 +39,7 @@ import {
   WELCOME_TIPS,
 } from "./tui-format.js";
 import { createOmaFrameProvider } from "./tui-frame-provider.js";
-import { deletePickedSession, pickNotice, pickOne } from "./tui-overlays.js";
+import { deletePickedSession } from "./tui-overlays.js";
 import { TuiRenderShell } from "./tui-render.js";
 import type { TuiCommand, TuiIo } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
@@ -164,6 +166,26 @@ export function createTerminalIo(
     },
   };
   const editor = new Editor(tui, editorTheme);
+  // DOCKED HITL panel (ask_question). While it is live it takes the editor's
+  // place at the bottom of the frame and owns the keyboard; the provider
+  // resolves the slot per frame, so nothing has to be unmounted. `dock`/`undock`
+  // are the only way in and out (undock restores focus to the editor).
+  //
+  // `dismiss` is the panel's settle-once entry point and exists because a
+  // docked panel outlives nothing: once the run it belongs to is gone (user
+  // abort) the ask has to resolve too, or the panel stays docked swallowing
+  // every keystroke with no run left to answer.
+  let docked: { panel: AskPanel; dismiss: () => void } | null = null;
+  function dock(panel: AskPanel, dismiss: () => void): void {
+    docked = { panel, dismiss };
+    tui.setFocus(panel);
+    tui.requestRender();
+  }
+  function undock(panel: AskPanel): void {
+    if (docked?.panel === panel) docked = null;
+    tui.setFocus(editor);
+    tui.requestRender();
+  }
   // The header is emitted by setHeader() once the session identity is known
   // (runTuiSession always calls it). Rendering here too would print a second,
   // session-less banner into the transcript.
@@ -322,8 +344,10 @@ export function createTerminalIo(
     if (matchesKey(data, "escape")) {
       // An overlay must own Esc: abort/forkTree must not steal the key while
       // the user is trying to cancel the overlay, or it becomes impossible to
-      // close (e.g. branch-tree picker).
-      if (tui.hasOverlay()) return undefined;
+      // close (e.g. branch-tree picker). A DOCKED panel has the same claim —
+      // it is the surface the user is looking at, and Esc there means "cancel
+      // the question", not "abort the run it came from".
+      if (tui.hasOverlay() || docked !== null) return undefined;
       if (busy) {
         if (commandHandler) commandHandler("abort");
         return { consume: true };
@@ -360,6 +384,9 @@ export function createTerminalIo(
     // ctrl+c aborts the live run when busy and quits when idle.
     if (matchesKey(data, "ctrl+c")) {
       if (busy) {
+        // The abort tears the run down; a pending ask must be resolved with it
+        // (the panel would otherwise stay docked with nothing behind it).
+        docked?.dismiss();
         if (commandHandler) commandHandler("abort");
       } else if (pending) {
         // Idle: the second press within 2s quits; the first just arms.
@@ -416,6 +443,7 @@ export function createTerminalIo(
       statusContainer,
       editor,
       shell,
+      bottom: () => docked?.panel ?? editor,
     }),
   );
   tui.addChild(transcript);
@@ -608,40 +636,24 @@ export function createTerminalIo(
       return promise;
     },
     askQuestions(input) {
-      // ponytail: TUI v1 fully supports single-select questions via the
-      // SelectList overlay; multi/text degrade to a notice overlay resolving
-      // null (tool fails closed). Upgrade path: an Input-based form overlay
-      // (packages/tui Input is Focusable) for text + checkbox rows for multi.
-      return (async () => {
-        const answers: Array<{
-          id: string;
-          selectedValues: string[];
-          freeText?: string;
-        }> = [];
-        for (const q of input.questions) {
-          if (q.kind === "text" || q.multi) {
-            const unsupported = await pickNotice(
-              tui,
-              `  ${q.question} — ${q.kind === "text" ? "text" : "multi-select"} input not supported in TUI yet — esc`,
-            );
-            if (!unsupported) return null;
-            continue;
-          }
-          const options = q.options ?? [];
-          const picked = await pickOne(
-            tui,
-            `  ${q.question} — select, enter, esc${q.header ? ` — ${q.header}` : ""}`,
-            options.map((o) => ({
-              value: o.value,
-              label: o.label + (q.recommended === o.value ? " (Recommended)" : ""),
-              description: o.description,
-            })),
-          );
-          if (picked === null) return null;
-          answers.push({ id: q.id, selectedValues: [picked] });
-        }
-        return { answers };
-      })();
+      // DOCKED panel, not an overlay: the model is blocked on this answer, so
+      // the surface must not look like one more transient picker (and it must
+      // not cover the row the user is typing in). Multi-select, free text and
+      // the Other row are all supported here — the previous single-select
+      // overlay degraded text/multi to a notice and failed the tool closed.
+      const { promise, resolve } = Promise.withResolvers<AskQuestionResult | null>();
+      const panel = new AskPanel(input, {
+        onSettle: (result) => {
+          undock(panel);
+          resolve(result);
+        },
+        requestRender: () => tui.requestRender(),
+      });
+      dock(panel, () => {
+        undock(panel);
+        resolve(null);
+      });
+      return promise;
     },
     pickForkPoint(points) {
       const { promise, resolve } = Promise.withResolvers<number | null>();

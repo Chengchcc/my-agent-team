@@ -438,3 +438,98 @@ function renderAgentTree(
   if (truncated) lines.push(dim(`  … ${sorted.length - shown.length} more · (ctrl+o)`));
   return { lines };
 }
+
+/** ask_question 结果块：题目 + 给过的选项 + 选中标记的持久记录（oh-my-pi 的
+ *  askToolResult 同形）。答完一次 ask，transcript 里留下的应该是"问了什么、
+ *  选了什么"，不是工具返回的裸 JSON。
+ *
+ *  与 hub 工具块相反的一侧：ask 在 RUNNING 时由停靠面板负责（它还占着
+ *  loader 行），transcript 保持安静；settled 之后面板消失，这块才是记录。 */
+export function renderAskTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
+  if (item.streaming) return [];
+  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+  const green = (s: string): string => `\u001b[32m${s}\u001b[0m`;
+  const yellow = (s: string): string => `\u001b[33m${s}\u001b[0m`;
+
+  const asRecord = (v: unknown): Record<string, unknown> =>
+    typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+  const questions = (
+    Array.isArray(asRecord(item.input).questions)
+      ? (asRecord(item.input).questions as unknown[])
+      : []
+  ).filter((q): q is Record<string, unknown> => typeof q === "object" && q !== null);
+  const result = asRecord(item.result);
+  const answers = Array.isArray(result.answers)
+    ? (result.answers as unknown[]).map(asRecord)
+    : undefined;
+  // A cancelled ask carries no answers: the tool fails closed with an error.
+  const cancelled = answers === undefined;
+  const errorText =
+    typeof result.error === "string" && result.error !== "" ? result.error : undefined;
+
+  const label = (q: Record<string, unknown>, i: number): string =>
+    String(q.header ?? q.id ?? `Q${i + 1}`);
+  const marker = (multi: boolean, on: boolean): string =>
+    multi ? (on ? "\u2611" : "\u2610") : on ? "\u25c9" : "\u25cb";
+
+  const sections: Array<{ label?: string; lines: string[] }> = [];
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i]!;
+    const answer = answers?.find((a) => a.id === q.id);
+    const selected = new Set(
+      Array.isArray(answer?.selectedValues) ? (answer.selectedValues as unknown[]).map(String) : [],
+    );
+    const freeText = typeof answer?.freeText === "string" ? answer.freeText : "";
+    const multi = q.multi === true;
+    const options = Array.isArray(q.options) ? (q.options as unknown[]).map(asRecord) : [];
+    const lines: string[] = [];
+    const questionText = String(q.question ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (questionText) lines.push(dim(questionText));
+    for (const option of options) {
+      const value = String(option.value ?? "");
+      const on = selected.has(value);
+      const text = String(option.label ?? value);
+      lines.push(
+        `${on ? green(marker(multi, true)) : dim(marker(multi, false))} ${on ? text : dim(text)}`,
+      );
+      // ctrl+o (tool detail) adds the option's own description: the answer
+      // record is the same either way, the detail is what each choice meant.
+      const description = typeof option.description === "string" ? option.description.trim() : "";
+      if (expanded && description) lines.push(dim(`    \u21b3 ${description}`));
+    }
+    if (freeText) {
+      // A free-text answer arrives either as the Other row (select) or as the
+      // whole answer (text kind) — say which, so the record is unambiguous.
+      const prefix = q.kind === "text" ? "" : "Other: ";
+      lines.push(`${green(marker(multi, true))} ${prefix}\u201c${freeText}\u201d`);
+    } else if (selected.size === 0) {
+      lines.push(`${dim(marker(multi, false))} ${yellow(cancelled ? "cancelled" : "unanswered")}`);
+    }
+    sections.push({ label: `${i + 1}. ${label(q, i)}`, lines });
+  }
+
+  const state: OutputBlockState = errorText !== undefined ? "warning" : "success";
+  const count = questions.length;
+  const meta = [`${count} question${count === 1 ? "" : "s"}`];
+  if (cancelled) meta.push("cancelled");
+  const header = renderToolHeader({
+    icon: errorText !== undefined ? "\u2298" : "\u2714",
+    title: "ask",
+    meta,
+    titleColor: errorText !== undefined ? "\u001b[33m" : "\u001b[32m",
+  });
+  if (sections.length === 0) {
+    return renderOutputBlock({
+      header,
+      state,
+      sections: [{ lines: [errorText ?? "no questions"] }],
+      width,
+    });
+  }
+  if (errorText !== undefined && cancelled) {
+    sections.push({ lines: [yellow(errorText)] });
+  }
+  return renderOutputBlock({ header, state, sections, width });
+}

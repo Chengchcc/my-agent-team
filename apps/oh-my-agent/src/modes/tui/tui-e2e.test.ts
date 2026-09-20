@@ -745,7 +745,7 @@ describe("loader content policy (omp parity)", () => {
     }
   }, 30_000);
 
-  test("ask_question overlays a picker and returns the picked answer", async () => {
+  test("ask_question docks a panel over the editor slot and returns the answer", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-sess-"));
     process.env.OMA_SESSION_DIR = sessDir;
@@ -758,8 +758,9 @@ describe("loader content policy (omp parity)", () => {
               id: "q1",
               kind: "select",
               question: "Pick one",
+              header: "Choice",
               options: [
-                { value: "alpha", label: "alpha" },
+                { value: "alpha", label: "alpha", description: "the first" },
                 { value: "beta", label: "beta" },
               ],
             },
@@ -769,20 +770,204 @@ describe("loader content policy (omp parity)", () => {
     ]);
     try {
       const vt = new VirtualTerminal(100, 30);
-      const io = createTerminalIo(vt);
+      const io = createTerminalIo(vt, dir);
       const sessionDone = runTuiSession(
         { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
         io,
       );
 
       await typeAndSubmit(vt, "ask me");
-      // The HITL overlay opens with the question.
       await waitForText(vt, "Pick one", 5_000);
+      const panel = screen(vt);
+      // A framed panel naming itself, with the question and its keys — the old
+      // surface was an unframed 4-row overlay carrying only a hint line.
+      expect(panel).toContain("\u250c\u2500\u2500\u2500 Ask");
+      expect(panel).toContain("Pick one");
+      expect(panel).toContain("\u25cb alpha");
+      expect(panel).toContain("the first");
+      expect(panel).toContain("Enter select");
+      expect(panel).toContain("Esc cancel");
+      // DOCKED: it replaces the editor (its status bar is gone) and its closing
+      // border is the bottom row of the viewport.
+      expect(panel).not.toContain("fake/echo");
+      const lastContent = vt
+        .getViewport()
+        .filter((line) => line.trim() !== "")
+        .at(-1);
+      expect(lastContent).toContain("\u2514");
+
       // Enter picks the first option; the answer flows back into the tool
-      // result and the run completes (fake provider falls back to text).
+      // result, the panel unmounts and the transcript keeps the record.
       vt.sendInput("\r");
-      await waitForText(vt, "alpha", 5_000);
       await waitForText(vt, "done", 5_000);
+      await vt.waitForRender();
+      const after = screen(vt);
+      expect(after).toContain("\u25c9 alpha");
+      expect(after).not.toContain("Esc cancel");
+      expect(after).toContain("fake/echo");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("ask_question carries multi-select and free text back to the model", async () => {
+    // Both used to be refused by the TUI ("not supported in TUI yet"), which
+    // failed the tool closed: no answer ever reached the model.
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-multi-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-multi-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: {
+          questions: [
+            {
+              id: "q1",
+              kind: "select",
+              multi: true,
+              header: "Scope",
+              question: "Which parts?",
+              options: [
+                { value: "dialog", label: "the dialog" },
+                { value: "transcript", label: "the transcript" },
+              ],
+            },
+            { id: "q2", kind: "text", header: "Notes", question: "Notes?" },
+          ],
+        },
+      },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "ask me");
+      await waitForText(vt, "Which parts?", 5_000);
+      // Space toggles a checkbox (Enter alone would never select anything).
+      vt.sendInput(" ");
+      await vt.waitForRender();
+      expect(screen(vt)).toContain("\u2611 the dialog");
+      vt.sendInput("\r"); // Enter advances to the next question
+      await waitForText(vt, "Notes?", 5_000);
+      vt.sendInput("both of them");
+      await vt.waitForRender();
+      vt.sendInput("\r"); // Enter on a text question advances to Submit
+      await waitForText(vt, "Review answers", 3_000);
+      vt.sendInput("\r");
+      await waitForText(vt, "done", 5_000);
+
+      await vt.waitForRender();
+      const after = screen(vt);
+      expect(after).toContain("\u2611 the dialog");
+      expect(after).toContain("\u201cboth of them\u201d");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("Esc cancels the ask instead of aborting the run (the dock owns the key)", async () => {
+    // The io's global key listener aborts a live run on Esc. A docked panel
+    // must win that key — it is the surface the user is looking at — or the
+    // question can never be cancelled.
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-esc-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-esc-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: {
+          questions: [
+            {
+              id: "q1",
+              kind: "select",
+              question: "Pick one",
+              options: [{ value: "a", label: "alpha" }],
+            },
+          ],
+        },
+      },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "ask me");
+      await waitForText(vt, "Pick one", 5_000);
+      vt.sendInput("\x1b");
+      // The ask resolves; the run CONTINUES (it is not aborted) and settles.
+      await waitForText(vt, "done", 5_000);
+      await vt.waitForRender();
+      const after = screen(vt);
+      expect(after).toContain("cancelled");
+      expect(after).not.toContain("Esc cancel");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("aborting a run mid-ask undocks the panel (no stuck input surface)", async () => {
+    // Otherwise the panel outlives its run: docked, focused and swallowing
+    // every keystroke with nothing behind it.
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-abort-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-abort-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: {
+          questions: [
+            {
+              id: "q1",
+              kind: "select",
+              question: "Pick one",
+              options: [{ value: "a", label: "alpha" }],
+            },
+          ],
+        },
+      },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "ask me");
+      await waitForText(vt, "Pick one", 5_000);
+      expect(screen(vt)).not.toContain("fake/echo");
+      vt.sendInput("\x03"); // ctrl+c aborts the run
+      await vt.waitForRender();
+      // The editor is back: the panel did not survive the run it belonged to.
+      await waitForText(vt, "fake/echo", 5_000);
+      expect(screen(vt)).not.toContain("Esc cancel");
 
       await quitTui(vt);
       expect(await sessionDone).toBe(0);
