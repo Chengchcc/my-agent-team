@@ -39,7 +39,18 @@ function checkFreshness(
   provided: unknown,
 ): { content: string; isError: true } | undefined {
   const current = fingerprintFile(full);
-  if (current === undefined) return undefined; // absent/unreadable: nothing to clobber
+  if (current === undefined) {
+    // Absent is fine (nothing to clobber); EXISTS-but-unreadable must fail
+    // CLOSED: "cannot hash it" must not become "may overwrite it".
+    if (existsSync(full)) {
+      return {
+        content:
+          "Error: the file exists but its content cannot be read (permissions?), so the write gate refuses to touch it.",
+        isError: true,
+      };
+    }
+    return undefined;
+  }
   const given = typeof provided === "string" ? provided.trim() : "";
   if (given === "") {
     return {
@@ -54,6 +65,24 @@ function checkFreshness(
     };
   }
   return undefined;
+}
+
+/** Schema assembly shared by the freshness-gated file tools: the
+ *  fingerprint parameter exists only under "require". Plain if-built
+ *  properties — a conditional spread would bury the condition. */
+function buildFileToolProperties(
+  base: Record<string, unknown>,
+  freshness: FileFreshness,
+  requirementNote = "",
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = { ...base };
+  if (freshness === "require") {
+    properties.fingerprint = {
+      type: "string",
+      description: `The [fingerprint ...] value from a read of this file.${requirementNote ? ` ${requirementNote}` : ""}`,
+    };
+  }
+  return properties;
 }
 
 function safePath(cwd: string, userPath: string): string | null {
@@ -224,27 +253,21 @@ export function createWriteTool(opts: { cwd: string; freshness?: FileFreshness }
         ? " Overwriting an existing file requires the fingerprint from a prior read of it."
         : ""),
     inputSchema: {
-      type: "object",
-      properties: {
-        description: descriptionParam,
-        path: {
-          type: "string",
-          description: "Path to the file to write, relative to workspace root",
+      properties: buildFileToolProperties(
+        {
+          description: descriptionParam,
+          path: {
+            type: "string",
+            description: "Path to the file to write, relative to workspace root",
+          },
+          content: {
+            type: "string",
+            description: "Content to write to the file",
+          },
         },
-        content: {
-          type: "string",
-          description: "Content to write to the file",
-        },
-        ...(freshness === "require"
-          ? {
-              fingerprint: {
-                type: "string",
-                description:
-                  "The [fingerprint ...] value from a read of this file. Required when the file already exists.",
-              },
-            }
-          : {}),
-      },
+        freshness,
+        "Required when the file already exists.",
+      ),
       required: ["path", "content"],
     },
     async execute(input: unknown) {
@@ -290,33 +313,28 @@ export function createEditTool(opts: { cwd: string; freshness?: FileFreshness })
       (freshness === "require" ? " Requires the fingerprint from a prior read of the file." : ""),
     inputSchema: {
       type: "object",
-      properties: {
-        description: descriptionParam,
-        path: {
-          type: "string",
-          description: "Path to the file to edit, relative to workspace root",
+      properties: buildFileToolProperties(
+        {
+          description: descriptionParam,
+          path: {
+            type: "string",
+            description: "Path to the file to edit, relative to workspace root",
+          },
+          old_string: {
+            type: "string",
+            description: "The exact text to replace (must be unique unless replace_all is true)",
+          },
+          new_string: {
+            type: "string",
+            description: "The replacement must differ from old_string",
+          },
+          replace_all: {
+            type: "boolean",
+            description: "Replace all occurrences. Defaults to false (first match only).",
+          },
         },
-        old_string: {
-          type: "string",
-          description: "The exact text to replace (must be unique unless replace_all is true)",
-        },
-        new_string: {
-          type: "string",
-          description: "The replacement text (must differ from old_string)",
-        },
-        replace_all: {
-          type: "boolean",
-          description: "Replace all occurrences. Defaults to false (first match only).",
-        },
-        ...(freshness === "require"
-          ? {
-              fingerprint: {
-                type: "string",
-                description: "The [fingerprint ...] value from a read of this file.",
-              },
-            }
-          : {}),
-      },
+        freshness,
+      ),
       required: ["path", "old_string", "new_string"],
     },
     async execute(input: unknown) {

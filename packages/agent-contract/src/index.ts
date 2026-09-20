@@ -10,7 +10,13 @@ export type {
 export type { AgentBackend, BackendRegistry, BackendRegistryEntry } from "./backend.js";
 export { guardedConsume } from "./cli-consume.js";
 export { debugLog } from "./debug.js";
-export { childEnv } from "./env.js";
+export {
+  CONSENTED_MCP_TOOLS_ENV,
+  childEnv,
+  decodeEnvList,
+  encodeEnvList,
+  MCP_EXPANDABLE_VARS_ENV,
+} from "./env.js";
 export type { BackendEvent, BackendExtensionEvent, CoreBackendEvent, Usage } from "./event.js";
 export type {
   AgentRunSnapshot,

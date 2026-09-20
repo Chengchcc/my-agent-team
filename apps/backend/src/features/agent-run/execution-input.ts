@@ -4,10 +4,7 @@ import type {
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
 import type { ContentBlock, Message } from "@chengchenccc/message";
-import {
-  PRODUCT_CONSENTED_MCP_TOOLS,
-  PRODUCT_MCP_EXPANDABLE_VARS,
-} from "../agent/workspace-bridge.js";
+import { PRODUCT_CONSENTED_MCP_TOOLS, PRODUCT_MCP_EXPANDABLE_VARS } from "../agent/index.js";
 import type { AgentRun, BranchInput } from "./domain.js";
 
 /** The final answer of a canonical run sequence (ADR 0017): the last

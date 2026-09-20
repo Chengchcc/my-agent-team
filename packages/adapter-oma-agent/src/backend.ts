@@ -7,7 +7,12 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "@chengchenccc/agent-contract";
-import { debugLog } from "@chengchenccc/agent-contract";
+import {
+  CONSENTED_MCP_TOOLS_ENV,
+  debugLog,
+  encodeEnvList,
+  MCP_EXPANDABLE_VARS_ENV,
+} from "@chengchenccc/agent-contract";
 import { mapRunEvent, mapRunOutcome } from "./event-mapper.js";
 import { type OmaCommandConfig, type SpawnedOmaProcess, spawnOmaProcess } from "./process.js";
 import { codingAgentOutputSchema, type OmaOutput, type RunEventEnvelope } from "./protocol.js";
@@ -187,10 +192,10 @@ export class OmaBackend implements AgentBackend<"oma"> {
         // the spawner declares here (the workspace cannot self-declare).
       }
       if (input.mcpExpandableVars?.length) {
-        spawnEnv.OMA_MCP_EXPANDABLE_VARS = input.mcpExpandableVars.join(",");
+        spawnEnv[MCP_EXPANDABLE_VARS_ENV] = encodeEnvList(input.mcpExpandableVars);
       }
       if (input.consentedMcpTools?.length) {
-        spawnEnv.OMA_CONSENTED_MCP_TOOLS = input.consentedMcpTools.join(",");
+        spawnEnv[CONSENTED_MCP_TOOLS_ENV] = encodeEnvList(input.consentedMcpTools);
       }
       if (input.convTitled) spawnEnv.OMA_CONV_TITLED = "1";
       proc = spawnOmaProcess({ ...this.command, env: spawnEnv }, { cwd: input.workspace.root });

@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentRunSnapshot,
+  CONSENTED_MCP_TOOLS_ENV,
   debugLog,
+  decodeEnvList,
   type ProjectedHistoryItem,
 } from "@chengchenccc/agent-contract";
 import { type ModelRuntime, type ModelRuntimeEntry, resolveModelAlias } from "@chengchenccc/ai";
@@ -590,20 +592,15 @@ function createRunPermissionGates(
     learn: true,
     manage_skill: true,
   };
-  // Consent for mounted MCP tools is INJECTED policy
-  // (OMA_CONSENTED_MCP_TOOLS, comma-separated, set by the spawner): the
+  // Consent for mounted MCP tools is INJECTED policy (spawner-declared env
+  // var; name + comma codec single-sourced in agent-contract env.ts): the
   // product declares its own read surfaces — reads of the run's
   // conversation / knowledge / artifact storage, the run's todo scratch
   // state, and the interactive ask — so ask/deny modes don't demand a
   // human click per history_* call. oma itself holds NO product tool
   // names; absent = every mcp__ tool is gated (fail-safe: a tool the
   // product adds later stays gated until the spawner lists it).
-  const CONSENTED_MCP_TOOLS = new Set(
-    (process.env.OMA_CONSENTED_MCP_TOOLS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+  const CONSENTED_MCP_TOOLS = new Set(decodeEnvList(process.env[CONSENTED_MCP_TOOLS_ENV]));
   const isConsentedProductTool = (toolName: string): boolean => CONSENTED_MCP_TOOLS.has(toolName);
   const classifierGated = (toolName: string, input: unknown): boolean =>
     !isConsentedProductTool(toolName) &&

@@ -43,19 +43,13 @@ export function runBashPtyConsole(
   let tail = "";
   let killed = false;
   let done = false;
-  // Resize forwarding: the pty is sized once via stty at spawn; on a real
-  // terminal resize we push the new size INTO the child so full-screen
-  // programs redraw correctly. ponytail ceiling: the pane's own geometry
-  // stays at spawn size (a true re-layout means recreating the AnsiConsole
-  // mid-overlay); sliceByColumn clips the residual overflow.
-  const onResize = (): void => {
-    if (done) return;
-    proc.stdin.write(`stty rows ${tui.terminal.rows} cols ${tui.terminal.columns}\n`);
-  };
-  process.stdout.on("resize", onResize);
-  const teardownListener = (): void => {
-    process.stdout.removeListener("resize", onResize);
-  };
+  // NO resize forwarding, deliberately: the pty is sized once via stty at
+  // spawn, and the only channel into it is its STDIN — an `stty rows/cols`
+  // line typed into a full-screen program (vim: the exact case it exists
+  // for) arrives as garbage keystrokes. It "works" only while a shell is
+  // reading. A correct fix needs a real pty handle (TIOCSWINSZ); until
+  // then the pane clips (sliceByColumn) and the child keeps its spawn
+  // size — the documented ceiling.
   if (opts.signal) {
     opts.signal.addEventListener(
       "abort",
@@ -71,7 +65,6 @@ export function runBashPtyConsole(
     const settle = (exitCode: number | null) => {
       if (done) return;
       done = true;
-      teardownListener();
       resolve({ exitCode, tail: tail.slice(-TAIL_CAP), killed });
     };
 
@@ -131,7 +124,6 @@ export function runBashPtyConsole(
         }, 120);
       })
       .catch(() => {
-        teardownListener();
         tui.setFocus(null);
         handle.hide();
         tui.terminal.reassertTerminalState();

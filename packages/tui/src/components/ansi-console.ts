@@ -3,6 +3,9 @@ import type { Component } from "../tui.ts";
 import { sliceByColumn } from "../utils.ts";
 import { lineToAnsi } from "../virtual-terminal.ts";
 
+/** sliceByColumn's strict flag: hard-cut at the column boundary rather
+ *  than leave a wide char straddling it. */
+const TRUNCATE_STRICT = true;
 const XtermTerminal = xterm.Terminal;
 
 /** Live ANSI console pane backed by a headless xterm VT.
@@ -63,7 +66,7 @@ export class AnsiConsole implements Component {
       this.cachedWidth = width;
       this.dirty = false;
     }
-    return this.cached.map((line) => sliceByColumn(line, 0, width, true));
+    return this.cached.map((line) => sliceByColumn(line, 0, width, TRUNCATE_STRICT));
   }
 
   handleInput(data: string): void {

@@ -380,4 +380,21 @@ describe("write freshness gate", () => {
     expect(String(res.content)).toContain("cannot change anything");
     expect((await createReadTool({ cwd }).execute({ path: "z.txt" })).content).toBe("1\tabc\n2\t");
   });
+  test("an existing-but-unreadable file fails CLOSED, not open", async () => {
+    if (process.getuid?.() === 0) return; // root reads anything; guard is untestable
+    const locked = join(cwd, "locked.txt");
+    writeFileSync(locked, "hidden\n", { mode: 0o000 });
+    try {
+      const res = await createWriteTool({ cwd, freshness: "require" }).execute({
+        path: "locked.txt",
+        content: "CLOBBERED",
+      });
+      expect(res.isError).toBe(true);
+      expect(String(res.content)).toContain("cannot be read");
+      // The refusal must not hand out a fingerprint either.
+      expect(String(res.content)).not.toMatch(/[0-9a-f]{12}/);
+    } finally {
+      rmSync(locked, { force: true });
+    }
+  });
 });

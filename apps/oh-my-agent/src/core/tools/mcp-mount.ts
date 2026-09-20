@@ -1,5 +1,6 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "@chengchenccc/agent-contract";
 import type { PluginTool } from "../index.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import { killProcessTree } from "../runtime/process-tree.js";
@@ -47,20 +48,16 @@ function loadMcpConfig(workspaceRoot: string): Record<string, McpJsonServer> {
 }
 
 /** Expand ${VAR} placeholders in .mcp.json headers/env. ALLOWLIST ONLY,
- *  and the list is INJECTED (OMA_MCP_EXPANDABLE_VARS, comma-separated,
- *  set by the spawner): .mcp.json lives in the workspace and is writable
- *  by the agent itself — free expansion of process env would let a
- *  prompt-injected write exfiltrate provider keys / run tokens to any
- *  configured SSE URL (proven P0, 2026-09-07). oma itself holds no
- *  product names; everything outside the injected list resolves to ""
- *  with a warning. Read per call so tests (one process) can scope it. */
+ *  and the list is INJECTED (spawner-declared env var; the name and the
+ *  comma codec are single-sourced in agent-contract env.ts): .mcp.json
+ *  lives in the workspace and is writable by the agent itself — free
+ *  expansion of process env would let a prompt-injected write exfiltrate
+ *  provider keys / run tokens to any configured SSE URL (proven P0,
+ *  2026-09-07). oma itself holds no product names; everything outside the
+ *  injected list resolves to "" with a warning. Read per call so tests
+ *  (one process) can scope it. */
 function expandableEnvVars(): Set<string> {
-  return new Set(
-    (process.env.OMA_MCP_EXPANDABLE_VARS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+  return new Set(decodeEnvList(process.env[MCP_EXPANDABLE_VARS_ENV]));
 }
 function expandEnvVars(value: string): string {
   const allowed = expandableEnvVars();

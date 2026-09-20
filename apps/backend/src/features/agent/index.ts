@@ -11,10 +11,14 @@ export { withLarkLifecycle } from "./agent-lark.js";
 export type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 export { agentModelRef } from "./domain.js";
 export { agentRoutes } from "./http.js";
-export type { AgentPort } from "./ports.js";
 export {
   AgentBusyError,
   AgentNotFoundError,
   type AgentService,
   createAgentService,
 } from "./service.js";
+export type { McpServerEntry } from "./workspace-bridge.js";
+export {
+  PRODUCT_CONSENTED_MCP_TOOLS,
+  PRODUCT_MCP_EXPANDABLE_VARS,
+} from "./workspace-bridge.js";
