@@ -72,6 +72,15 @@ export interface ProjectSettings {
    *  like permissionMode it is standalone-only — a backend RPC run ignores the
    *  workspace file and takes the value from its frozen run snapshot. */
   browserLocalNetwork?: boolean;
+  /** Write freshness policy for the file tools (env OMA_EDIT_FRESHNESS).
+   *  "require" = edit/write must echo the [fingerprint ...] a read reported, so
+   *  a write can never land on content the caller has not seen; "off" restores
+   *  the pre-fingerprint behaviour. ABSENT MEANS "require": the gate is on
+   *  unless a workspace deliberately downgrades it, and a workspace can only do
+   *  that for itself (`read_only` file tools cannot edit `.oma/settings.json` —
+   *  it is in PROTECTED_FILES). A backend RPC run ignores the workspace value
+   *  entirely and keeps the default. */
+  editFreshness?: "off" | "require";
 }
 
 /** Tool-output pruning knobs (see tool-pruning.ts for the mechanics). */
@@ -148,6 +157,12 @@ export function loadProjectSettings(root: string): ProjectSettings {
     }
     if ("browserLocalNetwork" in parsed && typeof parsed.browserLocalNetwork === "boolean") {
       result.browserLocalNetwork = parsed.browserLocalNetwork;
+    }
+    if (
+      "editFreshness" in parsed &&
+      (parsed.editFreshness === "off" || parsed.editFreshness === "require")
+    ) {
+      result.editFreshness = parsed.editFreshness;
     }
     if (
       "memoryVector" in parsed &&
@@ -242,6 +257,9 @@ export interface RuntimeKnobs {
   disableWeb?: boolean;
   /** Browser tool: allow loopback/RFC1918 targets (metadata stays refused). */
   browserLocalNetwork?: boolean;
+  /** File-tool write freshness: "require" (fingerprint echo) or "off".
+   *  The assembly treats absence as "require". */
+  editFreshness?: "off" | "require";
   titleEnabled?: boolean;
   conversationTitled?: boolean;
   memoryExtract?: boolean;
@@ -320,6 +338,11 @@ export function resolveRuntimeKnobs(
   const browserLocalNetwork =
     s.browserLocalNetwork ?? (env.OMA_BROWSER_LOCAL_NETWORK === "1" ? true : undefined);
   if (browserLocalNetwork !== undefined) knobs.browserLocalNetwork = browserLocalNetwork;
+  // Only an explicit "off" resolves here; absence stays undefined so the
+  // assembly can apply its "require" default in one visible place.
+  const editFreshness =
+    s.editFreshness ?? (env.OMA_EDIT_FRESHNESS === "off" ? ("off" as const) : undefined);
+  if (editFreshness !== undefined) knobs.editFreshness = editFreshness;
   return knobs;
 }
 

@@ -270,6 +270,13 @@ describe("product-mounted tools are gated by capability, not by server name", ()
     text?: string;
     echoText?: string;
   }): Promise<string> {
+    // Save/restore the fake-provider env, like every other test in this file.
+    // bun runs every test FILE in ONE process, so an unrestored OMA_FAKE_TEXT
+    // leaks into whatever loads next — the TUI e2e suites then answer with this
+    // verdict string instead of their own scripted text (they run in the same
+    // process under the full app suite, and only then does it show up).
+    const ENV_KEYS = ["OMA_FAKE_PROVIDER", "MCP_ECHO_TOOLS", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"];
+    const savedEnv = ENV_KEYS.map((k) => process.env[k]);
     process.env.OMA_FAKE_PROVIDER = "1";
     process.env.MCP_ECHO_TOOLS = opts.tools;
     process.env.OMA_FAKE_TOOL = JSON.stringify([
@@ -300,16 +307,40 @@ describe("product-mounted tools are gated by capability, not by server name", ()
       skillRoots: [],
       permissionMode: opts.permissionMode,
     });
-    const seg = await rt.run(runInput(opts.runId));
-    const out = await seg.outcome;
-    await rt.close();
     try {
-      rmSync(ws, { recursive: true, force: true });
-    } catch {
-      /* best effort */
+      const seg = await rt.run(runInput(opts.runId));
+      const out = await seg.outcome;
+      return JSON.stringify(out.messages);
+    } finally {
+      await rt.close();
+      ENV_KEYS.forEach((k, i) => {
+        const prev = savedEnv[i];
+        if (prev === undefined) delete process.env[k];
+        else process.env[k] = prev;
+      });
+      try {
+        rmSync(ws, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
-    return JSON.stringify(out.messages);
   }
+
+  /** Test hygiene, pinned: bun runs every file in ONE process, so a helper
+   *  that leaves OMA_FAKE_* set changes the model replies of whatever test
+   *  file loads next. That is not hypothetical — it turned 19 TUI tests red in
+   *  the combined suite while each suite passed alone. */
+  test("productMount restores the fake-provider env it sets", async () => {
+    const KEYS = ["OMA_FAKE_PROVIDER", "MCP_ECHO_TOOLS", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"];
+    const before = KEYS.map((k) => process.env[k]);
+    await productMount({
+      runId: "r-prod-env",
+      tools: "history_recent",
+      permissionMode: "deny",
+      call: "history_recent",
+    });
+    expect(KEYS.map((k) => process.env[k])).toEqual(before);
+  });
 
   test("deny: a consented read runs, a product WRITE is blocked", async () => {
     // artifact_upload writes backend artifact storage: not a read, not

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
@@ -183,4 +183,82 @@ describe("workspaceAccess gates the tool table", () => {
       else process.env.OMA_FAKE_TOOLS_RECORD = savedRecord;
     }
   }, 30_000);
+});
+
+/** The write-freshness gate is ON by default, and — like permissionMode — a
+ *  workspace file may only downgrade it for a STANDALONE run. Driving the real
+ *  assembly (not the tool factory) is the point: the gate lives in the mounting
+ *  decision, so a factory-only test would pass while a run shipped ungated. */
+describe("write freshness in the assembled runtime", () => {
+  const seed = () => {
+    mkdirSync(join(ws, ".oma"), { recursive: true });
+    writeFileSync(join(ws, "target.txt"), "original\n", "utf8");
+  };
+
+  /** One scripted `write` over an existing file, WITHOUT a fingerprint. */
+  const clobber = async (opts: { runId: string; gateWorkspaceMcp?: boolean }) => {
+    const savedProvider = process.env.OMA_FAKE_PROVIDER;
+    const savedTool = process.env.OMA_FAKE_TOOL;
+    process.env.OMA_FAKE_PROVIDER = "1";
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      { name: "write", input: { path: "target.txt", content: "CLOBBERED" } },
+    ]);
+    const rt = await createOmaRuntime({
+      runId: opts.runId,
+      modelId: "fake/echo",
+      workspaceRoot: ws,
+      workspaceAccess: "read_write",
+      modelRuntime: fakeRuntime(),
+      skillRoots: [],
+      ...(opts.gateWorkspaceMcp ? { gateWorkspaceMcp: true } : {}),
+    });
+    try {
+      const outcome = await (await rt.run(runInput(opts.runId, "read_write"))).outcome;
+      return { outcome, onDisk: readFileSync(join(ws, "target.txt"), "utf8") };
+    } finally {
+      await rt.close();
+      if (savedProvider === undefined) delete process.env.OMA_FAKE_PROVIDER;
+      else process.env.OMA_FAKE_PROVIDER = savedProvider;
+      if (savedTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = savedTool;
+    }
+  };
+
+  test("default (no setting): the blind write is refused and the file survives", async () => {
+    seed();
+    const { outcome, onDisk } = await clobber({ runId: "r-fresh-default" });
+    expect(outcome.status).toBe("completed");
+    expect(JSON.stringify(outcome.messages)).toContain("no fingerprint");
+    expect(onDisk).toBe("original\n");
+  });
+
+  test("standalone may downgrade with editFreshness:off", async () => {
+    seed();
+    writeFileSync(
+      join(ws, ".oma", "settings.json"),
+      JSON.stringify({ editFreshness: "off" }),
+      "utf8",
+    );
+    try {
+      const { onDisk } = await clobber({ runId: "r-fresh-off", gateWorkspaceMcp: true });
+      expect(onDisk).toBe("CLOBBERED");
+    } finally {
+      rmSync(join(ws, ".oma", "settings.json"), { force: true });
+    }
+  });
+
+  test("a workspace file cannot downgrade a backend RPC run", async () => {
+    seed();
+    writeFileSync(
+      join(ws, ".oma", "settings.json"),
+      JSON.stringify({ editFreshness: "off" }),
+      "utf8",
+    );
+    try {
+      const { onDisk } = await clobber({ runId: "r-fresh-rpc" });
+      expect(onDisk).toBe("original\n");
+    } finally {
+      rmSync(join(ws, ".oma", "settings.json"), { force: true });
+    }
+  });
 });

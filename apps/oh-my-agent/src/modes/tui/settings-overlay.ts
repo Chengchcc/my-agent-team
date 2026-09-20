@@ -50,6 +50,11 @@ export const SETTING_ROWS: SettingRow[] = [
     label: "browserLocalNetwork (allow localhost/LAN browser targets)",
     kind: "boolean",
   },
+  {
+    key: "editFreshness",
+    label: "editFreshness (require = edit/write need a read fingerprint)",
+    kind: "string",
+  },
   { key: "memoryExtract", label: "memoryExtract", kind: "boolean" },
   { key: "memoryModel", label: "memoryModel", kind: "string" },
   { key: "permissionClassifierModel", label: "permissionClassifierModel", kind: "string" },

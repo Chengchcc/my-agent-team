@@ -121,6 +121,24 @@ describe("resolveRuntimeKnobs", () => {
   /** Opt-IN by design: a boundary is only loosened on purpose. Absent stays
    *  undefined (the browser keeps web_fetch's egress rule), the workspace can
    *  ask for it, and a deployment can via env. */
+  /** Absent must NOT resolve to a value: the assembly applies the "require"
+   *  default in one visible place, and an explicit "off" is the only way to
+   *  downgrade. If absence ever resolved to "off", every workspace that never
+   *  heard of the knob would silently ship without the gate. */
+  test("editFreshness resolves only an explicit downgrade", () => {
+    expect(resolveRuntimeKnobs(undefined, {}).editFreshness).toBeUndefined();
+    expect(resolveRuntimeKnobs({}, {}).editFreshness).toBeUndefined();
+    expect(resolveRuntimeKnobs({ editFreshness: "require" }, {}).editFreshness).toBe("require");
+    expect(resolveRuntimeKnobs(undefined, { OMA_EDIT_FRESHNESS: "off" }).editFreshness).toBe("off");
+    expect(
+      resolveRuntimeKnobs(undefined, { OMA_EDIT_FRESHNESS: "1" }).editFreshness,
+    ).toBeUndefined(); // not an opt-out
+    expect(
+      resolveRuntimeKnobs({ editFreshness: "require" }, { OMA_EDIT_FRESHNESS: "off" })
+        .editFreshness,
+    ).toBe("require");
+  });
+
   test("browserLocalNetwork is opt-in, from settings or env", () => {
     expect(resolveRuntimeKnobs(undefined, {}).browserLocalNetwork).toBeUndefined();
     expect(resolveRuntimeKnobs({}, {}).browserLocalNetwork).toBeUndefined();

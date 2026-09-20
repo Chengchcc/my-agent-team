@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseFingerprint } from "./file-fingerprint.js";
 import { createEditTool, createReadTool, createWriteTool } from "./file-tools.js";
 
 /** H1: product-managed config files are read-only for the agent — a tampered
@@ -241,5 +242,142 @@ describe("edit semantics", () => {
     await createWriteTool({ cwd }).execute({ path: "uni.txt", content: "中文内容" });
     const res = await createReadTool({ cwd }).execute({ path: "uni.txt" });
     expect(res.content).toBe("1\t中文内容");
+  });
+});
+
+/** The gate other harnesses call "read before edit", enforced on CONTENT: a
+ *  write must carry the fingerprint the read reported, so it can never land on
+ *  bytes the caller has not seen. Freshness defaults to "off" (every caller
+ *  above is unaffected); the runtime assembly opts in — see run-runtime.ts. */
+describe("write freshness gate", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "oma-fresh-"));
+  const gw = (fp: string) =>
+    createWriteTool({
+      cwd,
+      freshness: "require",
+    }).execute({ path: "f.txt", content: "NEW", fingerprint: fp });
+  const readFp = async (p = "f.txt"): Promise<string> => {
+    const res = await createReadTool({ cwd, freshness: "require" }).execute({ path: p });
+    const fp = parseFingerprint(String(res.content));
+    if (!fp) throw new Error("read did not report a fingerprint");
+    return fp;
+  };
+
+  test("read reports a trailing fingerprint footer for the whole file", async () => {
+    await createWriteTool({ cwd }).execute({ path: "f.txt", content: "alpha\nbeta\n" });
+    const res = await createReadTool({ cwd, freshness: "require" }).execute({ path: "f.txt" });
+    expect(String(res.content)).toMatch(/^1\talpha\n2\tbeta\n3\t\n\[fingerprint [0-9a-f]{12}\]$/);
+    // A window read still covers the whole file (an edit may anchor outside it).
+    const windowed = await createReadTool({ cwd, freshness: "require" }).execute({
+      path: "f.txt",
+      offset: 2,
+      limit: 1,
+    });
+    expect(parseFingerprint(String(windowed.content))).toBe(parseFingerprint(String(res.content)));
+    // Off (the default) emits no footer at all.
+    const plain = await createReadTool({ cwd }).execute({ path: "f.txt" });
+    expect(String(plain.content)).toBe("1\talpha\n2\tbeta\n3\t");
+  });
+
+  test("a fingerprint from a read lets the write through", async () => {
+    await createWriteTool({ cwd }).execute({ path: "f.txt", content: "alpha\n" });
+    const res = await gw(await readFp());
+    expect(res.isError).toBeUndefined();
+    expect((await createReadTool({ cwd }).execute({ path: "f.txt" })).content).toBe("1\tNEW");
+  });
+
+  test("writing an existing file without a fingerprint is refused", async () => {
+    await createWriteTool({ cwd }).execute({ path: "f.txt", content: "precious\n" });
+    const noFp = await createWriteTool({ cwd, freshness: "require" }).execute({
+      path: "f.txt",
+      content: "CLOBBERED",
+    });
+    expect(noFp.isError).toBe(true);
+    // Content untouched, and the refusal must NOT hand over the current
+    // fingerprint — doing so would turn it into a one-call bypass.
+    expect((await createReadTool({ cwd }).execute({ path: "f.txt" })).content).toBe(
+      "1\tprecious\n2\t",
+    );
+    expect(String(noFp.content)).not.toMatch(/[0-9a-f]{12}/);
+    expect(String(noFp.content)).toContain("read");
+  });
+
+  test("a stale fingerprint is refused, and the refusal hides the new value", async () => {
+    await createWriteTool({ cwd }).execute({ path: "f.txt", content: "one\n" });
+    const stale = await readFp();
+    // Something else changes the file between the read and the write.
+    writeFileSync(join(cwd, "f.txt"), "two\n", "utf8");
+    const res = await gw(stale);
+    expect(res.isError).toBe(true);
+    expect(String(res.content)).toContain("changed since that read");
+    expect(String(res.content)).not.toMatch(/[0-9a-f]{12}/);
+    expect((await createReadTool({ cwd }).execute({ path: "f.txt" })).content).toBe("1\ttwo\n2\t");
+
+    // Re-reading recovers in one step.
+    expect((await gw(await readFp())).isError).toBeUndefined();
+  });
+
+  test("creating a new file needs no fingerprint (nothing to clobber)", async () => {
+    const res = await createWriteTool({ cwd, freshness: "require" }).execute({
+      path: "brand-new.txt",
+      content: "hello",
+    });
+    expect(res.isError).toBeUndefined();
+  });
+
+  test("edit accepts the read fingerprint and refuses a stale one", async () => {
+    await createWriteTool({ cwd }).execute({ path: "e.txt", content: "value = OLD;\n" });
+    const fp = await readFp("e.txt");
+    const edit = createEditTool({ cwd, freshness: "require" });
+
+    // Missing / stale are both refused, with no fingerprint in the message.
+    const missing = await edit.execute({ path: "e.txt", old_string: "OLD", new_string: "NEW" });
+    expect(missing.isError).toBe(true);
+    expect(String(missing.content)).not.toMatch(/[0-9a-f]{12}/);
+    writeFileSync(join(cwd, "e.txt"), "value = OTHER;\n", "utf8");
+    const staleRes = await edit.execute({
+      path: "e.txt",
+      old_string: "OLDER",
+      new_string: "X",
+      fingerprint: fp,
+    });
+    expect(staleRes.isError).toBe(true);
+    expect(String(staleRes.content)).toContain("changed since that read");
+
+    // The honest path works: re-read, then edit.
+    const fresh = await readFp("e.txt");
+    const ok = await edit.execute({
+      path: "e.txt",
+      old_string: "OTHER",
+      new_string: "FRESH",
+      fingerprint: fresh,
+    });
+    expect(ok.isError).toBeUndefined();
+    expect((await createReadTool({ cwd }).execute({ path: "e.txt" })).content).toBe(
+      "1\tvalue = FRESH;\n2\t",
+    );
+  });
+
+  test("a missing file is still a plain not-found (no fingerprint demanded)", async () => {
+    const res = await createEditTool({ cwd, freshness: "require" }).execute({
+      path: "ghost.txt",
+      old_string: "a",
+      new_string: "b",
+    });
+    expect(res.isError).toBe(true);
+    expect(String(res.content)).toContain("file not found");
+  });
+
+  test("an empty old_string cannot masquerade as a change", async () => {
+    await createWriteTool({ cwd }).execute({ path: "z.txt", content: "abc\n" });
+    const res = await createEditTool({ cwd, freshness: "require" }).execute({
+      path: "z.txt",
+      old_string: "",
+      new_string: "x",
+      fingerprint: await readFp("z.txt"),
+    });
+    expect(res.isError).toBe(true);
+    expect(String(res.content)).toContain("cannot change anything");
+    expect((await createReadTool({ cwd }).execute({ path: "z.txt" })).content).toBe("1\tabc\n2\t");
   });
 });

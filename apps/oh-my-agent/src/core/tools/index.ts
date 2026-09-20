@@ -2,6 +2,13 @@
 export { createBashTool, MAX_BASH_TIMEOUT_MS } from "./bash.js";
 export { createBrowserTool, resolveChromeExecutable } from "./browser.js";
 export { createEvalTool, MAX_EVAL_TIMEOUT_MS } from "./eval.js";
+export {
+  computeFileFingerprint,
+  fingerprintFile,
+  fingerprintFooter,
+  parseFingerprint,
+} from "./file-fingerprint.js";
+export type { FileFreshness } from "./file-tools.js";
 export { createEditTool, createReadTool, createWriteTool } from "./file-tools.js";
 export { createGlobTool } from "./glob.js";
 export { createGrepTool } from "./grep.js";

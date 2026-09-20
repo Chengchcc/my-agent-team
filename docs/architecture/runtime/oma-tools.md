@@ -22,7 +22,7 @@ used_by:
 | `read_image` | 文件 | 读 png/jpeg/gif/webp 为 vision block（magic-byte 嗅探，5MB 上限） | ✅ | 免审 |
 | `ls` / `tree` | 文件 | 目录视图：ls 扁平按 mtime、tree 递归 | ✅ | 免审 |
 | `glob` / `grep` | 文件 | 模式搜索（Rust regex / PCRE2） | ✅ | 免审 |
-| `write` / `edit` | 文件 | 写 / 行锚点编辑；workspace 沙箱（`../` 逃逸即拒） | ❌ | 免审（工作区内=CC"工作目录编辑自动放行"先例） |
+| `write` / `edit` | 文件 | 写 / 行锚点编辑；workspace 沙箱（`../` 逃逸即拒）。**写新鲜度门禁**（默认开，`editFreshness` 可降级）：`read` 末尾回一行 `[fingerprint <12hex>]`（整文件指纹，LF 归一化），`edit`/`write` 覆盖已有内容必须回传同一值，否则拒 —— 拒绝信息**不含**当前指纹（给了就等于一次调用即可绕过），只能重读；新建文件无需指纹。`editFreshness: "off"` 仅在 standalone 生效，RPC run 保持默认（与 permissionMode 同规则） | ❌ | 免审（工作区内=CC"工作目录编辑自动放行"先例） |
 | `bash` | 执行 | shell；后台任务注册表 + 完成注入；可选 OS 沙箱（bwrap/Seatbelt，`bashSandbox` 显式开启，缺平台工具则 Run 装配失败） | ❌ | **门禁** |
 | `eval` | 执行 | TS/JS 片段，`@chengchenccc/sandbox` 子进程；`timeout:0` = 无死线 | ❌ | **门禁** |
 | `browser` | 执行 | headless Chromium（puppeteer-core，进程级共享浏览器 + 命名 tab）：`open/close/run`；run 以 AsyncFunction 执行 `tab` API（goto/observe/screenshot/click/type/fill/evaluate/…）；截图存 `.oma/screenshots` 并回传 vision block；run 超时杀 page 兜底。导航策略：只允许 http(s)，与 web_fetch 同一条出口守卫（loopback/内网默认拒绝）；`browserLocalNetwork` 显式开启后放行 loopback/RFC1918 以便截本地 dev server，**云 metadata（169.254/16、100.64/10、metadata.google.internal）任何情况下都拒绝** | ❌ | **门禁** |

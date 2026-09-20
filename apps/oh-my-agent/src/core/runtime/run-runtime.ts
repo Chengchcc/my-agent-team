@@ -338,8 +338,13 @@ async function buildNativeToolStage(
   mountedToolNames: ReadonlySet<string>;
 }> {
   const { knobs, bashSandbox, scope, registry } = ctx;
+  // Write freshness: "require" unless the workspace explicitly downgraded it.
+  // Absent knobs.editFreshness therefore means ON, so a workspace that never
+  // mentions it still gets the gate. (A backend RPC run never sees a workspace
+  // value here at all — see the projectSettings allowlist in assembleRunRuntime.)
+  const fileFreshness = knobs.editFreshness ?? "require";
   const agentTools: PluginTool[] = [
-    toPluginTool(createReadTool({ cwd: deps.workspaceRoot })),
+    toPluginTool(createReadTool({ cwd: deps.workspaceRoot, freshness: fileFreshness })),
     toPluginTool(createReadImageTool({ cwd: deps.workspaceRoot })),
     // ls and tree are the two directory views: ls is flat + mtime sorted
     // (cheap orientation), tree is recursive (structure). Both are read-side,
@@ -350,8 +355,12 @@ async function buildNativeToolStage(
     toPluginTool(createGrepTool({ workspaceRoot: deps.workspaceRoot })),
   ];
   if (deps.workspaceAccess === "read_write") {
-    agentTools.push(toPluginTool(createWriteTool({ cwd: deps.workspaceRoot })));
-    agentTools.push(toPluginTool(createEditTool({ cwd: deps.workspaceRoot })));
+    agentTools.push(
+      toPluginTool(createWriteTool({ cwd: deps.workspaceRoot, freshness: fileFreshness })),
+    );
+    agentTools.push(
+      toPluginTool(createEditTool({ cwd: deps.workspaceRoot, freshness: fileFreshness })),
+    );
     const bashToolOpts: {
       workspaceRoot: string;
       scope: string;

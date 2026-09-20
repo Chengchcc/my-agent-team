@@ -8,9 +8,53 @@ import {
 } from "node:fs";
 import { extname, relative, resolve, sep } from "node:path";
 import type { Tool } from "@chengchenccc/message";
+import {
+  computeFileFingerprint,
+  fingerprintFile,
+  fingerprintFooter,
+  MISSING_FINGERPRINT_HINT,
+  STALE_FINGERPRINT_HINT,
+} from "./file-fingerprint.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 type InputRec = Record<string, unknown>;
+
+/** Freshness policy for the file tools.
+ *
+ *  "require": `read` appends an `[fingerprint <12hex>]` trailer, and `edit` /
+ *  `write` refuse to touch EXISTING content unless the call echoes that value
+ *  for the file as it is now. This is the "read before edit" restriction other
+ *  harnesses enforce, enforced on the content instead of on a read-history flag
+ *  (see file-fingerprint.ts for why).
+ *
+ *  "off" (default): no trailer, no check — the behaviour every non-runtime
+ *  caller and test has today. The runtime assembly opts in; a bare
+ *  `createReadTool({cwd})` stays usable. */
+export type FileFreshness = "off" | "require";
+
+/** The fingerprint a later call must echo, or a refusal. `undefined` when the
+ *  path has no current content — a new file has nothing to protect. */
+function checkFreshness(
+  full: string,
+  provided: unknown,
+): { content: string; isError: true } | undefined {
+  const current = fingerprintFile(full);
+  if (current === undefined) return undefined; // absent/unreadable: nothing to clobber
+  const given = typeof provided === "string" ? provided.trim() : "";
+  if (given === "") {
+    return {
+      content: `Error: no fingerprint for this file. ${MISSING_FINGERPRINT_HINT}, so the write cannot land on content you have not seen.`,
+      isError: true,
+    };
+  }
+  if (given !== current) {
+    return {
+      content: `Error: refused to write — ${STALE_FINGERPRINT_HINT}.`,
+      isError: true,
+    };
+  }
+  return undefined;
+}
 
 function safePath(cwd: string, userPath: string): string | null {
   try {
@@ -80,13 +124,17 @@ const descriptionParam = {
 // ─── read ──────────────────────────────────────────────────────
 
 /** Create a read-file tool scoped to a cwd. */
-export function createReadTool(opts: { cwd: string }): Tool {
+export function createReadTool(opts: { cwd: string; freshness?: FileFreshness }): Tool {
   const { cwd } = opts;
+  const freshness = opts.freshness ?? "off";
   return {
     name: "read",
     description:
       "Read a file from the workspace. Returns file contents with line numbers (line\\tcontent). " +
-      "For images, returns a placeholder with file size. Output capped at 256KB; use offset/limit for large files.",
+      "For images, returns a placeholder with file size. Output capped at 256KB; use offset/limit for large files." +
+      (freshness === "require"
+        ? " The trailing [fingerprint ...] line covers the whole file: pass it to edit/write."
+        : ""),
     inputSchema: {
       type: "object",
       properties: {
@@ -144,6 +192,9 @@ export function createReadTool(opts: { cwd: string }): Tool {
         if (truncated) {
           result += `\n... [truncated at ${READ_MAX_SIZE_BYTES} bytes; pass offset/limit to read a specific range]`;
         }
+        // Fingerprint of the WHOLE file (not the returned window): an edit may
+        // anchor outside the window the model chose to read.
+        if (freshness === "require") result += fingerprintFooter(computeFileFingerprint(content));
         return { content: result };
       } catch (err) {
         return {
@@ -158,12 +209,16 @@ export function createReadTool(opts: { cwd: string }): Tool {
 // ─── write ─────────────────────────────────────────────────────
 
 /** Create a write-file tool scoped to a cwd. */
-export function createWriteTool(opts: { cwd: string }): Tool {
+export function createWriteTool(opts: { cwd: string; freshness?: FileFreshness }): Tool {
   const { cwd } = opts;
+  const freshness = opts.freshness ?? "off";
   return {
     name: "write",
     description:
-      "Write content to a file in the workspace. Creates parent directories if needed. Overwrites if file exists.",
+      "Write content to a file in the workspace. Creates parent directories if needed. Overwrites if file exists." +
+      (freshness === "require"
+        ? " Overwriting an existing file requires the fingerprint from a prior read of it."
+        : ""),
     inputSchema: {
       type: "object",
       properties: {
@@ -176,6 +231,15 @@ export function createWriteTool(opts: { cwd: string }): Tool {
           type: "string",
           description: "Content to write to the file",
         },
+        ...(freshness === "require"
+          ? {
+              fingerprint: {
+                type: "string",
+                description:
+                  "The [fingerprint ...] value from a read of this file. Required when the file already exists.",
+              },
+            }
+          : {}),
       },
       required: ["path", "content"],
     },
@@ -188,6 +252,10 @@ export function createWriteTool(opts: { cwd: string }): Tool {
           content: `Error: ${rec.path} is product-managed and read-only for the agent`,
           isError: true,
         };
+      }
+      if (freshness === "require") {
+        const refusal = checkFreshness(full, rec.fingerprint);
+        if (refusal) return refusal;
       }
       try {
         mkdirSync(resolve(full, ".."), { recursive: true });
@@ -207,13 +275,15 @@ export function createWriteTool(opts: { cwd: string }): Tool {
 // ─── edit ──────────────────────────────────────────────────────
 
 /** Create an edit-file tool scoped to a cwd. */
-export function createEditTool(opts: { cwd: string }): Tool {
+export function createEditTool(opts: { cwd: string; freshness?: FileFreshness }): Tool {
   const { cwd } = opts;
+  const freshness = opts.freshness ?? "off";
   return {
     name: "edit",
     description:
       "Perform exact string replacement in a file. old_string must match exactly and be unique " +
-      "unless replace_all is set. Use for surgical edits; prefer write for full replacement.",
+      "unless replace_all is set. Use for surgical edits; prefer write for full replacement." +
+      (freshness === "require" ? " Requires the fingerprint from a prior read of the file." : ""),
     inputSchema: {
       type: "object",
       properties: {
@@ -234,6 +304,14 @@ export function createEditTool(opts: { cwd: string }): Tool {
           type: "boolean",
           description: "Replace all occurrences. Defaults to false (first match only).",
         },
+        ...(freshness === "require"
+          ? {
+              fingerprint: {
+                type: "string",
+                description: "The [fingerprint ...] value from a read of this file.",
+              },
+            }
+          : {}),
       },
       required: ["path", "old_string", "new_string"],
     },
@@ -247,6 +325,10 @@ export function createEditTool(opts: { cwd: string }): Tool {
           isError: true,
         };
       }
+      if (freshness === "require" && existsSync(full)) {
+        const refusal = checkFreshness(full, rec.fingerprint);
+        if (refusal) return refusal;
+      }
       try {
         if (!existsSync(full)) {
           return { content: `Error: file not found: ${rec.path}`, isError: true };
@@ -257,6 +339,13 @@ export function createEditTool(opts: { cwd: string }): Tool {
 
         if (oldStr === newStr) {
           return { content: "Error: new_string must differ from old_string.", isError: true };
+        }
+        if (oldStr === "") {
+          return {
+            content:
+              "Error: old_string is empty, so this call cannot change anything. Provide the text to replace.",
+            isError: true,
+          };
         }
 
         const content = readFileSync(full, "utf-8");
