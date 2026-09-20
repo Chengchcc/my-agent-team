@@ -113,3 +113,65 @@ describe("mount + listing surface invalid commands", () => {
     }
   });
 });
+
+/** A server that never answers initialize used to wedge the WHOLE Run
+ *  assembly: connect (and tools/list) had no deadline, and mount runs
+ *  before the loop starts, so no run AbortSignal exists there either.
+ *  Both dialects must fail their own report entry within the deadline and
+ *  leave no stdio child behind. */
+describe("hung servers fail bounded, never block the mount", () => {
+  const mountJson = async (servers: object, mcpTimeoutMs: number) => {
+    const ws = mkdtempSync(join(tmpdir(), "oma-mcp-hung-"));
+    writeFileSync(join(ws, ".mcp.json"), JSON.stringify({ mcpServers: servers }));
+    try {
+      return await mountWorkspaceMcpServers(ws, new Set(), [], true, { mcpTimeoutMs });
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  };
+
+  test("stdio: a child that never speaks times out and is killed", async () => {
+    const mounted = await mountJson(
+      { stuck: { command: "bash", args: ["-c", "exec -a oma-mcp-stuck sleep 30"] } },
+      400,
+    );
+    const report = mounted.reports.find((r) => r.server === "stuck");
+    expect(report?.ok).toBe(false);
+    // Either the connect deadline fires, or the SDK resolves connect and
+    // listTools fails instantly ("Not connected") — both are bounded,
+    // per-server failures, which is the contract.
+    expect(report?.error ?? "").toMatch(/timed out|Not connected/);
+    await mounted.close();
+    // Real-process wait (integration exception): the transport's child must
+    // be gone, not leaked for the full sleep.
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const probe = Bun.spawn(["pgrep", "-f", "oma-mcp-stuck"], { stdout: "pipe" });
+      const out = await new Response(probe.stdout).text();
+      await probe.exited;
+      if (!out.trim()) return;
+      await Bun.sleep(50);
+    }
+    throw new Error("stdio child leaked after connect timeout");
+  }, 15_000);
+
+  test("sse: a socket that accepts but never answers times out", async () => {
+    const listener = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: { data: () => {} }, // accept and stay silent forever
+    });
+    try {
+      const mounted = await mountJson(
+        { stuck: { url: `http://127.0.0.1:${listener.port}/sse` } },
+        400,
+      );
+      const report = mounted.reports.find((r) => r.server === "stuck");
+      expect(report?.ok).toBe(false);
+      expect(report?.error).toContain("timed out");
+      await mounted.close();
+    } finally {
+      listener.stop(true);
+    }
+  }, 15_000);
+});

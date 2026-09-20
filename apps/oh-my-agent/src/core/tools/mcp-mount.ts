@@ -92,13 +92,21 @@ async function connectServer(
   name: string,
   server: McpJsonServer,
   workspaceRoot: string,
-): Promise<McpClientLike | null> {
+  connectTimeoutMs: number,
+): Promise<{ client: McpClientLike } | { error: string }> {
+  // Declared OUTSIDE the try: the catch must reach it to tear down a
+  // half-open connect.
+  let bestEffortClose: (() => void) | null = null;
   try {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     let stdioRootPid: number | null = null;
     let closeSdk: () => Promise<void>;
     let callTool: McpClientLike["callTool"];
     let listTools: McpClientLike["listTools"];
+    // Set the moment a transport+client exist, so a failed/timed-out
+    // connect still tears them down: a hung stdio child must not leak
+    // per Run (and the SDK's close alone does not cover a half-open
+    // connect, so the pid gets killProcessTree'd too).
     if (server.url) {
       const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
       const headers = server.headers
@@ -109,7 +117,11 @@ async function connectServer(
         headers ? { requestInit: { headers } } : undefined,
       );
       const client = new Client({ name: "oma", version: "0.1.0" }, { capabilities: {} });
-      await client.connect(transport);
+      bestEffortClose = () => void client.close().catch(() => {});
+      // A server that accepts the socket but never answers initialize must
+      // not wedge the whole Run assembly (mount runs before the loop starts,
+      // so there is no run AbortSignal here — the deadline is the bound).
+      await withCallTimeout(client.connect(transport), `mcp connect ${name}`, connectTimeoutMs);
       callTool = (params) =>
         // MCP wire boundary: the SDK returns a wide content union; our
         // consumer only reads text blocks and isError.
@@ -129,7 +141,12 @@ async function connectServer(
         env,
       });
       const client = new Client({ name: "oma", version: "0.1.0" }, { capabilities: {} });
-      await client.connect(transport);
+      bestEffortClose = () => {
+        void client.close().catch(() => {});
+        const pid = transport.pid;
+        if (pid) killProcessTree(pid);
+      };
+      await withCallTimeout(client.connect(transport), `mcp connect ${name}`, connectTimeoutMs);
       stdioRootPid = transport.pid;
       callTool = (params) =>
         // MCP wire boundary: see the sse branch above.
@@ -137,19 +154,23 @@ async function connectServer(
       listTools = () => client.listTools();
       closeSdk = () => client.close();
     } else {
-      return null;
+      return { error: "neither url nor command configured" };
     }
     return {
-      callTool,
-      listTools,
-      async close() {
-        await closeSdk();
-        if (stdioRootPid !== null) killProcessTree(stdioRootPid);
+      client: {
+        callTool,
+        listTools,
+        async close() {
+          await closeSdk();
+          if (stdioRootPid !== null) killProcessTree(stdioRootPid);
+        },
       },
     };
   } catch (err) {
-    console.error(`[mcp-mount] server ${name} failed:`, err instanceof Error ? err.message : err);
-    return null;
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[mcp-mount] server ${name} failed:`, reason);
+    bestEffortClose?.();
+    return { error: reason };
   }
 }
 
@@ -202,9 +223,16 @@ export async function testMcpServer(
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), MCP_TEST_TIMEOUT_MS);
   });
-  let client: McpClientLike | null;
+  let client: McpClientLike | null = null;
+  let connectError: string | undefined;
   try {
-    client = await Promise.race([connectServer(name, server, workspaceRoot), timeout]);
+    const raced = await Promise.race([
+      connectServer(name, server, workspaceRoot, MCP_TEST_TIMEOUT_MS),
+      timeout,
+    ]);
+    if (raced === null) connectError = "timeout";
+    else if ("client" in raced) client = raced.client;
+    else connectError = raced.error;
   } finally {
     clearTimeout(timer);
   }
@@ -212,7 +240,9 @@ export async function testMcpServer(
     return {
       ok: false,
       tools: [],
-      error: `connect failed or timed out (${MCP_TEST_TIMEOUT_MS / 1000}s)`,
+      error: connectError
+        ? `connect failed (${connectError})`
+        : `connect failed or timed out (${MCP_TEST_TIMEOUT_MS / 1000}s)`,
     };
   }
   try {
@@ -321,20 +351,26 @@ export async function mountWorkspaceMcpServers(
         continue;
       }
     }
-    const client = await connectServer(name, server, workspaceRoot);
-    if (!client) {
-      reports.push({ server: name, ok: false, toolsCount: 0, error: "connect failed" });
+    const connected = await connectServer(name, server, workspaceRoot, callTimeoutMs);
+    if (!("client" in connected)) {
+      reports.push({ server: name, ok: false, toolsCount: 0, error: connected.error });
       continue;
     }
+    const client = connected.client;
     clients.push(client);
     let listed: Array<{ name: string; description?: string; inputSchema?: unknown }>;
     try {
-      listed = (await client.listTools()).tools;
+      // Same bound as connect: a server that connected but never answers
+      // tools/list must fail ITS entry, not hang the assembly.
+      listed = (await withCallTimeout(client.listTools(), `mcp listTools ${name}`, callTimeoutMs))
+        .tools;
     } catch (err) {
       console.error(
         `[mcp-mount] listTools ${name} failed:`,
         err instanceof Error ? err.message : err,
       );
+      await client.close().catch(() => {});
+      clients.pop();
       reports.push({
         server: name,
         ok: false,
