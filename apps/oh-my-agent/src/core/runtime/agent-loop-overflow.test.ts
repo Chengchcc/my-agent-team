@@ -484,7 +484,6 @@ describe("agent loop context handling (oh-my-pi absorption)", () => {
     // did the run get to the window?" after the fact — usage/stopReason ride
     // the message (never the wire: converters read text/blocks only).
     const store = await freshStore("ovf-usage-persist");
-    let calls = 0;
     const session = createOmaSession({
       sessionId: "ovf-usage-persist",
       store,
@@ -493,7 +492,6 @@ describe("agent loop context handling (oh-my-pi absorption)", () => {
       maxForceContinues: 0,
       summarize: async () => "[summary]",
       modelStream: async function* (): AsyncIterable<AIMessageChunk> {
-        calls++;
         yield { usage: { input: 321, output: 7, cacheRead: 11, cacheCreate: 0 } };
         yield { delta: { type: "text", text: "answer" } };
         yield { stopReason: "end_turn" };
