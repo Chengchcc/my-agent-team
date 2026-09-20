@@ -47,6 +47,56 @@ describe("ask_question input validation", () => {
     });
   });
 
+  test("a shapeless option is refused before it can become a [null] answer", async () => {
+    // This is the failure that matters: an option with no `value` still
+    // produces an answer item (selectedValues: [undefined] → null in JSON),
+    // and the model cannot tell that from a real answer.
+    for (const options of [[7], [null], [{}], [{ value: "" }], [{ value: "a", label: 3 }]]) {
+      const result = await ask({ questions: [{ id: "q1", question: "pick", options }] });
+      expect(result).toMatchObject({ error: expect.stringContaining("question q1: option 1") });
+    }
+  });
+
+  test("a bare-string option is normalized to {value, label} (the model shorthand)", async () => {
+    // The old schema TOLD the model to emit strings, so refusing them would
+    // fail asks that used to work. Normalize at the boundary instead.
+    let seen: AskQuestionInput | undefined;
+    await ask(
+      { questions: [{ id: "q1", question: "pick", options: ["a", "b"] }] },
+      async (input) => {
+        seen = input;
+        return { answers: [] };
+      },
+    );
+    expect(seen?.questions[0]?.options).toEqual([
+      { value: "a", label: "a" },
+      { value: "b", label: "b" },
+    ]);
+  });
+
+  test("object options keep their label and description; label defaults to the value", async () => {
+    let seen: AskQuestionInput | undefined;
+    await ask(
+      {
+        questions: [
+          {
+            id: "q1",
+            question: "pick",
+            options: [{ value: "v1", label: "Nice label", description: "why v1" }, { value: "v2" }],
+          },
+        ],
+      },
+      async (input) => {
+        seen = input;
+        return { answers: [] };
+      },
+    );
+    expect(seen?.questions[0]?.options).toEqual([
+      { value: "v1", label: "Nice label", description: "why v1" },
+      { value: "v2", label: "v2" },
+    ]);
+  });
+
   test("a text question needs no options", async () => {
     const result = await ask(
       { questions: [{ id: "q1", question: "why?", kind: "text" }] },
@@ -96,7 +146,9 @@ describe("ask_question fails closed", () => {
       },
     );
     expect(seen?.questions).toHaveLength(2);
-    expect(seen?.questions[0]).toMatchObject({ id: "q1", question: "pick one" });
+    expect(seen?.questions[0]).toMatchObject({ id: "q1", question: "pick one", multi: true });
     expect(seen?.questions[1]).toMatchObject({ id: "q2", kind: "text" });
+    // A text question carries no options array at all (its field is the answer).
+    expect("options" in (seen?.questions[1] ?? {})).toBe(false);
   });
 });
