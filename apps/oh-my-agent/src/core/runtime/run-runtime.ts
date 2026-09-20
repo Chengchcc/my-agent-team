@@ -400,10 +400,10 @@ async function buildNativeToolStage(
       ),
     );
   }
-  // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
-  // Skips "product-tools" (the manifest path owns it) and names that
-  // collide with the native table. The mounted clients join the run's
-  // teardown set so stdio children never outlive the run.
+  // Generic .mcp.json mounting (ADR 0022): user servers + spawner-bridged
+  // servers. Skips names that collide with the native table; the mounted
+  // clients join the run's teardown set so stdio children never outlive
+  // the run.
   // Standalone gating: an untrusted repo-controlled .mcp.json mounts
   // nothing (fail-closed) — the mode layer surfaces the warning.
   let includeWorkspaceMcp = true;
@@ -590,42 +590,21 @@ function createRunPermissionGates(
     learn: true,
     manage_skill: true,
   };
-  // Product-owned mounts (workspace-bridge: features.ts names them
-  // "product-tools" / "knowledge") are consented-by-design, bearer-scoped
-  // surfaces: reads of the run's own conversation / knowledge / artifact
-  // storage, the run's todo scratch state, and the interactive ask. They stay
-  // OUTSIDE the gate, or ask/deny modes would demand a human click per
-  // history_* call.
-  //
-  // An explicit ALLOWLIST, deliberately not a server-name prefix. The prefix
-  // rule (`startsWith("mcp__product-tools__")`) handed the exemption to every
-  // tool the product-tools server exposes — `artifact_upload` (writes backend
-  // artifact storage) among them — and never matched the knowledge server at
-  // all. The allowlist gates artifact_upload by default (in a run that has
-  // write access it can be approved; under "deny" it is refused) and keeps the
-  // reads ungated, knowledge included. A tool a product server adds later is
-  // gated until it is listed here on purpose.
-  const PRODUCT_MOUNTED_CONSENTED = new Set([
-    "mcp__knowledge__knowledge_search",
-    "mcp__knowledge__knowledge_read",
-    "mcp__product-tools__history_recent",
-    "mcp__product-tools__history_search",
-    "mcp__product-tools__history_around",
-    // history_retain writes the ledger, but the PRODUCT already consented to
-    // it: the backend pre-allows exactly history_recent/search/around/retain
-    // so unattended runs don't hit a permission prompt
-    // (apps/backend/src/features/agent/workspace-bridge.ts writeClaudeSettings).
-    // Gating it here would put an approval card — or a deadline deny — in front
-    // of an ordinary product run.
-    "mcp__product-tools__history_retain",
-    "mcp__product-tools__artifact_download",
-    // The run's own scratch state / a question to the human: the native
-    // todo_write and ask_question are ungated too (not HIGH_RISK_NATIVE_TOOLS).
-    "mcp__product-tools__todo_write",
-    "mcp__product-tools__ask_question",
-  ]);
-  const isConsentedProductTool = (toolName: string): boolean =>
-    PRODUCT_MOUNTED_CONSENTED.has(toolName);
+  // Consent for mounted MCP tools is INJECTED policy
+  // (OMA_CONSENTED_MCP_TOOLS, comma-separated, set by the spawner): the
+  // product declares its own read surfaces — reads of the run's
+  // conversation / knowledge / artifact storage, the run's todo scratch
+  // state, and the interactive ask — so ask/deny modes don't demand a
+  // human click per history_* call. oma itself holds NO product tool
+  // names; absent = every mcp__ tool is gated (fail-safe: a tool the
+  // product adds later stays gated until the spawner lists it).
+  const CONSENTED_MCP_TOOLS = new Set(
+    (process.env.OMA_CONSENTED_MCP_TOOLS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const isConsentedProductTool = (toolName: string): boolean => CONSENTED_MCP_TOOLS.has(toolName);
   const classifierGated = (toolName: string, input: unknown): boolean =>
     !isConsentedProductTool(toolName) &&
     (toolName === "bash" ||

@@ -42,6 +42,33 @@ export interface McpServerEntry {
   bearerTokenEnv?: string;
 }
 
+/** Product policy the child consumes GENERICALLY (oma holds no product
+ *  knowledge — these ride the run input to the spawner):
+ *  - env var names the workspace .mcp.json may expand (secret-free files,
+ *    secrets via spawn env only);
+ *  - product-owned tool reads exempt from the child's permission
+ *    classifier, so unattended runs don't prompt per history_* call.
+ *    Deliberately an explicit tool list, NOT a server-name prefix: the
+ *    prefix rule would exempt every tool a product server ever adds
+ *    (artifact_upload writes backend storage). A missing entry fails
+ *    safe — the tool stays gated. */
+export const PRODUCT_MCP_EXPANDABLE_VARS: readonly string[] = ["PRODUCT_TOOLS_RUN_TOKEN"];
+export const PRODUCT_CONSENTED_MCP_TOOLS: readonly string[] = [
+  "mcp__knowledge__knowledge_search",
+  "mcp__knowledge__knowledge_read",
+  "mcp__product-tools__history_recent",
+  "mcp__product-tools__history_search",
+  "mcp__product-tools__history_around",
+  // history_retain writes the ledger, but the product pre-consents to it
+  // (this file is the backend's own policy home; gating it here would put
+  // an approval card in front of an ordinary product run).
+  "mcp__product-tools__history_retain",
+  "mcp__product-tools__artifact_download",
+  // The run's own scratch state / a question to the human.
+  "mcp__product-tools__todo_write",
+  "mcp__product-tools__ask_question",
+];
+
 /** Reconcile the `<kind>/skills/` symlinks: create missing links to the
  *  assigned packs, remove stale ones. A non-symlink entry at a pack slot
  *  (user's own dir) is never clobbered. Idempotent. */

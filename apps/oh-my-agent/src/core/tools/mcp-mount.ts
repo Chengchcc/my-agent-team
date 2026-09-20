@@ -5,7 +5,7 @@ import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import { killProcessTree } from "../runtime/process-tree.js";
 
 /** Generic .mcp.json mounting (ADR 0022): the workspace bridge writes one
- *  .mcp.json (user servers + product-tools + knowledge); the child mounts
+ *  .mcp.json (user servers + spawner-bridged servers); the child mounts
  *  every server. Tool names that collide with the native tool table are
  *  skipped (the native table wins). One client per server, kept alive for
  *  the run. */
@@ -46,16 +46,26 @@ function loadMcpConfig(workspaceRoot: string): Record<string, McpJsonServer> {
   }
 }
 
-/** Expand ${VAR} placeholders in .mcp.json headers/env. ALLOWLIST ONLY:
- *  .mcp.json lives in the workspace and is writable by the agent itself —
- *  free expansion of process env would let a prompt-injected write exfiltrate
- *  provider keys / run tokens to any configured SSE URL (proven P0,
- *  2026-09-07). Only the product-bridge placeholder may expand; everything
- *  else resolves to "" with a warning. */
-const EXPANDABLE_ENV_VARS = new Set(["PRODUCT_TOOLS_RUN_TOKEN"]);
+/** Expand ${VAR} placeholders in .mcp.json headers/env. ALLOWLIST ONLY,
+ *  and the list is INJECTED (OMA_MCP_EXPANDABLE_VARS, comma-separated,
+ *  set by the spawner): .mcp.json lives in the workspace and is writable
+ *  by the agent itself — free expansion of process env would let a
+ *  prompt-injected write exfiltrate provider keys / run tokens to any
+ *  configured SSE URL (proven P0, 2026-09-07). oma itself holds no
+ *  product names; everything outside the injected list resolves to ""
+ *  with a warning. Read per call so tests (one process) can scope it. */
+function expandableEnvVars(): Set<string> {
+  return new Set(
+    (process.env.OMA_MCP_EXPANDABLE_VARS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
 function expandEnvVars(value: string): string {
+  const allowed = expandableEnvVars();
   return value.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (whole, name: string) => {
-    if (!EXPANDABLE_ENV_VARS.has(name)) {
+    if (!allowed.has(name)) {
       console.warn(`[mcp-mount] refusing to expand non-allowlisted placeholder ${whole}`);
       return "";
     }

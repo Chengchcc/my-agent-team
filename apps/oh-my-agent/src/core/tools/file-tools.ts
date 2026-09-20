@@ -76,13 +76,15 @@ function safePathNew(cwd: string, userPath: string): string | null {
 
 /** Product-managed config files the agent must never write (H1): a tampered
  *  `.mcp.json` mounts arbitrary stdio servers on every future run (zero
- *  approval — mount is not a tool call) and can exfiltrate the live
- *  product-tools bearer via ${PRODUCT_TOOLS_RUN_TOKEN}. The backend bridge
- *  is the only author; these paths are read-only for the model. */
+ *  approval — mount is not a tool call) and can exfiltrate a live bearer
+ *  via an injected ${VAR} placeholder. The spawner-side bridge is the only
+ *  author; these paths are read-only for the model. oma holds no product
+ *  FILE names either: anything directly under `.oma/` ending in .json is
+ *  product-managed state (settings, bridge manifests); the agent's own
+ *  state (rules/*.md, artifacts, screenshots) stays writable. */
 const PROTECTED_FILES: Record<string, true> = {
   ".mcp.json": true,
   "mcp.json": true,
-  ".oma/product-tools.json": true,
   ".oma/settings.json": true,
   ".claude/settings.json": true,
 };
@@ -99,7 +101,9 @@ function isProtectedPath(cwd: string, full: string): boolean {
     /* cwd vanished between validate and check; fall back to the raw path */
   }
   const rel = relative(root, full).split(sep).join("/");
-  return PROTECTED_FILES[rel] === true;
+  if (PROTECTED_FILES[rel] === true) return true;
+  // Generic rule: `.oma/<name>.json` (direct child) is product-managed.
+  return /^\.oma\/[^/]+\.json$/.test(rel);
 }
 
 const IMAGE_EXTENSIONS = new Set([

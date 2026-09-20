@@ -4,6 +4,10 @@ import type {
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
 import type { ContentBlock, Message } from "@chengchenccc/message";
+import {
+  PRODUCT_CONSENTED_MCP_TOOLS,
+  PRODUCT_MCP_EXPANDABLE_VARS,
+} from "../agent/workspace-bridge.js";
 import type { AgentRun, BranchInput } from "./domain.js";
 
 /** The final answer of a canonical run sequence (ADR 0017): the last
@@ -152,6 +156,8 @@ export function buildRunInput(
     ...(run.workflow ? { workflow: run.workflow } : {}),
     workspace,
     productToolsToken,
+    mcpExpandableVars: PRODUCT_MCP_EXPANDABLE_VARS,
+    consentedMcpTools: PRODUCT_CONSENTED_MCP_TOOLS,
     // Auto-title: tell the child whether this conversation already has a
     // title so later turns keep retrying only while it is missing.
     convTitled: Boolean(deps.conversationTitleOf?.(run.conversationId)),

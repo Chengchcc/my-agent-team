@@ -252,10 +252,10 @@ export function createBashTool(opts: {
         }
       }
       // Strip credential-shaped vars from the inherited env: the bash child
-      // needs tooling (PATH/HOME/LANG/TZ), not provider keys or the per-run
-      // product-tools token. Full inheritance let one `env`/`printenv` read
-      // every secret the oma process holds, voiding the childEnv allowlist
-      // and stderr redaction above it.
+      // needs tooling (PATH/HOME/LANG/TZ), not provider keys or injected
+      // MCP bearers. Full inheritance let one `env`/`printenv` read every
+      // secret the oma process holds, voiding the childEnv allowlist and
+      // stderr redaction above it.
       const BASH_ENV_DENY = /API_KEY|AUTH_TOKEN|_TOKEN$|_SECRET$|PASSWORD|PASSWD/;
       const bashEnv: Record<string, string> = Object.fromEntries(
         Object.entries(childEnv()).filter(([k]) => !BASH_ENV_DENY.test(k)),

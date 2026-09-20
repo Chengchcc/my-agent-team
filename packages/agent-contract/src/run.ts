@@ -35,6 +35,15 @@ export interface BackendRunInput<K extends string = string> {
   /** Per-run product-tools bearer. Backends deliver it to their child
    *  (spawn env). Absent = no product tools for this run. */
   readonly productToolsToken?: string;
+  /** Env var names the child may expand inside workspace .mcp.json
+   *  placeholder values. Injected by the spawner; the child holds no
+   *  product knowledge, and the workspace file cannot self-declare
+   *  expansion (secret-exfil boundary). */
+  readonly mcpExpandableVars?: readonly string[];
+  /** Fully-qualified MCP tool names (mcp__<server>__<tool>) exempt from
+   *  the child's permission classifier — the product's own read
+   *  surfaces. Absent = every mounted MCP tool is gated. */
+  readonly consentedMcpTools?: readonly string[];
   /** True when the conversation already has a title — the child skips
    *  auto-title generation (checked again server-side on commit). */
   readonly convTitled?: boolean;

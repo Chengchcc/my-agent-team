@@ -269,13 +269,21 @@ describe("product-mounted tools are gated by capability, not by server name", ()
     call: string;
     text?: string;
     echoText?: string;
+    /** Skip the injected consent (the fail-safe default case). */
+    noConsent?: boolean;
   }): Promise<string> {
     // Save/restore the fake-provider env, like every other test in this file.
     // bun runs every test FILE in ONE process, so an unrestored OMA_FAKE_TEXT
     // leaks into whatever loads next — the TUI e2e suites then answer with this
     // verdict string instead of their own scripted text (they run in the same
     // process under the full app suite, and only then does it show up).
-    const ENV_KEYS = ["OMA_FAKE_PROVIDER", "MCP_ECHO_TOOLS", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"];
+    const ENV_KEYS = [
+      "OMA_FAKE_PROVIDER",
+      "MCP_ECHO_TOOLS",
+      "OMA_FAKE_TOOL",
+      "OMA_FAKE_TEXT",
+      "OMA_CONSENTED_MCP_TOOLS",
+    ];
     const savedEnv = ENV_KEYS.map((k) => process.env[k]);
     process.env.OMA_FAKE_PROVIDER = "1";
     process.env.MCP_ECHO_TOOLS = opts.tools;
@@ -283,6 +291,20 @@ describe("product-mounted tools are gated by capability, not by server name", ()
       { name: `mcp__product-tools__${opts.call}`, input: { echo: opts.echoText ?? "x" } },
     ]);
     process.env.OMA_FAKE_TEXT = opts.text ?? "";
+    // Simulate the SPAWNER: the product's consented reads arrive as
+    // injected policy, exactly what the backend adapter forwards.
+    if (opts.noConsent) delete process.env.OMA_CONSENTED_MCP_TOOLS;
+    else {
+      process.env.OMA_CONSENTED_MCP_TOOLS = [
+        "mcp__product-tools__history_recent",
+        "mcp__product-tools__history_search",
+        "mcp__product-tools__history_around",
+        "mcp__product-tools__history_retain",
+        "mcp__product-tools__artifact_download",
+        "mcp__product-tools__todo_write",
+        "mcp__product-tools__ask_question",
+      ].join(",");
+    }
     const ws = mkdtempSync(join(tmpdir(), "oma-product-gate-"));
     writeFileSync(
       join(ws, ".mcp.json"),
@@ -331,7 +353,13 @@ describe("product-mounted tools are gated by capability, not by server name", ()
    *  file loads next. That is not hypothetical — it turned 19 TUI tests red in
    *  the combined suite while each suite passed alone. */
   test("productMount restores the fake-provider env it sets", async () => {
-    const KEYS = ["OMA_FAKE_PROVIDER", "MCP_ECHO_TOOLS", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"];
+    const KEYS = [
+      "OMA_FAKE_PROVIDER",
+      "MCP_ECHO_TOOLS",
+      "OMA_FAKE_TOOL",
+      "OMA_FAKE_TEXT",
+      "OMA_CONSENTED_MCP_TOOLS",
+    ];
     const before = KEYS.map((k) => process.env[k]);
     await productMount({
       runId: "r-prod-env",
@@ -340,6 +368,25 @@ describe("product-mounted tools are gated by capability, not by server name", ()
       call: "history_recent",
     });
     expect(KEYS.map((k) => process.env[k])).toEqual(before);
+  });
+
+  /** Fail-safe default: oma holds no product names, so WITHOUT the
+   *  spawner's injected consent even a product-shaped read is gated. */
+  test("no injected consent → even a product read is gated (fail-safe)", async () => {
+    const saved = process.env.OMA_CONSENTED_MCP_TOOLS;
+    try {
+      const out = await productMount({
+        runId: "r-prod-noconsent",
+        tools: "history_recent",
+        permissionMode: "deny",
+        call: "history_recent",
+        noConsent: true,
+      });
+      expect(out).toContain("blocked by permissionMode=deny");
+    } finally {
+      if (saved === undefined) delete process.env.OMA_CONSENTED_MCP_TOOLS;
+      else process.env.OMA_CONSENTED_MCP_TOOLS = saved;
+    }
   });
 
   test("deny: a consented read runs, a product WRITE is blocked", async () => {

@@ -183,6 +183,14 @@ export class OmaBackend implements AgentBackend<"oma"> {
       if (input.productToolsToken) {
         spawnEnv.OMA_PRODUCT_TOOL_TOKEN = input.productToolsToken;
         spawnEnv.PRODUCT_TOOLS_RUN_TOKEN = input.productToolsToken;
+        // oma holds no product knowledge: it only expands/consents what
+        // the spawner declares here (the workspace cannot self-declare).
+      }
+      if (input.mcpExpandableVars?.length) {
+        spawnEnv.OMA_MCP_EXPANDABLE_VARS = input.mcpExpandableVars.join(",");
+      }
+      if (input.consentedMcpTools?.length) {
+        spawnEnv.OMA_CONSENTED_MCP_TOOLS = input.consentedMcpTools.join(",");
       }
       if (input.convTitled) spawnEnv.OMA_CONV_TITLED = "1";
       proc = spawnOmaProcess({ ...this.command, env: spawnEnv }, { cwd: input.workspace.root });
