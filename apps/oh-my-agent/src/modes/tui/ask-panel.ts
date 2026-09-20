@@ -13,6 +13,7 @@ import {
   matchesKey,
   renderOutputBlock,
   truncateToWidth,
+  tuiTheme,
   wrapTextWithAnsi,
 } from "@chengchenccc/tui";
 import { MARKDOWN_THEME } from "./tui-format.js";
@@ -63,10 +64,10 @@ const SUBMIT_LABEL = "Submit";
 const TEXT_ROW = -1;
 
 const BOLD = "\u001b[1m";
-const DIM = "\u001b[2m";
-const CYAN = "\u001b[36m";
-const GREEN = "\u001b[32m";
-const YELLOW = "\u001b[33m";
+const DIM = tuiTheme.dim;
+const CYAN = tuiTheme.accent;
+const GREEN = tuiTheme.success;
+const YELLOW = tuiTheme.warning;
 const RESET = "\u001b[0m";
 
 const dim = (s: string): string => `${DIM}${s}${RESET}`;

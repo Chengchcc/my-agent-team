@@ -15,6 +15,7 @@ import {
   Text,
   TUI,
   truncateToWidth,
+  tuiTheme,
 } from "@chengchenccc/tui";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import {
@@ -162,7 +163,7 @@ export function createTerminalIo(
       // is width-independent; addStatusBar must not pre-truncate it, or a
       // terminal resize leaves a stale-width status line above the editor.
       const line = truncateToWidth(shell.statusLineText, width, "");
-      return applyBackgroundToLine(line, width, (s) => `\u001b[48;5;234m${s}\u001b[0m`);
+      return applyBackgroundToLine(line, width, (s) => `${tuiTheme.bgPanel}${s}\u001b[0m`);
     },
   };
   const editor = new Editor(tui, editorTheme);
@@ -253,7 +254,7 @@ export function createTerminalIo(
 
   function armQuit(): void {
     quitArmed = true;
-    quitHint = new Text("\u001b[33m  press ctrl+c again to quit\u001b[0m", 0, 0);
+    quitHint = new Text(`${tuiTheme.warning}  press ctrl+c again to quit\u001b[0m`, 0, 0);
     statusContainer.addChild(quitHint);
     tui.requestRender();
     quitTimer = setTimeout(() => {
@@ -275,7 +276,7 @@ export function createTerminalIo(
   function armEsc(): void {
     dismissEscArm();
     escArmed = true;
-    escHint = new Text("\u001b[2m  press esc again for branch tree\u001b[0m", 0, 0);
+    escHint = new Text(`${tuiTheme.dim}  press esc again for branch tree\u001b[0m`, 0, 0);
     statusContainer.addChild(escHint);
     tui.requestRender();
     escTimer = setTimeout(() => {
@@ -407,7 +408,7 @@ export function createTerminalIo(
 
   function openHistorySearch(): void {
     if (historyEntries.length === 0) {
-      const hint = new Text("\u001b[2m  history is empty\u001b[0m", 0, 0);
+      const hint = new Text(`${tuiTheme.dim}  history is empty\u001b[0m`, 0, 0);
       statusContainer.addChild(hint);
       tui.requestRender();
       setTimeout(() => {
@@ -482,8 +483,8 @@ export function createTerminalIo(
         shell.setBusySeconds(0);
         loader = new Loader(
           tui,
-          (s) => `\u001b[36m${s}\u001b[0m`,
-          (s) => `\u001b[2m${s}\u001b[0m`,
+          (s) => `${tuiTheme.accent}${s}\u001b[0m`,
+          (s) => `${tuiTheme.dim}${s}\u001b[0m`,
           "working… (esc to abort)",
         );
         loader.start();
@@ -694,7 +695,11 @@ export function createTerminalIo(
         .slice(0, 200)
         .map(({ node: n, prefix }) => {
           const roleColor =
-            n.role === "user" ? "\u001b[36m" : n.role === "assistant" ? "\u001b[32m" : "\u001b[2m";
+            n.role === "user"
+              ? tuiTheme.accent
+              : n.role === "assistant"
+                ? tuiTheme.success
+                : tuiTheme.dim;
           const ordinal = n.ordinal !== undefined ? ` #${n.ordinal}` : "";
           return {
             value: n.id,

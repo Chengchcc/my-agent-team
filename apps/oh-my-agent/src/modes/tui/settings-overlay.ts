@@ -5,6 +5,7 @@ import {
   SelectList,
   type SelectListTheme,
   truncateToWidth,
+  tuiTheme,
 } from "@chengchenccc/tui";
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
 
@@ -16,22 +17,22 @@ interface SettingRow {
   kind: "boolean" | "number" | "string";
 }
 
-const OVERLAY_BG = (s: string): string => `\u001b[48;5;235m${s}\u001b[0m`;
+const OVERLAY_BG = (s: string): string => `${tuiTheme.bgOverlay}${s}\u001b[0m`;
 
 function overlayLines(lines: readonly string[], width: number): string[] {
   const innerWidth = Math.max(1, width - 2);
   return lines.map((line) => {
     const content = truncateToWidth(line, innerWidth, "", true);
-    return `\u001b[36m\u2502\u001b[0m${applyBackgroundToLine(content, innerWidth, OVERLAY_BG)}\u001b[36m\u2502\u001b[0m`;
+    return `${tuiTheme.accent}\u2502\u001b[0m${applyBackgroundToLine(content, innerWidth, OVERLAY_BG)}${tuiTheme.accent}\u2502\u001b[0m`;
   });
 }
 
 const THEME: SelectListTheme = {
-  selectedPrefix: (s) => `\u001b[36m${s}\u001b[0m`,
+  selectedPrefix: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
   selectedText: (s) => `\u001b[1m${s}\u001b[0m`,
-  description: (s) => `\u001b[2m${s}\u001b[0m`,
-  scrollInfo: (s) => `\u001b[2m${s}\u001b[0m`,
-  noMatch: (s) => `\u001b[2m${s}\u001b[0m`,
+  description: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
+  scrollInfo: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
+  noMatch: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
 };
 
 /** Exported for the test that pins discoverability: a knob the runtime honors

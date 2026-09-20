@@ -1,4 +1,5 @@
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
+import { tuiTheme } from "@chengchenccc/tui";
 import type { OmaLoopEvent, TodoItem } from "../../core/index.js";
 import { formatDurationMs } from "./tui-format.js";
 
@@ -325,7 +326,9 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
         // output.
         for (const line of settled) {
           const ok = line.outcome?.ok === true;
-          const mark = ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
+          const mark = ok
+            ? `${tuiTheme.success}\u2714\u001b[0m`
+            : `${tuiTheme.error}\u2718\u001b[0m`;
           const took =
             line.durationMs !== undefined ? ` (${formatDurationMs(line.durationMs)})` : "";
           const reason = ok ? "" : `: ${line.outcome?.error ?? "failed"}`;

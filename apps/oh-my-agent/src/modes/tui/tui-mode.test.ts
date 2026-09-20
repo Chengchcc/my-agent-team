@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { tuiTheme } from "@chengchenccc/tui";
 import { formatModelMeta } from "./tui-mode.js";
 import { addUserInput, applyEvent, initialViewState } from "./view-state.js";
 
@@ -230,10 +231,9 @@ describe("view-state folding", () => {
     const statuses = state.runs[0]!.items.map((i) => i.text);
     // One compact row per agent (omp's "Background job completed" shape):
     // who ran, how long, and the failure's reason.
-    expect(statuses).toHaveLength(2);
     // eslint/no-control-regex: build ESC at runtime instead of a literal.
     const esc = String.fromCharCode(27);
-    expect(statuses[0]).toMatch(new RegExp(`^${esc}\\[32m\\u2714${esc}\\[0m packages \\(`));
+    expect(statuses[0]?.startsWith(`${tuiTheme.success}✔${esc}[0m packages (`)).toBe(true);
     expect(statuses[1]).toContain("\u2718");
     expect(statuses[1]).toContain("backend");
     expect(statuses[1]).toContain("max steps exceeded");

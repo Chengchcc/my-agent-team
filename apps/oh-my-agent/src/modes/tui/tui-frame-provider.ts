@@ -49,7 +49,7 @@ export function createOmaFrameProvider({
       const width = columns;
       const bottomComponent = bottom?.() ?? editor;
       if (isViewportSized(bottomComponent)) bottomComponent.setViewportRows(rows);
-      const todo = renderTodoChrome(shell.viewState?.todoItems ?? [], width);
+      const todo = renderTodoChrome(shell.viewState?.todoItems ?? [], width, shell.animating);
       // Two pinned blocks, in reading order: WHAT the fan-out is for (brief),
       // then WHO is doing it (live rows). The brief unmounts with the panel.
       const expanded = shell.viewState?.showToolDetail === true;

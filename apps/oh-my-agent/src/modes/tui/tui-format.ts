@@ -1,5 +1,10 @@
 import type { DefaultTextStyle, EditorTheme, MarkdownTheme } from "@chengchenccc/tui";
-import { applyBackgroundToLine, SHIMMER_TIER_OPEN, truncateToWidth } from "@chengchenccc/tui";
+import {
+  applyBackgroundToLine,
+  SHIMMER_TIER_OPEN,
+  truncateToWidth,
+  tuiTheme,
+} from "@chengchenccc/tui";
 
 export const MAX_TOOL_ARGS = 200;
 export const MAX_TOOL_DETAIL = 8_000;
@@ -174,13 +179,13 @@ export function summarizeToolArgs(
   return compactJson(input, MAX_TOOL_ARGS);
 }
 export const EDITOR_THEME: EditorTheme = {
-  borderColor: (s) => `\u001b[2m${s}\u001b[0m`,
+  borderColor: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
   selectList: {
-    selectedPrefix: (s) => `\u001b[36m${s}\u001b[0m`,
+    selectedPrefix: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
     selectedText: (s) => `\u001b[1m${s}\u001b[0m`,
-    description: (s) => `\u001b[2m${s}\u001b[0m`,
-    scrollInfo: (s) => `\u001b[2m${s}\u001b[0m`,
-    noMatch: (s) => `\u001b[2m${s}\u001b[0m`,
+    description: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
+    scrollInfo: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
+    noMatch: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
   },
 };
 
@@ -207,10 +212,10 @@ const BASH_KEYWORDS = new Set([
 ]);
 
 const styleBash = {
-  keyword: (s: string) => `\u001b[35m${s}\u001b[0m`,
-  string: (s: string) => `\u001b[36m${s}\u001b[0m`,
-  comment: (s: string) => `\u001b[2m${s}\u001b[0m`,
-  flag: (s: string) => `\u001b[33m${s}\u001b[0m`,
+  keyword: (s: string) => `${tuiTheme.accent}${s}\u001b[0m`,
+  string: (s: string) => `${tuiTheme.accent}${s}\u001b[0m`,
+  comment: (s: string) => `${tuiTheme.dim}${s}\u001b[0m`,
+  flag: (s: string) => `${tuiTheme.warning}${s}\u001b[0m`,
 };
 
 /** Style one bash command line: strings cyan, comments dim, keywords
@@ -313,27 +318,29 @@ export function sessionRow(
 /** omp's `heading` is a COLOR-only function (#febc38): the renderer adds
  *  bold (h2) and bold+underline (h1) per level, so bolding here would double
  *  the escape and flatten the level difference. */
-const MD_HEADING = (s: string): string => `\u001b[38;5;214m${s}\u001b[0m`;
-const MD_MARKER = (s: string): string => `\u001b[38;5;240m${s}\u001b[0m`; // dim: level info, quiet
-const MD_CODE = (s: string): string => `\u001b[38;5;183m${s}\u001b[0m`; // #e5c1ff
-const MD_CODE_BLOCK = (s: string): string => `\u001b[38;5;117m${s}\u001b[0m`; // #9CDCFE
+const MD_HEADING = (s: string): string => `${tuiTheme.accent}${s}\u001b[0m`;
+const MD_MARKER = (s: string): string => `${tuiTheme.faint}${s}\u001b[0m`; // dim: level info, quiet
+const MD_CODE = (s: string): string => `${tuiTheme.accent}${s}\u001b[0m`;
+// Code-block body: default foreground (obsidian's silver IS the default fg —
+// the old #9CDCFE tint was a second "default text" for no reason).
+const MD_CODE_BLOCK = (s: string): string => s;
 
 export const MARKDOWN_THEME: MarkdownTheme = {
   heading: MD_HEADING,
   // The level-3+ `###` run stays readable as a level marker without shouting:
   // omp paints it in the heading color, we dim it (same information, less ink).
   headingMarker: MD_MARKER,
-  link: (s) => `\u001b[38;5;33m${s}\u001b[0m`, // #0088fa
-  linkUrl: (s) => `\u001b[2m${s}\u001b[0m`,
+  link: (s) => `${tuiTheme.info}${s}\u001b[0m`, // #0088fa
+  linkUrl: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
   code: MD_CODE,
   codeBlock: MD_CODE_BLOCK,
-  codeBlockBorder: (s) => `\u001b[38;5;245m${s}\u001b[0m`,
-  quote: (s) => `\u001b[38;5;245m${s}\u001b[0m`,
-  quoteBorder: (s) => `\u001b[38;5;240m${s}\u001b[0m`,
-  hr: (s) => `\u001b[38;5;240m${s}\u001b[0m`,
+  codeBlockBorder: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
+  quote: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
+  quoteBorder: (s) => `${tuiTheme.faint}${s}\u001b[0m`,
+  hr: (s) => `${tuiTheme.faint}${s}\u001b[0m`,
   // omp: mdListBullet = accent. oma's accent is the loader cyan — a dim bullet
   // was invisible against a translucent background.
-  listBullet: (s) => `\u001b[36m${s}\u001b[0m`,
+  listBullet: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
   bold: (s) => `\u001b[1m${s}\u001b[0m`,
   italic: (s) => `\u001b[3m${s}\u001b[0m`,
   strikethrough: (s) => `\u001b[9m${s}\u001b[0m`,
@@ -343,8 +350,8 @@ export const MARKDOWN_THEME: MarkdownTheme = {
 /** User bubble: markdown text on a deep-blue background tint with cyan
  *  text (pi's UserMessageComponent look). */
 export const USER_TEXT_STYLE: DefaultTextStyle = {
-  color: (s) => `\u001b[36m${s}\u001b[0m`,
-  bgColor: (s) => `\u001b[48;5;234m${s}\u001b[0m`,
+  color: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
+  bgColor: (s) => `${tuiTheme.bgPanel}${s}\u001b[0m`,
 };
 
 /** Compact token count for the header: 12k / 200k. */
@@ -376,7 +383,7 @@ export function formatModelMeta(
   return parts.join(" · ");
 }
 
-export const OVERLAY_BG = (s: string): string => `\u001b[48;5;235m${s}\u001b[0m`;
+export const OVERLAY_BG = (s: string): string => `${tuiTheme.bgOverlay}${s}\u001b[0m`;
 
 /** Pad + frame overlay lines so they cover the underlying transcript
  *  (a plain Container's unshaped whitespace lets the base text bleed
@@ -385,7 +392,7 @@ export function overlayLines(lines: readonly string[], width: number): string[] 
   const innerWidth = Math.max(1, width - 2);
   return lines.map((line) => {
     const content = truncateToWidth(line, innerWidth, "", true);
-    return `\u001b[36m\u2502\u001b[0m${applyBackgroundToLine(content, innerWidth, OVERLAY_BG)}\u001b[36m\u2502\u001b[0m`;
+    return `${tuiTheme.accent}\u2502\u001b[0m${applyBackgroundToLine(content, innerWidth, OVERLAY_BG)}${tuiTheme.accent}\u2502\u001b[0m`;
   });
 }
 
@@ -477,8 +484,8 @@ export function formatWorkspace(root: string): string {
 export function renderGitSegment(git: string): string {
   if (!git) return "";
   const plus = git.indexOf("+");
-  if (plus === -1) return `\u001b[38;5;42m${git}\u001b[0m`;
-  return `\u001b[38;5;39m${git.slice(0, plus)}\u001b[0m\u001b[38;5;172m${git.slice(plus)}\u001b[0m`;
+  if (plus === -1) return `${tuiTheme.success}${git}\u001b[0m`;
+  return `${tuiTheme.info}${git.slice(0, plus)}\u001b[0m${tuiTheme.warning}${git.slice(plus)}\u001b[0m`;
 }
 
 /** omp classic-shimmer port: a cosine light band sweeps left→right across
@@ -577,17 +584,17 @@ export function formatSettlementText(entries: readonly JobSettlement[]): string 
 export function renderSettlementRows(entries: readonly JobSettlement[]): string[] {
   const rows: string[] = [];
   for (const e of entries) {
-    const mark = e.ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
+    const mark = e.ok ? `${tuiTheme.success}\u2714\u001b[0m` : `${tuiTheme.error}\u2718\u001b[0m`;
     rows.push(
-      `  ${mark} \u001b[36m${e.id}\u001b[0m \u001b[2m\u00b7 ${e.kindLabel} \u00b7 ${e.outcome} \u00b7 ${formatDurationMs(e.durationMs)}\u001b[0m`,
+      `  ${mark} ${tuiTheme.accent}${e.id}\u001b[0m ${tuiTheme.dim}\u00b7 ${e.kindLabel} \u00b7 ${e.outcome} \u00b7 ${formatDurationMs(e.durationMs)}\u001b[0m`,
     );
     if (e.ok) continue;
     const firstLine = e.preview
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0);
-    if (firstLine) rows.push(`\u001b[31m    ${firstLine.slice(0, 120)}\u001b[0m`);
-    if (e.artifactPath) rows.push(`\u001b[2m    full output: ${e.artifactPath}\u001b[0m`);
+    if (firstLine) rows.push(`${tuiTheme.error}    ${firstLine.slice(0, 120)}\u001b[0m`);
+    if (e.artifactPath) rows.push(`${tuiTheme.dim}    full output: ${e.artifactPath}\u001b[0m`);
   }
   return rows;
 }
@@ -596,9 +603,9 @@ export function renderSettlementRows(entries: readonly JobSettlement[]): string[
 export function contextColor(ctx: string): string {
   const m = ctx.match(/(\d+)%/);
   const pct = m ? Number(m[1]) : 0;
-  if (pct >= 90) return "\u001b[38;5;196m";
-  if (pct >= 70) return "\u001b[38;5;172m";
-  return "\u001b[2m";
+  if (pct >= 90) return tuiTheme.error;
+  if (pct >= 70) return tuiTheme.warning;
+  return tuiTheme.dim;
 }
 
 /** One-time welcome easter eggs, rotated per session (omp welcome tip). */

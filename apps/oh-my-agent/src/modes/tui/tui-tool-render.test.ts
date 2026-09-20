@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SHIMMER_TIER_OPEN } from "@chengchenccc/tui";
+import { SHIMMER_TIER_OPEN, tuiTheme } from "@chengchenccc/tui";
 import {
   formatDurationMs,
   formatSettlementText,
@@ -138,23 +138,25 @@ describe("renderTaskTool", () => {
   });
 });
 
-describe("MARKDOWN_THEME (omp palette)", () => {
+describe("MARKDOWN_THEME (theme tokens)", () => {
   // A long report read as one slab while headings were "bold, no color" and
-  // bullets were dim: omp's md* palette carries the hierarchy instead.
-  test("headings are amber-bold and the level marker is quiet", () => {
-    expect(MARKDOWN_THEME.heading("x")).toContain("\u001b[38;5;214m");
+  // bullets were dim: the theme's md* roles carry the hierarchy instead.
+  test("headings carry the accent; the level marker stays quiet", () => {
+    expect(MARKDOWN_THEME.heading("x")).toContain(tuiTheme.accent);
     // Color only: the renderer adds bold/underline per level (omp parity).
     expect(MARKDOWN_THEME.heading("x")).not.toContain("\u001b[1m");
     // The level-3+ `###` run must not compete with the heading text.
-    expect(MARKDOWN_THEME.headingMarker?.("### ")).toContain("\u001b[38;5;240m");
+    expect(MARKDOWN_THEME.headingMarker?.("### ")).toContain(tuiTheme.faint);
   });
 
-  test("inline code, code blocks and bullets are distinguishable from body text", () => {
-    expect(MARKDOWN_THEME.code("x")).toContain("\u001b[38;5;183m");
-    expect(MARKDOWN_THEME.codeBlock("x")).toContain("\u001b[38;5;117m");
+  test("inline code and bullets carry the accent; code-block body is unstyled", () => {
+    expect(MARKDOWN_THEME.code("x")).toContain(tuiTheme.accent);
+    // Code blocks are distinguished by their border, not a body tint
+    // (obsidian: silver IS the default foreground).
+    expect(MARKDOWN_THEME.codeBlock("x")).toBe("x");
     // omp: mdListBullet = accent. A dim bullet disappeared into the
     // background on a translucent terminal.
-    expect(MARKDOWN_THEME.listBullet("- ")).toContain("\u001b[36m");
+    expect(MARKDOWN_THEME.listBullet("- ")).toContain(tuiTheme.accent);
   });
 });
 
@@ -307,7 +309,7 @@ describe("renderTodoChrome", () => {
   const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
   test("empty list renders nothing; items get marks and a counter", () => {
-    expect(renderTodoChrome([], 80)).toEqual([]);
+    expect(renderTodoChrome([], 80, true)).toEqual([]);
     const lines = renderTodoChrome(
       [
         { id: "1", text: "plan", status: "done" },
@@ -331,12 +333,12 @@ describe("renderTodoChrome", () => {
       { id: "1", text: "plan", status: "done" },
       { id: "2", text: "build", status: "done" },
     ];
-    expect(renderTodoChrome(allDone, 60)).toEqual([]);
+    expect(renderTodoChrome(allDone, 60, true)).toEqual([]);
     const allSettled = [
       { id: "1", text: "plan", status: "done" },
       { id: "2", text: "build", status: "cancelled" },
     ];
-    expect(renderTodoChrome(allSettled, 60)).toEqual([]);
+    expect(renderTodoChrome(allSettled, 60, true)).toEqual([]);
   });
 
   test("caps at 6 rows with an overflow marker", () => {
@@ -345,7 +347,7 @@ describe("renderTodoChrome", () => {
       text: `t${n}`,
       status: "pending",
     }));
-    const lines = renderTodoChrome(items, 60).map((l) => l.replace(ANSI, ""));
+    const lines = renderTodoChrome(items, 60, true).map((l) => l.replace(ANSI, ""));
     // box top + 6 shown rows + overflow line + box bottom
     expect(lines).toHaveLength(9);
     expect(lines.at(-2)).toContain("2 more");
@@ -434,7 +436,7 @@ describe("renderFanoutBriefChrome (the batch's Goal/Constraints card)", () => {
     expect(headingLine).toContain("\u001b[1m");
     // A capitalized bullet is NOT a heading (it stays dim prose).
     const bulletLine = card.find((l) => strip(l).includes("Use read/glob")) ?? "";
-    expect(bulletLine).toContain("\u001b[2m");
+    expect(bulletLine).toContain(tuiTheme.dim);
     expect(bulletLine).not.toContain("\u001b[1m");
     expect(plain.at(-1)).toStartWith("└──");
   });
@@ -516,7 +518,8 @@ describe("renderTodoChrome (sweep + strikethrough)", () => {
   const item = (id: string, text: string, status: string) =>
     ({ id, text, status }) as unknown as Parameters<typeof renderTodoChrome>[0][number];
 
-  test("only the first in-progress row sweeps; done rows are struck through", () => {
+  test("live: only the first in-progress row sweeps; done rows are struck through", () => {
+    const RUN_LIVE = true;
     const lines = renderTodoChrome(
       [
         item("1", "finished step", "done"),
@@ -525,6 +528,7 @@ describe("renderTodoChrome (sweep + strikethrough)", () => {
         item("4", "todo step", "pending"),
       ],
       70,
+      RUN_LIVE,
     );
     const raw = lines.join("\n");
     // The sweep splits the label into per-tier SGR runs, so count runs on the
@@ -538,14 +542,34 @@ describe("renderTodoChrome (sweep + strikethrough)", () => {
     // sequences than a plain sibling (block border + mark are identical).
     expect(runs(swept)).toBeGreaterThan(runs(second));
     // Done: dim + strikethrough (SGR 9) around the label text.
-    expect(raw).toContain("\u001b[2m\u001b[9mfinished step\u001b[0m");
+    expect(raw).toContain(`${tuiTheme.dim}\u001b[9mfinished step\u001b[0m`);
     expect(strip(raw)).toContain("finished step");
   });
 
+  test("idle: nothing sweeps — a resumed-but-idle session has no repaint clock", () => {
+    const IDLE = false;
+    const lines = renderTodoChrome(
+      [item("1", "current step", "in_progress"), item("2", "todo step", "pending")],
+      70,
+      IDLE,
+    );
+    const raw = lines.join("\n");
+    // Same discriminator as the live test, reversed: without a repaint clock
+    // the in_progress row carries exactly the SGR runs of a plain sibling
+    // (mark + reset), never the sweep's per-tier runs — and never the bold
+    // crest tier, which no static row uses.
+    const runs = (s: string): number =>
+      (s.match(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")) ?? []).length;
+    const currentRow = lines.find((l) => strip(l).includes("current step")) ?? "";
+    const pendingRow = lines.find((l) => strip(l).includes("todo step")) ?? "";
+    expect(runs(currentRow)).toBe(runs(pendingRow));
+    expect(raw).not.toContain(SHIMMER_TIER_OPEN.high);
+    expect(raw).toContain("current step");
+  });
   test("an empty or fully closed list renders nothing (panel unmounts)", () => {
-    expect(renderTodoChrome([], 70)).toEqual([]);
-    expect(renderTodoChrome([item("1", "done thing", "done")], 70)).toEqual([]);
-    expect(renderTodoChrome([item("1", "dropped", "cancelled")], 70)).toEqual([]);
+    expect(renderTodoChrome([], 70, false)).toEqual([]);
+    expect(renderTodoChrome([item("1", "done thing", "done")], 70, true)).toEqual([]);
+    expect(renderTodoChrome([item("1", "dropped", "cancelled")], 70, true)).toEqual([]);
   });
 });
 

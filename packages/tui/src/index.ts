@@ -122,6 +122,8 @@ export {
   textSizingEnabled,
   textSizingSupported,
 } from "./text-sizing.ts";
+// Theme tokens (default: omp obsidian dark)
+export { obsidianDarkTheme, type TuiTheme, tuiTheme } from "./theme.ts";
 export {
   type Component,
   Container,

@@ -1,3 +1,5 @@
+import { tuiTheme } from "../theme.ts";
+
 /**
  * Minimal omp-style status bar renderer (powerline chip + semantic colors).
  * Pure ANSI functions, no component state. Keeping this in packages/tui lets
@@ -55,7 +57,7 @@ export function renderToolHeader(opts: {
   if (opts.description) parts.push(opts.description);
   if (meta.length > 0) parts.push(meta.join(" · "));
   if (parts.length > 0) {
-    const dim = opts.dimColor ?? "\u001b[2m";
+    const dim = opts.dimColor ?? tuiTheme.dim;
     return `${title} ${dim}${parts.join(" · ")}\u001b[0m`;
   }
   return title;

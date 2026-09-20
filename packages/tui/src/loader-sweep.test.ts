@@ -1,12 +1,12 @@
 import { describe, expect, test, vi } from "bun:test";
-import { Loader } from "./components/loader.ts";
+import { Loader, SHIMMER_TIER_OPEN } from "./components/loader.ts";
 import type { TUI } from "./tui.ts";
 
 const ESC = String.fromCharCode(27);
 
 /** Cell index of the bright (bold) sweep tier on the rendered line, or -1. */
 function bandCell(line: string): number {
-  return visibleIndex(line, `${ESC}[1m${ESC}[36m`);
+  return visibleIndex(line, SHIMMER_TIER_OPEN.high);
 }
 
 /** The message row: Loader.render pads with a blank row above and below. */

@@ -13,6 +13,7 @@ import {
   Text,
   type TUI,
   truncateToWidth,
+  tuiTheme,
   wrapTextWithAnsi,
 } from "@chengchenccc/tui";
 import { defaultRegistry } from "../../core/coordination/registry.js";
@@ -88,7 +89,7 @@ export class TuiItemRenderer {
       case "user":
         if (!item.text) return [];
         if (item.pending) {
-          return [`\u001b[2m  » ${item.text.replace(/\r?\n/g, " ↵ ")}\u001b[0m`];
+          return [`${tuiTheme.dim}  » ${item.text.replace(/\r?\n/g, " ↵ ")}\u001b[0m`];
         }
         return this.markdownLines(item, 1, 1, USER_TEXT_STYLE);
       case "assistant": {
@@ -106,9 +107,9 @@ export class TuiItemRenderer {
         // sweep; settled ones render static dim.
         return item.streaming
           ? [`  [${shimmerText(item.text)}]`]
-          : [`\u001b[2m  [${item.text}]\u001b[0m`];
+          : [`${tuiTheme.dim}  [${item.text}]\u001b[0m`];
       case "error":
-        return [`\u001b[31m  error: ${item.text}\u001b[0m`];
+        return [`${tuiTheme.error}  error: ${item.text}\u001b[0m`];
     }
   }
 
@@ -138,7 +139,7 @@ export class TuiItemRenderer {
   private renderThinking(text: string, expanded: boolean): string[] {
     if (!text) return [];
     const firstLine = text.split("\n", 1)[0] ?? "";
-    const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+    const dim = (s: string): string => `${tuiTheme.dim}${s}\u001b[0m`;
     if (!expanded) {
       if (text.length === firstLine.length) return [dim(`  ~ ${firstLine}`)];
       return [dim(`  ~ ${firstLine} … (ctrl+t)`)];
@@ -174,7 +175,11 @@ export class TuiItemRenderer {
     const mark = running ? "\u27f3" : failed ? "\u2718" : "\u2714";
     const state = running ? "running" : failed ? "error" : "success";
     const titleColor =
-      state === "running" ? "\u001b[33m" : state === "error" ? "\u001b[31m" : "\u001b[32m";
+      state === "running"
+        ? tuiTheme.warning
+        : state === "error"
+          ? tuiTheme.error
+          : tuiTheme.success;
     const wallMs =
       item.durationMs ??
       (item.streaming && item.startedAt !== undefined ? Date.now() - item.startedAt : undefined);
@@ -184,7 +189,7 @@ export class TuiItemRenderer {
     const header = renderToolHeader({
       icon: mark,
       title: toolName,
-      meta: [`\u001b[2m⟦Wall: ${wall} | Timeout: ${timeout}⟧\u001b[0m`],
+      meta: [`${tuiTheme.dim}⟦Wall: ${wall} | Timeout: ${timeout}⟧\u001b[0m`],
       titleColor,
     });
 
@@ -194,19 +199,21 @@ export class TuiItemRenderer {
       const lines: string[] = [];
       if (expanded) {
         for (const line of prettyJson(item.input).split("\n")) {
-          lines.push(`\u001b[2m${line}\u001b[0m`);
+          lines.push(`${tuiTheme.dim}${line}\u001b[0m`);
         }
       } else if (toolName === "bash" && typeof item.input.command === "string") {
         // omp formatBashCommandLines: dim `$ ` prefix, then the command with
         // per-segment highlighting (strings/keywords/flags/comments).
         const command = item.input.command as string;
         const cmdLines = command.split("\n");
-        lines.push(`\u001b[2m└ \u001b[0m\u001b[2m$ \u001b[0m${styleBashLine(cmdLines[0] ?? "")}`);
+        lines.push(
+          `${tuiTheme.dim}└ \u001b[0m${tuiTheme.dim}$ \u001b[0m${styleBashLine(cmdLines[0] ?? "")}`,
+        );
         for (const extra of cmdLines.slice(1)) {
-          lines.push(`\u001b[2m  \u001b[0m${styleBashLine(extra)}`);
+          lines.push(`${tuiTheme.dim}  \u001b[0m${styleBashLine(extra)}`);
         }
       } else {
-        lines.push(`\u001b[2m└ ${summarizeToolArgs(toolName, item.input)}\u001b[0m`);
+        lines.push(`${tuiTheme.dim}└ ${summarizeToolArgs(toolName, item.input)}\u001b[0m`);
       }
       sections.push({ lines });
     }
@@ -215,10 +222,10 @@ export class TuiItemRenderer {
       const str = (v: unknown): string => (typeof v === "string" ? v : "");
       const lines: string[] = [];
       for (const line of str(item.input.old_string).split("\n").slice(0, MAX_DIFF_LINES)) {
-        lines.push(`\u001b[31m- ${line.slice(0, 90)}\u001b[0m`);
+        lines.push(`${tuiTheme.error}- ${line.slice(0, 90)}\u001b[0m`);
       }
       for (const line of str(item.input.new_string).split("\n").slice(0, MAX_DIFF_LINES)) {
-        lines.push(`\u001b[32m+ ${line.slice(0, 90)}\u001b[0m`);
+        lines.push(`${tuiTheme.success}+ ${line.slice(0, 90)}\u001b[0m`);
       }
       sections.push({ lines });
     }
@@ -227,14 +234,14 @@ export class TuiItemRenderer {
       const tail = item.output.slice(-600);
       const lines: string[] = [];
       for (const line of tail.split("\n").slice(-4)) {
-        if (line.trim()) lines.push(`\u001b[2m${line}\u001b[0m`);
+        if (line.trim()) lines.push(`${tuiTheme.dim}${line}\u001b[0m`);
       }
       sections.push({ lines });
     }
 
     if (item.result !== undefined) {
       const content = typeof item.result.content === "string" ? item.result.content : null;
-      const resultColor = failed ? "\u001b[31m" : "\u001b[2m";
+      const resultColor = failed ? tuiTheme.error : tuiTheme.dim;
       const lines: string[] = [];
       if (content !== null) {
         let textContent = content.trimEnd();
@@ -261,9 +268,11 @@ export class TuiItemRenderer {
           );
         }
         if (outputLines.length > maxOut) {
-          lines.push(`\u001b[2m… ${outputLines.length - maxOut} more lines · (ctrl+o)\u001b[0m`);
+          lines.push(
+            `${tuiTheme.dim}… ${outputLines.length - maxOut} more lines · (ctrl+o)\u001b[0m`,
+          );
         } else if (!expanded) {
-          lines.push(`\u001b[2m· (ctrl+o)\u001b[0m`);
+          lines.push(`${tuiTheme.dim}· (ctrl+o)\u001b[0m`);
         }
       } else {
         const summary = summarizeResult(item.result);
@@ -285,7 +294,7 @@ export class TuiItemRenderer {
         state,
         sections,
         width: this.tui.terminal.columns,
-        bg: (line: string) => `\u001b[48;5;234m${line}\u001b[0m`,
+        bg: (line: string) => `${tuiTheme.bgPanel}${line}\u001b[0m`,
       }),
     ];
   }
@@ -365,6 +374,13 @@ export class TuiRenderShell {
     this.busySeconds = busySeconds;
   }
 
+  /** Whether the loader is ticking — i.e. a repaint clock exists. Chrome
+   *  that samples paint time (the todo sweep) must animate only under this,
+   *  or it freezes mid-band on an idle-but-seeded surface (post-resume). */
+  get animating(): boolean {
+    return this.busy;
+  }
+
   setBusySeconds(busySeconds: number): void {
     this.busySeconds = busySeconds;
   }
@@ -409,28 +425,31 @@ export class TuiRenderShell {
   private appendHeaderCard(into: OmaTranscriptContainer): void {
     this.removeHeaderCard(into);
     const banner = [
-      "\u001b[36m  ██████╗ ███╗   ███╗ █████╗ \u001b[0m",
-      "\u001b[36m ██╔═══██╗████╗ ████║██╔══██╗\u001b[0m",
-      "\u001b[36m ██║   ██║██╔████╔██║███████║\u001b[0m",
-      "\u001b[36m ██║   ██║██║╚██╔╝██║██╔══██║\u001b[0m",
-      "\u001b[36m ╚██████╔╝██║ ╚═╝ ██║██║  ██║\u001b[0m",
-      "\u001b[36m  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝\u001b[0m",
+      `${tuiTheme.accent}  ██████╗ ███╗   ███╗ █████╗ \u001b[0m`,
+      `${tuiTheme.accent} ██╔═══██╗████╗ ████║██╔══██╗\u001b[0m`,
+      `${tuiTheme.accent} ██║   ██║██╔████╔██║███████║\u001b[0m`,
+      `${tuiTheme.accent} ██║   ██║██║╚██╔╝██║██╔══██║\u001b[0m`,
+      `${tuiTheme.accent} ╚██████╔╝██║ ╚═╝ ██║██║  ██║\u001b[0m`,
+      `${tuiTheme.accent}  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝\u001b[0m`,
     ];
     const infoLines: string[] = [];
     infoLines.push(`\u001b[1m  ${this.headerInfo}\u001b[0m`);
     const hTitle = cleanHeaderTitle(this.headerTitle);
-    if (hTitle) infoLines.push(`\u001b[2m  ${hTitle}\u001b[0m`);
+    if (hTitle) infoLines.push(`${tuiTheme.dim}  ${hTitle}\u001b[0m`);
     if (this.headerModel) {
-      infoLines.push(`\u001b[2m  model:\u001b[0m \u001b[36m${this.headerModel}\u001b[0m`);
+      infoLines.push(
+        `${tuiTheme.dim}  model:\u001b[0m ${tuiTheme.accent}${this.headerModel}\u001b[0m`,
+      );
     }
     infoLines.push(
-      `\u001b[2m  workspace:\u001b[0m \u001b[38;5;39m${formatWorkspace(this.workspaceRoot)}\u001b[0m`,
+      `${tuiTheme.dim}  workspace:\u001b[0m ${tuiTheme.info}${formatWorkspace(this.workspaceRoot)}\u001b[0m`,
     );
     const hGit = gitStatusCached(this.workspaceRoot);
-    if (hGit) infoLines.push(`\u001b[2m  git:\u001b[0m ${renderGitSegment(hGit)}`);
+    if (hGit) infoLines.push(`${tuiTheme.dim}  git:\u001b[0m ${renderGitSegment(hGit)}`);
     if (this.headerSession)
-      infoLines.push(`\u001b[2m  session:\u001b[0m ${this.headerSession.slice(0, 8)}`);
-    if (this.headerContext) infoLines.push(`\u001b[2m  context:\u001b[0m ${this.headerContext}`);
+      infoLines.push(`${tuiTheme.dim}  session:\u001b[0m ${this.headerSession.slice(0, 8)}`);
+    if (this.headerContext)
+      infoLines.push(`${tuiTheme.dim}  context:\u001b[0m ${this.headerContext}`);
 
     const combined: string[] = [];
     const rows = Math.max(banner.length, infoLines.length);
@@ -444,7 +463,7 @@ export class TuiRenderShell {
       {
         paddingX: 0,
         paddingY: 0,
-        border: { color: (s: string) => `\u001b[2m${s}\u001b[0m` },
+        border: { color: (s: string) => `${tuiTheme.dim}${s}\u001b[0m` },
       },
     );
     const fresh: Component[] = [];
@@ -541,16 +560,16 @@ export class TuiRenderShell {
       bg?: string;
     }> = [];
     if (this.headerModel) {
-      segs.push({ text: this.headerModel, chip: true, bg: "\u001b[48;5;25m" });
+      segs.push({ text: this.headerModel, chip: true, bg: tuiTheme.bgPanel });
     }
-    segs.push({ text: formatWorkspace(this.workspaceRoot), fg: "\u001b[38;5;39m" });
+    segs.push({ text: formatWorkspace(this.workspaceRoot), fg: tuiTheme.info });
     // M-bash/M-eval: surface running background jobs (bash bg_N / eval eval_N).
     const runningBg = defaultRegistry.countRunningJobs();
     if (runningBg > 0) {
-      segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: "\u001b[48;5;22m" });
+      segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: tuiTheme.bgChipOk });
     }
     if (git) segs.push({ text: renderGitSegment(git) });
-    if (this.headerSession) segs.push({ text: this.headerSession.slice(0, 8), fg: "\u001b[2m" });
+    if (this.headerSession) segs.push({ text: this.headerSession.slice(0, 8), fg: tuiTheme.dim });
     if (this.headerContext)
       segs.push({ text: this.headerContext, fg: contextColor(this.headerContext) });
     if (segs.length > 0) {
@@ -564,7 +583,8 @@ export class TuiRenderShell {
    *  rewriting the original "Backgrounded as job …" line. Accepts one
    *  line or pre-styled rows. */
   appendNotice(lines: string | readonly string[]): void {
-    const rows = typeof lines === "string" ? [`\u001b[36m  \u23f5 ${lines}\u001b[0m`] : lines;
+    const rows =
+      typeof lines === "string" ? [`${tuiTheme.accent}  \u23f5 ${lines}\u001b[0m`] : lines;
     if (rows.length === 0) return;
     for (const line of rows) this.transcript.addChild(new Text(line, 0, 0));
     this.tui.requestRender();
@@ -635,7 +655,7 @@ export class TuiRenderShell {
     if (!this.welcomeTipShown && this.welcomeTip) {
       this.welcomeTipShown = true;
       this.transcript.addChild(new Spacer(1));
-      this.transcript.addChild(new Text(`\u001b[33m  ${this.welcomeTip}\u001b[0m`, 0, 0));
+      this.transcript.addChild(new Text(`${tuiTheme.warning}  ${this.welcomeTip}\u001b[0m`, 0, 0));
       this.transcript.addChild(new Spacer(1));
     }
     this.renderIdleFooter();

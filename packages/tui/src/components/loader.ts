@@ -1,3 +1,4 @@
+import { tuiTheme } from "../theme.ts";
 import type { TUI } from "../tui.ts";
 import { Text } from "./text.ts";
 
@@ -14,17 +15,17 @@ const DEFAULT_INTERVAL_MS = 80;
 /**
  * Loader component that updates with an optional spinning animation.
  */
-/** The one light-sweep palette. The loader's message band and every
- *  consumer's shimmer (oma's chrome rows, tool bodies) read from here, so the
- *  "working" animations cannot drift into different colors: cyan is the
- *  spinner accent, so band and spinner read as one animation. */
+/** The one light-sweep palette, fed from the theme (sweepLow/Mid/High). The
+ *  loader's message band and every consumer's shimmer (oma's chrome rows,
+ *  tool bodies) read from here, so the "working" animations cannot drift
+ *  into different colors: band and spinner read as one animation. */
 export const SHIMMER_TIER_OPEN = {
   /** Base tier: dim, the resting color of an unsettled line. */
-  low: "\u001b[2m",
-  /** Mid band: the spinner's own cyan. */
-  mid: "\u001b[36m",
-  /** Crest: bold cyan. */
-  high: "\u001b[1m\u001b[36m",
+  low: tuiTheme.dim,
+  /** Mid band: the spinner's own accent. */
+  mid: tuiTheme.accent,
+  /** Crest: bold accent. */
+  high: `\u001b[1m${tuiTheme.accent}`,
 } as const;
 
 export type ShimmerTier = keyof typeof SHIMMER_TIER_OPEN;

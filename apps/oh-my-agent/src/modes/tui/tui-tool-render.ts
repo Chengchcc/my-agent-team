@@ -1,4 +1,9 @@
-import { type OutputBlockState, renderOutputBlock, renderToolHeader } from "@chengchenccc/tui";
+import {
+  type OutputBlockState,
+  renderOutputBlock,
+  renderToolHeader,
+  tuiTheme,
+} from "@chengchenccc/tui";
 import type { TodoItem } from "../../core/index.js";
 import { shimmerText } from "./tui-format.js";
 import type { TranscriptItem } from "./view-state.js";
@@ -25,7 +30,7 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
     result && typeof result === "object" && "status" in result
       ? String((result as Record<string, unknown>).status)
       : "";
-  if (status) body.push(`\u001b[2mstatus: ${status}\u001b[0m`);
+  if (status) body.push(`${tuiTheme.dim}status: ${status}\u001b[0m`);
   const content =
     typeof result?.content === "string"
       ? result.content
@@ -33,14 +38,14 @@ export function renderTaskTool(item: TranscriptItem, expanded: boolean, width: n
         ? result.text
         : "";
   const text = content.trim();
-  if (text) body.push(`\u001b[2m${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
-  if (body.length === 0) body.push("\u001b[2m(done)\u001b[0m");
+  if (text) body.push(`${tuiTheme.dim}${text.slice(0, expanded ? 400 : 160)}\u001b[0m`);
+  if (body.length === 0) body.push(`${tuiTheme.dim}(done)\u001b[0m`);
   const state: OutputBlockState = "success";
   const header = renderToolHeader({
     icon: "\u25b6",
     title: `task${label ? ` \u00b7 ${label}` : ""}`,
     meta,
-    titleColor: "\u001b[36m",
+    titleColor: tuiTheme.accent,
   });
   return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
 }
@@ -70,15 +75,15 @@ export function renderFanoutBriefChrome(goal: string, width: number, expanded = 
     const text = heading ? trimmed.replace(/^#{1,3}\s+/, "") : trimmed;
     return heading
       ? `  \u001b[1m${text.slice(0, 140)}\u001b[0m`
-      : `  \u001b[2m${text.slice(0, 140)}\u001b[0m`;
+      : `  ${tuiTheme.dim}${text.slice(0, 140)}\u001b[0m`;
   });
   if (lines.length > shown.length) {
-    body.push(`\u001b[2m  … ${lines.length - shown.length} more \u27e6ctrl+o\u27e7\u001b[0m`);
+    body.push(`${tuiTheme.dim}  … ${lines.length - shown.length} more \u27e6ctrl+o\u27e7\u001b[0m`);
   }
   const header = renderToolHeader({
     icon: "\u21f6",
     title: "task brief",
-    titleColor: "\u001b[36m",
+    titleColor: tuiTheme.accent,
   });
   return renderOutputBlock({ header, state: "running", sections: [{ lines: body }], width });
 }
@@ -108,7 +113,7 @@ export function renderLiveAgentsChrome(
       running > 0 ? `${running} running` : `${settled} settled`,
       ...(running > 0 && settled > 0 ? [`${settled} done`] : []),
     ],
-    titleColor: "\u001b[36m",
+    titleColor: tuiTheme.accent,
   });
   // ctrl+o expands the panel to every agent (same gesture as tool detail);
   // collapsed it caps at 6 and says so, instead of silently dropping rows.
@@ -125,10 +130,14 @@ export function renderLiveAgentsChrome(
       if ((a.toolCalls ?? 0) > 0) tel.push(`${a.toolCalls} \u2692`);
       if ((a.requests ?? 0) > 0) tel.push(`${a.requests} req`);
       if ((a.tokens ?? 0) > 0) tel.push(`${Math.round((a.tokens ?? 0) / 1000)}k tok`);
-      const tail = tel.length > 0 ? ` \u001b[2m\u00b7 ${tel.join(" \u00b7 ")}\u001b[0m` : "";
+      const tail = tel.length > 0 ? ` ${tuiTheme.dim}\u00b7 ${tel.join(" \u00b7 ")}\u001b[0m` : "";
       if (a.outcome) {
-        const mark = a.outcome.ok ? "\u001b[32m\u2714\u001b[0m" : "\u001b[31m\u2718\u001b[0m";
-        const detail = a.outcome.ok ? "" : `\u001b[31m: ${a.outcome.error ?? "failed"}\u001b[0m`;
+        const mark = a.outcome.ok
+          ? `${tuiTheme.success}\u2714\u001b[0m`
+          : `${tuiTheme.error}\u2718\u001b[0m`;
+        const detail = a.outcome.ok
+          ? ""
+          : `${tuiTheme.error}: ${a.outcome.error ?? "failed"}\u001b[0m`;
         return `  ${mark} ${a.label}${tail}${detail}`;
       }
       return `  ${shimmerText(a.text)}${tail}`;
@@ -139,7 +148,7 @@ export function renderLiveAgentsChrome(
     const hiddenRunning = agents.slice(max).filter((a) => !a.outcome).length;
     const state = hiddenRunning > 0 ? `${hiddenRunning} running` : "settled";
     body.push(
-      `\u001b[2m  … ${hidden} more agent${hidden === 1 ? "" : "s"} (${state}) \u27e6ctrl+o\u27e7\u001b[0m`,
+      `${tuiTheme.dim}  … ${hidden} more agent${hidden === 1 ? "" : "s"} (${state}) \u27e6ctrl+o\u27e7\u001b[0m`,
     );
   }
   // The panel is "running" while any agent is still live, "error" once a
@@ -153,40 +162,51 @@ export function renderLiveAgentsChrome(
  * like every other block; once nothing is open (all done/cancelled, or the
  * list is empty) the component stops rendering entirely — a finished list
  * has no business occupying viewport. */
-export function renderTodoChrome(items: readonly TodoItem[], width: number): string[] {
+export function renderTodoChrome(
+  items: readonly TodoItem[],
+  width: number,
+  /** Whether a run is live (the loader is ticking). shimmerText samples
+   *  paint time, so without a repaint driver the band would FREEZE mid-row —
+   *  exactly what a resumed-but-idle session showed: the seeded todo file
+   *  still has an in_progress row, but only keystrokes repaint. Idle ⇒ the
+   *  row renders static, same rule as settled transcript lines. */
+  animate: boolean,
+): string[] {
   if (items.length === 0) return [];
   const open = items.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
   if (open === 0) return [];
   const marks: Record<string, string> = {
-    pending: "\u001b[2m○\u001b[0m",
-    in_progress: "\u001b[36m●\u001b[0m",
-    done: "\u001b[2m✓\u001b[0m",
-    cancelled: "\u001b[2m✗\u001b[0m",
+    pending: `${tuiTheme.dim}○\u001b[0m`,
+    in_progress: `${tuiTheme.accent}●\u001b[0m`,
+    done: `${tuiTheme.dim}✓\u001b[0m`,
+    cancelled: `${tuiTheme.dim}✗\u001b[0m`,
   };
   const done = items.filter((t) => t.status === "done").length;
   const header = renderToolHeader({
     icon: "☑",
     title: "todo",
     meta: [`${done}/${items.length} done`],
-    titleColor: "\u001b[36m",
+    titleColor: tuiTheme.accent,
   });
   const MAX_ROWS = 6;
   const body: string[] = [];
-  // Only the FIRST open row sweeps ("what am I doing now"); further
+  // Only the FIRST open row sweeps, and only while a run is live (animate):
+  // shimmerText samples paint time, so without the loader's repaint clock
+  // the band would freeze mid-row (the resumed-but-idle symptom). Further
   // in_progress rows stay static so the chrome does not turn into a
   // fairground when a list is overly eager with its statuses.
-  const sweepingId = items.find((t) => t.status === "in_progress")?.id;
+  const sweepingId = animate ? items.find((t) => t.status === "in_progress")?.id : undefined;
   for (const t of items.slice(0, MAX_ROWS)) {
     const mark = marks[t.status] ?? marks.pending;
     if (t.status === "in_progress" && t.id === sweepingId)
       body.push(`${mark} ${shimmerText(t.text)}`);
     // Finished rows go dim + struck through: a closed item reads as crossed
     // out, not as another line of work.
-    else if (t.status === "done") body.push(`${mark} \u001b[2m\u001b[9m${t.text}\u001b[0m`);
+    else if (t.status === "done") body.push(`${mark} ${tuiTheme.dim}\u001b[9m${t.text}\u001b[0m`);
     else body.push(`${mark} ${t.text}`);
   }
   if (items.length > MAX_ROWS) {
-    body.push(`\u001b[2m… ${items.length - MAX_ROWS} more\u001b[0m`);
+    body.push(`${tuiTheme.dim}… ${items.length - MAX_ROWS} more\u001b[0m`);
   }
   return renderOutputBlock({
     header,
@@ -205,7 +225,7 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
   const result = item.result as Record<string, unknown> | undefined;
   const meta: string[] = [];
   const body: string[] = [];
-  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+  const dim = (s: string): string => `${tuiTheme.dim}${s}\u001b[0m`;
   const rows = (v: unknown): Array<Record<string, unknown>> =>
     Array.isArray(v) ? (v as Array<Record<string, unknown>>) : [];
   const maxChars = expanded ? 400 : 160;
@@ -219,12 +239,12 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
   // a misleading empty-list/unknown-id fallback.
   if (result === undefined && item.streaming) {
     const snapshot = item.output?.trim().split("\n").slice(-2) ?? [];
-    const lines = [`\u001b[2m${shimmerText(`⟳ ${op || "running"}…`)}\u001b[0m`, ...snapshot];
+    const lines = [`${tuiTheme.dim}${shimmerText(`⟳ ${op || "running"}…`)}\u001b[0m`, ...snapshot];
     return renderOutputBlock({
       header: renderToolHeader({
         icon: "◎",
         title: op ? `hub · ${op}` : "hub",
-        titleColor: "\u001b[36m",
+        titleColor: tuiTheme.accent,
       }),
       state: "running",
       sections: [{ lines }],
@@ -235,7 +255,7 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
   // snapshot visible below the result body (poll continuity).
   const liveSnapshot =
     item.streaming && item.output ? item.output.trim().split("\n").slice(-2) : [];
-  for (const line of liveSnapshot) body.push(`\u001b[2m${line}\u001b[0m`);
+  for (const line of liveSnapshot) body.push(`${tuiTheme.dim}${line}\u001b[0m`);
 
   if (op === "jobs" || op === "wait") {
     const items = rows(result?.items ?? result?.waited);
@@ -264,7 +284,7 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
     }
   } else if (op === "output") {
     if (result?.ok === false) {
-      body.push(`\u001b[31m${String(result.error ?? "failed")}\u001b[0m`);
+      body.push(`${tuiTheme.error}${String(result.error ?? "failed")}\u001b[0m`);
     } else {
       const status = String(result?.status ?? "");
       if (status) body.push(dim(`status: ${status}`));
@@ -285,7 +305,7 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
   } else {
     // steer / stop: { ok, error? }
     if (result?.ok === false) {
-      body.push(`\u001b[31m${String(result.error ?? "failed")}\u001b[0m`);
+      body.push(`${tuiTheme.error}${String(result.error ?? "failed")}\u001b[0m`);
     } else if (result !== undefined) {
       body.push(dim("ok"));
     }
@@ -298,37 +318,37 @@ export function renderHubTool(item: TranscriptItem, expanded: boolean, width: nu
     icon: "◎",
     title: op ? `hub · ${op}` : "hub",
     meta,
-    titleColor: "\u001b[36m",
+    titleColor: tuiTheme.accent,
   });
   return renderOutputBlock({ header, state, sections: [{ lines: body }], width });
 }
 
 /** learn 工具块（omp Learn label + summary 风格）：展示教训正文而非 args JSON。 */
 export function renderLearnTool(item: TranscriptItem, expanded: boolean): string[] {
-  const lines: string[] = ["\u001b[36m  learn\u001b[0m"];
+  const lines: string[] = [`${tuiTheme.accent}  learn\u001b[0m`];
   const input = item.input as Record<string, unknown> | undefined;
   const memory = typeof input?.memory === "string" ? input.memory.trim() : "";
   if (memory) {
     const text = memory.replace(/\s+/g, " ").slice(0, expanded ? 400 : 160);
-    lines.push(`\u001b[2m    ${text}\u001b[0m`);
+    lines.push(`${tuiTheme.dim}    ${text}\u001b[0m`);
   }
   const context =
     typeof input?.context === "string" && input.context.trim() ? input.context.trim() : "";
   if (context)
     lines.push(
-      `\u001b[2m    @ ${context.replace(/\s+/g, " ").slice(0, expanded ? 200 : 80)}\u001b[0m`,
+      `${tuiTheme.dim}    @ ${context.replace(/\s+/g, " ").slice(0, expanded ? 200 : 80)}\u001b[0m`,
     );
   const result = item.result as Record<string, unknown> | undefined;
   if (result) {
     if (result.learned === true) {
-      lines.push("\u001b[32m    ✓ stored\u001b[0m");
+      lines.push(`${tuiTheme.success}    ✓ stored\u001b[0m`);
     } else if (result.reason) {
-      lines.push(`\u001b[2m    ${String(result.reason)}\u001b[0m`);
+      lines.push(`${tuiTheme.dim}    ${String(result.reason)}\u001b[0m`);
     } else if (result.error) {
-      lines.push(`\u001b[31m    ${String(result.error)}\u001b[0m`);
+      lines.push(`${tuiTheme.error}    ${String(result.error)}\u001b[0m`);
     }
   } else if (item.streaming) {
-    lines.push("\u001b[2m    ⟳ capturing…\u001b[0m");
+    lines.push(`${tuiTheme.dim}    ⟳ capturing…\u001b[0m`);
   }
   return lines;
 }
@@ -341,7 +361,7 @@ function renderJobTree(
   timedOut: boolean,
   expanded: boolean,
 ): { meta: string; lines: string[] } {
-  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+  const dim = (s: string): string => `${tuiTheme.dim}${s}\u001b[0m`;
   const statusOf = (r: Record<string, unknown>): string => String(r.status ?? "?");
   const ORDER: Record<string, number> = { running: 0, failed: 1, stopped: 2, completed: 3 };
   const sorted = [...items].sort((a, b) => (ORDER[statusOf(a)] ?? 9) - (ORDER[statusOf(b)] ?? 9));
@@ -370,12 +390,12 @@ function renderJobTree(
     const isLast = i === shown.length - 1 && !truncated;
     const branch = isLast ? "└─" : "├─";
     const JOB_ICONS: Record<string, string> = {
-      running: "\u001b[36m⟳\u001b[0m",
-      failed: "\u001b[31m✘\u001b[0m",
-      stopped: "\u001b[31m✘\u001b[0m",
-      completed: "\u001b[32m✔\u001b[0m",
+      running: `${tuiTheme.accent}⟳\u001b[0m`,
+      failed: `${tuiTheme.error}✘\u001b[0m`,
+      stopped: `${tuiTheme.error}✘\u001b[0m`,
+      completed: `${tuiTheme.success}✔\u001b[0m`,
     };
-    const icon = JOB_ICONS[st] ?? "\u001b[32m✔\u001b[0m";
+    const icon = JOB_ICONS[st] ?? `${tuiTheme.success}✔\u001b[0m`;
     const rowText = ` ${String(r.id)} (${String(r.kind)}) ${String(r.label ?? "").slice(0, 60)}`;
     // omp jobs.ts: running rows shimmer their label while the block is live;
     // settled rows render static dim so scrollback never freezes a band.
@@ -403,7 +423,7 @@ function renderAgentTree(
   items: Array<Record<string, unknown>>,
   expanded: boolean,
 ): { lines: string[] } {
-  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
+  const dim = (s: string): string => `${tuiTheme.dim}${s}\u001b[0m`;
   const statusOf = (r: Record<string, unknown>): string => String(r.status ?? "?");
   const ORDER: Record<string, number> = { running: 0, failed: 1, stopped: 2, completed: 3 };
   const sorted = [...items].sort((a, b) => (ORDER[statusOf(a)] ?? 9) - (ORDER[statusOf(b)] ?? 9));
@@ -412,16 +432,16 @@ function renderAgentTree(
   const shown = sorted.slice(0, max);
   const truncated = sorted.length > shown.length;
   const ICONS: Record<string, string> = {
-    running: "\u001b[36m⟳\u001b[0m",
-    failed: "\u001b[31m✘\u001b[0m",
-    stopped: "\u001b[31m✘\u001b[0m",
-    completed: "\u001b[32m✔\u001b[0m",
+    running: `${tuiTheme.accent}⟳\u001b[0m`,
+    failed: `${tuiTheme.error}✘\u001b[0m`,
+    stopped: `${tuiTheme.error}✘\u001b[0m`,
+    completed: `${tuiTheme.success}✔\u001b[0m`,
   };
   shown.forEach((r, i) => {
     const st = statusOf(r);
     const isLast = i === shown.length - 1 && !truncated;
     const branch = isLast ? "└─" : "├─";
-    const icon = ICONS[st] ?? "\u001b[32m✔\u001b[0m";
+    const icon = ICONS[st] ?? `${tuiTheme.success}✔\u001b[0m`;
     const rowText = ` ${String(r.id)} ${String(r.label ?? "").slice(0, 60)}`;
     const rest = st === "running" ? shimmerText(rowText) : dim(rowText);
     lines.push(`  ${branch} ${icon}${rest}`);
@@ -447,9 +467,9 @@ function renderAgentTree(
  *  loader 行），transcript 保持安静；settled 之后面板消失，这块才是记录。 */
 export function renderAskTool(item: TranscriptItem, expanded: boolean, width: number): string[] {
   if (item.streaming) return [];
-  const dim = (s: string): string => `\u001b[2m${s}\u001b[0m`;
-  const green = (s: string): string => `\u001b[32m${s}\u001b[0m`;
-  const yellow = (s: string): string => `\u001b[33m${s}\u001b[0m`;
+  const dim = (s: string): string => `${tuiTheme.dim}${s}\u001b[0m`;
+  const green = (s: string): string => `${tuiTheme.success}${s}\u001b[0m`;
+  const yellow = (s: string): string => `${tuiTheme.warning}${s}\u001b[0m`;
 
   const asRecord = (v: unknown): Record<string, unknown> =>
     typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
@@ -525,7 +545,7 @@ export function renderAskTool(item: TranscriptItem, expanded: boolean, width: nu
     icon: errorText !== undefined ? "\u2298" : "\u2714",
     title: "ask",
     meta,
-    titleColor: errorText !== undefined ? "\u001b[33m" : "\u001b[32m",
+    titleColor: errorText !== undefined ? tuiTheme.warning : tuiTheme.success,
   });
   if (sections.length === 0) {
     return renderOutputBlock({
