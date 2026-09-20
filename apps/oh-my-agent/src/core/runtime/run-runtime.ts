@@ -708,7 +708,13 @@ function createRunPermissionGates(
       input: unknown,
       callId: string,
     ): Promise<{ block: boolean; reason?: string } | undefined> => {
-      if (deps.permissionMode === undefined) return undefined;
+      // "yolo" and absent are both ungated BY DESIGN: yolo is the
+      // skip-permissions mode. Everything that does not depend on judgment
+      // still applies (workspace containment, protected files, secret
+      // stripping, egress rules, write freshness) — those are tool-layer
+      // boundaries, not this gate.
+      const ungated = deps.permissionMode === undefined || deps.permissionMode === "yolo";
+      if (ungated) return undefined;
       if (deps.permissionMode === "auto") {
         if (!classifierGated(toolName, input)) return undefined;
         // The auto gate must be fail-CLOSED end to end: any error in here
@@ -1013,11 +1019,33 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // enabled-but-tool-missing — the Run fails loudly rather than silently
   // running unconstrained.
   let bashSandbox: BashSandbox | undefined;
-  if (projectSettings.bashSandbox) {
+  const sandboxConfigured = projectSettings.bashSandbox === true;
+  if (sandboxConfigured) {
     bashSandbox = resolveBashSandbox({
       workspaceRoot: deps.workspaceRoot,
       enabled: true,
     });
+  }
+  // Yolo needs a boundary that does not depend on judgment (the 2026
+  // consensus after the s1ngularity incident: an installed agent CLI with
+  // its permission flag disabled is a standing capability any package can
+  // borrow). Force the OS bash sandbox when the platform has one; a missing
+  // one degrades with a loud log instead of failing the Run — the remaining
+  // static boundaries (workspace containment for file tools, secret
+  // stripping, egress rules) still hold.
+  const yoloWantsBoundary = deps.permissionMode === "yolo" && bashSandbox === undefined;
+  if (yoloWantsBoundary) {
+    try {
+      bashSandbox = resolveBashSandbox({ workspaceRoot: deps.workspaceRoot, enabled: true });
+      debugLog("oma", "yolo: OS bash sandbox force-enabled");
+    } catch (err) {
+      debugLog(
+        "oma",
+        `yolo: no OS bash sandbox available (${
+          err instanceof Error ? err.message : String(err)
+        }) — bash runs unsandboxed; workspace/egress boundaries remain`,
+      );
+    }
   }
   const scope = deps.coordinationScope ?? deps.runId;
   const registry = deps.registry ?? createCoordinationRegistry();

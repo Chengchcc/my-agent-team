@@ -16,8 +16,9 @@ export interface CliRunOptions {
   model?: string;
   /** --tools filter (CLI): applied to the final tool table. */
   toolFilter?: ToolFilter;
-  /** Standalone permission gate (already resolved through settings). */
-  permissionMode?: "ask" | "auto" | "deny";
+  /** Standalone permission gate (already resolved through settings).
+   *  "yolo" = ungated + OS bash sandbox forced when available. */
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   /** --read-only: advertise no write/edit/bash/eval. */
   readOnly?: boolean;
   /** Resume a session file: transcript seeds the run, the turn appends

@@ -204,6 +204,43 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  test("/goal drives turns until the evaluator confirms the condition", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-goal-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-goal-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    // The fake model serves BOTH the run and the evaluator: the run does a
+    // tool call then finishes, and its final text doubles as the
+    // evaluator's MET verdict.
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      { name: "bash", input: { description: "check", command: "echo all-tests-pass" } },
+    ]);
+    process.env.OMA_FAKE_TEXT = '{"verdict":"met"}';
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+      await vt.waitForRender();
+
+      // Setting the goal submits the condition as the first turn.
+      await typeAndSubmit(vt, "/goal echo-all-tests-pass prints all-tests-pass");
+      await waitForText(vt, "goal set", 5_000);
+      await waitForText(vt, "all-tests-pass", 30_000);
+      await waitForText(vt, "goal ended: goal met after 1 turn(s)", 30_000);
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      delete process.env.OMA_FAKE_TEXT;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 90_000);
   test("failing tool renders the error marker", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-toolerr-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-toolerr-sess-"));

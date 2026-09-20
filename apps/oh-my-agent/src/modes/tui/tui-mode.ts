@@ -12,6 +12,8 @@ import { defaultRegistry } from "../../core/coordination/registry.js";
 import type { OmaLoopEvent } from "../../core/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
+import { decideGoalCycle, evaluateGoal, goalMaxTurns } from "../../core/runtime/goal-evaluator.js";
+import { resolveModelEntry } from "../../core/runtime/run-runtime.js";
 import {
   resolvePermissionMode,
   resolveRuntimeKnobs,
@@ -51,6 +53,7 @@ import {
   hydrateTranscript,
   initialViewState,
   settleSteeredMessages,
+  transcriptEvidence,
 } from "./view-state.js";
 
 /** addUserInput's third arg: render as a dim » pending echo (steered into
@@ -123,6 +126,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** /permission session override: wins over the --permission flag and the
    *  settings file for every subsequent run this session. */
   let permissionOverride: PermissionFlag | undefined;
+  let goal: TuiSessionContext["goal"] = null;
   /** /paste queue: rides the next submitted message, then clears. */
   let pendingImages: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
@@ -222,6 +226,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     },
     set permissionOverride(value) {
       permissionOverride = value;
+    },
+    get goal() {
+      return goal;
+    },
+    set goal(value) {
+      goal = value;
     },
     get pendingImages() {
       return pendingImages;
@@ -580,6 +590,52 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // /exit (or a second ctrl+c path) may have run via the live-command
     // channel while the Run was live — honor it now that the Run settled.
     if (quitting) return 0;
+
+    // Goal mode: judge the settled turn, then continue, defer, or stop.
+    // Runs AFTER runtime.close() so the evaluator never shares the run's
+    // model stream or lifecycle; the loop's next iteration picks up the
+    // queued follow-up exactly like a steered message.
+    if (ctx.goal && !runInput.workflow) {
+      ctx.goal.turns++;
+      const runHadTools = state.runs.at(-1)?.items.some((item) => item.kind === "tool") === true;
+      ctx.goal.noProgressRuns = runHadTools ? 0 : ctx.goal.noProgressRuns + 1;
+      const verdict = await evaluateGoal({
+        condition: ctx.goal.condition,
+        evidence: transcriptEvidence(state),
+        stream: (messages, signal, modelIdOverride) => {
+          const streamPromise = (async () => {
+            // A run just settled, so modelId is the resolved canonical id
+            // (buildCliRunInput set it before the first run ever started).
+            const entry = await resolveModelEntry(opts.modelRuntime, modelIdOverride ?? modelId!);
+            return opts.modelRuntime.stream(entry.providerId, entry.modelId, [...messages], {
+              signal,
+            });
+          })();
+          return (async function* () {
+            yield* await streamPromise;
+          })();
+        },
+      });
+      const decision = decideGoalCycle({
+        verdict,
+        turns: ctx.goal.turns,
+        maxTurns: goalMaxTurns(),
+        noProgressRuns: ctx.goal.noProgressRuns,
+        runHadTools: runHadTools === true,
+        runStatus: outcome.status,
+        runningBgJobs: defaultRegistry.countRunningJobs(),
+      });
+      if (decision.action === "continue") {
+        pendingFollowUps.push(`(goal) ${decision.guidance}`);
+        pushStatus(`◎ goal: turn ${ctx.goal.turns} — continuing`);
+      } else if (decision.action === "wait") {
+        pushStatus(`◎ goal: ${decision.reason}`);
+      } else {
+        ctx.goal = null;
+        pushStatus(`◎ goal ended: ${decision.reason}`);
+      }
+      io.render(state);
+    }
   }
 }
 

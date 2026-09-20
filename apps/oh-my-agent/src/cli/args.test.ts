@@ -228,10 +228,16 @@ describe("resume + gating flags (argv syntax)", () => {
     expect(parseArgs(["--read-only"]).readOnly).toBe(true);
     expect(parseArgs(["--permission", "auto", "-p", "x"]).permission).toBe("auto");
     expect(parseArgs(["--permission=off"]).permission).toBe("off");
+    expect(parseArgs(["--permission", "yolo", "-p", "x"]).permission).toBe("yolo");
+  });
+
+  test("--yolo is the skip-permissions shorthand", () => {
+    expect(parseArgs(["--yolo", "-p", "x"]).permission).toBe("yolo");
+    expect(parseArgs(["--yolo"]).permission).toBe("yolo");
   });
 
   test("--permission rejects unknown modes", () => {
-    expect(() => parseArgs(["--permission", "yolo"])).toThrow(/--permission requires/);
+    expect(() => parseArgs(["--permission", "hyper"])).toThrow(/--permission requires/);
   });
 });
 

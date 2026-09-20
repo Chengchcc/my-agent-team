@@ -2,7 +2,7 @@ import { GATEWAY_USAGE, type GatewayCommand, isGatewayCommand } from "./gateway-
 
 export type CliMode = "print" | "json" | "rpc" | "tui";
 
-export type PermissionFlag = "ask" | "auto" | "deny" | "off";
+export type PermissionFlag = "ask" | "auto" | "deny" | "off" | "yolo";
 
 export interface CliArgs {
   mode: CliMode;
@@ -54,7 +54,7 @@ Usage:
   oma --continue                 resume the most recent session
   oma --session <id> -p "..."    one-shot follow-up on a session
   oma --permission ask -p "..."  gate bash/write/mcp behind approval cards
-  oma --read-only -p "..."       research-only run (no mutating tools)
+  oma --yolo -p "..."            ungated run (OS sandbox forced when present)
   oma --model <provider/model> -p "<prompt>"
                                           pick a model by canonical id
                                           (default: first available model)
@@ -66,7 +66,7 @@ Piped stdin (print/json modes):
 `;
 
 const MODES = ["print", "json", "rpc", "tui"];
-const PERMISSIONS = ["ask", "auto", "deny", "off"];
+const PERMISSIONS = ["ask", "auto", "deny", "off", "yolo"];
 
 /** Parse argv SYNTAX only: whether a run actually has an input (prompt or
  *  piped stdin) is decided in main() after stdin is read. */
@@ -137,6 +137,12 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       args.continueLast = true;
     } else if (arg === "--read-only") {
       args.readOnly = true;
+    } else if (arg === "--yolo") {
+      // The industry's skip-permissions flag (crush --yolo / CC
+      // --dangerously-skip-permissions): ungated run. Boundaries that do
+      // not depend on judgment (workspace containment, protected files,
+      // secret stripping, egress rules, write freshness) all remain.
+      args.permission = "yolo";
     } else if (arg === "--permission") {
       const value = argv[i + 1];
       if (!value || !PERMISSIONS.includes(value)) {

@@ -34,9 +34,9 @@ export interface AgentRunSnapshot<K extends string = string> {
    *  storage). Absent = fresh session. The product stores only this
    *  reference — never manages the CLI's session files. */
   readonly cliSessionRef?: string;
-  /** Frozen permission_mode (ask/auto/deny), mapped per backend at
-   *  dispatch (ADR 0020 decision 7). */
-  readonly permissionMode?: "ask" | "auto" | "deny";
+  /** Frozen permission_mode (ask/auto/deny/yolo), mapped per backend at
+   *  dispatch (ADR 0020 decision 7). "yolo" = ungated run. */
+  readonly permissionMode?: "ask" | "auto" | "deny" | "yolo";
   /** Optional workflow budget (tokens) frozen at Run creation. */
   readonly workflowBudgetTokens?: number;
   readonly configRevision: number;

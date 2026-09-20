@@ -566,3 +566,29 @@ export function settleSteeredMessages(state: TuiViewState, texts: readonly strin
 export function isRunLive(state: TuiViewState): boolean {
   return currentRun(state)?.running ?? false;
 }
+
+/** Goal-evaluator evidence: the transcript as bounded, one-line-per-item
+ *  strings (most recent last). The evaluator judges ONLY what the agent
+ *  surfaced, so tool RESULTS are the proof that matters ("tests pass"),
+ *  while user/assistant text carries the thread. Runs that predate the
+ *  goal are still evidence — the condition may already hold. */
+export function transcriptEvidence(state: TuiViewState, maxItems = 40): string[] {
+  const lines: string[] = [];
+  for (const run of state.runs) {
+    for (const item of run.items) {
+      const clipped = (s: string): string => {
+        const flat = s.replace(/\s+/g, " ").trim();
+        return flat.length > 200 ? `${flat.slice(0, 200)}…` : flat;
+      };
+      if (item.kind === "user") lines.push(`user: ${clipped(item.text)}`);
+      else if (item.kind === "assistant" && item.text.trim())
+        lines.push(`assistant: ${clipped(item.text)}`);
+      else if (item.kind === "tool") {
+        const content = item.result?.content;
+        const result = typeof content === "string" ? clipped(content) : "(no result)";
+        lines.push(`tool ${item.text.replace(/…$/, "")}: ${result}`);
+      }
+    }
+  }
+  return lines.slice(-maxItems);
+}

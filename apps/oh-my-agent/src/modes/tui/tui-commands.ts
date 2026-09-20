@@ -65,9 +65,16 @@ export interface TuiSessionContext {
   lastContextTokens?: number;
   pendingFocusRecap?: string;
   runCommandText?: (text: string) => Promise<void>;
-  /** Session permission-mode override (/permission): "off" = ungated. */
-  permissionOverride?: "ask" | "auto" | "deny" | "off";
-  /** Images queued by /paste: ride the next submitted message, then clear. */
+  /** Session permission-mode override (/permission): "off" = ungated,
+   *  "yolo" = ungated + OS bash sandbox forced when available. */
+  permissionOverride?: "ask" | "auto" | "deny" | "off" | "yolo";
+  /** Goal-mode state (session-scoped, in-memory): null = no goal. */
+  goal?: {
+    condition: string;
+    startedAt: number;
+    turns: number;
+    noProgressRuns: number;
+  } | null;
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
@@ -204,8 +211,8 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
     },
     {
       name: "permission",
-      description: "show or set the permission gate (ask/auto/deny/off)",
-      argumentHint: "[ask|auto|deny|off]",
+      description: "show or set the permission gate (ask/auto/deny/off/yolo)",
+      argumentHint: "[ask|auto|deny|off|yolo]",
       group: "settings",
       live: true,
       run: (args) => {
@@ -216,15 +223,65 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
             ctx.opts.permissionMode ??
             loadProjectSettings(ctx.opts.workspaceRoot).permissionMode ??
             "off (ungated)";
-          ctx.pushStatus(`permission: ${effective} — /permission ask|auto|deny|off`);
+          ctx.pushStatus(`permission: ${effective} — /permission ask|auto|deny|off|yolo`);
           return;
         }
-        if (value !== "ask" && value !== "auto" && value !== "deny" && value !== "off") {
-          ctx.pushStatus(`unknown mode "${value}" — /permission ask|auto|deny|off`);
+        const known =
+          value === "ask" ||
+          value === "auto" ||
+          value === "deny" ||
+          value === "off" ||
+          value === "yolo";
+        if (!known) {
+          ctx.pushStatus(`unknown mode "${value}" — /permission ask|auto|deny|off|yolo`);
           return;
         }
         ctx.permissionOverride = value;
+        if (value === "yolo") {
+          ctx.pushStatus([
+            "permission: yolo — UNGATED this session.",
+            "  static boundaries remain (workspace, protected files, secrets, egress);",
+            "  the OS bash sandbox is force-enabled when the platform has one.",
+          ]);
+          return;
+        }
         ctx.pushStatus(`permission: ${value} (this session — .oma/settings.json persists it)`);
+      },
+    },
+
+    {
+      name: "goal",
+      description: "work toward a condition across turns (set/status/clear)",
+      argumentHint: "[<condition> | clear]",
+      group: "general",
+      live: true,
+      run: (args) => {
+        const value = args.trim();
+        const stopWords = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
+        if (!value) {
+          if (!ctx.goal) {
+            ctx.pushStatus("no goal set — /goal <measurable condition>");
+            return;
+          }
+          const elapsed = Math.round((Date.now() - ctx.goal.startedAt) / 1000);
+          ctx.pushStatus([
+            `goal active · ${ctx.goal.turns} turn(s) · ${elapsed}s`,
+            `  ${ctx.goal.condition}`,
+          ]);
+          return;
+        }
+        if (stopWords.has(value)) {
+          const had = ctx.goal?.condition;
+          ctx.goal = null;
+          ctx.pushStatus(had ? `goal cleared: ${had}` : "no goal set");
+          return;
+        }
+        ctx.goal = { condition: value, startedAt: Date.now(), turns: 0, noProgressRuns: 0 };
+        ctx.pushStatus(`goal set — the evaluator judges each turn, /goal clear stops`);
+        // Setting a goal starts a turn immediately, with the condition as
+        // the directive (CC semantics): the pendingPrompt mechanism hands
+        // this to the main loop as the next run.
+        ctx.pendingPrompt = value;
       },
     },
     {

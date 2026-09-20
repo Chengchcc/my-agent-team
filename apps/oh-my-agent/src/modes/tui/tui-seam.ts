@@ -28,7 +28,7 @@ export interface TuiModeOptions {
   /** --tools filter (CLI): applied to the final tool table. */
   toolFilter?: ToolFilter;
   /** --permission CLI flag; undefined = .oma/settings.json decides. */
-  permissionMode?: "ask" | "auto" | "deny" | "off";
+  permissionMode?: "ask" | "auto" | "deny" | "off" | "yolo";
   /** --read-only: run every session turn with no mutating tools. */
   readOnly?: boolean;
 }

@@ -262,3 +262,47 @@ describe("write freshness in the assembled runtime", () => {
     }
   });
 });
+
+/** yolo force-enables the OS bash sandbox (the compensating control that
+ *  makes skip-permissions defensible). On a box WITH bwrap, a yolo run's
+ *  bash cannot touch the read-only system tree — without the forcing, bash
+ *  runs under NullBashSandbox and the write would succeed. */
+(Bun.which("bwrap") !== null ? describe : describe.skip)("yolo forces the OS bash sandbox", () => {
+  test("a yolo run's bash cannot write /etc", async () => {
+    const savedProvider = process.env.OMA_FAKE_PROVIDER;
+    const savedTool = process.env.OMA_FAKE_TOOL;
+    process.env.OMA_FAKE_PROVIDER = "1";
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "bash",
+        input: {
+          description: "probe",
+          command: "touch /etc/oma-yolo-probe 2>/dev/null && echo WROTE || echo root-ro",
+        },
+      },
+    ]);
+    try {
+      const rt = await createOmaRuntime({
+        runId: "r-yolo-sandbox",
+        modelId: "fake/echo",
+        workspaceRoot: ws,
+        workspaceAccess: "read_write",
+        modelRuntime: fakeRuntime(),
+        skillRoots: [],
+        permissionMode: "yolo",
+      });
+      const outcome = await (await rt.run(runInput("r-yolo-sandbox", "read_write"))).outcome;
+      await rt.close();
+      const text = JSON.stringify(outcome.messages);
+      // "root-ro" is only reachable when touch FAILED — an unsandboxed
+      // yolo run would print WROTE instead (the tool_use input echo also
+      // contains the word, so only the RESULT text is meaningful).
+      expect(text).toContain("root-ro\\n");
+    } finally {
+      if (savedProvider === undefined) delete process.env.OMA_FAKE_PROVIDER;
+      else process.env.OMA_FAKE_PROVIDER = savedProvider;
+      if (savedTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = savedTool;
+    }
+  }, 30_000);
+});

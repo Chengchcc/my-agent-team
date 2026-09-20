@@ -104,10 +104,10 @@ export function buildRunInput(
     runId: string;
     model: typeof run.modelRef;
     configRevision: number;
+    permissionMode?: "ask" | "auto" | "deny" | "yolo";
     systemPrompt?: string;
     skillRoots?: readonly string[];
     cliSessionRef?: string;
-    permissionMode?: "ask" | "auto" | "deny";
     workflowBudgetTokens?: number;
   } = {
     runId: run.runId,
@@ -141,7 +141,7 @@ export function buildRunInput(
   if (run.skillRoots && run.skillRoots.length > 0) runSnapshot.skillRoots = run.skillRoots;
   if (cliSessionRef) runSnapshot.cliSessionRef = cliSessionRef;
   if (run.permissionMode) {
-    runSnapshot.permissionMode = run.permissionMode as "ask" | "auto" | "deny";
+    runSnapshot.permissionMode = run.permissionMode as "ask" | "auto" | "deny" | "yolo";
   }
   if (run.workflowBudgetTokens != null) runSnapshot.workflowBudgetTokens = run.workflowBudgetTokens;
   return {

@@ -57,10 +57,14 @@ export interface ProjectSettings {
    *  enabled defaults to TRUE; model pins the fastembed model id. */
   memoryVector?: { enabled?: boolean; model?: string };
   /** Standalone permission gate (ADR 0020): "ask" cards every high-risk
-   *  tool, "auto" runs the classifier, "deny" blocks them. Absent = ungated
-   *  (legacy default). The product RPC path never reads this — its
-   *  permissionMode arrives frozen in the run snapshot. */
-  permissionMode?: "ask" | "auto" | "deny";
+   *  tool, "auto" runs the classifier, "deny" blocks them, "yolo" runs
+   *  ungated (the industry's skip-permissions mode — judgment gates off,
+   *  STATIC boundaries stay: workspace containment, protected files,
+   *  secret stripping, egress rules, write freshness; the OS bash sandbox
+   *  is force-enabled when the platform has one). Absent = ungated (legacy
+   *  default). The product RPC path never reads this — its permissionMode
+   *  arrives frozen in the run snapshot. */
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   /** Read-side tool-result pruning: old tool output outside the protect
    *  window is replaced by a short summary before each model call (a lighter
    *  touch than compaction). Absent = pruning OFF — the loop only prunes when
@@ -179,7 +183,8 @@ export function loadProjectSettings(root: string): ProjectSettings {
       "permissionMode" in parsed &&
       (parsed.permissionMode === "ask" ||
         parsed.permissionMode === "auto" ||
-        parsed.permissionMode === "deny")
+        parsed.permissionMode === "deny" ||
+        parsed.permissionMode === "yolo")
     ) {
       result.permissionMode = parsed.permissionMode;
     }
@@ -348,11 +353,14 @@ export function resolveRuntimeKnobs(
 
 /** Effective standalone permission mode: an explicit choice (CLI flag,
  *  /permission override) wins; the workspace setting is the default.
- *  "off" (a TUI override) and absent both resolve to undefined = ungated. */
+ *  "off" (a TUI override) and absent both resolve to undefined = ungated.
+ *  "yolo" stays DISTINCT from undefined: both are ungated at the gate, but
+ *  yolo additionally force-enables the OS bash sandbox — collapsing it into
+ *  undefined would silently drop that compensating control. */
 export function resolvePermissionMode(
-  explicit?: "ask" | "auto" | "deny" | "off",
+  explicit?: "ask" | "auto" | "deny" | "yolo" | "off",
   workspaceRoot?: string,
-): "ask" | "auto" | "deny" | undefined {
+): "ask" | "auto" | "deny" | "yolo" | undefined {
   if (explicit) return explicit === "off" ? undefined : explicit;
   const fromSettings = workspaceRoot
     ? loadProjectSettings(workspaceRoot).permissionMode

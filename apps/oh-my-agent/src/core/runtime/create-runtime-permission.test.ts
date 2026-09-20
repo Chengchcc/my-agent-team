@@ -455,6 +455,22 @@ describe("product-mounted tools are gated by capability, not by server name", ()
     expect(notClassified).not.toContain("blocked by classifier");
     expect(notClassified).toContain("meta"); // the fixture answered
   });
+
+  /** yolo = the industry's skip-permissions mode: the judgment gate is OFF
+   *  entirely (no classifier, no cards), so even artifact_upload — which deny
+   *  blocks and auto classifies — runs. Static tool-layer boundaries are NOT
+   *  part of this gate and stay on (pinned by their own suites). */
+  test("yolo: high-risk product tools run ungated", async () => {
+    const ran = await productMount({
+      runId: "r-prod-yolo-write",
+      tools: "artifact_upload",
+      permissionMode: "yolo",
+      call: "artifact_upload",
+    });
+    expect(ran).toContain("meta"); // the fixture answered: the tool RAN
+    expect(ran).not.toContain("blocked by");
+    expect(ran).not.toContain("approval");
+  });
 });
 
 test("injected MCP todo_write wins over native todo (backend-injected priority)", async () => {

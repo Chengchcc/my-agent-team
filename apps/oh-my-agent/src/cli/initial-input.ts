@@ -146,8 +146,9 @@ export async function buildCliRunInput(opts: {
   modelRuntime: ModelRuntime;
   /** Canonical `<provider>/<model>` id; undefined = first available. */
   modelId?: string;
-  /** Standalone permission gate. undefined = ungated (legacy default). */
-  permissionMode?: "ask" | "auto" | "deny";
+  /** Standalone permission gate. undefined = ungated (legacy default);
+   *  "yolo" = ungated + OS bash sandbox forced when available. */
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   /** --read-only: advertise no write/edit/bash/eval to the model. */
   readOnly?: boolean;
   /** Clipboard/pasted images riding this prompt (vision input). */

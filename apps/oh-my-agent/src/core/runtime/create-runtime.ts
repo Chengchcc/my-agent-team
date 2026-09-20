@@ -79,8 +79,9 @@ export interface CreateOmaRuntimeOptions {
     plugins: readonly Plugin[];
     mcpServers?: readonly PluginMcpConfig[];
   };
-  /** Frozen Run permissionMode; "deny" drops plugin code components. */
-  permissionMode?: "ask" | "auto" | "deny";
+  /** Frozen Run permissionMode; "deny" drops plugin code components.
+   *  "yolo" = ungated at the gate + OS bash sandbox forced when available. */
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   /** Standalone modes: gate the repo-controlled workspace .mcp.json behind
    *  the trust record (spec follow-up #3). */
   gateWorkspaceMcp?: boolean;
