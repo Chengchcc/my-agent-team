@@ -55,28 +55,61 @@ export class UrlGuardError extends Error {
   }
 }
 
-/** Validate URL is safe to fetch. Throws UrlGuardError if not. */
-export function assertSafeUrl(rawUrl: string): URL {
-  return assertSafeUrlSync(rawUrl);
-}
-
-function assertSafeUrlSync(rawUrl: string): URL {
+/** Parse a URL and require an http(s) scheme. The scheme rule is
+ *  policy-independent: `file:` and `data:`-style targets are refused by every
+ *  caller regardless of how permissive its host policy is (a `file:` URL would
+ *  be a filesystem read outside the workspace, through the browser). */
+export function parseHttpUrl(rawUrl: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
   } catch {
     throw new UrlGuardError(`Invalid URL: ${rawUrl}`);
   }
-
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new UrlGuardError(`Blocked protocol: ${parsed.protocol}`);
   }
+  return parsed;
+}
 
+/** Validate URL is safe to fetch. Throws UrlGuardError if not. */
+export function assertSafeUrl(rawUrl: string): URL {
+  return assertSafeUrlSync(rawUrl);
+}
+
+function assertSafeUrlSync(rawUrl: string): URL {
+  const parsed = parseHttpUrl(rawUrl);
   if (isPrivateIP(parsed.hostname)) {
     throw new UrlGuardError(`Blocked host: ${parsed.hostname}`);
   }
-
   return parsed;
+}
+
+/** True for the addresses cloud metadata services answer on, plus the
+ *  carrier-grade NAT range (100.64/10) some operators serve it from. This is
+ *  the part of the private space that is NOT merely "the local network": a
+ *  permissive local-dev policy must still refuse it, or the escape hatch
+ *  becomes a credential-stealing primitive. */
+export function isMetadataHost(hostname: string): boolean {
+  const host = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.+$/, "");
+  if (host === "metadata" || host === "metadata.google.internal" || host === "instance-data") {
+    return true;
+  }
+  // IPv4-mapped IPv6 spellings of the same ranges.
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(host)?.[1];
+  const target = mapped ?? host;
+  const parts = target.split(".").map(Number);
+  if (parts.length === 4 && parts.every((n) => Number.isInteger(n))) {
+    const [a, b] = [parts[0]!, parts[1]!];
+    if (a === 169 && b === 254) return true; // link-local (AWS/GCP/Azure)
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT + Alibaba metadata
+    return false;
+  }
+  // IPv6 link-local.
+  return /^fe[89ab]/.test(target);
 }
 
 /** Best-effort DNS containment: resolves the hostname and rejects when any

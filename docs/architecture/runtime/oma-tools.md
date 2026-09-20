@@ -25,7 +25,7 @@ used_by:
 | `write` / `edit` | 文件 | 写 / 行锚点编辑；workspace 沙箱（`../` 逃逸即拒） | ❌ | 免审（工作区内=CC"工作目录编辑自动放行"先例） |
 | `bash` | 执行 | shell；后台任务注册表 + 完成注入；可选 OS 沙箱（bwrap/Seatbelt，`bashSandbox` 显式开启，缺平台工具则 Run 装配失败） | ❌ | **门禁** |
 | `eval` | 执行 | TS/JS 片段，`@chengchenccc/sandbox` 子进程；`timeout:0` = 无死线 | ❌ | **门禁** |
-| `browser` | 执行 | headless Chromium（puppeteer-core，进程级共享浏览器 + 命名 tab）：`open/close/run`；run 以 AsyncFunction 执行 `tab` API（goto/observe/screenshot/click/type/fill/evaluate/…）；截图存 `.oma/screenshots` 并回传 vision block；run 超时杀 page 兜底 | ❌ | **门禁** |
+| `browser` | 执行 | headless Chromium（puppeteer-core，进程级共享浏览器 + 命名 tab）：`open/close/run`；run 以 AsyncFunction 执行 `tab` API（goto/observe/screenshot/click/type/fill/evaluate/…）；截图存 `.oma/screenshots` 并回传 vision block；run 超时杀 page 兜底。导航策略：只允许 http(s)，与 web_fetch 同一条出口守卫（loopback/内网默认拒绝）；`browserLocalNetwork` 显式开启后放行 loopback/RFC1918 以便截本地 dev server，**云 metadata（169.254/16、100.64/10、metadata.google.internal）任何情况下都拒绝** | ❌ | **门禁** |
 | `web_search` / `web_fetch` | 网络 | DDG 搜索 / 带守卫的抓取（`disableWeb` 关闭） | ✅ | 免审 |
 | `learn` | 记忆 | 显式记 lesson → `learned.md`（文件是真源）+ 向量索引双写（best-effort，索引失败文件层照赢） | ✅ | 免审 |
 | `skill_load` | 会话 | 渐进加载 skill（skills/ 目录 SKILL.md 索引） | ✅ | 免审 |

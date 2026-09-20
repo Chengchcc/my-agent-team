@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBrowserTool, resolveChromeExecutable } from "./browser.js";
+import { checkNavigationAllowed, createBrowserTool, resolveChromeExecutable } from "./browser.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "oma-browser-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -58,13 +58,62 @@ describe("browser tool refuses URLs its sibling web_fetch refuses", () => {
     expect(String(bogus.content)).toContain("invalid URL");
   });
 
+  /** The navigation policy as a unit: the matrix is decided without launching
+   *  Chromium, so the assertions cannot flake on a slow launch.
+   *
+   *  Inspecting the app you are building is a real coding workflow, so the
+   *  workspace can opt in to local targets. The opt-in lifts ONLY the
+   *  loopback/RFC1918 refusal: cloud metadata is where instance credentials
+   *  live, and it must stay unreachable or the allowance becomes a credential
+   *  primitive. The scheme rule is policy-independent in both directions. */
+  test("local opt-in allows a dev server but never cloud metadata", async () => {
+    for (const url of [
+      "http://127.0.0.1:3000/",
+      "http://localhost:5173/app",
+      "http://192.168.1.5:8080/",
+      "http://10.0.0.7/",
+    ]) {
+      expect(await checkNavigationAllowed(url, true)).toBeNull();
+    }
+    for (const url of [
+      "http://169.254.169.254/latest/meta-data/",
+      "http://metadata.google.internal/computeMetadata/v1/",
+      "http://100.100.100.200/latest/meta-data/",
+    ]) {
+      expect(String(await checkNavigationAllowed(url, true))).toContain("metadata");
+    }
+    // file: is refused with or without the opt-in (the browser must not become
+    // a way around the file tools' workspace sandbox).
+    for (const allowLocal of [false, true]) {
+      expect(String(await checkNavigationAllowed("file:///etc/passwd", allowLocal))).toContain(
+        "Blocked protocol",
+      );
+    }
+  });
+
+  test("the default policy refuses every local target", async () => {
+    for (const url of ["http://127.0.0.1:3000/", "http://192.168.1.5/", "http://localhost/"]) {
+      expect(String(await checkNavigationAllowed(url, false))).toContain("Blocked host");
+    }
+    // …and still allows a public http(s) page (no regression for the normal case).
+    expect(await checkNavigationAllowed("https://example.com/docs", false)).toBeNull();
+  });
+
+  test("without the opt-in a dev-server URL is refused (default posture)", async () => {
+    const tool = createBrowserTool({ workspaceRoot: tmp });
+    const res = await tool.execute({ action: "open", name: "dev", url: "http://127.0.0.1:3000/" });
+    expect(res.isError).toBe(true);
+    expect(String(res.content)).toContain("Blocked host");
+  });
+
   test("offline schemes stay allowed (data: is how the tool is driven offline)", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });
     // No Chromium here: the guard passes, so the failure is the browser launch,
     // never a refusal.
     const res = await tool.execute({ action: "open", name: "x", url: "data:text/html,<p>hi</p>" });
     expect(String(res.content)).not.toContain("refused to open");
-  });
+    // This one really launches Chromium; a loaded box must not fail it.
+  }, 30_000);
 });
 
 describe("browser tool", () => {

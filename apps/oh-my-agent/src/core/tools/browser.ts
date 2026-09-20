@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
 import type { Browser, Page } from "puppeteer-core";
-import { assertSafeUrlDeep } from "./url-guard.js";
+import { assertSafeUrlDeep, isMetadataHost, parseHttpUrl } from "./url-guard.js";
 
 /** browser: open, reuse, close, and script headless Chromium tabs
  *  (oh-my-pi browser.md surface, ponytail cut): ONE shared headless browser
@@ -227,24 +227,37 @@ function createTabApi(name: string, page: Page, screenshotDir: string) {
   };
 }
 
-/** Navigation policy for action=open — the same egress rule web_fetch
- *  enforces: the target must pass the url guard. The guard also rejects every
- *  non-http(s) scheme, so `file:///etc/passwd` is refused here rather than
- *  rendered by Chromium.
+/** Navigation policy for action=open. Two settings, one scheme rule.
  *
- *  Consequences worth knowing:
- *  - loopback and LAN hosts are refused (the guard blocks 127/8, RFC1918, ...),
- *    so a local dev server cannot be driven through this tool;
- *  - `data:`/`about:` are exempt because that is how this tool is exercised
- *    offline (its own tests), NOT because they are inert — a data: document
- *    runs script and can fetch subresources, i.e. it can still reach the
- *    network. The exemption is not a security boundary.
+ *  Default (local OFF): the same egress rule web_fetch enforces — the target
+ *  must pass the url guard, which blocks loopback, RFC1918, link-local and the
+ *  carrier-grade NAT range. That means a local dev server cannot be driven
+ *  through this tool unless the workspace opts in.
+ *
+ *  Local ON (`.oma/settings.json` `browserLocalNetwork`, standalone only): a
+ *  developer inspecting the app they are building needs http://localhost:3000,
+ *  so the loopback/RFC1918 refusal is lifted — but ONLY that part. Cloud
+ *  metadata keeps being refused (`isMetadataHost`): 169.254.169.254 and the
+ *  CGNAT range are where instance credentials live, and a dev-server allowance
+ *  must not become a credential-stealing primitive.
+ *
+ *  Both settings keep the scheme rule: http(s) only, so `file:///etc/passwd`
+ *  is refused rather than rendered (a browser `file:` read would step outside
+ *  the workspace sandbox the file tools enforce). `data:`/`about:` stay allowed
+ *  because that is how this tool is exercised offline (its own tests) — NOT
+ *  because they are inert: a data: document runs script and can fetch
+ *  subresources, so that exemption is not a security boundary.
  *
  *  Scope: this hardens direct navigation only. `action=run` executes model JS
  *  with process access (see the header note) and a page can fetch subresources
  *  itself, so it is a deterministic barrier, not containment. A read_write Run
- *  has bash anyway. */
-async function guardOpenUrl(url: string): Promise<string | null> {
+ *  has bash anyway.
+ *
+ *  Returns an error string when the URL must not be opened. */
+export async function checkNavigationAllowed(
+  url: string,
+  allowLocalNetwork: boolean,
+): Promise<string | null> {
   let scheme: string;
   try {
     scheme = new URL(url).protocol;
@@ -253,6 +266,13 @@ async function guardOpenUrl(url: string): Promise<string | null> {
   }
   if (scheme === "data:" || scheme === "about:") return null;
   try {
+    if (allowLocalNetwork) {
+      const parsed = parseHttpUrl(url);
+      if (isMetadataHost(parsed.hostname)) {
+        return `Error: refused to open ${url}: cloud metadata endpoints are never reachable`;
+      }
+      return null;
+    }
     await assertSafeUrlDeep(url);
   } catch (err) {
     return `Error: refused to open ${url}: ${err instanceof Error ? err.message : String(err)}`;
@@ -260,8 +280,16 @@ async function guardOpenUrl(url: string): Promise<string | null> {
   return null;
 }
 
-export function createBrowserTool(opts: { workspaceRoot: string }): Tool {
+export function createBrowserTool(opts: {
+  workspaceRoot: string;
+  /** Opt-in: allow loopback/RFC1918 targets so a local dev server can be
+   *  inspected. Off by default; cloud metadata stays refused either way.
+   *  Standalone knob (`.oma/settings.json` `browserLocalNetwork`) — a product
+   *  RPC run only honors it through the frozen run snapshot (deps.settings). */
+  allowLocalNetwork?: boolean;
+}): Tool {
   const screenshotDir = join(opts.workspaceRoot, ".oma", "screenshots");
+  const allowLocalNetwork = opts.allowLocalNetwork === true;
   return {
     name: "browser",
     description:
@@ -270,8 +298,9 @@ export function createBrowserTool(opts: { workspaceRoot: string }): Tool {
       "(goto/observe/screenshot/click/type/fill/press/scroll/waitForSelector/" +
       "waitForNavigation/evaluate/extract/select); action=close releases tabs " +
       "(all: true releases every tab). Use for pages needing JS, interaction, " +
-      "or screenshots — web_fetch for static reads. Public http(s) pages only: " +
-      "localhost/private-network and file: URLs are refused.",
+      "or screenshots — web_fetch for static reads. http(s) only: file: URLs are " +
+      "refused, and localhost/private-network targets unless the workspace has " +
+      "enabled local access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -312,7 +341,7 @@ export function createBrowserTool(opts: { workspaceRoot: string }): Tool {
 
       if (action === "open") {
         if (args.url) {
-          const refused = await guardOpenUrl(args.url);
+          const refused = await checkNavigationAllowed(args.url, allowLocalNetwork);
           if (refused) return { content: refused, isError: true };
         }
         try {

@@ -72,7 +72,15 @@ export function newSessionId(): string {
  *  transcript is simply left intact (a resume may re-summarize, never lose).
  *
  *  Events without the field (files written before it existed) keep the
- *  historical behavior: the summary replaces everything before it. */
+ *  historical behavior: the summary replaces everything before it.
+ *
+ *  The LAST event that says "replaces" decides the fold, and a later event
+ *  saying otherwise does NOT cancel it. That distinction is what makes manual
+ *  /compact stick: /compact folds the transcript to one summary, a later
+ *  automatic compaction covers only part of what follows, and "latest event
+ *  wins" would resurrect every message the user deliberately compacted away.
+ *  Ignoring a partial summary is always safe — its content is either already
+ *  summarized or still present as messages. */
 export function loadSessionMessages(
   id: string,
   dir: string = sessionDir(),
@@ -80,8 +88,9 @@ export function loadSessionMessages(
   const path = join(dir, `${id}.jsonl`);
   if (!existsSync(path)) return [];
   const messages: Record<string, unknown>[] = [];
-  let summary: string | undefined;
-  /** Index up to which the latest summary folds; undefined = do not fold. */
+  /** The latest summary that MAY fold, with the index it folds from. A later
+   *  non-folding summary must not overwrite these. */
+  let foldSummary: string | undefined;
   let foldFrom: number | undefined;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (!line.trim()) continue;
@@ -96,22 +105,23 @@ export function loadSessionMessages(
       };
       if (evt.type === "message" && evt.message?.role) messages.push(evt.message);
       else if (evt.type === "compaction" && typeof evt.summary === "string") {
-        // The LATEST event decides the whole fold (its summary supersedes the
-        // older ones), evaluated in this file's own index space: everything
-        // parsed before it.
-        summary = evt.summary;
-        foldFrom = evt.replacesEarlierMessages === false ? undefined : messages.length;
+        // Evaluated in this file's own index space: everything parsed before
+        // it. Only a replacing event re-points the fold; a partial summary
+        // leaves an earlier fold in place (see the header note on /compact).
+        if (evt.replacesEarlierMessages !== false) {
+          foldSummary = evt.summary;
+          foldFrom = messages.length;
+        }
       }
     } catch {
       /* skip malformed line */
     }
   }
-  if (summary === undefined) return messages;
-  if (foldFrom === undefined) return messages; // summary covers only part of the file
+  if (foldSummary === undefined || foldFrom === undefined) return messages;
   return [
     {
       role: "user",
-      text: `<previous_session_summary>\n${summary}\n</previous_session_summary>`,
+      text: `<previous_session_summary>\n${foldSummary}\n</previous_session_summary>`,
     },
     ...messages.slice(foldFrom),
   ];

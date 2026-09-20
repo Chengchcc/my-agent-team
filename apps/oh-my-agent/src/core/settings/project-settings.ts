@@ -66,6 +66,12 @@ export interface ProjectSettings {
    *  touch than compaction). Absent = pruning OFF — the loop only prunes when
    *  a run was explicitly configured for it. */
   prune?: PruneKnobs;
+  /** Let the browser tool open loopback/RFC1918 targets, so a local dev server
+   *  can be inspected (env OMA_BROWSER_LOCAL_NETWORK=1). Cloud metadata
+   *  endpoints stay refused either way. Opt-IN because it loosens a boundary;
+   *  like permissionMode it is standalone-only — a backend RPC run ignores the
+   *  workspace file and takes the value from its frozen run snapshot. */
+  browserLocalNetwork?: boolean;
 }
 
 /** Tool-output pruning knobs (see tool-pruning.ts for the mechanics). */
@@ -139,6 +145,9 @@ export function loadProjectSettings(root: string): ProjectSettings {
     }
     if ("bashSandbox" in parsed && typeof parsed.bashSandbox === "boolean") {
       result.bashSandbox = parsed.bashSandbox;
+    }
+    if ("browserLocalNetwork" in parsed && typeof parsed.browserLocalNetwork === "boolean") {
+      result.browserLocalNetwork = parsed.browserLocalNetwork;
     }
     if (
       "memoryVector" in parsed &&
@@ -231,6 +240,8 @@ export interface RuntimeKnobs {
   permissionClassifierModel?: string;
   permissionClassifierTimeoutMs?: number;
   disableWeb?: boolean;
+  /** Browser tool: allow loopback/RFC1918 targets (metadata stays refused). */
+  browserLocalNetwork?: boolean;
   titleEnabled?: boolean;
   conversationTitled?: boolean;
   memoryExtract?: boolean;
@@ -306,6 +317,9 @@ export function resolveRuntimeKnobs(
   }
   if (s.memoryModel) knobs.memoryModel = s.memoryModel;
   if (s.prune) knobs.prune = s.prune;
+  const browserLocalNetwork =
+    s.browserLocalNetwork ?? (env.OMA_BROWSER_LOCAL_NETWORK === "1" ? true : undefined);
+  if (browserLocalNetwork !== undefined) knobs.browserLocalNetwork = browserLocalNetwork;
   return knobs;
 }
 

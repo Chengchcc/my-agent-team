@@ -380,7 +380,16 @@ async function buildNativeToolStage(
     // Interactive web (JS/interaction/screenshots): browser is a headless
     // Chromium subprocess — read_only runs don't get it (it writes
     // screenshots into the workspace and drives real sessions).
-    agentTools.push(toPluginTool(createBrowserTool({ workspaceRoot: deps.workspaceRoot })));
+    agentTools.push(
+      toPluginTool(
+        createBrowserTool({
+          workspaceRoot: deps.workspaceRoot,
+          // Opt-in local access (dev-server screenshots). Absent = the same
+          // egress rule web_fetch enforces.
+          ...(knobs.browserLocalNetwork ? { allowLocalNetwork: true } : {}),
+        }),
+      ),
+    );
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + knowledge.
   // Skips "product-tools" (the manifest path owns it) and names that

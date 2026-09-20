@@ -89,6 +89,7 @@ describe("project settings", () => {
           memoryExtract: true,
           memoryModel: "fake/echo",
           permissionClassifierModel: "fake/echo2",
+          browserLocalNetwork: true,
         }),
         "utf8",
       );
@@ -104,6 +105,7 @@ describe("project settings", () => {
         memoryExtract: true,
         memoryModel: "fake/echo",
         permissionClassifierModel: "fake/echo2",
+        browserLocalNetwork: true,
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -116,6 +118,26 @@ describe("project settings", () => {
  *  process.env (a long-lived process runs many Runs; a leaked env write would
  *  apply one Run's workspace settings to the next). */
 describe("resolveRuntimeKnobs", () => {
+  /** Opt-IN by design: a boundary is only loosened on purpose. Absent stays
+   *  undefined (the browser keeps web_fetch's egress rule), the workspace can
+   *  ask for it, and a deployment can via env. */
+  test("browserLocalNetwork is opt-in, from settings or env", () => {
+    expect(resolveRuntimeKnobs(undefined, {}).browserLocalNetwork).toBeUndefined();
+    expect(resolveRuntimeKnobs({}, {}).browserLocalNetwork).toBeUndefined();
+    expect(resolveRuntimeKnobs({ browserLocalNetwork: true }, {}).browserLocalNetwork).toBe(true);
+    expect(
+      resolveRuntimeKnobs(undefined, { OMA_BROWSER_LOCAL_NETWORK: "1" }).browserLocalNetwork,
+    ).toBe(true);
+    // An explicit false wins over the env opt-in, and env "0" is not an opt-in.
+    expect(
+      resolveRuntimeKnobs({ browserLocalNetwork: false }, { OMA_BROWSER_LOCAL_NETWORK: "1" })
+        .browserLocalNetwork,
+    ).toBe(false);
+    expect(
+      resolveRuntimeKnobs(undefined, { OMA_BROWSER_LOCAL_NETWORK: "0" }).browserLocalNetwork,
+    ).toBeUndefined();
+  });
+
   test("settings win over env", () => {
     const knobs = resolveRuntimeKnobs(
       { maxSteps: 7, modelTimeoutMs: 1000, disableWeb: true, titleEnabled: false },

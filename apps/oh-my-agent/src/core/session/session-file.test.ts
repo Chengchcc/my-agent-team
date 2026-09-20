@@ -100,17 +100,63 @@ describe("session-file compaction round-trip", () => {
     ]);
   });
 
-  /** A later event must not un-fold what an earlier one folded either: the
-   *  latest event decides, so a partial-but-newer summary cannot resurrect the
-   *  whole transcript — and a whole-file summary after a partial one simply
-   *  folds everything, which is correct for its own coverage. */
-  test("the latest event decides the fold", () => {
+  /** A partial summary cannot resurrect what an earlier fold removed, because
+   *  a partial summary carries no coverage for the messages before it. */
+  test("a later partial summary does not cancel an earlier fold", () => {
     appendSessionMessages("s-latest", dir, [{ role: "user", text: "q1" }]);
-    appendSessionCompaction("s-latest", "partial", dir, false);
-    appendSessionMessages("s-latest", dir, [{ role: "assistant", text: "a1" }]);
-    appendSessionCompaction("s-latest", "everything", dir, true);
+    appendSessionCompaction("s-latest", "everything so far", dir, true);
+    appendSessionMessages("s-latest", dir, [
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "q2" },
+      { role: "assistant", text: "a2" },
+    ]);
+    appendSessionCompaction("s-latest", "the oldest two of those", dir, false);
 
     expect(loadSessionMessages("s-latest")).toEqual([
+      {
+        role: "user",
+        text: "<previous_session_summary>\neverything so far\n</previous_session_summary>",
+      },
+      { role: "assistant", text: "a1" },
+      { role: "user", text: "q2" },
+      { role: "assistant", text: "a2" },
+    ]);
+  });
+
+  /** The /compact case end to end: the user asks for a compacted transcript,
+   *  an automatic compaction later covers only part of the file, and the
+   *  resume must still show the compacted transcript rather than every message
+   *  the user compacted away. */
+  test("manual /compact survives a later partial automatic compaction", () => {
+    // Turn 1-2: the transcript /compact folds away.
+    appendSessionMessages("s-manual", dir, [
+      { role: "user", text: "old q" },
+      { role: "assistant", text: "old a" },
+    ]);
+    // /compact: everything written so far is now one summary.
+    appendSessionCompaction("s-manual", "summary of the old turns", dir, true);
+    // A later run adds messages and compacts only part of them.
+    appendSessionMessages("s-manual", dir, [{ role: "user", text: "new q" }]);
+    appendSessionCompaction("s-manual", "partial", dir, false);
+    appendSessionMessages("s-manual", dir, [{ role: "assistant", text: "new a" }]);
+
+    expect(loadSessionMessages("s-manual")).toEqual([
+      {
+        role: "user",
+        text: "<previous_session_summary>\nsummary of the old turns\n</previous_session_summary>",
+      },
+      { role: "user", text: "new q" },
+      { role: "assistant", text: "new a" },
+    ]);
+  });
+
+  test("a whole-file summary after a partial one folds everything before it", () => {
+    appendSessionMessages("s-late", dir, [{ role: "user", text: "q1" }]);
+    appendSessionCompaction("s-late", "partial", dir, false);
+    // q1 is still in the transcript, so a later whole-file summary covers it.
+    appendSessionCompaction("s-late", "everything", dir, true);
+
+    expect(loadSessionMessages("s-late")).toEqual([
       {
         role: "user",
         text: "<previous_session_summary>\neverything\n</previous_session_summary>",
