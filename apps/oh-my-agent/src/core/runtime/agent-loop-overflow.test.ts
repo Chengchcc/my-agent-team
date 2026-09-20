@@ -433,4 +433,81 @@ describe("agent loop context handling (oh-my-pi absorption)", () => {
     const sources = snap.entries.filter((e) => e.type === "message").map((e) => e.source);
     expect(sources).toContain("steer");
   });
+
+  test("a failed summarizer is logged and skipped, never a run verdict", async () => {
+    // Pre-fix: the summarizer throw propagated through runCompactionRecovery
+    // to runLoop's outer catch — an otherwise healthy run died as "failed"
+    // before its first model call. Compaction is best-effort.
+    const store = await freshStore("ovf-summarizer-fail");
+    const events: string[] = [];
+    let calls = 0;
+    const history: ProjectedHistoryItem[] = Array.from({ length: 6 }, (_, i) => ({
+      productEntryId: `h${i}`,
+      message: { role: i % 2 ? "assistant" : "user", text: "x".repeat(800) },
+    }));
+    const session = createOmaSession({
+      sessionId: "ovf-summarizer-fail",
+      store,
+      plugins: [],
+      maxSteps: 4,
+      maxForceContinues: 0,
+      summarize: async () => {
+        throw new Error("summarizer network blip");
+      },
+      contextBudget: {
+        estimate: charsPer4,
+        limit: 1000,
+        triggerRatio: 0.7,
+      } satisfies ContextBudget,
+      modelStream: async function* (): AsyncIterable<AIMessageChunk> {
+        calls++;
+        yield { usage: { input: 500, output: 5, cacheRead: 0, cacheCreate: 0 } };
+        yield { delta: { type: "text", text: "survived" } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+    session.onEvent((e) => {
+      events.push(e.type);
+    });
+    const result = await session.startLoop(loopInput("hello", history));
+    // The run completed and the model was called despite the failed compaction.
+    expect(result.status).toBe("completed");
+    expect(calls).toBe(1);
+    expect(result.messages?.at(-1)).toMatchObject({ text: "survived" });
+    // compaction_start's status item is always settled: end fires on failure too.
+    expect(events).toContain("compaction_start");
+    expect(events.indexOf("compaction_end")).toBeGreaterThan(events.indexOf("compaction_start"));
+  });
+
+  test("assistant messages carry the producing call's usage and stop reason", async () => {
+    // Durable telemetry: the session file must be able to answer "how close
+    // did the run get to the window?" after the fact — usage/stopReason ride
+    // the message (never the wire: converters read text/blocks only).
+    const store = await freshStore("ovf-usage-persist");
+    let calls = 0;
+    const session = createOmaSession({
+      sessionId: "ovf-usage-persist",
+      store,
+      plugins: [],
+      maxSteps: 2,
+      maxForceContinues: 0,
+      summarize: async () => "[summary]",
+      modelStream: async function* (): AsyncIterable<AIMessageChunk> {
+        calls++;
+        yield { usage: { input: 321, output: 7, cacheRead: 11, cacheCreate: 0 } };
+        yield { delta: { type: "text", text: "answer" } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+    const result = await session.startLoop(loopInput("hello"));
+    expect(result.status).toBe("completed");
+    const assistant = result.messages?.find((m) => m.role === "assistant");
+    expect(assistant?.usage).toEqual({
+      inputTokens: 321,
+      outputTokens: 7,
+      cacheReadTokens: 11,
+      cacheWriteTokens: 0,
+    });
+    expect(assistant?.stopReason).toBe("end_turn");
+  });
 });

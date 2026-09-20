@@ -26,6 +26,7 @@ export type {
   MessageRole,
   MessageState,
   MessageToolState,
+  MessageUsage,
 } from "./message.js";
 export {
   ContentBlockSchema,

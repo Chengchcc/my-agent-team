@@ -44,4 +44,20 @@ export interface Message {
   error?: MessageError;
   /** Transient run status indicator (retrying/compacting). Not persisted. */
   runStatus?: "running" | "retrying" | "compacting" | "waiting";
+  /** Usage of the producing model call (assistant messages). Durable
+   *  telemetry; see MessageUsage. */
+  usage?: MessageUsage;
+  /** Provider stop reason for the producing call (end_turn, tool_use, …). */
+  stopReason?: string;
+}
+
+/** Provider-reported usage for the model call that produced an assistant
+ *  message. Durable telemetry: persisted with the message, never sent on the
+ *  wire (converters read text/blocks only). Post-hoc analysis ("how close did
+ *  the session get to the window?") reads it from the session file. */
+export interface MessageUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }

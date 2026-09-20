@@ -60,14 +60,33 @@ export function standaloneRuntimeOptions(
         }
       : {}),
     vectorMemory: vectorMemoryEnabled(built.workspace.root),
-    sessionTranscript: opts.session.messages.length
-      ? opts.session.messages.map((m, i) => ({
-          productEntryId: `session:${i}`,
-          message: toTranscriptMessage(m),
-        }))
-      : undefined,
+    sessionTranscript: seedTranscript(opts.session.messages),
     ...extras,
   };
+}
+
+/** The run seed: the session transcript minus a trailing unanswered user run.
+ *
+ *  A session can end on a user turn that never got a response (typed, then
+ *  quit/killed before any assistant persist — the audit found "继续" dangling
+ *  at a file tail). Seeding it verbatim replays that instruction into the
+ *  next run's context AHEAD of whatever the user types next, so the model
+ *  answers a ghost prompt. The FILE keeps the message (the TUI still shows
+ *  the bubble the user typed); only the run seed drops the trailing user run.
+ *  Exported for the seed test (pure function; the options builder needs a
+ *  full BackendRunInput fixture to drive). The new input the user is about
+ *  to send takes the dropped turn's place. */
+export function seedTranscript(
+  messages: readonly Record<string, unknown>[],
+): CreateOmaRuntimeOptions["sessionTranscript"] {
+  let end = messages.length;
+  while (end > 0 && messages[end - 1]?.role === "user") end--;
+  return end === 0
+    ? undefined
+    : messages.slice(0, end).map((m, i) => ({
+        productEntryId: `session:${i}`,
+        message: toTranscriptMessage(m),
+      }));
 }
 
 /** Parse-boundary cast (the .omp/rules/no-unknown-as-cast exception):

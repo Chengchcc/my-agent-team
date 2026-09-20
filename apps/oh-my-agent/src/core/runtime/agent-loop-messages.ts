@@ -49,6 +49,20 @@ type BatchEntry = {
   createdAt: number;
 };
 
+/** Attach the producing call's durable telemetry (usage, stop reason) to an
+ *  assistant message. Both assembly sites — the tool batch and the text-only
+ *  entry — call this, so the session file's usage record cannot silently
+ *  diverge between turn shapes. Never sent on the wire: converters read
+ *  text/blocks only. */
+export function attachTurnTelemetry(message: Message, turn: ModelTurn): void {
+  if (turn.usage) {
+    message.usage = { ...turn.usage };
+  }
+  if (turn.stopReason) {
+    message.stopReason = turn.stopReason;
+  }
+}
+
 /** Build the atomic assistant(tool_use) + tool_result batch for one turn. */
 export function buildToolBatch(
   turn: ModelTurn,
@@ -95,6 +109,7 @@ export function buildToolBatch(
       })),
     ],
   } as Message;
+  attachTurnTelemetry(assistantMessage, turn);
 
   return [
     {
@@ -155,26 +170,30 @@ export function buildTextAssistantEntry(
   turn: ModelTurn,
   thinkingBlocks: ReturnType<typeof buildThinkingBlock>,
 ): BatchEntry {
-  const blocks =
-    turn.ordered.length > 0
-      ? turn.ordered.map((b) => (b.type === "thinking" ? makeThinkingBlock(b.text, turn) : b))
-      : thinkingBlocks.length > 0
-        ? thinkingBlocks
-        : undefined;
+  // Ordered stream content wins; a signature-only stream falls back to the
+  // collapsed thinking block; a bare text turn carries no blocks at all.
+  let blocks: Message["blocks"];
+  if (turn.ordered.length > 0) {
+    blocks = turn.ordered.map((b) => (b.type === "thinking" ? makeThinkingBlock(b.text, turn) : b));
+  } else if (thinkingBlocks.length > 0) {
+    blocks = thinkingBlocks;
+  }
 
+  const message: Message = {
+    role: "assistant",
+    text: turn.text,
+    // Preserve the interleaved thinking/text order from the stream. The
+    // single collapsed thinking block (with signature) is still emitted for
+    // replay compatibility when the stream had a signature, but the ordered
+    // list keeps the trace faithful.
+    blocks,
+  };
+  attachTurnTelemetry(message, turn);
   return {
     type: "message",
     role: "assistant",
     source: "assistant",
-    message: {
-      role: "assistant",
-      text: turn.text,
-      // Preserve the interleaved thinking/text order from the stream. The
-      // single collapsed thinking block (with signature) is still emitted for
-      // replay compatibility when the stream had a signature, but the ordered
-      // list keeps the trace faithful.
-      blocks,
-    },
+    message,
     createdAt: Date.now(),
   };
 }

@@ -1,4 +1,4 @@
-import type { BackendInputMessage } from "@chengchenccc/agent-contract";
+import { type BackendInputMessage, debugLog } from "@chengchenccc/agent-contract";
 import { ProviderError } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
 import type { MessageEntry } from "../store/session-tree.js";
@@ -267,23 +267,39 @@ async function runModelTurnLoop(
     tokenEstimateCache.clear();
     await emit({ type: "compaction_start" });
     const contextBudget = opts.contextBudget!;
-    const result = await compactSession(
-      opts.store,
-      opts.sessionId,
-      opts.summarize,
-      mutable.controller?.signal,
-      {
-        estimate: contextBudget.estimate,
-        // Down to the proactive trigger, so the loop settles instead of
-        // compacting again next iteration — but never above the WINDOW: a
-        // deployment can configure a trigger above it (tests do, to isolate an
-        // overflow), and an overflow recovery must still compact then.
-        limit: contextBudget.limit * Math.min(1, contextBudget.triggerRatio),
-      },
-    );
-    await emit({ type: "compaction_end" });
-    if (result.coveredIds.length > 0) {
-      stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
+    try {
+      const result = await compactSession(
+        opts.store,
+        opts.sessionId,
+        opts.summarize,
+        mutable.controller?.signal,
+        {
+          estimate: contextBudget.estimate,
+          // Down to the proactive trigger, so the loop settles instead of
+          // compacting again next iteration — but never above the WINDOW: a
+          // deployment can configure a trigger above it (tests do, to isolate an
+          // overflow), and an overflow recovery must still compact then.
+          limit: contextBudget.limit * Math.min(1, contextBudget.triggerRatio),
+        },
+      );
+      if (result.coveredIds.length > 0) {
+        stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
+      }
+    } catch (err) {
+      // Compaction is a best-effort optimization, never a run verdict: a
+      // failed summarizer call (transient network, provider hiccup) used to
+      // propagate to runLoop's outer catch and terminalize an otherwise
+      // healthy run as "failed". Log it and let the model call proceed — if
+      // the context really is over the window, the provider-overflow path
+      // retries once and then terminalizes with its own one-shot guard.
+      debugLog(
+        "oma",
+        `compaction failed (run continues): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      // Always settle the UI state: compaction_start pushed a status item
+      // that only compaction_end retires.
+      await emit({ type: "compaction_end" });
     }
   };
   // One step = at most one model call. Overflow recovery stays INSIDE

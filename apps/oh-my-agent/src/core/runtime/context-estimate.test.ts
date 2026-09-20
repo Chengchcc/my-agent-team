@@ -3,6 +3,7 @@ import type { Message } from "@chengchenccc/message";
 import {
   estimateContextTokens,
   estimateMessageTokens,
+  estimateTextTokens,
   isSilentContextOverflow,
   type UsageAnchor,
   usageTotalTokens,
@@ -146,6 +147,19 @@ describe("estimateMessageTokens (wire-accurate)", () => {
       blocks: [{ type: "image", mediaType: "image/png", base64: "A".repeat(40_000) }],
     };
     expect(estimateMessageTokens(msg)).toBe(4);
+  });
+
+  test("CJK weighs ~1.5 chars/token — chars/4 under-counts 2-4x and wedges overflow recovery", () => {
+    // The dangerous direction is UNDER-estimation: the threshold gate thinks
+    // "under budget" while the provider overflows, so the recovery's own cut
+    // math no-ops and the retry 400s again (one-shot guard = wedged run).
+    // Chinese runs ~1-1.5 chars/token (deepseek's own docs: ~1.5).
+    const cjk = estimateMessageTokens({ role: "user", text: "检".repeat(100) });
+    const ascii = estimateMessageTokens({ role: "user", text: "x".repeat(100) });
+    expect(ascii).toBe(Math.ceil(100 / 4) + 4);
+    expect(cjk).toBe(Math.ceil((100 * 2) / 3) + 4);
+    // Mixed runs are prorated, not max-ed.
+    expect(estimateTextTokens("检查x")).toBeCloseTo((2 * 2) / 3 + 1 / 4, 5);
   });
 });
 
