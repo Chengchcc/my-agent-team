@@ -480,6 +480,8 @@ export function renderAskTool(item: TranscriptItem, expanded: boolean, width: nu
       Array.isArray(answer?.selectedValues) ? (answer.selectedValues as unknown[]).map(String) : [],
     );
     const freeText = typeof answer?.freeText === "string" ? answer.freeText : "";
+    const note = typeof answer?.note === "string" ? answer.note : "";
+    const timedOut = answer?.timedOut === true;
     const multi = q.multi === true;
     const options = Array.isArray(q.options) ? (q.options as unknown[]).map(asRecord) : [];
     const lines: string[] = [];
@@ -506,6 +508,11 @@ export function renderAskTool(item: TranscriptItem, expanded: boolean, width: nu
       lines.push(`${green(marker(multi, true))} ${prefix}\u201c${freeText}\u201d`);
     } else if (selected.size === 0) {
       lines.push(`${dim(marker(multi, false))} ${yellow(cancelled ? "cancelled" : "unanswered")}`);
+    }
+    if (note) lines.push(`      ${dim("Note:")} ${note}`);
+    if (timedOut) {
+      // The record must never let an auto-selection read as a user choice.
+      lines.push(`${yellow("      auto-selected after timeout \u2014 not a user choice")}`);
     }
     sections.push({ label: `${i + 1}. ${label(q, i)}`, lines });
   }

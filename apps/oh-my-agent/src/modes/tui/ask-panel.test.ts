@@ -40,7 +40,10 @@ const text = (over: Partial<AskQuestionItem> = {}): AskQuestionItem => ({
   ...over,
 });
 
-function panel(questions: AskQuestionItem[]): {
+function panel(
+  questions: AskQuestionItem[],
+  opts: { timeoutMs?: number } = {},
+): {
   panel: AskPanel;
   settled: Array<unknown>;
   type: (s: string) => void;
@@ -49,6 +52,7 @@ function panel(questions: AskQuestionItem[]): {
   const created = new AskPanel({ questions } as AskQuestionInput, {
     onSettle: (result) => settled.push(result),
     requestRender: () => {},
+    ...opts,
   });
   created.setViewportRows(30);
   return {
@@ -337,5 +341,225 @@ describe("askResult", () => {
         { id: "q2", selectedValues: [], freeText: "note" },
       ],
     });
+  });
+});
+
+describe("oh-my-pi alignment: recommended option, wrapping tabs, notes", () => {
+  test("the cursor starts on the recommended option (a bare Enter takes it)", () => {
+    const question = select({ recommended: "b" });
+    expect(createAskQuestionStates([question])[0]!.cursor).toBe(1);
+    const { panel: p, settled } = panel([question]);
+    p.handleInput(ENTER);
+    expect(settled).toEqual([{ answers: [{ id: "q1", selectedValues: ["b"] }] }]);
+  });
+
+  test("recommended is matched by VALUE, so option order does not matter", () => {
+    const question = select({
+      options: [
+        { value: "x", label: "ex" },
+        { value: "y", label: "why" },
+        { value: "z", label: "zed" },
+      ],
+      recommended: "z",
+    });
+    expect(createAskQuestionStates([question])[0]!.cursor).toBe(2);
+  });
+
+  test("tabs WRAP in both directions (Tab off Submit returns to question 1)", () => {
+    const { panel: p } = panel([select(), text()]);
+    p.handleInput(TAB); // -> Q2
+    p.handleInput(TAB); // -> Submit
+    expect(p.render(80).join("\n")).toContain("Review answers");
+    p.handleInput(TAB); // wraps -> Q1
+    expect(p.render(80).join("\n")).not.toContain("Review answers");
+    p.handleInput("\u001b[D"); // left from Q1 wraps -> Submit
+    expect(p.render(80).join("\n")).toContain("Review answers");
+  });
+
+  test("`n` attaches a note to the focused row; it rides the answer", () => {
+    const { panel: p, settled, type } = panel([select()]);
+    p.handleInput("n");
+    type("prefer this one, see ticket 42");
+    p.handleInput(ENTER); // saves the note (does not submit)
+    expect(settled).toHaveLength(0);
+    // The note is visible on the row it was written on.
+    expect(plain(p.render(80).join("\n"))).toContain("\u270e note");
+    p.handleInput(ENTER); // now pick the option
+    expect(settled).toEqual([
+      {
+        answers: [
+          {
+            id: "q1",
+            selectedValues: ["a"],
+            note: "prefer this one, see ticket 42",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("Esc inside a note keeps the previous note (an abandoned edit is not a deletion)", () => {
+    const { panel: p, settled, type } = panel([select()]);
+    p.handleInput("n");
+    type("kept");
+    p.handleInput(ENTER);
+    p.handleInput("n");
+    type(" discarded");
+    p.handleInput(ESC);
+    p.handleInput(ENTER);
+    expect(settled).toEqual([{ answers: [{ id: "q1", selectedValues: ["a"], note: "kept" }] }]);
+  });
+
+  test("an empty note submit clears it", () => {
+    const { panel: p, settled, type } = panel([select()]);
+    p.handleInput("n");
+    type("temp");
+    p.handleInput(ENTER);
+    p.handleInput("n");
+    // The buffer is seeded with the existing note; clearing it deletes the mark.
+    for (let i = 0; i < "temp".length; i++) p.handleInput("\x7f");
+    p.handleInput(ENTER);
+    p.handleInput(ENTER);
+    expect(settled).toEqual([{ answers: [{ id: "q1", selectedValues: ["a"] }] }]);
+  });
+
+  test("a note is dropped when its row stops being the answer", () => {
+    const {
+      panel: p,
+      settled,
+      type,
+    } = panel([
+      select({
+        options: [
+          { value: "a", label: "alpha" },
+          { value: "b", label: "beta" },
+        ],
+      }),
+    ]);
+    p.handleInput("n");
+    type("about alpha");
+    p.handleInput(ENTER); // note on row 0
+    p.handleInput(DOWN); // focus beta
+    p.handleInput(ENTER); // pick beta -> alpha is no longer the answer
+    expect(settled).toEqual([{ answers: [{ id: "q1", selectedValues: ["b"] }] }]);
+  });
+
+  test("the Submit review shows the note under its question", () => {
+    const { panel: p, type } = panel([select(), text()]);
+    p.handleInput("n");
+    type("watch the cache");
+    p.handleInput(ENTER);
+    p.handleInput(ENTER); // pick the option -> Q2
+    p.handleInput(ENTER); // text answer committed -> Submit
+    const review = plain(p.render(80).join("\n"));
+    expect(review).toContain("Review answers");
+    expect(review).toContain("Note:");
+    expect(review).toContain("watch the cache");
+  });
+});
+
+describe("oh-my-pi alignment: option.preview", () => {
+  test("a preview renders under its option row (markdown, so fences too)", () => {
+    const question = select({
+      options: [
+        {
+          value: "a",
+          label: "alpha",
+          preview: "**bold** and `code`\n\n```ts\nconst x = 1;\n```",
+        },
+      ],
+    });
+    const state = createAskQuestionStates([question])[0]!;
+    const { lines } = renderAskRows(question, state, 60, undefined);
+    const text = plain(lines.join("\n"));
+    // The label, then the preview block indented under it.
+    expect(text).toContain("alpha");
+    expect(text).toContain("bold");
+    expect(text).toContain("const x = 1;");
+    expect(text.split("\n").length).toBeGreaterThan(3);
+  });
+
+  test("a preview long enough to overflow still maps rows to lines", () => {
+    const question = select({
+      options: [
+        {
+          value: "a",
+          label: "alpha",
+          preview: Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n\n"),
+        },
+      ],
+    });
+    const state = createAskQuestionStates([question])[0]!;
+    const { lines, lineStart } = renderAskRows(question, state, 60, undefined);
+    // Row 0 owns every preview line, so row 1 (Other) starts after them all.
+    expect(lineStart[1]).toBe(lines.length - 1);
+  });
+});
+
+describe("oh-my-pi alignment: the inactivity timeout (ask.timeout)", () => {
+  const multi = [
+    select({ header: "A", recommended: "b" }),
+    select({ id: "q2", header: "B", question: "Second?", options: [{ value: "x", label: "ex" }] }),
+  ];
+
+  test("expiry auto-answers UNANSWERED questions with their recommended option, marked timedOut", async () => {
+    const { settled } = panel(multi, { timeoutMs: 20 });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(settled).toEqual([
+      {
+        answers: [
+          { id: "q1", selectedValues: ["b"], timedOut: true },
+          { id: "q2", selectedValues: ["x"], timedOut: true },
+        ],
+      },
+    ]);
+  });
+
+  test("an already-answered question is left alone (no overwrite, no mark)", async () => {
+    const { panel: p, settled } = panel(multi, { timeoutMs: 30 });
+    p.handleInput(ENTER); // pick recommended on Q1 -> moves to Q2
+    await new Promise((r) => setTimeout(r, 80));
+    expect(settled).toEqual([
+      {
+        answers: [
+          { id: "q1", selectedValues: ["b"] },
+          { id: "q2", selectedValues: ["x"], timedOut: true },
+        ],
+      },
+    ]);
+  });
+
+  test("a keypress restarts the countdown (an engaged user never times out)", async () => {
+    const { panel: p, settled } = panel([select()], { timeoutMs: 40 });
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      p.handleInput("x"); // any key counts as activity
+    }
+    expect(settled).toHaveLength(0);
+  });
+
+  test("the timer is deferred while a field is open, then runs on close", async () => {
+    const { panel: p, settled, type } = panel([select()], { timeoutMs: 25 });
+    p.handleInput(DOWN);
+    p.handleInput(DOWN); // Other row
+    p.handleInput(ENTER); // opens the field
+    await new Promise((r) => setTimeout(r, 60));
+    // The half-typed answer is never yanked: the timer waits for the field.
+    expect(settled).toHaveLength(0);
+    type("done");
+    p.handleInput(ENTER);
+    expect(settled).toHaveLength(1);
+  });
+
+  test("no timer at all when the timeout is 0 / absent (oh-my-pi's default)", async () => {
+    const { panel: p, settled } = panel([select()]);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(settled).toHaveLength(0);
+    expect(p.render(80).join("\n")).not.toMatch(/Ask \(\d+s\)/);
+  });
+
+  test("the title counts down while the timer is live", () => {
+    const { panel: p } = panel([select()], { timeoutMs: 30_000 });
+    expect(plain(p.render(80)[0] ?? "")).toContain("Ask (30s)");
   });
 });

@@ -22,6 +22,12 @@ export function productToolsRoutes(svc: ProductToolsService) {
               id: t.String(),
               selectedValues: t.Array(t.String()),
               freeText: t.Optional(t.String()),
+              // Same contract as the CLI panel (agent-contract
+              // AskQuestionAnswerItem): the web surface does not produce these
+              // yet, but the wire shape must not be a narrower copy of the
+              // contract or a note/timedOut answer would be silently dropped.
+              note: t.Optional(t.String()),
+              timedOut: t.Optional(t.Boolean()),
             }),
           ),
         }),

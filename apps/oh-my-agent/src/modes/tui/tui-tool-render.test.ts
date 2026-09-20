@@ -725,6 +725,33 @@ describe("renderAskTool (the durable record of a HITL ask)", () => {
     expect(text).not.toContain('{"answers"');
   });
 
+  test("a note is recorded beside the answer it annotates", () => {
+    const text = renderAskTool(
+      askItem({
+        answers: [{ id: "q1", selectedValues: ["b"], note: "check ticket 42 first" }],
+      }),
+      false,
+      80,
+    )
+      .join("\n")
+      .replace(ANSI_STRIP, "");
+    expect(text).toContain("Note: check ticket 42 first");
+  });
+
+  test("an auto-selected answer is marked as NOT a user choice", () => {
+    // The record must never let a timeout guess read as consent.
+    const text = renderAskTool(
+      askItem({ answers: [{ id: "q1", selectedValues: ["b"], timedOut: true }] }),
+      false,
+      80,
+    )
+      .join("\n")
+      .replace(ANSI_STRIP, "");
+    expect(text).toContain("auto-selected after timeout");
+    expect(text).toContain("not a user choice");
+    expect(text).toContain("\u25c9 beta");
+  });
+
   test("a free-text answer says where it came from", () => {
     const selectOther = renderAskTool(
       askItem({ answers: [{ id: "q1", selectedValues: [], freeText: "nope" }] }),

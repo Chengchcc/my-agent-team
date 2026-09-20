@@ -39,6 +39,20 @@ picker and covers the input row the user was about to type in.
 - `ask_question` → `ask-panel.ts` (`AskPanel`). It is the only docked panel
   today; `packages/tui` has no editor-slot concept, so the swap is a provider
   concern.
+- The panel follows oh-my-pi's ask dialog: recommended option focused at spawn,
+  Tab/←/→ wrap, `n` notes a row (`✎ note`) and rides that row's answer,
+  `option.preview` renders as markdown under its option, Submit review for
+  anything that cannot finish on one keypress. `Chat about this` is NOT
+  offered — it exists only on oh-my-pi's collab guest path.
+- The inactivity timeout is `askTimeoutMs` (`.oma/settings.json`, env
+  `OMA_ASK_TIMEOUT_MS`, omp `ask.timeout` — which is in SECONDS, this one is
+  ms; 0/absent = off, oh-my-pi's default). On expiry the UNANSWERED questions
+  take their recommended option and the answer carries `timedOut`, so the
+  model can tell an auto-selection from consent. The countdown restarts on
+  every key and is deferred while a field is open (a half-typed answer is
+  never yanked). Config is resolved by the session and passed through the
+  `askQuestions(input, { timeoutMs })` seam — the io implements the surface,
+  it does not own the knob.
 - A docked panel sizes itself from the viewport rows the provider injects
   (`setViewportRows`, duck-typed in `tui-frame-provider.ts`). Never read
   `process.stdout.rows`: the provider's `rows` is what the VirtualTerminal

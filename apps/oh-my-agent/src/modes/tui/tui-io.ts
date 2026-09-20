@@ -635,7 +635,7 @@ export function createTerminalIo(
       };
       return promise;
     },
-    askQuestions(input) {
+    askQuestions(input, opts) {
       // DOCKED panel, not an overlay: the model is blocked on this answer, so
       // the surface must not look like one more transient picker (and it must
       // not cover the row the user is typing in). Multi-select, free text and
@@ -648,6 +648,9 @@ export function createTerminalIo(
           resolve(result);
         },
         requestRender: () => tui.requestRender(),
+        // The knob is resolved by the session (config lives there), passed
+        // through so the panel can run its inactivity countdown.
+        ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
       });
       dock(panel, () => {
         undock(panel);

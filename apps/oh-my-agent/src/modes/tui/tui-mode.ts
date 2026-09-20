@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { BackendRunInput, BackendRunOutcome } from "@chengchenccc/agent-contract";
+import type {
+  AskQuestionInput,
+  BackendRunInput,
+  BackendRunOutcome,
+} from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { ProcessTerminal } from "@chengchenccc/tui";
 import type { PermissionFlag } from "../../cli/args.js";
@@ -335,6 +339,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     const pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
     for (const w of pluginRt.warnings) pushStatus(`[plugin] ${w}`);
+    const knobs = resolveRuntimeKnobs(loadProjectSettings(opts.workspaceRoot));
     const runtime = await createOmaRuntime(
       standaloneRuntimeOptions(
         built,
@@ -351,7 +356,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // completed turn (the TUI re-reads it each run, so a fresh title
           // from this run lands before the next one is considered).
           settings: {
-            ...resolveRuntimeKnobs(loadProjectSettings(opts.workspaceRoot)),
+            ...knobs,
             ...(readSessionTitle(session.sessionId, session.dir) !== undefined
               ? { conversationTitled: true }
               : {}),
@@ -374,9 +379,18 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
               ? { decision: "allow" }
               : { decision: "deny", reason: "user denied" };
           },
-          // HITL ask_question: interactive overlay; absent/cancel = null (tool
-          // fails closed with "no answer").
-          ...(io.askQuestions ? { askHandler: io.askQuestions } : {}),
+          // HITL ask_question: docked panel; absent/cancel = null (tool fails
+          // closed with "no answer"). The inactivity timeout is config, so it
+          // is resolved here (the io implements the surface, the session owns
+          // the knobs).
+          ...(io.askQuestions
+            ? {
+                askHandler: (input: AskQuestionInput) =>
+                  io.askQuestions!(input, {
+                    ...(knobs.askTimeoutMs ? { timeoutMs: knobs.askTimeoutMs } : {}),
+                  }),
+              }
+            : {}),
           // Render on every event so model chunks (message_update) hit the
           // screen incrementally; the TUI's requestRender throttles/coalesces,
           // so high-frequency chunk events are safe here.

@@ -38,6 +38,7 @@ const ROWS: SettingRow[] = [
   { key: "maxSteps", label: "maxSteps", kind: "number" },
   { key: "modelTimeoutMs", label: "modelTimeoutMs", kind: "number" },
   { key: "mcpTimeoutMs", label: "mcpTimeoutMs", kind: "number" },
+  { key: "askTimeoutMs", label: "askTimeoutMs (HITL ask auto-answer, 0=off)", kind: "number" },
   { key: "bashTimeoutMs", label: "bashTimeoutMs", kind: "number" },
   { key: "maxToolTimeoutMs", label: "maxToolTimeoutMs", kind: "number" },
   { key: "bashSandbox", label: "bashSandbox (OS sandbox: bwrap/Seatbelt)", kind: "boolean" },

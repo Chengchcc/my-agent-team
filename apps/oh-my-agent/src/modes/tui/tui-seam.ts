@@ -85,8 +85,14 @@ export interface TuiIo {
    *  cancel (treated as deny — fail-closed). Absent = deny. */
   confirmApproval?(req: { toolName: string; reason?: string }): Promise<"allow" | "deny" | null>;
   /** Interactive ask_question form (HITL); resolves answers or null on
-   *  cancel/unsupported question kind (fail-closed). */
-  askQuestions?(input: AskQuestionInput): Promise<AskQuestionResult | null>;
+   *  cancel/unsupported question kind (fail-closed).
+   *  `opts.timeoutMs` (omp ask.timeout): when a question sits untouched this
+   *  long, the unanswered ones are auto-answered with their recommended option
+   *  and marked `timedOut`. 0/absent = no timer. */
+  askQuestions?(
+    input: AskQuestionInput,
+    opts?: { timeoutMs?: number },
+  ): Promise<AskQuestionResult | null>;
   /** Interactive fork-point picker (pi's user-message selector): lists the
    *  session's user messages; resolves the chosen 1-based ordinal, or null
    *  when cancelled. Absent = caller falls back to /fork <n>. */

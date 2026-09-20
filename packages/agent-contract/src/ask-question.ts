@@ -56,6 +56,14 @@ export interface AskQuestionAnswerItem {
   selectedValues: string[];
   /** free text (text kind, or the "Other" row on select kind) */
   freeText?: string;
+  /** Note the user attached to a specific option row (oh-my-pi's `n` key).
+   *  Belongs to the row it was written on, so it survives only while that row
+   *  is the answer. */
+  note?: string;
+  /** True when this answer was auto-selected because the ask timed out rather
+   *  than chosen by the user. The model must be told: an auto-selected option
+   *  is not consent (oh-my-pi's `timedOut`). */
+  timedOut?: boolean;
 }
 
 export interface AskQuestionResult {

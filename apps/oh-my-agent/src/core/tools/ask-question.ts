@@ -69,7 +69,7 @@ export function createAskQuestionTool(): PluginTool {
   return {
     name: "ask_question",
     description:
-      "Ask the user structured questions and wait for answers. Questions are select (options, optional multi/recommended/other) or text (free input). Returns {answers:[{id,selectedValues,freeText}]}.",
+      "Ask the user structured questions and wait for answers. Questions are select (options, optional multi/recommended/other) or text (free input). Returns {answers:[{id,selectedValues,freeText?,note?,timedOut?}]}. `timedOut` marks an answer that was auto-selected on timeout rather than chosen by the user — treat it as a guess, not consent.",
     inputSchema: {
       type: "object",
       properties: {

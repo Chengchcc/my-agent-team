@@ -24,6 +24,11 @@ export interface ProjectSettings {
   modelTimeoutMs?: number;
   /** MCP call timeout ms (env OMA_MCP_TIMEOUT_MS). */
   mcpTimeoutMs?: number;
+  /** HITL ask inactivity timeout ms (env OMA_ASK_TIMEOUT_MS, omp ask.timeout
+   *  which is in SECONDS): when a question sits untouched this long, the
+   *  unanswered ones are auto-answered with their recommended option and the
+   *  answer is marked timedOut. 0 / absent = disabled (omp's default). */
+  askTimeoutMs?: number;
   /** Disable web tools (env OMA_DISABLE_WEB=1). */
   disableWeb?: boolean;
   /** Generate auto titles (env OMA_TITLE_ENABLED=0 disables). */
@@ -104,6 +109,9 @@ export function loadProjectSettings(root: string): ProjectSettings {
     }
     if ("mcpTimeoutMs" in parsed && typeof parsed.mcpTimeoutMs === "number") {
       result.mcpTimeoutMs = parsed.mcpTimeoutMs;
+    }
+    if ("askTimeoutMs" in parsed && typeof parsed.askTimeoutMs === "number") {
+      result.askTimeoutMs = parsed.askTimeoutMs;
     }
     if ("disableWeb" in parsed && typeof parsed.disableWeb === "boolean") {
       result.disableWeb = parsed.disableWeb;
@@ -215,6 +223,7 @@ export interface RuntimeKnobs {
   maxSteps?: number;
   modelTimeoutMs?: number;
   mcpTimeoutMs?: number;
+  askTimeoutMs?: number;
   maxToolTimeoutMs?: number;
   bashTimeoutMs?: number;
   evalTimeoutMs?: number;
@@ -269,6 +278,8 @@ export function resolveRuntimeKnobs(
   if (maxToolTimeoutMs !== undefined) knobs.maxToolTimeoutMs = maxToolTimeoutMs;
   const bashTimeoutMs = s.bashTimeoutMs ?? envPositive(env, "OMA_BASH_TIMEOUT_MS");
   if (bashTimeoutMs !== undefined) knobs.bashTimeoutMs = bashTimeoutMs;
+  const askTimeoutMs = s.askTimeoutMs ?? envNumber(env, "OMA_ASK_TIMEOUT_MS");
+  if (askTimeoutMs !== undefined) knobs.askTimeoutMs = askTimeoutMs;
   const evalTimeoutMs = envNumber(env, "OMA_EVAL_TIMEOUT_MS");
   if (evalTimeoutMs !== undefined) knobs.evalTimeoutMs = evalTimeoutMs;
   const approvalTimeoutMs = envNumber(env, "OMA_APPROVAL_TIMEOUT_MS");

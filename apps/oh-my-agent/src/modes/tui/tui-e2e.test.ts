@@ -931,6 +931,141 @@ describe("loader content policy (omp parity)", () => {
     }
   }, 30_000);
 
+  test("ask preview renders and a note rides the answer into the record", async () => {
+    // Preview + note are the two omp behaviors that add BODY lines and extra
+    // keys; both route through the docked panel, so they are checked against a
+    // real terminal rather than only the component API.
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-note-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-note-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: {
+          questions: [
+            {
+              id: "q1",
+              kind: "select",
+              header: "Approach",
+              question: "Which approach?",
+              recommended: "rewrite",
+              options: [
+                {
+                  value: "rewrite",
+                  label: "rewrite the panel",
+                  description: "from scratch",
+                  preview: "**Docked** panel\n\n```ts\nconst x = 1;\n```",
+                },
+                { value: "patch", label: "patch the overlay" },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 40);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "ask me");
+      await waitForText(vt, "Which approach?", 5_000);
+      const panel = screen(vt);
+      // Recommended option focused + badged, preview rendered under its row.
+      expect(panel).toContain("rewrite the panel (Recommended)");
+      expect(panel).toContain("Docked");
+      expect(panel).toContain("const x = 1;");
+
+      // `n` opens the note field; the note is saved back onto the row.
+      vt.sendInput("n");
+      await vt.waitForRender();
+      expect(screen(vt)).toContain("note:");
+      vt.sendInput("see ticket 42");
+      await vt.waitForRender();
+      vt.sendInput("\r");
+      await vt.waitForRender();
+      expect(screen(vt)).toContain("\u270e note");
+
+      // The focused row is the recommended one, so Enter answers with it.
+      vt.sendInput("\r");
+      await waitForText(vt, "done", 5_000);
+      await vt.waitForRender();
+      const after = screen(vt);
+      expect(after).toContain("Note: see ticket 42");
+      expect(after).not.toContain("Esc cancel");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("ask.timeout auto-answers and marks the answer as not a user choice", async () => {
+    // The knob crosses three layers (settings/env -> session -> seam -> panel),
+    // so the wiring itself is what this checks: an abandoned ask must not block
+    // the run forever, and the record must say the answer was not chosen.
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-timeout-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-ask-timeout-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    process.env.OMA_ASK_TIMEOUT_MS = "300";
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      {
+        name: "ask_question",
+        input: {
+          questions: [
+            {
+              id: "q1",
+              kind: "select",
+              header: "Pick",
+              question: "Pick one",
+              recommended: "beta",
+              options: [
+                { value: "alpha", label: "alpha" },
+                { value: "beta", label: "beta" },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "ask me");
+      await waitForText(vt, "Pick one", 5_000);
+      // The countdown is visible on the frame while the timer is live.
+      expect(screen(vt)).toMatch(/Ask \(\d+s\)/);
+      // No input at all: the ask answers itself and the run completes.
+      await waitForText(vt, "done", 5_000);
+      await vt.waitForRender();
+      const after = screen(vt);
+      expect(after).toContain("\u25c9 beta");
+      expect(after).toContain("auto-selected after timeout");
+      expect(after).not.toContain("Esc cancel");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_ASK_TIMEOUT_MS;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("aborting a run mid-ask undocks the panel (no stuck input surface)", async () => {
     // Otherwise the panel outlives its run: docked, focused and swallowing
     // every keystroke with nothing behind it.
