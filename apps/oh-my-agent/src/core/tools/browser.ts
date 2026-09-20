@@ -3,7 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
 import type { Browser, Page } from "puppeteer-core";
-import { assertSafeUrlDeep, isMetadataHost, parseHttpUrl } from "./url-guard.js";
+import {
+  assertSafeUrlDeep,
+  isMetadataHost,
+  parseHttpUrl,
+  resolveHostAddresses,
+} from "./url-guard.js";
 
 /** browser: open, reuse, close, and script headless Chromium tabs
  *  (oh-my-pi browser.md surface, ponytail cut): ONE shared headless browser
@@ -237,9 +242,10 @@ function createTabApi(name: string, page: Page, screenshotDir: string) {
  *  Local ON (`.oma/settings.json` `browserLocalNetwork`, standalone only): a
  *  developer inspecting the app they are building needs http://localhost:3000,
  *  so the loopback/RFC1918 refusal is lifted — but ONLY that part. Cloud
- *  metadata keeps being refused (`isMetadataHost`): 169.254.169.254 and the
- *  CGNAT range are where instance credentials live, and a dev-server allowance
- *  must not become a credential-stealing primitive.
+ *  metadata keeps being refused (`isMetadataHost`), for the hostname AS WRITTEN
+ *  and for the addresses it resolves to: 169.254.169.254, the CGNAT range and
+ *  DNS names pointing into them are where instance credentials live, and a
+ *  dev-server allowance must not become a credential-stealing primitive.
  *
  *  Both settings keep the scheme rule: http(s) only, so `file:///etc/passwd`
  *  is refused rather than rendered (a browser `file:` read would step outside
@@ -257,6 +263,8 @@ function createTabApi(name: string, page: Page, screenshotDir: string) {
 export async function checkNavigationAllowed(
   url: string,
   allowLocalNetwork: boolean,
+  /** Address resolver, injectable for offline tests. Default = real DNS. */
+  resolve: (hostname: string) => Promise<string[]> = resolveHostAddresses,
 ): Promise<string | null> {
   let scheme: string;
   try {
@@ -270,6 +278,19 @@ export async function checkNavigationAllowed(
       const parsed = parseHttpUrl(url);
       if (isMetadataHost(parsed.hostname)) {
         return `Error: refused to open ${url}: cloud metadata endpoints are never reachable`;
+      }
+      // The hostname check above only sees literals and metadata NAMES. A DNS
+      // name that RESOLVES into 169.254/16 or 100.64/10 (nip.io-style, or a
+      // record the prompt-injector controls) is the same credential-stealing
+      // primitive as typing the address, so the local opt-in resolves too.
+      // Not TOCTOU-proof — Chromium re-resolves — same ceiling as web_fetch.
+      const isLiteralIp =
+        parsed.hostname.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname);
+      if (!isLiteralIp) {
+        const answers = await resolve(parsed.hostname);
+        if (answers.some((a) => isMetadataHost(a))) {
+          return `Error: refused to open ${url}: resolves to a cloud metadata address`;
+        }
       }
       return null;
     }

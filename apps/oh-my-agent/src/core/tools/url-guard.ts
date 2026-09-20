@@ -112,6 +112,17 @@ export function isMetadataHost(hostname: string): boolean {
   return /^fe[89ab]/.test(target);
 }
 
+/** All addresses a hostname resolves to ([] when it does not resolve — the
+ *  caller surfaces the real error). Shared by the deep guard and the browser
+ *  local-network policy, so both vet the same DNS answers. */
+export async function resolveHostAddresses(hostname: string): Promise<string[]> {
+  try {
+    return (await lookup(hostname, { all: true, verbatim: true })).map((a) => a.address);
+  } catch {
+    return [];
+  }
+}
+
 /** Best-effort DNS containment: resolves the hostname and rejects when any
  *  answer lands in a blocked range (nip.io / rebinding-style pivots). Not
  *  TOCTOU-proof — the fetch re-resolves independently — but it closes the
@@ -121,14 +132,8 @@ export async function assertSafeUrlDeep(rawUrl: string): Promise<URL> {
   if (parsed.hostname.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname)) {
     return parsed; // literal IP or IPv6 — already vetted by isPrivateIP
   }
-  let answers: Array<{ address: string; family: number }>;
-  try {
-    answers = await lookup(parsed.hostname, { all: true, verbatim: true });
-  } catch {
-    return parsed; // unresolved — let fetch surface the real error
-  }
-  for (const a of answers) {
-    if (isPrivateIP(a.address)) {
+  for (const address of await resolveHostAddresses(parsed.hostname)) {
+    if (isPrivateIP(address)) {
       throw new UrlGuardError(`Blocked host (resolves to private address): ${parsed.hostname}`);
     }
   }

@@ -91,6 +91,34 @@ describe("browser tool refuses URLs its sibling web_fetch refuses", () => {
     }
   });
 
+  test("local opt-in refuses a DNS name that resolves into cloud metadata", async () => {
+    const ALLOW_LOCAL = true;
+    // nip.io-style: the hostname is public-looking, the answer is 169.254/16.
+    const rebind = await checkNavigationAllowed(
+      "http://169-254-169-254.nip.io/latest/meta-data/",
+      ALLOW_LOCAL,
+      async () => ["169.254.169.254"],
+    );
+    expect(String(rebind)).toContain("metadata");
+    // The CGNAT spelling of the same primitive (Alibaba metadata).
+    const cgnat = await checkNavigationAllowed(
+      "http://meta.attacker.example/",
+      ALLOW_LOCAL,
+      async () => ["100.100.100.200"],
+    );
+    expect(String(cgnat)).toContain("metadata");
+    // A public name with a public answer stays allowed, and an unresolvable
+    // host is the browser's error to surface, not a refusal.
+    expect(
+      await checkNavigationAllowed("http://example.com/", ALLOW_LOCAL, async () => [
+        "93.184.216.34",
+      ]),
+    ).toBeNull();
+    expect(
+      await checkNavigationAllowed("http://no-such.invalid/", ALLOW_LOCAL, async () => []),
+    ).toBeNull();
+  });
+
   test("the default policy refuses every local target", async () => {
     for (const url of ["http://127.0.0.1:3000/", "http://192.168.1.5/", "http://localhost/"]) {
       expect(String(await checkNavigationAllowed(url, false))).toContain("Blocked host");
