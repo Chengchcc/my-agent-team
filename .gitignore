@@ -21,14 +21,10 @@ apps/web/tsconfig.tsbuildinfo
 !.oma/skills/
 !.oma/rsi/
 
-# omp backend project dir. Same rule as .oma: the shared surfaces (harness
-# contract + project rules) stay tracked — omp's own tooling writes new
-# rules into .omp/rules/*.md, so ignoring the whole dir would silently keep
-# them out of the repo. Everything else there (config.yml, sessions, caches)
-# is local state.
-.omp/*
-!.omp/SYSTEM.md
-!.omp/rules/
+# omp backend project dir: not used here (oma is the harness for this repo).
+# Ignored wholesale — the tracked project rules moved to .oma/rules/, which is
+# where oma's stream-rule loader actually reads from.
+.omp/
 
 # Quality Playbook run artifacts
 quality/
