@@ -34,7 +34,9 @@ const THEME: SelectListTheme = {
   noMatch: (s) => `\u001b[2m${s}\u001b[0m`,
 };
 
-const ROWS: SettingRow[] = [
+/** Exported for the test that pins discoverability: a knob the runtime honors
+ *  but /settings cannot reach is a knob nobody finds. */
+export const SETTING_ROWS: SettingRow[] = [
   { key: "maxSteps", label: "maxSteps", kind: "number" },
   { key: "modelTimeoutMs", label: "modelTimeoutMs", kind: "number" },
   { key: "mcpTimeoutMs", label: "mcpTimeoutMs", kind: "number" },
@@ -42,6 +44,11 @@ const ROWS: SettingRow[] = [
   { key: "bashTimeoutMs", label: "bashTimeoutMs", kind: "number" },
   { key: "maxToolTimeoutMs", label: "maxToolTimeoutMs", kind: "number" },
   { key: "bashSandbox", label: "bashSandbox (OS sandbox: bwrap/Seatbelt)", kind: "boolean" },
+  {
+    key: "browserLocalNetwork",
+    label: "browserLocalNetwork (allow localhost/LAN browser targets)",
+    kind: "boolean",
+  },
   { key: "memoryExtract", label: "memoryExtract", kind: "boolean" },
   { key: "memoryModel", label: "memoryModel", kind: "string" },
   { key: "permissionClassifierModel", label: "permissionClassifierModel", kind: "string" },
@@ -96,13 +103,13 @@ export class SettingsOverlay extends Container {
 
   private rebuild(): void {
     this.list = new SelectList(
-      ROWS.map((row) => this.itemFor(row)),
+      SETTING_ROWS.map((row) => this.itemFor(row)),
       12,
       THEME,
       { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 24 },
     );
     this.list.onSelect = (item) => {
-      const row = ROWS.find((r) => r.key === item.value);
+      const row = SETTING_ROWS.find((r) => r.key === item.value);
       if (row) this.handleSelect(row);
     };
     this.list.onCancel = () => this.onDone();
