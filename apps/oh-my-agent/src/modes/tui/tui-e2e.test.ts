@@ -164,6 +164,46 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  test("double /exit interrupts a live Run instead of waiting it out", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-exitint-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-exitint-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    // A tool call that outlives any reasonable exit: without the interrupt,
+    // the main loop keeps awaiting runtime.run() until the sleep settles.
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      { name: "bash", input: { description: "long", command: "sleep 25" } },
+    ]);
+    try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+      await vt.waitForRender();
+      await typeAndSubmit(vt, "run the long thing");
+      await waitForText(vt, "bash", 5_000);
+
+      await typeAndSubmit(vt, "/exit");
+      await typeAndSubmit(vt, "/exit");
+
+      // Bounded exit: far below the 25s sleep. Genuine wait against real
+      // run state, so a bounded timer is the honest instrument here.
+      const { promise: giveUp, resolve: fire } = Promise.withResolvers<"-">();
+      const timer = setTimeout(() => fire("-"), 10_000);
+      try {
+        expect(await Promise.race([sessionDone, giveUp])).toBe(0);
+      } finally {
+        clearTimeout(timer);
+      }
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
   test("failing tool renders the error marker", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-toolerr-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-toolerr-sess-"));

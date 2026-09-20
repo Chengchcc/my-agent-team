@@ -155,6 +155,12 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       run: () => {
         if (ctx.exitArmed) {
           ctx.quitting = true;
+          // INTERRUPT, not just flag: the main loop is awaiting
+          // runtime.run(), so without a stop a long model call, a stuck
+          // tool or a bg sleep keeps the process (and raw mode) alive
+          // until the Run settles on its own. Idempotent — same call the
+          // busy ctrl-c / empty-submit paths make.
+          void ctx.liveRuntime?.stop();
           return;
         }
         ctx.exitArmed = true;
@@ -169,6 +175,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       run: () => {
         if (ctx.exitArmed) {
           ctx.quitting = true;
+          void ctx.liveRuntime?.stop();
           return;
         }
         ctx.exitArmed = true;
