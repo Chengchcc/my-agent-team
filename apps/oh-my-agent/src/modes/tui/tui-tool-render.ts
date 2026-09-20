@@ -210,7 +210,10 @@ export function renderTodoChrome(
   }
   return renderOutputBlock({
     header,
-    // Ambient chrome: the "success" state's dim-gray border.
+    // Ambient chrome pinned above the editor while work is open — it is not a
+    // "success" verdict (items may be mid-flight), so it opts OUT of the
+    // state-verdict border and stays dim like the editor frame.
+    borderColor: tuiTheme.dim,
     state: "success",
     sections: [{ lines: body }],
     width,

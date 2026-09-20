@@ -29,7 +29,7 @@ export function renderStatusBar(segs: readonly StatusSegment[]): string {
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i]!;
     if (!s.text) continue;
-    if (i > 0) out.push(`\x1b[38;5;8m ┆ \x1b[0m`);
+    if (i > 0) out.push(`${tuiTheme.dim} ┆ \x1b[0m`);
     if (s.chip && s.bg) {
       out.push(chip(s.text, s.bg));
     } else {

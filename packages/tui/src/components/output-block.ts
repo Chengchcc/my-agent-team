@@ -5,6 +5,7 @@
  * rich result blocks. It replaces the ad-hoc Card + Text children hacks that
  * made each tool renderer re-implement its own border/background rules.
  */
+import { tuiTheme } from "../theme.ts";
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
 
 export type OutputBlockState = "pending" | "running" | "success" | "error" | "warning";
@@ -35,13 +36,16 @@ export interface OutputBlockOptions {
   contentPaddingRight?: number;
 }
 
-/** Default border colors, keyed by state (omp-ish semantics). */
+/** Border color per state — the SAME verdict tokens the header icon/title
+ *  use (running gold, error crimson, success jade), so the frame echoes the
+ *  verdict instead of a second, off-palette color system. Routed through
+ *  tuiTheme like every other SGR decision in the TUI. */
 const STATE_BORDER: Record<OutputBlockState, string> = {
-  pending: "\x1b[38;5;33m",
-  running: "\x1b[38;5;33m",
-  success: "\x1b[38;5;8m",
-  error: "\x1b[38;5;31m",
-  warning: "\x1b[38;5;11m",
+  pending: tuiTheme.info,
+  running: tuiTheme.warning,
+  success: tuiTheme.success,
+  error: tuiTheme.error,
+  warning: tuiTheme.warning,
 };
 
 function normalizePadding(value: number | undefined): number {

@@ -566,10 +566,19 @@ describe("renderTodoChrome (sweep + strikethrough)", () => {
     expect(raw).not.toContain(SHIMMER_TIER_OPEN.high);
     expect(raw).toContain("current step");
   });
+  test("ambient chrome keeps a dim frame — it opts out of the verdict border", () => {
+    const IDLE = false;
+    const top = renderTodoChrome([item("1", "current step", "in_progress")], 70, IDLE)[0] ?? "";
+    // The frame, not the header text: the top bar opens with the border
+    // token, so this pins borderColor=dim and rules out borrowing a verdict
+    // color (the panel is not a "success" — items may be mid-flight).
+    expect(top.startsWith(tuiTheme.dim)).toBe(true);
+  });
   test("an empty or fully closed list renders nothing (panel unmounts)", () => {
-    expect(renderTodoChrome([], 70, false)).toEqual([]);
-    expect(renderTodoChrome([item("1", "done thing", "done")], 70, true)).toEqual([]);
-    expect(renderTodoChrome([item("1", "dropped", "cancelled")], 70, true)).toEqual([]);
+    const IDLE = false;
+    expect(renderTodoChrome([], 70, IDLE)).toEqual([]);
+    expect(renderTodoChrome([item("1", "done thing", "done")], 70, IDLE)).toEqual([]);
+    expect(renderTodoChrome([item("1", "dropped", "cancelled")], 70, IDLE)).toEqual([]);
   });
 });
 

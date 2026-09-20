@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Container, Markdown, TUI, VirtualTerminal } from "@chengchenccc/tui";
+import { Container, Markdown, TUI, tuiTheme, VirtualTerminal } from "@chengchenccc/tui";
 import { OmaTranscriptContainer } from "./tui-components.js";
 import { MARKDOWN_THEME } from "./tui-format.js";
 import { TuiItemRenderer, TuiRenderShell } from "./tui-render.js";
@@ -53,6 +53,45 @@ describe("TuiItemRenderer settle renders cold", () => {
     expect(renderer.renderItem(item, state)).toEqual(settled);
     // Sanity: the cold render itself is well-formed (bold consumed).
     expect(stripAnsi(settled.join("\n"))).not.toContain("**");
+  });
+});
+
+/** The border is the state's verdict channel (output-block STATE_BORDER):
+ *  this locks the CALL SITE — renderTool must derive running/error/success
+ *  from the item and hand it to the block, so the frame color answers
+ *  "live / failed / done" at a glance. The mapping itself is pinned in
+ *  packages/tui output-block.test.ts; if either end regresses, the border
+ *  silently stops encoding status. */
+describe("tool card border carries the state verdict", () => {
+  const topBar = (item: TranscriptItem): string => {
+    const tui = new TUI(new VirtualTerminal(100, 30));
+    return new TuiItemRenderer(tui).renderItem(item, initialViewState())[0] ?? "";
+  };
+
+  test("streaming card → gold (warning) border, same token as the ⟳ title", () => {
+    const top = topBar({ kind: "tool", text: "bash…", streaming: true, startedAt: Date.now() });
+    expect(top).toContain(tuiTheme.warning);
+    expect(top).toContain("bash");
+  });
+
+  test("failed card → crimson (error) border", () => {
+    const top = topBar({
+      kind: "tool",
+      text: "bash",
+      streaming: false,
+      result: { content: "boom", isError: true },
+    });
+    expect(top).toContain(tuiTheme.error);
+  });
+
+  test("settled-ok card → jade (success) border", () => {
+    const top = topBar({
+      kind: "tool",
+      text: "bash",
+      streaming: false,
+      result: { content: "[exit: 0]" },
+    });
+    expect(top).toContain(tuiTheme.success);
   });
 });
 
