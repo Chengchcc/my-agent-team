@@ -6,7 +6,7 @@ import {
   renderGoalPrompt,
   renderInterviewPrompt,
 } from "../../core/goals/index.js";
-import type { LoopRuntime } from "../../core/loops/index.js";
+import { type LoopRuntime, seedRalphQueue } from "../../core/loops/index.js";
 import { type PlanModeState, planRefinePrompt } from "../../core/plans/index.js";
 
 /** The turn-driver slot: loop, goal and plan all queue the next turn, so only
@@ -574,40 +574,24 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.refreshDriverStatus?.();
           return;
         }
+        // The build loop (loopAction: "ralph") needs its work queue on disk
+        // before iteration one reads it. The runtime decides that it must
+        // exist; the workspace root lives here.
+        const seeded =
+          started.queueSeed !== undefined
+            ? seedRalphQueue(ctx.opts.workspaceRoot, started.queueSeed)
+            : undefined;
         const displaced = claimTurnDriver(ctx, "loop");
         if (displaced.length > 0) {
           ctx.pushStatus(`loop mode claimed the turn driver: ${displaced.join(" + ")} stopped`);
         }
-        ctx.pushStatus(started.status);
-        ctx.refreshDriverStatus?.();
-        if (started.prompt) ctx.pendingPrompt = started.prompt;
-      },
-    },
-    {
-      name: "ralph",
-      description: "build loop: one work-queue item per fresh-context iteration",
-      argumentHint: "[count|duration] [--while|--until <cmd>] [first item]",
-      group: "general",
-      live: true,
-      run: (args) => {
-        const runtime = ctx.loops;
-        if (!runtime) return void ctx.pushStatus("loop mode unavailable in this session");
-        // Second invocation stops, like /loop. Switching from a plain loop is
-        // a re-arm, not a stop — startRalph handles that.
-        if (runtime.enabled && runtime.loopAction === "ralph") {
-          ctx.pushStatus(runtime.disable());
-          ctx.refreshDriverStatus?.();
-          return;
-        }
-        const started = runtime.startRalph(ctx.opts.workspaceRoot, args);
-        if (!started.ok) return void ctx.pushStatus(started.error);
-        const displaced = claimTurnDriver(ctx, "loop");
-        if (displaced.length > 0) {
-          ctx.pushStatus(`build loop claimed the turn driver: ${displaced.join(" + ")} stopped`);
-        }
-        ctx.pushStatus(started.status);
+        ctx.pushStatus(
+          seeded?.created ? `${started.status} — seeded ${seeded.path}` : started.status,
+        );
         ctx.refreshDriverStatus?.();
         if (started.prompt) {
+          // The build loop's protocol rides the hidden channel; a plain loop's
+          // prompt is the user's own text and must keep echoing.
           ctx.pendingPrompt = started.hidden ? formatRalphInput(started.prompt) : started.prompt;
         }
       },

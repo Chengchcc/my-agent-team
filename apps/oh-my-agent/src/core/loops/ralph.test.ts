@@ -86,15 +86,19 @@ describe("the queue is the authority on when the loop is done", () => {
 describe("LoopRuntime in build mode", () => {
   test("each iteration re-injects the protocol into a FRESH session, with no captured prompt", async () => {
     const ws = tempWs();
-    const rt = new LoopRuntime();
-    const started = rt.startRalph(ws, "ship the thing");
+    const rt = new LoopRuntime("ralph");
+    const started = rt.toggle("ship the thing");
     expect(started.ok).toBe(true);
     if (!started.ok) return;
-    // Iteration one runs immediately (the parser's trailing text seeded the
-    // queue rather than becoming a loop prompt).
+    // Iteration one runs immediately: the trailing text seeds the queue rather
+    // than becoming a loop prompt, and the protocol is what runs.
     expect(started.prompt).toBe(RALPH_PROTOCOL);
     expect(started.hidden).toBe(true);
-    expect(started.status).toContain(`seeded ${ralphQueuePath(ws)}`);
+    // The caller owns the write (it owns the workspace root), so the seed it
+    // gets has to be enough to land the item on its own.
+    expect(started.queueSeed).toBe("ship the thing");
+    seedRalphQueue(ws, started.queueSeed);
+    expect(readQueue(ws)).toContain("- [ ] ship the thing");
 
     const decision = await rt.nextIteration(opts(ws));
     expect(decision).toEqual({
@@ -110,18 +114,18 @@ describe("LoopRuntime in build mode", () => {
   });
 
   test("an enabled build loop reads as running, not as waiting for a prompt", () => {
-    const rt = new LoopRuntime();
-    rt.startRalph(tempWs(), "x");
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("x");
     expect(rt.status()?.state).toBe("running");
     expect(rt.statusLabel()).toStartWith("↻ ralph");
   });
 
   test("the queue condition is the default, and an explicit one replaces it", () => {
-    const ws = tempWs();
-    const rt = new LoopRuntime();
-    rt.startRalph(ws, "x");
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("x");
     expect(rt.condition).toEqual(ralphCondition());
-    rt.startRalph(ws, "--until 'exit 0'");
+    rt.toggle("x"); // toggles off
+    rt.toggle("--until 'exit 0'");
     expect(rt.condition).toEqual({ command: "exit 0", until: true });
   });
 
@@ -133,8 +137,8 @@ describe("LoopRuntime in build mode", () => {
 
   test("pause stops the loop between iterations; disable ends it", async () => {
     const ws = tempWs();
-    const rt = new LoopRuntime();
-    rt.startRalph(ws, "x");
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("x");
     rt.pause();
     expect(await rt.nextIteration(opts(ws))).toEqual({ action: "idle" });
     rt.disable();
@@ -143,29 +147,41 @@ describe("LoopRuntime in build mode", () => {
 
   test("build mode survives a user turn in between (it never captures one)", async () => {
     const ws = tempWs();
-    const rt = new LoopRuntime();
-    rt.startRalph(ws, "x");
+    seedRalphQueue(ws, "x");
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("x");
     rt.capturePrompt("actually, hold on");
     const decision = await rt.nextIteration(opts(ws));
     expect(decision.action).toBe("run");
     if (decision.action === "run") expect(decision.prompt).toBe(RALPH_PROTOCOL);
   });
 
-  test("starting a build loop re-arms instead of silently stopping the running loop", () => {
+  test("a missing queue STOPS the loop instead of reading as finished work", async () => {
+    // The queue is the memory. Without it there is nothing to work from, and
+    // the condition's exit 2 is reported as broken rather than as "done".
     const ws = tempWs();
-    const rt = new LoopRuntime();
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("x");
+    const decision = await rt.nextIteration(opts(ws));
+    expect(decision.action).toBe("stop");
+    if (decision.action === "stop") expect(decision.reason).toContain("exit");
+  });
+
+  test("the action is a project setting; /loop is the only entry point", () => {
+    // This is why the setting's union has to list "ralph": with the action
+    // unreachable from settings, starting a build loop would need a second
+    // command, and two entry points for one loop is how they drift.
+    const rt = new LoopRuntime("ralph");
+    expect(rt.loopAction).toBe("ralph");
     rt.toggle("3");
-    expect(rt.loopAction).toBe("prompt");
-    const started = rt.startRalph(ws, "x");
-    expect(started.ok).toBe(true);
     expect(rt.enabled).toBe(true);
     expect(rt.loopAction).toBe("ralph");
   });
 
   test("the build loop respects an iteration limit", async () => {
     const ws = tempWs();
-    const rt = new LoopRuntime();
-    rt.startRalph(ws, "1 --while true");
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("1 --while true");
     expect(rt.status()?.label).toContain("while");
     expect((await rt.nextIteration(opts(ws))).action).toBe("run");
     expect(await rt.nextIteration(opts(ws))).toMatchObject({ action: "stop" });

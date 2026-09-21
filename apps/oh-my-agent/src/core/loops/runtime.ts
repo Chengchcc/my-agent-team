@@ -15,7 +15,7 @@ import {
   type ParsedLoopArgs,
   parseLoopArgs,
 } from "./limits.js";
-import { RALPH_PROTOCOL, RALPH_QUEUE, ralphCondition, seedRalphQueue } from "./ralph.js";
+import { RALPH_PROTOCOL, RALPH_QUEUE, ralphCondition } from "./ralph.js";
 
 /** What the loop does between iterations before re-submitting the prompt:
  *  re-send it, compact the context first, start a fresh session first, or run
@@ -23,7 +23,17 @@ import { RALPH_PROTOCOL, RALPH_QUEUE, ralphCondition, seedRalphQueue } from "./r
 export type LoopAction = "prompt" | "compact" | "reset" | "ralph";
 
 export type LoopStart =
-  | { ok: true; prompt?: string; hidden?: true; status: string }
+  | {
+      ok: true;
+      prompt?: string;
+      hidden?: true;
+      /** Build loop only: the text to seed into the work queue before the
+       *  first iteration. Empty = the "write the queue" stub. The runtime
+       *  decides THAT the queue must exist; the caller, which owns the
+       *  workspace root, writes it. */
+      queueSeed?: string;
+      status: string;
+    }
   | { ok: false; error: string };
 
 export type LoopIterationDecision =
@@ -60,14 +70,7 @@ export class LoopRuntime {
   #limit: LoopLimitRuntime | undefined;
   #condition: LoopConditionConfig | undefined;
 
-  constructor(private action: LoopAction = "prompt") {}
-
-  /** Re-arm for a different strategy. `/ralph` forces the build loop whatever
-   *  the project setting says, and one runtime is created per session, so the
-   *  action has to be switchable after construction. */
-  useAction(action: LoopAction): void {
-    this.action = action;
-  }
+  constructor(private readonly action: LoopAction = "prompt") {}
 
   get enabled(): boolean {
     return this.#enabled;
@@ -141,27 +144,12 @@ export class LoopRuntime {
     return this.#arm(parsed, nowMs);
   }
 
-  /** `/ralph [count|duration] [--while|--until cmd] [item]`: switch to the
-   *  build loop, seed the work queue on first use, and start. Like `toggle` it
-   *  re-arms rather than toggling off — the caller decides whether a second
-   *  invocation means "stop" (see the `/ralph` command). */
-  startRalph(workspaceRoot: string, args: string, nowMs = Date.now()): LoopStart {
-    if (this.#enabled) this.disable();
-    const parsed = parseLoopArgs(args);
-    if (typeof parsed === "string") return { ok: false, error: parsed };
-    this.action = "ralph";
-    const queue = seedRalphQueue(workspaceRoot, parsed.prompt);
-    const started = this.#arm(parsed, nowMs);
-    if (!started.ok || !queue.created) return started;
-    return { ...started, status: `${started.status}; seeded ${queue.path}` };
-  }
-
   #arm(parsed: ParsedLoopArgs, nowMs: number): LoopStart {
     const build = this.action === "ralph";
     this.#enabled = true;
     this.#paused = false;
     // The build loop's prompt is its protocol, never a captured user turn, so
-    // the parsed trailing text seeds the queue instead (see startRalph).
+    // the parsed trailing text seeds the queue instead.
     this.#prompt = build ? undefined : parsed.prompt;
     this.#limit = createLoopLimitRuntime(parsed.limit, nowMs);
     // The queue is the build loop's default authority on whether to continue;
@@ -175,6 +163,8 @@ export class LoopRuntime {
         ok: true,
         prompt: RALPH_PROTOCOL,
         hidden: true,
+        // The item seeds the queue; absent means iteration one writes it.
+        queueSeed: parsed.prompt ?? "",
         status: `build loop enabled${limitSuffix}${remaining}${conditionSuffix} — one ${RALPH_QUEUE} item per fresh session; /ralph again disables, Esc pauses`,
       };
     }

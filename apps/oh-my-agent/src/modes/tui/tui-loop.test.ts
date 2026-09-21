@@ -1,5 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scriptedIo, testModelRuntime } from "./tui-mode.fixture.js";
@@ -66,6 +74,11 @@ describe("loop mode drives its own turns", () => {
     const sessions = sessionDir();
     dirs.push(ws);
     try {
+      // Build mode is selected by the project setting, not by a flag on the
+      // command: /loop is the only entry point, so this drives the whole path
+      // the user actually has (settings file -> action -> queue -> protocol).
+      mkdirSync(join(ws, ".oma"), { recursive: true });
+      writeFileSync(join(ws, ".oma", "settings.json"), '{ "loopAction": "ralph" }', "utf-8");
       // ONE command, then the loop drives itself. The build loop resets the
       // session between iterations, and a session switch purges every driver —
       // so this asserts the loop's own reset does not end the loop. Reaching
@@ -76,7 +89,7 @@ describe("loop mode drives its own turns", () => {
         let step = 0;
         return () => {
           step++;
-          if (step === 1) return Promise.resolve("/ralph 3 --while true");
+          if (step === 1) return Promise.resolve("/loop 3 --while true");
           return Promise.resolve(null);
         };
       })();
@@ -94,6 +107,13 @@ describe("loop mode drives its own turns", () => {
       expect(readdirSync(sessions).length).toBeGreaterThanOrEqual(3);
       // The queue the protocol is supposed to read was seeded on first use.
       expect(existsSync(join(ws, ".oma", "plan.md"))).toBe(true);
+      // The protocol rides the hidden channel: it reaches the model, but a
+      // re-injected protocol must never be PERSISTED — /resume replays the
+      // session file, so a leaked one comes back as a phantom user turn.
+      const persisted = readdirSync(sessions)
+        .map((f) => readFileSync(join(sessions, f), "utf-8"))
+        .join("\n");
+      expect(persisted).not.toContain("autonomous build loop");
     } finally {
       delete process.env.OMA_SESSION_DIR;
     }

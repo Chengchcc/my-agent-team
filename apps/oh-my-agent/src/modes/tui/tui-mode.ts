@@ -917,7 +917,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         );
         pushStatus(
           decision.hidden
-            ? "ralph: next item — /ralph disables, Esc pauses"
+            ? "ralph: next item — /loop disables, Esc pauses"
             : "loop: iteration re-submitted — /loop disables, Esc pauses",
         );
         refreshDriverStatus();
