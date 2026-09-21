@@ -11,6 +11,7 @@ import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import { createGoalPlugin, GoalRuntime } from "../../core/goals/index.js";
 import type { OmaLoopEvent } from "../../core/index.js";
+import { LoopRuntime } from "../../core/loop-mode/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
@@ -150,14 +151,18 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     state.runs.push({ items, running: false });
   }
 
-  /** Goal runtime (omp GoalRuntime analogue): owns goal state, accounting
-   *  and loop decisions; the TUI renders its decisions. */
+  /** Loop mode: re-submits one captured prompt after each settled turn. The
+   *  limits/parsing live in core/loop-mode; this layer wires it to the session
+   *  loop (capture the first prompt, re-submit on settle, pause on Esc). */
+  const loopRuntime = new LoopRuntime(loadProjectSettings(opts.workspaceRoot).loopAction);
+  /** Goal runtime: owns goal state, accounting and loop decisions; the TUI
+   *  renders its decisions. */
   const goalRuntime = new GoalRuntime(
     (state) => appendSessionGoalEvent(session.sessionId, state, session.dir),
     (message) => pushStatus(`◎ ${message}`),
   );
 
-  // Goal replay (omp): a session that ended with a live goal restores it as
+  // Goal replay: a session that ended with a live goal restores it as
   // PAUSED — resuming must never silently re-enter an autonomous loop; the
   // user continues with /goal resume.
   const restoredGoal = loadSessionGoalState(session.sessionId, session.dir);
@@ -248,6 +253,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       permissionOverride = value;
     },
     goals: goalRuntime,
+    loops: loopRuntime,
     get pendingImages() {
       return pendingImages;
     },
@@ -341,6 +347,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // Settlement injections already rendered their transcript block via
     // appendNotice (tui-io) — no second echo as a user bubble.
     if (!fromFollowUp && !isHiddenInput(text)) addUserInput(state, text);
+    // Loop mode: the first prompt after enabling becomes the prompt that is
+    // re-submitted after every settled turn.
+    if (!isHiddenInput(text)) loopRuntime.capturePrompt(text);
 
     const built = await buildCliRunInput({
       prompt: text,
@@ -363,7 +372,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     modelId = built.run.model.modelId;
     let pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
-    // Goal mode (omp): the `goal` tool is mounted for THIS run only while
+    // Goal mode : the `goal` tool is mounted for THIS run only while
     // the mode is live (active goal or /guided-goal interview). The runtime
     // owns state/accounting; this layer only decides whether to mount it.
     if (goalRuntime.toolWanted && runInput.workflow === undefined) {
@@ -480,7 +489,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           void runShellEscape(text).then(() => io.render(state));
           return;
         }
-        // omp empty-submit: stop waiting — interrupt the run so queued
+        // empty-submit: stop waiting — interrupt the run so queued
         // input is processed immediately instead of at the next boundary.
         if (!text) {
           if (pendingSteerTexts.length > 0 || pendingFollowUps.length > 0) {
@@ -560,7 +569,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       const summary = compaction.summary;
       pushStatus(`compacted: ${summary.slice(0, 160)}${summary.length > 160 ? "…" : ""}`);
     }
-    // omp AutoLearn-style indicator: the run's background memory-learn pass
+    // AutoLearn-style indicator: the run's background memory-learn pass
     // shows on the transcript without blocking the editor (the promise
     // resolves even after close()).
     const learning = runtime.memoryLearning();
@@ -613,7 +622,30 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // channel while the Run was live — honor it now that the Run settled.
     if (quitting) return 0;
 
-    // Goal mode (omp): forward the settled turn to the runtime, which owns
+    // Loop mode: capture the first prompt of the session's loop, then
+    // re-submit it after every settled turn. Goal mode and loop mode are
+    // mutually exclusive turn drivers (enabling one clears the other), so at
+    // most one of these blocks queues work.
+    if (loopRuntime.enabled) {
+      const decision = loopRuntime.nextIteration();
+      if (decision.action === "stop") {
+        pushStatus(`loop: ${loopRuntime.disable(decision.reason)}`);
+        io.setLoopStatus?.(undefined);
+      } else if (decision.action === "run") {
+        if (decision.preamble === "compact") await runCommandText("/compact");
+        else if (decision.preamble === "reset") await runCommandText("/new");
+        // The loop prompt is echoed as a normal user turn (it IS the user's
+        // text, unlike the hidden goal protocol prompts).
+        pendingFollowUps.push(decision.prompt);
+        pushStatus(`loop: iteration re-submitted — /loop disables, Esc pauses`);
+        io.setLoopStatus?.(loopRuntime.status() ?? undefined);
+      } else {
+        io.setLoopStatus?.(loopRuntime.status() ?? undefined);
+      }
+      if (decision.action !== "idle") io.render(state);
+    }
+
+    // Goal mode: forward the settled turn to the runtime, which owns
     // accounting and returns the loop decision; this layer only renders it.
     if (runInput.workflow === undefined) {
       const decision = goalRuntime.settleTurn({
@@ -623,7 +655,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         usedTools: state.runs.at(-1)?.items.some((item) => item.kind === "tool") === true,
       });
       if (decision.action === "continue") {
-        // omp goal-todo-context: the continuation has no visible user nudge,
+        // A continuation has no visible user nudge,
         // so the live todo state must ride along (read fresh each turn — the
         // run may have rewritten it).
         const todoCtx = GoalRuntime.renderTodoContext(
@@ -638,7 +670,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             " — /goal pause stops",
         );
       } else if (decision.action === "budget-wrapup") {
-        // omp goal-todo-context: the continuation has no visible user nudge,
+        // A continuation has no visible user nudge,
         // so the live todo state must ride along (read fresh each turn — the
         // run may have rewritten it).
         const todoCtx = GoalRuntime.renderTodoContext(

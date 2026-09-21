@@ -112,7 +112,20 @@ export function registerIoHandlers(ctx: TuiSessionContext): void {
     } else if (cmd === "forkTree") {
       void forkTreeInteractive(ctx);
     } else if (ctx.liveRuntime) {
+      // Esc during a live run aborts it. A loop would otherwise re-submit on
+      // the next settlement, so an abort also pauses the loop (the mode stays
+      // on; the next prompt the user sends re-arms it).
       void ctx.liveRuntime.stop().catch(() => {});
+      if (ctx.loops?.enabled) {
+        ctx.loops.pause();
+        ctx.pushStatus("loop paused (run aborted) — next prompt re-arms it");
+        ctx.io.setLoopStatus?.(ctx.loops.status() ?? undefined);
+      }
+    } else if (ctx.loops?.enabled) {
+      // Idle Esc with no run live: pause the loop between iterations.
+      ctx.loops.pause();
+      ctx.pushStatus("loop paused — next prompt re-arms it; /loop disables");
+      ctx.io.setLoopStatus?.(ctx.loops.status() ?? undefined);
     }
     ctx.io.render(ctx.state);
   });

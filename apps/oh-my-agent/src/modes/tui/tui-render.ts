@@ -34,6 +34,7 @@ import {
   summarizeToolArgs,
   USER_TEXT_STYLE,
 } from "./tui-format.js";
+import type { LoopModeStatus } from "./tui-seam.js";
 import {
   renderAskTool,
   renderHubTool,
@@ -317,6 +318,22 @@ export class TuiRenderShell {
     return this.currentState;
   }
   statusLineText = "";
+  /** Loop-mode indicator (waiting | running | paused + remaining budget). */
+  private loopStatusText = "";
+  setLoopModeStatus(status: LoopModeStatus | undefined): void {
+    if (!status) {
+      if (this.loopStatusText === "") return;
+      this.loopStatusText = "";
+      this.addStatusBar();
+      this.tui.requestRender();
+      return;
+    }
+    const marker = status.state === "paused" ? "⏸ loop paused" : "↻ loop";
+    const label = status.label ? ` ${status.label}` : "";
+    this.loopStatusText = `${marker}${status.state === "paused" ? "" : label}`;
+    this.addStatusBar();
+    this.tui.requestRender();
+  }
   /** Undelivered steers (omp pending-messages): surfaced in the busy
    *  loader as the "enter sends now" affordance. */
   private queuedCount = 0;
@@ -567,6 +584,9 @@ export class TuiRenderShell {
     const runningBg = defaultRegistry.countRunningJobs();
     if (runningBg > 0) {
       segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: tuiTheme.bgChipOk });
+    }
+    if (this.loopStatusText) {
+      segs.push({ text: this.loopStatusText, chip: true, bg: tuiTheme.bgPanel });
     }
     if (git) segs.push({ text: renderGitSegment(git) });
     if (this.headerSession) segs.push({ text: this.headerSession.slice(0, 8), fg: tuiTheme.dim });

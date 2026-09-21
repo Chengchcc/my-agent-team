@@ -36,6 +36,14 @@ export interface TuiModeOptions {
 /** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */
 export type TuiCommand = "toggleThinking" | "toggleToolDetail" | "abort" | "pickModel" | "forkTree";
 
+/** Loop-mode status for the status bar: waiting (no prompt captured yet) |
+ *  running (repeating a prompt) | paused (Esc between iterations), plus the
+ *  remaining budget label when a count/duration limit is set. */
+export interface LoopModeStatus {
+  state: "waiting" | "running" | "paused";
+  label?: string;
+}
+
 export interface TuiIo {
   /** Render the current view state. */
   render(state: TuiViewState): void;
@@ -46,9 +54,16 @@ export interface TuiIo {
   waitForInput(): Promise<string | null>;
   /** Called once when a run goes live or settles, to toggle input mode. */
   setBusy?(busy: boolean): void;
-  /** Undelivered steer count while a run is live (omp pending messages):
-   *  drives the busy loader's "N queued — enter sends now" affordance. */
+  /** Undelivered steer count while a run is live: drives the busy loader's
+   *  "N queued — enter sends now" affordance. */
   setQueuedCount?(count: number): void;
+  /** Deliver text as the next idle prompt WITHOUT a keystroke, waking an
+   *  already-blocked waitForInput. Loop mode's auto-resubmit and background
+   *  settlements both ride this channel; the caller decides visibility
+   *  (isHiddenInput on the text). */
+  injectInput?(text: string): void;
+  /** Loop-mode status for the status bar (undefined clears the segment). */
+  setLoopStatus?(status: LoopModeStatus | undefined): void;
   /** Subscriber for inputs submitted while a run is live (steer). */
   onLiveInput?(handler: ((text: string) => void) | null): void;
   /** Subscriber for slash commands submitted while a run is live; the

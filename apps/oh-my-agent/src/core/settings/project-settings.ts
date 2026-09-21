@@ -65,6 +65,10 @@ export interface ProjectSettings {
    *  default). The product RPC path never reads this — its permissionMode
    *  arrives frozen in the run snapshot. */
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Loop mode between-iteration action (`/loop`): "prompt" re-submits the
+   *  prompt, "compact" summarizes the context first, "reset" starts a fresh
+   *  session first. Absent = "prompt". */
+  loopAction?: "prompt" | "compact" | "reset";
   /** Read-side tool-result pruning: old tool output outside the protect
    *  window is replaced by a short summary before each model call (a lighter
    *  touch than compaction). Absent = pruning OFF — the loop only prunes when
@@ -167,6 +171,14 @@ export function loadProjectSettings(root: string): ProjectSettings {
       (parsed.editFreshness === "off" || parsed.editFreshness === "require")
     ) {
       result.editFreshness = parsed.editFreshness;
+    }
+    if (
+      "loopAction" in parsed &&
+      (parsed.loopAction === "prompt" ||
+        parsed.loopAction === "compact" ||
+        parsed.loopAction === "reset")
+    ) {
+      result.loopAction = parsed.loopAction;
     }
     if (
       "memoryVector" in parsed &&

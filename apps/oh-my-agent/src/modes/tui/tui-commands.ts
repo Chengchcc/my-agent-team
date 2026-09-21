@@ -72,9 +72,11 @@ export interface TuiSessionContext {
   runCommandText?: (text: string) => Promise<void>;
   /** Session permission-mode override (/permission). */
   permissionOverride?: "ask" | "auto" | "deny" | "off" | "yolo";
-  /** Goal mode (omp port): the runtime OWNS goal state, accounting and
-   *  transitions — commands call it, never mutate a copy. */
+  /** Goal mode: the runtime OWNS goal state, accounting and transitions —
+   *  commands call it, never mutate a copy. */
   goals?: GoalRuntime;
+  /** Loop mode (re-submit a prompt after every settled turn). */
+  loops?: LoopRuntime;
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
@@ -251,7 +253,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
 
     {
       name: "goal",
-      description: "goal mode: persistent autonomous objective (omp semantics)",
+      description: "goal mode: persistent autonomous objective (semantics)",
       argumentHint: "[<objective> | set <objective> | show | pause | resume | drop | budget <n>]",
       group: "general",
       live: true,
@@ -299,13 +301,13 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         if (sub === "budget") {
           if (!goal) return void ctx.pushStatus("no active goal");
-          // omp's keyword is "off" (interactive-mode.ts).
+          // keyword is "off" (interactive-mode.ts).
           const raw = rest[0] === "off" || rest[0] === "none" ? undefined : Number(rest[0]);
           if (raw !== undefined && (!Number.isInteger(raw) || raw <= 0)) {
             return void ctx.pushStatus("usage: /goal budget <positive-int> | off");
           }
           const resumed = runtime.setBudget(raw);
-          // omp onBudgetMutated: raising the budget resumes the goal.
+          // onBudgetMutated: raising the budget resumes the goal.
           if (resumed) ctx.pendingPrompt = formatGoalInput(resumed.prompt);
           return;
         }
@@ -322,7 +324,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ]);
         }
         // /goal set <objective> or /goal <objective>: create, or REPLACE an
-        // active goal (omp replaceGoal) — only a COMPLETE goal blocks a new
+        // active goal (replaceGoal) — only a COMPLETE goal blocks a new
         // objective.
         const objective = sub === "set" ? restText : value;
         if (!objective) return void ctx.pushStatus("usage: /goal <objective>");
@@ -334,8 +336,31 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       },
     },
     {
+      name: "loop",
+      description: "re-submit a prompt after every settled turn (count/duration)",
+      argumentHint: "[count|duration] [prompt]",
+      group: "general",
+      live: true,
+      run: (args) => {
+        const runtime = ctx.loops;
+        if (!runtime) return void ctx.pushStatus("loop mode unavailable in this session");
+        const started = runtime.toggle(args);
+        if (!started.ok) return void ctx.pushStatus(started.error);
+        if (!runtime.enabled) return void ctx.pushStatus(started.status);
+        // Goal mode and loop mode both drive turns; running both would
+        // interleave two continuations, so enabling one clears the other.
+        if (ctx.goals?.goal) {
+          ctx.pushStatus("loop mode: the active goal was dropped (one turn driver at a time)");
+          ctx.goals.drop();
+        }
+        ctx.pushStatus(started.status);
+        ctx.io.setLoopStatus?.(runtime.status() ?? undefined);
+        if (started.prompt) ctx.pendingPrompt = started.prompt;
+      },
+    },
+    {
       name: "guided-goal",
-      description: "interview me into a verifiable goal, then run it (omp)",
+      description: "interview me into a verifiable goal, then run it ",
       argumentHint: "[<rough idea>]",
       group: "general",
       live: true,

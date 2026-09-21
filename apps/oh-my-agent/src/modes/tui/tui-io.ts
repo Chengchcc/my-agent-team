@@ -66,6 +66,8 @@ export function createTerminalIo(
   // injected message. OMA_BG_INJECT=0 degrades to transcript notices
   // (model never sees them; poll via hub output instead).
   const injections: string[] = [];
+  /** Wake an idle waitForInput with text that did not come from a keystroke.
+   *  Loop-mode auto-resubmit and background settlements share this channel. */
   function injectUserMessage(text: string): void {
     // Prefer a live waiter; otherwise queue for the next waitForInput.
     if (pending) {
@@ -464,6 +466,12 @@ export function createTerminalIo(
   return {
     render(state: TuiViewState) {
       shell.render(state);
+    },
+    injectInput(text: string) {
+      injectUserMessage(text);
+    },
+    setLoopStatus(status) {
+      shell.setLoopModeStatus(status);
     },
     waitForInput() {
       const queued = injections.shift();
