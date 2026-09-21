@@ -73,9 +73,11 @@ describe("goal evaluator parsing", () => {
         stream: () => textStream('{"verdict":"met"}')(),
       }),
     ).toEqual({ verdict: "met" });
-    const failing = async function* (): AsyncIterable<AIMessageChunk> {
-      throw new Error("provider down");
-    };
+    const failing = (): AsyncIterable<AIMessageChunk> => ({
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error("provider down")),
+      }),
+    });
     const result = await evaluateGoal({ condition: "c", evidence: [], stream: () => failing() });
     expect(isGoalError(result)).toBe(true);
   });
