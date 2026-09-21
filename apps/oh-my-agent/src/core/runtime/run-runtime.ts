@@ -358,10 +358,22 @@ async function buildNativeToolStage(
   ];
   if (deps.workspaceAccess === "read_write") {
     agentTools.push(
-      toPluginTool(createWriteTool({ cwd: deps.workspaceRoot, freshness: fileFreshness })),
+      toPluginTool(
+        createWriteTool({
+          cwd: deps.workspaceRoot,
+          freshness: fileFreshness,
+          ...(deps.planMode ? { planMode: deps.planMode } : {}),
+        }),
+      ),
     );
     agentTools.push(
-      toPluginTool(createEditTool({ cwd: deps.workspaceRoot, freshness: fileFreshness })),
+      toPluginTool(
+        createEditTool({
+          cwd: deps.workspaceRoot,
+          freshness: fileFreshness,
+          ...(deps.planMode ? { planMode: deps.planMode } : {}),
+        }),
+      ),
     );
     const bashToolOpts: {
       workspaceRoot: string;

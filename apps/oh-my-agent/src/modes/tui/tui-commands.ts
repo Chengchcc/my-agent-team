@@ -7,6 +7,12 @@ import {
   renderInterviewPrompt,
 } from "../../core/goals/index.js";
 import type { LoopRuntime, LoopStatus } from "../../core/loop-mode/index.js";
+import { type PlanModeState, planRefinePrompt } from "../../core/plan-mode/index.js";
+
+/** Plan mode master switch: absent means ON. */
+function plansEnabled(ctx: TuiSessionContext): boolean {
+  return loadProjectSettings(ctx.opts.workspaceRoot).planEnabled !== false;
+}
 
 /** Goal mode master switch: absent means ON (the mode ships enabled). */
 function goalsEnabled(ctx: TuiSessionContext): boolean {
@@ -98,6 +104,25 @@ export interface TuiSessionContext {
   goals?: GoalRuntime;
   /** Loop mode (re-submit a prompt after every settled turn). */
   loops?: LoopRuntime;
+  /** Plan mode: investigate + draft without touching the working tree, then
+   *  review and choose how the plan reaches implementation. The runtime owns
+   *  the state; commands only drive transitions. */
+  plans?: {
+    /** Current mode state, null when off. */
+    state: () => PlanModeState | null;
+    /** Enter (or re-enter after a pause), switching to the plan model. */
+    enter: (reentry?: boolean) => void;
+    /** Active → paused (keeps the draft and the mode armed). */
+    pause: () => void;
+    /** Fully off (draft stays on disk). */
+    leave: () => void;
+    /** Open the review surface: plan body + approval choices. */
+    review: () => Promise<void>;
+    /** True when a review can run (a substantial draft exists). */
+    hasDraft: () => boolean;
+    /** Path of the current draft, for display. */
+    draftPath: () => string;
+  };
   /** Re-derive the goal/loop state for the CURRENT session (called after a
    *  session switch: /resume or /new). Both drivers are session-scoped, so
    *  carrying one session's goal into another would leak accounting and
@@ -434,6 +459,72 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           return void ctx.pushStatus(err instanceof Error ? err.message : String(err));
         }
         ctx.pendingPrompt = formatGoalInput(renderGoalPrompt("active", created.goal));
+      },
+    },
+    {
+      name: "plan",
+      description: "investigate and draft a plan, then review it before implementation",
+      argumentHint: "[<request> | <follow-up>]",
+      group: "general",
+      live: true,
+      run: (args) => {
+        const plans = ctx.plans;
+        if (!plans) return void ctx.pushStatus("plan mode unavailable in this session");
+        if (!plansEnabled(ctx)) {
+          return void ctx.pushStatus(
+            "plan mode is disabled — set planEnabled: true in .oma/settings.json to use it",
+          );
+        }
+        const request = args.trim();
+        const state = plans.state();
+        if (state?.enabled) {
+          // Active → paused (stateful toggle); a draft is worth confirming.
+          plans.pause();
+          ctx.pushStatus(
+            plans.hasDraft()
+              ? "plan mode paused — the draft is kept; /plan <follow-up> resumes, /plan again turns it off"
+              : "plan mode paused — /plan <request> resumes planning, /plan again turns it off",
+          );
+          return;
+        }
+        // Only ONE turn driver at a time: goal and loop both queue turns.
+        if (ctx.goals?.goal) {
+          ctx.goals.drop();
+          ctx.pushStatus("plan mode: the active goal was dropped (one turn driver at a time)");
+        }
+        if (ctx.loops?.enabled) {
+          ctx.loops.disable();
+          ctx.io.setLoopStatus?.(undefined);
+          ctx.pushStatus("plan mode: loop mode disabled (one turn driver at a time)");
+        }
+        const reentry = state !== null;
+        plans.enter(reentry);
+        if (request) {
+          ctx.pendingPrompt = reentry ? planRefinePrompt(plans.state()!, request) : request;
+          return;
+        }
+        ctx.pushStatus(
+          reentry
+            ? "plan mode resumed — describe the change to plan"
+            : "plan mode on — describe the change to plan (investigation is read-only)",
+        );
+      },
+    },
+    {
+      name: "plan-review",
+      description: "review the newest plan draft and approve, refine, or save it",
+      argumentHint: "",
+      group: "general",
+      live: true,
+      run: async () => {
+        const plans = ctx.plans;
+        if (!plans) return void ctx.pushStatus("plan mode unavailable in this session");
+        if (!plans.hasDraft()) {
+          return void ctx.pushStatus(
+            "no plan to review yet — run /plan <request> and let the planning turn draft it",
+          );
+        }
+        await plans.review();
       },
     },
     {

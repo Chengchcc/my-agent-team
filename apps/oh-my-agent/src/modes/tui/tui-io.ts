@@ -3,10 +3,12 @@ import { join } from "node:path";
 import type { AskQuestionResult } from "@chengchenccc/agent-contract";
 import {
   applyBackgroundToLine,
+  Box,
   CombinedAutocompleteProvider,
   Container,
   Editor,
   type EditorTheme,
+  Input,
   Loader,
   matchesKey,
   ProcessTerminal,
@@ -475,6 +477,30 @@ export function createTerminalIo(
     },
     setGoalStatus(status) {
       shell.setGoalModeStatus(status);
+    },
+    setPlanStatus(status) {
+      shell.setPlanModeStatus(status);
+    },
+    promptText(title) {
+      const { promise, resolve } = Promise.withResolvers<string | null>();
+      const input = new Input();
+      const box = new Box(1, 0);
+      box.addChild(new Text(`  ${title} — enter to send, esc to cancel`, 0, 0));
+      box.addChild(input);
+      const overlay = tui.showOverlay(box, { width: "70%", anchor: "center" });
+      const previousFocus = editor; // restored below so typing returns to the prompt
+      tui.setFocus(input);
+      input.onSubmit = (value: string) => {
+        overlay.hide();
+        tui.setFocus(previousFocus);
+        resolve(value.trim() || null);
+      };
+      input.onEscape = () => {
+        overlay.hide();
+        tui.setFocus(previousFocus);
+        resolve(null);
+      };
+      return promise;
     },
     waitForInput() {
       const queued = injections.shift();

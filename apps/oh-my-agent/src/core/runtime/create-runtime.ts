@@ -73,6 +73,10 @@ export interface CreateOmaRuntimeOptions {
    *  inherits another session's list. Absent = the legacy workspace-global
    *  todo.json (product shape). */
   todoScope?: string;
+  /** Plan mode: while set, write/edit accept exactly this one path (the plan
+   *  document). The mode layer decides WHEN it applies; the runtime only
+   *  enforces the path rule. */
+  planMode?: { planPath: string };
   /** Assembled plugin code components (from assemblePluginRuntime, mode
    *  layer). The runtime mounts them; it never reads the registry. */
   pluginComponents?: {
@@ -219,6 +223,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     skillRoots: options.skillRoots,
     bashPtyConsole: options.bashPtyConsole,
     ...(options.onPersistMessages ? { onPersistMessages: options.onPersistMessages } : {}),
+    ...(options.planMode ? { planMode: options.planMode } : {}),
     ...(options.pluginComponents?.plugins.length
       ? { codePlugins: options.pluginComponents.plugins }
       : {}),

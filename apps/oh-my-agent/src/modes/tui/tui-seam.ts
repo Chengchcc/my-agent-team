@@ -51,6 +51,13 @@ export interface GoalModeStatus {
   usage?: string;
 }
 
+/** Plan-mode status for the status bar: planning / paused, plus whether a
+ *  draft exists yet. */
+export interface PlanModeStatus {
+  state: "active" | "paused";
+  draft?: boolean;
+}
+
 export interface TuiIo {
   /** Render the current view state. */
   render(state: TuiViewState): void;
@@ -73,6 +80,10 @@ export interface TuiIo {
   setLoopStatus?(status: LoopModeStatus | undefined): void;
   /** Goal-mode status for the status bar (undefined clears the segment). */
   setGoalStatus?(status: GoalModeStatus | undefined): void;
+  /** Plan-mode status for the status bar (undefined clears the segment). */
+  setPlanStatus?(status: PlanModeStatus | undefined): void;
+  /** One line of text from the user (refine feedback); null = cancelled. */
+  promptText?(title: string): Promise<string | null>;
   /** Generic single-choice menu (title + options). Resolves null on cancel;
    *  absent = the caller falls back to a text listing. */
   pickOption?(

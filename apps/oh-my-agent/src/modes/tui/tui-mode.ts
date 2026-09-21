@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type {
   AskQuestionInput,
   BackendRunInput,
@@ -12,6 +13,19 @@ import { defaultRegistry } from "../../core/coordination/registry.js";
 import { createGoalPlugin, GoalRuntime } from "../../core/goals/index.js";
 import type { OmaLoopEvent } from "../../core/index.js";
 import { LoopRuntime, type LoopStatus } from "../../core/loop-mode/index.js";
+import {
+  enterPlanMode,
+  implementationTurn,
+  type PlanModeState,
+  planIsSubstantial,
+  planPathFor,
+  planRefinePrompt,
+  planReminderPrompt,
+  plansDir,
+  planTitle,
+  readPlan,
+  writePlan,
+} from "../../core/plan-mode/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
@@ -29,8 +43,10 @@ import {
   appendSessionGoalCompletion,
   appendSessionGoalEvent,
   appendSessionMessages,
+  appendSessionPlanEvent,
   listSessions,
   loadSessionGoalState,
+  loadSessionPlanState,
   readSessionTitle,
 } from "../../core/session/session-file.js";
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
@@ -151,9 +167,136 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     } else {
       goalRuntime.restore(null);
     }
+    // Plan mode: a session that was planning restores AS PAUSED — a resumed
+    // session must never silently re-enter a read-only planning turn, and the
+    // draft on disk is left untouched for /plan-review.
+    const restoredPlan = loadSessionPlanState(session.sessionId, session.dir);
+    plan = restoredPlan
+      ? enterPlanMode(
+          restoredPlan.planPath ?? planPathFor(opts.workspaceRoot, session.sessionId),
+          true,
+        )
+      : null;
+    planPaused = restoredPlan !== null;
+    planReminders = 0;
     // Loop mode is never persisted: switching sessions always leaves it off.
     loopRuntime.disable();
     io.setLoopStatus?.(undefined);
+  }
+
+  /** Back to the model that was active before planning (only when plan mode
+   *  switched it; a re-entry never recorded one). */
+  function restorePrePlanModel(): void {
+    if (prePlanModel === undefined) return;
+    modelId = prePlanModel;
+    prePlanModel = undefined;
+    io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
+  }
+
+  /** The review surface: the draft's title + a choice menu. The plan BODY is
+   *  printed to the transcript first, so the user reads exactly what they are
+   *  approving (oma's TUI scrolls the transcript; a second scrollable overlay
+   *  would add a surface without adding information). */
+  async function reviewPlan(): Promise<void> {
+    const path = planPathFor(opts.workspaceRoot, session.sessionId);
+    const markdown = readPlan(path);
+    if (markdown === null) {
+      pushStatus("no plan draft on disk yet");
+      return;
+    }
+    const title = planTitle(markdown) ?? "plan";
+    pushStatus([`plan draft — ${title}  (${path})`, ...markdown.split("\n").slice(0, 40)]);
+    io.render(state);
+    if (!io.pickOption) {
+      pushStatus("no picker available — use /plan to keep refining, or /plan-review again");
+      return;
+    }
+    const choice = await io.pickOption(`review: ${title}`, [
+      {
+        value: "approve-fresh",
+        label: "Approve and execute",
+        description: "fresh session, plan only",
+      },
+      {
+        value: "approve-compact",
+        label: "Approve and compact",
+        description: "summarize, then implement here",
+      },
+      {
+        value: "approve-keep",
+        label: "Approve and keep context",
+        description: "implement here, transcript intact",
+      },
+      { value: "refine", label: "Refine plan", description: "send feedback as a planning turn" },
+      {
+        value: "save",
+        label: "Save and quit",
+        description: "write the plan elsewhere and stop planning",
+      },
+    ]);
+    if (!choice) return;
+    if (choice.startsWith("approve-")) {
+      await approvePlan(choice.slice("approve-".length) as "fresh" | "compact" | "keep", markdown);
+      return;
+    }
+    if (choice === "refine") {
+      const feedback = io.promptText ? await io.promptText("feedback on the draft") : null;
+      if (!feedback) {
+        pushStatus("refine cancelled — /plan <follow-up> does the same thing");
+        return;
+      }
+      plan = enterPlanMode(path, true);
+      planPaused = false;
+      pendingFollowUps.push(formatGoalInput(planRefinePrompt(plan, feedback)));
+      refreshDriverStatus();
+      return;
+    }
+    // Save and quit: a durable copy, then stop planning without executing.
+    const destination = join(
+      plansDir(opts.workspaceRoot),
+      `${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`,
+    );
+    writePlan(destination, markdown);
+    pushStatus(`plan saved: ${destination}`);
+    plan = null;
+    planPaused = false;
+    restorePrePlanModel();
+    appendSessionPlanEvent(session.sessionId, null, false, session.dir);
+    refreshDriverStatus();
+  }
+
+  /** Approval is the single execution gate: leave plan mode first (so the
+   *  guard lifts), then hand the plan to the implementation turn through the
+   *  hidden channel. The three choices differ ONLY in context handling. */
+  async function approvePlan(
+    context: "fresh" | "compact" | "keep",
+    markdown: string,
+  ): Promise<void> {
+    const path = planPathFor(opts.workspaceRoot, session.sessionId);
+    plan = null;
+    planPaused = false;
+    restorePrePlanModel();
+    appendSessionPlanEvent(session.sessionId, null, false, session.dir);
+    refreshDriverStatus();
+    if (context === "fresh") {
+      // Fresh conversation: the plan is self-contained, and the implementation
+      // model gets the whole window instead of the planning discussion.
+      session = resolveSession();
+      sessionTitle = planTitle(markdown);
+      hydrateTranscript(state, session.messages);
+      state.todoItems = readTodoFile(opts.workspaceRoot, session.sessionId);
+      io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
+      pushStatus(
+        `implementing the approved plan in a fresh session (${session.sessionId.slice(0, 8)})`,
+      );
+    } else if (context === "compact") {
+      await runCommandText("/compact");
+      pushStatus("implementing the approved plan (context compacted)");
+    } else {
+      pushStatus("implementing the approved plan (planning context kept)");
+    }
+    pendingFollowUps.push(formatGoalInput(implementationTurn(path, markdown, context !== "fresh")));
+    io.render(state);
   }
 
   function pushStatus(lines: string | readonly string[], replacePrefix?: string): void {
@@ -173,6 +316,17 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     state.runs.push({ items, running: false });
   }
+
+  /** Plan mode: investigate + draft (write/edit accept only the draft path),
+   *  then review and approve. `paused` keeps the mode armed without driving
+   *  turns; the draft lives on disk so a pause never loses work. */
+  let plan: PlanModeState | null = null;
+  let planPaused = false;
+  /** Model that was active before plan mode switched to the plan role. */
+  let prePlanModel: string | undefined;
+  /** Reminder turns sent for planning runs that produced no draft. */
+  let planReminders = 0;
+  const APPROVED_CONTEXT = { fresh: false, compact: "compact", keep: true } as const;
 
   /** Loop mode: re-submits one captured prompt after each settled turn. The
    *  limits/parsing live in core/loop-mode; this layer wires it to the session
@@ -196,6 +350,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   const refreshDriverStatus = (): void => {
     io.setGoalStatus?.(goalStatusForBar());
     io.setLoopStatus?.(loopStatusWithCondition());
+    io.setPlanStatus?.(
+      plan
+        ? { state: planPaused ? "paused" : "active", draft: readPlan(plan.planPath) !== null }
+        : undefined,
+    );
   };
   const conditionSandbox = (() => {
     const settings = loadProjectSettings(opts.workspaceRoot);
@@ -317,6 +476,41 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     goals: goalRuntime,
     loops: loopRuntime,
     reloadSessionDrivers,
+    plans: {
+      state: () => plan,
+      enter: (reentry = false) => {
+        plan = enterPlanMode(planPathFor(opts.workspaceRoot, session.sessionId), reentry);
+        planPaused = false;
+        // Planning gets its own model when configured: investigation quality
+        // dominates the draft, and the implementer can differ.
+        const planModel = loadProjectSettings(opts.workspaceRoot).planModel;
+        if (!reentry && planModel && planModel !== modelId) {
+          prePlanModel = modelId;
+          modelId = planModel;
+          io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
+        }
+        appendSessionPlanEvent(session.sessionId, plan, planPaused, session.dir);
+        refreshDriverStatus();
+      },
+      pause: () => {
+        planPaused = true;
+        appendSessionPlanEvent(session.sessionId, plan, planPaused, session.dir);
+        refreshDriverStatus();
+      },
+      leave: () => {
+        plan = null;
+        planPaused = false;
+        restorePrePlanModel();
+        appendSessionPlanEvent(session.sessionId, null, false, session.dir);
+        refreshDriverStatus();
+      },
+      hasDraft: () => {
+        const markdown = readPlan(planPathFor(opts.workspaceRoot, session.sessionId));
+        return markdown !== null && planIsSubstantial(markdown);
+      },
+      draftPath: () => planPathFor(opts.workspaceRoot, session.sessionId),
+      review: () => reviewPlan(),
+    },
     get pendingImages() {
       return pendingImages;
     },
@@ -413,6 +607,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // Loop mode: the first prompt after enabling becomes the prompt that is
     // re-submitted after every settled turn.
     if (!isHiddenInput(text)) loopRuntime.capturePrompt(text);
+    if (!isHiddenInput(text)) planReminders = 0;
 
     const built = await buildCliRunInput({
       prompt: text,
@@ -684,6 +879,34 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // /exit (or a second ctrl+c path) may have run via the live-command
     // channel while the Run was live — honor it now that the Run settled.
     if (quitting) return 0;
+
+    // Plan mode's contract: a planning turn that produced no usable draft has
+    // not done its job. One reminder (not a loop — a model that ignored the
+    // contract twice needs the user, not another nudge).
+    // Read through the ctx accessor: every assignment to `plan` happens inside
+    // a closure, so a direct read here is narrowed to the initializer.
+    const activePlan: PlanModeState | null = ctx.plans?.state() ?? null;
+    if (activePlan?.enabled && !planPaused && runInput.workflow === undefined) {
+      const markdown = readPlan(activePlan.planPath);
+      if (markdown === null || !planIsSubstantial(markdown)) {
+        if (planReminders < 1) {
+          planReminders += 1;
+          pendingFollowUps.push(formatGoalInput(planReminderPrompt(activePlan)));
+          pushStatus("plan mode: no usable draft yet — asking the model to finish the plan");
+        } else {
+          pushStatus(
+            "plan mode: still no plan — describe what you want more precisely, or /plan again to pause",
+          );
+        }
+      } else {
+        planReminders = 0;
+        pushStatus(
+          `plan ready: ${planTitle(markdown) ?? activePlan.planPath} — /plan-review to approve`,
+        );
+      }
+      refreshDriverStatus();
+      io.render(state);
+    }
 
     // Loop mode: capture the first prompt of the session's loop, then
     // re-submit it after every settled turn. Goal mode and loop mode are

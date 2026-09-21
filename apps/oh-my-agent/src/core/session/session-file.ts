@@ -382,6 +382,57 @@ export function appendSessionGoalCompletion(
   );
 }
 
+/** Append a plan-mode event (same mode-change shape as the goal one): the
+ *  mode plus whether it is paused. The draft itself is a FILE, so the journal
+ *  only needs the mode; resume restores "planning, paused" and never
+ *  re-enters a read-only planning turn on its own. */
+export function appendSessionPlanEvent(
+  id: string,
+  state: { planPath: string } | null,
+  paused: boolean,
+  dir: string = sessionDir(),
+): void {
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return;
+  appendFileSync(
+    path,
+    `${JSON.stringify({
+      type: "plan",
+      timestamp: new Date().toISOString(),
+      planMode: state ? { planPath: state.planPath, paused } : null,
+    })}\n`,
+  );
+}
+
+/** Replay plan-mode events: the latest one wins (null = plan mode off). */
+export function loadSessionPlanState(
+  id: string,
+  dir: string = sessionDir(),
+): { planPath: string; paused: boolean } | null {
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return null;
+  let latest: { planPath: string; paused: boolean } | null = null;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.trim() || !line.includes('"plan"')) continue;
+    try {
+      const evt = JSON.parse(line) as {
+        type?: string;
+        planMode?: { planPath?: unknown; paused?: unknown } | null;
+      };
+      if (evt.type !== "plan") continue;
+      const mode = evt.planMode;
+      if (mode === null || mode === undefined || typeof mode.planPath !== "string") {
+        latest = null;
+        continue;
+      }
+      latest = { planPath: mode.planPath, paused: mode.paused === true };
+    } catch {
+      /* skip malformed line */
+    }
+  }
+  return latest;
+}
+
 /** Reconstruct the current goal-mode state by replaying goal events (last
  *  one wins; malformed entries are skipped like every other scan here). */
 export function loadSessionGoalState(

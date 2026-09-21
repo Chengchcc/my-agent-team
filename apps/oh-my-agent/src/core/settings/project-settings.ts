@@ -65,6 +65,13 @@ export interface ProjectSettings {
    *  default). The product RPC path never reads this — its permissionMode
    *  arrives frozen in the run snapshot. */
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Plan mode master switch (default ON). Turn it off in a workspace that
+   *  should never enter the read-only planning loop. */
+  planEnabled?: boolean;
+  /** Model used while planning ("provider/model"); absent = the session's
+   *  model. Planning benefits from a stronger reader than the implementer,
+   *  and the modes are separate so the two can differ. */
+  planModel?: string;
   /** Goal mode master switch (default ON). A workspace that does not want an
    *  autonomous multi-turn objective driver can turn it off; /goal and
    *  /guided-goal then refuse with a hint. */
@@ -175,6 +182,12 @@ export function loadProjectSettings(root: string): ProjectSettings {
       (parsed.editFreshness === "off" || parsed.editFreshness === "require")
     ) {
       result.editFreshness = parsed.editFreshness;
+    }
+    if ("planEnabled" in parsed && typeof parsed.planEnabled === "boolean") {
+      result.planEnabled = parsed.planEnabled;
+    }
+    if ("planModel" in parsed && typeof parsed.planModel === "string" && parsed.planModel.trim()) {
+      result.planModel = parsed.planModel.trim();
     }
     if ("goalEnabled" in parsed && typeof parsed.goalEnabled === "boolean") {
       result.goalEnabled = parsed.goalEnabled;

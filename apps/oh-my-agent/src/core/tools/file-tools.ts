@@ -135,6 +135,22 @@ function isProtectedPath(cwd: string, full: string): boolean {
   return /^\.oma\/[^/]+\.json$/.test(rel);
 }
 
+/** Plan mode (investigate + draft, no mutation): while it is on, write/edit
+ *  accept exactly ONE path — the session's plan document. Read-side tools and
+ *  bash stay available, because planning needs them; bash is the honest
+ *  exception (a shell command can still mutate) and is prompt-guarded, the
+ *  same trade the reference implementation makes. */
+export interface PlanModeGuard {
+  /** Absolute path of the only writable file while plan mode is on. */
+  planPath: string;
+}
+
+function planModeRefusal(guard: PlanModeGuard | undefined, full: string): string | undefined {
+  if (!guard) return undefined;
+  if (resolve(full) === resolve(guard.planPath)) return undefined;
+  return `Error: plan mode is active — the working tree is read-only. The only writable path is the plan document: ${guard.planPath}. Finish the plan there, then let the user review it.`;
+}
+
 const IMAGE_EXTENSIONS = new Set([
   ".png",
   ".jpg",
@@ -242,8 +258,12 @@ export function createReadTool(opts: { cwd: string; freshness?: FileFreshness })
 // ─── write ─────────────────────────────────────────────────────
 
 /** Create a write-file tool scoped to a cwd. */
-export function createWriteTool(opts: { cwd: string; freshness?: FileFreshness }): Tool {
-  const { cwd } = opts;
+export function createWriteTool(opts: {
+  cwd: string;
+  freshness?: FileFreshness;
+  planMode?: PlanModeGuard;
+}): Tool {
+  const { cwd, planMode } = opts;
   const freshness = opts.freshness ?? "off";
   return {
     name: "write",
@@ -274,6 +294,8 @@ export function createWriteTool(opts: { cwd: string; freshness?: FileFreshness }
       const rec = input as InputRec;
       const full = safePathNew(cwd, String(rec.path ?? ""));
       if (!full) return { content: "Error: path escapes workspace", isError: true };
+      const planRefusal = planModeRefusal(planMode, full);
+      if (planRefusal) return { content: planRefusal, isError: true };
       if (isProtectedPath(cwd, full)) {
         return {
           content: `Error: ${rec.path} is product-managed and read-only for the agent`,
@@ -302,8 +324,12 @@ export function createWriteTool(opts: { cwd: string; freshness?: FileFreshness }
 // ─── edit ──────────────────────────────────────────────────────
 
 /** Create an edit-file tool scoped to a cwd. */
-export function createEditTool(opts: { cwd: string; freshness?: FileFreshness }): Tool {
-  const { cwd } = opts;
+export function createEditTool(opts: {
+  cwd: string;
+  freshness?: FileFreshness;
+  planMode?: PlanModeGuard;
+}): Tool {
+  const { cwd, planMode } = opts;
   const freshness = opts.freshness ?? "off";
   return {
     name: "edit",
@@ -341,6 +367,8 @@ export function createEditTool(opts: { cwd: string; freshness?: FileFreshness })
       const rec = input as InputRec;
       const full = safePath(cwd, String(rec.path ?? ""));
       if (!full) return { content: "Error: path escapes workspace", isError: true };
+      const planRefusal = planModeRefusal(planMode, full);
+      if (planRefusal) return { content: planRefusal, isError: true };
       if (isProtectedPath(cwd, full)) {
         return {
           content: `Error: ${rec.path} is product-managed and read-only for the agent`,

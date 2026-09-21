@@ -249,6 +249,53 @@ describe("edit semantics", () => {
  *  write must carry the fingerprint the read reported, so it can never land on
  *  bytes the caller has not seen. Freshness defaults to "off" (every caller
  *  above is unaffected); the runtime assembly opts in — see run-runtime.ts. */
+/** Plan mode's read-only rule is enforced HERE, on the file tools: while the
+ *  mode is on, write/edit accept exactly one path — the plan document. This is
+ *  a safety boundary, so it gets its own test (read-side tools and bash stay
+ *  available by design; bash is prompt-guarded, the same trade the reference
+ *  implementation makes). */
+describe("plan mode makes the working tree read-only", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "oma-plan-"));
+  const planPath = join(cwd, ".oma", "plans", "s.md");
+  const guard = { planPath };
+  const w = (extra = {}) => createWriteTool({ cwd, planMode: guard, ...extra });
+  const e = (extra = {}) => createEditTool({ cwd, planMode: guard, ...extra });
+
+  test("the plan document is the ONE writable path", async () => {
+    const ok = await w().execute({ path: ".oma/plans/s.md", content: "# Plan\n" });
+    expect(ok.isError).toBeUndefined();
+    // ...and an edit of it is allowed too.
+    const edited = await e({
+      freshness: "off",
+    }).execute({ path: ".oma/plans/s.md", old_string: "# Plan", new_string: "# Plan v2" });
+    expect(edited.isError).toBeUndefined();
+  });
+
+  test("every other write is refused, even a brand-new file", async () => {
+    const created = await w().execute({ path: "brand-new.txt", content: "x" });
+    expect(created.isError).toBe(true);
+    expect(String(created.content)).toContain("plan mode is active");
+    // The refusal names the one path that works, so the model can comply.
+    expect(String(created.content)).toContain("plans/s.md");
+  });
+
+  test("edit is refused on an existing project file", async () => {
+    writeFileSync(join(cwd, "code.ts"), "const a = 1;\n");
+    const refused = await e().execute({
+      path: "code.ts",
+      old_string: "1",
+      new_string: "2",
+    });
+    expect(refused.isError).toBe(true);
+    expect(readFileSync(join(cwd, "code.ts"), "utf8")).toBe("const a = 1;\n");
+  });
+
+  test("without the guard the same writes land (the gate is the mode, not the tool)", async () => {
+    const plain = await createWriteTool({ cwd }).execute({ path: "free.txt", content: "ok" });
+    expect(plain.isError).toBeUndefined();
+  });
+});
+
 describe("write freshness gate", () => {
   const cwd = mkdtempSync(join(tmpdir(), "oma-fresh-"));
   const gw = (fp: string) =>
