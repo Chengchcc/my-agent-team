@@ -70,7 +70,7 @@ import { buildSkillIndex } from "../../core/tools/index.js";
 import { listMcpServers, testMcpServer } from "../../core/tools/mcp-mount.js";
 import { sniffMediaType } from "../../core/tools/read-image.js";
 import { buildSessionCommands } from "./tui-commands-session.js";
-import { formatGoalInput, formatTokens } from "./tui-format.js";
+import { formatGoalInput, formatRalphInput, formatTokens } from "./tui-format.js";
 import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
 
@@ -142,7 +142,7 @@ export interface TuiSessionContext {
    *  session switch: /resume or /new). Both drivers are session-scoped, so
    *  carrying one session's goal into another would leak accounting and
    *  continuation across conversations. */
-  reloadSessionDrivers?: () => void;
+  reloadSessionDrivers?: (opts?: { keepLoop?: boolean }) => void;
   /** Refresh every driver status segment after a transition. Commands that
    *  mutate goal/loop/plan state call this so the bar never shows a stale
    *  state (the session loop refreshes on its own after each turn). */
@@ -569,7 +569,11 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         if (!runtime) return void ctx.pushStatus("loop mode unavailable in this session");
         const started = runtime.toggle(args);
         if (!started.ok) return void ctx.pushStatus(started.error);
-        if (!runtime.enabled) return void ctx.pushStatus(started.status);
+        if (!runtime.enabled) {
+          ctx.pushStatus(started.status);
+          ctx.refreshDriverStatus?.();
+          return;
+        }
         const displaced = claimTurnDriver(ctx, "loop");
         if (displaced.length > 0) {
           ctx.pushStatus(`loop mode claimed the turn driver: ${displaced.join(" + ")} stopped`);
@@ -577,6 +581,35 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         ctx.pushStatus(started.status);
         ctx.refreshDriverStatus?.();
         if (started.prompt) ctx.pendingPrompt = started.prompt;
+      },
+    },
+    {
+      name: "ralph",
+      description: "build loop: one work-queue item per fresh-context iteration",
+      argumentHint: "[count|duration] [--while|--until <cmd>] [first item]",
+      group: "general",
+      live: true,
+      run: (args) => {
+        const runtime = ctx.loops;
+        if (!runtime) return void ctx.pushStatus("loop mode unavailable in this session");
+        // Second invocation stops, like /loop. Switching from a plain loop is
+        // a re-arm, not a stop — startRalph handles that.
+        if (runtime.enabled && runtime.loopAction === "ralph") {
+          ctx.pushStatus(runtime.disable());
+          ctx.refreshDriverStatus?.();
+          return;
+        }
+        const started = runtime.startRalph(ctx.opts.workspaceRoot, args);
+        if (!started.ok) return void ctx.pushStatus(started.error);
+        const displaced = claimTurnDriver(ctx, "loop");
+        if (displaced.length > 0) {
+          ctx.pushStatus(`build loop claimed the turn driver: ${displaced.join(" + ")} stopped`);
+        }
+        ctx.pushStatus(started.status);
+        ctx.refreshDriverStatus?.();
+        if (started.prompt) {
+          ctx.pendingPrompt = started.hidden ? formatRalphInput(started.prompt) : started.prompt;
+        }
       },
     },
     {

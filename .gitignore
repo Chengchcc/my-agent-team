@@ -20,6 +20,10 @@ apps/web/tsconfig.tsbuildinfo
 !.oma/rules/
 !.oma/skills/
 !.oma/rsi/
+# The build loop's work queue is the loop's memory and its trail: the agent
+# commits it every iteration, so it must not be ignored like the rest of the
+# local runtime state.
+!.oma/plan.md
 
 # omp backend project dir: not used here (oma is the harness for this repo).
 # Ignored wholesale — the tracked project rules moved to .oma/rules/, which is

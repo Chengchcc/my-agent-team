@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scriptedIo, testModelRuntime } from "./tui-mode.fixture.js";
@@ -61,6 +61,44 @@ describe("loop mode drives its own turns", () => {
       delete process.env.OMA_SESSION_DIR;
     }
   }, 30_000);
+  test("the build loop survives the fresh session it starts every iteration", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "oma-ralph-"));
+    const sessions = sessionDir();
+    dirs.push(ws);
+    try {
+      // ONE command, then the loop drives itself. The build loop resets the
+      // session between iterations, and a session switch purges every driver —
+      // so this asserts the loop's own reset does not end the loop. Reaching
+      // the 3-iteration budget is the proof: a loop that died on its first
+      // reset spends one iteration and never reports a spent limit.
+      const io = scriptedIo([]);
+      io.waitForInput = (() => {
+        let step = 0;
+        return () => {
+          step++;
+          if (step === 1) return Promise.resolve("/ralph 3 --while true");
+          return Promise.resolve(null);
+        };
+      })();
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
+      expect(code).toBe(0);
+      // Count in the FINAL view state: the status container repaints on every
+      // frame, so a cross-render sum over-counts.
+      const statuses = io.renders
+        .at(-1)!
+        .runs.flatMap((r) => r.items)
+        .filter((i) => i.kind === "status")
+        .map((i) => i.text);
+      expect(statuses.some((t) => t.includes("loop limit reached"))).toBe(true);
+      // Each iteration ran in its own session: the first one plus one per reset.
+      expect(readdirSync(sessions).length).toBeGreaterThanOrEqual(3);
+      // The queue the protocol is supposed to read was seeded on first use.
+      expect(existsSync(join(ws, ".oma", "plan.md"))).toBe(true);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+    }
+  }, 30_000);
+
   test("a satisfied --until condition stops the loop after the first iteration", async () => {
     sessionDir();
     try {

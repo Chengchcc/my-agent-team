@@ -166,11 +166,11 @@ describe("tui session (headless, fake provider)", () => {
       );
       expect(code).toBe(0);
       // The command table reached the autocomplete seam once.
-      // 29 static commands (incl. /mcp, /skill, /workflow, /memory,
-      // /permission, /paste, /compact, /goal, /guided-goal, /loop, /plan,
-      // /plan-review); the pinned agent dir guarantees zero auto-registered
-      // skills.
-      expect(registered).toEqual([29]);
+      // 30 static commands (incl. /mcp, /skill, /workflow, /memory,
+      // /permission, /paste, /compact, /goal, /guided-goal, /loop, /ralph,
+      // /plan, /plan-review); the pinned agent dir guarantees zero
+      // auto-registered skills.
+      expect(registered).toEqual([30]);
       const statuses = base.renders
         .at(-1)!
         .runs.flatMap((r) => r.items.filter((i) => i.kind === "status"))

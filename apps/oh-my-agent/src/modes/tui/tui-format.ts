@@ -557,7 +557,7 @@ export const SETTLEMENT_SENTINEL = "[background jobs finished]";
  *  Goal-mode steers (active/continuation/budget-limit prompts, the guided
  *  interview kickoff) ride this channel: they are multi-KB XML protocol
  *  text, and persisting them made /resume replay them as phantom bubbles. */
-export const HIDDEN_INPUT_SENTINELS = [SETTLEMENT_SENTINEL, "[goal-mode]"] as const;
+export const HIDDEN_INPUT_SENTINELS = [SETTLEMENT_SENTINEL, "[goal-mode]", "[ralph-loop]"] as const;
 
 export function isHiddenInput(text: string): boolean {
   return HIDDEN_INPUT_SENTINELS.some((s) => text.startsWith(s));
@@ -566,6 +566,12 @@ export function isHiddenInput(text: string): boolean {
 /** Wrap a goal-mode prompt for the hidden channel. */
 export function formatGoalInput(prompt: string): string {
   return `[goal-mode]\n\n${prompt}`;
+}
+
+/** Wrap a build-loop protocol prompt for the hidden channel: it is re-injected
+ *  every iteration, so echoing or persisting it would flood the transcript. */
+export function formatRalphInput(prompt: string): string {
+  return `[ralph-loop]\n\n${prompt}`;
 }
 
 export const SETTLEMENT_INLINE_MAX = 4_000;

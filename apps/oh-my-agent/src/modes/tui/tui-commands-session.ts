@@ -103,8 +103,13 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
     {
       name: "new",
       description: "start a fresh session (clears the transcript)",
+      argumentHint: "[--keep-loop]",
       group: "session",
-      run: () => {
+      run: (args) => {
+        // --keep-loop is how a restarting loop (reset / build) survives the
+        // fresh session it asked for; without it a loop switch would end the
+        // loop that requested it.
+        const keepLoop = args.trim() === "--keep-loop";
         ctx.session = resolveSession();
         ctx.sessionTitle = undefined;
         // Todo is session-scoped: a fresh session starts with an empty
@@ -115,7 +120,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         // A fresh session starts with no goal and no loop: otherwise the
         // previous session's goal would keep driving turns and its accounting
         // would land on the wrong conversation.
-        ctx.reloadSessionDrivers?.();
+        ctx.reloadSessionDrivers?.({ keepLoop });
         ctx.io.setHeader?.({
           model: ctx.modelId,
           sessionId: ctx.session.sessionId,

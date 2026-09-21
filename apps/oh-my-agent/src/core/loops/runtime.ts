@@ -12,19 +12,29 @@ import {
   isLoopDurationExpired,
   LOOP_USAGE,
   type LoopLimitRuntime,
+  type ParsedLoopArgs,
   parseLoopArgs,
 } from "./limits.js";
+import { RALPH_PROTOCOL, RALPH_QUEUE, ralphCondition, seedRalphQueue } from "./ralph.js";
 
 /** What the loop does between iterations before re-submitting the prompt:
- *  re-send it, compact the context first, or start a fresh session first. */
-export type LoopAction = "prompt" | "compact" | "reset";
+ *  re-send it, compact the context first, start a fresh session first, or run
+ *  the build loop (fresh session + a work queue on disk, see ralph.ts). */
+export type LoopAction = "prompt" | "compact" | "reset" | "ralph";
 
 export type LoopStart =
-  | { ok: true; prompt?: string; status: string }
+  | { ok: true; prompt?: string; hidden?: true; status: string }
   | { ok: false; error: string };
 
 export type LoopIterationDecision =
-  | { action: "run"; prompt: string; preamble?: "compact" | "reset" }
+  | {
+      action: "run";
+      prompt: string;
+      preamble?: "compact" | "reset";
+      /** The prompt is protocol, not user text: the transcript must not echo
+       *  it as a turn the user typed (`isHiddenInput` handles the wrapping). */
+      hidden?: true;
+    }
   | { action: "stop"; reason: string }
   | { action: "idle" };
 
@@ -50,7 +60,14 @@ export class LoopRuntime {
   #limit: LoopLimitRuntime | undefined;
   #condition: LoopConditionConfig | undefined;
 
-  constructor(private readonly action: LoopAction = "prompt") {}
+  constructor(private action: LoopAction = "prompt") {}
+
+  /** Re-arm for a different strategy. `/ralph` forces the build loop whatever
+   *  the project setting says, and one runtime is created per session, so the
+   *  action has to be switchable after construction. */
+  useAction(action: LoopAction): void {
+    this.action = action;
+  }
 
   get enabled(): boolean {
     return this.#enabled;
@@ -83,7 +100,8 @@ export class LoopRuntime {
     const status = this.status();
     if (!status) return undefined;
     if (status.state === "paused") return "⏸ loop paused";
-    return `↻ loop${status.label ? ` ${status.label}` : ""}`;
+    const name = this.action === "ralph" ? "ralph" : "loop";
+    return `↻ ${name}${status.label ? ` ${status.label}` : ""}`;
   }
 
   get loopAction(): LoopAction {
@@ -92,7 +110,10 @@ export class LoopRuntime {
 
   status(): LoopStatus | undefined {
     if (!this.#enabled) return undefined;
-    const state = this.#paused ? "paused" : this.#prompt ? "running" : "waiting";
+    // The build loop needs no captured prompt: its protocol is fixed and the
+    // queue is on disk, so an enabled build loop is running, not waiting.
+    const armed = this.action === "ralph" || this.#prompt !== undefined;
+    const state = this.#paused ? "paused" : armed ? "running" : "waiting";
     const status: LoopStatus = { state };
     if (this.#limit) status.limit = this.#limit;
     // The bar shows WHAT will decide the next iteration, not just that one is
@@ -108,7 +129,8 @@ export class LoopRuntime {
   }
 
   /** `/loop [count|duration] [prompt]`. Already enabled → disable (toggle),
-   *  matching omp. A malformed limit is a hard error and leaves mode alone. */
+   *  matching the reference loop. A malformed limit is a hard error and
+   *  leaves the mode alone. */
   toggle(args: string, nowMs = Date.now()): LoopStart {
     if (this.#enabled) {
       this.disable();
@@ -116,14 +138,46 @@ export class LoopRuntime {
     }
     const parsed = parseLoopArgs(args);
     if (typeof parsed === "string") return { ok: false, error: parsed };
+    return this.#arm(parsed, nowMs);
+  }
+
+  /** `/ralph [count|duration] [--while|--until cmd] [item]`: switch to the
+   *  build loop, seed the work queue on first use, and start. Like `toggle` it
+   *  re-arms rather than toggling off — the caller decides whether a second
+   *  invocation means "stop" (see the `/ralph` command). */
+  startRalph(workspaceRoot: string, args: string, nowMs = Date.now()): LoopStart {
+    if (this.#enabled) this.disable();
+    const parsed = parseLoopArgs(args);
+    if (typeof parsed === "string") return { ok: false, error: parsed };
+    this.action = "ralph";
+    const queue = seedRalphQueue(workspaceRoot, parsed.prompt);
+    const started = this.#arm(parsed, nowMs);
+    if (!started.ok || !queue.created) return started;
+    return { ...started, status: `${started.status}; seeded ${queue.path}` };
+  }
+
+  #arm(parsed: ParsedLoopArgs, nowMs: number): LoopStart {
+    const build = this.action === "ralph";
     this.#enabled = true;
     this.#paused = false;
-    this.#prompt = undefined;
+    // The build loop's prompt is its protocol, never a captured user turn, so
+    // the parsed trailing text seeds the queue instead (see startRalph).
+    this.#prompt = build ? undefined : parsed.prompt;
     this.#limit = createLoopLimitRuntime(parsed.limit, nowMs);
-    this.#condition = parsed.condition;
+    // The queue is the build loop's default authority on whether to continue;
+    // an explicit --while/--until replaces it.
+    this.#condition = parsed.condition ?? (build ? ralphCondition() : undefined);
     const limitSuffix = parsed.limit ? ` limited to ${describeLoopLimit(parsed.limit)}` : "";
-    const conditionSuffix = parsed.condition ? ` — ${describeLoopCondition(parsed.condition)}` : "";
+    const conditionSuffix = this.#condition ? ` — ${describeLoopCondition(this.#condition)}` : "";
     const remaining = this.#limit ? ` (${describeLoopLimitRuntime(this.#limit)})` : "";
+    if (build) {
+      return {
+        ok: true,
+        prompt: RALPH_PROTOCOL,
+        hidden: true,
+        status: `build loop enabled${limitSuffix}${remaining}${conditionSuffix} — one ${RALPH_QUEUE} item per fresh session; /ralph again disables, Esc pauses`,
+      };
+    }
     const tail = parsed.prompt
       ? "repeating it after each turn"
       : "your next prompt will repeat after each turn";
@@ -172,8 +226,13 @@ export class LoopRuntime {
     },
     nowMs = Date.now(),
   ): Promise<LoopIterationDecision> {
-    if (!this.#enabled || !this.#prompt) return { action: "idle" };
-    const prompt = this.#prompt;
+    if (!this.#enabled) return { action: "idle" };
+    // The build loop re-injects its protocol rather than a captured turn, so
+    // "waiting for a prompt" does not apply to it — but a pause does: pause()
+    // is the only thing that must stop it (Esc between iterations).
+    const build = this.action === "ralph";
+    const prompt = build ? RALPH_PROTOCOL : this.#prompt;
+    if (prompt === undefined || this.#paused) return { action: "idle" };
     if (isLoopDurationExpired(this.#limit, nowMs)) {
       return { action: "stop", reason: "loop time limit reached" };
     }
@@ -186,8 +245,9 @@ export class LoopRuntime {
       // The await above is a window: Esc (pause) or /loop (disable) can land
       // while the condition runs, which makes ANY verdict stale — a user who
       // paused mid-evaluation must not have the loop stopped out from under
-      // them by a halt they never saw coming.
-      if (!this.#enabled || this.#paused || this.#prompt !== prompt) {
+      // them by a halt they never saw coming. The build loop has no captured
+      // prompt to compare against, so `paused` is its whole staleness check.
+      if (!this.#enabled || this.#paused || (!build && this.#prompt !== prompt)) {
         return { action: "idle" };
       }
       if (verdict.kind === "halt" || verdict.kind === "error") {
@@ -197,6 +257,9 @@ export class LoopRuntime {
     if (!consumeLoopLimitIteration(this.#limit, nowMs)) {
       return { action: "stop", reason: "loop limit reached" };
     }
+    // The build loop restarts the session every iteration: stale context is
+    // the failure mode it exists to avoid, and the queue carries what matters.
+    if (build) return { action: "run", prompt, preamble: "reset", hidden: true };
     if (this.action === "compact" || this.action === "reset") {
       return { action: "run", prompt, preamble: this.action };
     }

@@ -51,7 +51,13 @@ import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { readTodoFile } from "../../core/tools/todo-store.js";
 import { standaloneRuntimeOptions } from "../shared.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
-import { formatGoalInput, formatTokens, isHiddenInput, refreshGitStatus } from "./tui-format.js";
+import {
+  formatGoalInput,
+  formatRalphInput,
+  formatTokens,
+  isHiddenInput,
+  refreshGitStatus,
+} from "./tui-format.js";
 import {
   forkTreeInteractive,
   lastRunRecap,
@@ -152,7 +158,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  — resuming must never silently re-enter an autonomous loop; the user
    *  continues with /goal resume. Run once at boot and again after every
    *  session switch (both drivers are session-scoped). */
-  function reloadSessionDrivers(): void {
+  function reloadSessionDrivers(opts: { keepLoop?: boolean } = {}): void {
     const restored = loadSessionGoalState(session.sessionId, session.dir);
     if (restored) {
       const isLive = restored.goal.status === "active" || restored.goal.status === "budget-limited";
@@ -168,9 +174,15 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // session must never silently re-enter a read-only planning turn, and the
     // draft on disk is left untouched for /plan-review.
     planRuntime.restore(loadSessionPlanState(session.sessionId, session.dir), session.sessionId);
-    // Loop mode is never persisted: switching sessions always leaves it off.
-    loopRuntime.disable();
-    io.setDriverStatus?.("loop", undefined);
+    // Loop mode is never persisted: a user-initiated session switch always
+    // leaves it off. The exception is the switch the loop itself asked for
+    // (`/new --keep-loop`): purging there ended every restarting loop — the
+    // reset and build loops alike — one iteration after it started, which is
+    // the exact budget the loop exists to spend.
+    if (!opts.keepLoop) {
+      loopRuntime.disable();
+      io.setDriverStatus?.("loop", undefined);
+    }
   }
 
   /** Back to the model that was active before planning (only when plan mode
@@ -896,11 +908,18 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         io.setDriverStatus?.("loop", undefined);
       } else if (decision.action === "run") {
         if (decision.preamble === "compact") await runCommandText("/compact");
-        else if (decision.preamble === "reset") await runCommandText("/new");
+        // --keep-loop: this session switch IS the loop, so it must survive it.
+        else if (decision.preamble === "reset") await runCommandText("/new --keep-loop");
         // The loop prompt is echoed as a normal user turn (it IS the user's
-        // text, unlike the hidden goal protocol prompts).
-        pendingFollowUps.push(decision.prompt);
-        pushStatus(`loop: iteration re-submitted — /loop disables, Esc pauses`);
+        // text, unlike the hidden goal/build-loop protocol prompts).
+        pendingFollowUps.push(
+          decision.hidden ? formatRalphInput(decision.prompt) : decision.prompt,
+        );
+        pushStatus(
+          decision.hidden
+            ? "ralph: next item — /ralph disables, Esc pauses"
+            : "loop: iteration re-submitted — /loop disables, Esc pauses",
+        );
         refreshDriverStatus();
       } else {
         refreshDriverStatus();
