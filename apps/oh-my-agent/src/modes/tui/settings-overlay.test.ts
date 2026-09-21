@@ -22,6 +22,20 @@ describe("settings overlay rows", () => {
     expect(SETTING_ROWS.find((r) => r.key === "browserLocalNetwork")?.kind).toBe("boolean");
   });
 
+  test("a setting with a live consumer and no other surface has a row", () => {
+    // These three were reachable only by knowing the JSON key: no command, no
+    // doc, and (for two of them) not even a refusal hint. The settings that
+    // legitimately have no row are the ones with another surface (/model,
+    // /skill, /permission, the planEnabled/goalEnabled hints) or a shape the
+    // scalar row model cannot express (memoryVector, prune). Note the nested
+    // ones are skipped deliberately — a submenu for two fields is more
+    // machinery than the fields are worth.
+    const keys = SETTING_ROWS.map((r) => r.key);
+    expect(keys).toContain("loopAction");
+    expect(keys).toContain("planModel");
+    expect(keys).toContain("memoryMinToolCalls");
+  });
+
   test("the build loop is reachable: loopAction is a row over its legal values", () => {
     // Nothing else names this setting — no command, no doc — so if the row
     // disappears the feature becomes invisible again.

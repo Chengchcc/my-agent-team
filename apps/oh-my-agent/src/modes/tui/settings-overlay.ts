@@ -59,12 +59,18 @@ export const SETTING_ROWS: SettingRow[] = [
   },
   { key: "memoryExtract", label: "memoryExtract", kind: "boolean" },
   { key: "memoryModel", label: "memoryModel", kind: "string" },
+  {
+    key: "memoryMinToolCalls",
+    label: "memoryMinToolCalls (min tool calls per run)",
+    kind: "number",
+  },
   { key: "permissionClassifierModel", label: "permissionClassifierModel", kind: "string" },
   { key: "titleEnabled", label: "titleEnabled", kind: "boolean" },
   { key: "disableWeb", label: "disableWeb", kind: "boolean" },
   { key: "enableClaude", label: "enableClaude", kind: "boolean" },
   { key: "enableCodex", label: "enableCodex", kind: "boolean" },
   { key: "enableAgents", label: "enableAgents", kind: "boolean" },
+  { key: "planModel", label: "planModel (model to plan with)", kind: "string" },
   // This is the only way into the build loop (a queue and a fresh session per
   // item), so it has to be visible here: nothing else names it.
   {

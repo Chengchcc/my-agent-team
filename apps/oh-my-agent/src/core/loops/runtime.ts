@@ -60,10 +60,13 @@ export interface LoopStatus {
  *
  *  While enabled, the next prompt the user sends is remembered and
  *  re-submitted after every yield. The loop is NOT a scheduler: it fires only
- *  when the session is idle and the run has settled, with a short delay so an
- *  interrupt can land between iterations. It is session-scoped and
- *  deliberately in-memory — a resumed session never re-enters a loop on its
- *  own (same rule as goal mode). */
+ *  when the session is idle and the run has settled. There is no artificial
+ *  pause between iterations — an unattended loop should not pay latency per
+ *  round — so the interrupt windows are the real ones: the live run (Esc
+ *  aborts it) and the continue-condition evaluation, whose verdict is voided
+ *  if the arming changed while it ran. It is session-scoped and deliberately
+ *  in-memory — a resumed session never re-enters a loop on its own (same rule
+ *  as goal mode). */
 export class LoopRuntime {
   #enabled = false;
   #paused = false;

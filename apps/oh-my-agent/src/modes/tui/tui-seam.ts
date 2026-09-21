@@ -63,11 +63,6 @@ export interface TuiIo {
   /** Undelivered steer count while a run is live: drives the busy loader's
    *  "N queued — enter sends now" affordance. */
   setQueuedCount?(count: number): void;
-  /** Deliver text as the next idle prompt WITHOUT a keystroke, waking an
-   *  already-blocked waitForInput. Loop mode's auto-resubmit and background
-   *  settlements both ride this channel; the caller decides visibility
-   *  (isHiddenInput on the text). */
-  injectInput?(text: string): void;
   /** A turn driver's status-bar indicator (undefined clears it). */
   setDriverStatus?(kind: DriverKind, text: string | undefined): void;
   /** One line of text from the user (refine feedback); null = cancelled. */

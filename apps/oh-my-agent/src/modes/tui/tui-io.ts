@@ -68,8 +68,13 @@ export function createTerminalIo(
   // injected message. OMA_BG_INJECT=0 degrades to transcript notices
   // (model never sees them; poll via hub output instead).
   const injections: string[] = [];
-  /** Wake an idle waitForInput with text that did not come from a keystroke.
-   *  Loop-mode auto-resubmit and background settlements share this channel. */
+  /** Deliver text as the next idle prompt without a keystroke, waking an
+   *  already-blocked waitForInput. Background settlements are the only caller,
+   *  and this is deliberately NOT on the TuiIo seam: a turn driver that has
+   *  work queued never reaches waitForInput, so anything routed through here
+   *  would sit in `injections` until the session goes idle. The session loop's
+   *  follow-up queue is the channel for that (it is drained every turn), which
+   *  is why loop mode never used the seam method this replaced. */
   function injectUserMessage(text: string): void {
     // Prefer a live waiter; otherwise queue for the next waitForInput.
     if (pending) {
@@ -468,9 +473,6 @@ export function createTerminalIo(
   return {
     render(state: TuiViewState) {
       shell.render(state);
-    },
-    injectInput(text: string) {
-      injectUserMessage(text);
     },
     setDriverStatus(kind, text) {
       shell.setDriverStatus(kind, text);
