@@ -119,6 +119,42 @@ describe("loop mode drives its own turns", () => {
     }
   }, 30_000);
 
+  test("the reset loop also survives the fresh session it starts every iteration", async () => {
+    // The ralph test above covers the build loop; this covers the OTHER loop
+    // that resets the session (`loopAction: "reset"`). Both ride the same
+    // `/new --keep-loop`, and the fix that made a restarting loop survivable
+    // was claimed for both — so both need a pin, or a regression that bypasses
+    // the flag is only caught for one of them.
+    const ws = mkdtempSync(join(tmpdir(), "oma-resetloop-"));
+    const sessions = sessionDir();
+    dirs.push(ws);
+    try {
+      mkdirSync(join(ws, ".oma"), { recursive: true });
+      writeFileSync(join(ws, ".oma", "settings.json"), '{ "loopAction": "reset" }', "utf-8");
+      const io = scriptedIo([]);
+      io.waitForInput = (() => {
+        let step = 0;
+        return () => {
+          step++;
+          if (step === 1) return Promise.resolve("/loop 3 keep polishing");
+          return Promise.resolve(null);
+        };
+      })();
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
+      expect(code).toBe(0);
+      const statuses = io.renders
+        .at(-1)!
+        .runs.flatMap((r) => r.items)
+        .filter((i) => i.kind === "status")
+        .map((i) => i.text);
+      // Spending the whole budget is the proof that each reset did not end it.
+      expect(statuses.some((t) => t.includes("loop limit reached"))).toBe(true);
+      expect(readdirSync(sessions).length).toBeGreaterThanOrEqual(3);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+    }
+  }, 30_000);
+
   test("a satisfied --until condition stops the loop after the first iteration", async () => {
     sessionDir();
     try {
@@ -126,8 +162,7 @@ describe("loop mode drives its own turns", () => {
       // served AFTER the first turn settled (the loop decision runs before the
       // next waitForInput), so this still proves the gate stopped the loop
       // instead of the session running out of input mid-flight.
-      const io = scriptedIo(["/loop --until 'true' keep polishing", null as unknown as string]);
-      const seen: string[] = [];
+      const io = scriptedIo([]);
       io.waitForInput = (() => {
         let step = 0;
         return () => {
@@ -136,7 +171,6 @@ describe("loop mode drives its own turns", () => {
           return Promise.resolve(null); // session ends once the user is idle
         };
       })();
-      void seen;
       const code = await runTuiSession(
         { modelRuntime: testModelRuntime(), workspaceRoot: "." },
         io,

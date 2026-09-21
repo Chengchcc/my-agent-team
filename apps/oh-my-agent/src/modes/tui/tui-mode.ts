@@ -326,7 +326,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  record so the header can be restored without a runtime getter). */
   let prePlanModel: string | undefined;
   /** Loop mode: re-submits one captured prompt after each settled turn. The
-   *  limits/parsing live in core/loop-mode; this layer wires it to the session
+   *  limits/parsing live in core/loops; this layer wires it to the session
    *  loop (capture the first prompt, re-submit on settle, pause on Esc).
    *  Its continue-condition runs under the same OS sandbox the run opted into,
    *  so a predicate cannot escape the confinement the user asked for. */
@@ -904,7 +904,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         ...(conditionSandbox ? { sandbox: conditionSandbox } : {}),
       });
       if (decision.action === "stop") {
-        pushStatus(`loop: ${loopRuntime.disable(decision.reason)}`);
+        pushStatus(`${loopRuntime.driverName}: ${loopRuntime.disable(decision.reason)}`);
         io.setDriverStatus?.("loop", undefined);
       } else if (decision.action === "run") {
         if (decision.preamble === "compact") await runCommandText("/compact");
@@ -916,9 +916,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           decision.hidden ? formatRalphInput(decision.prompt) : decision.prompt,
         );
         pushStatus(
-          decision.hidden
-            ? "ralph: next item — /loop disables, Esc pauses"
-            : "loop: iteration re-submitted — /loop disables, Esc pauses",
+          `${loopRuntime.driverName}: ${
+            decision.hidden ? "next item" : "iteration re-submitted"
+          } — /loop disables, Esc pauses`,
         );
         refreshDriverStatus();
       } else {

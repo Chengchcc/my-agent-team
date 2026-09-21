@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CONDITION_TIMEOUT_MS,
   describeLoopCondition,
   evaluateLoopCondition,
   type LoopConditionConfig,
@@ -69,6 +70,13 @@ export class LoopRuntime {
   #prompt: string | undefined;
   #limit: LoopLimitRuntime | undefined;
   #condition: LoopConditionConfig | undefined;
+  /** Bumped by every transition that re-arms or disarms the loop. A condition
+   *  verdict is only valid for the arming it was computed for: the evaluation
+   *  is a window of up to two minutes during which `/loop`, Esc and the user's
+   *  next prompt can all land, and a disable-then-re-arm inside it used to look
+   *  exactly like "still armed" to the three-way check that tried to catch it
+   *  by comparing flags. */
+  #generation = 0;
 
   constructor(private readonly action: LoopAction = "prompt") {}
 
@@ -102,13 +110,16 @@ export class LoopRuntime {
   statusLabel(): string | undefined {
     const status = this.status();
     if (!status) return undefined;
-    if (status.state === "paused") return "⏸ loop paused";
-    const name = this.action === "ralph" ? "ralph" : "loop";
-    return `↻ ${name}${status.label ? ` ${status.label}` : ""}`;
+    if (status.state === "paused") return `⏸ ${this.driverName} paused`;
+    return `↻ ${this.driverName}${status.label ? ` ${status.label}` : ""}`;
   }
 
-  get loopAction(): LoopAction {
-    return this.action;
+  /** What the user should call this loop. The build loop is a different way of
+   *  working (a queue and a fresh session per item), so it names itself; the
+   *  three context actions all stay "loop". One source for the name keeps the
+   *  status bar, the paused label and the caller's status prefix agreeing. */
+  get driverName(): string {
+    return this.action === "ralph" ? "ralph" : "loop";
   }
 
   status(): LoopStatus | undefined {
@@ -146,6 +157,7 @@ export class LoopRuntime {
 
   #arm(parsed: ParsedLoopArgs, nowMs: number): LoopStart {
     const build = this.action === "ralph";
+    this.#generation++;
     this.#enabled = true;
     this.#paused = false;
     // The build loop's prompt is its protocol, never a captured user turn, so
@@ -165,7 +177,7 @@ export class LoopRuntime {
         hidden: true,
         // The item seeds the queue; absent means iteration one writes it.
         queueSeed: parsed.prompt ?? "",
-        status: `build loop enabled${limitSuffix}${remaining}${conditionSuffix} — one ${RALPH_QUEUE} item per fresh session; /ralph again disables, Esc pauses`,
+        status: `build loop enabled${limitSuffix}${remaining}${conditionSuffix} — one ${RALPH_QUEUE} item per fresh session; /loop again disables, Esc pauses`,
       };
     }
     const tail = parsed.prompt
@@ -182,6 +194,7 @@ export class LoopRuntime {
    *  setLoopPrompt: also clears a pause — the next user prompt re-arms it). */
   capturePrompt(text: string): void {
     if (!this.#enabled) return;
+    this.#generation++;
     this.#prompt = text;
     this.#paused = false;
   }
@@ -190,12 +203,14 @@ export class LoopRuntime {
    *  pauseLoop — Esc between iterations lands here). */
   pause(): void {
     if (!this.#enabled) return;
+    this.#generation++;
     this.#prompt = undefined;
     this.#paused = true;
   }
 
   disable(reason?: string): string {
     const wasEnabled = this.#enabled;
+    this.#generation++;
     this.#enabled = false;
     this.#paused = false;
     this.#prompt = undefined;
@@ -217,6 +232,8 @@ export class LoopRuntime {
     nowMs = Date.now(),
   ): Promise<LoopIterationDecision> {
     if (!this.#enabled) return { action: "idle" };
+    // The verdict below is only valid for THIS arming; see #generation.
+    const generation = this.#generation;
     // The build loop re-injects its protocol rather than a captured turn, so
     // "waiting for a prompt" does not apply to it — but a pause does: pause()
     // is the only thing that must stop it (Esc between iterations).
@@ -229,17 +246,16 @@ export class LoopRuntime {
     if (this.#condition) {
       const verdict = await evaluateLoopCondition(this.#condition, {
         ...opts,
-        timeoutMs: opts.timeoutMs ?? 120_000,
+        timeoutMs: opts.timeoutMs ?? DEFAULT_CONDITION_TIMEOUT_MS,
       });
       if (verdict.kind === "aborted") return { action: "idle" };
-      // The await above is a window: Esc (pause) or /loop (disable) can land
-      // while the condition runs, which makes ANY verdict stale — a user who
-      // paused mid-evaluation must not have the loop stopped out from under
-      // them by a halt they never saw coming. The build loop has no captured
-      // prompt to compare against, so `paused` is its whole staleness check.
-      if (!this.#enabled || this.#paused || (!build && this.#prompt !== prompt)) {
-        return { action: "idle" };
-      }
+      // The await above is a window: Esc (pause), /loop (disable) and a
+      // disable-then-re-arm can all land while the condition runs, which makes
+      // ANY verdict stale — a user who paused, or who restarted the loop, must
+      // not have it stopped out from under them by a halt they never saw
+      // coming. Comparing arming generations covers all of them at once,
+      // including the re-arm that leaves every flag looking unchanged.
+      if (this.#generation !== generation) return { action: "idle" };
       if (verdict.kind === "halt" || verdict.kind === "error") {
         return { action: "stop", reason: verdict.message };
       }

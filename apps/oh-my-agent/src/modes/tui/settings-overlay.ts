@@ -11,11 +11,13 @@ import type { ProjectSettings } from "../../core/settings/project-settings.js";
 
 type SettingKey = keyof ProjectSettings;
 
-interface SettingRow {
-  key: SettingKey;
-  label: string;
-  kind: "boolean" | "number" | "string";
-}
+/** A row either edits a scalar or cycles an enum. The enum carries its own
+ *  legal values, so the UI can never write one the settings parser will throw
+ *  away — a `string` row would happily store a typo and show it back while the
+ *  runtime kept using the default. */
+type SettingRow =
+  | { key: SettingKey; label: string; kind: "boolean" | "number" | "string" }
+  | { key: SettingKey; label: string; kind: "enum"; options: readonly string[] };
 
 const OVERLAY_BG = (s: string): string => `${tuiTheme.bgOverlay}${s}\u001b[0m`;
 
@@ -63,6 +65,14 @@ export const SETTING_ROWS: SettingRow[] = [
   { key: "enableClaude", label: "enableClaude", kind: "boolean" },
   { key: "enableCodex", label: "enableCodex", kind: "boolean" },
   { key: "enableAgents", label: "enableAgents", kind: "boolean" },
+  // This is the only way into the build loop (a queue and a fresh session per
+  // item), so it has to be visible here: nothing else names it.
+  {
+    key: "loopAction",
+    label: "loopAction (between iterations; ralph = build loop)",
+    kind: "enum",
+    options: ["prompt", "compact", "reset", "ralph"],
+  },
 ];
 
 function rowValue(settings: ProjectSettings, key: SettingKey): string {
@@ -129,6 +139,15 @@ export class SettingsOverlay extends Container {
       const current = this.settings[row.key];
       const next = typeof current === "boolean" ? !current : true;
       Reflect.set(this.settings, row.key, next);
+      this.rebuild();
+      return;
+    }
+    if (row.kind === "enum") {
+      // Cycle like a boolean toggles: no text to mistype, and the values are
+      // enumerated in the row. Unset starts at the first option, which is the
+      // documented default.
+      const index = row.options.indexOf(String(this.settings[row.key] ?? ""));
+      Reflect.set(this.settings, row.key, row.options[(index + 1) % row.options.length]);
       this.rebuild();
       return;
     }

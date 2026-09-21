@@ -561,7 +561,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
     {
       name: "loop",
       description: "re-submit a prompt after every settled turn (count/duration)",
-      argumentHint: "[count|duration] [prompt]",
+      argumentHint: "[count|duration] [--while|--until <cmd>] [prompt]",
       group: "general",
       live: true,
       run: (args) => {
@@ -583,11 +583,18 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
             : undefined;
         const displaced = claimTurnDriver(ctx, "loop");
         if (displaced.length > 0) {
-          ctx.pushStatus(`loop mode claimed the turn driver: ${displaced.join(" + ")} stopped`);
+          ctx.pushStatus(
+            `${runtime.driverName} claimed the turn driver: ${displaced.join(" + ")} stopped`,
+          );
         }
-        ctx.pushStatus(
-          seeded?.created ? `${started.status} — seeded ${seeded.path}` : started.status,
-        );
+        // An existing queue is never overwritten (it is the loop's memory), so
+        // an item given here has nowhere to go — say so instead of dropping it.
+        let queueNote: string | undefined;
+        if (seeded?.created) queueNote = `seeded ${seeded.path}`;
+        else if (seeded && started.queueSeed?.trim()) {
+          queueNote = `${seeded.path} already exists — item not added; edit it there`;
+        }
+        ctx.pushStatus(queueNote ? `${started.status} — ${queueNote}` : started.status);
         ctx.refreshDriverStatus?.();
         if (started.prompt) {
           // The build loop's protocol rides the hidden channel; a plain loop's

@@ -114,9 +114,14 @@ directory holds a family of things — `coordination/`, `delegation/`, `plugins/
 the suffix encodes the implementation's role instead of what the code is about,
 and it drifts (the same trio was once `goals/`, `loop-mode/`, `plan-mode/`).
 
-Each feature directory holds the same shape: `state.ts` (pure domain: types,
-transition rules, prompt text), `runtime.ts` (the state machine class that owns
-state and decisions), `index.ts` (barrel), and `*.test.ts` beside its source.
+What a feature directory shares is `runtime.ts` (the state machine class that
+owns state and decisions), `index.ts` (the barrel) and `*.test.ts` beside their
+source. The pure-domain modules are named after what they hold, and how many
+there are follows the feature — `plans/` has a single `state.ts`, while `loops/`
+splits its domain across `limits.ts`, `condition.ts` and `ralph.ts`. Do not
+assume a `state.ts`.
 
-A rename must repoint `scripts/audit-coverage.ts` (its floors are path-keyed, and
-a stale path reports "NOT MEASURED" rather than failing loudly at review time).
+A rename must repoint `scripts/audit-coverage.ts`. Its floors are path-keyed, and
+it does fail loudly on a stale one (`NO COVERAGE DATA` / `NOT MEASURED`, exit 1)
+— but only the CI coverage job runs it, so the rename is green locally until CI
+runs. Repoint the floors in the same commit.

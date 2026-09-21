@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatGoalInput,
+  formatRalphInput,
   formatSettlementText,
   isHiddenInput,
   SETTLEMENT_SENTINEL,
@@ -15,6 +16,10 @@ describe("hidden run-input channel", () => {
     expect(isHiddenInput(formatSettlementText([]))).toBe(true);
     expect(isHiddenInput(formatGoalInput("<goal_context>\nobjective\n</goal_context>"))).toBe(true);
     expect(isHiddenInput(SETTLEMENT_SENTINEL)).toBe(true);
+    // The build loop re-injects its protocol every iteration: echoed or
+    // persisted, it would bury the transcript under identical turns.
+    expect(isHiddenInput(formatRalphInput("You are one iteration"))).toBe(true);
+    expect(isHiddenInput("[ralph-loop]")).toBe(true);
     // Ordinary prompts — including ones that merely MENTION the goal — stay
     // visible: only the exact prefix marks the channel.
     expect(isHiddenInput("make the tests pass")).toBe(false);

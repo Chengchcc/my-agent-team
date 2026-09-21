@@ -50,6 +50,7 @@ const GATES: readonly AppGate[] = [
       // ship untested without the gate noticing.
       { dir: "src/core/goals", min: 95 },
       { dir: "src/core/loops", min: 88 },
+      { dir: "src/core/plans", min: 90 },
       { dir: "src/core/plugins", min: 88 },
       { dir: "src/protocol", min: 92 },
     ],

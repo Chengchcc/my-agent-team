@@ -27,7 +27,7 @@ export function ralphQueuePath(workspaceRoot: string): string {
 }
 
 /** The default stop condition: the queue decides, not the model's opinion of
- *  its own progress. Overridable — `/ralph --until 'bun test'` swaps the
+ *  its own progress. Overridable — `/loop --until 'bun test'` swaps the
  *  authority to the verifier. */
 export function ralphCondition(): LoopConditionConfig {
   return { command: RALPH_QUEUE_CHECK, until: false };
@@ -49,6 +49,8 @@ Another iteration follows you, and it will not see this conversation.
    as a new \`- [ ]\` item instead of doing it now — that is how the queue stays
    honest.
 6. Commit everything you changed: one commit, message says what the item was.
+   The queue goes in that commit when the project tracks it; if it is ignored,
+   leave it alone rather than forcing it in.
 7. Stop. Do not summarise, do not ask whether to continue.
 
 If every item is already checked, change nothing and say the queue is empty.`;

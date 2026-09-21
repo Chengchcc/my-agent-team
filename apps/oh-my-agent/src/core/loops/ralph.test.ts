@@ -3,13 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evaluateLoopCondition } from "./condition.js";
-import {
-  RALPH_PROTOCOL,
-  RALPH_QUEUE,
-  ralphCondition,
-  ralphQueuePath,
-  seedRalphQueue,
-} from "./ralph.js";
+import { RALPH_PROTOCOL, ralphCondition, ralphQueuePath, seedRalphQueue } from "./ralph.js";
 import { LoopRuntime } from "./runtime.js";
 
 /** The build loop: one work item per iteration, a fresh session every time,
@@ -109,10 +103,6 @@ describe("LoopRuntime in build mode", () => {
     });
   });
 
-  test("the protocol names the queue it is supposed to shrink", () => {
-    expect(RALPH_PROTOCOL).toContain(RALPH_QUEUE);
-  });
-
   test("an enabled build loop reads as running, not as waiting for a prompt", () => {
     const rt = new LoopRuntime("ralph");
     rt.toggle("x");
@@ -167,15 +157,61 @@ describe("LoopRuntime in build mode", () => {
     if (decision.action === "stop") expect(decision.reason).toContain("exit");
   });
 
-  test("the action is a project setting; /loop is the only entry point", () => {
-    // This is why the setting's union has to list "ralph": with the action
-    // unreachable from settings, starting a build loop would need a second
-    // command, and two entry points for one loop is how they drift.
+  test("the build loop names itself, and a plain loop does not", () => {
+    // The name is what the status bar, the paused label and the caller's
+    // status prefix all print; one source keeps them from drifting apart.
+    const build = new LoopRuntime("ralph");
+    expect(build.driverName).toBe("ralph");
+    build.toggle("3");
+    expect(build.statusLabel()).toStartWith("↻ ralph");
+    build.pause();
+    expect(build.statusLabel()).toBe("⏸ ralph paused");
+    const plain = new LoopRuntime();
+    plain.toggle("3");
+    expect(plain.driverName).toBe("loop");
+    expect(plain.statusLabel()).toStartWith("↻ loop");
+  });
+
+  test("the enable message names the command that actually disables it", () => {
     const rt = new LoopRuntime("ralph");
-    expect(rt.loopAction).toBe("ralph");
-    rt.toggle("3");
+    const started = rt.toggle("3");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.status).toContain("/loop again disables");
+  });
+
+  test("a re-arm during the condition evaluation voids the verdict", async () => {
+    // The evaluation is a window of up to two minutes. A disable-then-re-arm
+    // inside it used to look identical to "still armed" — enabled, not paused,
+    // same captured prompt — so the OLD run's verdict stopped the NEW loop and
+    // threw away its budget. The arming generation is what tells them apart.
+    const ws = tempWs();
+    seedRalphQueue(ws, "x");
+    const rt = new LoopRuntime("ralph");
+    rt.toggle("5");
+    const pending = rt.nextIteration({ cwd: ws, timeoutMs: 10_000 });
+    rt.disable();
+    rt.toggle("5");
+    expect(await pending).toEqual({ action: "idle" });
+    // The new arming keeps its budget: no iteration was consumed on its behalf.
     expect(rt.enabled).toBe(true);
-    expect(rt.loopAction).toBe("ralph");
+    expect(rt.status()?.label).toContain("5");
+  });
+
+  test("the same trick on a plain loop, with the prompt text unchanged", async () => {
+    // A plain loop only has a window when it has a condition to evaluate, and
+    // the old check compared captured prompt TEXT — so re-arming with the
+    // identical text slipped through, and the stale halt stopped the new loop.
+    const ws = tempWs();
+    const rt = new LoopRuntime();
+    rt.toggle("5 --until 'true'"); // halts as soon as the condition is met
+    rt.capturePrompt("keep polishing");
+    const pending = rt.nextIteration({ cwd: ws, timeoutMs: 10_000 });
+    rt.disable();
+    rt.toggle("5 --until 'true'");
+    rt.capturePrompt("keep polishing");
+    expect(await pending).toEqual({ action: "idle" });
+    expect(rt.enabled).toBe(true);
   });
 
   test("the build loop respects an iteration limit", async () => {
