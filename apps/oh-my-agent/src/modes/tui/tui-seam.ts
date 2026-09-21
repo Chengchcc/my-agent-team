@@ -44,19 +44,11 @@ export interface LoopModeStatus {
   label?: string;
 }
 
-/** Goal-mode status for the status bar: the state plus the usage/budget the
- *  user supervises the goal with (undefined clears the segment). */
-export interface GoalModeStatus {
-  state: "active" | "paused" | "budget-limited" | "complete" | "dropped";
-  usage?: string;
-}
-
-/** Plan-mode status for the status bar: planning / paused, plus whether a
- *  draft exists yet. */
-export interface PlanModeStatus {
-  state: "active" | "paused";
-  draft?: boolean;
-}
+/** One turn driver's status-bar indicator. `text` is the composed label (the
+ *  driver owns its own wording); undefined clears the segment. One channel for
+ *  every driver, so adding a fourth is a row in the render order rather than a
+ *  field, a setter and a render branch. */
+export type DriverKind = "plan" | "goal" | "loop";
 
 export interface TuiIo {
   /** Render the current view state. */
@@ -76,12 +68,8 @@ export interface TuiIo {
    *  settlements both ride this channel; the caller decides visibility
    *  (isHiddenInput on the text). */
   injectInput?(text: string): void;
-  /** Loop-mode status for the status bar (undefined clears the segment). */
-  setLoopStatus?(status: LoopModeStatus | undefined): void;
-  /** Goal-mode status for the status bar (undefined clears the segment). */
-  setGoalStatus?(status: GoalModeStatus | undefined): void;
-  /** Plan-mode status for the status bar (undefined clears the segment). */
-  setPlanStatus?(status: PlanModeStatus | undefined): void;
+  /** A turn driver's status-bar indicator (undefined clears it). */
+  setDriverStatus?(kind: DriverKind, text: string | undefined): void;
   /** One line of text from the user (refine feedback); null = cancelled. */
   promptText?(title: string): Promise<string | null>;
   /** Generic single-choice menu (title + options). Resolves null on cancel;

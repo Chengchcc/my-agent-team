@@ -77,6 +77,15 @@ export class LoopRuntime {
     return this.#condition ? describeLoopCondition(this.#condition) : undefined;
   }
 
+  /** The status-bar indicator: waiting / running / paused plus the remaining
+   *  budget and the condition. The driver owns its wording. */
+  statusLabel(): string | undefined {
+    const status = this.status();
+    if (!status) return undefined;
+    if (status.state === "paused") return "⏸ loop paused";
+    return `↻ loop${status.label ? ` ${status.label}` : ""}`;
+  }
+
   get loopAction(): LoopAction {
     return this.action;
   }

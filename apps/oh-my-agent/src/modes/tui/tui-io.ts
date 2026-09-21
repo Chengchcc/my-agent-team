@@ -472,14 +472,8 @@ export function createTerminalIo(
     injectInput(text: string) {
       injectUserMessage(text);
     },
-    setLoopStatus(status) {
-      shell.setLoopModeStatus(status);
-    },
-    setGoalStatus(status) {
-      shell.setGoalModeStatus(status);
-    },
-    setPlanStatus(status) {
-      shell.setPlanModeStatus(status);
+    setDriverStatus(kind, text) {
+      shell.setDriverStatus(kind, text);
     },
     promptText(title) {
       const { promise, resolve } = Promise.withResolvers<string | null>();

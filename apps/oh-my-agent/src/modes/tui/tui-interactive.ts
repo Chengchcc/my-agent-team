@@ -119,13 +119,13 @@ export function registerIoHandlers(ctx: TuiSessionContext): void {
       if (ctx.loops?.enabled) {
         ctx.loops.pause();
         ctx.pushStatus("loop paused (run aborted) — next prompt re-arms it");
-        ctx.io.setLoopStatus?.(ctx.loops.status() ?? undefined);
+        ctx.refreshDriverStatus?.();
       }
     } else if (ctx.loops?.enabled) {
       // Idle Esc with no run live: pause the loop between iterations.
       ctx.loops.pause();
       ctx.pushStatus("loop paused — next prompt re-arms it; /loop disables");
-      ctx.io.setLoopStatus?.(ctx.loops.status() ?? undefined);
+      ctx.refreshDriverStatus?.();
     }
     ctx.io.render(ctx.state);
   });

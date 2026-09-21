@@ -9,6 +9,27 @@ import {
 import type { LoopRuntime } from "../../core/loop-mode/index.js";
 import { type PlanModeState, planRefinePrompt } from "../../core/plan-mode/index.js";
 
+/** The turn-driver slot: loop, goal and plan all queue the next turn, so only
+ *  ONE may be live. Claiming the slot from one driver displaces the others and
+ *  reports what it displaced — the rule used to be written out at each command
+ *  call site, which is how a fourth driver ends up half-excluded. */
+function claimTurnDriver(ctx: TuiSessionContext, claimed: "plan" | "goal" | "loop"): string[] {
+  const displaced: string[] = [];
+  if (claimed !== "goal" && ctx.goals?.goal) {
+    ctx.goals.drop();
+    displaced.push("goal");
+  }
+  if (claimed !== "loop" && ctx.loops?.enabled) {
+    ctx.loops.disable();
+    displaced.push("loop");
+  }
+  if (claimed !== "plan" && ctx.plans?.state()) {
+    ctx.plans.leave();
+    displaced.push("plan");
+  }
+  return displaced;
+}
+
 /** Plan mode master switch: absent means ON. */
 function plansEnabled(ctx: TuiSessionContext): boolean {
   return loadProjectSettings(ctx.opts.workspaceRoot).planEnabled !== false;
@@ -455,12 +476,25 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         if (goal?.status === "complete") {
           return void ctx.pushStatus("goal already complete — /goal drop before setting a new one");
         }
+        const replacing = Boolean(goal);
+        const displacedByGoal = claimTurnDriver(ctx, "goal");
+        if (displacedByGoal.length > 0) {
+          ctx.pushStatus(
+            `goal mode claimed the turn driver: ${displacedByGoal.join(" + ")} stopped`,
+          );
+        }
         let created: ReturnType<GoalRuntime["create"]>;
         try {
           created = runtime.create(objective);
         } catch (err) {
           return void ctx.pushStatus(err instanceof Error ? err.message : String(err));
         }
+        ctx.pushStatus(
+          replacing
+            ? "goal replaced — previous budget and counters cleared; model declares completion"
+            : "goal set — model declares completion via the goal tool; interrupt pauses",
+        );
+        ctx.refreshDriverStatus?.();
         ctx.pendingPrompt = formatGoalInput(renderGoalPrompt("active", created.goal));
       },
     },
@@ -490,15 +524,9 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           );
           return;
         }
-        // Only ONE turn driver at a time: goal and loop both queue turns.
-        if (ctx.goals?.goal) {
-          ctx.goals.drop();
-          ctx.pushStatus("plan mode: the active goal was dropped (one turn driver at a time)");
-        }
-        if (ctx.loops?.enabled) {
-          ctx.loops.disable();
-          ctx.io.setLoopStatus?.(undefined);
-          ctx.pushStatus("plan mode: loop mode disabled (one turn driver at a time)");
+        const displaced = claimTurnDriver(ctx, "plan");
+        if (displaced.length > 0) {
+          ctx.pushStatus(`plan mode claimed the turn driver: ${displaced.join(" + ")} stopped`);
         }
         const reentry = state !== null;
         plans.enter(reentry);
@@ -542,11 +570,9 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         const started = runtime.toggle(args);
         if (!started.ok) return void ctx.pushStatus(started.error);
         if (!runtime.enabled) return void ctx.pushStatus(started.status);
-        // Goal mode and loop mode both drive turns; running both would
-        // interleave two continuations, so enabling one clears the other.
-        if (ctx.goals?.goal) {
-          ctx.pushStatus("loop mode: the active goal was dropped (one turn driver at a time)");
-          ctx.goals.drop();
+        const displaced = claimTurnDriver(ctx, "loop");
+        if (displaced.length > 0) {
+          ctx.pushStatus(`loop mode claimed the turn driver: ${displaced.join(" + ")} stopped`);
         }
         ctx.pushStatus(started.status);
         ctx.refreshDriverStatus?.();

@@ -12,7 +12,7 @@ import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import { createGoalPlugin, GoalRuntime } from "../../core/goals/index.js";
 import type { OmaLoopEvent } from "../../core/index.js";
-import { LoopRuntime, type LoopStatus } from "../../core/loop-mode/index.js";
+import { LoopRuntime } from "../../core/loop-mode/index.js";
 import {
   enterPlanMode,
   implementationTurn,
@@ -65,7 +65,7 @@ import {
   registerIoHandlers,
 } from "./tui-interactive.js";
 import { createTerminalIo } from "./tui-io.js";
-import type { GoalModeStatus, TuiIo, TuiModeOptions } from "./tui-seam.js";
+import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
 import { buildSlashSystem } from "./tui-slash.js";
 import {
   addUserInput,
@@ -182,7 +182,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     planReminders = 0;
     // Loop mode is never persisted: switching sessions always leaves it off.
     loopRuntime.disable();
-    io.setLoopStatus?.(undefined);
+    io.setDriverStatus?.("loop", undefined);
   }
 
   /** Back to the model that was active before planning (only when plan mode
@@ -342,27 +342,23 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  Its continue-condition runs under the same OS sandbox the run opted into,
    *  so a predicate cannot escape the confinement the user asked for. */
   const loopRuntime = new LoopRuntime(loadProjectSettings(opts.workspaceRoot).loopAction);
-  /** Loop status for the bar (the runtime already composes the label). */
-  const loopStatusWithCondition = (): LoopStatus | undefined => loopRuntime.status();
-  /** Goal status for the bar: the driver the user supervises, with usage. */
-  const goalStatusForBar = (): GoalModeStatus | undefined => {
-    const state = goalRuntime.state;
+  /** The plan driver's indicator (plan has no runtime class yet, so its
+   *  wording lives here; loop and goal compose theirs in their runtime). */
+  const planStatusLabel = (): string | undefined => {
+    // Reads the closure variable, not the ctx accessor: boot calls this BEFORE
+    // ctx exists (the accessor would throw on the temporal dead zone).
+    const state: PlanModeState | null = plan;
     if (!state) return undefined;
-    const status: GoalModeStatus = { state: state.goal.status };
-    const used = `${state.goal.tokensUsed} tok`;
-    status.usage =
-      state.goal.tokenBudget !== undefined ? `${used}/${state.goal.tokenBudget}` : used;
-    return status;
+    const draft = readPlan(state.planPath) !== null ? " · draft" : "";
+    return `✎ plan${planPaused ? " paused" : ""}${draft}`;
   };
-  /** Refresh both driver segments after any state transition. */
+  /** Refresh every driver segment after a transition. ONE entry point: the
+   *  trio of parallel refreshers is what let a transition silently show a
+   *  stale bar. */
   const refreshDriverStatus = (): void => {
-    io.setGoalStatus?.(goalStatusForBar());
-    io.setLoopStatus?.(loopStatusWithCondition());
-    io.setPlanStatus?.(
-      plan
-        ? { state: planPaused ? "paused" : "active", draft: readPlan(plan.planPath) !== null }
-        : undefined,
-    );
+    io.setDriverStatus?.("plan", planStatusLabel());
+    io.setDriverStatus?.("goal", goalRuntime.statusLabel());
+    io.setDriverStatus?.("loop", loopRuntime.statusLabel());
   };
   const conditionSandbox = (() => {
     const settings = loadProjectSettings(opts.workspaceRoot);
@@ -950,7 +946,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       });
       if (decision.action === "stop") {
         pushStatus(`loop: ${loopRuntime.disable(decision.reason)}`);
-        io.setLoopStatus?.(undefined);
+        io.setDriverStatus?.("loop", undefined);
       } else if (decision.action === "run") {
         if (decision.preamble === "compact") await runCommandText("/compact");
         else if (decision.preamble === "reset") await runCommandText("/new");
@@ -958,9 +954,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         // text, unlike the hidden goal protocol prompts).
         pendingFollowUps.push(decision.prompt);
         pushStatus(`loop: iteration re-submitted — /loop disables, Esc pauses`);
-        io.setLoopStatus?.(loopRuntime.status() ?? undefined);
+        refreshDriverStatus();
       } else {
-        io.setLoopStatus?.(loopRuntime.status() ?? undefined);
+        refreshDriverStatus();
       }
       refreshDriverStatus();
       if (decision.action !== "idle") io.render(state);

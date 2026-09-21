@@ -196,6 +196,16 @@ export class GoalRuntime {
     this.notify(`goal COMPLETE — ${done.goal.objective}`);
   }
 
+  /** The status-bar indicator: the state plus the usage the user supervises
+   *  the goal with. The driver owns its wording. */
+  statusLabel(): string | undefined {
+    const goal = this.#state?.goal;
+    if (!goal) return undefined;
+    const used = `${goal.tokensUsed} tok`;
+    const usage = goal.tokenBudget !== undefined ? `${used}/${goal.tokenBudget}` : used;
+    return `◎ goal ${goal.status} ${usage}`;
+  }
+
   remainingTokens(): number | null {
     const goal = this.#state?.goal;
     if (!goal || goal.tokenBudget === undefined) return null;

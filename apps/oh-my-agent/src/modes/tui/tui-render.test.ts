@@ -133,6 +133,33 @@ describe("OmaTranscriptContainer.fitTailBoundary", () => {
   });
 });
 
+/** The driver indicators share ONE channel (kind → label). A second parallel
+ *  setter is how a transition silently left a stale chip behind, so this pins
+ *  the shape: set, overwrite, clear, and the render order. */
+describe("driver status indicators (one channel, one render order)", () => {
+  const topBarOf = (shell: TuiRenderShell): string => shell.statusLineText;
+
+  test("set / overwrite / clear, with plan before goal before loop", () => {
+    const tui = new TUI(new VirtualTerminal(100, 30));
+    const shell = new TuiRenderShell(tui, new OmaTranscriptContainer(), new Container(), "/ws", "");
+    shell.setDriverStatus("loop", "↻ loop 3/5 iterations left");
+    expect(topBarOf(shell)).toContain("↻ loop 3/5 iterations left");
+    shell.setDriverStatus("plan", "✎ plan · draft");
+    shell.setDriverStatus("goal", "◎ goal active 1.2k tok");
+    const order = ["✎ plan", "◎ goal", "↻ loop"].map((m) => topBarOf(shell).indexOf(m));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order); // plan, goal, loop
+    // Overwrite in place, then clear one without disturbing the others.
+    shell.setDriverStatus("loop", "↻ loop 2/5 iterations left");
+    expect(topBarOf(shell)).not.toContain("3/5");
+    shell.setDriverStatus("goal", undefined);
+    expect(topBarOf(shell)).not.toContain("◎ goal");
+    expect(topBarOf(shell)).toContain("✎ plan");
+    shell.setDriverStatus("plan", undefined);
+    expect(topBarOf(shell)).not.toContain("✎ plan");
+  });
+});
+
 describe("header survives a transcript reset (the /new case)", () => {
   const headerRows = (transcript: OmaTranscriptContainer): number =>
     transcript.children.filter((c) => c.render(100).some((l) => l.includes("workspace:"))).length;
