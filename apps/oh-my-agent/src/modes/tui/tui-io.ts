@@ -473,6 +473,9 @@ export function createTerminalIo(
     setLoopStatus(status) {
       shell.setLoopModeStatus(status);
     },
+    setGoalStatus(status) {
+      shell.setGoalModeStatus(status);
+    },
     waitForInput() {
       const queued = injections.shift();
       if (queued !== undefined) return Promise.resolve(queued);
@@ -610,6 +613,30 @@ export function createTerminalIo(
         new Text("  pick model — select, enter, esc", 0, 0),
         list,
       );
+      const overlay = tui.showOverlay(overlayBox, { width: "60%", anchor: "center" });
+      list.onSelect = (item) => {
+        overlay.hide();
+        resolve(item.value);
+      };
+      list.onCancel = () => {
+        overlay.hide();
+        resolve(null);
+      };
+      return promise;
+    },
+    pickOption(title, options) {
+      const { promise, resolve } = Promise.withResolvers<string | null>();
+      const list = new SelectList(
+        options.map((o) => ({
+          value: o.value,
+          label: o.label,
+          ...(o.description ? { description: o.description } : {}),
+        })),
+        Math.min(options.length, 8),
+        EDITOR_THEME.selectList,
+        { minPrimaryColumnWidth: 10, maxPrimaryColumnWidth: 28 },
+      );
+      const overlayBox = new PickerOverlay(new Text(`  ${title} — select, enter, esc`, 0, 0), list);
       const overlay = tui.showOverlay(overlayBox, { width: "60%", anchor: "center" });
       list.onSelect = (item) => {
         overlay.hide();

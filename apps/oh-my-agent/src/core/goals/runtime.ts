@@ -94,7 +94,15 @@ export class GoalRuntime {
     this.persist(next);
   }
 
+  /** Start a goal, or REPLACE the current one (fresh counters and budget).
+   *  A PAUSED goal cannot be silently overwritten: resume it and use set, or
+   *  drop it first — otherwise parked work would vanish without a word. */
   create(objective: string, tokenBudget?: number): GoalModeState {
+    if (this.#state?.goal.status === "paused") {
+      throw new Error(
+        "goal is paused — /goal resume then /goal set to replace it, or /goal drop first",
+      );
+    }
     const replacing = this.#state !== null;
     const next = createGoal(objective, tokenBudget);
     this.#interviewing = false;
@@ -130,12 +138,20 @@ export class GoalRuntime {
     return dropped;
   }
 
-  /** omp onBudgetMutated: raising the budget past tokensUsed resumes a
-   *  budget-limited goal; lowering it below re-limits. Returns a
-   *  continuation prompt when the goal resumed, else null. */
+  /** Set the TOTAL token budget (not an increment); accumulated usage is
+   *  kept. Raising it past tokensUsed resumes a budget-limited goal; lowering
+   *  it below re-limits. Returns a continuation prompt when the goal resumed,
+   *  else null.
+   *
+   *  A PAUSED goal must be resumed first: changing the budget of work that is
+   *  not running silently rewrites the terms of a decision the user already
+   *  parked. */
   setBudget(budget: number | undefined): { prompt: string } | null {
     const state = this.#state;
     if (!state) return null;
+    if (state.goal.status === "paused") {
+      throw new Error("goal is paused — /goal resume before changing its budget");
+    }
     if (budget !== undefined && (!Number.isInteger(budget) || budget <= 0)) {
       throw new Error("budget must be a positive integer");
     }

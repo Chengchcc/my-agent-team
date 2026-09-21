@@ -31,6 +31,8 @@ export type LoopIterationDecision =
 export interface LoopStatus {
   state: "waiting" | "running" | "paused";
   limit?: LoopLimitRuntime;
+  /** Remaining budget + continue-condition, for the status bar. */
+  label?: string;
 }
 
 /** Loop mode (the reference loop implementation (enabled / captured prompt / limit)).
@@ -82,8 +84,18 @@ export class LoopRuntime {
   status(): LoopStatus | undefined {
     if (!this.#enabled) return undefined;
     const state = this.#paused ? "paused" : this.#prompt ? "running" : "waiting";
-    const limit = this.#limit;
-    return limit ? { state, limit } : { state };
+    const status: LoopStatus = { state };
+    if (this.#limit) status.limit = this.#limit;
+    // The bar shows WHAT will decide the next iteration, not just that one is
+    // pending: the remaining budget and, when set, the continue-condition.
+    const label = [
+      this.#limit ? describeLoopLimitRuntime(this.#limit) : undefined,
+      this.conditionLabel,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    if (label) status.label = label;
+    return status;
   }
 
   /** `/loop [count|duration] [prompt]`. Already enabled → disable (toggle),

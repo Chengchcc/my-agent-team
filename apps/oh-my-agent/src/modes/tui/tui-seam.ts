@@ -44,6 +44,13 @@ export interface LoopModeStatus {
   label?: string;
 }
 
+/** Goal-mode status for the status bar: the state plus the usage/budget the
+ *  user supervises the goal with (undefined clears the segment). */
+export interface GoalModeStatus {
+  state: "active" | "paused" | "budget-limited" | "complete" | "dropped";
+  usage?: string;
+}
+
 export interface TuiIo {
   /** Render the current view state. */
   render(state: TuiViewState): void;
@@ -64,6 +71,14 @@ export interface TuiIo {
   injectInput?(text: string): void;
   /** Loop-mode status for the status bar (undefined clears the segment). */
   setLoopStatus?(status: LoopModeStatus | undefined): void;
+  /** Goal-mode status for the status bar (undefined clears the segment). */
+  setGoalStatus?(status: GoalModeStatus | undefined): void;
+  /** Generic single-choice menu (title + options). Resolves null on cancel;
+   *  absent = the caller falls back to a text listing. */
+  pickOption?(
+    title: string,
+    options: ReadonlyArray<{ value: string; label: string; description?: string }>,
+  ): Promise<string | null>;
   /** Subscriber for inputs submitted while a run is live (steer). */
   onLiveInput?(handler: ((text: string) => void) | null): void;
   /** Subscriber for slash commands submitted while a run is live; the

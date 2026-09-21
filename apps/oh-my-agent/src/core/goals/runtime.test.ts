@@ -143,6 +143,39 @@ describe("GoalRuntime accounting and decisions (omp port)", () => {
     expect(withCancelled).toContain("Overall: 1/2 done, 1 open.");
   });
 
+  test("a PAUSED goal cannot be re-budgeted or silently overwritten", () => {
+    const { rt } = runtimeWith({ budget: 100 });
+    rt.pause();
+    // Parked work must not have its terms rewritten (or vanish) without a word:
+    // resume first, or drop.
+    expect(() => rt.setBudget(500)).toThrow(/paused/);
+    expect(() => rt.create("a different objective")).toThrow(/paused/);
+    expect(rt.goal?.objective).toBe("make tests pass"); // unchanged
+    // Resuming lifts both guards.
+    rt.resume();
+    expect(rt.setBudget(500)).toBeNull();
+    expect(rt.goal?.tokenBudget).toBe(500);
+    expect(rt.create("a different objective").goal.objective).toBe("a different objective");
+  });
+
+  test("budget changes are TOTAL, not increments, and keep accumulated usage", () => {
+    const { rt } = runtimeWith({ budget: 100 });
+    rt.settleTurn(turn({ usage: { inputTokens: 40 } }));
+    expect(rt.goal?.tokensUsed).toBe(40);
+    rt.setBudget(200);
+    expect(rt.goal?.tokenBudget).toBe(200);
+    expect(rt.goal?.tokensUsed).toBe(40); // usage retained
+  });
+
+  test("replacing a goal clears the budget and counters (fresh start)", () => {
+    const { rt } = runtimeWith({ budget: 100 });
+    rt.settleTurn(turn({ usage: { inputTokens: 40 } }));
+    const fresh = rt.create("second objective");
+    expect(fresh.goal.tokensUsed).toBe(0);
+    expect(fresh.goal.tokenBudget).toBeUndefined();
+    expect(fresh.goal.timeUsedSeconds).toBe(0);
+  });
+
   test("complete without a goal throws; unknown ops never corrupt state", () => {
     const rt = new GoalRuntime();
     expect(() => rt.complete()).toThrow(/no goal/);

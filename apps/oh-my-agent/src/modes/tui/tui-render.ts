@@ -34,7 +34,7 @@ import {
   summarizeToolArgs,
   USER_TEXT_STYLE,
 } from "./tui-format.js";
-import type { LoopModeStatus } from "./tui-seam.js";
+import type { GoalModeStatus, LoopModeStatus } from "./tui-seam.js";
 import {
   renderAskTool,
   renderHubTool,
@@ -318,8 +318,19 @@ export class TuiRenderShell {
     return this.currentState;
   }
   statusLineText = "";
+  /** Goal-mode indicator (state + usage), so the user can see a long-running
+   *  objective is still driving turns and what it has spent. */
+  private goalStatusText = "";
   /** Loop-mode indicator (waiting | running | paused + remaining budget). */
   private loopStatusText = "";
+  setGoalModeStatus(status: GoalModeStatus | undefined): void {
+    const next = status ? `◎ goal ${status.state}${status.usage ? ` ${status.usage}` : ""}` : "";
+    if (next === this.goalStatusText) return;
+    this.goalStatusText = next;
+    this.addStatusBar();
+    this.tui.requestRender();
+  }
+
   setLoopModeStatus(status: LoopModeStatus | undefined): void {
     if (!status) {
       if (this.loopStatusText === "") return;
@@ -584,6 +595,9 @@ export class TuiRenderShell {
     const runningBg = defaultRegistry.countRunningJobs();
     if (runningBg > 0) {
       segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: tuiTheme.bgChipOk });
+    }
+    if (this.goalStatusText) {
+      segs.push({ text: this.goalStatusText, chip: true, bg: tuiTheme.bgPanel });
     }
     if (this.loopStatusText) {
       segs.push({ text: this.loopStatusText, chip: true, bg: tuiTheme.bgPanel });

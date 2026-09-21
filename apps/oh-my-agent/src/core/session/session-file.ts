@@ -360,6 +360,28 @@ export function appendSessionGoalEvent(
   );
 }
 
+/** Append a goal COMPLETION record: the objective and the tracked usage at the
+ *  moment the model declared the goal done. Separate from the mode-change
+ *  events so a completed goal reads as a durable achievement rather than a
+ *  status flip (and so resumed sessions can report what was finished). */
+export function appendSessionGoalCompletion(
+  id: string,
+  record: { objective: string; tokensUsed: number; tokenBudget?: number; timeUsedSeconds: number },
+  dir: string = sessionDir(),
+): void {
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return;
+  appendFileSync(
+    path,
+    `${JSON.stringify({
+      type: "goal_completed",
+      timestamp: new Date().toISOString(),
+      ...record,
+    })}
+`,
+  );
+}
+
 /** Reconstruct the current goal-mode state by replaying goal events (last
  *  one wins; malformed entries are skipped like every other scan here). */
 export function loadSessionGoalState(

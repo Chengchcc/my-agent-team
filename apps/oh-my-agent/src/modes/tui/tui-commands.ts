@@ -8,13 +8,23 @@ import {
 } from "../../core/goals/index.js";
 import type { LoopRuntime, LoopStatus } from "../../core/loop-mode/index.js";
 
-/** Loop status for the bar: state + remaining budget + the continue-condition
- *  (undefined when the mode is off, which clears the segment). */
+/** Goal mode master switch: absent means ON (the mode ships enabled). */
+function goalsEnabled(ctx: TuiSessionContext): boolean {
+  return loadProjectSettings(ctx.opts.workspaceRoot).goalEnabled !== false;
+}
+
+/** Active time in the shortest honest unit (the goal counts wall seconds). */
+function formatActiveTime(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m${Math.round(seconds % 60)}s`;
+  return `${Math.floor(minutes / 60)}h${minutes % 60}m`;
+}
+
+/** Loop status for the bar (undefined when the mode is off, which clears the
+ *  segment); the runtime composes the state + budget + condition label. */
 function loopStatus(runtime: LoopRuntime): LoopStatus | undefined {
-  const status = runtime.status();
-  if (!status) return undefined;
-  const label = [status.label, runtime.conditionLabel].filter(Boolean).join(" · ");
-  return label ? { ...status, label } : status;
+  return runtime.status();
 }
 
 import { getVectorMemory, memoryDbPath } from "../../core/memory/vector-memory.js";
@@ -88,6 +98,11 @@ export interface TuiSessionContext {
   goals?: GoalRuntime;
   /** Loop mode (re-submit a prompt after every settled turn). */
   loops?: LoopRuntime;
+  /** Re-derive the goal/loop state for the CURRENT session (called after a
+   *  session switch: /resume or /new). Both drivers are session-scoped, so
+   *  carrying one session's goal into another would leak accounting and
+   *  continuation across conversations. */
+  reloadSessionDrivers?: () => void;
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
@@ -271,6 +286,11 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       run: (args) => {
         const runtime = ctx.goals;
         if (!runtime) return void ctx.pushStatus("goal mode unavailable in this session");
+        if (!goalsEnabled(ctx)) {
+          return void ctx.pushStatus(
+            "goal mode is disabled — set goalEnabled: true in .oma/settings.json to use it",
+          );
+        }
         const value = args.trim();
         const [sub, ...rest] = value.split(/\s+/);
         const restText = rest.join(" ").trim();
@@ -278,10 +298,15 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
 
         if (sub === "show") {
           if (!goal) return void ctx.pushStatus("no goal this session");
+          const remaining = runtime.remainingTokens();
+          const budgetLine =
+            goal.tokenBudget === undefined
+              ? `${goal.tokensUsed} tokens used · no budget`
+              : `${goal.tokensUsed} tokens used of ${goal.tokenBudget} · ${
+                  remaining ?? 0
+                } remaining`;
           return void ctx.pushStatus([
-            `goal ${goal.status} · ${goal.tokensUsed} tokens used` +
-              (goal.tokenBudget !== undefined ? ` of ${goal.tokenBudget}` : "") +
-              ` · ${goal.timeUsedSeconds}s`,
+            `goal ${goal.status} · ${budgetLine} · active ${formatActiveTime(goal.timeUsedSeconds)}`,
             `  ${goal.objective}`,
           ]);
         }
@@ -307,32 +332,92 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         if (sub === "drop" || sub === "clear" || sub === "stop") {
           if (!goal) return void ctx.pushStatus("no goal set");
-          runtime.drop();
+          void (async () => {
+            // Dropping is permanent and there is no separate /goal stop, so it
+            // asks first (a picker-less driver has no confirm hook: proceed).
+            const verdict = await ctx.io.confirmApproval?.({
+              toolName: "goal drop",
+              reason: `drop the goal permanently: ${goal.objective.slice(0, 80)}`,
+            });
+            if (verdict === "deny") {
+              ctx.pushStatus("goal drop cancelled");
+              return;
+            }
+            runtime.drop();
+            ctx.io.setGoalStatus?.(undefined);
+          })();
           return;
         }
         if (sub === "budget") {
           if (!goal) return void ctx.pushStatus("no active goal");
-          // keyword is "off" (interactive-mode.ts).
+          // "off" removes the cap; N is the TOTAL budget (usage is retained).
           const raw = rest[0] === "off" || rest[0] === "none" ? undefined : Number(rest[0]);
           if (raw !== undefined && (!Number.isInteger(raw) || raw <= 0)) {
             return void ctx.pushStatus("usage: /goal budget <positive-int> | off");
           }
-          const resumed = runtime.setBudget(raw);
-          // onBudgetMutated: raising the budget resumes the goal.
+          let resumed: { prompt: string } | null = null;
+          try {
+            resumed = runtime.setBudget(raw);
+          } catch (err) {
+            return void ctx.pushStatus(err instanceof Error ? err.message : String(err));
+          }
+          // Raising the budget past the usage resumes a budget-limited goal.
           if (resumed) ctx.pendingPrompt = formatGoalInput(resumed.prompt);
           return;
         }
-        // /goal (no args): status — matches /goal show.
+        // /goal (no args): the management menu while a goal exists, status
+        // text otherwise. Both surfaces expose the same subcommands.
         if (!value) {
           if (!goal) return void ctx.pushStatus("no goal — /goal <objective> or /guided-goal");
-          const remaining = runtime.remainingTokens();
-          return void ctx.pushStatus([
-            `goal ${goal.status} · ${goal.tokensUsed} tokens` +
-              (goal.tokenBudget !== undefined ? `/${goal.tokenBudget}` : "") +
-              (remaining !== null ? ` (${remaining} left)` : "") +
-              ` · ${goal.timeUsedSeconds}s — /goal show|pause|resume|drop|budget`,
-            `  ${goal.objective}`,
-          ]);
+          if (!ctx.io.pickOption) {
+            // No picker (headless driver): the text form is the whole surface.
+            const remaining = runtime.remainingTokens();
+            return void ctx.pushStatus([
+              `goal ${goal.status} · ${goal.tokensUsed} tokens` +
+                (goal.tokenBudget !== undefined ? `/${goal.tokenBudget}` : "") +
+                (remaining !== null ? ` (${remaining} left)` : "") +
+                ` · ${goal.timeUsedSeconds}s — /goal show|pause|resume|drop|budget`,
+              `  ${goal.objective}`,
+            ]);
+          }
+          void (async () => {
+            const items: Array<{ value: string; label: string; description: string }> = [];
+            if (goal.status === "paused") {
+              items.push({ value: "resume", label: "Resume", description: "continue the goal" });
+            } else if (goal.status === "active") {
+              items.push({
+                value: "pause",
+                label: "Pause",
+                description: "stop automatic continuation, keep the goal",
+              });
+            }
+            items.push({
+              value: "show",
+              label: "Show details",
+              description: "objective, usage, remaining budget, active time",
+            });
+            items.push({
+              value: "budget",
+              label: "Adjust budget…",
+              description: "set a new total, or remove the cap",
+            });
+            items.push({ value: "drop", label: "Drop", description: "permanently stop the goal" });
+            const picked = await ctx.io.pickOption!(`goal ${goal.status}`, items);
+            if (!picked) return;
+            const command = ctx.commandsWithSkills?.find((c) => c.name === "goal");
+            if (!command) return;
+            if (picked === "budget") {
+              // The budget needs a value the menu cannot type: show the syntax.
+              ctx.pushStatus(
+                `usage: /goal budget <positive-int> | off — currently ${
+                  goal.tokensUsed
+                } tokens used${goal.tokenBudget !== undefined ? ` of ${goal.tokenBudget}` : ""}`,
+              );
+              return;
+            }
+            await command.run(picked);
+          })();
+          return;
         }
         // /goal set <objective> or /goal <objective>: create, or REPLACE an
         // active goal (replaceGoal) — only a COMPLETE goal blocks a new
@@ -342,7 +427,12 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         if (goal?.status === "complete") {
           return void ctx.pushStatus("goal already complete — /goal drop before setting a new one");
         }
-        const created = runtime.create(objective);
+        let created: ReturnType<GoalRuntime["create"]>;
+        try {
+          created = runtime.create(objective);
+        } catch (err) {
+          return void ctx.pushStatus(err instanceof Error ? err.message : String(err));
+        }
         ctx.pendingPrompt = formatGoalInput(renderGoalPrompt("active", created.goal));
       },
     },
@@ -378,6 +468,11 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       run: (args) => {
         const runtime = ctx.goals;
         if (!runtime) return void ctx.pushStatus("goal mode unavailable in this session");
+        if (!goalsEnabled(ctx)) {
+          return void ctx.pushStatus(
+            "goal mode is disabled — set goalEnabled: true in .oma/settings.json to use it",
+          );
+        }
         if (runtime.goal) {
           return void ctx.pushStatus("goal already active — /goal drop first");
         }

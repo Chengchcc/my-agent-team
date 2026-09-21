@@ -55,6 +55,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
             ctx.sessionTitle = summary?.title;
             ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
             hydrateTranscript(ctx.state, ctx.session.messages);
+            ctx.reloadSessionDrivers?.();
             ctx.io.setHeader?.({
               model: ctx.modelId,
               sessionId: ctx.session.sessionId,
@@ -88,6 +89,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         ctx.sessionTitle = matches[0]!.title;
         ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
+        ctx.reloadSessionDrivers?.();
         ctx.io.setHeader?.({
           model: ctx.modelId,
           sessionId: ctx.session.sessionId,
@@ -110,6 +112,10 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         // chrome or the next run's Meta.
         ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
+        // A fresh session starts with no goal and no loop: otherwise the
+        // previous session's goal would keep driving turns and its accounting
+        // would land on the wrong conversation.
+        ctx.reloadSessionDrivers?.();
         ctx.io.setHeader?.({
           model: ctx.modelId,
           sessionId: ctx.session.sessionId,

@@ -65,6 +65,10 @@ export interface ProjectSettings {
    *  default). The product RPC path never reads this — its permissionMode
    *  arrives frozen in the run snapshot. */
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Goal mode master switch (default ON). A workspace that does not want an
+   *  autonomous multi-turn objective driver can turn it off; /goal and
+   *  /guided-goal then refuse with a hint. */
+  goalEnabled?: boolean;
   /** Loop mode between-iteration action (`/loop`): "prompt" re-submits the
    *  prompt, "compact" summarizes the context first, "reset" starts a fresh
    *  session first. Absent = "prompt". */
@@ -171,6 +175,9 @@ export function loadProjectSettings(root: string): ProjectSettings {
       (parsed.editFreshness === "off" || parsed.editFreshness === "require")
     ) {
       result.editFreshness = parsed.editFreshness;
+    }
+    if ("goalEnabled" in parsed && typeof parsed.goalEnabled === "boolean") {
+      result.goalEnabled = parsed.goalEnabled;
     }
     if (
       "loopAction" in parsed &&

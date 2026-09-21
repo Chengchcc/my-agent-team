@@ -26,6 +26,7 @@ import { resolveBashSandbox } from "../../core/tools/bash-sandbox.js";
 const COORDINATION_SCOPE = `tui-${process.pid}`;
 
 import {
+  appendSessionGoalCompletion,
   appendSessionGoalEvent,
   appendSessionMessages,
   listSessions,
@@ -47,7 +48,7 @@ import {
   registerIoHandlers,
 } from "./tui-interactive.js";
 import { createTerminalIo } from "./tui-io.js";
-import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
+import type { GoalModeStatus, TuiIo, TuiModeOptions } from "./tui-seam.js";
 import { buildSlashSystem } from "./tui-slash.js";
 import {
   addUserInput,
@@ -134,6 +135,27 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     base64: string;
   }> = [];
 
+  /** Goal replay: a session that ended with a live goal restores it as PAUSED
+   *  — resuming must never silently re-enter an autonomous loop; the user
+   *  continues with /goal resume. Run once at boot and again after every
+   *  session switch (both drivers are session-scoped). */
+  function reloadSessionDrivers(): void {
+    const restored = loadSessionGoalState(session.sessionId, session.dir);
+    if (restored) {
+      const isLive = restored.goal.status === "active" || restored.goal.status === "budget-limited";
+      goalRuntime.restore(
+        isLive
+          ? { enabled: false, mode: "active", goal: { ...restored.goal, status: "paused" } }
+          : restored,
+      );
+    } else {
+      goalRuntime.restore(null);
+    }
+    // Loop mode is never persisted: switching sessions always leaves it off.
+    loopRuntime.disable();
+    io.setLoopStatus?.(undefined);
+  }
+
   function pushStatus(lines: string | readonly string[], replacePrefix?: string): void {
     const items = (typeof lines === "string" ? [lines] : lines).map((text) => ({
       kind: "status" as const,
@@ -158,13 +180,22 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  Its continue-condition runs under the same OS sandbox the run opted into,
    *  so a predicate cannot escape the confinement the user asked for. */
   const loopRuntime = new LoopRuntime(loadProjectSettings(opts.workspaceRoot).loopAction);
-  /** Loop status for the bar: state + remaining budget + the condition, so the
-   *  user can see WHAT will decide the next iteration. */
-  const loopStatusWithCondition = (): LoopStatus | undefined => {
-    const status = loopRuntime.status();
-    if (!status) return undefined;
-    const label = [status.label, loopRuntime.conditionLabel].filter(Boolean).join(" · ");
-    return label ? { ...status, label } : status;
+  /** Loop status for the bar (the runtime already composes the label). */
+  const loopStatusWithCondition = (): LoopStatus | undefined => loopRuntime.status();
+  /** Goal status for the bar: the driver the user supervises, with usage. */
+  const goalStatusForBar = (): GoalModeStatus | undefined => {
+    const state = goalRuntime.state;
+    if (!state) return undefined;
+    const status: GoalModeStatus = { state: state.goal.status };
+    const used = `${state.goal.tokensUsed} tok`;
+    status.usage =
+      state.goal.tokenBudget !== undefined ? `${used}/${state.goal.tokenBudget}` : used;
+    return status;
+  };
+  /** Refresh both driver segments after any state transition. */
+  const refreshDriverStatus = (): void => {
+    io.setGoalStatus?.(goalStatusForBar());
+    io.setLoopStatus?.(loopStatusWithCondition());
   };
   const conditionSandbox = (() => {
     const settings = loadProjectSettings(opts.workspaceRoot);
@@ -180,23 +211,32 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Goal runtime: owns goal state, accounting and loop decisions; the TUI
    *  renders its decisions. */
   const goalRuntime = new GoalRuntime(
-    (state) => appendSessionGoalEvent(session.sessionId, state, session.dir),
+    (state) => {
+      appendSessionGoalEvent(session.sessionId, state, session.dir);
+      // A completed goal also lands as a durable achievement record, so a
+      // resumed session can report WHAT was finished and at what cost.
+      if (state?.goal.status === "complete") {
+        appendSessionGoalCompletion(
+          session.sessionId,
+          {
+            objective: state.goal.objective,
+            tokensUsed: state.goal.tokensUsed,
+            timeUsedSeconds: state.goal.timeUsedSeconds,
+            ...(state.goal.tokenBudget !== undefined
+              ? { tokenBudget: state.goal.tokenBudget }
+              : {}),
+          },
+          session.dir,
+        );
+      }
+    },
     (message) => pushStatus(`◎ ${message}`),
   );
 
-  // Goal replay: a session that ended with a live goal restores it as
-  // PAUSED — resuming must never silently re-enter an autonomous loop; the
-  // user continues with /goal resume.
-  const restoredGoal = loadSessionGoalState(session.sessionId, session.dir);
-  if (restoredGoal) {
-    const isLive =
-      restoredGoal.goal.status === "active" || restoredGoal.goal.status === "budget-limited";
-    goalRuntime.restore(
-      isLive
-        ? { enabled: false, mode: "active", goal: { ...restoredGoal.goal, status: "paused" } }
-        : restoredGoal,
-    );
-  }
+  // Both turn drivers are session-scoped: derive their state for THIS session
+  // (a live goal comes back paused; loop mode comes back off).
+  reloadSessionDrivers();
+  refreshDriverStatus();
 
   /** Compact recap text for the most recent run: last assistant message
    *  first line, falling back to the auto title. */
@@ -276,6 +316,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     },
     goals: goalRuntime,
     loops: loopRuntime,
+    reloadSessionDrivers,
     get pendingImages() {
       return pendingImages;
     },
@@ -667,6 +708,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       } else {
         io.setLoopStatus?.(loopRuntime.status() ?? undefined);
       }
+      refreshDriverStatus();
       if (decision.action !== "idle") io.render(state);
     }
 
@@ -711,6 +753,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         pushStatus(`goal COMPLETE — ${decision.objective}`);
         if (decision.report) pushStatus(`  ${decision.report}`);
       }
+      refreshDriverStatus();
       if (decision.action !== "idle") io.render(state);
     }
   }
