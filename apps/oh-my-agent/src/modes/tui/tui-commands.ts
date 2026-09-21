@@ -6,6 +6,7 @@ import {
   renderGoalPrompt,
   renderInterviewPrompt,
 } from "../../core/goals/index.js";
+import type { LoopRuntime } from "../../core/loop-mode/index.js";
 import { getVectorMemory, memoryDbPath } from "../../core/memory/vector-memory.js";
 import {
   addMarketplace,

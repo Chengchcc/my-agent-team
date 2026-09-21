@@ -145,27 +145,60 @@ async function getSharedBrowser(): Promise<Browser> {
  *  boxes whose cached Chrome for Testing cannot start (seen on macOS/arm64).
  *  Integration tests gate on this instead of file existence, so a broken
  *  environment skips with signal rather than failing red — and a vacuous
- *  pass cannot hide behind a launch that never worked. */
+ *  pass cannot hide behind a launch that never worked.
+ *
+ *  The probe launches its OWN browser and ALWAYS closes it: it must not touch
+ *  the shared singleton, because a probe that times out leaves the shared
+ *  launch promise in flight and the browser it eventually spawns would live
+ *  for the rest of the process (test runs leaked one headless Chrome per
+ *  invocation). */
 export async function canLaunchChromium(boundMs = 8_000): Promise<boolean> {
+  let browser: Browser | undefined;
   let timer: Timer | undefined;
   try {
-    const browser = await Promise.race([
-      getSharedBrowser(),
+    const puppeteer = await import("puppeteer-core");
+    const launched = await Promise.race([
+      puppeteer.launch({
+        executablePath: resolveChromeExecutable(),
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-blink-features=AutomationControlled",
+        ],
+        defaultViewport: DEFAULT_VIEWPORT,
+        protocolTimeout: 60_000,
+      }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("probe timeout")), boundMs);
         timer.unref?.();
       }),
     ]);
-    const page = await browser.newPage();
-    tabs.set("__probe__", { name: "__probe__", page });
+    browser = launched;
+    const page = await launched.newPage();
     await page.goto("data:text/html,<title>probe</title>");
-    await releaseTab("__probe__"); // last tab out closes the shared browser
+    await page.close();
     return true;
   } catch {
     return false;
   } finally {
     clearTimeout(timer);
+    // AWAIT the close: a fire-and-forget close races the test process exit and
+    // the browser survives as an orphan (one leaked headless Chrome per run).
+    await browser?.close().catch(() => {});
   }
+}
+
+/** Close the tool-owned shared browser and drain the tab registry.
+ *  Production calls this indirectly (releasing the LAST tab closes it); the
+ *  explicit entry point exists for test teardown, where a mid-test failure
+ *  would otherwise leave a headless Chrome running for the rest of the
+ *  process. */
+export async function closeSharedBrowserForTests(): Promise<void> {
+  for (const name of [...tabs.keys()]) await releaseTab(name);
+  const browser = sharedBrowser;
+  sharedBrowser = null;
+  await browser?.close().catch(() => {});
 }
 
 /** Release one tab; when the last tab goes, the tool-owned headless browser

@@ -5,12 +5,20 @@ import { join } from "node:path";
 import {
   canLaunchChromium,
   checkNavigationAllowed,
+  closeSharedBrowserForTests,
   createBrowserTool,
   resolveChromeExecutable,
 } from "./browser.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "oma-browser-"));
-afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+afterAll(async () => {
+  // Belt and braces: the tool closes its shared browser when the LAST tab is
+  // released, but a test that fails mid-way (or the timeout path's
+  // killed-tab cleanup) can leave it running — a leaked headless Chrome per
+  // suite invocation, which on a small box is gigabytes.
+  await closeSharedBrowserForTests();
+  rmSync(tmp, { recursive: true, force: true });
+});
 
 /** The integration tests below drive a REAL headless Chromium (data: URLs
  *  only, no network). Existence of the executable is NOT enough: on some
