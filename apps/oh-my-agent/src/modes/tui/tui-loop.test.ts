@@ -20,12 +20,6 @@ function sessionDir(): string {
   return dir;
 }
 
-const assistantTexts = (io: ReturnType<typeof scriptedIo>): string[] =>
-  io.renders
-    .flatMap((s) => s.runs.flatMap((r) => r.items))
-    .filter((i) => i.kind === "assistant")
-    .map((i) => i.text);
-
 describe("loop mode drives its own turns", () => {
   test("the captured prompt is re-submitted after the run settles", async () => {
     sessionDir();

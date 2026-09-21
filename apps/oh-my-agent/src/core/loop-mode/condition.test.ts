@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { describeLoopCondition, evaluateLoopCondition } from "./condition.js";
+import { parseLoopArgs } from "./limits.js";
 import { LoopRuntime } from "./runtime.js";
 
 const opts = { cwd: process.cwd(), timeoutMs: 10_000 };
@@ -85,12 +86,7 @@ describe("loop condition verdicts (exit status is authoritative)", () => {
 });
 
 describe("--while/--until parsing (flag-shaped typos are hard errors)", () => {
-  const parse = (args: string) => {
-    // Imported lazily from its home module: the grammar lives beside the limit
-    // grammar it composes with.
-    const mod = require("./limits.js") as typeof import("./limits.js");
-    return mod.parseLoopArgs(args);
-  };
+  const parse = (args: string) => parseLoopArgs(args);
 
   test("a quoted command keeps its spaces; an unquoted one is a single word", () => {
     expect(parse("--until 'bun test' go")).toEqual({

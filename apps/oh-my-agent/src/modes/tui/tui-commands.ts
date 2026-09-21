@@ -355,7 +355,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           if (raw !== undefined && (!Number.isInteger(raw) || raw <= 0)) {
             return void ctx.pushStatus("usage: /goal budget <positive-int> | off");
           }
-          let resumed: { prompt: string } | null = null;
+          let resumed: { prompt: string } | null;
           try {
             resumed = runtime.setBudget(raw);
           } catch (err) {
