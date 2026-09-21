@@ -36,14 +36,6 @@ export interface TuiModeOptions {
 /** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */
 export type TuiCommand = "toggleThinking" | "toggleToolDetail" | "abort" | "pickModel" | "forkTree";
 
-/** Loop-mode status for the status bar: waiting (no prompt captured yet) |
- *  running (repeating a prompt) | paused (Esc between iterations), plus the
- *  remaining budget label when a count/duration limit is set. */
-export interface LoopModeStatus {
-  state: "waiting" | "running" | "paused";
-  label?: string;
-}
-
 /** One turn driver's status-bar indicator. `text` is the composed label (the
  *  driver owns its own wording); undefined clears the segment. One channel for
  *  every driver, so adding a fourth is a row in the render order rather than a

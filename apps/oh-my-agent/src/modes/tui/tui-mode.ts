@@ -29,7 +29,7 @@ import {
   resolvePermissionMode,
   resolveRuntimeKnobs,
 } from "../../core/settings/project-settings.js";
-import { resolveBashSandbox } from "../../core/tools/bash-sandbox.js";
+import { type BashSandbox, resolveBashSandbox } from "../../core/tools/bash-sandbox.js";
 
 /** One interactive TUI session per process; the coordination scope stays
  *  stable across Runs so subagent handles survive follow-ups in this
@@ -157,7 +157,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Goal replay: a session that ended with a live goal restores it as PAUSED
    *  — resuming must never silently re-enter an autonomous loop; the user
    *  continues with /goal resume. Run once at boot and again after every
-   *  session switch (both drivers are session-scoped). */
+   *  session switch (all three drivers are session-scoped and in-memory). */
   function reloadSessionDrivers(opts: { keepLoop?: boolean } = {}): void {
     const restored = loadSessionGoalState(session.sessionId, session.dir);
     if (restored) {
@@ -328,28 +328,45 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Loop mode: re-submits one captured prompt after each settled turn. The
    *  limits/parsing live in core/loops; this layer wires it to the session
    *  loop (capture the first prompt, re-submit on settle, pause on Esc).
-   *  Its continue-condition runs under the same OS sandbox the run opted into,
-   *  so a predicate cannot escape the confinement the user asked for. */
+   *  Its continue-condition runs under the same OS sandbox the run gets, so a
+   *  predicate cannot escape confinement the user asked for. `yolo` counts:
+   *  the run has its sandbox force-enabled there, and a condition is the same
+   *  trust class as a bash call. */
   const loopRuntime = new LoopRuntime(loadProjectSettings(opts.workspaceRoot).loopAction);
   /** Refresh every driver segment after a transition. ONE entry point: the
    *  trio of parallel refreshers is what let a transition silently show a
-   *  stale bar. */
+   *  stale bar (all three drivers render through it). */
   const refreshDriverStatus = (): void => {
     io.setDriverStatus?.("plan", planRuntime.statusLabel());
     io.setDriverStatus?.("goal", goalRuntime.statusLabel());
     io.setDriverStatus?.("loop", loopRuntime.statusLabel());
   };
-  const conditionSandbox = (() => {
+  /** The OS sandbox a continue-condition runs under. Resolved at most once:
+   *  resolution touches the platform tool, while the WANT-check is cheap and
+   *  has to happen per iteration (the mode can change mid-session through
+   *  /permission, and a condition outliving the confinement it was promised
+   *  is exactly the escape this guards). */
+  let conditionSandboxResolved = false;
+  let conditionSandboxValue: BashSandbox | undefined;
+  const conditionSandbox = (): BashSandbox | undefined => {
     const settings = loadProjectSettings(opts.workspaceRoot);
-    if (settings.bashSandbox !== true) return undefined;
-    try {
-      return resolveBashSandbox({ workspaceRoot: opts.workspaceRoot, enabled: true });
-    } catch {
-      // Enabled but the platform tool is missing: the RUN fails loudly on its
-      // own; a condition just runs unconfined rather than blocking the loop.
-      return undefined;
+    const mode = resolvePermissionMode(permissionOverride ?? opts.permissionMode);
+    if (settings.bashSandbox !== true && mode !== "yolo") return undefined;
+    if (!conditionSandboxResolved) {
+      conditionSandboxResolved = true;
+      try {
+        conditionSandboxValue = resolveBashSandbox({
+          workspaceRoot: opts.workspaceRoot,
+          enabled: true,
+        });
+      } catch {
+        // Enabled but the platform tool is missing: the RUN fails loudly on its
+        // own; a condition just runs unconfined rather than blocking the loop.
+        conditionSandboxValue = undefined;
+      }
     }
-  })();
+    return conditionSandboxValue;
+  };
   /** Goal runtime: owns goal state, accounting and loop decisions; the TUI
    *  renders its decisions. */
   const goalRuntime = new GoalRuntime(
@@ -463,6 +480,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     refreshDriverStatus,
     plans: {
       state: () => planRuntime.state,
+      paused: () => planRuntime.paused,
       enter: (reentry = false) => {
         planRuntime.notePriorModel(modelId);
         planRuntime.enter(session.sessionId, reentry);
@@ -894,14 +912,15 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       }
     }
 
-    // Loop mode: capture the first prompt of the session's loop, then
-    // re-submit it after every settled turn. Goal mode and loop mode are
-    // mutually exclusive turn drivers (enabling one clears the other), so at
-    // most one of these blocks queues work.
+    // Loop mode: capture the user's prompt and re-submit it after every
+    // settled turn. The three turn drivers (plan, goal, loop) are mutually
+    // exclusive — each claims the slot when it starts driving — so at most one
+    // of these blocks queues work.
     if (loopRuntime.enabled) {
+      const sandbox = conditionSandbox();
       const decision = await loopRuntime.nextIteration({
         cwd: opts.workspaceRoot,
-        ...(conditionSandbox ? { sandbox: conditionSandbox } : {}),
+        ...(sandbox ? { sandbox } : {}),
       });
       if (decision.action === "stop") {
         pushStatus(`${loopRuntime.driverName}: ${loopRuntime.disable(decision.reason)}`);
@@ -910,8 +929,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         if (decision.preamble === "compact") await runCommandText("/compact");
         // --keep-loop: this session switch IS the loop, so it must survive it.
         else if (decision.preamble === "reset") await runCommandText("/new --keep-loop");
-        // The loop prompt is echoed as a normal user turn (it IS the user's
-        // text, unlike the hidden goal/build-loop protocol prompts).
+        // The user's own text, so it is NOT hidden: the drain marks it
+        // `fromFollowUp`, which suppresses a SECOND echo (the » queue item
+        // already stands in for it). The build loop's protocol is hidden,
+        // because nobody typed it.
         pendingFollowUps.push(
           decision.hidden ? formatRalphInput(decision.prompt) : decision.prompt,
         );

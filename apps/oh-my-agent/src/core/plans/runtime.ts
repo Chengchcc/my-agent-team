@@ -12,8 +12,9 @@ import {
  *  TUI closure so it matches the other two turn drivers (goal, loop) — those
  *  are classes their surface merely renders, while plan's five loose variables
  *  were spread across twenty call sites. It owns mode state, the draft, the
- *  contract/reminder bookkeeping and the model swap; the TUI owns the review
- *  surface, because that is presentation. */
+ *  contract/reminder bookkeeping and WHICH model should plan (activeModel);
+ *  the TUI performs the swap and owns the review surface, because both are
+ *  presentation. */
 
 export type PlanLoopDecision =
   /** The turn produced a usable draft: nothing to queue. */

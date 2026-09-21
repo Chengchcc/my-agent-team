@@ -83,9 +83,11 @@ export function planIsSubstantial(markdown: string): boolean {
   return headings >= 2;
 }
 
-/** Enter/pause/off transitions — the `/plan` toggle is stateful:
- *  active → (confirm) paused → (no-arg) off; a paused mode re-enters with a
- *  follow-up prompt. */
+/** Enter transitions for plan mode. The `/plan` toggle is stateful and its
+ *  three states live in two places on purpose: OFF is the absence of a state
+ *  object (`PlanRuntime.state === null`), while PAUSED keeps one with
+ *  `enabled: true` so the draft and its path survive. A caller that reads only
+ *  `enabled` therefore cannot tell paused from active — ask the runtime. */
 export function enterPlanMode(planPath: string, reentry = false): PlanModeState {
   const state: PlanModeState = { enabled: true, planPath };
   if (reentry) state.reentry = true;

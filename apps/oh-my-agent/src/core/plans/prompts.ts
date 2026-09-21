@@ -58,8 +58,10 @@ export function planReminderPrompt(state: PlanModeState): string {
   ].join("\n");
 }
 
-/** Refinement: a review follow-up goes back to the planning turn as plain
- *  user text, with the draft path restated so the model edits THAT document. */
+/** Refinement: a review follow-up goes back to the planning turn as a HIDDEN
+ *  protocol prompt (the caller wraps it — it is multi-line boilerplate, not
+ *  something the user typed), with the draft path restated so the model edits
+ *  THAT document. */
 export function planRefinePrompt(state: PlanModeState, feedback: string): string {
   return [
     "<plan_mode_refine>",

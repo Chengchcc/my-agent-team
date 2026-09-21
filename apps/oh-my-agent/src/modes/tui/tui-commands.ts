@@ -125,6 +125,9 @@ export interface TuiSessionContext {
   plans?: {
     /** Current mode state, null when off. */
     state: () => PlanModeState | null;
+    /** Paused (the state object survives a pause, so this — not
+     *  `state.enabled` — is what separates paused from active). */
+    paused: () => boolean;
     /** Enter (or re-enter after a pause), switching to the plan model. */
     enter: (reentry?: boolean) => void;
     /** Active → paused (keeps the draft and the mode armed). */
@@ -514,7 +517,11 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         const request = args.trim();
         const state = plans.state();
-        if (state?.enabled) {
+        // Three-state toggle, and the discriminator has to come from the
+        // runtime: `state.enabled` stays true while PAUSED (a pause keeps the
+        // draft and the mode), so reading it here made the pause branch
+        // permanent — /plan could never resume and never turn off.
+        if (state && !plans.paused()) {
           // Active → paused (stateful toggle); a draft is worth confirming.
           plans.pause();
           ctx.pushStatus(
@@ -522,6 +529,12 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
               ? "plan mode paused — the draft is kept; /plan <follow-up> resumes, /plan again turns it off"
               : "plan mode paused — /plan <request> resumes planning, /plan again turns it off",
           );
+          return;
+        }
+        if (state && !request) {
+          // Paused → off. The draft file stays for /plan-review.
+          plans.leave();
+          ctx.pushStatus("plan mode off — the draft stays on disk for /plan-review");
           return;
         }
         const displaced = claimTurnDriver(ctx, "plan");
@@ -622,6 +635,13 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         if (runtime.interviewing) {
           return void ctx.pushStatus("interview already running — answer the agent's questions");
+        }
+        // The interview IS goal mode driving the turn (the runtime reports the
+        // goal as live from here on), so it claims the slot like /goal does —
+        // otherwise a paused loop re-arms on the next submit and both queue.
+        const displaced = claimTurnDriver(ctx, "goal");
+        if (displaced.length > 0) {
+          ctx.pushStatus(`guided goal claimed the turn driver: ${displaced.join(" + ")} stopped`);
         }
         runtime.beginInterview();
         ctx.pushStatus("guided goal: the agent interviews you, then creates the goal itself");

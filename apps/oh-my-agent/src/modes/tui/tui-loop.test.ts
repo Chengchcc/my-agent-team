@@ -155,6 +155,75 @@ describe("loop mode drives its own turns", () => {
     }
   }, 30_000);
 
+  test("/plan is a three-state toggle: on -> paused -> off", async () => {
+    // The command used to branch on `state.enabled`, which stays TRUE while
+    // paused (a pause keeps the draft and the mode). So the pause branch was
+    // permanent: /plan could never resume and never turn off, and a follow-up
+    // argument was silently discarded.
+    const ws = mkdtempSync(join(tmpdir(), "oma-plantoggle-"));
+    dirs.push(ws);
+    sessionDir();
+    try {
+      const io = scriptedIo([]);
+      io.waitForInput = (() => {
+        let step = 0;
+        return () => {
+          step++;
+          if (step <= 3) return Promise.resolve("/plan");
+          return Promise.resolve(null);
+        };
+      })();
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
+      expect(code).toBe(0);
+      const statuses = io.renders
+        .flatMap((s) => s.runs.flatMap((r) => r.items))
+        .filter((i) => i.kind === "status")
+        .map((i) => i.text);
+      expect(statuses.some((t) => t.includes("plan mode on"))).toBe(true);
+      expect(statuses.some((t) => t.includes("plan mode paused"))).toBe(true);
+      // Reaching OFF is what the broken discriminator made impossible.
+      expect(statuses.some((t) => t.includes("plan mode off"))).toBe(true);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+    }
+  }, 30_000);
+
+  test("/guided-goal claims the turn driver, displacing a paused loop", async () => {
+    // The interview IS goal mode driving turns, so it has to claim the slot:
+    // a paused loop re-arms on the next submit, and two drivers queueing is
+    // exactly what the mutual-exclusion rule exists to prevent.
+    const ws = mkdtempSync(join(tmpdir(), "oma-guided-"));
+    dirs.push(ws);
+    sessionDir();
+    try {
+      const io = scriptedIo([]);
+      io.waitForInput = (() => {
+        let step = 0;
+        return () => {
+          step++;
+          // No inline prompt: an enabled-but-waiting loop, which is the state
+          // a paused loop re-arms FROM on the next submit.
+          if (step === 1) return Promise.resolve("/loop 5");
+          if (step === 2) return Promise.resolve("/guided-goal reduce flaky tests");
+          return Promise.resolve(null);
+        };
+      })();
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
+      expect(code).toBe(0);
+      const statuses = io.renders
+        .flatMap((s) => s.runs.flatMap((r) => r.items))
+        .filter((i) => i.kind === "status")
+        .map((i) => i.text);
+      expect(
+        statuses.some(
+          (t) => t.includes("guided goal claimed the turn driver") && t.includes("loop"),
+        ),
+      ).toBe(true);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+    }
+  }, 30_000);
+
   test("a satisfied --until condition stops the loop after the first iteration", async () => {
     sessionDir();
     try {

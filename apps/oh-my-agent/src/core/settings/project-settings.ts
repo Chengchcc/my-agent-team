@@ -2,9 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Project-level oma settings (`.oma/settings.json` in the workspace root).
- *  Standalone TUI-only. The product backend keeps agent.yml as its model
- *  truth and can be overridden per-run by the run parameter, so this file
- *  never conflicts with agent.yml in the backend->oma chain. */
+ *
+ *  Every mode reads this file, but what a mode HONORS differs on purpose: a
+ *  standalone run (TUI / print / json) takes it whole, while a product run
+ *  (rpc) takes only `bashSandbox` — a workspace file must never steer the
+ *  product's permission classifier, web access, step budget or timeouts. The
+ *  product backend keeps agent.yml as its model truth and passes per-run
+ *  values in the run snapshot, so this file cannot conflict with agent.yml in
+ *  the backend -> oma chain. */
 export interface ProjectSettings {
   /** Canonical `<provider>/<model>` id chosen in the TUI. */
   model?: string;

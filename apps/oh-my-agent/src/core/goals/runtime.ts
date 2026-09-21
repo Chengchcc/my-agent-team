@@ -18,11 +18,15 @@ import {
  *  is presentation only — it forwards settled turns here and renders the
  *  decision; the `goal` tool mutates through the same object.
  *
- *  Why a class and not loose functions: accounting is stateful (the
- *  in-flight turn's usage must flush BEFORE a terminal transition, or the
- *  completion report misses the final turn — omp flushes inside
- *  completeGoalFromTool), and the loop needs one choke point to decide
- *  continue / wrap-up / pause. */
+ *  Why a class and not loose functions: accounting is stateful, and the loop
+ *  needs one choke point to decide continue / wrap-up / pause.
+ *
+ *  The final turn's usage is the interesting part. A completion can fire
+ *  MID-run (the model calls the tool), before that turn's usage is known, so
+ *  flushing at the transition would write a report missing its own last turn.
+ *  The transition therefore defers the completion RECORD
+ *  (`#pendingFinalFlush`), and settleTurn folds the settled turn in and writes
+ *  it once — after the transition, not before it. */
 
 export interface GoalTurnUsage {
   inputTokens?: number;
@@ -276,15 +280,6 @@ export class GoalRuntime {
       tokensUsed: current.tokensUsed,
       ...(current.tokenBudget !== undefined ? { tokenBudget: current.tokenBudget } : {}),
     };
-  }
-
-  /** Goal context for the next turn (first turn of a freshly created goal):
-   *  omp injects this into the system prompt; oma rides it as the turn's
-   *  hidden input. */
-  activePrompt(): string | null {
-    const state = this.#state;
-    if (!state?.enabled || state.goal.status !== "active") return null;
-    return renderGoalPrompt("active", state.goal);
   }
 
   /** omp goal-todo-context: a continuation has no visible user nudge, so the

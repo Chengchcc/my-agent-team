@@ -88,6 +88,24 @@ Full history    写 SessionStore，source=product_history
 - HITL 审批管道：permissionMode 门控工具——ask=`approval_request` → `resolve_approval`（超时 fail-closed deny）、deny=直接 block、auto=分类器审查（bash/eval/mcp__*/插件工具逐调用过分类器，write/edit 免审，故障 fail-closed；见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）
 - stream rules（TTSR）：`.oma/rules/*.md` 在 assistant 文本流上匹配，命中即中止本轮、注入 `<system-reminder>` 后同轮重试
 - 工具失败 system reminder：失败 tool_result 前置 `<system-reminder>`（修因重试，勿装作成功）
+- TUI 的 turn driver（goal / loop / plan）：让会话在用户不再输入时继续推进的三个模式，互斥认领回合（见下节）
+
+## TUI 的 turn driver（goal / loop / plan）
+
+TUI 有三个**回合驱动**：它们都能在用户不再输入的情况下继续推进会话，因此互斥——任一驱动认领本回合后，其余两个立即停止。
+
+| 驱动 | 入口 | 形态 |
+|---|---|---|
+| loop | `/loop [次数\|时长] [--while\|--until <cmd>] [prompt]` | 每轮结束后重投同一个 prompt |
+| goal | `/goal`、`/guided-goal` | 一个跨轮次的目标，由模型用工具声明完成 |
+| plan | `/plan`、`/plan-review` | 只读调查 → 起草计划 → 人工复审后实施 |
+
+- **迭代间动作**由 `.oma/settings.json` 的 `loopAction` 决定：`prompt`（重投）/ `compact`（先摘要）/ `reset`（先开新会话）/ `ralph`（构建循环）。
+- **条件门**：`--until`/`--while` 跑一条 shell 命令，**退出码是唯一权威**（stdout 忽略）；退出码 >1 表示条件本身坏了，按错误中止而不是当成"条件为假"。求值在预算消耗之前发生；求值期间驱动若被改变（Esc、`/loop` 重开），该裁决作废。
+- **构建循环**（`loopAction: "ralph"`）：工作队列 `.oma/plan.md`（`- [ ]` 待办 / `- [x]` 完成）。队列是**项目级**的，因为每轮都是新会话——若按会话存放，每轮都会拿到一个空文件而丢掉进度。每轮做队列里最重要的一项、跑验证、标记完成、提交；默认停止条件就是队列本身（还有未勾选项就继续），`--until` 可把权威换成验证器。
+- **plan 的草稿**写在 `.oma/plans/<sessionId>.md`（会话级，因为复审面属于"这个会话的计划"）。只读由 file tool 守卫强制（write/edit 只放行该路径）；**bash 仍只靠提示词约束**，这是诚实记录的缺口。
+- 驱动协议提示词走**隐藏输入通道**（`[goal-mode]` / `[ralph-loop]`）：只送达模型，不回显、不落会话文件（落了的话 `/resume` 会把它们回放成幽灵用户气泡）。
+- 会话切换（`/resume`、`/new`）不会让任何驱动自动继续：loop 关闭，plan 与 goal 恢复为 paused。loop 自己发起的 `/new`（`--keep-loop`）是唯一例外，否则每轮都要重启会话的循环会在第一轮就结束自己。
 
 ## 事件与终态
 

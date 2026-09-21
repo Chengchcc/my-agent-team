@@ -5,9 +5,11 @@
  *  Completion is MODEL-DECLARED through the `goal` tool under strict prompt
  *  disciplines (never redefine success smaller; audit repo state before
  *  complete; budget exhaustion ≠ completion) — there is NO external
- *  evaluator. Continuation is unconditional while the goal is active: after
- *  every settled turn the runtime injects a hidden continuation steer, even
- *  past a terminal text answer. An interrupt PAUSES the goal (never drops);
+ *  evaluator. Continuation is unconditional *of the model's text* while the
+ *  goal is active: after every settled turn the runtime injects a hidden
+ *  continuation steer, even past a terminal text answer. The one behavioural
+ *  backstop is a stall — turns that stop using tools at all pause the goal
+ *  rather than continuing forever. An interrupt PAUSES the goal (never drops);
  *  token/time budgets are accounted per turn; crossing the budget flips the
  *  goal to budget-limited and injects a wrap-up steer exactly once. State
  *  transitions persist as session events and replay on resume. */

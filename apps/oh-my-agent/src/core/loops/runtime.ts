@@ -145,9 +145,9 @@ export class LoopRuntime {
     return status;
   }
 
-  /** `/loop [count|duration] [prompt]`. Already enabled → disable (toggle),
-   *  matching the reference loop. A malformed limit is a hard error and
-   *  leaves the mode alone. */
+  /** `/loop [count|duration] [--while|--until <cmd>] [prompt]`. Already
+   *  enabled → disable (toggle), matching the reference loop. A malformed
+   *  limit is a hard error and leaves the mode alone. */
   toggle(args: string, nowMs = Date.now()): LoopStart {
     if (this.#enabled) {
       this.disable();
@@ -193,8 +193,10 @@ export class LoopRuntime {
     };
   }
 
-  /** The first incoming prompt while enabled becomes the loop prompt (omp
-   *  setLoopPrompt: also clears a pause — the next user prompt re-arms it). */
+  /** The user's prompt becomes the loop prompt (the reference loop's
+   *  setLoopPrompt: also clears a pause — the next user prompt re-arms it).
+   *  Called on EVERY user submit, so the newest prompt wins; a loop keeps
+   *  replaying whatever the user last typed. */
   capturePrompt(text: string): void {
     if (!this.#enabled) return;
     this.#generation++;

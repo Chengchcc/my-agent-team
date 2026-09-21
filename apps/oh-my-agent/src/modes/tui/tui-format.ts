@@ -415,7 +415,8 @@ export function cleanHeaderTitle(title: string): string {
  * ASYNC + CACHED: the old Bun.spawnSync pair blocked the event loop
  * ~60-300ms on real repos — setBusy() runs this on every Enter, which is
  * exactly the felt "submit stall". Render paths read the cache
- * (gitStatusCached) and kick a background refresh; boot awaits one prime. */
+ * (gitStatusCached) and kick a background refresh; boot fires one prime
+ * without awaiting it, so the first frames render before git answers. */
 let gitCache: { root: string; value: string; at: number } | undefined;
 let gitInflight: Promise<string> | undefined;
 const GIT_TTL_MS = 2_000;
@@ -450,7 +451,8 @@ async function runGitStatus(workspaceRoot: string): Promise<string> {
 }
 
 /** Refresh the cache in the background (throttled); resolves to the
- * freshest value — boot awaits it once so the header card is complete. */
+ * freshest value. Boot STARTS this and does not await it, so a caller may
+ * ignore the promise; the render path repaints when it lands. */
 export function refreshGitStatus(workspaceRoot: string): Promise<string> {
   if (gitCache?.root === workspaceRoot && Date.now() - gitCache.at < GIT_TTL_MS) {
     return Promise.resolve(gitCache.value);
@@ -551,12 +553,18 @@ export interface JobSettlement {
 
 export const SETTLEMENT_SENTINEL = "[background jobs finished]";
 
-/** Prefixes marking a RUN INPUT that must never read as a user turn:
- *  it reaches the model (that IS the delivery) but produces no transcript
- *  echo and no session-file entry — omp's `display: false` custom message.
- *  Goal-mode steers (active/continuation/budget-limit prompts, the guided
- *  interview kickoff) ride this channel: they are multi-KB XML protocol
- *  text, and persisting them made /resume replay them as phantom bubbles. */
+/** Prefixes marking a RUN INPUT that must never read as a user turn: it
+ *  reaches the model (that IS the delivery) but produces no transcript echo
+ *  and no session-file entry.
+ *
+ *  Three producers ride this channel, all of them protocol text the user did
+ *  not type: background-job settlements; goal-mode steers (active /
+ *  continuation / budget-limit prompts, the guided interview kickoff), which
+ *  are multi-KB XML; and the build loop's per-iteration protocol. Persisting
+ *  any of them made /resume replay them as phantom user bubbles.
+ *
+ *  A loop's plain re-submitted prompt is NOT here — that text IS the user's,
+ *  so it echoes as a normal turn. Add a sentinel only for text nobody typed. */
 export const HIDDEN_INPUT_SENTINELS = [SETTLEMENT_SENTINEL, "[goal-mode]", "[ralph-loop]"] as const;
 
 export function isHiddenInput(text: string): boolean {
