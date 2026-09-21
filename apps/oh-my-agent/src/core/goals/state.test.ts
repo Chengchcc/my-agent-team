@@ -12,7 +12,7 @@ import {
   renderInterviewPrompt,
   resumeGoal,
   validateTokenBudget,
-} from "./goal-state.js";
+} from "./state.js";
 
 describe("goal state machine (omp port)", () => {
   test("create → complete round-trips with exiting mode", () => {

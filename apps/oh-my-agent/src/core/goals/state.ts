@@ -120,8 +120,26 @@ export function budgetLimitedGoal(state: GoalModeState): GoalModeState {
   return { ...state, goal };
 }
 
-/** Account one settled turn's usage + wall clock. Returns the next state and
- *  whether the budget was crossed THIS turn (the caller steers once). */
+/** Pure accrual: fold one turn's usage + wall clock into the goal,
+ *  regardless of status. The post-run path uses it through accountTurn
+ *  (live goals only); the complete-flush path uses it directly, because by
+ *  then the goal is already terminal but the final turn still counts. */
+export function accrueUsage(
+  goal: Goal,
+  usage: { inputTokens?: number; outputTokens?: number; cacheWriteTokens?: number },
+  wallSeconds: number,
+): Goal {
+  return {
+    ...goal,
+    tokensUsed: goal.tokensUsed + goalTokenDelta(usage),
+    timeUsedSeconds: Math.round(goal.timeUsedSeconds + wallSeconds),
+    updatedAt: Date.now(),
+  };
+}
+
+/** Account one settled turn's usage + wall clock for a LIVE goal. Returns
+ *  the next state and whether the budget was crossed THIS turn (the caller
+ *  steers once). */
 export function accountTurn(
   state: GoalModeState,
   usage: { inputTokens?: number; outputTokens?: number; cacheWriteTokens?: number },
@@ -130,12 +148,7 @@ export function accountTurn(
   if (!state.enabled || !isAccountingStatus(state.goal)) {
     return { state, crossedBudget: false };
   }
-  const goal: Goal = {
-    ...state.goal,
-    tokensUsed: state.goal.tokensUsed + goalTokenDelta(usage),
-    timeUsedSeconds: Math.round(state.goal.timeUsedSeconds + wallSeconds),
-    updatedAt: Date.now(),
-  };
+  const goal = accrueUsage(state.goal, usage, wallSeconds);
   const crossedBudget =
     goal.tokenBudget !== undefined &&
     goal.tokensUsed >= goal.tokenBudget &&

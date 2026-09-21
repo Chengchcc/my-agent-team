@@ -250,6 +250,36 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       { name: "bash", input: { command: "sh -c 'exit 3'" } },
     ]);
     try {
+      const vt = new VirtualTerminal(100, 30);
+      const io = createTerminalIo(vt);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "fail a tool");
+      await vt.waitForRender();
+      const rendered = screen(vt);
+      // Error marker (pi's toolErrorBg equivalent) + the failing command.
+      expect(rendered).toContain("✘");
+      expect(rendered).toContain("$ sh -c 'exit 3'");
+      expect(rendered).toContain("[exit: 3]");
+
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      delete process.env.OMA_FAKE_TOOL;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("second turn sees the first turn's transcript (session continuity)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e2-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e2-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    try {
       const vt = new VirtualTerminal(100, 40);
       const io = createTerminalIo(vt);
       const sessionDone = runTuiSession(
@@ -287,6 +317,7 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
+
   test("spinner shows while running and esc aborts the live run", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-abort-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-abort-sess-"));

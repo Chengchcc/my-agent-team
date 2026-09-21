@@ -7,13 +7,13 @@ import {
   createModelRuntime,
   createOmaRuntime,
   registerBuiltinProviders,
-} from "./create-runtime.fixture.js";
+} from "../runtime/create-runtime.fixture.js";
 
 /** The omp-aligned goal loop, driven through the REAL TUI session over the
  *  scripted io (no terminal): /goal starts the autonomous loop, the fake
  *  model calls the goal tool's complete op, the loop ends, the terminal goal
  *  state (paused after interrupt; budget steering; session persistence) is
- *  pinned by the unit layer in goal-state.test.ts. */
+ *  pinned by the unit layer in goals/state.test.ts. */
 const ws = mkdtempSync(join(tmpdir(), "oma-goalloop-"));
 afterAll(() => rmSync(ws, { recursive: true, force: true }));
 

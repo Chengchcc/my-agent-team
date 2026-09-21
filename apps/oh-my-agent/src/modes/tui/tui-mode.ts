@@ -9,19 +9,10 @@ import { ProcessTerminal } from "@chengchenccc/tui";
 import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
-import type { OmaLoopEvent, Plugin } from "../../core/index.js";
+import { createGoalPlugin, GoalRuntime } from "../../core/goals/index.js";
+import type { OmaLoopEvent } from "../../core/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
-import {
-  accountTurn,
-  canCreateGoal,
-  completeGoal,
-  completionBudgetReport,
-  createGoal,
-  pauseGoal,
-  renderGoalPrompt,
-  resumeGoal,
-} from "../../core/runtime/goal-state.js";
 import {
   resolvePermissionMode,
   resolveRuntimeKnobs,
@@ -108,22 +99,6 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   let session = resolveSession(opts.sessionId);
   const state = initialViewState();
   hydrateTranscript(state, session.messages);
-  // Goal replay (omp): a session that ended with an active/budget-limited
-  // goal restores it as PAUSED — resuming must never silently re-enter an
-  // autonomous loop; the user continues with /goal resume.
-  const restoredGoal = loadSessionGoalState(session.sessionId, session.dir);
-  let goal: TuiSessionContext["goal"] = null;
-  if (restoredGoal) {
-    const isLive =
-      restoredGoal.goal.status === "active" || restoredGoal.goal.status === "budget-limited";
-    goal = isLive
-      ? {
-          enabled: false,
-          mode: "active",
-          goal: { ...restoredGoal.goal, status: "paused" },
-        }
-      : restoredGoal;
-  }
   // Live-chrome seed: todo is SESSION-scoped (.oma/todo/<id>.json);
   // todo_update events keep the snapshot fresh while runs stream.
   state.todoItems = readTodoFile(opts.workspaceRoot, session.sessionId);
@@ -152,7 +127,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  settings file for every subsequent run this session. */
   let permissionOverride: PermissionFlag | undefined;
   /** Consecutive goal turns that used no tool (stall backstop). */
-  let goalNoProgressTurns = 0;
+  const goalNoProgressTurns = 0;
+  /** Goal runtime (omp GoalRuntime analogue): owns goal state, accounting
+   *  and loop decisions; the TUI renders its decisions. */
   /** /paste queue: rides the next submitted message, then clears. */
   let pendingImages: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
@@ -175,6 +152,25 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       }
     }
     state.runs.push({ items, running: false });
+  }
+
+  const goalRuntime = new GoalRuntime(
+    (state) => appendSessionGoalEvent(session.sessionId, state, session.dir),
+    (message) => pushStatus(`◎ ${message}`),
+  );
+
+  // Goal replay (omp): a session that ended with a live goal restores it as
+  // PAUSED — resuming must never silently re-enter an autonomous loop; the
+  // user continues with /goal resume.
+  const restoredGoal = loadSessionGoalState(session.sessionId, session.dir);
+  if (restoredGoal) {
+    const isLive =
+      restoredGoal.goal.status === "active" || restoredGoal.goal.status === "budget-limited";
+    goalRuntime.restore(
+      isLive
+        ? { enabled: false, mode: "active", goal: { ...restoredGoal.goal, status: "paused" } }
+        : restoredGoal,
+    );
   }
 
   /** Compact recap text for the most recent run: last assistant message
@@ -253,12 +249,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     set permissionOverride(value) {
       permissionOverride = value;
     },
-    get goal() {
-      return goal;
-    },
-    set goal(value) {
-      goal = value;
-    },
+    goals: goalRuntime,
     get pendingImages() {
       return pendingImages;
     },
@@ -365,117 +356,21 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       readOnly: opts.readOnly,
       ...(images.length > 0 ? { images } : {}),
     });
-    modelId = built.run.model.modelId;
-    const goalToolResponse = (state: NonNullable<TuiSessionContext["goal"]>): string =>
-      JSON.stringify({
-        status: state.goal.status,
-        objective: state.goal.objective,
-        tokensUsed: state.goal.tokensUsed,
-        tokenBudget: state.goal.tokenBudget ?? null,
-        timeUsedSeconds: state.goal.timeUsedSeconds,
-      });
+    // `/workflow` queued a script: this run executes the vm workflow instead
     // of a conversational loop (create-runtime branches on input.workflow).
     let runInput: BackendRunInput<"oma"> = built;
     if (pendingWorkflowScript !== undefined) {
       runInput = { ...built, workflow: { script: pendingWorkflowScript } };
       pendingWorkflowScript = undefined;
     }
-    const goalToolWanted =
-      (ctx.goal?.enabled === true || ctx.goalInterviewing === true) &&
-      runInput.workflow === undefined;
-    const pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
-    // Goal mode (omp): mount the `goal` tool for THIS run when the mode is
-    // model-declared through it; the tool mutates the session-level state.
-    const goalPlugin: Plugin | null = goalToolWanted
-      ? {
-          name: "goal-mode",
-          tools: [
-            {
-              name: "goal",
-              description:
-                "Manage the session's persistent autonomous goal. op=create (objective, optional token_budget) starts goal mode; op=get reads state; op=complete declares VERIFIED completion (audit repo state first — never redefine success smaller, budget exhaustion is not completion); op=resume / op=drop manage lifecycle.",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  op: { type: "string", description: "create | get | complete | resume | drop" },
-                  objective: { type: "string", description: "Goal objective (op=create)" },
-                  token_budget: {
-                    type: "number",
-                    description: "Positive integer token budget (op=create, optional)",
-                  },
-                },
-                required: ["op"],
-              },
-              async execute(input) {
-                const args = input as { op?: string; objective?: string; token_budget?: number };
-                try {
-                  if (args.op === "create") {
-                    if (!canCreateGoal(ctx.goal ?? null)) {
-                      return {
-                        content:
-                          "Error: cannot create a goal — this session already has one (drop or complete it first).",
-                        isError: true,
-                      };
-                    }
-                    ctx.goal = createGoal(args.objective ?? "", args.token_budget);
-                    ctx.goalInterviewing = false;
-                    appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-                    pushStatus(`◎ goal created — autonomous loop until declared complete`);
-                    io.render(state);
-                    return { content: JSON.stringify(goalToolResponse(ctx.goal)) };
-                  }
-                  if (args.op === "get") {
-                    if (!ctx.goal)
-                      return { content: "Error: no goal this session.", isError: true };
-                    return { content: JSON.stringify(goalToolResponse(ctx.goal)) };
-                  }
-                  if (args.op === "complete") {
-                    if (!ctx.goal) {
-                      return { content: "Error: no goal to complete.", isError: true };
-                    }
-                    ctx.goal = completeGoal(ctx.goal);
-                    appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-                    const report = completionBudgetReport(ctx.goal.goal);
-                    pushStatus(`◎ goal COMPLETE — ${ctx.goal.goal.objective}`);
-                    if (report) pushStatus(`  ${report}`);
-                    io.render(state);
-                    return {
-                      content:
-                        "Goal marked complete. The autonomous loop ends after this turn; report the achievement (and budget usage, if any) to the user in your final message.",
-                    };
-                  }
-                  if (args.op === "resume") {
-                    if (!ctx.goal) {
-                      return { content: "Error: no goal to resume.", isError: true };
-                    }
-                    ctx.goal = resumeGoal(ctx.goal);
-                    appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-                    return { content: JSON.stringify(goalToolResponse(ctx.goal)) };
-                  }
-                  if (args.op === "drop") {
-                    if (!ctx.goal) return { content: "Error: no goal to drop.", isError: true };
-                    const objective = ctx.goal.goal.objective;
-                    ctx.goal = null;
-                    appendSessionGoalEvent(session.sessionId, null, session.dir);
-                    pushStatus(`◎ goal dropped — ${objective}`);
-                    io.render(state);
-                    return { content: "Goal dropped. Stop goal-directed work." };
-                  }
-                  return { content: `Error: unknown op "${args.op ?? ""}"`, isError: true };
-                } catch (err) {
-                  return {
-                    content: `Error: ${err instanceof Error ? err.message : String(err)}`,
-                    isError: true,
-                  };
-                }
-              },
-            },
-          ],
-        }
-      : null;
-    const effectivePluginRt = goalPlugin
-      ? { ...pluginRt, plugins: [...pluginRt.plugins, goalPlugin] }
-      : pluginRt;
+    modelId = built.run.model.modelId;
+    let pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
+    // Goal mode (omp): the `goal` tool is mounted for THIS run only while
+    // the mode is live (active goal or /guided-goal interview). The runtime
+    // owns state/accounting; this layer only decides whether to mount it.
+    if (goalRuntime.toolWanted && runInput.workflow === undefined) {
+      pluginRt = { ...pluginRt, plugins: [...pluginRt.plugins, createGoalPlugin(goalRuntime)] };
+    }
     for (const w of pluginRt.warnings) pushStatus(`[plugin] ${w}`);
     const knobs = resolveRuntimeKnobs(loadProjectSettings(opts.workspaceRoot));
     const runtime = await createOmaRuntime(
@@ -485,7 +380,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           modelRuntime: opts.modelRuntime,
           ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
           session,
-          pluginRt: effectivePluginRt,
+          pluginRt,
         },
         {
           coordinationScope: COORDINATION_SCOPE,
@@ -720,57 +615,32 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // channel while the Run was live — honor it now that the Run settled.
     if (quitting) return 0;
 
-    // Goal mode (omp semantics): completion is MODEL-DECLARED via the goal
-    // tool inside the run; here we only account the settled turn and decide
-    // continuation. Interrupt PAUSES (never drops). Budget crossing steers
-    // a wrap-up exactly once. Continuation is unconditional while active —
-    // even past a terminal text answer.
-    if (ctx.goal?.enabled === true && !runInput.workflow) {
-      const wallSeconds = Math.max(0, (Date.now() - turnStartedAt) / 1000);
-      const accounted = accountTurn(ctx.goal, outcome.usage ?? {}, wallSeconds);
-      ctx.goal = accounted.state;
-      if (accounted.crossedBudget) {
-        pendingFollowUps.push(renderGoalPrompt("budget-limit", ctx.goal.goal));
+    // Goal mode (omp): forward the settled turn to the runtime, which owns
+    // accounting and returns the loop decision; this layer only renders it.
+    if (runInput.workflow === undefined) {
+      const decision = goalRuntime.settleTurn({
+        usage: outcome.usage ?? {},
+        wallSeconds: Math.max(0, (Date.now() - turnStartedAt) / 1000),
+        status: outcome.status,
+        usedTools: state.runs.at(-1)?.items.some((item) => item.kind === "tool") === true,
+      });
+      if (decision.action === "continue") {
+        pendingFollowUps.push(decision.prompt);
         pushStatus(
-          `◎ goal budget-limited (${ctx.goal.goal.tokensUsed} ≥ ${ctx.goal.goal.tokenBudget}) — wrap-up turn queued`,
+          `goal continuing · ${decision.tokensUsed} tokens` +
+            (decision.tokenBudget !== undefined ? `/${decision.tokenBudget}` : "") +
+            " — /goal pause stops",
         );
-        appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-      } else if (outcome.status === "aborted" || outcome.status === "failed") {
-        // An interrupt pauses the goal; the user resumes with /goal resume.
-        ctx.goal = pauseGoal(ctx.goal);
-        pushStatus("◎ goal paused (run aborted) — /goal resume continues");
-        appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-      } else if (ctx.goal.enabled && ctx.goal.goal.status === "active") {
-        // Stall backstop: omp relies on the prompt disciplines (never
-        // redefine success; keep working) plus the budget. A model that
-        // answers without touching a tool for three straight goal turns is
-        // not working — pause and hand control back instead of spinning.
-        const runHadTools = state.runs.at(-1)?.items.some((item) => item.kind === "tool") === true;
-        goalNoProgressTurns = runHadTools ? 0 : goalNoProgressTurns + 1;
-        if (goalNoProgressTurns >= 3) {
-          ctx.goal = pauseGoal(ctx.goal);
-          pushStatus("◎ goal paused: 3 turns without tool use — /goal resume to continue");
-          appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-        } else {
-          pendingFollowUps.push(renderGoalPrompt("continuation", ctx.goal.goal));
-          pushStatus(
-            `◎ goal continuing · ${ctx.goal.goal.tokensUsed} tokens` +
-              (ctx.goal.goal.tokenBudget !== undefined ? `/${ctx.goal.goal.tokenBudget}` : "") +
-              " — /goal pause stops",
-          );
-          appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-        }
+      } else if (decision.action === "budget-wrapup") {
+        pendingFollowUps.push(decision.prompt);
+        pushStatus(
+          `goal budget-limited (${decision.tokensUsed} ≥ ${decision.tokenBudget}) — wrap-up turn queued`,
+        );
+      } else if (decision.action === "completed") {
+        pushStatus(`goal COMPLETE — ${decision.objective}`);
+        if (decision.report) pushStatus(`  ${decision.report}`);
       }
-      io.render(state);
-    } else if (ctx.goal && !ctx.goal.enabled) {
-      // Terminal transition happened inside the run (complete via the tool).
-      if (ctx.goal.reason === "completed") {
-        const report = completionBudgetReport(ctx.goal.goal);
-        pushStatus(`◎ goal COMPLETE — ${ctx.goal.goal.objective}`);
-        if (report) pushStatus(`  ${report}`);
-      }
-      appendSessionGoalEvent(session.sessionId, ctx.goal, session.dir);
-      io.render(state);
+      if (decision.action !== "idle") io.render(state);
     }
   }
 }

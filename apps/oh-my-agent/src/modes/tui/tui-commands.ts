@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
+import {
+  type GoalRuntime,
+  renderGoalPrompt,
+  renderInterviewPrompt,
+} from "../../core/goals/index.js";
 import { getVectorMemory, memoryDbPath } from "../../core/memory/vector-memory.js";
 import {
   addMarketplace,
@@ -13,15 +18,6 @@ import {
 } from "../../core/plugins/plugin-marketplace.js";
 import { trustFile, trustPlugin } from "../../core/plugins/plugin-trust.js";
 import type { OmaRuntime } from "../../core/runtime/create-runtime.js";
-import {
-  canCreateGoal,
-  createGoal,
-  type GoalModeState,
-  pauseGoal,
-  renderGoalPrompt,
-  renderInterviewPrompt,
-  resumeGoal,
-} from "../../core/runtime/goal-state.js";
 import { readMemorySummary } from "../../core/runtime/prompts.js";
 import {
   loadProjectSettings,
@@ -76,12 +72,9 @@ export interface TuiSessionContext {
   runCommandText?: (text: string) => Promise<void>;
   /** Session permission-mode override (/permission). */
   permissionOverride?: "ask" | "auto" | "deny" | "off" | "yolo";
-  /** Goal-mode state (omp port): null = no goal this session. */
-  goal?: GoalModeState | null;
-  /** /guided-goal interview phase: tool mounted, no goal created yet. */
-  goalInterviewing?: boolean;
-  /** /goal budget <n>: mutate the active goal's token budget. */
-  adjustGoalBudget?: (budget: number | undefined) => void;
+  /** Goal mode (omp port): the runtime OWNS goal state, accounting and
+   *  transitions — commands call it, never mutate a copy. */
+  goals?: GoalRuntime;
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
@@ -263,10 +256,12 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       group: "general",
       live: true,
       run: (args) => {
+        const runtime = ctx.goals;
+        if (!runtime) return void ctx.pushStatus("goal mode unavailable in this session");
         const value = args.trim();
         const [sub, ...rest] = value.split(/\s+/);
         const restText = rest.join(" ").trim();
-        const goal = ctx.goal?.goal;
+        const goal = runtime.goal;
 
         if (sub === "show") {
           if (!goal) return void ctx.pushStatus("no goal this session");
@@ -278,65 +273,62 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ]);
         }
         if (sub === "pause") {
-          if (!ctx.goal) return void ctx.pushStatus("no goal to pause");
-          ctx.goal = pauseGoal(ctx.goal);
-          ctx.pushStatus(`goal paused — /goal resume continues it`);
+          if (!goal) return void ctx.pushStatus("no goal to pause");
+          runtime.pause();
           return;
         }
         if (sub === "resume") {
-          if (!ctx.goal) return void ctx.pushStatus("no goal to resume");
+          if (!goal) return void ctx.pushStatus("no goal to resume");
           try {
-            ctx.goal = resumeGoal(ctx.goal);
+            runtime.resume();
           } catch (err) {
             return void ctx.pushStatus(
               `cannot resume: ${err instanceof Error ? err.message : err}`,
             );
           }
-          ctx.pushStatus(`goal resumed — the next turn continues it`);
           // Resume drives a continuation turn immediately.
           ctx.pendingPrompt = "(goal) resumed by the user — continue the active goal.";
           return;
         }
         if (sub === "drop" || sub === "clear" || sub === "stop") {
-          if (!ctx.goal) return void ctx.pushStatus("no goal set");
-          ctx.pushStatus(`goal dropped: ${ctx.goal.goal.objective}`);
-          ctx.goal = null;
-          ctx.goalInterviewing = false;
+          if (!goal) return void ctx.pushStatus("no goal set");
+          runtime.drop();
           return;
         }
         if (sub === "budget") {
-          if (!ctx.goal) return void ctx.pushStatus("no active goal");
-          if (rest[0] === "none") return void ctx.adjustGoalBudget?.(undefined);
-          const n = Number(rest[0]);
-          if (!Number.isInteger(n) || n <= 0) {
-            return void ctx.pushStatus("usage: /goal budget <positive-int> | none");
+          if (!goal) return void ctx.pushStatus("no active goal");
+          // omp's keyword is "off" (interactive-mode.ts).
+          const raw = rest[0] === "off" || rest[0] === "none" ? undefined : Number(rest[0]);
+          if (raw !== undefined && (!Number.isInteger(raw) || raw <= 0)) {
+            return void ctx.pushStatus("usage: /goal budget <positive-int> | off");
           }
-          ctx.adjustGoalBudget?.(n);
+          const resumed = runtime.setBudget(raw);
+          // omp onBudgetMutated: raising the budget resumes the goal.
+          if (resumed) ctx.pendingPrompt = resumed.prompt;
           return;
         }
-        // /goal (no args): status or set-with-editor is TUI-sugar we skip —
-        // show status, matching /goal show.
+        // /goal (no args): status — matches /goal show.
         if (!value) {
           if (!goal) return void ctx.pushStatus("no goal — /goal <objective> or /guided-goal");
+          const remaining = runtime.remainingTokens();
           return void ctx.pushStatus([
             `goal ${goal.status} · ${goal.tokensUsed} tokens` +
               (goal.tokenBudget !== undefined ? `/${goal.tokenBudget}` : "") +
+              (remaining !== null ? ` (${remaining} left)` : "") +
               ` · ${goal.timeUsedSeconds}s — /goal show|pause|resume|drop|budget`,
             `  ${goal.objective}`,
           ]);
         }
-        // /goal set <objective> or /goal <objective>: create/replace.
+        // /goal set <objective> or /goal <objective>: create, or REPLACE an
+        // active goal (omp replaceGoal) — only a COMPLETE goal blocks a new
+        // objective.
         const objective = sub === "set" ? restText : value;
         if (!objective) return void ctx.pushStatus("usage: /goal <objective>");
-        if (ctx.goal && !canCreateGoal(ctx.goal)) {
-          return void ctx.pushStatus(
-            "goal already active — /goal drop first, or /goal set replaces it after drop",
-          );
+        if (goal?.status === "complete") {
+          return void ctx.pushStatus("goal already complete — /goal drop before setting a new one");
         }
-        ctx.goalInterviewing = false;
-        ctx.goal = createGoal(objective);
-        ctx.pushStatus(`goal set — model declares completion via the goal tool; interrupt pauses`);
-        ctx.pendingPrompt = renderGoalPrompt("active", ctx.goal.goal);
+        const created = runtime.create(objective);
+        ctx.pendingPrompt = renderGoalPrompt("active", created.goal);
       },
     },
     {
@@ -346,13 +338,15 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       group: "general",
       live: true,
       run: (args) => {
-        if (ctx.goal && !canCreateGoal(ctx.goal)) {
+        const runtime = ctx.goals;
+        if (!runtime) return void ctx.pushStatus("goal mode unavailable in this session");
+        if (runtime.goal) {
           return void ctx.pushStatus("goal already active — /goal drop first");
         }
-        if (ctx.goalInterviewing) {
+        if (runtime.interviewing) {
           return void ctx.pushStatus("interview already running — answer the agent's questions");
         }
-        ctx.goalInterviewing = true;
+        runtime.beginInterview();
         ctx.pushStatus("guided goal: the agent interviews you, then creates the goal itself");
         ctx.pendingPrompt = renderInterviewPrompt(args.trim() || undefined);
       },
