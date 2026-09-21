@@ -12,7 +12,7 @@ import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import { createGoalPlugin, GoalRuntime } from "../../core/goals/index.js";
 import type { OmaLoopEvent } from "../../core/index.js";
-import { LoopRuntime } from "../../core/loop-mode/index.js";
+import { LoopRuntime } from "../../core/loops/index.js";
 import {
   implementationTurn,
   PlanRuntime,
@@ -22,7 +22,7 @@ import {
   planReminderPrompt,
   plansDir,
   planTitle,
-} from "../../core/plan-mode/index.js";
+} from "../../core/plans/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {

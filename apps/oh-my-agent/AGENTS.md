@@ -105,3 +105,18 @@ src/
 3. `bun run test` passes.
 4. RPC stdout remains protocol-only; no stray `console.log`.
 5. Changes don't touch the backend DB or product truth.
+
+## Directory naming (core/)
+
+Feature directories under `src/core/` are named after the DOMAIN, plural where the
+directory holds a family of things — `coordination/`, `delegation/`, `plugins/`,
+`tools/`, `goals/`, `loops/`, `plans/`. No `-mode`/`-manager`/`-helper` suffixes:
+the suffix encodes the implementation's role instead of what the code is about,
+and it drifts (the same trio was once `goals/`, `loop-mode/`, `plan-mode/`).
+
+Each feature directory holds the same shape: `state.ts` (pure domain: types,
+transition rules, prompt text), `runtime.ts` (the state machine class that owns
+state and decisions), `index.ts` (barrel), and `*.test.ts` beside its source.
+
+A rename must repoint `scripts/audit-coverage.ts` (its floors are path-keyed, and
+a stale path reports "NOT MEASURED" rather than failing loudly at review time).

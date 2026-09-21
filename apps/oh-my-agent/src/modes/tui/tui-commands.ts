@@ -6,8 +6,8 @@ import {
   renderGoalPrompt,
   renderInterviewPrompt,
 } from "../../core/goals/index.js";
-import type { LoopRuntime } from "../../core/loop-mode/index.js";
-import { type PlanModeState, planRefinePrompt } from "../../core/plan-mode/index.js";
+import type { LoopRuntime } from "../../core/loops/index.js";
+import { type PlanModeState, planRefinePrompt } from "../../core/plans/index.js";
 
 /** The turn-driver slot: loop, goal and plan all queue the next turn, so only
  *  ONE may be live. Claiming the slot from one driver displaces the others and
