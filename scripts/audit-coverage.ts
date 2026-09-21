@@ -44,6 +44,12 @@ const GATES: readonly AppGate[] = [
       { dir: "src/core/coordination", min: 90 },
       { dir: "src/core/store", min: 91 },
       { dir: "src/core/session", min: 90 },
+      // The turn-driver modules (goal / loop / plan): each owns a state
+      // machine the product depends on, so they are floored like the rest —
+      // they were missing from this list, which meant 2400 new lines could
+      // ship untested without the gate noticing.
+      { dir: "src/core/goals", min: 95 },
+      { dir: "src/core/loop-mode", min: 88 },
       { dir: "src/core/plugins", min: 88 },
       { dir: "src/protocol", min: 92 },
     ],
@@ -80,6 +86,10 @@ const GATES: readonly AppGate[] = [
       "src/core/delegation/roles.ts": 95,
       // Session persistence
       "src/core/session/session-file.ts": 95,
+      // Plan mode's artifact rules (pathing, substantiality, the implementation
+      // turn's contract). state.ts is behaviour; prompts.ts is text, covered by
+      // the same suite without a floor of its own.
+      "src/core/plan-mode/state.ts": 85,
       "src/core/store/session-store.ts": 82,
     },
   },

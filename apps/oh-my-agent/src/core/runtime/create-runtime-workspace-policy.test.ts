@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
@@ -261,6 +261,44 @@ describe("write freshness in the assembled runtime", () => {
       rmSync(join(ws, ".oma", "settings.json"), { force: true });
     }
   });
+});
+
+/** Plan mode's read-only rule is enforced by the FILE TOOLS, which means the
+ *  guard has to travel with the runtime that mounts them. This test drives the
+ *  assembled runtime (not the tool factory), because that seam is exactly
+ *  where the rule silently went missing once: the guard existed, the tools
+ *  honoured it, and no caller ever set it. */
+describe("plan mode reaches the assembled tool table", () => {
+  test("with the guard, a project write is refused; the plan draft is writable", async () => {
+    const savedProvider = process.env.OMA_FAKE_PROVIDER;
+    const savedTool = process.env.OMA_FAKE_TOOL;
+    process.env.OMA_FAKE_PROVIDER = "1";
+    process.env.OMA_FAKE_TOOL = JSON.stringify([
+      { name: "write", input: { path: "src/app.ts", content: "// clobbered" } },
+    ]);
+    const planPath = join(ws, ".oma", "plans", "s.md");
+    try {
+      const rt = await createOmaRuntime({
+        runId: "r-plan-guard",
+        modelId: "fake/echo",
+        workspaceRoot: ws,
+        workspaceAccess: "read_write",
+        modelRuntime: fakeRuntime(),
+        skillRoots: [],
+        planMode: { planPath },
+      });
+      const outcome = await (await rt.run(runInput("r-plan-guard", "read_write"))).outcome;
+      await rt.close();
+      const text = JSON.stringify(outcome.messages);
+      expect(text).toContain("plan mode is active");
+      expect(existsSync(join(ws, "src", "app.ts"))).toBe(false); // nothing landed
+    } finally {
+      if (savedProvider === undefined) delete process.env.OMA_FAKE_PROVIDER;
+      else process.env.OMA_FAKE_PROVIDER = savedProvider;
+      if (savedTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = savedTool;
+    }
+  }, 30_000);
 });
 
 /** yolo force-enables the OS bash sandbox (the compensating control that

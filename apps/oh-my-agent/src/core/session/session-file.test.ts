@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendSessionCompaction,
   appendSessionGoalEvent,
   appendSessionMessages,
+  appendSessionPlanEvent,
   appendSessionSummary,
   appendSessionTitle,
   deleteSession,
@@ -15,6 +16,7 @@ import {
   loadSessionBranchNodes,
   loadSessionGoalState,
   loadSessionMessages,
+  loadSessionPlanState,
   readSessionTitle,
   renameSession,
   sessionDir,
@@ -483,6 +485,47 @@ describe("goal event persistence (omp mode-change replay)", () => {
     // Drop (null) clears the replay entirely.
     appendSessionGoalEvent(id, null, dir);
     expect(loadSessionGoalState(id, dir)).toBeNull();
+  });
+});
+
+/** Plan mode persists as mode-change events (the draft itself is a file).
+ *  A resumed session must come back PAUSED — never re-entering a read-only
+ *  planning turn on its own. */
+describe("plan event persistence", () => {
+  test("last plan event wins; null means plan mode is off", () => {
+    const id = "plan-sess";
+    appendSessionMessages(id, dir, [{ role: "user", text: "hi" }]);
+    expect(loadSessionPlanState(id, dir)).toBeNull(); // never entered
+
+    appendSessionPlanEvent(id, { planPath: "/ws/.oma/plans/a.md" }, false, dir);
+    expect(loadSessionPlanState(id, dir)).toEqual({
+      planPath: "/ws/.oma/plans/a.md",
+      paused: false,
+    });
+
+    // Pausing keeps the draft path and flips the flag.
+    appendSessionPlanEvent(id, { planPath: "/ws/.oma/plans/a.md" }, true, dir);
+    expect(loadSessionPlanState(id, dir)).toEqual({
+      planPath: "/ws/.oma/plans/a.md",
+      paused: true,
+    });
+
+    // Leaving clears it.
+    appendSessionPlanEvent(id, null, false, dir);
+    expect(loadSessionPlanState(id, dir)).toBeNull();
+  });
+
+  test("a malformed plan event is skipped, not fatal", () => {
+    const id = "plan-malformed";
+    appendSessionMessages(id, dir, [{ role: "user", text: "hi" }]);
+    appendSessionGoalEvent(id, { enabled: true, mode: "active", goal: {} as never }, dir);
+    appendSessionPlanEvent(id, { planPath: "/ws/p.md" }, false, dir);
+    // A plan entry with a non-string path is ignored; the earlier valid one stays.
+    appendFileSync(
+      join(dir, `${id}.jsonl`),
+      `${JSON.stringify({ type: "plan", planMode: { planPath: 42 } })}\n`,
+    );
+    expect(loadSessionPlanState(id, dir)).toBeNull();
   });
 });
 

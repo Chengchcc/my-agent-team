@@ -18,6 +18,7 @@ import {
   implementationTurn,
   type PlanModeState,
   planIsSubstantial,
+  planModePrompt,
   planPathFor,
   planRefinePrompt,
   planReminderPrompt,
@@ -186,6 +187,13 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
 
   /** Back to the model that was active before planning (only when plan mode
    *  switched it; a re-entry never recorded one). */
+  /** Plan state as the loop sees it. Read through the ctx accessor because
+   *  every assignment happens inside a closure (a direct read is narrowed to
+   *  the initializer). */
+  function planStateNow(): PlanModeState | null {
+    return ctx.plans?.state() ?? null;
+  }
+
   function restorePrePlanModel(): void {
     if (prePlanModel === undefined) return;
     modelId = prePlanModel;
@@ -326,8 +334,8 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   let prePlanModel: string | undefined;
   /** Reminder turns sent for planning runs that produced no draft. */
   let planReminders = 0;
-  const APPROVED_CONTEXT = { fresh: false, compact: "compact", keep: true } as const;
-
+  /** The plan-mode contract is injected once per entry, not every turn. */
+  let planContractSent = false;
   /** Loop mode: re-submits one captured prompt after each settled turn. The
    *  limits/parsing live in core/loop-mode; this layer wires it to the session
    *  loop (capture the first prompt, re-submit on settle, pause on Esc).
@@ -370,11 +378,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Goal runtime: owns goal state, accounting and loop decisions; the TUI
    *  renders its decisions. */
   const goalRuntime = new GoalRuntime(
-    (state) => {
+    (state, recordCompletion) => {
       appendSessionGoalEvent(session.sessionId, state, session.dir);
       // A completed goal also lands as a durable achievement record, so a
-      // resumed session can report WHAT was finished and at what cost.
-      if (state?.goal.status === "complete") {
+      // resumed session can report WHAT was finished and at what cost — once,
+      // after the final usage flush.
+      if (recordCompletion && state?.goal.status === "complete") {
         appendSessionGoalCompletion(
           session.sessionId,
           {
@@ -476,16 +485,21 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     goals: goalRuntime,
     loops: loopRuntime,
     reloadSessionDrivers,
+    refreshDriverStatus,
     plans: {
       state: () => plan,
       enter: (reentry = false) => {
         plan = enterPlanMode(planPathFor(opts.workspaceRoot, session.sessionId), reentry);
         planPaused = false;
+        planContractSent = false;
         // Planning gets its own model when configured: investigation quality
-        // dominates the draft, and the implementer can differ.
+        // dominates the draft, and the implementer can differ. The pre-plan
+        // model is recorded whenever we are the ones switching it — recording
+        // that only on a first entry would leak the plan model into the
+        // implementation turn after a pause/resume cycle.
         const planModel = loadProjectSettings(opts.workspaceRoot).planModel;
-        if (!reentry && planModel && planModel !== modelId) {
-          prePlanModel = modelId;
+        if (planModel && planModel !== modelId) {
+          prePlanModel ??= modelId;
           modelId = planModel;
           io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
         }
@@ -500,6 +514,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       leave: () => {
         plan = null;
         planPaused = false;
+        planContractSent = false;
         restorePrePlanModel();
         appendSessionPlanEvent(session.sessionId, null, false, session.dir);
         refreshDriverStatus();
@@ -605,8 +620,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // appendNotice (tui-io) — no second echo as a user bubble.
     if (!fromFollowUp && !isHiddenInput(text)) addUserInput(state, text);
     // Loop mode: the first prompt after enabling becomes the prompt that is
-    // re-submitted after every settled turn.
-    if (!isHiddenInput(text)) loopRuntime.capturePrompt(text);
+    // re-submitted after every settled turn. Slash COMMANDS never qualify —
+    // a command is an instruction to the session, and re-submitting "/loop"
+    // or "/compact" as the loop body would re-run the command forever.
+    if (!isHiddenInput(text) && !text.startsWith("/")) loopRuntime.capturePrompt(text);
     if (!isHiddenInput(text)) planReminders = 0;
 
     const built = await buildCliRunInput({
@@ -649,6 +666,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         },
         {
           coordinationScope: COORDINATION_SCOPE,
+          // Plan mode's read-only rule lives in the file tools, so the guard
+          // has to travel WITH the runtime that mounts them: an active plan
+          // turn gets exactly one writable path (the draft).
+          ...(planStateNow()?.enabled === true
+            ? { planMode: { planPath: planStateNow()!.planPath } }
+            : {}),
           // Title churn fix: once the session file carries a title, mark the
           // conversation titled so the loop stops spending a model call per
           // completed turn (the TUI re-reads it each run, so a fresh title
@@ -879,6 +902,14 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // /exit (or a second ctrl+c path) may have run via the live-command
     // channel while the Run was live — honor it now that the Run settled.
     if (quitting) return 0;
+
+    // Plan mode's contract travels WITH the turn that starts the planning: the
+    // model cannot obey a rule it was never told, and the rule is the whole
+    // mechanism behind the read-only guarantee for bash.
+    if (planStateNow()?.enabled === true && !planPaused && !planContractSent) {
+      planContractSent = true;
+      pendingFollowUps.push(formatGoalInput(planModePrompt(planStateNow()!)));
+    }
 
     // Plan mode's contract: a planning turn that produced no usable draft has
     // not done its job. One reminder (not a loop — a model that ignored the

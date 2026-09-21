@@ -58,7 +58,12 @@ export class GoalRuntime {
   constructor(
     /** Persist a transition (session event). Called on EVERY mutation so a
      *  quit right after /goal pause still survives resume. */
-    private readonly persist: (state: GoalModeState | null) => void = () => {},
+    /** Persist a transition. `recordCompletion` is false for the transition
+     *  that still owes a usage flush (see complete()). */
+    private readonly persist: (
+      state: GoalModeState | null,
+      recordCompletion: boolean,
+    ) => void = () => {},
     /** Surface a transition for the UI (status line). */
     private readonly notify: (message: string) => void = () => {},
   ) {}
@@ -89,9 +94,9 @@ export class GoalRuntime {
     this.#state = state;
   }
 
-  #commit(next: GoalModeState | null): void {
+  #commit(next: GoalModeState | null, options?: { recordCompletion?: boolean }): void {
     this.#state = next;
-    this.persist(next);
+    this.persist(next, options?.recordCompletion !== false);
   }
 
   /** Start a goal, or REPLACE the current one (fresh counters and budget).
@@ -181,9 +186,13 @@ export class GoalRuntime {
   complete(): void {
     const state = this.#state;
     if (!state) throw new Error("no goal to complete");
+    // The turn's usage is only known at settle, so the transition is committed
+    // WITHOUT the completion record; settleTurn flushes usage and commits
+    // again, and only THAT commit carries the final numbers (a record written
+    // here would state zero usage and the flush would write a second one).
     this.#pendingFinalFlush = isAccountingStatus(state.goal);
     const done = completeGoal(state);
-    this.#commit(done);
+    this.#commit(done, { recordCompletion: false });
     this.notify(`goal COMPLETE — ${done.goal.objective}`);
   }
 

@@ -6,7 +6,7 @@ import {
   renderGoalPrompt,
   renderInterviewPrompt,
 } from "../../core/goals/index.js";
-import type { LoopRuntime, LoopStatus } from "../../core/loop-mode/index.js";
+import type { LoopRuntime } from "../../core/loop-mode/index.js";
 import { type PlanModeState, planRefinePrompt } from "../../core/plan-mode/index.js";
 
 /** Plan mode master switch: absent means ON. */
@@ -25,12 +25,6 @@ function formatActiveTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m${Math.round(seconds % 60)}s`;
   return `${Math.floor(minutes / 60)}h${minutes % 60}m`;
-}
-
-/** Loop status for the bar (undefined when the mode is off, which clears the
- *  segment); the runtime composes the state + budget + condition label. */
-function loopStatus(runtime: LoopRuntime): LoopStatus | undefined {
-  return runtime.status();
 }
 
 import { getVectorMemory, memoryDbPath } from "../../core/memory/vector-memory.js";
@@ -128,6 +122,10 @@ export interface TuiSessionContext {
    *  carrying one session's goal into another would leak accounting and
    *  continuation across conversations. */
   reloadSessionDrivers?: () => void;
+  /** Refresh every driver status segment after a transition. Commands that
+   *  mutate goal/loop/plan state call this so the bar never shows a stale
+   *  state (the session loop refreshes on its own after each turn). */
+  refreshDriverStatus?: () => void;
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
@@ -338,6 +336,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         if (sub === "pause") {
           if (!goal) return void ctx.pushStatus("no goal to pause");
           runtime.pause();
+          ctx.refreshDriverStatus?.();
           return;
         }
         if (sub === "resume") {
@@ -359,17 +358,20 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           if (!goal) return void ctx.pushStatus("no goal set");
           void (async () => {
             // Dropping is permanent and there is no separate /goal stop, so it
-            // asks first (a picker-less driver has no confirm hook: proceed).
-            const verdict = await ctx.io.confirmApproval?.({
-              toolName: "goal drop",
-              reason: `drop the goal permanently: ${goal.objective.slice(0, 80)}`,
-            });
-            if (verdict === "deny") {
-              ctx.pushStatus("goal drop cancelled");
+            // asks first. FAIL CLOSED: only an explicit "allow" drops; cancel
+            // (null) and a missing hook both leave the goal alone.
+            const verdict = ctx.io.confirmApproval
+              ? await ctx.io.confirmApproval({
+                  toolName: "goal drop",
+                  reason: `drop the goal permanently: ${goal.objective.slice(0, 80)}`,
+                })
+              : "deny"; // no surface to ask on: never destroy unprompted
+            if (verdict !== "allow") {
+              ctx.pushStatus("goal drop cancelled — the goal is unchanged");
               return;
             }
             runtime.drop();
-            ctx.io.setGoalStatus?.(undefined);
+            ctx.refreshDriverStatus?.();
           })();
           return;
         }
@@ -388,6 +390,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           }
           // Raising the budget past the usage resumes a budget-limited goal.
           if (resumed) ctx.pendingPrompt = formatGoalInput(resumed.prompt);
+          ctx.refreshDriverStatus?.();
           return;
         }
         // /goal (no args): the management menu while a goal exists, status
@@ -546,7 +549,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.goals.drop();
         }
         ctx.pushStatus(started.status);
-        ctx.io.setLoopStatus?.(loopStatus(runtime));
+        ctx.refreshDriverStatus?.();
         if (started.prompt) ctx.pendingPrompt = started.prompt;
       },
     },
