@@ -11,13 +11,14 @@ import { buildCliRunInput } from "../../cli/initial-input.js";
 import { defaultRegistry } from "../../core/coordination/registry.js";
 import { createGoalPlugin, GoalRuntime } from "../../core/goals/index.js";
 import type { OmaLoopEvent } from "../../core/index.js";
-import { LoopRuntime } from "../../core/loop-mode/index.js";
+import { LoopRuntime, type LoopStatus } from "../../core/loop-mode/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
   resolvePermissionMode,
   resolveRuntimeKnobs,
 } from "../../core/settings/project-settings.js";
+import { resolveBashSandbox } from "../../core/tools/bash-sandbox.js";
 
 /** One interactive TUI session per process; the coordination scope stays
  *  stable across Runs so subagent handles survive follow-ups in this
@@ -153,8 +154,29 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
 
   /** Loop mode: re-submits one captured prompt after each settled turn. The
    *  limits/parsing live in core/loop-mode; this layer wires it to the session
-   *  loop (capture the first prompt, re-submit on settle, pause on Esc). */
+   *  loop (capture the first prompt, re-submit on settle, pause on Esc).
+   *  Its continue-condition runs under the same OS sandbox the run opted into,
+   *  so a predicate cannot escape the confinement the user asked for. */
   const loopRuntime = new LoopRuntime(loadProjectSettings(opts.workspaceRoot).loopAction);
+  /** Loop status for the bar: state + remaining budget + the condition, so the
+   *  user can see WHAT will decide the next iteration. */
+  const loopStatusWithCondition = (): LoopStatus | undefined => {
+    const status = loopRuntime.status();
+    if (!status) return undefined;
+    const label = [status.label, loopRuntime.conditionLabel].filter(Boolean).join(" · ");
+    return label ? { ...status, label } : status;
+  };
+  const conditionSandbox = (() => {
+    const settings = loadProjectSettings(opts.workspaceRoot);
+    if (settings.bashSandbox !== true) return undefined;
+    try {
+      return resolveBashSandbox({ workspaceRoot: opts.workspaceRoot, enabled: true });
+    } catch {
+      // Enabled but the platform tool is missing: the RUN fails loudly on its
+      // own; a condition just runs unconfined rather than blocking the loop.
+      return undefined;
+    }
+  })();
   /** Goal runtime: owns goal state, accounting and loop decisions; the TUI
    *  renders its decisions. */
   const goalRuntime = new GoalRuntime(
@@ -627,7 +649,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // mutually exclusive turn drivers (enabling one clears the other), so at
     // most one of these blocks queues work.
     if (loopRuntime.enabled) {
-      const decision = loopRuntime.nextIteration();
+      const decision = await loopRuntime.nextIteration({
+        cwd: opts.workspaceRoot,
+        ...(conditionSandbox ? { sandbox: conditionSandbox } : {}),
+      });
       if (decision.action === "stop") {
         pushStatus(`loop: ${loopRuntime.disable(decision.reason)}`);
         io.setLoopStatus?.(undefined);

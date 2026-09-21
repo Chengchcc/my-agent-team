@@ -2,6 +2,15 @@
  *  bounded by an iteration count or a wall-clock duration. Limits + their
  *  parsing live in limits.ts; the session-scoped state machine in
  *  runtime.ts. */
+
+export {
+  DEFAULT_CONDITION_TIMEOUT_MS,
+  describeLoopCondition,
+  evaluateLoopCondition,
+  type LoopConditionConfig,
+  type LoopConditionOptions,
+  type LoopConditionVerdict,
+} from "./condition.js";
 export {
   consumeLoopLimitIteration,
   createLoopLimitRuntime,

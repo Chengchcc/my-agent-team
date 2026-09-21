@@ -1,9 +1,12 @@
-/** Loop-mode limits — the reference implementation's limits module, ported faithfully.
+import type { LoopConditionConfig } from "./condition.js";
+
+/** Loop-mode argument grammar and limits.
  *
- *  `/loop [count|duration] [prompt]`: a leading token that LOOKS like a limit
- *  (starts with a digit or sign) is parsed as one and a malformed one is a
- *  hard error; anything else is prose, i.e. the loop prompt — so
- *  `/loop keep going` starts an unbounded loop instead of erroring. */
+ *  `/loop [count|duration] [--while|--until <command>] [prompt]`: a leading
+ *  token that LOOKS like a limit (starts with a digit or sign) or a FLAG
+ *  (starts with `--`) is parsed as one, and a malformed one is a hard error;
+ *  anything else is prose, i.e. the loop prompt — so `/loop keep going` starts
+ *  an unbounded loop instead of erroring. */
 
 export type LoopLimitConfig =
   | { kind: "iterations"; iterations: number }
@@ -37,7 +40,11 @@ export const LOOP_USAGE =
 export interface ParsedLoopArgs {
   /** Iteration/duration budget from the leading limit token, when present. */
   limit?: LoopLimitConfig;
-  /** Inline loop prompt: text after the limit, or the whole argument otherwise. */
+  /** Continue-condition from `--while` / `--until`, re-evaluated before each
+   *  iteration; absent = unconditional. */
+  condition?: LoopConditionConfig;
+  /** Inline loop prompt: text after the limit and flags, or the whole
+   *  argument when neither was given. */
   prompt?: string;
 }
 
@@ -45,41 +52,120 @@ export function parseLoopArgs(args: string): ParsedLoopArgs | string {
   const trimmed = args.trim();
   if (!trimmed) return {};
 
-  const firstSpace = trimmed.search(/\s/);
-  const firstToken = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace);
-  const rest = firstSpace === -1 ? "" : trimmed.slice(firstSpace + 1).trim();
+  const limitResult = takeLoopLimit(trimmed);
+  if (typeof limitResult === "string") return limitResult;
+  const conditionResult = takeLoopCondition(limitResult.rest);
+  if (typeof conditionResult === "string") return conditionResult;
+
+  const parsed: ParsedLoopArgs = {};
+  if (limitResult.limit) parsed.limit = limitResult.limit;
+  if (conditionResult.condition) parsed.condition = conditionResult.condition;
+  if (conditionResult.rest) parsed.prompt = conditionResult.rest;
+  return parsed;
+}
+
+/** Split an optional leading limit token off the argument string. */
+function takeLoopLimit(input: string): { limit?: LoopLimitConfig; rest: string } | string {
+  const firstSpace = input.search(/\s/);
+  const firstToken = firstSpace === -1 ? input : input.slice(0, firstSpace);
+  const rest = firstSpace === -1 ? "" : input.slice(firstSpace + 1).trim();
   const token = firstToken.toLowerCase();
 
-  // Not a limit attempt (prose like "keep going") → unbounded loop, whole args
-  // are the prompt.
-  if (!/^[+-]?\d/.test(token)) return { prompt: trimmed };
+  // Not a limit attempt (prose, or a leading condition flag).
+  if (!/^[+-]?\d/.test(token)) return { rest: input };
 
   // Bare integer: iteration count, unless the next token is a time unit
   // ("10 minutes").
   if (/^\d+$/.test(token)) {
     if (rest) {
-      const restTokens = rest.split(/\s+/);
-      const unitMs = TIME_UNITS_MS.get(restTokens[0]!.toLowerCase());
+      const unitToken = /^\S+/.exec(rest)?.[0] ?? "";
+      const unitMs = TIME_UNITS_MS.get(unitToken.toLowerCase());
       if (unitMs !== undefined) {
         const limit = makeDuration(token, unitMs);
         if (typeof limit === "string") return limit;
-        return { limit, prompt: restTokens.slice(1).join(" ").trim() || undefined };
+        return { limit, rest: rest.slice(unitToken.length).trim() };
       }
     }
     const limit = makeIterations(token);
     if (typeof limit === "string") return limit;
-    return { limit, prompt: rest || undefined };
+    return { limit, rest };
   }
 
   // Compact / compound duration: "10m", "90s", "1h30m".
   const duration = parseCompoundDuration(token);
   if (duration !== undefined) {
     if (typeof duration === "string") return duration;
-    return { limit: duration, prompt: rest || undefined };
+    return { limit: duration, rest };
   }
 
   // Limit-shaped but unparseable ("-1", "1.5h", "10x10").
   return LOOP_USAGE;
+}
+
+/** Split an optional leading `--while` / `--until` flag off the argument
+ *  string. A flag-shaped token that does not parse is a hard error, so a typo
+ *  surfaces instead of silently becoming prompt text. */
+function takeLoopCondition(
+  input: string,
+): { condition?: LoopConditionConfig; rest: string } | string {
+  let rest = input.trim();
+  let condition: LoopConditionConfig | undefined;
+
+  while (rest.startsWith("--")) {
+    const name = /^(--[a-z][a-z-]*)(?=[\s=]|$)/.exec(rest)?.[1];
+    const until = name === undefined ? undefined : CONDITION_FLAGS[name];
+    if (name === undefined || until === undefined) {
+      return `unknown /loop flag ${name ?? rest.split(/\s+/, 1)[0]}. ${LOOP_USAGE}`;
+    }
+    if (condition) return "use only one of --while or --until";
+
+    const afterName = rest.slice(name.length);
+    const valueText = afterName.startsWith("=") ? afterName.slice(1) : afterName;
+    const value = readShellWord(valueText);
+    if (value === "unterminated") return `${name} has an unterminated quote`;
+    if (value === undefined || !value.value.trim() || valueText.trim().startsWith("-")) {
+      return `${name} needs a shell command. Quote it when it contains spaces: /loop ${name} 'bun test'`;
+    }
+    condition = { command: value.value.trim(), until };
+    rest = value.rest;
+  }
+
+  return { condition, rest };
+}
+
+/** `--until` stops when the command SUCCEEDS; `--while` stops when it fails. */
+const CONDITION_FLAGS: Record<string, boolean> = { "--until": true, "--while": false };
+
+/** Read one shell word, honoring single/double quotes (the condition is a
+ *  command line, so it usually needs quoting). Returns "unterminated" for an
+ *  unbalanced quote rather than guessing. */
+function readShellWord(
+  input: string,
+): { value: string; rest: string } | "unterminated" | undefined {
+  const trimmed = input.replace(/^\s+/, "");
+  if (trimmed === "") return undefined;
+  let out = "";
+  let quote: '"' | "'" | undefined;
+  let i = 0;
+  for (; i < trimmed.length; i++) {
+    const ch = trimmed[i]!;
+    if (quote) {
+      if (ch === quote) {
+        quote = undefined;
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) break;
+    out += ch;
+  }
+  if (quote) return "unterminated";
+  return { value: out, rest: trimmed.slice(i).trim() };
 }
 
 function makeIterations(amountText: string): LoopLimitConfig | string {

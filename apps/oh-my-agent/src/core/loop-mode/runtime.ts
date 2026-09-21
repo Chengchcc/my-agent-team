@@ -1,4 +1,10 @@
 import {
+  describeLoopCondition,
+  evaluateLoopCondition,
+  type LoopConditionConfig,
+  type LoopConditionOptions,
+} from "./condition.js";
+import {
   consumeLoopLimitIteration,
   createLoopLimitRuntime,
   describeLoopLimit,
@@ -40,6 +46,7 @@ export class LoopRuntime {
   #paused = false;
   #prompt: string | undefined;
   #limit: LoopLimitRuntime | undefined;
+  #condition: LoopConditionConfig | undefined;
 
   constructor(private readonly action: LoopAction = "prompt") {}
 
@@ -57,6 +64,15 @@ export class LoopRuntime {
 
   get limit(): LoopLimitRuntime | undefined {
     return this.#limit;
+  }
+
+  get condition(): LoopConditionConfig | undefined {
+    return this.#condition;
+  }
+
+  /** Human-readable condition, for status messages. */
+  get conditionLabel(): string | undefined {
+    return this.#condition ? describeLoopCondition(this.#condition) : undefined;
   }
 
   get loopAction(): LoopAction {
@@ -83,7 +99,9 @@ export class LoopRuntime {
     this.#paused = false;
     this.#prompt = undefined;
     this.#limit = createLoopLimitRuntime(parsed.limit, nowMs);
+    this.#condition = parsed.condition;
     const limitSuffix = parsed.limit ? ` limited to ${describeLoopLimit(parsed.limit)}` : "";
+    const conditionSuffix = parsed.condition ? ` — ${describeLoopCondition(parsed.condition)}` : "";
     const remaining = this.#limit ? ` (${describeLoopLimitRuntime(this.#limit)})` : "";
     const tail = parsed.prompt
       ? "repeating it after each turn"
@@ -91,7 +109,7 @@ export class LoopRuntime {
     return {
       ok: true,
       ...(parsed.prompt ? { prompt: parsed.prompt } : {}),
-      status: `loop mode enabled${limitSuffix}${remaining} — ${tail}; /loop again disables, Esc pauses`,
+      status: `loop mode enabled${limitSuffix}${remaining}${conditionSuffix} — ${tail}; /loop again disables, Esc pauses`,
     };
   }
 
@@ -117,17 +135,43 @@ export class LoopRuntime {
     this.#paused = false;
     this.#prompt = undefined;
     this.#limit = undefined;
+    this.#condition = undefined;
     return wasEnabled && reason ? reason : "loop mode disabled";
   }
 
-  /** One settled run: may the loop re-submit? Consumes a limit iteration
-   *  (consume the budget BEFORE acting, so an exhausted limit
-   *  disables instead of running one extra turn). */
-  nextIteration(nowMs = Date.now()): LoopIterationDecision {
+  /** One settled run: may the loop re-submit?
+   *
+   *  Order matters. The condition gate runs BEFORE the budget is consumed, so
+   *  a halt never burns an iteration that did not run; the duration deadline
+   *  runs first of all, because an expired clock ends the loop regardless of
+   *  what the condition would have said. */
+  async nextIteration(
+    opts: Omit<LoopConditionOptions, "timeoutMs"> & { timeoutMs?: number } = {
+      cwd: process.cwd(),
+    },
+    nowMs = Date.now(),
+  ): Promise<LoopIterationDecision> {
     if (!this.#enabled || !this.#prompt) return { action: "idle" };
     const prompt = this.#prompt;
     if (isLoopDurationExpired(this.#limit, nowMs)) {
       return { action: "stop", reason: "loop time limit reached" };
+    }
+    if (this.#condition) {
+      const verdict = await evaluateLoopCondition(this.#condition, {
+        ...opts,
+        timeoutMs: opts.timeoutMs ?? 120_000,
+      });
+      if (verdict.kind === "aborted") return { action: "idle" };
+      // The await above is a window: Esc (pause) or /loop (disable) can land
+      // while the condition runs, which makes ANY verdict stale — a user who
+      // paused mid-evaluation must not have the loop stopped out from under
+      // them by a halt they never saw coming.
+      if (!this.#enabled || this.#paused || this.#prompt !== prompt) {
+        return { action: "idle" };
+      }
+      if (verdict.kind === "halt" || verdict.kind === "error") {
+        return { action: "stop", reason: verdict.message };
+      }
     }
     if (!consumeLoopLimitIteration(this.#limit, nowMs)) {
       return { action: "stop", reason: "loop limit reached" };

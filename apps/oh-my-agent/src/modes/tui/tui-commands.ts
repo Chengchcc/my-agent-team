@@ -6,7 +6,17 @@ import {
   renderGoalPrompt,
   renderInterviewPrompt,
 } from "../../core/goals/index.js";
-import type { LoopRuntime } from "../../core/loop-mode/index.js";
+import type { LoopRuntime, LoopStatus } from "../../core/loop-mode/index.js";
+
+/** Loop status for the bar: state + remaining budget + the continue-condition
+ *  (undefined when the mode is off, which clears the segment). */
+function loopStatus(runtime: LoopRuntime): LoopStatus | undefined {
+  const status = runtime.status();
+  if (!status) return undefined;
+  const label = [status.label, runtime.conditionLabel].filter(Boolean).join(" · ");
+  return label ? { ...status, label } : status;
+}
+
 import { getVectorMemory, memoryDbPath } from "../../core/memory/vector-memory.js";
 import {
   addMarketplace,
@@ -355,7 +365,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.goals.drop();
         }
         ctx.pushStatus(started.status);
-        ctx.io.setLoopStatus?.(runtime.status() ?? undefined);
+        ctx.io.setLoopStatus?.(loopStatus(runtime));
         if (started.prompt) ctx.pendingPrompt = started.prompt;
       },
     },

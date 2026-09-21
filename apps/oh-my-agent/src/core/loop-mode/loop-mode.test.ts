@@ -109,7 +109,7 @@ describe("LoopRuntime (loop mode)", () => {
     expect(rt.enabled).toBe(false);
   });
 
-  test("first prompt is captured; pause drops it but keeps the mode armed", () => {
+  test("first prompt is captured; pause drops it but keeps the mode armed", async () => {
     const rt = new LoopRuntime();
     rt.toggle("");
     expect(rt.status()?.state).toBe("waiting");
@@ -122,34 +122,38 @@ describe("LoopRuntime (loop mode)", () => {
     // The next prompt re-arms the loop (omp: pause is not exit).
     rt.capturePrompt("next thing");
     expect(rt.status()?.state).toBe("running");
-    expect(rt.nextIteration()).toEqual({ action: "run", prompt: "next thing" });
+    expect(await rt.nextIteration()).toEqual({ action: "run", prompt: "next thing" });
   });
 
-  test("iterations are consumed per iteration and stop the loop at the limit", () => {
+  test("iterations are consumed per iteration and stop the loop at the limit", async () => {
     const rt = new LoopRuntime();
     rt.toggle("2 go");
     rt.capturePrompt("go");
-    expect(rt.nextIteration()).toEqual({ action: "run", prompt: "go" });
-    expect(rt.nextIteration()).toEqual({ action: "run", prompt: "go" });
-    expect(rt.nextIteration()).toEqual({ action: "stop", reason: "loop limit reached" });
+    expect(await rt.nextIteration()).toEqual({ action: "run", prompt: "go" });
+    expect(await rt.nextIteration()).toEqual({ action: "run", prompt: "go" });
+    expect(await rt.nextIteration()).toEqual({ action: "stop", reason: "loop limit reached" });
   });
 
-  test("compact/reset actions carry a preamble", () => {
+  test("compact/reset actions carry a preamble", async () => {
     const compact = new LoopRuntime("compact");
     compact.toggle("");
     compact.capturePrompt("go");
-    expect(compact.nextIteration()).toEqual({ action: "run", prompt: "go", preamble: "compact" });
+    expect(await compact.nextIteration()).toEqual({
+      action: "run",
+      prompt: "go",
+      preamble: "compact",
+    });
     const reset = new LoopRuntime("reset");
     reset.toggle("");
     reset.capturePrompt("go");
-    expect(reset.nextIteration()).toEqual({ action: "run", prompt: "go", preamble: "reset" });
+    expect(await reset.nextIteration()).toEqual({ action: "run", prompt: "go", preamble: "reset" });
   });
 
-  test("idle when disabled or without a captured prompt", () => {
+  test("idle when disabled or without a captured prompt", async () => {
     const rt = new LoopRuntime();
-    expect(rt.nextIteration()).toEqual({ action: "idle" });
+    expect(await rt.nextIteration()).toEqual({ action: "idle" });
     rt.toggle("");
-    expect(rt.nextIteration()).toEqual({ action: "idle" });
+    expect(await rt.nextIteration()).toEqual({ action: "idle" });
     expect(rt.status()?.state).toBe("waiting");
   });
 

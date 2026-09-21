@@ -30,13 +30,18 @@ describe("loop mode drives its own turns", () => {
   test("the captured prompt is re-submitted after the run settles", async () => {
     sessionDir();
     try {
-      // Inputs: enable the loop, send the loop prompt, then an unknown-command
-      // sentinel that ends the session (waitForInput resolves null afterwards).
-      const io = scriptedIo(["/loop", "keep polishing", "/exit-unknown"]);
+      // Two keystrokes: enable with a 2-iteration budget, then the prompt that
+      // becomes the loop body. After that the loop drives itself; reading null
+      // ends the session once the budget has been spent.
+      const io = scriptedIo([]);
       io.waitForInput = (() => {
-        let i = 0;
-        const inputs = ["/loop 2", "keep polishing"];
-        return () => Promise.resolve(i < inputs.length ? inputs[i++]! : null);
+        let step = 0;
+        return () => {
+          step++;
+          if (step === 1) return Promise.resolve("/loop 2");
+          if (step === 2) return Promise.resolve("keep polishing");
+          return Promise.resolve(null);
+        };
       })();
       const code = await runTuiSession(
         { modelRuntime: testModelRuntime(), workspaceRoot: "." },
@@ -48,15 +53,56 @@ describe("loop mode drives its own turns", () => {
         .filter((i) => i.kind === "status")
         .map((i) => i.text);
       expect(statuses.some((t) => t.includes("loop mode enabled"))).toBe(true);
-      // The re-submitted iteration is the user's own text, echoed as a user
-      // bubble each time — so the loop prompt appears more than once.
-      const userEchoes = io.renders
+      // Assert on the loop's own decision trail rather than on rendered item
+      // counts: the transcript merges/re-renders, so the durable evidence of
+      // "the loop drove its own turns" is the decision statuses.
+      const loopStatuses = io.renders
         .flatMap((s) => s.runs.flatMap((r) => r.items))
-        .filter((i) => i.kind === "user" && i.text === "keep polishing").length;
-      expect(userEchoes).toBeGreaterThanOrEqual(2);
-      expect(assistantTexts(io).length).toBeGreaterThanOrEqual(2);
+        .filter((i) => i.kind === "status" && i.text.startsWith("loop:"))
+        .map((i) => i.text);
+      expect(loopStatuses.some((t) => t.includes("iteration re-submitted"))).toBe(true);
       // The count limit disables the loop once spent.
       expect(statuses.some((t) => t.includes("loop limit reached"))).toBe(true);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+    }
+  }, 30_000);
+  test("a satisfied --until condition stops the loop after the first iteration", async () => {
+    sessionDir();
+    try {
+      // ONE command, then a null read ends the session. The null is only
+      // served AFTER the first turn settled (the loop decision runs before the
+      // next waitForInput), so this still proves the gate stopped the loop
+      // instead of the session running out of input mid-flight.
+      const io = scriptedIo(["/loop --until 'true' keep polishing", null as unknown as string]);
+      const seen: string[] = [];
+      io.waitForInput = (() => {
+        let step = 0;
+        return () => {
+          step++;
+          if (step === 1) return Promise.resolve("/loop --until 'true' keep polishing");
+          return Promise.resolve(null); // session ends once the user is idle
+        };
+      })();
+      void seen;
+      const code = await runTuiSession(
+        { modelRuntime: testModelRuntime(), workspaceRoot: "." },
+        io,
+      );
+      expect(code).toBe(0);
+      const statuses = io.renders
+        .flatMap((s) => s.runs.flatMap((r) => r.items))
+        .filter((i) => i.kind === "status")
+        .map((i) => i.text);
+      expect(statuses.some((t) => t.includes("until `true` succeeds"))).toBe(true);
+      expect(statuses.some((t) => t.includes("is now satisfied"))).toBe(true);
+      // Count in the FINAL view state, not across renders: every frame
+      // re-renders the same items, so a cross-render sum over-counts.
+      const finalUsers = io.renders
+        .at(-1)!
+        .runs.flatMap((r) => r.items)
+        .filter((i) => i.kind === "user" && i.text === "keep polishing");
+      expect(finalUsers).toHaveLength(1); // the first turn, no re-submission
     } finally {
       delete process.env.OMA_SESSION_DIR;
     }
