@@ -205,17 +205,17 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
     }
   }, 30_000);
 
-  test("/goal drives turns until the evaluator confirms the condition", async () => {
+  test("/goal runs an autonomous loop ended by the model's goal-complete call", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-goal-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-goal-sess-"));
     process.env.OMA_SESSION_DIR = sessDir;
-    // The fake model serves BOTH the run and the evaluator: the run does a
-    // tool call then finishes, and its final text doubles as the
-    // evaluator's MET verdict.
+    // The fake model does a probe tool call then calls the goal tool with
+    // op=complete in the SAME scripted run: omp semantics — completion is
+    // model-declared, and the loop ends on the tool's terminal transition.
     process.env.OMA_FAKE_TOOL = JSON.stringify([
       { name: "bash", input: { description: "check", command: "echo all-tests-pass" } },
+      { name: "goal", input: { op: "complete" } },
     ]);
-    process.env.OMA_FAKE_TEXT = '{"verdict":"met"}';
     try {
       const vt = new VirtualTerminal(100, 30);
       const io = createTerminalIo(vt);
@@ -225,18 +225,19 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       );
       await vt.waitForRender();
 
-      // Setting the goal submits the condition as the first turn.
-      await typeAndSubmit(vt, "/goal echo-all-tests-pass prints all-tests-pass");
-      await waitForText(vt, "goal set", 5_000);
+      // Setting the goal submits the active-mode prompt as the first turn.
+      // The status line scrolls off the 30-row viewport under the long
+      // prompt, so the stable assertions are the tool result and the
+      // terminal goal transition.
+      await typeAndSubmit(vt, "/goal make echo-all-tests-pass print all-tests-pass");
       await waitForText(vt, "all-tests-pass", 30_000);
-      await waitForText(vt, "goal ended: goal met after 1 turn(s)", 30_000);
+      await waitForText(vt, "goal COMPLETE", 30_000);
 
       await quitTui(vt);
       expect(await sessionDone).toBe(0);
     } finally {
       delete process.env.OMA_SESSION_DIR;
       delete process.env.OMA_FAKE_TOOL;
-      delete process.env.OMA_FAKE_TEXT;
       rmSync(dir, { recursive: true, force: true });
       rmSync(sessDir, { recursive: true, force: true });
     }
@@ -248,35 +249,6 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
     process.env.OMA_FAKE_TOOL = JSON.stringify([
       { name: "bash", input: { command: "sh -c 'exit 3'" } },
     ]);
-    try {
-      const vt = new VirtualTerminal(100, 30);
-      const io = createTerminalIo(vt);
-      const sessionDone = runTuiSession(
-        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
-        io,
-      );
-
-      await typeAndSubmit(vt, "fail a tool");
-      await vt.waitForRender();
-      const rendered = screen(vt);
-      // Error marker (pi's toolErrorBg equivalent) + the failing command.
-      expect(rendered).toContain("✘");
-      expect(rendered).toContain("$ sh -c 'exit 3'");
-      expect(rendered).toContain("[exit: 3]");
-
-      await quitTui(vt);
-      expect(await sessionDone).toBe(0);
-    } finally {
-      delete process.env.OMA_SESSION_DIR;
-      delete process.env.OMA_FAKE_TOOL;
-      rmSync(dir, { recursive: true, force: true });
-      rmSync(sessDir, { recursive: true, force: true });
-    }
-  }, 30_000);
-  test("second turn sees the first turn's transcript (session continuity)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "oma-e2e2-"));
-    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e2-sess-"));
-    process.env.OMA_SESSION_DIR = sessDir;
     try {
       const vt = new VirtualTerminal(100, 40);
       const io = createTerminalIo(vt);

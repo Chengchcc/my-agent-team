@@ -13,6 +13,15 @@ import {
 } from "../../core/plugins/plugin-marketplace.js";
 import { trustFile, trustPlugin } from "../../core/plugins/plugin-trust.js";
 import type { OmaRuntime } from "../../core/runtime/create-runtime.js";
+import {
+  canCreateGoal,
+  createGoal,
+  type GoalModeState,
+  pauseGoal,
+  renderGoalPrompt,
+  renderInterviewPrompt,
+  resumeGoal,
+} from "../../core/runtime/goal-state.js";
 import { readMemorySummary } from "../../core/runtime/prompts.js";
 import {
   loadProjectSettings,
@@ -65,16 +74,14 @@ export interface TuiSessionContext {
   lastContextTokens?: number;
   pendingFocusRecap?: string;
   runCommandText?: (text: string) => Promise<void>;
-  /** Session permission-mode override (/permission): "off" = ungated,
-   *  "yolo" = ungated + OS bash sandbox forced when available. */
+  /** Session permission-mode override (/permission). */
   permissionOverride?: "ask" | "auto" | "deny" | "off" | "yolo";
-  /** Goal-mode state (session-scoped, in-memory): null = no goal. */
-  goal?: {
-    condition: string;
-    startedAt: number;
-    turns: number;
-    noProgressRuns: number;
-  } | null;
+  /** Goal-mode state (omp port): null = no goal this session. */
+  goal?: GoalModeState | null;
+  /** /guided-goal interview phase: tool mounted, no goal created yet. */
+  goalInterviewing?: boolean;
+  /** /goal budget <n>: mutate the active goal's token budget. */
+  adjustGoalBudget?: (budget: number | undefined) => void;
   pendingImages?: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
@@ -251,37 +258,103 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
 
     {
       name: "goal",
-      description: "work toward a condition across turns (set/status/clear)",
-      argumentHint: "[<condition> | clear]",
+      description: "goal mode: persistent autonomous objective (omp semantics)",
+      argumentHint: "[<objective> | set <objective> | show | pause | resume | drop | budget <n>]",
       group: "general",
       live: true,
       run: (args) => {
         const value = args.trim();
-        const stopWords = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
-        if (!value) {
-          if (!ctx.goal) {
-            ctx.pushStatus("no goal set — /goal <measurable condition>");
-            return;
-          }
-          const elapsed = Math.round((Date.now() - ctx.goal.startedAt) / 1000);
-          ctx.pushStatus([
-            `goal active · ${ctx.goal.turns} turn(s) · ${elapsed}s`,
-            `  ${ctx.goal.condition}`,
+        const [sub, ...rest] = value.split(/\s+/);
+        const restText = rest.join(" ").trim();
+        const goal = ctx.goal?.goal;
+
+        if (sub === "show") {
+          if (!goal) return void ctx.pushStatus("no goal this session");
+          return void ctx.pushStatus([
+            `goal ${goal.status} · ${goal.tokensUsed} tokens used` +
+              (goal.tokenBudget !== undefined ? ` of ${goal.tokenBudget}` : "") +
+              ` · ${goal.timeUsedSeconds}s`,
+            `  ${goal.objective}`,
           ]);
+        }
+        if (sub === "pause") {
+          if (!ctx.goal) return void ctx.pushStatus("no goal to pause");
+          ctx.goal = pauseGoal(ctx.goal);
+          ctx.pushStatus(`goal paused — /goal resume continues it`);
           return;
         }
-        if (stopWords.has(value)) {
-          const had = ctx.goal?.condition;
+        if (sub === "resume") {
+          if (!ctx.goal) return void ctx.pushStatus("no goal to resume");
+          try {
+            ctx.goal = resumeGoal(ctx.goal);
+          } catch (err) {
+            return void ctx.pushStatus(
+              `cannot resume: ${err instanceof Error ? err.message : err}`,
+            );
+          }
+          ctx.pushStatus(`goal resumed — the next turn continues it`);
+          // Resume drives a continuation turn immediately.
+          ctx.pendingPrompt = "(goal) resumed by the user — continue the active goal.";
+          return;
+        }
+        if (sub === "drop" || sub === "clear" || sub === "stop") {
+          if (!ctx.goal) return void ctx.pushStatus("no goal set");
+          ctx.pushStatus(`goal dropped: ${ctx.goal.goal.objective}`);
           ctx.goal = null;
-          ctx.pushStatus(had ? `goal cleared: ${had}` : "no goal set");
+          ctx.goalInterviewing = false;
           return;
         }
-        ctx.goal = { condition: value, startedAt: Date.now(), turns: 0, noProgressRuns: 0 };
-        ctx.pushStatus(`goal set — the evaluator judges each turn, /goal clear stops`);
-        // Setting a goal starts a turn immediately, with the condition as
-        // the directive (CC semantics): the pendingPrompt mechanism hands
-        // this to the main loop as the next run.
-        ctx.pendingPrompt = value;
+        if (sub === "budget") {
+          if (!ctx.goal) return void ctx.pushStatus("no active goal");
+          if (rest[0] === "none") return void ctx.adjustGoalBudget?.(undefined);
+          const n = Number(rest[0]);
+          if (!Number.isInteger(n) || n <= 0) {
+            return void ctx.pushStatus("usage: /goal budget <positive-int> | none");
+          }
+          ctx.adjustGoalBudget?.(n);
+          return;
+        }
+        // /goal (no args): status or set-with-editor is TUI-sugar we skip —
+        // show status, matching /goal show.
+        if (!value) {
+          if (!goal) return void ctx.pushStatus("no goal — /goal <objective> or /guided-goal");
+          return void ctx.pushStatus([
+            `goal ${goal.status} · ${goal.tokensUsed} tokens` +
+              (goal.tokenBudget !== undefined ? `/${goal.tokenBudget}` : "") +
+              ` · ${goal.timeUsedSeconds}s — /goal show|pause|resume|drop|budget`,
+            `  ${goal.objective}`,
+          ]);
+        }
+        // /goal set <objective> or /goal <objective>: create/replace.
+        const objective = sub === "set" ? restText : value;
+        if (!objective) return void ctx.pushStatus("usage: /goal <objective>");
+        if (ctx.goal && !canCreateGoal(ctx.goal)) {
+          return void ctx.pushStatus(
+            "goal already active — /goal drop first, or /goal set replaces it after drop",
+          );
+        }
+        ctx.goalInterviewing = false;
+        ctx.goal = createGoal(objective);
+        ctx.pushStatus(`goal set — model declares completion via the goal tool; interrupt pauses`);
+        ctx.pendingPrompt = renderGoalPrompt("active", ctx.goal.goal);
+      },
+    },
+    {
+      name: "guided-goal",
+      description: "interview me into a verifiable goal, then run it (omp)",
+      argumentHint: "[<rough idea>]",
+      group: "general",
+      live: true,
+      run: (args) => {
+        if (ctx.goal && !canCreateGoal(ctx.goal)) {
+          return void ctx.pushStatus("goal already active — /goal drop first");
+        }
+        if (ctx.goalInterviewing) {
+          return void ctx.pushStatus("interview already running — answer the agent's questions");
+        }
+        ctx.goalInterviewing = true;
+        ctx.pushStatus("guided goal: the agent interviews you, then creates the goal itself");
+        ctx.pendingPrompt = renderInterviewPrompt(args.trim() || undefined);
       },
     },
     {

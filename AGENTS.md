@@ -221,3 +221,14 @@ Two layers: **packages/workflow** (pure domain: `WorkflowDefinition` DSL, `compu
   apps/backend. Tests should cover behavior (branches, invariants, error
   handling), not plumbing
 - **Test helpers:** `@chengchenccc/test-helpers` exports `echoModel()` with `EchoScript` type for deterministic model responses
+
+## 编辑纪律（血泪教训）
+
+本仓库的编辑工具（行区间 PUT/CUT）**多次吃掉相邻行**——一次编辑替换了一个区间，却在边界处吞掉了一行关键语句（如 `io.onLiveInput?.(steerHandler);`、`modelId = ...`、`cliSessionRef` 赋值），typecheck 依然通过但行为静默损坏，直到测试变红才暴露。
+
+**每次编辑之后立刻回看 diff**，确认：
+1. `git diff <file>` 中**没有任何非本意的 `-` 行**（删除的行必须是你打算删的）；
+2. 该编辑的**上下文行完整**（函数头、闭合括号、赋值语句都在）；
+3. 若编辑落在同一文件的连续区域，**一次改完**并整体重读该区域，不要连续小步微调。
+
+批量小改时优先用整块重写（`write` 或大区间 PUT），而不是多次单行 PUT。

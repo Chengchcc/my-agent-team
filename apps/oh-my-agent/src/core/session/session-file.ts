@@ -334,6 +334,93 @@ export function renameSession(id: string, title: string, dir: string = sessionDi
   appendSessionTitle(id, title, dir);
   return true;
 }
+
+/** Append a goal-mode event (omp mode-change analogue): the latest goal
+ *  state transition for the session. Replay reconstructs the current goal
+ *  (active/paused/complete/dropped); a goal:null event means dropped. */
+export function appendSessionGoalEvent(
+  id: string,
+  state: {
+    enabled: boolean;
+    mode: "active" | "exiting";
+    reason?: "completed";
+    goal: unknown;
+  } | null,
+  dir: string = sessionDir(),
+): void {
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return;
+  appendFileSync(
+    path,
+    `${JSON.stringify({
+      type: "goal",
+      timestamp: new Date().toISOString(),
+      goalMode: state,
+    })}\n`,
+  );
+}
+
+/** Reconstruct the current goal-mode state by replaying goal events (last
+ *  one wins; malformed entries are skipped like every other scan here). */
+export function loadSessionGoalState(
+  id: string,
+  dir: string = sessionDir(),
+): {
+  enabled: boolean;
+  mode: "active" | "exiting";
+  reason?: "completed";
+  goal: {
+    id: string;
+    objective: string;
+    status: "active" | "paused" | "budget-limited" | "complete" | "dropped";
+    tokenBudget?: number;
+    tokensUsed: number;
+    timeUsedSeconds: number;
+    createdAt: number;
+    updatedAt: number;
+  };
+} | null {
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return null;
+  let latest: {
+    enabled: boolean;
+    mode: "active" | "exiting";
+    reason?: "completed";
+    goal: never;
+  } | null = null;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.trim() || !line.includes('"goal"')) continue;
+    try {
+      const evt = JSON.parse(line) as {
+        type?: string;
+        goalMode?: { enabled?: boolean; mode?: string; reason?: string; goal?: unknown } | null;
+      };
+      if (evt.type !== "goal") continue;
+      const mode = evt.goalMode;
+      if (mode === null || mode === undefined || mode.goal == null) {
+        latest = null; // explicit drop/clear wins from here on
+        continue;
+      }
+      const g = mode.goal as Record<string, unknown>;
+      if (
+        typeof g.objective !== "string" ||
+        typeof g.status !== "string" ||
+        typeof g.id !== "string"
+      ) {
+        continue;
+      }
+      latest = {
+        enabled: mode.enabled === true,
+        mode: mode.mode === "exiting" ? "exiting" : "active",
+        ...(mode.reason === "completed" ? { reason: "completed" as const } : {}),
+        goal: g as never,
+      };
+    } catch {
+      /* skip malformed line */
+    }
+  }
+  return latest;
+}
 /** Append a compaction event: records that the run compacted everything
  *  recorded so far in this file into `summary`. Must be called AFTER the
  *  turn's messages are appended. */

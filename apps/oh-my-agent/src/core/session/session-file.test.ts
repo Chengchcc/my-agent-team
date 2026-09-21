@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from "node:fs
 import { join } from "node:path";
 import {
   appendSessionCompaction,
+  appendSessionGoalEvent,
   appendSessionMessages,
   appendSessionSummary,
   appendSessionTitle,
@@ -12,6 +13,7 @@ import {
   listAllSessions,
   listSessions,
   loadSessionBranchNodes,
+  loadSessionGoalState,
   loadSessionMessages,
   readSessionTitle,
   renameSession,
@@ -444,6 +446,46 @@ describe("session branch tree", () => {
 /** Session ids reach the filesystem and callers supply them (RPC resume,
  *  TUI rename/delete): every public API must refuse a path-shaped id at the
  *  boundary instead of escaping the session dir. */
+describe("goal event persistence (omp mode-change replay)", () => {
+  test("last goal event wins; a null event clears", () => {
+    const id = "goal-sess";
+    appendSessionMessages(id, dir, [{ role: "user", text: "hi" }]);
+    expect(loadSessionGoalState(id, dir)).toBeNull();
+
+    const goal = {
+      id: "g1",
+      objective: "make tests pass",
+      status: "active" as const,
+      tokensUsed: 12,
+      timeUsedSeconds: 3,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    appendSessionGoalEvent(id, { enabled: true, mode: "active", goal: {} as never }, dir);
+    // A malformed event (no usable goal) is ignored by the replay.
+    expect(loadSessionGoalState(id, dir)).toBeNull();
+
+    appendSessionGoalEvent(id, { enabled: true, mode: "active", goal }, dir);
+    const restored = loadSessionGoalState(id, dir);
+    expect(restored?.goal.objective).toBe("make tests pass");
+    expect(restored?.enabled).toBe(true);
+    expect(restored?.goal.status).toBe("active");
+
+    // Pause wins as the latest transition.
+    appendSessionGoalEvent(
+      id,
+      { enabled: false, mode: "active", goal: { ...goal, status: "paused" } },
+      dir,
+    );
+    expect(loadSessionGoalState(id, dir)?.goal.status).toBe("paused");
+    expect(loadSessionGoalState(id, dir)?.enabled).toBe(false);
+
+    // Drop (null) clears the replay entirely.
+    appendSessionGoalEvent(id, null, dir);
+    expect(loadSessionGoalState(id, dir)).toBeNull();
+  });
+});
+
 describe("session id traversal boundary", () => {
   const BAD = ["../escape", "..", "/abs/id", "a\\b", "sub/dir", ".", "with space", "nul\x00"];
 
