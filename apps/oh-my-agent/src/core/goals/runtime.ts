@@ -1,3 +1,4 @@
+import type { TodoItem } from "../tools/todo-store.js";
 import {
   accountTurn,
   accrueUsage,
@@ -249,5 +250,26 @@ export class GoalRuntime {
     const state = this.#state;
     if (!state?.enabled || state.goal.status !== "active") return null;
     return renderGoalPrompt("active", state.goal);
+  }
+
+  /** omp goal-todo-context: a continuation has no visible user nudge, so the
+   *  live todo state must ride along or stale items silently rot. Appended
+   *  to continuation/budget prompts by the caller that owns the todo file. */
+  static renderTodoContext(items: readonly TodoItem[]): string {
+    if (items.length === 0) return "";
+    const open = items.filter((i) => i.status !== "done" && i.status !== "cancelled").length;
+    const done = items.length - open;
+    const rows = items.map(
+      (i) => `- [${i.status === "in_progress" ? "in_progress" : i.status}] ${i.text}`,
+    );
+    return [
+      "<todo_context>",
+      "Persisted todos: live progress state for the current goal, not old transcript decoration; goal continuations lack a visible user nudge → treat as live state.",
+      "Before substantial work: compare the next action with the todos. If an item is stale, already finished, or no longer the active pointer, call `todo` first: mark it done or rewrite the list. Do not leave a stale in_progress while working on later phases.",
+      "",
+      `Overall: ${done}/${items.length} done, ${open} open.`,
+      ...rows,
+      "</todo_context>",
+    ].join("\n");
   }
 }

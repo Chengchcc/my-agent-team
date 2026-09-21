@@ -550,6 +550,24 @@ export interface JobSettlement {
 }
 
 export const SETTLEMENT_SENTINEL = "[background jobs finished]";
+
+/** Prefixes marking a RUN INPUT that must never read as a user turn:
+ *  it reaches the model (that IS the delivery) but produces no transcript
+ *  echo and no session-file entry — omp's `display: false` custom message.
+ *  Goal-mode steers (active/continuation/budget-limit prompts, the guided
+ *  interview kickoff) ride this channel: they are multi-KB XML protocol
+ *  text, and persisting them made /resume replay them as phantom bubbles. */
+export const HIDDEN_INPUT_SENTINELS = [SETTLEMENT_SENTINEL, "[goal-mode]"] as const;
+
+export function isHiddenInput(text: string): boolean {
+  return HIDDEN_INPUT_SENTINELS.some((s) => text.startsWith(s));
+}
+
+/** Wrap a goal-mode prompt for the hidden channel. */
+export function formatGoalInput(prompt: string): string {
+  return `[goal-mode]\n\n${prompt}`;
+}
+
 export const SETTLEMENT_INLINE_MAX = 4_000;
 export const SETTLEMENT_PREVIEW_MAX = 1_500;
 

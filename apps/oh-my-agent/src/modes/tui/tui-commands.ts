@@ -28,7 +28,7 @@ import { buildSkillIndex } from "../../core/tools/index.js";
 import { listMcpServers, testMcpServer } from "../../core/tools/mcp-mount.js";
 import { sniffMediaType } from "../../core/tools/read-image.js";
 import { buildSessionCommands } from "./tui-commands-session.js";
-import { formatTokens } from "./tui-format.js";
+import { formatGoalInput, formatTokens } from "./tui-format.js";
 import type { TuiIo, TuiModeOptions } from "./tui-seam.js";
 import type { TuiViewState } from "./view-state.js";
 
@@ -287,7 +287,9 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
             );
           }
           // Resume drives a continuation turn immediately.
-          ctx.pendingPrompt = "(goal) resumed by the user — continue the active goal.";
+          ctx.pendingPrompt = formatGoalInput(
+            "(goal) resumed by the user — continue the active goal.",
+          );
           return;
         }
         if (sub === "drop" || sub === "clear" || sub === "stop") {
@@ -304,7 +306,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           }
           const resumed = runtime.setBudget(raw);
           // omp onBudgetMutated: raising the budget resumes the goal.
-          if (resumed) ctx.pendingPrompt = resumed.prompt;
+          if (resumed) ctx.pendingPrompt = formatGoalInput(resumed.prompt);
           return;
         }
         // /goal (no args): status — matches /goal show.
@@ -328,7 +330,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           return void ctx.pushStatus("goal already complete — /goal drop before setting a new one");
         }
         const created = runtime.create(objective);
-        ctx.pendingPrompt = renderGoalPrompt("active", created.goal);
+        ctx.pendingPrompt = formatGoalInput(renderGoalPrompt("active", created.goal));
       },
     },
     {
@@ -348,7 +350,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         runtime.beginInterview();
         ctx.pushStatus("guided goal: the agent interviews you, then creates the goal itself");
-        ctx.pendingPrompt = renderInterviewPrompt(args.trim() || undefined);
+        ctx.pendingPrompt = formatGoalInput(renderInterviewPrompt(args.trim() || undefined));
       },
     },
     {

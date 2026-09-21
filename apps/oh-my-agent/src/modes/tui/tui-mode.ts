@@ -35,7 +35,7 @@ import { loadProjectSettings } from "../../core/settings/project-settings.js";
 import { readTodoFile } from "../../core/tools/todo-store.js";
 import { standaloneRuntimeOptions } from "../shared.js";
 import { buildCommands, type TuiSessionContext } from "./tui-commands.js";
-import { formatTokens, refreshGitStatus, SETTLEMENT_SENTINEL } from "./tui-format.js";
+import { formatGoalInput, formatTokens, isHiddenInput, refreshGitStatus } from "./tui-format.js";
 import {
   forkTreeInteractive,
   lastRunRecap,
@@ -340,7 +340,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     if (images.length > 0) pushStatus(`[${images.length} image(s) attached]`);
     // Settlement injections already rendered their transcript block via
     // appendNotice (tui-io) — no second echo as a user bubble.
-    if (!fromFollowUp && !text.startsWith(SETTLEMENT_SENTINEL)) addUserInput(state, text);
+    if (!fromFollowUp && !isHiddenInput(text)) addUserInput(state, text);
 
     const built = await buildCliRunInput({
       prompt: text,
@@ -449,7 +449,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             // session file, or /resume replays them as phantom user bubbles
             // ("background jobs finished" blocks the user never typed).
             const persistable = messages.filter(
-              (m) => !(m.role === "user" && (m.text ?? "").startsWith(SETTLEMENT_SENTINEL)),
+              (m) => !(m.role === "user" && isHiddenInput(m.text ?? "")),
             );
             if (persistable.length === 0) return;
             appendSessionMessages(session.sessionId, opts.workspaceRoot, persistable, session.dir);
@@ -623,14 +623,30 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         usedTools: state.runs.at(-1)?.items.some((item) => item.kind === "tool") === true,
       });
       if (decision.action === "continue") {
-        pendingFollowUps.push(decision.prompt);
+        // omp goal-todo-context: the continuation has no visible user nudge,
+        // so the live todo state must ride along (read fresh each turn — the
+        // run may have rewritten it).
+        const todoCtx = GoalRuntime.renderTodoContext(
+          readTodoFile(opts.workspaceRoot, session.sessionId),
+        );
+        pendingFollowUps.push(
+          formatGoalInput(`${decision.prompt}${todoCtx ? `\n\n${todoCtx}` : ""}`),
+        );
         pushStatus(
           `goal continuing · ${decision.tokensUsed} tokens` +
             (decision.tokenBudget !== undefined ? `/${decision.tokenBudget}` : "") +
             " — /goal pause stops",
         );
       } else if (decision.action === "budget-wrapup") {
-        pendingFollowUps.push(decision.prompt);
+        // omp goal-todo-context: the continuation has no visible user nudge,
+        // so the live todo state must ride along (read fresh each turn — the
+        // run may have rewritten it).
+        const todoCtx = GoalRuntime.renderTodoContext(
+          readTodoFile(opts.workspaceRoot, session.sessionId),
+        );
+        pendingFollowUps.push(
+          formatGoalInput(`${decision.prompt}${todoCtx ? `\n\n${todoCtx}` : ""}`),
+        );
         pushStatus(
           `goal budget-limited (${decision.tokensUsed} ≥ ${decision.tokenBudget}) — wrap-up turn queued`,
         );

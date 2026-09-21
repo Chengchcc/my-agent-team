@@ -123,6 +123,26 @@ describe("GoalRuntime accounting and decisions (omp port)", () => {
     expect(rt.remainingTokens()).toBe(15);
   });
 
+  test("todo context (omp goal-todo-context): counts + rows, empty → no block", () => {
+    expect(GoalRuntime.renderTodoContext([])).toBe("");
+    const ctx = GoalRuntime.renderTodoContext([
+      { id: "1", text: "wire the loop", status: "in_progress" },
+      { id: "2", text: "write tests", status: "pending" },
+      { id: "3", text: "read the docs", status: "done" },
+    ]);
+    expect(ctx).toContain("<todo_context>");
+    expect(ctx).toContain("Overall: 1/3 done, 2 open.");
+    expect(ctx).toContain("[in_progress] wire the loop");
+    // The load-bearing instruction: no visible nudge means stale items rot.
+    expect(ctx).toContain("call `todo` first");
+    // Cancelled items count as closed, like done.
+    const withCancelled = GoalRuntime.renderTodoContext([
+      { id: "1", text: "dropped idea", status: "cancelled" },
+      { id: "2", text: "keep going", status: "pending" },
+    ]);
+    expect(withCancelled).toContain("Overall: 1/2 done, 1 open.");
+  });
+
   test("complete without a goal throws; unknown ops never corrupt state", () => {
     const rt = new GoalRuntime();
     expect(() => rt.complete()).toThrow(/no goal/);
