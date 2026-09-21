@@ -126,10 +126,6 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** /permission session override: wins over the --permission flag and the
    *  settings file for every subsequent run this session. */
   let permissionOverride: PermissionFlag | undefined;
-  /** Consecutive goal turns that used no tool (stall backstop). */
-  const goalNoProgressTurns = 0;
-  /** Goal runtime (omp GoalRuntime analogue): owns goal state, accounting
-   *  and loop decisions; the TUI renders its decisions. */
   /** /paste queue: rides the next submitted message, then clears. */
   let pendingImages: Array<{
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
@@ -154,6 +150,8 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     state.runs.push({ items, running: false });
   }
 
+  /** Goal runtime (omp GoalRuntime analogue): owns goal state, accounting
+   *  and loop decisions; the TUI renders its decisions. */
   const goalRuntime = new GoalRuntime(
     (state) => appendSessionGoalEvent(session.sessionId, state, session.dir),
     (message) => pushStatus(`◎ ${message}`),
