@@ -34,6 +34,8 @@
 | 0026 | agent-threat-model | Accepted |
 | 0027 | ask-question-product-tools-mcp(跨 runtime HITL 提问) | Draft |
 | 0028 | tui-component-layering(live 归 chrome，终局归 transcript) | Accepted |
+| 0029 | coding-agent-status-contract(agent-status 文件契约接受双写重复) | Accepted |
+
 > 状态翻转纪律：任何 ADR 状态变更(Obsolete/Superseded/Deferred→Implemented 等)**必须同 PR 更新本索引**，避免索引与正文失配(2026-08-21 修复 0004/0006/0024 时立规)。
 
 ## 架构级决策文档(非 ADR，但同属决策面)

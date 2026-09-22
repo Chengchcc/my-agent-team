@@ -89,6 +89,16 @@ bash scripts/memguard.sh --limit 2G -- bun run build
 - `apps/backend/.backend-data/` — 本地数据目录：SQLite 库、Agent 工作区、workflow 定义
 - `apps/oh-my-agent/dist/` — 构建产物
 
+## 提交规范
+
+提交信息走 commitlint 的 conventional 规则（`commitlint.config.mjs`），pre-commit 跑 Biome，pre-push 跑 lint。三条硬约束：
+
+- 必须有 scope，且只能从配置里那张清单选：包名（`backend`、`oh-my-agent`、`ai`、`message`……）、应用名（`web`、`lark-bot`）、功能名（`agent-run`、`workflow`、`sandbox`、`mcp`、`settings`）、或者 `docs`、`test`、`lint`、`build`、`deps`、`repo`。不在这张表里的 scope 一律被拒。
+- type 只能是 `feat`、`fix`、`refactor`、`perf`、`style`、`test`、`docs`、`chore`、`ci`、`revert`。
+- 提交信息里不许出现中文（自定义的 `no-cjk` 规则，header 和 body 都查）。
+
+husky 的 pre-commit 会先 `biome format` 再 `git add -u`，把已跟踪文件的全部改动塞进这一次提交。要拆开提交就先 `git stash push -- <paths>`（未跟踪的文件不受影响）。
+
 ## 相关页
 
 - [排障指南](./troubleshooting.md) — 起不来、连不上、跑不动时按层查
