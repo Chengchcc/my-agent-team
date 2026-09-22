@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ConflictError, ValidationError } from "../../infra/domain-errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 
 /** Project facts the worktree plumbing needs (subset of ProjectRow). */
 export interface WorktreeProject {
@@ -129,4 +129,34 @@ export async function createTaskWorktree(
   const target = project.defaultBranch ?? "HEAD";
   await Bun.$`git -C ${mirrorPath} worktree add -b ${branch} ${wt} ${target}`.quiet();
   return wt;
+}
+
+/** Remove a task worktree and its branch. `force` discards uncommitted
+ *  changes — the caller asks the user first (git's own UX). Running
+ *  TERMINALS in that path are the caller's guard, not git's. */
+export async function removeTaskWorktree(
+  mirrorPath: string,
+  agentWorkspace: string,
+  project: WorktreeProject,
+  agentId: string,
+  slug: string,
+  opts: { force: boolean },
+): Promise<void> {
+  const wt = `${worktreePath(agentWorkspace, project.projectId)}.${slug}`;
+  const branch = `${branchName(agentId, project.projectId)}.${slug}`;
+  if (!existsSync(wt)) {
+    // Nothing checked out — clean up a stale branch/registration if any.
+    await Bun.$`git -C ${mirrorPath} worktree prune`.quiet().nothrow();
+    await Bun.$`git -C ${mirrorPath} branch -D ${branch}`.quiet().nothrow();
+    throw new NotFoundError("task worktree", wt);
+  }
+  if (!opts.force) {
+    const dirty = (await Bun.$`git -C ${wt} status --porcelain`.quiet().nothrow().text()).trim();
+    if (dirty.length > 0) {
+      throw new ConflictError(`worktree has uncommitted changes: ${wt}`);
+    }
+  }
+  await Bun.$`git -C ${mirrorPath} worktree remove --force ${wt}`.quiet();
+  await Bun.$`git -C ${mirrorPath} branch -D ${branch}`.quiet().nothrow();
+  await Bun.$`git -C ${mirrorPath} worktree prune`.quiet().nothrow();
 }

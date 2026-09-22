@@ -173,6 +173,19 @@ Two layers: **packages/workflow** (pure domain: `WorkflowDefinition` DSL, `compu
 - Workflow: node failures are captured per node-run; the execution terminalizes as failure (cancel unwinds the drive loop)
 - Agent: `permissionMode="ask"` tools go through the approval pipeline (`approval_request` event → `resolve_approval`; timeout denies)
 
+### Web UI: use the component library, never native controls
+In `apps/web`, reach for `@/components/ui/*` before a raw HTML element:
+- Buttons → `Button` (`@/components/ui/button`); icon-only actions get a
+  `Tooltip`/`title` and `variant="ghost" size="icon"`.
+- Selects → `Select` (`@/components/ui/select`), never a native `<select>`.
+- Inputs → `Input` / `Textarea`; dialogs → `Dialog` / `AlertDialog`;
+  destructive confirmations → `useConfirm()` + `variant="destructive"`
+  (never `window.confirm`).
+- Exemptions (documented, not precedent): canvas/toolbar overlay controls
+  and segmented/tab controls where a native element is semantically right.
+Details and the full UI convention list: `apps/web/AGENTS.md` → "UI conventions".
+
+
 ## Important Files
 
 | File | Purpose |

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
-import { NotFoundError } from "../../infra/domain-errors.js";
+import { ConflictError, NotFoundError } from "../../infra/domain-errors.js";
 import { codingRoutes } from "./http.js";
 import { createTerminalRegistry } from "./terminal-registry.js";
 
@@ -29,6 +29,15 @@ const app = new Elysia().use(
     createTaskWorktree: async (_projectId: string, _agentId: string, slug: string) => ({
       path: join(dir, `p1.${slug}`),
     }),
+    removeTaskWorktree: async (
+      _projectId: string,
+      _agentId: string,
+      slug: string,
+      force: boolean,
+    ) => {
+      if (slug === "busy") throw new ConflictError("close this worktree's terminals first");
+      return { path: join(dir, `p1.${slug}${force ? "" : ""}`) };
+    },
   }),
 );
 app.listen(0);
@@ -219,6 +228,24 @@ describe("coding task worktrees (the task axis)", () => {
     expect(created.status).toBe(201);
     const body = (await created.json()) as { path: string };
     expect(body.path).toContain("p1.task-two");
+  });
+
+  test("remove endpoint maps outcomes and refusals", async () => {
+    const ok = await fetch(`${base}/api/coding/worktrees/remove`, {
+      method: "POST",
+      body: JSON.stringify({ projectId: "p1", agentId: "a1", slug: "task-two" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(ok.status).toBe(200);
+    const removed = (await ok.json()) as { path: string };
+    expect(removed.path).toContain("p1.task-two");
+
+    const refused = await fetch(`${base}/api/coding/worktrees/remove`, {
+      method: "POST",
+      body: JSON.stringify({ projectId: "p1", agentId: "a1", slug: "busy", force: true }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(refused.status).toBe(409);
   });
 
   test("spawn with a valid worktreePath lands in that cwd", async () => {

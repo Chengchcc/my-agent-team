@@ -86,6 +86,7 @@ import {
   createTaskWorktree,
   ensureMirror,
   ensureWorktree,
+  removeTaskWorktree,
   removeWorktree,
 } from "../features/project/worktree.js";
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
@@ -1077,6 +1078,43 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     codingRegistry.sync();
   })();
 
+  // Removal is symmetric with creation, with two server-side guards:
+  // a live terminal would have its cwd yanked away, and uncommitted
+  // changes are never discarded without the explicit force flag.
+  const removeCodingTaskWorktree = async (
+    projectId: string,
+    agentId: string,
+    slug: string,
+    force: boolean,
+  ) => {
+    const target = await resolveCodingTarget(projectId, agentId);
+    const project = projectSvc.getById(projectId);
+    if (!project?.repoUrl) throw new NotFoundError("project", projectId);
+    const agent = (await agentSvc.list(true)).find((a) => a.id === agentId);
+    if (!agent) throw new NotFoundError("agent", agentId);
+    const path = validateWorktreePath(
+      agent.workspacePath,
+      projectId,
+      `${target.cwd}.${slug}`,
+    ) as string;
+    if (codingRegistry.list().some((t) => t.cwd === path && t.status === "running")) {
+      throw new ConflictError("close this worktree's terminals first (running processes)");
+    }
+    const wtProject = {
+      projectId: project.projectId,
+      repoUrl: project.repoUrl,
+      defaultBranch: project.defaultBranch,
+    };
+    const mirror = await ensureMirror(config.dataDir, wtProject);
+    await removeTaskWorktree(mirror, agent.workspacePath, wtProject, agentId, slug, { force });
+    // Frozen (exited) terminals of that path would point at a directory
+    // that no longer exists — drop them so the rail tells the truth.
+    for (const t of codingRegistry.list()) {
+      if (t.cwd === path) codingRegistry.close(t.terminalId);
+    }
+    return { path };
+  };
+
   // ─── Agentic Workflow ───────────────────────────────────
   const workflowPort = sqliteWorkflowExecutionAdapter(db);
   const workflowEventBus = new ExecutionEventBus();
@@ -1203,6 +1241,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       resolveTarget: resolveCodingTarget,
       listTaskWorktrees: listCodingTaskWorktrees,
       createTaskWorktree: createCodingTaskWorktree,
+      removeTaskWorktree: removeCodingTaskWorktree,
       // A wildcard bind is not a browser-reachable host — hand the client
       // loopback instead.
       wsBase: `ws://${

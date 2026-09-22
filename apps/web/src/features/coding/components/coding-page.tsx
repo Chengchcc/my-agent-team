@@ -1,8 +1,10 @@
 "use client";
 
-import { Columns2Icon, PlusIcon, XIcon } from "lucide-react";
+import { Columns2Icon, PlusIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { CodingTerminalRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { useCloseTerminal, useCodingTerminalsList, useSpawnTerminal } from "../hooks";
@@ -107,57 +109,73 @@ export function CodingPage() {
                 {selTerminals.map((term) => {
                   const dot = terminalDot(term);
                   return (
-                    <span
-                      key={term.terminalId}
-                      className={`group flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs ${
-                        term.terminalId === active?.terminalId
-                          ? "bg-zinc-800 text-zinc-100"
-                          : "text-zinc-400 hover:bg-zinc-800/60"
-                      }`}
-                      onClick={() => setActiveId(term.terminalId)}
-                    >
-                      <span className={dot.cls} title={dot.label}>
-                        {dot.mark}
-                      </span>
-                      {term.title}
-                      <button
-                        type="button"
-                        className="opacity-0 transition-opacity group-hover:opacity-100"
-                        title={t("Close (kills process)")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void requestClose(term);
-                        }}
+                    <div key={term.terminalId} className="group flex items-center">
+                      <Button
+                        variant="ghost"
+                        onClick={() => setActiveId(term.terminalId)}
+                        className={`h-auto gap-1.5 rounded px-2 py-1 text-xs font-normal ${
+                          term.terminalId === active?.terminalId
+                            ? "bg-zinc-800 text-zinc-100"
+                            : "text-zinc-400 hover:bg-zinc-800/60"
+                        }`}
                       >
-                        <XIcon className="size-3" />
-                      </button>
-                    </span>
+                        <span className={dot.cls} title={dot.label}>
+                          {dot.mark}
+                        </span>
+                        {term.title}
+                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-5 opacity-0 transition-opacity group-hover:opacity-100"
+                              onClick={() => void requestClose(term)}
+                            />
+                          }
+                        />
+                        <TooltipContent>{t("Close (kills process)")}</TooltipContent>
+                      </Tooltip>
+                    </div>
                   );
                 })}
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800/60"
-                  title={t("New terminal in this worktree")}
-                  onClick={() =>
-                    spawn.mutate({
-                      projectId: selected.projectId,
-                      agentId: selected.agentId,
-                      title: "bash",
-                    })
-                  }
-                >
-                  <PlusIcon className="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  className={`ml-auto rounded px-2 py-1 text-xs ${
-                    split ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/60"
-                  }`}
-                  title={t("Toggle split view")}
-                  onClick={() => setSplit((v) => !v)}
-                >
-                  <Columns2Icon className="size-3.5" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6"
+                        onClick={() =>
+                          spawn.mutate({
+                            projectId: selected.projectId,
+                            agentId: selected.agentId,
+                            title: "bash",
+                          })
+                        }
+                      >
+                        <PlusIcon className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>{t("New terminal in this worktree")}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`ml-auto size-6 ${split ? "bg-zinc-800 text-zinc-100" : ""}`}
+                        onClick={() => setSplit((v) => !v)}
+                      >
+                        <Columns2Icon className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>{t("Toggle split view")}</TooltipContent>
+                </Tooltip>
               </div>
               <div className="min-h-0 flex-1">
                 {split ? (

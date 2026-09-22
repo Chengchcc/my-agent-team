@@ -66,3 +66,21 @@ export function useCreateTaskWorktree(projectId: string) {
       }),
   });
 }
+
+export function useRemoveTaskWorktree(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { agentId: string; slug: string; force?: boolean }) =>
+      api.removeCodingTaskWorktree({ projectId, ...body }),
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: [...codingKeys.all, "task-worktrees", projectId],
+      });
+      void qc.invalidateQueries({ queryKey: codingKeys.terminals });
+    },
+    onError: (err) =>
+      toast.error("Worktree removal failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      }),
+  });
+}

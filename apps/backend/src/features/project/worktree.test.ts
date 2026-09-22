@@ -2,7 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTaskWorktree, ensureMirror, ensureWorktree, removeWorktree } from "./worktree.js";
+import {
+  createTaskWorktree,
+  ensureMirror,
+  ensureWorktree,
+  removeTaskWorktree,
+  removeWorktree,
+} from "./worktree.js";
 
 /** Build a real source repo with one commit on main. */
 async function makeSourceRepo(dir: string): Promise<string> {
@@ -144,5 +150,43 @@ describe("task worktrees (Herdr task axis on the ADR 0023 layout)", () => {
     // A second slug coexists beside the first.
     const second = await createTaskWorktree(mirror, agentWs, project, "agent-1", "feat-y");
     expect(existsSync(second)).toBe(true);
+  });
+});
+
+describe("task worktree removal", () => {
+  test("removes dir + branch; dirty worktrees need force; missing is NotFound", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "taskrm-"));
+    dirs.push(dir);
+    const src = await makeSourceRepo(dir);
+    const dataDir = join(dir, "data");
+    const agentWs = join(dir, "agent-ws");
+    mkdirSync(agentWs, { recursive: true });
+    const project = { ...PROJECT, repoUrl: src };
+    const mirror = await ensureMirror(dataDir, project);
+    const path = await createTaskWorktree(mirror, agentWs, project, "agent-1", "gone");
+
+    // Uncommitted change → refuse without force (git's own UX).
+    await Bun.$`echo dirty > ${join(path, "WIP.txt")}`.quiet();
+    await expect(
+      removeTaskWorktree(mirror, agentWs, project, "agent-1", "gone", { force: false }),
+    ).rejects.toThrow(/uncommitted changes/);
+
+    // Force discards it, drops the branch, and prunes the registration.
+    await removeTaskWorktree(mirror, agentWs, project, "agent-1", "gone", { force: true });
+    expect(existsSync(path)).toBe(false);
+    const branchGone =
+      (
+        await Bun.$`git -C ${mirror} show-ref --verify refs/heads/agent/agent-1/p1.gone`
+          .nothrow()
+          .quiet()
+      ).exitCode !== 0;
+    expect(branchGone).toBe(true);
+    const listing = await Bun.$`git -C ${mirror} worktree list --porcelain`.text();
+    expect(listing).not.toContain("p1.gone");
+
+    // Second removal: already gone → NotFound.
+    await expect(
+      removeTaskWorktree(mirror, agentWs, project, "agent-1", "gone", { force: true }),
+    ).rejects.toThrow(/not found/);
   });
 });

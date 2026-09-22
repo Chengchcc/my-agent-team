@@ -43,6 +43,12 @@ export interface CodingRoutesDeps {
     agentId: string,
     slug: string,
   ) => Promise<{ path: string }>;
+  removeTaskWorktree: (
+    projectId: string,
+    agentId: string,
+    slug: string,
+    force: boolean,
+  ) => Promise<{ path: string }>;
 }
 
 const TICKET_TTL_MS = 60_000;
@@ -56,7 +62,14 @@ interface WsIn {
 }
 
 export function codingRoutes(deps: CodingRoutesDeps) {
-  const { registry, resolveTarget, wsBase, listTaskWorktrees, createTaskWorktree } = deps;
+  const {
+    registry,
+    resolveTarget,
+    wsBase,
+    listTaskWorktrees,
+    createTaskWorktree,
+    removeTaskWorktree,
+  } = deps;
   const tickets = new Map<string, number>();
   const unsubscribes = new WeakMap<object, () => void>();
 
@@ -148,6 +161,34 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           projectId: t.String({ minLength: 1 }),
           agentId: t.String({ minLength: 1 }),
           slug: t.String({ minLength: 1, maxLength: 40 }),
+        }),
+      },
+    )
+    .post(
+      "/api/coding/worktrees/remove",
+      async ({ body, set }) => {
+        try {
+          const removed = await removeTaskWorktree(
+            body.projectId,
+            body.agentId,
+            body.slug,
+            body.force ?? false,
+          );
+          set.status = 200;
+          return removed;
+        } catch (err) {
+          const mapped = mapDomainError(err);
+          if (mapped) return mapped;
+          throw err;
+        }
+      },
+      {
+        body: t.Object({
+          projectId: t.String({ minLength: 1 }),
+          agentId: t.String({ minLength: 1 }),
+          slug: t.String({ minLength: 1, maxLength: 40 }),
+          // Discards uncommitted changes; the UI warns before setting it.
+          force: t.Optional(t.Boolean()),
         }),
       },
     )

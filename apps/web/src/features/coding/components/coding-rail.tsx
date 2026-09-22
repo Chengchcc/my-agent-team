@@ -1,11 +1,27 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ProjectForm } from "@/components/ProjectForm";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentList } from "@/features/agents/hooks";
 import { useProjectList, useProjectWorktrees } from "@/features/projects/hooks";
 import { type AgentRow, api, type CodingTerminalRow, type ProjectRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import { useCreateTaskWorktree, useSpawnTerminal, useTaskWorktrees } from "../hooks";
+import {
+  useCreateTaskWorktree,
+  useRemoveTaskWorktree,
+  useSpawnTerminal,
+  useTaskWorktrees,
+} from "../hooks";
 
 export interface CodingSelection {
   projectId: string;
@@ -80,6 +96,8 @@ function ProjectWorktreeRows({
   const { data: taskData } = useTaskWorktrees(project.projectId);
   const taskWorktrees = taskData?.worktrees ?? [];
   const createTask = useCreateTaskWorktree(project.projectId);
+  const removeTask = useRemoveTaskWorktree(project.projectId);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [slug, setSlug] = useState("");
   const [taskAgent, setTaskAgent] = useState("");
 
@@ -134,6 +152,7 @@ function ProjectWorktreeRows({
 
   return (
     <div>
+      {confirmDialog}
       {worktrees.length === 0 ? (
         <div className="px-3 py-1 text-[11px] text-zinc-500">
           {t("No worktrees yet — attach an agent to materialize one.")}
@@ -143,11 +162,11 @@ function ProjectWorktreeRows({
         const dot = dotFor(terminals, project.projectId, wt.agentId);
         const active = selected?.projectId === project.projectId && selected.agentId === wt.agentId;
         return (
-          <button
+          <Button
             key={wt.agentId}
-            type="button"
+            variant="ghost"
             onClick={() => open(wt.agentId)}
-            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-800/60 ${
+            className={`h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-left text-xs font-normal hover:bg-zinc-800/60 ${
               active ? "bg-zinc-800" : ""
             }`}
           >
@@ -161,7 +180,7 @@ function ProjectWorktreeRows({
                 {wt.ahead > 0 ? ` ↑${wt.ahead}` : ""}
               </span>
             </span>
-          </button>
+          </Button>
         );
       })}
       {/* Task worktrees (the task axis): slug-scoped checkouts beside the
@@ -169,72 +188,104 @@ function ProjectWorktreeRows({
       {taskWorktrees.map((tw) => {
         const active = selected?.projectId === project.projectId && selected.agentId === tw.agentId;
         return (
-          <button
-            key={`${tw.agentId}:${tw.slug}`}
-            type="button"
-            onClick={() => open(tw.agentId, tw.path, tw.slug)}
-            className={`flex w-full items-center gap-2 py-1 pl-6 pr-3 text-left text-[11px] hover:bg-zinc-800/60 ${
-              active ? "bg-zinc-800" : ""
-            }`}
-          >
-            <span className="text-zinc-600">↳</span>
-            <span className="min-w-0 flex-1 truncate text-zinc-300">{tw.slug}</span>
-            <span className="truncate text-[10px] text-zinc-500">{tw.agentId}</span>
-          </button>
+          <div key={`${tw.agentId}:${tw.slug}`} className="group flex items-center">
+            <Button
+              variant="ghost"
+              onClick={() => open(tw.agentId, tw.path, tw.slug)}
+              className={`h-auto min-w-0 flex-1 justify-start gap-2 rounded-none py-1 pl-6 pr-1 text-left text-[11px] font-normal hover:bg-zinc-800/60 ${
+                active ? "bg-zinc-800" : ""
+              }`}
+            >
+              <span className="text-zinc-600">↳</span>
+              <span className="min-w-0 flex-1 truncate text-zinc-300">{tw.slug}</span>
+              <span className="truncate text-[10px] text-zinc-500">{tw.agentId}</span>
+            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                    onClick={() =>
+                      void confirm({
+                        title: t(`Remove worktree ${tw.slug}?`),
+                        description: t(
+                          "Deletes the checkout and its branch. Uncommitted changes are discarded. Close its terminals first.",
+                        ),
+                      }).then((ok) => {
+                        if (ok)
+                          removeTask.mutate({ agentId: tw.agentId, slug: tw.slug, force: true });
+                      })
+                    }
+                  />
+                }
+              />
+              <TooltipContent>{t("Remove worktree")}</TooltipContent>
+            </Tooltip>
+          </div>
         );
       })}
       {/* A worktree is the (agent × project) attach product — this entry is
           how you create one; already-attached agents are filtered out. */}
       {attachable.length > 0 ? (
-        <select
-          className="mx-3 my-1 w-[calc(100%-1.5rem)] rounded border border-zinc-800 bg-zinc-900 px-1 py-0.5 text-[11px] text-zinc-500"
-          defaultValue=""
-          onChange={(e) => {
-            if (e.target.value) void attachAgent(e.target.value);
-            e.target.value = "";
-          }}
-        >
-          <option value="">{t("+ attach agent (new worktree)")}</option>
-          {attachable.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.id}
-            </option>
-          ))}
-        </select>
+        <div className="px-3 py-1">
+          <Select value="" onValueChange={(v) => void attachAgent(v as string)}>
+            <SelectTrigger className="h-7 w-full text-[11px]">
+              <SelectValue placeholder={t("+ attach agent (new worktree)")} />
+            </SelectTrigger>
+            <SelectContent>
+              {attachable.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       ) : null}
       {worktrees.length > 0 ? (
         <div className="flex items-center gap-1 px-3 py-1">
-          <input
+          <Input
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") void createSlugWorktree();
             }}
-            placeholder={t("task slug (new worktree)")}
-            className="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-300 placeholder:text-zinc-600"
+            placeholder={t("task slug")}
+            className="h-7 min-w-0 flex-1 text-[11px]"
           />
           {worktrees.length > 1 ? (
-            <select
-              value={taskAgent}
-              onChange={(e) => setTaskAgent(e.target.value)}
-              className="max-w-14 rounded border border-zinc-800 bg-zinc-900 px-1 py-0.5 text-[11px] text-zinc-500"
+            <Select
+              value={taskAgent || worktrees[0]?.agentId || ""}
+              onValueChange={(v) => setTaskAgent(v ?? "")}
             >
-              {worktrees.map((wt) => (
-                <option key={wt.agentId} value={wt.agentId}>
-                  {wt.agentId}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-7 w-20 text-[11px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {worktrees.map((wt) => (
+                  <SelectItem key={wt.agentId} value={wt.agentId}>
+                    {wt.agentId}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : null}
-          <button
-            type="button"
-            onClick={() => void createSlugWorktree()}
-            disabled={!slug.trim() || createTask.isPending}
-            className="rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:text-zinc-100 disabled:opacity-40"
-            title={t("git worktree add on a fresh task branch")}
-          >
-            +
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  disabled={!slug.trim() || createTask.isPending}
+                  onClick={() => void createSlugWorktree()}
+                />
+              }
+            />
+            <TooltipContent>{t("git worktree add on a fresh task branch")}</TooltipContent>
+          </Tooltip>
         </div>
       ) : null}
     </div>

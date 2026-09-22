@@ -284,6 +284,12 @@ export const api = {
     unwrap(client.api.coding.worktrees.get({ query: { projectId } })),
   createCodingTaskWorktree: (body: { projectId: string; agentId: string; slug: string }) =>
     unwrap(client.api.coding.worktrees.post(body)),
+  removeCodingTaskWorktree: (body: {
+    projectId: string;
+    agentId: string;
+    slug: string;
+    force?: boolean;
+  }) => unwrap(client.api.coding.worktrees.remove.post(body)),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
   getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),
