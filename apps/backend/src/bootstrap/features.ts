@@ -946,6 +946,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       );
   }
 
+  // Builtin packs are copies of repo directories; refresh the ones whose source
+  // moved on since the copy was made (deleted or renamed pages otherwise stay
+  // in the index the prompt shows for as long as the data dir lives).
+  const refreshedKnowledge = await knowledgeSvc.syncBuiltin();
+  if (refreshedKnowledge.length > 0) {
+    console.error(`[knowledge] builtin packs refreshed: ${refreshedKnowledge.join(", ")}`);
+  }
+
   // ─── FeatureSet ─────────────────────────────────────────────
 
   // Worktree read/merge ops over the project mirrors (ADR 0023 P2).
@@ -1194,6 +1202,22 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     definitionEvents: workflowDefinitionEvents,
   });
 
+  const passwordSvc = createPasswordService(settingsSvc);
+
+  // The launcher's password (env/secret) is a BOOTSTRAP credential: adopt it
+  // once, as a hash, then the DB is the only source. Without this, a regenerated
+  // .env or gateway secret silently changes the login password, and a password
+  // set in the console stops matching as soon as the stack is launched another
+  // way.
+  const seeded = await passwordSvc.seedFromBootstrap(config.bootstrapPassword);
+  if (seeded === "seeded") {
+    console.error("[auth] login password seeded into the database from MOCK_PASSWORD");
+  } else if (seeded === "too-short") {
+    console.error(
+      `[auth] MOCK_PASSWORD is shorter than ${8} characters; not seeding it as the login password`,
+    );
+  }
+
   const featureSet: FeatureSet = {
     agents: agentRoutes(
       agentSvc,
@@ -1260,7 +1284,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     productTools,
     settings: settingsRoutes(settingsSvc),
 
-    auth: authRoutes(createPasswordService(settingsSvc)),
+    auth: authRoutes(passwordSvc),
 
     providers: providerRoutes(providerSvc, { onChange: refreshOmaProviderEnv }),
 

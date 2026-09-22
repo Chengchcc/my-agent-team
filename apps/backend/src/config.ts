@@ -50,6 +50,10 @@ export interface BackendConfig {
   /** Comma-separated built-in MCP servers to inject into agent workspaces
    *  (product-tools, workflow). Absent = product-tools only. */
   enabledMcpServers?: string;
+  /** Bootstrap login password (env `MOCK_PASSWORD`). Adopted once as a hash by
+   *  the auth feature, then the database is the only source — the env value is
+   *  regenerated per checkout and must not be a live fallback. */
+  bootstrapPassword?: string;
   /** H2: workflow script nodes execute unattended code — opt-in. */
   workflowScriptsEnabled: boolean;
   /** H2: directories the workflow script sandbox must not read. */
@@ -101,6 +105,7 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     productToolsMcpUrl: env.PRODUCT_TOOLS_MCP_URL,
     smokeCron: env.SMOKE_CRON,
     enabledMcpServers: env.ENABLED_MCP_SERVERS,
+    bootstrapPassword: env.MOCK_PASSWORD,
     workflowScriptsEnabled:
       env.WORKFLOW_SCRIPTS_ENABLED === "1" || env.WORKFLOW_SCRIPTS_ENABLED === "true",
     workflowScriptDenyReadDirs: [

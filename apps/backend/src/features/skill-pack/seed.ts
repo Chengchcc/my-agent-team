@@ -1,5 +1,6 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { directoryFingerprint } from "@chengchenccc/source-fetch";
 import { BUILTIN_PACK_ID } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
@@ -24,8 +25,12 @@ export interface SeedSkillPacksDeps {
 
 /**
  * Bootstrap the builtin skill pack and run the crash reaper.
- * - If builtin pack record doesn't exist: copy skills/ to <dataDir>/skill-packs/builtin/
- *   and register a ready, unremovable record.
+ * - Copy <resources>/skills/ to <dataDir>/skill-packs/builtin/ and register a
+ *   ready, unremovable record.
+ * - On every later boot, re-copy it when the source directory changed. The pack
+ *   is a copy of a repo directory, so "seed once" would freeze every later
+ *   edit, rename and deletion forever — deleted skills kept being injected into
+ *   prompts months after they were removed from the repo.
  * - Mark all pending/installing/syncing records as failed (crash recovery).
  *   Builtin pack is excluded from crash reaper.
  */
@@ -45,23 +50,42 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
   }
 
   // ─── Seed builtin ───
-  const existing = await port.get(BUILTIN_PACK_ID);
-  if (existing) return; // already seeded
-
   const builtinTarget = join(dataDir, "skill-packs", BUILTIN_PACK_ID);
+  const existing = await port.get(BUILTIN_PACK_ID);
 
-  // Copy from source if available
-  if (!existsSync(builtinSkillsDir)) {
-    console.error(
-      `[seed] builtin skills source not found at ${builtinSkillsDir} — builtin pack will remain pending`,
-    );
-    mkdirSync(builtinTarget, { recursive: true });
-  } else {
-    if (existsSync(builtinTarget)) {
-      rmSync(builtinTarget, { recursive: true, force: true });
+  /** Copy source → target through a staging dir: the pack is read by every
+   *  spawn, and a crash mid-copy must not leave a half-populated pack behind a
+   *  `ready` row. */
+  const installBuiltin = (): boolean => {
+    if (!existsSync(builtinSkillsDir)) {
+      console.error(
+        `[seed] builtin skills source not found at ${builtinSkillsDir} — builtin pack will remain pending`,
+      );
+      mkdirSync(builtinTarget, { recursive: true });
+      return false;
     }
-    copyDir(builtinSkillsDir, builtinTarget);
+    const staging = `${builtinTarget}.staging-${process.pid}`;
+    rmSync(staging, { recursive: true, force: true });
+    mkdirSync(staging, { recursive: true });
+    copyDir(builtinSkillsDir, staging);
+    rmSync(builtinTarget, { recursive: true, force: true });
+    renameSync(staging, builtinTarget);
+    return true;
+  };
+
+  if (existing) {
+    // Already seeded: refresh only when the repo's skill set moved on.
+    if (
+      existsSync(builtinSkillsDir) &&
+      existsSync(builtinTarget) &&
+      directoryFingerprint(builtinSkillsDir) !== directoryFingerprint(builtinTarget)
+    ) {
+      if (installBuiltin()) console.error("[seed] builtin skills refreshed from the repo");
+    }
+    return;
   }
+
+  installBuiltin();
 
   await port.register({
     id: BUILTIN_PACK_ID,

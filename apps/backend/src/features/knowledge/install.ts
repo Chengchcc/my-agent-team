@@ -1,7 +1,19 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
-import { fetchGitSource, materializeZipSource } from "@chengchenccc/source-fetch";
+import {
+  directoryFingerprint,
+  fetchGitSource,
+  materializeZipSource,
+} from "@chengchenccc/source-fetch";
 import type { KnowledgePackRow } from "./entities.js";
 import { type KnowledgeFrontmatter, parseKnowledgeFrontmatter } from "./frontmatter.js";
 import type { KnowledgePackPort } from "./ports.js";
@@ -119,7 +131,12 @@ export async function installKnowledgePack(
     return deps.port.update(input.id, {
       status: "ready",
       installedRef: target,
-      sourceRev,
+      // A builtin pack records its source fingerprint so a later boot can tell
+      // "already current" from "the repo moved on".
+      sourceRev:
+        input.sourceKind === "builtin"
+          ? directoryFingerprint(builtinSource(deps.builtinRoot, input.name) ?? target)
+          : sourceRev,
       error: null,
       updatedAt: Date.now(),
     })!;
@@ -132,6 +149,50 @@ export async function installKnowledgePack(
       }) ?? row
     );
   }
+}
+
+/** The on-disk source of a builtin pack, or null when the root is unset. The
+ *  name is a single segment or the literal root (see the install branch). */
+function builtinSource(root: string | undefined, name: string): string | null {
+  if (root === undefined) return null;
+  return name === "." ? root : join(root, name);
+}
+
+/** Re-copy a builtin pack when its source no longer matches the copy on disk.
+ *
+ *  A pack is a copy of a repo directory, so "install once" freezes every later
+ *  edit, rename and deletion forever — how the builtin pack kept feeding models
+ *  three deleted skills and deleted architecture. The copy is compared by
+ *  fingerprint (kept in `sourceRev`) instead of re-copied blindly, and the swap
+ *  goes through a temp dir + rename so a crash mid-copy cannot leave a
+ *  half-populated pack behind a `ready` row.
+ *
+ *  Returns true when it actually re-copied. */
+export async function refreshBuiltinPack(
+  deps: KnowledgeInstallDeps,
+  row: KnowledgePackRow,
+): Promise<boolean> {
+  if (row.sourceKind !== "builtin") return false;
+  const src = builtinSource(deps.builtinRoot, row.name);
+  if (src === null || !existsSync(src)) return false;
+  const target = row.installedRef ?? knowledgeInstallRoot(deps.dataDir, row.id);
+  if (!existsSync(target)) return false;
+
+  const sourceRev = directoryFingerprint(src);
+  if (row.sourceRev === sourceRev) return false;
+
+  const staging = `${target}.staging-${process.pid}`;
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(staging, { recursive: true });
+  const res = await run("cp", ["-a", `${src}/.`, staging], "/");
+  if (res.exitCode !== 0) {
+    rmSync(staging, { recursive: true, force: true });
+    throw new Error(`builtin refresh copy failed: ${res.stderr.slice(0, 200)}`);
+  }
+  rmSync(target, { recursive: true, force: true });
+  renameSync(staging, target);
+  deps.port.update(row.id, { sourceRev, installedRef: target, updatedAt: Date.now() });
+  return true;
 }
 
 /** Progressive index of one pack (ADR 0022: the bridge writes index.md).

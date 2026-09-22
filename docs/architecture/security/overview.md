@@ -36,6 +36,14 @@ token 比较是常量时间的（长度不等直接拒，否则 `timingSafeEqual
 
 另外，进程启动时如果监听的不是回环地址、而 token 还是字面量 `dev-token`，会打一条告警——只是告警，不拒绝启动。
 
+## 登录口令存在哪
+
+控制台的登录口令**存数据库**（`settings` 表的 `auth.password_hash`，argon2id，从不存明文），在 Settings 里改。环境变量 / `oma gateway` 的 secret 只是**引导凭据**：后端首次启动、库里还没有哈希时，把 `MOCK_PASSWORD` 写成哈希（`PasswordService.seedFromBootstrap`），之后这个环境变量就不再影响登录。
+
+这条边界是必要的，因为环境变量那份每个 checkout 都会重新生成（`.env` 不进版本库，gateway 的 secret 每台机器一份）。早先把它当成实时兜底，结果就是「改了口令、换个启动方式又变回去」。
+
+校验顺序：web 先问后端 `POST /api/auth/verify`；后端有哈希就按哈希判（`source: "stored"`），没哈希才回落到引导密码，后端不可达时不锁人。
+
 ## 对话层
 
 对话是 1:1 的：participant 就是 `conversation.agent_id`，成员表已经删掉。

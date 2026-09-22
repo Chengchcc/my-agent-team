@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 import type { KnowledgePackRow } from "./entities.js";
-import { installKnowledgePack, knowledgeInstallRoot } from "./install.js";
+import { installKnowledgePack, knowledgeInstallRoot, refreshBuiltinPack } from "./install.js";
 import type { KnowledgePackPort } from "./ports.js";
 
 export class KnowledgePackNotFoundError extends NotFoundError {
@@ -48,6 +48,11 @@ export interface KnowledgeService {
     sourceUrl?: string;
     versionRef?: string;
   }): Promise<KnowledgePackRow>;
+  /** Re-copy every builtin pack whose source directory changed, and report the
+   *  pack ids that were refreshed. Builtin packs are copies of repo
+   *  directories; without this they freeze at whatever the checkout looked
+   *  like the first time the data dir was created. */
+  syncBuiltin(): Promise<string[]>;
   delete(id: string): Promise<void>;
 }
 
@@ -205,6 +210,21 @@ export function createKnowledgeService(deps: {
         sourceUrl: input.sourceUrl ?? null,
         versionRef: input.versionRef ?? null,
       });
+    },
+
+    async syncBuiltin(): Promise<string[]> {
+      const refreshed: string[] = [];
+      for (const row of deps.port.list()) {
+        if (row.sourceKind !== "builtin") continue;
+        try {
+          if (await refreshBuiltinPack(deps, row)) refreshed.push(row.name);
+        } catch (err) {
+          console.error(
+            `[knowledge] builtin refresh failed for ${row.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      return refreshed;
     },
 
     async delete(id: string): Promise<void> {

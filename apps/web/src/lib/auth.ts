@@ -13,7 +13,15 @@ function mockUserId() {
   return env().MOCK_USER_ID ?? "user-001";
 }
 
-/** F3: no default password. Unconfigured MOCK_PASSWORD fails closed — login
+/** Bootstrap password, used ONLY before this stack has a stored one.
+ *
+ *  The backend adopts MOCK_PASSWORD as an argon2id hash on its first boot
+ *  (`PasswordService.seedFromBootstrap`), after which the database is the single
+ *  source of truth and this env value is irrelevant — it is regenerated per
+ *  checkout, so treating it as a live fallback made the login password appear to
+ *  reset whenever `.env` was recreated.
+ *
+ *  F3: no default password. Unconfigured MOCK_PASSWORD fails closed — login
  *  is locked, with a one-time random escape hatch printed for a local
  *  operator (the console is the only place it ever appears). */
 let _ephemeralPassword: string | null = null;
@@ -36,9 +44,10 @@ export function timingSafeEqualPassword(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
-/** Whether a password set in the console matches. `undefined` means none is
- *  set (the launcher's password still applies) or the backend cannot answer —
- *  an unreachable backend must not lock the operator out of their own console. */
+/** Whether the stack's stored password matches. `undefined` means the stack has
+ *  no stored password yet (first boot before the seed) or the backend cannot
+ *  answer — an unreachable backend must not lock the operator out of their own
+ *  console. */
 async function storedPasswordMatches(password: string): Promise<boolean | undefined> {
   try {
     const config = env();
