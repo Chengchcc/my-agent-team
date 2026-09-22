@@ -219,7 +219,7 @@ cd apps/backend && bun run db:check:backend   # drizzle schema/migration 校验
 ## 文档导航
 
 - 给人读：`docs/architecture/README.md` → 系统总览 → 按路线选读
-- 给 LLM 读：`docs/architecture/index.llm.md`；概念图谱 `concepts.json`
+- 文档入口：`docs/README.md`（wiki 首页与分区）；现状区索引 `docs/architecture/README.md`
 - 设计哲学：`docs/architecture/design-philosophy.md` — 设计/评审前必读
 - 契约规则：`e2e-contract-rules.md`（加字段/调接口前）、`db-typesafe-rules.md`（改表前）
 - ADR 索引：`docs/adr/README.md`（0001–0026）。近期关键：0019 CLI 双轨、0020 workspace 桥接、0021 一对话一 agent、0022 MCP+知识包、0023 worktree、0024 oma wire fixture 契约、0025 Loop=Workflow（Loop 现已整体删除）、0026 威胁模型

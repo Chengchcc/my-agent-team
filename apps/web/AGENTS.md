@@ -129,7 +129,7 @@ small derived read, add a hook to the owning feature (e.g.
 
 Cross-file entry points to read before touching web:
 
-- [docs/architecture/index.llm.md](../../docs/architecture/index.llm.md) — repo doc hub
+- [docs/README.md](../../docs/README.md) — repo wiki front door
 - [docs/architecture/system-overview.md](../../docs/architecture/system-overview.md)
 - [docs/architecture/e2e-contract-rules.md](../../docs/architecture/e2e-contract-rules.md)
 - [docs/architecture/foundations/dependency-injection.md](../../docs/architecture/foundations/dependency-injection.md)
