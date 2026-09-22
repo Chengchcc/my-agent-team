@@ -981,7 +981,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
     return {
       cwd,
-      shell: { executable: process.env.SHELL || "/bin/bash", args: [], env: oma.env },
+      // ponytail: literal /bin/bash — env must flow through packages/config
+      // (audit:contracts bans bare process.env reads here); add a config
+      // knob only if a deployment ever needs a different shell.
+      shell: { executable: "/bin/bash", args: [], env: oma.env },
       omaLaunch: [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" "),
     };
   };
