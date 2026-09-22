@@ -6,7 +6,7 @@
 
 覆盖：首次准备、`bun run dev` 背后的动作、各个脚本入口、门禁命令、小内存机器上的注意事项。
 
-不覆盖：装一个能用的发行版（见仓库根 [`README.md`](../../README.md)）、架构（见 [`../architecture/`](../architecture/README.md)）、出问题怎么查（见 [`./troubleshooting.md`](./troubleshooting.md)）。
+不覆盖：装一个能用的发行版（见仓库根 [`README.md`](../../README.md)）、架构（见 [`../architecture/`](../architecture/README.md)）、出问题怎么查（见 [`./troubleshooting.md`](../architecture/operations/troubleshooting.md)）。
 
 ## 实现文件
 
@@ -101,6 +101,6 @@ husky 的 pre-commit 会先 `biome format` 再 `git add -u`，把已跟踪文件
 
 ## 相关页
 
-- [排障指南](./troubleshooting.md) — 起不来、连不上、跑不动时按层查
+- [排障指南](../architecture/operations/troubleshooting.md) — 起不来、连不上、跑不动时按层查
 - [Product Backend 总览](../architecture/backend/overview.md) — 后端启动时装了什么
 - [依赖注入](../architecture/foundations/dependency-injection.md) — 组装点和注入手法

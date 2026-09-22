@@ -1,5 +1,7 @@
 # Conventions
 
+规则页的详表在 `docs/architecture/design-philosophy.md`、`e2e-contract-rules.md`、`db-typesafe-rules.md`。
+
 ## Imports
 
 Cross-package imports MUST go through the barrel index.ts.
@@ -12,13 +14,9 @@ hexagonal split (domain / ports / service / adapter-sqlite / http / index).
 
 ## Agent session creation
 
-createOmaSession(opts) in apps/oh-my-agent/src/core/runtime/agent-loop.ts materializes an Oma session:
+`createOmaSession(opts)` 在 `apps/oh-my-agent/src/core/runtime/agent-loop.ts`，拿的是 sessionId、store、plugins、maxSteps、modelStream、approvalHandler 这些选项（没有 model 或 workspaceRoot）。Run 级装配的入口是 `createOmaRuntime(options)`（`core/runtime/create-runtime.ts`）。
 
-- sessionId + per-Run in-memory SessionStore (destroyed when the Run ends)
-- plugins + tools: the per-run resolved tool table (native + MCP + plugin, filtered by --tools)
-- modelStream, maxSteps, approvalHandler (HITL pipeline)
-
-Backend run dispatch (apps/backend/src/features/agent-run/execution.ts) spawns the oma child through packages/adapter-oma-agent.
+后端派单在 `apps/backend/src/features/agent-run/execution-dispatch.ts`，经 `packages/adapter-oma-agent` spawn oma 子进程。每 Run 的 in-memory SessionStore 随 Run 销毁，但分支上的 `cli_session_ref` 会指向持久化的 CLI session。
 
 ## Plugin system
 

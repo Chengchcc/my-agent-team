@@ -1,83 +1,157 @@
----
-id: operations.troubleshooting
-title: 排障指南
-status: current
-owners: backend-runtime
-summary: "按事实层与执行层定位问题：Ledger/Tree 是产品事实，Agent Run + branch_input_queue + product_tool_call 是执行控制面，子进程与 Live Updates 是缓存/投影。Agent Run 是唯一执行身份，无 span/attempt/session。"
-depends_on:
-  - foundations.facts-and-projections
-used_by:
-  - backend.overview
----
-
 # 排障指南
 
-## 先分层，再定位
+一句话：本页是按层定位故障的权威手册。先判断症状出现在哪个层（端、BFF、backend、adapter、子进程、工作区），再按该层的对照表定位到代码位置。
 
-遇到问题，先问一句：这是**事实**坏了，还是**执行/投影**坏了？
+## 范围
 
-- 事实层：`conversation_ledger`（对话历史）、`agent_context_*`（Agent Context）—— durable product facts；
-- 执行层：`agent_run`、`branch_input_queue`、`product_tool_call`、`pending_action`；
-- 缓存/投影：一次性 oma 子进程（transcript/stderr）、Live Updates/SSE。
+覆盖：分层判据与逐层症状对照，事实层、执行层与投影层的区分，诊断日志怎么开、最短观察链长什么样，以及今天仍然成立的系统级不变量。
 
-事实错了影响所有端；执行层问题影响某个 Run 的终态；投影问题只影响某个端的视图。
+不覆盖：飞书端的实现细节（见 [飞书](../surfaces/lark.md)）、Web 端的渲染细节（见 [Web 端](../surfaces/web.md)）、Agent Run 的完整状态机（见 [Run 输出与实时更新](../runs/output-and-live-updates.md)）。
 
-## 症状对照
+## 实现文件
 
-| 症状 | 先看哪里 | 根因方向 |
+- `apps/backend/src/infra/db/schema.ts` — 事实层与执行层各表的权威定义
+- `packages/agent-contract/src/debug.ts` — `debugLog` 与 `OMA_DEBUG=1`，子进程继承同一个开关
+- `apps/backend/src/features/agent-run/execution-dispatch.ts` — 阶段名与 `dispatch_failed`
+- `apps/backend/src/features/agent-run/execution-service.ts` — 启动恢复、`retryTerminalCommit`、非 completed 终态
+- `apps/backend/src/features/conversation/service.ts` — `[conversation] trigger` 行与 5 秒轮询兜底
+- `apps/backend/src/http/response.ts` — SSE 构造，心跳与「没有 done 事件」
+- `apps/web/src/hooks/useConversation.ts` — 浏览器侧两条 SSE 的真实路径
+
+## 先分层
+
+事实层是产品真相，坏了会影响所有端：`conversation_ledger`（对话历史）与 `agent_context_*`（Agent Context）。
+
+执行层决定某个 Run 的终态：`agent_run`、`branch_input_queue`、`pending_action`、`product_tool_call`。
+
+投影层只影响某个端看到的画面：per-run 事件流、SSE 连接、子进程的 stderr。这一层没有真相，重连或刷新就重建。
+
+## 端
+
+| 症状 | 先看 | 代码位置 |
 |---|---|---|
-| 某成员看不到本该有的消息 | `conversation_ledger` 该 conversation 的 entries | 消息没写入账本；SSE fan-out 失败；前端投影没跟上 |
-| 所有人都缺同一条消息 | 账本 + agent_run terminal_result | terminal commit 事务失败（Run 停在 commit_failed）；child 没产出 final Message |
-| Run 卡在 running 不动 | agent_run.status + child 进程 | execute 未被接受（queue 停在 delivering）；child 崩溃但 outcome 未到；steer/abort 卡住 |
-| Run 停在 waiting | pending_action | 审批/问答等待 Product 响应（Product Tools MCP 同步等待） |
-| 输入发了但没执行 | branch_input_queue.status | 队列项未被 acquire（active run 占位）；delivery idempotency 冲突 |
-| child crash / malformed stdout | agent_run.status + adapter 日志 | child 启动失败（OMA_BIN）；JSONL 帧损坏；stdout 被污染 |
-| 重复执行同一输入 | branch_input_queue delivery/input idempotency keys | 重投未命中幂等键；adapter 未记录 acceptance |
-| Web 状态卡住不结束 | Live Updates 通道 | 事件流断连；terminal commit 已完成但 SSE 未推送（重连即可恢复） |
-| 找不到历史执行明细 | agent_run + product_tool_call | 旧 span/attempt/control_plane_event 表已在 Phase 6 删除，不提供转换工具 |
+| 对话页消息不出现 | conversation SSE 是否连着，顶部有没有 reconnecting 提示条 | `apps/web/src/components/ConversationCanvas.tsx` |
+| 页面刷新后看不到历史 | 全量重放是否被 waterline 去重挡掉 | `apps/web/src/hooks/useConversation.ts` 的 `guard` |
+| 同一句话显示两条 | 乐观消息的 `opt-` 替换是否命中 | `apps/web/src/lib/conversation-reducer.ts` 的 `upsertAuthoritative` |
+| 有 run 在跑但页面停在空闲 | per-run 流没接上，2 秒轮询是否命中 `running` / `waiting` / `commit_failed` | `useConversation.ts` 的 run 追踪 |
+| 文本在流但最后一条消息没替换 | canonical 行的 messageId 前缀是否匹配 `^run:<runId>:` | `useConversation.ts` 的 `message` 订阅 |
+| 飞书没收到回复 | `message_delivery` 是否已记意图、`chat_binding.pushed_seq` 是否推进 | `apps/lark-bot/src/sse-watcher.ts`、`bindings-sqlite.ts` |
+| 飞书机器人不响应 | `allowed_senders` 是否含该用户，群聊是否 @ 到机器人 | `apps/lark-bot/src/ingest.ts` |
+| 飞书回复重复 | 重连重放时 `message_delivery` 的终态判断 | `sse-watcher.ts` 的 `processEntry` |
+| 飞书收不到新会话的消息 | `chat_binding` 是否被 `surface.control` 重绑到了别的会话 | `bindings-sqlite.ts` 的 `rebindChatConversation` |
 
-## 关键不变式（违反即 bug）
+## BFF
 
-- **Agent Run 是唯一执行身份**：没有 span/attempt/session。任何按 spanId/sessionId 的查询都已删除。
-- **BackendRunOutcome 是终态唯一依据**：事件流永远不能决定 terminal state；只有 outcome（completed/failed/aborted/timeout）才提交产品事实。
-- **terminal commit 原子性**：final assistant Message（`agent_run_id`）+ Context ref + branch 更新 + Run 终态在同一事务；失败则 Run 保持 commit_failed，幂等重试。
-- **账本是唯一对话事实来源**：任何端（Web/飞书）若和账本不一致，错的是 surface 的 projection，不是账本。
-- **子进程无状态**：child 崩溃 = 当前 Run failed；下一个输入 = 新 Run = 从 Agent Context full projection 重建。没有需要"恢复"的执行状态。
+Web 的 REST 与 SSE 都经 Next 的代理转发（`apps/web/src/lib/bff.ts`），排障时注意两点：
 
-## 诊断日志（OMA_DEBUG=1）
+- 路径首段是 `api` 会被去掉，所以 `/api/bff/api/conversations/...` 与 `/api/bff/conversations/...` 都到同一个后端路由。
+- SSE 请求不带 `req.signal`，因为 Next 开发模式的 abort 会掐掉上游流。浏览器 Network 里应同时看到 `/api/bff/conversations/:id/events?afterSeq=0` 与 `/api/bff/agent-runs/:runId/events` 两类请求。
 
-设置 `OMA_DEBUG=1`（Backend 环境；子进程继承同一开关）后，Backend 终端会输出一条端到端生命周期链，用于定位卡在哪个阶段。日志只含阶段名、id、计数与状态——**不含消息正文、工具输入、prompt 或密钥**；child stderr 也会被脱敏后实时转发。
+BFF 只做 cookie 换 `x-auth-token` 与 `x-user-id`，不解析业务载荷；鉴权失败时先确认这两个头是否发出。
 
-最短观察链（缺哪一行，故障就在上一行与下一行之间）：
+## backend
+
+| 症状 | 先看 | 代码位置 |
+|---|---|---|
+| 某个端看不到本该有的消息 | 账本里该 conversation 的行，以及订阅者是否收到 | `apps/backend/src/features/conversation/service.ts` |
+| 所有人都缺同一条消息 | Run 是否停在 `commit_failed`，子进程是否没产出消息 | `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` |
+| Run 卡在 running 不动 | 输入是否停在 `delivering`；子进程是否崩溃但 outcome 未到 | `execution-dispatch.ts`、`adapter-sqlite-enqueue.ts` |
+| Run 停在 waiting | 是否有一条未决 `pending_action` | `apps/backend/src/features/agent-run/adapter-sqlite-actions.ts` |
+| 输入发了但没执行 | `branch_input_queue.status`，分支上是否已有 active run | `adapter-sqlite-enqueue.ts` |
+| 同一输入被执行两次 | 幂等键（input / delivery 两组）是否命中重放分支 | `adapter-sqlite-enqueue.ts` |
+| 提交失败后无法继续 | `commit_failed` 的 Run 是否被 `retryTerminalCommit` 重试过 | `execution-service.ts` |
+| backend 重启后 Run 凭空结束 | 启动恢复把已投递输入的孤儿 run 终结为 `aborted`，这是预期行为 | `execution-service.ts` 的 `recover` |
+| SSE 流自己断开并出现 error 帧 | 账本里是否出现了没有对应 wire schema 的 kind | `apps/backend/src/features/conversation/http.ts`、`packages/api-contract/src/sse.ts` |
+
+## adapter
+
+adapter 是 oma 子进程的进程管理与 JSONL 控制器（`packages/adapter-oma-agent/src/backend.ts`）。
+
+| 症状 | 先看 | 位置 |
+|---|---|---|
+| Run 立即失败并提到 spawn | 可执行文件是否存在、并发槽位是否被占满 | `spawnOmaProcess` 与 `acquireSlot` |
+| 子进程拒绝 execute | 请求构造是否合法，`invalid_request` 会带子进程的拒绝原因 | `handle.acceptance` |
+| 子进程崩溃 | 错误详情里的 stderr 尾部，它是脱敏后的截断内容 | `packages/adapter-oma-agent/src/stderr-tail.ts` |
+| stdout 协议损坏 | `failProtocol` 路径，一条坏行就会终结该 Run | `consumeStdout` |
+| 审批点了没反应 | 该 run 在本进程里是否还有 live 子进程，以及 backend 是否有 approval 管道 | `execution-service.ts` 的 `resolveApproval` |
+| steer 报 no live child | steer 只注入 live 子进程，run 已终结时输入会被取消 | `backend.ts` 的 `steer` |
+| 停不下来的 Run | abort 有宽限期，超时后直接杀进程并 settle 为 aborted | `backend.ts` 的 `stop` |
+
+## 子进程
+
+子进程是 `oma` 的一次性 RPC 进程，一个 Run 一个进程，退出来就不再复活。
+
+| 症状 | 先看 | 位置 |
+|---|---|---|
+| 所有 Run 都在 preflight 失败 | 模型列表接口是否可用，模型 id 是否在 catalog 里 | `execution-dispatch.ts` 的 `assertModelAvailable` |
+| Run 跑满时限被中止 | 看门狗按 `runTimeoutMs` 调 `stop` | `execution-dispatch.ts` 的 `watchdog` |
+| coding 面板里的 oma 用不了 product tools | 该 oma 由按钮注入，没有 Run Token | `apps/backend/src/features/coding/http.ts` 的 `launch-oma` |
+| 面板状态点不变 | `.oma/agent-status.json` 是否在写、心跳是否超过 3 分钟 | `apps/backend/src/features/coding/agent-status.ts` |
+
+## 工作区
+
+| 症状 | 先看 | 位置 |
+|---|---|---|
+| 首次点击提示 worktree 冲突 | 目录被普通目录占用，`ensureWorktree` 拒绝覆盖 | `apps/backend/src/features/project/worktree.ts` |
+| 两个 Run 不能同时跑 | 同一 workspace 上的锁把 Run 串行化，这是设计 | `execution-dispatch.ts` 的 `workspaceLocks` |
+| 终端 spawn 报 422 | `worktreePath` 不在该 agent 的主 worktree 或任务 worktree 里 | `apps/backend/src/features/coding/task-worktrees.ts` |
+| 删除任务 worktree 返回 409 | 该路径还有 running 的终端 | `apps/backend/src/bootstrap/features.ts` 的删除入口 |
+| 终端面板重启后少了一个 | 快照重建时 agent 或 project 已不存在，条目被修剪 | `features.ts` 的 boot 恢复与 `registry.sync()` |
+
+## 诊断日志
+
+`OMA_DEBUG=1` 是唯一的开关（`packages/agent-contract/src/debug.ts`），子进程继承同一变量，所以一次开启能同时点亮 backend、adapter、子进程 RPC 与 model loop 的日志。日志只含阶段名、id、计数与状态，不含消息正文、工具输入、prompt 与密钥。child 的 stderr 会保留一份脱敏尾部，但它只在协议失败时拼进错误详情，不做实时转发。
+
+最短观察链（缺哪一行，故障就落在上一行与下一行之间）：
 
 ```text
-[conversation] trigger conversationId=... mode=normal runId=... acquired=true
-[agent-run] context_projected runId=... entries=7
+[conversation] trigger conversationId=... agentId=... branchId=... mode=... inputId=... runId=... acquired=true queued=false
+[agent-run] model_preflight_ok runId=... model=...
+[agent-run] context_projected runId=... entries=N
+[agent-run] backend_execute runId=...
 [oma-adapter] spawned runId=... pid=...
 [oma] loop_live runId=...
 [oma] model_start runId=... turn=1 model=...
 [oma-adapter] outcome runId=... status=completed
-[agent-run] terminal_commit runId=... output=true
+[agent-run] outcome runId=... status=completed
+[agent-run] terminal_commit runId=... messages=N
 ```
 
-失败会带阶段：
+失败会带阶段名，stage 取值来自 dispatch 内的阶段标记（`load_run`、`model_preflight`、`claim_input`、`resolve_workspace`、`set_product_tools`、`context_projection`、`backend_execute`、`settle_outcome`、`acquire_next`）：
 
 ```text
 [agent-run] dispatch_failed runId=... stage=context_projection Error: ...
 ```
 
-tag 含义：`conversation`（触发与入队）、`agent-run`（执行生命周期）、`oma-adapter`（spawn/JSONL/回收）、`oma`（child RPC 与 model/tool loop）。
+tag 的含义：`conversation` 是触发与入队，`agent-run` 是执行生命周期，`oma-adapter` 是 spawn、JSONL 与回收，`oma` 是子进程内部的 RPC 与 model loop。
 
-### 前端需要观察的两个 SSE
+## 两条 HITL 通道
 
-浏览器 Network 应同时存在：
+审批与问答都走 per-run 事件流，卡在 `waiting` 时先看这两条链：
 
-- `GET /api/bff/api/conversations/:conversationId/events`：canonical final Message（terminal commit 后推送）；
-- `GET /api/bff/api/agent-runs/:runId/events`：临时 text/tool/status 事件。
+- `backend.oma.approval_request`（web 渲染审批卡片）→ `POST /api/agent-runs/:runId/approval`（body 是 `{ callId, decision }`，run 已终结返回 409，body 不合法返回 400，run 不存在返回 404）。
+- `backend.oma.ask_requested`（web 渲染问答卡片）→ `POST /api/product-tools/ask/resolve`，超时时间默认 60 秒，超时按未回答返回 null。
 
-## 关联页面
+## 不变量
+
+1. Agent Run 是唯一执行身份。按 spanId 或 sessionId 查询的代码路径已经不存在，对应表也已删除。
+2. `BackendRunOutcome` 是终态的唯一依据，事件流不能决定 terminal state。
+3. terminal commit 是原子的：assistant 消息加 Context 引用加分支更新加 Run 终态在同一个事务里，失败则 Run 停在 `commit_failed` 等幂等重试。
+4. 账本是唯一的对话事实来源。任何端与账本不一致时，错的是端的投影。
+5. 子进程无状态：崩溃等于当前 Run 失败，下一个输入是新 Run，从 Agent Context 全量投影重建。
+6. per-run 事件流不落库，只落 telemetry 类型的事件到 `agent_run_event`。
+7. conversation SSE 不发 `done` 事件，靠心跳与连接中止表达生命周期。
+
+## 已知缺口
+
+- 存储层的 kind 枚举里还留着 `member.joined`、`member.left`、`todo`，但没有写入方。一旦有行以这些 kind 落库，SSE 编码器找不到对应 schema 会抛错，表现为该条流断开并出现一帧 `event: error`。
+- `role: "tool"` 的账本行不被飞书端过滤，会原样投递；Web 侧则按 `isConclusionMessage` 排除在气泡之外。
+- 失败气泡只覆盖 `onRunFailed` 的调用路径：停在 `commit_failed` 的 run 与启动恢复时被终结为 `aborted` 的孤儿 run 在账本里什么都不写。
+
+## 相关页
 
 - [事实与投影](../foundations/facts-and-projections.md)
-- [Agent Run 输出与实时更新](../runs/output-and-live-updates.md)
+- [Run 输出与实时更新](../runs/output-and-live-updates.md)
 - [后端总览](../backend/overview.md)
-- [飞书](../surfaces/lark.md)
+- [Web 消息端到端](../flows/e2e-web-message.md)
+- [飞书消息端到端](../flows/e2e-lark-message.md)

@@ -1,66 +1,82 @@
-# 端到端契约规则（防类型裂化）
+# 跨进程契约规则
 
-> 本文是 **design-philosophy 铁律 1「统一本体，不复制语义」在传输/跨进程层的可执行版**。
-> 任何 agent（或人）在 backend / web / lark-bot 之间加字段、调接口、消费 SSE、加查询、读环境变量、跨进程传结构前，**先过这张表**。
-> 部分真源（`api-contract` 包、`SSEEventMap`、共享 `envSchema`）随 milestone `2026-06-28-api-typesafe-elysia-eden` 落地；落地前按目标态写新代码，不要再加裂化副本。
+本页是跨进程与跨包契约（HTTP、SSE、react-query、环境变量、跨进程消息、模板变量）的动手前决策表与自检。它是[设计哲学](./design-philosophy.md)里「统一本体，不复制语义」在传输层上的可执行版：在 backend、web、lark-bot 之间加字段、调接口、消费 SSE、加查询、读环境变量之前，先过这张表。
 
-## 0. 一句话根因
+## 范围
 
-跨进程/跨包的契约一旦**两端各写一份**，编译器就看不见它们的关系：改一边、另一边静默错位，`tsc` 不报错、`as` 把窟窿焊死。**唯一解法：每类契约只有一个真源，两端都从它推导。** `tsc 通过` 不是"对"的证据。
+覆盖：触发器决策表、真源地图、自检、加新契约时的自问，以及可执行门禁在哪。
 
-## 1. 触发器决策表（动手前必查）
+不覆盖：backend 内部的 DB 类型链（见 [DB 类型链规则](./db-typesafe-rules.md)）。
+
+## 一句话根因
+
+跨进程的契约一旦两端各写一份，编译器就看不见两边的关系：改一边另一边静默错位，`tsc` 不报错，`as` 把窟窿焊死。解法是每类契约只有一个真源，两端都从它推导。
+
+## 动手前的决策表
 
 | 当你要…… | 先停，去这里取真源 | 禁止 |
 |---|---|---|
-| 在 web 用一个后端返回的字段 | 改 backend 返回类型，让它经 `App` 流过来；web 从 treaty 推导 | 在 web 手写/扩一个 `interface` 接住它 |
-| 调一个后端接口 | `client.api.*`（`treaty<App>`，类型来自 `@chengchenccc/api-contract`） | `apiFetch<T>` / 裸 `fetch` + `as T` |
-| 消费一个 SSE 事件 | 在 `SSEEventMap` 加/取该事件的 zod schema，用 `typedSource(url, map)` | `new EventSource` + 各自 `JSON.parse` + `as` |
-| 拼一个 SSE 端点 URL | `sseEndpoints` 注册表 + `openSSE(name, params)` | 组件里手写 `/.../events` 模板字符串 |
-| 加一个 `useQuery` / `useMutation` | `features/<x>/queries.ts` 写 `queryOptions(params)`，组件只调 `useXxx` | 组件内联 `queryKey:` / `queryFn:`；key 与请求参数分开写 |
-| 读一个环境变量 | 共享 `envSchema`，调 `parseEnv()` | 各进程裸 `process.env.XXX` |
-| 跨进程传一个结构（lark↔backend 的 `content`、webhook event、队列消息） | 提一个共享 zod schema，两端 `import` + `parse`/`safeParse` | 一端写 `interface`、另一端 `as {…}` / `as Record<…>` |
-| 加一个状态值 / 枚举值（如 run state） | 改共享枚举单源（`as const` / `z.enum`），两端 `import` | 在新文件重抄一遍联合类型；`as SomeStatus` 强转 string |
-| 读写一个 DB JSON 列（metadata/config/payload/fields） | 给该列定义 zod 双向 codec，写 `serialize`、读 `parse` | `JSON.parse(row.x) as T` |
-| 渲染一个模板（handlebars） | 给 `PromptVars` 固定类型，键与模板变量同源校验 | `Record<string, unknown>` + 字符串约定 |
+| 在 web 用一个后端返回的字段 | 改 backend 的返回类型，让它经 `App` 流过来 | 在 web 手写或扩一个 interface 接住它 |
+| 调一个后端接口 | `client.api.*`（treaty，类型来自 `@chengchenccc/api-contract`） | `apiFetch<T>`、裸 `fetch` 加断言 |
+| 消费一个 SSE 事件 | 在 `SSEEventMap` 里加或取 zod schema，用 `typedSource(url, map)` | `new EventSource` 加各自的 `JSON.parse` 与断言 |
+| 拼一个 SSE 端点 URL | `sseEndpoints` 注册表加 `openSSE(name, params)` | 组件里手写 `/.../events` 模板串 |
+| 加一个 `useQuery` / `useMutation` | `features/<x>/queries.ts` 里写 `queryOptions(params)`，组件只调 hook | 组件内联 `queryKey:` / `queryFn:` |
+| 读一个环境变量 | 共享 `envSchema` 加 `parseEnv()` | 各进程裸读 `process.env` |
+| 跨进程传一个结构 | 提一个共享 zod schema，两端 import 后 parse | 一端写 interface，另一端 `as {...}` |
+| 加一个状态值或枚举值 | 改共享单源（`as const` 或 `z.enum`），两端 import | 新文件重抄联合类型 |
+| 读写一个 DB 的 JSON 列 | 定义 zod 双向 codec | `JSON.parse(row.x) as T` |
+| 渲染一个模板 | 给变量一个固定类型，键与模板变量同源 | `Record<string, unknown>` 加字符串约定 |
 
-## 2. 目标态真源地图
+## 真源地图
 
-| 契约类 | 单一真源 | 消费方式 | 反模式（=裂化） |
-|---|---|---|---|
-| HTTP 请求/响应 | backend Elysia `App` → re-export 自 `@chengchenccc/api-contract` | `treaty<App>()` 推导 | 手抄 `XxxRow` interface、`apiFetch<T>`、响应 `as` |
-| SSE 事件载荷 | `SSEEventMap`（值为 zod schema，`api-contract/src/sse.ts`） | 后端 `sseEncoder<M>`、前端 `typedSource<M>` | 后端裸 `event` 字符串、前端各自 `JSON.parse`+`safeParse`/`as` |
-| SSE 端点 URL | `sseEndpoints` 注册表（path 模板 + events map 绑定） | `openSSE(name, params)` | 组件手写 URL 模板，与 map 各自漂移 |
-| react-query key/param | `queryOptions(params)`（`features/<x>/queries.ts`），`params` 为 key 与请求参数唯一来源 | `useXxx` hook（组件唯一入口） | 组件内联 `queryKey`/`queryFn`；key 写 id、queryFn 改 userId 静默错位 |
-| 环境变量 | 共享 `envSchema`（落点随里程碑定，建议独立 `config` 包） | `parseEnv()` 一处解析 | 三进程各裸读、变量名两端不一致（现状 `BACKEND_AUTH_TOKEN` vs `BACKEND_TOKEN`） |
-| 跨进程消息（lark `content`、webhook event） | 共享 zod schema | 两端 `import` + `parse`/`safeParse` | 一端 interface、另一端 `as`；backend 收成 `z.unknown()` |
-| 枚举 / 状态 | 共享 `as const` / `z.enum` | 两端 `import` | 各处重抄字面量；`as Status` |
-| DB JSON 列 | zod 双向 codec | `parse` 读 / `serialize` 写 | `JSON.parse(...) as T` |
-| Oma stdio JSONL 协议 | `apps/oh-my-agent` 生成的 canonical fixture（`rpc-*.jsonl`） | `packages/adapter-oma-agent` 测试消费 fixture | 共享 wire-schema 包；或两端各写 schema 且无 fixture |
-| 模板变量 | 固定 `PromptVars` 类型 | 类型约束 + 文档化变量表 | `Record<string, unknown>` + `strict:false` 静默空串 |
+| 契约 | 真源 | 消费方式 |
+|---|---|---|
+| HTTP 请求与响应 | 后端 Elysia 的 `App` 类型，从 `apps/backend/src/app.ts` 导出、经 `@chengchenccc/api-contract` re-export | treaty 推导 |
+| SSE 事件载荷 | `SSEEventMap`，值为 zod schema（`packages/api-contract/src/sse.ts`） | 后端 `sseEncoder<M>`，前端 `typedSource<M>` |
+| SSE 端点 URL | `sseEndpoints` 注册表（路径模板绑定事件 map） | `openSSE(name, params)` |
+| react-query 的 key 与参数 | `queryOptions(params)`，`params` 是唯一来源 | 组件调 hook |
+| 环境变量 | `packages/config/src/env.ts` 的 `envSchema` | `parseEnv()`，一处解析 |
+| 跨进程消息 | 共享 zod schema | 两端 import 并 parse |
+| 枚举与状态 | 共享 `as const` 或 `z.enum` | 两端 import |
+| oma 的 JSONL 协议 | `apps/oh-my-agent` 生成的 canonical fixture | `packages/adapter-oma-agent` 的测试消费 fixture |
 
-## 3. 写完自检（grep 非零 = 裂化，须修）
+## 写完自检
+
+**可执行版在 `scripts/audit-contracts.ts`**，它跑在 CI 的第二环（`bun run audit:contracts`）。下面这些是人工检查用的宽松版本，与门禁不完全一致：
 
 ```bash
-# 组件不得手抄类型 / 直连 fetch
+# 组件不得手抄类型或直连 fetch —— 当前 0 命中
 grep -rn "apiFetch<\|as AgentRow" apps/web/src
-# 组件不得内联 query 或直调 treaty（只许出现在 features/*/queries.ts|mutations.ts）
-grep -rn "queryKey:\|queryFn:\|client\.api\." apps/web/src/{app,components}
-# SSE 只许在 typedSource 内 new EventSource；URL 只许在 sseEndpoints
-grep -rn "new EventSource\|\`.*\/events\`" apps/web/src
-# 环境变量只许在 envSchema/parseEnv 出现
-grep -rn "process\.env\." apps/{backend,web,lark-bot}/src
-# 跨进程不得裸断言
+
+# 组件不得内联 queryFn —— 当前 0 命中（只查 queryFn，不查 queryKey）
+grep -rn "queryFn:" apps/web/src/app apps/web/src/components
+
+# SSE 只许在 typedSource 里 new EventSource —— 当前 0 命中
+grep -rn "new EventSource" apps/web/src
+
+# 环境变量只许经 parseEnv —— 有白名单，见门禁脚本
+grep -rn "process\.env\." apps/backend/src apps/web/src apps/lark-bot/src | grep -v "\.test\.ts"
+
+# 跨进程不得裸断言 —— lark-bot 侧有存量基线
 grep -rn "as {\|as Record<" apps/lark-bot/src
 ```
 
-每条命中都要回答：这个契约的真源是谁？为什么这里没从真源推导？答不上来就是新裂化点。
+门禁里三处零容忍是 `queryFn:`、`new EventSource`、`.mcp.json` 三条断言；带存量基线的有两处：lark-bot 的四条裸断言（`ingest`、`bootstrap`、`bindings-sqlite`、`render`），以及环境变量的三条桥（backend 的 `config.ts`、`infra/oma-command.ts`、测试 harness）——那些地方本来就要读原始 env，属于合法出口。
 
-## 4. 加新契约时的自问（外推用）
+**别用宽 grep 当门禁。** `queryKey:` 与 `client.api.` 在外层组件里大量出现（`invalidateQueries` 的 key、SSR 页面里的 treaty 调用），宽 grep 会永远红灯，然后被人关掉。
 
-引入任何**会被另一个进程/包读到**的类型、字段、事件、枚举、环境变量、JSON 形状之前，先问：
+门禁通过时会打印一行摘要，说明哪些检查是零容忍、哪些还在基线里。
 
-1. 它属于哪个已有领域对象？（铁律 1）
-2. 它的**真源**应该放在哪个包？两端怎么从真源推导，而不是各写一份？
-3. 如果半年后有人只改其中一端，编译器会拦住他吗？拦不住，就还没收敛好。
+## 加新契约时的自问
 
-> 关联：[`design-philosophy.md`](./design-philosophy.md)（why）、milestone spec [`2026-06-28-api-typesafe-elysia-eden`](../superpowers/specs/2026-06-28-api-typesafe-elysia-eden.md)（how，本规则的落地）。
+1. 它属于哪个已有的领域对象？
+2. 它的真源应该放在哪个包？两端怎么从真源推导，而不是各写一份？
+3. 半年后如果有人只改其中一端，编译器会拦住他吗？拦不住就是还没收敛好。
+
+## 不变量
+
+1. HTTP 的类型真源是后端的 `App` 类型，前端不手抄。
+2. 全仓只有一处 `new EventSource`，URL 只从端点注册表来。
+3. 组件的查询钩子是唯一入口，组件内不内联 `queryFn`。
+4. 环境变量一处解析，桥接位置在门禁里白名单登记。
+5. 跨进程结构两端共享一个 zod schema。

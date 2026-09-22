@@ -6,7 +6,7 @@ Project 是仓库级协作实体，每个 (agent, project) 在 agent 工作区�
 
 覆盖：Project 实体与 CRUD 守卫、agent 与 project 的声明与 reconcile、两条 worktree 轴、路径与分支命名、mirror 生命周期、worktree 的桥接写入、Run 的 workspace 绑定、workspace lock、worktree 的读与合流操作。
 
-不覆盖：Coding 页的终端面板（PTY、WS ticket，见 [Web 端](../surfaces/web.md)）、Agent Run 自身的生命周期（见 [Run 输出与实时更新](../runs/output-and-live-updates.md)）、mirror 的远端鉴权与 fetch 策略（未定，见 [ADR 0023](../adr/0023-project-worktree-workspace.md)）。
+不覆盖：Coding 页的终端面板（PTY、WS ticket，见 [Web 端](../surfaces/web.md)）、Agent Run 自身的生命周期（见 [Run 输出与实时更新](../runs/output-and-live-updates.md)）、mirror 的远端鉴权与 fetch 策略（未定，见 [ADR 0023](../../adr/0023-project-worktree-workspace.md)）。
 
 ## 实现文件
 
@@ -127,4 +127,4 @@ HTTP：`GET /api/projects/:id/worktrees`、`GET .../worktrees/:agentId/diff`、`
 - 合流操作只认精确分支 `agent/<agentId>/<projectId>`，任务轴的 `.<slug>` 不在范围内——`worktree-ops` 没有 slug 参数。
 - `docs/adr/0023-project-worktree-workspace.md` 的状态仍写着 Proposed，而 P1、P2 与附录都已实现；ADR 里「detach 也在锁内」的说法与代码不符（detach 直接跑 git）。
 
-详细清单见 [`../roadmap.md`](../roadmap.md)。
+详细清单见 [`../roadmap.md`](../../roadmap.md)。

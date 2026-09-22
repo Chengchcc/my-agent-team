@@ -52,7 +52,7 @@ Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对�
 
 **CLI session 续接是分支上的一等事实**：Run 结束后，`cli_session_ref` 带种类前缀存到分支上；下次 spawn 前剥回原始引用交给子进程；子进程用它加载自己的 session transcript 作为本次 Run 的种子历史。首轮那条扁平文本历史桥，只在**没有** `cli_session_ref` 时才用。
 
-也就是说：产品侧没有会话概念，但运行侧确实在续接，续接的载体是分支上的这个引用（见 [ADR 0019](../adr/0019-cli-session-dual-truth.md)）。
+也就是说：产品侧没有会话概念，但运行侧确实在续接，续接的载体是分支上的这个引用（见 [ADR 0019](../../adr/0019-cli-session-dual-truth.md)）。
 
 ## 显式追加
 

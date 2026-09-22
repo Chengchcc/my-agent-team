@@ -1,5 +1,7 @@
 # Operations
 
+命令与排障详见 `docs/guides/development.md` 与 `docs/architecture/operations/troubleshooting.md`。
+
 ## Commands
 
 - bun install: install dependencies
@@ -14,7 +16,7 @@ Scoped examples:
 
 - cd apps/oh-my-agent && bun test --test-name-pattern="agent-loop"
 - cd apps/backend && bun run typecheck
-- cd apps/backend && bun test tests/e2e/mcp-crud.test.ts
+- bun run audit:docs（文档门禁）、bun run audit:contracts（跨进程契约门禁）
 
 ## Testing model doubles
 
@@ -35,6 +37,7 @@ Scoped examples:
 - <dataDir>/agents/<id>/: agent workspaces with agent.yml
 - <dataDir>/skill-packs/<id>/: installed skill packs
 - <dataDir>/knowledge/<id>/: installed knowledge packs
+- <dataDir>/workflows/*.workflow.json: workflow 定义（带 cron 触发）
 - <dataDir>/mcp-servers.json: global MCP catalog
 
 ## Debugging

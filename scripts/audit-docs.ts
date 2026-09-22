@@ -198,11 +198,10 @@ for (const rel of activeFiles) {
   }
 }
 
-// 9. W3 (docs/insights.md I3): repo-rooted paths and @chengchenccc/<pkg>
-// names in the agent must-read docs must exist on disk. Word-split scan
-// (not backtick pairs — an unclosed fence swallows those); glob family
-// references (packages/adapter-*) fail the strict token shape and are
-// skipped. CONTEXT.md's Tombstones section intentionally names dead paths.
+// 9. W3: repo-rooted paths and @chengchenccc/<pkg> names in the agent
+// must-read docs must exist on disk. Word-split scan (not backtick pairs — an
+// unclosed fence swallows those); glob family references (packages/adapter-*)
+// fail the strict token shape and are skipped.
 const PATH_TOKEN =
   /^(?:packages|apps|docs|skills|scripts|knowledge-packs)(?:\/[A-Za-z0-9._-]+)+\/?$/;
 const PKG_TOKEN = /^@chengchenccc\/([a-z0-9-]+)$/;
@@ -213,8 +212,8 @@ const RUNTIME_PATHS = new Set(["apps/oh-my-agent/dist/cli.js", "apps/backend/.ba
 const DOC_FILES = [
   "AGENTS.md",
   "README.md",
-  "CONTEXT.md",
-  "docs/insights.md",
+  "docs/README.md",
+  "docs/roadmap.md",
   ...readdirSync(join(ROOT, "knowledge-packs/my-agent-team"))
     .filter((f) => f.endsWith(".md"))
     .map((f) => `knowledge-packs/my-agent-team/${f}`),
@@ -231,8 +230,7 @@ const DOC_FILES = [
 ].filter((rel) => existsSync(join(ROOT, rel))) as readonly string[];
 let pathTokens = 0;
 for (const rel of DOC_FILES) {
-  let text = readFileSync(join(ROOT, rel), "utf8");
-  if (rel === "CONTEXT.md") text = text.split("## Tombstones")[0] ?? text;
+  const text = readFileSync(join(ROOT, rel), "utf8");
   const words = text.split(/[`\s|(),;:[\]"'"“”‘’（）：]+/).map((w) => w.replace(/[.,;。、]+$/, ""));
   const tokens = new Set(words.filter((w) => PATH_TOKEN.test(w) || PKG_TOKEN.test(w)));
   // README's repo-structure block lists bare dir names under an apps/ or

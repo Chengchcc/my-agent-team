@@ -6,7 +6,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 覆盖：DSL 与校验规则、JSON-Logic 子集、路由与合并语义、backend 执行路径（drive / agent / script / human / retry / cancel / recover）、事件总线与 SSE、cron 触发、Artifact 引用、agent 侧的定义读写面。
 
-不覆盖：Web 编辑器与画布交互（见 [Web 端](../surfaces/web.md)）、Agent Run 自身的生命周期（见 [Product Backend 总览](../backend/overview.md)、[Run 输出与实时更新](../runs/output-and-live-updates.md)）、oma 子进程内部那套 `core/orchestrate/` 脚本工具（它与本 DSL 无关，见文末「两条独立路径」）。
+不覆盖：Web 编辑器与画布交互（见 [Web 端](./surfaces/web.md)）、Agent Run 自身的生命周期（见 [Product Backend 总览](./backend/overview.md)、[Run 输出与实时更新](./runs/output-and-live-updates.md)）、oma 子进程内部那套 `core/orchestrate/` 脚本工具（它与本 DSL 无关，见文末「两条独立路径」）。
 
 ## 实现文件
 

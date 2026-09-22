@@ -1,80 +1,70 @@
----
-id: flows.e2e-lark-message
-title: 飞书消息端到端
-status: current
-owners: architecture
-last_verified_against_code: 2026-07-28
-summary: "飞书消息的完整生命周期：飞书用户发消息 -> lark-bot 解析绑定、POST 到 Backend -> Agent 执行 -> onEvent 回调写 conversation ledger -> sse-watcher 解析 revision -> 去重推送到飞书。"
-depends_on:
-  - surfaces.lark
-  - runs.output-and-live-updates
-used_by:
----
-
 # 飞书消息端到端
 
-飞书用户发消息后，lark-bot 作为中继：解析飞书 chat 绑定，将消息 POST 到 Backend 的 conversation API，Backend 通过 Agent 执行，assistant 消息写入 conversation ledger。lark-bot 的 sse-watcher 监听账本 SSE，解析 MessageRevision，去重后推送到飞书。
+一句话：本页是飞书端一条消息的权威端到端链路。lark-cli 的事件经幂等占位与绑定解析后 POST 给 conversation API，backend 走与 Web 完全相同的入队、派发、终态提交路径，sse-watcher 再从该会话的 conversation SSE 上把终态 assistant 行渲染成纯文本发回飞书。
 
-## 时序图
+## 范围
 
-```mermaid
-sequenceDiagram
-  participant U as 飞书用户
-  participant Bot as 飞书 Bot
-  participant B as Backend
-  participant AG as Agent
-  participant L as Conversation History
+覆盖：从 `lark-cli event consume` 的一行 stdout 到飞书收到回复之间每一次 HTTP 与 SSE 交互、每张本地表的变化、去重键的选择，以及出问题先看哪一层。
 
-  U->>Bot: 发消息 / @机器人
-  Bot->>B: 解析 chat 绑定（无则新建 Conversation + 成员）
-  Bot->>B: POST /api/conversations/:id/messages
-  B->>L: 写入人类 MessageRevision
-  B->>AG: executeAgentRun(input, {origin:"conversation", surface:"lark"})
-  AG: create Agent Run + spawn oma child（per-Run Runtime）
-  AG->>AG: model/tool loop（自动多轮：模型 ↔ 工具执行）
-  AG-->>B: onAssistantMessage("message_update") -> appendAssistantMessage
-  B->>L: MessageRevision（state: streaming，同 messageId）
-  L-->>Bot: 账本 SSE → sse-watcher 解析 revision
-  Bot->>Bot: state=streaming → L2 节流（500ms 合并）→ 流式渲染
-  AG-->>B: onAssistantMessage("message_update")（更多轮 -> 同 messageId）
-  B->>L: 同 messageId 更新 revision
-  L-->>Bot: 账本 SSE → 同 messageId 更新
-  AG-->>B: onEvent("agent_end")
-  B->>L: terminal revision（state: done）
-  L-->>Bot: 账本 SSE → revision（同 messageId, state: done）
-  Bot->>Bot: messageDelivery 表去重（isTerminalMessageState）
-  Bot->>U: 推送最终文本
-```
+不覆盖：Web 端（见 [Web 消息端到端](./e2e-web-message.md)）、飞书端内部四张表的字段级细节（见 [飞书](../surfaces/lark.md)）、backend 执行层的通用语义（见 [Run 输出与实时更新](../runs/output-and-live-updates.md)）。
 
-## 绑定模型
+## 实现文件
 
-飞书维护四组映射：飞书 chat → conversationId；飞书 user → human member；Bot/Agent 身份 → agent member；飞书消息 ID → 投递状态。
+- `apps/lark-bot/src/main.ts` — 事件消费循环、watcher 表与 ingest 调用
+- `apps/lark-bot/src/ingest.ts` — 整条入站路径
+- `apps/lark-bot/src/sse-watcher.ts` — 整条出站路径
+- `apps/lark-bot/src/bindings-sqlite.ts` — 本地四表与推送游标
+- `apps/backend/src/features/conversation/{http.ts,service.ts}` — 消息写入与触发
+- `apps/backend/src/features/agent-run/{adapter-sqlite-enqueue.ts,execution-dispatch.ts,adapter-sqlite-runs.ts}` — 入队、派发、终态提交
+- `apps/backend/src/bootstrap/features.ts` — 提交后的即时推送与失败气泡
 
-## 流式输出
+## 端到端步骤
 
-sse-watcher 是飞书端唯一出站流入口。它监听 conversation SSE，解析 MessageRevision。`state: "streaming"` 的 revision 驱动实时流式渲染，`state: "done"` 的 revision 触发最终文本推送。
+1. **收到事件**（`apps/lark-bot/src/main.ts`）：`lark-cli --profile <p> event consume im.message.receive_v1 --as bot` 的 stdout 按行读出，`parseEvent` 解析成带 `event_id`、`message_id`、`chat_id`、`chat_type`、`sender_id`、`content` 的结构化事件，解析失败的行只打日志。
+2. **鉴权**（`apps/lark-bot/src/ingest.ts`）：`sender_type` 存在且不是 `"user"` 直接跳过；再按 agent 配置的 `allowedSenders` 白名单过滤，空数组表示放行所有人。
+3. **幂等占位**：同一个 sqlite 事务里先 `inboundExists`（按 `event_id` 或 `message_id`）判断是否已处理，再 `reserveInbound` 落一行 `status = "processing"`。占位在 POST 之前，选择的是「宁可丢一条入站也不重复触发 run」。
+4. **解析或建立绑定**：`chat_binding` 命中就直接用它的 conversationId；没有则 `POST /api/conversations {agentId}` 新建，再只写本地的 `chat_binding` 与 `member_binding`。后端没有成员表，`human:lark:<open_id>` 只是这个端自己的标签。
+5. **定路由**：单聊不传 `senderMemberId` 与 `addressedTo`，由服务端派生成 sender 是用户、target 是会话 agent；群聊传 `senderMemberId`，`addressedTo` 在机器人被 @ 时为 `[selfAgentId]`，否则为 `[]`（即不触发）。
+6. **POST 消息**：`content` 为 `{ text, source: "lark", larkEventId, larkMessageId }`，打到 `POST /api/conversations/:id/messages`，返回 202 与 `{ seq, triggeredRuns }`。
+7. **写人类行**（`apps/backend/src/features/conversation/service.ts` 的 `postMessage`）：先写一条 `role: "user"`、`state: "done"` 的账本行，再判断触发。触发条件是目标列表包含本会话的 agent。
+8. **入队并派发**：飞书没有专属执行分支，走的是与 Web 相同的 `#triggerForAgent` → `enqueueAndAcquire` 单事务 → `#dispatchRun`。分支上已有 active run 时，这条输入进 `branch_input_queue` 排队，等它终态后由 `acquireNextRun` 提升为新 run。
+9. **子进程期间**：adapter 为这个 run spawn 一个 oma 子进程，子进程事件经 `mapRunEvent` 变成 `text_delta`、`thinking_delta`、`status` 等 transient 事件，只广播给当前进程的订阅者，**不落账本**。飞书看不到任何中间态，这个期间它什么也不发。
+10. **确认入站**：POST 成功后 `confirmInbound` 回填 `conversationId` 与 `ledgerSeq`，`status` 转为 `posted`。POST 之后崩掉的话事件不会重放，但账本里那条人类消息已经生效。
+11. **终态提交**（`execution-dispatch.ts` 的 `settleOutcome` → `commitCompletedRun`）：outcome 为 `completed` 时，一个事务里把 canonical 消息逐条写进账本，assistant 的 messageId 是 `run:<runId>:assistant:<n>`，工具行形如 `run:<runId>:tool:<index>`，`state` 统一 `done`；非 `completed` 的终态不写 assistant 行，另由 `onRunFailed` 落一条 `run:<runId>:error` 的失败气泡。
+12. **回推到 watcher**：`onRunCommitted` 对每个提交的 seq 调 `notifySeq`，在线的 conversation SSE 订阅者立刻收到这些帧；漏掉的靠 `subscribeConversation` 的 5 秒轮询兜底。
+13. **出站过滤**（`apps/lark-bot/src/sse-watcher.ts` 的 `processEntry`）：按 seq、`surface.control`、非 message 帧、`role` 为 `system` 或 `user` 依次过滤；`tool` 行不在排除名单里。
+14. **去重**：以 `(conversationId, messageId, larkChatId)` 查 `message_delivery`，命中且上一状态是终态就跳过。未命中则先 `upsertMessageDelivery` 记投递意图，再发送，最后推进 `pushedSeq`。
+15. **投递**：`renderRevision` 取出文本并过 `normalizeForLarkMarkdown`（换行、code fence 收尾、超长截断），再经 `lark-cli im +messages-send --idempotency-key <conversationId:messageId:seq>` 发出。失败退避重试 3 次，耗尽后只记日志并抛错，`pushedSeq` 因此停在原地。
+16. **表面恢复**：进程重启后按 `chat_binding` 为每个会话重开 watcher，从各自的 `pushedSeq` 继续。重放的帧被 `message_delivery` 的终态判断挡掉，所以不会重复发送。
 
-## 去重模型
+## 重绑（surface.control）
 
-同一个 `messageId` 的多次 revision（streaming → done）通过 **`messageDelivery` SQLite 表**去重。`processEntry` 先查 `getMessageDelivery(conversationId, messageId, larkChatId)`：若已投递终端态（`isTerminalMessageState`），跳过。未投递则 `upsertMessageDelivery` 记录投递意图后再发送——即使发送失败，重连后也不会重复推送。
+backend 的 `startNewConversationForSurface` 在新会话建好后往旧会话账本写一条 `lark.start_new_conversation`，带 `oldConversationId`、`newConversationId`、`requestedByRunId`，同一 `idempotencyKey` 重复调用返回既有结果。watcher 收到这类帧后调 `rebindChatConversation`，重置新会话的 `pushedSeq`，通过 `onRebind` 关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。
 
-非终端帧（streaming）经 **L2 节流**（500ms 合并，同 messageId 覆盖），终端帧立即发送 + 最多 3 次指数退避重试。
-
-## surface.control 触发对话重置
-
-Agent 可调用 `start_new_conversation` 工具请求开启新对话。Backend 创建新的 Conversation，在旧 conversation 的 ledger 中写入 `surface.control` entry。sse-watcher 检测到此 entry，将飞书 chat 重新绑定到新 conversation。
+HTTP 入口是 `POST /api/conversations/:id/start-new`，目前只有测试调用，没有生产触发方。
 
 ## 出问题先看哪层
 
-| 症状 | 可能成因 | 接着读 |
+| 症状 | 先看 | 接着读 |
 |---|---|---|
-| 最终答案重复 | terminal revision 重放 / 去重未命中 | [飞书](../surfaces/lark.md) |
-| 流式输出不更新 | conversation SSE 断连 | [会话消息流](../runs/output-and-live-updates.md) |
-| Agent 没触发 | 绑定/可见性/提及问题 | [Agent 工作区与多后端](../agents/workspace-and-backends.md) |
+| 飞书没收到任何回复 | `message_delivery` 是否已记投递意图、`chat_binding.pushed_seq` 是否在推进 | [飞书](../surfaces/lark.md) |
+| 机器人没反应 | `allowed_senders` 是否包含该用户、群聊是否 @ 到机器人（`botDisplayName` 存在吗） | [飞书](../surfaces/lark.md) |
+| 回复重复 | 重连重放时 `message_delivery` 是否命中，或 `lark-cli` 的 idempotency key 冲突 | [飞书](../surfaces/lark.md) |
+| 账本里有行但飞书没发 | 该行的 `role` 是否被过滤、`renderRevision` 是否只拿到非文本块 | [Run 输出与实时更新](../runs/output-and-live-updates.md) |
+| 回复发到了错误的会话 | `chat_binding` 指向的 conversationId 与 `surface.control` 重绑结果 | [飞书](../surfaces/lark.md) |
 
-## 关联页面
+## 不变量
+
+1. 入站幂等键是飞书事件与消息 id；出站去重键是 `(conversationId, messageId, larkChatId)`。
+2. 投递意图先落库再发送，发送失败不重发。
+3. `pushedSeq` 只在投递路径走完之后推进。
+4. 飞书端不写账本，也不向后端声明身份。
+5. 「飞书 chat 到 conversation」的映射只存在于本地 `chat_binding`，后端不感知。
+
+## 相关页
 
 - [飞书](../surfaces/lark.md)
-- [会话消息流](../runs/output-and-live-updates.md)
-- [Agent 工作区与多后端](../agents/workspace-and-backends.md)
-- [排障手册](../operations/troubleshooting.md)
+- [Web 消息端到端](./e2e-web-message.md)
+- [Conversation History](../conversation/history.md)
+- [Agent 工作区与后端](../agents/workspace-and-backends.md)
+- [排障指南](../operations/troubleshooting.md)

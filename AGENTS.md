@@ -70,7 +70,7 @@ missing from this list; `@chengchenccc/` is the scope of every name below):
 | `apps/lark-bot/` | Lark/Feishu IM bot integration |
 | `apps/oh-my-agent/` | Oma CLI agent runtime (spawned `--mode rpc` by backend adapters) |
 | `skills/` | Skill packs (SKILL.md + registry.yaml) for agent runtime |
-| `docs/` | Architecture docs, ADRs, superpowers (specs/plans) |
+| `docs/` | Project wiki: `architecture/` (current state), `adr/` (decisions), `guides/` (how-to), `roadmap.md` (not done yet) |
 
 ## Development Commands
 
@@ -213,6 +213,7 @@ sessions actually running inside that app.
 | `turbo.json` | Build pipeline (concurrency=1 for safety) |
 | `tsconfig.base.json` | Shared strict TS config |
 | `docs/architecture/design-philosophy.md` | 8 architectural principles |
+| `docs/README.md` | Wiki front door: zones, task routing, writing rules |
 | `docs/architecture/e2e-contract-rules.md` | Anti-fragmentation rules for cross-process types |
 | `docs/architecture/db-typesafe-rules.md` | DB type chain rules (schema → service → http) |
 
