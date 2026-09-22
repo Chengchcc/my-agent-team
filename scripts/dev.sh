@@ -89,9 +89,12 @@ trap cleanup INT TERM
 
 echo "==> Starting backend (port 3000) + web (port 3001)..."
 echo "    Login at http://localhost:3001/login"
-echo "    Password: the one this stack already has (changeable in Settings)."
-echo "    On a fresh data dir the backend adopts MOCK_PASSWORD from apps/web/.env"
-echo "    on first boot; after that the env value is ignored."
+echo "    Password: the one this stack already has (change it in Settings)."
+echo "              On a data dir that has never booted, the backend adopts"
+echo "              MOCK_PASSWORD from apps/web/.env on first start; after that"
+echo "              the env value is ignored. Forgotten it? Run"
+echo "              bash scripts/reset-login-password.sh"
+echo "              (gateway installs: oma gateway passwd)"
 echo ""
 
 # Start as direct children of this script (no bun run wrapper).

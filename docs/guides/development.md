@@ -88,6 +88,18 @@ bash scripts/memguard.sh --limit 2G -- bun run build
 - `apps/backend/.backend-data/` — 本地数据目录：SQLite 库、Agent 工作区、workflow 定义
 - `apps/oh-my-agent/dist/` — 构建产物
 
+## 登录口令
+
+控制台的登录口令存在数据目录的数据库里（`settings` 表的 `auth.password_hash`，argon2id）。`apps/web/.env` 里的 `MOCK_PASSWORD` 只是**引导凭据**：某个数据目录第一次启动时，后端把它写成哈希，之后就与这个环境变量无关了。知道口令从哪来、丢了怎么找回：
+
+```bash
+grep MOCK_PASSWORD apps/web/.env          # 只对从未启动过的数据目录有效
+bash scripts/reset-login-password.sh      # 忘了：清掉哈希，重置成 .env 里的值
+bash scripts/reset-login-password.sh 'new-password-1234'   # 或者指定一个新值
+```
+
+重置脚本会删掉库里的哈希并把选定的值写回 `.env`，重启后端生效。走 `oma gateway` 装的那套用 `oma gateway passwd`（gateway 在跑就直接推给后端，没跑就清哈希）。原理见 [安全模型](../architecture/security/overview.md)。
+
 ## 提交规范
 
 提交信息走 commitlint 的 conventional 规则（`commitlint.config.mjs`），pre-commit 跑 Biome，pre-push 跑 lint。三条硬约束：

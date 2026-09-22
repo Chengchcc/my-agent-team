@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -245,19 +246,47 @@ export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promis
   await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
   log(`login password replaced: user-001 / ${password}`);
 
-  // A password set in the console is stored as a hash and wins over this file,
-  // so push the new one there too when the gateway is up — otherwise rotating
-  // here would silently not take effect.
+  // A password set in the console is stored as a hash in the stack's settings
+  // and wins over this file, so the new one has to land there too — otherwise
+  // rotating here would silently not take effect.
   const pushed = await pushPasswordToRunningGateway(secrets, password);
   if (pushed) {
     log("the running gateway took it too (console-set password updated)");
+    return 0;
+  }
+  // Gateway not reachable: clear the stored hash instead, so the next start
+  // adopts the secret above. Without this, "rotate while down" is a no-op —
+  // the old hash outlives the rotation and the new password gets refused.
+  if (clearStoredPassword(home)) {
+    log("the stored password was cleared; it applies on the next start");
   } else {
     log("restart to apply: oma gateway down && oma gateway up -d");
-    log(
-      "note: a password set in the web console wins over this file — change it there if you used that",
-    );
   }
   return 0;
+}
+
+/** Delete the stored password hash from a stopped gateway's database so the
+ *  secret file is authoritative again on the next boot. Returns true when a
+ *  hash was actually removed. Never throws: a missing database just means
+ *  nothing was ever set here. */
+function clearStoredPassword(home: string): boolean {
+  const dbPath = join(gatewayPaths(home).data, "backend", "backend.db");
+  if (!existsSync(dbPath)) return false;
+  try {
+    const db = new Database(dbPath);
+    const row = db
+      .query("select count(*) as n from settings where key = ?")
+      .get("auth.password_hash") as { n: number } | null;
+    if (!row || row.n === 0) {
+      db.close();
+      return false;
+    }
+    db.run("delete from settings where key = ?", ["auth.password_hash"]);
+    db.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Update the console-set password (a hash in the backend's settings) when the

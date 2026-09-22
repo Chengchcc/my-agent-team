@@ -44,6 +44,15 @@ token 比较是常量时间的（长度不等直接拒，否则 `timingSafeEqual
 
 校验顺序：web 先问后端 `POST /api/auth/verify`；后端有哈希就按哈希判（`source: "stored"`），没哈希才回落到引导密码，后端不可达时不锁人。
 
+**初始口令从哪看、忘了怎么办。** 两种装法各有自己的一份引导凭据：
+
+| 装法 | 初始口令在哪 | 忘了怎么重置 |
+|---|---|---|
+| `oma gateway` 产物 | `oma gateway status` 会打印 `user-001 / <口令>`；也在 `~/.oma/gateway-secrets.json`（0600） | `oma gateway passwd`：换一份随机口令；gateway 在跑就直接推给后端，没跑就清掉库里的哈希，下次启动生效 |
+| 源码 `bun run dev` | `apps/web/.env` 的 `MOCK_PASSWORD`（`scripts/predev.sh` 首次生成），只在该数据目录从未启动过时被采用 | `bash scripts/reset-login-password.sh [新口令]`：清掉库里的哈希，并把新口令写回 `.env`，重启后生效 |
+
+两条路都是「清掉存储的哈希 + 让引导凭据重新生效」，不是绕过校验：数据库仍是唯一真源，只是给它换了一个值。
+
 ## 对话层
 
 对话是 1:1 的：participant 就是 `conversation.agent_id`，成员表已经删掉。
