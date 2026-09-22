@@ -46,14 +46,16 @@ runtime_config:
     - <pack id>
 ```
 
-- Bridge：agent.yml 列出的 pack **软链**进 workspace `knowledge/<packId>`；并**生成机器索引** `knowledge/index.md`(每 pack 的标题、描述、文件清单，reconcile 时幂等重建，与 manifest.json 同构的桥接产物)。
+- Bridge：agent.yml 列出的 pack **软链**进 workspace `knowledge/<packId>`；并**生成机器索引** `knowledge/index.md`(每 pack 的标题、描述，加每个文件的路径与该文件 frontmatter 的 title/description/tags；`hide: true` 的文件不进索引但照常可读可搜；reconcile 时幂等重建，与 manifest.json 同构的桥接产物)。
 - **prompt 注入**：oma 的 cwd meta 通道(workspace-context)把 `knowledge/index.md` 包成 `<available_knowledge>…</available_knowledge>` 段追加到 system prompt(与 skill 索引同形态，有文件才追加)。CLI 后端原生读 cwd 文件，index.md 对它们同样可见。
-- **召回工具 = MCP(非 child 原生)**：`knowledge_search`(AND 关键词 + 可选 tag 过滤，frontmatter title/tags/summary 服务召回质量)+ `knowledge_read`(路径约束在 knowledge/ 内)实现为 **backend 的 stdio MCP server**(`features/knowledge/mcp-server.ts`)，bridge 把它合并进 `.mcp.json`，**四个后端挂载同一套召回面**。child 因此补了通用 `.mcp.json` 挂载(跳过 product-tools，manifest 路径已管它)，user 自配的 MCP server 对 oma 也开始生效。
+- **召回工具 = MCP(非 child 原生)**：`knowledge_search`(AND 关键词 + 可选 tag 过滤；**只匹配正文，frontmatter 不参与匹配**，文件元数据只用来展示)+ `knowledge_read`(路径约束在 knowledge/ 内，返回剥掉 frontmatter 的正文)实现为 **backend 的 stdio MCP server**(`features/knowledge/mcp-server.ts`)，bridge 把它合并进 `.mcp.json`，**四个后端挂载同一套召回面**。child 因此补了通用 `.mcp.json` 挂载(跳过 product-tools，manifest 路径已管它)，user 自配的 MCP server 对 oma 也开始生效。
+- **内置包源 = 仓库自己的 `docs/architecture/`**(2026-09-22)：不再维护 `knowledge-packs/` 副本，seed 时直接把该目录拷进 dataDir；每个页面的 frontmatter 就是注入索引里那一行。`docs/adr/` 由技能生成、不手写 frontmatter，因此不在包内。
+- **渐进式加载**：索引只带元数据、正文按需取；索引与召回工具共用 `features/knowledge/frontmatter.ts` 一个解析器(2026-09-22 补齐：此前索引是纯文件清单、`description` 不存在、搜索还会匹配 frontmatter)。
 - 消费语义：knowledge 是**参考**，不是指令，不参与 skill 的加载/执行链路。
 
 ### 边界与降级
 
-- index.md 是桥接产物(机器生成)，reconcile 幂等重建；索引只含每 pack 摘要 + 文件清单(不内联全文)，全文靠召回工具。
+- index.md 是桥接产物(机器生成)，reconcile 幂等重建；索引只含每 pack 摘要与每个文件的元数据(不内联正文)，全文靠召回工具。
 - 未列 knowledge 的 agent：不生成 index、不建软链，行为与现状一致。
 - agent.yml 开关缺省(无 mcp_servers / knowledge_packs 键)= 全部关闭。
 

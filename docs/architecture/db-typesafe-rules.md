@@ -1,3 +1,9 @@
+---
+title: DB 类型链规则
+description: 动手改表、加列或写 service 返回类型前必读：drizzle schema 到 http 的类型链真源、禁止写法与迁移生成
+tags: [conventions, rules, backend]
+---
+
 # DB 类型链规则
 
 本页是 backend 内部类型链（drizzle schema → service → http）的动手前决策表与写完自检。它是[设计哲学](./design-philosophy.md)里「统一本体，不复制语义」在 DB 层上的可执行版：加字段、改表、写 service 返回类型、读写 JSON 列、加枚举值之前，先过这张表。

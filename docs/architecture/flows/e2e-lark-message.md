@@ -1,3 +1,9 @@
+---
+title: 飞书消息端到端
+description: 飞书事件从 lark-cli stdout 到回复发回飞书的十六步，含去重键选择与出问题先查哪一层
+tags: [runs, lark, backend]
+---
+
 # 飞书消息端到端
 
 一句话：本页是飞书端一条消息的权威端到端链路。lark-cli 的事件经幂等占位与绑定解析后 POST 给 conversation API，backend 走与 Web 完全相同的入队、派发、终态提交路径，sse-watcher 再从该会话的 conversation SSE 上把终态 assistant 行渲染成纯文本发回飞书。

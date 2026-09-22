@@ -1,3 +1,9 @@
+---
+title: Backend 数据模型
+description: backend.db 的表分组、带语义的列、部分唯一索引与幂等键、同事务写入，以及已删掉的表；查字段含义或改 schema 前读这个
+tags: [backend, data]
+---
+
 # 数据模型
 
 本页是 `backend.db` 的权威描述：哪些表是产品事实、哪些是执行控制面、哪些写入必须同事务、以及它们各自编码的幂等与不变式。drizzle schema 是唯一真相源。

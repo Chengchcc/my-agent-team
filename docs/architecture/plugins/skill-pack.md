@@ -1,3 +1,9 @@
+---
+title: 技能包管理
+description: 技能包的来源、状态机与确定性安装同步流程，以及启动恢复、运行时 skillRoots 装配和 HTTP 端点
+tags: [skills, backend, data]
+---
+
 # 技能包管理
 
 一句话：本页是 Skill Pack（技能包）的权威描述。技能包是技能的分发单元，有来源（builtin / git / zip）、版本、安装状态机和 per-Agent 分配；它物化在 `<dataDir>/skill-packs/<packId>`，**安装与同步是确定性的 TypeScript 流程**——git 走 `git fetch` + `reset --hard`，zip 走解包物化，全程没有模型、没有临时 Agent。

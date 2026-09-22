@@ -1,3 +1,9 @@
+---
+title: 渐进式技能
+description: 技能索引进 Meta 段、正文由 skill_load 按需读的机制，含技能根顺序、同名优先级与两个 frontmatter 开关
+tags: [skills, runtime, context]
+---
+
 # 渐进式技能
 
 一句话：本页是技能渐进加载的权威描述。它是 oma 的一个内置模块（`createSkill({ roots })`）——把技能的**索引**（名字与简介）放进每轮的 Meta 段，把**正文**留给 `skill_load` 工具按需读取，所以技能再多也不会一次占满上下文。

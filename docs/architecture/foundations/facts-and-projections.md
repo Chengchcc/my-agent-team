@@ -1,3 +1,9 @@
+---
+title: 事实与投影
+description: 哪些数据是产品事实、哪些只是执行缓存或投影，以及一个 Message 什么时候才算真的发生
+tags: [context, history, runs]
+---
+
 # 事实与投影
 
 本页说明哪些数据是产品事实、哪些只是执行缓存或投影，以及一个 Message 什么时候才算真的发生了。

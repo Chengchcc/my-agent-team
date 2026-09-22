@@ -1,3 +1,9 @@
+---
+title: 飞书端
+description: 飞书入站的鉴权与幂等占位、本地四张表，以及 sse-watcher 的出站过滤链、投递去重与推送游标
+tags: [lark, surfaces, backend]
+---
+
 # 飞书端
 
 一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程里的文本桥。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API；出站用 sse-watcher 消费该会话的 conversation SSE，把 assistant 终态行渲染成纯文本发回飞书。sse-watcher 是唯一出站入口，run 的中间态对飞书完全不可见，工具行则按纯文本原样投递。

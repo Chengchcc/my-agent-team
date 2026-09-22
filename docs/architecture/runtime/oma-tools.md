@@ -1,3 +1,9 @@
+---
+title: Oma Tools
+description: 原生工具与 MCP 工具清单、permissionMode 三态门控、context 文件注入、记忆的读写面、超时与预算旋钮
+tags: [oma, mcp, runtime]
+---
+
 # Oma Tools
 
 一句话：本页是 oma 原生工具表的权威描述。工具表在 Run 装配时确定：原生工具加已挂载的 MCP 工具加插件工具，原生名字冲突时原生胜；`--tools` 在**最终**表上做白名单或黑名单过滤，被滤掉的工具模型根本看不到。
@@ -85,7 +91,7 @@
 
 - `SOUL.md` 与 `USER.md`（cwd），平文在前。
 - `<repo-rules>`：`AGENTS.md` 链，从包含 `.git` 的仓库根（含）到 cwd，远的在前、cwd 最显著；没有仓库根时到 home 为止；最后追加用户级 `~/.oma/AGENTS.md`；内容逐字相同的副本折叠，保留更显著的那份。只认 `AGENTS.md`。
-- `<available_knowledge>`：`knowledge/index.md`。
+- `<available_knowledge>`：`knowledge/index.md`——每个知识包一段，每个文件一行（路径 + 该文件 frontmatter 的 title/description/tags）。正文不进提示，要读内容调 `knowledge_search` / `knowledge_read`（契约见 [Agent 工作区与多后端](../agents/workspace-and-backends.md)）。
 - `<dir-context>`：cwd 下一层里**没有**加载的 `AGENTS.md`，只给指针，改那个目录前先读。
 
 ## 记忆

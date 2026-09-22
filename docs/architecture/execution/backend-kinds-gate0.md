@@ -1,3 +1,9 @@
+---
+title: 后端实测记录 Gate 0
+description: 2026-08-12 至 08-13 的一次点时间实测快照（claude/pi/omp 的调用形状与事件映射），不是现状契约，只在解释 adapter 为何长成这样时参考
+tags: [backend, runs, models]
+---
+
 # Backend Kinds：Gate 0 实测记录
 
 一句话：本页是 **2026-08-12 至 08-13** 一次本机实测留下的记录，内容是 claude / pi / omp 三个 CLI 后端的调用形状、wire 事件型录与到 `CoreBackendEvent` 的映射依据。它是一份点时间快照，**不是现状契约**：现行实现以各 adapter 的 `backend.ts`、`event-mapper.ts` 与 `apps/oh-my-agent/src/protocol/drift.test.ts` 为准，本页只在解释那些代码为什么长成这样时有参考价值。

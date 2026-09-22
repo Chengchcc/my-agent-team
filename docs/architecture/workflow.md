@@ -1,3 +1,9 @@
+---
+title: Agentic Workflow
+description: 工作流 DSL 与校验规则、JSON-Logic 子集、路由与合并语义、backend 执行路径、cron 触发与事件流
+tags: [workflow, backend]
+---
+
 # Agentic Workflow
 
 Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点图，引擎按图推进，执行记录落在数据库里。编排身份是 workflow execution，不是 Agent Run——agent 节点派发的是普通 Agent Run。

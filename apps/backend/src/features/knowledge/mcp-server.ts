@@ -7,13 +7,18 @@
  *  outside it).
  *
  *  Usage: bun knowledge-mcp-server.ts <knowledge-dir>
- */
+ *
+ *  Progressive loading: the bridge injects only a per-file index (path +
+ *  frontmatter title/description/tags) into the system prompt, so fetching a
+ *  body is this server's job. `hide: true` files stay readable and searchable
+ *  here; the flag only keeps them out of the injected index. */
 
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { parseKnowledgeFrontmatter } from "./frontmatter.js";
 
 const dirArg = process.argv[2];
 if (!dirArg) {
@@ -91,28 +96,9 @@ function* walkFiles(dir: string): Generator<string> {
   }
 }
 
-/** Optional light frontmatter (title/tags/summary) — absent = filename. */
-function parseFrontmatter(text: string): { title: string; tags: string[]; body: string } {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!m) return { title: "", tags: [], body: text };
-  const fields: Record<string, string> = {};
-  for (const line of m[1]!.split("\n")) {
-    const idx = line.indexOf(":");
-    if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-  }
-  return {
-    title: fields.title ?? "",
-    tags: fields.tags
-      ? fields.tags
-          .replace(/^\[|\]$/g, "")
-          .split(",")
-          .map((t) => t.trim())
-          .filter((t) => t !== "")
-      : [],
-    body: text.slice(m[0].length),
-  };
-}
-
+/** The same frontmatter contract the bridge reads when it builds index.md —
+ *  one parser, so the injected index and this server can never disagree about
+ *  a file's title, description or tags. */
 const server = new McpServer({ name: "knowledge", version: "0.1.0" });
 
 server.registerTool(
@@ -136,11 +122,13 @@ server.registerTool(
     outer: for (const file of walkFiles(root)) {
       const realFile = realpathSafe(file);
       if (realFile === null || !insideAllowed(realFile)) continue;
-      const text = readFileSync(realFile, "utf-8");
-      const meta = parseFrontmatter(text);
+      const meta = parseKnowledgeFrontmatter(readFileSync(realFile, "utf-8"));
       const rel = file.slice(root.length + 1);
-      if (tagSet.size > 0 && !meta.tags.some((t) => tagSet.has(t.toLowerCase()))) continue;
-      const hay = text.toLowerCase();
+      if (tagSet.size > 0 && !meta.tags.some((t) => tagSet.has(t))) continue;
+      // Match the body, never the frontmatter: `tags: [runs]` in a header is
+      // metadata, not a mention, and matching it makes every tagged file hit
+      // every query that names its tags.
+      const hay = meta.body.toLowerCase();
       for (const k of kw) if (!hay.includes(k.toLowerCase())) continue outer;
       const lines = meta.body.split("\n");
       const hits: string[] = [];
@@ -151,7 +139,10 @@ server.registerTool(
         }
       }
       const title = meta.title ? `${meta.title} (${rel})` : rel;
-      results.push(`### ${title}\n${hits.join("\n")}`);
+      const header = [meta.description, meta.tags.length > 0 ? `tags: ${meta.tags.join(", ")}` : ""]
+        .filter((s) => s !== "")
+        .join(" | ");
+      results.push(`### ${title}${header ? `\n${header}` : ""}\n${hits.join("\n")}`);
       if (results.length >= MAX_RESULTS) break;
     }
     if (results.length === 0)
@@ -180,7 +171,14 @@ server.registerTool(
     if (statSync(realTarget).size > 256_000) {
       return { content: [{ type: "text", text: "file too large (256K cap)" }], isError: true };
     }
-    return { content: [{ type: "text", text: readFileSync(realTarget, "utf-8") }] };
+    // Body only: the index already carried title/description/tags, so
+    // re-sending the frontmatter is tokens spent on nothing (skill_load does
+    // the same). The file on disk stays the single source of truth.
+    return {
+      content: [
+        { type: "text", text: parseKnowledgeFrontmatter(readFileSync(realTarget, "utf-8")).body },
+      ],
+    };
   },
 );
 

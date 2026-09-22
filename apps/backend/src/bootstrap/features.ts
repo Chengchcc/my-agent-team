@@ -930,12 +930,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     builtinRoot: config.knowledgePacksDir,
   });
 
-  // Builtin project knowledge pack: installed once, then available to every agent.
-  if (!knowledgeSvc.list().some((p) => p.sourceKind === "builtin" && p.name === "my-agent-team")) {
+  // Builtin project knowledge pack: the wiki's current-state zone, copied into
+  // the data dir once and then available to every agent. `docs/architecture/`
+  // is the single source — there is no knowledge-packs/ copy to drift, and the
+  // ADR archive stays out of it because a skill generates those files.
+  if (!knowledgeSvc.list().some((p) => p.sourceKind === "builtin" && p.name === "architecture")) {
     await knowledgeSvc
       .install({
-        name: "my-agent-team",
-        description: "my-agent-team project knowledge: architecture, conventions, ADRs, operations",
+        name: "architecture",
+        description: "my-agent-team 现状架构：系统总览、执行链、数据、各子系统、安全与规则",
         sourceKind: "builtin",
       })
       .catch((err: Error) =>

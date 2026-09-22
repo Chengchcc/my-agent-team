@@ -1,3 +1,9 @@
+---
+title: Conversation History
+description: 账本存什么、人消息与 Agent 终态提交各怎么写入、顺序与幂等、可见性过滤、断线恢复与 undo/fork/replay
+tags: [history, backend, sessions]
+---
+
 # Conversation History
 
 Conversation History 是一场对话里共同发生的事实，存在账本 `conversation_ledger` 里，只追加。人发的消息与 Agent 提交的最终消息都进这里，所有端从它重放。Agent Context 只存指向它的引用。

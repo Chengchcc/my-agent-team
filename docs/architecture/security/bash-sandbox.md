@@ -1,3 +1,9 @@
+---
+title: bash 沙箱
+description: bash 的 Null、Bwrap、Seatbelt 三个启动策略与开关来源，以及网络白名单等还没做的部分
+tags: [sandbox, security, runtime]
+---
+
 # bash 沙箱
 
 `bash` 工具从「只校验 cwd」升级成「由操作系统强制文件系统与网络边界」的实现现状：三个启动策略、开关怎么来、各个平台实际强制了什么，以及还没做的部分。

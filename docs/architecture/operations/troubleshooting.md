@@ -1,3 +1,9 @@
+---
+title: 排障指南
+description: 按端、BFF、backend、adapter、子进程、工作区分层定位故障的症状对照表与最短诊断日志观察链
+tags: [backend, runtime, surfaces]
+---
+
 # 排障指南
 
 一句话：本页是按层定位故障的权威手册。先判断症状出现在哪个层（端、BFF、backend、adapter、子进程、工作区），再按该层的对照表定位到代码位置。

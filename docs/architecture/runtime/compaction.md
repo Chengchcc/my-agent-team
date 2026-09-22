@@ -1,3 +1,9 @@
+---
+title: Compaction
+description: 四个触发入口、切点算法与 tool 配对回退、摘要写回与无进展守卫、上下文重建，以及与 pruning 和 CLI session 文件的关系
+tags: [oma, runtime, context, models]
+---
+
 # Compaction
 
 一句话：本页是 oma 内 compaction 的权威描述。它是子进程内的 Run 局部机制：按 token 预算把旧消息折成一条摘要条目，摘要置顶、原条目不删，所以上下文可以无损重建；子进程退出即消失，产品侧不参与。

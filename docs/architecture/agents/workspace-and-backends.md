@@ -1,3 +1,9 @@
+---
+title: Agent 工作区与多后端
+description: 工作区目录与 seed 布局、Workspace Bridge 的每个职责、四个后端各自怎么续接 session、agent-config MCP 的三条通道
+tags: [backend, mcp, skills, project]
+---
+
 # Agent 工作区与多后端
 
 一句话：本页是 Agent 工作区的权威描述。Agent 的配置、技能、身份与记忆都是工作区文件（`agent.yml` / `AGENTS.md` / `SOUL.md` / `USER.md` / `.<kind>/skills` / `.mcp.json` / `.oma/product-tools.json` / `knowledge/index.md`），Product Backend 用 Workspace Bridge 幂等桥接它们；运行时四个后端可切换，各自用自己的原生 session 续接，产品只存一个不透明引用。
@@ -62,6 +68,38 @@
 | `bridgeWorktreeRoot` | 任务 worktree 专用：只写 `.mcp.json` 与 product-tools manifest |
 
 触发点：agent 创建与更新（`reconcileAgent`）、skill pack 安装/分配变化、MCP server 增删改、以及每次 spawn 前由执行服务调 `rewriteWorkspaceBridge` 重写 `.mcp.json` 与 product-tools manifest——所以 bridge 是这两个文件的唯一作者。
+
+### 知识包的 frontmatter 与渐进式加载
+
+`knowledge/index.md` 会被注入每轮的 `<available_knowledge>`，所以它只带判断要不要打开某个文件所需的东西：路径，加上文件自己在开头声明的一行元数据。
+
+```markdown
+---
+title: Run lifecycle
+description: 一次 Run 怎么结束；改执行链之前读这个
+tags: [runs, backend]
+hide: true        # 仍然可读可搜，只是不进注入的索引
+---
+```
+
+行的形状是 `` - `runs/lifecycle.md` — Run lifecycle · 一次 Run 怎么结束 · [runs, backend] ``。没有 frontmatter 的文件按路径单独列出（老包照常能用），`hide: true` 的从索引里略过。正文永远不进索引：要读内容就调召回工具。
+
+召回由知识 MCP server 提供（`features/knowledge/mcp-server.ts`，agent 有 READY 包时才并进 `.mcp.json`，作用域是该 agent 的 `knowledge/` 目录）：
+
+| 工具 | 行为 |
+|---|---|
+| `knowledge_search {keywords[], tags?}` | 每个关键词都要命中（AND），可选按 frontmatter tag 过滤；**只匹配正文，不匹配 frontmatter**；返回最多 20 个文件，每个带 title、description、tags 与 3 行命中上下文 |
+| `knowledge_read {path}` | 读一个文件的正文（frontmatter 已剥掉，与 `skill_load` 一致），上限 256K |
+
+索引与召回工具共用同一个 frontmatter 解析器（`features/knowledge/frontmatter.ts`），所以注入的元数据与搜索结果的元数据不会各说一套。
+
+### 内置知识包就是本目录
+
+产品首次启动会把这个仓库的 `docs/architecture/` 直接拷成内置知识包（包名 `architecture`，`<dataDir>/knowledge/architecture`，然后软链进每个 Agent 的 `knowledge/`）。所以：
+
+- 这一区每个页面的 frontmatter 就是注入索引里那一行，`audit:docs` 会拦住缺 title/description 的页；
+- 改了页面（不改 frontmatter）只是索引文字变了，包内容要等重新播种才更新——seed 只做一次；
+- `docs/adr/` 不在包内：那些文件由技能生成，不会带手写 frontmatter，所以刻意排除；要读决策就按上面的路径去仓库里读。
 
 ## 四个后端怎么续接
 

@@ -230,9 +230,6 @@ const DOC_FILES = [
   "README.md",
   "docs/README.md",
   "docs/roadmap.md",
-  ...readdirSync(join(ROOT, "knowledge-packs/my-agent-team"))
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => `knowledge-packs/my-agent-team/${f}`),
   // App-level entry docs. They ship next to the code an agent actually edits,
   // so a stale claim here is read as truth — the 2026-09-10 review found
   // README.md still naming two packages that had been DELETED (ADR 0024) and
@@ -351,6 +348,28 @@ for (const rel of [...DOC_FILES, ...APP_DOC_FILES]) {
   if (fences % 2 === 1) fail(`${rel} has ${fences} fence markers (unclosed code block)`);
 }
 
+// 15. Knowledge-pack frontmatter. `docs/architecture/` is the source of the
+// builtin knowledge pack (the backend copies it at seed time), and every file's
+// frontmatter is the one-line entry the agent's system prompt shows in
+// `<available_knowledge>` — a page without it is still readable but is listed
+// by path alone, which is exactly the regression this catches. Fields are read
+// by `apps/backend/src/features/knowledge/frontmatter.ts`; keep the two in step.
+// `docs/adr/` is deliberately NOT covered: a skill writes those files and would
+// drop hand-written frontmatter on the next run.
+const KNOWLEDGE_REQUIRED_TITLE = /^---\r?\n[\s\S]*?\btitle:\s*\S/;
+const KNOWLEDGE_REQUIRED_DESCRIPTION = /^---\r?\n[\s\S]*?\bdescription:\s*\S/;
+let frontmatterPages = 0;
+for (const rel of walkDocs(join(ROOT, "docs/architecture")).map((p) => p.replace(`${ROOT}/`, ""))) {
+  const text = readFileSync(join(ROOT, rel), "utf8");
+  if (!text.startsWith("---")) {
+    fail(`${rel} has no frontmatter (it is knowledge-pack source; see audit-docs #15)`);
+    continue;
+  }
+  if (!KNOWLEDGE_REQUIRED_TITLE.test(text)) fail(`${rel} frontmatter has no title`);
+  if (!KNOWLEDGE_REQUIRED_DESCRIPTION.test(text)) fail(`${rel} frontmatter has no description`);
+  frontmatterPages++;
+}
+
 if (failures.length > 0) {
   console.error(`audit:docs FAILED (${failures.length})`);
   for (const f of failures) console.error(`  - ${f}`);
@@ -358,6 +377,7 @@ if (failures.length > 0) {
 }
 console.log(
   `audit:docs OK (${pluginDirs.length} plugins, ${tables} tables, CLAUDE.md symlinked, ` +
+    `${frontmatterPages} knowledge pages carry frontmatter, ` +
     `active-zone links + vocabulary clean, ` +
     `${pathTokens} doc path tokens exist, ${relPathTokens} doc-relative path tokens exist, ` +
     `${codePathTokens} code paths exist, ` +

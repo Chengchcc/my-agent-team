@@ -23,7 +23,11 @@ export interface BackendConfig {
   resourcesDir: string;
   /** Builtin skills seed source (`<resources>/skills`). */
   builtinSkillsDir: string;
-  /** Builtin knowledge pack seed source (`<resources>/knowledge-packs`). */
+  /** Root the builtin knowledge pack is selected under: the current-state
+   *  zone of the wiki. `docs/architecture/` IS the pack (every page's
+   *  frontmatter becomes an index entry), so there is no second copy to keep
+   *  in sync — `docs/adr/` is excluded because those files are produced by a
+   *  skill and never carry hand-written frontmatter. */
   knowledgePacksDir: string;
   /** Showcase workflow seeds (`<resources>/workflow-showcase`). */
   workflowShowcaseDir: string;
@@ -85,7 +89,7 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     runTimeoutMs: env.BACKEND_RUN_TIMEOUT_MS ?? 30 * 60_000,
     resourcesDir,
     builtinSkillsDir: resolve(resourcesDir, "skills"),
-    knowledgePacksDir: resolve(resourcesDir, "knowledge-packs"),
+    knowledgePacksDir: resolve(resourcesDir, "docs"),
     workflowShowcaseDir: resolve(resourcesDir, "workflow-showcase"),
     omaBin: env.OMA_BIN,
     omaPermissionClassifierModel: env.OMA_PERMISSION_CLASSIFIER_MODEL,

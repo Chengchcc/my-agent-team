@@ -1,3 +1,9 @@
+---
+title: 模型与 Provider
+description: provider 注册与三个 API 实现、内置 catalog 与 models.yml 覆盖、凭证解析顺序、别名与 reasoning effort 映射、模型目录的四个来源
+tags: [models, providers, oma]
+---
+
 # 模型与 Provider
 
 一句话：本页是模型与 provider 的权威描述。`packages/ai` 是唯一的模型层：provider 注册制 + 声明式 model catalog，三个 API 实现（`anthropic-messages` / `openai-completions` / `openai-responses`）自注册，凭证只经 env 进子进程；oma 侧另有一层 `models.yml` 运行时目录，用来覆盖内置目录并声明自定义 provider。

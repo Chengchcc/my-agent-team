@@ -58,13 +58,13 @@ mkdir -p "$STAGE/backend/drizzle"
 cp -r "$ROOT/apps/backend/drizzle/." "$STAGE/backend/drizzle/"
 
 # ── resources: the seeds the backend reads at runtime ─────────────
-# These are repo-relative paths in source (skills/, knowledge-packs/, the
-# workflow showcase). A bundle cannot resolve them, so they ship next to it and
+# These are repo-relative paths in source (skills/, docs/, the workflow
+# showcase). A bundle cannot resolve them, so they ship next to it and
 # BACKEND_RESOURCES_DIR points at this directory.
 echo "pack-gateway: staging resources"
 mkdir -p "$STAGE/resources/workflow-showcase"
 cp -r "$ROOT/skills/." "$STAGE/resources/skills/"
-cp -r "$ROOT/knowledge-packs/." "$STAGE/resources/knowledge-packs/"
+cp -r "$ROOT/docs/." "$STAGE/resources/docs/"  # builtin knowledge pack source (pack name: architecture)
 cp -r "$ROOT/apps/backend/src/features/workflow/showcase/." "$STAGE/resources/workflow-showcase/"
 
 # ── web: standalone tree + static + self-hosted monaco ────────────
@@ -146,7 +146,7 @@ echo "pack-gateway: checks"
 [ -s "$STAGE/backend/knowledge-mcp.js" ] || die "knowledge MCP bundle missing"
 [ -f "$STAGE/backend/drizzle/backend/meta/_journal.json" ] || die "migrations journal missing"
 [ -d "$STAGE/resources/skills" ] || die "resources/skills missing"
-[ -d "$STAGE/resources/knowledge-packs" ] || die "resources/knowledge-packs missing"
+[ -d "$STAGE/resources/docs" ] || die "resources/docs missing"
 [ -f "$STAGE/web/$APPREL/public/monaco/vs/loader.js" ] || die "monaco assets missing"
 [ -d "$STAGE/web/$APPREL/.next/server" ] || die "app server code missing"
 
@@ -177,7 +177,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| part | size |"
     echo "|---|---|"
     echo "| backend bundle | $(du -sh "$STAGE/backend/main.js" | cut -f1) |"
-    echo "| backend resources (skills/knowledge/showcase) | $(du -sh "$STAGE/resources" | cut -f1) |"
+    echo "| backend resources (skills/docs/showcase) | $(du -sh "$STAGE/resources" | cut -f1) |"
     echo "| web payload | $(du -sh "$STAGE/web" | cut -f1) |"
     echo "| — monaco assets | $(du -sh "$STAGE/web/$APPREL/public/monaco" | cut -f1) |"
     echo "| total raw | $(numfmt --to=iec "$RAW") |"

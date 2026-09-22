@@ -1,3 +1,9 @@
+---
+title: Product Backend 总览
+description: 后端拥有哪些产品事实、取 Run 的那个事务、输入模式路由、终态提交与失败原则；查执行链归属和 Run 生命周期时打开
+tags: [backend, runs, data]
+---
+
 # Product Backend 总览
 
 Product Backend 拥有全部产品事实和执行控制面。执行链只有一条：Agent Run → Agent Backend → 一次性子进程。

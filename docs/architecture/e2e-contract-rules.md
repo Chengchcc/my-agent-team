@@ -1,3 +1,9 @@
+---
+title: 跨进程契约规则
+description: 在 backend、web、lark-bot 之间加字段或调接口前必读：契约真源地图、禁止写法与可执行门禁所在
+tags: [conventions, rules]
+---
+
 # 跨进程契约规则
 
 本页是跨进程与跨包契约（HTTP、SSE、react-query、环境变量、跨进程消息、模板变量）的动手前决策表与自检。它是[设计哲学](./design-philosophy.md)里「统一本体，不复制语义」在传输层上的可执行版：在 backend、web、lark-bot 之间加字段、调接口、消费 SSE、加查询、读环境变量之前，先过这张表。

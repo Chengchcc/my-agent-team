@@ -1,3 +1,9 @@
+---
+title: 标识符体系
+description: 每个 id 由谁生成、归属哪一层、哪些真有序、messageId 的形状与幂等键怎么拼
+tags: [conventions, runs]
+---
+
 # 标识符体系
 
 本页说明系统里每个 id 由谁生成、归属哪一层、什么时候重置，以及哪些 id 是有序的。

@@ -1,3 +1,9 @@
+---
+title: oma 内核防线
+description: oma 进程内的路径 jail、URL guard、审批管线、native 权限门与插件信任链各挡什么、留白在哪
+tags: [security, oma, sandbox]
+---
+
 # oma 内核防线
 
 oma 运行内核里已经存在的防线：路径 jail、URL guard、审批管线、插件信任链、凭据剥离。本页说清每条挡什么、留白在哪。

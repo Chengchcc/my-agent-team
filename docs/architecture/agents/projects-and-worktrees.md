@@ -1,3 +1,9 @@
+---
+title: Project 与 Worktree
+description: 两条 worktree 轴的路径与分支命名、attach/detach 的 reconcile、Run 的 workspace 绑定与 lock、终端的路径白名单与合流操作
+tags: [project, backend, terminal]
+---
+
 # Project 与 Worktree
 
 Project 是仓库级协作实体，每个 (agent, project) 在 agent 工作区下物化一个 git worktree，Agent Run 就以它为工作目录跑。在此之上还有一条任务轴：同一个 project 下可以按用户命名的 slug 再开若干 worktree。

@@ -1,3 +1,9 @@
+---
+title: Web 端
+description: 对话页的两条 SSE、reducer 与 Timeline 锚点规则，以及 /coding 终端页的鉴权、PTY 生命周期和 worktree 双轴
+tags: [web, surfaces, terminal]
+---
+
 # Web 端
 
 一句话：本页是 Web 端的权威描述。Web 端是浏览器里的对话界面 `/chat/[id]` 加 worktree 终端页 `/coding`。对话页把 conversation SSE 的账本行 upsert 进 `items[]`，把 per-run SSE 渲染成临时气泡，两者靠 messageId 对账。终端页持有 backend 进程里的裸 PTY。

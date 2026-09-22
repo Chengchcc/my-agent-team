@@ -1,3 +1,9 @@
+---
+title: Agent Backend
+description: 五个契约方法、四个 adapter 的 spawn 参数差异、oma 的 JSONL wire、首轮 flat-text 桥与审批回传端点；改协议边界前读这个
+tags: [backend, runs, runtime]
+---
+
 # Agent Backend
 
 一句话：本页是 Agent Backend 的权威描述。它是 Product Backend 与执行引擎之间唯一的 Run 级协议边界，产品侧只依赖 `execute / steer / resolveApproval? / stop / dispose` 五个方法；四个 kind（`oma` / `claude_code` / `pi` / `omp`）各由一个 adapter 包实现，每个 Run 起一个一次性子进程，`BackendRunOutcome` 是唯一终态权威。

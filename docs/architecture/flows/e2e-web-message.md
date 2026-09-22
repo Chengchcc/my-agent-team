@@ -1,3 +1,9 @@
+---
+title: Web 消息端到端
+description: 一条 Web 消息从浏览器 POST 到账本回推的十三步：入队事务、adapter spawn、原子提交与失败矩阵
+tags: [runs, web, backend]
+---
+
 # Web 消息端到端
 
 一句话：本页是 Web 端一条消息的权威端到端链路，从浏览器 POST 到 Web 收到 canonical 消息。人类行先落账本，随后一个事务完成入队、Context 引用同步与 run 创建，adapter 为这个 run spawn 一次性 oma 子进程，期间 Web 只看到 transient 事件流，终态 outcome 触发原子提交把 assistant 消息写回账本。

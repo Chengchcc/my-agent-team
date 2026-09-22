@@ -1,3 +1,9 @@
+---
+title: Agent Context
+description: 树/分支/条目的作用域、取 Run 时的同步与投影、分支 revision CAS 与 CLI session 续接，以及哪些能力有代码但没有调用方
+tags: [context, history, backend]
+---
+
 # Agent Context
 
 Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对话一棵树、一条默认分支，分支里是一串指向账本的引用；每次派单都从这棵树重新投影出一份历史。

@@ -1,3 +1,9 @@
+---
+title: Run 输出与实时更新
+description: 子进程发什么、映射成哪些线上事件、哪些事件落库、终态提交、取消与 steer/follow-up 的实际行为、断线重连语义
+tags: [runs, backend, runtime]
+---
+
 # Run 输出与实时更新
 
 一次 Agent Run 的子进程产出两样东西：一路 transient 事件流（会丢，用于实时渲染）和一个终态 `BackendRunOutcome`（唯一驱动产品提交的东西）。本页说明这两条路，以及取消、steer、follow-up 的实际行为。

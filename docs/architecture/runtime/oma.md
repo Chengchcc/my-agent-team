@@ -1,3 +1,9 @@
+---
+title: Oma Runtime
+description: 四种模式、per-Run 状态与 seed、每轮模型收到什么、模型接线、Runtime 的能力清单与 TUI 的 goal/loop/plan 回合驱动
+tags: [oma, runtime, models, runs]
+---
+
 # Oma Runtime
 
 一句话：本页是 oma 运行时的权威描述。oma 是仓库自研的 CLI 执行引擎，有 print / json / rpc / tui 四种模式；产品侧只 spawn 它的 rpc 模式，每个 Run 在子进程内由 `createOmaRuntime()` 组一个 per-Run Runtime（模型与工具循环、内存 SessionStore、工具表、插件、审批），Run 结束即销毁，上下文续接靠 CLI 自己的 session 文件。

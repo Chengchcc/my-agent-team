@@ -1,3 +1,9 @@
+---
+title: Oma 插件与 HITL
+description: 插件 manifest 优先级与 code 加载形状、scope × mode 信任矩阵，以及 permissionMode 门控下的审批往返与 auto 分类器
+tags: [plugins, oma, security, mcp]
+---
+
 # Oma 插件与 HITL
 
 一句话：本页是 oma 插件系统与人工审批链的权威描述。插件 = 多源 manifest 解析 + 用 Bun 原生 `import()` 加载的 code 组件（tools / hooks）+ 目录 sha256 信任矩阵（scope × mode）+ marketplace 多源 catalog；HITL 审批链 = `permissionMode` 门控 + `approval_request` / `resolve_approval` 往返 + 超时 fail-closed。
