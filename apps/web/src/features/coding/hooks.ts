@@ -41,3 +41,28 @@ export function useRespawnTerminal() {
 export function useLaunchOma() {
   return useTerminalMutation((id: string) => api.launchOmaInTerminal(id));
 }
+
+export function useTaskWorktrees(projectId: string | undefined) {
+  return useQuery({
+    queryKey: [...codingKeys.all, "task-worktrees", projectId],
+    queryFn: () => api.listCodingTaskWorktrees(projectId as string),
+    enabled: projectId !== undefined,
+  });
+}
+
+export function useCreateTaskWorktree(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { agentId: string; slug: string }) =>
+      api.createCodingTaskWorktree({ projectId, ...body }),
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: [...codingKeys.all, "task-worktrees", projectId],
+      });
+    },
+    onError: (err) =>
+      toast.error("Worktree creation failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      }),
+  });
+}

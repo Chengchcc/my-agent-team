@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureMirror, ensureWorktree, removeWorktree } from "./worktree.js";
+import { createTaskWorktree, ensureMirror, ensureWorktree, removeWorktree } from "./worktree.js";
 
 /** Build a real source repo with one commit on main. */
 async function makeSourceRepo(dir: string): Promise<string> {
@@ -113,5 +113,36 @@ describe("mirror freshness (regression: fetch used to be a no-op)", () => {
           .quiet()
       ).exitCode === 0;
     expect(has).toBe(true);
+  });
+});
+
+describe("task worktrees (Herdr task axis on the ADR 0023 layout)", () => {
+  test("create checks out a slug dir on its own branch; collisions refuse", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "taskwt-"));
+    dirs.push(dir);
+    const src = await makeSourceRepo(dir);
+    const dataDir = join(dir, "data");
+    const agentWs = join(dir, "agent-ws");
+    mkdirSync(agentWs, { recursive: true });
+    const project = { ...PROJECT, repoUrl: src };
+
+    const mirror = await ensureMirror(dataDir, project);
+    const path = await createTaskWorktree(mirror, agentWs, project, "agent-1", "feat-x");
+    expect(path.endsWith("p1.feat-x")).toBe(true);
+    expect(existsSync(join(path, "README.md"))).toBe(true);
+    const branch = await Bun.$`git -C ${path} rev-parse --abbrev-ref HEAD`.text();
+    expect(branch.trim()).toBe("agent/agent-1/p1.feat-x");
+
+    // Same slug again: dir exists → refuse; bogus slug → refuse.
+    await expect(createTaskWorktree(mirror, agentWs, project, "agent-1", "feat-x")).rejects.toThrow(
+      /already exists/,
+    );
+    await expect(
+      createTaskWorktree(mirror, agentWs, project, "agent-1", "no spaces!"),
+    ).rejects.toThrow(/invalid worktree slug/);
+
+    // A second slug coexists beside the first.
+    const second = await createTaskWorktree(mirror, agentWs, project, "agent-1", "feat-y");
+    expect(existsSync(second)).toBe(true);
   });
 });

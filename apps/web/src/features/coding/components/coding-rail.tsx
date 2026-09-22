@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { toast } from "sonner";
 import { ProjectForm } from "@/components/ProjectForm";
 import { useAgentList } from "@/features/agents/hooks";
 import { useProjectList, useProjectWorktrees } from "@/features/projects/hooks";
 import { type AgentRow, api, type CodingTerminalRow, type ProjectRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import { useSpawnTerminal } from "../hooks";
+import { useCreateTaskWorktree, useSpawnTerminal, useTaskWorktrees } from "../hooks";
 
 export interface CodingSelection {
   projectId: string;
@@ -67,12 +68,23 @@ function ProjectWorktreeRows({
   const worktrees = data?.worktrees ?? [];
   const spawn = useSpawnTerminal();
   const agents = useAgentList() as { data?: AgentRow[] };
+  const { data: taskData } = useTaskWorktrees(project.projectId);
+  const taskWorktrees = taskData?.worktrees ?? [];
+  const createTask = useCreateTaskWorktree(project.projectId);
+  const [slug, setSlug] = useState("");
+  const [taskAgent, setTaskAgent] = useState("");
 
-  function open(agentId: string) {
+  function open(agentId: string, worktreePath?: string, title?: string) {
     onSelect({ projectId: project.projectId, agentId });
-    const has = terminals.some((x) => x.projectId === project.projectId && x.agentId === agentId);
+    const has = terminals.some(
+      (x) => x.projectId === project.projectId && x.agentId === agentId && x.cwd === worktreePath,
+    );
     if (!has) {
-      spawn.mutate({ projectId: project.projectId, agentId, title: "bash" });
+      spawn.mutate({
+        projectId: project.projectId,
+        agentId,
+        ...(worktreePath ? { worktreePath, title: title ?? "bash" } : { title: "bash" }),
+      });
     }
   }
 
@@ -90,33 +102,29 @@ function ProjectWorktreeRows({
     }
   }
 
-  if (worktrees.length === 0) {
-    return (
-      <div className="px-3 py-2 text-xs text-zinc-500">
-        <div>{t("No worktrees — attach an agent:")}</div>
-        <select
-          className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-xs text-zinc-200"
-          defaultValue=""
-          onChange={(e) => {
-            if (e.target.value) void attachAgent(e.target.value);
-            e.target.value = "";
-          }}
-        >
-          <option value="">{t("attach agent…")}</option>
-          {(agents.data ?? [])
-            .filter((a) => a.enabled !== false)
-            .map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.id}
-              </option>
-            ))}
-        </select>
-      </div>
-    );
+  async function createSlugWorktree() {
+    const s = slug.trim();
+    const agentId = taskAgent || worktrees[0]?.agentId;
+    if (!s || !agentId) return;
+    try {
+      await createTask.mutateAsync({ agentId, slug: s });
+      setSlug("");
+      toast.success(t("Task worktree created"));
+    } catch {
+      /* mutation hook already toasts */
+    }
   }
+
+  const attached = new Set(worktrees.map((wt) => wt.agentId));
+  const attachable = (agents.data ?? []).filter((a) => a.enabled !== false && !attached.has(a.id));
 
   return (
     <div>
+      {worktrees.length === 0 ? (
+        <div className="px-3 py-1 text-[11px] text-zinc-500">
+          {t("No worktrees yet — attach an agent to materialize one.")}
+        </div>
+      ) : null}
       {worktrees.map((wt) => {
         const dot = dotFor(terminals, project.projectId, wt.agentId);
         const active = selected?.projectId === project.projectId && selected.agentId === wt.agentId;
@@ -142,6 +150,79 @@ function ProjectWorktreeRows({
           </button>
         );
       })}
+      {/* Task worktrees (the task axis): slug-scoped checkouts beside the
+          agent's main worktree. */}
+      {taskWorktrees.map((tw) => {
+        const active = selected?.projectId === project.projectId && selected.agentId === tw.agentId;
+        return (
+          <button
+            key={`${tw.agentId}:${tw.slug}`}
+            type="button"
+            onClick={() => open(tw.agentId, tw.path, tw.slug)}
+            className={`flex w-full items-center gap-2 py-1 pl-6 pr-3 text-left text-[11px] hover:bg-zinc-800/60 ${
+              active ? "bg-zinc-800" : ""
+            }`}
+          >
+            <span className="text-zinc-600">↳</span>
+            <span className="min-w-0 flex-1 truncate text-zinc-300">{tw.slug}</span>
+            <span className="truncate text-[10px] text-zinc-500">{tw.agentId}</span>
+          </button>
+        );
+      })}
+      {/* A worktree is the (agent × project) attach product — this entry is
+          how you create one; already-attached agents are filtered out. */}
+      {attachable.length > 0 ? (
+        <select
+          className="mx-3 my-1 w-[calc(100%-1.5rem)] rounded border border-zinc-800 bg-zinc-900 px-1 py-0.5 text-[11px] text-zinc-500"
+          defaultValue=""
+          onChange={(e) => {
+            if (e.target.value) void attachAgent(e.target.value);
+            e.target.value = "";
+          }}
+        >
+          <option value="">{t("+ attach agent (new worktree)")}</option>
+          {attachable.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.id}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {worktrees.length > 0 ? (
+        <div className="flex items-center gap-1 px-3 py-1">
+          <input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void createSlugWorktree();
+            }}
+            placeholder={t("task slug (new worktree)")}
+            className="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-300 placeholder:text-zinc-600"
+          />
+          {worktrees.length > 1 ? (
+            <select
+              value={taskAgent}
+              onChange={(e) => setTaskAgent(e.target.value)}
+              className="max-w-14 rounded border border-zinc-800 bg-zinc-900 px-1 py-0.5 text-[11px] text-zinc-500"
+            >
+              {worktrees.map((wt) => (
+                <option key={wt.agentId} value={wt.agentId}>
+                  {wt.agentId}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void createSlugWorktree()}
+            disabled={!slug.trim() || createTask.isPending}
+            className="rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:text-zinc-100 disabled:opacity-40"
+            title={t("git worktree add on a fresh task branch")}
+          >
+            +
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

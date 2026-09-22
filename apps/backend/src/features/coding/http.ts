@@ -28,9 +28,22 @@ export interface CodingTarget {
 
 export interface CodingRoutesDeps {
   registry: TerminalRegistry;
-  resolveTarget: (projectId: string, agentId: string) => Promise<CodingTarget>;
+  resolveTarget: (
+    projectId: string,
+    agentId: string,
+    worktreePath?: string,
+  ) => Promise<CodingTarget>;
   /** ws://host:port the browser connects terminals to (direct, plan A). */
   wsBase: string;
+  /** Task worktrees (the task axis): list existing, create a new one. */
+  listTaskWorktrees: (
+    projectId: string,
+  ) => Promise<ReadonlyArray<{ agentId: string; slug: string; path: string }>>;
+  createTaskWorktree: (
+    projectId: string,
+    agentId: string,
+    slug: string,
+  ) => Promise<{ path: string }>;
 }
 
 const TICKET_TTL_MS = 60_000;
@@ -39,11 +52,12 @@ interface WsIn {
   t?: string;
   d?: string;
   cols?: number;
+
   rows?: number;
 }
 
 export function codingRoutes(deps: CodingRoutesDeps) {
-  const { registry, resolveTarget, wsBase } = deps;
+  const { registry, resolveTarget, wsBase, listTaskWorktrees, createTaskWorktree } = deps;
   const tickets = new Map<string, number>();
   const unsubscribes = new WeakMap<object, () => void>();
 
@@ -81,7 +95,7 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       "/api/coding/terminals",
       async ({ body, set }) => {
         try {
-          const target = await resolveTarget(body.projectId, body.agentId);
+          const target = await resolveTarget(body.projectId, body.agentId, body.worktreePath);
           const terminal = registry.spawn({
             projectId: body.projectId,
             agentId: body.agentId,
@@ -104,8 +118,35 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           projectId: t.String({ minLength: 1 }),
           agentId: t.String({ minLength: 1 }),
           title: t.Optional(t.String({ minLength: 1 })),
+          worktreePath: t.Optional(t.String({ minLength: 1 })),
           cols: t.Optional(t.Integer({ minimum: 2, maximum: 500 })),
           rows: t.Optional(t.Integer({ minimum: 2, maximum: 300 })),
+        }),
+      },
+    )
+    .get(
+      "/api/coding/worktrees",
+      ({ query: { projectId } }) => listTaskWorktrees(projectId).then((w) => ({ worktrees: w })),
+      { query: t.Object({ projectId: t.String({ minLength: 1 }) }) },
+    )
+    .post(
+      "/api/coding/worktrees",
+      async ({ body, set }) => {
+        try {
+          const created = await createTaskWorktree(body.projectId, body.agentId, body.slug);
+          set.status = 201;
+          return created;
+        } catch (err) {
+          const mapped = mapDomainError(err);
+          if (mapped) return mapped;
+          throw err;
+        }
+      },
+      {
+        body: t.Object({
+          projectId: t.String({ minLength: 1 }),
+          agentId: t.String({ minLength: 1 }),
+          slug: t.String({ minLength: 1, maxLength: 40 }),
         }),
       },
     )

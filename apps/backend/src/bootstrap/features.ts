@@ -53,6 +53,7 @@ import {
   createTerminalRegistry,
 } from "../features/coding/index.js";
 import { loadPersistedTerminals, savePersistedTerminals } from "../features/coding/persist.js";
+import { listTaskWorktrees, validateWorktreePath } from "../features/coding/task-worktrees.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
 import {
@@ -80,7 +81,12 @@ import {
   sqliteProjectAdapter,
 } from "../features/project/index.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
-import { ensureMirror, ensureWorktree, removeWorktree } from "../features/project/worktree.js";
+import {
+  createTaskWorktree,
+  ensureMirror,
+  ensureWorktree,
+  removeWorktree,
+} from "../features/project/worktree.js";
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
 import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
@@ -951,7 +957,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // ─── Coding page terminals (plan A: PTY registry, ADR on Coding page) ──
 
-  const resolveCodingTarget = async (projectId: string, agentId: string): Promise<CodingTarget> => {
+  const resolveCodingTarget = async (
+    projectId: string,
+    agentId: string,
+    worktreePath?: string,
+  ): Promise<CodingTarget> => {
     const agents = await agentSvc.list(true);
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) throw new NotFoundError("agent", agentId);
@@ -967,15 +977,22 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       repoUrl: project.repoUrl,
       defaultBranch: project.defaultBranch,
     };
-    const cwd = join(agent.workspacePath, "projects", projectId);
-    if (!existsSync(cwd)) {
+    // A task worktree is created explicitly; only the MAIN worktree
+    // materializes on demand here. The validated path (prefix-checked
+    // against this agent's namespace) wins when provided.
+    const main = join(agent.workspacePath, "projects", projectId);
+    const cwd = validateWorktreePath(agent.workspacePath, projectId, worktreePath) ?? main;
+    if (cwd === main && !existsSync(main)) {
       // Normally the agent-update reconcile materialized it; first click
       // after a fresh deploy does it on demand (local mirror, bounded).
       const mirror = await ensureMirror(config.dataDir, wtProject);
       const wt = await ensureWorktree(mirror, agent.workspacePath, wtProject, agentId);
       if (!wt) {
-        throw new ConflictError(`worktree slot occupied by a plain directory: ${cwd}`);
+        throw new ConflictError(`worktree slot occupied by a plain directory: ${main}`);
       }
+    }
+    if (cwd !== main && !existsSync(cwd)) {
+      throw new NotFoundError("task worktree", cwd);
     }
     const oma = resolveOmaCommand(config, { mode: "tui" });
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -995,6 +1012,40 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         env: oma.env,
       },
     };
+  };
+
+  const listCodingTaskWorktrees = (projectId: string) =>
+    agentSvc.list(true).then((rows) =>
+      listTaskWorktrees(
+        projectId,
+        rows.map((a) => ({ id: a.id, workspacePath: a.workspacePath })),
+      ),
+    );
+
+  const createCodingTaskWorktree = async (projectId: string, agentId: string, slug: string) => {
+    const target = await resolveCodingTarget(projectId, agentId); // validates attach + repo
+    const project = projectSvc.getById(projectId);
+    if (!project?.repoUrl) throw new NotFoundError("project", projectId);
+    const agent = (await agentSvc.list(true)).find((a) => a.id === agentId);
+    if (!agent) throw new NotFoundError("agent", agentId);
+    const wtProject = {
+      projectId: project.projectId,
+      repoUrl: project.repoUrl,
+      defaultBranch: project.defaultBranch,
+    };
+    const mirror = await ensureMirror(config.dataDir, wtProject);
+    const path = await createTaskWorktree(mirror, agent.workspacePath, wtProject, agentId, slug);
+    // Same bridge the reconcile gives every worktree: mcp + product tools.
+    reconcileAgentResources({
+      extraRoots: [path],
+      workspacePath: agent.workspacePath,
+      kind: agent.config.runtime_config.runtime,
+      skillPacks: [],
+      mcpServers: await bridgeMcpServers(agentId),
+      productTools: productToolsManifest(),
+      knowledgePacks: [],
+    });
+    return { path, mainPath: target.cwd };
   };
 
   // Boot restore (P2): the membership snapshot survives restarts; entries
@@ -1151,6 +1202,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     coding: codingRoutes({
       registry: codingRegistry,
       resolveTarget: resolveCodingTarget,
+      listTaskWorktrees: listCodingTaskWorktrees,
+      createTaskWorktree: createCodingTaskWorktree,
       // A wildcard bind is not a browser-reachable host — hand the client
       // loopback instead.
       wsBase: `ws://${

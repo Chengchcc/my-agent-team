@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { ConflictError } from "../../infra/domain-errors.js";
 
 /** Project facts the worktree plumbing needs (subset of ProjectRow). */
 export interface WorktreeProject {
@@ -95,4 +96,35 @@ export async function removeWorktree(
   await Bun.$`git -C ${mirrorPath} branch -D ${branchName(agentId, project.projectId)}`
     .quiet()
     .nothrow();
+}
+
+/** Task worktrees (Herdr's task axis on top of ADR 0023's agent axis):
+ *  `<ws>/projects/<projectId>.<slug>` on branch
+ *  `agent/<agentId>/<projectId>.<slug>`, based on the project's default
+ *  branch. Unlike the per-agent worktree, creating is EXPLICIT and refuses
+ *  collisions — a task slug is the user's words, never auto-generated. */
+export async function createTaskWorktree(
+  mirrorPath: string,
+  agentWorkspace: string,
+  project: WorktreeProject,
+  agentId: string,
+  slug: string,
+): Promise<string> {
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/i.test(slug)) {
+    throw new ConflictError(`invalid worktree slug: ${slug} (letters, digits, dashes; max 40)`);
+  }
+  const wt = `${worktreePath(agentWorkspace, project.projectId)}.${slug}`;
+  const branch = `${branchName(agentId, project.projectId)}.${slug}`;
+  if (existsSync(wt)) {
+    throw new ConflictError(`worktree already exists: ${wt}`);
+  }
+  const hasBranch =
+    (await Bun.$`git -C ${mirrorPath} show-ref --verify refs/heads/${branch}`.quiet().nothrow())
+      .exitCode === 0;
+  if (hasBranch) {
+    throw new ConflictError(`branch already exists: ${branch}`);
+  }
+  const target = project.defaultBranch ?? "HEAD";
+  await Bun.$`git -C ${mirrorPath} worktree add -b ${branch} ${wt} ${target}`.quiet();
+  return wt;
 }

@@ -14,16 +14,21 @@ const registry = createTerminalRegistry();
 const app = new Elysia().use(
   codingRoutes({
     registry,
-    resolveTarget: async (projectId) => {
+    resolveTarget: async (projectId, _agentId, worktreePath) => {
       if (projectId === "ghost") throw new NotFoundError("project", projectId);
       return {
-        cwd: dir,
+        cwd: worktreePath ?? dir,
         shell: { executable: "/bin/bash", args: ["-c", "echo boot-marker; exec bash"] },
         omaLaunch: "echo oma-launch-line",
         omaPane: { executable: "/bin/bash", args: ["-c", "echo oma-pane-boot; exec bash"] },
       };
     },
     wsBase: "ws://127.0.0.1:1",
+    listTaskWorktrees: async (projectId) =>
+      projectId === "p1" ? [{ agentId: "a1", slug: "feat-x", path: join(dir, "p1.feat-x") }] : [],
+    createTaskWorktree: async (_projectId: string, _agentId: string, slug: string) => ({
+      path: join(dir, `p1.${slug}`),
+    }),
   }),
 );
 app.listen(0);
@@ -195,5 +200,41 @@ describe("coding agent status enrichment (P2)", () => {
     );
     const stale = (await listed()).terminals.find((t) => t.terminalId === terminal.terminalId);
     expect(stale?.agentState).toBeUndefined();
+  });
+});
+
+describe("coding task worktrees (the task axis)", () => {
+  test("list and create endpoints round-trip", async () => {
+    const listed = (await (await fetch(`${base}/api/coding/worktrees?projectId=p1`)).json()) as {
+      worktrees: Array<{ slug: string }>;
+    };
+    expect(listed.worktrees).toHaveLength(1);
+    expect(listed.worktrees[0]?.slug).toBe("feat-x");
+
+    const created = await fetch(`${base}/api/coding/worktrees`, {
+      method: "POST",
+      body: JSON.stringify({ projectId: "p1", agentId: "a1", slug: "task-two" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { path: string };
+    expect(body.path).toContain("p1.task-two");
+  });
+
+  test("spawn with a valid worktreePath lands in that cwd", async () => {
+    const taskDir = join(dir, "p1.feat-x");
+    mkdirSync(taskDir, { recursive: true });
+    const res = await fetch(`${base}/api/coding/terminals`, {
+      method: "POST",
+      body: JSON.stringify({ projectId: "p1", agentId: "a1", worktreePath: taskDir }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.status).toBe(201);
+    const { terminal } = (await res.json()) as { terminal: { terminalId: string } };
+    const listed = (await (await fetch(`${base}/api/coding/terminals`)).json()) as {
+      terminals: Array<{ terminalId: string; cwd: string }>;
+    };
+    const mine = listed.terminals.find((t) => t.terminalId === terminal.terminalId);
+    expect(mine?.cwd).toBe(taskDir);
   });
 });

@@ -280,6 +280,10 @@ export const api = {
   launchOmaInTerminal: (id: string) =>
     unwrap(client.api.coding.terminals({ id })["launch-oma"].post()),
   codingWsTicket: () => unwrap(client.api.coding["ws-ticket"].post()),
+  listCodingTaskWorktrees: (projectId: string) =>
+    unwrap(client.api.coding.worktrees.get({ query: { projectId } })),
+  createCodingTaskWorktree: (body: { projectId: string; agentId: string; slug: string }) =>
+    unwrap(client.api.coding.worktrees.post(body)),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
   getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),

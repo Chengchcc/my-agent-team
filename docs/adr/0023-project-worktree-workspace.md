@@ -91,3 +91,14 @@ ADR 0020 的「workspace 即 cwd」只对**无 project 参与**的 run 成立。
 - 修正 [ADR 0020](./0020-agent-workspace-and-resource-bridge.md) 的「workspace 即 cwd」隐含假设，workspace 仍是**身份与资源的家**，cwd 可以是 worktree。
 - 落地 [ADR 0011](./0011-web-ia-work-chat-team.md) 的「Project 作为工作归属域」定位。
 - 与 [ADR 0021](./0021-one-conversation-one-agent-member.md) 正交：会话成员模型不变，project 是 run 的事实而非会话结构。
+
+## 附录（2026-09-22）：任务轴 worktree（Coding 页，Herd 对齐）
+
+原方案只有 agent 轴：每 (agent, project) 恰一个 worktree。Coding 页引入**任务轴**：
+同一 (agent, project) 下可显式创建任意多个任务 worktree——
+`<ws>/projects/<projectId>.<slug>`，分支 `agent/<agentId>/<projectId>.<slug>`，基于
+defaultBranch。与主 worktree 的差异：创建是显式动作（slug 用户命名，冲突即拒绝，
+不自动生成、不按需物化），且 Coding 终端的 `worktreePath` 经前缀白名单校验
+（`features/coding/task-worktrees.ts`）——终端即代码执行，cwd 不接受任意路径。
+bridge（mcp/product-tools）在创建时写入。合流复用 P2 的 fast-forward/merge 面向
+`agent/<agentId>/<projectId>.*` 全族。
