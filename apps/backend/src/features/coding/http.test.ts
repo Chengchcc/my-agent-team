@@ -20,6 +20,7 @@ const app = new Elysia().use(
         cwd: dir,
         shell: { executable: "/bin/bash", args: ["-c", "echo boot-marker; exec bash"] },
         omaLaunch: "echo oma-launch-line",
+        omaPane: { executable: "/bin/bash", args: ["-c", "echo oma-pane-boot; exec bash"] },
       };
     },
     wsBase: "ws://127.0.0.1:1",

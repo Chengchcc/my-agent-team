@@ -1,4 +1,3 @@
-import type { createApp } from "./app.js";
 import type { BackendConfig } from "./config.js";
 
 /** Elysia's generic WebSocket dispatcher (the contract of
@@ -22,7 +21,14 @@ const wsDispatch = {
     ws.data.close?.(ws, code, reason),
 };
 
-export function createServer(config: BackendConfig, app: ReturnType<typeof createApp>) {
+/** Structural app surface createServer actually needs — createApp's
+ *  return satisfies it; tests pass a minimal Elysia without dragging the
+ *  full decorated-app type along. */
+export interface ServeableApp {
+  fetch: (request: Request) => Response | Promise<Response>;
+}
+
+export function createServer(config: BackendConfig, app: ServeableApp) {
   let server: ReturnType<typeof Bun.serve> | null = null;
 
   return {
