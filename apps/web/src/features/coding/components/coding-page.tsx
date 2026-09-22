@@ -1,6 +1,6 @@
 "use client";
 
-import { PlusIcon, XIcon } from "lucide-react";
+import { Columns2Icon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Page, PageBody } from "@/components/page";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -8,12 +8,14 @@ import type { CodingTerminalRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { useCloseTerminal, useCodingTerminalsList, useSpawnTerminal } from "../hooks";
 import { CodingRail, type CodingSelection } from "./coding-rail";
+import { SplitView } from "./split-view";
 import { TerminalPane } from "./terminal-pane";
 
 export function CodingPage() {
   const terminals = useCodingTerminalsList();
   const [selected, setSelected] = useState<CodingSelection | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [split, setSplit] = useState(false);
   const [tabHint, setTabHint] = useState<string | null>(null); // ?t= restore
   const spawn = useSpawnTerminal();
   const closeTerminal = useCloseTerminal();
@@ -119,9 +121,24 @@ export function CodingPage() {
                   >
                     <PlusIcon className="size-3.5" />
                   </button>
+                  <button
+                    type="button"
+                    className={`ml-auto rounded px-2 py-1 text-xs ${
+                      split ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/60"
+                    }`}
+                    title={t("Toggle split view")}
+                    onClick={() => setSplit((v) => !v)}
+                  >
+                    <Columns2Icon className="size-3.5" />
+                  </button>
                 </div>
                 <div className="min-h-0 flex-1">
-                  {active ? (
+                  {split ? (
+                    <SplitView
+                      terminals={selTerminals}
+                      onClosed={(id) => closeTerminal.mutate(id)}
+                    />
+                  ) : active ? (
                     <TerminalPane
                       key={active.terminalId}
                       terminal={active}
