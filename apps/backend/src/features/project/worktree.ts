@@ -131,9 +131,10 @@ export async function createTaskWorktree(
   return wt;
 }
 
-/** Remove a task worktree and its branch. `force` discards uncommitted
- *  changes — the caller asks the user first (git's own UX). Running
- *  TERMINALS in that path are the caller's guard, not git's. */
+/** Remove a task worktree and its branch. `force` is required when that
+ *  would LOSE work: uncommitted changes, or commits on the branch that are
+ *  not in the base (branch -D drops them). Running TERMINALS in that path
+ *  are the caller's guard, not git's. */
 export async function removeTaskWorktree(
   mirrorPath: string,
   agentWorkspace: string,
@@ -154,6 +155,20 @@ export async function removeTaskWorktree(
     const dirty = (await Bun.$`git -C ${wt} status --porcelain`.quiet().nothrow().text()).trim();
     if (dirty.length > 0) {
       throw new ConflictError(`worktree has uncommitted changes: ${wt}`);
+    }
+    const base = project.defaultBranch ?? "HEAD";
+    const unmerged = Number(
+      (
+        await Bun.$`git -C ${mirrorPath} rev-list --count ${base}..${branch}`
+          .quiet()
+          .nothrow()
+          .text()
+      ).trim(),
+    );
+    if (Number.isFinite(unmerged) && unmerged > 0) {
+      throw new ConflictError(
+        `branch ${branch} has ${unmerged} commit(s) not in ${base} — removing deletes them`,
+      );
     }
   }
   await Bun.$`git -C ${mirrorPath} worktree remove --force ${wt}`.quiet();

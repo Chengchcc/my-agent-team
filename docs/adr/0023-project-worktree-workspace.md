@@ -102,3 +102,7 @@ defaultBranch。与主 worktree 的差异：创建是显式动作（slug 用户�
 （`features/coding/task-worktrees.ts`）——终端即代码执行，cwd 不接受任意路径。
 bridge（mcp/product-tools）在创建时写入。合流复用 P2 的 fast-forward/merge 面向
 `agent/<agentId>/<projectId>.*` 全族。
+
+任务 worktree 的删除有独立入口（脏区/未合并提交需显式 force）；**主 worktree 不在
+Coding 页单独删除**——它的生命周期归 agent×project 的 attach/detach（删 project
+即删其全部 worktree），避免两条删除路径对同一产物下不同判断。

@@ -147,6 +147,43 @@ function ProjectWorktreeRows({
     }
   }
 
+  /** Two-step removal: attempt WITHOUT force first, so the server tells us
+   *  what is actually at risk (uncommitted changes, unmerged commits) and
+   *  the second confirmation can name it instead of guessing. */
+  async function removeWorktree(tw: { agentId: string; slug: string }) {
+    const ok = await confirm({
+      title: t(`Remove worktree ${tw.slug}?`),
+      description: t("Deletes the checkout and its branch. Close its terminals first."),
+    });
+    if (!ok) return;
+    try {
+      await removeTask.mutateAsync({ agentId: tw.agentId, slug: tw.slug, force: false });
+      toast.success(t("Worktree removed"));
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      let detail = raw;
+      try {
+        detail = (JSON.parse(raw) as { error?: string }).error ?? raw;
+      } catch {
+        /* not a JSON body — use the raw message */
+      }
+      const discard = await confirm({
+        title: t(`Discard work in ${tw.slug}?`),
+        description: detail,
+        destructive: true,
+      });
+      if (!discard) return;
+      try {
+        await removeTask.mutateAsync({ agentId: tw.agentId, slug: tw.slug, force: true });
+        toast.success(t("Worktree removed"));
+      } catch (retryErr) {
+        toast.error(t("Removal failed"), {
+          description: retryErr instanceof Error ? retryErr.message : String(retryErr),
+        });
+      }
+    }
+  }
+
   const attached = new Set(worktrees.map((wt) => wt.agentId));
   const attachable = (agents.data ?? []).filter((a) => a.enabled !== false && !attached.has(a.id));
 
@@ -207,17 +244,7 @@ function ProjectWorktreeRows({
                     variant="ghost"
                     size="icon"
                     className="size-6 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                    onClick={() =>
-                      void confirm({
-                        title: t(`Remove worktree ${tw.slug}?`),
-                        description: t(
-                          "Deletes the checkout and its branch. Uncommitted changes are discarded. Close its terminals first.",
-                        ),
-                      }).then((ok) => {
-                        if (ok)
-                          removeTask.mutate({ agentId: tw.agentId, slug: tw.slug, force: true });
-                      })
-                    }
+                    onClick={() => void removeWorktree(tw)}
                   />
                 }
               />

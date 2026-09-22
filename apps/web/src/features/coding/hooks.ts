@@ -78,9 +78,5 @@ export function useRemoveTaskWorktree(projectId: string) {
       });
       void qc.invalidateQueries({ queryKey: codingKeys.terminals });
     },
-    onError: (err) =>
-      toast.error("Worktree removal failed", {
-        description: err instanceof Error ? err.message : "Unknown error",
-      }),
   });
 }

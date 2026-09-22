@@ -171,7 +171,15 @@ describe("task worktree removal", () => {
       removeTaskWorktree(mirror, agentWs, project, "agent-1", "gone", { force: false }),
     ).rejects.toThrow(/uncommitted changes/);
 
-    // Force discards it, drops the branch, and prunes the registration.
+    // Committed work on the branch is also refused without force:
+    // branch -D would drop those commits silently.
+    await Bun.$`git -C ${path} add -A`.quiet();
+    await Bun.$`git -C ${path} -c user.email=t@t -c user.name=t commit -qm wip`.quiet();
+    await expect(
+      removeTaskWorktree(mirror, agentWs, project, "agent-1", "gone", { force: false }),
+    ).rejects.toThrow(/commit\(s\) not in main/);
+
+    // Force discards both, drops the branch, and prunes the registration.
     await removeTaskWorktree(mirror, agentWs, project, "agent-1", "gone", { force: true });
     expect(existsSync(path)).toBe(false);
     const branchGone =

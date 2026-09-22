@@ -185,6 +185,15 @@ In `apps/web`, reach for `@/components/ui/*` before a raw HTML element:
   and segmented/tab controls where a native element is semantically right.
 Details and the full UI convention list: `apps/web/AGENTS.md` → "UI conventions".
 
+**Why the rules are restated here instead of living only in the sub-file:**
+context files are discovered by walking UP from the session cwd (omp
+`context-file` capability, one file per ancestor depth). A session rooted at
+the repo root therefore loads THIS file and never `apps/<app>/AGENTS.md` —
+so every hard, cross-cutting rule an app-level file states must appear here
+as an actionable line, with the sub-file kept as the detailed reference for
+sessions actually running inside that app.
+
+
 
 ## Important Files
 
