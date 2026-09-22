@@ -19,6 +19,16 @@ export function SplitView({
   const rowRef = useRef<HTMLDivElement>(null);
   const value = (i: number) => grow[i] ?? 1;
 
+  // A closed pane shifts indices — inherited ratios would mis-assign, so
+  // equalize whenever the pane count changes (render-phase adjust; an
+  // effect on the array identity would fire on every poll).
+  const count = terminals.length;
+  const prevCount = useRef(count);
+  if (prevCount.current !== count) {
+    prevCount.current = count;
+    setGrow([]);
+  }
+
   function startDrag(e: React.PointerEvent<HTMLDivElement>, gapIndex: number) {
     e.preventDefault();
     const divider = e.currentTarget;
@@ -51,7 +61,7 @@ export function SplitView({
   }
 
   return (
-    <div ref={rowRef} className="flex size-full min-h-0 ">
+    <div ref={rowRef} className="flex size-full min-h-0">
       {terminals.map((term, i) => (
         <div
           key={term.terminalId}

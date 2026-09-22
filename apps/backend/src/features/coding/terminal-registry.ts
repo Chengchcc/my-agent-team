@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { type IExitEvent, type IPty, spawn as ptySpawn } from "bun-pty";
+import { NotFoundError } from "../../infra/domain-errors.js";
 
 /** tmux-in-the-backend (plan A, no tmux binary): every terminal is a real
  * PTY owned by THIS process. detach (WS drop) never touches the process;
@@ -53,6 +54,10 @@ interface Slot {
   spec: TerminalCommand;
   pty: IPty | null;
   buffer: string;
+  /** Last-known pane size: respawn reuses it instead of snapping to
+   *  80x24 (attached clients do not re-send resize on respawn). */
+  cols: number;
+  rows: number;
   dataListeners: Set<(data: string) => void>;
   statusListeners: Set<(info: TerminalInfo) => void>;
 }
@@ -93,6 +98,8 @@ export interface TerminalRegistry {
   respawn(terminalId: string, specOverride?: TerminalCommand): TerminalInfo | null;
   /** Record what the pane became (launch-oma marks it). */
   setKind(terminalId: string, kind: TerminalKind, title?: string): boolean;
+  /** Persist the current membership snapshot now (boot-restore pruning). */
+  sync(): void;
   closeAll(): void;
 }
 
@@ -152,6 +159,8 @@ export function createTerminalRegistry(
   }
 
   function startPty(slot: Slot, cols: number, rows: number): void {
+    slot.cols = cols;
+    slot.rows = rows;
     const pty = ptySpawn(slot.spec.executable, [...slot.spec.args], {
       name: "xterm-256color",
       cols,
@@ -178,7 +187,7 @@ export function createTerminalRegistry(
 
   function spawn(input: SpawnInput): TerminalInfo {
     if (!existsSync(input.cwd)) {
-      throw new Error(`terminal cwd does not exist: ${input.cwd}`);
+      throw new NotFoundError("terminal cwd", input.cwd);
     }
     const info: TerminalInfo = {
       terminalId: input.terminalId ?? idGen(),
@@ -196,6 +205,8 @@ export function createTerminalRegistry(
       spec: input.command,
       pty: null,
       buffer: "",
+      cols: input.cols ?? 80,
+      rows: input.rows ?? 24,
       dataListeners: new Set(),
       statusListeners: new Set(),
     };
@@ -236,6 +247,8 @@ export function createTerminalRegistry(
     resize: (id, cols, rows) => {
       const s = slotOf(id);
       if (!s) return false;
+      s.cols = cols;
+      s.rows = rows;
       s.pty?.resize(cols, rows);
       return true;
     },
@@ -244,6 +257,10 @@ export function createTerminalRegistry(
       if (!s) return false;
       s.pty?.kill();
       slots.delete(id);
+      // Tell attached WS clients before dropping the slot — without this
+      // they only learn via the 4s poll.
+      s.info.status = "exited";
+      for (const fn of s.statusListeners) fn(s.info);
       persist();
       return true;
     },
@@ -252,9 +269,13 @@ export function createTerminalRegistry(
       if (!s) return null;
       s.pty?.kill();
       if (specOverride) s.spec = specOverride;
-      startPty(s, 80, 24);
+      // Reuse the last-known pane size: attached clients do not re-send
+      // resize on respawn, so 80x24 here would misrender until manual resize.
+      startPty(s, s.cols, s.rows);
+      for (const fn of s.statusListeners) fn(s.info);
       return { ...s.info };
     },
+    sync: () => persist(),
     setKind: (id, kind, title) => {
       const s = slotOf(id);
       if (!s) return false;

@@ -676,14 +676,17 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // HITL: interactive approval overlay; absent picker or cancel = deny.
           approvalHandler: async (req) => {
             writeAgentStatus(opts.workspaceRoot, "blocked", session.sessionId);
-            const verdict = await io.confirmApproval?.({
-              toolName: req.toolName,
-              ...(req.reason ? { reason: req.reason } : {}),
-            });
-            writeAgentStatus(opts.workspaceRoot, "working", session.sessionId);
-            return verdict === "allow"
-              ? { decision: "allow" }
-              : { decision: "deny", reason: "user denied" };
+            try {
+              const verdict = await io.confirmApproval?.({
+                toolName: req.toolName,
+                ...(req.reason ? { reason: req.reason } : {}),
+              });
+              return verdict === "allow"
+                ? { decision: "allow" }
+                : { decision: "deny", reason: "user denied" };
+            } finally {
+              writeAgentStatus(opts.workspaceRoot, "working", session.sessionId);
+            }
           },
           // HITL ask_question: docked panel; absent/cancel = null (tool fails
           // closed with "no answer"). The inactivity timeout is config, so it

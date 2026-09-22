@@ -47,6 +47,11 @@ describe("resolveOmaCommand", () => {
     expect(result.args).toEqual(["--mode", "rpc"]);
   });
 
+  test("mode tui with OMA_BIN set omits --mode (interactive pane command)", () => {
+    const result = resolveOmaCommand({ ...baseConfig, omaBin: "/app/bin/oma" }, { mode: "tui" });
+    expect(result.args).toEqual([]);
+  });
+
   test("throws when the source fallback entry is missing", () => {
     expect(() =>
       resolveOmaCommand(baseConfig, {

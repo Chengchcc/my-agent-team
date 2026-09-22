@@ -112,6 +112,12 @@ export function codingRoutes(deps: CodingRoutesDeps) {
     .post("/api/coding/terminals/:id/launch-oma", async ({ params: { id } }) => {
       const info = registry.get(id);
       if (!info) return Response.json({ error: "terminal not found" }, { status: 404 });
+      if (info.status !== "running") {
+        return Response.json(
+          { error: "terminal process has exited — restart the pane first" },
+          { status: 409 },
+        );
+      }
       try {
         const target = await resolveTarget(info.projectId, info.agentId);
         registry.write(id, `${target.omaLaunch}\n`);

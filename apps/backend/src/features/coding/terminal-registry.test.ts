@@ -123,7 +123,7 @@ describe("terminal registry", () => {
         cwd: join(dir, "no-such-dir"),
         command: { executable: "/bin/bash", args: [] },
       }),
-    ).toThrow(/does not exist/);
+    ).toThrow(/not found/);
   });
 });
 

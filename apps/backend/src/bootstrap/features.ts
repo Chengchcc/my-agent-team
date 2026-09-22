@@ -1019,9 +1019,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           command: entry.kind === "oma" ? target.omaPane : target.shell,
         });
       } catch {
-        // agent/project gone — drop silently; next persist prunes it
+        // agent/project gone — drop silently; sync() below prunes it
       }
     }
+    // Prune skipped entries (agent/project gone) so they stop retrying
+    // every boot even when nothing else mutates membership afterwards.
+    codingRegistry.sync();
   })();
 
   // ─── Agentic Workflow ───────────────────────────────────
@@ -1148,7 +1151,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     coding: codingRoutes({
       registry: codingRegistry,
       resolveTarget: resolveCodingTarget,
-      wsBase: `ws://${config.host}:${config.port}`,
+      // A wildcard bind is not a browser-reachable host — hand the client
+      // loopback instead.
+      wsBase: `ws://${
+        config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
+      }:${config.port}`,
     }),
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),

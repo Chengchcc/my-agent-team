@@ -66,10 +66,6 @@ export function resolveOmaCommand(
     ...opts.env,
   };
 
-  if (config.omaBin) {
-    return { executable: config.omaBin, args: ["--mode", "rpc"], env };
-  }
-
   // RPC mode is mandatory for adapter children: without it the child blocks
   // on piped stdin (print mode) while the adapter keeps stdin open - a
   // deadlock. The TUI terminal passes no --mode: a PTY runs the interactive

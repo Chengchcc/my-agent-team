@@ -16,7 +16,6 @@ export interface CodingSelection {
   agentId: string;
 }
 
-/** Status dot for one (projectId, agentId): ● live PTY, ◦ none/dead. */
 /** Four-state dot (P2): the oma TUI publishes working/blocked/idle; a
  *  shell pane or a dead process falls back to the plain two-state dot. */
 export function terminalDot(term: { status: string; agentState?: string }): {

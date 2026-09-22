@@ -146,13 +146,19 @@ export function CodingPage() {
                   {split ? (
                     <SplitView
                       terminals={selTerminals}
-                      onClosed={(id) => closeTerminal.mutate(id)}
+                      onClosed={(id) => {
+                        const term = selTerminals.find((x) => x.terminalId === id);
+                        if (term) void requestClose(term);
+                      }}
                     />
                   ) : active ? (
                     <TerminalPane
                       key={active.terminalId}
                       terminal={active}
-                      onClosed={(id) => closeTerminal.mutate(id)}
+                      onClosed={(id) => {
+                        const term = selTerminals.find((x) => x.terminalId === id);
+                        if (term) void requestClose(term);
+                      }}
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-zinc-500">
