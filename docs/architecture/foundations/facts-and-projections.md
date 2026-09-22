@@ -1,132 +1,86 @@
----
-id: foundations.facts-and-projections
-title: 事实与投影
-status: current
-owners: architecture
-summary: "三类状态：Conversation History 是共享会话事实，Agent Context 是单个 Agent Member 的上下文事实，Run-time 状态（子进程 transcript、streaming、Live Updates）是可丢弃缓存或投影。只有 terminal BackendRunOutcome 才原子提交产品事实。"
-depends_on:
-used_by:
-  - architecture.system-overview
-  - backend.overview
-  - agents.context
-  - backend.data-model
----
-
 # 事实与投影
 
-本页回答：系统中哪些数据可以作为产品决策和恢复依据，哪些只是执行缓存、实时展示或诊断记录。
+本页说明哪些数据是产品事实、哪些只是执行缓存或投影，以及一个 Message 什么时候才算真的发生了。
 
-## 单一 Message 本体
+## 范围
 
-`Message` 仍然是唯一消息领域类型（`@chengchenccc/message`）。Ledger、Runtime 和 Surface 不各自发明不同的 Message；它们保存引用、包装生命周期或转换协议。
+覆盖：Message 的本体、三类状态、事实与投影的分工、人的消息与 Agent 的消息各自何时成为事实、产品工具的结果怎么进 Context、产品摘要与子进程 compaction 的区别、为什么每次都重建投影。
 
-```text
-Message
-  ├─ 在 Conversation History 中作为共享会话事实（serializeMessageRevision）
-  ├─ 在 Agent Context 中通过 ledgerSeq 被某 Agent context 引用
-  ├─ 经 Adapter 投影成子进程的 input history
-  └─ 被 Web/Lark 渲染
-```
+不覆盖：表结构（见 [数据模型](./../backend/data-model.md)）、id 的归属（见 [标识符体系](./identifiers.md)）、History 与 Context 的读写 API（见 [Conversation History](./../conversation/history.md)、[Agent Context](./../agents/context.md)）。
 
-## 三种状态
+## 实现文件
 
-### Conversation History：共享事实
+- `packages/message/src/index.ts` — Message / MessageRevision 的唯一本体与序列化
+- `apps/backend/src/features/conversation/service.ts` — 账本写入（`serializeMessageRevision`）
+- `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 取 Run 时把账本同步成 Context 引用
+- `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 终态提交：账本 + 引用同事务
+- `apps/backend/src/features/agent-context/projection.ts` — 唯一的分支投影实现
+- `apps/backend/src/features/agent-run/execution-input.ts` — 首轮的扁平历史桥
+- `apps/backend/src/features/product-tools/service.ts` — `history_retain`，唯一能显式往 Context 加东西的产品工具
+- `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — 子进程内部的 compaction 与 context 用量
 
-Ledger 记录所有成员可见的 Conversation 内容：人类与 Agent 的最终 Message、成员事件和产品控制条目。它决定用户看到的共享历史。
+## Message 只有一个本体
 
-### Agent Context：Agent 上下文事实
+`Message` 是唯一的领域类型，由 `@chengchenccc/message` 定义。账本里存的是 `serializeMessageRevision(revision)`，终态提交走的也是同一条序列化路径。Web、飞书、后端读到的都是它，没有各自的副本。
 
-Tree 的 scope 是 `(conversationId, agentMemberId)`。它决定该 Agent 在某条 branch 上实际消费过什么、保留了哪些 Product Tool 结果、应用了什么 Product Summary，以及从哪个历史节点继续。共享 Message 在 Tree 中保存 `ledgerSeq` 引用，不复制内容。
+## 三类状态
 
-### Run-time 状态：执行缓存与投影
+| 状态 | 在哪 | 性质 |
+|---|---|---|
+| 流式增量 | SSE 事件流 | 只用于实时渲染，丢了不影响结果 |
+| 共享事实 | `conversation_ledger` | 只追加，所有端从它重放 |
+| Agent 的语义历史 | `agent_context_*` | 只存指向账本的引用与派生条目 |
 
-```text
-一次性 oma 子进程
-  = 该 Run 的执行缓存（model/tool transcript、compaction、todo）
-  = 子进程退出即销毁，永不跨 Run 复用
-```
+流式增量永远不进产品事实。遥测是另一回事：只有白名单里的事件类型会落 `agent_run_event`。
 
-Streaming delta、Live Updates、子进程 stderr 都是投影/诊断，不进入 canonical history。
+## 人的消息什么时候成为事实
 
-## 事实、缓存、投影和审计
+人一发消息就写账本，紧接着才创建 Run。这一步是产品事实，也是触发判定的依据。
 
-| 类型 | 示例 | 可作为产品恢复真源 | 可重建 |
-|---|---|---:|---:|
-| 共享事实 | Conversation History | 是 | 否 |
-| Agent 上下文事实 | Agent Context | 是 | 否 |
-| 执行缓存 | 子进程 transcript、in-memory SessionStore、compaction | 否 | 是 |
-| 实时投影 | streaming delta、status、SSE buffer | 否 | 是 |
-| 执行审计 | surface_health、agent_run 终态、product_tool_call | 否 | 否（但保留为事实记录） |
+## Agent 的消息什么时候成为事实
 
-注意：`agent_run` 的 terminal_result 与 `product_tool_call` 是持久审计事实，但它们不参与 context build：语义恢复只依赖 Ledger + Tree。
+只有终态提交那一刻。`commitCompletedRun` 在一个事务里写账本行、追加 Context 引用、CAS 分支、CAS Run。canonical 序列里的每条消息各占一行，提交身份是 `(agent_run_id, message_index)`。
 
-## Message 何时成为产品事实
+失败的 Run 也会落一条用户可见的错误消息（messageId 是 `run:<runId>:error`），但它不是 canonical 提交。`commit_failed` 的 Run 什么都不写。
 
-### 人类 Message
+## Context 怎么跟上账本
 
-```text
-写 Ledger
-→ 端可见
-→ Agent 被触发时按实际消费追加 Tree ledgerSeq refs
-```
+**取 Run 时同步**：读游标之后未 undone 的账本行，只留 `kind = "message"` 且非 internal 的，取最后 20 条，逐条追加一个 `ledger_message` 引用，然后把游标推到扫过的最后一条。这件事**每次取 Run 都自动发生**，不需要谁显式操作。
 
-### Agent Message
+**终态提交时再追加**：提交事务里对新写的那些行补引用，并按 `(tree_id, ledger_seq)` 去重。
 
-```text
-child streaming events
-→ transient UI projection（Live Updates）
-→ terminal BackendRunOutcome
-→ 同一事务写 Ledger（agent_run_id）+ Tree ref + branch leaf/revision
-```
+**显式追加**：`history_retain` 是针对「Run 已经取过了、之后才到达的消息」的补充路径——先校验消息存在且可见，再在同一个事务里写引用和产品工具调用行。只读工具什么都不加。
 
-Streaming delta 不写 canonical history。只有 terminal assistant Message 才提交。
+## 投影交付给子进程的形态
 
-## Product Tool 结果何时进入 Context
+每次派单都会从分支重建一份完整投影。但**投影本身不在 wire 契约里**：它只在分支上还没有 `cli_session_ref` 时，被渲染成一段扁平文本拼进首轮输入。从第二轮起，`cli_session_ref` 存在，子进程直接用自己的 session transcript 当种子历史，这段桥不再出现。
 
-Oma 的 native tools 由子进程自己执行，其原始 tool lifecycle 属于 runtime events。Product Tool 由 Product Backend 执行，语义变更类调用写 `product_tool_call`（幂等/审计）。
+也就是说：历史事实永远是账本，每次投影都重建，但交付形态取决于有没有会话引用。
 
-只有满足以下条件的 Product Tool call/result 才进入 Agent Context：
+## 产品摘要与运行时 compaction
 
-```text
-后续模型需要读取
-或用户需要理解其因果
-或下一个 Run 必须保留
-```
+两者不是一回事。
 
-通知、presence、heartbeat、queue status 和 UI refresh 只进投影或审计。
+**产品摘要**（Context 里的 `summary` 条目）本来是设计给「产品级压缩」的：投影时遇到 summary 就用它覆盖它声明覆盖的那段历史。但**当前没有任何生产者**——`appendSummary` 只有测试在调，投影里的 summary 分支在生产路径上不可达。对话的 `/compact` 与 `/clear` 都是显式空操作。
 
-## Product Summary 和 Runtime compaction 有什么区别
+**运行时 compaction** 完全发生在子进程内部：它自己的 session 里做切点与摘要，通过 `compaction_start` / `compaction_end` 事件把进展透出来，产品侧不读它的结果、也不据此改 Context。
 
-Product Summary 是 Tree entry（`type=summary`），由 Product Policy 与 summarizer 生成。它只改变 context projection，原始历史保留。
+## 语义恢复靠什么
 
-Runtime compaction 是 Oma 子进程内部的执行缓存优化（下一个 Run 不继承），不写 Agent Context，也不改变产品历史。
+当前的真源是三个：账本、Context 树、以及分支上的 `cli_session_ref`（加上它指向的 CLI session 文件）。
 
-## 为什么每次都是 full projection
+注意第三个：只靠账本和树恢复不出完整语义——子进程的原生 session 里还有账本不承载的东西（它的工具调用历史、它自己的压缩结果）。
 
-子进程没有持久状态；每个新 Run 从 active Context Branch 投影**完整**线性 `ProjectedHistoryItem[]`（按 branch 的可见性与预算筛选），而不是增量同步。这样：
+## 审计事实
 
-- 不需要同步点、不需要 session 绑定、不需要 resume；
-- 子进程 crash 后下一个 Run 从同一 Context 干净重建；
-- `ledgerCursor` 仍用于推进 Tree 的消费进度，但子进程拿到的永远是全量投影。
-
-更早历史通过 Product History Tool 渐进读取；只有显式 retain 才追加到 Tree。
+`agent_run.terminal_result`、`product_tool_call`、`agent_run_event` 遥测、`surface_health`。它们用来做审计、重放、排障，不参与消息语义。
 
 ## 不变量
 
-1. Message 领域类型只有一处定义。
-2. Conversation History 是共享会话 canonical store。
-3. Agent Context 是单 Agent Member 的 context canonical store。
-4. 子进程状态永远不是产品事实。
-5. Streaming、thinking 和运行状态不进入 canonical history。
-6. Ledger Message 与 Tree terminal ref 原子提交。
-7. Product Summary 不删除历史。
-8. ops/audit 数据不能替代 Ledger 或 Tree。
-9. Surface 只能渲染或提交命令，不能成为事实来源。
-
-## 关联页面
-
-- [系统总览](../system-overview.md)
-- [Conversation History](../conversation/history.md)
-- [Agent Context](../agents/context.md)
-- [Agent Backend](../execution/agent-backend.md)
-- [数据模型](../backend/data-model.md)
+1. Message 只有一个本体，账本存它的序列化形态。
+2. 流式增量不进账本、不进 Context。
+3. 人的消息先落账本再创建 Run。
+4. Agent 的消息与 Context 引用同事务提交，提交身份是 `(agent_run_id, message_index)`。
+5. Context 只存引用，事实在账本里。
+6. 每次派单重建投影；续接由 CLI session 引用负责。
+7. 审计数据不参与消息语义。

@@ -4,7 +4,6 @@
  *  - no references to deleted packages/files;
  *  - every path in the "Important Files" table must exist;
  *  - plugin list/count and schema table count must match the repo;
- *  - architecture/MANIFEST.md every entry must exist on disk (W4);
  *  - active-zone (architecture + prd) relative links must resolve; links
  *    inside `status: deprecated` tombstones and superpowers/ are exempt (W1);
  *  - active-zone narrative vocabulary must not teach deleted concepts
@@ -64,23 +63,8 @@ if (!tableClaim || Number(tableClaim[1]) !== tables) {
   fail(`AGENTS.md says "${tableClaim?.[0] ?? "?"}", actual tables: ${tables}`);
 }
 
-// 6. W4: every file listed in architecture/MANIFEST.md must exist.
-const manifestPath = join(ROOT, "docs/architecture/MANIFEST.md");
-let manifestEntries = 0;
-if (existsSync(manifestPath)) {
-  const manifest = readFileSync(manifestPath, "utf8");
-  for (const line of manifest.split("\n")) {
-    const m = line.match(/^-\s+`([^`]+)`/);
-    if (!m) continue;
-    manifestEntries++;
-    const p = m[1]!;
-    const resolved = p.startsWith("docs/") ? join(ROOT, p) : join(ROOT, "docs/architecture", p);
-    if (!existsSync(resolved)) fail(`MANIFEST entry missing on disk: ${p}`);
-  }
-}
-
-// ── active-zone helpers (architecture + prd; adr is decision archive) ──
-const ACTIVE_ROOTS = ["docs/architecture", "docs/prd"];
+// ── active-zone helpers (architecture + guides; adr is decision archive) ──
+const ACTIVE_ROOTS = ["docs/architecture", "docs/guides", "docs/prd"];
 function walkDocs(dir: string): string[] {
   // Git does not track empty directories: a root like docs/prd disappears
   // from a fresh clone after its last file is moved away.
@@ -183,14 +167,9 @@ for (const root of ACTIVE_ROOTS) {
 
 // 12. Obsidian-style graph check: active-zone pages with zero inbound links
 // are orphans - invisible in the wiki graph, i.e. either dead concepts or
-// missing wiring. Entry points (hub/index/map/MANIFEST) count as wired;
-// archives (future/deprecated/gate0) are allowed to be unlinked.
-const ENTRY_PAGES = new Set([
-  "docs/architecture/README.md",
-  "docs/architecture/index.llm.md",
-  "docs/architecture/map.md",
-  "docs/architecture/MANIFEST.md",
-]);
+// missing wiring. The zone index counts as wired; archive pages are allowed
+// to be unlinked.
+const ENTRY_PAGES = new Set(["docs/architecture/README.md"]);
 const activeFiles: string[] = [];
 for (const root of ACTIVE_ROOTS)
   for (const f of walkDocs(join(ROOT, root))) activeFiles.push(f.replace(`${ROOT}/`, ""));
@@ -204,8 +183,8 @@ for (const rel of activeFiles) {
     if (link.startsWith("http") || link.startsWith("#") || link.startsWith("mailto:")) continue;
     inlinked.add(normalize(join(dirname(abs), link.split("#")[0]!.trim())).replace(`${ROOT}/`, ""));
   }
-  // Backticked relative paths are how index.llm.md wires the routing lists;
-  // count them as inbound references too (agents navigate by them).
+  // Backticked relative paths are how the index wiring lists read; count them
+  // as inbound references too (agents navigate by them).
   for (const m of src.matchAll(/`([^`]+\.md)`/g)) {
     inlinked.add(normalize(join(dirname(abs), m[1]!.trim())).replace(`${ROOT}/`, ""));
   }
@@ -219,11 +198,10 @@ for (const rel of activeFiles) {
   }
 }
 
-// 9. W3 (docs/insights.md I3): repo-rooted paths and @chengchenccc/<pkg>
-// names in the agent must-read docs must exist on disk. Word-split scan
-// (not backtick pairs — an unclosed fence swallows those); glob family
-// references (packages/adapter-*) fail the strict token shape and are
-// skipped. CONTEXT.md's Tombstones section intentionally names dead paths.
+// 9. W3: repo-rooted paths and @chengchenccc/<pkg> names in the agent
+// must-read docs must exist on disk. Word-split scan (not backtick pairs — an
+// unclosed fence swallows those); glob family references (packages/adapter-*)
+// fail the strict token shape and are skipped.
 const PATH_TOKEN =
   /^(?:packages|apps|docs|skills|scripts|knowledge-packs)(?:\/[A-Za-z0-9._-]+)+\/?$/;
 const PKG_TOKEN = /^@chengchenccc\/([a-z0-9-]+)$/;
@@ -234,8 +212,8 @@ const RUNTIME_PATHS = new Set(["apps/oh-my-agent/dist/cli.js", "apps/backend/.ba
 const DOC_FILES = [
   "AGENTS.md",
   "README.md",
-  "CONTEXT.md",
-  "docs/insights.md",
+  "docs/README.md",
+  "docs/roadmap.md",
   ...readdirSync(join(ROOT, "knowledge-packs/my-agent-team"))
     .filter((f) => f.endsWith(".md"))
     .map((f) => `knowledge-packs/my-agent-team/${f}`),
@@ -252,8 +230,7 @@ const DOC_FILES = [
 ].filter((rel) => existsSync(join(ROOT, rel))) as readonly string[];
 let pathTokens = 0;
 for (const rel of DOC_FILES) {
-  let text = readFileSync(join(ROOT, rel), "utf8");
-  if (rel === "CONTEXT.md") text = text.split("## Tombstones")[0] ?? text;
+  const text = readFileSync(join(ROOT, rel), "utf8");
   const words = text.split(/[`\s|(),;:[\]"'"“”‘’（）：]+/).map((w) => w.replace(/[.,;。、]+$/, ""));
   const tokens = new Set(words.filter((w) => PATH_TOKEN.test(w) || PKG_TOKEN.test(w)));
   // README's repo-structure block lists bare dir names under an apps/ or
@@ -362,7 +339,7 @@ if (failures.length > 0) {
 }
 console.log(
   `audit:docs OK (${pluginDirs.length} plugins, ${tables} tables, CLAUDE.md symlinked, ` +
-    `${manifestEntries ?? 0} MANIFEST entries, active-zone links + vocabulary clean, ` +
+    `active-zone links + vocabulary clean, ` +
     `${pathTokens} doc path tokens exist, ${relPathTokens} doc-relative path tokens exist, ` +
     `${codePathTokens} code paths exist, ` +
     `${appLinks} app-doc links resolve, fences balanced, ${orphans} orphan pages)`,

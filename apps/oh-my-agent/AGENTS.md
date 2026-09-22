@@ -58,7 +58,7 @@ src/
   (`@chengchenccc/message`, `@chengchenccc/ai`, `@chengchenccc/sandbox`, ...).
   Never use monorepo paths like `../../packages/...`.
 - Example cross-file doc entry point to read first:
-  [docs/architecture/index.llm.md](../../docs/architecture/index.llm.md).
+  [docs/README.md](../../docs/README.md).
 
 ## Rules and invariants
 
@@ -92,7 +92,7 @@ src/
 
 ## Related docs
 
-- [docs/architecture/index.llm.md](../../docs/architecture/index.llm.md) — repo doc hub
+- [docs/README.md](../../docs/README.md) — repo wiki front door
 - [docs/architecture/runtime/oma.md](../../docs/architecture/runtime/oma.md) — the oma runtime wiki
 - [docs/architecture/runtime/compaction.md](../../docs/architecture/runtime/compaction.md)
 - [docs/architecture/plugins/oma-plugins.md](../../docs/architecture/plugins/oma-plugins.md)

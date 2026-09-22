@@ -90,7 +90,7 @@ Composition happens in `src/bootstrap/` (`features.ts`, `services.ts`) and
 
 Cross-file entry points to read before touching a feature:
 
-- [docs/architecture/index.llm.md](../../docs/architecture/index.llm.md) — repo doc hub
+- [docs/README.md](../../docs/README.md) — repo wiki front door
 - [docs/architecture/backend/overview.md](../../docs/architecture/backend/overview.md)
 - [docs/architecture/backend/data-model.md](../../docs/architecture/backend/data-model.md)
 - [docs/architecture/workflow.md](../../docs/architecture/workflow.md)

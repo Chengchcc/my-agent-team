@@ -1,57 +1,118 @@
----
-id: plugins.progressive-skill
-title: 渐进式技能插件
-status: current
-owners: architecture
-last_verified_against_code: 2026-07-28
-summary: "渐进式技能插件（progressiveSkillPlugin）解决「技能很多但上下文有限」的矛盾。它不把所有技能正文一股脑塞进提示，而是先通过 beforeModel 只注入一份技能索引（元数据），等 Agent 判断需要某个技能时，再用 skill_load 工具按需把那一个技能的正文加载进来。M22 起支持双域发现（global + project 双 roots）、/skill:name 显式调用、以及 disableModelInvocation 关闭模型自动触发。"
-depends_on:
-  - runtime.plugin
-used_by:
----
+# 渐进式技能
 
-# 渐进式技能插件
+一句话：本页是技能渐进加载的权威描述。它是 oma 的一个内置模块（`createSkill({ roots })`）——把技能的**索引**（名字与简介）放进每轮的 Meta 段，把**正文**留给 `skill_load` 工具按需读取，所以技能再多也不会一次占满上下文。
 
-渐进式技能插件（progressiveSkillPlugin）解决「技能很多但上下文有限」的矛盾。它不把所有技能正文一股脑塞进提示，而是先通过 beforeModel 只注入一份技能索引（元数据），等 Agent 判断需要某个技能时，再用 skill_load 工具按需把那一个技能的正文加载进来。技能存在 AgentFS 的 /skills/ 下，归 private 域。
+## 范围
 
-## 为什么「渐进式」
+覆盖：索引与正文的两段式、Meta 段与 `skill_load` 的契约、技能根从哪来、`/skill:<name>` 与两个 frontmatter 开关、重复技能的优先级。
 
-如果把每个技能的完整说明都写进系统提示，技能一多，提示就爆了，而且大部分技能这一轮根本用不上。渐进式加载的思路是**两段式**：
+不覆盖：技能包的分发与安装（见 [技能包管理](./skill-pack.md)）、工作区里的技能软链怎么来（见 [Agent 工作区与多后端](../agents/workspace-and-backends.md)）、`manage_skill` 工具的权限与超时（见 [Oma Tools](../runtime/oma-tools.md)）。
 
-1. 先给一份「目录」——只放技能的名字和简介（索引/元数据）；
-2. Agent 看目录决定要用哪个，再去取那一个的「正文」。
+## 实现文件
 
-## 索引注入：beforeModel
+- `apps/oh-my-agent/src/core/tools/skill.ts` — `createSkill`：Meta 段与 `skill_load` 工具
+- `apps/oh-my-agent/src/core/tools/skills.ts` — `buildSkillIndex`：扫描、frontmatter 解析、去重与排序
+- `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — 技能根的组装与 `refreshSkills` 的接线
+- `apps/oh-my-agent/src/core/runtime/prompt.ts` — Meta 段的渲染位置
+- `apps/oh-my-agent/src/cli/initial-input.ts` — 独立 CLI 的技能根解析
+- `apps/oh-my-agent/src/modes/tui/{tui-slash,tui-commands}.ts` — `/skill:<name>` 的注册与 `/skill` 的列出
+- `apps/oh-my-agent/src/core/memory/managed-skills.ts` — 受管技能目录与写入约束
 
-插件用 `beforeModel` 钩子，在每次模型调用前把技能索引拼进系统提示。Agent 因此始终知道「有哪些技能可用」，但不被它们的完整内容淹没。
+## 索引与正文两段式
 
-索引以 `<available-skills>` XML 块的形式注入系统提示（`progressive-skill.ts` 第 62-68 行），每条技能显示 `name` 和 `description`，末尾附指令：`Call skill_load(name) to load the full instructions for a skill before using it.`
+索引在装配时生成一次：扫描每个技能根下的 `SKILL.md`，从 frontmatter 取 `name` 与 `description`，拼成 Meta 的一个段；正文只在模型调 `skill_load` 时读。Meta 段每次都读模块当前的索引，`refresh()` 会重新扫描全部根——所以运行中新增的技能对 `skill_load` 与**后续**的 Meta 渲染立即可见；已经烤进本轮提示的部分要等下一个 Run。
 
-## 按需加载：skill_load
+索引文本就是一段 markdown 列表，段名 `Skills`，一行一个：
 
-Agent 决定用某个技能，就调 `skill_load` 把正文加载进来。触发完全由 Agent 自己的判断驱动，需要时才取，不是预先全量，也不是规则硬编码。
+```text
+- **release-flow**: 发版流程
+- **incident-triage**: 事故分诊
+```
 
-`skill_load` 支持 `offset` 参数用于分页续读：技能正文一次加载有字符上限（默认 8000），超出时在段落边界截断，并返回 `[Truncated. Call skill_load('name', offset=N) to continue.]` 提示。Agent 可以传 `offset` 继续读取剩余内容（`skill-load.ts` 第 44-63 行）。
+没有可用技能时这一段的正文是 `No skills available.`。
 
-## 技能放在哪：双域发现（M22）
+## Meta 段与 skill_load 契约
 
-M22 之前插件仅扫描 `/skills/`（别名 `/private/skills/*`），即 single-domain。M22 起支持双域发现，通过 `roots` 配置数组定义多个技能根目录：
+Meta 段由插件系统的 `meta` 提供者渲染，包在每轮那条 `<system-reminder>` 用户消息里（和 `Current Tasks` 段同一个位置）。
 
-- **global 域**：全局共享技能，通常落在系统级路径（如 `/global/skills/`），所有 Agent 可见。
-- **project 域**：项目级技能，落在项目工作区（如 `/workspace/.claude/skills/`），仅当前项目 Agent 可见。
+`skill_load` 只接受一个参数：
 
-插件扫描所有 `roots` 下的 `SKILL.md` 文件，合并索引后注入 `beforeModel`。两个域的技能按 `name` 去重：project 域的同名技能覆盖 global 域（就近优先）。
+```json
+{ "name": "release-flow" }
+```
 
-## 显式调用与模型调用控制（M22）
+返回四样东西：
 
-### /skill:name 显式调用
+| 字段 | 内容 |
+|---|---|
+| `name` | 技能名 |
+| `dir` | `SKILL.md` 所在目录 |
+| `hint` | 提示把相对路径与脚本按 `dir` 解析 |
+| `body` | 去掉 frontmatter 的正文，正文里的 `${SKILL_DIR}` 已替换成真实目录 |
 
-M22 新增 `findSkillByName` 能力，允许用户通过 `/skill:name` 语法显式触发某个技能，不依赖模型自动判断。Human 消息中的 `/skill:name` 被解析后，对应技能正文自动注入上下文，无需走 `skill_load` 工具。这解决了模型在长对话中「忘记调用技能」的问题，用户可直接点名。
+越界检查在读取前做：解析出的路径必须落在该技能根之内（realpath 比较），否则返回 `Path escape detected`；找不到该名字返回错误，不会去猜。
 
-### disableModelInvocation
+## 技能根从哪来
 
-`disableModelInvocation` 选项可将技能标记为「仅显式调用」。设为 `true` 的技能不会出现在索引中（即模型看不到它），只能通过 `/skill:name` 显式触发。适用于需要执行但不应由模型自主决策触发的技能（如敏感操作、确定性脚本）。
+`createSkill({ roots })` 的 roots 是数组，数组**顺序就是优先级**。
 
-## 关联页面
+产品路径（rpc）：Run 创建时冻结的 `skillRoots`，内容是恒有的 builtin 技能目录加上该 Agent 已分配且状态为 READY 的 pack 安装目录（见 [技能包管理](./skill-pack.md)）。
 
-- [Oma Runtime](../runtime/oma.md)
+独立 CLI（print / json / tui）：按顺序解析出候选根，只保留存在的目录——
+
+1. `.oma/settings.json` 的 `skills` 列表（给了就替代默认值，绝对路径或相对工作区解析）；
+2. 否则是 `<workspace>/.oma/skills` 与 `<agentDir>/skills`；
+3. 启用的插件贡献的 `skills` 目录；
+4. `<agentDir>/managed-skills` 固定排在最后。
+
+**工作区可写**的 Run 会在 roots 末尾补上 `<agentDir>/managed-skills`，让运行中由 `manage_skill` 铸造的技能在同一个 Run 里就能被 `skill_load` 读到（`refresh()` 重新扫描；只读 Run 保持冻结的 roots）。
+
+## 重复技能与顺序
+
+同一个技能名在多个根里出现时，**先出现的根胜出**，后面的同名项直接丢弃——也就是靠前的根（工作区的 `.oma/skills`、产品快照里的 builtin 与 pack）压过靠后的（插件、受管技能）。索引最终按名字排序输出，与扫描顺序无关。
+
+受管技能排最后就是这条规则的用法：同名的作者技能永远压住它（`learn` 铸造技能时也会拒绝对已被作者技能占用的名字）。
+
+扫描有两个约束：符号链接必须落在根内，单个根下的条目总数上限 1000。
+
+## `/skill:<name>` 与两个 frontmatter 开关
+
+TUI 会给**每一个**被索引到的技能注册一条 `/skill:<name>` slash 命令；执行时提交的是一段提示词，让模型自己去 `skill_load` 取正文：
+
+```text
+Follow the "release-flow" skill (skill_load "release-flow" first).
+```
+
+带参数时参数在前，后面附同一句指引。`/skill` 列出当前发现到的技能。
+
+两个 frontmatter 开关语义不同：
+
+| frontmatter | 效果 |
+|---|---|
+| `hide: true` | 不进 Meta 索引，但 `skill_load` 仍然能取到它 |
+| `user_invocable: false`（也接受 kebab 写法 `user-invocable`、`disableModelInvocation`、`disable-model-invocation`） | 意图是"不暴露这条 slash 命令" |
+
+## 与 skill pack 的关系
+
+技能包是分发单元，技能是这个模块的消费对象：pack 被安装并分配给某个 Agent 后，它的安装目录进 Run 的 `skillRoots`，里面的 `SKILL.md` 被这里的扫描器发现。二者之间只有"根目录"这一个接口，见 [技能包管理](./skill-pack.md)。
+
+## 不变量
+
+1. 索引里只有名字与简介；正文只在 `skill_load` 时读。
+2. roots 的顺序就是优先级，同名先到先得。
+3. `hide` 与"不可调用"是两件事，一个只管索引，一个只管 slash 命令。
+4. `skill_load` 只按名字取，路径必须落在技能根内。
+5. 受管技能永远排在最后，作者技能压过它。
+
+## 已知缺口
+
+- `user_invocable: false` 只被解析进索引项，**当前没有任何消费方**：TUI 注册 `/skill:<name>` 时不过滤它，所以标了这个开关的技能照样出现在命令表里。
+- 后端另有一份扫描器副本（`apps/backend/src/features/skill-pack/skill-index.ts`），供技能包管理界面用。那份**不认** `hide` 与 `user_invocable`，重复名的优先级也不同（两份实现的重复调用点都只传一个根，所以目前观察不到差别）。改技能格式要同时看这两处。
+- 单个根下超过 1000 个条目会直接抛错，没有降级路径。
+
+## 相关页
+
+- [Oma Tools](../runtime/oma-tools.md) — `skill_load` 与 `manage_skill` 在工具表里的位置
+- [Oma Runtime](../runtime/oma.md) — Meta 段怎么进模型上下文
+- [技能包管理](./skill-pack.md) — 技能从哪来
+- [Agent 工作区与多后端](../agents/workspace-and-backends.md) — `.oma/skills` 里的软链

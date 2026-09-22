@@ -1,70 +1,117 @@
----
-id: agents.workspace-and-backends
-title: Agent 工作区与多后端
-status: current
-owners: architecture
-last_verified_against_code: 2026-08-13
-summary: "Agent 的一切配置都是工作区文件(agent.yml/AGENTS.md/SOUL.md/USER.md/.<kind>/skills/.mcp.json/.oma/product-tools.json)，backend 用 Workspace Bridge 幂等桥接。运行时四后端可切换：oma/claude/pi/omp，各自原生 session 续接，产品只存 branch.cliSessionRef。一个对话 = 一个 Agent 的 session 产品态投影(ADR 0021)。"
-depends_on:
-  - architecture.system-overview
-used_by:
-  - runtime.oma
----
-
 # Agent 工作区与多后端
 
-本页描述 2026-08 收敛后的**现行**模型：Agent 的配置住在工作区文件里；运行时四后端可切换；对话是单 Agent 的 session 投影。决策记录见 ADR 0019（双轨真理）、ADR 0020（工作区+桥接）、ADR 0021（单 Agent 投影）。
+一句话：本页是 Agent 工作区的权威描述。Agent 的配置、技能、身份与记忆都是工作区文件（`agent.yml` / `AGENTS.md` / `SOUL.md` / `USER.md` / `.<kind>/skills` / `.mcp.json` / `.oma/product-tools.json` / `knowledge/index.md`），Product Backend 用 Workspace Bridge 幂等桥接它们；运行时四个后端可切换，各自用自己的原生 session 续接，产品只存一个不透明引用。
 
-## Agent 工作区即配置
+## 范围
 
-每个 Agent 有一个工作区目录（`<dataDir>/agents/<id>`，可配置 absolute path），seed 布局：
+覆盖：工作区目录与 seed 布局、谁写谁读 `agent.yml`、bridge 的每个职责与触发点、四后端的 spawn 与续接差异、一个对话一个 Agent 的边界、agent-config MCP 的三条提案通道。
+
+不覆盖：run 执行链与契约（见 [Agent Backend](../execution/agent-backend.md)）、skill pack 的分发（见 [技能包管理](../plugins/skill-pack.md)）、技能的索引与加载（见 [渐进式技能](../plugins/progressive-skill.md)）、Project 与 worktree（见 [Project 与 Worktree](./projects-and-worktrees.md)）、模型与 provider（见 [模型与 Provider](../runtime/models.md)）。
+
+## 实现文件
+
+- `apps/backend/src/features/agent/workspace.ts` — seed 布局与 `agentWorkspaceSlug`
+- `apps/backend/src/features/agent/agent-compose.ts` — 工作区根的物化与 `allowedWorkspaceRoots`
+- `apps/backend/src/features/agent/workspace-bridge.ts` — 全部桥接动作
+- `apps/backend/src/features/agent/agent-config.ts` — `agent.yml` 的 zod schema 与唯一 writer `serializeAgentYaml`
+- `apps/backend/src/features/agent/{service,adapter-sqlite,agent-identity}.ts` — 写文件、存 config 缓存、读写 SOUL/USER
+- `apps/backend/src/features/agent/agent-config-mcp.ts` — agent-config MCP 的三个工具
+- `apps/backend/src/bootstrap/features.ts` — run 级配置冻结与 reconcile 触发
+- `apps/oh-my-agent/src/core/settings/workspace-context.ts` — 子进程侧读工作区上下文
+- `apps/oh-my-agent/src/core/session/session-file.ts` — 子进程侧 session 目录
+
+## 工作区目录与 seed 布局
 
 ```text
-workspace/
-  agent.yml              # 描述符(创建/更新时由 backend 写出的导出形态；当前无读回，见下)
-  AGENTS.md / CLAUDE.md  # 通用行为约定(symlink)
-  SOUL.md                # Agent 身份
-  USER.md                # 用户偏好
-  manifest.json          # 桥接索引(机器生成)
-  knowledge/             # 知识库(seed,引用方式待产品化)
+<dataDir>/agents/<name-slug>[-N]/
+  agent.yml                 # 描述符（创建/更新时由 backend 写出，见下）
+  AGENTS.md / CLAUDE.md     # 两份内容相同的独立文件（不是 symlink）
+  SOUL.md                   # Agent 身份
+  USER.md                   # 用户偏好（由 identity 流程读写）
+  manifest.json             # 机器可读清单占位
+  knowledge/                # 知识库；index.md 由 bridge 重写
   .oma/skills/  .pi/skills/  .omp/skills/  .claude/skills/
-                         # skill pack 软链,按当前 kind 桥接
-  .mcp.json              # 用户 MCP server + product-tools 合并
-  .oma/product-tools.json  # 产品工具 manifest(自研 child 读)
-  memory/MEMORY.md  memory/facts/*.md   # 记忆(agent 自写)
+                            # 四个 kind 目录，预先建空；已分配的 pack 软链进来
+  .mcp.json                 # 用户 MCP server + product-tools 合并（bridge 是唯一 writer）
+  .oma/product-tools.json   # 产品工具 manifest（子进程从这里读）
+  projects/<projectId>/     # 已附加项目的 worktree（见 Project 与 Worktree）
 ```
 
-- **file-first（意图）**：agent.yml 是描述符（人可手写），manifest.json 是桥接索引（机器生成）；DB 只存 id/workspacePath/时间 + config JSON 缓存。
-- **实际读路径（2026-09-17 核实）**：今天**没有任何代码读 agent.yml** —— `serializeAgentYaml` 只在 create/update 时写文件（`features/agent/service.ts`），所有读取（`getById`/`list`/HTTP 响应/派发）都走 DB 的 `config` 列（`adapter-sqlite.parseRow`）。所以手改 agent.yml 不生效，会在下一次 PATCH 被缓存覆盖；「file-first 读回」仍是未实现的意图（ADR 0020 decision 1）。副作用是**当前的安全属性**：agent 能用 write 工具改自己工作区里的 agent.yml（沙箱内允许），但它不会生效——若将来真做 file-first 读回，这条就变成自提权路径（改自己的模型/permission/mcp），必须同时加校验与桥接守卫。
-- **Workspace Bridge**（`apps/backend/src/features/agent/workspace-bridge.ts`）：幂等 reconcile，skill 软链按 kind 建、.mcp.json 单一 writer、product-tools manifest 写入；触发点 = agent create/update、skill pack 安装/分配、mcp server 增删改。
-- 人类可以直接编辑工作区文件；Web 的 Workspace tab 只读浏览（两条只读路由，resolve+realpath 防穿越）。
+目录名取 Agent 名字的 slug（同名加 `-2`、`-3` 后缀），显式 id seed 时才用 id 当目录名。`workspacePath` 可以被覆盖，但必须落在允许根内（`<config.workspaceRoot>` 与 `<dataDir>/agents`）：越界直接拒绝，这条检查在创建与更新两条路径上都跑。
 
-## 四后端，统一 spawn 模式
+`SOUL.md` / `USER.md` 平文进系统提示，`AGENTS.md` 链（含用户级 `~/.oma/AGENTS.md`）包在 `<repo-rules>` 里，`knowledge/index.md` 包在 `<available_knowledge>` 里，cwd 下一层未加载的 `AGENTS.md` 只做指针。子进程只认 `AGENTS.md`，不认 `CLAUDE.md` 与 `GEMINI.md`；`CLAUDE.md` 存在是因为 claude CLI 读它。
 
-| kind | 实现 | 原生配置读取 | session 续接 | 特有 flag |
-|---|---|---|---|---|
-| `oma` | apps/oh-my-agent(rpc JSONL) | cwd meta(AGENTS/SOUL/USER + .oma/skills) | 自维护 `~/.oma/sessions/<id>.jsonl`（parentId 链，同 pi/omp 格式） | live steer/abort |
-| `claude_code` | claude CLI | cwd 项目配置 + `--mcp-config` | `--resume <sessionId>` | `--effort` / `--permission-mode` |
-| `pi` | pi CLI | cwd 项目配置 + pi-mcp-adapter | `--session <id>` | `--provider/--model` |
-| `omp` | omp CLI | cwd `mcp.json` | `-r <id>` | `--thinking` |
+## 谁写谁读 agent.yml
 
-- 每个 Run 由对应 adapter spawn 一次性子进程；oma 用 stdin/stdout JSONL，CLI 用 argv+stdin。
-- **session 不按 kind 建目录、不共享**：产品只存一个不透明引用（`branch.cliSessionRef`，run 输入透传 + outcome 回写）；切 kind = 新 session。
-- **run 输入已瘦身**（ADR 0020 决策 6 修订）：删 history/productTools；保留 systemPrompt/skillRoots 作 run 级覆盖通道（Loop 作用域）。首轮上下文 = flat-text 桥（无 session ref 时由 backend 把投影拍平拼进 message）。
+- 写：`serializeAgentYaml` 是唯一的 writer，只在 create 与 update 时落盘。
+- 读：读路径只有 DB 的 `config` 列。HTTP 响应、派发、list、getById 全部读缓存列，**没有任何代码读回 `agent.yml`**。
+- 后果：手改 `agent.yml` 不生效，会在下一次 update 被缓存覆盖；Agent 用自己的 write 工具改它同样无效。
 
-## 一个对话一个 Agent（ADR 0021）
+## Workspace Bridge
 
-- conversation 是 oma 的 session 在 backend 上的**产品态投影**：形状对齐（一条 agent 线），**不是来源**——禁止从 session 重建 conversation（undo/pin/human 消息只在产品侧）。
-- 一个 conversation = 一个 agent member；human 消息是外部事件。
-- 多 Agent 协作 = 多个 conversation 投影到同一事情（work 级挂载，`thingRef` 待落地）。
-- kind 切换：同一 conversation 内 fork 新 branch 标记断点（ADR 0019 决策 2），session 换新、上下文靠首轮文本桥。
+`workspace-bridge.ts` 的每个函数都是幂等 reconcile，可以反复跑：
 
-## 关键代码路径
+| 动作 | 效果 |
+|---|---|
+| `reconcileSkillLinks` | 在 `<KIND_DIR[kind]>/skills/` 下为每个 READY pack 建软链（`claude_code → .claude`），删掉不再分配的链接；某个 slot 上是用户自己的真实目录时不覆盖 |
+| `writeMcpConfig` | 写工作区根 `.mcp.json`（`$schema` + `mcpServers`），空列表等于删除该文件。per-kind 的 bearer 写法都写进去（pi 的 `bearerTokenEnv`、omp 的 `bearer_token_env_var`、claude 用 `${VAR}` 展开的 header），**值只写变量名，token 经 spawn env 进来** |
+| `writeProductToolsManifest` | 写 `.oma/product-tools.json`，空 manifest 等于删除文件 |
+| `reconcileKnowledgeResources` | 为每个知识包建 `knowledge/<packId>` 软链，并重写 `knowledge/index.md` |
+| `writeClaudeSettings` | 写 `.claude/settings.json`，预放行产品工具的读接口（claude 在 root 下不能用 `bypassPermissions`，只能这么绕） |
+| `reconcileAgentResources` | 上面几项的组合，外加 `extraRoots`（项目 worktree）只桥 `.mcp.json` 与 product-tools |
+| `bridgeWorktreeRoot` | 任务 worktree 专用：只写 `.mcp.json` 与 product-tools manifest |
 
-- **agent 造 agent**：唯一面是 agent-config MCP 的 `agent_create`（默认启用，oma 侧挂载为 `mcp__agent-config__agent_create`）。它调 `agentSvc.create()`，因此 materialize 工作区 / 写 agent.yml / 插 DB 行 / `onCreate`（builtin pack + reconcile）与 `POST /api/agents` 完全同源；参数只收 name + model（+ backendKind/reasoningEffort/permissionMode），不含 workspacePath/mcpServers/knowledgePacks/id。**不要试图用文件写创建**：目标目录在 workspace 之外（沙箱拒绝），且只有目录没有 DB 行的"幽灵 agent"对 `list()`/`getById()` 不存在。防跑飞：每进程 5 次 / 10 分钟（`createCreateBudget`），权限走 `mcp__*` 既有闸门（ask 出卡 / auto 走分类器）。
-- **创建页（`/team/new/edit`）走提案制**：页面的 chat 绑在保留 id `AGENT_DRAFT_ID`（`packages/api-contract`）上——`agent_write { agentId: "new", config }` 不建行、只把草案推给 `/api/agents/new/events`，表单采纳为未保存的 create，用户点 Create 才真正落库（`agentSvc.create`）。所以"页面上"用 agent_write、"不在页面上"才用 agent_create。
-- `apps/backend/src/features/agent/workspace.ts`（seed 布局）· `workspace-bridge.ts`(reconcile)· `agent-config.ts`（agent.yml zod+序列化）· `agent-config-mcp.ts`（agent_read/agent_write 提案 + agent_create）
-- `apps/backend/src/features/agent-run/execution.ts`（buildRunInput：flat-text 桥 + cliSessionRef 透传 + outcome 回写）
-- `packages/agent-contract/src/kinds.ts`(BACKEND_KINDS)· 四个 adapter 包
-- `apps/oh-my-agent/src/core/settings/workspace-context.ts`（cwd meta 读取）· `session-file.ts`（session 持久化）· `features/product-tools/manifest.ts`(backend manifest) · 子进程从 cwd 的 `.oma/product-tools.json` 读取
-- Web：AgentForm（kind 条件字段：claude 无 provider、pi 无 effort、pi/omp 无 permission）+ agent 详情 Workspace tab
+触发点：agent 创建与更新（`reconcileAgent`）、skill pack 安装/分配变化、MCP server 增删改、以及每次 spawn 前由执行服务调 `rewriteWorkspaceBridge` 重写 `.mcp.json` 与 product-tools manifest——所以 bridge 是这两个文件的唯一作者。
+
+## 四个后端怎么续接
+
+每个 Run 一个一次性子进程，kind 决定用什么参数、怎么续上下文（参数细节见 [Agent Backend](../execution/agent-backend.md)）：
+
+| kind | 原生配置读取 | session 续接 |
+|---|---|---|
+| `oma` | cwd 的 `AGENTS.md` / `SOUL.md` / `USER.md` 与 `.oma/skills` | 自己的 session 文件，引用经 `cliSessionRef` 传入传出 |
+| `claude_code` | cwd 项目配置，MCP 经 `--mcp-config` | `--resume <sessionId>` |
+| `pi` | cwd 项目配置，MCP 经 `pi-mcp-adapter` 扩展 | `--session <ref>` |
+| `omp` | cwd 的 `.mcp.json` | `-r <ref>` |
+
+- session 不按 kind 分目录、不共享。产品只存一个不透明引用（context branch 上的 `cli_session_ref`），输入时透传、outcome 回写；切 kind 等于换一个新 session。
+- 分支还没有 session 引用时，首轮上下文由产品侧拍成 flat text 塞进输入消息（见 [Agent Backend](../execution/agent-backend.md)）。
+- 只有 READY 状态的 pack 与恒有的 builtin 技能目录会进 Run 的 `skillRoots`，在 Run 创建时冻结。
+
+## 一个对话一个 Agent
+
+- 一个 conversation 对应一个 Agent，human 消息是外部事件（[ADR 0021](../../adr/0021-one-conversation-one-agent-member.md)）。
+- 同一个 Agent 同时只能有一个活 Run；多个 conversation 各自一条执行线。
+- 换 kind：在同一条分支上 fork 出新的，session 换新，上下文靠首轮文本桥接。
+
+## Agent 造 Agent 的两条路
+
+agent-config MCP server 绑在 loopback 上，只暴露三个工具：
+
+- `agent_read { agentId }` — 读某个 Agent 的配置对象。
+- `agent_create { name, model, backendKind?, reasoningEffort?, permissionMode? }` — 真创建，走 agent service（与 `POST /api/agents` 同一条路：物化工作区、写 `agent.yml`、插行、跑 onCreate）。参数刻意比 HTTP 少：不收 `id`，也不收 `workspacePath` / `mcpServers` / `knowledgePacks`（这些都要模型验证不了的 id）。防跑飞用进程内预算：10 分钟 5 次。
+- `agent_write { agentId, config }` — **不写任何文件**，只把草案推给编辑页的 SSE 通道，表单采纳成未保存的编辑，用户点 Save 才提交。`agentId` 传保留值 `new`（`AGENT_DRAFT_ID`）时推给创建页的表单，用户点 Create 才落库。
+
+不要试图用文件写来创建 Agent：目标目录在沙箱之外，而且只有目录没有 DB 行的"幽灵 Agent"对 list/getById 不存在。`agent_write` 对不存在的 agentId 直接报错，避免模型转述一个假成功。
+
+## 不变量
+
+1. Agent 的配置事实在 DB 的 `config` 列，工作区文件是它的导出与消费面。
+2. `agent.yml` 只写不读；任何"改文件即改配置"的假设都不成立。
+3. bridge 是工作区 `.mcp.json` 与 `.oma/product-tools.json` 的唯一作者，且可以任意次重跑。
+4. 凭证只经 spawn env 进子进程；写进工作区文件的永远只有变量名。
+5. 工作区路径必须在允许根内，创建与更新走同一条检查。
+6. 一个 conversation 一个 Agent，一个 Agent 一个活 Run。
+
+## 已知缺口
+
+- `agent.yml` 的"文件为准"读回没有实现，今天这同时是一层保护：Agent 用自己的 write 工具改它不会生效。一旦真做读回，那条路径就变成自提权（改自己的模型、权限、MCP），必须同时加校验与桥接守卫。
+- 已分配但状态不是 READY 的 pack 不建软链也不进 `skillRoots`，页面上看不出这个差别。
+- `knowledge/index.md` 是 bridge 生成物，手改会被下一次 reconcile 覆盖。
+
+## 相关页
+
+- [Agent Backend](../execution/agent-backend.md) — 契约与四个 adapter
+- [Agent Context](./context.md) — 单个 Agent 的语义历史
+- [技能包管理](../plugins/skill-pack.md) — pack 怎么装、怎么分配
+- [Project 与 Worktree](./projects-and-worktrees.md) — `projects/<id>` 从哪来

@@ -1,140 +1,107 @@
----
-id: backend.overview
-title: Product Backend 总览
-status: current
-owners: backend-runtime
-summary: "Product Backend 是产品事实与执行控制面的拥有者：Conversation History、Agent Context、Agent Run、输入队列、Workflow、Artifact 与 Product Tools MCP。每个 Run 由四后端之一（oma/claude/pi/omp）spawn 一次性子进程执行，terminal outcome 原子提交。"
-depends_on:
-  - architecture.system-overview
-used_by:
-  - backend.data-model
-  - architecture.workflow
-  - execution.agent-backend
-  - agents.context
----
-
 # Product Backend 总览
 
-Product Backend 是系统的产品核心。它拥有 Conversation、共享消息、Agent Context 分支、Agent Run、Workflow、Artifact 和面向端的 HTTP/SSE API。执行只有一条链：**Agent Run → Agent Backend → 一次性子进程**；自动化由 Workflow 节点图驱动，agent 节点复用的仍是这条链。
+Product Backend 拥有全部产品事实和执行控制面。执行链只有一条：Agent Run → Agent Backend → 一次性子进程。
 
-## Product Backend 拥有什么
+## 范围
 
-| 领域 | Product Backend 的职责 |
-|---|---|
-| Agent | 身份、角色、默认 Model、workspace、权限与产品配置（agent.yml 为真源） |
-| Conversation | 触发规则、Conversation History、可见性（1:1 单 Agent，ADR 0021） |
-| Agent Context | 每个 Agent 实际消费/产生的语义上下文、branch 与 summary |
-| Agent Run | branch 级单 active run、终态提交、normal/steer/follow-up 队列 |
-| Workflow | DSL 定义（*.workflow.json）、execution/node_run/pending_human、trigger 调度、SSE live/replay |
-| Artifact | 带类型产物（fs 存储 + 元数据 + MCP 工具 + REST + 依赖校验） |
-| Product Tools | History/todo 等产品能力经 MCP server 暴露；per-run token、幂等、审计 |
-| Live Updates | Run 的实时文本、thinking、tool 和状态更新（可丢） |
-| Workspace Bridge | 把 skill/mcp/product-tools 幂等桥接进工作区文件 |
+覆盖：所有权划分、取 Run 的那一个事务、输入模式路由、终态提交、失败原则、每个 Run 的产品工具 token、工作区解析、上限与串行化、实时更新的边界。
 
-Product Backend 不拥有子进程内部的模型循环、原生 tools、compaction、retry、插件加载或 todo —— 那些属于 Oma。
+不覆盖：逐表 schema（见 [数据模型](./data-model.md)）、账本细节（见 [Conversation History](../conversation/history.md)）、Context 投影（见 [Agent Context](../agents/context.md)）、Run 的事件清单（见 [Run 输出与实时更新](../runs/output-and-live-updates.md)）。
 
-## 核心关系
+## 实现文件
 
-```mermaid
-flowchart LR
-  Conversation --> History[(Conversation History)]
-  Conversation --> Context[(Agent Context)]
-  Workflow[Workflow] --> Run[Agent Run]
-  Conversation --> Run
-  Context --> Run
-  Run --> Backend[Agent Backend]
-  Tools[Product Tools MCP] --> Run
-  Workflow --> Artifact[(Artifacts)]
-  Backend --> Updates[Live Updates]
-  Backend --> Message[Final Message]
-  Message --> History
-  Message --> Context
-```
+- `apps/backend/src/bootstrap/features.ts` — 组装点：backend 注册表、execution 依赖、`start()`
+- `apps/backend/src/features/agent-run/service.ts` — 对产品的 Run 服务：取 Run、待响应事件透传
+- `apps/backend/src/features/agent-run/{execution,execution-service,execution-dispatch,execution-live,execution-input}.ts` — 派单、实时扇出、输入组装
+- `apps/backend/src/features/agent-run/adapter-sqlite*.ts` — 持久侧，事务都在这里
+- `apps/backend/src/features/conversation/{service,http}.ts` — 历史与触发
+- `apps/backend/src/features/{agent-context,workflow,artifact,product-tools}/` — 各能力域
 
-### Conversation History
+## 拥有什么
 
-共享会话事实。它保存人类与 Agent 的最终可见 Message、成员事件和产品控制条目。端从 History 重放，不依赖子进程的私有 transcript。
+产品事实：对话与账本、Agent Context、Project、技能包与知识库、设置。
 
-### Agent Context
+执行控制面：Agent Run 与输入队列、产品工具调用账、Run 遥测。
 
-一个 conversation 对应一份 Agent Context（1:1 后 tree 单键）。内部用 parent-linked entries 支持 branch/fork/rollback；公开语义是这个 Agent 实际消费和保留了什么。
+子进程拥有的：它自己的 transcript、工具循环、重试、compaction、todo、技能加载。产品只依赖 `AgentBackend` 协议，不依赖这些内部机制。
 
-### Agent Runs
+后端种类的注册表是 `oma` / `claude_code` / `pi` / `omp`。注册表是部分的，未知种类在预检阶段就返回 422，不会走到 spawn。
 
-Agent Run 是执行控制面的领域对象：固定 Context Branch、model/config snapshot（systemPrompt/skillRoots/permissionMode 冻结）、唯一终态。Product Backend 保证同一 Context Branch 最多一个 active Run，并持久化 normal、steer、follow-up 输入到 `branch_input_queue`。
+## 取 Run 是一个事务
 
-### Agent Backend
+`enqueueAndAcquire` 是唯一的 Run 创建入口，整段在一个事务里：
 
-Agent Run 通过 `backendKind`（oma / claude / pi / omp）选择执行引擎。Adapter spawn 一次性 child 进程执行；`runId` 是唯一执行身份。无 daemon、无 session、无 resume（CLI 后端靠自身原生 session 续接，ADR 0019）。
+1. 插队列行；
+2. 按 `input_key` 检查是否重放；
+3. 活跃 Run 守卫（同一分支只允许一个）；
+4. 无活跃 Run 的 steer 直接取消；
+5. 校验分支、对话、种类的作用域；
+6. **分支 revision CAS**；
+7. 读 `ledger_cursor` 之后、未 undone 的账本；
+8. 过滤可见性（`kind = 'message'` 且 `visibility != 'internal'`）；
+9. 取**最后 20 条**，按顺序追加 Context 引用；
+10. 推进 `ledgerCursor` 与 `leafEntryId`；
+11. 从叶子往根找最后的 `model_change`，定出本次生效的模型；
+12. 插 `agent_run` 行，输入转 `delivering` 并绑上 runId。
 
-### Workflow 与 Artifact
+第 9 步的「最后 20 条」是硬编码，不是可配置的预算。
 
-Workflow 是编排层身份（execution/node_run/pending_human），不是执行身份；agent 节点创建普通 Agent Run，script 节点走进程沙箱，human 节点挂起于 Web 表单。Artifact 把「一次运行产出了什么」提为一等数据。详见 [Agentic Workflow](../workflow.md)。
+## 输入模式
 
-### Product Tools
+`steer` 只对 oma 有意义，CLI 类后端没有中途注入，所以显式 steer 到非 oma 会改写成 `normal`。
 
-Product Tools 由 Product Backend 的 MCP server 统一执行并拥有权限、身份、幂等和审计（`product_tool_call` 表）。workspace bridge 写零密文 `.mcp.json`（env 名 + `${VAR}` 占位符），dispatch 时铸 per-run token、settle 时 revoke。MCP 是接入方式，不是 Product Tool 的领域身份。
+自动模式按当前状态选：有活着的子进程 → `steer`；正在派单 → `follow_up`；数据库里显示活跃但两者都不在（僵尸）→ 先 abort 掉再按 `normal` 处理。
 
-## Message 如何进入 History 和 Context
+steer 从不重放：没有活跃 Run 时它会被取消，注入时拿不到活句柄也会取消。
 
-### 人类消息
+`follow_up` 在当前 Run 结束后被晋升成一个**全新 Run**，用的是它自己那份配置快照。
 
-人类消息先写 Conversation History。只有 Agent 实际被触发时，Backend 才按 `ledgerCursor + visibility + context budget` 将该 Agent 真正消费的 Message refs 追加到 Agent Context。
+## 终态提交
 
-获取 branch run ownership、同步 Ledger refs、推进 `ledgerCursor` 和创建 Agent Run 必须在同一事务中完成。若 branch 已有 active run，输入写入持久 `branch_input_queue`，不能先修改 Tree 再等待锁。
+完成的 Run 在一个事务里提交：规范化消息序列 → 按 `(agent_run_id, message_index)` 逐条插账本（冲突即忽略，再回读 seq）→ 按 `(tree_id, ledger_seq)` 去重后追加 Context 引用 → 一次分支 CAS → 一次 Run 状态 CAS。
 
-### Agent 输出
-
-Live Updates 只用于实时展示。子进程返回 terminal `BackendRunOutcome` 后，Product Backend 在一个数据库事务中：
-
-```text
-写最终 assistant Message 到 Conversation History（agent_run_id 唯一提交标记）
-→ 追加 Agent Context Message ref
-→ 更新 Context Branch
-→ 标记 Agent Run terminal
-```
-
-如果事务失败，Agent Run 进入 commit_failed，不能把 Run 标记为完成。
-
-## Agent Run 并发与输入队列
-
-Product Backend 不允许同一 branch 并行 Agent Run。新输入根据语义进入：
-
-- normal：branch 空闲时开始；
-- steer：希望尽快影响当前 Run（Adapter 立即转发给 live child；CLI 后端排队为下一 turn 输入）；
-- follow-up：当前 Agent Run 结束后处理。
-
-三类输入都先进入持久队列；Adapter 明确接受后才标记 delivered。Product Backend crash 后按 branch 内原顺序恢复（`listIdleBranchesWithPendingInputs` 在启动时恢复）。
+提交失败走 `failCommit`：Run 变 `commit_failed`，分支继续被占用。
 
 ## 失败原则
 
-| 失败 | Product Backend 行为 |
-|---|---|
-| child 启动失败 / crash / malformed output | 该 Agent Run failed，保留 raw 诊断，不提交 final Message |
-| preflight / projection / spawn / acceptance 失败 | 该 Agent Run failed，input cancelled，branch 释放（不重投、不产生 zombie） |
-| terminal commit 事务失败 | Run 进入 commit_failed；幂等重试，成功前不释放 branch |
-| Live Updates 推送失败 | 不影响事实；客户端从 Conversation History 恢复 |
-| Product Tool 失败 | 返回标准化 tool result；按语义决定是否写 Agent Context |
-| workflow 节点失败 | 逐节点记录；execution 以 failure 终态（agent 节点先 schema retry） |
+- 接收前的失败（模型预检、投影、工作区、spawn、适配器接收）→ Run failed，输入取消。
+- 子进程在给结果前崩掉 → 用进程退出码加 stderr 尾部合成 failed 结果。
+- stdout 协议损坏 → `failProtocol`，Run failed。
+- 实时推送失败**不影响 Run**：订阅者出错与流关闭都被吞掉。
+- 失败的 Run 也会落一条用户可见的错误消息（`run:<runId>:error`）。
+
+## 每个 Run 的产品工具 token
+
+spawn 之前铸造，只经 spawn env 送达子进程（wire 载荷里会被剥掉），任何终态路径上都吊销。产品工具清单在 `execute` 之前就持久化好——MCP 侧要靠它校验，而且是一次写入。
+
+## 工作区
+
+Run 自己 pin 的工作区优先，否则由 `resolveWorkspace` 决定（见 [Project 与 Worktree](../agents/projects-and-worktrees.md)）。同一个 worktree 上的 Run 经 workspace lock 串行。spawn 之前会用数据库真相源重写一遍桥接文件。
+
+## 上限与串行化
+
+- 每次 Run 有墙钟上限，默认 30 分钟，到点让 backend `stop()`，Run 落 aborted。
+- 适配器自己还有一个 spawn 槽位的 FIFO 上限（`maxConcurrent`）。
+- 同一个 worktree 的 Run 串行。
+
+## 实时更新
+
+只有 transient 扇出：广播给进程内订阅者，并按白名单尽力落遥测。SSE 端点是 `GET /api/agent-runs/:runId/events`，事件名就是 `ev.type` 原文。晚订阅的语义见 [Run 输出与实时更新](../runs/output-and-live-updates.md)。
 
 ## 不变量
 
-1. Product Backend 是产品事实 owner。
-2. Agent Backend 不拥有 Conversation History 或 Agent Context。
-3. Agent Run 是唯一 Product execution identity（无 span/attempt/session）。
-4. 同一 Context Branch 最多一个 active Agent Run。
-5. Terminal outcome 决定 Agent Run 终态。
-6. History Message 与 Context ref 必须原子提交。
-7. 每个 Run 是 full Product Context projection，无跨 Run session/resume。
-8. child 私有能力不能污染核心产品协议。
-9. Workflow 是编排身份，不承载对话事实；Artifact 引用在节点边界校验存在性。
+1. Run 是唯一的执行身份；每个 Run 对应一个一次性子进程。
+2. 同一分支同时只有一个活跃 Run，应用层与数据库索引双重强制。
+3. 人类消息先落账本，再创建 Run；两者不在同一个事务里。
+4. 终态提交四件事同事务，提交身份是 `(agent_run_id, message_index)`。
+5. 产品工具 token 每次 Run 独立，只经 env 送达，终态必吊销。
+6. 流式输出永远不进产品事实。
 
-## 关联页面
+## 已知缺口
 
-- [系统总览](../system-overview.md)
-- [Agentic Workflow](../workflow.md)
-- [Agent Context](../agents/context.md)
-- [Agent Backend](../execution/agent-backend.md)
-- [Conversation History](../conversation/history.md)
-- [事实与投影](../foundations/facts-and-projections.md)
-- [数据模型](./data-model.md)
+- `AgentRunExecutionService.recover()` **没有生产调用方**：启动时只跑了 workflow 的 `recover()`。进程重启后，`delivering` 的输入与活跃 Run 会一直躺着，直到该对话来了新消息才触发 `abortStaleRun`。
+- 同样因为没有调用方，`retryTerminalCommit` 在线上不可达；而 `commit_failed` 又算活跃状态，于是提交失败会把那个分支**永久占住**。
+- `agent_run.status` 里的 `waiting` 没有生产写入方（`pending_action` 无人写）。
+- Context 的 `summary` 条目没有生产者，投影里的 summary 分支在生产路径上不可达。
+
+详细清单见 [`../../roadmap.md`](../../roadmap.md)。

@@ -68,5 +68,5 @@ MCP tool 名加 server 前缀：`mcp__{serverName}__{toolName}`。彻底防冲�
 ## 关联
 
 - [ADR 0005](./0005-mcp-deferred-for-loop.md) - 延迟的 MCP Server 方向（本 ADR 是 Client 方向，两者独立）
-- [CONTEXT.md](../../CONTEXT.md) - MCP Server / MCP Client / MCP Tool 术语定义
+- [架构区核心概念表](../architecture/README.md#核心概念) — MCP Server / Client / Tool 的术语定义
 - 配套 spec：`docs/superpowers/specs/2026-07-08-mcp-client-design.md`
