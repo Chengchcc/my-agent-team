@@ -4,7 +4,8 @@ Translation dictionaries for the UI (`lib/i18n.ts` is the seam). This
 directory is the ONLY place in apps/web/src that may contain non-English
 text — `audit:ui` exempts it from the CJK gate.
 
-Shape (register at app bootstrap):
+Shape (register only when a real locale lands — nothing registers one
+today; `registerLocale` is called from tests only):
 
 ```ts
 // lib/locales/zh.ts

@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted
+Obsolete（Loop 整体删除，2026-08-28；loop_item/loop_budget 表见迁移 0043）
 
 ## 上下文
 
@@ -42,5 +42,5 @@ prune 作为 reducer action 还是后处理：
 
 ## 关联
 
-- [Loop Engineering](../architecture/foundations/loop-engineering.md)
+- Loop Engineering（原链已随文档重构删除）
 - [设计哲学](../architecture/design-philosophy.md) — 机制（清理）不能上浮成业务心智（状态转移）

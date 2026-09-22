@@ -2,7 +2,7 @@
 
 ## 状态
 
-Proposed
+Accepted（实现形状与本文不同：没有 per-agent 表与 sessionManager 注入，catalog 是文件，见 ADR 0022）
 
 ## 上下文
 

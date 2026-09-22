@@ -27,8 +27,8 @@ my-agent-team 是一个**团队级 Agent 运行时**。每个 Agent 有独立的
 - **Thinking/Reasoning** — 全链路支持 Anthropic extended thinking、DeepSeek reasoning_content、OpenAI reasoning_effort；Web UI 可选 thinking level
 - **终端 TUI（oma）** — 独立交互式终端：流式渲染、工具调用/结果、thinking 与 tool detail 切换、mermaid ASCII 图、`/resume` 与 `/fork`、模型选择持久化到项目 `.oma/settings.json`，composer loader 实时摘要当前动作
 - **双端同步** — Web 控制台 + 飞书（Lark IM）Bot，同一条对话两边实时可见
-- **对话账本** — canonical conversation store（conversation_ledger），所有消息经单一入口写入，端只做渲染
-- **Agent Run 执行链** — 每个 Run 由 Agent Backend spawn 一次性子进程（stdin/stdout JSONL RPC），BackendRunOutcome 是唯一终态，terminal commit 原子写入 History + Context
+- **对话账本** — canonical conversation store（conversation_ledger）：人发的消息、Agent 的终态提交、错误气泡、撤销标记都落在这里，端只做渲染，不持有事实
+- **Agent Run 执行链** — 每个 Run 由 Agent Backend spawn 一次性子进程（oma 走 stdin/stdout JSONL，claude / pi / omp 各用自己的 argv 与输出格式），`BackendRunOutcome` 是唯一终态，terminal commit 在一个事务里写入 History + Context
 - **Agentic Workflow** — 声明式节点图（agent/script/human + 条件边 + cron 触发）：agent 节点派发 Agent Run、script 节点进程沙箱执行、human 节点 Web 表单；产物经 Artifact 在节点间流转，Web 可视化编排与调试
 - **Product Tools** — History 读写等产品能力由 Product Backend 统一执行（幂等 + 审计）
 - **SQLite 单文件存储** — backend.db，零运维部署
@@ -59,7 +59,7 @@ my-agent-team 是一个**团队级 Agent 运行时**。每个 Agent 有独立的
 curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
 ```
 
-`OMA_VERSION=rc` 走 npm 的 `rc` 通道，因为 `oma gateway` 这套命令目前只在预发布版里（`0.2.0-rc.1`）；等 `0.2.0` 正式版发到 `latest` 之后，把那截去掉即可。想直接装包也行：
+`OMA_VERSION=rc` 走 npm 的 `rc` 通道，因为带 `oma gateway` 这套命令的版本目前还没有发到 `latest`；等正式版上了 `latest`，把那截去掉即可。想直接装包也行：
 
 ```bash
 bun add -g @chengchenccc/oh-my-agent@rc
@@ -197,8 +197,8 @@ providers:
 
 详细架构见 [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)（执行链、分层、不变量）。
 
-> **Oma 启动方式**：`oma gateway up` 会把 `OMA_BIN` 指向自己的可执行文件，Backend 每个 Run 用它 spawn `oma --mode rpc`，不用手工配。源码开发时 `bun run dev` 直接跑 `apps/oh-my-agent/src/cli.ts`。只有手工部署（不用 `oma gateway up`）才需要自己把 `OMA_BIN` 指到 `apps/oh-my-agent/dist/cli.js` 绝对路径（详见 `apps/backend/.env.example`）。
-> **npm 包**：`@chengchenccc/oh-my-agent` —— [npmjs](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)。`latest` 停在 0.1.x，带 `gateway` 命令的预发布在 `rc` 通道：`bun add -g @chengchenccc/oh-my-agent@rc`。
+> **子进程从哪来**：每个 Run 按 agent 绑定的后端种类选 adapter（oma / claude / pi / omp），各自 spawn 一次。`oma gateway up` 会把 `OMA_BIN` 指到自己的可执行文件，不用手工配；源码开发时 `bun run dev` 直接跑 `apps/oh-my-agent/src/cli.ts`。只有手工部署（不用 `oma gateway up`）才需要自己把 `OMA_BIN` 指到 `apps/oh-my-agent/dist/cli.js` 的绝对路径（详见 `apps/backend/.env.example`）。
+> **npm 包**：`@chengchenccc/oh-my-agent` —— [npmjs](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)。`latest` 停在 0.1.x，带 `gateway` 命令的版本在 `rc` 通道：`bun add -g @chengchenccc/oh-my-agent@rc`。
 
 ## 🔐 安全模型（单操作员）
 
@@ -244,7 +244,7 @@ packages/
 
 | 文档 | 说明 |
 |---|---|
-| [项目 Wiki](docs/README.md) | 现状、决策、指南、路线四个区；首页有「按任务找页」的路由表 |
+| [项目 Wiki](docs/README.md) | 现状（`architecture/`）、决策（`adr/`）、指南（`guides/`）、路线（`roadmap.md`）四个区；首页有「按任务找页」的路由表 |
 
 ## 🛠 开发
 ```bash

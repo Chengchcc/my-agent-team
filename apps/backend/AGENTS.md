@@ -58,12 +58,14 @@ Composition happens in `src/bootstrap/` (`features.ts`, `services.ts`) and
 
 - `BackendRunOutcome` is the **only** terminal authority for an agent run.
   Never invent a run status in the service layer.
-- Runs are dispatched through `features/agent-run/execution.ts`; the
-  backend spawns a child adapter process per run and persists canonical
-  messages to the conversation ledger.
+- Runs are dispatched through `features/agent-run/execution-dispatch.ts`;
+  the backend spawns a child adapter process per run and persists canonical
+  messages to the conversation ledger. `execution.ts` only assembles the
+  service and wires the late subscriber.
 - Workflow executions start via `workflowRef` file references, not inline
-  definitions. The `end` node status decides terminal state: only
-  `success` maps to success; anything else is `custom`.
+  definitions. The `end` node status decides terminal state
+  (`features/workflow/service.ts` `exitStatus()`): `failure` → `failure`,
+  `success` → `success`, everything else → `custom`.
 - Workflow script nodes receive the **bare input record** as `ctx` (sandbox
   contract), not a legacy `ScriptContext` envelope.
 - DB migrations are hand-written SQL + journal entries. If you write a
@@ -76,7 +78,7 @@ Composition happens in `src/bootstrap/` (`features.ts`, `services.ts`) and
 
 - **Web depends on built dist types.** After changing backend route/handler
   return types, run `backend typecheck → backend build → web typecheck`.
-  Web imports `@my-agent-team/backend/app` and sees `dist` types.
+  Web imports `@chengchenccc/backend/app` and sees `dist` types.
 - **Migration breakpoints:** verify with `sqlite3 count` / `PRAGMA
   table_info` after migrating; journal presence alone does not prove all
   statements ran.
@@ -95,8 +97,6 @@ Cross-file entry points to read before touching a feature:
 - [docs/architecture/backend/data-model.md](../../docs/architecture/backend/data-model.md)
 - [docs/architecture/workflow.md](../../docs/architecture/workflow.md)
 - [docs/architecture/e2e-contract-rules.md](../../docs/architecture/e2e-contract-rules.md)
-
-## Review checklist
 
 ## Review checklist
 

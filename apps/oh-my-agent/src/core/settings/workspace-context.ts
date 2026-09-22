@@ -9,10 +9,10 @@ import { agentDir } from "../session/session-file.js";
  *  values (Loop scopes still pass their own LOOP.md config).
  *
  *  Context-file discovery absorbs oh-my-pi's context-files.md semantics,
- *  ponytail cut: AGENTS.md only (no multi-provider discovery), no @
- *  imports (the agent has read tools), and no RULES.md stickiness (the
- *  prompt lands in the SYSTEM role, which is sticky by construction —
- *  omp needs re-attachment because it injects into the opening message). */
+ *  ponytail cut: AGENTS.md only (no multi-provider discovery), no @ imports
+ *  (the agent has read tools), and no sticky-rule file (the prompt lands in
+ *  the SYSTEM role, which is sticky by construction — omp needs a separate
+ *  RULES.md because it injects into the opening message instead). */
 
 function readTextOrNull(path: string): string | null {
   try {

@@ -13,15 +13,11 @@ user_invocable: true
 ## Purpose
 
 Two jobs: **generate** a legal DSL, and **validate** a DSL's legality. A legal
-DSL is one that passes `parseWorkflow` (packages/workflow) — and the
-`reference/validate.js` script in this skill implements the same rules
-standalone; run it to check any file:
-
-```bash
-bun <skill-dir>/reference/validate.js path/to/x.workflow.json
-```
-
-Exit 0 + `VALID <id>` = legal; exit 1 = one violation per line.
+DSL is one `parseWorkflow` (packages/workflow) accepts. This skill keeps no
+second copy of the rules: in the product, writing a definition through the
+workflow MCP `workflow_write` **is** the check (it calls `parseWorkflow`). In
+standalone oma there is no such tool, so check the file against the checklist
+below by hand.
 
 ## The definition file (product backend runs)
 
@@ -77,6 +73,11 @@ and `input`/`output` hints — both are arrays of `{ "key": …, "type": … }` 
 type one of `string | number | boolean | artifact` (same shape as the
 workflow-level `input`).
 
+The engine reads only these schema keys — `type/properties/required/
+additionalProperties/items/enum/minimum/maximum/minLength/maxLength/minItems/
+maxItems` (`packages/workflow/src/schema.ts`). `parseWorkflow` does not police
+the key list; an unknown key is kept and simply never checked.
+
 **artifact type**: a field whose value is an `artifacts://<folder>/<file>`
 URL. Input artifact fields are checked to exist before the node runs; output
 artifact fields must exist after it runs (the node must upload them via the
@@ -90,22 +91,33 @@ artifact fields must exist after it runs (the node must upload them via the
   exclusive unless parallel is intended.
 - `nextNode` override must target a node an existing edge already reaches.
 
-## Validate — legality checklist (mirror parseWorkflow)
+## Validate — what `parseWorkflow` refuses
 
 1. `version` must be `1`; `id` non-empty.
 2. Exactly one `start`; node ids `/^[a-zA-Z0-9_-]+$/`, unique, non-empty.
-3. `nodes` non-empty; each `type` in start|end|agent|script|human.
-4. Per-type required: end `status`; agent `agentId` OR (`model` AND `prompt`); script `code`.
+3. `nodes` non-empty; each `type` in start|end|agent|script|human; `nodes` and
+   `edges` must be arrays, every node and edge an object.
+4. Per-type required: end `status`; agent `agentId` OR (`model` AND `prompt`);
+   script `code`. A human `form` field's `type` must be one of
+   `string|textarea|number|enum|date|boolean`.
 5. `edges` reference existing node ids (both ends).
-6. Graph acyclic (Kahn must cover all nodes).
-7. `when` uses only the JSONLogic subset above.
-8. `input`/`output` (workflow and per-node) are arrays of
-   `{ "key": non-empty string, "type": "string"|"number"|"boolean"|"artifact" }`;
-   keys unique within each array. Object maps are NOT accepted.
-9. `inputSchema`/`outputSchema` use only: `type/properties/required/
-   additionalProperties/items/enum/minimum/maximum/minLength/maxLength/
-   minItems/maxItems`.
-10. `meta.status` in draft|active|archived; `meta.tags` array of strings.
+6. Every non-start node is reachable from start — a dangling node is a parse
+   error, not a warning.
+7. Graph acyclic (`parseWorkflow` ends in `topoSort`, which throws on a cycle).
+8. `when` uses only the JSONLogic subset above; a `nodeId.output.field` var path
+   must name an existing node, and — for a node that declares output fields
+   (human gates: form field names; script/agent: their `output` hint keys) — a
+   field in that list. Nodes declaring none are not checked.
+9. `input`/`output` (workflow and per-node) are arrays of
+   `{ "key": non-empty string, "type": "string"|"number"|"boolean"|"artifact" }`.
+   Object maps are NOT accepted.
+10. `triggers` is an array of `{ type: "cron", cron: non-empty string,
+    enabled?: boolean }`.
+
+Silently accepted (veto them yourself when authoring): duplicate `key`s inside
+an `input`/`output` array; a malformed `retry` (dropped); a non-object
+`inputSchema`/`outputSchema` (dropped); `meta.status`/`meta.tags` values outside
+draft|active|archived and an array of strings (dropped, not refused).
 
 Report violations as `$.nodes[2].status missing` style paths; when asked to
 fix, return the corrected full DSL.
@@ -113,5 +125,5 @@ fix, return the corrected full DSL.
 ## Output contract
 
 When asked to author/edit, respond with **the entire updated DSL as a single
-JSON object** (no markdown fence, no prose). The caller parses it, runs the
-validator, and applies it as a patch.
+JSON object** (no markdown fence, no prose). The caller parses it, runs
+`parseWorkflow` on it, and applies it as a patch.

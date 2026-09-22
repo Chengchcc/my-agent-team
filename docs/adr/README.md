@@ -9,30 +9,30 @@
 | 0001 | loop-prune-is-post-processing | **Obsolete**（Loop 已删，2026-08-28） |
 | 0002 | config-generation-is-builtin-skill | **Obsolete**（Loop 配置生成随 Loop 删除） |
 | 0003 | state-md-single-writer | **Obsolete**（STATE.md 状态机随 Loop 删除） |
-| 0004 | discovery-is-agent-session | **Superseded**(发现环节以 triage workflow 回归，ADR 0025) |
+| 0004 | discovery-is-agent-session | **Obsolete**（指向的 ADR 0025 triage workflow 也随 Loop 删除） |
 | 0005 | mcp-deferred-for-loop | **Obsolete**（Loop 已删；MCP 另见 0012/0022） |
 | 0006 | loop-lock-deferred | **Obsolete**（Loop 已删；worktree 互斥另见 0023 workspace-lock） |
 | 0007 | span-canonical-run-user-facing | **Superseded**(span 已删，Phase 6) |
-| 0008 | collapse-harness-invocation-layer | **Implemented**(Phase 5/6) |
+| 0008 | collapse-harness-invocation-layer | **Superseded**（删掉的层确实删了，但它新建的 plugin-trace / conversation_session / SpanSupervisor 后来全部删除） |
 | 0009 | session-layer-owns-identity-features-own-binding | **Superseded**(framework 已删) |
 | 0010 | typed-context-keys | **Superseded**(未采纳，引擎已重建) |
 | 0011 | web-ia-work-chat-team | **Implemented** |
-| 0012 | mcp-client-architecture | Accepted |
+| 0012 | mcp-client-architecture | Accepted（实现形状与正文不同：catalog 是文件，无 per-agent 表） |
 | 0013 | memory-plugin | **被取代**(功能吸收进 workspace 文件模型) |
-| 0014 | compaction-quality | Accepted |
+| 0014 | compaction-quality | **部分实现**（只有 token 预算切点落地；8 段式摘要 prompt 与迭代更新没有实现） |
 | 0015 | autonomous-memory | **目标达成**(workspace 文件形态，机制被取代) |
-| 0016 | agent-runtime | Implemented |
+| 0016 | agent-runtime | **Superseded**（`packages/agent` 与 `createAgentSession()` 都不存在） |
 | 0017 | canonical-message-contract | Accepted |
 | 0018 | multi-api-provider-architecture | Accepted |
-| 0019 | cli-session-dual-truth(运行态/产品态双轨) | Accepted |
+| 0019 | cli-session-dual-truth(运行态/产品态双轨) | Accepted（「双轨」提法已收成单轨：共用分支上的 `cli_session_ref`） |
 | 0020 | agent-workspace-and-resource-bridge | Accepted |
 | 0021 | one-conversation-one-agent-member(session 投影) | Accepted |
-| 0022 | mcp-catalog-and-knowledge-packs | Accepted |
-| 0023 | project-worktree-workspace(多对多 worktree 桥接) | **Implemented**（features/project + workspace-lock） |
+| 0022 | mcp-catalog-and-knowledge-packs | Accepted（catalog 改成文件，`mcp_server` 表已删） |
+| 0023 | project-worktree-workspace(多对多 worktree 桥接) | Accepted（P1、P2 与任务轴附录均已实现） |
 | 0024 | oma-wire-protocol-fixture-contract | Accepted |
-| 0025 | loop-workflow-first-execution(Workflow 一等执行) | **Superseded**（2026-08-28 Loop 整体删除，由 Workflow DSL 取代） |
-| 0026 | agent-threat-model | Accepted |
-| 0027 | ask-question-product-tools-mcp(跨 runtime HITL 提问) | Draft |
+| 0025 | loop-workflow-first-execution(Workflow 一等执行) | **Obsolete**（Loop 已删；Workflow DSL 作为独立功能继续存在） |
+| 0026 | agent-threat-model | Accepted（正文的「按 IP 限流」一句没有实现） |
+| 0027 | ask-question-product-tools-mcp(跨 runtime HITL 提问) | Accepted（四端 runtime 都已经 Product Tools MCP 拿到 `ask_question`） |
 | 0028 | tui-component-layering(live 归 chrome，终局归 transcript) | Accepted |
 | 0029 | coding-agent-status-contract(agent-status 文件契约接受双写重复) | Accepted |
 

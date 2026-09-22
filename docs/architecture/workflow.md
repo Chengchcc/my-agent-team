@@ -157,6 +157,5 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 - 并行 fan-out 没有实现，ready 列表串行 await。
 - agent 节点的 `repo` 字段进了 `NodeContext`、依赖也接好了，但没有调用方，agent 节点不会切到该 repo 的 worktree。
 - `workflowRef.repo` 被忽略，定义只从本地目录读，没有 git loader。
-- `skills/agentic-workflow-dsl/reference/validate.js` 手工镜像了一遍 parse 规则，没有任何测试比对两者，存在双写漂移风险。
 
 详细清单见 [`../roadmap.md`](../roadmap.md)。

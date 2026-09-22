@@ -134,7 +134,6 @@ Reconcile 阶段另外把 READY 的 pack 软链进 Agent 工作区的 `<kind>/sk
 - `GET /api/skill-packs/validate` 把行里的 `installedRef`（git 的 rev 或 zip 的指纹）当物化目录路径去做存在性检查，所以对 git / zip 包必然报 `materialized directory missing`。这个端点的意图是查物化目录与技能可发现性，实现与意图不一致。
 - `apps/backend/src/features/skill-pack/registry.ts` 的单例（`setSkillPackPort` / `getSkillPackPort`）只剩 bootstrap 里的写入方，没有读取方，是死代码。
 - `tools.ts` 里的 `validateExtractedEntries` 与 `computeDirChecksum` 已无调用方：物化路径改用 `packages/source-fetch` 里的同名实现（那份才是活的）。
-- 仓库根的 `skills/skill-pack-installer/SKILL.md` 仍在指导一套已经不存在的安装流程（一套不存在的原子工具 + 临时 Agent），是过期的 builtin 文档。
 
 ## 相关页
 

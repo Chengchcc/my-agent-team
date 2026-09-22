@@ -32,16 +32,18 @@ into `agent-loop-run.ts` when you need tool-execution detail. Note that
 
 ## Child-agent subsystems (how they relate)
 
-Three core modules cooperate; the seams are deliberate:
+Three siblings of this directory under `core/` cooperate; the seams are
+deliberate:
 
-- `delegation/` — the **executor**: spawns subagent loops (role files under
-  `.oma/agents/`), enforces caps/budget, and the `delegation-tools` plugin
-  (`delegation_batch` fan-out).
-- `orchestrate/` — the **script engine**: `evaluateOrchestrationScript` runs a
-  vm-sandboxed JS script whose `agent()`/`pipeline()` primitives route INTO the
-  delegation executor. The `orchestrate-tool` plugin (and the Run input's
-  `workflow` field) are its surfaces.
-- `coordination/` — the **handle ledger**: `CoordinationRegistry` tracks
+- `core/delegation/` — the **executor**: spawns subagent loops (role files under
+  `.oma/agents/`), enforces caps/budget, and the `delegation-tools` plugin,
+  whose model-facing tool is `task` (`delegation_batch_*` are the event names).
+- `core/orchestrate/` — the **script engine**: `evaluateOrchestrationScript`
+  runs a vm-sandboxed JS script whose `agent()`/`pipeline()` primitives route
+  INTO the delegation executor. The `orchestrate-tool` plugin shows it to the
+  model as `workflow_run` (in the TUI, `/workflow`); the Run input's `workflow`
+  field is the other surface.
+- `core/coordination/` — the **handle ledger**: `CoordinationRegistry` tracks
   background jobs and subagent handles per scope; the `hub-tool` plugin is its
   model-facing query/steer/stop surface. The registry outlives a Run only when
   a long-lived surface (TUI) passes its own instance.
@@ -69,7 +71,8 @@ Three core modules cooperate; the seams are deliberate:
    `createOmaRuntime({ runId })` feeds it as the session id
    (`create-runtime.ts`, `run-runtime.ts`). They are the same value on purpose;
    the durable *conversation* identity belongs to the product backend.
-2. **One model stream, three callers.** The loop, the auto-title generator and
-   the post-run memory extractor all go through
-   `RunRuntimeDeps`-assembled `streamModel`. Tests that count model calls must
-   separate them (see `create-runtime-title.test.ts`).
+2. **One model stream, two callers.** The loop and the auto-title generator go
+   through the `RunRuntimeDeps`-assembled `streamModel`; the post-run memory
+   extractor is the exception — it takes `options.modelRuntime` and resolves its
+   own model (`core/memory/autonomous-memory.ts`). Tests that count model calls
+   must separate them (see `create-runtime-title.test.ts`).

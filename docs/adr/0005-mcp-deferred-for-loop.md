@@ -4,7 +4,7 @@
 
 ## 状态
 
-Deferred(维持；was 等 MCP 支持)
+Obsolete（延期的对象 Loop 已删除；MCP 本身落地见 ADR 0012 与 0022）
 
 ## 上下文
 
@@ -31,4 +31,4 @@ Deferred(维持；was 等 MCP 支持)
 
 ## 关联
 
-- [M1 loopReducer spec](../superpowers/specs/2026-07-01-m1-loop-reducer.md)
+- M1 loopReducer spec（原链已随文档重构删除）

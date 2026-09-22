@@ -1,58 +1,51 @@
 # Packages
 
-`packages/` 是整个 agent 系统的可复用内核，按职责从底到上分层：最底下是协议/契约类型，往上是 Oma Runtime、执行链 adapter、模型系统与插件，再到一组工具与测试设施。`apps/` 下的后端与各 surface 都是把这些包拼起来用。
+`packages/` 是可复用的内核，`apps/` 把它们拼起来用。依赖只能向下：叶子包不依赖任何工作区成员，越往上的包越有主张。
 
-设计上的一条主线是：**依赖只能向下**。`core` 处在最底层且零依赖，所有人都对齐到它定义的模型、工具类型；越往上的包越「有主张」，但永远不会被下层反向依赖。
+包与包之间的完整依赖图（以及每个成员的名字）在根 [`AGENTS.md`](../AGENTS.md) 的 Package dependency graph 一节，`bun run audit:workspace` 会检查它是否点名了每一个成员。本页只给一包一句话。
 
 ## 唯一执行链
 
 ```text
 Product Backend (apps/backend)
 → Agent Run
-→ Adapter (adapter-oma-agent)
+→ Adapter (packages/adapter-oma-agent)
 → spawn 一次性 oma 子进程 (apps/oh-my-agent)
-→ per-Run Runtime (agent)
-→ BackendRunOutcome (agent-backend 契约)
+→ per-Run Runtime
+→ BackendRunOutcome (@chengchenccc/agent-contract)
 → Product terminal commit
 ```
 
-## 分层导航
+每个 Run 一个子进程，四个后端都是这个形状（`oma` 走 JSONL，`claude` / `pi` / `omp` 各用自己的 argv 与输出格式）。
 
-**协议与契约（零运行时依赖）**
+## 协议与契约
 
-- [`core`](./core/)：`ChatModel`、`Tool`、`AIMessageChunk`、`ContentBlock` 与 stream-utils（`collectStream` 等）。协议层，不含 run loop，唯一真实 loop 在 `agent`。
-- [`message`](./message/)：`Message` / `MessageRevision` 领域类型、zod 序列化、`assistantMessageId(runId, ordinal)` → `run:<runId>:assistant:<n>`。
-- [`conversation`](./conversation/)：多方会话领域模型，`LedgerEntry`/`LedgerKind` codec、成员、@mention 触发规则。
-- [`agent-backend`](./agent-backend/)：Agent Backend 执行契约，`BackendRunInput`/`BackendRunOutcome`/`BackendRunSegment`、核心事件、JSONL transport schema 与事件/outcome mapping（两侧共用同一份）。
-- [`api-contract`](./api-contract/)：Elysia `App` 类型真源（HTTP/SSE 契约）、`SSEEventMap`。
-- [`config`](./config/)：环境变量 schema 与解析。
+- [`message`](./message/) — `Message` / `MessageRevision` 领域类型与 zod 序列化；`ChatModel`、`Tool`、`ContentBlock`、stream 工具（`collectStream` 等）；`assistantMessageId(runId, ordinal)` 产生 `run:<runId>:assistant:<n>`。整个仓库的叶子节点。
+- [`agent-contract`](./agent-contract/) — `AgentBackend` 端口（`execute` / `steer` / `resolveApproval?` / `stop` / `dispose`）、`BackendRunInput` / `BackendRunOutcome`、核心事件与后端种类名单。
+- [`api-contract`](./api-contract/) — 跨进程的 SSE 事件 map（`SSEEventMap`、`sseEndpoints`）与飞书消息 schema。HTTP 的 `App` 类型不在这里，它是 `apps/backend/src/app.ts` 导出的。
+- [`config`](./config/) — 环境变量 schema 与 `parseEnv()`。
 
-**Runtime 与执行链**
+## Runtime 与执行链
 
-- [`agent`](./agent/)：**Oma 唯一真实 Runtime**，`createOmaSession()`（model/tool loop、retry、compaction、插件、todo）、in-memory SessionStore、prompt/meta 构建。
-- [`adapter-oma-agent`](./adapter-oma-agent/)：`OmaBackend`，spawn child、stdin/stdout JSONL、steer/abort、并发上限、stderr 脱敏、child recycle。
-- [`ai`](./ai/)：Provider 注册制 + Model 元数据 + `createModelRuntime()` + `AnthropicChatModel`，全仓唯一直接 import 模型 SDK 的地方。
+- [`ai`](./ai/) — provider 注册表与模型目录、`createModelRuntime()`。协议实现（Anthropic Messages、OpenAI Completions、OpenAI Responses）自己用 fetch 与 SSE 说话，不引任何模型 SDK。
+- [`adapter-oma-agent`](./adapter-oma-agent/) — `OmaBackend`：spawn 子进程、stdin/stdout JSONL、steer、停止、spawn 槽位上限、stderr 脱敏。没有子进程池，一个 Run 一个 child，跑完就回收。
+- [`adapter-claude-agent`](./adapter-claude-agent/) / [`adapter-pi-agent`](./adapter-pi-agent/) / [`adapter-omp-agent`](./adapter-omp-agent/) — 另外三个后端的适配器。
+- [`adapter-mcp`](./adapter-mcp/) — MCP 客户端挂载与工具适配（工具名形如 `mcp__<server>__<tool>`）。
 
-**Oma 本地能力**
+## 编排与沙箱
 
-- todo / skill 已吸收进 `apps/oh-my-agent/src/core/`（`todo.ts`、`skill.ts`），不再有独立 plugin 包；recap 改为 TUI focus-resume 摘要提示；后续对齐 Claude plugin marketplace 概念。
+- [`workflow`](./workflow/) — Workflow DSL 的纯域层：类型与解析、JSON-Logic 子集、图拓扑（any-of 汇合、路由固化、全局合并）、`computeNext` 执行核心、节点运行时契约、编辑器布局。零依赖。
+- [`sandbox`](./sandbox/) — workflow script 节点与 oma eval 工具用的进程沙箱。
+- [`source-fetch`](./source-fetch/) — git / zip 来源物化的公共底座，技能包与 marketplace 都用它。
 
-**工具与适配器**
+## 界面与测试
 
-- [`tools-common`](./tools-common/)：标准工具实现，bash、文件读写编辑、grep、glob、网络、cwd 工具工厂。
-- [`adapter-mcp`](./adapter-mcp/)：MCP client 管理 + 工具适配（`mcp__{serverName}__{toolName}` 命名）。
-
-**测试**
-
-- [`test-helpers`](./test-helpers/)：`echoModel()` 等确定性的 ChatModel 测试替身。
-
-**状态机**
-
-- [`loop`](./loop/)：Loop 状态机（纯 reducer，无 I/O；编排在 apps/backend）。
+- [`tui`](./tui/) — oma TUI 背后的终端 UI 框架：差异化渲染、滚动回看、组件库。
+- [`test-helpers`](./test-helpers/) — `echoModel()` 这类确定性的 `ChatModel` 测试替身。
 
 ## 从哪读起
 
-- **想理解整体**：`core` → `agent-backend` → `adapter-oma-agent`，这条线就是执行链。
-- **想加 Oma 能力**：先看 `agent` 的插件契约，再照着 `apps/oh-my-agent/src/core/tools/todo.ts` / `tools/skill.ts` 的结构；recap 在 TUI focus-resume 逻辑里实现。
-- **想接新模型厂商**：看 `ai` 的 Provider 接口，照着 `AnthropicChatModel` 写适配器。
-- **在做后端**：`agent-backend`（契约）→ `adapter-oma-agent`（child 边界）→ `apps/backend` 的 agent-run feature（执行编排）。
+- **想理解整体**：`message` → `agent-contract` → `adapter-oma-agent`，这条线就是执行链。
+- **想加 oma 能力**：先看 `apps/oh-my-agent/src/core/runtime/plugin.ts` 的插件形状，工具照着 `apps/oh-my-agent/src/core/tools/` 里现成的写。
+- **想接新模型厂商**：看 [`ai`](./ai/) 的 provider 注册表与 `providers/` 下的协议实现。
+- **在做后端**：`agent-contract`（契约）→ `adapter-oma-agent`（子进程边界）→ `apps/backend` 的 agent-run feature（执行编排）。

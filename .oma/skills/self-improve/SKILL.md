@@ -29,7 +29,8 @@ One Run = one candidate. Phases run in order; never merge phases.
 - Read `.oma/rsi/scope.json`. The edit must match an `allow` glob and no
   `deny` glob — deny wins.
 - Smallest possible diff. One PR = one edit.
-- `git checkout -b rsi/<short-slug>` from latest master.
+- `git fetch origin master && git checkout -b rsi/<short-slug> origin/master` —
+  name the start point, or an unpushed local commit enters the guard's range.
 
 ## 3. Evaluate
 
@@ -52,9 +53,9 @@ One Run = one candidate. Phases run in order; never merge phases.
 
 ## Hard rules
 
-- Never edit: `.oma/rsi/scope.json`, `scripts/`, `.github/`, `**/*.test.ts`,
-  any `package.json`, `bun.lock` — these are the gate, and the gate checks
-  them again in CI.
+- Never edit: `.oma/rsi/scope.json`, `packages/config/src/env.ts`, `scripts/`, `.github/`,
+  `**/*.test.ts`, any `package.json`, `bun.lock` — these are the gate, and the gate
+  checks them again in CI.
 - Never weaken a test, coverage floor, or CI step — not even "temporarily".
 - Score = CI verdict. Logs of tests you did not run are not a score.
 - An idea that needs a deny path: write `.oma/rsi/proposals/<slug>.md` for

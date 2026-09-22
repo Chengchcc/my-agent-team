@@ -41,9 +41,15 @@ src/
   modes/
     print-mode.ts
     json-mode.ts
-    rpc-mode.ts        # JSONL protocol (stdout is protocol-only)
+    rpc/rpc-mode.ts    # JSONL protocol (stdout is protocol-only)
     tui/
   core/tools/          # native tools (bash, grep, todo, eval, ...)
+  core/session/        # CLI-owned session files (JSONL): resume/fork
+  core/loops/          # loop mode: limits, condition, ralph
+  core/goals/          # goal mode state machine + tool
+  core/plans/          # plan mode state machine + prompts
+  core/gateway/        # `oma gateway` daemon, supervisor, doctor
+  core/settings/       # .oma/settings.json + workspace context
   core/plugins/        # plugin loading/trust
   core/memory/         # autonomous memory
 ```
@@ -86,7 +92,6 @@ src/
 - **`StdioClientTransport` does not inherit process env.** Custom test knobs
   (`MCP_ECHO_*`) must travel via `.mcp.json` `env`, not via the parent
   process environment.
-- **read_image sandbox escape** is still an open issue — do not regress it.
 - **Default model must come from the run's model binding** (`run model`),
   not `catalog[0]`. Budget + summarizer bind to the run model.
 

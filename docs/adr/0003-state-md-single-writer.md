@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted
+Obsolete（STATE.md 状态机随 Loop 删除；单写者纪律在「每分支一个活跃 Run」上仍有对应）
 
 ## 上下文
 
@@ -32,5 +32,5 @@ Evaluator 的 spinoff 建议：loopStep() 决定是否采纳 → 调 `reducer(st
 
 ## 关联
 
-- [LoopRunner](../architecture/backend/loop-runner.md)
-- [Loop 验证端到端](../architecture/flows/e2e-loop-verification.md)
+- LoopRunner（原链已随文档重构删除）
+- Loop 验证端到端（原链已随文档重构删除）

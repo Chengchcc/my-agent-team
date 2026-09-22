@@ -7,7 +7,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 → per-Run Runtime → BackendRunOutcome → stdout → child 退出
 ```
 
-**不是 daemon**：一个 Run = 一个子进程 = 一个 Runtime = 一个 outcome。没有常驻进程、没有 session supervisor、没有 worker pool。
+**不是 daemon**（就 Run 执行模型而言）：一个 Run = 一个子进程 = 一个 Runtime = 一个 outcome。没有常驻的 session supervisor，没有 worker pool。同一个包里的 `core/gateway/` 是另一回事——`oma gateway up -d` 确实会起一个 detached daemon，那是它自己的 pidfile 加 supervisor，与 Run 无关。
 
 ## TUI
 
@@ -44,7 +44,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 - `steer(input)` 注入 live loop；`stop()` 中止；
 - `close()` 拆除 MCP clients 与 SessionStore。
 
-Runtime 主体就在本 app 的 `src/core/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/store/`）。seed 时把 **full Product history + meta + input** 原子写入，Run 结束即销毁。
+Runtime 主体就在本 app 的 `src/core/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/store/`）。in-memory store 随 Run 销毁，但子进程会把本轮写进自己的 session 文件（`core/session/` 的 JSONL），并通过 outcome 回传 `cliSessionRef`；下一个 Run 用它 resume 那个文件，扁平的历史桥只在没有引用时才用。
 
 ## 运行
 
@@ -69,9 +69,14 @@ oma                                     # standalone interactive TUI
 src/
   cli.ts                可执行入口（shebang + runCli()）
   main.ts               main()/runCli()：参数解析、模式分发、退出码（无 process.exit）
-  cli/                  print/json 模式、初始输入构建、CLI 测试
+  cli/                  参数解析、初始输入构建、gateway 子命令
   modes/                tui / print / json / rpc 模式
-  core/                 create-runtime.ts（per-Run Runtime 装配）、project-settings.ts（.oma/settings.json）、fake-provider（测试）
+  core/
+    runtime/            create-runtime.ts（per-Run Runtime 装配）
+    session/            session 文件（JSONL）：/resume、--continue 与跨 Run resume 的持久侧
+    settings/           project-settings.ts（.oma/settings.json）
+    loops/ goals/ plans/  三种持续模式的状态机与工具面
+    gateway/            `oma gateway` 的 daemon、supervisor、doctor、artifact
 ```
 
 ## 相关文档

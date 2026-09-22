@@ -16,16 +16,20 @@ subagents, and `workflow_run` for orchestration scripts.
 
 For independent items: `task({ context, tasks: [{ task, name?, agent?, outputSchema? }] })`.
 
-- One subagent per item, bounded by the executor semaphore (max 64 items).
+- One subagent per item; one batch carries at most 64 items. Execution
+  concurrency is a different number: the executor's semaphore runs at most 8
+  spawns at a time, under a 64-spawn total cap per session — a full 64-item
+  batch queues behind the 8 running.
 - `context` (required) is shared background prepended to every spawn.
 - `agent` selects a role: `task` (full tools), `explore` (read-only),
   `plan` (read-only planning), or any `.oma/agents/<name>.md` definition.
 - Long results spill to `.oma/workflow` with a `resultPath` — read them
   back instead of carrying them inline.
 - Single background dispatch: `task({ agent, prompt, background: true })`
-  returns a handle; poll it with `task_output`, stop with `task_stop`,
-  list live handles with `task_list`. Follow up a finished handle with
-  `task({ resume: <handle>, prompt })`.
+  returns a handle immediately. Background work is driven through the `hub`
+  tool: `jobs` (snapshot), `output` (fetch one id, optional dot `path`),
+  `wait` (block until it settles), `steer`, `stop`. Follow up a finished
+  handle with `task({ resume: <handle>, prompt })`.
 
 ## workflow_run — orchestration script
 

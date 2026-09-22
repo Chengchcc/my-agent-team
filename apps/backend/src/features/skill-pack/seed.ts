@@ -66,7 +66,7 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
   await port.register({
     id: BUILTIN_PACK_ID,
     name: "Builtin Skills",
-    description: "System builtin skills including the skill pack installer.",
+    description: "System builtin skills shipped with the repository.",
     sourceKind: "builtin",
     sourceUrl: null,
     versionRef: null,

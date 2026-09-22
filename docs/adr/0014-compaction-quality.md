@@ -1,7 +1,7 @@
 # ADR: Compaction 质量提升
 
 **日期**: 2026-07-22
-**状态**: design
+**状态**: 部分实现（token 预算切点已落地，位置在 `apps/oh-my-agent/src/core/runtime/compaction.ts`；本文写的 packages/framework 路径与 8 段式摘要 prompt 都没有实现）
 **范围**: `packages/framework/src/context-managers/summarizing.ts`, `packages/framework/src/compaction/`
 
 ---

@@ -4,7 +4,7 @@
 
 ## 状态
 
-Superseded by ADR 0025 (was Accepted, then wrongly marked Obsolete 2026-08-13 — discovery was never removed, only re-shaped)
+Obsolete（原判 Superseded 指向 ADR 0025 的 triage workflow，而 0025 本身也随 Loop 删除）
 
 ## 上下文
 
@@ -34,5 +34,5 @@ Discovery AgentSession 与 Generator/Evaluator 同级，不同 sessionId、不�
 
 ## 关联
 
-- [LoopRunner](../architecture/backend/loop-runner.md)
-- [Loop](../architecture/foundations/loop.md)
+- LoopRunner（原链已随文档重构删除）
+- Loop（原链已随文档重构删除）

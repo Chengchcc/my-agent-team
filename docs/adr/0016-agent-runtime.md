@@ -1,7 +1,7 @@
 # ADR: Agent Runtime 重构
 
 **日期**: 2026-07-22
-**状态**: implemented
+**状态**: Superseded（本文要建的 `packages/agent` 与 `createAgentSession()` 均不存在；现行 runtime 是 `apps/oh-my-agent/src/core` 加 `packages/agent-contract`）
 **范围**: `packages/agent`（新建，合并原 `packages/framework` + `packages/harness`）、`packages/framework`（已删除）、`packages/harness`（已删除）、`apps/backend`（精简为薄壳）
 
 ---
@@ -98,7 +98,7 @@ jiti loader
 
 ### 实施契约说明
 
-本 ADR 的 TypeScript 片段表达设计方向。迁移已完成（P11），以下约束均已落地。跨 phase 的具体公共边界、不变量和 handoff 规则以 [`2026-07-23-agent-runtime-contract.md`](../superpowers/specs/2026-07-23-agent-runtime-contract.md) 为准。
+本 ADR 的 TypeScript 片段表达设计方向。迁移已完成（P11），以下约束均已落地。跨 phase 的具体公共边界、不变量和 handoff 规则以 `2026-07-23-agent-runtime-contract.md`（原链已随文档重构删除） 为准。
 
 具体约束：
 

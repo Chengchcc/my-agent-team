@@ -35,9 +35,10 @@ const script: EchoScript = {
 };
 
 const model = echoModel(script);
-// 把 model 作为 ChatModel 传给 createAgent / createGenericAgent，即可写确定性测试
+// 把自己实现的 model.stream 当作 OmaSessionOptions.modelStream 传进 session
+// （apps/oh-my-agent/src/core/runtime/agent-loop.ts），即可写确定性测试
 ```
 
 ## 依赖关系
 
-test-helpers 只依赖 core（拿 `ChatModel`、`Message`、`AIMessageChunk` 等类型）。它是测试期工具，仓库里没有其他包在生产依赖中引用它。
+test-helpers 只依赖 `@chengchenccc/message`（拿 `ChatModel`、`Message`、`AIMessageChunk` 等类型）。它是测试期工具，仓库里没有其他包在生产依赖中引用它——`apps/oh-my-agent` 与 `apps/backend` 都只把它放在 devDependencies。

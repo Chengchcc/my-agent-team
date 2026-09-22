@@ -155,5 +155,5 @@ plugin:       const conv = ConversationCtx.get(ctx)   // ← ConversationContext
 
 - [ADR 0008](./0008-collapse-harness-invocation-layer.md) — 塌缩 harness 调用层
 - [ADR 0009](./0009-session-layer-owns-identity-features-own-binding.md) — 补充决策 D 规定 `context?: unknown`，本 ADR 纠正其落地偏差
-- [修复 plan](../superpowers/plans/2026-07-07-typed-context-keys.md) — 逐文件 handoff、伪代码、函数签名、范型传播
+- 修复 plan（原链已随文档重构删除） — 逐文件 handoff、伪代码、函数签名、范型传播
 - [设计哲学 §2](../architecture/design-philosophy.md) — 暴露业务，隐藏机制

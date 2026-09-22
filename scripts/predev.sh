@@ -3,7 +3,8 @@ set -euo pipefail
 
 # ── predev bootstrap ────────────────────────────────────────────────────────
 # Idempotent one-time-per-machine setup that runs before any `bun run dev*`.
-#   1. Generate the gitignored drizzle migrations if any DB is missing them.
+#   1. Regenerate the drizzle migrations if a journal is missing (they are
+#      committed; CI verifies they match the schema).
 #   2. Create apps/{backend,web}/.env from .env.example if missing.
 #   3. Auto-generate secrets (SESSION_SECRET, BACKEND_AUTH_TOKEN,
 #      MOCK_PASSWORD) so dev never ships the documented defaults (M16).

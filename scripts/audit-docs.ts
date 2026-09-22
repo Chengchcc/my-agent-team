@@ -102,6 +102,22 @@ for (const root of ACTIVE_ROOTS) {
   }
 }
 
+// 7b. The ADR archive is exempt from CONTENT checks (it records decisions that
+// were later overtaken) but NOT from link checks: a link into a page that no
+// longer exists is a broken reading path, not a historical statement. Twelve
+// such links accumulated while `docs/superpowers/` was still allowed to rot.
+for (const file of walkDocs(join(ROOT, "docs/adr"))) {
+  const src = readFileSync(file, "utf8");
+  for (const m of src.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
+    const link = m[1]!;
+    if (link.startsWith("http") || link.startsWith("#") || link.startsWith("mailto:")) continue;
+    const target = normalize(join(dirname(file), link.split("#")[0]!.trim()));
+    if (!existsSync(target)) {
+      fail(`dead link in ${file.replace(`${ROOT}/`, "")}: ${m[1]}`);
+    }
+  }
+}
+
 // 8. W7: active-zone must not teach deleted architecture concepts. Phrase
 // list maintained alongside ADR 0025 ("delete generator/evaluator roles,
 // DB is the state source"). Tombstones + adr/ are exempt (decision archive).
@@ -270,8 +286,11 @@ const APP_DOC_FILES = [
   "apps/oh-my-agent/README.md",
   "apps/oh-my-agent/AGENTS.md",
   "apps/backend/README.md",
+  "apps/backend/AGENTS.md",
   "apps/web/README.md",
+  "apps/web/AGENTS.md",
   "apps/lark-bot/README.md",
+  "apps/README.md",
 ].filter((rel) => existsSync(join(ROOT, rel)));
 let appLinks = 0;
 for (const rel of APP_DOC_FILES) {

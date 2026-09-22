@@ -2,7 +2,7 @@
 
 ## 状态
 
-Draft（2026-09-06；设计确认后转 Accepted）
+Accepted（四端 runtime 都经 Product Tools MCP 拿到 ask_question；本页描述与实现一致）
 
 ## 上下文
 

@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted
+Obsolete（Loop 删除后 loop-config-generator 与 .loop/config.yml 都不存在了）
 
 ## 上下文
 
@@ -26,6 +26,6 @@ Accepted
 
 ## 关联
 
-- [Loop Pattern](../architecture/foundations/loop-pattern.md)
-- [Loop](../architecture/foundations/loop.md)
+- Loop Pattern（原链已随文档重构删除）
+- Loop（原链已随文档重构删除）
 - [渐进式技能](../architecture/plugins/progressive-skill.md)

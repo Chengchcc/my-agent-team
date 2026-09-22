@@ -30,7 +30,7 @@ bun run dev
 
 `predev.sh` 做四件幂等的事，每件都只在缺的时候动手：
 
-- 迁移目录不在就调 `scripts/gen-drizzle.sh` 生成。`apps/backend/drizzle/backend/` 与 `apps/lark-bot/drizzle/` 都不进版本库，每台机器自己生成。
+- 迁移的 journal 不在就调 `scripts/gen-drizzle.sh` 生成。迁移文件本身是**提交进版本库**的（`apps/backend/drizzle/backend/`、`apps/lark-bot/drizzle/`），CI 会用这个脚本核对「schema 改了但没重新生成迁移」；正常 clone 里这一步是空操作。
 - `apps/backend/.env` 和 `apps/web/.env` 缺了就从 `.env.example` 复制。
 - 生成 `BACKEND_AUTH_TOKEN`（`openssl rand -hex 24`）写进 backend 的 `.env`，再把同一个值镜像进 web 的 `.env`；顺手生成 `SESSION_SECRET` 和 `MOCK_PASSWORD`（22 位，字母表剔掉了 `l/1/I/O/0`），最后把 web 的 `.env` 权限收成 `0600`。这两个 `.env` 里的 token 必须一致，否则 BFF 调后端全是 401。
 - 把 `node_modules/monaco-editor/min/vs` 拷到 `apps/web/public/monaco/vs`。Workflow 编辑器和只读文件预览从本地 `/monaco/vs` 加载，不走 CDN。
@@ -83,7 +83,6 @@ bash scripts/memguard.sh --limit 2G -- bun run build
 
 这些东西在 clone 之后不存在，由脚本或首次启动补齐，不手动改：
 
-- `apps/backend/drizzle/backend/`、`apps/lark-bot/drizzle/` — 迁移，每台机器生成
 - `apps/{backend,web}/.env` — 本地密钥
 - `apps/web/public/monaco/vs` — Monaco 资产
 - `apps/backend/.backend-data/` — 本地数据目录：SQLite 库、Agent 工作区、workflow 定义

@@ -2,7 +2,7 @@
 
 ## 状态
 
-Proposed
+Accepted（P1、P2 与任务轴附录均已实现；见 docs/architecture/agents/projects-and-worktrees.md）
 
 ## 上下文
 

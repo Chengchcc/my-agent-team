@@ -43,8 +43,6 @@
 
 **script 节点的契约与实现不符。** `packages/workflow/src/node-runtime.ts` 里的 `ScriptContext` 声明了 store、context、log，但后端只把裸 input 传进去，宿主对象刻意不进沙箱。结果这个契约是死的，照它写脚本会崩；`store_write` 事件因此永远不会触发。
 
-**定义校验器有两份。** `skills/agentic-workflow-dsl/reference/validate.js` 手工镜像了 parse 规则，没有任何测试比对两者一致，存在双写漂移。加一个「同一组样例两边输出一致」的测试就能钉住。
-
 ## 模型与 provider
 
 **自定义 provider 在产品里只读 `$OMA_HOME/models.yml`。** 这是刻意的（工作区文件是 agent 能写的地方，读它等于允许一次 Run 劫持下一次的 provider 地址），但用起来要有心理准备：要在产品里加 provider，得把 `OMA_HOME` 指到放 `models.yml` 的目录。
@@ -77,13 +75,17 @@
 
 **网络化部署的准入门槛**（离开回环地址之前必须做掉）：bash 网络白名单、MCP 凭据加密存储与 SSRF guard、移除 mock 登录表面、原生工具 allow-rules。
 
+## 内容分发
+
+**内置技能包与知识包只播种一次，之后不再刷新。** `seedSkillPacks` 发现 builtin 记录已存在就直接返回，所以 `skills/` 改了、删了、加新技能之后，老安装里那份拷贝永远停在原地——而它会被桥接进 Agent 工作区、注入到 prompt 里。实测后果：本机 `.backend-data/skill-packs/builtin/` 里至今躺着 `loop-engine`、`loop-workflow`、`skill-pack-installer` 三个已经删掉的技能，模型读到的就是这个过期心智模型；知识包那份同理，还残留着 `createAgentSession()`。
+
+修法可以很省：`packages/source-fetch` 已经有 `directoryFingerprint`，启动时比一次指纹，不同就重拷（user 那份有自己的 keepSynced 机制，不受影响）。在此之前，升级后重装或删掉那个目录是唯一让它更新的办法。
+
 ## 界面
 
 **Run 的跨度追踪只做了第一层。** 现在能从 `agent_run_event` 推出工具调用与模型轮次的瀑布图，没有传输层（spawn、管道、写库）的耗时。要加就得在适配器里埋点，而且必须保持「跨度是 Run 级遥测，不是第二个执行身份」——Phase 6 删掉旧 span 表就是为了防这个。
 
 **Run 的中途暂停没有。** 现在只有停止。暂停需要子进程能在中途存状态并在恢复命令后接着跑，牵动 oma 的循环、适配器协议与输入队列语义。
-
-**跨 runtime 的提问（ADR 0027，草稿）。** 原生 `ask_question` 只在 TUI 模式接线，RPC 模式的子进程没有提问通道，会直接失败。可选的修法是把提问做成 Product Tools 的 MCP 工具——四个 runtime 都挂同一个 MCP，这样不用为每个 CLI 各写一套。
 
 ## 明确不做的
 

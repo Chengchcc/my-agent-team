@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted(2026-08-20)
+Obsolete（2026-08-28 Loop 整体删除；Workflow DSL 与触发调度以独立功能继续存在）
 
 ## 背景
 

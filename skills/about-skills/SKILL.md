@@ -1,11 +1,11 @@
 ---
 name: about-skills
-description: 解释技能系统如何工作——如何使用 skill_load、理解 available-skills 索引、以及 ${SKILL_DIR} 如何解析为真实文件路径。
+description: 解释技能系统怎么用——`skill_load` 怎么取正文、每轮 Meta 里的 Skills 索引、`${SKILL_DIR}` 如何解析成真实路径。
 ---
 
 # 关于技能系统
 
-这份技能本身就是技能系统的自举文档。阅读它可以帮助你理解如何有效使用技能。
+这份技能只讲怎么用技能。技能系统的实现详表（索引与正文两段式、技能根的顺序、frontmatter 开关）在 `docs/architecture/plugins/progressive-skill.md`。
 
 ## 什么是技能
 
@@ -13,7 +13,7 @@ description: 解释技能系统如何工作——如何使用 skill_load、理�
 
 ## 如何发现可用技能
 
-在每次对话开始时，系统会在上下文末尾注入一个 `<available-skills>` 块，列出所有可用技能的 name 和 description。你不应该假设某个技能存在——先查看索引。
+技能索引在每轮的 `<system-reminder>` 里，是一个叫 Skills 的 Meta 段，列出所有可用技能的 name 和 description。你不应该假设某个技能存在——先查看索引。
 
 ## 如何加载技能
 
@@ -23,7 +23,7 @@ description: 解释技能系统如何工作——如何使用 skill_load、理�
 skill_load("about-skills")
 ```
 
-加载后，技能正文会注入到你的上下文中。加载是幂等的——重复加载同一技能不会重复注入。
+加载后，技能正文会注入到你的上下文中。
 
 ## SKILL_DIR 是什么
 
@@ -45,5 +45,5 @@ skill_load("about-skills")
 
 - 技能按需加载：不要预先加载所有技能，只在需要时加载
 - 技能来自已分配给你的技能包（skill pack）
-- 如果有多个技能包包含同名技能，后加载的包会覆盖先加载的
+- 多个技能包含同名技能时，先出现的根胜出，后到的同名技能被丢弃
 - 你可以通过 `${SKILL_DIR}` 读取同目录下的资源文件

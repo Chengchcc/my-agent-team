@@ -8,7 +8,10 @@ violating one produces symptoms that look like something else entirely
 ## The trap that costs the most time: this package is consumed as `dist`
 
 ```
-packages/tui/package.json → exports: { ".": "./dist/index.js" }
+packages/tui/package.json → exports: {
+  ".":        { types: "./dist/index.d.ts",          default: "./dist/index.js" },
+  "./testing": { types: "./dist/virtual-terminal.d.ts", default: "./dist/virtual-terminal.js" },
+}
 ```
 
 - Tests **inside** this package run against `src/` (bun resolves the files directly).
@@ -42,10 +45,11 @@ Invariants for the provider path:
 3. `history` batches are append-only and **must be acknowledged**
    (`acknowledgeHistory`) once written; the provider advances its committed
    frontier on ack. Unacknowledged batches are re-offered.
-4. Destructive resets (`clearScrollbackOnNextRender` / a width change) clear
+4. Destructive resets (`requestRender(true)` / a width change) clear
    `providerWindow` — one full rewrite is expected there, and only there.
-   `requestRender(true)` sets sentinel values (`previousWidth = -1`, …), so the
-   very next provider frame is destructive by design.
+   `requestRender(true)` empties `previousLines` and the cursor rows and sets
+   `providerForceRepaint`, so the very next provider frame repaints. It never
+   purges native scrollback — only a **real** width change takes that route.
 
 ## Render scheduling and backpressure
 
@@ -57,8 +61,10 @@ Invariants for the provider path:
   measured around `doRender()` on both the scheduled and the forced path — if
   you add a render path, record its cost too or the backpressure silently
   stops seeing it.
-- Forced renders bypass the cadence. `renderNow()` is the synchronous forced
-  paint used at startup.
+- Forced renders bypass the cadence: `requestRender(true)` repaints on the next
+  tick. This package has no synchronous `renderNow()` — the one in oma's
+  `modes/tui/tui-render.ts` is a different function. Startup is `TUI.start()`,
+  which schedules the first ordinary frame.
 
 ## Cursor and flicker
 
@@ -104,9 +110,9 @@ Invariants for the provider path:
   xterm headless; assert on `getViewport()`, or capture `vt.write` to inspect
   the **raw escape stream** when the symptom is about what was *written*
   (flicker, diffing) rather than what ended up on screen.
-- Timers live in the render path: poll (`waitForText`-style) instead of fixed
-  sleeps for anything async, and drive frames with `requestRender()` in unit
-  tests.
+- Timers live in the render path: poll `VirtualTerminal.waitForRender()` rather
+  than fixed sleeps for anything async, and drive frames with `requestRender()`
+  in unit tests.
 - Debug instrumentation must be **tagged and isolated**: a `tail` of mixed
   stderr from several tests in one file reads as one coherent (wrong) story.
   Run the single failing test with `-t` before believing a log pattern.

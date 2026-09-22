@@ -30,7 +30,7 @@ drizzle 表定义一旦和 service 层各写一份，编译器就看不见两边
 
 ## 生成迁移
 
-迁移由 `bash scripts/gen-drizzle.sh` 生成（`predev.sh` 会在缺迁移时自动调用它）。迁移目录不进版本库，每台机器自己生成。
+迁移由 `bash scripts/gen-drizzle.sh` 生成（`predev.sh` 在 journal 缺失时会调用它），**迁移文件提交进版本库**：CI 跑同一个脚本核对 schema 与迁移是否同步，不同步即红。
 
 手写迁移时必须用带箭头的断点：
 

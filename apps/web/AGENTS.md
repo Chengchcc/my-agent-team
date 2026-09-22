@@ -49,13 +49,18 @@ bun run lint:ui      # UI consistency audit (zero CJK in src, alert/confirm ban)
 
 ## Feature directory pattern
 
-Every domain gets `features/<name>/` with three files:
+Every domain gets `features/<name>/`, holding any subset of:
 
 ```
 features/<name>/query-keys.ts   # stable query keys
 features/<name>/queries.ts      # queryOptions / queryFn
-features/<name>/hooks.ts        # useXxxQuery + useXxxMutation
+features/<name>/mutations.ts    # useXxxMutation
+features/<name>/hooks.ts        # useXxxQuery + derived reads
 ```
+
+The file count is not fixed: `coding/` has no `query-keys.ts`, `workflow/`
+is `queries.ts` only, `models/` and `settings/` are `hooks.ts` only. The
+rule is the boundary, not the shape.
 
 No page-level `useQuery` with an inline query object. If a page needs a
 small derived read, add a hook to the owning feature (e.g.
@@ -104,7 +109,7 @@ small derived read, add a hook to the owning feature (e.g.
 ## Known pitfalls (do not repeat)
 
 - **Backend type staleness:** `apps/web` imports
-  `@my-agent-team/backend/app` and sees the backend package's **built
+  `@chengchenccc/backend/app` and sees the backend package's **built
   dist** types. After changing backend route/handler return types, run:
   `backend typecheck → backend build → web typecheck`. Otherwise web
   sees stale Eden-inferred types.
@@ -113,8 +118,9 @@ small derived read, add a hook to the owning feature (e.g.
   build (e.g. 0-byte `prerender-manifest.json`). `rm -rf .next` and
   rebuild; do not debug on top of a corrupted build.
 - **BFF `BACKEND_URL`:** when running `next start`, `BACKEND_URL` must
-  point at the backend, not at `http://127.0.0.1:3000` (or the web app
-  itself). The `.env` may need an explicit override.
+  point at the backend, never at the web app's own origin (the default is
+  already `http://127.0.0.1:3000`). The `.env` may need an explicit
+  override.
 - **Controlled inputs in tests:** for React controlled components use the
   native prototype value setter + `dispatchEvent(new Event("input", {bubbles:true}))`;
   this is more reliable than synthesizing React events.
@@ -133,8 +139,6 @@ Cross-file entry points to read before touching web:
 - [docs/architecture/system-overview.md](../../docs/architecture/system-overview.md)
 - [docs/architecture/e2e-contract-rules.md](../../docs/architecture/e2e-contract-rules.md)
 - [docs/architecture/foundations/dependency-injection.md](../../docs/architecture/foundations/dependency-injection.md)
-
-## Review checklist before claiming done
 
 ## Review checklist before claiming done
 

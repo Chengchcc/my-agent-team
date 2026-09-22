@@ -35,19 +35,22 @@ Every response has two parts:
 ## Architecture & Data Flow
 
 ```
-L5 Surfaces     Frontend web / IM bot - talk HTTP/SSE to backend
-L4 Backend      Multi-agent service (Elysia HTTP, auth, tenancy, runner pool)
-L3 Adapter      packages/adapter-* - child process boundary (spawn / JSONL RPC / steer / abort / approval)
-L2 Runtime      apps/oh-my-agent/src/core - createOmaSession(): model/tool loop, plugins, compaction, todo
-L1 Protocols    Type contracts: Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/message, agent-contract, api-contract, workflow)
+Surfaces        Web app / Lark bot / oma TUI - talk HTTP/SSE to the backend
+Backend         Product facts + execution control plane (apps/backend)
+Adapter         packages/adapter-* - child process boundary (spawn / JSONL / steer / stop / approval)
+Runtime         apps/oh-my-agent/src/core - model+tool loop, plugins, compaction, todo
+Protocols       Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/{message,agent-contract,api-contract,workflow})
 ```
+
+The current-state description of each layer lives in the wiki: start at
+[`docs/architecture/README.md`](docs/architecture/README.md).
 
 **Package dependency graph** (`audit:workspace` fails if a workspace member is
 missing from this list; `@chengchenccc/` is the scope of every name below):
 - Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`
 - Contracts: `@chengchenccc/agent-contract` (spawn-neutral `AgentBackend`), `@chengchenccc/api-contract` (HTTP `App` + SSE event maps — the web↔backend wire, type-only)
 - Adapters (child-process boundary): `@chengchenccc/adapter-oma-agent`, `@chengchenccc/adapter-claude-agent`, `@chengchenccc/adapter-pi-agent`, `@chengchenccc/adapter-omp-agent` (the 4 implement `AgentBackend`), `@chengchenccc/adapter-mcp` (MCP client mount — not an `AgentBackend`)
-- Runtime support: `@chengchenccc/ai` (provider + model registry, `AnthropicChatModel`), `@chengchenccc/test-helpers` (`echoModel()`)
+- Runtime support: `@chengchenccc/ai` (provider + model registry; `createProvider` over the three protocol implementations), `@chengchenccc/test-helpers` (`echoModel()`)
 - Plugins: 0 plugins as standalone packages; oma-native todo/progressive-skill live in `apps/oh-my-agent/src/core`
 - Apps: `@chengchenccc/backend` (consumes all), `@chengchenccc/oh-my-agent` (oma CLI + runtime), `@chengchenccc/web` (Next.js), `@chengchenccc/lark-bot`
 
@@ -60,7 +63,7 @@ missing from this list; `@chengchenccc/` is the scope of every name below):
 | `packages/message/` | Protocol layer: Message/MessageRevision + ChatModel/Tool/AIMessageChunk + stream utils (absorbed the former core package) |
 | `apps/oh-my-agent/src/core/` | Oma runtime: `createOmaSession()` (agent-loop), plugins, compaction, persistence (absorbed the former agent package) |
 | `apps/backend/src/features/workflow/` | Agentic Workflow DSL engine: triggers, executions, human tasks |
-| `packages/ai/` | Provider + Model registry, AnthropicChatModel, model metadata |
+| `packages/ai/` | Provider + model registry, protocol implementations, model metadata |
 | `packages/workflow/` | Agentic Workflow DSL pure domain: node graph, JSON-Logic routing, computeNext engine |
 | `packages/sandbox/` | Process sandbox for workflow script nodes + oma eval tool |
 | `packages/test-helpers/` | `echoModel()` for deterministic test doubles |
@@ -108,7 +111,7 @@ suite per mutation, so it is on-demand rather than a CI gate.
 Cross-package imports MUST go through the barrel (`index.ts`). `import { parseWorkflow } from "@chengchenccc/workflow"` not `"@chengchenccc/workflow/src/parse.js"`. Enforced by ESLint `consistent-type-imports`.
 
 ### Dependency Injection
-Backend uses **composition-root DI** (no framework): `main.ts` creates adapters, injects them into service factories, then mounts HTTP routes. Every feature follows hexagonal architecture:
+Backend uses **composition-root DI** (no framework): `src/bootstrap/features.ts` assembles ports, services and backends, `src/bootstrap/services.ts` builds process-level infrastructure, and `main.ts` only orders startup and signals. Feature routes never construct their own collaborators. Most features follow the same shape:
 
 ```
 domain.ts          — Pure types, entity interfaces
@@ -120,19 +123,11 @@ index.ts           — Barrel re-exports
 ```
 
 ### Agent Session Creation
-`createOmaSession(opts)` in `apps/oh-my-agent/src/core/runtime/agent-loop.ts` materializes an Oma session:
-```typescript
-{
-  sessionId: string;
-  store: SessionStore;      // in-memory or persisted (message store)
-  plugins: Plugin[];        // hooks + tools (oma-native plugins in apps/oh-my-agent)
-  maxSteps: number;
-  maxForceContinues: number;
-  modelStream: (messages, signal?, tools?) => AsyncIterable<AIMessageChunk>;
-  tools?: PluginTool[];     // per-run resolved tool table
-}
-```
-Backend run dispatch (`apps/backend/src/features/agent-run/execution.ts`) enqueues inputs, spawns the oma child through `packages/adapter-oma-agent`, and persists canonical messages via the conversation ledger.
+`createOmaSession(opts)` in `apps/oh-my-agent/src/core/runtime/agent-loop.ts` materializes an Oma session. The option type is `OmaSessionOptions` (`core/runtime/agent-loop-types.ts`); required are `sessionId`, `store`, `maxSteps`, `maxForceContinues`, `modelStream` and `summarize`, and per-run tools arrive through `resolveTools` rather than a `tools` array.
+
+Run-level assembly goes through `createOmaRuntime(options)` in `core/runtime/create-runtime.ts`, which `run-runtime.ts` extends into `RunRuntimeDeps`. Do not hand-build a session to model a Run.
+
+Backend dispatch is `apps/backend/src/features/agent-run/execution-dispatch.ts`: it enqueues inputs, spawns the child through the adapter for the run's backend kind, and commits canonical messages via the conversation ledger.
 
 ### Plugin System
 Plugins are plain objects `{ name, hooks?, tools?, meta? }` contributing tools, lifecycle hooks, and meta sections (see `Plugin` in `apps/oh-my-agent/src/core/runtime/plugin.ts`):
@@ -201,11 +196,15 @@ sessions actually running inside that app.
 |---|---|
 | `apps/backend/src/main.ts` | Composition root — wires all services, adapters, routes |
 | `apps/backend/src/app.ts` | Elysia app factory — mounts all feature routers |
-| `apps/backend/src/features/agent-run/execution.ts` | Run dispatch, transient SSE subscription, terminalize |
+| `apps/backend/src/features/agent-run/execution-dispatch.ts` | Run dispatch: preflight, workspace, projection, execute, settle, follow-up |
+| `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` | Terminal commit, failed commit, next-run promotion |
+| `apps/backend/src/features/agent-context/projection.ts` | Full branch projection (the only agent-context part with a production caller) |
 | `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 21 tables, single SQLite file |
 | `apps/oh-my-agent/src/core/runtime/agent-loop.ts` | `createOmaSession()` — the agent loop |
 | `apps/oh-my-agent/src/core/runtime/plugin.ts` | `Plugin`/`PluginHooks`, `validatePlugins()` |
 | `packages/message/src/chat-model.ts` | `ChatModel` contract |
+| `packages/agent-contract/src/backend.ts` | `AgentBackend` port + backend-kind registry |
+| `apps/backend/src/features/coding/task-worktrees.ts` | Task-axis worktree listing + terminal path whitelist |
 | `packages/ai/src/providers/anthropic-messages.ts` | Anthropic Messages API adapter |
 | `apps/web/src/lib/api.ts` | Typed API client (Eden Treaty) |
 | `apps/web/src/lib/client.ts` | BFF client + `unwrap()` helper |

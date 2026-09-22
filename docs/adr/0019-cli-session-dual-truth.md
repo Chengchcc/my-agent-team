@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted
+Accepted（「双轨」提法已被 ADR 0020 §6 收成单轨：所有后端共用分支上的 cli_session_ref）
 
 ## 上下文
 

@@ -39,6 +39,10 @@ bun run src/main.ts \
 
 参数解析见 `src/args.ts`：`--agent-id` 必填；`--backend-url`(默认 `http://localhost:3000`，可由 `BACKEND_URL` 兜底)、`--state-root`(默认 `./.data`，可由 `BACKEND_DATA_DIR` 兜底)、`--bot-display-name`、`--agent-name`、`--lark-profile`(缺省回退为 `agent:<safeAgentId>`)、`--backend-auth-token`(可由 `BACKEND_AUTH_TOKEN` 兜底)。
 
+## 已知残留
+
+卡片时代留下的东西没有全部清干净。`diagnostics.ts` 里 `watchers.runDelta` 与 `runStreams` 的 `cardSendFailed`/`cardUpdateFailed` 是恒为 0 的兼容字段；`markdown-normalizer.ts` 当初是给卡片写的（HTML 转义、图片转链接都只对卡片有意义），现在只剩纯文本路径 `render.ts` 在调它，卡片专属那部分属于死重量。另外 `role: "tool"` 的账本行不在出站排除名单里，会被当纯文本发出去。
+
 ## 依赖
 
-零工作区依赖，只靠 `bun:sqlite`、外部 `lark-cli` 二进制和 Node 标准库；通过 HTTP/SSE 对接 backend，由 backend 的 LarkBotRegistry 管理。
+依赖四个工作区包：`@chengchenccc/api-contract`、`@chengchenccc/backend`、`@chengchenccc/config`、`@chengchenccc/message`。前两个是跨进程类型来源——lark-bot 用 backend 的 Eden `App` 类型调 REST，用 api-contract 的 schema 校验 SSE 帧，两端各写一份 schema 是不行的。其余只靠 `bun:sqlite`、外部 `lark-cli` 二进制和 Node 标准库；进程由 backend 的 LarkBotRegistry 管理。

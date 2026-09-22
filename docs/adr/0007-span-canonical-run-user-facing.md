@@ -50,11 +50,11 @@ DB 迁移：`RENAME TABLE run TO span`（SQLite 原子操作，零数据风险�
 
 - 25 处后端代码引用需更新（schema.ts, store.ts, supervisor.ts, agent-svc-factory.ts, db.test.ts）
 - 1 个新 drizzle migration + 4 个 snapshot 自动重生
-- CONTEXT.md 技术债务表 "run/span 混用" 条目可标记为已解决
+- 当时的术语债务表（CONTEXT.md，已随文档重构删除）里 "run/span 混用" 条目视为已解决
 - Web 端不受影响：不 import drizzle schema，UI 文案保留 "run"
 
 ## 关联
 
-- [CONTEXT.md](../../CONTEXT.md) — 领域语言表 L16、技术债务表 L115
-- [设计哲学 §3](../../docs/architecture/design-philosophy.md) — 暴露业务，隐藏机制
-- [设计哲学 §5](../../docs/architecture/design-philosophy.md) — 名字就是架构
+- [架构区核心概念表](../architecture/README.md#核心概念) — 现行术语（run 是唯一执行身份）
+- [设计哲学 §3](../architecture/design-philosophy.md) — 暴露业务，隐藏机制
+- [设计哲学 §5](../architecture/design-philosophy.md) — 名字就是架构

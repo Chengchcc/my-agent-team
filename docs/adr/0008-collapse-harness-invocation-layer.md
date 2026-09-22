@@ -4,7 +4,7 @@
 
 ## 状态
 
-Implemented(was Proposed)
+Superseded（它删的层确实删了，但它新建的 plugin-trace / conversation_session / SpanSupervisor 后来又全部删除）
 
 ## 上下文
 

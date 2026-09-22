@@ -1,21 +1,24 @@
 # Apps
 
-`apps/` 是面向用户的 surfaces 层：用户从这里接触系统。真正有状态的核心是 `backend`，它持有会话、ledger、run 调度和 agent 生命周期；`web`、`lark-bot` 都是不持久化会话状态的接入端，各自把一种界面（浏览器、飞书）桥接到 backend，统一通过 HTTP + SSE 对话。
+`apps/` 是四个可运行的程序。有状态的核心是 `backend`：它持有产品事实（对话、账本、Agent Context、Project、Workflow）并创建每次执行。其余三个各自把一个界面接到它上面。
 
 ## 各应用一句话
 
-- [`backend`](./backend/)：有状态核心（L5）。提供 REST API、SSE 事件流、run 调度与 conversation/ledger，统管 agent 生命周期，并拉起/管理 lark-bot 实例。
-- [`web`](./web/)：浏览器观测与管理界面。Next.js 应用，经 BFF 代理把请求转发到 backend（注入鉴权头），用于查看会话、管理 agent。
-- [`lark-bot`](./lark-bot/)：飞书/Lark 桥接进程。把 IM 事件转发给 backend，订阅 run/会话事件并渲染卡片回推飞书，卡片失败时降级为文本；每个 agent 一个进程。
+- [`backend`](./backend/) — Elysia 服务，产品事实与执行控制面都在这里。每个 Agent Run 由它派单，spawn 一个一次性子进程；同时负责起停 lark-bot 实例。
+- [`web`](./web/) — 浏览器界面：对话（`/chat`）、worktree 终端（`/coding`）、团队与资源管理、自动化与运维页。经 BFF 代理把请求转到 backend，浏览器不持有后端 token。
+- [`oh-my-agent`](./oh-my-agent/) — oma，本仓库自研的 CLI 与 agent runtime。产品侧以 `--mode rpc` 当一个一次性子进程跑；独立使用时是交互式 TUI。
+- [`lark-bot`](./lark-bot/) — 飞书桥接进程：入站把 IM 事件 POST 给 backend，出站订阅该对话的 SSE 并把终态消息渲染成纯文本发回飞书。每个 agent 一个进程。
 
 ## 怎么跑起来
 
+日常开发直接 `bun run dev`（见 [开发环境](../docs/guides/development.md)）。分开跑也行：
+
 ```bash
-# 核心(其他 surface 多数依赖它)
-cd apps/backend && ANTHROPIC_API_KEY=sk-... BACKEND_AUTH_TOKEN=dev bun run src/main.ts
+# 后端（其他端多数依赖它）
+ANTHROPIC_API_KEY=sk-... BACKEND_AUTH_TOKEN=dev bun run apps/backend/src/main.ts
 
 # 浏览器界面
-cd apps/web && BACKEND_URL=http://localhost:3000 BACKEND_AUTH_TOKEN=dev bun run dev
+BACKEND_URL=http://localhost:3000 BACKEND_AUTH_TOKEN=dev bun run --cwd apps/web dev
 ```
 
-各应用的参数、环境变量与内部数据流详见其子目录 README。
+各应用的参数、环境变量与内部数据流详见其子目录 README；系统层面的说明在 [项目 wiki](../docs/README.md)。

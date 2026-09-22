@@ -4,7 +4,7 @@
 
 ## 状态
 
-Implemented(写锁+预算；并发池以串行替代)
+Obsolete（loop-lock 与 loop_budget 随 Loop 删除；同类机制今天分别是 workspace lock 与 Run 快照上的预算字段）
 
 ## 上下文
 
@@ -34,7 +34,7 @@ M4 是 MVP 最后一棒：cron 触发 loopStep()、fireLoop() 自管 retry/timeo
 ## 关联
 
 - [ADR 0001](../adr/0001-loop-prune-is-post-processing.md)
-- [CronJob 单飞锁](../architecture/foundations/cron-job.md)
+- CronJob 单飞锁（原链已随文档重构删除）
 
 ## 修订 (2026-07-02)
 
