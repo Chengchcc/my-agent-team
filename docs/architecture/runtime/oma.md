@@ -107,6 +107,29 @@ TUI 有三个**回合驱动**：它们都能在用户不再输入的情况下继
 - 驱动协议提示词走**隐藏输入通道**（`[goal-mode]` / `[ralph-loop]`）：只送达模型，不回显、不落会话文件（落了的话 `/resume` 会把它们回放成幽灵用户气泡）。
 - 会话切换（`/resume`、`/new`）不会让任何驱动自动继续：loop 关闭，plan 与 goal 恢复为 paused。loop 自己发起的 `/new`（`--keep-loop`）是唯一例外，否则每轮都要重启会话的循环会在第一轮就结束自己。
 
+## TUI 输入层：补全与路径显示
+
+输入框的补全契约在 `packages/tui/src/autocomplete.ts`（与 omp 的 `@oh-my-pi/pi-tui` 同源）：
+
+```ts
+interface AutocompleteProvider {
+  getSuggestions(lines, cursorLine, cursorCol, signal?)
+    → { items: AutocompleteItem[]; prefix: string } | null
+  applyCompletion(lines, cursorLine, cursorCol, item, prefix)
+    → { lines, cursorLine, cursorCol, onApplied? }
+  getInlineHint?(...) → string | null   // 光标后的暗色 ghost text
+}
+```
+
+两个设计要点：
+
+1. **provider 拿的是「行数组 + 光标坐标」，返回「候选集 + 正在匹配的前缀串」**。`prefix` 决定接受补全时替换哪一段，所以补全可以发生在行中间而不破坏前后文（mid-prompt `/skill:name` 就是靠它只替换那个 token）。
+2. **`CombinedAutocompleteProvider` 按优先级分流**：行首/行中 `/token` → slash 命令名（命中后交给该命令的 `getArgumentCompletions()`）；`@` 前缀 → 文件引用；其余 → 路径前缀补全。路径补全把前缀拆成 `dirname`/`basename`，读目录后按 `startsWith` 过滤（目录项补 `/`、文件项补空格），目录列表走 **2 秒 TTL 的 per-directory 缓存**；`signal` 让昂贵 provider 在光标移开后立刻中止。
+
+**新增补全的地方是 provider 接缝**：换 `basePath` 或包一层 factory（omp 的 `addAutocompleteProvider(factory)` 就是"在现有 provider 前面插一层"），不需要改编辑器。
+
+TUI 的 workspace 路径显示统一走 `formatWorkspace(root, maxLen)`（`tui-format.ts`）：`$HOME` 先折叠成 `~`，超过预算则**中间省略**（从中间向外丢整段，保留头锚点与尾部段名，单个超长段退化为 `head…tail`）。header 用 48 列预算，状态栏与 model/git/后台任务同排，用 32 列——项目 worktree 的 `<projectId>.<slug>` 尾巴很容易把整行撑爆，省略是默认行为而不是特例。
+
 ## 事件与终态
 
 子进程把 Runtime 事件包装为 `RunEventEnvelope` 发 stdout；Adapter 用自己的映射（`packages/adapter-oma-agent/src/event-mapper.ts`，与 child 的 `src/protocol/mapping.ts` 是**两份独立实现**，ADR 0024）转成 `BackendEvent` / `BackendRunOutcome`（completed/failed/aborted/timeout）。outcome 是唯一终态权威，事件流永不决定终态。
