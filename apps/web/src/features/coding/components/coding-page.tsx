@@ -10,6 +10,13 @@ import { CodingRail, type CodingSelection, terminalDot } from "./coding-rail";
 import { SplitView } from "./split-view";
 import { TerminalPane } from "./terminal-pane";
 
+/** Task-worktree cwd shape: <...>/projects/<projectId>.<slug> — the main
+ *  worktree's last segment is exactly the projectId, no dot suffix. */
+function isTaskWorktreeCwd(cwd: string): boolean {
+  const seg = cwd.split("/").pop() ?? "";
+  return /^[a-z0-9][a-z0-9-]{0,63}\.[a-z0-9][a-z0-9-]{0,39}$/i.test(seg);
+}
+
 export function CodingPage() {
   const terminals = useCodingTerminalsList();
   const [selected, setSelected] = useState<CodingSelection | null>(null);
@@ -37,9 +44,18 @@ export function CodingPage() {
   }, []);
 
   const selTerminals = selected
-    ? terminals.filter((x) => x.projectId === selected.projectId && x.agentId === selected.agentId)
+    ? terminals.filter(
+        (x) =>
+          x.projectId === selected.projectId &&
+          x.agentId === selected.agentId &&
+          // A task-worktree selection groups ONLY that path's terminals;
+          // a main selection groups the terminals whose cwd isn't a task
+          // path (they never set worktreePath at spawn).
+          (selected.worktreePath === undefined
+            ? !isTaskWorktreeCwd(x.cwd)
+            : x.cwd === selected.worktreePath),
+      )
     : [];
-
   const active =
     selTerminals.find((x) => x.terminalId === activeId) ??
     selTerminals.find((x) => x.terminalId === tabHint) ??

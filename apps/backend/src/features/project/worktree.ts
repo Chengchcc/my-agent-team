@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ConflictError } from "../../infra/domain-errors.js";
+import { ConflictError, ValidationError } from "../../infra/domain-errors.js";
 
 /** Project facts the worktree plumbing needs (subset of ProjectRow). */
 export interface WorktreeProject {
@@ -110,8 +110,10 @@ export async function createTaskWorktree(
   agentId: string,
   slug: string,
 ): Promise<string> {
-  if (!/^[a-z0-9][a-z0-9-]{0,39}$/i.test(slug)) {
-    throw new ConflictError(`invalid worktree slug: ${slug} (letters, digits, dashes; max 40)`);
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) {
+    throw new ValidationError(
+      `invalid worktree slug: ${slug} (lowercase letters, digits, dashes; max 40)`,
+    );
   }
   const wt = `${worktreePath(agentWorkspace, project.projectId)}.${slug}`;
   const branch = `${branchName(agentId, project.projectId)}.${slug}`;

@@ -24,6 +24,7 @@ import {
   createAgentConfigMcpServer,
 } from "../features/agent/index.js";
 import {
+  bridgeWorktreeRoot,
   type McpServerEntry,
   reconcileAgentResources,
   writeMcpConfig,
@@ -1035,15 +1036,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     };
     const mirror = await ensureMirror(config.dataDir, wtProject);
     const path = await createTaskWorktree(mirror, agent.workspacePath, wtProject, agentId, slug);
-    // Same bridge the reconcile gives every worktree: mcp + product tools.
-    reconcileAgentResources({
-      extraRoots: [path],
-      workspacePath: agent.workspacePath,
-      kind: agent.config.runtime_config.runtime,
-      skillPacks: [],
+    // MCP-only bridge: reconcileAgentResources treats skill/knowledge
+    // lists as authoritative want-sets — passing empties would wipe the
+    // main workspace's links (review round-2 P0).
+    bridgeWorktreeRoot({
+      root: path,
       mcpServers: await bridgeMcpServers(agentId),
       productTools: productToolsManifest(),
-      knowledgePacks: [],
     });
     return { path, mainPath: target.cwd };
   };

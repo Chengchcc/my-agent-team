@@ -19,6 +19,7 @@ export {
 } from "./service.js";
 export type { McpServerEntry } from "./workspace-bridge.js";
 export {
+  bridgeWorktreeRoot,
   PRODUCT_CONSENTED_MCP_TOOLS,
   PRODUCT_MCP_EXPANDABLE_VARS,
 } from "./workspace-bridge.js";

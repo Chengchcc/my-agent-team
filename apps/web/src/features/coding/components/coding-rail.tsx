@@ -10,6 +10,8 @@ import { useCreateTaskWorktree, useSpawnTerminal, useTaskWorktrees } from "../ho
 export interface CodingSelection {
   projectId: string;
   agentId: string;
+  /** Task-worktree path (clicking a slug row) — undefined = main worktree. */
+  worktreePath?: string;
 }
 
 /** Four-state dot (P2): the oma TUI publishes working/blocked/idle; a
@@ -53,6 +55,13 @@ function dotFor(
   return terminalDot(best);
 }
 
+/** Last path segment of a task worktree: <projectId>.<slug> — the main
+ *  worktree's last segment is exactly the projectId. */
+function isTaskCwd(cwd: string): boolean {
+  const seg = cwd.split("/").pop() ?? "";
+  return /^[a-z0-9][a-z0-9-]{0,63}\.[a-z0-9][a-z0-9-]{0,39}$/i.test(seg);
+}
+
 function ProjectWorktreeRows({
   project,
   terminals,
@@ -75,10 +84,15 @@ function ProjectWorktreeRows({
   const [taskAgent, setTaskAgent] = useState("");
 
   function open(agentId: string, worktreePath?: string, title?: string) {
-    onSelect({ projectId: project.projectId, agentId });
-    const has = terminals.some(
-      (x) => x.projectId === project.projectId && x.agentId === agentId && x.cwd === worktreePath,
-    );
+    onSelect({ projectId: project.projectId, agentId, ...(worktreePath ? { worktreePath } : {}) });
+    // Dedup by the pane's actual cwd: a task row matches only its own
+    // path's terminals; the main row matches terminals whose cwd is NOT a
+    // task path (main terminals never carry a worktreePath marker).
+    const isMain = worktreePath === undefined;
+    const has = terminals.some((x) => {
+      if (x.projectId !== project.projectId || x.agentId !== agentId) return false;
+      return isMain ? !isTaskCwd(x.cwd) : x.cwd === worktreePath;
+    });
     if (!has) {
       spawn.mutate({
         projectId: project.projectId,

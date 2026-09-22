@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
-import { ConflictError, NotFoundError } from "../../infra/domain-errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 import { readAgentStatusFor } from "./agent-status.js";
+import type { TaskWorktree } from "./task-worktrees.js";
 import type { TerminalCommand, TerminalInfo, TerminalRegistry } from "./terminal-registry.js";
 
 /** Coding-page surface (Herd-style terminals for project worktrees).
@@ -36,9 +37,7 @@ export interface CodingRoutesDeps {
   /** ws://host:port the browser connects terminals to (direct, plan A). */
   wsBase: string;
   /** Task worktrees (the task axis): list existing, create a new one. */
-  listTaskWorktrees: (
-    projectId: string,
-  ) => Promise<ReadonlyArray<{ agentId: string; slug: string; path: string }>>;
+  listTaskWorktrees: (projectId: string) => Promise<readonly TaskWorktree[]>;
   createTaskWorktree: (
     projectId: string,
     agentId: string,
@@ -79,7 +78,9 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       ? Response.json({ error: err.message }, { status: 404 })
       : err instanceof ConflictError
         ? Response.json({ error: err.message }, { status: 409 })
-        : null;
+        : err instanceof ValidationError
+          ? Response.json({ error: err.message }, { status: 422 })
+          : null;
 
   return new Elysia()
     .get("/api/coding/terminals", () => ({

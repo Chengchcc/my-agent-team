@@ -269,3 +269,17 @@ export function reconcileAgentResources(input: {
   reconcileKnowledgeResources(input.workspacePath, input.knowledgePacks);
   writeClaudeSettings(input.workspacePath);
 }
+
+/** MCP-only bridge write for EXTRA worktree roots (task worktrees, ADR
+ *  0023 addendum): .mcp.json + product-tools manifest only — NO skill /
+ *  knowledge reconcile. reconcileAgentResources treats those lists as
+ *  authoritative want-sets, so passing empties there would WIPE the agent
+ *  main workspace's links; this variant never touches them. */
+export function bridgeWorktreeRoot(input: {
+  root: string;
+  mcpServers: readonly McpServerEntry[];
+  productTools: readonly unknown[];
+}): void {
+  writeMcpConfig(input.root, input.mcpServers);
+  writeProductToolsManifest(input.root, input.productTools);
+}
