@@ -144,16 +144,28 @@ export function TerminalPane({
         </span>
         <span
           className={
-            exited ? "text-zinc-500" : conn === "live" ? "text-emerald-500" : "text-amber-500"
+            terminal.agentState === "blocked"
+              ? "text-amber-500"
+              : terminal.agentState === "working"
+                ? "animate-pulse text-emerald-500"
+                : terminal.agentState === "idle"
+                  ? "text-emerald-700"
+                  : exited
+                    ? "text-zinc-500"
+                    : conn === "live"
+                      ? "text-emerald-500"
+                      : "text-amber-500"
           }
         >
-          {exited
-            ? `process exited (${terminal.exitCode ?? 0})`
-            : conn === "live"
-              ? "live"
-              : conn === "connecting"
-                ? "connecting…"
-                : "reconnecting…"}
+          {terminal.agentState
+            ? `oma ${terminal.agentState}`
+            : exited
+              ? `process exited (${terminal.exitCode ?? 0})`
+              : conn === "live"
+                ? "live"
+                : conn === "connecting"
+                  ? "connecting…"
+                  : "reconnecting…"}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Button

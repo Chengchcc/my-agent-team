@@ -52,6 +52,7 @@ import {
   codingRoutes,
   createTerminalRegistry,
 } from "../features/coding/index.js";
+import { loadPersistedTerminals, savePersistedTerminals } from "../features/coding/persist.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
 import {
@@ -950,7 +951,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // ─── Coding page terminals (plan A: PTY registry, ADR on Coding page) ──
 
-  const codingRegistry = createTerminalRegistry();
   const resolveCodingTarget = async (projectId: string, agentId: string): Promise<CodingTarget> => {
     const agents = await agentSvc.list(true);
     const agent = agents.find((a) => a.id === agentId);
@@ -979,15 +979,50 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     }
     const oma = resolveOmaCommand(config, { mode: "tui" });
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+    const omaLaunch = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
     return {
       cwd,
       // ponytail: literal /bin/bash — env must flow through packages/config
       // (audit:contracts bans bare process.env reads here); add a config
       // knob only if a deployment ever needs a different shell.
       shell: { executable: "/bin/bash", args: [], env: oma.env },
-      omaLaunch: [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" "),
+      omaLaunch,
+      // oma panes (re)spawn as: oma --continue, then an interactive shell
+      // when it exits — no injection race, and a dead oma drops to a shell.
+      omaPane: {
+        executable: "/bin/bash",
+        args: ["-c", `${omaLaunch} --continue; exec /bin/bash`],
+        env: oma.env,
+      },
     };
   };
+
+  // Boot restore (P2): the membership snapshot survives restarts; entries
+  // whose agent/project vanished are skipped (and pruned on next persist).
+  // Fire-and-forget — a slow first-time mirror clone must not block boot.
+  const codingStateFile = join(config.dataDir, "coding", "terminals.json");
+  const codingRegistry = createTerminalRegistry({
+    persist: (snapshot) => savePersistedTerminals(codingStateFile, snapshot),
+  });
+  void (async () => {
+    for (const entry of loadPersistedTerminals(codingStateFile)) {
+      try {
+        const target = await resolveCodingTarget(entry.projectId, entry.agentId);
+        const cwd = existsSync(entry.cwd) ? entry.cwd : target.cwd;
+        codingRegistry.spawn({
+          terminalId: entry.terminalId,
+          projectId: entry.projectId,
+          agentId: entry.agentId,
+          cwd,
+          title: entry.title,
+          kind: entry.kind,
+          command: entry.kind === "oma" ? target.omaPane : target.shell,
+        });
+      } catch {
+        // agent/project gone — drop silently; next persist prunes it
+      }
+    }
+  })();
 
   // ─── Agentic Workflow ───────────────────────────────────
   const workflowPort = sqliteWorkflowExecutionAdapter(db);

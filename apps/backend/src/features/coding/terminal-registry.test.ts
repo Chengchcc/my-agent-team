@@ -126,3 +126,65 @@ describe("terminal registry", () => {
     ).toThrow(/does not exist/);
   });
 });
+
+describe("terminal registry P2 (kind, persist, restore)", () => {
+  test("persist snapshot fires on spawn, close, and setKind; env stays out", () => {
+    const snapshots: Array<Array<{ terminalId: string }>> = [];
+    const reg = createTerminalRegistry({
+      persist: (s) => snapshots.push([...s]),
+    });
+    const t = reg.spawn({
+      projectId: "p",
+      agentId: "a",
+      cwd: dir,
+      command: { executable: "/bin/bash", args: [], env: { SECRET: "x" } },
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(JSON.stringify(snapshots[0])).not.toContain("SECRET");
+
+    reg.setKind(t.terminalId, "oma", "oma");
+    expect(reg.get(t.terminalId)).toMatchObject({ kind: "oma", title: "oma" });
+    expect(snapshots).toHaveLength(2);
+
+    reg.close(t.terminalId);
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots[2]).toHaveLength(0);
+  });
+
+  test("explicit terminalId round-trips (boot restore keeps ids stable)", () => {
+    const reg = createTerminalRegistry();
+    const t = reg.spawn({
+      terminalId: "t-restore-1",
+      projectId: "p",
+      agentId: "a",
+      cwd: dir,
+      kind: "oma",
+      title: "oma",
+      command: { executable: "/bin/bash", args: ["-c", "echo restored; sleep 30"] },
+    });
+    expect(t.terminalId).toBe("t-restore-1");
+    expect(t.kind).toBe("oma");
+    reg.closeAll();
+  });
+
+  test("respawn with an override spec replaces the stored spec", async () => {
+    const reg = createTerminalRegistry();
+    const t = reg.spawn({
+      projectId: "p",
+      agentId: "a",
+      cwd: dir,
+      command: { executable: "/bin/bash", args: ["-c", "sleep 30"] },
+    });
+    reg.respawn(t.terminalId, {
+      executable: "/bin/bash",
+      args: ["-c", "echo override-marker; sleep 30"],
+    });
+    await waitFor(() => (reg.attach(t.terminalId, {})?.replay ?? "").includes("override-marker"));
+    // a plain respawn (no override) re-runs the OVERRIDE spec now
+    reg.respawn(t.terminalId);
+    await waitFor(
+      () => (reg.attach(t.terminalId, {})?.replay ?? "").match(/override-marker/g)?.length === 2,
+    );
+    reg.closeAll();
+  }, 10_000);
+});

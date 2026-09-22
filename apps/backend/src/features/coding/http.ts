@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { ConflictError, NotFoundError } from "../../infra/domain-errors.js";
+import { readAgentStatusFor } from "./agent-status.js";
 import type { TerminalCommand, TerminalInfo, TerminalRegistry } from "./terminal-registry.js";
 
 /** Coding-page surface (Herd-style terminals for project worktrees).
@@ -19,6 +20,10 @@ export interface CodingTarget {
    *  Herdr parity: the pane opens as a plain shell; launching the agent
    *  is an explicit user action (the button types this line). */
   omaLaunch: string;
+  /** The pane shape for oma-kind (re)spawns: run oma --continue, then
+   *  drop into a shell when it exits. Used by the restart button and by
+   *  boot restore — injection is for live shells only (startup race). */
+  omaPane: TerminalCommand;
 }
 
 export interface CodingRoutesDeps {
@@ -63,7 +68,15 @@ export function codingRoutes(deps: CodingRoutesDeps) {
         : null;
 
   return new Elysia()
-    .get("/api/coding/terminals", () => ({ terminals: registry.list() }))
+    .get("/api/coding/terminals", () => ({
+      terminals: registry.list().map((t) => ({
+        ...t,
+        // Structured pane state (P2): only a live oma pane carries one.
+        ...(t.kind === "oma" && t.status === "running"
+          ? { agentState: readAgentStatusFor(t.cwd)?.state }
+          : {}),
+      })),
+    }))
     .post(
       "/api/coding/terminals",
       async ({ body, set }) => {
@@ -102,6 +115,9 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       try {
         const target = await resolveTarget(info.projectId, info.agentId);
         registry.write(id, `${target.omaLaunch}\n`);
+        // The pane is now an oma pane: restart and boot-restore use the
+        // --continue form instead of a bare shell.
+        registry.setKind(id, "oma", "oma");
         return { ok: true };
       } catch (err) {
         const mapped = mapDomainError(err);
@@ -109,7 +125,21 @@ export function codingRoutes(deps: CodingRoutesDeps) {
         throw err;
       }
     })
-    .post("/api/coding/terminals/:id/respawn", ({ params: { id } }) => {
+    .post("/api/coding/terminals/:id/respawn", async ({ params: { id } }) => {
+      const info = registry.get(id);
+      if (!info) return Response.json({ error: "terminal not found" }, { status: 404 });
+      if (info.kind === "oma") {
+        try {
+          const target = await resolveTarget(info.projectId, info.agentId);
+          const terminal = registry.respawn(id, target.omaPane);
+          if (!terminal) return Response.json({ error: "terminal not found" }, { status: 404 });
+          return { terminal };
+        } catch (err) {
+          const mapped = mapDomainError(err);
+          if (mapped) return mapped;
+          throw err;
+        }
+      }
       const terminal = registry.respawn(id);
       if (!terminal) return Response.json({ error: "terminal not found" }, { status: 404 });
       return { terminal };

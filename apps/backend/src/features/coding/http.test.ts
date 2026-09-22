@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
@@ -151,5 +151,48 @@ describe("coding routes", () => {
       terminals: Array<{ terminalId: string }>;
     };
     expect(listed.terminals.some((t) => t.terminalId === terminal.terminalId)).toBe(false);
+  });
+});
+
+describe("coding agent status enrichment (P2)", () => {
+  test("a live oma terminal carries agentState; stale or shell panes don't", async () => {
+    const spawnRes = await fetch(`${base}/api/coding/terminals`, {
+      method: "POST",
+      body: JSON.stringify({ projectId: "p9", agentId: "a9" }),
+      headers: { "content-type": "application/json" },
+    });
+    const { terminal } = (await spawnRes.json()) as { terminal: { terminalId: string } };
+
+    const listed = () =>
+      fetch(`${base}/api/coding/terminals`).then(
+        (r) =>
+          r.json() as Promise<{
+            terminals: Array<{ terminalId: string; agentState?: string }>;
+          }>,
+      );
+
+    // No status file yet → no agentState on a shell-kind terminal.
+    const before = (await listed()).terminals.find((t) => t.terminalId === terminal.terminalId);
+    expect(before?.agentState).toBeUndefined();
+
+    // Mark it an oma pane, write a fresh status file → agentState flows.
+    await fetch(`${base}/api/coding/terminals/${terminal.terminalId}/launch-oma`, {
+      method: "POST",
+    });
+    mkdirSync(join(dir, ".oma"), { recursive: true });
+    writeFileSync(
+      join(dir, ".oma", "agent-status.json"),
+      JSON.stringify({ state: "blocked", sessionId: "s", ts: Date.now() }),
+    );
+    const enriched = (await listed()).terminals.find((t) => t.terminalId === terminal.terminalId);
+    expect(enriched?.agentState).toBe("blocked");
+
+    // A stale file (crashed writer) reports nothing rather than a lie.
+    writeFileSync(
+      join(dir, ".oma", "agent-status.json"),
+      JSON.stringify({ state: "working", sessionId: "s", ts: Date.now() - 10 * 60_000 }),
+    );
+    const stale = (await listed()).terminals.find((t) => t.terminalId === terminal.terminalId);
+    expect(stale?.agentState).toBeUndefined();
   });
 });

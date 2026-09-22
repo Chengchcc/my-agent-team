@@ -17,14 +17,45 @@ export interface CodingSelection {
 }
 
 /** Status dot for one (projectId, agentId): ● live PTY, ◦ none/dead. */
-function dotFor(terminals: CodingTerminalRow[], projectId: string, agentId: string) {
+/** Four-state dot (P2): the oma TUI publishes working/blocked/idle; a
+ *  shell pane or a dead process falls back to the plain two-state dot. */
+export function terminalDot(term: { status: string; agentState?: string }): {
+  mark: string;
+  cls: string;
+  label: string;
+} {
+  if (term.status === "exited") {
+    return { mark: "○", cls: "text-zinc-500", label: "exited" };
+  }
+  if (term.agentState === "blocked") {
+    return { mark: "◉", cls: "text-amber-500", label: "blocked" };
+  }
+  if (term.agentState === "working") {
+    return { mark: "●", cls: "animate-pulse text-emerald-500", label: "working" };
+  }
+  if (term.agentState === "idle") {
+    return { mark: "○", cls: "text-emerald-700", label: "idle" };
+  }
+  return { mark: "●", cls: "text-emerald-500", label: "running" };
+}
+function dotFor(
+  terminals: CodingTerminalRow[],
+  projectId: string,
+  agentId: string,
+): { mark: string; cls: string; label: string } {
   const ts = terminals.filter((x) => x.projectId === projectId && x.agentId === agentId);
-  const running = ts.some((x) => x.status === "running");
-  return {
-    running,
-    live: running,
-    dead: ts.some((x) => x.status === "exited"),
+  if (ts.length === 0) return { mark: "○", cls: "text-zinc-600", label: "" };
+  // Roll up the worktree's panes: blocked outranks working outranks a plain
+  // running shell outranks idle outranks exited.
+  const rank = (x: CodingTerminalRow): number => {
+    if (x.agentState === "blocked") return 0;
+    if (x.agentState === "working") return 1;
+    if (x.status === "running" && !x.agentState) return 2;
+    if (x.agentState === "idle") return 3;
+    return 4;
   };
+  const best = [...ts].sort((a, b) => rank(a) - rank(b))[0]!;
+  return terminalDot(best);
 }
 
 function ProjectWorktreeRows({
@@ -104,12 +135,8 @@ function ProjectWorktreeRows({
               active ? "bg-zinc-800" : ""
             }`}
           >
-            <span
-              className={
-                dot.live ? "text-emerald-500" : dot.dead ? "text-zinc-400" : "text-zinc-600"
-              }
-            >
-              {dot.live ? "●" : "○"}
+            <span className={dot.cls} title={dot.label}>
+              {dot.mark}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-zinc-200">{wt.agentId}</span>
@@ -222,13 +249,17 @@ export function CodingRail({
       ) : null}
       <div className="border-b border-zinc-800 py-1">
         {projects.map((p) => {
-          const rollup = terminals.some(
-            (x) => x.projectId === p.projectId && x.status === "running",
-          );
+          const mine = terminals.filter((x) => x.projectId === p.projectId);
+          const blocked = mine.some((x) => x.agentState === "blocked");
+          const running = mine.some((x) => x.status === "running");
           return (
             <div key={p.projectId} className="flex items-center gap-2 px-3 py-1 text-xs">
-              <span className={rollup ? "text-emerald-500" : "text-zinc-600"}>
-                {rollup ? "●" : "○"}
+              <span
+                className={
+                  blocked ? "text-amber-500" : running ? "text-emerald-500" : "text-zinc-600"
+                }
+              >
+                {blocked ? "◉" : running ? "●" : "○"}
               </span>
               <span className="truncate font-medium text-zinc-300">{p.name}</span>
               <span className="ml-auto truncate text-[10px] text-zinc-500">

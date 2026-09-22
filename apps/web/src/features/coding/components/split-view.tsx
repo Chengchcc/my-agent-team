@@ -51,7 +51,7 @@ export function SplitView({
   }
 
   return (
-    <div ref={rowRef} className="flex h-full min-h-0 w-full">
+    <div ref={rowRef} className="flex size-full min-h-0 ">
       {terminals.map((term, i) => (
         <div
           key={term.terminalId}

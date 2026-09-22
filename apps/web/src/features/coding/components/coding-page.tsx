@@ -7,7 +7,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import type { CodingTerminalRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { useCloseTerminal, useCodingTerminalsList, useSpawnTerminal } from "../hooks";
-import { CodingRail, type CodingSelection } from "./coding-rail";
+import { CodingRail, type CodingSelection, terminalDot } from "./coding-rail";
 import { SplitView } from "./split-view";
 import { TerminalPane } from "./terminal-pane";
 
@@ -15,7 +15,16 @@ export function CodingPage() {
   const terminals = useCodingTerminalsList();
   const [selected, setSelected] = useState<CodingSelection | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [split, setSplit] = useState(false);
+  const [split, setSplit] = useState(() =>
+    typeof window === "undefined" ? false : window.localStorage.getItem("coding-split") === "1",
+  );
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("coding-split", split ? "1" : "0");
+    } catch {
+      /* private mode — preference just doesn't persist */
+    }
+  }, [split]);
   const [tabHint, setTabHint] = useState<string | null>(null); // ?t= restore
   const spawn = useSpawnTerminal();
   const closeTerminal = useCloseTerminal();
@@ -78,35 +87,36 @@ export function CodingPage() {
             {selected ? (
               <>
                 <div className="flex items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2 py-1">
-                  {selTerminals.map((term) => (
-                    <span
-                      key={term.terminalId}
-                      className={`group flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs ${
-                        term.terminalId === active?.terminalId
-                          ? "bg-zinc-800 text-zinc-100"
-                          : "text-zinc-400 hover:bg-zinc-800/60"
-                      }`}
-                      onClick={() => setActiveId(term.terminalId)}
-                    >
+                  {selTerminals.map((term) => {
+                    const dot = terminalDot(term);
+                    return (
                       <span
-                        className={term.status === "running" ? "text-emerald-500" : "text-zinc-500"}
+                        key={term.terminalId}
+                        className={`group flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs ${
+                          term.terminalId === active?.terminalId
+                            ? "bg-zinc-800 text-zinc-100"
+                            : "text-zinc-400 hover:bg-zinc-800/60"
+                        }`}
+                        onClick={() => setActiveId(term.terminalId)}
                       >
-                        {term.status === "running" ? "●" : "○"}
+                        <span className={dot.cls} title={dot.label}>
+                          {dot.mark}
+                        </span>
+                        {term.title}
+                        <button
+                          type="button"
+                          className="opacity-0 transition-opacity group-hover:opacity-100"
+                          title={t("Close (kills process)")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void requestClose(term);
+                          }}
+                        >
+                          <XIcon className="size-3" />
+                        </button>
                       </span>
-                      {term.title}
-                      <button
-                        type="button"
-                        className="opacity-0 transition-opacity group-hover:opacity-100"
-                        title={t("Close (kills process)")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void requestClose(term);
-                        }}
-                      >
-                        <XIcon className="size-3" />
-                      </button>
-                    </span>
-                  ))}
+                    );
+                  })}
                   <button
                     type="button"
                     className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800/60"

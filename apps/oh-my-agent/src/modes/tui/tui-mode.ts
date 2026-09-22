@@ -30,6 +30,7 @@ import {
   resolveRuntimeKnobs,
 } from "../../core/settings/project-settings.js";
 import { type BashSandbox, resolveBashSandbox } from "../../core/tools/bash-sandbox.js";
+import { writeAgentStatus } from "./agent-status.js";
 
 /** One interactive TUI session per process; the coordination scope stays
  *  stable across Runs so subagent handles survive follow-ups in this
@@ -559,6 +560,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  Empty-submit interrupts the run so these send immediately; if the run
    *  ends first, they move to pendingFollowUps — never dropped. */
   const pendingSteerTexts: string[] = [];
+  // Structured pane status (P2): the session starts idle and every settled
+  // turn returns to idle (see the run wrapper below).
+  writeAgentStatus(opts.workspaceRoot, "idle", session.sessionId);
   for (;;) {
     io.render(state);
     // Steers that arrived while the previous loop was settling are drained
@@ -671,10 +675,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             io.runPtyConsole!(command, cwd, env, signal),
           // HITL: interactive approval overlay; absent picker or cancel = deny.
           approvalHandler: async (req) => {
+            writeAgentStatus(opts.workspaceRoot, "blocked", session.sessionId);
             const verdict = await io.confirmApproval?.({
               toolName: req.toolName,
               ...(req.reason ? { reason: req.reason } : {}),
             });
+            writeAgentStatus(opts.workspaceRoot, "working", session.sessionId);
             return verdict === "allow"
               ? { decision: "allow" }
               : { decision: "deny", reason: "user denied" };
@@ -685,10 +691,16 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // the knobs).
           ...(io.askQuestions
             ? {
-                askHandler: (input: AskQuestionInput) =>
-                  io.askQuestions!(input, {
-                    ...(knobs.askTimeoutMs ? { timeoutMs: knobs.askTimeoutMs } : {}),
-                  }),
+                askHandler: async (input: AskQuestionInput) => {
+                  writeAgentStatus(opts.workspaceRoot, "blocked", session.sessionId);
+                  try {
+                    return await io.askQuestions!(input, {
+                      ...(knobs.askTimeoutMs ? { timeoutMs: knobs.askTimeoutMs } : {}),
+                    });
+                  } finally {
+                    writeAgentStatus(opts.workspaceRoot, "working", session.sessionId);
+                  }
+                },
               }
             : {}),
           // Render on every event so model chunks (message_update) hit the
@@ -732,10 +744,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       ),
     );
     io.setBusy?.(true);
+    const turnStartedAt = Date.now();
     liveRuntime = runtime;
 
     let outcome: BackendRunOutcome;
-    const turnStartedAt = Date.now();
+    let statusBeat: ReturnType<typeof setInterval> | undefined;
     try {
       // Steer: a submit while the run is live injects immediately (pi's
       // streamingBehavior:"steer" — the loop buffers to a safe boundary).
@@ -780,8 +793,17 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           });
       };
       io.onLiveInput?.(steerHandler);
+      // Structured pane status (P2): working for the whole run with a 60s
+      // heartbeat, so readers can distinguish a live run from a crashed
+      // process whose status file went stale.
+      writeAgentStatus(opts.workspaceRoot, "working", session.sessionId);
+      statusBeat = setInterval(
+        () => writeAgentStatus(opts.workspaceRoot, "working", session.sessionId),
+        60_000,
+      );
       const segment = await runtime.run(runInput);
       outcome = await segment.outcome;
+      clearInterval(statusBeat);
       io.onLiveInput?.(null);
     } catch (err) {
       outcome = {
@@ -789,7 +811,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         error: err instanceof Error ? err.message : String(err),
       };
       io.onLiveInput?.(null);
+    } finally {
+      clearInterval(statusBeat);
     }
+    writeAgentStatus(opts.workspaceRoot, "idle", session.sessionId);
     liveRuntime = null;
 
     applyOutcome(state, outcome);
@@ -1003,6 +1028,9 @@ export async function runTuiMode(opts: TuiModeOptions): Promise<number> {
     return await runTuiSession(opts, io);
   } finally {
     io.close();
+    // The process is going away — leave "idle" behind so a supervisor's
+    // staleness check (not a frozen "working") reflects reality.
+    writeAgentStatus(opts.workspaceRoot, "idle", "");
   }
 }
 
