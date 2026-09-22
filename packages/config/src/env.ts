@@ -31,7 +31,7 @@ export const envSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Root of the stack's file resources (skills/, knowledge-packs/, workflow-showcase/). Defaults to the repo root, which a source checkout has; a packaged stack ships resources/ and points this at it.",
+      "Root of the stack's file resources (skills/, docs/, workflow-showcase/). Defaults to the repo root, which a source checkout has; a packaged stack ships resources/ and points this at it.",
     ),
   BACKEND_WORKSPACE_ROOT: z.string().optional(),
   BACKEND_TEMPLATE_DIR: z.string().optional(),

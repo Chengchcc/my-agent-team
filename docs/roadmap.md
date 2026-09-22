@@ -77,11 +77,9 @@
 
 ## 内容分发
 
-**内置技能包与知识包只播种一次，之后不再刷新。** `seedSkillPacks` 发现 builtin 记录已存在就直接返回，所以 `skills/` 改了、删了、加新技能之后，老安装里那份拷贝永远停在原地——而它会被桥接进 Agent 工作区、注入到 prompt 里。实测后果：本机 `.backend-data/skill-packs/builtin/` 里至今躺着 `loop-engine`、`loop-workflow`、`skill-pack-installer` 三个已经删掉的技能，模型读到的就是这个过期心智模型；知识包那份同理，还残留着 `createAgentSession()`。
+**内置包只在源目录指纹变化时刷新。** 修好了：`seedSkillPacks` 与知识包的 `syncBuiltin` 现在会比对源目录指纹（`directoryFingerprint`，存在 `sourceRev` 上），不一致就用 staging 目录加 rename 换掉；知识包刷新后还会重跑一次受影响 Agent 的 reconcile，否则注入的 `knowledge/index.md` 仍是旧的。
 
-同一类问题也出现在 `knowledge/index.md`：它只在 reconcile（启动、agent 更新、分配变化）时重建，所以包内容改了要等下一次 reconcile 才反映到注入的索引里。
-
-修法可以很省：`packages/source-fetch` 已经有 `directoryFingerprint`，启动时比一次指纹，不同就重拷（user 那份有自己的 keepSynced 机制，不受影响）。在此之前，升级后重装或删掉那个目录是唯一让它更新的办法。
+仍然粗糙的地方有两处：指纹是整目录 sha256，源目录每变一个字就要整包重拷（包里若有几百个文件，启动会多几百毫秒）；刷新只发生在启动，长时间不重启的进程要等下一次重启才看到仓库里的新文档。
 
 ## 界面
 

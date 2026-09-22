@@ -10,6 +10,7 @@ export interface SystemInfo {
 export interface SettingsService {
   get<T>(key: string): T | undefined;
   set<T>(key: string, value: T): void;
+  delete(key: string): void;
   getAll(): Record<string, unknown>;
   getSystemInfo(): SystemInfo;
 }
@@ -52,6 +53,10 @@ export function createSettingsService(deps: {
 
     set<T>(key: string, value: T): void {
       port.set(key, JSON.stringify(value));
+    },
+
+    delete(key: string): void {
+      port.delete(key);
     },
 
     getAll(): Record<string, unknown> {

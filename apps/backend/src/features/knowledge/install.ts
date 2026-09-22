@@ -90,20 +90,13 @@ export async function installKnowledgePack(
 
   try {
     if (input.sourceKind === "builtin") {
-      // name selects a subdirectory of builtinRoot — a bare segment — or the
-      // literal "." for the root itself (the project's own docs ARE the pack;
-      // there is no separate knowledge-packs directory to keep in sync).
-      // Without the segment check, "../" copies arbitrary directories into the
-      // pack, where the files API then reads them back out.
-      if (input.name !== "." && !/^[a-zA-Z0-9_-]+$/.test(input.name)) {
+      // `name` selects a subdirectory of builtinRoot and is a bare segment.
+      // Without this check, "../" copies arbitrary directories into the pack,
+      // where the files API then reads them back out.
+      if (!/^[a-zA-Z0-9_-]+$/.test(input.name)) {
         throw new Error(`invalid builtin pack name: ${input.name}`);
       }
-      const src =
-        deps.builtinRoot === undefined
-          ? null
-          : input.name === "."
-            ? deps.builtinRoot
-            : join(deps.builtinRoot, input.name);
+      const src = deps.builtinRoot === undefined ? null : join(deps.builtinRoot, input.name);
       if (!src || !existsSync(src)) throw new Error(`builtin pack not found: ${input.name}`);
       const res = await run("cp", ["-a", `${src}/.`, target], "/");
       if (res.exitCode !== 0) throw new Error(`copy failed: ${res.stderr.slice(0, 200)}`);
@@ -151,11 +144,10 @@ export async function installKnowledgePack(
   }
 }
 
-/** The on-disk source of a builtin pack, or null when the root is unset. The
- *  name is a single segment or the literal root (see the install branch). */
+/** The on-disk source of a builtin pack: `<root>/<name>`. `name` is validated
+ *  as a bare segment at install time. */
 function builtinSource(root: string | undefined, name: string): string | null {
-  if (root === undefined) return null;
-  return name === "." ? root : join(root, name);
+  return root === undefined ? null : join(root, name);
 }
 
 /** Re-copy a builtin pack when its source no longer matches the copy on disk.
@@ -176,12 +168,24 @@ export async function refreshBuiltinPack(
   const src = builtinSource(deps.builtinRoot, row.name);
   if (src === null || !existsSync(src)) return false;
   const target = row.installedRef ?? knowledgeInstallRoot(deps.dataDir, row.id);
-  if (!existsSync(target)) return false;
+  if (!existsSync(target)) {
+    // A previous swap died, or someone deleted the copy: materialise it under
+    // the canonical install root (what the first install would have produced).
+    const canonical = knowledgeInstallRoot(deps.dataDir, row.id);
+    mkdirSync(canonical, { recursive: true });
+    deps.port.update(row.id, { installedRef: canonical, updatedAt: Date.now() });
+    return refreshBuiltinPack(deps, { ...row, installedRef: canonical });
+  }
 
   const sourceRev = directoryFingerprint(src);
   if (row.sourceRev === sourceRev) return false;
 
+  // Copy beside the target, then swap: the target is renamed aside rather than
+  // deleted first, so there is no window where the pack is simply gone (a crash
+  // there used to leave a `ready` row pointing at nothing, and the refresh
+  // bailed on the missing directory forever).
   const staging = `${target}.staging-${process.pid}`;
+  const retired = `${target}.retired-${process.pid}`;
   rmSync(staging, { recursive: true, force: true });
   mkdirSync(staging, { recursive: true });
   const res = await run("cp", ["-a", `${src}/.`, staging], "/");
@@ -189,8 +193,10 @@ export async function refreshBuiltinPack(
     rmSync(staging, { recursive: true, force: true });
     throw new Error(`builtin refresh copy failed: ${res.stderr.slice(0, 200)}`);
   }
-  rmSync(target, { recursive: true, force: true });
+  rmSync(retired, { recursive: true, force: true });
+  renameSync(target, retired);
   renameSync(staging, target);
+  rmSync(retired, { recursive: true, force: true });
   deps.port.update(row.id, { sourceRev, installedRef: target, updatedAt: Date.now() });
   return true;
 }

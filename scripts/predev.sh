@@ -106,6 +106,26 @@ if [ -f "$WEB_ENV" ]; then
   chmod 600 "$WEB_ENV"
 fi
 
+# MOCK_PASSWORD is the stack's BOOTSTRAP login password: the backend adopts it
+# (as a hash) the first time a data dir boots, and the web uses it only before
+# that. So both processes need the same value — the backend because it writes
+# the hash, the web because it is the pre-seed fallback. Generate it in one
+# place and mirror, exactly like BACKEND_AUTH_TOKEN above.
+if [ -f "$WEB_ENV" ] && [ -f "$BACKEND_ENV" ]; then
+  password="$(grep -E '^MOCK_PASSWORD=' "$WEB_ENV" | head -n1 | sed -E 's/^MOCK_PASSWORD=//; s/[[:space:]]*#.*$//; s/[[:space:]]*$//')"
+  if [ -n "$password" ]; then
+    if grep -qE '^MOCK_PASSWORD=' "$BACKEND_ENV"; then
+      tmp="$(mktemp)"
+      sed -E "s|^MOCK_PASSWORD=.*$|MOCK_PASSWORD=${password}|" "$BACKEND_ENV" >"$tmp"
+      mv "$tmp" "$BACKEND_ENV"
+    else
+      printf 'MOCK_PASSWORD=%s\n' "$password" >>"$BACKEND_ENV"
+    fi
+    chmod 600 "$BACKEND_ENV"
+    echo "==> Mirrored MOCK_PASSWORD into apps/backend/.env (bootstrap for the login hash)"
+  fi
+fi
+
 # ── 4. Self-hosted Monaco assets (gitignored, regenerated per machine) ──
 # The workflow DSL editor and the read-only file viewers load Monaco from
 # /monaco/vs — a CDN mirror hangs on unreachable networks.

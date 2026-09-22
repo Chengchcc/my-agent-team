@@ -103,7 +103,8 @@ git reset --hard FETCH_HEAD
 ## 启动：崩溃恢复与 seed
 
 - **崩溃恢复**：所有 `pending` / `installing` / `syncing` 的行标记为 `failed`，error 写"进程在操作完成前重启"。builtin 例外。
-- **builtin seed**：没有 builtin 记录时，把仓库根的 `skills/` 复制到 `<dataDir>/skill-packs/builtin/`，登记一行 `ready` 的 builtin 包。源目录不存在时只建空目录，记录停在 `pending`（不伪造一个空的 ready）。
+- **builtin seed**：把仓库根的 `skills/` 复制到 `<dataDir>/skill-packs/builtin/`（先写 staging 目录再 rename，崩在拷贝中间不会留下半份包），登记一行 `ready` 的 builtin 包。源目录不存在时只建空目录，记录停在 `pending`，不伪造一个空的 ready。
+- **builtin 刷新**：记录已存在时不再直接返回，而是比对源目录与拷贝的指纹（`directoryFingerprint`），不一致就重拷。「装一次就冻结」曾让删掉的技能继续被注入 prompt，所以这一步是必须的。
 - 新建 Agent 默认分配 builtin（`onCreate` 钩子）。
 
 ## 运行时装配

@@ -49,7 +49,7 @@ export interface KnowledgeService {
     versionRef?: string;
   }): Promise<KnowledgePackRow>;
   /** Re-copy every builtin pack whose source directory changed, and report the
-   *  pack ids that were refreshed. Builtin packs are copies of repo
+   *  names of the packs that were refreshed. Builtin packs are copies of repo
    *  directories; without this they freeze at whatever the checkout looked
    *  like the first time the data dir was created. */
   syncBuiltin(): Promise<string[]>;

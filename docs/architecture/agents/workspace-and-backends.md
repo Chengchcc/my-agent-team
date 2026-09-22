@@ -98,7 +98,7 @@ hide: true        # 仍然可读可搜，只是不进注入的索引
 产品首次启动会把这个仓库的 `docs/architecture/` 直接拷成内置知识包（包名 `architecture`，`<dataDir>/knowledge/architecture`，然后软链进每个 Agent 的 `knowledge/`）。所以：
 
 - 这一区每个页面的 frontmatter 就是注入索引里那一行，`audit:docs` 会拦住缺 title/description 的页；
-- 改了页面（不改 frontmatter）只是索引文字变了，包内容要等重新播种才更新——seed 只做一次；
+- 包内容（连同注入的索引）在启动时按源目录指纹刷新：`docs/architecture/` 变了，`syncBuiltin` 就把它重拷一遍，并重跑一遍受影响 Agent 的 reconcile；
 - `docs/adr/` 不在包内：那些文件由技能生成，不会带手写 frontmatter，所以刻意排除；要读决策就按上面的路径去仓库里读。
 
 ## 四个后端怎么续接

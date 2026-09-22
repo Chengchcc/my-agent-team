@@ -1,5 +1,4 @@
-import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
@@ -254,39 +253,40 @@ export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promis
     log("the running gateway took it too (console-set password updated)");
     return 0;
   }
-  // Gateway not reachable: clear the stored hash instead, so the next start
-  // adopts the secret above. Without this, "rotate while down" is a no-op —
-  // the old hash outlives the rotation and the new password gets refused.
-  if (clearStoredPassword(home)) {
-    log("the stored password was cleared; it applies on the next start");
+  // Gateway not reachable: leave a reset request instead, so the next start
+  // adopts the secret above. Without this, "rotate while down" is a no-op — the
+  // stored hash outlives the rotation and the new password is refused.
+  const marker = requestPasswordReset(home);
+  if (marker) {
+    log(`the stored password will be dropped on the next start (${marker})`);
   } else {
     log("restart to apply: oma gateway down && oma gateway up -d");
   }
   return 0;
 }
 
-/** Delete the stored password hash from a stopped gateway's database so the
- *  secret file is authoritative again on the next boot. Returns true when a
- *  hash was actually removed. Never throws: a missing database just means
- *  nothing was ever set here. */
-function clearStoredPassword(home: string): boolean {
-  const dbPath = join(gatewayPaths(home).data, "backend", "backend.db");
-  if (!existsSync(dbPath)) return false;
-  try {
-    const db = new Database(dbPath);
-    const row = db
-      .query("select count(*) as n from settings where key = ?")
-      .get("auth.password_hash") as { n: number } | null;
-    if (!row || row.n === 0) {
-      db.close();
-      return false;
-    }
-    db.run("delete from settings where key = ?", ["auth.password_hash"]);
-    db.close();
-    return true;
-  } catch {
-    return false;
-  }
+/** Marker filename. Owned by the backend
+ *  (`apps/backend/src/features/auth/password.ts` PASSWORD_RESET_MARKER); oma
+ *  cannot import a backend module, so the literal is repeated here on purpose —
+ *  change both together. */
+const PASSWORD_RESET_MARKER = "password-reset";
+
+/** Ask the backend to drop its stored password by leaving the reset marker in
+ *  the gateway data dir; the backend consumes it on the next boot and the
+ *  secret file becomes authoritative again.
+ *
+ *  Deliberately NOT a database write: the backend owns backend.db (see
+ *  apps/oh-my-agent/AGENTS.md — "backend is the source of truth for product
+ *  state; the runtime is the runtime"). Writing another process's SQLite file
+ *  from the CLI would also race a running gateway. Returns the path written, or
+ *  null when there is no gateway data dir to write to yet. */
+function requestPasswordReset(home: string): string | null {
+  const dataDir = join(gatewayPaths(home).data, "backend");
+  if (!existsSync(join(gatewayPaths(home).data))) return null;
+  mkdirSync(dataDir, { recursive: true });
+  const marker = join(dataDir, PASSWORD_RESET_MARKER);
+  writeFileSync(marker, `${new Date().toISOString()}\n`);
+  return marker;
 }
 
 /** Update the console-set password (a hash in the backend's settings) when the

@@ -47,7 +47,7 @@ import {
   createArtifactFsAdapter,
   createArtifactService,
 } from "../features/artifact/index.js";
-import { authRoutes, createPasswordService } from "../features/auth/index.js";
+import { authRoutes, createPasswordService, MIN_PASSWORD_LENGTH } from "../features/auth/index.js";
 import {
   type CodingTarget,
   codingRoutes,
@@ -932,7 +932,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // Builtin project knowledge pack: the wiki's current-state zone, copied into
   // the data dir once and then available to every agent. `docs/architecture/`
-  // is the single source — there is no knowledge-packs/ copy to drift, and the
+  // is the single source — there is no second copy to drift, and the
   // ADR archive stays out of it because a skill generates those files.
   if (!knowledgeSvc.list().some((p) => p.sourceKind === "builtin" && p.name === "architecture")) {
     await knowledgeSvc
@@ -952,6 +952,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const refreshedKnowledge = await knowledgeSvc.syncBuiltin();
   if (refreshedKnowledge.length > 0) {
     console.error(`[knowledge] builtin packs refreshed: ${refreshedKnowledge.join(", ")}`);
+    // Refreshing the pack content is only half the job: `knowledge/index.md` is
+    // what the prompt actually shows, and it is otherwise rebuilt only when an
+    // agent is created or updated. Without this re-bridge a refreshed pack keeps
+    // listing its deleted pages until someone happens to edit an agent.
+    for (const agent of await agentSvc.list(true)) {
+      if (agent.config.runtime_config.knowledge_packs.length === 0) continue;
+      await reconcileAgent
+        .fn(agent.id)
+        .catch((err: Error) =>
+          console.warn(
+            `[knowledge] re-bridge after refresh failed for ${agent.id}: ${err.message}`,
+          ),
+        );
+    }
   }
 
   // ─── FeatureSet ─────────────────────────────────────────────
@@ -1202,7 +1216,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     definitionEvents: workflowDefinitionEvents,
   });
 
-  const passwordSvc = createPasswordService(settingsSvc);
+  const passwordSvc = createPasswordService(settingsSvc, { dataDir: config.dataDir });
 
   // The launcher's password (env/secret) is a BOOTSTRAP credential: adopt it
   // once, as a hash, then the DB is the only source. Without this, a regenerated
@@ -1212,9 +1226,19 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const seeded = await passwordSvc.seedFromBootstrap(config.bootstrapPassword);
   if (seeded === "seeded") {
     console.error("[auth] login password seeded into the database from MOCK_PASSWORD");
+  } else if (seeded === "reset") {
+    console.error("[auth] operator reset applied: the stored login password was dropped");
   } else if (seeded === "too-short") {
     console.error(
-      `[auth] MOCK_PASSWORD is shorter than ${8} characters; not seeding it as the login password`,
+      `[auth] MOCK_PASSWORD is shorter than ${MIN_PASSWORD_LENGTH} characters; not seeding it as the login password`,
+    );
+  } else if (seeded === "none") {
+    // Neither a stored password nor a bootstrap one: login is locked until
+    // someone sets one. Loud, because the usual cause is wiring (the bootstrap
+    // value not reaching THIS process) rather than an intentional choice.
+    console.error(
+      "[auth] no login password stored and no MOCK_PASSWORD bootstrap in this process's env;",
+      "set MOCK_PASSWORD or run scripts/reset-login-password.sh once the console is up",
     );
   }
 

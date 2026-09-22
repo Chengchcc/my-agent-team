@@ -17,17 +17,17 @@ export interface BackendConfig {
   /** Wall-clock cap on a run: the dispatch watchdog stops the backend and
    *  settles the run aborted when it exceeds this. */
   runTimeoutMs: number;
-  /** Root of the stack's file resources (skills/, knowledge-packs/,
-   *  workflow-showcase/). Defaults to the repo root — what a source checkout
-   *  has; a packaged stack ships resources/ and points this at it. */
+  /** Root of the stack's file resources (skills/, docs/, workflow-showcase/).
+   *  Defaults to the repo root — what a source checkout has; a packaged stack
+   *  ships resources/ and points this at it. */
   resourcesDir: string;
   /** Builtin skills seed source (`<resources>/skills`). */
   builtinSkillsDir: string;
-  /** Root the builtin knowledge pack is selected under: the current-state
-   *  zone of the wiki. `docs/architecture/` IS the pack (every page's
-   *  frontmatter becomes an index entry), so there is no second copy to keep
-   *  in sync — `docs/adr/` is excluded because those files are produced by a
-   *  skill and never carry hand-written frontmatter. */
+  /** Root the builtin knowledge pack is selected under: the wiki. The pack is
+   *  the current-state zone (`docs/architecture/`), chosen by name at seed
+   *  time; every page's frontmatter becomes an index entry, so there is no
+   *  second copy to keep in sync. `docs/adr/` stays out because a skill
+   *  generates those files and would drop hand-written frontmatter. */
   knowledgePacksDir: string;
   /** Showcase workflow seeds (`<resources>/workflow-showcase`). */
   workflowShowcaseDir: string;

@@ -5,22 +5,22 @@ set -euo pipefail
 # Recovery for a forgotten console password in a SOURCE checkout.
 #
 # The login password lives in the stack's own database (settings.auth.password_hash)
-# and the env value is only a bootstrap credential, so "forgot it" means "clear
-# the hash and let the next start adopt a known value".
+# and the env value is only a bootstrap credential, so "forgot it" means "ask the
+# backend to drop the stored one and adopt a value I know".
 #
-#   bash scripts/reset-login-password.sh            # reset to MOCK_PASSWORD from apps/web/.env
-#   bash scripts/reset-login-password.sh 'my-new-pw' # reset to a value you choose (>= 8 chars)
+#   bash scripts/reset-login-password.sh                  # use MOCK_PASSWORD from apps/web/.env
+#   bash scripts/reset-login-password.sh 'new-password-1' # or pick one (>= 8 chars)
 #
-# The backend must be restarted afterwards (it caches the service; the value is
-# re-read per login, but a restart is the honest instruction either way).
+# This script does NOT write the database — the backend is its only writer. It
+# drops the reset marker next to it, and the backend consumes that on the next
+# start. Restart the backend afterwards.
 #
-# For a gateway install (`oma gateway up`), use `oma gateway passwd` instead:
-# it rotates the secret and clears the stored hash itself.
+# Gateway installs use `oma gateway passwd`, which leaves the same marker.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${BACKEND_DATA_DIR:-$ROOT/apps/backend/.backend-data}"
-DB="${DATA_DIR%/}/backend.db"
 ENV_FILE="$ROOT/apps/web/.env"
+BACKEND_ENV="$ROOT/apps/backend/.env"
 
 PASSWORD="${1:-}"
 if [ -z "$PASSWORD" ] && [ -f "$ENV_FILE" ]; then
@@ -36,42 +36,35 @@ if [ "${#PASSWORD}" -lt 8 ]; then
   exit 1
 fi
 
-if [ ! -f "$DB" ]; then
-  echo "no database at $DB"
-  echo "it is created on the first backend start; until then the password is"
-  echo "whatever MOCK_PASSWORD says in $ENV_FILE"
-  exit 0
-fi
-
-PW="$PASSWORD" DB="$DB" bun -e '
-const { Database } = require("bun:sqlite");
-const db = new Database(process.env.DB);
-const exists = db
-  .query("select count(*) as n from settings where key = ?")
-  .get("auth.password_hash");
-if (!exists || exists.n === 0) {
-  console.log("no password was stored in this database (nothing to reset)");
-} else {
-  db.run("delete from settings where key = ?", ["auth.password_hash"]);
-  console.log("cleared the stored password hash");
-}
-db.close();
+# Write the chosen value where the BACKEND reads its bootstrap credential (it is
+# the process that hashes it), and keep web's copy in step so the pre-seed
+# fallback does not disagree. Done through bun, not sed: the value is arbitrary
+# text and sed would interpolate `&`, `|` and backslashes.
+PW="$PASSWORD" ENV_FILE="$ENV_FILE" BACKEND_ENV="$BACKEND_ENV" bun -e '
+const { readFileSync, writeFileSync, existsSync, chmodSync } = require("node:fs");
+const upsert = (path, key, value) => {
+  if (!existsSync(path)) return false;
+  const lines = readFileSync(path, "utf8").split("\n");
+  const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
+  if (idx >= 0) lines[idx] = `${key}=${value}`;
+  else {
+    if (lines.length && lines[lines.length - 1] !== "") lines.push("");
+    lines.push(`${key}=${value}`);
+  }
+  writeFileSync(path, lines.join("\n"));
+  chmodSync(path, 0o600);
+  return true;
+};
+const web = upsert(process.env.ENV_FILE, "MOCK_PASSWORD", process.env.PW);
+const backend = upsert(process.env.BACKEND_ENV, "MOCK_PASSWORD", process.env.PW);
+console.log(`wrote MOCK_PASSWORD: web=${web} backend=${backend}`);
 '
 
-# Write the chosen value where the next boot reads its bootstrap credential, so
-# a single restart lands on a password you know.
-if [ -f "$ENV_FILE" ]; then
-  tmp="$(mktemp)"
-  if grep -qE '^MOCK_PASSWORD=' "$ENV_FILE"; then
-    sed -E "s|^MOCK_PASSWORD=.*$|MOCK_PASSWORD=${PASSWORD}|" "$ENV_FILE" >"$tmp"
-  else
-    cat "$ENV_FILE" >"$tmp"
-    printf 'MOCK_PASSWORD=%s\n' "$PASSWORD" >>"$tmp"
-  fi
-  mv "$tmp" "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
-  echo "set MOCK_PASSWORD in apps/web/.env to the value you will use"
-fi
+# Ask the backend to drop the stored hash. A file, not a database write: the
+# backend owns its DB and may be running while this script is.
+mkdir -p "$DATA_DIR"
+date -Iseconds > "$DATA_DIR/password-reset"
+echo "reset requested ($DATA_DIR/password-reset)"
 
 echo ""
 echo "restart the backend, then log in with: user-001 / ${PASSWORD}"

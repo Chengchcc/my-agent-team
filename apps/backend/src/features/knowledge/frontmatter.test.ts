@@ -23,11 +23,11 @@ describe("knowledge frontmatter", () => {
     const text = "---\ntitle: broken\n\n# Body\n";
     expect(parseKnowledgeFrontmatter(text).body).toBe(text);
   });
-  test("summary is accepted as a description alias; hide is honoured", () => {
+  test("hide is honoured and an unknown key is ignored", () => {
     const meta = parseKnowledgeFrontmatter(
-      "---\nsummary: alias\ntags: runs\nhide: true\n---\nbody\n",
+      "---\nsummary: not a field any more\ntags: runs\nhide: true\n---\nbody\n",
     );
-    expect(meta.description).toBe("alias");
+    expect(meta.description).toBe("");
     expect(meta.tags).toEqual(["runs"]);
     expect(meta.hide).toBe(true);
   });

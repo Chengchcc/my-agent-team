@@ -26,6 +26,10 @@ export function sqliteSettingsAdapter(db: Database): SettingsPort {
       }
     },
 
+    delete(key: string): void {
+      d.delete(schema.settings).where(eq(schema.settings.key, key)).run();
+    },
+
     getAll(): SettingsRow[] {
       return d.select().from(schema.settings).all();
     },

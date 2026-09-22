@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SettingsService } from "../settings/index.js";
-import { createPasswordService } from "./password.js";
+import { createPasswordService, PASSWORD_RESET_MARKER } from "./password.js";
 
 /** Minimal KV: the password service only needs get/set. */
 function kv(): { svc: SettingsService; map: Map<string, unknown> } {
@@ -12,6 +15,9 @@ function kv(): { svc: SettingsService; map: Map<string, unknown> } {
       set: (k: string, v: unknown) => {
         map.set(k, v);
         return v;
+      },
+      delete: (k: string) => {
+        map.delete(k);
       },
     } as unknown as SettingsService,
   };
@@ -43,6 +49,42 @@ describe("bootstrap password seeding", () => {
     // Nothing stored: callers still get the "no stored password" signal so the
     // launcher's password can be used for the pre-seed window.
     expect(await pw.verify("anything")).toBeUndefined();
+  });
+
+  test("the reset marker drops the stored password exactly once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auth-reset-"));
+    try {
+      const { svc, map } = kv();
+      const pw = createPasswordService(svc, { dataDir: dir });
+      await pw.set("forgotten");
+      writeFileSync(join(dir, PASSWORD_RESET_MARKER), "now\n");
+
+      expect(await pw.seedFromBootstrap("new-password")).toBe("seeded");
+      expect(await pw.verify("new-password")).toBe(true);
+      expect(await pw.verify("forgotten")).toBe(false);
+      // Consumed: the next boot must not drop the password again.
+      expect(existsSync(join(dir, PASSWORD_RESET_MARKER))).toBe(false);
+      expect(await pw.seedFromBootstrap("third-password")).toBe("already-set");
+      expect(await pw.verify("new-password")).toBe(true);
+      expect(map.get("auth.password_hash")).toStartWith("$argon2id$");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a reset with no bootstrap value clears the hash and says so", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auth-reset-"));
+    try {
+      const { svc, map } = kv();
+      const pw = createPasswordService(svc, { dataDir: dir });
+      await pw.set("forgotten");
+      writeFileSync(join(dir, PASSWORD_RESET_MARKER), "now\n");
+      expect(await pw.seedFromBootstrap(undefined)).toBe("reset");
+      expect(map.has("auth.password_hash")).toBe(false);
+      expect(await pw.verify("forgotten")).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("a console-set password is never overwritten by the bootstrap", async () => {

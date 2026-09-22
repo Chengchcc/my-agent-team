@@ -14,6 +14,7 @@ function makeSettings(): SettingsService {
     set<T>(key: string, value: T): void {
       map.set(key, JSON.stringify(value));
     },
+    delete: () => {},
     getAll: () => ({}),
     getSystemInfo: () => ({ env: {}, paths: {} }),
   };

@@ -3,7 +3,7 @@ import { ValidationError } from "../../infra/domain-errors.js";
 import type { SettingsService } from "../settings/index.js";
 import { createPasswordService } from "./password.js";
 
-/** Minimal in-memory KV: the password service only needs get/set. */
+/** Minimal in-memory KV: get / set / delete is all the password service uses. */
 function fakeSettings(): SettingsService {
   const rows: Record<string, unknown> = {};
   return {
@@ -12,6 +12,9 @@ function fakeSettings(): SettingsService {
     },
     set<T>(key: string, value: T): void {
       rows[key] = value;
+    },
+    delete(key: string): void {
+      delete rows[key];
     },
     getAll: () => rows,
     getSystemInfo: () => ({

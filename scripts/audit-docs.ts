@@ -318,7 +318,7 @@ for (const rel of APP_DOC_FILES) {
 // and product names that look like files (`Next.js`) — and a noisy gate gets
 // disabled instead of fixed. Requiring a recognized root keeps the signal on
 // "this exact path, as written, resolves nowhere".
-const REL_ROOT = /^(?:src|apps|packages|docs|scripts|skills|tests|knowledge-packs)\//;
+const REL_ROOT = /^(?:src|apps|packages|docs|scripts|skills|tests)\//;
 const APP_REL_PATH =
   /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|json|jsonl|md|yaml|yml|sh|sql|css)$/;
 const NEIGHBORHOOD_DOCS = [
@@ -356,8 +356,10 @@ for (const rel of [...DOC_FILES, ...APP_DOC_FILES]) {
 // by `apps/backend/src/features/knowledge/frontmatter.ts`; keep the two in step.
 // `docs/adr/` is deliberately NOT covered: a skill writes those files and would
 // drop hand-written frontmatter on the next run.
-const KNOWLEDGE_REQUIRED_TITLE = /^---\r?\n[\s\S]*?\btitle:\s*\S/;
-const KNOWLEDGE_REQUIRED_DESCRIPTION = /^---\r?\n[\s\S]*?\bdescription:\s*\S/;
+/** The frontmatter block only: a `title:` in the page body must not satisfy
+ *  the check (that is how a page with a body heading and no metadata would slip
+ *  through — and the index would then list it by path alone). */
+const KNOWLEDGE_FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/;
 let frontmatterPages = 0;
 for (const rel of walkDocs(join(ROOT, "docs/architecture")).map((p) => p.replace(`${ROOT}/`, ""))) {
   const text = readFileSync(join(ROOT, rel), "utf8");
@@ -365,8 +367,13 @@ for (const rel of walkDocs(join(ROOT, "docs/architecture")).map((p) => p.replace
     fail(`${rel} has no frontmatter (it is knowledge-pack source; see audit-docs #15)`);
     continue;
   }
-  if (!KNOWLEDGE_REQUIRED_TITLE.test(text)) fail(`${rel} frontmatter has no title`);
-  if (!KNOWLEDGE_REQUIRED_DESCRIPTION.test(text)) fail(`${rel} frontmatter has no description`);
+  const block = text.match(KNOWLEDGE_FRONTMATTER)?.[1];
+  if (block === undefined) {
+    fail(`${rel} has no frontmatter block (it is knowledge-pack source; see audit-docs #15)`);
+    continue;
+  }
+  if (!/^title:\s*\S/m.test(block)) fail(`${rel} frontmatter has no title`);
+  if (!/^description:\s*\S/m.test(block)) fail(`${rel} frontmatter has no description`);
   frontmatterPages++;
 }
 

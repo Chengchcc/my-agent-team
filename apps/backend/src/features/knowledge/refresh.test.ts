@@ -106,6 +106,21 @@ describe("builtin knowledge refresh", () => {
     }
   });
 
+  test("a pack whose copy vanished is materialised again, not skipped", async () => {
+    const s = setup();
+    try {
+      rmSync(s.target, { recursive: true, force: true });
+      const refreshed = await refreshBuiltinPack(
+        { dataDir: s.dataDir, port: s.port, builtinRoot: s.builtinRoot },
+        s.row,
+      );
+      expect(refreshed).toBe(true);
+      expect(existsSync(join(s.target, "a.md"))).toBe(true);
+    } finally {
+      rmSync(s.tmp, { recursive: true, force: true });
+    }
+  });
+
   test("no staging directory is left behind, and non-builtin rows are ignored", async () => {
     const s = setup();
     try {

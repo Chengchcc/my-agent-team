@@ -8,6 +8,7 @@
  *  description: One line saying what this file answers, for the injected index
  *  tags: [runs, backend]
  *  hide: true          # readable and searchable, but not listed in the index
+ *
  *  ---
  *
  *  The purpose is progressive loading: the index injected into every run
@@ -80,7 +81,7 @@ export function parseKnowledgeFrontmatter(text: string): KnowledgeFrontmatter {
 
   return {
     title: scalar(fields.get("title")),
-    description: scalar(fields.get("description") ?? fields.get("summary")),
+    description: scalar(fields.get("description")),
     tags: list(fields.get("tags")),
     hide: /^(true|yes|1)$/i.test(fields.get("hide") ?? ""),
     body: text.slice(match[0].length),

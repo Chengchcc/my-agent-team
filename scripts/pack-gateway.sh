@@ -109,6 +109,7 @@ cat > "$STAGE/gateway.json" <<JSON
       "healthUrl": "http://127.0.0.1:3000/health",
       "env": {
         "BACKEND_DATA_DIR": "{dataDir}/backend",
+        "MOCK_PASSWORD": "{secret:MOCK_PASSWORD}",
         "BACKEND_MIGRATIONS_DIR": "{root}/backend/drizzle/backend",
         "BACKEND_RESOURCES_DIR": "{root}/resources",
         "BACKEND_HOST": "127.0.0.1",
