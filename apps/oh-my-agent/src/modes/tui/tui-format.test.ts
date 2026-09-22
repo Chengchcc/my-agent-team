@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  elideMiddle,
   formatGoalInput,
   formatRalphInput,
   formatSettlementText,
+  formatWorkspace,
   isHiddenInput,
   SETTLEMENT_SENTINEL,
 } from "./tui-format.js";
@@ -33,5 +35,38 @@ describe("hidden run-input channel", () => {
     expect(wrapped.startsWith("[goal-mode]")).toBe(true);
     expect(wrapped).toContain(prompt);
     expect(isHiddenInput(wrapped)).toBe(true);
+  });
+});
+
+describe("formatWorkspace / elideMiddle", () => {
+  test("short paths pass through unchanged", () => {
+    expect(elideMiddle("/a/b", 48)).toBe("/a/b");
+    expect(elideMiddle("x", 2)).toBe("x");
+  });
+
+  test("long paths drop middle segments, keeping the anchor and the tail", () => {
+    const out = elideMiddle("/root/agent-ws/projects/p1.a-very-long-task-slug", 32);
+    expect(out.length).toBeLessThanOrEqual(32);
+    expect(out.startsWith("/…/")).toBe(true);
+    expect(out.endsWith("p1.a-very-long-task-slug")).toBe(true);
+  });
+
+  test("a single very long segment falls back to a head…tail cut", () => {
+    const out = elideMiddle(`/${"z".repeat(80)}`, 20);
+    expect(out.length).toBeLessThanOrEqual(20);
+    expect(out).toContain("…");
+  });
+
+  test("HOME collapses to ~ before eliding", () => {
+    const prev = process.env.HOME;
+    process.env.HOME = "/home/dev";
+    try {
+      expect(formatWorkspace("/home/dev/short")).toBe("~/short");
+      const long = formatWorkspace("/home/dev/ws/projects/p1.some-long-slug", 24);
+      expect(long.length).toBeLessThanOrEqual(24);
+      expect(long.startsWith("~")).toBe(true);
+    } finally {
+      process.env.HOME = prev;
+    }
   });
 });

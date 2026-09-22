@@ -575,7 +575,9 @@ export class TuiRenderShell {
     if (this.headerModel) {
       segs.push({ text: this.headerModel, chip: true, bg: tuiTheme.bgPanel });
     }
-    segs.push({ text: formatWorkspace(this.workspaceRoot), fg: tuiTheme.info });
+    // The status line shares its row with model/git/job segments — give the
+    // path a tighter budget than the header's.
+    segs.push({ text: formatWorkspace(this.workspaceRoot, 32), fg: tuiTheme.info });
     // M-bash/M-eval: surface running background jobs (bash bg_N / eval eval_N).
     const runningBg = defaultRegistry.countRunningJobs();
     if (runningBg > 0) {

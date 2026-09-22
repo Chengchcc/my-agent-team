@@ -473,13 +473,39 @@ export function gitStatusCached(workspaceRoot: string): string {
   return gitCache?.root === workspaceRoot ? gitCache.value : "";
 }
 
-/** Shorten the workspace path for display (~/... when under HOME). */
-export function formatWorkspace(root: string): string {
+/** Workspace path for the header/status line. `$HOME` collapses to `~`,
+ *  and a long path is MIDDLE-elided (… keeps the first and last segments
+ *  readable) — full paths blow the line out once project worktrees add
+ *  `<projectId>.<slug>` tails. */
+export function formatWorkspace(root: string, maxLen = 48): string {
   const home = process.env.HOME;
-  if (home && (root === home || root.startsWith(`${home}/`))) {
-    return root === home ? "~" : `~${root.slice(home.length)}`;
+  const tilde =
+    home && (root === home || root.startsWith(`${home}/`))
+      ? root === home
+        ? "~"
+        : `~${root.slice(home.length)}`
+      : root;
+  return elideMiddle(tilde, maxLen);
+}
+
+/** Keep `maxLen` visible columns by dropping middle segments. Falls back to
+ *  a head…tail cut of the whole string when that isn't enough. */
+export function elideMiddle(path: string, maxLen: number): string {
+  if (maxLen <= 1 || path.length <= maxLen) return path;
+  const segs = path.split("/");
+  if (segs.length > 2) {
+    // Drop segments from the middle outwards, keeping the leading anchor
+    // ("" for absolute, "~" for home) and the trailing segments.
+    const head = segs[0] === "" ? ["", "…"] : [segs[0], "…"];
+    for (let keep = 1; keep < segs.length; keep++) {
+      const tailSegs = segs.slice(segs.length - keep);
+      const candidate = [...head, ...tailSegs].join("/");
+      if (candidate.length <= maxLen) return candidate;
+    }
   }
-  return root;
+  const head = path.slice(0, Math.max(1, Math.ceil((maxLen - 1) / 2)));
+  const tail = path.slice(-Math.floor((maxLen - 1) / 2));
+  return `${head}…${tail}`;
 }
 
 /** Branch cyan, dirty count ember (omp gitClean/gitDirty colors). */
