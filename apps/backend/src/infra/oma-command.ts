@@ -33,6 +33,9 @@ export function resolveOmaCommand(
   opts: {
     env?: Readonly<Record<string, string | undefined>>;
     appEntry?: string;
+    /** "tui" (Coding-page terminal): omit --mode entirely — the child is an
+     *  interactive PTY session, not the one-shot RPC child. Default "rpc". */
+    mode?: "rpc" | "tui";
   } = {},
 ): OmaCommandConfig {
   const env = {
@@ -67,6 +70,16 @@ export function resolveOmaCommand(
     return { executable: config.omaBin, args: ["--mode", "rpc"], env };
   }
 
+  // RPC mode is mandatory for adapter children: without it the child blocks
+  // on piped stdin (print mode) while the adapter keeps stdin open - a
+  // deadlock. The TUI terminal passes no --mode: a PTY runs the interactive
+  // default.
+  const modeArgs = (opts.mode ?? "rpc") === "rpc" ? ["--mode", "rpc"] : [];
+
+  if (config.omaBin) {
+    return { executable: config.omaBin, args: modeArgs, env };
+  }
+
   // Monorepo dev/test fallback: same Bun executable as the Backend, running
   // the Oma's source CLI directly. apps/backend/src/infra →
   // ../../.. → apps/ → oma/src/cli.ts
@@ -77,7 +90,7 @@ export function resolveOmaCommand(
 
   return {
     executable: process.execPath,
-    args: [appEntry, "--mode", "rpc"],
+    args: [appEntry, ...modeArgs],
     env,
   };
 }

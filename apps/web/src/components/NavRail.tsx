@@ -16,6 +16,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   SettingsIcon,
+  TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
@@ -135,6 +136,19 @@ function NavContent() {
               >
                 <RefreshCwIcon />
                 <span className="truncate">{t("Today")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/coding")}
+                tooltip={t("Coding")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/coding");
+                }}
+              >
+                <TerminalIcon />
+                <span className="truncate">{t("Coding")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>

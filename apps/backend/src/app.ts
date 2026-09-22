@@ -3,6 +3,7 @@ import type { agentRoutes } from "./features/agent/http.js";
 import type { agentRunRoutes } from "./features/agent-run/http.js";
 import type { artifactRoutes } from "./features/artifact/http.js";
 import type { authRoutes } from "./features/auth/http.js";
+import type { codingRoutes } from "./features/coding/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { knowledgeRoutes } from "./features/knowledge/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
@@ -27,6 +28,7 @@ export interface FeatureSet {
   skillPacks: ReturnType<typeof skillPackRoutes>;
   mcp: ReturnType<typeof mcpRoutes>;
   knowledge: ReturnType<typeof knowledgeRoutes>;
+  coding: ReturnType<typeof codingRoutes>;
   settings: ReturnType<typeof settingsRoutes>;
   auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;
@@ -58,6 +60,7 @@ export function createApp(token: string, features: FeatureSet) {
     workflowExecutions,
     artifacts,
     productTools,
+    coding,
   } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -87,6 +90,10 @@ export function createApp(token: string, features: FeatureSet) {
     // the whole API unauthenticated (runtime-proven 2026-09-07).
     .onBeforeHandle(function authGuard({ path, headers, set }) {
       if (path === "/health") return undefined;
+      // WS upgrades cannot carry the x-auth-token header (browser WebSocket
+      // API limitation) — /ws/* routes carry their own one-time-ticket auth
+      // (minted through this authenticated REST chain). Exempt ≠ open.
+      if (path.startsWith("/ws/")) return undefined;
       if (!checkAuthToken(headers["x-auth-token"] ?? "", token)) {
         set.status = 401;
         return { error: "Unauthorized" };
@@ -101,8 +108,9 @@ export function createApp(token: string, features: FeatureSet) {
     .use(agentRuns)
     .use(workflowExecutions)
     .use(artifacts)
-    .use(productToolsRoutes(productTools))
     .use(projects)
+    .use(productToolsRoutes(productTools))
+    .use(coding)
     .use(skillPacks)
     .use(settings)
     .use(auth)

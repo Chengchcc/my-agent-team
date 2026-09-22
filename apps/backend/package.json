@@ -32,6 +32,7 @@
     "@chengchenccc/source-fetch": "workspace:*",
     "@chengchenccc/workflow": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "bun-pty": "^0.4.10",
     "drizzle-orm": "^0.44.0",
     "elysia": "1.4.30",
     "zod": "^3.23.0"

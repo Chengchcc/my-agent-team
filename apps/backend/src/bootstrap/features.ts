@@ -47,6 +47,11 @@ import {
   createArtifactService,
 } from "../features/artifact/index.js";
 import { authRoutes, createPasswordService } from "../features/auth/index.js";
+import {
+  type CodingTarget,
+  codingRoutes,
+  createTerminalRegistry,
+} from "../features/coding/index.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
 import {
@@ -101,6 +106,7 @@ import {
   WorkflowDefinitionEventBus,
   workflowRoutes,
 } from "../features/workflow/index.js";
+import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
 import { ulid } from "../infra/ids.js";
 import { resolveKnowledgeMcpServerEntry } from "../infra/knowledge-mcp-command.js";
 import { resolveOmaCommand } from "../infra/oma-command.js";
@@ -942,6 +948,44 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       })),
   });
 
+  // ─── Coding page terminals (plan A: PTY registry, ADR on Coding page) ──
+
+  const codingRegistry = createTerminalRegistry();
+  const resolveCodingTarget = async (projectId: string, agentId: string): Promise<CodingTarget> => {
+    const agents = await agentSvc.list(true);
+    const agent = agents.find((a) => a.id === agentId);
+    if (!agent) throw new NotFoundError("agent", agentId);
+    if (!agent.config.runtime_config.projects.includes(projectId)) {
+      throw new ConflictError(`agent ${agentId} has not attached project ${projectId}`);
+    }
+    const project = projectSvc.getById(projectId);
+    if (!project?.repoUrl) {
+      throw new NotFoundError("project", projectId);
+    }
+    const wtProject = {
+      projectId: project.projectId,
+      repoUrl: project.repoUrl,
+      defaultBranch: project.defaultBranch,
+    };
+    const cwd = join(agent.workspacePath, "projects", projectId);
+    if (!existsSync(cwd)) {
+      // Normally the agent-update reconcile materialized it; first click
+      // after a fresh deploy does it on demand (local mirror, bounded).
+      const mirror = await ensureMirror(config.dataDir, wtProject);
+      const wt = await ensureWorktree(mirror, agent.workspacePath, wtProject, agentId);
+      if (!wt) {
+        throw new ConflictError(`worktree slot occupied by a plain directory: ${cwd}`);
+      }
+    }
+    const oma = resolveOmaCommand(config, { mode: "tui" });
+    const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+    return {
+      cwd,
+      shell: { executable: process.env.SHELL || "/bin/bash", args: [], env: oma.env },
+      omaLaunch: [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" "),
+    };
+  };
+
   // ─── Agentic Workflow ───────────────────────────────────
   const workflowPort = sqliteWorkflowExecutionAdapter(db);
   const workflowEventBus = new ExecutionEventBus();
@@ -1062,6 +1106,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
         return map;
       })(),
+    }),
+    coding: codingRoutes({
+      registry: codingRegistry,
+      resolveTarget: resolveCodingTarget,
+      wsBase: `ws://${config.host}:${config.port}`,
     }),
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),

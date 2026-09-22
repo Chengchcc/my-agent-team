@@ -15,6 +15,7 @@ export type AgentRunStatus =
   | "timeout";
 
 export type ProjectRow = ApiReturn<typeof api.listProjects>["projects"][number];
+export type CodingTerminalRow = ApiReturn<typeof api.listCodingTerminals>["terminals"][number];
 export type LarkSetupSession = ApiReturn<typeof api.larkSetup>;
 export type AgentRow = ApiReturn<typeof api.listAgents>[number] & {
   enabled?: boolean;
@@ -270,6 +271,15 @@ export const api = {
     },
   ) => unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
+  // Coding terminals (worktree PTYs)
+  listCodingTerminals: () => unwrap(client.api.coding.terminals.get()),
+  spawnCodingTerminal: (body: Parameters<typeof client.api.coding.terminals.post>[0]) =>
+    unwrap(client.api.coding.terminals.post(body)),
+  closeCodingTerminal: (id: string) => unwrap(client.api.coding.terminals({ id }).delete()),
+  respawnCodingTerminal: (id: string) => unwrap(client.api.coding.terminals({ id }).respawn.post()),
+  launchOmaInTerminal: (id: string) =>
+    unwrap(client.api.coding.terminals({ id })["launch-oma"].post()),
+  codingWsTicket: () => unwrap(client.api.coding["ws-ticket"].post()),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
   getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),
