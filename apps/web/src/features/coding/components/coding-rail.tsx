@@ -1,10 +1,5 @@
-"use client";
-
-import { PlusIcon } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ProjectForm } from "@/components/ProjectForm";
 import { useAgentList } from "@/features/agents/hooks";
 import { useProjectList, useProjectWorktrees } from "@/features/projects/hooks";
 import { type AgentRow, api, type CodingTerminalRow, type ProjectRow } from "@/lib/api";
@@ -151,65 +146,6 @@ function ProjectWorktreeRows({
   );
 }
 
-function NewProjectForm() {
-  const [name, setName] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
-  const [branch, setBranch] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function create() {
-    if (!name.trim() || !repoUrl.trim()) return;
-    setBusy(true);
-    try {
-      await api.createProject({
-        name: name.trim(),
-        repoUrl: repoUrl.trim(),
-        defaultBranch: branch.trim() || undefined,
-      });
-      toast.success(t("Project created"));
-      setName("");
-      setRepoUrl("");
-      setBranch("");
-    } catch (e) {
-      toast.error(t("Create failed"), { description: String(e) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="space-y-1 px-3 py-2">
-      <Input
-        placeholder={t("name")}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="h-7 text-xs"
-      />
-      <Input
-        placeholder={t("repo URL")}
-        value={repoUrl}
-        onChange={(e) => setRepoUrl(e.target.value)}
-        className="h-7 text-xs"
-      />
-      <Input
-        placeholder={t("default branch (optional)")}
-        value={branch}
-        onChange={(e) => setBranch(e.target.value)}
-        className="h-7 text-xs"
-      />
-      <Button
-        size="sm"
-        className="h-7 w-full text-xs"
-        disabled={busy}
-        onClick={() => void create()}
-      >
-        <PlusIcon className="size-3.5" />
-        {t("Create project")}
-      </Button>
-    </div>
-  );
-}
-
 /** Herdr-style two halves: spaces (projects) on top, agents (worktrees,
  *  flattened) below. Clicking a worktree row jumps straight to its pane. */
 export function CodingRail({
@@ -223,7 +159,6 @@ export function CodingRail({
 }) {
   const { data } = useProjectList();
   const projects = data?.projects ?? [];
-  const [showNew, setShowNew] = useState(false);
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r border-zinc-800 bg-zinc-950">
@@ -231,17 +166,11 @@ export function CodingRail({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
           {t("Projects")}
         </span>
-        <button
-          type="button"
-          className="text-zinc-500 hover:text-zinc-300"
-          title={t("New project")}
-          onClick={() => setShowNew((v) => !v)}
-        >
-          <PlusIcon className="size-4" />
-        </button>
+        {/* Reuses the projects page's dialog: one create flow, one
+            validation shape, shared query invalidation. */}
+        <ProjectForm />
       </div>
-      {showNew ? <NewProjectForm /> : null}
-      {projects.length === 0 && !showNew ? (
+      {projects.length === 0 ? (
         <div className="px-3 py-2 text-xs text-zinc-500">
           {t("No projects yet — create one to start coding.")}
         </div>

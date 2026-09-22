@@ -43,12 +43,17 @@ export function TerminalPane({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
-    try {
-      fit.fit();
-    } catch {
-      /* not laid out yet — the ResizeObserver below picks it up */
-    }
-
+    // fit() against an unconstrained container feeds itself (rows →
+    // height → more rows); only fit when the layout gave us real pixels.
+    const safeFit = () => {
+      if (el.clientHeight < 50) return;
+      try {
+        fit.fit();
+      } catch {
+        /* not laid out yet — the ResizeObserver below picks it up */
+      }
+    };
+    safeFit();
     let disposed = false;
     let ws: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -107,11 +112,7 @@ export function TerminalPane({
     });
 
     const ro = new ResizeObserver(() => {
-      try {
-        fit.fit();
-      } catch {
-        /* container hidden */
-      }
+      safeFit();
       sendResize();
     });
     ro.observe(el);
