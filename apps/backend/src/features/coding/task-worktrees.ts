@@ -34,7 +34,7 @@ export function listTaskWorktrees(
       const slug = entry.slice(prefix.length);
       if (!SLUG_RE.test(slug)) continue;
       const full = join(dir, entry);
-      let isDir = false;
+      let isDir: boolean;
       try {
         isDir = statSync(full).isDirectory();
       } catch {
