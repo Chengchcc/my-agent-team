@@ -199,7 +199,7 @@ echo "pack-gateway: ok — no stray natives, no build cache, manifest valid"
 # /health, so publish fails here instead of on someone's laptop.
 echo "pack-gateway: boot smoke"
 SMOKE="$(mktemp -d)"
-SMOKE_PORT="${PACK_GATEWAY_SMOKE_PORT:-3911}"
+SMOKE_PORT="${PACK_GATEWAY_SMOKE_PORT:-$(bun -e 'const s = Bun.serve({ port: 0, fetch: () => new Response("probe") }); console.log(s.port); s.stop()')}"
 # The launcher fills OMA_BIN with its own executable (the manifest's {omaBin});
 # boot only needs that path to resolve, so a stand-in does when the repo CLI
 # has not been built (no run is started, so nothing ever spawns it).
