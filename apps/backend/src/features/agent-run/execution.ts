@@ -65,7 +65,22 @@ export function createAgentRunExecutionService(
    *  are dead so the DB is never closed mid-finalize. */
   const inflightPromises = new Map<string, Promise<void>>();
   const execState = { disposed: false };
-  const liveEvents = createLiveEventBus(deps);
+  const liveEvents = createLiveEventBus({
+    ...deps,
+    // Durable approvals v1: persist every observed approval_request — the
+    // idempotency key makes event replays no-ops. createPendingAction CASes
+    // the run running->waiting (the intended semantics); conflicts and
+    // races are swallowed (the card stays live regardless).
+    onApprovalRequest: ({ runId, callId, payload }) => {
+      void deps.runPort
+        .createPendingAction(runId, {
+          actionId: `${runId}:${callId}`,
+          kind: "approval",
+          payload: { ...payload },
+        })
+        .catch(() => {});
+    },
+  });
   const { dispatchFn, entryFor } = createExecutionDispatcher({
     deps,
     liveEvents,

@@ -361,6 +361,16 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     // Park the resolver; emit + await until resolveAsk (web) or timeout (null).
     const { promise, resolve } = Promise.withResolvers<AskQuestionResult | null>();
     pendingAsks.set(key, resolve);
+    // Durable ask v1: persist so the card survives refresh and the run
+    // records waiting honestly; actionId dedupes retries. Swallow errors -
+    // the live ask works regardless.
+    void runPort
+      .createPendingAction(run.runId, {
+        actionId: key,
+        kind: "ask",
+        payload: { callId: input.callId, questions: parsed.questions },
+      })
+      .catch(() => {});
     deps.emitAsk?.({ runId: run.runId, callId: input.callId, question: parsed });
     let answer: AskQuestionResult | null;
     try {
@@ -376,6 +386,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       pendingAsks.delete(key);
     }
     if (!answer) {
+      // Expire the persisted ask honestly (the child got a timeout).
+      void runPort
+        .consumePendingAction(key, { actionId: key, response: { timeout: true } }, `${key}:timeout`)
+        .catch(() => {});
       return { content: JSON.stringify({ error: "ask timeout" }), isError: true };
     }
     return { content: JSON.stringify(answer) };
@@ -431,8 +445,18 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       }
     },
     resolveAsk(runId, callId, answer) {
-      const resolve = pendingAsks.get(`${runId}:${callId}`);
+      const key = `${runId}:${callId}`;
+      const resolve = pendingAsks.get(key);
       if (resolve) resolve(answer);
+      // Durable ask v1: consume even without a live resolver - a late
+      // answer must still repair the run's waiting->running CAS.
+      void runPort
+        .consumePendingAction(
+          key,
+          { actionId: key, response: { answered: true } },
+          `${key}:resolved`,
+        )
+        .catch(() => {});
     },
   };
 }

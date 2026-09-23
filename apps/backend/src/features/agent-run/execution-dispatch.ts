@@ -217,12 +217,16 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
           `terminal_commit runId=${run.runId} messages=${outcome.messages?.length ?? 0}`,
         );
         deps.onRunCommitted?.(run.runId, finalAnswerMessage(outcome.messages), seqs);
+        // Durable approvals: run is terminal - expire still-pending approvals.
+        await runPort.cancelPendingActionsForRun(run.runId).catch(() => {});
       } catch (err) {
         // Backend finished but the Product transaction failed: keep the
         // branch occupied, store the outcome for retryTerminalCommit. The
         // run is now terminal (commit_failed) - dispatch completes; the
         // failure is recoverable only through the explicit retry path.
         await runPort.failCommit(run.runId, outcome).catch(() => {});
+        // Durable approvals: run is terminal - expire still-pending approvals.
+        await runPort.cancelPendingActionsForRun(run.runId).catch(() => {});
         console.error(`[agent-run] commit failed for ${run.runId}:`, err);
       }
       return;
@@ -242,6 +246,8 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       error: outcome.error ?? `Run ${outcome.status}`,
     });
     await runPort.finalizeRun(run.runId, outcome);
+    // Durable approvals: run is terminal - expire still-pending approvals.
+    await runPort.cancelPendingActionsForRun(run.runId).catch(() => {});
   }
 
   /** One Run / one input: claim THIS run's bound input (acquire-time marker

@@ -20,6 +20,11 @@ export function createLiveEventBus(deps: {
     error?: string;
     runId: string;
   }) => void;
+  onApprovalRequest?: (input: {
+    runId: string;
+    callId: string;
+    payload: Readonly<Record<string, unknown>>;
+  }) => void;
 }): LiveEventBus {
   const subscribers = new Map<string, Set<(e: BackendEvent) => void>>();
 
@@ -50,6 +55,21 @@ export function createLiveEventBus(deps: {
     };
   }
 
+  /** Extract a HITL approval request from the oma extension event. Returns
+   *  undefined for every other event shape or a payload without a callId
+   *  (nothing to key the pending action on). */
+  function approvalRequest(
+    runId: string,
+    event: BackendEvent,
+  ): { runId: string; callId: string; payload: Readonly<Record<string, unknown>> } | undefined {
+    if (event.type !== "backend.oma.approval_request") return undefined;
+    if (!("payload" in event)) return undefined;
+    const payload = event.payload;
+    if (typeof payload !== "object" || payload === null) return undefined;
+    if (typeof payload.callId !== "string") return undefined;
+    return { runId, callId: payload.callId, payload };
+  }
+
   function broadcast(runId: string, event: BackendEvent): void {
     // Durable telemetry: persist the normalized event log (tool calls,
     // status, workflow steps). Transient text/thinking deltas are skipped.
@@ -64,6 +84,14 @@ export function createLiveEventBus(deps: {
         deps.onMcpMountResult?.(mount);
       } catch {
         /* observation never affects the run */
+      }
+    }
+    const approval = approvalRequest(runId, event);
+    if (approval) {
+      try {
+        deps.onApprovalRequest?.(approval);
+      } catch {
+        /* persistence failure never affects the run */
       }
     }
     const set = subscribers.get(runId);

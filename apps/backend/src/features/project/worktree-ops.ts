@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ConflictError } from "../../infra/domain-errors.js";
+import { ConflictError, ValidationError } from "../../infra/domain-errors.js";
 import type { ProjectPort } from "./ports.js";
-import { ensureMirror } from "./worktree.js";
+import { branchName, ensureMirror, TASK_SLUG_RE } from "./worktree.js";
 
 export interface WorktreeStatus {
   agentId: string;
@@ -12,11 +12,30 @@ export interface WorktreeStatus {
   worktreeReady: boolean;
 }
 
+export interface WorktreeRef {
+  /** Task-worktree slug; absent = the agent's main worktree. */
+  slug?: string;
+}
+
 export interface WorktreeOps {
   status(projectId: string): Promise<WorktreeStatus[]>;
-  diff(projectId: string, agentId: string): Promise<string>;
-  fastForward(projectId: string, agentId: string, opts: { push: boolean }): Promise<void>;
-  merge(projectId: string, agentId: string, opts: { push: boolean }): Promise<void>;
+  diff(projectId: string, agentId: string, ref?: WorktreeRef): Promise<string>;
+  fastForward(
+    projectId: string,
+    agentId: string,
+    opts: { push: boolean } & WorktreeRef,
+  ): Promise<void>;
+  merge(projectId: string, agentId: string, opts: { push: boolean } & WorktreeRef): Promise<void>;
+}
+
+/** One guard for every slug the ops accept: an invalid slug must never
+ *  reach git (it would be interpolated into a ref name). */
+function assertSlug(slug: string | undefined): void {
+  if (slug !== undefined && !TASK_SLUG_RE.test(slug)) {
+    throw new ValidationError(
+      `invalid worktree slug: ${slug} (lowercase letters, digits, dashes; max 40)`,
+    );
+  }
 }
 
 /** Read/merge operations over a project's agent worktrees. All git runs in
@@ -80,12 +99,13 @@ export function createWorktreeOps(deps: {
   const moveBase = async (
     projectId: string,
     agentId: string,
-    opts: { push: boolean },
+    opts: { push: boolean } & WorktreeRef,
     preflight: (mirror: string, base: string, branch: string) => Promise<void>,
   ): Promise<void> => {
+    assertSlug(opts.slug);
     const mirror = await mirrorOf(projectId);
     const base = await baseRef(projectId, mirror);
-    const branch = `agent/${agentId}/${projectId}`;
+    const branch = branchName(agentId, projectId, opts.slug);
     await preflight(mirror, base, branch);
     const prevTip = (await Bun.$`git -C ${mirror} rev-parse ${base}`.quiet().text()).trim();
     await Bun.$`git -C ${mirror} branch -f ${base} ${branch}`.quiet();
@@ -106,7 +126,7 @@ export function createWorktreeOps(deps: {
       const agents = (await deps.listAgentConfigs()).filter((a) => a.projects.includes(projectId));
       const out: WorktreeStatus[] = [];
       for (const a of agents) {
-        const branch = `agent/${a.id}/${projectId}`;
+        const branch = branchName(a.id, projectId);
         const has =
           (await Bun.$`git -C ${mirror} show-ref --verify refs/heads/${branch}`.quiet().nothrow())
             .exitCode === 0;
@@ -123,10 +143,12 @@ export function createWorktreeOps(deps: {
       return out;
     },
 
-    async diff(projectId, agentId) {
+    async diff(projectId, agentId, ref) {
+      assertSlug(ref?.slug);
       const mirror = await mirrorOf(projectId);
       const base = await baseRef(projectId, mirror);
-      return Bun.$`git -C ${mirror} diff ${base}...agent/${agentId}/${projectId}`.quiet().text();
+      const branch = branchName(agentId, projectId, ref?.slug);
+      return Bun.$`git -C ${mirror} diff ${base}...${branch}`.quiet().text();
     },
 
     async fastForward(projectId, agentId, opts) {

@@ -36,6 +36,9 @@ export interface AgentRunnerDeps {
       agentId: string;
       origin: string;
       createdAt: number;
+      /** Repo-aware agent node: binds the conversation to the attached
+       * project so dispatch resolves the agent's real worktree. */
+      projectId?: string;
     }): unknown;
   };
   conversationService?: {
@@ -49,10 +52,9 @@ export interface AgentRunnerDeps {
     exists(url: string): Promise<boolean>;
   };
   resolveDefaultModel?: (agentId: string) => Promise<unknown>;
-  resolveRepoWorkspace?: (
-    repo: string,
-    agentId: string,
-  ) => Promise<Record<string, unknown> | undefined>;
+  /** The agent's attached project ids (runtime_config.projects) — the
+   *  repo-aware agent node validates node.repo against this. */
+  agentProjects?: (agentId: string) => Promise<string[]>;
 }
 
 export interface WorkflowExecutionServiceDeps extends AgentRunnerDeps {
@@ -375,6 +377,19 @@ export function createWorkflowExecutionService(
     // comes from node.model via modelOverride.
     const agentId = inline ? "default" : node.agentId!;
     if (!agentId) throw new Error("agent node requires agentId");
+    // Repo-aware agent node (V1): repo must be an ATTACHED projectId with an
+    // explicit agentId — never a URL, never a bare-mirror path. Binding the
+    // conversation's projectId is what makes dispatch resolve the agent's
+    // real worktree (resolveWorkspace); no workspace is pinned here.
+    if (node.repo !== undefined) {
+      if (inline) throw new Error("agent node with repo requires an explicit agentId");
+      const attached = await deps.agentProjects?.(agentId);
+      if (!attached?.includes(node.repo)) {
+        throw new Error(
+          `agent ${agentId} has not attached project ${node.repo}; attach it via the agent update API (runtime_config.projects)`,
+        );
+      }
+    }
     const conversationId = `workflow:${execution.executionId}:${node.id}`;
     let prompt = buildAgentPrompt(node, ready.input, inputHintToRecord(node.output));
     if (lastError) {
@@ -383,12 +398,14 @@ export function createWorkflowExecutionService(
 
     if (!deps.convPort.getConversation(conversationId)) {
       try {
-        deps.convPort.createConversation({
+        const conversation: Parameters<typeof deps.convPort.createConversation>[0] = {
           conversationId,
           agentId,
           origin: "workflow",
           createdAt: Date.now(),
-        });
+        };
+        if (node.repo !== undefined) conversation.projectId = node.repo;
+        deps.convPort.createConversation(conversation);
       } catch {
         /* concurrent */
       }

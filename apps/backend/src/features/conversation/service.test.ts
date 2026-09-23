@@ -50,6 +50,9 @@ const fakeInputs = new Map<string, FakeQueuedInput>();
 
 function makeRunService(): AgentRunService {
   return {
+    async listPendingActions() {
+      return [];
+    },
     async enqueueAndAcquire(input) {
       enqueueCalls.push({
         conversationId: input.conversationId,

@@ -86,6 +86,7 @@ export interface AgentRunService {
     response: PendingActionResponse,
     responseIdempotencyKey: string,
   ): Promise<{ action: PendingActionRecord; runId: string }>;
+  listPendingActions(runId: string): Promise<PendingActionRecord[]>;
   finalizeRun(runId: string, outcome: BackendRunOutcome): Promise<AgentRun>;
   getRun(runId: string): Promise<AgentRun | null>;
   getActiveRun(branchId: string): Promise<AgentRun | null>;
@@ -202,6 +203,10 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
 
     async consumePendingAction(actionId, response, responseIdempotencyKey) {
       return port.consumePendingAction(actionId, response, responseIdempotencyKey);
+    },
+
+    async listPendingActions(runId) {
+      return port.listPendingActions(runId);
     },
 
     async finalizeRun(runId, outcome) {

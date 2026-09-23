@@ -127,6 +127,10 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           .catch((err) => {
             console.error(`[agent-run] recover orphan finalize failed for ${orphan.runId}:`, err);
           });
+        // run_lost: the approval can never be answered - cancel it.
+        await runPort
+          .cancelPendingActionsForRun(orphan.runId)
+          .catch((err) => console.error(`[agent-run] recover orphan cancel failed:`, err));
         const promoted = await runPort.acquireNextRun(orphan.branchId);
         if (!promoted) continue;
         await dispatchFn(promoted.runId).catch((err) => {
@@ -169,6 +173,19 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         );
       }
       await entry.backend.resolveApproval(runId, callId, decision);
+      // Durable approvals v1: record the response and repair the run's
+      // waiting->running CAS. Best-effort - the child already has the
+      // decision; a missing/stale action must not fail the HTTP call.
+      const actionId = `${runId}:${callId}`;
+      await runPort
+        .consumePendingAction(
+          actionId,
+          { actionId, response: { decision } },
+          `${runId}:${callId}:${decision}`,
+        )
+        .catch((err) => {
+          console.error(`[agent-run] approval consume failed for ${actionId}:`, err);
+        });
     },
 
     async stop(runId) {
@@ -186,6 +203,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           status: "aborted",
           error: "stale run without live child",
         });
+        await runPort.cancelPendingActionsForRun(runId).catch(() => {});
         await runPort.cancelRunInput(runId);
         const next = await runPort.acquireNextRun(run.branchId);
         if (next) {
@@ -220,6 +238,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         status: "aborted",
         error: "stale run without live child",
       });
+      await runPort.cancelPendingActionsForRun(runId).catch(() => {});
       await runPort.cancelRunInput(runId);
     },
 

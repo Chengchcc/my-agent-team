@@ -14,7 +14,11 @@ import type { AgentRunPort } from "./ports.js";
 
 type ActionMethods = Pick<
   AgentRunPort,
-  "createPendingAction" | "consumePendingAction" | "getPendingAction"
+  | "createPendingAction"
+  | "consumePendingAction"
+  | "getPendingAction"
+  | "listPendingActions"
+  | "cancelPendingActionsForRun"
 >;
 
 export function createActionMethods(db: Database): ActionMethods {
@@ -148,6 +152,15 @@ export function createActionMethods(db: Database): ActionMethods {
       })();
     },
 
+    async cancelPendingActionsForRun(runId) {
+      d.update(schema.pendingAction)
+        .set({ status: "cancelled", resolvedAt: Date.now() })
+        .where(
+          and(eq(schema.pendingAction.runId, runId), eq(schema.pendingAction.status, "pending")),
+        )
+        .run();
+    },
+
     async getPendingAction(actionId) {
       const row = d
         .select()
@@ -155,6 +168,17 @@ export function createActionMethods(db: Database): ActionMethods {
         .where(eq(schema.pendingAction.actionId, actionId))
         .get();
       return row ? parsePendingAction(row) : null;
+    },
+
+    async listPendingActions(runId) {
+      const rows = d
+        .select()
+        .from(schema.pendingAction)
+        .where(
+          and(eq(schema.pendingAction.runId, runId), eq(schema.pendingAction.status, "pending")),
+        )
+        .all();
+      return rows.map(parsePendingAction);
     },
   };
 }

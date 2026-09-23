@@ -578,12 +578,17 @@ function createRunPermissionGates(
     streamModel: RunModelStream;
     pluginCodeToolNames: ReadonlySet<string>;
     approvalDeadlineMs: number;
+    /** Truthful sandbox state for the approval card (BashSandbox design
+     * P4): true iff this Run's bash tool actually executes inside Bwrap /
+     * Seatbelt. resolveBashSandbox(enabled:true) never returns Null — it
+     * throws — so `bashSandbox !== undefined` IS the OS-sandboxed signal. */
+    bashSandboxed: boolean;
   },
 ): {
   permissionGate: SessionPermissionGate | undefined;
   makeSessionPermissionGate: (intentTexts: readonly string[]) => SessionPermissionGate;
 } {
-  const { knobs, store, streamModel, pluginCodeToolNames, approvalDeadlineMs } = ctx;
+  const { knobs, store, streamModel, pluginCodeToolNames, approvalDeadlineMs, bashSandboxed } = ctx;
   // Native-tool permission gate (ADR 0020): "deny" blocks outright; "ask"
   // routes high-risk tools through the SAME approvalHandler as plugin code
   // tools (one pipeline). "auto" (CC auto-mode alignment, 2026-09) routes
@@ -690,17 +695,24 @@ function createRunPermissionGates(
       };
     }
     escalatedActions.add(actionKey);
-    const human = await withApprovalDeadline(
-      deps.approvalHandler({
-        // Same key discipline as the ask gate: the card must be resolvable.
-        callId: callId || `cls-${randomUUID().slice(0, 8)}`,
-        toolName,
-        input,
-        reason: `classifier: ${verdict.reason}`,
-        source: "classifier",
-      }),
-      approvalDeadlineMs,
-    );
+    const escalation: {
+      callId: string;
+      toolName: string;
+      input: unknown;
+      reason: string;
+      source: "classifier";
+      sandboxed?: boolean;
+    } = {
+      // Same key discipline as the ask gate: the card must be resolvable.
+      callId: callId || `cls-${randomUUID().slice(0, 8)}`,
+      toolName,
+      input,
+      reason: `classifier: ${verdict.reason}`,
+      source: "classifier",
+    };
+    // Same truthful signal as the ask gate (BashSandbox design P4).
+    if (toolName === "bash") escalation.sandboxed = bashSandboxed;
+    const human = await withApprovalDeadline(deps.approvalHandler(escalation), approvalDeadlineMs);
     if (human.decision === "deny") {
       return {
         block: true,
@@ -782,9 +794,10 @@ function createRunPermissionGates(
         input,
         source: "permission",
       };
-      // BashSandbox design P4: bash approvals are unsandboxed fallbacks
-      // until an OS sandbox is injected (only Null exists today).
-      if (toolName === "bash") approvalInput.sandboxed = false;
+      // BashSandbox design P4: report the Run's REAL sandbox state so the
+      // human card can distinguish "runs inside bwrap/Seatbelt" from the
+      // unsandboxed fallback. A signal, not an authorization basis.
+      if (toolName === "bash") approvalInput.sandboxed = bashSandboxed;
       let verdict: { decision: string; reason?: string };
       try {
         verdict = await withApprovalDeadline(
@@ -1271,6 +1284,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     streamModel,
     pluginCodeToolNames,
     approvalDeadlineMs,
+    bashSandboxed: bashSandbox !== undefined,
   });
 
   // --tools filter also governs the subagent table: a `--tools read` Run must

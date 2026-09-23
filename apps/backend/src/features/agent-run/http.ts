@@ -21,6 +21,75 @@ function deriveVerdict(outcome: BackendRunOutcome | null): "pass" | "fail" | "un
   return "pass";
 }
 
+/** Verification-command heuristic: an INVOCATION of a test/typecheck/lint/
+ * build runner. Deliberately narrow — bare name substrings (`cat
+ * eslint.config.ts`, `ls .pytest_cache`) must NOT match: false negatives
+ * understate `ranVerification`, false positives would overstate it. */
+const VERIFICATION_COMMAND_RE =
+  /\b(bun|npm|pnpm|yarn)\s+(run\s+)?(test|typecheck|lint|build)\b|\btsc\b|\b(bunx?|npx|yarn)\s+(vitest|pytest|eslint|biome)\b|\bcargo\s+(test|clippy|build)\b|\bgo\s+(test|vet)\b/;
+
+export interface RunVerification {
+  verdict: "pass" | "fail" | "unknown";
+  toolErrorCount: number;
+  usedEval: boolean;
+  verificationCommands: string[];
+  assistantClaimedDone: boolean;
+  failureCause: string | null;
+}
+
+/** Terminal verification scorecard: objective, read-only facts derived
+ *  from the STORED outcome (no LLM judge, no rubric tables). Three
+ *  questions: did the agent run verification, did it error, and is "done"
+ *  tool-supported (verdict) or just the model's word. */
+export function deriveVerification(outcome: BackendRunOutcome | null): RunVerification {
+  if (!outcome) {
+    return {
+      verdict: "unknown",
+      toolErrorCount: 0,
+      usedEval: false,
+      verificationCommands: [],
+      assistantClaimedDone: false,
+      failureCause: null,
+    };
+  }
+  let toolErrorCount = 0;
+  let usedEval = false;
+  let assistantClaimedDone = false;
+  const verificationCommands: string[] = [];
+  for (const message of outcome.messages ?? []) {
+    if (message.role === "assistant") {
+      // A "done" claim is the run's FINAL word: the last assistant message
+      // actually carrying text. Intermediate tool_use turns never count.
+      assistantClaimedDone = message.blocks?.some((b) => b.type === "text") ?? false;
+    }
+    for (const block of message.blocks ?? []) {
+      if (block.type === "tool_result" && block.is_error) toolErrorCount++;
+      if (block.type === "tool_use") {
+        if (block.name === "eval") usedEval = true;
+        const input = block.input;
+        if (
+          block.name === "bash" &&
+          typeof input === "object" &&
+          input !== null &&
+          "command" in input &&
+          typeof input.command === "string" &&
+          VERIFICATION_COMMAND_RE.test(input.command)
+        ) {
+          verificationCommands.push(input.command.slice(0, 200));
+        }
+      }
+    }
+  }
+  return {
+    verdict: deriveVerdict(outcome),
+    toolErrorCount,
+    usedEval,
+    verificationCommands,
+    assistantClaimedDone,
+    failureCause: "error" in outcome && typeof outcome.error === "string" ? outcome.error : null,
+  };
+}
+
 /** Minimal Agent Run Ops API: Agent Run is the only Product execution
  *  identity. Spans/attempts/checkpoint events remain audit-only. */
 export function agentRunRoutes(input: {
@@ -209,11 +278,13 @@ export function agentRunRoutes(input: {
           model: run.modelRef,
           status: run.status,
           verdict: deriveVerdict(run.terminalResult),
+          verification: deriveVerification(run.terminalResult),
           configRevision: run.configRevision,
           createdAt: run.createdAt,
           terminalAt: run.terminalAt,
           terminalResult: run.terminalResult,
           usage: run.terminalResult?.usage ?? null,
+          pendingActions: await agentRunService.listPendingActions(runId).catch(() => []),
         },
         inputs: inputs.map((i) => ({
           inputId: i.inputId,

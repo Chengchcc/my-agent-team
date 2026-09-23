@@ -77,6 +77,15 @@ export interface AgentRunExecutionDeps {
     error?: string;
     runId: string;
   }) => void;
+  /** Durable approvals v1 (backend.oma.approval_request fan-out): persist a
+   *  pending action so an approval survives refresh/restart. Wired to the
+   *  agent-run port with a deterministic actionId (`runId:callId`) for
+   * idempotency; failures are logged, never fatal. */
+  readonly onApprovalRequest?: (input: {
+    runId: string;
+    callId: string;
+    payload: Readonly<Record<string, unknown>>;
+  }) => void;
 }
 
 export interface LiveRun {

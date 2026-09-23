@@ -60,6 +60,10 @@ export interface AgentRunPort {
     responseIdempotencyKey: string,
   ): Promise<{ action: PendingActionRecord; runId: string }>;
 
+  /** Cancel every still-pending action of a run (terminal settle: the run
+   *  ended, so no approval response can be validly consumed anymore). */
+  cancelPendingActionsForRun(runId: string): Promise<void>;
+
   /** Finalize a Run with a terminal outcome. Same runId replay returns
    *  stored result; conflicting outcome fails. */
   finalizeRun(runId: string, outcome: BackendRunOutcome): Promise<AgentRun>;
@@ -102,10 +106,12 @@ export interface AgentRunPort {
   /** All commit_failed runs awaiting retryTerminalCommit. */
   listCommitFailedRuns(): Promise<AgentRun[]>;
 
-  /** Active runs whose bound input was DELIVERED (the child accepted) but
-   *  whose live child no longer exists (Backend restart). One-shot-child
-   *  architecture cannot resume them: boot recovery terminalizes them and
-   *  releases the branch. */
+  /** Running/waiting runs whose bound input was DELIVERED (the child
+   *  accepted) but whose live child no longer exists (Backend restart).
+   * One-shot-child architecture cannot resume them: boot recovery
+   * terminalizes them and releases the branch. commit_failed runs are
+   * deliberately excluded — their stored outcome belongs to
+   * retryTerminalCommit, never to the orphan sweep. */
   listActiveRunsWithDeliveredInputs(): Promise<AgentRun[]>;
 
   // ── Getters ───────────────────────────────────────────────────
@@ -139,4 +145,7 @@ export interface AgentRunPort {
   updateInput(inputId: string, message: Message): Promise<boolean>;
 
   getPendingAction(actionId: string): Promise<PendingActionRecord | null>;
+
+  /** Unresolved (pending) actions of a run — web card rehydration on refresh. */
+  listPendingActions(runId: string): Promise<PendingActionRecord[]>;
 }

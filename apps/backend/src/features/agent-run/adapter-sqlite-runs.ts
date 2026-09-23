@@ -495,6 +495,10 @@ export function createRunMethods(
     },
 
     async listActiveRunsWithDeliveredInputs() {
+      // running/waiting only: a commit_failed run HAS a stored outcome and
+      // is owned by retryTerminalCommit — the boot orphan sweep must never
+      // overwrite it with "aborted" (that would destroy the only copy of
+      // what the child produced).
       const rows = d
         .selectDistinct({ run: schema.agentRun })
         .from(schema.agentRun)
@@ -505,7 +509,7 @@ export function createRunMethods(
             eq(schema.branchInputQueue.status, "delivered"),
           ),
         )
-        .where(inArray(schema.agentRun.status, ["running", "waiting", "commit_failed"]))
+        .where(inArray(schema.agentRun.status, ["running", "waiting"]))
         .all();
       return rows.map((r) => parseRun(r.run));
     },

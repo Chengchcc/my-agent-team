@@ -82,6 +82,20 @@ export const runEvents = {
     type: z.literal("backend.oma.todo_update"),
     payload: z.object({ items: z.array(z.unknown()).optional() }).optional(),
   }),
+  /** HITL approval card (oma rpc emits; adapter maps via backend.oma.*).
+   *  `sandboxed` is the truthful OS-bash-sandbox signal (bash approvals
+   *  only) — display-only, never an authorization basis. */
+  "backend.oma.approval_request": z.object({
+    type: z.literal("backend.oma.approval_request"),
+    payload: z
+      .object({
+        callId: z.string(),
+        toolName: z.string(),
+        reason: z.string().optional(),
+        sandboxed: z.boolean().optional(),
+      })
+      .optional(),
+  }),
   delegation_batch_started: z.object({
     type: z.literal("delegation_batch_started"),
     batchId: z.string().optional(),

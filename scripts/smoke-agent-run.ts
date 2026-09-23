@@ -141,7 +141,7 @@ async function runConversationRound(
 
   // Poll the run list until terminal.
   const t0 = Date.now();
-  let status = "unknown";
+  let status: string;
   for (;;) {
     const resp = await get(ctx, "/api/agent-runs");
     const body = (await resp.json()) as { runs: Array<{ runId: string; status: string }> };

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,78 +11,79 @@ import {
 
 const { tmp, runInput, cleanup } = createRuntimeTestContext();
 afterAll(cleanup);
-describe("permissionMode auto classifier gate (CC alignment)", () => {
-  /** One auto-mode run against the fake provider: script drives the model's
-   * tool call, OMA_FAKE_TEXT is the classifier verdict (the fake script
-   * queue is empty by the time the gate's classifier call runs). Returns
-   * the serialized outcome messages. */
-  const autoRun = async (opts: {
-    runId: string;
-    script: Array<{ name: string; input: Record<string, unknown> }>;
-    text: string;
-    permissionMode?: "ask" | "auto" | "deny";
-    pluginTool?: { name: string; execute: () => Promise<Record<string, unknown>> };
-    approvalHandler?: (req: {
-      toolName: string;
-      reason?: string;
-      source?: string;
-    }) => Promise<{ decision: "allow" | "deny"; reason?: string }>;
-    localMemory?: boolean;
-  }): Promise<string> => {
-    process.env.OMA_FAKE_TOOL = JSON.stringify(opts.script);
-    process.env.OMA_FAKE_TEXT = opts.text;
-    const modelRuntime = createModelRuntime();
-    registerBuiltinProviders(modelRuntime, process.env);
-    const pluginComponents = opts.pluginTool
-      ? {
-          plugins: [
-            {
-              name: "plugin:plug",
-              tools: [
-                {
-                  name: opts.pluginTool.name,
-                  description: "plugin tool",
-                  inputSchema: { type: "object", properties: {}, required: [] },
-                  execute: opts.pluginTool.execute,
-                },
-              ],
-            },
-          ],
-        }
-      : undefined;
-    const rt = await createOmaRuntime({
-      runId: opts.runId,
-      modelId: "fake/echo",
-      workspaceRoot: tmp,
-      workspaceAccess: "read_write",
-      modelRuntime,
-      skillRoots: [],
-      ...(opts.permissionMode ? { permissionMode: opts.permissionMode } : {}),
-      ...(pluginComponents ? { pluginComponents } : {}),
-      ...(opts.approvalHandler ? { approvalHandler: opts.approvalHandler as never } : {}),
-      ...(opts.localMemory ? { localMemory: true } : {}),
+const withFakes = (fn: () => Promise<void>) => async () => {
+  const saved = ["OMA_FAKE_PROVIDER", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"].map((k) => process.env[k]);
+  process.env.OMA_FAKE_PROVIDER = "1";
+  try {
+    await fn();
+  } finally {
+    ["OMA_FAKE_PROVIDER", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"].forEach((k, i) => {
+      if (saved[i] === undefined) delete process.env[k];
+      else process.env[k] = saved[i];
     });
-    const seg = await rt.run(runInput(opts.runId));
-    const out = await seg.outcome;
-    await rt.close();
-    return JSON.stringify(out.messages);
-  };
+  }
+};
 
-  const withFakes = (fn: () => Promise<void>) => async () => {
-    const saved = ["OMA_FAKE_PROVIDER", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"].map(
-      (k) => process.env[k],
-    );
-    process.env.OMA_FAKE_PROVIDER = "1";
-    try {
-      await fn();
-    } finally {
-      ["OMA_FAKE_PROVIDER", "OMA_FAKE_TOOL", "OMA_FAKE_TEXT"].forEach((k, i) => {
-        if (saved[i] === undefined) delete process.env[k];
-        else process.env[k] = saved[i];
-      });
-    }
+/** One auto-mode run against the fake provider: script drives the model's
+ * tool call, OMA_FAKE_TEXT is the classifier verdict (the fake script
+ * queue is empty by the time the gate's classifier call runs). Returns
+ * the serialized outcome messages. */
+const autoRun = async (opts: {
+  runId: string;
+  script: Array<{ name: string; input: Record<string, unknown> }>;
+  text: string;
+  permissionMode?: "ask" | "auto" | "deny";
+  pluginTool?: { name: string; execute: () => Promise<Record<string, unknown>> };
+  approvalHandler?: (req: {
+    toolName: string;
+    reason?: string;
+    source?: string;
+    sandboxed?: boolean;
+  }) => Promise<{ decision: "allow" | "deny"; reason?: string }>;
+  localMemory?: boolean;
+  workspaceRoot?: string;
+}): Promise<string> => {
+  process.env.OMA_FAKE_TOOL = JSON.stringify(opts.script);
+  process.env.OMA_FAKE_TEXT = opts.text;
+  const modelRuntime = createModelRuntime();
+  registerBuiltinProviders(modelRuntime, process.env);
+  const pluginComponents = opts.pluginTool
+    ? {
+        plugins: [
+          {
+            name: "plugin:plug",
+            tools: [
+              {
+                name: opts.pluginTool.name,
+                description: "plugin tool",
+                inputSchema: { type: "object", properties: {}, required: [] },
+                execute: opts.pluginTool.execute,
+              },
+            ],
+          },
+        ],
+      }
+    : undefined;
+  const runtimeOpts: Parameters<typeof createOmaRuntime>[0] = {
+    runId: opts.runId,
+    modelId: "fake/echo",
+    workspaceRoot: opts.workspaceRoot ?? tmp,
+    workspaceAccess: "read_write",
+    modelRuntime,
+    skillRoots: [],
   };
+  if (opts.permissionMode) runtimeOpts.permissionMode = opts.permissionMode;
+  if (pluginComponents) runtimeOpts.pluginComponents = pluginComponents;
+  if (opts.approvalHandler) runtimeOpts.approvalHandler = opts.approvalHandler as never;
+  if (opts.localMemory) runtimeOpts.localMemory = true;
+  const rt = await createOmaRuntime(runtimeOpts);
+  const seg = await rt.run(runInput(opts.runId));
+  const out = await seg.outcome;
+  await rt.close();
+  return JSON.stringify(out.messages);
+};
 
+describe("permissionMode auto classifier gate (CC alignment)", () => {
   test(
     "classifier allow executes bash; block denies with the reason",
     withFakes(async () => {
@@ -251,6 +252,62 @@ describe("permissionMode auto classifier gate (CC alignment)", () => {
       expect(auto).toContain("blocked by classifier");
       expect(auto).toContain("no browsing in this run");
     }),
+  );
+});
+
+/** BashSandbox design P4: the approval card must report the Run's REAL
+ * sandbox state. A stale hardcoded `sandboxed: false` would tell the human
+ * "unsandboxed" while bwrap/Seatbelt is actually confining the command (or
+ * the reverse) — the badge is a signal, never an auto-allow basis. */
+describe("ask-mode bash approval reports the real OS-sandbox state", () => {
+  const HAS_BWRAP = Bun.which("bwrap") !== null;
+
+  const askRun = (opts: {
+    runId: string;
+    workspaceRoot: string;
+    seen: Array<boolean | undefined>;
+  }) =>
+    autoRun({
+      runId: opts.runId,
+      workspaceRoot: opts.workspaceRoot,
+      script: [{ name: "bash", input: { description: "d", command: "echo sbx-probe" } }],
+      text: "",
+      permissionMode: "ask",
+      approvalHandler: async (req) => {
+        opts.seen.push(req.sandboxed);
+        return { decision: "allow" };
+      },
+    });
+
+  test(
+    "no sandbox configured: sandboxed is false (explicit, not absent)",
+    withFakes(async () => {
+      const seen: Array<boolean | undefined> = [];
+      const ws = mkdtempSync(join(tmpdir(), "oma-ask-sbx-off-"));
+      try {
+        await askRun({ runId: "r-ask-sbx-off", workspaceRoot: ws, seen });
+        expect(seen).toEqual([false]);
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  (HAS_BWRAP ? test : test.skip)(
+    "settings bashSandbox:true: sandboxed is true",
+    withFakes(async () => {
+      const seen: Array<boolean | undefined> = [];
+      const ws = mkdtempSync(join(tmpdir(), "oma-ask-sbx-on-"));
+      try {
+        mkdirSync(join(ws, ".oma"), { recursive: true });
+        writeFileSync(join(ws, ".oma", "settings.json"), JSON.stringify({ bashSandbox: true }));
+        await askRun({ runId: "r-ask-sbx-on", workspaceRoot: ws, seen });
+        expect(seen).toEqual([true]);
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    }),
+    20_000,
   );
 });
 

@@ -21,6 +21,32 @@ export interface ModelsCatalog {
   list(): Promise<WebModel[]>;
 }
 
+/** Per-backend catalog health (GET /api/models/readiness): unlike
+ *  /api/models, one failing backend degrades ONLY its own row — the
+ *  Promise.all in the aggregate endpoint fails wholesale, which is the
+ *  exact blind spot this endpoint exists to expose. */
+export interface BackendReadinessEntry {
+  backendKind: string;
+  catalogOk: boolean;
+  models: number;
+  available: number;
+  error: string | null;
+}
+
+export function modelRoutes(
+  catalog: ModelsCatalog,
+  backendReadiness?: () => Promise<BackendReadinessEntry[]>,
+) {
+  return new Elysia()
+    .get("/api/models", async () => {
+      const models = await catalog.list();
+      return { providers: groupByProvider(models) };
+    })
+    .get("/api/models/readiness", async () => ({
+      backends: backendReadiness ? await backendReadiness() : [],
+    }));
+}
+
 /** Group a flat model list into provider buckets. The catalog's canonical
  *  ids are `<provider>/<model>`; split on the first slash. */
 export function groupByProvider(models: WebModel[]): Array<{
@@ -37,11 +63,4 @@ export function groupByProvider(models: WebModel[]): Array<{
     byProvider.set(provider, list);
   }
   return [...byProvider.entries()].map(([id, models]) => ({ id, name: id, models }));
-}
-
-export function modelRoutes(catalog: ModelsCatalog) {
-  return new Elysia().get("/api/models", async () => {
-    const models = await catalog.list();
-    return { providers: groupByProvider(models) };
-  });
 }

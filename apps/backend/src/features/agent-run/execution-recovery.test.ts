@@ -283,6 +283,46 @@ describe("agent run execution recovery", () => {
     expect(fake.executeCalls.map((c) => c.runId)).toEqual([promoted.runId!]);
   }, 15_000);
 
+  test("recover() never sweeps a commit_failed run to aborted, even when its retry keeps failing", async () => {
+    const fake = createFakeDaemon();
+    // Fault EVERY terminal commit: the run lands in commit_failed and every
+    // boot-retry of the stored outcome fails again.
+    const faultedPort = sqliteAgentRunAdapter(db, {
+      contextPort,
+      ledgerResolver: {
+        async resolveMessage(cid: string, seq: number) {
+          const hit = convPort.getLedgerEntry(cid, seq);
+          return hit ? (hit.content as never) : null;
+        },
+      },
+      idGen: { ulid: () => `run-${Math.random().toString(36).slice(2, 10)}` },
+      commitTestHook: () => {
+        throw new Error("simulated commit failure");
+      },
+    });
+    const execution = makeExecution(fake, faultedPort);
+
+    const acquired = await enqueue("normal", "cfsweep-1", "hello");
+    const runId = acquired.run!.runId;
+    await execution.dispatch(runId);
+    const failed = await waitForTerminal(runId);
+    expect(failed.status).toBe("commit_failed");
+    // Child accepted then the process died: the input is delivered, no live
+    // child — exactly the shape the orphan sweep targets.
+    await runPort.markInputAccepted(acquired.inputId);
+
+    // Restart: retry fails again (hook still throws). The run must stay
+    // commit_failed with its stored outcome — NOT be aborted by the sweep.
+    const execution2 = makeExecution(fake, faultedPort);
+    await execution2.recover();
+
+    const after = await runPort.getRun(runId);
+    expect(after?.status).toBe("commit_failed");
+    expect(after?.terminalResult?.status).toBe("completed");
+    // Never re-spawned: recovery replays the STORED outcome only.
+    expect(fake.executeCalls).toHaveLength(1);
+  }, 20_000);
+
   test("follow-up chain promotes queued inputs as fresh FIFO runs", async () => {
     const fake = createFakeDaemon({ outcomeDelayMs: 120 });
     const execution = makeExecution(fake);

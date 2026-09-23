@@ -1164,10 +1164,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     conversationService: conv.convSvc,
     artifactService,
     resolveDefaultModel: async (agentId) => agentModelRef(await agentSvc.getById(agentId)),
-    resolveRepoWorkspace: async (repo) => ({
-      root: join(config.dataDir, "projects", repo),
-      access: "read_write",
-    }),
+    agentProjects: async (agentId) =>
+      (await agentSvc.getById(agentId))?.config.runtime_config.projects ?? [],
   });
   // Builtin showcase: seed the sample workflows on first boot (user has none
   // yet) from <resources>/workflow-showcase. A packaged stack may ship without
@@ -1331,32 +1329,60 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
     providers: providerRoutes(providerSvc, { onChange: refreshOmaProviderEnv }),
 
-    models: modelRoutes({
-      list: async () => {
+    models: modelRoutes(
+      {
         // Aggregate every registered backend's catalog, tagging each model
         // with its kind. Each returns composite `<provider>/<model>` ids;
         // grouping and prefix-stripping happen once in
         // modelRoutes.groupByProvider. WebModel carries backendKind so the
         // UI can group by kind first (D3).
-        const lists = await Promise.all(
-          (Object.entries(backends) as Array<[BackendKind, BackendRegistryEntry]>).map(
-            async ([kind, entry]) =>
-              (await entry.catalog.list()).models.map((m) => ({ ...m, backendKind: kind })),
-          ),
-        );
-        return lists.flat().map((m) => ({
-          id: m.id,
-          name: m.displayName ?? m.id,
-          available: m.available,
-          reasoning: m.reasoning,
-          input: m.inputModalities,
-          cost: m.cost,
-          contextWindow: m.contextWindow,
-          maxTokens: m.maxOutputTokens,
-          backendKind: m.backendKind,
-        }));
+        list: async () => {
+          const lists = await Promise.all(
+            (Object.entries(backends) as Array<[BackendKind, BackendRegistryEntry]>).map(
+              async ([kind, entry]) =>
+                (await entry.catalog.list()).models.map((m) => ({ ...m, backendKind: kind })),
+            ),
+          );
+          return lists.flat().map((m) => ({
+            id: m.id,
+            name: m.displayName ?? m.id,
+            available: m.available,
+            reasoning: m.reasoning,
+            input: m.inputModalities,
+            cost: m.cost,
+            contextWindow: m.contextWindow,
+            maxTokens: m.maxOutputTokens,
+            backendKind: m.backendKind,
+          }));
+        },
       },
-    }),
+      // Per-backend catalog health: one failing backend degrades only its
+      // own row (the aggregate /api/models above fails wholesale — that
+      // blind spot is exactly what this endpoint exists to expose).
+      async () =>
+        Promise.all(
+          Object.entries(backends).map(async ([kind, entry]) => {
+            try {
+              const list = (await entry.catalog.list()).models;
+              return {
+                backendKind: kind,
+                catalogOk: true,
+                models: list.length,
+                available: list.filter((m) => m.available !== false).length,
+                error: null,
+              };
+            } catch (err) {
+              return {
+                backendKind: kind,
+                catalogOk: false,
+                models: 0,
+                available: 0,
+                error: err instanceof Error ? err.message : String(err),
+              };
+            }
+          }),
+        ),
+    ),
   };
 
   // ─── Lifecycle ──────────────────────────────────────────────
@@ -1369,6 +1395,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   async function start(): Promise<void> {
     await workflowTriggerScheduler.sync();
+    // Agent-run recovery first: redeliver delivering inputs, promote crash
+    // gaps, retry commit_failed commits, terminalize restart orphans — old
+    // state is settled BEFORE workflow recovery re-drives executions that
+    // will dispatch fresh Runs onto those same branches.
+    await agentRunExecution.recover();
     await workflowExecutionService.recover();
     const smokeCronExpr = config.smokeCron;
     if (smokeCronExpr) {

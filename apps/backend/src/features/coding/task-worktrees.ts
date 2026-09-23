@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ValidationError } from "../../infra/domain-errors.js";
+import { TASK_SLUG_RE as SLUG_RE } from "../project/index.js";
 
 /** Task-worktree helpers shared by the coding surface (list + path
  *  validation). Layout contract with features/project/worktree.ts:
@@ -12,9 +13,8 @@ export interface TaskWorktree {
   path: string;
 }
 
-/** Lowercase-strict (the ADR addendum pins the pattern verbatim; on a
- *  case-insensitive FS `p1.Foo` and `p1.foo` would collide silently). */
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+/** Single source is project/worktree.ts (TASK_SLUG_RE) — the layout
+ * contract with the branch naming lives there. */
 
 /** Every task worktree of a project across the given agents (fs scan of
  *  each agent's projects dir; main worktrees have no `.` suffix). */

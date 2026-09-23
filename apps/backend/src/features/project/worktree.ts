@@ -8,13 +8,20 @@ export interface WorktreeProject {
   readonly repoUrl: string;
   readonly defaultBranch: string | null;
 }
-
 function worktreePath(agentWorkspace: string, projectId: string): string {
   return join(agentWorkspace, "projects", projectId);
 }
 
-function branchName(agentId: string, projectId: string): string {
-  return `agent/${agentId}/${projectId}`;
+/** Task slug pattern — the single source (the ADR addendum pins it
+ * verbatim; coding/task-worktrees.ts and the promote routes reuse it).
+ * Lowercase-strict: on a case-insensitive FS `p1.Foo` and `p1.foo` would
+ * collide silently. */
+export const TASK_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** Branch of an agent's main worktree (`agent/<id>/<projectId>`) or, with
+ * a slug, of a task worktree (`agent/<id>/<projectId>.<slug>`). */
+export function branchName(agentId: string, projectId: string, slug?: string): string {
+  return `agent/${agentId}/${projectId}${slug === undefined ? "" : `.${slug}`}`;
 }
 
 /** Ensure the shared bare mirror exists and is fresh (clone --mirror on
@@ -110,13 +117,13 @@ export async function createTaskWorktree(
   agentId: string,
   slug: string,
 ): Promise<string> {
-  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(slug)) {
+  if (!TASK_SLUG_RE.test(slug)) {
     throw new ValidationError(
       `invalid worktree slug: ${slug} (lowercase letters, digits, dashes; max 40)`,
     );
   }
   const wt = `${worktreePath(agentWorkspace, project.projectId)}.${slug}`;
-  const branch = `${branchName(agentId, project.projectId)}.${slug}`;
+  const branch = branchName(agentId, project.projectId, slug);
   if (existsSync(wt)) {
     throw new ConflictError(`worktree already exists: ${wt}`);
   }
