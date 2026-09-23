@@ -44,9 +44,9 @@ export function WorktreeCard({ projectId, row }: { projectId: string; row: Workt
     setActing(kind);
     try {
       if (kind === "fast-forward") {
-        await api.projectWorktreeFastForward(projectId, row.agentId, push);
+        await api.projectWorktreeFastForward(projectId, row.agentId, { push });
       } else {
-        await api.projectWorktreeMerge(projectId, row.agentId, push);
+        await api.projectWorktreeMerge(projectId, row.agentId, { push });
       }
       // Refresh the diff with the new base.
       await qc.invalidateQueries({ queryKey: projectKeys.worktrees(projectId) });

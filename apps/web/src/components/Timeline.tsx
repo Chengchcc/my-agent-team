@@ -12,7 +12,7 @@ import {
 } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall } from "@/lib/transient-reducer";
+import type { LiveToolCall, TransientApproval } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
 import { ArtifactCard } from "./ArtifactCard";
 import { MessageBubble } from "./MessageBubble";
@@ -37,7 +37,7 @@ interface TimelineProps {
         tools?: readonly LiveToolCall[];
         error?: string;
         notices?: string[];
-        approval?: { callId: string; toolName: string; reason: string };
+        approval?: TransientApproval;
         ask?: { callId: string; questions: unknown[] };
         /** Interleaved thinking/text deltas in arrival order. When present,
          *  the trace renders them interleaved instead of lumping all thinking

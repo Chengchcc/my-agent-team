@@ -1,8 +1,10 @@
+import { CornerUpLeftIcon, FileDiffIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ProjectForm } from "@/components/ProjectForm";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -18,6 +20,7 @@ import { type AgentRow, api, type CodingTerminalRow, type ProjectRow } from "@/l
 import { t } from "@/lib/i18n";
 import {
   useCreateTaskWorktree,
+  usePromoteTaskWorktree,
   useRemoveTaskWorktree,
   useSpawnTerminal,
   useTaskWorktrees,
@@ -97,9 +100,11 @@ function ProjectWorktreeRows({
   const taskWorktrees = taskData?.worktrees ?? [];
   const createTask = useCreateTaskWorktree(project.projectId);
   const removeTask = useRemoveTaskWorktree(project.projectId);
+  const promoteTask = usePromoteTaskWorktree(project.projectId);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [slug, setSlug] = useState("");
   const [taskAgent, setTaskAgent] = useState("");
+  const [taskDiff, setTaskDiff] = useState<{ title: string; text: string } | null>(null);
 
   function open(agentId: string, worktreePath?: string, title?: string) {
     onSelect({ projectId: project.projectId, agentId, ...(worktreePath ? { worktreePath } : {}) });
@@ -184,6 +189,31 @@ function ProjectWorktreeRows({
     }
   }
 
+  async function showTaskDiff(tw: { agentId: string; slug: string }) {
+    try {
+      const res = await api.projectWorktreeDiff(project.projectId, tw.agentId, {
+        slug: tw.slug,
+      });
+      setTaskDiff({ title: `${tw.slug} → base`, text: res.diff || t("(no changes)") });
+    } catch (err) {
+      toast.error(t("Diff failed"), { description: String(err) });
+    }
+  }
+
+  /** Promote = the same conflict-preflighted base move the project page
+   *  offers for main worktrees, scoped to the task branch. Local mirror
+   *  only — pushing to origin stays an explicit act on the project page. */
+  async function promoteWorktree(tw: { agentId: string; slug: string }) {
+    const ok = await confirm({
+      title: t(`Promote ${tw.slug} into the base branch?`),
+      description: t(
+        "Moves the base branch to this task branch's tip (conflict-checked, not pushed).",
+      ),
+    });
+    if (!ok) return;
+    promoteTask.mutate({ agentId: tw.agentId, slug: tw.slug });
+  }
+
   const attached = new Set(worktrees.map((wt) => wt.agentId));
   const attachable = (agents.data ?? []).filter((a) => a.enabled !== false && !attached.has(a.id));
 
@@ -243,6 +273,36 @@ function ProjectWorktreeRows({
                   <Button
                     variant="ghost"
                     size="icon"
+                    className="size-6 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-sky-400 group-hover:opacity-100"
+                    onClick={() => void showTaskDiff(tw)}
+                  >
+                    <FileDiffIcon className="size-3.5" />
+                  </Button>
+                }
+              />
+              <TooltipContent>{t("Diff vs base")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-emerald-400 group-hover:opacity-100"
+                    onClick={() => void promoteWorktree(tw)}
+                  >
+                    <CornerUpLeftIcon className="size-3.5" />
+                  </Button>
+                }
+              />
+              <TooltipContent>{t("Promote into base")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className="size-6 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
                     onClick={() => void removeWorktree(tw)}
                   />
@@ -253,6 +313,16 @@ function ProjectWorktreeRows({
           </div>
         );
       })}
+      <Dialog open={taskDiff !== null} onOpenChange={(open) => (!open ? setTaskDiff(null) : null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">{taskDiff?.title}</DialogTitle>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
+            {taskDiff?.text}
+          </pre>
+        </DialogContent>
+      </Dialog>
       {/* A worktree is the (agent × project) attach product — this entry is
           how you create one; already-attached agents are filtered out. */}
       {attachable.length > 0 ? (

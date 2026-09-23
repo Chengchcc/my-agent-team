@@ -21,6 +21,7 @@ import {
   completeTool,
   type LiveToolCall,
   type LiveToolMap,
+  markTransientApprovalError,
   markTransientError,
   pushTransientNotice,
   type RunTodoMap,
@@ -29,6 +30,7 @@ import {
   setTransientApproval,
   setTransientAsk,
   type TodoItem,
+  type TransientApproval,
   type TransientMap,
   upsertTool,
 } from "@/lib/transient-reducer";
@@ -62,6 +64,10 @@ export function useConversation(
    *  final Message (`run:<runId>:assistant:0`) or dropped on failure. */
   const [transients, setTransients] = useState<TransientMap>({});
   const runStreamsRef = useRef(new Map<string, EventSource>());
+  /** CallIds whose decision the backend ACCEPTED this session: the
+   * durable-card rehydration must not resurrect them from a stale
+   * in-flight detail fetch (resolve-then-rehydrate race). */
+  const resolvedCallIdsRef = useRef(new Set<string>());
   const transientsRef = useRef(transients);
 
   /** Live tool steps per run (`<runId>:<callId>` key). Run-local, transient:
@@ -129,12 +135,27 @@ export function useConversation(
       return next;
     });
   }, []);
-  /** HITL approval (spec): POST the decision, then clear the pending card. */
+  /** HITL approval (spec): POST the decision; clear the card ONLY on a
+   *  successful response. A failed POST means the child never saw the
+   *  decision — dropping the card would silently lose a live approval. */
   const resolveApproval = useCallback(
     async (runId: string, callId: string, decision: "allow" | "deny") => {
-      await api.resolveApproval(runId, callId, decision).catch((err: unknown) => {
+      try {
+        await api.resolveApproval(runId, callId, decision);
+        resolvedCallIdsRef.current.add(`${runId}:${callId}`);
+      } catch (err) {
         console.error("approval resolve failed:", err);
-      });
+        setTransients((prev) => {
+          const next = markTransientApprovalError(
+            prev,
+            runId,
+            err instanceof Error ? err.message : "resolve failed — retry",
+          );
+          transientsRef.current = next;
+          return next;
+        });
+        return;
+      }
       setTransients((prev) => {
         const next = clearTransientApproval(prev, runId);
         transientsRef.current = next;
@@ -281,11 +302,60 @@ export function useConversation(
       existing?.close();
       // Contract-bound stream: URL from the sseEndpoints registry, opened
       // through typedSource (the only permitted raw stream constructor).
-      const { es } = typedSource(
-        `/api/bff${sseEndpoints.agentRunEvents.path({ runId })}`,
-        runEvents,
-      );
+      const ts = typedSource(`/api/bff${sseEndpoints.agentRunEvents.path({ runId })}`, runEvents);
+      const { es } = ts;
       runStreamsRef.current.set(runId, es);
+      // Durable HITL rehydration: on (re)connect, rebuild the approval/ask
+      // cards from the run's persisted pending actions — a page refresh no
+      // longer loses a live approval the child is still blocked on.
+      void api
+        .getAgentRun(runId)
+        .then((detail) => {
+          const pending = detail.run?.pendingActions ?? [];
+          for (const action of pending) {
+            if (action.status !== "pending") continue;
+            // Resolve-then-rehydrate race: never resurrect a card the
+            // backend already accepted a decision for.
+            const callId = String(action.payload?.callId ?? "");
+            if (callId !== "" && resolvedCallIdsRef.current.has(`${runId}:${callId}`)) {
+              continue;
+            }
+            // Unchecked named cast (allowed): payload is opaque DB JSON;
+            // every field is type-checked before use below.
+            const payload = action.payload as {
+              callId?: string;
+              toolName?: string;
+              reason?: string;
+              sandboxed?: boolean;
+              questions?: unknown[];
+            };
+            if (action.kind === "approval" && typeof payload.callId === "string") {
+              const approval: TransientApproval = {
+                callId: payload.callId,
+                toolName: typeof payload.toolName === "string" ? payload.toolName : "tool",
+                reason: typeof payload.reason === "string" ? payload.reason : "",
+              };
+              if (typeof payload.sandboxed === "boolean") approval.sandboxed = payload.sandboxed;
+              setTransients((prev) => {
+                const next = setTransientApproval(prev, runId, agentId, approval);
+                transientsRef.current = next;
+                return next;
+              });
+            } else if (action.kind === "ask" && typeof payload.callId === "string") {
+              setTransients((prev) => {
+                const next = setTransientAsk(prev, runId, agentId, {
+                  callId: payload.callId as string,
+                  questions: Array.isArray(payload.questions) ? payload.questions : [],
+                });
+                transientsRef.current = next;
+                return next;
+              });
+            }
+          }
+        })
+        .catch(() => {
+          /* rehydration is best-effort */
+        });
       const finish = () => {
         runStreamsRef.current.get(runId)?.close();
         runStreamsRef.current.delete(runId);
@@ -433,26 +503,20 @@ export function useConversation(
           /* malformed - ignore */
         }
       });
-      es.addEventListener("backend.oma.approval_request", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as {
-            payload?: { callId?: string; toolName?: string; reason?: string };
-          };
-          const p = ev.payload;
-          if (typeof p?.callId === "string") {
-            setTransients((prev) => {
-              const next = setTransientApproval(prev, runId, agentId, {
-                callId: p.callId as string,
-                toolName: typeof p.toolName === "string" ? p.toolName : "tool",
-                reason: typeof p.reason === "string" ? p.reason : "",
-              });
-              transientsRef.current = next;
-              return next;
-            });
-          }
-        } catch {
-          /* malformed - ignore */
-        }
+      ts.on("backend.oma.approval_request", (ev) => {
+        const p = ev.payload;
+        if (!p) return;
+        const approval: TransientApproval = {
+          callId: p.callId,
+          toolName: p.toolName,
+          reason: p.reason ?? "",
+        };
+        if (typeof p.sandboxed === "boolean") approval.sandboxed = p.sandboxed;
+        setTransients((prev) => {
+          const next = setTransientApproval(prev, runId, agentId, approval);
+          transientsRef.current = next;
+          return next;
+        });
       });
       es.addEventListener("backend.oma.ask_requested", (e) => {
         try {

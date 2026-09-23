@@ -254,12 +254,18 @@ export const api = {
   listProjects: () => unwrap(client.api.projects.get()),
   getProject: (id: string) => unwrap(client.api.projects({ id }).get()),
   listProjectWorktrees: (id: string) => unwrap(client.api.projects({ id }).worktrees.get()),
-  projectWorktreeDiff: (id: string, agentId: string) =>
-    unwrap(client.api.projects({ id }).worktrees({ agentId }).diff.get()),
-  projectWorktreeFastForward: (id: string, agentId: string, push: boolean) =>
-    unwrap(client.api.projects({ id }).worktrees({ agentId })["fast-forward"].post({ push })),
-  projectWorktreeMerge: (id: string, agentId: string, push: boolean) =>
-    unwrap(client.api.projects({ id }).worktrees({ agentId }).merge.post({ push })),
+  projectWorktreeDiff: (id: string, agentId: string, opts?: { slug?: string }) => {
+    const query: { slug?: string } = {};
+    if (opts?.slug !== undefined) query.slug = opts.slug;
+    return unwrap(client.api.projects({ id }).worktrees({ agentId }).diff.get({ query }));
+  },
+  projectWorktreeFastForward: (
+    id: string,
+    agentId: string,
+    opts: { push: boolean; slug?: string },
+  ) => unwrap(client.api.projects({ id }).worktrees({ agentId })["fast-forward"].post(opts)),
+  projectWorktreeMerge: (id: string, agentId: string, opts: { push: boolean; slug?: string }) =>
+    unwrap(client.api.projects({ id }).worktrees({ agentId }).merge.post(opts)),
   createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string }) =>
     unwrap(client.api.projects.post(body)),
   updateProject: (

@@ -19,11 +19,7 @@ export interface TransientRun {
   notices?: string[];
   /** Pending HITL approval (spec: approval pipeline). The web confirm card
    *  renders from this; resolving or run end clears it. */
-  approval?: {
-    callId: string;
-    toolName: string;
-    reason: string;
-  };
+  approval?: TransientApproval;
   /** Pending ask_question (ADR 0027, HITL ask pipeline). The web AskQuestionCard
    *  renders from this; resolving or run end clears it. */
   ask?: {
@@ -119,12 +115,25 @@ export function pushTransientNotice(
   return next;
 }
 
+/** Pending HITL approval card state (single source for the field + setter). */
+export interface TransientApproval {
+  callId: string;
+  toolName: string;
+  reason: string;
+  /** Truthful OS-sandbox signal from the runtime (bash approvals):
+   *  bwrap/Seatbelt active vs unsandboxed fallback. Displayed, never an
+   *  auto-allow basis. */
+  sandboxed?: boolean;
+  /** Last resolve POST failed: the card stays and shows a retry hint. */
+  error?: string;
+}
+
 /** Set (or replace) the pending approval on runId. */
 export function setTransientApproval(
   state: TransientMap,
   runId: string,
   agentId: string,
-  approval: { callId: string; toolName: string; reason: string },
+  approval: TransientApproval,
 ): TransientMap {
   const next = { ...state };
   next[runId] = {
@@ -145,6 +154,21 @@ export function clearTransientApproval(state: TransientMap, runId: string): Tran
   const next = { ...state };
   const { approval: _drop, ...rest } = entry;
   next[runId] = rest;
+  return next;
+}
+
+/** Mark the last resolve POST as failed: the card STAYS (the decision never
+ *  reached the backend — clearing it would silently drop a pending
+ *  approval) and shows the error for a manual retry. */
+export function markTransientApprovalError(
+  state: TransientMap,
+  runId: string,
+  error: string,
+): TransientMap {
+  const entry = state[runId];
+  if (!entry?.approval) return state;
+  const next = { ...state };
+  next[runId] = { ...entry, approval: { ...entry.approval, error } };
   return next;
 }
 

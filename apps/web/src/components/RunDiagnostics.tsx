@@ -4,13 +4,19 @@ import { useMemo } from "react";
 import { useAgentWorkspaceEntries } from "@/features/agents/hooks";
 import { useMcpCatalog } from "@/features/mcp/hooks";
 import { useModelList } from "@/features/models/hooks";
-import { useAgentRuns, useSystemMetrics } from "@/features/ops/hooks";
+import { useAgentRunDetail, useAgentRuns, useSystemMetrics } from "@/features/ops/hooks";
 
 /* ── Run Diagnostics rail (Obsidian chat run-console) ──
  * Live-run "Run Diagnostics" panel from the design mockup. Composes REAL
  * data: accrued cost + tokens (usage summary), context-window allocation
  * (usage vs the model's contextWindow), resident MEM (system metrics),
  * active MCP tool suite (catalog), workspace config bundle (agent root). */
+
+function verdictLabel(verdict: "pass" | "fail" | "unknown"): { text: string; cls: string } {
+  if (verdict === "pass") return { text: "tool-supported", cls: "text-(--ok)" };
+  if (verdict === "fail") return { text: "tool errors", cls: "text-(--err)" };
+  return { text: "no signal", cls: "text-(--faint)" };
+}
 
 function fmtCost(n: number | undefined): string {
   if (n == null) return "—";
@@ -56,6 +62,13 @@ export function RunDiagnostics({
     }
     return undefined;
   }, [models, modelId]);
+
+  const { data: runDetail } = useAgentRunDetail(lastRun?.runId ?? "");
+  const verification = runDetail?.run?.verification;
+  // "Ran verification" = a recognized test/typecheck/lint command or the
+  // eval tool; "done" alone is the model's word (assistantClaimedDone).
+  const ranVerification =
+    verification != null && (verification.verificationCommands.length > 0 || verification.usedEval);
 
   const usage = lastRun?.usage;
   const tokensUsed = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
@@ -130,6 +143,46 @@ export function RunDiagnostics({
           {lastRun && <span className="ml-1.5 text-(--ok)">· {lastRun.status}</span>}
         </p>
       </div>
+
+      {/* Verification scorecard: objective facts from the stored outcome —
+          ran-verification, tool errors, and whether "done" is
+          tool-supported (verdict) or the model's word. */}
+      {verification && (
+        <div className="rounded-lg border border-(--hairline) bg-(--panel) p-2.5">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-kicker text-(--mute)">
+              Verification
+            </span>
+            <span className="font-mono text-[9px] tabular-nums">
+              {(() => {
+                const v = verdictLabel(verification.verdict);
+                return <span className={v.cls}>{v.text}</span>;
+              })()}
+            </span>
+          </div>
+          <ul className="mt-1.5 space-y-0.5 font-mono text-[9px] text-(--mute)">
+            <li>
+              ran verification:{" "}
+              <span className={ranVerification ? "text-(--ok)" : "text-(--err)"}>
+                {ranVerification ? "yes" : "no"}
+              </span>
+            </li>
+            <li>tool errors: {verification.toolErrorCount}</li>
+            <li>eval used: {verification.usedEval ? "yes" : "no"}</li>
+            <li>agent claimed done: {verification.assistantClaimedDone ? "yes" : "no"}</li>
+            {verification.failureCause && (
+              <li className="truncate text-(--err)" title={verification.failureCause}>
+                cause: {verification.failureCause}
+              </li>
+            )}
+          </ul>
+          {verification.verificationCommands.length > 0 && (
+            <pre className="mt-1.5 max-h-24 overflow-auto rounded bg-(--panel2) p-1.5 font-mono text-[9px] leading-relaxed text-(--body)">
+              {verification.verificationCommands.join("\n")}
+            </pre>
+          )}
+        </div>
+      )}
 
       {/* Active MCP tool suite */}
       <div className="rounded-lg border border-(--hairline) bg-(--panel) p-2.5">

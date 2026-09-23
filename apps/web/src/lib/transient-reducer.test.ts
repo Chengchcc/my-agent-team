@@ -7,6 +7,7 @@ import {
   clearTransientApproval,
   completeTool,
   type LiveToolMap,
+  markTransientApprovalError,
   markTransientError,
   pushTransientNotice,
   type RunTodoMap,
@@ -247,6 +248,33 @@ describe("transient reducer — approval", () => {
     s = clearTransientApproval(s, "r1");
     expect(s.r1?.approval).toBeUndefined();
     expect(s.r2?.approval?.callId).toBe("c9");
+  });
+
+  test("markTransientApprovalError keeps the card and carries the error", () => {
+    let s: TransientMap = {};
+    s = setTransientApproval(s, "r1", "m", { callId: "c1", toolName: "bash", reason: "r1" });
+    s = markTransientApprovalError(s, "r1", "resolve failed — retry");
+    // The card STAYS: the decision never reached the backend.
+    expect(s.r1?.approval?.callId).toBe("c1");
+    expect(s.r1?.approval?.error).toBe("resolve failed — retry");
+    // No pending approval on that run (or no run): no-op.
+    expect(markTransientApprovalError(s, "r2", "x")).toBe(s);
+    s = clearTransientApproval(s, "r1");
+    expect(markTransientApprovalError(s, "r1", "x")).toBe(s);
+  });
+
+  test("sandboxed survives the approval round-trip", () => {
+    let s: TransientMap = {};
+    s = setTransientApproval(s, "r1", "m", {
+      callId: "c1",
+      toolName: "bash",
+      reason: "r1",
+      sandboxed: true,
+    });
+    expect(s.r1?.approval?.sandboxed).toBe(true);
+    // A failed resolve preserves the signal alongside the error.
+    s = markTransientApprovalError(s, "r1", "boom");
+    expect(s.r1?.approval?.sandboxed).toBe(true);
   });
 });
 

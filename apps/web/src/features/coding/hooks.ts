@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { projectKeys } from "@/features/projects/query-keys";
 import { api, type CodingTerminalRow } from "@/lib/api";
 import { codingKeys, codingTerminalsQuery } from "./queries";
 
@@ -78,5 +79,26 @@ export function useRemoveTaskWorktree(projectId: string) {
       });
       void qc.invalidateQueries({ queryKey: codingKeys.terminals });
     },
+  });
+}
+
+/** Promote a task worktree into the project's base branch (single
+ * branch-ahead move, conflict-preflighted by the backend; local mirror
+ * only — push stays an explicit act on the project page). */
+export function usePromoteTaskWorktree(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { agentId: string; slug: string }) =>
+      api.projectWorktreeMerge(projectId, body.agentId, { push: false, slug: body.slug }),
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: [...codingKeys.all, "task-worktrees", projectId],
+      });
+      void qc.invalidateQueries({ queryKey: projectKeys.all });
+    },
+    onError: (err) =>
+      toast.error("Promote failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      }),
   });
 }

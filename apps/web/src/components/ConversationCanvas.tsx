@@ -18,7 +18,7 @@ import type { SenderRef } from "@/lib/conversation-reducer";
 import type { CommandContext } from "@/lib/slash-commands";
 import { findCommand, parseArgs } from "@/lib/slash-commands";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall, TodoItem } from "@/lib/transient-reducer";
+import type { LiveToolCall, TodoItem, TransientApproval } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 import { Composer } from "./Composer";
 import { StatusPill } from "./patterns";
@@ -177,7 +177,7 @@ export function ConversationCanvas({
       tools: LiveToolCall[];
       error?: string;
       notices?: string[];
-      approval?: { callId: string; toolName: string; reason: string };
+      approval?: TransientApproval;
       ask?: { callId: string; questions: unknown[] };
       ordered?: ReadonlyArray<{ type: "text" | "thinking"; text: string }>;
     }> = [];
