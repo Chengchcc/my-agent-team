@@ -1242,6 +1242,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     );
   }
 
+  /** No catalog prices (see the modelCosts comment): every model falls back
+   *  to the usage.costUsd the backend itself reported. */
+  const bootModelCostsNone: Map<
+    string,
+    { input: number; output: number; cacheRead: number; cacheWrite: number }
+  > = new Map();
+
   const featureSet: FeatureSet = {
     agents: agentRoutes(
       agentSvc,
@@ -1274,6 +1281,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       agentRunExecution,
       // ponytail: catalog prices snapshotted once per boot; catalogs are
       // static for the process lifetime (env/config driven).
+      // The catch is load-bearing, not decoration: this promise is BORN at
+      // wiring time but only awaited by a request, so if a backend's catalog
+      // call fails (a bad/mismatched `oma --list-models`) the rejection is
+      // unhandled and takes the whole process down right after it listened.
+      // Pricing is optional — unpriced models use the backend-reported
+      // usage.costUsd — so degrade to "no catalog" and keep booting.
       modelCosts: (async () => {
         const map = new Map<
           string,
@@ -1285,7 +1298,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           }
         }
         return map;
-      })(),
+      })().catch((err) => {
+        console.warn(
+          "[bootstrap] model cost catalog failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+        return bootModelCostsNone;
+      }),
     }),
     coding: codingRoutes({
       registry: codingRegistry,
