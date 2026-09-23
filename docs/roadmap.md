@@ -17,7 +17,7 @@
 
 **`commit_failed` 会把分支永久占住。** 它算活跃状态，所以那个分支不会再接新 Run；而唯一的重试入口在没被调起的恢复函数里。修法是把 `recover()` 接上，或者给提交失败一条独立的退路。
 
-**运行时的 `waiting` 状态不可达。** 唯一会写它的路径需要一个待响应事项的持久化记录，而那条路径没有生产调用方。真实的审批走 Run 级事件流加审批端点，Run 全程 `running`。要么把等待状态落到 Conversation 可见层（这样切设备也能看到待审批），要么把这个状态从枚举里去掉。
+**HITL 的持久化差最后一环：过期与 Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。仍缺：approval 没有超时语义（ask 有 60s 超时路径）、pending 事项对 Lark 端不可见（Run 卡片第三期的消费面）。
 
 ## 上下文与历史
 
@@ -52,6 +52,8 @@
 ## 端
 
 **飞书的会话绑定状态没有同步到后端。** Web 的对话页想显示「飞书已绑定」，但 `larkChatId ↔ conversationId` 的映射存在 lark-bot 自己的 SQLite 里，需要跨应用同步进后端。
+
+**Lark Run 卡片未实现。** lark-bot 目前是纯文本终态桥（M17 移除了流式卡片）。目标形态见 ADR 0031：卡片消费 Run SSE 做 transient 投影、终态以 canonical Message 封版、控制动作走现有 Run 控制接口（cancel/approval）。终态可靠投递（ADR 0032）已落地，是第一期另一半。
 
 **产物缺内容账本与保留策略。** 来源信息有了（meta 文件加列表接口），缺 sha256 内容账本与校验端点、保留期的定时清理、以及主动清除接口。
 

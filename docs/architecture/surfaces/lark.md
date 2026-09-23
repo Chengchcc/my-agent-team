@@ -6,7 +6,7 @@ tags: [lark, surfaces, backend]
 
 # 飞书端
 
-一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程里的文本桥。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API；出站用 sse-watcher 消费该会话的 conversation SSE，把 assistant 终态行渲染成纯文本发回飞书。sse-watcher 是唯一出站入口，run 的中间态对飞书完全不可见，工具行则按纯文本原样投递。
+一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程里的文本桥。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API；出站用 sse-watcher 消费该会话的 conversation SSE，把 assistant 终态行渲染成纯文本发回飞书。sse-watcher 是唯一出站入口，run 的中间态对飞书完全不可见，工具行不投递。
 
 ## 范围
 
@@ -58,17 +58,17 @@ tags: [lark, surfaces, backend]
 
 1. `seq <= currentSeq` 的帧直接丢弃，只保证不重复处理。
 2. `surface.control` 交给重绑分支处理。
-3. 非 `message` 帧、没有 `message` 的帧、`role === "system"`、`role === "user"` 只推进游标。人类自己的话已经在飞书里，不需要回显。`tool` 行不在排除名单里。
+3. 非 `message` 帧、没有 `message` 的帧、`role === "system"`、`role === "user"`、`role === "tool"` 的行只推进游标。人类自己的话已经在飞书里，不需要回显；工具行的原始输出不进群聊（摘要属于 Run 卡片，见 ADR 0031）。
 4. 查 `message_delivery`，命中且 `isTerminalMessageState(lastState)` 就推进游标跳过。
-5. 先 `upsertMessageDelivery` 记投递意图，再渲染发送，最后推进 `pushedSeq`。
+5. 先以非终态标记（`streaming`）写投递意图，再渲染发送；发送成功后才写终态确认并推进 `pushedSeq`。
 
 canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值，所以飞书没有流式渲染路径，每个 assistant 行只投递一次。
 
-投递用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后只记日志、不掐断 SSE 流；`main.ts` 把失败转成抛错，用来阻止 `pushedSeq` 前进。
+投递用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
 
 ## 内容渲染
 
-`renderRevision` 先取 `text`，没有就拼所有 `type === "text"` 的 block，再没有就返回字面量 `[Unsupported content]`。文本随后过 `normalizeForLarkMarkdown`，做换行与 code fence 收尾；被截断时追加一行 `[消息过长已截断]`。工具行没有专门的呈现形式，它带 `text` 就按原文投递，只有 tool_result 块时落到 `[Unsupported content]`。
+`renderRevision` 先取 `text`，没有就拼所有 `type === "text"` 的 block，再没有就返回字面量 `[Unsupported content]`。文本随后过 `normalizeForLarkMarkdown`，做换行与 code fence 收尾；被截断时追加一行 `[消息过长已截断]`。工具行到不了渲染：它们在过滤链第 3 步就被跳过。
 
 ## surface.control 重绑
 
@@ -87,15 +87,14 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 ## 不变量
 
 1. 飞书端不写账本，也不向后端声明任何身份：memberId 是本地标签。
-2. 出站只有一个入口 sse-watcher，且只投递账本里的终态行（assistant 与 tool）。
-3. 投递意图先落库再发送，发送失败不会在重连后被重发。
+2. 出站只有一个入口 sse-watcher，且只投递账本里的终态 assistant 行。
+3. 投递意图以非终态标记先落库，发送成功才确认终态；发送失败经重连重放，靠幂等键去重（at-least-once）。
 4. 每次投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`。
-5. `pushedSeq` 只在投递路径走完之后推进；发送失败会抛错阻止推进。
+5. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
 6. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
 
 ## 已知缺口
 
-- `role === "tool"` 的账本行不被过滤，会以原始文本或 `[Unsupported content]` 的形式投递出去。`render.ts` 只认 `text` 与 text block，没有给工具行准备专门的呈现形式。
 - `surface.control` 的重绑路径没有生产触发入口：`POST /api/conversations/:id/start-new` 目前只有测试调用，旧的触发工具已不存在。路由与端侧消费都已具备。
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。
 - 群聊的 @ 检测依赖 `botDisplayName`，缺了就只有单聊可用。
