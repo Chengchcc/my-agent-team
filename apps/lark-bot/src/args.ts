@@ -8,6 +8,7 @@ export interface LarkBotArgs {
   agentName: string | null;
   larkProfile: string | null;
   backendAuthToken: string | null;
+  webUrl: string | null;
 }
 
 /** Parse CLI arguments for lark-bot process. */
@@ -35,5 +36,6 @@ export function parseArgs(raw: string[]): LarkBotArgs {
     agentName: args["agent-name"] ?? null,
     larkProfile: args["lark-profile"] ?? null,
     backendAuthToken: args["backend-auth-token"] ?? env.BACKEND_AUTH_TOKEN,
+    webUrl: args["web-url"] ?? process.env.LARK_WEB_URL ?? null,
   };
 }

@@ -9,6 +9,8 @@ import { z } from "zod";
 import {
   getMessageDelivery,
   rebindChatConversation,
+  runCardOwnsDelivery,
+  runIdFromMessageId,
   updatePushedSeq,
   upsertMessageDelivery,
 } from "./bindings-sqlite.js";
@@ -225,6 +227,16 @@ export async function processEntry(
   }
 
   const messageId = revision.messageId;
+
+  // ADR 0031 §8 dedup seam: assistant rows encode their run
+  // (`run:<runId>:assistant:N`). If a Run card owns this run's delivery
+  // for this chat, the card IS the UX — skip the text send, advance the
+  // cursor (the card watcher seals terminally and owns the fallback).
+  const cardRunId = runIdFromMessageId(messageId);
+  if (cardRunId && runCardOwnsDelivery(db, cardRunId, larkChatId)) {
+    updatePushedSeq(db, larkChatId, event.seq);
+    return;
+  }
 
   // Check delivery state: if already delivered as terminal, skip
   const delivery = getMessageDelivery(db, conversationId, messageId, larkChatId);

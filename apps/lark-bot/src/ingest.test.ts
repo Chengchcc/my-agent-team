@@ -27,6 +27,13 @@ function makeDb(): Database {
       status TEXT NOT NULL DEFAULT 'processing', created_at INTEGER NOT NULL,
       UNIQUE(lark_message_id)
     );
+    CREATE TABLE IF NOT EXISTS run_card (
+      run_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, lark_chat_id TEXT NOT NULL,
+      lark_message_id TEXT, source_message_id TEXT, status TEXT NOT NULL DEFAULT 'creating',
+      accumulated TEXT NOT NULL DEFAULT '', tool_count INTEGER NOT NULL DEFAULT 0,
+      card_send_failed INTEGER NOT NULL DEFAULT 0, card_update_failed INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
   `);
   return db;
 }
@@ -322,6 +329,87 @@ describe("ingest H7 sender authorization", () => {
     const result = await ingest(baseEvent, ingestCtx(db));
     expect(result.action).toBe("consumed");
     expect(result.conversationId).toBe("conv_h7");
+    db.close();
+  });
+});
+
+describe("ingest /stop control command", () => {
+  function seedCard(db: ReturnType<typeof makeDb>, runId: string, status: string) {
+    db.run(
+      "INSERT INTO run_card (run_id, conversation_id, lark_chat_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [runId, "conv_stop", "oc_p2p_001", status, Date.now(), Date.now()],
+    );
+  }
+
+  test("cancels every live card for the chat and replies", async () => {
+    const db = makeDb();
+    seedCard(db, "run_a", "streaming");
+    seedCard(db, "run_b", "waiting");
+    seedCard(db, "run_c", "completed"); // not live — must NOT be cancelled
+    seedCard(db, "run_d", "fallback_text"); // not live either
+
+    const replies: string[] = [];
+    // H7 GET + two cancel POSTs (exact count: a third would exhaust the mock)
+    mockFetch([AGENT_CONFIG, { body: { ok: true } }, { body: { ok: true } }]);
+    const result = await ingest(
+      { ...baseEvent, event_id: "evt_stop1", message_id: "om_stop1", content: "/stop" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onCommandReply: async (_chatId, text) => {
+          replies.push(text);
+        },
+      },
+    );
+
+    expect(result.action).toBe("consumed");
+    expect(replies).toEqual(["已发送停止信号（2 个任务）。"]);
+    db.close();
+  });
+
+  test("no live cards — polite reply, zero backend calls beyond H7", async () => {
+    const db = makeDb();
+    const replies: string[] = [];
+    mockFetch([AGENT_CONFIG]);
+    const result = await ingest(
+      { ...baseEvent, event_id: "evt_stop2", message_id: "om_stop2", content: "/stop" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onCommandReply: async (_chatId, text) => {
+          replies.push(text);
+        },
+      },
+    );
+    expect(result.action).toBe("consumed");
+    expect(replies).toEqual(["当前没有正在运行的任务。"]);
+    db.close();
+  });
+
+  test("idempotent — duplicate /stop event is skipped", async () => {
+    const db = makeDb();
+    reserveInbound(db, "evt_stopdup", "om_stopdup", "oc_p2p_001");
+    mockFetch([AGENT_CONFIG]);
+    const result = await ingest(
+      { ...baseEvent, event_id: "evt_stopdup", message_id: "om_stopdup", content: "/stop" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+    expect(result.action).toBe("skipped");
     db.close();
   });
 });

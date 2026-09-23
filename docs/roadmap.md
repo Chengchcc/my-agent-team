@@ -53,7 +53,7 @@
 
 **飞书的会话绑定状态没有同步到后端。** Web 的对话页想显示「飞书已绑定」，但 `larkChatId ↔ conversationId` 的映射存在 lark-bot 自己的 SQLite 里，需要跨应用同步进后端。
 
-**Lark Run 卡片未实现。** lark-bot 目前是纯文本终态桥（M17 移除了流式卡片）。目标形态见 ADR 0031：卡片消费 Run SSE 做 transient 投影、终态以 canonical Message 封版、控制动作走现有 Run 控制接口（cancel/approval）。终态可靠投递（ADR 0032）已落地，是第一期另一半。
+**Lark Run 卡片第一期已落地**（ADR 0031：流式投影、终态 canonical 封版、`/stop`、重启恢复；终态可靠投递见 ADR 0032）。仍欠：reaction 触发停止（`im.message.reaction.created_v1` 已可订阅但 emoji 键名需联网验证）、卡片按钮回调通道（lark-cli 无 `card.action.trigger`，需升级 lark-cli 或原生 WebSocket 客户端）、审批/追问的卡片内表单（等回调通道，属第二期）。
 
 **产物缺内容账本与保留策略。** 来源信息有了（meta 文件加列表接口），缺 sha256 内容账本与校验端点、保留期的定时清理、以及主动清除接口。
 

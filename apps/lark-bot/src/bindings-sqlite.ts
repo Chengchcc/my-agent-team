@@ -193,8 +193,8 @@ export function reserveInbound(
 export function confirmInbound(
   db: Database,
   eventId: string,
-  conversationId: string,
-  ledgerSeq: number,
+  conversationId: string | null,
+  ledgerSeq: number | null,
 ): void {
   d(db)
     .update(schema.inboundMessage)
@@ -288,4 +288,127 @@ export function upsertMessageDelivery(db: Database, rec: MessageDeliveryRecord):
       },
     })
     .run();
+}
+
+// ─── run_card (ADR 0031: Lark Run card delivery state) ────────────
+
+export interface RunCardRecord {
+  runId: string;
+  conversationId: string;
+  larkChatId: string;
+  larkMessageId: string | null;
+  sourceMessageId: string | null;
+  status: string;
+  accumulated: string;
+  toolCount: number;
+  cardSendFailed: number;
+  cardUpdateFailed: number;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Statuses that still own the run's UX (card alive or about to seal). */
+const RUN_CARD_ACTIVE_STATUSES: Record<string, true> = {
+  creating: true,
+  streaming: true,
+  waiting: true,
+};
+
+function parseRunCard(row: typeof schema.runCard.$inferSelect): RunCardRecord {
+  return {
+    runId: row.runId,
+    conversationId: row.conversationId,
+    larkChatId: row.larkChatId,
+    larkMessageId: row.larkMessageId,
+    sourceMessageId: row.sourceMessageId,
+    status: row.status,
+    accumulated: row.accumulated,
+    toolCount: row.toolCount,
+    cardSendFailed: row.cardSendFailed,
+    cardUpdateFailed: row.cardUpdateFailed,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function getRunCard(db: Database, runId: string): RunCardRecord | null {
+  const row = d(db).select().from(schema.runCard).where(eq(schema.runCard.runId, runId)).get();
+  return row ? parseRunCard(row) : null;
+}
+
+export function insertRunCard(
+  db: Database,
+  rec: {
+    runId: string;
+    conversationId: string;
+    larkChatId: string;
+    sourceMessageId: string | null;
+  },
+): void {
+  const now = Date.now();
+  d(db)
+    .insert(schema.runCard)
+    .values({ ...rec, status: "creating", createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: schema.runCard.runId,
+      set: { conversationId: rec.conversationId, updatedAt: now },
+    })
+    .run();
+}
+
+export function updateRunCard(
+  db: Database,
+  runId: string,
+  patch: Partial<Omit<RunCardRecord, "runId" | "createdAt">>,
+): void {
+  d(db)
+    .update(schema.runCard)
+    .set({ ...patch, updatedAt: Date.now() })
+    .where(eq(schema.runCard.runId, runId))
+    .run();
+}
+
+/** Cards for one chat that are still live (for /stop). */
+export function listActiveRunCards(db: Database, larkChatId: string): RunCardRecord[] {
+  return d(db)
+    .select()
+    .from(schema.runCard)
+    .where(eq(schema.runCard.larkChatId, larkChatId))
+    .all()
+    .map(parseRunCard)
+    .filter((c) => RUN_CARD_ACTIVE_STATUSES[c.status] === true);
+}
+
+/** Non-terminal cards to re-drive after a bot restart. */
+export function listNonTerminalRunCards(db: Database): RunCardRecord[] {
+  return d(db)
+    .select()
+    .from(schema.runCard)
+    .all()
+    .map(parseRunCard)
+    .filter((c) => RUN_CARD_ACTIVE_STATUSES[c.status] === true);
+}
+
+/** ADR 0031 §8 dedup seam: does a card own this run's delivery for this
+ * chat? Terminal cards count too — the card already showed the final
+ * answer; only `fallback_text` hands delivery back to the text bridge. */
+export function runCardOwnsDelivery(db: Database, runId: string, larkChatId: string): boolean {
+  const row = d(db)
+    .select()
+    .from(schema.runCard)
+    .where(and(eq(schema.runCard.runId, runId), eq(schema.runCard.larkChatId, larkChatId)))
+    .get();
+  if (!row) return false;
+  // Every stored status except fallback_text means the card showed (or will
+  // seal) the run's final answer itself.
+  return row.status !== "fallback_text";
+}
+
+/** `run:<runId>:assistant:<ordinal>` → runId (assistantMessageId format). */
+export function runIdFromMessageId(messageId: string): string | null {
+  if (!messageId.startsWith("run:")) return null;
+  const runId = messageId.split(":")[1];
+  return runId && runId.length > 0 ? runId : null;
 }

@@ -4,8 +4,10 @@ import type { MessageRevision } from "@chengchenccc/message";
 import {
   getChatBinding,
   getMessageDelivery,
+  insertRunCard,
   openBindings,
   putChatBinding,
+  updateRunCard,
 } from "./bindings-sqlite.js";
 import { renderRevision } from "./render.js";
 import { processEntry } from "./sse-watcher.js";
@@ -181,5 +183,87 @@ describe("processEntry delivery semantics", () => {
     );
     expect(sendCalls).toBe(0);
     expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(14);
+  });
+});
+
+describe("processEntry run-card dedup seam (ADR 0031 §8)", () => {
+  const testDir = `/tmp/test-lark-sse-seam-${Date.now()}`;
+  let db: Database;
+
+  function makeRunEvent(seq: number, messageId: string) {
+    return { seq, kind: "message" as const, message: makeRevision({ messageId, state: "done" }) };
+  }
+
+  afterAll(() => {
+    db?.close();
+  });
+
+  test("fixture: openBindings + binding + active card", () => {
+    db = openBindings("test-agent", testDir);
+    putChatBinding(db, "oc_seam", "conv_seam", "p2p", Date.now());
+    insertRunCard(db, {
+      runId: "r_seam",
+      conversationId: "conv_seam",
+      larkChatId: "oc_seam",
+      sourceMessageId: null,
+    });
+    updateRunCard(db, "r_seam", { status: "streaming" });
+  });
+
+  test("assistant row of a live-card run: no text send, cursor advances", async () => {
+    let sendCalls = 0;
+    const event = makeRunEvent(3, "run:r_seam:assistant:0");
+    await processEntry(event, "conv_seam", "oc_seam", db, 2, {
+      onSend: async () => {
+        sendCalls++;
+      },
+    });
+    expect(sendCalls).toBe(0);
+    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(3);
+    // No delivery record either — the card owns this message's fate.
+    expect(getMessageDelivery(db, "conv_seam", "run:r_seam:assistant:0", "oc_seam")).toBeNull();
+  });
+
+  test("terminal card still owns delivery (card already sealed it)", async () => {
+    updateRunCard(db, "r_seam", { status: "completed" });
+    let sendCalls = 0;
+    const event = makeRunEvent(4, "run:r_seam:assistant:1");
+    await processEntry(event, "conv_seam", "oc_seam", db, 3, {
+      onSend: async () => {
+        sendCalls++;
+      },
+    });
+    expect(sendCalls).toBe(0);
+    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(4);
+  });
+
+  test("fallback_text card hands delivery back to the text bridge", async () => {
+    updateRunCard(db, "r_seam", { status: "fallback_text" });
+    const sent: string[] = [];
+    const event = makeRunEvent(5, "run:r_seam:assistant:2");
+    event.message.text = "final answer";
+    await processEntry(event, "conv_seam", "oc_seam", db, 4, {
+      onSend: async (_c, text) => {
+        sent.push(text);
+      },
+    });
+    expect(sent).toEqual(["final answer"]);
+    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(5);
+    expect(
+      getMessageDelivery(db, "conv_seam", "run:r_seam:assistant:2", "oc_seam")?.lastState,
+    ).toBe("done");
+  });
+
+  test("run without a card row delivers normally", async () => {
+    const sent: string[] = [];
+    const event = makeRunEvent(6, "run:r_nocard:assistant:0");
+    event.message.text = "plain";
+    await processEntry(event, "conv_seam", "oc_seam", db, 5, {
+      onSend: async (_c, text) => {
+        sent.push(text);
+      },
+    });
+    expect(sent).toEqual(["plain"]);
+    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(6);
   });
 });

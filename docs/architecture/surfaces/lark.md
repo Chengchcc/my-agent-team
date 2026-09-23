@@ -1,25 +1,25 @@
 ---
 title: 飞书端
-description: 飞书入站的鉴权与幂等占位、本地四张表，以及 sse-watcher 的出站过滤链、投递去重与推送游标
+description: 飞书入站的鉴权与幂等占位、本地五张表，Run 流式卡片（ADR 0031），以及 sse-watcher 的出站过滤链、卡片去重缝、投递去重与推送游标
 tags: [lark, surfaces, backend]
 ---
 
 # 飞书端
 
-一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程里的文本桥。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API；出站用 sse-watcher 消费该会话的 conversation SSE，把 assistant 终态行渲染成纯文本发回飞书。sse-watcher 是唯一出站入口，run 的中间态对飞书完全不可见，工具行不投递。
+一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API（`/stop` 控制命令除外，它直接调 Run 取消接口）。出站有两条：Run 流式卡片（ADR 0031，消费 Run SSE 的 transient 投影，终态以 canonical 文本封版）与 sse-watcher 的会话终态文本（卡片不拥有投递时的兜底通道）。工具行不投递，卡片上只显示工具摘要。
 
 ## 范围
 
-覆盖：入站管线的每一步（鉴权、幂等占位、绑定、路由、POST），本地四张表，出站的过滤链、去重模型、重试与推送游标，内容渲染与截断，surface.control 重绑，进程生命周期与 backend 侧的接线。
+覆盖：入站管线的每一步（鉴权、幂等占位、绑定、路由、POST、/stop），本地五张表，Run 卡片生命周期，出站的过滤链、卡片去重缝、去重模型、重试与推送游标，内容渲染与截断，surface.control 重绑，进程生命周期与 backend 侧的接线。
 
 不覆盖：backend 侧的触发与执行（见 [飞书消息端到端](../flows/e2e-lark-message.md)）、Web 端（见 [Web 端](./web.md)）、lark-cli 与飞书开放平台的协议细节（本页只讲到进程怎么起）。
 
 ## 实现文件
 
 - `apps/lark-bot/src/main.ts` — 起 `lark-cli event consume`、按行解析、watcher 表、重绑、心跳、退出处理
-- `apps/lark-bot/src/ingest.ts` — 入站主管线
-- `apps/lark-bot/src/bindings-sqlite.ts` — 四张表的读写与 `rebindChatConversation`
-- `apps/lark-bot/src/sse-watcher.ts` — 出站主管线
+- `apps/lark-bot/src/ingest.ts` — 入站主管线与 `/stop` 控制命令
+- `apps/lark-bot/src/bindings-sqlite.ts` — 五张表的读写与 `rebindChatConversation`
+- `apps/lark-bot/src/run-card/` — Run 卡片：`card-sender.ts`（lark-cli 发卡与 PATCH）、`card-state.ts`（事件→状态的纯 reducer）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`run-card-watcher.ts`（生命周期与终态封版）
 - `apps/lark-bot/src/render.ts` 与 `markdown-normalizer.ts` — 行到文本的渲染、换行与截断
 - `apps/lark-bot/src/sender.ts` 与 `send-text-only.ts` — 经 lark-cli 投递
 - `apps/lark-bot/src/{bootstrap,args,event-parser,client,safe-agent-id,diagnostics}.ts` — 启动、参数、事件解析、treaty 客户端、id 安全化、心跳
@@ -39,16 +39,17 @@ tags: [lark, surfaces, backend]
 6. **POST 消息**：`content` 固定带 `{ text, source: "lark", larkEventId, larkMessageId }`，接口返回 202 与 `{ seq, triggeredRuns }`。
 7. **确认**：`confirmInbound` 回填 `conversationId` 与 `ledgerSeq`。POST 之前进程崩掉的话，这条入站不会再被处理。
 
-## 本地四张表
+## 本地五张表
 
-`apps/lark-bot/src/db/schema.ts` 里只有四张表，它们是这个端私有的投递状态，不进后端：
+`apps/lark-bot/src/db/schema.ts` 里的表都是这个端私有的投递状态，不进后端：
 
 | 表 | 主键 | 用途 |
 |---|---|---|
 | `chat_binding` | `lark_chat_id` | 飞书 chat → conversationId，带 `pushed_seq` 推送游标 |
 | `member_binding` | `(lark_chat_id, lark_open_id)` | 飞书用户 → 本地 memberId 标签，形如 `human:lark:<open_id>` |
 | `inbound_message` | `lark_event_id` | 入站幂等，`lark_message_id` 上另有唯一约束 |
-| `message_delivery` | `(conversation_id, message_id, lark_chat_id)` | 出站投递意图与最后状态 |
+| `message_delivery` | `(conversation_id, message_id, lark_chat_id)` | 文本桥出站投递意图与最后状态 |
+| `run_card` | `run_id` | Run 卡片投递状态：lark 消息 id、状态机、累计输出、失败计数（ADR 0031） |
 
 ## 出站
 
@@ -65,6 +66,17 @@ tags: [lark, surfaces, backend]
 canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值，所以飞书没有流式渲染路径，每个 assistant 行只投递一次。
 
 投递用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
+
+## Run 卡片（ADR 0031 第一期）
+
+ingest 拿到 `triggeredRuns` 后立刻为每个 run 创建占位卡片（「正在思考」），状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。卡片经 `lark-cli im +messages-send --msg-type interactive` 发出，之后整体 PATCH 更新（Card JSON 2.0 的 `streaming_mode` 让客户端做打字机渲染）。事件消费 `/api/agent-runs/:runId/events`：text_delta 追加正文、tool 事件只记摘要（当前工具一行 + 完成计数）、approval/ask 切「等待」头、终态 status 触发封版。
+
+- **节流**：150ms 或 120 字符合并一次 PATCH，经单飞 flush 控制器（PATCH 互斥、期间的新请求合并为一次补刷）；PATCH 失败不致命，下一次 delta 继续补。
+- **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 里取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等提交落库；封版 PATCH 重试耗尽后降级为直接发送最终纯文本（幂等键 `<conversationId>:<runId>:seal`）并把卡片标 `fallback_text`。
+- **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送、只推游标；卡片从创建起就拥有这条 Run 的投递权。占位卡发送失败时卡片直接标 `fallback_text`，文本桥照常投递。
+- **正文窗口**：只保留最近约 10k 字符，头部折叠并提示去 Web 看（`--web-url` 或 `LARK_WEB_URL` 配置后页脚带「在 Web 查看」链接，Markdown 链接形态，无需回调通道）。
+- **控制**：`/stop` 入站命令取消该 chat 的全部活跃卡片对应的 run（`POST /api/agent-runs/:runId/cancel`，幂等）；卡片按钮回调在当前通道不可达（ADR 0031 决策 6），reaction 触发尚未实现。
+- **重启恢复**：启动时读回所有非终态 `run_card` 行继续驱动（Run SSE 的晚订阅语义保证已结算的 run 会立刻给一个终态事件）。
 
 ## 内容渲染
 
@@ -87,11 +99,12 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 ## 不变量
 
 1. 飞书端不写账本，也不向后端声明任何身份：memberId 是本地标签。
-2. 出站只有一个入口 sse-watcher，且只投递账本里的终态 assistant 行。
-3. 投递意图以非终态标记先落库，发送成功才确认终态；发送失败经重连重放，靠幂等键去重（at-least-once）。
-4. 每次投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`。
-5. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
-6. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
+2. 出站有两个入口：Run 卡片（Run 的 UX 生命周期，含终态）与 sse-watcher（终态 assistant 文本兜底）；对同一条 assistant 行，只有 `fallback_text` 的卡片会让位给文本桥。
+3. 卡片是 Run 的 transient 投影：token delta 不持久化到后端，PATCH 失败不影响 Run，终态必须以 canonical 文本封版或降级纯文本送达（ADR 0031/0032）。
+4. 文本桥投递意图以非终态标记先落库，发送成功才确认终态；发送失败经重连重放，靠幂等键去重（at-least-once）。
+5. 每次文本投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`；卡片幂等键是 `<conversationId>:<runId>:card`，封版降级是 `<conversationId>:<runId>:seal`。
+6. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
+7. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
 
 ## 已知缺口
 
@@ -99,6 +112,8 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。
 - 群聊的 @ 检测依赖 `botDisplayName`，缺了就只有单聊可用。
 - 出站没有回执：投递成功与否只体现在 lark-cli 的退出码上。
+- 卡片交互只有 `/stop` 命令与 Web 深链：reaction 触发（`im.message.reaction.created_v1`）与卡片按钮回调（`card.action.trigger`，lark-cli 的 event 目录没有）都未实现，见 ADR 0031 决策 6。
+- 审批与追问在卡片上只有「等待」状态展示，没有卡片内表单（回答仍需 Web 端），等回调通道解决后是第二期。
 
 ## 相关页
 

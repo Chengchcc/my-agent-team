@@ -4,6 +4,7 @@ import {
   getChatBinding,
   getMemberBinding,
   inboundExists,
+  listActiveRunCards,
   putChatBinding,
   putMemberBinding,
   reserveInbound,
@@ -20,12 +21,14 @@ export interface IngestContext {
   backendUrl: string;
   backendAuthToken: string | null;
   profile: string;
+  /** Reply to a control command (/stop) — direct text send, not a
+   * conversation message. */
+  onCommandReply?: (chatId: string, text: string) => Promise<void>;
   /** Called when a new conversation is bound — allows dynamic SSE subscription */
   onNewBinding?: (conversationId: string) => void;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
   onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
 }
-
 export interface IngestResult {
   action: "consumed" | "skipped" | "error";
   conversationId?: string;
@@ -64,6 +67,29 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   const allowed = larkCfg.allowedSenders ?? [];
   if (allowed.length > 0 && !allowed.includes(event.sender_id)) {
     return { action: "skipped", triggered: false, triggeredRuns: [] };
+  }
+
+  // ─── Control command: /stop cancels this chat's live Run cards ───
+  // Not a conversation message: reserve for idempotency, cancel via the
+  // Run control API, confirm, and answer in-chat directly.
+  if (event.content.trim() === "/stop") {
+    if (inboundExists(db, event.event_id, event.message_id)) {
+      return { action: "skipped", triggered: false, triggeredRuns: [] };
+    }
+    reserveInbound(db, event.event_id, event.message_id, event.chat_id);
+    const cards = listActiveRunCards(db, event.chat_id);
+    const binding = getChatBinding(db, event.chat_id);
+    let cancelled = 0;
+    for (const card of cards) {
+      const { error } = await client.api["agent-runs"]({ runId: card.runId }).cancel.post();
+      if (!error) cancelled++;
+      else console.error(`[ingest] cancel ${card.runId} failed: ${JSON.stringify(error)}`);
+    }
+    confirmInbound(db, event.event_id, binding?.conversationId ?? null, null);
+    const reply =
+      cancelled > 0 ? `已发送停止信号（${cancelled} 个任务）。` : "当前没有正在运行的任务。";
+    await ctx.onCommandReply?.(event.chat_id, reply);
+    return { action: "consumed", triggered: false, triggeredRuns: [] };
   }
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   // Reserve before POST: if POST succeeds but confirm fails, the event won't re-POST.

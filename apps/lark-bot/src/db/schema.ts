@@ -44,3 +44,23 @@ export const messageDelivery = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.conversationId, table.messageId, table.larkChatId] })],
 );
+
+/** ADR 0031: the Lark Run card — a transient projection of one Agent Run.
+ * End-side delivery state only (never a backend entity). Terminal rows are
+ * kept for the dedup seam; `fallback_text` hands the run's final answer
+ * back to the text bridge semantics (the card watcher sends it itself). */
+export const runCard = sqliteTable("run_card", {
+  runId: text().primaryKey(),
+  conversationId: text().notNull(),
+  larkChatId: text().notNull(),
+  larkMessageId: text(),
+  sourceMessageId: text(),
+  status: text().notNull().default("creating"),
+  accumulated: text().notNull().default(""),
+  toolCount: integer().notNull().default(0),
+  cardSendFailed: integer().notNull().default(0),
+  cardUpdateFailed: integer().notNull().default(0),
+  lastError: text(),
+  createdAt: integer({ mode: "number" }).notNull(),
+  updatedAt: integer({ mode: "number" }).notNull(),
+});

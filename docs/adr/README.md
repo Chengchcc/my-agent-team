@@ -36,7 +36,7 @@
 | 0028 | tui-component-layering(live 归 chrome，终局归 transcript) | Accepted |
 | 0029 | coding-agent-status-contract(agent-status 文件契约接受双写重复) | Accepted |
 | 0030 | control-plane-positioning(产品定位四边界) | Accepted |
-| 0031 | lark-run-card-transient-projection(Run 卡片临时投影) | Accepted（方向已定，第一期未实施） |
+| 0031 | lark-run-card-transient-projection(Run 卡片临时投影) | **Implemented**（第一期；reaction/回调通道/卡片表单未做） |
 | 0032 | lark-final-delivery-at-least-once(终态投递 at-least-once) | Implemented |
 
 > 状态翻转纪律：任何 ADR 状态变更(Obsolete/Superseded/Deferred→Implemented 等)**必须同 PR 更新本索引**，避免索引与正文失配(2026-08-21 修复 0004/0006/0024 时立规)。

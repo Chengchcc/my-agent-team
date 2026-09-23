@@ -2,11 +2,13 @@ import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
-import { getAllChatBindings, getChatBinding } from "./bindings-sqlite.js";
+import { getAllChatBindings, getChatBinding, listNonTerminalRunCards } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
 import { parseEvent } from "./event-parser.js";
 import { ingest } from "./ingest.js";
+import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
+import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
 import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
@@ -61,6 +63,31 @@ for (const binding of getAllChatBindings(state.db)) {
   ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
 }
 
+// ─── Run cards (ADR 0031) — one per live run ───
+const cardWatchers = new Map<string, RunCardWatcherHandle>();
+
+function startRunCard(runId: string, conversationId: string, larkChatId: string) {
+  if (cardWatchers.has(runId)) return;
+  const handle = watchRunCard(runId, conversationId, larkChatId, {
+    db: state.db,
+    backendUrl: args.backendUrl,
+    backendAuthToken: args.backendAuthToken,
+    profile,
+    webUrl: args.webUrl,
+    sendText: async (chatId, text, idempotencyKey) => {
+      const result = await sendMessage(profile, chatId, text, idempotencyKey);
+      if (!result.ok) throw new Error(result.error ?? "unknown lark send error");
+    },
+  });
+  cardWatchers.set(runId, handle);
+  console.log(`[lark-bot] run card started: ${runId} → ${larkChatId}`);
+}
+
+// Restart recovery: re-drive cards that were still live when we died.
+for (const card of listNonTerminalRunCards(state.db)) {
+  startRunCard(card.runId, card.conversationId, card.larkChatId);
+}
+
 // M16: Surface health heartbeat (every 30s)
 const heartbeatTimer = setInterval(() => {
   const health = collectHealth(
@@ -113,9 +140,16 @@ async function handleLine(line: string): Promise<void> {
         ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
       }
     },
-    // M17: Run delta watcher removed from production user-output path.
-    // Streaming card/text rendering is now driven by conversation ledger
-    // revision via sse-watcher (see message-revisions spec).
+    // ADR 0031: a triggered run gets its streaming card immediately.
+    onTriggeredRun: (runId, conversationId) => {
+      startRunCard(runId, conversationId, event.chat_id);
+    },
+    onCommandReply: async (chatId, text) => {
+      const result = await sendTextOnly(profile, chatId, text);
+      if (!result.ok) {
+        console.error(`[lark-bot] command reply failed: ${result.error}`);
+      }
+    },
   });
 
   if (result.action === "consumed") {
@@ -162,6 +196,7 @@ const cleanup = () => {
     /* best-effort */
   }
   for (const [, w] of watchers) w.close();
+  for (const [, c] of cardWatchers) c.close();
 };
 process.on("SIGTERM", () => {
   console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
