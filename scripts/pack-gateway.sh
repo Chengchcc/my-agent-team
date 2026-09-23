@@ -11,6 +11,9 @@
 #   backend/drizzle/backend/   — drizzle migrations (a bundled entry cannot
 #                                resolve the source-relative path, so the
 #                                manifest points BACKEND_MIGRATIONS_DIR here)
+#   backend/rust-pty/target/release/ — bun-pty's prebuilt PTY libraries (every
+#                                platform: bun-pty resolves one of them relative
+#                                to the bundle, and it does so at import time)
 #   web/                       — Next standalone tree root (node_modules, ...)
 #   web/apps/web/server.js     — the entry (monorepo: mirrors the tracing root)
 #   web/apps/web/public/monaco/vs — self-hosted editor assets (gitignored, so
@@ -46,7 +49,12 @@ WEB="$ROOT/apps/web"
 die() { echo "pack-gateway: FAIL — $*" >&2; exit 1; }
 
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+SMOKE_PID=""
+cleanup() {
+  [ -z "$SMOKE_PID" ] || kill "$SMOKE_PID" 2>/dev/null || true
+  rm -rf "$STAGE"
+}
+trap cleanup EXIT
 
 # ── backend: one file + migrations + the child MCP entry ──────────
 echo "pack-gateway: bundling backend"
@@ -56,6 +64,20 @@ echo "pack-gateway: bundling backend"
 ( cd "$ROOT" && bun build apps/backend/src/features/knowledge/mcp-server.ts --target=bun --outfile="$STAGE/backend/knowledge-mcp.js" )
 mkdir -p "$STAGE/backend/drizzle"
 cp -r "$ROOT/apps/backend/drizzle/." "$STAGE/backend/drizzle/"
+
+# ── pty libraries: bun-pty dlopen's one of these, so they must ship ──
+# The bundle keeps bun-pty's JS but never its prebuilt Rust library, and that
+# loader runs at IMPORT time. Its search starts from the running module, first
+# candidate <bundle dir>/rust-pty/target/release/<platform filename> — which is
+# the one path a packaged gateway can satisfy. Without this the backend throws
+# before it ever listens (module-scope resolveLibPath in bun-pty/terminal.ts).
+# All platforms' prebuilts go in: one tarball still covers linux+darwin, x64+
+# arm64, glibc+musl. That is why the native check below exempts this one dir.
+PTY_LIBS="$ROOT/apps/backend/node_modules/bun-pty/rust-pty/target/release"
+[ -d "$PTY_LIBS" ] || die "bun-pty prebuilt libs not installed at $PTY_LIBS (bun install)"
+PTY_DIR="$STAGE/backend/rust-pty/target/release"
+mkdir -p "$PTY_DIR"
+cp "$PTY_LIBS"/* "$PTY_DIR/"
 
 # ── resources: the seeds the backend reads at runtime ─────────────
 # These are repo-relative paths in source (skills/, docs/, the workflow
@@ -151,15 +173,69 @@ echo "pack-gateway: checks"
 [ -f "$STAGE/web/$APPREL/public/monaco/vs/loader.js" ] || die "monaco assets missing"
 [ -d "$STAGE/web/$APPREL/.next/server" ] || die "app server code missing"
 
-NATIVE="$(find "$STAGE" \( -name '*.node' -o -name '*.so*' \) -print -quit)"
+# Native binaries are a platform leak — except bun-pty's prebuilt libraries,
+# which are the deliberate multi-platform payload staged above (whitelist by
+# exact path, so a stray .node/.so anywhere else still fails the pack).
+NATIVE="$(find "$STAGE" \( -name '*.node' -o -name '*.so*' -o -name '*.dylib' -o -name '*.dll' \) \
+  -not -path "$PTY_DIR/*" -print -quit)"
 [ -z "$NATIVE" ] || die "platform-specific native leaked in: $NATIVE"
+
+for lib in librust_pty.so librust_pty_arm64.so librust_pty_musl.so \
+  librust_pty_arm64_musl.so librust_pty.dylib librust_pty_arm64.dylib; do
+  [ -f "$PTY_DIR/$lib" ] || die "bun-pty library missing from the stage: $lib"
+done
 
 CACHE="$(find "$STAGE" -maxdepth 6 -type d -name cache -path '*/.next/*' -print -quit)"
 [ -z "$CACHE" ] || die "build cache leaked in: $CACHE"
 
 bun -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$STAGE/gateway.json" \
   || die "gateway.json is not valid JSON"
-echo "pack-gateway: ok — no natives, no build cache, manifest valid"
+echo "pack-gateway: ok — no stray natives, no build cache, manifest valid"
+
+# ── boot smoke: the packed backend must come up on its own ────────
+# A pack that cannot boot is indistinguishable from a good one until a user's
+# `oma gateway up` (that is exactly how the missing pty library shipped). Boot
+# the bundle from a CLEAN cwd — the same way the launcher runs it — and ask for
+# /health, so publish fails here instead of on someone's laptop.
+echo "pack-gateway: boot smoke"
+SMOKE="$(mktemp -d)"
+SMOKE_PORT="${PACK_GATEWAY_SMOKE_PORT:-3911}"
+# The launcher fills OMA_BIN with its own executable (the manifest's {omaBin});
+# boot only needs that path to resolve, so a stand-in does when the repo CLI
+# has not been built (no run is started, so nothing ever spawns it).
+SMOKE_OMA="$ROOT/apps/oh-my-agent/dist/cli.js"
+[ -f "$SMOKE_OMA" ] || SMOKE_OMA="/bin/true"
+( cd "$STAGE/backend" && exec env \
+    OMA_BIN="$SMOKE_OMA" \
+    BACKEND_DATA_DIR="$SMOKE" \
+    BACKEND_MIGRATIONS_DIR="$STAGE/backend/drizzle/backend" \
+    BACKEND_RESOURCES_DIR="$STAGE/resources" \
+    BACKEND_AUTH_TOKEN=pack-smoke-token \
+    BACKEND_HOST=127.0.0.1 BACKEND_PORT="$SMOKE_PORT" \
+    bun main.js ) > "$SMOKE/backend.log" 2>&1 &
+SMOKE_PID=$!
+
+SMOKE_OK=""
+for _ in $(seq 1 30); do
+  if bun -e 'const r = await fetch(process.argv[1]); if (!r.ok) process.exit(1)' \
+    "http://127.0.0.1:$SMOKE_PORT/health" >/dev/null 2>&1; then
+    SMOKE_OK=1
+    break
+  fi
+  kill -0 "$SMOKE_PID" 2>/dev/null || break
+  sleep 1
+done
+kill "$SMOKE_PID" 2>/dev/null || true
+wait "$SMOKE_PID" 2>/dev/null || true
+SMOKE_PID=""
+if [ -z "$SMOKE_OK" ]; then
+  echo "--- backend log ---" >&2
+  tail -25 "$SMOKE/backend.log" >&2
+  rm -rf "$SMOKE"
+  die "the packed backend does not boot (log above)"
+fi
+rm -rf "$SMOKE"
+echo "pack-gateway: boot smoke ok — /health answered on port $SMOKE_PORT"
 
 # ── package ───────────────────────────────────────────────────────
 mkdir -p "$OUT"
