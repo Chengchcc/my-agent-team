@@ -25,6 +25,12 @@ apps/web/tsconfig.tsbuildinfo
 # local runtime state.
 !.oma/plan.md
 
+# The package dir is a workspace when the TUI is run from it (`bun run dev` in
+# apps/oh-my-agent), so the same runtime data lands here: agent-status.json is
+# rewritten by every such run (and by the TUI tests using cwd as the workspace).
+# Not a fixture — nothing reads it — so it must not dirty the tree.
+apps/oh-my-agent/.oma/
+
 # omp backend project dir: not used here (oma is the harness for this repo).
 # Ignored wholesale — the tracked project rules moved to .oma/rules/, which is
 # where oma's stream-rule loader actually reads from.

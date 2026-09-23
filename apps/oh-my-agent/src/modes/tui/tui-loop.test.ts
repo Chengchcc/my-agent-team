@@ -30,7 +30,7 @@ function sessionDir(): string {
 
 describe("loop mode drives its own turns", () => {
   test("the captured prompt is re-submitted after the run settles", async () => {
-    sessionDir();
+    const ws = sessionDir();
     try {
       // Two keystrokes: enable with a 2-iteration budget, then the prompt that
       // becomes the loop body. After that the loop drives itself; reading null
@@ -45,10 +45,7 @@ describe("loop mode drives its own turns", () => {
           return Promise.resolve(null);
         };
       })();
-      const code = await runTuiSession(
-        { modelRuntime: testModelRuntime(), workspaceRoot: "." },
-        io,
-      );
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
       expect(code).toBe(0);
       const statuses = io.renders
         .flatMap((s) => s.runs.flatMap((r) => r.items))
@@ -225,7 +222,7 @@ describe("loop mode drives its own turns", () => {
   }, 30_000);
 
   test("a satisfied --until condition stops the loop after the first iteration", async () => {
-    sessionDir();
+    const ws = sessionDir();
     try {
       // ONE command, then a null read ends the session. The null is only
       // served AFTER the first turn settled (the loop decision runs before the
@@ -240,10 +237,7 @@ describe("loop mode drives its own turns", () => {
           return Promise.resolve(null); // session ends once the user is idle
         };
       })();
-      const code = await runTuiSession(
-        { modelRuntime: testModelRuntime(), workspaceRoot: "." },
-        io,
-      );
+      const code = await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: ws }, io);
       expect(code).toBe(0);
       const statuses = io.renders
         .flatMap((s) => s.runs.flatMap((r) => r.items))
