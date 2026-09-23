@@ -10,7 +10,7 @@ tags: [backend, runtime, surfaces]
 
 ## 范围
 
-覆盖：分层判据与逐层症状对照，事实层、执行层与投影层的区分，诊断日志怎么开、最短观察链长什么样，以及今天仍然成立的系统级不变量。
+覆盖：分层判据与逐层症状对照，事实层、执行层与投影层的区分，诊断日志怎么开、最短观察链长什么样，打包产物起不来时怎么判，以及今天仍然成立的系统级不变量。
 
 不覆盖：飞书端的实现细节（见 [飞书](../surfaces/lark.md)）、Web 端的渲染细节（见 [Web 端](../surfaces/web.md)）、Agent Run 的完整状态机（见 [Run 输出与实时更新](../runs/output-and-live-updates.md)）。
 
@@ -23,6 +23,7 @@ tags: [backend, runtime, surfaces]
 - `apps/backend/src/features/conversation/service.ts` — `[conversation] trigger` 行与 5 秒轮询兜底
 - `apps/backend/src/http/response.ts` — SSE 构造，心跳与「没有 done 事件」
 - `apps/web/src/hooks/useConversation.ts` — 浏览器侧两条 SSE 的真实路径
+- `scripts/pack-gateway.sh` — 产物的布局、pty 库的落位，以及打出包后自己跑一次 `/health` 的 boot smoke
 
 ## 先分层
 
@@ -104,6 +105,17 @@ adapter 是 oma 子进程的进程管理与 JSONL 控制器（`packages/adapter-
 | 删除任务 worktree 返回 409 | 该路径还有 running 的终端 | `apps/backend/src/bootstrap/features.ts` 的删除入口 |
 | 终端面板重启后少了一个 | 快照重建时 agent 或 project 已不存在，条目被修剪 | `features.ts` 的 boot 恢复与 `registry.sync()` |
 
+## 打包产物
+
+产物（`oma gateway up` 装的那份）与仓库里的开发启动是两条路：开发时 backend 直接读源码与 `node_modules`，产物是 bundle 加一份固定布局。所以「本地好好的，产物起不来」几乎都是布局问题，不是代码问题。
+
+| 症状 | 先看 | 位置 |
+|---|---|---|
+| 产物启动即退，日志里 `librust_pty shared library not found` | 这份包是缺库的旧产物（bun-pty 的预编译库没被打进去）；用当前脚本重打一次 | `scripts/pack-gateway.sh` 的 pty 段 |
+| 产物 backend 打印了 listening 随即退出 1 | 往上翻有没有 `[bootstrap] model cost catalog failed`：`oma --list-models` 的输出不是合法 JSON（`OMA_BIN` 指向别的程序、oma 版本不匹配） | `apps/backend/src/bootstrap/features.ts` 的 `modelCosts` |
+| 打包脚本在 boot smoke 就失败 | 产物真的起不来，失败信息上方就是它自己的启动日志 | `scripts/pack-gateway.sh` 的 boot smoke 段 |
+| 打包脚本说 native leaked in | 除 bun-pty 的库目录外，产物里不该出现 `.so`/`.dylib`/`.node`/`.dll`；那份多出来的东西就是泄漏源 | 同上，native 检查 |
+
 ## 诊断日志
 
 `OMA_DEBUG=1` 是唯一的开关（`packages/agent-contract/src/debug.ts`），子进程继承同一变量，所以一次开启能同时点亮 backend、adapter、子进程 RPC 与 model loop 的日志。日志只含阶段名、id、计数与状态，不含消息正文、工具输入、prompt 与密钥。child 的 stderr 会保留一份脱敏尾部，但它只在协议失败时拼进错误详情，不做实时转发。
@@ -147,6 +159,7 @@ tag 的含义：`conversation` 是触发与入队，`agent-run` 是执行生命�
 5. 子进程无状态：崩溃等于当前 Run 失败，下一个输入是新 Run，从 Agent Context 全量投影重建。
 6. per-run 事件流不落库，只落 telemetry 类型的事件到 `agent_run_event`。
 7. conversation SSE 不发 `done` 事件，靠心跳与连接中止表达生命周期。
+8. 产物必须自证能启动：`scripts/pack-gateway.sh` 打完包会从干净工作目录启动一次 backend 并要求 `/health` 应答，过不了就不产出 tar。凡是「打包成功但用户起不来」，都是这条自检没覆盖到的东西。
 
 ## 已知缺口
 
