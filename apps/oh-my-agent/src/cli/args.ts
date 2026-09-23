@@ -1,4 +1,5 @@
 import { GATEWAY_USAGE, type GatewayCommand, isGatewayCommand } from "./gateway-commands.js";
+import { UPDATE_USAGE } from "./update-command.js";
 
 export type CliMode = "print" | "json" | "rpc" | "tui";
 
@@ -23,6 +24,12 @@ export interface CliArgs {
   readOnly?: boolean;
   /** `oma gateway <command>`: the gateway domain (backend + web) verbs. */
   gateway?: GatewayCommand;
+  /** `oma update [--check] [--version <v>]`: the release updater. */
+  update?: boolean;
+  /** `oma update --check`: report only. */
+  updateCheck?: boolean;
+  /** `oma update --version <v>`: pin the target version. */
+  updateVersion?: string;
   /** `oma gateway up|fetch --version <v>`: pin the artifact version. */
   gatewayVersion?: string;
   /** `oma gateway up -d`: run detached. */
@@ -46,6 +53,9 @@ Usage:
   oma --mode json "<prompt>"     json mode: all events + one outcome as JSONL
   oma --mode rpc                 rpc mode: stdin/stdout JSONL protocol
   oma --list-models              print the model catalog as JSON
+  oma update                     update the CLI + gateway artifact to the
+                                 newest published version
+  oma update --check             report what is installed vs what is published
   oma gateway up                 start backend + web (foreground, Ctrl-C stops)
   oma gateway up -d              same, detached (returns once healthy)
   oma gateway down               stop a detached gateway
@@ -84,6 +94,9 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   // is otherwise the prompt (`oma "explain this"`). `oma -p "gateway up"` is the
   // escape hatch when the word really is part of a prompt.
   if (argv[0] === "gateway") return parseGatewayArgs(argv.slice(1), args);
+  // Same reservation for `oma update` (the release updater): a bare `oma update`
+  // must not become the prompt "update".
+  if (argv[0] === "update") return parseUpdateArgs(argv.slice(1), args);
 
   let i = 0;
   while (i < argv.length) {
@@ -178,6 +191,44 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   }
   if (modeFlag) args.mode = modeFlag as CliMode;
   args.prompt = positional.join(" ");
+  return args;
+}
+
+/** Parse `oma update [--check] [--version <v>]`. Like the gateway surface it
+ *  takes no prompt, session or mode — the first position is a verb. */
+function parseUpdateArgs(rest: readonly string[], args: CliArgs): CliArgs {
+  const first = rest[0];
+  if (first !== undefined && !first.startsWith("-")) {
+    throw new UsageError(`oma update takes no argument: ${first}\n\n${UPDATE_USAGE}`);
+  }
+  args.update = true;
+  let i = 0;
+  while (i < rest.length) {
+    const arg = rest[i] ?? "";
+    if (arg === "--check" || arg === "-c") {
+      args.updateCheck = true;
+      i += 1;
+      continue;
+    }
+    if (arg === "--version") {
+      const value = rest[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new UsageError("oma update --version needs a version like 0.2.0");
+      }
+      args.updateVersion = value;
+      i += 2;
+      continue;
+    }
+    if (arg.startsWith("--version=")) {
+      const value = arg.slice("--version=".length);
+      if (!value) throw new UsageError("oma update --version needs a version like 0.2.0");
+      args.updateVersion = value;
+      i += 1;
+      continue;
+    }
+    if (arg === "--help" || arg === "-h") throw new UsageError(UPDATE_USAGE);
+    throw new UsageError(`unknown update option: ${arg}\n\n${UPDATE_USAGE}`);
+  }
   return args;
 }
 

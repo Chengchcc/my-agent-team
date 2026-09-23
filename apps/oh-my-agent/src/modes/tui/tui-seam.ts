@@ -31,6 +31,11 @@ export interface TuiModeOptions {
   permissionMode?: "ask" | "auto" | "deny" | "off" | "yolo";
   /** --read-only: run every session turn with no mutating tools. */
   readOnly?: boolean;
+  /** Boot-time upgrade hint: resolves the newer published version, or undefined
+   *  when the CLI is current or the registry is unreachable. Injected here (and
+   *  implemented in main.ts) so the session loop stays free of network I/O and
+   *  scripted-driver tests never hit the registry. */
+  checkUpdate?: () => Promise<string | undefined>;
 }
 
 /** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */

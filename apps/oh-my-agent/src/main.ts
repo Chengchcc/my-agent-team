@@ -2,11 +2,14 @@ import { createModelRuntime } from "@chengchenccc/ai";
 import { type CliArgs, parseArgs, UsageError } from "./cli/args.js";
 import { runGatewayCommand } from "./cli/gateway-commands.js";
 import { mergeInitialInput, readPipedStdin } from "./cli/initial-input.js";
+import { runUpdateCommand } from "./cli/update-command.js";
+import { omaVersion } from "./core/gateway/artifact.js";
 import { buildBackendModelCatalog } from "./core/runtime/model-catalog.js";
 import { registerBuiltinProviders } from "./core/runtime/run-runtime.js";
 import { parseToolFilter } from "./core/runtime/tool-filter.js";
 import { listSessions } from "./core/session/session-file.js";
 import { resolvePermissionMode } from "./core/settings/project-settings.js";
+import { newerVersion } from "./core/update/release.js";
 import { runJsonMode } from "./modes/json-mode.js";
 import { runPrintMode } from "./modes/print-mode.js";
 import { runRpcMode } from "./modes/rpc/rpc-mode.js";
@@ -27,6 +30,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const modelRuntime = createModelRuntime();
   registerBuiltinProviders(modelRuntime, process.env);
 
+  /** The TUI's upgrade hint. Fail-open and off by an env switch, because a
+   *  registry lookup must never be able to spoil an interactive session:
+   *  `newerVersion` returns undefined for every failure (unreachable, timeout,
+   *  odd payload). */
+  const upgradeHint = async (): Promise<string | undefined> => {
+    if (process.env.OMA_NO_UPDATE_CHECK) return undefined;
+    return await newerVersion(omaVersion());
+  };
+
   if (args.listModels) {
     // stdout carries ONLY the catalog JSON (the adapter parses it).
     const catalog = await buildBackendModelCatalog({ modelRuntime });
@@ -40,6 +52,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return runGatewayCommand(args.gateway, {
       ...(args.gatewayVersion ? { version: args.gatewayVersion } : {}),
       ...(args.gatewayDetach ? { detach: true } : {}),
+    });
+  }
+
+  // Same for `oma update`: no prompt, no session, and it must work over a pipe.
+  if (args.update) {
+    return runUpdateCommand({
+      ...(args.updateVersion ? { version: args.updateVersion } : {}),
+      ...(args.updateCheck ? { check: true } : {}),
     });
   }
 
@@ -72,6 +92,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       ...(args.readOnly ? { readOnly: true } : {}),
       ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
       ...(args.prompt ? { initialPrompt: args.prompt } : {}),
+      checkUpdate: upgradeHint,
     });
   }
 
@@ -88,6 +109,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       ...(args.readOnly ? { readOnly: true } : {}),
       ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
       ...(args.prompt ? { initialPrompt: args.prompt } : {}),
+      checkUpdate: upgradeHint,
     });
   }
 

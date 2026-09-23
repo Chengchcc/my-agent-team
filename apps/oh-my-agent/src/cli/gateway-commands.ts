@@ -76,13 +76,18 @@ export interface GatewayCommandOptions {
 
 /** A source checkout runs the gateway from the repo, so the release artifact it
  *  would download is unused. Only stay quiet there: an explicit CLI call still
- *  fetches. `npm_lifecycle_event` is set while a package's postinstall runs. */
-function inMonorepoCheckoutPostinstall(): boolean {
-  if (process.env.npm_lifecycle_event !== "postinstall") return false;
+ *  fetches. */
+export function inMonorepoCheckout(): boolean {
   // src/cli (dist/cli) is TWO levels under the package root — unlike
   // core/gateway/*, which sits three. Getting this wrong made the guard a no-op.
   const packageRoot = resolve(import.meta.dirname, "../..");
   return existsSync(join(packageRoot, "..", "..", "turbo.json"));
+}
+
+/** `npm_lifecycle_event` is set while a package's postinstall runs. */
+function inMonorepoCheckoutPostinstall(): boolean {
+  if (process.env.npm_lifecycle_event !== "postinstall") return false;
+  return inMonorepoCheckout();
 }
 
 function loggerFor(
@@ -348,8 +353,9 @@ export async function runGatewayDown(opts: GatewayCommandOptions = {}): Promise<
 }
 
 /** Relaunch this CLI in the background and wait until it answers, so the command
- *  reports the truth instead of "started something, maybe". */
-async function startGatewayDetached(
+ *  reports the truth instead of "started something, maybe". Also used by
+ *  `oma update` to put a running gateway onto the version it just installed. */
+export async function startGatewayDetached(
   opts: GatewayCommandOptions & { home: string; version: string; log: (line: string) => void },
 ): Promise<number> {
   const entry = process.argv[1];

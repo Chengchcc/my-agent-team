@@ -81,6 +81,7 @@ oma gateway up
 oma gateway up -d      # 健康后才返回，日志在 ~/.oma/gateway/up.log
 oma gateway status     # 版本、进程、健康、登录口令
 oma gateway down       # 停掉后台那个
+oma update             # 以后升级：CLI 和产物一起，后台 gateway 顺手重启
 ```
 
 前台后台都会把地址和登录口令打印出来，浏览器打开 `http://127.0.0.1:3001/login` 即可。服务只绑 `127.0.0.1`，不上局域网。
@@ -120,6 +121,15 @@ oma gateway up
 | `oma gateway fetch` | 只下载校验产物，幂等；删掉版本目录可强制重下 |
 
 `oma gateway up|fetch` 都接受 `--version <版本>` 指定产物版本。
+
+升级也是它自己的一条命令：
+
+```bash
+oma update           # CLI 和 gateway 产物一起升到最新；后台 gateway 在跑就顺手重启
+oma update --check   # 只看不装：装了哪个、发布了哪个，有更新时退出码是 1
+```
+
+`oma update` 按 npm 上的最高版本走（`latest` 与 `rc` 里取高的那个），所以不用记自己在哪条通道。它不下行降级，除非 `oma update --version <版本>` 显式指定。装法是认不出来的那种（手工拷贝、别的包管理器），它只打印该跑什么，不替你猜。TUI 里也会在启动时提示一次新版本。
 
 产物和状态分开落盘，升级换代码不动数据：
 

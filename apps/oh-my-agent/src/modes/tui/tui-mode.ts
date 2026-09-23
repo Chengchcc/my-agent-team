@@ -563,6 +563,23 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   // Structured pane status (P2): the session starts idle and every settled
   // turn returns to idle (see the run wrapper below).
   writeAgentStatus(opts.workspaceRoot, "idle", session.sessionId);
+
+  // Upgrade hint (omp's "Update Available" notification). Fire-and-forget: the
+  // check is a registry round trip, and boot must never wait on the network.
+  // `checkUpdate` is absent for scripted drivers, so tests stay offline.
+  if (opts.checkUpdate) {
+    void opts
+      .checkUpdate()
+      .then((newer) => {
+        if (!newer) return;
+        pushStatus([`Update Available — oma ${newer} is available`, "run: oma update"]);
+        io.render(state);
+      })
+      .catch(() => {
+        // A hint is never worth failing a session over.
+      });
+  }
+
   for (;;) {
     io.render(state);
     // Steers that arrived while the previous loop was settling are drained

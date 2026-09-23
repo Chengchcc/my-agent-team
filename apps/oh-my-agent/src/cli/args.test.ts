@@ -321,3 +321,33 @@ describe("oma gateway <command>", () => {
     expect(escaped.gateway).toBeUndefined();
   });
 });
+
+describe("oma update", () => {
+  test("a bare verb means 'update', not the prompt \"update\"", () => {
+    const args = parseArgs(["update"]);
+    expect(args.update).toBe(true);
+    expect(args.prompt).toBe("");
+    expect(args.updateCheck).toBeUndefined();
+  });
+
+  test("--check/-c and --version are accepted in both spellings", () => {
+    expect(parseArgs(["update", "--check"]).updateCheck).toBe(true);
+    expect(parseArgs(["update", "-c"]).updateCheck).toBe(true);
+    expect(parseArgs(["update", "--version", "0.2.0"]).updateVersion).toBe("0.2.0");
+    expect(parseArgs(["update", "--version=0.2.0"]).updateVersion).toBe("0.2.0");
+  });
+
+  test("rejects stray positionals and unknown options", () => {
+    expect(() => parseArgs(["update", "now"])).toThrow(/takes no argument/);
+    expect(() => parseArgs(["update", "--nope"])).toThrow(/unknown update option/);
+    expect(() => parseArgs(["update", "--version"])).toThrow(UsageError);
+    expect(() => parseArgs(["update", "--version="])).toThrow(UsageError);
+  });
+
+  test("'update' is reserved only as the first word, and -p still escapes it", () => {
+    expect(parseArgs(["please", "update", "the", "docs"]).prompt).toBe("please update the docs");
+    const escaped = parseArgs(["-p", "update the docs"]);
+    expect(escaped.prompt).toBe("update the docs");
+    expect(escaped.update).toBeUndefined();
+  });
+});

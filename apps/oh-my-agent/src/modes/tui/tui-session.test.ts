@@ -834,4 +834,57 @@ describe("tui session (headless, fake provider)", () => {
       rmSync(sessionDir, { recursive: true, force: true });
     }
   });
+
+  test("the upgrade hint lands in the transcript when a newer release exists", async () => {
+    const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-hint-"));
+    process.env.OMA_SESSION_DIR = sessionDir;
+    try {
+      const io = scriptedIo(["/exit"]);
+      const code = await runTuiSession(
+        {
+          modelRuntime: testModelRuntime(),
+          workspaceRoot: sessionDir,
+          checkUpdate: async () => "9.9.9",
+        },
+        io,
+      );
+      expect(code).toBe(0);
+      const texts = io.renders
+        .flatMap((render) => render.runs.flatMap((run) => run.items.map((item) => item.text)))
+        .join("\n");
+      expect(texts).toContain("Update Available");
+      expect(texts).toContain("9.9.9");
+      expect(texts).toContain("oma update");
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("no hint when the CLI is current, and a failing check is not fatal", async () => {
+    const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-hint-none-"));
+    process.env.OMA_SESSION_DIR = sessionDir;
+    try {
+      for (const checkUpdate of [
+        async (): Promise<string | undefined> => undefined,
+        async (): Promise<string | undefined> => {
+          throw new Error("registry unreachable");
+        },
+      ]) {
+        const io = scriptedIo(["/exit"]);
+        const code = await runTuiSession(
+          { modelRuntime: testModelRuntime(), workspaceRoot: sessionDir, checkUpdate },
+          io,
+        );
+        expect(code).toBe(0);
+        const texts = io.renders
+          .flatMap((render) => render.runs.flatMap((run) => run.items.map((item) => item.text)))
+          .join("\n");
+        expect(texts).not.toContain("Update Available");
+      }
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

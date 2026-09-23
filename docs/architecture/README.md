@@ -31,6 +31,7 @@ tags: [conventions, rules]
 | 查安全边界与欠债 | [安全模型](./security/overview.md) → [oma 内核防线](./security/oma-kernel.md) → [bash 沙箱](./security/bash-sandbox.md) → [安全与债务清单](./security/debt.md) |
 | 线上出问题 | [排障指南](./operations/troubleshooting.md) |
 | 要把它跑起来 | [开发环境](../guides/development.md) → [排障指南](./operations/troubleshooting.md) |
+| 改启动器、打包或升级 | [启动器与升级](./operations/gateway.md) → [排障指南](./operations/troubleshooting.md) |
 | 动笔写代码前 | [设计哲学](./design-philosophy.md) → [跨进程契约规则](./e2e-contract-rules.md) → [DB 类型链规则](./db-typesafe-rules.md) → [依赖注入](./foundations/dependency-injection.md) |
 
 ## 页面清单
@@ -82,6 +83,7 @@ tags: [conventions, rules]
 - [oma 内核防线](./security/oma-kernel.md)
 - [bash 沙箱](./security/bash-sandbox.md)
 - [安全与债务清单](./security/debt.md)
+- [启动器与升级](./operations/gateway.md)
 - [排障指南](./operations/troubleshooting.md)
 
 规则
