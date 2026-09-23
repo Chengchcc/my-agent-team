@@ -151,7 +151,7 @@ export function watchConversation(
     },
   };
 }
-async function processEntry(
+export async function processEntry(
   event: z.infer<typeof ConversationEvent>,
   conversationId: string,
   larkChatId: string,
@@ -206,8 +206,10 @@ async function processEntry(
     }
     return;
   }
-  // Non-message frames, system authorship, and human echo (role=user — the
-  // human's own words are already visible in the chat) advance seq only.
+  // Non-message frames, system authorship, human echo (role=user — the
+  // human's own words are already visible in the chat) and tool rows
+  // (raw tool output never belongs in the chat; summaries are the run-card
+  // surface's job) advance seq only.
   // parseMessageRevision normalizes the wire zod type (nullable legacy
   // fields) into the canonical MessageRevision; cannot fail after zod.
   const revision = event.message ? parseMessageRevision(event.message) : undefined;
@@ -215,7 +217,8 @@ async function processEntry(
     event.kind !== "message" ||
     !revision ||
     revision.role === "system" ||
-    revision.role === "user"
+    revision.role === "user" ||
+    revision.role === "tool"
   ) {
     updatePushedSeq(db, larkChatId, event.seq);
     return;
@@ -230,9 +233,47 @@ async function processEntry(
     return;
   }
 
-  // M17.5 P3: Record delivery intent BEFORE sending (idempotency).
-  // If onSend throws, the delivery record is already persisted, so reconnection
-  // won't re-send (it hits the terminal-state guard above).
+  // Record delivery intent BEFORE sending, with a NON-terminal marker: a
+  // crash mid-send replays this entry (the guard above sees "streaming")
+  // and re-sends with the SAME lark idempotency key, so Lark-side dedup
+  // keeps the replay a no-op. Terminal state is confirmed only after the
+  // send succeeds.
+  upsertMessageDelivery(db, {
+    conversationId,
+    messageId,
+    larkChatId,
+    lastState: "streaming",
+    lastSeq: event.seq,
+    updatedAt: Date.now(),
+  });
+
+  // Render and send (canonical History only carries terminal frames; there
+  // is no streaming revision path). L6: retry with backoff.
+  const text = renderRevision(revision);
+  const idempotencyKey = `${conversationId}:${messageId}:${event.seq}`;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await h.onSend(larkChatId, text, idempotencyKey);
+      lastError = undefined;
+      break;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+    }
+  }
+  if (lastError !== undefined) {
+    // Exhausted retries must NOT advance pushed_seq and must NOT leave a
+    // terminal delivery record: the reconnect replays this seq and tries
+    // again (the lark idempotency key dedupes replays that actually
+    // landed). Throwing kills this SSE connection on purpose — entries
+    // after this one must not advance the cursor past an undelivered
+    // final answer.
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  // Terminal confirmation only after a successful send.
   upsertMessageDelivery(db, {
     conversationId,
     messageId,
@@ -241,26 +282,5 @@ async function processEntry(
     lastSeq: event.seq,
     updatedAt: Date.now(),
   });
-
-  // Render and send (canonical History only carries terminal frames; there
-  // is no streaming revision path in Phase 5). L6: retry with backoff.
-  const text = renderRevision(revision);
-  const idempotencyKey = `${conversationId}:${messageId}:${event.seq}`;
-
-  let attempt = 0;
-  while (attempt < 3) {
-    try {
-      await h.onSend(larkChatId, text, idempotencyKey);
-      break;
-    } catch (err) {
-      attempt++;
-      if (attempt >= 3) {
-        console.error(`[lark] send failed after ${attempt} attempts, skip seq=${event.seq}`, err);
-        break; // don't kill the SSE stream
-      }
-      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
-    }
-  }
-
   updatePushedSeq(db, larkChatId, event.seq);
 }
