@@ -65,6 +65,10 @@ export const envSchema = z.object({
     .string()
     .optional()
     .describe("'dev' | 'prod' — selects lark-bot registry implementation"),
+  LARK_WEB_URL: z
+    .string()
+    .optional()
+    .describe("Web console base URL; lark-bot renders card footer deep links from it"),
 
   // ── Phase 5: Oma process + Product Tools MCP ──
   OMA_BIN: z.string().optional().describe("Oma executable spawned per Run (default: oma on PATH)"),

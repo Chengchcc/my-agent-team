@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { extractText } from "@chengchenccc/message";
+import { z } from "zod";
 import { getRunCard, insertRunCard, updateRunCard } from "../bindings-sqlite.js";
 import { createCardFlushController } from "./card-flush.js";
 import { renderRunCard } from "./card-renderer.js";
@@ -57,20 +58,28 @@ function rowStatus(state: RunCardState): string {
   if (state.waiting) return "waiting";
   return state.output.length > 0 || state.toolCount > 0 ? "streaming" : "creating";
 }
-
 async function fetchRunOutcome(
   backendUrl: string,
   token: string | null,
   runId: string,
-): Promise<{ messages?: OutcomeMessageLike[] } | null> {
+): Promise<OutcomeMessageLike[] | null | undefined> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers["x-auth-token"] = token;
   const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
   if (!resp.ok) return null;
-  const body = (await resp.json()) as {
-    run?: { terminalResult?: { messages?: OutcomeMessageLike[] } | null };
-  };
-  return body.run?.terminalResult ?? null;
+  const body = z
+    .object({
+      run: z
+        .object({
+          terminalResult: z
+            .object({ messages: z.array(z.unknown()).nullable().optional() })
+            .nullable()
+            .optional(),
+        })
+        .optional(),
+    })
+    .parse(await resp.json());
+  return body.run?.terminalResult?.messages as OutcomeMessageLike[] | undefined;
 }
 
 export function watchRunCard(
@@ -163,7 +172,7 @@ export function watchRunCard(
     let finalText: string | null = null;
     for (const delay of SEAL_RETRY_DELAYS_MS) {
       const outcome = await fetchRunOutcome(backendUrl, backendAuthToken, runId).catch(() => null);
-      finalText = finalAnswerText(outcome?.messages);
+      finalText = finalAnswerText(outcome);
       if (finalText !== null) break;
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -289,7 +298,7 @@ export function watchRunCard(
             currentData += currentData ? `\n${line.slice(6)}` : line.slice(6);
           } else if (line === "" && currentData) {
             try {
-              const ev = JSON.parse(currentData) as { type?: string };
+              const ev: { type?: string } = JSON.parse(currentData);
               if (ev?.type) {
                 const before = state;
                 state = applyRunEvent(state, ev as never);

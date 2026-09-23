@@ -36,6 +36,6 @@ export function parseArgs(raw: string[]): LarkBotArgs {
     agentName: args["agent-name"] ?? null,
     larkProfile: args["lark-profile"] ?? null,
     backendAuthToken: args["backend-auth-token"] ?? env.BACKEND_AUTH_TOKEN,
-    webUrl: args["web-url"] ?? process.env.LARK_WEB_URL ?? null,
+    webUrl: args["web-url"] ?? env.LARK_WEB_URL ?? null,
   };
 }

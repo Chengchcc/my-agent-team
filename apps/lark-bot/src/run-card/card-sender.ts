@@ -78,11 +78,8 @@ export async function sendCard(input: {
     };
   }
   try {
-    const raw: unknown = JSON.parse(stdout);
-    const messageId =
-      (raw as { data?: { message_id?: string } })?.data?.message_id ??
-      (raw as { message_id?: string })?.message_id ??
-      "";
+    const raw: { data?: { message_id?: string }; message_id?: string } = JSON.parse(stdout);
+    const messageId = raw.data?.message_id ?? raw.message_id ?? "";
     if (messageId) return { ok: true, messageId, raw };
     return { ok: false, error: `no message_id in: ${stdout.slice(0, 200)}`, retryable: false };
   } catch {
