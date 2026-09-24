@@ -108,7 +108,16 @@ function resolveApiKey(
   return undefined;
 }
 
-/** Resolve baseUrl with env override (ANTHROPIC_BASE_URL for proxy setups). */
+/** Resolve baseUrl with env override (ANTHROPIC_BASE_URL for proxy setups).
+ *
+ *  The descriptor's path is used AS IS (trailing slashes trimmed), matching
+ *  how the reference implementation composes `${baseUrl}/chat/completions`.
+ *  There used to be a step appending `/v1` unless the URL already ended with
+ *  it — which held for the five providers that happen to end in `/v1` and
+ *  broke the one that does not (Z.AI's coding plan lives at
+ *  `/coding/paas/v4`, so every request 404'd). A warning replaces the guess:
+ *  a base URL with no version segment is more likely a mistake than a
+ *  provider that really serves unversioned paths. */
 function resolveBaseUrl(
   pid: string,
   specBaseUrl: string,
@@ -117,15 +126,14 @@ function resolveBaseUrl(
   // ponytail: anthropic-specific override, delete when ProviderSpec gets
   // a generic baseUrlEnv field.
   if (pid === "anthropic" && env.ANTHROPIC_BASE_URL) return env.ANTHROPIC_BASE_URL;
-  let url = specBaseUrl.trim().replace(/\/+$/, "");
-  // Add the version segment only when the URL does not already carry one.
-  // The catalogue ships complete paths (`/v1`, `/openai/v1`, and Z.AI's
-  // coding-plan `/coding/paas/v4`), while a hand-written models.yml entry
-  // like `https://api.acme.test` still needs the convenience. The old
-  // `endsWith("/v1")` test broke every versioned path that is not v1: Z.AI
-  // became `/coding/paas/v4/v1/chat/completions` — a 404 at run time, which
-  // the chat showed as the bot simply not answering.
+  const url = specBaseUrl.trim().replace(/\/+$/, "");
   const lastSegment = url.split("/").pop() ?? "";
-  if (!/^v\d+$/.test(lastSegment)) url += "/v1";
+  if (!/^v\d+$/.test(lastSegment)) {
+    console.warn(
+      `[oma] provider "${pid}" baseUrl has no version segment (${url}); ` +
+        `requests will go to ${url}/chat/completions — there is no /v1 auto-append any more, ` +
+        "so write the complete path in models.yml.",
+    );
+  }
   return url;
 }

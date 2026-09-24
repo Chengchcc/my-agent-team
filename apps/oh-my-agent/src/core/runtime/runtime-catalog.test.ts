@@ -91,22 +91,53 @@ describe("catalogue base URLs survive registration unchanged", () => {
     }
   });
 
-  test("a bare host still gets /v1 — the convenience custom entries rely on", () => {
-    const runtime = createModelRuntime();
-    registerProvidersFromCatalog(
-      runtime,
-      {
-        providers: {
-          acme: {
-            api: "openai-completions",
-            baseUrl: "https://api.acme.test",
-            apiKeyEnv: "ACME_KEY",
-            models: [{ id: "m", name: "M" }],
+  test("a bare host is passed through as-is, and warns instead of guessing", () => {
+    // Alignment with the reference implementation: it composes
+    // `${baseUrl}/chat/completions` and never invents a version segment.
+    // The old auto-append made `https://api.acme.test` work by accident and
+    // silently rewrote any other unusual path — so the guess is gone and a
+    // warning says what to fix instead.
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      const runtime = createModelRuntime();
+      registerProvidersFromCatalog(
+        runtime,
+        {
+          providers: {
+            acme: {
+              api: "openai-completions",
+              baseUrl: "https://api.acme.test",
+              apiKeyEnv: "ACME_KEY",
+              models: [{ id: "m", name: "M" }],
+            },
           },
         },
-      },
-      { ACME_KEY: "k" },
-    );
-    expect(runtime.getProvider("acme")?.baseUrl).toBe("https://api.acme.test/v1");
+        { ACME_KEY: "k" },
+      );
+      expect(runtime.getProvider("acme")?.baseUrl).toBe("https://api.acme.test");
+    } finally {
+      console.warn = original;
+    }
+    expect(warnings.some((w) => w.includes("acme") && w.includes("no version segment"))).toBe(true);
+  });
+
+  test("a complete versioned path neither changes nor warns", () => {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      const runtime = createModelRuntime();
+      registerProvidersFromCatalog(
+        runtime,
+        { providers: { zai: BUILTIN_CATALOG.providers.zai! } },
+        { ZAI_API_KEY: "k" },
+      );
+      expect(runtime.getProvider("zai")?.baseUrl).toBe("https://api.z.ai/api/coding/paas/v4");
+    } finally {
+      console.warn = original;
+    }
+    expect(warnings).toEqual([]);
   });
 });
