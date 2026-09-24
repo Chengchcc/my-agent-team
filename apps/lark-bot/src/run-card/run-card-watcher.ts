@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { extractText } from "@chengchenccc/message";
 import { z } from "zod";
 import { getRunCard, insertRunCard, updateRunCard } from "../bindings-sqlite.js";
+import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { createCardFlushController } from "./card-flush.js";
 import { renderRunCard } from "./card-renderer.js";
 import { sendCard, updateCard } from "./card-sender.js";
@@ -155,7 +156,7 @@ export function watchRunCard(
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await sendText(larkChatId, text, `${conversationId}:${runId}:seal`);
+        await sendText(larkChatId, text, larkIdempotencyKey(conversationId, runId, "seal"));
         return;
       } catch (err) {
         lastError = err;
@@ -234,7 +235,7 @@ export function watchRunCard(
         profile,
         chatId: larkChatId,
         card: renderRunCard(state, meta),
-        idempotencyKey: `${conversationId}:${runId}:card`,
+        idempotencyKey: larkIdempotencyKey(conversationId, runId, "card"),
       });
       if (!result.ok) {
         // Hand the run back to the text bridge; it delivers the final row.

@@ -175,6 +175,36 @@ describe("renderRunCard", () => {
     );
     expect(JSON.stringify(ask)).toContain("等待你的回答");
   });
+
+  test("body elements use real element tags — plain_text breaks the PATCH (230099/200621)", () => {
+    const live = renderRunCard(
+      {
+        ...initialRunCardState(),
+        phase: "running",
+        output: "x",
+        toolCount: 3,
+        activeTool: "bash",
+      },
+      { runId: "r1", startedAt: Date.now(), webUrl: null },
+    );
+    const liveBody = live.body as { elements: Array<{ tag: string }> };
+    expect(liveBody.elements.length).toBeGreaterThan(1); // tool summary present
+    for (const el of liveBody.elements) expect(el.tag).not.toBe("plain_text");
+
+    const failed = applyRunEvent(initialRunCardState(), {
+      type: "status",
+      status: "failed",
+      error: "boom",
+    });
+    const failedCard = renderRunCard(failed, {
+      runId: "r1",
+      startedAt: Date.now(),
+      webUrl: null,
+    });
+    const failedBody = failedCard.body as { elements: Array<{ tag: string }> };
+    for (const el of failedBody.elements) expect(el.tag).not.toBe("plain_text");
+    expect(JSON.stringify(failedCard)).toContain("boom");
+  });
 });
 
 describe("createCardFlushController", () => {

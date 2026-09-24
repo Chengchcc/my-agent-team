@@ -75,7 +75,7 @@ describe("processEntry delivery semantics", () => {
       }),
     );
     expect(sent).toEqual([
-      { chatId: "oc_test", text: "final answer", key: "conv_test:msg:ok:1:7" },
+      { chatId: "oc_test", text: "final answer", key: "7cfb821f1a4b0979d27b123b8775fd53a977280b" },
     ]);
     expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(7);
     const delivery = getMessageDelivery(db, "conv_test", "msg:ok:1", "oc_test");
@@ -139,7 +139,10 @@ describe("processEntry delivery semantics", () => {
       }),
     );
     expect(attempts).toBe(2);
-    expect(keys).toEqual(["conv_test:msg:retry:1:11", "conv_test:msg:retry:1:11"]);
+    expect(keys).toEqual([
+      "e4818dcf536fa257563ee7b17514f17c11fcff83",
+      "e4818dcf536fa257563ee7b17514f17c11fcff83",
+    ]);
     expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(11);
     expect(getMessageDelivery(db, "conv_test", "msg:retry:1", "oc_test")?.lastState).toBe("done");
   });

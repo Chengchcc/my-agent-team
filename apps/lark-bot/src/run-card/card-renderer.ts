@@ -66,11 +66,14 @@ export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<st
       ? `已完成 ${state.toolCount} 个工具步骤`
       : null;
   if (toolLine) {
-    elements.push({ tag: "plain_text", element_id: "tool_summary", content: toolLine });
+    // Card 2.0 body elements only accept real element tags — `plain_text` is
+    // a text-object tag, and using it as an element fails the whole PATCH
+    // with 200621 "type of element is not supported" (measured 2026-09-23).
+    elements.push({ tag: "markdown", element_id: "tool_summary", content: toolLine });
   }
 
   if (state.terminal?.error) {
-    elements.push({ tag: "plain_text", element_id: "err_msg", content: state.terminal.error });
+    elements.push({ tag: "markdown", element_id: "err_msg", content: state.terminal.error });
   }
 
   // Footer: status + elapsed + optional Web deep link (markdown link — no

@@ -14,6 +14,7 @@ import {
   updatePushedSeq,
   upsertMessageDelivery,
 } from "./bindings-sqlite.js";
+import { larkIdempotencyKey } from "./lark-idempotency.js";
 import { renderRevision } from "./render.js";
 
 export interface SseWatcherDeps {
@@ -262,7 +263,9 @@ export async function processEntry(
   // Render and send (canonical History only carries terminal frames; there
   // is no streaming revision path). L6: retry with backoff.
   const text = renderRevision(revision);
-  const idempotencyKey = `${conversationId}:${messageId}:${event.seq}`;
+  // Lark caps idempotency keys at 50 chars (99992402) — the helper hashes
+  // the tuple into a stable, fixed-length key.
+  const idempotencyKey = larkIdempotencyKey(conversationId, messageId, event.seq);
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
