@@ -76,6 +76,7 @@ ingest 拿到 `triggeredRuns` 后立刻为每个 run 创建占位卡片（「正
 - **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送、只推游标；卡片从创建起就拥有这条 Run 的投递权。占位卡发送失败时卡片直接标 `fallback_text`，文本桥照常投递。
 - **正文窗口**：只保留最近约 10k 字符，头部折叠并提示去 Web 看（`--web-url` 或 `LARK_WEB_URL` 配置后页脚带「在 Web 查看」链接，Markdown 链接形态，无需回调通道）。
 - **控制**：`/stop` 入站命令取消该 chat 的全部活跃卡片对应的 run（`POST /api/agent-runs/:runId/cancel`，幂等）；卡片按钮回调在当前通道不可达（ADR 0031 决策 6），reaction 触发尚未实现。
+- **幂等键**：飞书对 `--idempotency-key` 有 **50 字符上限**（超了报 99992402 field validation failed），而 conversationId(25) + assistant messageId(~41) 天然超限；三个键（文本桥、卡片、封版降级）统一走 `larkIdempotencyKey()` 哈希成 40 位十六进制。
 - **重启恢复**：启动时读回所有非终态 `run_card` 行继续驱动（Run SSE 的晚订阅语义保证已结算的 run 会立刻给一个终态事件）。
 
 ## 内容渲染
