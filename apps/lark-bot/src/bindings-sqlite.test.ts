@@ -10,6 +10,7 @@ import {
   getMemberBinding,
   inboundExists,
   listConversationBindings,
+  newestConversationForChat,
   openBindings,
   putConversationBinding,
   putMemberBinding,
@@ -110,6 +111,27 @@ describe("bindings-sqlite", () => {
     // A key already owned by another conversation is not stolen.
     rememberTopicKeys(db, "oc_test3", "conv_other", ["om_card"], 2);
     expect(findConversationByTopicKey(db, "oc_test3", "om_card")).toBe("conv_p2p_topic");
+  });
+
+  test("newestConversationForChat picks the chat's latest topic", () => {
+    // Control replies are chat-wide but must land in a topic the user is
+    // actually in, not open one of their own.
+    expect(newestConversationForChat(db, "oc_no_topics")).toBeNull();
+    for (const [id, createdAt] of [
+      ["conv_old_topic", 100],
+      ["conv_new_topic", 900],
+      ["conv_mid_topic", 500],
+    ] as const) {
+      putConversationBinding(db, {
+        conversationId: id,
+        larkChatId: "oc_multi_topic",
+        chatType: "group",
+        chatMode: "topic",
+        createdAt,
+        pushedSeq: 0,
+      });
+    }
+    expect(newestConversationForChat(db, "oc_multi_topic")).toBe("conv_new_topic");
   });
 
   test("ensureTopicRoot derives a missing root from the topic keys", () => {

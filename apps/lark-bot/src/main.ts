@@ -9,7 +9,7 @@ import {
   getInputCard,
   listConversationBindings,
   listNonTerminalRunCards,
-  rememberTopicKeys,
+  newestConversationForChat,
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
@@ -29,6 +29,7 @@ import { sendMessage } from "./sender.js";
 import type { WatcherHandle } from "./sse-watcher.js";
 import { watchConversation } from "./sse-watcher.js";
 import { replyInThreadFor } from "./topic-routing.js";
+import { sendIntoTopic } from "./topic-send.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -45,7 +46,18 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     onSend: async (chatId, text, idempotencyKey) => {
-      const result = await sendMessage(profile, chatId, text, idempotencyKey);
+      // The bridge's text delivery must land in the conversation's TOPIC too: a
+      // top-level post is a NEW topic in a topic chat, so a path that forgets
+      // its reply target scatters one conversation across many topics
+      // (observed live: every delivered answer became its own topic).
+      const result = await sendIntoTopic({
+        db: state.db,
+        profile,
+        chatId,
+        conversationId,
+        text,
+        idempotencyKey,
+      });
       if (!result.ok) {
         const msg = result.error ?? "unknown lark send error";
         console.error(`[lark-bot] send failed for ${chatId}: ${msg}`);
@@ -65,18 +77,13 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     // Still inside the topic (ADR 0037): the SSE bridge knows the conversation,
     // whose binding carries the chat mode and the topic root it was created by.
     sendTextOnly: async (chatId, text) => {
-      const binding = getConversationBinding(state.db, conversationId);
-      const result = await sendTextOnly(profile, chatId, text, {
-        replyTo: ensureTopicRoot(state.db, larkChatId, conversationId),
-        replyInThread: replyInThreadFor(binding?.chatMode ?? null),
+      const result = await sendIntoTopic({
+        db: state.db,
+        profile,
+        chatId,
+        conversationId,
+        text,
       });
-      // Record where it landed, exactly like a card does: the user may reply
-      // to THIS message, and that reply has to resolve to this conversation.
-      // (The id is also what makes an answer auditable and withdrawable.)
-      if (result.messageId) {
-        const keys = result.threadId ? [result.messageId, result.threadId] : [result.messageId];
-        rememberTopicKeys(state.db, larkChatId, conversationId, keys, Date.now());
-      }
       if (!result.ok) {
         console.error(`[lark-bot] sendTextOnly failed for ${chatId}: ${result.error}`);
       }
@@ -236,7 +243,19 @@ async function handleLine(line: string): Promise<void> {
       void startRunCard(runId, conversationId, event.chat_id, event.message_id);
     },
     onCommandReply: async (chatId, text) => {
-      const result = await sendTextOnly(profile, chatId, text);
+      // Chat-wide notice ("nothing to stop"), but it must not open a topic of
+      // its own: answer in this chat's newest topic, or plainly when the chat
+      // has no topic yet.
+      const targetConversation = newestConversationForChat(state.db, chatId);
+      const result = targetConversation
+        ? await sendIntoTopic({
+            db: state.db,
+            profile,
+            chatId,
+            conversationId: targetConversation,
+            text,
+          })
+        : await sendTextOnly(profile, chatId, text);
       if (!result.ok) {
         console.error(`[lark-bot] command reply failed: ${result.error}`);
       }

@@ -150,6 +150,16 @@ export function ensureTopicRoot(
   return derived;
 }
 
+/** The conversation a chat-scoped message belongs to: its NEWEST topic. Used
+ *  by control replies, which are chat-wide ("nothing to stop") but must still
+ *  land where the user is looking instead of opening a topic of their own. */
+export function newestConversationForChat(db: Database, larkChatId: string): string | null {
+  const bindings = listConversationBindings(db).filter((b) => b.larkChatId === larkChatId);
+  if (bindings.length === 0) return null;
+  return bindings.reduce((newest, b) => (b.createdAt > newest.createdAt ? b : newest))
+    .conversationId;
+}
+
 export function updateChatMode(db: Database, conversationId: string, chatMode: string): void {
   d(db)
     .update(schema.conversationBinding)
