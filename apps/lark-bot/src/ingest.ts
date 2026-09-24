@@ -85,9 +85,17 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     chatInUse,
   });
   if (decision.outcome === "skip") {
+    // Logged, not silent: "why did the bot ignore this message" is the first
+    // question when access control misbehaves, and the reason names the layer.
+    console.log(
+      `[ingest] skipped (${decision.reason}) chat=${event.chat_id} type=${event.chat_type} sender=${event.sender_id}`,
+    );
     return { action: "skipped", triggered: false, triggeredRuns: [] };
   }
   const addressed = decision.outcome === "answer";
+  if (!addressed) {
+    console.log(`[ingest] observing (${decision.reason}) chat=${event.chat_id}`);
+  }
 
   // ─── Control command: /stop cancels this chat's live Run cards ───
   // Not a conversation message: reserve for idempotency, cancel via the

@@ -119,6 +119,20 @@ describe("agent config allowed_senders (H7)", () => {
     expect(serializeAgentYaml(config)).toContain('group_policy: "disabled"');
   });
 
+  test("a config with NO policy_rev key is the real legacy shape, and migrates", () => {
+    // The first version of this test set `policy_rev: 1` explicitly and went
+    // green while the migration was broken: real stored configs have no such
+    // key at all, and the schema defaulted the missing key to 2, so the
+    // transform never ran. That would have read every existing empty
+    // allowlist as "deny everyone" and locked the operator out on upgrade.
+    const current = cfg("a-h7c0", "H7c0");
+    const lark: Record<string, unknown> = { ...current.lark, allowed_senders: [] };
+    delete lark.policy_rev;
+    const parsed = agentConfigSchema.parse(JSON.parse(JSON.stringify({ ...current, lark })));
+    expect(parsed.lark.policy_rev).toBe(2);
+    expect(parsed.lark.allowed_senders).toEqual(["*"]);
+  });
+
   test("rev-1 configs keep answering: empty meant everyone, and is migrated", () => {
     // A stored config written before the semantics flip carries policy_rev 1
     // (or none). Its empty allowlist meant "no restriction", so the parse has

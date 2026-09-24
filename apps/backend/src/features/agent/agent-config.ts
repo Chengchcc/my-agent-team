@@ -64,7 +64,11 @@ export const agentConfigSchema = z.object({
        *  means "empty list = nobody". The transform below upgrades rev-1
        *  configs so an existing install keeps answering, instead of going
        *  silent on upgrade. */
-      policy_rev: z.number().int().default(2),
+      // Absent means "written before this semantics existed" — NOT rev 2.
+      // Defaulting to 2 here silently disabled the migration for every real
+      // legacy config (they have no such key), which would have read an
+      // empty list as "deny everyone" and locked the operator out.
+      policy_rev: z.number().int().default(1),
       /** Server-generated (Lark profile init); backend writes it back. */
       profile_ref: z.string(),
     })
