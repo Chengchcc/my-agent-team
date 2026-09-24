@@ -31,11 +31,10 @@ import { applyRunEvent, initialRunCardState, type RunCardState } from "./card-st
 const FLUSH_INTERVAL_MS = 150;
 const MAX_BUFFER_CHARS_BEFORE_FLUSH = 120;
 const SEAL_RETRY_DELAYS_MS = [200, 500, 1000];
-/** "OnIt" = the ack while the run is live; "DONE" replaces it at the terminal.
- *  Verified against the live API: `Hold` is rejected (231001), `OnIt` and
- *  `DONE` are accepted. */
+/** "OnIt" = the ack while the run is live; the terminal swap to "DONE" lives
+ *  in ack-reaction.ts. Verified against the live API: `Hold` is rejected
+ *  (231001), `OnIt` and `DONE` are accepted. */
 const ACK_EMOJI = "OnIt";
-const DONE_EMOJI = "DONE";
 
 export interface RunCardWatcherOptions {
   db: Database;
