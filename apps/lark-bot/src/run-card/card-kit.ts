@@ -41,7 +41,17 @@ interface ApiEnvelope {
 
 export interface CardKitClient {
   createCard(card: Record<string, unknown>): Promise<{ ok: true; cardId: string } | CardKitErr>;
-  sendCard(chatId: string, cardId: string): Promise<{ ok: true; messageId: string } | CardKitErr>;
+  /** `opts.replyTo` names the TOPIC's root message: the card then answers
+   *  inside that topic instead of appearing in the chat's main stream (ADR
+   *  0037). `replyInThread` is only legal in a topic chat — a normal chat
+   *  rejects it — so the caller passes it from the chat's known mode. */
+  sendCard(
+    chatId: string,
+    cardId: string,
+    opts?: { replyTo?: string | null; replyInThread?: boolean },
+  ): Promise<{ ok: true; messageId: string } | CardKitErr>;
+  /** The chat's `chat_mode` ("group" | "topic"), for reply targeting. */
+  getChatMode(chatId: string): Promise<string | null>;
   streamElement(input: {
     cardId: string;
     elementId: string;
@@ -154,13 +164,36 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       return { ok: true, cardId };
     },
 
-    async sendCard(chatId, cardId) {
+    async getChatMode(chatId) {
+      const resp = await call(
+        "GET",
+        `/open-apis/im/v1/chats/${encodeURIComponent(chatId)}`,
+        undefined,
+      );
+      const { envelope, result } = await parse(resp);
+      if (!result.ok) return null;
+      const data = envelope.data;
+      if (typeof data !== "object" || data === null) return null;
+      const mode = (data as Record<string, unknown>).chat_mode;
+      return typeof mode === "string" ? mode : null;
+    },
+
+    async sendCard(chatId, cardId, opts) {
       const content = JSON.stringify({ type: "card", data: { card_id: cardId } });
-      const resp = await call("POST", "/open-apis/im/v1/messages?receive_id_type=chat_id", {
-        receive_id: chatId,
-        msg_type: "interactive",
-        content,
-      });
+      const replyTo = opts?.replyTo ?? null;
+      // Replying to the topic's root is what keeps question and answer in the
+      // same topic; `reply_in_thread` is what makes a TOPIC chat show it in
+      // the topic at all (without it the card lands in the main stream).
+      const path = replyTo
+        ? `/open-apis/im/v1/messages/${encodeURIComponent(replyTo)}/reply`
+        : "/open-apis/im/v1/messages?receive_id_type=chat_id";
+      const body: Record<string, unknown> = { msg_type: "interactive", content };
+      if (replyTo) {
+        if (opts?.replyInThread === true) body.reply_in_thread = true;
+      } else {
+        body.receive_id = chatId;
+      }
+      const resp = await call("POST", path, body);
       const { envelope, result } = await parse(resp);
       if (!result.ok) return result;
       const data = envelope.data;

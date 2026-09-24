@@ -4,9 +4,11 @@ import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
-  getAllChatBindings,
-  getChatBinding,
+  getConversationBinding,
+  listConversationBindings,
   listNonTerminalRunCards,
+  listTopicKeys,
+  updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
 import { createClient } from "./client.js";
@@ -23,6 +25,7 @@ import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
 import type { WatcherHandle } from "./sse-watcher.js";
 import { watchConversation } from "./sse-watcher.js";
+import { topicRootMessageId } from "./topic-routing.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -31,6 +34,16 @@ const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
 // ─── SSE watchers — one per bound conversation ───
 const watchers = new Map<string, WatcherHandle>();
+
+/** The message this conversation's answers must reply to (ADR 0037). Any
+ *  `om_` key mapped to the conversation is a valid target (the user's own
+ *  top-level message, or a card we sent); thread ids (`omt_…`) identify the
+ *  topic but cannot be replied to. Null when nothing is mapped yet — a run
+ *  started before the topic opened (workflow dispatch) has no topic to join. */
+function topicRootOf(larkChatId: string, conversationId: string): string | null {
+  const keys = listTopicKeys(state.db, larkChatId, conversationId);
+  return keys.find((key) => key.startsWith("om_")) ?? null;
+}
 
 function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0) {
   if (watchers.has(conversationId)) return;
@@ -55,9 +68,15 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
       }
       ensureWatcher(newConvId, larkChatId, 0);
     },
-    // M15.1: Send text directly to Lark (not through conversation ingest)
+    // M15.1: Send text directly to Lark (not through conversation ingest).
+    // Still inside the topic (ADR 0037): the SSE bridge knows the conversation,
+    // whose binding carries the chat mode and the topic root it was created by.
     sendTextOnly: async (chatId, text) => {
-      const result = await sendTextOnly(profile, chatId, text);
+      const binding = getConversationBinding(state.db, conversationId);
+      const result = await sendTextOnly(profile, chatId, text, {
+        replyTo: topicRootOf(larkChatId, conversationId),
+        replyInThread: binding?.chatMode === "topic",
+      });
       if (!result.ok) {
         console.error(`[lark-bot] sendTextOnly failed for ${chatId}: ${result.error}`);
       }
@@ -67,8 +86,8 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
   console.log(`[lark-bot] SSE watcher started: ${conversationId} → ${larkChatId}`);
 }
 
-// Restore SSE watchers for existing bindings
-for (const binding of getAllChatBindings(state.db)) {
+// Restore SSE watchers for existing conversations (one per topic)
+for (const binding of listConversationBindings(state.db)) {
   ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
 }
 
@@ -80,13 +99,24 @@ const cardTokens = createTokenProvider(profile);
 const cardClient = createCardKitClient(cardTokens);
 const cardWatchers = new Map<string, RunCardWatcherHandle>();
 
-function startRunCard(
+async function startRunCard(
   runId: string,
   conversationId: string,
   larkChatId: string,
   sourceMessageId: string | null = null,
+  replyTo: string | null = null,
 ) {
   if (cardWatchers.has(runId)) return;
+  // Reply targeting (ADR 0037): the answer belongs to the topic, and inside a
+  // TOPIC chat it must carry `reply_in_thread` or it lands outside the topic —
+  // while a normal chat REJECTS that flag. So the chat's mode decides, and it
+  // is resolved once per conversation and remembered on the binding.
+  let chatMode = getConversationBinding(state.db, conversationId)?.chatMode ?? null;
+  if (chatMode === null && replyTo) {
+    chatMode = await cardClient.getChatMode(larkChatId);
+    if (chatMode) updateChatMode(state.db, conversationId, chatMode);
+  }
+  const replyInThread = chatMode === "topic";
   const handle = watchRunCard(runId, conversationId, larkChatId, {
     db: state.db,
     backendUrl: args.backendUrl,
@@ -94,18 +124,22 @@ function startRunCard(
     cardClient,
     webUrl: args.webUrl,
     sourceMessageId,
-    sendText: async (chatId, text, idempotencyKey) => {
-      const result = await sendMessage(profile, chatId, text, idempotencyKey);
+    replyTo,
+    replyInThread,
+    sendText: async (chatId, text, idempotencyKey, reply) => {
+      const result = await sendMessage(profile, chatId, text, idempotencyKey, reply);
       if (!result.ok) throw new Error(result.error ?? "unknown lark send error");
     },
   });
   cardWatchers.set(runId, handle);
-  console.log(`[lark-bot] run card started: ${runId} → ${larkChatId}`);
+  console.log(
+    `[lark-bot] run card started: ${runId} → ${larkChatId}${replyTo ? ` (topic reply → ${replyTo})` : ""}`,
+  );
 }
 
 // Restart recovery: re-drive cards that were still live when we died.
 for (const card of listNonTerminalRunCards(state.db)) {
-  startRunCard(card.runId, card.conversationId, card.larkChatId, card.sourceMessageId);
+  void startRunCard(card.runId, card.conversationId, card.larkChatId, card.sourceMessageId);
 }
 
 // M16: Surface health heartbeat (every 30s)
@@ -154,21 +188,30 @@ async function handleLine(line: string): Promise<void> {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     profile,
-    onNewBinding: (_convId) => {
-      // Start SSE watcher for the newly bound conversation
-      const binding = getChatBinding(state.db, event.chat_id);
-      if (binding) {
-        ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
-      }
+    onNewBinding: (conversationId, larkChatId) => {
+      // A new topic opened: watch its conversation (each topic is its own
+      // conversation now, so this is the only place watchers are created at
+      // runtime — startup restores the rest).
+      ensureWatcher(conversationId, larkChatId, 0);
     },
     // ADR 0031: a triggered run gets its streaming card immediately.
     onTriggeredRun: (runId, conversationId) => {
-      // The user's own message is what the ack reaction goes on; the card is
-      // a separate message the bot sends into the chat.
-      startRunCard(runId, conversationId, event.chat_id, event.message_id);
+      // The user's own message is what the ack reaction goes on; the card is a
+      // separate message the bot sends into the chat. The TOPIC's root is what
+      // it must reply to (`root_id` when this message is already inside a
+      // topic, otherwise the message itself opens one).
+      void startRunCard(
+        runId,
+        conversationId,
+        event.chat_id,
+        event.message_id,
+        topicRootMessageId(event),
+      );
     },
     onCommandReply: async (chatId, text) => {
-      const result = await sendTextOnly(profile, chatId, text);
+      const result = await sendTextOnly(profile, chatId, text, {
+        replyTo: topicRootMessageId(event),
+      });
       if (!result.ok) {
         console.error(`[lark-bot] command reply failed: ${result.error}`);
       }

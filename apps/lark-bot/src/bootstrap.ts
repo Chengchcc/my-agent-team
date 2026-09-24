@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LarkBotArgs } from "./args.js";
-import { getAllChatBindings, openBindings } from "./bindings-sqlite.js";
+import { listConversationBindings, openBindings } from "./bindings-sqlite.js";
 import { createClient } from "./client.js";
 import { safeAgentId } from "./safe-agent-id.js";
 
@@ -95,8 +95,8 @@ export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
   // Open bindings database
   const db = openBindings(args.agentId, args.stateRoot);
 
-  // Scan existing chat bindings for SSE watcher recovery
-  const bindings = getAllChatBindings(db);
+  // Scan existing conversation bindings for SSE watcher recovery
+  const bindings = listConversationBindings(db);
   const restoredConversationIds = bindings.map((b) => b.conversationId);
   if (restoredConversationIds.length > 0) {
     console.log(`[lark-bot] restored ${restoredConversationIds.length} conversation bindings`);

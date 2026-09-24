@@ -1,12 +1,39 @@
 import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
-export const chatBinding = sqliteTable("chat_binding", {
-  larkChatId: text().primaryKey(),
-  conversationId: text().notNull(),
+/** ADR 0037: one backend conversation, delivered to one Lark chat. Keyed by
+ *  the CONVERSATION, not the chat: a chat now holds one conversation per
+ *  topic, and the delivery cursor must belong to a conversation (a chat-level
+ *  cursor would be shared by every topic in it). */
+export const conversationBinding = sqliteTable("conversation_binding", {
+  conversationId: text().primaryKey(),
+  larkChatId: text().notNull(),
   chatType: text().notNull(),
-  createdAt: integer({ mode: "number" }).notNull(),
+  /** `chat_mode` of the Lark chat ("group" | "topic" | "p2p"): a topic chat
+   *  needs `reply_in_thread` when we answer, a normal one does not. Fetched
+   *  once per chat, not per message. */
+  chatMode: text(),
   pushedSeq: integer().notNull().default(0),
+  createdAt: integer({ mode: "number" }).notNull(),
 });
+
+/** Which Lark objects identify a conversation's topic (ADR 0037). `topicKey`
+ *  is either a thread id (`omt_…` — a topic-chat topic, or a p2p reply chain
+ *  after Lark assigns one) or a message id (`om_…` — a topic-chat top-level
+ *  message, or one of OUR messages that the user replied to).
+ *
+ *  One conversation has MANY keys: a p2p reply arrives carrying `root_id`
+ *  first and only later gets its `thread_id`, and both must resolve to the
+ *  same conversation — hence a mapping table instead of a column. */
+export const topicBinding = sqliteTable(
+  "topic_binding",
+  {
+    larkChatId: text().notNull(),
+    topicKey: text().notNull(),
+    conversationId: text().notNull(),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.larkChatId, table.topicKey] })],
+);
 
 export const memberBinding = sqliteTable(
   "member_binding",

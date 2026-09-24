@@ -8,7 +8,7 @@ import {
 import { z } from "zod";
 import {
   getMessageDelivery,
-  rebindChatConversation,
+  rebindConversation,
   runCardOwnsDelivery,
   runIdFromMessageId,
   updatePushedSeq,
@@ -181,7 +181,7 @@ export async function processEntry(
         `[sse-watcher] malformed surface.control at seq=${event.seq}:`,
         parsed.error.message,
       );
-      updatePushedSeq(db, larkChatId, event.seq);
+      updatePushedSeq(db, conversationId, event.seq);
       return;
     }
     const control = parsed.data;
@@ -190,13 +190,12 @@ export async function processEntry(
       control.oldConversationId &&
       control.newConversationId
     ) {
-      const wasRebound = rebindChatConversation(
+      const wasRebound = rebindConversation(
         db,
-        larkChatId,
         control.oldConversationId,
         control.newConversationId,
       );
-      updatePushedSeq(db, larkChatId, event.seq);
+      updatePushedSeq(db, conversationId, event.seq);
       if (wasRebound) {
         console.log(
           `[sse-watcher] rebind ${larkChatId}: ${control.oldConversationId} → ${control.newConversationId}`,
@@ -205,7 +204,7 @@ export async function processEntry(
         if (h.sendTextOnly) void h.sendTextOnly(larkChatId, "已开启新的对话。");
       }
     } else {
-      updatePushedSeq(db, larkChatId, event.seq);
+      updatePushedSeq(db, conversationId, event.seq);
     }
     return;
   }
@@ -223,7 +222,7 @@ export async function processEntry(
     revision.role === "user" ||
     revision.role === "tool"
   ) {
-    updatePushedSeq(db, larkChatId, event.seq);
+    updatePushedSeq(db, conversationId, event.seq);
     return;
   }
 
@@ -235,14 +234,14 @@ export async function processEntry(
   // cursor (the card watcher seals terminally and owns the fallback).
   const cardRunId = runIdFromMessageId(messageId);
   if (cardRunId && runCardOwnsDelivery(db, cardRunId, larkChatId)) {
-    updatePushedSeq(db, larkChatId, event.seq);
+    updatePushedSeq(db, conversationId, event.seq);
     return;
   }
 
   // Check delivery state: if already delivered as terminal, skip
   const delivery = getMessageDelivery(db, conversationId, messageId, larkChatId);
   if (delivery && isTerminalMessageState(MessageStateSchema.parse(delivery.lastState))) {
-    updatePushedSeq(db, larkChatId, event.seq);
+    updatePushedSeq(db, conversationId, event.seq);
     return;
   }
 
@@ -297,5 +296,5 @@ export async function processEntry(
     lastSeq: event.seq,
     updatedAt: Date.now(),
   });
-  updatePushedSeq(db, larkChatId, event.seq);
+  updatePushedSeq(db, conversationId, event.seq);
 }

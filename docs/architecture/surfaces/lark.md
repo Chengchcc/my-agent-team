@@ -34,10 +34,10 @@ tags: [lark, surfaces, backend]
 
 1. **鉴权**（`ingest.ts`）：`sender_type` 存在且不是 `"user"` 直接 skip，防机器人互相触发；再按 `agent.lark.allowedSenders`（open_id 白名单）过滤，白名单为空表示单人自托管，放行所有人。
 2. **幂等占位**：`inboundExists` 按 `event_id` 或 `message_id` 命中即 skip，否则 `reserveInbound` 在同一事务里落一行 `status = "processing"`。占位先于 POST，取舍是宁可丢一条入站也不重复触发 run。
-3. **绑定解析**：`chat_binding` 缺失时返回 `needCreateConv`；存在时读 `member_binding`，缺失就现写一条 `human:lark:<open_id>`。
-4. **建会话**：只有 `needCreateConv` 时调 `POST /api/conversations {agentId}`。之后新会话与老会话都只写本地 `chat_binding` 与 `member_binding`，没有成员相关的 HTTP 调用，后端也没有成员表。
+3. **绑定解析（话题 = 会话，ADR 0037）**：会话的边界是飞书**话题**，不是聊天。从事件取 `thread_id`／`root_id`（两者都由平台给出，实测见 ADR 0037）依次查 `topic_binding`：命中就续接该会话；都没命中说明这条消息**开了新话题**，返回 `needCreateConv`。`member_binding` 缺失时现写一条 `human:lark:<open_id>`。
+4. **建会话**：只有 `needCreateConv` 时调 `POST /api/conversations {agentId}`。随后写 `conversation_binding`（会话 → 聊天，带自己的推送游标与聊天模式）与 `topic_binding`（本话题的所有键 → 该会话），没有成员相关的 HTTP 调用，后端也没有成员表。
 5. **路由**：单聊不传 `senderMemberId` 与 `addressedTo`，由服务端派生成 sender 与 target；群聊传 `senderMemberId`，`addressedTo` 在 `botDisplayName` 存在且 `isBotMentioned` 命中时为 `[selfAgentId]`，否则为 `[]`。缺 `botDisplayName` 时群聊 fail-closed，只能单聊。
-6. **POST 消息**：`content` 固定带 `{ text, source: "lark", larkEventId, larkMessageId }`，接口返回 202 与 `{ seq, triggeredRuns }`。
+6. **POST 消息**：`content` 就是**消息文本本身**（字符串）。曾经包成 `{ text, source, larkEventId, larkMessageId }` 信封——后端写入方只认字符串或 ContentBlock 数组，于是文本被静默丢弃、每条飞书消息都变成空轮次，模型只能拿旧上下文编；那三个额外字段也没有任何读取方。接口返回 202 与 `{ seq, triggeredRuns }`。
 7. **确认**：`confirmInbound` 回填 `conversationId` 与 `ledgerSeq`。POST 之前进程崩掉的话，这条入站不会再被处理。
 
 ## 本地五张表
@@ -46,7 +46,8 @@ tags: [lark, surfaces, backend]
 
 | 表 | 主键 | 用途 |
 |---|---|---|
-| `chat_binding` | `lark_chat_id` | 飞书 chat → conversationId，带 `pushed_seq` 推送游标 |
+| `conversation_binding` | `conversation_id` | 会话 → 飞书 chat，带**按会话**的 `pushed_seq` 推送游标与 `chat_mode`（话题群回复要 `reply_in_thread`） |
+| `topic_binding` | `(lark_chat_id, topic_key)` | 话题键 → 会话：键是话题群的话题线程 `omt_…`，或一条消息 `om_…`（用户开的顶层消息／我们发出、用户会去回复的那条）。一个会话可有多个键（私聊回复链先给 `root_id`，第二次回复才拿到 `thread_id`，两者必须指向同一会话） |
 | `member_binding` | `(lark_chat_id, lark_open_id)` | 飞书用户 → 本地 memberId 标签，形如 `human:lark:<open_id>` |
 | `inbound_message` | `lark_event_id` | 入站幂等，`lark_message_id` 上另有唯一约束 |
 | `message_delivery` | `(conversation_id, message_id, lark_chat_id)` | 文本桥出站投递意图与最后状态 |
@@ -54,7 +55,7 @@ tags: [lark, surfaces, backend]
 
 ## 出站
 
-每个绑定会话一个 watcher（启动时按 `chat_binding` 全量恢复，新建绑定时补一个）。请求是 `${backendUrl}/api/conversations/:id/events?afterSeq=<pushedSeq>`，游标大于 0 时另带 `Last-Event-ID`。连接失败 5 秒后重试，流正常结束 1 秒后重试。每帧用 `ConversationEvent.parse` 严格校验；SyntaxError 与 ZodError 只打日志并跳过，其它异常重新抛出让连接重连。
+每个会话一个 watcher（启动时按 `conversation_binding` 全量恢复；新话题开新会话时经 `onNewBinding` 补一个）。请求是 `${backendUrl}/api/conversations/:id/events?afterSeq=<pushedSeq>`，游标大于 0 时另带 `Last-Event-ID`。连接失败 5 秒后重试，流正常结束 1 秒后重试。每帧用 `ConversationEvent.parse` 严格校验；SyntaxError 与 ZodError 只打日志并跳过，其它异常重新抛出让连接重连。
 
 `processEntry` 的过滤链顺序固定：
 
@@ -66,7 +67,7 @@ tags: [lark, surfaces, backend]
 
 canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值，所以飞书没有流式渲染路径，每个 assistant 行只投递一次。
 
-投递用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
+投递默认用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`；当该会话有话题（`topic_binding` 里存在 `om_` 键）时改走 `im +messages-reply --message-id <话题根>`，话题群里再加 `--reply-in-thread`（普通聊天会拒绝这个标志，所以由该会话记录的 `chat_mode` 决定）。**回答与问题同处一个话题**是 ADR 0037 的可见结果。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
 
 ## Run 卡片（ADR 0031 第一期）
 
@@ -114,6 +115,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 5. 每次文本投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`；卡片幂等键是 `<conversationId>:<runId>:card`，封版降级是 `<conversationId>:<runId>:seal`。
 6. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
 7. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
+8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；`pushed_seq` 属于会话而非聊天（ADR 0037）。话题内仍然要求 @ 机器人（群里的话题下可能有其他人交流）。
 
 ## 已知缺口
 

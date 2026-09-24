@@ -13,9 +13,15 @@ function makeDb(): Database {
   const db = new Database(testDbPath());
   db.exec("PRAGMA journal_mode=WAL");
   db.exec(`
-    CREATE TABLE IF NOT EXISTS chat_binding (
-      lark_chat_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
-      chat_type TEXT NOT NULL, created_at INTEGER NOT NULL, pushed_seq INTEGER NOT NULL DEFAULT 0
+    CREATE TABLE IF NOT EXISTS conversation_binding (
+      conversation_id TEXT PRIMARY KEY, lark_chat_id TEXT NOT NULL,
+      chat_type TEXT NOT NULL, chat_mode TEXT, created_at INTEGER NOT NULL,
+      pushed_seq INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS topic_binding (
+      lark_chat_id TEXT NOT NULL, topic_key TEXT NOT NULL,
+      conversation_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+      PRIMARY KEY (lark_chat_id, topic_key)
     );
     CREATE TABLE IF NOT EXISTS member_binding (
       lark_chat_id TEXT NOT NULL, lark_open_id TEXT NOT NULL, member_id TEXT NOT NULL,

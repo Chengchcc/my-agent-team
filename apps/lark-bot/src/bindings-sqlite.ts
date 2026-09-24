@@ -7,10 +7,16 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "./db/schema.js";
 import { safeAgentId } from "./safe-agent-id.js";
 
-export interface ChatBinding {
-  larkChatId: string;
+/** One backend conversation and the Lark chat it is delivered to. Keyed by
+ *  conversation, not chat (ADR 0037): a chat holds one conversation per topic,
+ *  so the delivery cursor belongs to the conversation. */
+export interface ConversationBinding {
   conversationId: string;
+  larkChatId: string;
   chatType: string;
+  /** Lark `chat_mode` ("group" | "topic"); null until looked up. A topic chat
+   *  needs `reply_in_thread` when we answer, a normal one rejects it. */
+  chatMode: string | null;
   createdAt: number;
   pushedSeq: number;
 }
@@ -53,61 +59,141 @@ function d(db: Database) {
   return drizzle(db, { schema, casing: "snake_case" });
 }
 
-// ─── chat_binding ──────────────────────────────────────────────────
+// ─── conversation_binding (ADR 0037) ──────────────────────────────
 
-export function getChatBinding(db: Database, larkChatId: string): ChatBinding | null {
-  const row = d(db)
-    .select()
-    .from(schema.chatBinding)
-    .where(eq(schema.chatBinding.larkChatId, larkChatId))
-    .get();
-  if (!row) return null;
+function toConversationBinding(
+  row: typeof schema.conversationBinding.$inferSelect,
+): ConversationBinding {
   return {
-    larkChatId: row.larkChatId,
     conversationId: row.conversationId,
+    larkChatId: row.larkChatId,
     chatType: row.chatType,
+    chatMode: row.chatMode,
     createdAt: row.createdAt,
     pushedSeq: row.pushedSeq,
   };
 }
 
-export function getAllChatBindings(db: Database): ChatBinding[] {
-  return d(db)
+export function getConversationBinding(
+  db: Database,
+  conversationId: string,
+): ConversationBinding | null {
+  const row = d(db)
     .select()
-    .from(schema.chatBinding)
-    .all()
-    .map((row) => ({
-      larkChatId: row.larkChatId,
-      conversationId: row.conversationId,
-      chatType: row.chatType,
-      createdAt: row.createdAt,
-      pushedSeq: row.pushedSeq,
-    }));
+    .from(schema.conversationBinding)
+    .where(eq(schema.conversationBinding.conversationId, conversationId))
+    .get();
+  return row ? toConversationBinding(row) : null;
 }
 
-export function putChatBinding(
+export function listConversationBindings(db: Database): ConversationBinding[] {
+  return d(db).select().from(schema.conversationBinding).all().map(toConversationBinding);
+}
+
+/** Insert a conversation's binding. Conflict = it already exists (restart,
+ *  rebind race): keep the stored cursor, never reset it. */
+export function putConversationBinding(db: Database, binding: ConversationBinding): void {
+  d(db)
+    .insert(schema.conversationBinding)
+    .values({
+      conversationId: binding.conversationId,
+      larkChatId: binding.larkChatId,
+      chatType: binding.chatType,
+      chatMode: binding.chatMode,
+      pushedSeq: binding.pushedSeq,
+      createdAt: binding.createdAt,
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+export function updateChatMode(db: Database, conversationId: string, chatMode: string): void {
+  d(db)
+    .update(schema.conversationBinding)
+    .set({ chatMode })
+    .where(eq(schema.conversationBinding.conversationId, conversationId))
+    .run();
+}
+
+export function updatePushedSeq(db: Database, conversationId: string, seq: number): void {
+  d(db)
+    .update(schema.conversationBinding)
+    .set({ pushedSeq: seq })
+    .where(eq(schema.conversationBinding.conversationId, conversationId))
+    .run();
+}
+
+/** Does this chat already hold a conversation? The access policy reads it to
+ *  keep an in-use chat answering after the group default became "not
+ *  answered" (ADR 0034) — under ADR 0037 "in use" means "any topic bound". */
+export function chatHasConversations(db: Database, larkChatId: string): boolean {
+  const row = d(db)
+    .select({ conversationId: schema.conversationBinding.conversationId })
+    .from(schema.conversationBinding)
+    .where(eq(schema.conversationBinding.larkChatId, larkChatId))
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
+// ─── topic_binding (ADR 0037: which Lark object identifies a topic) ──
+
+export function findConversationByTopicKey(
+  db: Database,
+  larkChatId: string,
+  topicKey: string,
+): string | null {
+  const row = d(db)
+    .select({ conversationId: schema.topicBinding.conversationId })
+    .from(schema.topicBinding)
+    .where(
+      and(
+        eq(schema.topicBinding.larkChatId, larkChatId),
+        eq(schema.topicBinding.topicKey, topicKey),
+      ),
+    )
+    .get();
+  return row?.conversationId ?? null;
+}
+
+/** Remember that these Lark objects all identify one conversation's topic.
+ *  Called on BOTH paths: when opening a topic (record the message id a later
+ *  reply will point at) and when resolving one (learn the `thread_id` Lark
+ *  assigns to a p2p reply chain only after the first reply). Idempotent, and a
+ *  key already owned by another conversation is left with its owner. */
+export function rememberTopicKeys(
   db: Database,
   larkChatId: string,
   conversationId: string,
-  chatType: string,
+  keys: readonly string[],
   createdAt: number,
 ): void {
-  d(db)
-    .insert(schema.chatBinding)
-    .values({ larkChatId, conversationId, chatType, createdAt, pushedSeq: 0 })
-    .onConflictDoUpdate({
-      target: schema.chatBinding.larkChatId,
-      set: { conversationId, chatType },
-    })
-    .run();
+  for (const key of keys) {
+    if (!key) continue;
+    d(db)
+      .insert(schema.topicBinding)
+      .values({ larkChatId, topicKey: key, conversationId, createdAt })
+      .onConflictDoNothing()
+      .run();
+  }
 }
 
-export function updatePushedSeq(db: Database, larkChatId: string, seq: number): void {
-  d(db)
-    .update(schema.chatBinding)
-    .set({ pushedSeq: seq })
-    .where(eq(schema.chatBinding.larkChatId, larkChatId))
-    .run();
+/** Topic keys mapped to a conversation, oldest first — the topic's own root
+ *  was recorded when it opened, so the caller that needs a reply target
+ *  (a MESSAGE id, not a thread id) finds the root before any later key. */
+export function listTopicKeys(db: Database, larkChatId: string, conversationId: string): string[] {
+  return d(db)
+    .select({ topicKey: schema.topicBinding.topicKey })
+    .from(schema.topicBinding)
+    .where(
+      and(
+        eq(schema.topicBinding.larkChatId, larkChatId),
+        eq(schema.topicBinding.conversationId, conversationId),
+      ),
+    )
+    .orderBy(schema.topicBinding.createdAt, schema.topicBinding.topicKey)
+    .all()
+    .map((row) => row.topicKey);
 }
 
 // ─── member_binding ────────────────────────────────────────────────
@@ -203,26 +289,33 @@ export function confirmInbound(
     .run();
 }
 
-// ─── Rebind chat to a new conversation ─────────────────────────────
+// ─── Rebind a conversation (backend fork / kind switch) ─────────────
 
-export function rebindChatConversation(
+/** The backend forked the branch into a new conversation id: move the binding
+ *  and its topic keys across, and start the cursor at 0 (a fork has its own
+ *  ledger). Topic keys must move with it — otherwise the next reply in the
+ *  same Lark topic would open a NEW conversation instead of following. */
+export function rebindConversation(
   db: Database,
-  larkChatId: string,
   oldConversationId: string,
   newConversationId: string,
 ): boolean {
-  const result = d(db)
-    .update(schema.chatBinding)
-    .set({ conversationId: newConversationId, pushedSeq: 0 })
-    .where(
-      and(
-        eq(schema.chatBinding.larkChatId, larkChatId),
-        eq(schema.chatBinding.conversationId, oldConversationId),
-      ),
-    )
-    .run();
-  // drizzle-orm 0.44 types .run() as void for SQLite; runtime returns { changes }.
-  return (result as unknown as { changes: number }).changes > 0;
+  return db.transaction(() => {
+    const moved = d(db)
+      .update(schema.conversationBinding)
+      .set({ conversationId: newConversationId, pushedSeq: 0 })
+      .where(eq(schema.conversationBinding.conversationId, oldConversationId))
+      .run();
+    // drizzle-orm 0.44 types .run() as void for SQLite; runtime returns { changes }.
+    const changes = (moved as unknown as { changes: number }).changes;
+    if (changes === 0) return false;
+    d(db)
+      .update(schema.topicBinding)
+      .set({ conversationId: newConversationId })
+      .where(eq(schema.topicBinding.conversationId, oldConversationId))
+      .run();
+    return true;
+  })();
 }
 
 // ─── Message delivery tracking ─────────────────────────────────────

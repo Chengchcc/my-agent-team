@@ -2,11 +2,11 @@ import type { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import type { MessageRevision } from "@chengchenccc/message";
 import {
-  getChatBinding,
+  getConversationBinding,
   getMessageDelivery,
   insertRunCard,
   openBindings,
-  putChatBinding,
+  putConversationBinding,
   updateRunCard,
 } from "./bindings-sqlite.js";
 import { renderRevision } from "./render.js";
@@ -57,8 +57,15 @@ describe("processEntry delivery semantics", () => {
 
   test("openBindings + fixture binding", () => {
     db = openBindings("test-agent", testDir);
-    putChatBinding(db, "oc_test", "conv_test", "p2p", Date.now());
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(0);
+    putConversationBinding(db, {
+      conversationId: "conv_test",
+      larkChatId: "oc_test",
+      chatType: "p2p",
+      chatMode: null,
+      createdAt: Date.now(),
+      pushedSeq: 0,
+    });
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(0);
   });
 
   test("successful send confirms terminal delivery and advances pushed_seq", async () => {
@@ -77,7 +84,7 @@ describe("processEntry delivery semantics", () => {
     expect(sent).toEqual([
       { chatId: "oc_test", text: "final answer", key: "7cfb821f1a4b0979d27b123b8775fd53a977280b" },
     ]);
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(7);
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(7);
     const delivery = getMessageDelivery(db, "conv_test", "msg:ok:1", "oc_test");
     expect(delivery?.lastState).toBe("done");
   });
@@ -96,11 +103,11 @@ describe("processEntry delivery semantics", () => {
       }),
     );
     expect(sendCalls).toBe(0);
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(7);
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(7);
   });
 
   test("P0: exhausted retries throw, do NOT advance pushed_seq, leave non-terminal marker", async () => {
-    const cursorBefore = getChatBinding(db, "oc_test")?.pushedSeq ?? 0;
+    const cursorBefore = getConversationBinding(db, "conv_test")?.pushedSeq ?? 0;
     const event = makeEvent(9, makeRevision({ messageId: "msg:lost:1", text: "gone" }));
     await expect(
       processEntry(
@@ -115,7 +122,7 @@ describe("processEntry delivery semantics", () => {
       ),
     ).rejects.toThrow("lark down");
     // Cursor unchanged: the reconnect must replay this seq.
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(cursorBefore);
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(cursorBefore);
     // Non-terminal marker: the replay path re-sends with the same idempotency
     // key instead of hitting the terminal-skip guard.
     const delivery = getMessageDelivery(db, "conv_test", "msg:lost:1", "oc_test");
@@ -143,7 +150,7 @@ describe("processEntry delivery semantics", () => {
       "e4818dcf536fa257563ee7b17514f17c11fcff83",
       "e4818dcf536fa257563ee7b17514f17c11fcff83",
     ]);
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(11);
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(11);
     expect(getMessageDelivery(db, "conv_test", "msg:retry:1", "oc_test")?.lastState).toBe("done");
   });
 
@@ -164,7 +171,7 @@ describe("processEntry delivery semantics", () => {
       }),
     );
     expect(sendCalls).toBe(0);
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(13);
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(13);
     expect(getMessageDelivery(db, "conv_test", "msg:tool:1", "oc_test")).toBeNull();
   });
 
@@ -185,7 +192,7 @@ describe("processEntry delivery semantics", () => {
       }),
     );
     expect(sendCalls).toBe(0);
-    expect(getChatBinding(db, "oc_test")?.pushedSeq).toBe(14);
+    expect(getConversationBinding(db, "conv_test")?.pushedSeq).toBe(14);
   });
 });
 
@@ -203,7 +210,14 @@ describe("processEntry run-card dedup seam (ADR 0031 §8)", () => {
 
   test("fixture: openBindings + binding + active card", () => {
     db = openBindings("test-agent", testDir);
-    putChatBinding(db, "oc_seam", "conv_seam", "p2p", Date.now());
+    putConversationBinding(db, {
+      conversationId: "conv_seam",
+      larkChatId: "oc_seam",
+      chatType: "p2p",
+      chatMode: null,
+      createdAt: Date.now(),
+      pushedSeq: 0,
+    });
     insertRunCard(db, {
       runId: "r_seam",
       conversationId: "conv_seam",
@@ -222,7 +236,7 @@ describe("processEntry run-card dedup seam (ADR 0031 §8)", () => {
       },
     });
     expect(sendCalls).toBe(0);
-    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(3);
+    expect(getConversationBinding(db, "conv_seam")?.pushedSeq).toBe(3);
     // No delivery record either — the card owns this message's fate.
     expect(getMessageDelivery(db, "conv_seam", "run:r_seam:assistant:0", "oc_seam")).toBeNull();
   });
@@ -237,7 +251,7 @@ describe("processEntry run-card dedup seam (ADR 0031 §8)", () => {
       },
     });
     expect(sendCalls).toBe(0);
-    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(4);
+    expect(getConversationBinding(db, "conv_seam")?.pushedSeq).toBe(4);
   });
 
   test("fallback_text card hands delivery back to the text bridge", async () => {
@@ -251,7 +265,7 @@ describe("processEntry run-card dedup seam (ADR 0031 §8)", () => {
       },
     });
     expect(sent).toEqual(["final answer"]);
-    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(5);
+    expect(getConversationBinding(db, "conv_seam")?.pushedSeq).toBe(5);
     expect(
       getMessageDelivery(db, "conv_seam", "run:r_seam:assistant:2", "oc_seam")?.lastState,
     ).toBe("done");
@@ -267,6 +281,6 @@ describe("processEntry run-card dedup seam (ADR 0031 §8)", () => {
       },
     });
     expect(sent).toEqual(["plain"]);
-    expect(getChatBinding(db, "oc_seam")?.pushedSeq).toBe(6);
+    expect(getConversationBinding(db, "conv_seam")?.pushedSeq).toBe(6);
   });
 });

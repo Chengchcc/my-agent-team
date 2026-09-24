@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { extractText } from "@chengchenccc/message";
 import { z } from "zod";
-import { getRunCard, insertRunCard, updateRunCard } from "../bindings-sqlite.js";
+import { getRunCard, insertRunCard, rememberTopicKeys, updateRunCard } from "../bindings-sqlite.js";
 import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { swapAckReaction } from "./ack-reaction.js";
 import { createCardFlushController } from "./card-flush.js";
@@ -44,10 +44,19 @@ export interface RunCardWatcherOptions {
   cardClient: CardKitClient;
   webUrl: string | null;
   /** Plain-text send for the seal fallback (lark-cli; rare by design). */
-  sendText: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
+  sendText: (
+    chatId: string,
+    text: string,
+    idempotencyKey: string,
+    reply: { replyTo?: string | null; replyInThread?: boolean },
+  ) => Promise<void>;
   /** The user's message that started this run — the one the acknowledgement
    *  reaction goes on. Absent for runs nobody typed (workflow dispatch). */
   sourceMessageId?: string | null;
+  /** The TOPIC's root message this card answers into (ADR 0037), and whether
+   *  the chat is a topic chat (only those accept `reply_in_thread`). */
+  replyTo?: string | null;
+  replyInThread?: boolean;
 }
 
 export interface RunCardWatcherHandle {
@@ -110,6 +119,8 @@ export function watchRunCard(
   opts: RunCardWatcherOptions,
 ): RunCardWatcherHandle {
   const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText, sourceMessageId } = opts;
+  const replyTo = opts.replyTo ?? null;
+  const replyInThread = opts.replyInThread === true;
   let aborted = false;
   let reconnectTimer: Timer | undefined;
   let abortController: AbortController | null = null;
@@ -288,7 +299,10 @@ export function watchRunCard(
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await sendText(larkChatId, text, larkIdempotencyKey(conversationId, runId, "seal"));
+        await sendText(larkChatId, text, larkIdempotencyKey(conversationId, runId, "seal"), {
+          replyTo,
+          replyInThread,
+        });
         return;
       } catch (err) {
         lastError = err;
@@ -395,7 +409,7 @@ export function watchRunCard(
         return;
       }
       cardKitId = created.cardId;
-      const sent = await cardClient.sendCard(larkChatId, cardKitId);
+      const sent = await cardClient.sendCard(larkChatId, cardKitId, { replyTo, replyInThread });
       if (!sent.ok) {
         updateRunCard(db, runId, {
           status: "fallback_text",
@@ -405,6 +419,11 @@ export function watchRunCard(
         return;
       }
       larkMessageId = sent.messageId;
+      // Our own message is a topic key too: the user may reply to the CARD
+      // rather than to their question, and that reply carries the card's id as
+      // `root_id` (measured). Recording it here is what makes "reply to the
+      // bot's card to keep talking" resolve to this same conversation.
+      rememberTopicKeys(db, larkChatId, conversationId, [sent.messageId], Date.now());
       persist();
     }
 

@@ -1,18 +1,21 @@
 import type { Database } from "bun:sqlite";
 import {
+  chatHasConversations,
   confirmInbound,
-  getChatBinding,
+  findConversationByTopicKey,
   getMemberBinding,
   inboundExists,
   listActiveRunCards,
-  putChatBinding,
+  putConversationBinding,
   putMemberBinding,
+  rememberTopicKeys,
   reserveInbound,
 } from "./bindings-sqlite.js";
 import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned, isMentionAll } from "./event-parser.js";
 import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
+import { topicKeysToRemember, topicLookupKeys } from "./topic-routing.js";
 
 export interface IngestContext {
   db: Database;
@@ -25,8 +28,10 @@ export interface IngestContext {
   /** Reply to a control command (/stop) — direct text send, not a
    * conversation message. */
   onCommandReply?: (chatId: string, text: string) => Promise<void>;
-  /** Called when a new conversation is bound — allows dynamic SSE subscription */
-  onNewBinding?: (conversationId: string) => void;
+  /** Called when a new conversation is bound (one per topic) — allows
+   *  dynamic SSE subscription. The chat id travels with it so the caller does
+   *  not have to look the binding up again. */
+  onNewBinding?: (conversationId: string, larkChatId: string) => void;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
   onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
 }
@@ -74,7 +79,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // in use, which is what keeps a pre-existing group answering after the
   // group default became "not answered". A read creates no state, so it
   // stays inside the authorize-before-any-side-effect rule.
-  const chatInUse = getChatBinding(db, event.chat_id) !== null;
+  const chatInUse = chatHasConversations(db, event.chat_id);
   const decision = decideInbound({
     cfg: larkCfg,
     chatId: event.chat_id,
@@ -106,7 +111,6 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     }
     reserveInbound(db, event.event_id, event.message_id, event.chat_id);
     const cards = listActiveRunCards(db, event.chat_id);
-    const binding = getChatBinding(db, event.chat_id);
     let cancelled = 0;
     let failed = 0;
     for (const card of cards) {
@@ -117,7 +121,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         console.error(`[ingest] cancel ${card.runId} failed: ${JSON.stringify(error)}`);
       }
     }
-    confirmInbound(db, event.event_id, binding?.conversationId ?? null, null);
+    confirmInbound(db, event.event_id, null, null);
     // Success is silent: the card itself flips to the grey cancelled frame.
     // Text only when there was nothing to stop or a cancel failed.
     if (failed === 0 && cancelled > 0) {
@@ -133,6 +137,15 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   // Reserve before POST: if POST succeeds but confirm fails, the event won't re-POST.
   // Trade-off: "lose an inbound rather than duplicate a run trigger" (spec §5.3).
+  // ─── Topic resolution (ADR 0037) ───
+  // The conversation boundary is the Lark TOPIC, not the chat: a message that
+  // opens one starts a conversation, and only a reply inside it continues that
+  // same one. `lookupKeys` is what may already identify the topic (a thread
+  // id, or the root message of a reply chain); `rememberKeys` is what we store
+  // once we know which conversation it belongs to.
+  const lookupKeys = topicLookupKeys(event);
+  const rememberKeys = topicKeysToRemember(event);
+
   let memberId = "";
   let conversationId = "";
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
@@ -146,17 +159,6 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     }
     reserveInbound(db, event.event_id, event.message_id, event.chat_id);
 
-    // Resolve or create chat binding
-    const binding = getChatBinding(db, event.chat_id);
-    if (!binding) {
-      return {
-        ok: true as const,
-        needCreateConv: true as const,
-        conversationId: null as string | null,
-      };
-    }
-    const cid = binding.conversationId;
-
     // Resolve or create human member
     let mid = getMemberBinding(db, event.chat_id, event.sender_id);
     if (!mid) {
@@ -164,9 +166,26 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       putMemberBinding(db, event.chat_id, event.sender_id, mid);
     }
     memberId = mid;
-    conversationId = cid;
 
-    return { ok: true as const, needCreateConv: false as const, conversationId: cid };
+    // Continue the topic if any of its keys is already known: a topic-chat
+    // reply carries the topic's thread id, and a p2p reply chain resolves by
+    // the message it hangs off until Lark assigns that chain a thread id.
+    for (const key of lookupKeys) {
+      const cid = findConversationByTopicKey(db, event.chat_id, key);
+      if (!cid) continue;
+      // Learn the keys this message carries but we did not know (the thread id
+      // of a p2p chain appears only on the SECOND reply).
+      rememberTopicKeys(db, event.chat_id, cid, rememberKeys, Date.now());
+      conversationId = cid;
+      return { ok: true as const, needCreateConv: false as const, conversationId: cid };
+    }
+
+    // No key resolved: this message opens a topic.
+    return {
+      ok: true as const,
+      needCreateConv: true as const,
+      conversationId: null as string | null,
+    };
   })();
 
   if (!reserveResult.ok) return { action: "skipped", triggered: false, triggeredRuns: [] };
@@ -188,13 +207,23 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     memberId = `human:lark:${event.sender_id}`;
 
     // Write local bindings (delivery state is lark-surface-local; the
-    // backend no longer tracks human members).
+    // backend no longer tracks human members). The topic keys are what makes
+    // the NEXT message in this topic continue here instead of opening another
+    // conversation.
     db.transaction(() => {
-      putChatBinding(db, event.chat_id, conversationId, event.chat_type, Date.now());
+      putConversationBinding(db, {
+        conversationId,
+        larkChatId: event.chat_id,
+        chatType: event.chat_type,
+        chatMode: null,
+        createdAt: Date.now(),
+        pushedSeq: 0,
+      });
+      rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
       putMemberBinding(db, event.chat_id, event.sender_id, memberId);
     })();
 
-    onNewBinding?.(conversationId);
+    onNewBinding?.(conversationId, event.chat_id);
   } else {
     conversationId = reserveResult.conversationId!;
     // memberId was already set during the transaction above
