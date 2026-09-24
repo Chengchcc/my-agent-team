@@ -19,6 +19,21 @@ describe("RuntimeOpsStore", () => {
   afterEach(() => db.close());
 
   describe("surface_health", () => {
+    test("a flat number the bot reports survives as a payload scalar", () => {
+      // The join the Lark surface view depends on: the bot posts
+      // `pendingDeliveries` as a top-level number, the runtime flattener
+      // lifts top-level numbers into counters, and the view reads
+      // `counters.pendingDeliveries`. A nested object would never appear,
+      // so this value's SHAPE is part of the contract.
+      store.upsertSurfaceHealth({
+        agentId: "agent_lark",
+        surface: "lark",
+        status: "running",
+        payload: { profileRef: "agent:1", pendingDeliveries: 4 },
+      });
+      const health = store.getSurfaceHealth("agent_lark", "lark");
+      expect(health?.payload).toMatchObject({ pendingDeliveries: 4 });
+    });
     test("upsert and get", () => {
       store.upsertSurfaceHealth({
         agentId: "agent_x",

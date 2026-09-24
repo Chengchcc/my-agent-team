@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   confirmInbound,
+  countPendingDeliveries,
   getAllChatBindings,
   getChatBinding,
   getMemberBinding,
@@ -11,6 +12,7 @@ import {
   putMemberBinding,
   reserveInbound,
   updatePushedSeq,
+  upsertMessageDelivery,
 } from "./bindings-sqlite.js";
 
 const testDir = `/tmp/test-lark-bindings-${Date.now()}`;
@@ -84,5 +86,30 @@ describe("bindings-sqlite", () => {
 
   test("inboundExists returns true for duplicate message_id", () => {
     expect(inboundExists(db, "evt_other", "om_dup1")).toBe(true); // message_id match
+  });
+});
+
+describe("countPendingDeliveries", () => {
+  test("counts only non-terminal rows", () => {
+    const db = openBindings("test-agent", `${testDir}-pending`);
+    const rec = (messageId: string, lastState: string) => ({
+      conversationId: "conv",
+      messageId,
+      larkChatId: "oc_1",
+      lastState,
+      lastSeq: 1,
+      updatedAt: Date.now(),
+    });
+    // The intent is reserved before the send and confirmed after (ADR 0032):
+    // "streaming" is the state a row sits in while the bot still owes a
+    // delivery, which is exactly what the heartbeat reports as pending.
+    upsertMessageDelivery(db, rec("msg:pending", "streaming"));
+    upsertMessageDelivery(db, rec("msg:done", "done"));
+    upsertMessageDelivery(db, rec("msg:error", "error"));
+    expect(countPendingDeliveries(db)).toBe(1);
+
+    upsertMessageDelivery(db, rec("msg:pending", "done"));
+    expect(countPendingDeliveries(db)).toBe(0);
+    db.close();
   });
 });

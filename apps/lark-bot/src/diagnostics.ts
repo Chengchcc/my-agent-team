@@ -14,6 +14,10 @@ export interface LarkBotHealth {
     cardUpdateFailed: number;
   };
   lastError: string | null;
+  /** Deliveries the bot is still holding (non-terminal `message_delivery`
+   *  rows). A flat number so the backend's heartbeat flattener lifts it into
+   *  `counters.pendingDeliveries`, which the Lark surface view reads. */
+  pendingDeliveries: number;
   ts: number;
 }
 
@@ -22,6 +26,7 @@ export function collectHealth(
   profileRef: string,
   watcherCounts: { conversation: number; runDelta: number },
   lastError: string | null,
+  pendingDeliveries: number,
 ): LarkBotHealth {
   return {
     agentId,
@@ -38,11 +43,29 @@ export function collectHealth(
       cardUpdateFailed: 0,
     },
     lastError,
+    pendingDeliveries,
     ts: Date.now(),
   };
 }
 
 import { createClient } from "./client.js";
+
+/** The heartbeat body's payload: an explicit whitelist.
+ *
+ *  A field added to `LarkBotHealth` does NOT reach the backend unless it is
+ *  listed here — which is exactly how `pendingDeliveries` was silently absent
+ *  while the surface view read it as 0. Exported so a test can pin the list
+ *  without an HTTP double. The backend flattens top-level numbers into
+ *  `counters`, so a scalar here becomes `counters.<name>` there. */
+export function heartbeatPayload(health: LarkBotHealth): Record<string, unknown> {
+  return {
+    profileRef: health.profileRef,
+    watchers: health.watchers,
+    runStreams: health.runStreams,
+    pendingDeliveries: health.pendingDeliveries,
+    ts: health.ts,
+  };
+}
 
 export async function postHeartbeat(
   health: LarkBotHealth,
@@ -55,12 +78,7 @@ export async function postHeartbeat(
     const { error } = await client.api.internal.surfaces.lark.heartbeat.post({
       agentId: health.agentId,
       status: health.status,
-      payload: {
-        profileRef: health.profileRef,
-        watchers: health.watchers,
-        runStreams: health.runStreams,
-        ts: health.ts,
-      },
+      payload: heartbeatPayload(health),
       lastError: health.lastError ?? undefined,
     });
     if (error) {

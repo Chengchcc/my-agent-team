@@ -2,7 +2,12 @@ import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
-import { getAllChatBindings, getChatBinding, listNonTerminalRunCards } from "./bindings-sqlite.js";
+import {
+  countPendingDeliveries,
+  getAllChatBindings,
+  getChatBinding,
+  listNonTerminalRunCards,
+} from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
 import { createClient } from "./client.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
@@ -104,6 +109,7 @@ const heartbeatTimer = setInterval(() => {
     profile,
     { conversation: watchers.size, runDelta: 0 },
     null,
+    countPendingDeliveries(state.db),
   );
   void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
 }, 30_000);

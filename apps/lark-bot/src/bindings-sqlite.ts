@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path, { join } from "node:path";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "./db/schema.js";
@@ -234,6 +234,18 @@ export interface MessageDeliveryRecord {
   lastState: string;
   lastSeq: number;
   updatedAt: number;
+}
+
+/** Deliveries still in flight: rows whose last state is not terminal
+ *  (`done`/`error`). The bot reports this in its heartbeat, so the Lark
+ *  surface view can say whether it is holding messages it could not send —
+ *  a number the wizard otherwise has no way to see. */
+export function countPendingDeliveries(db: Database): number {
+  return d(db)
+    .select({ messageId: schema.messageDelivery.messageId })
+    .from(schema.messageDelivery)
+    .where(notInArray(schema.messageDelivery.lastState, ["done", "error"]))
+    .all().length;
 }
 
 export function getMessageDelivery(
