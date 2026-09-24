@@ -73,7 +73,14 @@ import {
   fileMcpServerAdapter,
   mcpRoutes,
 } from "../features/mcp/index.js";
-import { modelRoutes } from "../features/models/index.js";
+import {
+  applyServedAvailability,
+  bareModelId,
+  createProviderModelProbe,
+  createServedModelKnowledge,
+  modelRoutes,
+  providerOfModelId,
+} from "../features/models/index.js";
 import {
   createProductToolsMcpServer,
   createProductToolsService,
@@ -567,6 +574,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     pi: { backend: piBackend, catalog: new PiModelCatalog() },
     claude_code: { backend: claudeBackend, catalog: new ClaudeModelCatalog() },
   };
+  // Catalog honesty (see served-models.ts): the model picker must not offer a
+  // declared id the provider no longer serves. "Unknown" never flips anything.
+  const servedModelKnowledge = createServedModelKnowledge({
+    probe: createProviderModelProbe({ env: process.env }),
+  });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
   const agentRunExecution = createAgentRunExecutionService({
     workspaceLocks,
@@ -1411,10 +1423,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
                 (await entry.catalog.list()).models.map((m) => ({ ...m, backendKind: kind })),
             ),
           );
-          return lists.flat().map((m) => ({
+          const rows = lists.flat();
+          // Kick discovery for every provider on this page; answers land
+          // asynchronously (serves() never blocks) and flip availability
+          // to false only when the provider is known NOT to serve the id.
+          servedModelKnowledge.refresh([...new Set(rows.map((m) => providerOfModelId(m.id)))]);
+          return rows.map((m) => ({
             id: m.id,
             name: m.displayName ?? m.id,
-            available: m.available,
+            available: applyServedAvailability(
+              m.available,
+              servedModelKnowledge.serves(providerOfModelId(m.id), bareModelId(m.id)),
+            ),
             reasoning: m.reasoning,
             input: m.inputModalities,
             cost: m.cost,

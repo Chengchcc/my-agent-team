@@ -24,7 +24,9 @@ tags: [models, providers, oma]
 - `apps/oh-my-agent/src/core/runtime/runtime-catalog.ts` — 运行时 `models.yml` 的查找、合并与注册
 - `apps/oh-my-agent/src/core/runtime/{model-catalog,model-effort}.ts` — 目录的契约形态、effort 映射
 - `apps/backend/src/features/provider/*` — 产品侧的 provider 键管理
-- `apps/backend/src/features/models/http.ts` — `GET /api/models`
+- `apps/backend/src/features/models/http.ts` — `GET /api/models`（`<provider>/<model>` 切分与分组）
+- `apps/backend/src/features/models/served-models.ts` — 目录诚实层：探测 provider 实际服务的 id，摘掉「声明了但不服务」的条目
+- `packages/ai/src/model-discovery.ts` — 纯函数：解析 `/models` 应答、算声明与服务的差集
 
 ## Provider 与 API 实现
 
@@ -117,6 +119,8 @@ provider 注册时就要求有凭证：`registerProvidersFromCatalog` 逐个解�
 oma 交给产品的目录只含 id、显示名、reasoning、输入模态、上下文窗口、最大输出、可用标记与成本，**不含**凭证、请求头与 provider 对象。
 
 `GET /api/models` 把四个 kind 的目录合成一份，按 provider 前缀分组；每个模型带 `backendKind`，因为同一个 provider/model id 可能在多个 kind 下都存在。成本表在启动时快照一次，按 `kind/别名解析后的模型 id` 建键。
+
+目录声明的是「我们相信存在的 id」，provider 实际服务什么由 `served-models.ts` 探测（`GET <baseUrl>/models`，OpenAI 兼容形状，Anthropic 用 `x-api-key`；按 provider 缓存，TTL 10 分钟，失败 1 分钟内不重试）。聚合时后台刷新、同步回答只读缓存，所以这层永远不会拖慢 `/api/models`。只有**探测确认不在服务列表**才把 `available` 翻成 false——没 key、没探测过、探测失败、应答形状不认识都算「未知」，未知不改变声明值：这层的职责是摘掉确定不存在的条目，而不是把目录收紧到零。
 
 ## 模型别名
 

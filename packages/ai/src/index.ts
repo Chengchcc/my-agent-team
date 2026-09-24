@@ -31,6 +31,13 @@ export {
   type ThinkingConfig,
   type ThinkingMode,
 } from "./model-catalog.js";
+export type { ModelDrift } from "./model-discovery.js";
+// ─── Model discovery (what providers actually serve vs what we declare) ───
+export {
+  describeDrift,
+  diffServedModels,
+  parseServedModelIds,
+} from "./model-discovery.js";
 export type { ModelRuntimeOptions } from "./model-runtime.js";
 
 // ─── Model runtime ───

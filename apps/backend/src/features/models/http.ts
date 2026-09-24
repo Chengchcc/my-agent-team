@@ -47,8 +47,19 @@ export function modelRoutes(
     }));
 }
 
-/** Group a flat model list into provider buckets. The catalog's canonical
- *  ids are `<provider>/<model>`; split on the first slash. */
+/** `/api/models` catalog ids are composite `<provider>/<model>`; the provider
+ *  is everything before the FIRST slash (openrouter model ids contain more). */
+export function providerOfModelId(id: string): string {
+  const slash = id.indexOf("/");
+  return slash > 0 ? id.slice(0, slash) : "unknown";
+}
+
+export function bareModelId(id: string): string {
+  const slash = id.indexOf("/");
+  return slash > 0 ? id.slice(slash + 1) : id;
+}
+
+/** Group a flat model list into provider buckets. */
 export function groupByProvider(models: WebModel[]): Array<{
   id: string;
   name: string;
@@ -56,10 +67,9 @@ export function groupByProvider(models: WebModel[]): Array<{
 }> {
   const byProvider = new Map<string, WebModel[]>();
   for (const m of models) {
-    const slash = m.id.indexOf("/");
-    const provider = slash > 0 ? m.id.slice(0, slash) : "unknown";
+    const provider = providerOfModelId(m.id);
     const list = byProvider.get(provider) ?? [];
-    list.push({ ...m, id: slash > 0 ? m.id.slice(slash + 1) : m.id });
+    list.push({ ...m, id: bareModelId(m.id) });
     byProvider.set(provider, list);
   }
   return [...byProvider.entries()].map(([id, models]) => ({ id, name: id, models }));
