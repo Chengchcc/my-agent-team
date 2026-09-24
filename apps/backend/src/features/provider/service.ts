@@ -7,6 +7,11 @@ import type {
   StoredProviderConfig,
 } from "./domain.js";
 
+/** Providers the UI can configure. Kept separate from the model catalogue
+ *  (`@chengchenccc/ai`) because this one carries UI names and the env var
+ *  each key comes from; `provider-drift.test.ts` fails if the two lists
+ *  disagree, which is how the Z.AI gap was found (the catalogue knew `zai`,
+ *  this list did not, so the provider was unreachable in the UI). */
 export const KNOWN_PROVIDERS: ProviderDefinition[] = [
   {
     id: "anthropic",
@@ -16,6 +21,8 @@ export const KNOWN_PROVIDERS: ProviderDefinition[] = [
   },
   { id: "openai", name: "OpenAI", apiKeyEnv: "OPENAI_API_KEY" },
   { id: "deepseek", name: "DeepSeek", apiKeyEnv: "DEEPSEEK_API_KEY" },
+  // GLM Coding Plan: the coding-plan base URL lives in the catalogue entry.
+  { id: "zai", name: "Z.AI (GLM)", apiKeyEnv: "ZAI_API_KEY" },
   { id: "groq", name: "Groq", apiKeyEnv: "GROQ_API_KEY" },
   { id: "openrouter", name: "OpenRouter", apiKeyEnv: "OPENROUTER_API_KEY" },
 ];
