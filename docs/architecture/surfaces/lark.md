@@ -69,9 +69,9 @@ canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值
 
 ## Run 卡片（ADR 0031 第一期）
 
-ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并发送引用消息，状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。**热路径直连 CardKit OpenAPI**（`run-card/card-kit.ts`，纯 fetch）；tenant token 由 `lark-api.ts` 从 lark-cli 本地密钥库解出 secret 自行铸造并缓存——lark-cli 只保留 profile 管理、入站事件与普通文本发送。事件消费 `/api/agent-runs/:runId/events`：text_delta 追加正文、tool 事件进状态行摘要、approval/ask 切「等待」帧、终态触发封版。
+ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并发送引用消息，状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。**loop 事件先归并成运行视图、绝不直接映射**：`thinking_delta` 只产生阶段词（原始推理永不进 Lark）、`text_delta` 是唯一逐字流（主输出区）、工具事件折叠成「当前动作 + 已完成步骤」摘要（结果按 `result.isError` 判成败，原始输入输出留在 Web）、`approval_request` 携带 callId 切换审批帧。**热路径直连 CardKit OpenAPI**（`run-card/card-kit.ts`，纯 fetch）；tenant token 由 `lark-api.ts` 从 lark-cli 本地密钥库解出 secret 自行铸造并缓存——lark-cli 只保留 profile 管理、入站事件与普通文本发送。
 
-- **传输分层（决策 9）**：逐字流式 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，这是唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
+- **传输分层（决策 9）**：正文逐字 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画；正文/过程条/状态行三个元素各自只推变化）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，也是按钮集变化的唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
 - **节流与节拍**：150ms/120 字符合并、单飞 flush（互斥 + 补刷 + 只推变化元素）；另有一个 1 秒状态节拍器，保证「耗时 N 秒」在模型思考/工具运行期间也每秒跳动（内容没变就不发请求）。
 - **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等落库；封版替换失败降级为发送最终纯文本（`larkIdempotencyKey` 哈希键）并把卡标 `fallback_text`。
 - **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
