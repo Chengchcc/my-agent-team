@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { LarkMessageEvent } from "./event-parser.js";
-import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
+import {
+  replyInThreadFor,
+  topicKeysToRemember,
+  topicLookupKeys,
+  topicRootMessageId,
+} from "./topic-routing.js";
 
 /** Shapes copied from live events (2026-09-24) — see ADR 0037. */
 function ev(overrides: Partial<LarkMessageEvent>): LarkMessageEvent {
@@ -41,6 +46,25 @@ describe("topic routing keys (ADR 0037)", () => {
     const event = ev({ chat_type: "p2p" });
     expect(topicLookupKeys(event)).toEqual([]);
     expect(topicKeysToRemember(event)).toEqual(["om_self"]);
+  });
+
+  test("p2p: a bare message roots its own topic on the user's message", () => {
+    // The answer replies to THAT message in-thread; that reply creates the
+    // topic, so the message the answer hangs off is the user's, not ours.
+    const event = ev({ chat_type: "p2p" });
+    expect(topicRootMessageId(event)).toBe("om_self");
+  });
+
+  test("reply in thread: required in a topic chat, accepted in p2p", () => {
+    expect(replyInThreadFor("topic")).toBe(true);
+    // Probed live: a thread reply in p2p returns a thread_id — it is the only
+    // thing that gives a p2p chat a visible topic.
+    expect(replyInThreadFor("p2p")).toBe(true);
+    // Unknown mode answers in thread: the flag is what creates the topic, and
+    // the surfaces that accept it are the ones we serve.
+    expect(replyInThreadFor(null)).toBe(true);
+    // A plain group has no topic to join.
+    expect(replyInThreadFor("group")).toBe(false);
   });
 
   test("p2p: the first reply to our card carries only root_id, and is taught its thread later", () => {

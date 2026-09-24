@@ -429,10 +429,14 @@ export function watchRunCard(
       // rather than to their question, and that reply carries the card's id as
       // `root_id` (measured). Recording it here is what makes "reply to the
       // bot's card to keep talking" resolve to this same conversation.
-      rememberTopicKeys(db, larkChatId, conversationId, [sent.messageId], Date.now());
-      // No reply target means this card OPENED the topic (a chat with no topic
-      // mode): the card is the root, and the user's reply to it must come back
-      // here. Recorded only if nothing rooted the conversation before.
+      // Both the message and the topic it landed in resolve back here: the
+      // user's next reply carries whichever the platform gives us (`root_id`
+      // for a chain, `thread_id` once a thread exists).
+      const keys = sent.threadId ? [sent.messageId, sent.threadId] : [sent.messageId];
+      rememberTopicKeys(db, larkChatId, conversationId, keys, Date.now());
+      // Fallback for a send with no reply target at all (a run nobody typed,
+      // or a legacy conversation with no recorded root): the card we just
+      // posted is then the thing a reply will hang off.
       if (replyTo === null) setTopicRoot(db, conversationId, sent.messageId);
       persist();
     }

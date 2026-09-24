@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { rememberTopicKeys, reserveInbound, setTopicRoot } from "./bindings-sqlite.js";
+import { rememberTopicKeys, reserveInbound } from "./bindings-sqlite.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { ingest } from "./ingest.js";
 
@@ -149,12 +149,12 @@ describe("ingest", () => {
     db.close();
   });
 
-  test("p2p top-level message opens a conversation with NO topic root yet", async () => {
-    // In a chat with no topic mode the topic is created by OUR first message:
-    // the card becomes the root, and the user's reply to that card continues
-    // the conversation. So the root must stay unset here — if we rooted the
-    // conversation on the user's message, their reply would look like a new
-    // question and the card would be buried inside a chain rooted on them.
+  test("p2p top-level message roots its own topic on the user's message", async () => {
+    // The answer replies to THAT message in-thread, and that reply is what
+    // creates the topic (probed: the API returns a `thread_id` and `root_id`
+    // pointing back at the user's message). So the root is the user's message,
+    // not our card — recording the card instead would leave the answer with
+    // nothing to hang the topic on.
     const db = makeDb();
     mockFetch([
       AGENT_CONFIG,
@@ -174,9 +174,9 @@ describe("ingest", () => {
     const binding = db
       .query("SELECT topic_root_message_id FROM conversation_binding WHERE conversation_id = ?")
       .get(result.conversationId!) as { topic_root_message_id: string | null };
-    expect(binding.topic_root_message_id).toBeNull();
-    // ...while the message itself IS remembered, so a reply hung off it (the
-    // chain root it names) also resolves here.
+    expect(binding.topic_root_message_id).toBe("om_001");
+    // ...and the message is also a topic key, so a reply that names it as
+    // `root_id` (a reply outside the thread) resolves here too.
     const key = db
       .query("SELECT conversation_id FROM topic_binding WHERE topic_key = ?")
       .get("om_001") as { conversation_id: string } | null;
@@ -207,18 +207,18 @@ describe("ingest", () => {
     });
     expect(first.conversationId).toBe("conv_p2p");
 
-    // What the card watcher does right after a successful TOP-LEVEL send: the
-    // card becomes the conversation's topic root, and its message id becomes a
-    // topic key (so a reply that names it as `root_id` resolves here).
-    setTopicRoot(db, "conv_p2p", "om_card");
-    rememberTopicKeys(db, "oc_p2p_001", "conv_p2p", ["om_card"], Date.now());
+    // What the card watcher does right after an in-thread send: the card's
+    // message id and the `thread_id` the platform assigned both become topic
+    // keys, so a later reply resolves whichever of them it carries.
+    rememberTopicKeys(db, "oc_p2p_001", "conv_p2p", ["om_card", "omt_thread"], Date.now());
 
     const reply = await ingest(
       {
         ...baseEvent,
         event_id: "evt_reply",
         message_id: "om_reply",
-        root_id: "om_card",
+        thread_id: "omt_thread",
+        root_id: "om_001",
         reply_to: "om_card",
       },
       {

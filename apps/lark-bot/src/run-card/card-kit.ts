@@ -49,7 +49,7 @@ export interface CardKitClient {
     chatId: string,
     cardId: string,
     opts?: { replyTo?: string | null; replyInThread?: boolean },
-  ): Promise<{ ok: true; messageId: string } | CardKitErr>;
+  ): Promise<{ ok: true; messageId: string; threadId?: string } | CardKitErr>;
   /** The chat's `chat_mode` ("group" | "topic"), for reply targeting. */
   getChatMode(chatId: string): Promise<string | null>;
   streamElement(input: {
@@ -207,7 +207,18 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       if (typeof messageId !== "string" || !messageId) {
         return { ok: false, error: "no message_id in sendCard response", retryable: false };
       }
-      return { ok: true, messageId };
+      // A thread reply comes back with the topic id the platform assigned
+      // (probed): returning it lets the caller map that topic to this
+      // conversation immediately, instead of waiting for the next user reply
+      // to arrive carrying it.
+      const threadId =
+        typeof data === "object" &&
+        data !== null &&
+        "thread_id" in data &&
+        typeof data.thread_id === "string"
+          ? data.thread_id
+          : undefined;
+      return threadId ? { ok: true, messageId, threadId } : { ok: true, messageId };
     },
 
     async streamElement({ cardId, elementId, content, sequence, uuid }) {

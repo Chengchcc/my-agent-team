@@ -224,10 +224,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         larkChatId: event.chat_id,
         chatType: event.chat_type,
         chatMode: null,
-        // Only a message that already carries topic context roots the topic.
-        // A p2p top-level message does NOT: there the root is the first thing
-        // WE send (the card), which is what the user's reply then hangs off.
-        topicRootMessageId: lookupKeys.length > 0 ? topicRootMessageId(event) : null,
+        // The message this conversation's topic hangs off: the topic's first
+        // message when we are already inside one, otherwise THIS message —
+        // because the answer replies to it in-thread, and that reply is what
+        // creates the topic (probed: the API returns a `thread_id`).
+        topicRootMessageId: topicRootMessageId(event),
         createdAt: Date.now(),
         pushedSeq: 0,
       });

@@ -24,6 +24,7 @@ import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
 import type { WatcherHandle } from "./sse-watcher.js";
 import { watchConversation } from "./sse-watcher.js";
+import { replyInThreadFor } from "./topic-routing.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -62,8 +63,8 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     sendTextOnly: async (chatId, text) => {
       const binding = getConversationBinding(state.db, conversationId);
       const result = await sendTextOnly(profile, chatId, text, {
-        replyTo: getConversationBinding(state.db, conversationId)?.topicRootMessageId ?? null,
-        replyInThread: binding?.chatMode === "topic",
+        replyTo: binding?.topicRootMessageId ?? null,
+        replyInThread: replyInThreadFor(binding?.chatMode ?? null),
       });
       if (!result.ok) {
         console.error(`[lark-bot] sendTextOnly failed for ${chatId}: ${result.error}`);
@@ -105,12 +106,15 @@ async function startRunCard(
   // TOPIC chat it must carry `reply_in_thread` or it lands outside the topic —
   // while a normal chat REJECTS that flag. So the chat's mode decides, and it
   // is resolved once per conversation and remembered on the binding.
-  let chatMode = getConversationBinding(state.db, conversationId)?.chatMode ?? null;
-  if (chatMode === null && replyTo) {
+  const binding = getConversationBinding(state.db, conversationId);
+  let chatMode = binding?.chatMode ?? null;
+  if (chatMode === null) {
     chatMode = await cardClient.getChatMode(larkChatId);
     if (chatMode) updateChatMode(state.db, conversationId, chatMode);
   }
-  const replyInThread = chatMode === "topic";
+  // Topic chats REQUIRE a thread reply and p2p ACCEPTS one — in p2p that reply
+  // is what creates the topic at all (probed: the API returns a `thread_id`).
+  const replyInThread = replyInThreadFor(chatMode);
   const handle = watchRunCard(runId, conversationId, larkChatId, {
     db: state.db,
     backendUrl: args.backendUrl,
