@@ -79,6 +79,9 @@ function stripControl(text: string): string {
 const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:gh[pousr]|sk|pk|xox[baprs])[-_][A-Za-z0-9_-]{16,}/g, // gh&_/sk-…/xoxb-…
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi, // Authorization: Bearer …
+  /\bBasic\s+[A-Za-z0-9+/=]{8,}/gi, // Authorization: Basic <base64>
+  /-u\s+[^\s:]+:[^\s]+/gi, // curl -u user:pass (needs the colon: plain `sort -u x` stays readable)
+  /--user\s+\S+/gi, // curl --user credentials
   /\b(?:api[-_]?key|access[-_]?token|secret|password|passwd|pwd)\b\s*[=:]\s*\S{6,}/gi,
   /\/\/[^/@\s]+:[^/@\s]+@/g, // scheme://user:pass@host
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, // AWS access key id

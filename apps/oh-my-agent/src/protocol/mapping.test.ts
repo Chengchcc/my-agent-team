@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mapRunEvent } from "./mapping.js";
+import { forWire, mapRunEvent } from "./mapping.js";
 
 describe("delegation event mapping", () => {
   test("delegation lifecycle events map 1:1 to core events", () => {
@@ -108,5 +108,32 @@ describe("tool activity crosses the RPC boundary, raw input does not", () => {
       toolName: "mcp__github__create_issue",
       callId: "call-2",
     });
+  });
+});
+
+describe("forWire keeps oma-internal fields inside the process", () => {
+  test("tool_execution_start loses its raw input but keeps the activity line", () => {
+    const envelope = {
+      id: 3,
+      type: "tool_execution_start",
+      data: {
+        type: "tool_execution_start",
+        toolName: "bash",
+        callId: "call-1",
+        input: { command: "curl -H 'Authorization: Bearer super-secret-token'" },
+        activity: "正在执行：curl -H 'Authorization: Bearer [已隐藏]'",
+      },
+    };
+    const wire = forWire(envelope);
+    expect(wire.data).not.toHaveProperty("input");
+    expect(wire.data.activity).toBe("正在执行：curl -H 'Authorization: Bearer [已隐藏]'");
+    expect(JSON.stringify(wire)).not.toContain("super-secret-token");
+    // The in-process envelope is untouched: the TUI reads `input` for its card.
+    expect(envelope.data.input).toBeDefined();
+  });
+
+  test("every other event type passes through unchanged", () => {
+    const envelope = { id: 4, type: "tool_execution_end", data: { type: "tool_execution_end" } };
+    expect(forWire(envelope)).toBe(envelope);
   });
 });

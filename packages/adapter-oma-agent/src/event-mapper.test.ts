@@ -25,3 +25,36 @@ describe("tool event mapping (injected tools reach the web as native_tool_*)", (
     });
   });
 });
+
+describe("the adapter forwards the child's activity line verbatim", () => {
+  test("tool_execution_start keeps activity and never forwards input", () => {
+    const ev = mapRunEvent({
+      id: 9,
+      type: "tool_execution_start",
+      data: {
+        toolName: "bash",
+        callId: "call-9",
+        input: { command: "curl -H 'Authorization: Bearer super-secret-token'" },
+        activity: "正在执行：curl -H 'Authorization: Bearer [已隐藏]'",
+      },
+    } as never);
+    // The backend consumes THIS copy, not the oma-side one — if this
+    // passthrough is dropped, Web and Lark silently lose the activity line.
+    expect(ev).toEqual({
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "call-9",
+      activity: "正在执行：curl -H 'Authorization: Bearer [已隐藏]'",
+    });
+    expect(JSON.stringify(ev)).not.toContain("super-secret-token");
+  });
+
+  test("a child without an activity line produces none (no synthesis)", () => {
+    const ev = mapRunEvent({
+      id: 10,
+      type: "tool_execution_start",
+      data: { toolName: "read", callId: "call-10" },
+    } as never);
+    expect(ev).toEqual({ type: "native_tool_started", toolName: "read", callId: "call-10" });
+  });
+});

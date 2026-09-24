@@ -164,8 +164,11 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
   const chatMatches = card?.larkChatId === event.chatId;
   const runMatches = card?.runId === action.runId;
   if (!card || !chatMatches || !runMatches) {
+    // operator is logged, not enforced: this deployment is single-user
+    // (ADR 0026) and ADR 0031 defers the signed action token to the
+    // multi-operator case. The id keeps that gap auditable.
     deps.log(
-      `card action rejected: msg=${event.messageId} chat=${event.chatId} run=${action.runId}` +
+      `card action rejected: operator=${event.operatorId} msg=${event.messageId} chat=${event.chatId} run=${action.runId}` +
         (card ? "" : " (no active card)"),
     );
     return "rejected";

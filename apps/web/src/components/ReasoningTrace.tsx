@@ -1,5 +1,6 @@
 "use client";
 
+import { hasDedicatedEvent } from "@chengchenccc/api-contract";
 import { Brain } from "lucide-react";
 import { useState } from "react";
 import type { TurnSegment } from "@/lib/conversation-reducer";
@@ -10,10 +11,9 @@ import { MessageBubble } from "./MessageBubble";
 import { ToolStep } from "./ToolStep";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 
-/** todo_write has its own TodoPanel — never repeat it in the tool trace. */
-const HIDDEN_TOOLS = new Set(["todo_write"]);
-
-/** Per-turn reasoning trace (Obsidian anatomy):
+/** Per-turn reasoning trace (Obsidian anatomy): tools with a dedicated
+ *  event of their own (todo_write → TodoPanel, ask_question → its own card)
+ *  never repeat as a generic trace step here.
  *  - each round renders its `thinking` as a collapsed Trace, then its
  *    narrative `text` as a visible bubble, then its tool_use as design cards.
  *  - the conclusion renders as a visible bubble, never folded in.
@@ -52,7 +52,7 @@ export function ReasoningTrace({
     );
     const tools = blocks.filter(
       (b): b is { type: "tool_use"; id: string; name: string; input: unknown } =>
-        b.type === "tool_use" && !!b.id && !HIDDEN_TOOLS.has(b.name ?? ""),
+        b.type === "tool_use" && !!b.id && !hasDedicatedEvent(b.name),
     );
     // Narrative text: prefer the .text field (source of truth for content),
     // fall back to joining the text blocks. Tool-role messages only supply

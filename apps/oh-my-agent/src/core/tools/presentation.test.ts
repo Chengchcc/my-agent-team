@@ -29,6 +29,21 @@ describe("safeToolSummary", () => {
     expect(safeToolSummary("git clone https://user:hunter2@example.com/repo", "f")).toBe(
       "git clone https:[已隐藏]example.com/repo",
     );
+    expect(safeToolSummary("curl -u alice:hunter2 https://api.example.com", "f")).toBe(
+      "curl [已隐藏] https://api.example.com",
+    );
+    expect(safeToolSummary("curl --user alice:hunter2 https://x.test", "f")).toBe(
+      "curl [已隐藏] https://x.test",
+    );
+    expect(safeToolSummary("curl -H 'Authorization: Basic YWxpY2U6aHVudGVyMg=='", "f")).toBe(
+      "curl -H 'Authorization: [已隐藏]'",
+    );
+  });
+
+  test("over-redaction is bounded: a plain -u flag survives", () => {
+    // `sort -u` is not a credential; requiring the user:pass colon keeps the
+    // activity readable instead of hiding a flag that means nothing secret.
+    expect(safeToolSummary("sort -u names.txt | head", "f")).toBe("sort -u names.txt | head");
   });
 
   test("falls back when the text is absent, empty, or only control characters", () => {

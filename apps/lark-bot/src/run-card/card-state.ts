@@ -1,5 +1,5 @@
 import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
-import { OmaTodoItem } from "@chengchenccc/api-contract";
+import { hasDedicatedEvent, OmaTodoItem } from "@chengchenccc/api-contract";
 
 /**
  * ADR 0031: pure reducer from Run SSE events to the card's display state.
@@ -55,7 +55,7 @@ export interface RunCardState {
 }
 
 const MAX_COMPLETED_TOOLS = 10;
-const MAX_TODOS = 8;
+const MAX_TODOS = 50;
 
 export function initialRunCardState(): RunCardState {
   return {
@@ -77,12 +77,6 @@ const TERMINAL_RUN_STATUSES: Record<string, "completed" | "failed" | "cancelled"
   aborted: "cancelled",
   commit_failed: "failed",
 };
-
-/** Tools the card renders from a DEDICATED event: todo_write drives the plan
- *  strip (todo_update), ask_question drives the question frame
- *  (ask_requested). Showing them as a generic "正在调用 todo_write" step would
- *  be a downgrade, so they never enter the process strip. */
-const DEDICATED_EVENT_TOOLS = new Set(["todo_write", "ask_question"]);
 
 /** The line shown for a tool call. The child sends an activity string it
  *  authored and sanitized (oma `Tool.describeStart`); when a tool cannot
@@ -131,7 +125,10 @@ function parseTodoItems(items: unknown): readonly OmaTodoItemType[] {
     const result = OmaTodoItem.safeParse(item);
     if (result.success) parsed.push(result.data);
   }
-  return parsed.slice(0, MAX_TODOS);
+  // Keep the tail: a long plan's active items are near the end, and the
+  // renderer windows from the same end — capping the head showed stale
+  // finished steps and hid the one that is running.
+  return parsed.slice(-MAX_TODOS);
 }
 
 /** Parse the first select/text question from the ask payload. */
@@ -196,7 +193,9 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
         : next;
     }
     case "native_tool_started": {
-      if (DEDICATED_EVENT_TOOLS.has(ev.toolName ?? "")) return state;
+      // Product tools own a dedicated event; a generic step for them would
+      // be the "正在调用 todo_write" degradation. The wire name is MCP-qualified.
+      if (hasDedicatedEvent(ev.toolName)) return state;
       return {
         ...state,
         phase: "tool_running",
@@ -209,7 +208,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
       };
     }
     case "native_tool_completed": {
-      if (DEDICATED_EVENT_TOOLS.has(ev.toolName ?? "")) return state;
+      if (hasDedicatedEvent(ev.toolName)) return state;
       const completed = [
         ...state.completedTools,
         {

@@ -112,3 +112,22 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
       };
   }
 }
+
+/** Oma-internal fields that must not leave the process, keyed by event type.
+ *
+ *  `Option A envelope` is written to stdout as-is (rpc-mode's onEvent →
+ *  `{ type: "event", runId, event }`), and `mapRunEvent` runs LATER, on the
+ *  consumer side. So dropping a field in the mapper is not enough: the raw
+ *  frame has already reached the adapter's stdout, its logs, and the backend
+ *  process. `tool_execution_start.input` holds exactly what must not travel
+ *  (full commands, absolute paths, MCP args, tokens), while the tool-authored
+ *  `activity` line is what the wire is supposed to carry.
+ *
+ *  In-process consumers (the TUI reads `input` for its tool card) see the
+ *  unmodified envelope, which is why this is applied at the rpc writer rather
+ *  than at envelope construction. */
+export function forWire(envelope: TransportRunEvent): TransportRunEvent {
+  if (envelope.type !== "tool_execution_start") return envelope;
+  const { input: _input, ...data } = envelope.data;
+  return { ...envelope, data };
+}

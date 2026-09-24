@@ -15,6 +15,8 @@ export {
   ConversationEventKind,
   conversationEvents,
   createSseEncoder,
+  DEDICATED_EVENT_TOOLS,
+  hasDedicatedEvent,
   OmaTodoItem,
   OmaTodoStatus,
   runEvents,

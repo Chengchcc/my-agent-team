@@ -71,6 +71,27 @@ export const OmaTodoItem = z.object({
 
 export type OmaTodoItem = z.infer<typeof OmaTodoItem>;
 
+/** Product tools whose semantics a surface renders from a DEDICATED event:
+ *  `todo_write` drives `backend.oma.todo_update` (the plan strip),
+ *  `ask_question` drives `backend.oma.ask_requested` (the question frame).
+ *  Showing them as a generic "calling <tool>" step degrades a semantic event
+ *  into noise, so both surfaces filter them out of the tool-step list — from
+ *  ONE list, because two copies is how one side ends up showing the step.
+ *
+ *  The wire name is MCP-qualified (`mcp__product-tools__todo_write`, see the
+ *  backend workspace bridge): a bare equality check silently never matches,
+ *  which is exactly how the Web filters and the first Lark filter both missed. */
+export const DEDICATED_EVENT_TOOLS: readonly string[] = ["todo_write", "ask_question"];
+
+/** Does this wire tool name have a dedicated event of its own? Matches the
+ *  leaf segment, so both `todo_write` and `mcp__product-tools__todo_write`
+ *  count. */
+export function hasDedicatedEvent(toolName: string | undefined): boolean {
+  if (!toolName) return false;
+  const leaf = toolName.split("__").pop() ?? toolName;
+  return DEDICATED_EVENT_TOOLS.includes(leaf);
+}
+
 /** Agent-run live update stream (`/agent-runs/:runId/events`). Payloads are
  *  the BackendEvent objects the execution service broadcasts — core events
  *  carry fields at top level, oma extensions carry `{ payload }`. Schemas
@@ -102,6 +123,24 @@ export const runEvents = {
   "backend.oma.todo_update": z.object({
     type: z.literal("backend.oma.todo_update"),
     payload: z.object({ items: z.array(OmaTodoItem).optional() }).optional(),
+  }),
+  /** HITL ask (oma rpc emits; backend maps via backend.oma.*). `callId` is
+   *  the resolve handle (`POST /api/product-tools/ask/resolve`).
+   *
+   *  `questions` stays loose on purpose: the authoritative item shape is
+   *  `AskQuestionItem` in `@chengchenccc/agent-contract`, and this package
+   *  deliberately does not depend on it (a different boundary). Mirroring
+   *  those fields here would be a third hand-written copy to drift; the
+   *  surfaces parse defensively, and the convergence path is the backend
+   *  emitting a validated DTO (recorded as a gap, not pretended away). */
+  "backend.oma.ask_requested": z.object({
+    type: z.literal("backend.oma.ask_requested"),
+    payload: z
+      .object({
+        callId: z.string(),
+        questions: z.array(z.unknown()).optional(),
+      })
+      .optional(),
   }),
   /** HITL approval card (oma rpc emits; adapter maps via backend.oma.*).
    *  `sandboxed` is the truthful OS-bash-sandbox signal (bash approvals

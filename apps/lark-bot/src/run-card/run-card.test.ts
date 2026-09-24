@@ -538,26 +538,34 @@ describe("tool activity (surfaces display, never invent)", () => {
   });
 
   test("product tools never enter the process strip — dedicated events own them", () => {
-    const started = applyRunEvent(initialRunCardState(), {
-      type: "native_tool_started",
-      toolName: "todo_write",
-      callId: "c3",
-    });
-    expect(started.activeTool).toBeNull();
-    const completed = applyRunEvent(started, {
-      type: "native_tool_completed",
-      toolName: "todo_write",
-      callId: "c3",
-      result: { items: [] },
-    });
-    expect(completed.completedTools).toEqual([]);
-    // ask_question is answered by the question frame instead.
-    expect(
-      applyRunEvent(initialRunCardState(), {
+    // The wire name is MCP-qualified (backend workspace-bridge):
+    // `mcp__product-tools__todo_write`. A bare-name check passes this test
+    // while the real event still renders "正在调用 product-tools · todo_write"
+    // — so both forms are asserted, and the qualified one is the real wire.
+    for (const toolName of ["mcp__product-tools__todo_write", "todo_write"]) {
+      const started = applyRunEvent(initialRunCardState(), {
         type: "native_tool_started",
-        toolName: "ask_question",
-        callId: "c4",
-      }).activeTool,
-    ).toBeNull();
+        toolName,
+        callId: "c3",
+      });
+      expect(started.activeTool).toBeNull();
+      const completed = applyRunEvent(started, {
+        type: "native_tool_completed",
+        toolName,
+        callId: "c3",
+        result: { items: [] },
+      });
+      expect(completed.completedTools).toEqual([]);
+    }
+    // ask_question is answered by the question frame instead.
+    for (const toolName of ["mcp__product-tools__ask_question", "ask_question"]) {
+      expect(
+        applyRunEvent(initialRunCardState(), {
+          type: "native_tool_started",
+          toolName,
+          callId: "c4",
+        }).activeTool,
+      ).toBeNull();
+    }
   });
 });

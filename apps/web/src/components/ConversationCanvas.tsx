@@ -1,5 +1,6 @@
 "use client";
 
+import { hasDedicatedEvent } from "@chengchenccc/api-contract";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Download } from "lucide-react";
 import Link from "next/link";
@@ -189,7 +190,7 @@ export function ConversationCanvas({
         thinking: t.thinking,
         sender,
         tools: Object.values(transientTools).filter(
-          (tool) => tool.runId === runId && tool.name !== "todo_write",
+          (tool) => tool.runId === runId && !hasDedicatedEvent(tool.name),
         ),
         error: t.error,
         notices: t.notices,

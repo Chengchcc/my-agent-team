@@ -1,5 +1,6 @@
 "use client";
 
+import { hasDedicatedEvent } from "@chengchenccc/api-contract";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Timeline } from "@/components/Timeline";
@@ -49,7 +50,7 @@ export function ChatPanel({
       ? { kind: "agent", memberId: agent.memberId, agentId: agent.agentId }
       : { kind: "agent", memberId: t.agentId, agentId: t.agentId };
     const tools = Object.values(transientTools).filter(
-      (tool) => tool.runId === runId && tool.name !== "todo_write",
+      (tool) => tool.runId === runId && !hasDedicatedEvent(tool.name),
     );
     return {
       runId,

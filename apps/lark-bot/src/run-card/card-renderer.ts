@@ -101,6 +101,13 @@ export function renderProcessContent(state: RunCardState): string {
   }
   if (state.pendingAction?.prompt) {
     lines.push(`❓ ${state.pendingAction.prompt}`);
+    // A question that wants free text must say so: the card cannot collect
+    // it yet (Card JSON 2.0 input/form is not wired), and an unanswered ask
+    // parks the run. A button that resolved with an empty value would
+    // silently discard the user's intent, so there is no such button.
+    if (state.pendingAction.kind === "ask" && state.pendingAction.allowFreeText) {
+      lines.push("（这题需要自由输入，请在 Web 端回答）");
+    }
   }
   if (lines.length === 0) return "…";
   return lines.join("\n");
@@ -134,26 +141,6 @@ function pendingActionButtons(
             questionId: action.questionId,
             action: "answer_ask",
             selectedValue: opt.value,
-          },
-        },
-      ],
-    });
-  }
-  if (action.allowFreeText) {
-    buttons.push({
-      tag: "button",
-      element_id: "ask_other",
-      text: { tag: "plain_text", content: "其他…" },
-      type: "default",
-      behaviors: [
-        {
-          type: "callback",
-          value: {
-            runId,
-            callId: action.callId,
-            questionId: action.questionId,
-            action: "answer_ask",
-            selectedValue: "",
           },
         },
       ],
