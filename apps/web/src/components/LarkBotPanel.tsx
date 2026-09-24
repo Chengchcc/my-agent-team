@@ -4,8 +4,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAgentDetail } from "@/features/agents/hooks";
 import { agentKeys } from "@/features/agents/query-keys";
 import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
@@ -20,9 +28,35 @@ export function LarkBotPanel({ agentId }: { agentId: string }) {
   const [session, setSession] = useState<LarkSetupSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Access settings. `"*"` in the allowlist is the explicit wildcard — an
+  // empty list means nobody, so the two are distinct choices here.
+  const [dmMode, setDmMode] = useState<"everyone" | "selected" | "nobody">("everyone");
+  const [sendersText, setSendersText] = useState("");
+  const [groupPolicy, setGroupPolicy] = useState<"disabled" | "open" | "allowlist">("disabled");
+  const [requireMention, setRequireMention] = useState(true);
+  const [respondAll, setRespondAll] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (agent) setBotName(agent.lark?.botDisplayName ?? "");
+    if (!agent) return;
+    setBotName(agent.lark?.botDisplayName ?? "");
+    const senders = agent.lark?.allowedSenders ?? [];
+    const wildcard = senders.some((s) => s === "*");
+    if (wildcard) {
+      setDmMode("everyone");
+      setSendersText("");
+    } else if (senders.length === 0) {
+      // An empty list means nobody can use the bot — not "everyone".
+      setDmMode("nobody");
+      setSendersText("");
+    } else {
+      setDmMode("selected");
+      setSendersText(senders.join(", "));
+    }
+    setGroupPolicy(agent.lark?.groupPolicy ?? "disabled");
+    setRequireMention(agent.lark?.requireMention ?? true);
+    setRespondAll(agent.lark?.respondToMentionAll ?? false);
   }, [agent]);
 
   useEffect(() => {
@@ -66,6 +100,39 @@ export function LarkBotPanel({ agentId }: { agentId: string }) {
       /* already settled */
     }
     setSession(null);
+  };
+
+  const saveAccess = async () => {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      let allowedSenders: string[] = [];
+      if (dmMode === "everyone") {
+        allowedSenders = ["*"];
+      } else if (dmMode === "selected") {
+        allowedSenders = sendersText
+          .split(/[\s,]+/)
+          .map((v) => v.trim())
+          .filter(Boolean);
+      }
+      await api.updateAgent(agentId, {
+        lark: {
+          enabled: agent?.lark?.enabled ?? true,
+          botDisplayName: botName,
+          allowedSenders,
+          groupPolicy,
+          requireMention,
+          respondToMentionAll: respondAll,
+        },
+      });
+      await qc.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save Lark access settings");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const status = agent?.lark?.status ?? "not_configured";
@@ -126,9 +193,89 @@ export function LarkBotPanel({ agentId }: { agentId: string }) {
           {error && <p className="text-sm text-(--err)">{error}</p>}
         </>
       ) : (
-        <p className="text-sm text-(--mute)">
-          Lark profile is configured. Manage the bot from the System → Surfaces page.
-        </p>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label>Bot display name</Label>
+            <Input
+              value={botName}
+              onChange={(e) => setBotName(e.target.value)}
+              placeholder="e.g. backend-agent"
+            />
+            <p className="text-xs text-(--mute)">
+              Group @mentions are matched against this name. Without it the bot only works in direct
+              messages.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Who can use the bot in direct messages</Label>
+            <Select value={dmMode} onValueChange={(v) => setDmMode(v as typeof dmMode)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="everyone">Everyone in the tenant</SelectItem>
+                <SelectItem value="selected">Only the people listed below</SelectItem>
+                <SelectItem value="nobody">Nobody (turn it off here)</SelectItem>
+              </SelectContent>
+            </Select>
+            {dmMode === "selected" && (
+              <Input
+                value={sendersText}
+                onChange={(e) => setSendersText(e.target.value)}
+                placeholder="ou_xxx, ou_yyy"
+              />
+            )}
+            {dmMode === "selected" && (
+              <p className="text-xs text-(--mute)">
+                Lark open_ids, comma separated. The bot stays silent for anyone else.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label>Groups</Label>
+            <Select
+              value={groupPolicy}
+              onValueChange={(v) => setGroupPolicy(v as typeof groupPolicy)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="disabled">Only groups this bot already works in</SelectItem>
+                <SelectItem value="open">Every group it is added to</SelectItem>
+                <SelectItem value="allowlist">
+                  Every group, but only the people listed above
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-(--mute)">
+              Being added to a group does not by itself let it drive this agent. A group the bot has
+              already served keeps working either way.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2">
+            <Checkbox
+              checked={requireMention}
+              onCheckedChange={(v) => setRequireMention(v === true)}
+            />
+            <span className="text-sm text-(--ink)">Groups must @mention the bot</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <Checkbox checked={respondAll} onCheckedChange={(v) => setRespondAll(v === true)} />
+            <span className="text-sm text-(--ink)">Let @everyone in a group trigger the bot</span>
+          </label>
+
+          <div className="flex items-center gap-2">
+            <Button onClick={() => void saveAccess()} disabled={saving}>
+              {saving ? "Saving…" : "Save access settings"}
+            </Button>
+            {saved && <span className="text-sm text-(--mute)">Saved.</span>}
+          </div>
+          {error && <p className="text-sm text-(--err)">{error}</p>}
+        </div>
       )}
     </div>
   );
