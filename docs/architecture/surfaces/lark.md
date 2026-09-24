@@ -46,7 +46,7 @@ tags: [lark, surfaces, backend]
 
 | 表 | 主键 | 用途 |
 |---|---|---|
-| `conversation_binding` | `conversation_id` | 会话 → 飞书 chat，带**按会话**的 `pushed_seq` 推送游标与 `chat_mode`（话题群回复要 `reply_in_thread`） |
+| `conversation_binding` | `conversation_id` | 会话 → 飞书 chat，带**按会话**的 `pushed_seq` 推送游标、`chat_mode`（话题群回复要 `reply_in_thread`）与 `topic_root_message_id`（本话题的根消息，回答一律回复它） |
 | `topic_binding` | `(lark_chat_id, topic_key)` | 话题键 → 会话：键是话题群的话题线程 `omt_…`，或一条消息 `om_…`（用户开的顶层消息／我们发出、用户会去回复的那条）。一个会话可有多个键（私聊回复链先给 `root_id`，第二次回复才拿到 `thread_id`，两者必须指向同一会话） |
 | `member_binding` | `(lark_chat_id, lark_open_id)` | 飞书用户 → 本地 memberId 标签，形如 `human:lark:<open_id>` |
 | `inbound_message` | `lark_event_id` | 入站幂等，`lark_message_id` 上另有唯一约束 |
@@ -67,7 +67,12 @@ tags: [lark, surfaces, backend]
 
 canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值，所以飞书没有流式渲染路径，每个 assistant 行只投递一次。
 
-投递默认用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`；当该会话有话题（`topic_binding` 里存在 `om_` 键）时改走 `im +messages-reply --message-id <话题根>`，话题群里再加 `--reply-in-thread`（普通聊天会拒绝这个标志，所以由该会话记录的 `chat_mode` 决定）。**回答与问题同处一个话题**是 ADR 0037 的可见结果。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
+投递默认用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`；当该会话有话题（`topic_binding` 里存在 `om_` 键）时改走 `im +messages-reply --message-id <话题根>`，话题群里再加 `--reply-in-thread`（普通聊天会拒绝这个标志，所以由该会话记录的 `chat_mode` 决定）。**回答与问题同处一个话题**是 ADR 0037 的可见结果。
+
+话题的**根**由会话记录（`conversation_binding.topic_root_message_id`），不由键推断——一个会话有多个键，而 `omt_…` 根本不能作为回复目标，根却是唯一的一条消息：
+
+- **话题群**：根是「开这个话题的那条消息」（它自带 `thread_id`），回答回复它并带 `reply_in_thread`，卡片就落在话题里。
+- **私聊**：没有任何东西开话题，所以**根是我们的第一条消息——卡片本身**。卡片发出时（且该会话原本没有根）把自己登记为根；用户回复这张卡片即续接同一会话。反过来把回答做成「回复用户那条消息」是错的：卡片会被埋进一条以用户为根的链里，用户的下一条回复就会开新会话。失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
 
 ## Run 卡片（ADR 0031 第一期）
 
