@@ -139,7 +139,17 @@ export function conversationRoutes(
           body: t.Object({
             senderMemberId: t.Optional(t.String({ minLength: 1 })),
             addressedTo: t.Optional(t.Array(t.String())),
-            content: t.Any(),
+            // The only two shapes the writer understands (service.postMessage):
+            // a plain string, or ContentBlock[] for attachments. `t.Any()`
+            // used to stand here, which silently accepted anything — and since
+            // this schema is the wire type every caller shares through Eden
+            // Treaty, `any` also switched OFF the compile-time check that would
+            // have caught the Lark bot posting `{ text, source, ... }`: the
+            // request validated, the writer matched neither branch, and the
+            // user's message was stored with no text at all. A message that
+            // arrives with text and is stored without it is the worst failure
+            // shape there is, so the shape is now stated.
+            content: t.Union([t.String(), t.Array(t.Record(t.String(), t.Any()))]),
             mode: t.Optional(
               t.Union([t.Literal("normal"), t.Literal("steer"), t.Literal("follow_up")]),
             ),

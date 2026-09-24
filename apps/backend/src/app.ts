@@ -81,6 +81,17 @@ export function createApp(token: string, features: FeatureSet) {
         return { error: error.message };
       }
       if (code === "NOT_FOUND") return { error: "Not found" };
+      // A malformed request body is the sender's mistake, not ours. Without
+      // this every body-validation failure across the whole API fell through
+      // to the 500 below — "Internal server error" for something the caller
+      // can fix, and an unreadable server-error signal in the logs. Route-level
+      // tests never caught it because they build the plugin app directly, where
+      // Elysia's built-in 422 applies; only the composition root has this
+      // handler.
+      if (code === "VALIDATION") {
+        set.status = 422;
+        return { error: error.message };
+      }
       set.status = 500;
       return { error: "Internal server error" };
     })

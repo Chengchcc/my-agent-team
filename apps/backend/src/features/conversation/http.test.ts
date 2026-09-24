@@ -54,6 +54,40 @@ describe("conversation routes", () => {
     expect(missing.status).toBe(404);
   });
 
+  test("a content shape the writer cannot read is rejected, not stored empty", async () => {
+    await createConversation("c-shape");
+    // The Lark bot used to post `{ text, source, larkEventId, ... }` here:
+    // `content: t.Any()` let it through validation, the writer matched neither
+    // its string branch nor its block-array branch, and the message landed in
+    // the ledger with no text — the agent saw an empty turn and improvised
+    // from stale context. A 422 at this boundary is the whole fix: wrong
+    // shape, loud, sender-side, before anything is persisted.
+    const envelope = await api(harness, "POST", `${BASE}/c-shape/messages`, {
+      content: { text: "hello from lark", source: "lark" },
+    });
+    expect(envelope.status).toBe(422);
+
+    // Nothing was written: the envelope text is not searchable.
+    const search = await api(harness, "GET", `${BASE}/search?q=hello%20from%20lark`);
+    expect(((await search.json()) as { results: unknown[] }).results).toEqual([]);
+  });
+
+  test("attachments still arrive as blocks, and text as a plain string", async () => {
+    await createConversation("c-blocks");
+    const blocks = await api(harness, "POST", `${BASE}/c-blocks/messages`, {
+      content: [
+        { type: "text", text: "look at this" },
+        { type: "image", mediaType: "image/png", base64: "AAAA" },
+      ],
+    });
+    expect(blocks.status).toBe(202);
+
+    const text = await api(harness, "POST", `${BASE}/c-blocks/messages`, {
+      content: "plain string",
+    });
+    expect(text.status).toBe(202);
+  });
+
   test("messages append to the ledger and search/export see them", async () => {
     await createConversation("c-msg");
     const posted = await api(harness, "POST", `${BASE}/c-msg/messages`, {
