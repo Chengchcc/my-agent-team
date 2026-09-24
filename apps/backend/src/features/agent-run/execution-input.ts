@@ -115,17 +115,18 @@ export function buildRunInput(
     configRevision: run.configRevision,
   };
 
-  // CLI backends mount product tools through .mcp.json without the child's
-  // per-call wire identity: the identity + task list ride the system
-  // prompt, and the model passes the identity as a tool argument.
-  // SECURITY NOTE: the identity is anti-ACCIDENT, not anti-MALICE - a
-  // hostile model can forge any tuple it reads from the prompt. Hard
-  // binding needs a per-run token (scheduled, see security-debt-backlog).
+  // Product tools are authenticated by the run's bearer token (minted at
+  // dispatch, revoked at settle) — the MCP layer takes the run from the token
+  // and ignores any `identity` argument. This block therefore exists for what
+  // the model legitimately needs: which run it is in, and its current task
+  // list.
+  // (It used to say "always pass the identity argument", which made an opaque
+  // 24-char id a precondition for every product call: the model sometimes
+  // echoed a stale one, and the mismatch check rejected a legitimate call.)
   const productContext = [
     "## Product Context",
-    "Product tools (history_recent, history_search, history_around,",
-    "history_retain, todo_write) require your run identity. Always pass it",
-    "as the `identity` argument:",
+    "Your run identity (reference only — product tools read it from the",
+    "session token, never from your arguments):",
     `- runId: ${run.runId}`,
     `- conversationId: ${run.conversationId}`,
     `- agentId: ${run.agentId}`,

@@ -173,14 +173,22 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
   const pendingAsks = new Map<string, (answer: AskQuestionResult | null) => void>();
 
   function assertScope(run: AgentRun, identity: ProductToolCallIdentity): void {
-    if (
-      run.conversationId !== identity.conversationId ||
-      run.agentId !== identity.agentId ||
-      run.branchId !== identity.branchId
-    ) {
-      throw new ProductToolRejectedError(
-        `tool call identity mismatch for run ${identity.runId}: scope is (${run.conversationId}, ${run.agentId}, ${run.branchId}), got (${identity.conversationId}, ${identity.agentId}, ${identity.branchId})`,
-      );
+    // An ABSENT field is not a mismatch: the MCP layer only knows what the
+    // bearer token carried (run + agent), and the run row is the scope's
+    // source of truth. A PRESENT-but-different field still rejects — that is a
+    // caller attaching a wire identity for another run, which is the accident
+    // this check exists to catch.
+    const fields = [
+      { name: "conversationId", run: run.conversationId, caller: identity.conversationId },
+      { name: "agentId", run: run.agentId, caller: identity.agentId },
+      { name: "branchId", run: run.branchId, caller: identity.branchId },
+    ];
+    for (const field of fields) {
+      if (field.caller !== "" && field.caller !== field.run) {
+        throw new ProductToolRejectedError(
+          `tool call identity mismatch for run ${identity.runId}: ${field.name} is ${field.run}, got ${field.caller}`,
+        );
+      }
     }
   }
 

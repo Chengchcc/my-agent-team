@@ -176,19 +176,52 @@ describe("product tools MCP", () => {
     }
   });
 
-  test("CLI backends pass the identity as an argument (no _meta)", async () => {
+  test("a call with no identity at all still works (token is the authority)", async () => {
+    const client = await connectClient(TOKEN);
+    try {
+      const res = await client.callTool({ name: "history_recent", arguments: { limit: 10 } });
+      expect(res.isError).not.toBe(true);
+      const items = JSON.parse(res.content[0]?.text ?? "[]") as Array<{ text: string }>;
+      expect(items.map((i) => i.text)).toContain("hello mcp");
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("a stale runId in the identity argument cannot reject a legitimate call", async () => {
+    // The model is asked to echo opaque ids; it sometimes echoes a stale one.
+    // Making that an authorization input meant a product tool call failed for
+    // a reason the user could neither see nor fix — observed live as
+    // "identity does not match the session's authenticated run" on an
+    // ask_question, after which the model abandoned the question card and
+    // asked in plain text. The token names the run; the echo is ignored.
     const client = await connectClient(TOKEN);
     try {
       const res = await client.callTool({
         name: "history_recent",
-        arguments: {
-          limit: 10,
-          identity: { runId, conversationId: CONV, agentId: AGENT, branchId },
-        },
+        arguments: { limit: 10, identity: { runId: "stale-run-from-an-older-turn" } },
       });
       expect(res.isError).not.toBe(true);
       const items = JSON.parse(res.content[0]?.text ?? "[]") as Array<{ text: string }>;
+      // ...and the call was scoped to the TOKEN's run, not the echoed one.
       expect(items.map((i) => i.text)).toContain("hello mcp");
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("the child's own wire identity is still verified", async () => {
+    // `_meta` is the child process's identity, not the model's text: a
+    // mismatch there means a crossed or stale process and must still fail.
+    const client = await connectClient(TOKEN);
+    try {
+      const res = await client.callTool({
+        name: "history_recent",
+        arguments: {},
+        _meta: { identity: { ...IDENTITY, runId: "another-run" } },
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0]?.text).toContain("identity does not match");
     } finally {
       await client.close();
     }
@@ -305,12 +338,15 @@ describe("product tools MCP", () => {
 });
 
 describe("B1: session binds the authenticated runId", () => {
-  test("A's token + B's identity args → isError; A + A passes", async () => {
-    const tokenA = registry.mint({ runId, agentId: "a1", exp: Date.now() + 60_000 });
-    const tokenB = registry.mint({ runId: "run-other", agentId: "a1", exp: Date.now() + 60_000 });
+  test("A's token + B's identity args reads A's run, never B's", async () => {
+    // The property that matters is not "the arguments are rejected" but "the
+    // arguments cannot choose the run": a bearer for A stays scoped to A no
+    // matter what ids the call carries. (Rejecting instead — the old rule —
+    // was both redundant and harmful: it also rejected the honest call
+    // whenever the model echoed a stale id, which happened in production.)
+    const tokenA = registry.mint({ runId, agentId: AGENT, exp: Date.now() + 60_000 });
     const clientA = await connectClient(tokenA);
     try {
-      // Forged identity: claims run-other through A's session.
       const forged = await clientA.callTool({
         name: "history_recent",
         arguments: {
@@ -324,9 +360,12 @@ describe("B1: session binds the authenticated runId", () => {
           },
         },
       });
-      expect(forged.isError).toBe(true);
-      expect(forged.content[0]?.text).toContain("authenticated run");
-      // Honest identity through the same session works.
+      expect(forged.isError).not.toBe(true);
+      // A's data, because A's token — run-other is not reachable this way.
+      const forgedItems = JSON.parse(forged.content[0]?.text ?? "[]") as Array<{ text: string }>;
+      expect(forgedItems.map((i) => i.text)).toContain("hello mcp");
+
+      // The honest call behaves identically.
       const honest = await clientA.callTool({
         name: "history_recent",
         arguments: {
@@ -338,14 +377,13 @@ describe("B1: session binds the authenticated runId", () => {
     } finally {
       await clientA.close();
     }
-    void tokenB;
   });
 
   test("POST /messages with a different run's bearer → 401", async () => {
-    const tokenA = registry.mint({ runId, agentId: "a1", exp: Date.now() + 60_000 });
+    const tokenA = registry.mint({ runId, agentId: AGENT, exp: Date.now() + 60_000 });
     const tokenOther = registry.mint({
       runId: "run-other2",
-      agentId: "a1",
+      agentId: AGENT,
       exp: Date.now() + 60_000,
     });
     const client = await connectClient(tokenA);

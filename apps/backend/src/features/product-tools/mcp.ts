@@ -53,7 +53,8 @@ export async function createProductToolsMcpServer(
   const port = opts.port ?? 0;
   /** B1: one Server per SSE session; the tools/call handler closes over
    *  the authenticated runId and rejects mismatched identity args. */
-  const makeServer = (authenticatedRunId: string): Server => {
+  const makeServer = (caller: RunTokenContext): Server => {
+    const authenticatedRunId = caller.runId;
     const s = new Server(
       { name: "product-tools", version: "1.0.0" },
       {
@@ -224,16 +225,26 @@ export async function createProductToolsMcpServer(
     s.setRequestHandler(CallToolRequestSchema, async (req) => {
       const name = req.params.name;
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-      const meta = (req.params as { _meta?: { identity?: WireIdentity } })._meta;
-      // CLI backends cannot attach _meta: the system prompt carries the
-      // identity and the model passes it as the `identity` argument.
-      const argIdentity = (args.identity ?? {}) as Record<string, unknown>;
-      const identity = meta?.identity ?? argIdentity;
       const str = (v: unknown): string => (typeof v === "string" ? v : "");
-      const runId = str(identity.runId);
-      // B1: the identity args must match the session's authenticated run —
-      // a valid bearer for run A cannot act as run B by forging args.
-      if (runId && runId !== authenticatedRunId) {
+      const meta = (req.params as { _meta?: { identity?: WireIdentity } })._meta;
+      const argIdentity = (args.identity ?? {}) as Record<string, unknown>;
+      // THE RUN COMES FROM THE BEARER TOKEN, NEVER FROM THE ARGUMENTS.
+      //
+      // Every production MCP client here calls `callTool(name, args)` with no
+      // `_meta` (only a fixture ever described that shape), so the `identity`
+      // argument is text the model copied out of its prompt — and it does not
+      // always copy it right. The old rule ("the args must match the
+      // authenticated run") turned one stale echo into a hard rejection of a
+      // legitimate call: observed live as "弹窗工具连续两次报 identity 不匹配",
+      // after which the model gave up and asked in plain text, i.e. product
+      // features failed for a reason the user could not see or fix. The token
+      // registry already names the run (mint-at-dispatch, revoke-at-settle);
+      // that is the authority, and it cannot be forged by arguments.
+      const runId = caller.runId;
+      const agentId = caller.agentId;
+      // `_meta` is the child's own wire identity, so a mismatch THERE means a
+      // crossed/mis-wired process and still rejects.
+      if (meta?.identity && str(meta.identity.runId) && str(meta.identity.runId) !== runId) {
         return {
           content: [
             { type: "text", text: "identity does not match the session's authenticated run" },
@@ -241,17 +252,22 @@ export async function createProductToolsMcpServer(
           isError: true,
         };
       }
-      // callId/idempotencyKey: injected by the child's wire caller; generated
-      // here for CLI backends (the service validates the pairing).
-      const callId = str(identity.callId) || randomUUID();
-      const idempotencyKey = str(identity.idempotencyKey) || `${runId}:${callId}`;
+      // callId stays the caller's when present (it is the model's tool-use id,
+      // which is what makes retries replay); the idempotency key is BUILT HERE
+      // from the authoritative run so a stale echo cannot break the service's
+      // `${runId}:${callId}` invariant.
+      const callId = str(meta?.identity?.callId) || str(argIdentity.callId) || randomUUID();
+      const idempotencyKey = `${runId}:${callId}`;
       try {
         const result = await service.call({
           identity: {
             runId,
-            conversationId: str(identity.conversationId),
-            agentId: str(identity.agentId),
-            branchId: str(identity.branchId),
+            agentId,
+            // Only the child's wire identity can carry scope; the model's echo
+            // is not an authorization input (the service derives the scope from
+            // the run row and treats an absent field as "unstated").
+            conversationId: str(meta?.identity?.conversationId),
+            branchId: str(meta?.identity?.branchId),
           },
           callId,
           idempotencyKey,
@@ -296,7 +312,7 @@ export async function createProductToolsMcpServer(
       const transport = new SSEServerTransport("/messages", res);
       // B1: a dedicated Server per session — the handler closure pins the
       // authenticated runId, so identity forgery in tool args is rejected.
-      const sessionServer = makeServer(caller.runId);
+      const sessionServer = makeServer(caller);
       sessions.set(transport.sessionId, {
         transport,
         authenticatedRunId: caller.runId,
