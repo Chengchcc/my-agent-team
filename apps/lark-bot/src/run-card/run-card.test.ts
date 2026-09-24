@@ -10,6 +10,7 @@ import {
   runIdFromMessageId,
   updateRunCard,
 } from "../bindings-sqlite.js";
+import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
 import { renderRunCard } from "./card-renderer.js";
 import { applyRunEvent, initialRunCardState } from "./card-state.js";
@@ -327,5 +328,138 @@ describe("finalAnswerText", () => {
   test("null when nothing carries text", () => {
     expect(finalAnswerText([{ role: "assistant", text: " " }])).toBeNull();
     expect(finalAnswerText(null)).toBeNull();
+  });
+});
+
+describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
+  /** lark-cli flattens card.action.trigger into top-level snake_case keys
+   *  (Go struct tag `action_value` = "Developer-defined action value as JSON
+   *  string"), so the fixture mirrors that shape rather than Lark's nested
+   *  action.value schema. */
+  function callbackLine(fields: Record<string, string>): string {
+    return JSON.stringify({
+      event_id: fields.event_id,
+      event_type: "card.action.trigger",
+      operator_id: fields.operator_id,
+      chat_id: fields.chat_id,
+      message_id: fields.message_id,
+      action_tag: fields.action_tag,
+      action_value: fields.action_value,
+    });
+  }
+
+  function seedCard(runId: string, messageId: string): void {
+    insertRunCard(db, {
+      runId,
+      conversationId: `conv-${runId}`,
+      larkChatId: "oc_actions",
+      sourceMessageId: "om_src",
+    });
+    updateRunCard(db, runId, { status: "streaming", larkMessageId: messageId });
+  }
+
+  function deps() {
+    const calls: string[] = [];
+    return {
+      calls,
+      deps: {
+        db,
+        cancelRun: async (runId: string) => {
+          calls.push(`cancel:${runId}`);
+          return {};
+        },
+        resolveApproval: async (runId: string, callId: string, decision: string) => {
+          calls.push(`approval:${runId}:${callId}:${decision}`);
+          return {};
+        },
+        resolveAsk: async (input: {
+          runId: string;
+          callId: string;
+          questionId: string;
+          selectedValue: string;
+        }) => {
+          calls.push(
+            `ask:${input.runId}:${input.callId}:${input.questionId}:${input.selectedValue}`,
+          );
+          return {};
+        },
+        log: () => {},
+      },
+    };
+  }
+
+  test("answer_ask decodes and resolves the question through the shared ask path", async () => {
+    seedCard("run-ask", "om_ask");
+    const { calls, deps: d } = deps();
+    const outcome = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-ask",
+        operator_id: "ou_1",
+        chat_id: "oc_actions",
+        message_id: "om_ask",
+        action_tag: "button",
+        action_value: JSON.stringify({
+          runId: "run-ask",
+          callId: "call-ask",
+          questionId: "q1",
+          selectedValue: "main",
+          action: "answer_ask",
+        }),
+      }),
+      d,
+    );
+    expect(outcome).toBe("answered");
+    expect(calls).toEqual(["ask:run-ask:call-ask:q1:main"]);
+  });
+
+  test("a callback whose chat does not own the card is rejected", async () => {
+    seedCard("run-mismatch", "om_mismatch");
+    const { calls, deps: d } = deps();
+    const outcome = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-mismatch",
+        operator_id: "ou_1",
+        chat_id: "oc_someone_else",
+        message_id: "om_mismatch",
+        action_tag: "button",
+        action_value: JSON.stringify({ runId: "run-mismatch", action: "stop" }),
+      }),
+      d,
+    );
+    expect(outcome).toBe("rejected");
+    expect(calls).toEqual([]);
+  });
+
+  test("a callback for an unknown message never reaches the backend", async () => {
+    const { calls, deps: d } = deps();
+    const outcome = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-unknown",
+        operator_id: "ou_1",
+        chat_id: "oc_actions",
+        message_id: "om_nobody",
+        action_tag: "button",
+        action_value: JSON.stringify({ runId: "run-ask", action: "stop" }),
+      }),
+      d,
+    );
+    expect(outcome).toBe("rejected");
+    expect(calls).toEqual([]);
+  });
+
+  test("a replayed event id is deduped before any backend call", async () => {
+    seedCard("run-dup", "om_dup");
+    const { calls, deps: d } = deps();
+    const line = callbackLine({
+      event_id: "ev-dup",
+      operator_id: "ou_1",
+      chat_id: "oc_actions",
+      message_id: "om_dup",
+      action_tag: "button",
+      action_value: JSON.stringify({ runId: "run-dup", action: "stop" }),
+    });
+    expect(await handleCardActionLine(line, d)).toBe("stopped");
+    expect(await handleCardActionLine(line, d)).toBe("duplicate");
+    expect(calls).toEqual(["cancel:run-dup"]);
   });
 });

@@ -1,5 +1,5 @@
 import { normalizeForLarkMarkdown } from "../markdown-normalizer.js";
-import type { RunCardState } from "./card-state.js";
+import type { PendingActionState, RunCardState } from "./card-state.js";
 
 /**
  * ADR 0031: render the card display state as Lark Card JSON 2.0.
@@ -98,7 +98,7 @@ export function renderProcessContent(state: RunCardState): string {
   if (state.terminal?.error) {
     lines.push(`⚠️ 失败：${state.terminal.error.slice(0, 200)}`);
   }
-  if (state.pendingAction && state.pendingAction.prompt) {
+  if (state.pendingAction?.prompt) {
     lines.push(`❓ ${state.pendingAction.prompt}`);
   }
   if (lines.length === 0) return "…";
@@ -115,7 +115,7 @@ export function renderStatusContent(state: RunCardState, meta: RunCardMeta): str
 
 function pendingActionButtons(
   runId: string,
-  action: import("./card-state.js").PendingActionState,
+  action: PendingActionState,
 ): Record<string, unknown>[] {
   const buttons: Record<string, unknown>[] = [];
   for (const opt of action.options.slice(0, 4)) {
@@ -191,25 +191,6 @@ function stopButton(runId: string): Record<string, unknown> {
     type: "danger",
     behaviors: [{ type: "callback", value: { runId, action: "stop" } }],
   };
-}
-
-function approvalButtons(runId: string, callId: string): Record<string, unknown>[] {
-  return [
-    {
-      tag: "button",
-      element_id: "approve_button",
-      text: { tag: "plain_text", content: "批准" },
-      type: "primary",
-      behaviors: [{ type: "callback", value: { runId, callId, action: "approve" } }],
-    },
-    {
-      tag: "button",
-      element_id: "reject_button",
-      text: { tag: "plain_text", content: "拒绝" },
-      type: "danger",
-      behaviors: [{ type: "callback", value: { runId, callId, action: "reject" } }],
-    },
-  ];
 }
 
 export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<string, unknown> {
