@@ -125,3 +125,59 @@ describe("the built-in DeepSeek catalog matches the provider's own list", () => 
     expect(resolveModelAlias("deepseek/deepseek-v4-flash")).toBe("deepseek/deepseek-flash");
   });
 });
+
+describe("the Z.AI provider is the GLM Coding Plan, not the PAYG API", () => {
+  const zai = BUILTIN_CATALOG.providers.zai;
+
+  test("rides the coding-plan base URL", () => {
+    // The general PAYG base (`/api/paas/v4`) is a different product: the
+    // plan's credentials are validated against the coding path, and using
+    // the PAYG one either bypasses plan quota or fails auth. oh-my-pi
+    // carries the same warning next to its zai descriptor.
+    expect(zai.baseUrl).toBe("https://api.z.ai/api/coding/paas/v4");
+    expect(zai.baseUrl).not.toContain("/api/paas/v4");
+    expect(zai.apiKeyEnv).toBe("ZAI_API_KEY");
+    expect(zai.api).toBe("openai-completions");
+  });
+
+  test("offers the ids the provider's own endpoint reports", () => {
+    // Captured from GET https://api.z.ai/api/paas/v4/models (the catalog
+    // list is the same set; it is the *base URL* that differs by product).
+    expect(zai.models.map((m) => m.id).sort()).toEqual(
+      [
+        "glm-4.5",
+        "glm-4.5-air",
+        "glm-4.6",
+        "glm-4.7",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-5.1",
+        "glm-5.2",
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
+      ].sort(),
+    );
+  });
+
+  test("every model carries priced metadata — none of it invented", () => {
+    // Values come from models.dev (which the reference implementation also
+    // uses); an entry with zero cost would silently distort the cost table.
+    for (const m of zai.models) {
+      expect(m.contextWindow).toBeGreaterThan(0);
+      expect(m.maxTokens).toBeGreaterThan(0);
+      expect(m.cost?.input).toBeGreaterThan(0);
+      expect(m.cost?.output).toBeGreaterThan(0);
+      expect(m.reasoning).toBe(true);
+    }
+  });
+
+  test("thinking is declared as the binary toggle the wire actually sends", () => {
+    // compat "zai" emits `thinking: {type: enabled|disabled}`; extra levels
+    // would be cosmetic, so only off/high are offered.
+    for (const m of zai.models) {
+      expect(m.thinking?.efforts).toEqual(["off", "high"]);
+      expect(m.compat).toMatchObject({ thinkingFormat: "zai" });
+    }
+  });
+});
