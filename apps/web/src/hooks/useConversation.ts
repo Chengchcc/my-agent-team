@@ -431,14 +431,17 @@ export function useConversation(
           const ev = JSON.parse((e as MessageEvent).data) as {
             toolName?: string;
             callId?: string;
+            activity?: string;
           };
           if (!ev.callId) return;
-          upsertToolState({
+          const call: LiveToolCall = {
             runId,
             callId: ev.callId,
             name: ev.toolName ?? "tool",
             state: "running",
-          });
+          };
+          if (ev.activity) call.activity = ev.activity;
+          upsertToolState(call);
         } catch {
           /* malformed - ignore */
         }

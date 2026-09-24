@@ -10,14 +10,15 @@ tags: [oma, mcp, runtime]
 
 ## 范围
 
-覆盖：工具名与类别、哪些工具只在独立 CLI 挂载、权限门三态的适用范围、MCP 挂载与门禁、context 文件注入、记忆的读写面、超时与预算旋钮。
+覆盖：工具名与类别、哪些工具只在独立 CLI 挂载、工具的活动描述如何跨进程、权限门三态的适用范围、MCP 挂载与门禁、context 文件注入、记忆的读写面、超时与预算旋钮。
 
 不覆盖：插件机制与信任（见 [Oma 插件与 HITL](../plugins/oma-plugins.md)）、compaction（见 [Compaction](./compaction.md)）、产品侧 MCP server 的配置（见 [Agent 工作区与多后端](../agents/workspace-and-backends.md)）、模型与凭证（见 [模型与 Provider](./models.md)）。
 
 ## 实现文件
 
 - `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — `buildNativeToolStage`（文件 / 目录 / 执行 / 网络工具、MCP 挂载、超时包装）、条件注入（ask / todo / learn / manage_skill / recall / retain）、最终过滤
-- `apps/oh-my-agent/src/core/tools/*` — 各原生工具的实现
+- `apps/oh-my-agent/src/core/tools/*` — 各原生工具的实现（含 `describeStart` 活动声明）
+- `apps/oh-my-agent/src/core/tools/presentation.ts` — `safeToolSummary` / `readStringField`：活动行唯一的清洗点
 - `apps/oh-my-agent/src/core/memory/*` — `learn`、`manage_skill`、`recall`、`retain` 与向量库
 - `apps/oh-my-agent/src/core/delegation/*`、`core/orchestrate/tool.ts`、`core/coordination/*` — `task`、`workflow_run`、`hub`、`yield`
 - `apps/oh-my-agent/src/core/runtime/tool-filter.ts` — `--tools` 语法
@@ -57,6 +58,26 @@ tags: [oma, mcp, runtime]
 `ask_question` 另有一条注入优先规则：产品会给 rpc Run 挂一个自己的 `ask_question`（走产品工具），那时原生工具不挂。独立 TUI 有问询面板；print / json 没有 handler，原生工具会 fail-closed 返回错误，不会假装问过。
 
 `browser` 在 read_only 不挂载：它会写截图到工作区，还会驱动真实的浏览器会话。`ls` 与 `tree` 是只读目录视图，read_only 也有。
+
+## 活动描述（工具自己声明）
+
+远程界面（Web 气泡、飞书卡片）能看到的不该是工具的原始参数，而是「它正在做什么」。这条链路是：
+
+```
+Tool.describeStart(input)          ← 工具自己挑有意义的字段
+→ agent-loop-run 算活动行
+→ safeToolSummary 单行化/去 ANSI/截断/脱敏
+→ tool_execution_start.activity
+→ mapping.ts 原样映射进 native_tool_started（input 不过界）
+→ Web / 飞书各自显示同一行
+```
+
+- **`Tool.describeStart?(input): string | undefined`**（`packages/message/src/tool.ts`）：语义词是「用户可见的活动」，不是「input 的缩略」。返回 undefined 表示这个工具说不出自己的活动，界面就只显示工具名——**界面不得从工具名反推摘要**。
+- **`input` 永不跨进程**：它可能带完整 bash 命令、绝对路径、MCP 参数、用户输入、token/URL/header、大文本引用。`tool_execution_start.input` 只服务 oma 内部的 transcript/TUI。
+- **`safeToolSummary`**（`core/tools/presentation.ts`）是唯一的格式化点：单行化、去 ANSI、截断 160 字、脱敏常见凭证形态（`gh[pousr]_`/`sk-`/`xox[baprs]-`、`Bearer …`、`api_key=…`、URL 里的 `user:pass@`、AWS key id）、拒绝控制字符、为空则回退。它刻意**不是**通用 input formatter：`read` 要路径、`bash` 要命令、`grep` 要模式，只有工具自己知道该展示什么。
+- **产品工具不走这条路**：`todo_write` 由 `backend.oma.todo_update` 呈现（计划条），`ask_question` 由 `backend.oma.ask_requested`（问题 + 选项按钮），审批由审批帧。它们的 MCP 调用在 wire 上仍是 `native_tool_started`，但两端渲染时按工具名把它们挡在通用过程步之外——否则就会出现「正在调用 todo_write」这行无信息量的降级。
+- **MCP 工具默认只给名字**：外部 MCP 工具不该默认展示参数（`正在调用：database query SELECT * FROM users`）。要展示得由该工具显式声明 `describeStart`。飞书侧对 `mcp__<server>__<tool>` 只做名字的可读化（`github · create_issue`），不声称任何参数。
+- **omp 后端没有这一层**：`adapter-omp-agent` 的事件只带 `toolName`/`toolCallId`，所以 omp Run 的活动行永远是工具名回退。
 
 ## 权限门三态
 

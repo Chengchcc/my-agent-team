@@ -208,6 +208,11 @@ export interface LiveToolCall {
   callId: string;
   name: string;
   state: "running" | "done" | "error";
+  /** User-visible activity line authored by the tool itself (oma
+   *  `Tool.describeStart`, sanitized in the child). Absent for tools that
+   *  cannot describe themselves (MCP, product tools) — the UI then shows the
+   *  tool name alone, and never synthesizes a summary from it. */
+  activity?: string;
   result?: unknown;
 }
 

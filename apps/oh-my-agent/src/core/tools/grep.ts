@@ -1,4 +1,5 @@
 import type { Tool } from "@chengchenccc/message";
+import { readStringField } from "./presentation.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 const descriptionParam = {
@@ -12,6 +13,13 @@ export function createGrepTool(opts: { workspaceRoot: string }): Tool {
 
   return {
     name: "grep",
+    // The pattern is what the user asked for; a peer sees "searching X in Y".
+    describeStart: (input) => {
+      const pattern = readStringField(input, "pattern");
+      if (!pattern) return "正在搜索代码";
+      const path = readStringField(input, "path");
+      return path ? `正在搜索：${pattern}（${path}）` : `正在搜索：${pattern}`;
+    },
     description:
       "Search files using ripgrep. Returns matching lines with line numbers. Requires `rg`.",
     inputSchema: {

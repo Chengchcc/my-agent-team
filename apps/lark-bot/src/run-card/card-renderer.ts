@@ -86,7 +86,7 @@ export function renderProcessContent(state: RunCardState): string {
     lines.push("");
   }
   if (state.activeTool && !state.terminal) {
-    lines.push(`🧪 正在：${state.activeTool.label}`);
+    lines.push(`🧪 ${state.activeTool.label}`);
   }
   const cap = state.terminal ? TERMINAL_STEPS : LIVE_STEPS;
   const recent = state.completedTools.slice(-cap);

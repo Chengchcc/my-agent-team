@@ -37,6 +37,13 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
     case "tool_execution_start": {
       const toolName = String(event.data.toolName ?? "unknown");
       const callId = String(event.data.callId ?? `call-${event.id}`);
+      const activity = event.data.activity;
+      // `input` deliberately does NOT cross this boundary: it can hold full
+      // commands, absolute paths, MCP args, tokens. Only the tool-authored,
+      // sanitized activity line travels.
+      if (typeof activity === "string" && activity.length > 0) {
+        return { type: "native_tool_started", toolName, callId, activity };
+      }
       return { type: "native_tool_started", toolName, callId };
     }
     case "tool_execution_end": {

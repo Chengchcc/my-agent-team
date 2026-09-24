@@ -2,6 +2,7 @@ import type { Usage } from "@chengchenccc/agent-contract";
 import { debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type { SessionStore } from "../store/session-store.js";
+import { safeToolSummary } from "../tools/presentation.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import type {
   ModelTurn,
@@ -177,13 +178,21 @@ export async function executeTools(
   ): Promise<{ id: string; result: unknown; isError: boolean; terminate: boolean }> {
     const tool = toolMap.get(call.name);
     debugLog("oma", `tool_start runId=${state.debugRunId} name=${call.name} callId=${call.id}`);
-    await emit({
+    const startEvent: OmaLoopEvent = {
       type: "tool_execution_start",
       toolName: call.name,
-      callId: call.id,
+      // Stays inside oma (transcript/TUI); never crosses the RPC boundary.
       input: call.input,
-      ...(tool?.timeoutMs !== undefined ? { timeoutMs: tool.timeoutMs } : {}),
-    });
+      callId: call.id,
+    };
+    // The activity line is what leaves the process: the tool picks what is
+    // meaningful about its input, safeToolSummary makes it safe to display.
+    const described = tool?.describeStart?.(call.input);
+    if (described !== undefined) {
+      startEvent.activity = safeToolSummary(described, `正在调用 ${call.name}`);
+    }
+    if (tool?.timeoutMs !== undefined) startEvent.timeoutMs = tool.timeoutMs;
+    await emit(startEvent);
     let result: unknown;
     let isError = false;
     let terminate = false;

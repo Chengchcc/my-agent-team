@@ -4,6 +4,7 @@ import { type CoordinationRegistry, defaultRegistry } from "../coordination/regi
 import { ptyWrap, withPtyEnv } from "./bash-pty.js";
 import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";
+import { readStringField } from "./presentation.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 let nextJobSeq = 1;
@@ -184,6 +185,13 @@ export function createBashTool(opts: {
 
   return {
     name: "bash",
+    // The command's first line is the most useful thing a remote surface can
+    // show; safeToolSummary flattens it to one line, redacts credentials and
+    // truncates, so this never leaks a key or a multi-line script.
+    describeStart: (input) => {
+      const command = readStringField(input, "command");
+      return command ? `正在执行：${command}` : "正在执行命令";
+    },
     description:
       "Execute a bash shell command. Returns exit code, stdout, and stderr. Default timeout 30s, max 600s. " +
       "Supports background execution (async): returns a job id immediately; collect with the hub tool " +

@@ -74,3 +74,39 @@ describe("delegation event mapping", () => {
     });
   });
 });
+
+describe("tool activity crosses the RPC boundary, raw input does not", () => {
+  test("tool_execution_start maps activity through and drops input", () => {
+    const mapped = mapRunEvent({
+      id: 7,
+      type: "tool_execution_start",
+      data: {
+        toolName: "bash",
+        callId: "call-1",
+        input: { command: "curl -H 'Authorization: Bearer secret-token-123456'" },
+        activity: "正在执行：curl -H 'Authorization: [已隐藏]'",
+      },
+    });
+    expect(mapped).toEqual({
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "call-1",
+      activity: "正在执行：curl -H 'Authorization: [已隐藏]'",
+    });
+    expect(JSON.stringify(mapped)).not.toContain("secret-token");
+  });
+
+  test("a tool without describeStart maps no activity (surface falls back)", () => {
+    expect(
+      mapRunEvent({
+        id: 8,
+        type: "tool_execution_start",
+        data: { toolName: "mcp__github__create_issue", callId: "call-2" },
+      }),
+    ).toEqual({
+      type: "native_tool_started",
+      toolName: "mcp__github__create_issue",
+      callId: "call-2",
+    });
+  });
+});

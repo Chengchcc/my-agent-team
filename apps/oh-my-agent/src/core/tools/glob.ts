@@ -1,4 +1,5 @@
 import type { Tool } from "@chengchenccc/message";
+import { readStringField } from "./presentation.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 const descriptionParam = {
@@ -12,6 +13,10 @@ export function createGlobTool(opts: { workspaceRoot: string }): Tool {
 
   return {
     name: "glob",
+    describeStart: (input) => {
+      const pattern = readStringField(input, "pattern");
+      return pattern ? `正在查找：${pattern}` : "正在查找文件";
+    },
     description:
       "Find files matching a glob pattern. Returns newline-separated paths. Results are capped at 500.",
     inputSchema: {

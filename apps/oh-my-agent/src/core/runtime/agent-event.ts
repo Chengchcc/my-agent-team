@@ -15,8 +15,15 @@ export type OmaLoopEvent =
       toolName: string;
       kind?: "native" | "product";
       callId: string;
-      /** The tool's resolved input (model call args), for transcript display. */
+      /** The tool's resolved input (model call args), for transcript display.
+       *  oma-internal: this NEVER crosses the RPC boundary — surfaces get
+       *  `activity` instead. */
       input?: Readonly<Record<string, unknown>>;
+      /** User-visible one-line description of what the call is doing,
+       *  produced by the tool's describeStart and sanitized by
+       *  safeToolSummary. Absent means "the tool cannot describe itself" —
+       *  surfaces then fall back to the tool name. */
+      activity?: string;
       /** Wall-clock timeout for this tool (ms, 0 = disabled). */
       timeoutMs?: number;
     }

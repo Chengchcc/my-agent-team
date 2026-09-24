@@ -21,7 +21,16 @@ export type CoreBackendEvent =
       readonly callId: string;
       readonly result?: Readonly<Record<string, unknown>>;
     }
-  | { readonly type: "native_tool_started"; readonly toolName: string; readonly callId: string }
+  | {
+      readonly type: "native_tool_started";
+      readonly toolName: string;
+      readonly callId: string;
+      /** Pre-sanitized, short, user-visible description of the activity
+       *  ("正在执行：bun test apps/…"). Never raw tool args. Absent when the
+       *  tool cannot describe itself (MCP tools, product tools) — surfaces
+       *  then display the tool name alone. */
+      readonly activity?: string;
+    }
   | {
       readonly type: "native_tool_completed";
       readonly toolName: string;

@@ -1,6 +1,7 @@
 import type { Tool } from "@chengchenccc/message";
 import { runInSandbox } from "@chengchenccc/sandbox";
 import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
+import { readStringField } from "./presentation.js";
 
 const descriptionParam = {
   type: "string" as const,
@@ -34,6 +35,12 @@ export function createEvalTool(opts: {
 
   return {
     name: "eval",
+    // Same exposure profile as bash: the code is the activity. The helper
+    // flattens multi-line scripts and redacts credentials.
+    describeStart: (input) => {
+      const code = readStringField(input, "code");
+      return code ? `正在运行脚本：${code}` : "正在运行脚本";
+    },
     description:
       "Evaluate a TypeScript/JavaScript snippet in an isolated sandbox process. The code must `export default async (ctx) => result` — ctx is the provided input object and result must be JSON-serializable. Use for computations, data shaping, and quick experiments instead of bash one-liners. " +
       "Supports background execution (async); collect with the hub tool (output/wait).",

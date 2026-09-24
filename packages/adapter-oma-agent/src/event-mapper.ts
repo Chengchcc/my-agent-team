@@ -37,6 +37,12 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
     case "tool_execution_start": {
       const toolName = String(event.data.toolName ?? "unknown");
       const callId = String(event.data.callId ?? `call-${event.id}`);
+      // Pass the child's activity through verbatim: oma owns both the
+      // description and its sanitization, the adapter must not re-format.
+      const activity = event.data.activity;
+      if (typeof activity === "string" && activity.length > 0) {
+        return { type: "native_tool_started", toolName, callId, activity };
+      }
       return { type: "native_tool_started", toolName, callId };
     }
     case "tool_execution_end": {

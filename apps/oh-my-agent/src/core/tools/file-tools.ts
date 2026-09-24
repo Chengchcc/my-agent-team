@@ -15,6 +15,7 @@ import {
   MISSING_FINGERPRINT_HINT,
   STALE_FINGERPRINT_HINT,
 } from "./file-fingerprint.js";
+import { readStringField } from "./presentation.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 type InputRec = Record<string, unknown>;
@@ -178,6 +179,10 @@ export function createReadTool(opts: { cwd: string; freshness?: FileFreshness })
   const freshness = opts.freshness ?? "off";
   return {
     name: "read",
+    describeStart: (input) =>
+      readStringField(input, "path")
+        ? `正在读取：${readStringField(input, "path")}`
+        : "正在读取文件",
     description:
       "Read a file from the workspace. Returns file contents with line numbers (line\\tcontent). " +
       "For images, returns a placeholder with file size. Output capped at 256KB; use offset/limit for large files." +
@@ -267,6 +272,10 @@ export function createWriteTool(opts: {
   const freshness = opts.freshness ?? "off";
   return {
     name: "write",
+    describeStart: (input) =>
+      readStringField(input, "path")
+        ? `正在写入：${readStringField(input, "path")}`
+        : "正在写入文件",
     description:
       "Write content to a file in the workspace. Creates parent directories if needed. Overwrites if file exists." +
       (freshness === "require"
@@ -334,6 +343,10 @@ export function createEditTool(opts: {
   const freshness = opts.freshness ?? "off";
   return {
     name: "edit",
+    describeStart: (input) =>
+      readStringField(input, "path")
+        ? `正在修改：${readStringField(input, "path")}`
+        : "正在修改文件",
     description:
       "Perform exact string replacement in a file. old_string must match exactly and be unique " +
       "unless replace_all is set. Use for surgical edits; prefer write for full replacement." +

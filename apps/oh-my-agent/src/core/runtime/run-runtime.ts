@@ -306,13 +306,22 @@ async function nextBounded<T>(
 /** Adapt a tools-common `Tool` (sync-or-async, `{content}` result) to the
  *  runtime's PluginTool (always-async record result). Pure structural
  *  variance — the await normalizes the sync voice, the spread preserves the
- *  result object. Single adaptation point for every native tool. */
-function toPluginTool(t: Tool): PluginTool {
+ *  result object. Single adaptation point for every native tool.
+ *
+ *  Fields are assigned unconditionally: PluginTool's optionals are not
+ *  `exactOptionalPropertyTypes`-strict, and an undefined key is dropped by
+ *  JSON.stringify on the way to the model.
+ *
+ *  Exported so a test pins the adaptation: an optional field silently dropped
+ *  here (describeStart, executionMode) disables a feature with every
+ *  typecheck still green. */
+export function toPluginTool(t: Tool): PluginTool {
   return {
     name: t.name,
     description: t.description,
-    ...(t.inputSchema ? { inputSchema: t.inputSchema } : {}),
-    ...(t.executionMode ? { executionMode: t.executionMode } : {}),
+    inputSchema: t.inputSchema,
+    executionMode: t.executionMode,
+    describeStart: t.describeStart,
     async execute(args, signal, options) {
       const result = await t.execute(args, signal, options);
       return { ...result };

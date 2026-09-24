@@ -11,6 +11,12 @@ export interface PluginTool {
   /** "serial" (default) = must run alone; "concurrent" = read-only, safe to
    *  run in parallel with other concurrent tools in the same turn. */
   readonly executionMode?: "serial" | "concurrent";
+  /** What this call is DOING, in one short user-visible line. Native tools
+   *  declare it on the `@chengchenccc/message` Tool contract (see
+   *  `Tool.describeStart`); the loop reads it off the runtime's PluginTool
+   *  shape, so it is declared here too. The string crosses the process
+   *  boundary to every surface — never return raw args. */
+  describeStart?(input: unknown): string | undefined;
   /** Wall-clock timeout for this tool in ms (0 = disabled). Shown in the
    *  TUI tool card and surfaced on tool_execution_start for live display. */
   readonly timeoutMs?: number;

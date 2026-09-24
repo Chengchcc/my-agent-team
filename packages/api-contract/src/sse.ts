@@ -88,6 +88,10 @@ export const runEvents = {
     type: z.literal("native_tool_started"),
     toolName: z.string().optional(),
     callId: z.string().optional(),
+    /** User-visible activity line, authored by the tool and sanitized in the
+     *  child (see Tool.describeStart). Absent means the surface falls back to
+     *  the tool name — surfaces must NOT synthesize one from toolName. */
+    activity: z.string().optional(),
   }),
   native_tool_completed: z.object({
     type: z.literal("native_tool_completed"),

@@ -74,6 +74,8 @@ ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并
 
 oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：backend 注入、执行、鉴权后以标准 Run SSE 事件下发，卡片只是投影的一环。`backend.oma.todo_update` 的计划条渲染进过程区（最近 5 条，`done` ✓ / `in_progress` ● / `cancelled` ✗ / `pending` ○）；`backend.oma.ask_requested` 把第一题解析成 `pendingAction`（题面 + 选项 + 是否允许自由输入），活卡据此把「停止」换成选项按钮。**todo 状态词表属于生产方（oma todo 插件：`pending | in_progress | done | cancelled`），卡片不得自造词表**——两端的形状定义收敛在 `packages/api-contract/src/sse.ts` 的 `OmaTodoItem`（Web reducer 同样复用），`done` 曾被卡片侧误写成 `completed` 而整条丢失。
 
+工具步骤那行显示的是**子进程自己声明的活动**（`native_tool_started.activity`，由 oma 的 `Tool.describeStart` 产出并清洗过，见 [Oma Tools](../runtime/oma-tools.md#活动描述工具自己声明)），不是卡片从工具名猜出来的摘要——早先那版把 `bash` 映射成「执行命令」、`read` 映射成「读取文件」，那是在声称自己知道工具在做什么。没有 `activity` 时只显示 `正在调用 <名字>`（MCP 名字读作 `server · tool`）。有专用事件的产品工具（`todo_write`、`ask_question`）不进过程条，避免「正在调用 todo_write」这种降级行。
+
 - **传输分层（决策 9）**：正文逐字 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画；正文/过程条/状态行三个元素各自只推变化）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，也是按钮集变化的唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
 - **节流与节拍**：150ms/120 字符合并、单飞 flush（互斥 + 补刷 + 只推变化元素）；另有一个 1 秒状态节拍器，保证「耗时 N 秒」在模型思考/工具运行期间也每秒跳动（内容没变就不发请求）。
 - **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等落库；封版替换失败降级为发送最终纯文本（`larkIdempotencyKey` 哈希键）并把卡标 `fallback_text`。
@@ -122,7 +124,8 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 - 卡片交互只差 reaction 触发（`im.message.reaction.created_v1`，lark-cli 的 event 目录没有）。按钮回调（`card.action.trigger`）已实现，见 ADR 0031 决策 6 的 2026-09-24 修订。
 - 追问的自由输入只有「其他…」按钮占位：Card JSON 2.0 的 `input`/`form` 未接，需要自由文本回答时得到 Web 端。多选（`multi`）也只按单选取值。
 - 回调只做了单操作者的防重放（event_id 去重 + message↔run_card 映射）。签名 action token 与 backend 侧事件去重留给多操作者场景。
-- 工具摘要不含参数：`native_tool_started` 线上只带 `toolName`/`callId`（`apps/oh-my-agent/src/protocol/mapping.ts`），所以卡片只能显示「执行命令」，说不出执行的是哪条命令。
+- 工具步骤那行依赖子进程声明活动（`describeStart`）：omp 后端至今不给（`adapter-omp-agent` 只带 `toolName`/`toolCallId`），所以 omp Run 永远只显示工具名；外部 MCP 工具同理，除非它自己声明。
+- `native_tool_started.activity` 会随 telemetry 落进 `agent_run_event`（按事件名白名单），也就是活动行进库；目前没有保留期清理。
 
 ## 相关页
 

@@ -78,19 +78,23 @@ const TERMINAL_RUN_STATUSES: Record<string, "completed" | "failed" | "cancelled"
   commit_failed: "failed",
 };
 
-export function summarizeTool(name: string | undefined): string {
-  const LABELS: Record<string, string> = {
-    read: "读取文件",
-    write: "写入文件",
-    edit: "修改文件",
-    bash: "执行命令",
-    grep: "搜索代码",
-    glob: "查找文件",
-    web: "访问网页",
-    eval: "运行脚本",
-  };
-  const key = (name ?? "").split("/").pop() ?? "";
-  return LABELS[key] ?? `调用 ${key || "工具"}`;
+/** Tools the card renders from a DEDICATED event: todo_write drives the plan
+ *  strip (todo_update), ask_question drives the question frame
+ *  (ask_requested). Showing them as a generic "正在调用 todo_write" step would
+ *  be a downgrade, so they never enter the process strip. */
+const DEDICATED_EVENT_TOOLS = new Set(["todo_write", "ask_question"]);
+
+/** The line shown for a tool call. The child sends an activity string it
+ *  authored and sanitized (oma `Tool.describeStart`); when a tool cannot
+ *  describe itself, the tool name is the only honest thing left — the card
+ *  must never synthesize a summary from the name (that is how a surface
+ *  starts claiming it knows what a tool is doing). */
+export function toolActivity(activity: string | undefined, name: string | undefined): string {
+  if (activity) return activity;
+  const raw = name ?? "";
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(raw);
+  if (mcp) return `正在调用 ${mcp[1]} · ${mcp[2]}`;
+  return `正在调用 ${raw || "工具"}`;
 }
 
 export interface RunStreamEvent {
@@ -100,6 +104,7 @@ export interface RunStreamEvent {
   text?: string;
   toolName?: string;
   callId?: string;
+  activity?: string;
   result?: unknown;
   payload?:
     | {
@@ -191,19 +196,24 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
         : next;
     }
     case "native_tool_started": {
+      if (DEDICATED_EVENT_TOOLS.has(ev.toolName ?? "")) return state;
       return {
         ...state,
         phase: "tool_running",
         waiting: null,
         pendingAction: null,
-        activeTool: { label: summarizeTool(ev.toolName), startedAt: Date.now() },
+        activeTool: {
+          label: toolActivity(ev.activity, ev.toolName),
+          startedAt: Date.now(),
+        },
       };
     }
     case "native_tool_completed": {
+      if (DEDICATED_EVENT_TOOLS.has(ev.toolName ?? "")) return state;
       const completed = [
         ...state.completedTools,
         {
-          label: summarizeTool(ev.toolName),
+          label: toolActivity(ev.activity, ev.toolName),
           outcome: isErrorResult(ev.result) ? ("error" as const) : ("success" as const),
         },
       ].slice(-MAX_COMPLETED_TOOLS);

@@ -37,7 +37,7 @@ stdout 上是三类帧：`{id, type:"event", runId, event}`、`{type:"outcome", 
 |---|---|
 | `message_update` | `text_delta` |
 | `thinking_update` | `thinking_delta` |
-| `tool_execution_start` / `_end` | `native_tool_started` / `native_tool_completed`（**不看 `kind`**，产品工具的 MCP 调用也走这里） |
+| `tool_execution_start` / `_end` | `native_tool_started` / `native_tool_completed`（**不看 `kind`**，产品工具的 MCP 调用也走这里）。`_start` 只把工具自述的 `activity` 带过界，**原始 `input` 不过界**（见 [Oma Tools](../runtime/oma-tools.md#活动描述工具自己声明)） |
 | `agent_start` / `turn_start` / `turn_end` | `status` |
 | `agent_end` | `status: completed \| failed \| aborted` |
 | `delegation_*` | 对应的核心委派事件 |

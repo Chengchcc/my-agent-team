@@ -275,3 +275,75 @@ describe("agent loop harness events/plugins", () => {
     expect(loop.status).toBe("completed");
   });
 });
+
+test("19. tool activity is emitted sanitized, never the raw declaration", async () => {
+  const store = storeFactory("h19");
+  await createSession(store, "h19");
+  const SENTINEL = "sk-sentinel-abcdefghijkl";
+  const events: Array<{ type?: string; activity?: string; input?: unknown }> = [];
+  const loop = createOmaSession({
+    sessionId: "h19",
+    store,
+    plugins: [
+      {
+        name: "native",
+        tools: [
+          {
+            name: "bash",
+            description: "run a command",
+            inputSchema: { type: "object", properties: {} },
+            // The tool hands over its raw intent; the loop owns the cleaning.
+            describeStart: () => `正在执行：curl -H 'Authorization: Bearer ${SENTINEL}'`,
+            execute: async () => ({ content: "ok" }),
+          },
+        ],
+      },
+    ],
+    maxSteps: 3,
+    maxForceContinues: 0,
+    summarize: fakeSummarize,
+    modelStream: async function* () {
+      yield { delta: { type: "tool_use", id: "tc-1", name: "bash" } };
+      yield { stopReason: "tool_use" };
+    },
+  });
+  loop.onEvent((e) => {
+    events.push(e as { type?: string; activity?: string; input?: unknown });
+  });
+  await loop.startLoop(loopInput({ message: "go" }));
+
+  const start = events.find((e) => e.type === "tool_execution_start");
+  expect(start).toBeDefined();
+  // The scheme stays visible; only the credential is replaced.
+  expect(start?.activity).toBe("正在执行：curl -H 'Authorization: Bearer [已隐藏]'");
+  expect(JSON.stringify(events)).not.toContain(SENTINEL);
+  // The event still carries the internal input (TUI/transcript) — that is
+  // the field the RPC mapping deliberately drops.
+  expect(start?.input).toBeDefined();
+});
+
+test("20. a tool without a declaration emits no activity (surface falls back)", async () => {
+  const store = storeFactory("h20");
+  await createSession(store, "h20");
+  const events: Array<{ type?: string; activity?: string }> = [];
+  const loop = createOmaSession({
+    sessionId: "h20",
+    store,
+    plugins: [{ name: "native", tools: [staticTool("mcp__github__create_issue")] }],
+    maxSteps: 3,
+    maxForceContinues: 0,
+    summarize: fakeSummarize,
+    modelStream: async function* () {
+      yield { delta: { type: "tool_use", id: "tc-1", name: "mcp__github__create_issue" } };
+      yield { stopReason: "tool_use" };
+    },
+  });
+  loop.onEvent((e) => {
+    events.push(e as { type?: string; activity?: string });
+  });
+  await loop.startLoop(loopInput({ message: "go" }));
+
+  const start = events.find((e) => e.type === "tool_execution_start");
+  expect(start).toBeDefined();
+  expect(start?.activity).toBeUndefined();
+});

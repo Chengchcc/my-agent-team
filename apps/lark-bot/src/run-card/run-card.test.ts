@@ -13,7 +13,7 @@ import {
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
 import { renderRunCard } from "./card-renderer.js";
-import { applyRunEvent, initialRunCardState } from "./card-state.js";
+import { applyRunEvent, initialRunCardState, toolActivity } from "./card-state.js";
 import { finalAnswerText } from "./run-card-watcher.js";
 
 const testDir = `/tmp/test-lark-run-card-${Date.now()}`;
@@ -85,18 +85,21 @@ describe("applyRunEvent reducer", () => {
 
   test("tool events: active label, archived steps with outcomes", () => {
     let s = initialRunCardState();
+    // These fixtures carry no activity (the wire field is optional), so the
+    // label degrades to the tool name — the card used to map names onto
+    // invented Chinese labels, which claimed knowledge it did not have.
     s = applyRunEvent(s, { type: "native_tool_started", toolName: "bash" });
-    expect(s.activeTool?.label).toBe("执行命令");
+    expect(s.activeTool?.label).toBe("正在调用 bash");
     expect(s.phase).toBe("tool_running");
     s = applyRunEvent(s, { type: "native_tool_completed", toolName: "bash", result: {} });
     expect(s.activeTool).toBeNull();
-    expect(s.completedTools).toEqual([{ label: "执行命令", outcome: "success" }]);
+    expect(s.completedTools).toEqual([{ label: "正在调用 bash", outcome: "success" }]);
     const failed = applyRunEvent(s, {
       type: "native_tool_completed",
       toolName: "bash",
       result: { isError: true },
     });
-    expect(failed.completedTools[1]).toEqual({ label: "执行命令", outcome: "error" });
+    expect(failed.completedTools[1]).toEqual({ label: "正在调用 bash", outcome: "error" });
   });
 
   test("thinking sets a phase word only; never stores text", () => {
@@ -201,8 +204,8 @@ describe("renderRunCard", () => {
       ...initialRunCardState(),
       phase: "tool_running" as const,
       output: "working",
-      activeTool: { label: "执行命令", startedAt: Date.now() },
-      completedTools: [{ label: "读取文件", outcome: "success" as const }],
+      activeTool: { label: "正在执行：bun test apps/backend", startedAt: Date.now() },
+      completedTools: [{ label: "正在读取：src/main.ts", outcome: "success" as const }],
     };
     const card = renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null });
     const config = card.config as Record<string, unknown>;
@@ -210,8 +213,10 @@ describe("renderRunCard", () => {
     expect(config.streaming_mode).toBe(true);
     const json = JSON.stringify(card);
     expect(json).toContain("stop_button");
-    expect(json).toContain("正在：执行命令");
-    expect(json).toContain("✓ 读取文件");
+    // The strip prints the activity line verbatim (the child already
+    // prefixed it), so there is no "正在：" + "正在执行：" double prefix.
+    expect(json).toContain("🧪 正在执行：bun test apps/backend");
+    expect(json).toContain("✓ 正在读取：src/main.ts");
     expect(json).not.toContain("在 Web 查看");
   });
 
@@ -491,5 +496,68 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
     expect(await handleCardActionLine(line, d)).toBe("stopped");
     expect(await handleCardActionLine(line, d)).toBe("duplicate");
     expect(calls).toEqual(["cancel:run-dup"]);
+  });
+});
+
+describe("tool activity (surfaces display, never invent)", () => {
+  test("toolActivity prefers the child's line and never invents one", () => {
+    expect(toolActivity("正在执行：bun test apps/backend", "bash")).toBe(
+      "正在执行：bun test apps/backend",
+    );
+    // No activity → the tool name is the only honest thing left.
+    expect(toolActivity(undefined, "bash")).toBe("正在调用 bash");
+    expect(toolActivity(undefined, undefined)).toBe("正在调用 工具");
+    // MCP names are readable, but nothing about their args is claimed.
+    expect(toolActivity(undefined, "mcp__github__create_issue")).toBe(
+      "正在调用 github · create_issue",
+    );
+  });
+
+  test("the process strip shows the activity line for a native tool", () => {
+    const state = applyRunEvent(initialRunCardState(), {
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "c1",
+      activity: "正在执行：bun test apps/backend",
+    });
+    expect(state.activeTool?.label).toBe("正在执行：bun test apps/backend");
+    const content = JSON.stringify(
+      renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null }),
+    );
+    expect(content).toContain("正在执行：bun test apps/backend");
+  });
+
+  test("a tool without activity degrades to its name, not a guessed summary", () => {
+    const state = applyRunEvent(initialRunCardState(), {
+      type: "native_tool_started",
+      toolName: "mcp__database__query",
+      callId: "c2",
+    });
+    expect(state.activeTool?.label).toBe("正在调用 database · query");
+    expect(JSON.stringify(state)).not.toContain("SELECT");
+  });
+
+  test("product tools never enter the process strip — dedicated events own them", () => {
+    const started = applyRunEvent(initialRunCardState(), {
+      type: "native_tool_started",
+      toolName: "todo_write",
+      callId: "c3",
+    });
+    expect(started.activeTool).toBeNull();
+    const completed = applyRunEvent(started, {
+      type: "native_tool_completed",
+      toolName: "todo_write",
+      callId: "c3",
+      result: { items: [] },
+    });
+    expect(completed.completedTools).toEqual([]);
+    // ask_question is answered by the question frame instead.
+    expect(
+      applyRunEvent(initialRunCardState(), {
+        type: "native_tool_started",
+        toolName: "ask_question",
+        callId: "c4",
+      }).activeTool,
+    ).toBeNull();
   });
 });
