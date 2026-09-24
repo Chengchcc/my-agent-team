@@ -10,12 +10,13 @@ import {
   putMemberBinding,
   rememberTopicKeys,
   reserveInbound,
+  setTopicRoot,
 } from "./bindings-sqlite.js";
 import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned, isMentionAll } from "./event-parser.js";
 import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
-import { topicKeysToRemember, topicLookupKeys } from "./topic-routing.js";
+import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
 
 export interface IngestContext {
   db: Database;
@@ -176,6 +177,13 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       // Learn the keys this message carries but we did not know (the thread id
       // of a p2p chain appears only on the SECOND reply).
       rememberTopicKeys(db, event.chat_id, cid, rememberKeys, Date.now());
+      // A message carrying topic context names the topic's root (`root_id`),
+      // or IS it (a topic-chat top-level message). Recording it here is what
+      // lets a LATER answer reply into the same topic; the first writer wins,
+      // so a conversation that already has a root keeps it.
+      if (lookupKeys.length > 0) {
+        setTopicRoot(db, cid, topicRootMessageId(event));
+      }
       conversationId = cid;
       return { ok: true as const, needCreateConv: false as const, conversationId: cid };
     }
@@ -216,6 +224,10 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         larkChatId: event.chat_id,
         chatType: event.chat_type,
         chatMode: null,
+        // Only a message that already carries topic context roots the topic.
+        // A p2p top-level message does NOT: there the root is the first thing
+        // WE send (the card), which is what the user's reply then hangs off.
+        topicRootMessageId: lookupKeys.length > 0 ? topicRootMessageId(event) : null,
         createdAt: Date.now(),
         pushedSeq: 0,
       });

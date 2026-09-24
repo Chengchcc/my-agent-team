@@ -1,0 +1,1 @@
+ALTER TABLE `conversation_binding` ADD `topic_root_message_id` text;

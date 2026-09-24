@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import path, { join } from "node:path";
-import { and, eq, notInArray, or } from "drizzle-orm";
+import { and, eq, isNull, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "./db/schema.js";
@@ -17,6 +17,10 @@ export interface ConversationBinding {
   /** Lark `chat_mode` ("group" | "topic"); null until looked up. A topic chat
    *  needs `reply_in_thread` when we answer, a normal one rejects it. */
   chatMode: string | null;
+  /** The message rooting this conversation's topic; every answer replies to
+   *  it. Null until known: a p2p conversation gets one only once we have sent
+   *  something (see `topicRootMessageId` in the schema). */
+  topicRootMessageId: string | null;
   createdAt: number;
   pushedSeq: number;
 }
@@ -69,6 +73,7 @@ function toConversationBinding(
     larkChatId: row.larkChatId,
     chatType: row.chatType,
     chatMode: row.chatMode,
+    topicRootMessageId: row.topicRootMessageId,
     createdAt: row.createdAt,
     pushedSeq: row.pushedSeq,
   };
@@ -100,10 +105,28 @@ export function putConversationBinding(db: Database, binding: ConversationBindin
       larkChatId: binding.larkChatId,
       chatType: binding.chatType,
       chatMode: binding.chatMode,
+      topicRootMessageId: binding.topicRootMessageId,
       pushedSeq: binding.pushedSeq,
       createdAt: binding.createdAt,
     })
     .onConflictDoNothing()
+    .run();
+}
+
+/** Record the message that roots this conversation's topic, once. A
+ *  conversation that already has a root keeps it: the first answer created it,
+ *  and later answers must reply to that same message rather than to
+ *  themselves. */
+export function setTopicRoot(db: Database, conversationId: string, messageId: string): void {
+  d(db)
+    .update(schema.conversationBinding)
+    .set({ topicRootMessageId: messageId })
+    .where(
+      and(
+        eq(schema.conversationBinding.conversationId, conversationId),
+        isNull(schema.conversationBinding.topicRootMessageId),
+      ),
+    )
     .run();
 }
 

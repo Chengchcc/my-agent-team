@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { reserveInbound } from "./bindings-sqlite.js";
+import { rememberTopicKeys, reserveInbound, setTopicRoot } from "./bindings-sqlite.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { ingest } from "./ingest.js";
 
@@ -15,8 +15,8 @@ function makeDb(): Database {
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_binding (
       conversation_id TEXT PRIMARY KEY, lark_chat_id TEXT NOT NULL,
-      chat_type TEXT NOT NULL, chat_mode TEXT, created_at INTEGER NOT NULL,
-      pushed_seq INTEGER NOT NULL DEFAULT 0
+      chat_type TEXT NOT NULL, chat_mode TEXT, topic_root_message_id TEXT,
+      created_at INTEGER NOT NULL, pushed_seq INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS topic_binding (
       lark_chat_id TEXT NOT NULL, topic_key TEXT NOT NULL,
@@ -145,6 +145,162 @@ describe("ingest", () => {
 
     expect(result.action).toBe("skipped");
     expect(result.triggered).toBe(false);
+
+    db.close();
+  });
+
+  test("p2p top-level message opens a conversation with NO topic root yet", async () => {
+    // In a chat with no topic mode the topic is created by OUR first message:
+    // the card becomes the root, and the user's reply to that card continues
+    // the conversation. So the root must stay unset here — if we rooted the
+    // conversation on the user's message, their reply would look like a new
+    // question and the card would be buried inside a chain rooted on them.
+    const db = makeDb();
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_p2p_root" } },
+      { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
+    ]);
+
+    const result = await ingest(baseEvent, {
+      db,
+      selfAgentId: "agent_123",
+      selfAgentName: "TestBot",
+      botDisplayName: "TestBot",
+      backendUrl: "http://localhost",
+      profile: "test-profile",
+    });
+
+    const binding = db
+      .query("SELECT topic_root_message_id FROM conversation_binding WHERE conversation_id = ?")
+      .get(result.conversationId!) as { topic_root_message_id: string | null };
+    expect(binding.topic_root_message_id).toBeNull();
+    // ...while the message itself IS remembered, so a reply hung off it (the
+    // chain root it names) also resolves here.
+    const key = db
+      .query("SELECT conversation_id FROM topic_binding WHERE topic_key = ?")
+      .get("om_001") as { conversation_id: string } | null;
+    expect(key?.conversation_id).toBe(result.conversationId);
+
+    db.close();
+  });
+
+  test("replying to our card continues the same conversation (p2p continuity)", async () => {
+    const db = makeDb();
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_p2p" } },
+      { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
+      // Second message: only one conversation must exist, so no second create
+      // is mocked — a mock fetch exhaustion would fail the test loudly.
+      AGENT_CONFIG,
+      { body: { seq: 2, triggeredRuns: [{ agentId: "agent_123", runId: "run-2" }] } },
+    ]);
+
+    const first = await ingest(baseEvent, {
+      db,
+      selfAgentId: "agent_123",
+      selfAgentName: "TestBot",
+      botDisplayName: "TestBot",
+      backendUrl: "http://localhost",
+      profile: "test-profile",
+    });
+    expect(first.conversationId).toBe("conv_p2p");
+
+    // What the card watcher does right after a successful TOP-LEVEL send: the
+    // card becomes the conversation's topic root, and its message id becomes a
+    // topic key (so a reply that names it as `root_id` resolves here).
+    setTopicRoot(db, "conv_p2p", "om_card");
+    rememberTopicKeys(db, "oc_p2p_001", "conv_p2p", ["om_card"], Date.now());
+
+    const reply = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_reply",
+        message_id: "om_reply",
+        root_id: "om_card",
+        reply_to: "om_card",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+
+    expect(reply.conversationId).toBe("conv_p2p");
+    expect(db.query("SELECT count(*) AS n FROM conversation_binding").get()).toEqual({ n: 1 });
+
+    db.close();
+  });
+
+  test("topic chat: the opening message roots the topic, replies resolve to it", async () => {
+    const db = makeDb();
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_topic" } },
+      { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
+      AGENT_CONFIG,
+      { body: { seq: 2, triggeredRuns: [{ agentId: "agent_123", runId: "run-2" }] } },
+    ]);
+    const ctx = {
+      db,
+      selfAgentId: "agent_123",
+      selfAgentName: "TestBot",
+      botDisplayName: "TestBot",
+      backendUrl: "http://localhost",
+      profile: "test-profile",
+    };
+
+    // A topic-chat top-level message carries its own thread id (measured).
+    const opened = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_t1",
+        message_id: "om_t1",
+        chat_id: "oc_topic",
+        thread_id: "omt_t",
+      },
+      ctx,
+    );
+    expect(opened.conversationId).toBe("conv_topic");
+    // Here the ROOT is that message: our answer replies to it with
+    // reply_in_thread, which is what puts the card inside the topic.
+    const binding = db
+      .query("SELECT topic_root_message_id FROM conversation_binding WHERE conversation_id = ?")
+      .get("conv_topic") as { topic_root_message_id: string | null };
+    expect(binding.topic_root_message_id).toBe("om_t1");
+
+    const inside = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_t2",
+        message_id: "om_t2",
+        chat_id: "oc_topic",
+        thread_id: "omt_t",
+        root_id: "om_t1",
+        reply_to: "om_t1",
+      },
+      ctx,
+    );
+    expect(inside.conversationId).toBe("conv_topic");
+
+    // And a DIFFERENT topic in the same chat is a different conversation.
+    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_topic_2" } }, { body: { seq: 3 } }]);
+    const other = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_t3",
+        message_id: "om_t3",
+        chat_id: "oc_topic",
+        thread_id: "omt_other",
+      },
+      ctx,
+    );
+    expect(other.conversationId).toBe("conv_topic_2");
 
     db.close();
   });

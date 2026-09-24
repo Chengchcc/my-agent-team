@@ -12,6 +12,14 @@ export const conversationBinding = sqliteTable("conversation_binding", {
    *  needs `reply_in_thread` when we answer, a normal one does not. Fetched
    *  once per chat, not per message. */
   chatMode: text(),
+  /** The message that ROOTS this conversation's topic (ADR 0037) — every
+   *  answer replies to it. In a topic chat the root is the message that opened
+   *  the topic; in a p2p chat nothing opens one, so the root is the first
+   *  message WE send (the card), which is what makes the user's reply to that
+   *  card a continuation instead of a new question. Recorded explicitly rather
+   *  than inferred from the topic keys, because a conversation has several of
+   *  those (`omt_…` cannot be replied to at all) and only one root. */
+  topicRootMessageId: text(),
   pushedSeq: integer().notNull().default(0),
   createdAt: integer({ mode: "number" }).notNull(),
 });

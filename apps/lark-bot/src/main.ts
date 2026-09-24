@@ -7,7 +7,6 @@ import {
   getConversationBinding,
   listConversationBindings,
   listNonTerminalRunCards,
-  listTopicKeys,
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
@@ -25,7 +24,6 @@ import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
 import type { WatcherHandle } from "./sse-watcher.js";
 import { watchConversation } from "./sse-watcher.js";
-import { topicRootMessageId } from "./topic-routing.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -34,16 +32,6 @@ const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
 // ─── SSE watchers — one per bound conversation ───
 const watchers = new Map<string, WatcherHandle>();
-
-/** The message this conversation's answers must reply to (ADR 0037). Any
- *  `om_` key mapped to the conversation is a valid target (the user's own
- *  top-level message, or a card we sent); thread ids (`omt_…`) identify the
- *  topic but cannot be replied to. Null when nothing is mapped yet — a run
- *  started before the topic opened (workflow dispatch) has no topic to join. */
-function topicRootOf(larkChatId: string, conversationId: string): string | null {
-  const keys = listTopicKeys(state.db, larkChatId, conversationId);
-  return keys.find((key) => key.startsWith("om_")) ?? null;
-}
 
 function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0) {
   if (watchers.has(conversationId)) return;
@@ -74,7 +62,7 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     sendTextOnly: async (chatId, text) => {
       const binding = getConversationBinding(state.db, conversationId);
       const result = await sendTextOnly(profile, chatId, text, {
-        replyTo: topicRootOf(larkChatId, conversationId),
+        replyTo: getConversationBinding(state.db, conversationId)?.topicRootMessageId ?? null,
         replyInThread: binding?.chatMode === "topic",
       });
       if (!result.ok) {
@@ -104,9 +92,15 @@ async function startRunCard(
   conversationId: string,
   larkChatId: string,
   sourceMessageId: string | null = null,
-  replyTo: string | null = null,
 ) {
   if (cardWatchers.has(runId)) return;
+  // Where this answer belongs (ADR 0037). The conversation records its topic's
+  // root; no root yet means THIS message roots the topic — which is the normal
+  // case in a chat with no topic mode (p2p), where the card is the topic and
+  // the user's reply to the card continues it. Replying to the caller's own
+  // message instead would bury the card inside a chain rooted on the user,
+  // and the next reply would open a new conversation.
+  const replyTo = getConversationBinding(state.db, conversationId)?.topicRootMessageId ?? null;
   // Reply targeting (ADR 0037): the answer belongs to the topic, and inside a
   // TOPIC chat it must carry `reply_in_thread` or it lands outside the topic —
   // while a normal chat REJECTS that flag. So the chat's mode decides, and it
@@ -200,18 +194,10 @@ async function handleLine(line: string): Promise<void> {
       // separate message the bot sends into the chat. The TOPIC's root is what
       // it must reply to (`root_id` when this message is already inside a
       // topic, otherwise the message itself opens one).
-      void startRunCard(
-        runId,
-        conversationId,
-        event.chat_id,
-        event.message_id,
-        topicRootMessageId(event),
-      );
+      void startRunCard(runId, conversationId, event.chat_id, event.message_id);
     },
     onCommandReply: async (chatId, text) => {
-      const result = await sendTextOnly(profile, chatId, text, {
-        replyTo: topicRootMessageId(event),
-      });
+      const result = await sendTextOnly(profile, chatId, text);
       if (!result.ok) {
         console.error(`[lark-bot] command reply failed: ${result.error}`);
       }

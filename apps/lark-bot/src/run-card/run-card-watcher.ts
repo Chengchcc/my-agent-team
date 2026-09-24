@@ -1,7 +1,13 @@
 import type { Database } from "bun:sqlite";
 import { extractText } from "@chengchenccc/message";
 import { z } from "zod";
-import { getRunCard, insertRunCard, rememberTopicKeys, updateRunCard } from "../bindings-sqlite.js";
+import {
+  getRunCard,
+  insertRunCard,
+  rememberTopicKeys,
+  setTopicRoot,
+  updateRunCard,
+} from "../bindings-sqlite.js";
 import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { swapAckReaction } from "./ack-reaction.js";
 import { createCardFlushController } from "./card-flush.js";
@@ -424,6 +430,10 @@ export function watchRunCard(
       // `root_id` (measured). Recording it here is what makes "reply to the
       // bot's card to keep talking" resolve to this same conversation.
       rememberTopicKeys(db, larkChatId, conversationId, [sent.messageId], Date.now());
+      // No reply target means this card OPENED the topic (a chat with no topic
+      // mode): the card is the root, and the user's reply to it must come back
+      // here. Recorded only if nothing rooted the conversation before.
+      if (replyTo === null) setTopicRoot(db, conversationId, sent.messageId);
       persist();
     }
 
