@@ -264,6 +264,12 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     // M15.1: Start streaming card lifecycle for each triggered run
     if (ctx.onTriggeredRun) {
       for (const run of runs) {
+        // A queued or cancelled entry carries NO run: the input was appended
+        // to an existing run's queue (queued) or dropped at enqueue
+        // (cancelled). Those are deliberate DTO states, not run ids — taking
+        // "" for one created a card row that can never settle, and restart
+        // recovery would keep trying to drive it ("run card started:  → oc_").
+        if (!run.runId) continue;
         ctx.onTriggeredRun(run.runId, conversationId, event.message_id);
       }
     }

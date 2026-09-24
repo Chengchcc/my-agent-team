@@ -210,6 +210,40 @@ describe("ingest", () => {
     db.close();
   });
 
+  test("a queued input starts no card — the entry carries no run id", async () => {
+    const db = makeDb();
+    // The backend answers a message that queues behind a running run with
+    // `{agentId, runId: "", queued: true}` — a deliberate state, since the
+    // input joined an existing run instead of starting one. Reading "" as a
+    // run id created a card row that could never settle, and restart recovery
+    // then tried to drive it forever.
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_queued" } },
+      { body: { seq: 7, triggeredRuns: [{ agentId: "agent_123", runId: "", queued: true }] } },
+    ]);
+
+    const started: string[] = [];
+    const result = await ingest(
+      { ...baseEvent, event_id: "evt_queued", message_id: "om_queued", content: "queued behind" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onTriggeredRun: (runId) => started.push(runId),
+      },
+    );
+
+    expect(result.action).toBe("consumed");
+    expect(result.triggered).toBe(true); // the message WAS addressed
+    expect(started).toEqual([]);
+
+    db.close();
+  });
+
   test("group message with @bot — triggers agent", async () => {
     const db = makeDb();
 
