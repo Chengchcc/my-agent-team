@@ -483,6 +483,26 @@ async function buildNativeToolStage(
   };
 }
 
+/** Is a tool with this LEAF name among the mounted tools?
+ *
+ *  Mounted tools carry their canonical `mcp__<server>__<tool>` name
+ *  (mcp-mount.ts), so `mountedToolNames.has("todo_write")` was never true for
+ *  an injected MCP todo: the "the specific injection wins over the built-in
+ *  default" rule never fired, and BOTH tools were advertised. The agent then
+ *  used the native one — whose file store is workspace-global, so one
+ *  conversation's task list showed up inside another's run. Same trap as the
+ *  wire filters that had to learn the leaf name; match the leaf, not the
+ *  whole canonical name. */
+function mountedProvidesLeaf(
+  stage: { mountedToolNames: ReadonlySet<string> },
+  leaf: string,
+): boolean {
+  for (const name of stage.mountedToolNames) {
+    if ((name.split("__").pop() ?? name) === leaf) return true;
+  }
+  return false;
+}
+
 /** Model plumbing stage: everything bound to the RUN's model — display
  *  identity, the compaction summarizer (same provider/credentials, no
  *  catalog-first surprises), the context budget from the run model's
@@ -1172,7 +1192,9 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // Native ask_question (oh-my-pi style HITL): same conflict rule as todo —
   // the backend can inject its own MCP ask_question (product surfaces); the
   // injected one wins, standalone workspaces get the native tool.
-  const hasInjectedAsk = toolStage.mountedToolNames.has("ask_question");
+  // Native ask_question (oh-my-pi style HITL): same conflict rule as todo —
+  // the injected product tool wins over the built-in default.
+  const hasInjectedAsk = mountedProvidesLeaf(toolStage, "ask_question");
   const askAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "ask_question") : true;
   if (!hasInjectedAsk && askAllowed) {
     plugins.push({
@@ -1185,7 +1207,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // RPC workspaces — the specific injection wins over the built-in default;
   // standalone workspaces get the native one). One rule replaces the old
   // per-mode enableNativeTodo flag.
-  const hasInjectedTodo = toolStage.mountedToolNames.has("todo_write");
+  const hasInjectedTodo = mountedProvidesLeaf(toolStage, "todo_write");
   const todoAllowed = deps.toolFilter ? toolFilterAllows(deps.toolFilter, "todo_write") : true;
   // Explicit durable-lesson capture + managed-skill CRUD (omp learn/manage_skill).
   // STANDALONE-ONLY (localMemory, set by print/json/tui via shared.ts): the

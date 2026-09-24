@@ -41,8 +41,8 @@ tags: [oma, mcp, runtime]
 | `browser` | 执行 | headless Chromium：`open` / `close` / `run`，截图存 `.oma/screenshots` | 无 | 否 |
 | `web_search` / `web_fetch` | 网络 | 搜索与带守卫的抓取（`disableWeb` 可关） | 有 | 否 |
 | `skill_load` | 技能 | 按名字取某个技能的正文（索引在 Meta 里） | 有 | 否 |
-| `todo_write` / `todo_read` | 任务 | 会话任务列表；只在没有别的来源提供 `todo_write` 时挂载 | 写为无 | 否 |
-| `ask_question` | 交互 | 问人一个问题；只在没有注入版本时挂载 | 有 | 否（但 rpc 无人可问，见下） |
+| `todo_write` / `todo_read` | 任务 | 会话任务列表（`.oma/todo/<sessionId>.json`，无 scope 时回退工作区全局 `.oma/todo.json`）；只在没有别的来源提供 `todo_write` 时挂载 | 写为无 | 否 |
+| `ask_question` | 交互 | 问人一个问题；只在没有注入版本时挂载（`todo`/`ask` 的冲突判断都按**叶子名**，见下节） | 有 | 否（但 rpc 无人可问，见下） |
 | `task` | 委派 | 起子代理（叶子隔离，工具面按 access 裁剪） | 按 access | 否 |
 | `workflow_run` | 委派 | 跑 vm 沙箱里的 workflow 脚本，内部可 `agent()` | 按 access | 否 |
 | `hub` | 委派 | 协调子代理与后台作业 | — | 否 |
@@ -102,6 +102,7 @@ Tool.describeStart(input)          ← 工具自己挑有意义的字段
 
 - 来源两处：工作区根 `.mcp.json`（bridge 写的，含产品工具）与已安装插件的 `.mcp.json`。名字冲突时**工作区优先**，插件之间按 resolver 顺序。
 - 工具注册名统一是 `mcp__<server>__<tool>`；原生表里已有同名（或裸名）时跳过。
+- **凡是按名字判断，一律比对叶子名（`toolName.split("__").pop()`），不要拿裸名去直等全限定名。** 产品注入的工具线上叫 `mcp__product-tools__todo_write`，所以 `Set.has("todo_write")` / `name !== "todo_write"` **永远不命中**。这个陷阱先咬了渲染过滤两次（见 [ADR 0033](../../adr/0033-tool-activity-boundary.md)），2026-09-24 又咬到挂载规则：`todo`/`ask` 的「注入优先」判断失效，原生工具与产物工具**同时装上**，于是模型用了原生那个——它的文件是工作区全局的，一个会话的任务清单就这样进了另一个会话的 Run（用户现象：机器人跑起了上一轮无关任务）。
 - stdio server 的 command 在 spawn 前校验（绝对路径、PATH 查找、可执行位）；坏命令只让**它自己**那个 server 报错，不会让整个 Run 挂掉。
 - 单次调用有超时（见下），连接与 `tools/list` 共用同一个上限。
 - 插件 `.mcp.json` 里的 `${CLAUDE_PLUGIN_ROOT}` 与 `${CLAUDE_PROJECT_DIR}` 会被替换，并作为同名 env 导出给 server 进程。

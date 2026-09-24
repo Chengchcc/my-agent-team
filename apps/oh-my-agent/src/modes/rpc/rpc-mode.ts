@@ -319,6 +319,14 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         workspaceAccess: input.workspace.access,
         modelRuntime: opts.modelRuntime,
         skillRoots: input.run.skillRoots?.length ? input.run.skillRoots : cwdSkills,
+        // The RPC child has a session id too (resumed from the branch's
+        // cliSessionRef, or minted per run). Passing it as the todo scope is
+        // what standalone modes already do; without it the native todo store
+        // fell back to the workspace-global `.oma/todo.json`, so a task list
+        // written by ANY conversation in this workspace was injected into
+        // every other one — the item that derailed a Lark run came from an
+        // unrelated earlier session.
+        todoScope: sessionId,
         ...(pluginRt.plugins.length || pluginRt.mcpServers.length
           ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
           : {}),

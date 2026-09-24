@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -533,14 +533,16 @@ describe("product-mounted tools are gated by capability, not by server name", ()
 test("injected MCP todo_write wins over native todo (backend-injected priority)", async () => {
   const savedFake = process.env.OMA_FAKE_PROVIDER;
   const savedTool = process.env.OMA_FAKE_TOOL;
+  const savedRecord = process.env.OMA_FAKE_TOOLS_RECORD;
   process.env.OMA_FAKE_PROVIDER = "1";
   // Model calls the mounted MCP tool by its qualified mcp__ name; the echo
-  // fixture (via .mcp.json) answers (content "ok:todo_write") and no
-  // .oma/todo.json is written — the call never reaches native todo.
+  // fixture (via .mcp.json) answers (content "ok:todo_write").
   process.env.OMA_FAKE_TOOL = JSON.stringify([
     { name: "mcp__echo-server__todo_write", input: { items: [] } },
   ]);
   const ws = mkdtempSync(join(tmpdir(), "oma-todo-mcp-"));
+  const toolsRecord = join(ws, "tools-record.json");
+  process.env.OMA_FAKE_TOOLS_RECORD = toolsRecord;
   try {
     process.env.MCP_ECHO_TOOLS = "todo_write";
     writeFileSync(
@@ -574,7 +576,23 @@ test("injected MCP todo_write wins over native todo (backend-injected priority)"
     // would have written .oma/todo.json instead.
     expect(raw).toContain("todo_write");
     expect(existsSync(join(ws, ".oma", "todo.json"))).toBe(false);
+
+    // The assertion with teeth. The two above hold even when the conflict
+    // rule is dead: the scripted call names the MCP tool, so that tool answers
+    // and the native one just sits there unused — which is exactly what
+    // happened in production, where the rule compared a bare `todo_write`
+    // against the canonical `mcp__product-tools__todo_write` and therefore
+    // never matched. What the rule actually controls is the ADVERTISED table:
+    // when an injected todo exists, the model must not see a second,
+    // workspace-global todo tool next to it (that one's file is shared by
+    // every session in the workspace, so one conversation's task list leaked
+    // into another's run).
+    const advertised = JSON.parse(readFileSync(toolsRecord, "utf8")) as string[];
+    expect(advertised).toContain("mcp__echo-server__todo_write");
+    expect(advertised).not.toContain("todo_write");
   } finally {
+    if (savedRecord === undefined) delete process.env.OMA_FAKE_TOOLS_RECORD;
+    else process.env.OMA_FAKE_TOOLS_RECORD = savedRecord;
     delete process.env.MCP_ECHO_TOOLS;
     if (savedFake === undefined) delete process.env.OMA_FAKE_PROVIDER;
     else process.env.OMA_FAKE_PROVIDER = savedFake;

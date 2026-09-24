@@ -71,4 +71,32 @@ describe("todo store", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("a scoped store never reads the workspace-global list", () => {
+    // The leak this pins: the unscoped store is workspace-global, so every
+    // session sharing the workspace sees one list. A run whose todo tool was
+    // NOT the product's (its injected MCP tool is named
+    // `mcp__product-tools__todo_write`, and the mount rule compared bare
+    // names) read exactly this file — an unfinished item from an earlier,
+    // unrelated session — and carried on with that task instead of the one
+    // the user had just sent.
+    const dir = mkdtempSync(join(tmpdir(), "oma-todo-scope-"));
+    try {
+      writeTodoFile(dir, [{ id: "old", text: "someone else's work", status: "pending" }]);
+      expect(createFileTodoStore(dir, "conv-a").read()).toEqual([]);
+
+      createFileTodoStore(dir, "conv-a").write([{ id: "a1", text: "mine", status: "pending" }]);
+      // Two sessions in one workspace stay independent, and the scoped write
+      // does not touch the legacy file.
+      expect(createFileTodoStore(dir, "conv-b").read()).toEqual([]);
+      expect(readTodoFile(dir)).toEqual([
+        { id: "old", text: "someone else's work", status: "pending" },
+      ]);
+      expect(createFileTodoStore(dir, "conv-a").read()).toEqual([
+        { id: "a1", text: "mine", status: "pending" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
