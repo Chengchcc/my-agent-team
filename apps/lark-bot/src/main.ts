@@ -4,10 +4,12 @@ import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
+  ensureTopicRoot,
   getConversationBinding,
   getInputCard,
   listConversationBindings,
   listNonTerminalRunCards,
+  rememberTopicKeys,
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
@@ -65,9 +67,16 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     sendTextOnly: async (chatId, text) => {
       const binding = getConversationBinding(state.db, conversationId);
       const result = await sendTextOnly(profile, chatId, text, {
-        replyTo: binding?.topicRootMessageId ?? null,
+        replyTo: ensureTopicRoot(state.db, larkChatId, conversationId),
         replyInThread: replyInThreadFor(binding?.chatMode ?? null),
       });
+      // Record where it landed, exactly like a card does: the user may reply
+      // to THIS message, and that reply has to resolve to this conversation.
+      // (The id is also what makes an answer auditable and withdrawable.)
+      if (result.messageId) {
+        const keys = result.threadId ? [result.messageId, result.threadId] : [result.messageId];
+        rememberTopicKeys(state.db, larkChatId, conversationId, keys, Date.now());
+      }
       if (!result.ok) {
         console.error(`[lark-bot] sendTextOnly failed for ${chatId}: ${result.error}`);
       }
@@ -104,7 +113,7 @@ async function startRunCard(
   // the user's reply to the card continues it. Replying to the caller's own
   // message instead would bury the card inside a chain rooted on the user,
   // and the next reply would open a new conversation.
-  const replyTo = getConversationBinding(state.db, conversationId)?.topicRootMessageId ?? null;
+  const replyTo = ensureTopicRoot(state.db, larkChatId, conversationId);
   // Reply targeting (ADR 0037): the answer belongs to the topic, and inside a
   // TOPIC chat it must carry `reply_in_thread` or it lands outside the topic —
   // while a normal chat REJECTS that flag. So the chat's mode decides, and it

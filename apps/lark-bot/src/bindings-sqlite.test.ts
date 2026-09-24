@@ -4,6 +4,7 @@ import {
   chatHasConversations,
   confirmInbound,
   countPendingDeliveries,
+  ensureTopicRoot,
   findConversationByTopicKey,
   getConversationBinding,
   getMemberBinding,
@@ -109,6 +110,28 @@ describe("bindings-sqlite", () => {
     // A key already owned by another conversation is not stolen.
     rememberTopicKeys(db, "oc_test3", "conv_other", ["om_card"], 2);
     expect(findConversationByTopicKey(db, "oc_test3", "om_card")).toBe("conv_p2p_topic");
+  });
+
+  test("ensureTopicRoot derives a missing root from the topic keys", () => {
+    // Legacy rows have no root. Without one the answer is posted top level,
+    // which in a TOPIC chat opens a new topic — so the derivation must happen
+    // and stick.
+    putConversationBinding(db, {
+      conversationId: "conv_legacy",
+      larkChatId: "oc_legacy",
+      chatType: "group",
+      chatMode: "topic",
+      createdAt: Date.now(),
+      pushedSeq: 0,
+    });
+    expect(ensureTopicRoot(db, "oc_legacy", "conv_legacy")).toBeNull();
+    // The message that opened the topic was recorded first, our own card after
+    // it: the root is the oldest `om_` key.
+    rememberTopicKeys(db, "oc_legacy", "conv_legacy", ["om_topic_root"], 1);
+    rememberTopicKeys(db, "oc_legacy", "conv_legacy", ["omt_thread", "om_our_card"], 2);
+    expect(ensureTopicRoot(db, "oc_legacy", "conv_legacy")).toBe("om_topic_root");
+    // Persisted: the second call reads the column, not the keys.
+    expect(getConversationBinding(db, "conv_legacy")!.topicRootMessageId).toBe("om_topic_root");
   });
 
   test("rebindConversation moves the binding AND its topic keys", () => {

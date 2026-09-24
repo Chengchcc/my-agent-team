@@ -130,6 +130,26 @@ export function setTopicRoot(db: Database, conversationId: string, messageId: st
     .run();
 }
 
+/** The message a conversation's answers must reply to (ADR 0037).
+ *
+ *  Normally recorded explicitly, but rows created before that column existed
+ *  have none — and a missing root is not cosmetic: the answer is posted top
+ *  level, which in a TOPIC chat opens a NEW topic instead of staying in this
+ *  one. So derive it from the topic keys (the oldest `om_` key is the message
+ *  that opened the topic) and persist the derivation once. */
+export function ensureTopicRoot(
+  db: Database,
+  larkChatId: string,
+  conversationId: string,
+): string | null {
+  const binding = getConversationBinding(db, conversationId);
+  if (binding?.topicRootMessageId) return binding.topicRootMessageId;
+  const derived = listTopicKeys(db, larkChatId, conversationId).find((k) => k.startsWith("om_"));
+  if (!derived) return null;
+  setTopicRoot(db, conversationId, derived);
+  return derived;
+}
+
 export function updateChatMode(db: Database, conversationId: string, chatMode: string): void {
   d(db)
     .update(schema.conversationBinding)
