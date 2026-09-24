@@ -60,6 +60,11 @@ export function resolveOmaCommand(
     OMA_FAKE_TEXT: process.env.OMA_FAKE_TEXT,
     OMA_FAKE_TOOL: process.env.OMA_FAKE_TOOL,
     OMA_FAKE_TOOLS_RECORD: process.env.OMA_FAKE_TOOLS_RECORD,
+    // Streaming cadence knobs: the fake provider emits one delta per line
+    // with this gap, which is how the card/streaming paths are exercised
+    // without a real model.
+    OMA_FAKE_TEXT_LINES: process.env.OMA_FAKE_TEXT_LINES,
+    OMA_FAKE_TEXT_DELAY_MS: process.env.OMA_FAKE_TEXT_DELAY_MS,
     // permissionMode=auto classifier pin (CC-auto alignment); absent = the
     // child classifies with the run's own model.
     OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel,
