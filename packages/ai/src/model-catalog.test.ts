@@ -11,6 +11,15 @@ import {
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => v as Obj;
 
+/** A catalogue entry by id, failing LOUDLY when it is gone: a test that reads
+ *  `providers.zai` directly would otherwise compile-error under
+ *  noUncheckedIndexedAccess (or worse, be guarded into silence). */
+function provider(id: keyof typeof BUILTIN_CATALOG.providers) {
+  const entry = BUILTIN_CATALOG.providers[id];
+  if (!entry) throw new Error(`catalogue is missing the ${String(id)} provider`);
+  return entry;
+}
+
 describe("parseCatalogYAML", () => {
   test("quoted scalars lose their surrounding quotes", () => {
     const cat = parseCatalogYAML(`providers:
@@ -101,7 +110,7 @@ describe("the built-in DeepSeek catalog matches the provider's own list", () => 
   // which the provider has never served — picking it in the UI produced a
   // run that failed at dispatch with "model not available", looking exactly
   // like the bot ignoring the message.
-  const deepseek = BUILTIN_CATALOG.providers.deepseek;
+  const deepseek = provider("deepseek");
   const ids = deepseek.models.map((m) => m.id);
 
   test("offers only ids the provider actually serves", () => {
@@ -127,7 +136,7 @@ describe("the built-in DeepSeek catalog matches the provider's own list", () => 
 });
 
 describe("the Z.AI provider is the GLM Coding Plan, not the PAYG API", () => {
-  const zai = BUILTIN_CATALOG.providers.zai;
+  const zai = provider("zai");
 
   test("rides the coding-plan base URL", () => {
     // The general PAYG base (`/api/paas/v4`) is a different product: the

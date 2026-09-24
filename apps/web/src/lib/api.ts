@@ -176,7 +176,11 @@ export const api = {
   postConversationMessage: (
     id: string,
     body: {
-      content: unknown;
+      /** The two shapes the writer understands: plain text, or ContentBlock
+       *  objects (text + image attachments). `unknown` here used to hide a
+       *  genuinely wrong payload — the Lark bot sent an envelope object and the
+       *  message was stored with no text at all — so the wire type is stated. */
+      content: string | Array<Record<string, unknown>>;
       mode?: "normal" | "steer" | "follow_up";
       model?: ChatModelOverride;
     },
