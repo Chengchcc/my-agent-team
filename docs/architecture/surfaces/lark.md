@@ -68,9 +68,11 @@ tags: [lark, surfaces, backend]
 
 canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值，所以飞书没有流式渲染路径，每个 assistant 行只投递一次。
 
-投递默认用 `lark-cli --profile <p> im +messages-send --chat-id <id> --text <t> --as bot --idempotency-key <conversationId:messageId:seq>`；当该会话有话题（`topic_binding` 里存在 `om_` 键）时改走 `im +messages-reply --message-id <话题根>`，话题群里再加 `--reply-in-thread`（普通聊天会拒绝这个标志，所以由该会话记录的 `chat_mode` 决定）。**回答与问题同处一个话题**是 ADR 0037 的可见结果。
+出站只有**一条**路径：`apps/lark-bot/src/topic-send.ts` 的 `sendIntoTopic()`。桥接投递（`onSend`）、卡片失败时的回退文本、控制回复（`/stop` 回执、未知命令）全部经由它——因为「发到群里」不等于「发进话题」：在话题群里，一条顶层消息**就是开一个新话题**。只教会其中一条路径的后果真实发生过：控制回复进了话题，而每一条回答都在群里散成独立话题。
 
-话题的**根**由会话记录（`conversation_binding.topic_root_message_id`），不由键推断——一个会话有多个键，而 `omt_…` 根本不能作为回复目标，根却是唯一的一条消息：
+底层命令是 `im +messages-reply --message-id <话题根>`（话题群再加 `--reply-in-thread`，普通聊天会拒绝这个标志，所以由会话记录的 `chat_mode` 决定），拿不到回复目标时才退回 `im +messages-send`，幂等键 `<conversationId:messageId:seq>`。发送成功后把这条消息的 id（以及平台分配的 `thread_id`）登记为话题键，于是「用户回复这条消息」也认得出该会话，出问题的那条也还能撤回。**回答与问题同处一个话题**是 ADR 0037 的可见结果。
+
+话题的**根**由会话记录（`conversation_binding.topic_root_message_id`），不由键推断——一个会话有多个键，而 `omt_…` 根本不能作为回复目标，根却是唯一的一条消息。根为 NULL 的旧会话由 `ensureTopicRoot()` 自愈（取该聊天里最早登记的 `om_` 键），所以升级后老会话的下一条回答也会回到自己的话题里：
 
 - **话题群**：根是「开这个话题的那条消息」（它自带 `thread_id`），回答回复它并带 `reply_in_thread`，卡片就落在话题里。
 - **私聊**：没有任何东西开话题，所以我们**主动创建**——回答用 `reply_in_thread` **回复用户那条消息**（实测该请求直接返回 `thread_id`），话题的根就是用户那条消息，卡片落在话题里。此后用户在该话题内回复即续接；在话题外发新消息则是新话题、新会话。（不做这一步的话，私聊里连话题都不会出现。）失败退避重试 3 次（500ms 乘 2 的幂），耗尽后抛错断开本连接，重连后从游标重放该条并以同一幂等键重发（Lark 侧去重）；语义是 at-least-once（ADR 0032）。
@@ -130,7 +132,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 5. 每次文本投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`；卡片幂等键是 `<conversationId>:<runId>:card`，封版降级是 `<conversationId>:<runId>:seal`。
 6. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
 7. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
-8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；`pushed_seq` 属于会话而非聊天（ADR 0037）。话题内仍然要求 @ 机器人（群里的话题下可能有其他人交流）。
+8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；`pushed_seq` 属于会话而非聊天（ADR 0037）。**群里**的话题内仍然要求 @ 机器人（话题下可能有其他人交流）；**私聊不要求**——私聊本身就是点名，用户「在话题里回复」是续问的唯一动作，再要求 @ 就等于把这条动作废掉。
 
 ## 已知缺口
 
