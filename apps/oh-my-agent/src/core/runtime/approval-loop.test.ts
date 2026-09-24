@@ -113,4 +113,19 @@ describe("approval request wiring in the loop", () => {
     const { content } = await runSession(undefined, undefined);
     expect(content).toContain("no pipeline; proceeded");
   });
+
+  test("a silent human hits the approval deadline and the tool fails closed", async () => {
+    const key = "OMA_APPROVAL_TIMEOUT_MS";
+    const prev = process.env[key];
+    process.env[key] = "30";
+    try {
+      const { content, seen } = await runSession(undefined, () => new Promise(() => {}));
+      expect(content).toContain("denied");
+      expect(content).toContain("approval deadline exceeded");
+      expect(seen).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env[key];
+      else process.env[key] = prev;
+    }
+  });
 });

@@ -17,7 +17,7 @@
 
 **`commit_failed` 会把分支永久占住。** 它算活跃状态，所以那个分支不会再接新 Run；而唯一的重试入口在没被调起的恢复函数里。修法是把 `recover()` 接上，或者给提交失败一条独立的退路。
 
-**HITL 的持久化差最后一环：过期与 Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。仍缺：approval 没有超时语义（ask 有 60s 超时路径）、pending 事项对 Lark 端不可见（Run 卡片第三期的消费面）。
+**HITL 的持久化差最后一环：Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。超时语义已补齐（2026-09-24）：oma 循环层的审批等待现在自带截止时间（默认 2 分钟，`OMA_APPROVAL_TIMEOUT_MS` 可调，静默人类 fail-closed 为 deny）——此前只有 run 模式（run-runtime）有截止时间，rpc / 子代理走的 `createOmaSession` 路径会无限等，测试已钉住。仍缺：pending 事项对 Lark 端不可见（Run 卡片第三期的消费面）。
 
 ## 上下文与历史
 
