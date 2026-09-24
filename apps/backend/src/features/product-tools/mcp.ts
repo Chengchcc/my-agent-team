@@ -51,10 +51,10 @@ export async function createProductToolsMcpServer(
   const { service, tokenRegistry } = opts;
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
-  /** B1: one Server per SSE session; the tools/call handler closes over
-   *  the authenticated runId and rejects mismatched identity args. */
+  /** One Server per SSE session. The session's bearer token is the identity:
+   *  its run and agent scope every call, so nothing the model writes in the
+   *  arguments can pick a different run (ADR 0036). */
   const makeServer = (caller: RunTokenContext): Server => {
-    const authenticatedRunId = caller.runId;
     const s = new Server(
       { name: "product-tools", version: "1.0.0" },
       {
