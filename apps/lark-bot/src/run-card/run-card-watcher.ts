@@ -22,7 +22,13 @@ import {
   renderStatusContent,
   STATUS_ELEMENT_ID,
 } from "./card-renderer.js";
-import { applyRunEvent, initialRunCardState, type RunCardState } from "./card-state.js";
+import {
+  applyRunEvent,
+  initialRunCardState,
+  type PendingActionState,
+  pendingActionFromBackend,
+  type RunCardState,
+} from "./card-state.js";
 
 /**
  * ADR 0031: the streaming card lifecycle for one Agent Run.
@@ -99,6 +105,37 @@ function rowStatus(state: RunCardState): string {
   return state.output.length > 0 || state.completedTools.length > 0 ? "streaming" : "creating";
 }
 
+/** Pending durable actions for one run (durable approvals/asks v1): the
+ *  restart recovery reads the same record the live event wrote. */
+async function fetchPendingActions(
+  backendUrl: string,
+  token: string | null,
+  runId: string,
+): Promise<PendingActionState | null> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers["x-auth-token"] = token;
+  const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
+  if (!resp.ok) return null;
+  const body = z
+    .object({
+      pendingActions: z
+        .array(
+          z.object({
+            kind: z.string(),
+            status: z.string(),
+            payload: z.record(z.string(), z.unknown()),
+          }),
+        )
+        .nullable()
+        .optional(),
+    })
+    .catch({ pendingActions: [] })
+    .parse(await resp.json());
+  const record = (body.pendingActions ?? []).find((a) => a.status === "pending");
+  if (!record) return null;
+  return pendingActionFromBackend(record.kind, record.payload);
+}
+
 async function fetchRunOutcome(
   backendUrl: string,
   token: string | null,
@@ -123,12 +160,12 @@ async function fetchRunOutcome(
   return body.run?.terminalResult?.messages as OutcomeMessageLike[] | undefined;
 }
 
-export function watchRunCard(
+export async function watchRunCard(
   runId: string,
   conversationId: string,
   larkChatId: string,
   opts: RunCardWatcherOptions,
-): RunCardWatcherHandle {
+): Promise<RunCardWatcherHandle> {
   const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText, sourceMessageId } = opts;
   const replyTo = opts.replyTo ?? null;
   const replyInThread = opts.replyInThread === true;
@@ -152,13 +189,28 @@ export function watchRunCard(
       });
     }
   }
-  let state: RunCardState = existing
-    ? {
-        ...initialRunCardState(),
-        phase: "streaming",
-        output: existing.accumulated,
-      }
-    : initialRunCardState();
+  let state: RunCardState;
+  if (existing) {
+    state = {
+      ...initialRunCardState(),
+      phase: "streaming",
+      output: existing.accumulated,
+    };
+    // Durable actions (durable approvals/asks v1): the live event that set
+    // the buttons fired before we died, so replay will never re-derive them.
+    // The backend kept the record; re-seed the card's pending action from it
+    // BEFORE the first render. Failure leaves the card text-only (today's
+    // behavior), never blocks the restore.
+    const pending = await fetchPendingActions(backendUrl, backendAuthToken, runId).catch(
+      () => null,
+    );
+    if (pending) {
+      state.pendingAction = pending;
+      state.waiting = pending.kind;
+    }
+  } else {
+    state = initialRunCardState();
+  }
   // Feishu has no typing indicator, so the bot acknowledges the message with
   // a reaction while the card is being produced (openclaw does the same). The
   // id is persisted because the terminal step has to take the reaction back —

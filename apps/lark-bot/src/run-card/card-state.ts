@@ -39,6 +39,34 @@ export interface PendingActionState {
   questionId: string;
 }
 
+/** Rebuild a pending action from the backend's durable record — the restart
+ *  recovery path. Must produce EXACTLY what the live event reductions
+ *  produce, so a restored card is indistinguishable from a live one. */
+export function pendingActionFromBackend(
+  kind: string,
+  payload: Record<string, unknown>,
+): PendingActionState | null {
+  if (kind === "approval") {
+    const callId = typeof payload.callId === "string" ? payload.callId : null;
+    if (!callId) return null;
+    return {
+      callId,
+      kind: "approval",
+      prompt: "",
+      options: [],
+      allowFreeText: false,
+      questionId: "",
+    };
+  }
+  if (kind === "ask") {
+    const callId = typeof payload.callId === "string" ? payload.callId : null;
+    const parsed = parseAskQuestion(payload.questions);
+    if (!callId || !parsed) return null;
+    return { ...parsed, callId };
+  }
+  return null;
+}
+
 export interface RunCardState {
   phase: "queued" | "thinking" | "tool_running" | "streaming";
   /** Live HITL wait: set by approval/ask events, cleared by the next

@@ -15,7 +15,12 @@ import {
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
 import { renderRunCard } from "./card-renderer.js";
-import { applyRunEvent, initialRunCardState, toolActivity } from "./card-state.js";
+import {
+  applyRunEvent,
+  initialRunCardState,
+  pendingActionFromBackend,
+  toolActivity,
+} from "./card-state.js";
 import { finalAnswerText } from "./run-card-watcher.js";
 
 const testDir = `/tmp/test-lark-run-card-${Date.now()}`;
@@ -73,6 +78,46 @@ describe("run_card store (migration 0002)", () => {
 });
 
 describe("applyRunEvent reducer", () => {
+  test("pendingActionFromBackend reproduces the live event reduction", () => {
+    // Restart recovery rebuilds the card's pending action from the backend's
+    // durable record; a restored card must be indistinguishable from a live
+    // one, or buttons appear with different payloads than the resolve path
+    // expects.
+    const approvalLive = applyRunEvent(initialRunCardState(), {
+      type: "backend.oma.approval_request",
+      payload: { callId: "c1" },
+    });
+    expect(pendingActionFromBackend("approval", { callId: "c1" })).toEqual(
+      approvalLive.pendingAction,
+    );
+
+    const questions = [
+      {
+        id: "q1",
+        question: "选一项",
+        kind: "select",
+        allowOther: false,
+        options: [
+          { label: "甲", value: "a" },
+          { label: "乙", value: "b" },
+        ],
+      },
+    ];
+    const askLive = applyRunEvent(initialRunCardState(), {
+      type: "backend.oma.ask_requested",
+      payload: { callId: "c2", questions },
+    });
+    expect(pendingActionFromBackend("ask", { callId: "c2", questions })).toEqual(
+      askLive.pendingAction,
+    );
+  });
+
+  test("pendingActionFromBackend rejects malformed records", () => {
+    expect(pendingActionFromBackend("unknown-kind", {})).toBeNull();
+    expect(pendingActionFromBackend("approval", {})).toBeNull(); // no callId
+    expect(pendingActionFromBackend("ask", { callId: "c" })).toBeNull(); // no questions
+  });
+
   test("text deltas accumulate and clear the HITL wait", () => {
     let s = initialRunCardState();
     s = applyRunEvent(s, { type: "backend.oma.approval_request", payload: { callId: "c" } });

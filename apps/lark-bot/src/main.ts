@@ -135,7 +135,7 @@ async function startRunCard(
   // Topic chats REQUIRE a thread reply and p2p ACCEPTS one — in p2p that reply
   // is what creates the topic at all (probed: the API returns a `thread_id`).
   const replyInThread = replyInThreadFor(chatMode);
-  const handle = watchRunCard(runId, conversationId, larkChatId, {
+  const handle = await watchRunCard(runId, conversationId, larkChatId, {
     db: state.db,
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
