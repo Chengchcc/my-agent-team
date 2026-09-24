@@ -390,6 +390,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   let broadcastAskEvent:
     | ((input: { runId: string; callId: string; question: AskQuestionInput }) => void)
     | null = null;
+  // Same holder for the plan strip: todo_write is executed by this service, so
+  // the native tool's todo_update hook is not in play and nothing else could
+  // publish the event both surfaces render from.
+  let broadcastTodoEvent: ((input: { runId: string; items: readonly unknown[] }) => void) | null =
+    null;
   const productTools = createProductToolsService({
     runPort: agentRunPort,
     contextPort,
@@ -398,6 +403,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     idGen: { ulid },
     artifactService,
     emitAsk: (input) => broadcastAskEvent?.(input),
+    emitTodo: (input) => broadcastTodoEvent?.(input),
   });
   let productToolsMcp: Awaited<ReturnType<typeof createProductToolsMcpServer>> | null = null;
   // Default set: product-tools + agent-config + workflow. The workflow DSL
@@ -626,6 +632,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     agentRunExecution.broadcastRunEvent(runId, {
       type: "backend.oma.ask_requested",
       payload: { callId, questions: question.questions },
+    });
+  };
+  // Late-bound for the same reason: the plan strip rides the run's live stream.
+  broadcastTodoEvent = ({ runId, items }) => {
+    agentRunExecution.broadcastRunEvent(runId, {
+      type: "backend.oma.todo_update",
+      payload: { items },
     });
   };
 

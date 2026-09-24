@@ -163,8 +163,23 @@ export async function createProductToolsMcpServer(
                     kind: { type: "string", enum: ["select", "text"] },
                     options: {
                       type: "array",
-                      items: { type: "string" },
                       description: "Required when kind=select",
+                      items: {
+                        type: "object",
+                        properties: {
+                          label: { type: "string", description: "Option text shown to the user" },
+                          value: {
+                            type: "string",
+                            description: "Returned in selectedValues; defaults to label",
+                          },
+                          description: { type: "string" },
+                        },
+                        required: ["label"],
+                      },
+                    },
+                    allowOther: {
+                      type: "boolean",
+                      description: "Offer an extra free-text row of the user's own",
                     },
                   },
                   required: ["id", "question"],

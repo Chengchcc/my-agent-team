@@ -1,4 +1,9 @@
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
+import type {
+  AskQuestionInput,
+  AskQuestionItem,
+  AskQuestionOption,
+  AskQuestionResult,
+} from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type { AgentContextPort, IdGenerator } from "../agent-context/ports.js";
 import { type AgentRun, isActiveStatus } from "../agent-run/domain.js";
@@ -65,6 +70,65 @@ export interface ProductToolCallPort {
   }): Promise<{ outcome: "stored" | "retained" | "conflict"; result?: string }>;
 }
 
+/** Normalize the model's `questions` into the DTO both surfaces render.
+ *
+ *  The tool schema declared `options: string[]` while the authoritative
+ *  `AskQuestionItem` declares `AskQuestionOption[]` — and every consumer (web
+ *  AskQuestionCard, Lark card) reads `{label, value}`. A model that followed
+ *  the schema produced a question neither surface could draw: the options were
+ *  dropped, so the user saw a question with no way to answer it. A bare string
+ *  option therefore becomes `{label: s, value: s}` here, before anything is
+ *  emitted or persisted — this is the convergence ADR 0033 recorded as a gap
+ *  ("the backend emitting a validated DTO"), not a defensive parse at each
+ *  edge. Returns null when nothing usable survives. */
+function normalizeQuestions(raw: readonly unknown[]): AskQuestionItem[] | null {
+  const out: AskQuestionItem[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const id = "id" in item && typeof item.id === "string" ? item.id.trim() : "";
+    const question =
+      "question" in item && typeof item.question === "string" ? item.question.trim() : "";
+    if (!id || !question) continue;
+    const normalized: AskQuestionItem = {
+      id,
+      kind: "kind" in item && item.kind === "text" ? "text" : "select",
+      question,
+    };
+    if ("header" in item && typeof item.header === "string") normalized.header = item.header;
+    if ("allowOther" in item && item.allowOther === true) normalized.allowOther = true;
+    if ("multi" in item && item.multi === true) normalized.multi = true;
+    if ("recommended" in item && typeof item.recommended === "string") {
+      normalized.recommended = item.recommended;
+    }
+    if ("options" in item && Array.isArray(item.options)) {
+      const options: AskQuestionOption[] = [];
+      for (const option of item.options) {
+        if (typeof option === "string") {
+          const label = option.trim();
+          if (label) options.push({ label, value: label });
+          continue;
+        }
+        if (typeof option !== "object" || option === null) continue;
+        const label =
+          "label" in option && typeof option.label === "string" ? option.label.trim() : "";
+        if (!label) continue;
+        const value =
+          "value" in option && typeof option.value === "string" && option.value
+            ? option.value
+            : label;
+        const parsedOption: AskQuestionOption = { label, value };
+        if ("description" in option && typeof option.description === "string") {
+          parsedOption.description = option.description;
+        }
+        options.push(parsedOption);
+      }
+      if (options.length > 0) normalized.options = options;
+    }
+    out.push(normalized);
+  }
+  return out.length > 0 ? out : null;
+}
+
 /** A Product Tool call was rejected (identity/scope/manifest violation). The
  *  MCP layer normalizes this into an isError tool result. */
 export class ProductToolRejectedError extends Error {
@@ -83,7 +147,14 @@ export interface ProductToolsServiceDeps {
   readonly artifactService: ArtifactService;
   /** Emit an ask to the product UI (SSE) when ask_question is raised. */
   readonly emitAsk?: (input: { runId: string; callId: string; question: AskQuestionInput }) => void;
-  /** Ask block deadline before it resolves null (model degrades). Default 60s. */
+  /** Emit the plan strip when todo_write replaces the run's list. Both the
+   *  web panel and the Lark card render from this event; the run's snapshot
+   *  row is the durable copy, this is the live one. */
+  readonly emitTodo?: (input: { runId: string; items: readonly unknown[] }) => void;
+  /** Ask block deadline before it resolves null (model degrades). Default 10
+   *  minutes: the question is rendered on a chat card, and a human has to
+   *  notice it, read it and tap an option — 60s expired routinely before
+   *  anyone could answer, which the model then saw as a timeout. */
   readonly askTimeoutMs?: number;
 }
 
@@ -97,7 +168,7 @@ export interface ProductToolsService {
  *  from the run, never trusted from MCP arguments. */
 export function createProductToolsService(deps: ProductToolsServiceDeps): ProductToolsService {
   const { runPort, contextPort, conversationPort, callPort } = deps;
-  const askTimeoutMs = deps.askTimeoutMs ?? 60_000;
+  const askTimeoutMs = deps.askTimeoutMs ?? 600_000;
   // keyed `${runId}:${callId}` — mirrors oma approval's pendingApprovalsByRun.
   const pendingAsks = new Map<string, (answer: AskQuestionResult | null) => void>();
 
@@ -330,6 +401,11 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     }
     const snapshot = JSON.stringify(items);
     await runPort.setRunTodoSnapshot(run.runId, snapshot);
+    // Live copy for the plan strip. Nothing used to emit this event: the only
+    // producer of `todo_update` was the NATIVE todo tool's hook, which never
+    // runs when the product tool is the one installed — so both consumers
+    // (web panel, Lark card) waited for an event that could not arrive.
+    deps.emitTodo?.({ runId: run.runId, items });
     const result = JSON.stringify({ items });
     await callPort.recordCall({
       runId: run.runId,
@@ -350,10 +426,16 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     const questions = input.args.questions;
     if (!Array.isArray(questions) || questions.length === 0) {
       throw new ProductToolRejectedError(
-        "ask_question requires questions: non-empty array of {id, question, kind}",
+        "ask_question requires questions: non-empty array of {id, question, kind, options}",
       );
     }
-    const parsed: AskQuestionInput = { questions: questions as AskQuestionInput["questions"] };
+    const normalized = normalizeQuestions(questions);
+    if (!normalized) {
+      throw new ProductToolRejectedError(
+        "ask_question questions need a non-empty string id and question",
+      );
+    }
+    const parsed: AskQuestionInput = { questions: normalized };
     const key = `${run.runId}:${input.callId}`;
     if (pendingAsks.has(key)) {
       throw new ProductToolRejectedError(`open ask already pending for call ${input.callId}`);

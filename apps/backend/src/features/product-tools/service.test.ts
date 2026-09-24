@@ -31,8 +31,13 @@ const TOOL_MANIFEST = [
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
 ];
 
-/** Captures emitAsk calls so tests can assert the request surfaced. */
-let emittedAsks: Array<{ runId: string; callId: string }> = [];
+/** Captures emitAsk calls so tests can assert the request surfaced.
+ *  `questions` is captured as it EMITS — that is the shape the two surfaces
+ *  (web AskQuestionCard, Lark card) render, and the model's raw args are not
+ *  necessarily it. */
+let emittedAsks: Array<{ runId: string; callId: string; questions: unknown[] }> = [];
+/** Captures emitTodo calls: the plan strip's live source. */
+let emittedTodos: Array<{ runId: string; items: readonly unknown[] }> = [];
 
 async function createRun(messageText: string): Promise<string> {
   const acq = await backend.enqueueAndAcquire({
@@ -98,10 +103,17 @@ beforeEach(async () => {
       download: async () => ({ content: "x", encoding: "utf8", mimeType: "text/plain" }),
     } as never,
     idGen: { ulid: () => `y-${Math.random().toString(36).slice(2, 8)}` },
-    emitAsk: (input) => emittedAsks.push({ runId: input.runId, callId: input.callId }),
+    emitAsk: (input) =>
+      emittedAsks.push({
+        runId: input.runId,
+        callId: input.callId,
+        questions: input.question.questions as unknown[],
+      }),
+    emitTodo: (input) => emittedTodos.push({ runId: input.runId, items: input.items }),
     askTimeoutMs: 2000,
   });
   emittedAsks = [];
+  emittedTodos = [];
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
   const branch = await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
@@ -501,6 +513,79 @@ describe("product tools service", () => {
     ).rejects.toThrow(/aborted/);
   });
 
+  test("string options are normalized to {label, value} before anything is emitted", async () => {
+    // The MCP schema used to declare `options: { items: { type: "string" } }`
+    // while every consumer reads `{label, value}`. A model that obeyed the
+    // schema therefore produced a question NOTHING could render: the web card
+    // and the Lark card both dropped every option, leaving a question with no
+    // way to answer it. The service is the one place that sees the raw args and
+    // the one place that emits, so the shape converges here.
+    const runId = await createRun("pick a place");
+    const callId = "ask-strings";
+    const pending = service.call({
+      identity: identity(runId),
+      callId,
+      idempotencyKey: `${runId}:${callId}`,
+      tool: "ask_question",
+      args: {
+        questions: [
+          {
+            id: "notes_location",
+            kind: "select",
+            question: "Where?",
+            options: ["workspace root", "tmp subdir"],
+          },
+        ],
+      },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const emitted = emittedAsks[0]!;
+    const questions = emitted.questions as Array<{
+      id: string;
+      kind: string;
+      options?: Array<{ label: string; value: string }>;
+    }>;
+    expect(questions[0]!.options).toEqual([
+      { label: "workspace root", value: "workspace root" },
+      { label: "tmp subdir", value: "tmp subdir" },
+    ]);
+    expect(questions[0]!.kind).toBe("select");
+
+    // And the durable copy — the row the card re-reads after a restart, and
+    // what the resolve endpoint answers against — carries the same shape.
+    const row = db
+      .query("SELECT payload FROM pending_action WHERE run_id = ? ORDER BY rowid DESC LIMIT 1")
+      .get(runId) as { payload: string };
+    const persisted = JSON.parse(row.payload) as {
+      questions: Array<{ options?: Array<{ label: string; value: string }> }>;
+    };
+    expect(persisted.questions[0]!.options).toEqual([
+      { label: "workspace root", value: "workspace root" },
+      { label: "tmp subdir", value: "tmp subdir" },
+    ]);
+
+    service.resolveAsk(runId, callId, {
+      answers: [{ id: "notes_location", selectedValues: ["workspace root"] }],
+    });
+    expect(await pending).toBeDefined();
+  });
+
+  test("todo_write publishes the plan strip event", async () => {
+    // The only producer of `todo_update` was the NATIVE todo tool's hook. In a
+    // backend run the product tool is the installed one, so no event was ever
+    // emitted and both consumers (web panel, Lark plan strip) waited forever.
+    const runId = await createRun("plan something");
+    const items = [{ id: "s1", text: "list files", status: "in_progress" }];
+    await service.call({
+      identity: identity(runId),
+      callId: "todo-1",
+      idempotencyKey: `${runId}:todo-1`,
+      tool: "todo_write",
+      args: { items },
+    });
+    expect(emittedTodos).toEqual([{ runId, items }]);
+  });
+
   test("ask_question blocks until resolveAsk wakes it", async () => {
     const runId = await createRun("hi");
     const callId = "ask-1";
@@ -517,7 +602,9 @@ describe("product tools service", () => {
     });
     // The request surfaces (emitted) but the call is still pending.
     await new Promise((r) => setTimeout(r, 50));
-    expect(emittedAsks).toEqual([{ runId, callId }]);
+    expect(emittedAsks.map((a) => ({ runId: a.runId, callId: a.callId }))).toEqual([
+      { runId, callId },
+    ]);
     let settled = false;
     void answered.then(() => {
       settled = true;
