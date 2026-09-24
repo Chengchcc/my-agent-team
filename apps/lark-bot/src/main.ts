@@ -7,6 +7,7 @@ import {
   ensureTopicRoot,
   getConversationBinding,
   getInputCard,
+  listBoundChats,
   listConversationBindings,
   listNonTerminalRunCards,
   newestConversationForChat,
@@ -168,6 +169,7 @@ const heartbeatTimer = setInterval(() => {
     { conversation: watchers.size, runDelta: 0 },
     null,
     countPendingDeliveries(state.db),
+    listBoundChats(state.db),
   );
   void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
 }, 30_000);

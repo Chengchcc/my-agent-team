@@ -9,6 +9,7 @@ import {
   getConversationBinding,
   getMemberBinding,
   inboundExists,
+  listBoundChats,
   listConversationBindings,
   newestConversationForChat,
   openBindings,
@@ -17,6 +18,7 @@ import {
   rebindConversation,
   rememberTopicKeys,
   reserveInbound,
+  setTopicRoot,
   updateChatMode,
   updatePushedSeq,
   upsertMessageDelivery,
@@ -98,6 +100,30 @@ describe("bindings-sqlite", () => {
   test("updateChatMode records the chat mode once, for reply targeting", () => {
     updateChatMode(db, "conv_test1", "topic");
     expect(getConversationBinding(db, "conv_test1")!.chatMode).toBe("topic");
+  });
+
+  test("listBoundChats groups conversations per chat for the heartbeat mirror", () => {
+    // A second conversation in oc_test2, with its topic root already known;
+    // oc_test1 keeps a null root (p2p before the first answer).
+    putConversationBinding(db, {
+      conversationId: "conv_test3",
+      larkChatId: "oc_test2",
+      chatType: "group",
+      chatMode: "topic",
+      createdAt: Date.now(),
+      pushedSeq: 0,
+    });
+    setTopicRoot(db, "conv_test3", "om_root_test3");
+
+    const chats = listBoundChats(db);
+    const oc2 = chats.find((c) => c.chatId === "oc_test2");
+    expect(oc2).toBeDefined();
+    expect(oc2!.conversations).toBe(2);
+    expect(oc2!.chatMode).toBe("topic");
+    expect(oc2!.topicRootMessageId).toBe("om_root_test3");
+    const oc1 = chats.find((c) => c.chatId === "oc_test1");
+    expect(oc1!.conversations).toBe(1);
+    expect(oc1!.topicRootMessageId).toBeNull();
   });
 
   test("topic keys map many Lark objects to one conversation", () => {

@@ -97,4 +97,41 @@ describe("runtime-ops routes", () => {
     expect(events.status).toBe(200);
     expect(await events.json()).toEqual({ events: [] });
   });
+
+  test("structured payload fields ride through (lark bound chats)", async () => {
+    await api(harness, "POST", "/api/internal/surfaces/lark/heartbeat", {
+      agentId: "a3",
+      status: "healthy",
+      payload: {
+        pendingDeliveries: 0,
+        chats: [
+          {
+            chatId: "oc_x",
+            chatType: "group",
+            chatMode: "topic",
+            conversations: 2,
+            topicRootMessageId: "om_r",
+          },
+        ],
+      },
+    });
+    const runtime = await api(harness, "GET", "/api/ops/agents/a3/runtime");
+    const rt = (await runtime.json()) as {
+      surfaces: Record<string, { counters: Record<string, number>; chats?: unknown[] }>;
+    };
+    const lark = rt.surfaces.lark!;
+    // The bound-chat mirror is stored verbatim for the console; the array
+    // must not leak into the numeric counters.
+    expect(lark.chats).toEqual([
+      {
+        chatId: "oc_x",
+        chatType: "group",
+        chatMode: "topic",
+        conversations: 2,
+        topicRootMessageId: "om_r",
+      },
+    ]);
+    expect(lark.counters.chats).toBeUndefined();
+    expect(lark.counters.pendingDeliveries).toBe(0);
+  });
 });

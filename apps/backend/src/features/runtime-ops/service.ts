@@ -6,18 +6,20 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import type { RuntimeOpsStore } from "./store.js";
 
+export interface SurfaceRuntimeStatus {
+  status: string;
+  lastSeenAt: number | null;
+  lastError: string | null;
+  counters: Record<string, number>;
+  /** Structured mirrors the surface reported (lark: its bound
+   *  chat→conversation list). Numbers still land in `counters`. */
+  chats?: unknown[];
+}
+
 export interface AgentRuntimeStatus {
   agentId: string;
   agentName: string;
-  surfaces: Record<
-    string,
-    {
-      status: string;
-      lastSeenAt: number | null;
-      lastError: string | null;
-      counters: Record<string, number>;
-    }
-  >;
+  surfaces: Record<string, SurfaceRuntimeStatus>;
 }
 
 export function createRuntimeOpsService(deps: {
@@ -105,13 +107,15 @@ export function createRuntimeOpsService(deps: {
             if (typeof v === "number") result[sh.surface]!.counters[`${prefix}${k}`] = v;
           }
         };
-        result[sh.surface] = {
+        const surfaceStatus: SurfaceRuntimeStatus = {
           status: sh.status,
           lastSeenAt: sh.lastSeenAt,
           lastError: sh.lastError ?? null,
           counters: {},
         };
+        result[sh.surface] = surfaceStatus;
         flatten(raw, "");
+        if (Array.isArray(raw.chats)) surfaceStatus.chats = raw.chats;
       }
       return { agentId, agentName: resolveName(agentId), surfaces: result };
     },

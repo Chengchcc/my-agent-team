@@ -685,3 +685,37 @@ export function runIdFromMessageId(messageId: string): string | null {
   const runId = messageId.split(":")[1];
   return runId && runId.length > 0 ? runId : null;
 }
+
+/** One bound chat with its conversation count — the heartbeat's payload for
+ *  the backend's per-chat policy surface (ADR 0037: the bot owns the
+ *  mapping, the backend only mirrors it for display). */
+export interface BoundChatSummary {
+  chatId: string;
+  chatType: string | null;
+  chatMode: string | null;
+  conversations: number;
+  topicRootMessageId: string | null;
+}
+
+export function listBoundChats(db: Database): BoundChatSummary[] {
+  const rows = d(db).select().from(schema.conversationBinding).all().map(toConversationBinding);
+  const byChat = new Map<string, BoundChatSummary>();
+  for (const row of rows) {
+    const existing = byChat.get(row.larkChatId);
+    if (existing) {
+      existing.conversations += 1;
+      if (!existing.topicRootMessageId && row.topicRootMessageId) {
+        existing.topicRootMessageId = row.topicRootMessageId;
+      }
+      continue;
+    }
+    byChat.set(row.larkChatId, {
+      chatId: row.larkChatId,
+      chatType: row.chatType ?? null,
+      chatMode: row.chatMode ?? null,
+      conversations: 1,
+      topicRootMessageId: row.topicRootMessageId ?? null,
+    });
+  }
+  return [...byChat.values()].sort((a, b) => (a.chatId < b.chatId ? -1 : 1));
+}

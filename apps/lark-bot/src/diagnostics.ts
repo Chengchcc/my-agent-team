@@ -18,6 +18,10 @@ export interface LarkBotHealth {
    *  rows). A flat number so the backend's heartbeat flattener lifts it into
    *  `counters.pendingDeliveries`, which the Lark surface view reads. */
   pendingDeliveries: number;
+  /** The bot's own chat→conversation bindings, mirrored to the backend each
+   *  beat so the console can show "飞书已绑定" and per-chat policy without
+   *  reaching into the bot's SQLite. */
+  chats: BoundChatSummary[];
   ts: number;
 }
 
@@ -27,6 +31,7 @@ export function collectHealth(
   watcherCounts: { conversation: number; runDelta: number },
   lastError: string | null,
   pendingDeliveries: number,
+  chats: BoundChatSummary[],
 ): LarkBotHealth {
   return {
     agentId,
@@ -44,10 +49,12 @@ export function collectHealth(
     },
     lastError,
     pendingDeliveries,
+    chats,
     ts: Date.now(),
   };
 }
 
+import type { BoundChatSummary } from "./bindings-sqlite.js";
 import { createClient } from "./client.js";
 
 /** The heartbeat body's payload: an explicit whitelist.
@@ -63,6 +70,7 @@ export function heartbeatPayload(health: LarkBotHealth): Record<string, unknown>
     watchers: health.watchers,
     runStreams: health.runStreams,
     pendingDeliveries: health.pendingDeliveries,
+    chats: health.chats,
     ts: health.ts,
   };
 }

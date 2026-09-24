@@ -17,6 +17,15 @@ const HEALTH: LarkBotHealth = {
   },
   lastError: null,
   pendingDeliveries: 3,
+  chats: [
+    {
+      chatId: "oc_1",
+      chatType: "group",
+      chatMode: "topic",
+      conversations: 2,
+      topicRootMessageId: "om_root",
+    },
+  ],
   ts: 1_800_000_000_000,
 };
 
@@ -28,8 +37,13 @@ describe("heartbeat payload", () => {
     const payload = heartbeatPayload(HEALTH);
     expect(payload.pendingDeliveries).toBe(3);
     expect(Object.keys(payload).sort()).toEqual(
-      ["pendingDeliveries", "profileRef", "runStreams", "ts", "watchers"].sort(),
+      ["chats", "pendingDeliveries", "profileRef", "runStreams", "ts", "watchers"].sort(),
     );
+  });
+
+  test("the bound-chat mirror rides the payload for the backend to store", () => {
+    const payload = heartbeatPayload(HEALTH);
+    expect(payload.chats).toEqual(HEALTH.chats);
   });
 
   test("reporting a queue is a flat number the backend can flatten", () => {
@@ -41,11 +55,11 @@ describe("heartbeat payload", () => {
 
 describe("collectHealth", () => {
   test("degraded iff there is a lastError, and it reports the pending queue", () => {
-    const clean = collectHealth("a1", "agent:a1", { conversation: 2, runDelta: 0 }, null, 0);
+    const clean = collectHealth("a1", "agent:a1", { conversation: 2, runDelta: 0 }, null, 0, []);
     expect(clean.status).toBe("running");
     expect(clean.pendingDeliveries).toBe(0);
 
-    const sad = collectHealth("a1", "agent:a1", { conversation: 2, runDelta: 0 }, "boom", 7);
+    const sad = collectHealth("a1", "agent:a1", { conversation: 2, runDelta: 0 }, "boom", 7, []);
     expect(sad.status).toBe("degraded");
     expect(sad.lastError).toBe("boom");
     expect(sad.pendingDeliveries).toBe(7);
