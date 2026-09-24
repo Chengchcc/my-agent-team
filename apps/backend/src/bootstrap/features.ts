@@ -1493,6 +1493,25 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // will dispatch fresh Runs onto those same branches.
     await agentRunExecution.recover();
     await workflowExecutionService.recover();
+    // Boot-time bot pull-up: a lark-enabled agent's bot used to start only
+    // when its config was re-saved, so a backend restart silently dropped
+    // every bot until someone touched the agent. Runs after listen (main
+    // calls start() post server.start), so the children can connect.
+    for (const agent of await agentSvc.list(true)) {
+      const lk = agent.config.lark;
+      const bootable =
+        agent.config.enabled === true && lk.enabled === true && lk.profile_ref !== "";
+      if (!bootable) continue;
+      larkBotRegistry
+        .ensureLarkBot(agent.id, lk.bot_display_name || null, lk.profile_ref)
+        .then(() => console.log(`[lark-bot] boot start for ${agent.id}`))
+        .catch((err: unknown) =>
+          console.error(
+            `[lark-bot] boot start failed for ${agent.id}:`,
+            err instanceof Error ? err.message : String(err),
+          ),
+        );
+    }
     const smokeCronExpr = config.smokeCron;
     if (smokeCronExpr) {
       smokeCron = Bun.cron(smokeCronExpr, () => {

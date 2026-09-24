@@ -175,7 +175,10 @@ export function buildAgentConfig(input: {
       respond_to_mention_all:
         input.lark?.respondToMentionAll ?? prev?.lark.respond_to_mention_all ?? false,
       policy_rev: 2,
-      profile_ref: prev?.lark.profile_ref ?? (input.lark?.enabled ? `agent:${input.id}` : ""),
+      // `||`, not `??: a seeded agent carries profile_ref "" and enabling
+      // lark must derive `agent:<id>` — `??` treats "" as a real value and
+      // the agent could never get a profile from PATCH/wizard alone.
+      profile_ref: prev?.lark.profile_ref || (input.lark?.enabled ? `agent:${input.id}` : ""),
     },
   });
 }

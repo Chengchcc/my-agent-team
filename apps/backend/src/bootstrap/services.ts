@@ -19,7 +19,10 @@ export interface BackendServices {
   larkBotRegistry: LarkBotRegistry;
 }
 
-export function createBackendServices(config?: BackendConfig): BackendServices {
+export function createBackendServices(
+  config?: BackendConfig,
+  opts?: { larkBotRegistry?: LarkBotRegistry },
+): BackendServices {
   const cfg = config ?? loadConfig();
   const db = openDb(`${cfg.dataDir}/backend.db`, { migrationsDir: cfg.migrationsDir });
 
@@ -31,7 +34,7 @@ export function createBackendServices(config?: BackendConfig): BackendServices {
   const mcpClientManager = createMcpClientManager();
   const opsStore = new RuntimeOpsStore(db);
 
-  const larkBotRegistry = createLarkBotRegistry(cfg);
+  const larkBotRegistry = createLarkBotRegistry(cfg, opts?.larkBotRegistry);
 
   return {
     config: cfg,

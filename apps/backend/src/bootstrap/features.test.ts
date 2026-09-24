@@ -88,6 +88,57 @@ describe("InstalledFeatures", () => {
   });
 });
 
+test("boot pull-up starts bots for lark-enabled agents", async () => {
+  const dir = mkdtempSync(`${tmpdir()}/p9-lark-boot-`);
+  const cfg = setup(dir);
+
+  // The real registry spawns the actual bot bin, which cannot reach Lark
+  // from a test; a recording fake pins the pull-up's contract instead.
+  const ensured: Array<{ agentId: string; profile: string | null }> = [];
+  const fakeRegistry = {
+    async ensureLarkBot(agentId: string, _name?: string | null, larkProfile?: string | null) {
+      ensured.push({ agentId, profile: larkProfile ?? null });
+    },
+    async stopLarkBot() {},
+    statusOf(agentId: string) {
+      return ensured.some((e) => e.agentId === agentId)
+        ? ("running" as const)
+        : ("configured" as const);
+    },
+    async dispose() {},
+  };
+
+  const { createBackendServices } = await import("./services.js");
+  const services = createBackendServices(cfg as Parameters<typeof createBackendServices>[0], {
+    larkBotRegistry: fakeRegistry,
+  });
+
+  const { installFeatures } = await import("./features.js");
+  const installed = await installFeatures(services);
+
+  const { createApp } = await import("../app.js");
+  const app = createApp(cfg.authToken, installed.featureSet);
+  const res = await app.handle(
+    new Request("http://localhost/api/agents/default", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-auth-token": cfg.authToken },
+      body: JSON.stringify({ lark: { enabled: true, appId: "cli_test", appSecret: "secret" } }),
+    }),
+  );
+  expect(res.status).toBe(200);
+
+  await installed.start();
+  // PATCH starts the bot immediately and the boot pull-up re-ensures it —
+  // both callers, one contract: only enabled agents, derived profile.
+  expect(ensured.length).toBeGreaterThanOrEqual(1);
+  expect(ensured.every((e) => e.agentId === "default" && e.profile === "agent:default")).toBe(true);
+  expect(services.larkBotRegistry.statusOf("default")).toBe("running");
+
+  await installed.dispose();
+  await services.mcpClientManager.disconnectAll();
+  services.db.close();
+});
+
 test("fresh boot: default agent carries a real model + the onCreate chain ran", async () => {
   const dir = mkdtempSync(`${tmpdir()}/p9-fresh-`);
   // The oma child's runtime catalog resolves models.yml via
