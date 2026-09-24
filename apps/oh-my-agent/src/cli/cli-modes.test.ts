@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createModelRuntime } from "@chengchenccc/ai";
+import { BUILTIN_CATALOG, createModelRuntime } from "@chengchenccc/ai";
 import { listSessions, loadSessionMessages } from "../core/session/session-file.js";
 import { runPrintMode } from "../modes/print-mode.js";
 import type { OmaOutput } from "../protocol/index.js";
@@ -271,13 +271,18 @@ describe("oma CLI (spawned)", () => {
   }, 15_000);
 
   test("run failure exits non-zero with the error on stderr (no model provider)", async () => {
-    // No fake provider AND no real credentials: the catalog registers no
-    // provider regardless of the host shell's env.
+    // No fake provider AND no real credential: the catalog must register no
+    // provider regardless of the host shell's env. The blanked list is
+    // DERIVED from the catalog — it used to name three providers by hand, so
+    // adding Z.AI (whose key this host has set) turned this test red by
+    // leaking the host environment into the child rather than by breaking
+    // anything. A hand-written list cannot keep up with the catalog.
+    const blankAllProviderKeys = Object.fromEntries(
+      Object.values(BUILTIN_CATALOG.providers).map((spec) => [spec.apiKeyEnv, ""]),
+    );
     const res = await spawnCli(["-p", "x"], {
+      ...blankAllProviderKeys,
       OMA_FAKE_PROVIDER: "",
-      ANTHROPIC_API_KEY: "",
-      DEEPSEEK_API_KEY: "",
-      OPENAI_API_KEY: "",
     });
     expect(res.exitCode).not.toBe(0);
     expect(res.stdout).toBe("");
