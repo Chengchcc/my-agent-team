@@ -132,7 +132,14 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       });
       const { envelope, result } = await parse(resp);
       if (!result.ok) return result;
-      const messageId = (envelope.data as { message_id?: string } | undefined)?.message_id;
+      const data = envelope.data;
+      const messageId =
+        typeof data === "object" &&
+        data !== null &&
+        "message_id" in data &&
+        typeof data.message_id === "string"
+          ? data.message_id
+          : undefined;
       if (typeof messageId !== "string" || !messageId) {
         return { ok: false, error: "no message_id in sendCard response", retryable: false };
       }

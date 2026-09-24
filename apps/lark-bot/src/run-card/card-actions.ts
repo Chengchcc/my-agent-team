@@ -87,16 +87,19 @@ export type RunCardAction = { action: "stop"; runId: string };
 
 /** Decode the button payload; only shapes we explicitly emit are accepted. */
 export function decodeActionValue(raw: string): RunCardAction | null {
+  let parsed: unknown;
   try {
-    const value = JSON.parse(raw) as { action?: unknown; runId?: unknown };
-    const runId = value.runId;
-    if (value.action === "stop" && typeof runId === "string" && runId.length > 0) {
-      return { action: "stop", runId };
-    }
-    return null;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const runId = "runId" in parsed ? parsed.runId : undefined;
+  const action = "action" in parsed ? parsed.action : undefined;
+  if (action === "stop" && typeof runId === "string" && runId.length > 0) {
+    return { action: "stop", runId };
+  }
+  return null;
 }
 
 /** Bounded in-memory event_id dedup (restart replays are idempotent anyway:
