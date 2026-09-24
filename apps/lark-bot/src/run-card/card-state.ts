@@ -1,3 +1,6 @@
+import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
+import { OmaTodoItem } from "@chengchenccc/api-contract";
+
 /**
  * ADR 0031: pure reducer from Run SSE events to the card's display state.
  * Kept free of I/O so the whole projection is unit-testable.
@@ -16,11 +19,6 @@ export interface ActiveTool {
 export interface CompletedTool {
   label: string;
   outcome: "success" | "error";
-}
-
-export interface TodoItem {
-  text: string;
-  status: "pending" | "in_progress" | "completed";
 }
 
 export interface AskOption {
@@ -50,7 +48,9 @@ export interface RunCardState {
   output: string;
   activeTool: ActiveTool | null;
   completedTools: CompletedTool[];
-  todos: TodoItem[];
+  /** The oma todo plugin's snapshot, forwarded verbatim by the backend —
+   *  vocabulary is the producer's (done/cancelled), not a card-local one. */
+  todos: readonly OmaTodoItemType[];
   terminal: { status: "completed" | "failed" | "cancelled"; error: string | null } | null;
 }
 
@@ -116,23 +116,17 @@ function isErrorResult(result: unknown): boolean {
   return "isError" in result && result.isError === true;
 }
 
-/** Parse todo items from the wire payload (items is unknown[]). */
-function parseTodoItems(items: unknown): TodoItem[] {
+/** Parse todo items with the shared wire schema — the same definition the
+ *  Web reducer relies on, so the two surfaces cannot drift apart. An item
+ *  that fails validation is dropped rather than guessed at. */
+function parseTodoItems(items: unknown): readonly OmaTodoItemType[] {
   if (!Array.isArray(items)) return [];
-  const STATUS_MAP: Record<string, TodoItem["status"]> = {
-    pending: "pending",
-    in_progress: "in_progress",
-    completed: "completed",
-  };
-  const todos: TodoItem[] = [];
+  const parsed: OmaTodoItemType[] = [];
   for (const item of items) {
-    if (typeof item !== "object" || item === null) continue;
-    const text = "text" in item && typeof item.text === "string" ? item.text : null;
-    const status =
-      "status" in item && typeof item.status === "string" ? STATUS_MAP[item.status] : undefined;
-    if (text !== null && status !== undefined) todos.push({ text, status });
+    const result = OmaTodoItem.safeParse(item);
+    if (result.success) parsed.push(result.data);
   }
-  return todos.slice(0, MAX_TODOS);
+  return parsed.slice(0, MAX_TODOS);
 }
 
 /** Parse the first select/text question from the ask payload. */

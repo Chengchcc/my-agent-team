@@ -143,6 +143,36 @@ describe("applyRunEvent reducer", () => {
     expect(s.pendingAction?.questionId).toBe("q1");
   });
 
+  test("todo_update uses the producer's vocabulary — done/cancelled are kept", () => {
+    const state = applyRunEvent(initialRunCardState(), {
+      type: "backend.oma.todo_update",
+      payload: {
+        items: [
+          { id: "t1", text: "读代码", status: "done" },
+          { id: "t2", text: "改代码", status: "in_progress" },
+          { id: "t3", text: "别做", status: "cancelled" },
+          { id: "t4", text: "待办", status: "pending" },
+          { id: "bad", text: "缺状态" },
+        ],
+      },
+    });
+    // The oma todo plugin emits done/cancelled, not "completed" — a
+    // card-local vocabulary silently dropped every finished step.
+    expect(state.todos.map((t) => t.status)).toEqual([
+      "done",
+      "in_progress",
+      "cancelled",
+      "pending",
+    ]);
+    const content = JSON.stringify(
+      renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null }),
+    );
+    expect(content).toContain("✓ 读代码");
+    expect(content).toContain("● 改代码");
+    expect(content).toContain("✗ 别做");
+    expect(content).toContain("○ 待办");
+  });
+
   test("terminal statuses map and freeze the state", () => {
     let s = applyRunEvent(initialRunCardState(), { type: "text_delta", text: "x" });
     s = applyRunEvent(s, { type: "status", status: "aborted" });

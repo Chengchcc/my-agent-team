@@ -53,7 +53,7 @@
 
 **飞书的会话绑定状态没有同步到后端。** Web 的对话页想显示「飞书已绑定」，但 `larkChatId ↔ conversationId` 的映射存在 lark-bot 自己的 SQLite 里，需要跨应用同步进后端。
 
-**Lark Run 卡片第一期已落地**（ADR 0031：CardKit 直连流式投影、终态 canonical 封版、卡片「停止」按钮 + `/stop` 命令、重启恢复；终态可靠投递见 ADR 0032；按钮回调经 lark-cli ≥1.0.9x 的 `card.action.trigger`）。仍欠：审批/追问的卡片内按钮与表单（机制已通，属直接扩展）、多操作者的签名 action token 与 backend 侧 event_id 去重；**注意每应用卡片实体绑定配额**（200780，测试约 18 张触发）——高频使用需关注配额或提供 IM-patch 降级路径。
+**Lark Run 卡片第一期已落地**（ADR 0031：CardKit 直连流式投影、终态 canonical 封版、卡片「停止」按钮 + `/stop` 命令、重启恢复；终态可靠投递见 ADR 0032）。2026-09-24 追加：按钮回调经 lark-cli ≥1.0.9x 的 `card.action.trigger`，审批（批准/拒绝）与追问的选项按钮都已接（`answer_ask` 走 `/api/product-tools/ask/resolve`，与 Web 同一条路径）；卡片有过程视图（当前动作 + 已完成步骤 + todo 计划条）。仍欠：追问的自由文本输入（Card JSON 2.0 `input`/`form`）与多选、reaction 触发、多操作者的签名 action token 与 backend 侧 event_id 去重、lark-bot 重启后从 `pending_action` 回读未答的追问；**注意每应用卡片实体绑定配额**（200780，测试约 18 张触发）——高频使用需关注配额或提供 IM-patch 降级路径。
 
 **产物缺内容账本与保留策略。** 来源信息有了（meta 文件加列表接口），缺 sha256 内容账本与校验端点、保留期的定时清理、以及主动清除接口。
 

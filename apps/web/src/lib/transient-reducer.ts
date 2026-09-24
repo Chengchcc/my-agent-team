@@ -1,3 +1,5 @@
+import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
+
 /** Pure transient-stream state transitions. The hook keeps the maps in
  *  React state; these functions make the multi-run merge/drop semantics
  *  unit-testable without DOM or EventSource. */
@@ -250,11 +252,9 @@ export function clearRunTools(state: LiveToolMap, runId: string): LiveToolMap {
 
 // ─── Run-local todos ─────────────────────────────────────────────────────
 
-export interface TodoItem {
-  readonly id: string;
-  readonly text: string;
-  readonly status: "pending" | "in_progress" | "done" | "cancelled";
-}
+/** The wire shape lives in api-contract (OmaTodoItem) — both surfaces read
+ *  the same definition, so a vocabulary change cannot drift one of them. */
+export type TodoItem = OmaTodoItemType;
 
 /** runId -> full todo snapshot (todo_write sends the whole state). */
 export type RunTodoMap = Record<string, readonly TodoItem[]>;

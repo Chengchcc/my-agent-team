@@ -15,6 +15,8 @@ export {
   ConversationEventKind,
   conversationEvents,
   createSseEncoder,
+  OmaTodoItem,
+  OmaTodoStatus,
   runEvents,
   sseEndpoints,
   workflowDefinitionEvents,

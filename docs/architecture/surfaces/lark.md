@@ -19,7 +19,8 @@ tags: [lark, surfaces, backend]
 - `apps/lark-bot/src/main.ts` — 起 `lark-cli event consume`、按行解析、watcher 表、重绑、心跳、退出处理
 - `apps/lark-bot/src/ingest.ts` — 入站主管线与 `/stop` 控制命令
 - `apps/lark-bot/src/bindings-sqlite.ts` — 五张表的读写与 `rebindChatConversation`
-- `apps/lark-bot/src/run-card/` — Run 卡片：`card-sender.ts`（lark-cli 发卡与 PATCH）、`card-state.ts`（事件→状态的纯 reducer）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`run-card-watcher.ts`（生命周期与终态封版）
+- `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（事件→状态的纯 reducer）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
+- `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
 - `apps/lark-bot/src/render.ts` 与 `markdown-normalizer.ts` — 行到文本的渲染、换行与截断
 - `apps/lark-bot/src/sender.ts` 与 `send-text-only.ts` — 经 lark-cli 投递
 - `apps/lark-bot/src/{bootstrap,args,event-parser,client,safe-agent-id,diagnostics}.ts` — 启动、参数、事件解析、treaty 客户端、id 安全化、心跳
@@ -71,11 +72,14 @@ canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值
 
 ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并发送引用消息，状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。**loop 事件先归并成运行视图、绝不直接映射**：`thinking_delta` 只产生阶段词（原始推理永不进 Lark）、`text_delta` 是唯一逐字流（主输出区）、工具事件折叠成「当前动作 + 已完成步骤」摘要（结果按 `result.isError` 判成败，原始输入输出留在 Web）、`approval_request` 携带 callId 切换审批帧。**热路径直连 CardKit OpenAPI**（`run-card/card-kit.ts`，纯 fetch）；tenant token 由 `lark-api.ts` 从 lark-cli 本地密钥库解出 secret 自行铸造并缓存——lark-cli 只保留 profile 管理、入站事件与普通文本发送。
 
+oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：backend 注入、执行、鉴权后以标准 Run SSE 事件下发，卡片只是投影的一环。`backend.oma.todo_update` 的计划条渲染进过程区（最近 5 条，`done` ✓ / `in_progress` ● / `cancelled` ✗ / `pending` ○）；`backend.oma.ask_requested` 把第一题解析成 `pendingAction`（题面 + 选项 + 是否允许自由输入），活卡据此把「停止」换成选项按钮。**todo 状态词表属于生产方（oma todo 插件：`pending | in_progress | done | cancelled`），卡片不得自造词表**——两端的形状定义收敛在 `packages/api-contract/src/sse.ts` 的 `OmaTodoItem`（Web reducer 同样复用），`done` 曾被卡片侧误写成 `completed` 而整条丢失。
+
 - **传输分层（决策 9）**：正文逐字 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画；正文/过程条/状态行三个元素各自只推变化）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，也是按钮集变化的唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
 - **节流与节拍**：150ms/120 字符合并、单飞 flush（互斥 + 补刷 + 只推变化元素）；另有一个 1 秒状态节拍器，保证「耗时 N 秒」在模型思考/工具运行期间也每秒跳动（内容没变就不发请求）。
 - **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等落库；封版替换失败降级为发送最终纯文本（`larkIdempotencyKey` 哈希键）并把卡标 `fallback_text`。
 - **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
-- **控制（决策 6，已实现）**：活卡带红色「停止」按钮（`behaviors:[{type:"callback",value:{runId,action:"stop"}}]`）；点击经 lark-cli ≥1.0.9x 的 `card.action.trigger` 长连接回调 → `run-card/card-actions.ts` 校验（event_id 去重、message↔run_card 映射、chat/run 匹配，action_value 永不单独被信任）→ `POST /api/agent-runs/:runId/cancel` → cancelled 终态封灰。`/stop` 入站命令为等价通道，成功即沉默（卡片即反馈）。
+- **控制（决策 6，已实现）**：活卡带红色「停止」按钮（`behaviors:[{type:"callback",value:{runId,action:"stop"}}]`）；`waiting` 帧把按钮换成「批准/拒绝」（`action:"approve" | "reject"` + callId）或问答题的选项按钮（`action:"answer_ask"` + callId、questionId、selectedValue）。点击经 lark-cli ≥1.0.9x 的 `card.action.trigger` 长连接回调 → `run-card/card-actions.ts` 校验（event_id 去重、message↔run_card 映射、chat/run 匹配，action_value 永不单独被信任）→ 停止走 `POST /api/agent-runs/:runId/cancel`，审批走 `.../approval`，追问走 `POST /api/product-tools/ask/resolve`（**与 Web 同一条 resolve 路径，两端各渲染一次而已**）→ Run SSE 的对应事件清掉 `pendingAction`，终态封版。`/stop` 入站命令为等价通道，成功即沉默（卡片即反馈）。
+- **回调载荷形状**：lark-cli 把事件摊平成顶层 snake_case 键（`event_id`/`operator_id`/`chat_id`/`message_id`/`action_tag`/`action_value`），不是 Lark 原始 schema 的 `action.value`——`card-actions.ts` 按这个形状取值，测试 fixture 也照此构造。
 - **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态）。
 - **幂等键**：飞书 `--idempotency-key` 有 **50 字符上限**（99992402），自然键天然超限，统一 `larkIdempotencyKey()` 哈希成 40 位十六进制。
 - **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；Run SSE 晚订阅语义保证已结算 run 立即给终态。
@@ -115,8 +119,10 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。
 - 群聊的 @ 检测依赖 `botDisplayName`，缺了就只有单聊可用。
 - 出站没有回执：投递成功与否只体现在 lark-cli 的退出码上。
-- 卡片交互只有 `/stop` 命令与 Web 深链：reaction 触发（`im.message.reaction.created_v1`）与卡片按钮回调（`card.action.trigger`，lark-cli 的 event 目录没有）都未实现，见 ADR 0031 决策 6。
-- 审批与追问在卡片上只有「等待」状态展示，没有卡片内表单（回答仍需 Web 端），等回调通道解决后是第二期。
+- 卡片交互只差 reaction 触发（`im.message.reaction.created_v1`，lark-cli 的 event 目录没有）。按钮回调（`card.action.trigger`）已实现，见 ADR 0031 决策 6 的 2026-09-24 修订。
+- 追问的自由输入只有「其他…」按钮占位：Card JSON 2.0 的 `input`/`form` 未接，需要自由文本回答时得到 Web 端。多选（`multi`）也只按单选取值。
+- 回调只做了单操作者的防重放（event_id 去重 + message↔run_card 映射）。签名 action token 与 backend 侧事件去重留给多操作者场景。
+- 工具摘要不含参数：`native_tool_started` 线上只带 `toolName`/`callId`（`apps/oh-my-agent/src/protocol/mapping.ts`），所以卡片只能显示「执行命令」，说不出执行的是哪条命令。
 
 ## 相关页
 

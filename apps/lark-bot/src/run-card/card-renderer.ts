@@ -77,8 +77,9 @@ export function renderProcessContent(state: RunCardState): string {
   const lines: string[] = [];
   if (state.todos.length > 0) {
     for (const todo of state.todos.slice(-5)) {
-      if (todo.status === "completed") lines.push(`✓ ${todo.text}`);
+      if (todo.status === "done") lines.push(`✓ ${todo.text}`);
       else if (todo.status === "in_progress") lines.push(`● ${todo.text}`);
+      else if (todo.status === "cancelled") lines.push(`✗ ${todo.text}`);
       else lines.push(`○ ${todo.text}`);
     }
     if (state.todos.length > 5) lines.push(`… 共 ${state.todos.length} 项`);

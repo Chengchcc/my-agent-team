@@ -55,10 +55,27 @@ export const conversationEvents = {
   "surface.control": ConversationEvent,
 } as const satisfies SSEEventMap;
 
+/** One todo in the run's plan. The vocabulary is the oma todo plugin's
+ *  (`pending | in_progress | done | cancelled`) — the backend forwards the
+ *  snapshot verbatim, so surfaces must NOT invent a second vocabulary or
+ *  `done` items silently vanish. */
+export const OmaTodoStatus = z.enum(["pending", "in_progress", "done", "cancelled"]);
+
+export type OmaTodoStatus = z.infer<typeof OmaTodoStatus>;
+
+export const OmaTodoItem = z.object({
+  id: z.string(),
+  text: z.string(),
+  status: OmaTodoStatus,
+});
+
+export type OmaTodoItem = z.infer<typeof OmaTodoItem>;
+
 /** Agent-run live update stream (`/agent-runs/:runId/events`). Payloads are
  *  the BackendEvent objects the execution service broadcasts — core events
  *  carry fields at top level, oma extensions carry `{ payload }`. Schemas
- *  are intentionally loose on opaque payloads (todo items, workflow usage). */
+ *  are intentionally loose on opaque payloads (workflow usage); typed where
+ *  two surfaces must agree on the shape (todo items). */
 export const runEvents = {
   status: z.object({
     type: z.literal("status"),
@@ -80,7 +97,7 @@ export const runEvents = {
   }),
   "backend.oma.todo_update": z.object({
     type: z.literal("backend.oma.todo_update"),
-    payload: z.object({ items: z.array(z.unknown()).optional() }).optional(),
+    payload: z.object({ items: z.array(OmaTodoItem).optional() }).optional(),
   }),
   /** HITL approval card (oma rpc emits; adapter maps via backend.oma.*).
    *  `sandboxed` is the truthful OS-bash-sandbox signal (bash approvals
