@@ -69,15 +69,17 @@ canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值
 
 ## Run 卡片（ADR 0031 第一期）
 
-ingest 拿到 `triggeredRuns` 后立刻为每个 run 创建占位卡片（「正在思考」），状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。卡片经 `lark-cli im +messages-send --msg-type interactive` 发出，之后整体 PATCH 更新（Card JSON 2.0 的 `streaming_mode` 让客户端做打字机渲染）。事件消费 `/api/agent-runs/:runId/events`：text_delta 追加正文、tool 事件只记摘要（当前工具一行 + 完成计数）、approval/ask 切「等待」头、终态 status 触发封版。
+ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并发送引用消息，状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。**热路径直连 CardKit OpenAPI**（`run-card/card-kit.ts`，纯 fetch）；tenant token 由 `lark-api.ts` 从 lark-cli 本地密钥库解出 secret 自行铸造并缓存——lark-cli 只保留 profile 管理、入站事件与普通文本发送。事件消费 `/api/agent-runs/:runId/events`：text_delta 追加正文、tool 事件进状态行摘要、approval/ask 切「等待」帧、终态触发封版。
 
-- **节流**：150ms 或 120 字符合并一次 PATCH，经单飞 flush 控制器（PATCH 互斥、期间的新请求合并为一次补刷）；PATCH 失败不致命，下一次 delta 继续补。
-- **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 里取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等提交落库；封版 PATCH 重试耗尽后降级为直接发送最终纯文本（幂等键 `<conversationId>:<runId>:seal`）并把卡片标 `fallback_text`。
-- **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送、只推游标；卡片从创建起就拥有这条 Run 的投递权。占位卡发送失败时卡片直接标 `fallback_text`，文本桥照常投递。
-- **正文窗口**：只保留最近约 10k 字符，头部折叠并提示去 Web 看（`--web-url` 或 `LARK_WEB_URL` 配置后页脚带「在 Web 查看」链接，Markdown 链接形态，无需回调通道）。
-- **控制**：`/stop` 入站命令取消该 chat 的全部活跃卡片对应的 run（`POST /api/agent-runs/:runId/cancel`，幂等）；卡片按钮回调在当前通道不可达（ADR 0031 决策 6），reaction 触发尚未实现。
-- **幂等键**：飞书对 `--idempotency-key` 有 **50 字符上限**（超了报 99992402 field validation failed），而 conversationId(25) + assistant messageId(~41) 天然超限；三个键（文本桥、卡片、封版降级）统一走 `larkIdempotencyKey()` 哈希成 40 位十六进制。
-- **重启恢复**：启动时读回所有非终态 `run_card` 行继续驱动（Run SSE 的晚订阅语义保证已结算的 run 会立刻给一个终态事件）。
+- **传输分层（决策 9）**：逐字流式 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，这是唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
+- **节流与节拍**：150ms/120 字符合并、单飞 flush（互斥 + 补刷 + 只推变化元素）；另有一个 1 秒状态节拍器，保证「耗时 N 秒」在模型思考/工具运行期间也每秒跳动（内容没变就不发请求）。
+- **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等落库；封版替换失败降级为发送最终纯文本（`larkIdempotencyKey` 哈希键）并把卡标 `fallback_text`。
+- **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
+- **控制（决策 6，已实现）**：活卡带红色「停止」按钮（`behaviors:[{type:"callback",value:{runId,action:"stop"}}]`）；点击经 lark-cli ≥1.0.9x 的 `card.action.trigger` 长连接回调 → `run-card/card-actions.ts` 校验（event_id 去重、message↔run_card 映射、chat/run 匹配，action_value 永不单独被信任）→ `POST /api/agent-runs/:runId/cancel` → cancelled 终态封灰。`/stop` 入站命令为等价通道，成功即沉默（卡片即反馈）。
+- **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态）。
+- **幂等键**：飞书 `--idempotency-key` 有 **50 字符上限**（99992402），自然键天然超限，统一 `larkIdempotencyKey()` 哈希成 40 位十六进制。
+- **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；Run SSE 晚订阅语义保证已结算 run 立即给终态。
+- **配额警示**：每应用**卡片实体绑定数有配额**（错误 200780，实测约 18 张触发）；高频部署需关注，或为超配额场景保留 IM-patch 降级路径。
 
 ## 内容渲染
 
