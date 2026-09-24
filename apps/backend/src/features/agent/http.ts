@@ -18,6 +18,12 @@ import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentConfigEvent, AgentConfigEventBus } from "./agent-config-events.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
 import type { AgentRow } from "./domain.js";
+import {
+  buildLarkSurfaceView,
+  type LarkSetupFacts,
+  type LarkSurfaceConfig,
+  type LarkSurfaceRuntime,
+} from "./lark-surface.js";
 
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
@@ -107,6 +113,15 @@ export function agentRoutes(
    *  into (e.g. dataDir — skill/knowledge pack symlinks point there).
    *  Read-only; targets outside every root stay a 403. */
   extraReadRoots?: readonly string[],
+  /** The Lark wizard read model's inputs, gathered by the composition root:
+   *  it is the only place that knows the registry, the setup manager and the
+   *  heartbeat store at once. Null = unknown agent (404). Appended last on
+   *  purpose: every parameter before it is passed positionally. */
+  larkSurfaceFactsOf?: (agentId: string) => Promise<{
+    config: LarkSurfaceConfig;
+    runtime: LarkSurfaceRuntime;
+    setup: LarkSetupFacts | null;
+  } | null>,
 ) {
   const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
@@ -481,6 +496,20 @@ export function agentRoutes(
         }),
       },
     )
+    // Lark configuration wizard (read model). The Web needs ONE answer to
+    // "can this agent talk to Lark right now"; the four sources behind it
+    // (agent config, setup session, registry, heartbeat) are joined in
+    // `lark-surface.ts`, and only the composition root knows them all.
+    .get("/api/agents/:id/lark", async ({ params: { id } }) => {
+      const facts = await larkSurfaceFactsOf?.(id);
+      if (!facts) return Response.json({ error: "Not found" }, { status: 404 });
+      return buildLarkSurfaceView({
+        config: facts.config,
+        runtime: facts.runtime,
+        setup: facts.setup,
+        now: Date.now(),
+      });
+    })
     // Lark setup
     .post(
       "/api/agents/:id/lark/setup",

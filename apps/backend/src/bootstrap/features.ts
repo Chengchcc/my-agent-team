@@ -62,7 +62,11 @@ import {
   knowledgeRoutes,
   sqliteKnowledgePackAdapter,
 } from "../features/knowledge/index.js";
-import { CliSetupProvisioner, LarkSetupManager } from "../features/lark-bot/index.js";
+import {
+  CliSetupProvisioner,
+  LarkSetupManager,
+  probeCliSetupCapability,
+} from "../features/lark-bot/index.js";
 import {
   createMcpRuntimeStatusStore,
   createMcpService,
@@ -653,6 +657,21 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // ─── Runtime Ops (surface-health audit only) ───────────────
 
+  /** Whether `POST .../lark/setup` can run here. The real check spawns
+   *  `lark-cli … --help`, too heavy for a GET the wizard polls, so the
+   *  answer is cached for a minute — long enough to be useful, short enough
+   *  that installing the CLI shows up without a restart. */
+  const CLI_PROBE_TTL_MS = 60_000;
+  let cliCapability: { at: number; available: boolean } | null = null;
+  const setupAvailable = async (): Promise<boolean> => {
+    if (cliCapability && Date.now() - cliCapability.at < CLI_PROBE_TTL_MS) {
+      return cliCapability.available;
+    }
+    const available = await probeCliSetupCapability().catch(() => false);
+    cliCapability = { at: Date.now(), available };
+    return available;
+  };
+
   const agentNames = new Map<string, string>();
   {
     const rows = await agentSvc.list(true);
@@ -664,6 +683,41 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     getAgentName: (agentId: string) => agentNames.get(agentId),
     dbPath: `${config.dataDir}/backend.db`,
   });
+
+  /** Inputs of the Lark wizard read model. Assembled here because this is
+   *  the only scope that holds all four sources at once: the agent config,
+   *  the setup session, the bot registry, and the heartbeat store. */
+  const larkSurfaceFactsOf = async (agentId: string) => {
+    const agent = await agentSvc.getById(agentId).catch(() => null);
+    if (!agent) return null;
+    const lk = agent.config.lark;
+    const surface = opsSvc.getAgentRuntime(agentId).surfaces.lark;
+    const session = setupManager?.getByAgentId(agentId);
+    const counters = (surface?.counters ?? {}) as Record<string, unknown>;
+    const pending = counters.pendingDeliveries;
+    const runtime = {
+      registryStatus: larkBotRegistry.statusOf(agentId),
+      lastSeenAt: surface?.lastSeenAt ?? null,
+      lastError: surface?.lastError ?? null,
+      // The bot reports counters, not a queue length; absent means zero.
+      pendingDeliveries: typeof pending === "number" ? pending : 0,
+      setupAvailable: await setupAvailable(),
+    };
+    const setup = session
+      ? { id: session.setupId, status: session.status, expiresAt: session.expiresAt }
+      : null;
+    return {
+      config: {
+        enabled: lk.enabled,
+        appId: lk.app_id !== "" ? lk.app_id : null,
+        profileRef: lk.profile_ref !== "" ? lk.profile_ref : null,
+        botDisplayName: lk.bot_display_name !== "" ? lk.bot_display_name : null,
+        allowedSenders: lk.allowed_senders,
+      },
+      runtime,
+      setup,
+    };
+  };
 
   // ─── Project ────────────────────────────────────────────────
 
@@ -1270,6 +1324,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // Skill/knowledge pack symlinks resolve into the data dir; the
       // read-only workspace file view is allowed to follow them there.
       [config.dataDir],
+      larkSurfaceFactsOf,
     ),
     conversations: conversationRoutes(conv.convSvc, ulid, (id: string) => projectSvc.exists(id)),
     ops: opsRoutes(opsSvc),
