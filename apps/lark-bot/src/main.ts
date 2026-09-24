@@ -177,7 +177,7 @@ async function handleLine(line: string): Promise<void> {
 
   if (result.action === "consumed") {
     console.log(
-      `[lark-bot] ingested: ${event.chat_type} seq=${result.ledgerSeq} triggered=${result.triggered}`,
+      `[lark-bot] ingested: ${event.chat_type} seq=${result.ledgerSeq} triggered=${result.triggered} chat=${event.chat_id} thread=${event.thread_id ?? "-"} root=${event.root_id ?? "-"} reply_to=${event.reply_to ?? "-"}`,
     );
   }
 }

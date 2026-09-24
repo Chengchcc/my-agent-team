@@ -42,6 +42,7 @@
 | 0034 | lark-access-tiers(飞书访问控制分层：群准入、发送者名单、@ 判定) | Implemented |
 | 0035 | lark-instant-ack-reaction(收到即挂 emoji 回执，封版换成 DONE) | Implemented |
 | 0036 | product-tool-identity-from-token(身份取自 run token，模型参数不参与授权) | Implemented |
+| 0037 | lark-topic-as-conversation(话题 = 会话边界；回答回复进话题；话题内排队；私聊由卡片建话题) | Accepted |
 
 > 状态翻转纪律：任何 ADR 状态变更(Obsolete/Superseded/Deferred→Implemented 等)**必须同 PR 更新本索引**，避免索引与正文失配(2026-08-21 修复 0004/0006/0024 时立规)。
 

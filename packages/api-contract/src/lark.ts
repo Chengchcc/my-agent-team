@@ -29,6 +29,14 @@ export const larkMessageEventSchema = z.object({
    *  present, non-"user" senders (bots) must never drive an agent run
    *  (H7: bot-to-bot loops). */
   sender_type: z.string().optional(),
+  /** Topic/thread context (ADR 0037). lark-cli's own event schema declares
+   *  all three ("Thread ID, when present" / "Root message ID of the
+   *  reply/thread context, when present" / "Parent message ID of the direct
+   *  reply context, when present") and used to be dropped here, which left the
+   *  bot blind to whether a message belonged to an existing topic. */
+  thread_id: z.string().optional(),
+  root_id: z.string().optional(),
+  reply_to: z.string().optional(),
   /** Structured mentions. Presence in THIS array is what proves a real @
    *  entity: lark-cli pre-renders `.content` to text (with mentions resolved
    *  to display names) and appends the compact array alongside it, so a typed
