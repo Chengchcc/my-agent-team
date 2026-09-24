@@ -160,8 +160,15 @@ export interface ProductToolsServiceDeps {
 
 export interface ProductToolsService {
   call(input: ProductToolCallInput): Promise<ProductToolCallResult>;
-  /** Resolve a pending ask (web submitted answers). Idempotent no-op if none. */
-  resolveAsk(runId: string, callId: string, answer: AskQuestionResult): void;
+  /** Resolve a pending ask (web submitted answers). Idempotent no-op if none.
+   *  Returns true when a live ask actually resolved. */
+  resolveAsk(runId: string, callId: string, answer: AskQuestionResult): boolean;
+  /** The still-open free-text ask for this conversation, if any (roadmap:
+   *  自由文本追问). Only kind=text asks qualify — a select ask waits for its
+   *  buttons, and a text reply must not answer it by accident. */
+  pendingTextAskForConversation(
+    conversationId: string,
+  ): Promise<{ runId: string; callId: string; questionId: string } | null>;
 }
 
 /** Canonical History operations. The conversation scope is ALWAYS derived
@@ -547,6 +554,28 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           `${key}:resolved`,
         )
         .catch(() => {});
+      return Boolean(resolve);
+    },
+
+    async pendingTextAskForConversation(conversationId) {
+      for (const key of pendingAsks.keys()) {
+        const sep = key.indexOf(":");
+        const runId = key.slice(0, sep);
+        const callId = key.slice(sep + 1);
+        const run = await runPort.getRun(runId).catch(() => null);
+        if (!run || run.conversationId !== conversationId) continue;
+        const records = await runPort.listPendingActions(runId).catch(() => []);
+        for (const record of records) {
+          if (record.status !== "pending" || record.kind !== "ask") continue;
+          const questions = record.payload.questions;
+          const first = Array.isArray(questions) ? questions[0] : undefined;
+          if (typeof first !== "object" || first === null || !("kind" in first)) continue;
+          if (first.kind !== "text") continue;
+          if (!("id" in first) || typeof first.id !== "string") continue;
+          return { runId, callId, questionId: first.id };
+        }
+      }
+      return null;
     },
   };
 }

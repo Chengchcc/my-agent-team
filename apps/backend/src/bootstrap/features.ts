@@ -381,6 +381,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     isInflight: (runId: string) => isInflight.fn(runId),
     abortStaleRun: (runId: string) => abortStaleRun.fn(runId),
     contextService: contextSvc,
+    // Roadmap (自由文本追问): the productTools binding is declared below —
+    // the closure dereferences it at request time, long after boot wiring.
+    answerPendingTextAsk: async (conversationId, text) => {
+      const ask = await productTools.pendingTextAskForConversation(conversationId);
+      if (!ask) return false;
+      return productTools.resolveAsk(ask.runId, ask.callId, {
+        answers: [{ id: ask.questionId, selectedValues: [], freeText: text }],
+      });
+    },
   });
 
   // Artifact storage (shared across agents, workspaces, workflows).

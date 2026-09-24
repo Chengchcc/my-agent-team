@@ -18,6 +18,11 @@ export interface ConversationServiceDeps {
   port: ConversationPort;
   /** Phase 4 durable run creation: enqueue + branch acquire. */
   agentRunService: AgentRunService;
+  /** Roadmap (自由文本追问): when the conversation has a pending TEXT ask,
+   *  a reply becomes that ask's answer instead of a queued input. Returns
+   *  false when nothing was pending (the caller proceeds normally).
+   *  Optional: without it, replies always enqueue. */
+  answerPendingTextAsk?: (conversationId: string, text: string) => Promise<boolean>;
   /** Phase 4 execution entry point (dispatch acquired runs). Injected as a
    *  function so composition can break the execution<->cascade cycle. */
   dispatchRun: (runId: string) => Promise<void>;
@@ -156,6 +161,7 @@ class ConversationServiceImpl implements ConversationService {
   #isLive: ConversationServiceDeps["isLive"];
   #isInflight: ConversationServiceDeps["isInflight"];
   #abortStaleRun: ConversationServiceDeps["abortStaleRun"];
+  #answerPendingTextAsk: ConversationServiceDeps["answerPendingTextAsk"];
   #contextService: AgentContextService;
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
 
@@ -173,6 +179,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#isLive = deps.isLive;
     this.#isInflight = deps.isInflight;
     this.#abortStaleRun = deps.abortStaleRun;
+    this.#answerPendingTextAsk = deps.answerPendingTextAsk;
     this.#contextService = deps.contextService;
     this.#resolveDefaultModel = deps.resolveDefaultModel;
     this.#idGen = deps.idGen;
@@ -368,6 +375,15 @@ class ConversationServiceImpl implements ConversationService {
 
     const triggeredRuns: TriggeredRun[] = [];
     if (trigger) {
+      // Roadmap (自由文本追问): a pending TEXT ask parks this branch's run —
+      // enqueueing the reply would make it wait behind the very run that
+      // asked, and the ask would time out first. So a reply becomes the
+      // answer: the message above is already in the ledger (context for
+      // later turns); only the trigger/queue is skipped.
+      if (typeof input.content === "string" && this.#answerPendingTextAsk !== undefined) {
+        const answered = await this.#answerPendingTextAsk(input.conversationId, input.content);
+        if (answered) return { seq, triggeredRuns: [] };
+      }
       const message: Message = { ...userRev, id: userRev.messageId };
       try {
         triggeredRuns.push(

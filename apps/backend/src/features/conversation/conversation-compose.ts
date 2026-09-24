@@ -36,6 +36,9 @@ export function createConversationFeature(input: {
    *  it to AgentRunExecutionService.abortStaleRun). */
   abortStaleRun: (runId: string) => Promise<void>;
   contextService: AgentContextService;
+  /** Roadmap (自由文本追问): mirrors ProductToolsService.pendingTextAskFor
+   *  Conversation + resolveAsk into one call. Optional pass-through. */
+  answerPendingTextAsk?: (conversationId: string, text: string) => Promise<boolean>;
 }): ConversationFeature {
   const {
     convPort,
@@ -48,6 +51,7 @@ export function createConversationFeature(input: {
     isInflight,
     abortStaleRun,
     contextService,
+    answerPendingTextAsk,
   } = input;
 
   const convSvc = createConversationService({
@@ -59,6 +63,7 @@ export function createConversationFeature(input: {
     isInflight,
     abortStaleRun,
     contextService,
+    answerPendingTextAsk,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));

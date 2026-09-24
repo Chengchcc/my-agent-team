@@ -510,3 +510,54 @@ describe("conversation service (Agent Run cutover)", () => {
     expect(await svc.updateInput(inputId, "too late")).toBe(false);
   });
 });
+
+describe("free-text ask interception", () => {
+  function makeLocal(
+    answerPendingTextAsk: (conversationId: string, text: string) => Promise<boolean>,
+  ) {
+    return createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async (runId) => {
+        dispatchCalls.push(runId);
+      },
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      answerPendingTextAsk,
+    });
+  }
+
+  test("a reply answers a pending text ask instead of triggering a run", async () => {
+    setupConv("conv-ask");
+    const answered: Array<{ conversationId: string; text: string }> = [];
+    const local = makeLocal(async (conversationId, text) => {
+      answered.push({ conversationId, text });
+      return true;
+    });
+    const res = await local.postMessage({
+      conversationId: "conv-ask",
+      content: "use the blue folder",
+      mode: "normal",
+    });
+    expect(res.triggeredRuns).toEqual([]);
+    expect(answered).toEqual([{ conversationId: "conv-ask", text: "use the blue folder" }]);
+    // The reply is still ledgered — context for later turns.
+    expect(messages("conv-ask").length).toBe(1);
+  });
+
+  test("nothing pending → the reply triggers normally", async () => {
+    setupConv("conv-noask");
+    const local = makeLocal(async () => false);
+    const res = await local.postMessage({
+      conversationId: "conv-noask",
+      content: "hello",
+      mode: "normal",
+    });
+    expect(res.triggeredRuns.length).toBe(1);
+  });
+});

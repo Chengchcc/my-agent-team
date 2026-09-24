@@ -633,4 +633,53 @@ describe("product tools service", () => {
     });
     expect(result).toEqual({ content: JSON.stringify({ error: "ask timeout" }), isError: true });
   });
+
+  test("pendingTextAskForConversation finds the open text ask; resolveAsk reports it", async () => {
+    const runId = await createRun("hi");
+    const callId = "ask-2";
+    const answered = service.call({
+      identity: identity(runId),
+      callId,
+      idempotencyKey: `${runId}:${callId}`,
+      tool: "ask_question",
+      args: { questions: [{ id: "q1", kind: "text", question: "Describe?" }] },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await service.pendingTextAskForConversation(CONV)).toEqual({
+      runId,
+      callId,
+      questionId: "q1",
+    });
+
+    expect(
+      service.resolveAsk(runId, callId, {
+        answers: [{ id: "q1", selectedValues: [], freeText: "do the thing" }],
+      }),
+    ).toBe(true);
+    await answered;
+    // Resolved: the lookup is empty and a second resolve reports false.
+    expect(await service.pendingTextAskForConversation(CONV)).toBeNull();
+    expect(service.resolveAsk(runId, callId, { answers: [{ id: "q1", selectedValues: [] }] })).toBe(
+      false,
+    );
+  });
+
+  test("a select ask is not offered to the free-text answer path", async () => {
+    const runId = await createRun("hi");
+    const callId = "ask-select";
+    void service.call({
+      identity: identity(runId),
+      callId,
+      idempotencyKey: `${runId}:${callId}`,
+      tool: "ask_question",
+      args: {
+        questions: [
+          { id: "q1", kind: "select", question: "Pick?", options: [{ value: "a", label: "A" }] },
+        ],
+      },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await service.pendingTextAskForConversation(CONV)).toBeNull();
+    service.resolveAsk(runId, callId, { answers: [{ id: "q1", selectedValues: ["a"] }] });
+  });
 });
