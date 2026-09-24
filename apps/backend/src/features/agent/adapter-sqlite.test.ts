@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../../infra/sqlite/db.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
-import { buildAgentConfig, serializeAgentYaml } from "./agent-config.js";
+import { agentConfigSchema, buildAgentConfig, serializeAgentYaml } from "./agent-config.js";
 import { agentModelRef } from "./domain.js";
 
 const db = openDb(":memory:");
@@ -105,8 +105,62 @@ describe("agent config allowed_senders (H7)", () => {
     expect(next.lark.allowed_senders).toEqual(["ou_1", "ou_2"]);
   });
 
-  test("defaults to an empty allowlist (single-operator allow-all)", () => {
-    expect(cfg("a-h7b", "H7b").lark.allowed_senders).toEqual([]);
+  test("a new agent gets the explicit wildcard, not an empty list", () => {
+    // The list used to be empty and mean "allow all", which the UI never said
+    // out loud and which made "nobody" and "everybody" identical. A new agent
+    // now stores the wildcard explicitly; an empty list means deny.
+    const config = cfg("a-h7b", "H7b");
+    expect(config.lark.allowed_senders).toEqual(["*"]);
+    expect(config.lark.group_policy).toBeUndefined();
+    expect(config.lark.require_mention).toBe(true);
+    expect(config.lark.respond_to_mention_all).toBe(false);
+    expect(config.lark.policy_rev).toBe(2);
+    // Group policy defaults are written by the yaml, not implied.
+    expect(serializeAgentYaml(config)).toContain('group_policy: "disabled"');
+  });
+
+  test("rev-1 configs keep answering: empty meant everyone, and is migrated", () => {
+    // A stored config written before the semantics flip carries policy_rev 1
+    // (or none). Its empty allowlist meant "no restriction", so the parse has
+    // to carry that intent forward as the wildcard — otherwise upgrading
+    // would silently lock the operator out of their own bot.
+    const legacy = {
+      ...cfg("a-h7c", "H7c"),
+      lark: { ...cfg("a-h7c", "H7c").lark, allowed_senders: [], policy_rev: 1 },
+    };
+    const parsed = agentConfigSchema.parse(JSON.parse(JSON.stringify(legacy)));
+    expect(parsed.lark.allowed_senders).toEqual(["*"]);
+    expect(parsed.lark.policy_rev).toBe(2);
+  });
+
+  test("group policy round-trips through the yaml and the input shape", () => {
+    const config = buildAgentConfig({
+      id: "a-groups",
+      name: "Groups",
+      lark: {
+        enabled: true,
+        allowedSenders: ["ou_owner"],
+        groupPolicy: "allowlist",
+        groups: { oc_team: { policy: "open" }, oc_noisy: { policy: "disabled" } },
+        requireMention: false,
+        respondToMentionAll: true,
+      },
+    });
+    expect(config.lark.group_policy).toBe("allowlist");
+    expect(config.lark.groups).toEqual({
+      oc_team: { policy: "open", allowed_senders: undefined },
+      oc_noisy: { policy: "disabled", allowed_senders: undefined },
+    });
+    expect(config.lark.require_mention).toBe(false);
+    expect(config.lark.respond_to_mention_all).toBe(true);
+    const yaml = serializeAgentYaml(config);
+    expect(yaml).toContain('group_policy: "allowlist"');
+    expect(yaml).toContain("oc_team");
+    expect(yaml).toContain('policy: "disabled"');
+    // and the update path keeps them when the field is not sent
+    const next = buildAgentConfig({ id: "a-groups", name: "Groups", prev: config });
+    expect(next.lark.group_policy).toBe("allowlist");
+    expect(next.lark.require_mention).toBe(false);
   });
 });
 

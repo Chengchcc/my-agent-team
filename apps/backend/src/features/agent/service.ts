@@ -78,6 +78,10 @@ export function createAgentService(opts: {
               appId: input.lark.appId,
               botDisplayName: input.lark.botDisplayName,
               allowedSenders: input.lark.allowedSenders,
+              groupPolicy: input.lark.groupPolicy,
+              groups: input.lark.groups,
+              requireMention: input.lark.requireMention,
+              respondToMentionAll: input.lark.respondToMentionAll,
             }
           : undefined,
       });
@@ -128,6 +132,10 @@ export function createAgentService(opts: {
               appId: input.lark.appId,
               botDisplayName: input.lark.botDisplayName,
               allowedSenders: input.lark.allowedSenders,
+              groupPolicy: input.lark.groupPolicy,
+              groups: input.lark.groups,
+              requireMention: input.lark.requireMention,
+              respondToMentionAll: input.lark.respondToMentionAll,
             }
           : undefined,
         prev: existing.config,

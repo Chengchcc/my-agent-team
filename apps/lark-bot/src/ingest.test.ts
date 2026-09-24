@@ -61,7 +61,12 @@ function mockFetch(responses: MockResponse[]) {
 }
 
 /** The H7 gate GETs the agent config first; empty allowlist = allow all. */
-const AGENT_CONFIG: MockResponse = { body: { lark: { allowedSenders: [] } } };
+/** The DTO the bot reads (agent/http.ts). `"*"` is the explicit wildcard:
+ *  an empty list denies everyone, and `groupPolicy: "open"` admits the test
+ *  groups without needing a pre-existing binding. */
+const AGENT_CONFIG: MockResponse = {
+  body: { lark: { allowedSenders: ["*"], groupPolicy: "open" } },
+};
 
 afterAll(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

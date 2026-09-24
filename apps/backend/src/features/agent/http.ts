@@ -66,6 +66,16 @@ function toAgentResponse(row: AgentRow, status: string) {
       profileRef: lk.profile_ref !== "" ? lk.profile_ref : null,
       botDisplayName: lk.bot_display_name !== "" ? lk.bot_display_name : null,
       allowedSenders: lk.allowed_senders,
+      /** Group admission default for chats with no entry; absent means
+       *  `disabled` (only chats already in use are answered). */
+      groupPolicy: lk.group_policy ?? "disabled",
+      groups: Object.entries(lk.groups).map(([chatId, g]) => ({
+        chatId,
+        policy: g.policy ?? null,
+        allowedSenders: g.allowed_senders ?? null,
+      })),
+      requireMention: lk.require_mention,
+      respondToMentionAll: lk.respond_to_mention_all,
       status,
     },
   };
@@ -170,7 +180,24 @@ export function agentRoutes(
               appId: t.Optional(t.String({ minLength: 1 })),
               appSecret: t.Optional(t.String({ minLength: 1 })),
               botDisplayName: t.Optional(t.String()),
+              /** `"*"` is the explicit wildcard; an empty list denies. */
               allowedSenders: t.Optional(t.Array(t.String({ minLength: 1 }))),
+              groupPolicy: t.Optional(
+                t.Union([t.Literal("open"), t.Literal("allowlist"), t.Literal("disabled")]),
+              ),
+              groups: t.Optional(
+                t.Record(
+                  t.String({ minLength: 1 }),
+                  t.Object({
+                    policy: t.Optional(
+                      t.Union([t.Literal("open"), t.Literal("allowlist"), t.Literal("disabled")]),
+                    ),
+                    allowedSenders: t.Optional(t.Array(t.String({ minLength: 1 }))),
+                  }),
+                ),
+              ),
+              requireMention: t.Optional(t.Boolean()),
+              respondToMentionAll: t.Optional(t.Boolean()),
             }),
           ),
         }),
@@ -273,6 +300,22 @@ export function agentRoutes(
               appSecret: t.Optional(t.String({ minLength: 1 })),
               botDisplayName: t.Optional(t.String()),
               allowedSenders: t.Optional(t.Array(t.String({ minLength: 1 }))),
+              groupPolicy: t.Optional(
+                t.Union([t.Literal("open"), t.Literal("allowlist"), t.Literal("disabled")]),
+              ),
+              groups: t.Optional(
+                t.Record(
+                  t.String({ minLength: 1 }),
+                  t.Object({
+                    policy: t.Optional(
+                      t.Union([t.Literal("open"), t.Literal("allowlist"), t.Literal("disabled")]),
+                    ),
+                    allowedSenders: t.Optional(t.Array(t.String({ minLength: 1 }))),
+                  }),
+                ),
+              ),
+              requireMention: t.Optional(t.Boolean()),
+              respondToMentionAll: t.Optional(t.Boolean()),
             }),
           ),
         }),

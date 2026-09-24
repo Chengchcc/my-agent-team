@@ -36,8 +36,19 @@ export interface CreateAgentInput {
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
-    /** H7 sender allowlist (open_id). */
+    /** DM allowlist (open_id); `"*"` is the explicit wildcard, empty denies. */
     allowedSenders?: string[];
+    /** Default policy for groups with no entry in `groups`. */
+    groupPolicy?: "open" | "allowlist" | "disabled";
+    /** Per-chat overrides keyed by Lark chat id (`oc_…`). */
+    groups?: Record<
+      string,
+      { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] }
+    >;
+    /** Groups require a real @mention. */
+    requireMention?: boolean;
+    /** Whether an `@everyone` addresses the bot. */
+    respondToMentionAll?: boolean;
   };
 }
 
@@ -59,8 +70,19 @@ export interface UpdateAgentInput {
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
-    /** H7 sender allowlist (open_id). */
+    /** DM allowlist (open_id); `"*"` is the explicit wildcard, empty denies. */
     allowedSenders?: string[];
+    /** Default policy for groups with no entry in `groups`. */
+    groupPolicy?: "open" | "allowlist" | "disabled";
+    /** Per-chat overrides keyed by Lark chat id (`oc_…`). */
+    groups?: Record<
+      string,
+      { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] }
+    >;
+    /** Groups require a real @mention. */
+    requireMention?: boolean;
+    /** Whether an `@everyone` addresses the bot. */
+    respondToMentionAll?: boolean;
     /** profileRef is server-generated — never accepted from clients (§4.5). */
   };
 }

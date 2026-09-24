@@ -11,7 +11,8 @@ import {
 } from "./bindings-sqlite.js";
 import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
-import { isBotMentioned } from "./event-parser.js";
+import { isBotMentioned, isMentionAll } from "./event-parser.js";
+import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
 
 export interface IngestContext {
   db: Database;
@@ -63,11 +64,30 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     console.error(`[ingest] agent config fetch failed: ${JSON.stringify(agentRes.error)}`);
     return { action: "error", triggered: false, triggeredRuns: [] };
   }
-  const larkCfg = agentData.lark as { allowedSenders?: string[] };
-  const allowed = larkCfg.allowedSenders ?? [];
-  if (allowed.length > 0 && !allowed.includes(event.sender_id)) {
+  // The agent's lark config comes back as JSON with the DTO's field names
+  // (agent/http.ts). Single-step cast at a wire boundary the contract test
+  // tracks; the policy module validates every field it reads.
+  const larkCfg = agentData.lark as LarkAccessConfig;
+  const mentionedBot = isBotMentioned(event, botDisplayName);
+  const mentionAll = isMentionAll(event);
+  // Reading the binding is the only way to know whether this chat is already
+  // in use, which is what keeps a pre-existing group answering after the
+  // group default became "not answered". A read creates no state, so it
+  // stays inside the authorize-before-any-side-effect rule.
+  const chatInUse = getChatBinding(db, event.chat_id) !== null;
+  const decision = decideInbound({
+    cfg: larkCfg,
+    chatId: event.chat_id,
+    chatType: event.chat_type,
+    senderId: event.sender_id,
+    mentionedBot,
+    mentionAll,
+    chatInUse,
+  });
+  if (decision.outcome === "skip") {
     return { action: "skipped", triggered: false, triggeredRuns: [] };
   }
+  const addressed = decision.outcome === "answer";
 
   // ─── Control command: /stop cancels this chat's live Run cards ───
   // Not a conversation message: reserve for idempotency, cancel via the
@@ -184,8 +204,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   if (event.chat_type === "p2p") {
     addressedTo = undefined;
   } else if (event.chat_type === "group") {
+    // The policy already decided: admitted by the group gate, sender allowed,
+    // and either addressed or deliberately observed. "observe" still posts
+    // into the conversation (the agent gets context) but addresses nobody.
     senderMemberId = memberId;
-    addressedTo = isBotMentioned(event, botDisplayName) ? [selfAgentId] : [];
+    addressedTo = addressed ? [selfAgentId] : [];
   }
 
   // ─── Step 2: POST /messages ───
