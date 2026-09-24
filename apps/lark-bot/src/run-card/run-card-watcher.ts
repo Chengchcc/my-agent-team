@@ -8,7 +8,9 @@ import type { CardKitClient } from "./card-kit.js";
 import {
   cardStatusKey,
   OUTPUT_ELEMENT_ID,
+  PROCESS_ELEMENT_ID,
   renderOutputContent,
+  renderProcessContent,
   renderRunCard,
   renderStatusContent,
   STATUS_ELEMENT_ID,
@@ -66,7 +68,7 @@ export function finalAnswerText(messages: OutcomeMessageLike[] | null | undefine
 function rowStatus(state: RunCardState): string {
   if (state.terminal) return state.terminal.status;
   if (state.waiting) return "waiting";
-  return state.output.length > 0 || state.toolCount > 0 ? "streaming" : "creating";
+  return state.output.length > 0 || state.completedTools.length > 0 ? "streaming" : "creating";
 }
 
 async function fetchRunOutcome(
@@ -117,9 +119,8 @@ export function watchRunCard(
   let state: RunCardState = existing
     ? {
         ...initialRunCardState(),
-        phase: "running",
+        phase: "streaming",
         output: existing.accumulated,
-        toolCount: existing.toolCount,
       }
     : initialRunCardState();
   let cardKitId = existing?.cardKitId ?? null;
@@ -130,7 +131,7 @@ export function watchRunCard(
     updateRunCard(db, runId, {
       status: rowStatus(state),
       accumulated: state.output,
-      toolCount: state.toolCount,
+      toolCount: state.completedTools.length,
       larkMessageId,
       cardKitId,
       cardSeq: seq,
@@ -139,6 +140,7 @@ export function watchRunCard(
 
   /** Element contents already pushed — only changed elements get a call. */
   let pushedOutput = "";
+  let pushedProcess = "";
   let pushedStatus = "";
   /** Header frame at the last full replace — element streams cannot
    * change the header, so a key change forces one full-card replace. */
@@ -164,11 +166,13 @@ export function watchRunCard(
       }
       pushedCardKey = frameKey;
       pushedOutput = renderOutputContent(state);
+      pushedProcess = renderProcessContent(state);
       pushedStatus = renderStatusContent(state, meta);
       persist();
       return;
     }
     const outputContent = renderOutputContent(state);
+    const processContent = renderProcessContent(state);
     const statusContent = renderStatusContent(state, meta);
     if (outputContent !== pushedOutput) {
       const r = await cardClient.streamElement({
@@ -184,6 +188,20 @@ export function watchRunCard(
         return;
       }
       pushedOutput = outputContent;
+    }
+    if (processContent !== pushedProcess) {
+      const r = await cardClient.streamElement({
+        cardId: cardKitId,
+        elementId: PROCESS_ELEMENT_ID,
+        content: processContent,
+        sequence: nextSeq(),
+        uuid: `${runId}-pr-${seq}`,
+      });
+      if (!r.ok) {
+        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
+        return;
+      }
+      pushedProcess = processContent;
     }
     if (statusContent !== pushedStatus) {
       const r = await cardClient.streamElement({

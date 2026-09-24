@@ -83,7 +83,9 @@ function collectFields(node: unknown, depth: number, found: FoundFields): void {
   }
 }
 
-export type RunCardAction = { action: "stop"; runId: string };
+export type RunCardAction =
+  | { action: "stop"; runId: string }
+  | { action: "approve" | "reject"; runId: string; callId: string };
 
 /** Decode the button payload; only shapes we explicitly emit are accepted. */
 export function decodeActionValue(raw: string): RunCardAction | null {
@@ -96,8 +98,13 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   if (typeof parsed !== "object" || parsed === null) return null;
   const runId = "runId" in parsed ? parsed.runId : undefined;
   const action = "action" in parsed ? parsed.action : undefined;
-  if (action === "stop" && typeof runId === "string" && runId.length > 0) {
-    return { action: "stop", runId };
+  const callId = "callId" in parsed ? parsed.callId : undefined;
+  const runIdValid = typeof runId === "string" && runId.length > 0;
+  if (action === "stop" && runIdValid) return { action: "stop", runId };
+  const callIdValid = typeof callId === "string" && callId.length > 0;
+  const isApproval = action === "approve" || action === "reject";
+  if (isApproval && runIdValid && callIdValid) {
+    return { action, runId, callId };
   }
   return null;
 }
@@ -120,6 +127,12 @@ export function reserveEventId(eventId: string): boolean {
 export interface CardActionDeps {
   db: Database;
   cancelRun: (runId: string) => Promise<{ error?: unknown }>;
+  /** HITL approval resolve (durable PendingAction path, run stays live). */
+  resolveApproval: (
+    runId: string,
+    callId: string,
+    decision: "allow" | "deny",
+  ) => Promise<{ error?: unknown }>;
   log: (message: string) => void;
 }
 
@@ -145,14 +158,26 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
     );
     return "rejected";
   }
-  const { error } = await deps.cancelRun(action.runId);
+  if (action.action === "stop") {
+    const { error } = await deps.cancelRun(action.runId);
+    if (error) {
+      deps.log(
+        `card action cancel failed: run=${action.runId} ${JSON.stringify(error).slice(0, 120)}`,
+      );
+      return "cancel-failed";
+    }
+    // Success is silent: the watcher's SSE sees the cancelled status and
+    // seals the card into the grey 已停止 frame.
+    return "stopped";
+  }
+  const decision = action.action === "approve" ? "allow" : "deny";
+  const { error } = await deps.resolveApproval(action.runId, action.callId, decision);
   if (error) {
     deps.log(
-      `card action cancel failed: run=${action.runId} ${JSON.stringify(error).slice(0, 120)}`,
+      `card action approval failed: run=${action.runId} ${JSON.stringify(error).slice(0, 120)}`,
     );
-    return "cancel-failed";
+    return "approval-failed";
   }
-  // Success is silent: the watcher's SSE sees the cancelled status and
-  // seals the card into the grey 已停止 frame.
-  return "stopped";
+  // The card's waiting frame clears when the run's next event arrives.
+  return action.action === "approve" ? "approved" : "rejected";
 }

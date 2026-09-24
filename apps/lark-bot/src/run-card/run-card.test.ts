@@ -81,20 +81,45 @@ describe("applyRunEvent reducer", () => {
     expect(s.output).toBe("hi there");
   });
 
-  test("tool events: active tool then completed count", () => {
+  test("tool events: active label, archived steps with outcomes", () => {
     let s = initialRunCardState();
     s = applyRunEvent(s, { type: "native_tool_started", toolName: "bash" });
-    expect(s.activeTool).toBe("bash");
-    s = applyRunEvent(s, { type: "native_tool_completed", toolName: "bash" });
+    expect(s.activeTool?.label).toBe("执行命令");
+    expect(s.phase).toBe("tool_running");
+    s = applyRunEvent(s, { type: "native_tool_completed", toolName: "bash", result: {} });
     expect(s.activeTool).toBeNull();
-    expect(s.toolCount).toBe(1);
+    expect(s.completedTools).toEqual([{ label: "执行命令", outcome: "success" }]);
+    const failed = applyRunEvent(s, {
+      type: "native_tool_completed",
+      toolName: "bash",
+      result: { isError: true },
+    });
+    expect(failed.completedTools[1]).toEqual({ label: "执行命令", outcome: "error" });
+  });
+
+  test("thinking sets a phase word only; never stores text", () => {
+    let s = applyRunEvent(initialRunCardState(), { type: "thinking_delta", text: "secret" });
+    expect(s.phase).toBe("thinking");
+    expect(s.output).toBe("");
+    s = applyRunEvent(s, { type: "text_delta", text: "answer" });
+    expect(s.phase).toBe("streaming");
+    expect(s.output).toBe("answer");
+  });
+
+  test("approval_request keeps the callId for the buttons", () => {
+    const s = applyRunEvent(initialRunCardState(), {
+      type: "backend.oma.approval_request",
+      payload: { callId: "call-1" },
+    });
+    expect(s.waiting).toBe("approval");
+    expect(s.approvalCallId).toBe("call-1");
   });
 
   test("ask_requested sets waiting input; running status upgrades phase", () => {
     let s = initialRunCardState();
     expect(s.phase).toBe("queued");
     s = applyRunEvent(s, { type: "status", status: "running" });
-    expect(s.phase).toBe("running");
+    expect(s.phase).toBe("streaming");
     s = applyRunEvent(s, { type: "backend.oma.ask_requested" });
     expect(s.waiting).toBe("input");
   });
@@ -122,16 +147,38 @@ describe("applyRunEvent reducer", () => {
 });
 
 describe("renderRunCard", () => {
-  test("live card: schema 2.0 with streaming config and stop hint", () => {
-    const card = renderRunCard(
-      { ...initialRunCardState(), phase: "running", output: "working" },
-      { runId: "r1", startedAt: Date.now(), webUrl: null },
-    );
+  test("live card: streaming config, stop button, process strip", () => {
+    const state = {
+      ...initialRunCardState(),
+      phase: "tool_running" as const,
+      output: "working",
+      activeTool: { label: "执行命令", startedAt: Date.now() },
+      completedTools: [{ label: "读取文件", outcome: "success" as const }],
+    };
+    const card = renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null });
     const config = card.config as Record<string, unknown>;
     expect(card.schema).toBe("2.0");
     expect(config.streaming_mode).toBe(true);
-    expect(JSON.stringify(card)).toContain("点卡片上的「停止」可取消");
-    expect(JSON.stringify(card)).not.toContain("在 Web 查看");
+    const json = JSON.stringify(card);
+    expect(json).toContain("stop_button");
+    expect(json).toContain("正在：执行命令");
+    expect(json).toContain("✓ 读取文件");
+    expect(json).not.toContain("在 Web 查看");
+  });
+
+  test("waiting approval swaps stop for approve/reject buttons", () => {
+    const state = {
+      ...initialRunCardState(),
+      phase: "streaming" as const,
+      waiting: "approval" as const,
+      approvalCallId: "call-9",
+    };
+    const card = renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null });
+    const json = JSON.stringify(card);
+    expect(json).toContain("approve_button");
+    expect(json).toContain("reject_button");
+    expect(json).toContain("call-9");
+    expect(json).not.toContain("stop_button");
   });
 
   test("terminal card: no streaming, no stop hint, keeps web link", () => {
@@ -180,10 +227,10 @@ describe("renderRunCard", () => {
     const live = renderRunCard(
       {
         ...initialRunCardState(),
-        phase: "running",
+        phase: "tool_running",
         output: "x",
-        toolCount: 3,
-        activeTool: "bash",
+        activeTool: { label: "执行命令", startedAt: Date.now() },
+        completedTools: [{ label: "读取文件", outcome: "success" }],
       },
       { runId: "r1", startedAt: Date.now(), webUrl: null },
     );

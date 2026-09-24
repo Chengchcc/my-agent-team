@@ -194,6 +194,13 @@ createInterface({ input: actionChild.stdout! }).on("line", (line) => {
       const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
       return { error: error ?? undefined };
     },
+    resolveApproval: async (runId, callId, decision) => {
+      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).approval.post({
+        callId,
+        decision,
+      });
+      return { error: error ?? undefined };
+    },
     log: (message) => console.log(`[lark-bot] ${message}`),
   })
     .then((outcome) => console.log(`[lark-bot] card action: ${outcome}`))
