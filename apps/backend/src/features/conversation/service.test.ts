@@ -227,7 +227,10 @@ describe("conversation service (Agent Run cutover)", () => {
 
     expect(result.seq).toBeGreaterThan(0);
     expect(messages(id)).toHaveLength(1);
-    expect(result.triggeredRuns).toEqual([{ agentId, runId: "run-0", queued: false }]);
+    expect(result.triggeredRuns).toMatchObject([{ agentId, runId: "run-0", queued: false }]);
+    // The run's originating input is part of the DTO now: the surface uses it
+    // to hand a waiting message's card over to the run that finally runs it.
+    expect(result.triggeredRuns[0]!.inputId).toBeTruthy();
     expect(enqueueCalls).toHaveLength(1);
     expect(enqueueCalls[0]).toMatchObject({
       conversationId: id,
@@ -268,7 +271,10 @@ describe("conversation service (Agent Run cutover)", () => {
 
     expect(enqueueCalls).toHaveLength(1);
     expect(enqueueCalls[0]!.mode).toBe("steer");
-    expect(result.triggeredRuns).toEqual([{ agentId, runId: "", queued: true }]);
+    expect(result.triggeredRuns).toMatchObject([{ agentId, runId: "", queued: true }]);
+    // The input handle travels with it: a message that has to WAIT gets its own
+    // card (queued state), and cancelling that card cancels THIS input.
+    expect(result.triggeredRuns[0]!.inputId).toBeTruthy();
     // steer belongs to the CURRENT run: injected into the live child, and
     // NO new run is dispatched (one Run / one child).
     expect(dispatchCalls).toHaveLength(0);
@@ -451,7 +457,10 @@ describe("conversation service (Agent Run cutover)", () => {
     });
 
     expect(enqueueCalls[0]!.mode).toBe("follow_up");
-    expect(result.triggeredRuns).toEqual([{ agentId, runId: "", queued: true }]);
+    expect(result.triggeredRuns).toMatchObject([{ agentId, runId: "", queued: true }]);
+    // The input handle travels with it: a message that has to WAIT gets its own
+    // card (queued state), and cancelling that card cancels THIS input.
+    expect(result.triggeredRuns[0]!.inputId).toBeTruthy();
     expect(dispatchCalls).toHaveLength(0);
     expect(injectSteerCalls).toHaveLength(0);
     expect(fakeInputs.size).toBe(1);

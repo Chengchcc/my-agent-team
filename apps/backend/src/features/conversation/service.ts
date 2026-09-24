@@ -47,7 +47,16 @@ export interface ConversationServiceDeps {
 
 export interface TriggeredRun {
   agentId: string;
+  /** Empty when nothing started: see `queued` / `cancelled` below. */
   runId: string;
+  /** The queued input this message became. A surface needs it to show a card
+   *  for a message that has to WAIT (the user's decision: one agent-loop turn
+   *  is one card, and a waiting turn's card says so) — with no id, a queued
+   *  message has no handle to address, cancel or follow. */
+  inputId: string;
+  /** True when the input was queued instead of started: a run already owns the
+   *  branch, and this input becomes its OWN run once that one settles
+   *  (`acquireNextRun` promotes the oldest non-steer queued input). */
   queued: boolean;
   /** True when the input was cancelled at enqueue (a steer with no active
    *  run — a steer is never replayed). Callers (Lark, API clients) surface
@@ -306,9 +315,9 @@ class ConversationServiceImpl implements ConversationService {
       // cancelled=true instead of throwing — postMessage's non-DomainError
       // catch swallowed the old throw, so the "explicit error" never
       // reached the wire; the structured flag is programmable feedback.
-      return { agentId: input.agentId, runId: "", queued: false, cancelled: true };
+      return { agentId: input.agentId, runId: "", inputId, queued: false, cancelled: true };
     }
-    return { agentId: input.agentId, runId: run?.runId ?? "", queued };
+    return { agentId: input.agentId, runId: run?.runId ?? "", inputId, queued };
   }
 
   // ─── Public API ─────────────────────────────────────
