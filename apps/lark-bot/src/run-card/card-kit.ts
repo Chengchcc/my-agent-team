@@ -174,8 +174,9 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       if (!result.ok) return null;
       const data = envelope.data;
       if (typeof data !== "object" || data === null) return null;
-      const mode = (data as Record<string, unknown>).chat_mode;
-      return typeof mode === "string" ? mode : null;
+      // No cast: `in` narrows the unknown envelope to a shape with the field.
+      if (!("chat_mode" in data)) return null;
+      return typeof data.chat_mode === "string" ? data.chat_mode : null;
     },
 
     async sendCard(chatId, cardId, opts) {

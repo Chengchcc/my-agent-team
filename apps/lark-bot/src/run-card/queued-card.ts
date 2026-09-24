@@ -118,11 +118,11 @@ async function fetchInputState(
       { headers },
     );
     if (!resp.ok) return null;
-    const body = (await resp.json()) as { status?: string; runId?: string | null };
-    return {
-      status: typeof body.status === "string" ? body.status : "pending",
-      runId: typeof body.runId === "string" ? body.runId : null,
-    };
+    const body: unknown = await resp.json();
+    if (typeof body !== "object" || body === null) return null;
+    const status = "status" in body && typeof body.status === "string" ? body.status : "pending";
+    const runId = "runId" in body && typeof body.runId === "string" ? body.runId : null;
+    return { status, runId };
   } catch {
     return null;
   }
