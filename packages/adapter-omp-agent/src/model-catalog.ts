@@ -18,16 +18,24 @@ const deepseek = (id: string, reasoning: boolean): BackendModel => ({
   id: `deepseek/${id}`,
   displayName: `DeepSeek ${id}`,
   reasoning,
-  inputModalities: ["text"],
-  contextWindow: 128_000,
-  maxOutputTokens: 8_192,
+  // Metadata measured from DeepSeek's /models response (2026-09-23). The
+  // per-provider effort surface (high..xhigh, xhigh→max) lives in the
+  // deployment's models.yml, not in this table.
+  inputModalities: ["text", "image"],
+  contextWindow: 1_048_576,
+  maxOutputTokens: 393_216,
+  // ponytail: can't reflect the keys inside omp's own models.yml from here;
+  // the config-time (backendKind, model) check and the /api/models
+  // served-lookup cover the real honesty gaps.
   available: true,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 });
 
+/** Only the ids this deployment's models.yml actually declares. omp has no
+ *  model enumeration command, and `deepseek-chat` / `deepseek-reasoner`
+ *  were measured to die at startup (they fall back to the default
+ *  openrouter provider, which has no key) — they must not be offered. */
 const OMP_MODELS: readonly BackendModel[] = [
-  deepseek("deepseek-v4-flash", false),
+  deepseek("deepseek-v4-flash", true),
   deepseek("deepseek-v4-pro", true),
-  deepseek("deepseek-chat", false),
-  deepseek("deepseek-reasoner", true),
 ];
