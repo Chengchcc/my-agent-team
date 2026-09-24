@@ -273,6 +273,7 @@ export function createWriteTool(opts: {
         ? " Overwriting an existing file requires the fingerprint from a prior read of it."
         : ""),
     inputSchema: {
+      type: "object",
       properties: buildFileToolProperties(
         {
           description: descriptionParam,

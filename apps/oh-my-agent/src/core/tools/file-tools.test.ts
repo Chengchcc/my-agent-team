@@ -445,3 +445,25 @@ describe("write freshness gate", () => {
     }
   });
 });
+
+/** Both provider dialects require tool parameters to be an object schema
+ *  (`type: "object"`); one tool missing it 400s EVERY request that advertises
+ *  the tool table, so it fails the whole Run, not just one call. */
+describe("file tool schemas are object schemas", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "oma-schema-"));
+
+  afterAll(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("read/write/edit all declare type: object", () => {
+    const tools = [
+      createReadTool({ cwd }),
+      // freshness "require" is the runtime default; both shapes must hold.
+      createWriteTool({ cwd, freshness: "require" }),
+      createEditTool({ cwd, freshness: "require" }),
+    ];
+    const typeless = tools.filter((t) => t.inputSchema?.type !== "object").map((t) => t.name);
+    expect(typeless).toEqual([]);
+  });
+});

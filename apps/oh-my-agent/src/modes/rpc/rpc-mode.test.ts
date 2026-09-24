@@ -54,6 +54,21 @@ function slowProvider(delayMs: number): Provider {
   };
 }
 
+/** Catalog entry whose id is an ALIAS TARGET: acceptance must map
+ *  `deepseek/deepseek-chat` → `deepseek/deepseek-v4-flash` before matching,
+ *  exactly like the runtime's own model resolution does. */
+function aliasProvider(): Provider {
+  return {
+    id: "deepseek",
+    name: "DeepSeek",
+    getModels: () => [{ ...FAKE_MODEL, id: "deepseek-v4-flash", provider: "deepseek" }],
+    async *stream(): AsyncIterable<AIMessageChunk> {
+      yield { delta: { type: "text", text: "done" } };
+      yield { stopReason: "end_turn" };
+    },
+  };
+}
+
 interface Harness {
   write(line: string): void;
   close(): void;
@@ -193,6 +208,28 @@ describe("RPC mode (in-process)", () => {
     const steerResp = parseLines(h.lines()).find((o) => o.type === "response" && o.id === "s1");
     expect(steerResp).toMatchObject({ success: false });
     expect(steerResp && "error" in steerResp ? steerResp.error : "").toMatch(/no live run/);
+  }, 10_000);
+
+  test("execute accepts a legacy model id resolved through the alias table", async () => {
+    // Regression: a Run row may carry a pre-refresh id (deepseek-chat). The
+    // runtime resolves it through the alias table, so acceptance rejecting it
+    // kills runs the product can legitimately dispatch.
+    const h = makeHarness({ provider: aliasProvider() });
+    h.write(
+      JSON.stringify({
+        ...EXECUTE,
+        input: {
+          ...EXECUTE.input,
+          run: {
+            ...EXECUTE.input.run,
+            model: { backendKind: "oma", modelId: "deepseek/deepseek-chat" },
+          },
+        },
+      }),
+    );
+    await waitFor(() => parseLines(h.lines()).some((o) => o.id === "e1"));
+    const response = parseLines(h.lines()).find((o) => o.type === "response" && o.id === "e1");
+    expect(response).toMatchObject({ type: "response", command: "execute", success: true });
   }, 10_000);
 
   test("abort terminates the current Run (outcome aborted)", async () => {

@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import type { BackendRunOutcome, BackendRunSegment } from "@chengchenccc/agent-contract";
 import { debugLog } from "@chengchenccc/agent-contract";
-import type { ModelRuntime } from "@chengchenccc/ai";
+import type { ModelRuntime, ModelRuntimeEntry } from "@chengchenccc/ai";
 import { type Message, MessageSchema } from "@chengchenccc/message";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../../core/runtime/approval.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts.js";
+import { resolveModelEntry } from "../../core/runtime/run-runtime.js";
 import {
   appendSessionCompaction,
   appendSessionMessages,
@@ -450,11 +451,14 @@ async function validateExecute(
   if (!existsSync(input.workspace.root) || !statSync(input.workspace.root).isDirectory()) {
     return `workspace root is not a directory: ${input.workspace.root}`;
   }
-  const catalog = await modelRuntime.getCatalog();
-  const model = catalog.models.find(
-    (m) => `${m.providerId}/${m.modelId}` === input.run.model.modelId,
-  );
-  if (!model) return `model not found in catalog: ${input.run.model.modelId}`;
+  // Same resolution the Run assembly uses (alias table included): acceptance
+  // must never reject an id the runtime itself would happily run.
+  let model: ModelRuntimeEntry;
+  try {
+    model = await resolveModelEntry(modelRuntime, input.run.model.modelId);
+  } catch (err) {
+    return redactError(err);
+  }
   if (model.available === false) return `model unavailable: ${input.run.model.modelId}`;
   return null;
 }
