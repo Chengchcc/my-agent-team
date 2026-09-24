@@ -26,19 +26,37 @@ export interface SpawnedOmaProcess {
   kill(signal?: "SIGTERM" | "SIGKILL"): void;
 }
 
+/** Grace period between the direct child's exit and force-closing stdout:
+ *  terminal lines written just before exit get to drain, then a grandchild
+ *  holding the pipe can no longer stall the consumer. */
+export const ORPHAN_PIPE_GRACE_MS = 5_000;
+
 /** Strict LF-framed line reader (only \n splits frames; byte-buffered for
  *  half packets; bounded frame size). */
 async function* readLines(
   stream: ReadableStream<Uint8Array>,
   onOversize: (length: number) => void,
+  exited: Promise<unknown>,
+  orphanGraceMs: number,
 ): AsyncIterable<string> {
   const MAX_LINE_BYTES = 16 * 1024 * 1024;
   const reader = stream.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = new Uint8Array(0);
+  // A grandchild that inherits the stdout pipe (the CLI's own tool
+  // subprocesses) keeps it open after the direct child dies; the consumer's
+  // loop would then wait forever and the run would never settle. Race every
+  // read against the child's exit plus a drain grace — when the grace wins,
+  // stop reading. (reader.cancel() exists but segfaults Bun 1.3.14 here.)
+  const orphanDeadline = exited.then(() => Bun.sleep(orphanGraceMs));
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const step = await Promise.race([
+        reader.read().then((r) => ({ kind: "read" as const, r })),
+        orphanDeadline.then(() => ({ kind: "orphan" as const })),
+      ]);
+      if (step.kind === "orphan") break;
+      const { done, value } = step.r;
       if (done) break;
       if (value.length === 0) continue;
       const next = new Uint8Array(buffer.length + value.length);
@@ -86,7 +104,10 @@ const DEBUG_ENABLED = process.env.OMA_DEBUG === "1";
  *  child's tools are rooted there). The child gets only a curated allowlist
  *  of parent env vars (PATH/HOME/locale + provider keys) plus the command's
  *  own env (provider keys, OMA_HOME, per-run product-tools token). */
-export function spawnOmaProcess(cfg: OmaCommandConfig, opts: { cwd: string }): SpawnedOmaProcess {
+export function spawnOmaProcess(
+  cfg: OmaCommandConfig,
+  opts: { cwd: string; orphanGraceMs?: number },
+): SpawnedOmaProcess {
   let child: Subprocess;
   try {
     child = Bun.spawn({
@@ -138,9 +159,14 @@ export function spawnOmaProcess(cfg: OmaCommandConfig, opts: { cwd: string }): S
 
   return {
     pid: child.pid,
-    stdout: readLines(child.stdout as ReadableStream<Uint8Array>, () => {
-      tail.push("[oma] oversized stdout line dropped\n");
-    }),
+    stdout: readLines(
+      child.stdout as ReadableStream<Uint8Array>,
+      () => {
+        tail.push("[oma] oversized stdout line dropped\n");
+      },
+      child.exited,
+      opts.orphanGraceMs ?? ORPHAN_PIPE_GRACE_MS,
+    ),
     stderrTail: tail,
     exit,
     writeLine(line) {

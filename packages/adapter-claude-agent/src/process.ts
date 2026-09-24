@@ -26,16 +26,36 @@ export interface SpawnedClaudeProcess {
   kill(signal?: "SIGTERM" | "SIGKILL"): void;
 }
 
-async function* readLines(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
+/** Grace period between the direct child's exit and force-closing stdout:
+ *  terminal lines written just before exit get to drain, then a grandchild
+ *  holding the pipe can no longer stall the consumer. */
+export const ORPHAN_PIPE_GRACE_MS = 5_000;
+
+async function* readLines(
+  stream: ReadableStream<Uint8Array>,
+  exited: Promise<unknown>,
+  orphanGraceMs: number,
+): AsyncIterable<string> {
   // M12: the buffer is trimmed to its last MAX_FRAME bytes after every
   // chunk — a line-less flood (no \n) previously grew the heap unbounded.
   const MAX_FRAME = 10 * 1024 * 1024;
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = new Uint8Array(0);
+  // A grandchild that inherits the stdout pipe (the CLI's own tool
+  // subprocesses) keeps it open after the direct child dies; the consumer's
+  // loop would then wait forever and the run would never settle. Race every
+  // read against the child's exit plus a drain grace — when the grace wins,
+  // stop reading. (reader.cancel() exists but segfaults Bun 1.3.14 here.)
+  const orphanDeadline = exited.then(() => Bun.sleep(orphanGraceMs));
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const step = await Promise.race([
+        reader.read().then((r) => ({ kind: "read" as const, r })),
+        orphanDeadline.then(() => ({ kind: "orphan" as const })),
+      ]);
+      if (step.kind === "orphan") break;
+      const { done, value } = step.r;
       if (done) break;
       if (value.length === 0) continue;
       const next = new Uint8Array(buffer.length + value.length);
@@ -59,7 +79,7 @@ async function* readLines(stream: ReadableStream<Uint8Array>): AsyncIterable<str
 
 export function spawnClaudeProcess(
   cfg: ClaudeCommandConfig,
-  opts: { cwd: string },
+  opts: { cwd: string; orphanGraceMs?: number },
 ): SpawnedClaudeProcess {
   let stderrTail = "";
   // Secrets captured from the child env: a crashed CLI echoing its
@@ -86,7 +106,11 @@ export function spawnClaudeProcess(
 
   return {
     pid: proc.pid,
-    stdout: readLines(proc.stdout as ReadableStream<Uint8Array>),
+    stdout: readLines(
+      proc.stdout as ReadableStream<Uint8Array>,
+      proc.exited,
+      opts.orphanGraceMs ?? ORPHAN_PIPE_GRACE_MS,
+    ),
     get stderrTail() {
       return stderrTail;
     },
