@@ -118,6 +118,14 @@ function resolveBaseUrl(
   // a generic baseUrlEnv field.
   if (pid === "anthropic" && env.ANTHROPIC_BASE_URL) return env.ANTHROPIC_BASE_URL;
   let url = specBaseUrl.trim().replace(/\/+$/, "");
-  if (!url.endsWith("/v1")) url += "/v1";
+  // Add the version segment only when the URL does not already carry one.
+  // The catalogue ships complete paths (`/v1`, `/openai/v1`, and Z.AI's
+  // coding-plan `/coding/paas/v4`), while a hand-written models.yml entry
+  // like `https://api.acme.test` still needs the convenience. The old
+  // `endsWith("/v1")` test broke every versioned path that is not v1: Z.AI
+  // became `/coding/paas/v4/v1/chat/completions` — a 404 at run time, which
+  // the chat showed as the bot simply not answering.
+  const lastSegment = url.split("/").pop() ?? "";
+  if (!/^v\d+$/.test(lastSegment)) url += "/v1";
   return url;
 }
