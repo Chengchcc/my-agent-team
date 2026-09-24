@@ -3,6 +3,7 @@ import { extractText } from "@chengchenccc/message";
 import { z } from "zod";
 import { getRunCard, insertRunCard, updateRunCard } from "../bindings-sqlite.js";
 import { larkIdempotencyKey } from "../lark-idempotency.js";
+import { swapAckReaction } from "./ack-reaction.js";
 import { createCardFlushController } from "./card-flush.js";
 import type { CardKitClient } from "./card-kit.js";
 import {
@@ -30,6 +31,11 @@ import { applyRunEvent, initialRunCardState, type RunCardState } from "./card-st
 const FLUSH_INTERVAL_MS = 150;
 const MAX_BUFFER_CHARS_BEFORE_FLUSH = 120;
 const SEAL_RETRY_DELAYS_MS = [200, 500, 1000];
+/** "OnIt" = the ack while the run is live; "DONE" replaces it at the terminal.
+ *  Verified against the live API: `Hold` is rejected (231001), `OnIt` and
+ *  `DONE` are accepted. */
+const ACK_EMOJI = "OnIt";
+const DONE_EMOJI = "DONE";
 
 export interface RunCardWatcherOptions {
   db: Database;
@@ -40,6 +46,9 @@ export interface RunCardWatcherOptions {
   webUrl: string | null;
   /** Plain-text send for the seal fallback (lark-cli; rare by design). */
   sendText: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
+  /** The user's message that started this run — the one the acknowledgement
+   *  reaction goes on. Absent for runs nobody typed (workflow dispatch). */
+  sourceMessageId?: string | null;
 }
 
 export interface RunCardWatcherHandle {
@@ -101,7 +110,7 @@ export function watchRunCard(
   larkChatId: string,
   opts: RunCardWatcherOptions,
 ): RunCardWatcherHandle {
-  const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText } = opts;
+  const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText, sourceMessageId } = opts;
   let aborted = false;
   let reconnectTimer: Timer | undefined;
   let abortController: AbortController | null = null;
@@ -123,6 +132,30 @@ export function watchRunCard(
         output: existing.accumulated,
       }
     : initialRunCardState();
+  // Feishu has no typing indicator, so the bot acknowledges the message with
+  // a reaction while the card is being produced (openclaw does the same). The
+  // id is persisted because the terminal step has to take the reaction back —
+  // including after a restart mid-run.
+  let ackReactionId = existing?.ackReactionId ?? null;
+  /** In flight so the terminal step can wait for it: a fast run can finish
+   *  before the acknowledgement lands, and retracting a reaction that has not
+   *  been created yet would leave it orphaned on the user's message. */
+  let ackPending: Promise<void> | null = null;
+  if (!ackReactionId && sourceMessageId) {
+    const target = sourceMessageId;
+    ackPending = (async () => {
+      const acked = await cardClient.addReaction(target, ACK_EMOJI);
+      if (acked.ok) {
+        ackReactionId = acked.reactionId;
+        updateRunCard(db, runId, { ackReactionId: acked.reactionId, sourceMessageId: target });
+      } else {
+        // Best effort: a missing acknowledgement is cosmetic and must never
+        // stop the card from being produced.
+        updateRunCard(db, runId, { lastError: `ackReaction: ${acked.error}` });
+      }
+    })();
+  }
+
   let cardKitId = existing?.cardKitId ?? null;
   let larkMessageId = existing?.larkMessageId ?? null;
   let seq = existing?.cardSeq ?? 0;
@@ -266,6 +299,22 @@ export function watchRunCard(
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
+  /** Terminal feedback: take the acknowledgement back and leave a DONE.
+   *  Best effort — the card is already the source of truth by now. */
+  async function leaveTerminalReaction(): Promise<void> {
+    if (!sourceMessageId) return;
+    if (ackPending) await ackPending;
+    const outcome = await swapAckReaction(cardClient, {
+      messageId: sourceMessageId,
+      ackReactionId,
+    });
+    if (ackReactionId !== null) {
+      ackReactionId = null;
+      updateRunCard(db, runId, { ackReactionId: null });
+    }
+    if (outcome.error) updateRunCard(db, runId, { lastError: outcome.error });
+  }
+
   /** Terminal seal (ADR 0031 §3): full-card replace with canonical text. */
   async function seal(): Promise<void> {
     stopTicker();
@@ -394,6 +443,7 @@ export function watchRunCard(
             }
             await flush.finish();
             await seal();
+            await leaveTerminalReaction();
           } else {
             scheduleReconnect(2000);
           }
@@ -417,6 +467,7 @@ export function watchRunCard(
                   if (state.terminal) {
                     await flush.finish();
                     await seal();
+                    await leaveTerminalReaction();
                     return;
                   }
                   maybeFlush(state.output.length - before.output.length);

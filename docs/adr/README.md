@@ -39,6 +39,8 @@
 | 0031 | lark-run-card-transient-projection(Run 卡片临时投影) | **Implemented**（第一期 + 2026-09-24 追加：卡片按钮回调（停止/审批/追问选项）、过程视图、todo 计划条、跨端共享 `OmaTodoItem`；reaction 与自由文本表单未做） |
 | 0032 | lark-final-delivery-at-least-once(终态投递 at-least-once) | Implemented |
 | 0033 | tool-activity-boundary(工具活动行是唯一跨进程的展示字段) | Implemented |
+| 0034 | lark-access-tiers(飞书访问控制分层：群准入、发送者名单、@ 判定) | Implemented |
+| 0035 | lark-instant-ack-reaction(收到即挂 emoji 回执，封版换成 DONE) | Implemented |
 
 > 状态翻转纪律：任何 ADR 状态变更(Obsolete/Superseded/Deferred→Implemented 等)**必须同 PR 更新本索引**，避免索引与正文失配(2026-08-21 修复 0004/0006/0024 时立规)。
 

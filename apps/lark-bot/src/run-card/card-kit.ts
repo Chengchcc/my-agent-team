@@ -55,6 +55,15 @@ export interface CardKitClient {
     sequence: number,
   ): Promise<CardKitResult>;
   closeStreaming(cardId: string, sequence: number): Promise<CardKitResult>;
+  /** Emoji reaction on a message. Lives here because it is the same hot
+   *  path (direct HTTPS, tenant token, 401 retry), not because it is a card
+   *  API: Feishu has no typing indicator, so the bot acknowledges the user's
+   *  message with a reaction while the card is being produced. */
+  addReaction(
+    messageId: string,
+    emojiType: string,
+  ): Promise<{ ok: true; reactionId: string } | CardKitErr>;
+  removeReaction(messageId: string, reactionId: string): Promise<CardKitResult>;
 }
 
 export function createCardKitClient(tokens: TokenProvider): CardKitClient {
@@ -109,6 +118,28 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
   }
 
   return {
+    async addReaction(messageId, emojiType) {
+      const resp = await call(
+        "POST",
+        `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+        { reaction_type: { emoji_type: emojiType } },
+      );
+      const { envelope, result } = await parse(resp);
+      if (!result.ok) return result;
+      const reactionId = envelope.data?.reaction_id;
+      if (typeof reactionId !== "string" || !reactionId) {
+        return { ok: false, error: "no reaction_id in addReaction response", retryable: false };
+      }
+      return { ok: true, reactionId };
+    },
+    async removeReaction(messageId, reactionId) {
+      const resp = await call(
+        "DELETE",
+        `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(reactionId)}`,
+        undefined,
+      );
+      return (await parse(resp)).result;
+    },
     async createCard(card) {
       const resp = await call("POST", "/open-apis/cardkit/v1/cards", {
         type: "card_json",

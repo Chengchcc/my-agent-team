@@ -60,6 +60,11 @@ export const runCard = sqliteTable("run_card", {
   /** Strictly increasing per card — CardKit stream/replace ordering. */
   cardSeq: integer().notNull().default(0),
   sourceMessageId: text(),
+  /** The "OnIt" reaction this bot put on the user's message while the run is
+   *  live, so the terminal step can take it back and leave a "DONE". Kept on
+   *  the row (not in memory) because a restart mid-run must still be able to
+   *  clean up the acknowledgement it left behind. */
+  ackReactionId: text(),
   status: text().notNull().default("creating"),
   accumulated: text().notNull().default(""),
   toolCount: integer().notNull().default(0),

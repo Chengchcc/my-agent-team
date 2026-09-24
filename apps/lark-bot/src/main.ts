@@ -80,7 +80,12 @@ const cardTokens = createTokenProvider(profile);
 const cardClient = createCardKitClient(cardTokens);
 const cardWatchers = new Map<string, RunCardWatcherHandle>();
 
-function startRunCard(runId: string, conversationId: string, larkChatId: string) {
+function startRunCard(
+  runId: string,
+  conversationId: string,
+  larkChatId: string,
+  sourceMessageId: string | null = null,
+) {
   if (cardWatchers.has(runId)) return;
   const handle = watchRunCard(runId, conversationId, larkChatId, {
     db: state.db,
@@ -88,6 +93,7 @@ function startRunCard(runId: string, conversationId: string, larkChatId: string)
     backendAuthToken: args.backendAuthToken,
     cardClient,
     webUrl: args.webUrl,
+    sourceMessageId,
     sendText: async (chatId, text, idempotencyKey) => {
       const result = await sendMessage(profile, chatId, text, idempotencyKey);
       if (!result.ok) throw new Error(result.error ?? "unknown lark send error");
@@ -99,7 +105,7 @@ function startRunCard(runId: string, conversationId: string, larkChatId: string)
 
 // Restart recovery: re-drive cards that were still live when we died.
 for (const card of listNonTerminalRunCards(state.db)) {
-  startRunCard(card.runId, card.conversationId, card.larkChatId);
+  startRunCard(card.runId, card.conversationId, card.larkChatId, card.sourceMessageId);
 }
 
 // M16: Surface health heartbeat (every 30s)
@@ -157,7 +163,9 @@ async function handleLine(line: string): Promise<void> {
     },
     // ADR 0031: a triggered run gets its streaming card immediately.
     onTriggeredRun: (runId, conversationId) => {
-      startRunCard(runId, conversationId, event.chat_id);
+      // The user's own message is what the ack reaction goes on; the card is
+      // a separate message the bot sends into the chat.
+      startRunCard(runId, conversationId, event.chat_id, event.message_id);
     },
     onCommandReply: async (chatId, text) => {
       const result = await sendTextOnly(profile, chatId, text);

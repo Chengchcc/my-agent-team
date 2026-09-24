@@ -314,6 +314,8 @@ export interface RunCardRecord {
   /** Strictly increasing per card — CardKit stream/replace ordering. */
   cardSeq: number;
   sourceMessageId: string | null;
+  /** "OnIt" reaction on the user's message while the run is live. */
+  ackReactionId: string | null;
   status: string;
   accumulated: string;
   toolCount: number;
@@ -340,6 +342,7 @@ function parseRunCard(row: typeof schema.runCard.$inferSelect): RunCardRecord {
     cardKitId: row.cardKitId,
     cardSeq: row.cardSeq,
     sourceMessageId: row.sourceMessageId,
+    ackReactionId: row.ackReactionId,
     status: row.status,
     accumulated: row.accumulated,
     toolCount: row.toolCount,
