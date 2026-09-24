@@ -6,7 +6,9 @@ import { agentRoutes } from "./http.js";
 import type { AgentPort } from "./ports.js";
 import { createAgentService } from "./service.js";
 
-function makeSvc() {
+function makeSvc(
+  modelKnown?: (backendKind: string, provider: string, modelId: string) => Promise<boolean>,
+) {
   const rows = new Map<string, AgentRow>();
   const port: AgentPort = {
     async create(input) {
@@ -62,6 +64,14 @@ function makeSvc() {
         assertNoActiveRun: () => {},
       }),
       { listForAgent: async () => [], setAgentPacks: async () => {} },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      modelKnown,
     ),
   );
 }
@@ -244,5 +254,90 @@ describe("agent HTTP routes", () => {
       }),
     );
     expect(evilResp.status).toBe(400);
+  });
+});
+
+describe("agent model consistency gate", () => {
+  const KNOWN = new Set(["anthropic/claude", "oma/stub"]);
+  const modelKnown = async (
+    backendKind: string,
+    provider: string,
+    modelId: string,
+  ): Promise<boolean> => {
+    // The omp static table knows none of the ids this fixture serves.
+    if (backendKind === "omp") return false;
+    return KNOWN.has(`${provider}/${modelId}`);
+  };
+
+  const post = (app: { handle: (req: Request) => Promise<Response> }, payload: unknown) =>
+    app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+
+  const patch = (
+    app: { handle: (req: Request) => Promise<Response> },
+    id: string,
+    payload: unknown,
+  ) =>
+    app.handle(
+      new Request(`http://localhost/api/agents/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+
+  test("POST refuses a model the kind's catalog doesn't know", async () => {
+    const app = makeSvc(modelKnown);
+    const resp = await post(app, { name: "a", model: { provider: "zai", model: "glm-9" } });
+    expect(resp.status).toBe(400);
+    const body = (await resp.json()) as { error: string };
+    expect(body.error).toContain("unknown model zai/glm-9");
+  });
+
+  test("POST accepts a cataloged model", async () => {
+    const app = makeSvc(modelKnown);
+    const resp = await post(app, {
+      name: "a",
+      model: { provider: "anthropic", model: "claude" },
+    });
+    expect(resp.status).toBe(201);
+  });
+
+  test("routes without the check keep accepting any model", async () => {
+    const app = makeSvc();
+    const resp = await post(app, { name: "a", model: { provider: "x", model: "y" } });
+    expect(resp.status).toBe(201);
+  });
+
+  test("PATCH switching kind alone refuses a model the new kind lacks", async () => {
+    const app = makeSvc(modelKnown);
+    const created = await post(app, {
+      name: "a",
+      model: { provider: "anthropic", model: "claude" },
+    });
+    const { id } = (await created.json()) as { id: string };
+    const resp = await patch(app, id, { backendKind: "omp" });
+    expect(resp.status).toBe(400);
+    const body = (await resp.json()) as { error: string };
+    expect(body.error).toContain("for backend kind omp");
+  });
+
+  test("PATCH model + kind together passes when the new kind knows it", async () => {
+    const app = makeSvc(modelKnown);
+    const created = await post(app, {
+      name: "a",
+      model: { provider: "anthropic", model: "claude" },
+    });
+    const { id } = (await created.json()) as { id: string };
+    const resp = await patch(app, id, {
+      backendKind: "oma",
+      model: { provider: "oma", model: "stub" },
+    });
+    expect(resp.status).toBe(200);
   });
 });

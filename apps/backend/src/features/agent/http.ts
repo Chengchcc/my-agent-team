@@ -15,6 +15,7 @@ import { sseResponse } from "../../http/response.js";
 import { HttpError } from "../../infra/errors.js";
 import { probeCliSetupCapability } from "../lark-bot/provisioner.js";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
+import { DEFAULT_BACKEND_KIND, UNCONFIGURED_MODEL_ID } from "./agent-config.js";
 import type { AgentConfigEvent, AgentConfigEventBus } from "./agent-config-events.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
 import type { AgentRow } from "./domain.js";
@@ -132,6 +133,16 @@ export function agentRoutes(
     runtime: LarkSurfaceRuntime;
     setup: LarkSetupFacts | null;
   } | null>,
+  /** Config-time (backendKind, model) consistency: a model id the target
+   *  kind's catalog doesn't know would only die at run time, so refuse it
+   *  here. Returning true on catalog trouble keeps configuration possible
+   *  while a child-process catalog is down — the check must not become a
+   *  second thing that can be down. */
+  modelKnownForBackend?: (
+    backendKind: string,
+    provider: string,
+    modelId: string,
+  ) => Promise<boolean>,
 ) {
   const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
@@ -143,6 +154,18 @@ export function agentRoutes(
     .post(
       "/api/agents",
       async ({ body, set }) => {
+        if (body.model && modelKnownForBackend) {
+          const kind = body.backendKind ?? DEFAULT_BACKEND_KIND;
+          const known = await modelKnownForBackend(kind, body.model.provider, body.model.model);
+          if (!known) {
+            return Response.json(
+              {
+                error: `unknown model ${body.model.provider}/${body.model.model} for backend kind ${kind}`,
+              },
+              { status: 400 },
+            );
+          }
+        }
         const row = await svc.create(body);
         set.status = 201;
         return toAgentResponse(row, statusOf(row));
@@ -251,6 +274,31 @@ export function agentRoutes(
             for (const pid of body.projects) {
               if (!projectExists(pid)) {
                 return Response.json({ error: `unknown project ${pid}` }, { status: 400 });
+              }
+            }
+          }
+          // Config-time model consistency: check when a model arrives, when
+          // the kind switches (the existing model must survive on the new
+          // kind), and never when nothing model-related changed.
+          const modelTouched = body.model !== undefined || body.backendKind !== undefined;
+          if (modelKnownForBackend && modelTouched) {
+            const existing = await svc.getById(id);
+            const kind = body.backendKind ?? existing.config.runtime_config.runtime;
+            const composite = body.model
+              ? `${body.model.provider}/${body.model.model}`
+              : existing.config.runtime_config.model_id;
+            if (composite !== UNCONFIGURED_MODEL_ID) {
+              const slash = composite.indexOf("/");
+              const provider = slash > 0 ? composite.slice(0, slash) : composite;
+              const modelId = slash > 0 ? composite.slice(slash + 1) : composite;
+              const known = await modelKnownForBackend(kind, provider, modelId);
+              if (!known) {
+                return Response.json(
+                  {
+                    error: `unknown model ${provider}/${modelId} for backend kind ${kind}`,
+                  },
+                  { status: 400 },
+                );
               }
             }
           }

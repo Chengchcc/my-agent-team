@@ -11,6 +11,7 @@ export { withLarkLifecycle } from "./agent-lark.js";
 export type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 export { agentModelRef } from "./domain.js";
 export { agentRoutes } from "./http.js";
+export { createModelCatalogCheck } from "./model-check.js";
 export {
   AgentBusyError,
   AgentNotFoundError,

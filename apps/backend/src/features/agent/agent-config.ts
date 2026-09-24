@@ -4,6 +4,13 @@ import { z } from "zod";
  *  (ADR 0020 decision 1: agent.yml is the single source; the DB holds
  *  only the FK anchor + this materialized cache). */
 
+/** Backend kind used when nothing else says otherwise (create without one,
+ *  or no previous config to inherit). */
+export const DEFAULT_BACKEND_KIND = "oma";
+
+/** model_id placeholder for an agent that has no real model yet. */
+export const UNCONFIGURED_MODEL_ID = "unconfigured/none";
+
 export const agentConfigSchema = z.object({
   schema_version: z.literal("1"),
   enabled: z.boolean(),
@@ -119,10 +126,10 @@ export function buildAgentConfig(input: {
   prev?: AgentConfig;
 }): AgentConfig {
   const prev = input.prev;
-  const runtime = input.backendKind ?? prev?.runtime_config.runtime ?? "oma";
+  const runtime = input.backendKind ?? prev?.runtime_config.runtime ?? DEFAULT_BACKEND_KIND;
   const modelId = input.model
     ? `${input.model.provider}/${input.model.model}`
-    : (prev?.runtime_config.model_id ?? "unconfigured/none");
+    : (prev?.runtime_config.model_id ?? UNCONFIGURED_MODEL_ID);
   return agentConfigSchema.parse({
     schema_version: "1",
     enabled: input.enabled ?? prev?.enabled ?? true,

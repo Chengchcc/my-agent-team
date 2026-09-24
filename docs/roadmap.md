@@ -61,7 +61,7 @@
 
 **技能包的调用计数没有。** 设计里有「今日调用」这类统计，需要工具调用事件带上来源包 id。
 
-**配置期没有 `(backendKind, model)` 一致性校验。** `PATCH /api/agents/:id` 会接受任意 `provider/model`，即使目标种类的目录里没有它（真机复现：`oma + deepseek/deepseek-chat` → 200，run 阶段才死）。修法是在 PATCH（或 run preflight）里查目标种类 adapter 的目录——`OmaModelCatalog`/`OmpModelCatalog` 都已缓存，不额外 spawn。
+**配置期的 `(backendKind, model)` 一致性校验已补（2026-09-24）。** `POST/PATCH /api/agents` 现在会把 `provider/model`（经 `MODEL_ALIASES` 归一）对照目标种类的目录，目录里没有就 400（`model-check.ts`；目录列不出来时降级为放行，配置不依赖子进程活着）。PATCH 只换 `backendKind` 时也会用旧模型对新目录查一次——这是当初真机翻车的那条路（`oma + deepseek/deepseek-chat` → 200，run 阶段才死）。
 
 **omp 的静态模型表与它实际接受的 id 不一致。** `packages/adapter-omp-agent/src/model-catalog.ts` 是写死的表（omp 无枚举命令），其中 `deepseek-chat`/`deepseek-reasoner` 实测被 omp 拒绝（`--model` → 启动即 fatal `No API key found for openrouter`，因为回落到默认 provider）；且 `available: true` 是硬编码，无法反映 provider 有没有 key。oma 侧的同类问题已由一次产品 Run 修掉（`rpc-mode` 的 `validateExecute` 改用 `resolveModelEntry`）。
 

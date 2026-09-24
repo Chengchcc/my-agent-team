@@ -22,6 +22,7 @@ import {
   agentModelRef,
   agentRoutes,
   createAgentConfigMcpServer,
+  createModelCatalogCheck,
 } from "../features/agent/index.js";
 import {
   bridgeWorktreeRoot,
@@ -579,6 +580,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const servedModelKnowledge = createServedModelKnowledge({
     probe: createProviderModelProbe({ env: process.env }),
   });
+  // Config-time (backendKind, model) consistency (see model-check.ts).
+  const modelKnownForBackend = createModelCatalogCheck({ backends });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
   const agentRunExecution = createAgentRunExecutionService({
     workspaceLocks,
@@ -1350,6 +1353,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // read-only workspace file view is allowed to follow them there.
       [config.dataDir],
       larkSurfaceFactsOf,
+      modelKnownForBackend,
     ),
     conversations: conversationRoutes(conv.convSvc, ulid, (id: string) => projectSvc.exists(id)),
     ops: opsRoutes(opsSvc),
