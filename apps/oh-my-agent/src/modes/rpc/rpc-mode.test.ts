@@ -55,13 +55,13 @@ function slowProvider(delayMs: number): Provider {
 }
 
 /** Catalog entry whose id is an ALIAS TARGET: acceptance must map
- *  `deepseek/deepseek-chat` → `deepseek/deepseek-v4-flash` before matching,
+ *  `deepseek/deepseek-chat` → `deepseek/deepseek-flash` before matching,
  *  exactly like the runtime's own model resolution does. */
 function aliasProvider(): Provider {
   return {
     id: "deepseek",
     name: "DeepSeek",
-    getModels: () => [{ ...FAKE_MODEL, id: "deepseek-v4-flash", provider: "deepseek" }],
+    getModels: () => [{ ...FAKE_MODEL, id: "deepseek-flash", provider: "deepseek" }],
     async *stream(): AsyncIterable<AIMessageChunk> {
       yield { delta: { type: "text", text: "done" } };
       yield { stopReason: "end_turn" };

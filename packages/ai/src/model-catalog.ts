@@ -226,8 +226,8 @@ export const BUILTIN_CATALOG: CatalogSpec = {
       apiKeyEnv: "DEEPSEEK_API_KEY",
       models: [
         {
-          id: "deepseek-v4-flash",
-          name: "DeepSeek V4 Flash",
+          id: "deepseek-flash",
+          name: "DeepSeek Flash",
           reasoning: true,
           input: ["text"],
           contextWindow: 1_000_000,
@@ -306,7 +306,11 @@ export const MODEL_ALIASES: Readonly<Record<string, string>> = {
   "claude-haiku-3-5": "claude-haiku-4-5",
   "gpt-4o": "gpt-5.2",
   "gpt-4o-mini": "gpt-5-mini",
-  "deepseek-chat": "deepseek-v4-flash",
+  "deepseek-chat": "deepseek-flash",
+  // Compatibility: this id was published in the catalog for a while but the
+  // provider never served it (their list has `deepseek-flash`, no `v4`), so
+  // agent rows may carry it. Keep them running rather than failing dispatch.
+  "deepseek-v4-flash": "deepseek-flash",
 };
 
 /** Resolve a model id through the alias table. Returns the canonical

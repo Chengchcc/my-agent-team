@@ -18,7 +18,7 @@ const sample = db
   )
   .get() as Record<string, unknown>;
 const models = [
-  '{"backendKind":"oma","modelId":"deepseek/deepseek-v4-flash"}',
+  '{"backendKind":"oma","modelId":"deepseek/deepseek-flash"}',
   '{"backendKind":"oma","modelId":"anthropic/claude-sonnet-5"}',
   '{"backendKind":"oma","modelId":"openai/gpt-5.4"}',
   '{"backendKind":"oma","modelId":"zai/glm-5.3"}',

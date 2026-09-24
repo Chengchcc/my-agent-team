@@ -7,7 +7,7 @@ describe("executeRunInputSchema", () => {
       input: { inputId: "in-1", message: { role: "user", text: "go" } },
       run: {
         runId: "run-1",
-        model: { backendKind: "oma", modelId: "deepseek/deepseek-v4-flash" },
+        model: { backendKind: "oma", modelId: "deepseek/deepseek-flash" },
         configRevision: 1,
         permissionMode: "auto",
         workflowBudgetTokens: 12000,

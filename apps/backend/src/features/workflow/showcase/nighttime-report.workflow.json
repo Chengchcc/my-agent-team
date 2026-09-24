@@ -29,7 +29,7 @@
     {
       "id": "scan-repo",
       "type": "agent",
-      "model": "deepseek/deepseek-v4-flash",
+      "model": "deepseek/deepseek-flash",
       "prompt": "You are a code-quality review agent.Scan the repository at input repoUrl (clone/checkout locally first), find code-quality issues across: bug risk, performance, maintainability, security, test coverage.Rank by severity and summarize the top 3 issues; each with description, impact and fix suggestion.Output a JSON problems array (array of strings, one issue per string). Empty array if the repo looks clean.",
       "output": [
         {
