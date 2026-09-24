@@ -4,17 +4,25 @@ import { z } from "zod";
 import { getRunCard, insertRunCard, updateRunCard } from "../bindings-sqlite.js";
 import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { createCardFlushController } from "./card-flush.js";
-import { renderRunCard } from "./card-renderer.js";
-import { sendCard, updateCard } from "./card-sender.js";
+import type { CardKitClient } from "./card-kit.js";
+import {
+  cardStatusKey,
+  OUTPUT_ELEMENT_ID,
+  renderOutputContent,
+  renderRunCard,
+  renderStatusContent,
+  STATUS_ELEMENT_ID,
+} from "./card-renderer.js";
 import { applyRunEvent, initialRunCardState, type RunCardState } from "./card-state.js";
 
 /**
  * ADR 0031: the streaming card lifecycle for one Agent Run.
- * Consumes the Run SSE (transient), throttles card PATCHes through the
- * single-flight flush controller, and seals the terminal card from the
- * canonical assistant text (GET run detail — the same outcome messages
- * the ledger commit is built from). Card send/update failures never
- * affect the run; a failed seal falls back to sending the final text.
+ * Consumes the Run SSE (transient) and drives a CardKit card entity:
+ * create (+ streaming_mode) → send the card_id reference → stream the
+ * cumulative text into the output element (the client renders appends with
+ * a typewriter) → terminal full-card replace sealed from the canonical
+ * assistant text. Failures never affect the run; a failed seal falls back
+ * to sending the final text.
  */
 
 const FLUSH_INTERVAL_MS = 150;
@@ -25,9 +33,10 @@ export interface RunCardWatcherOptions {
   db: Database;
   backendUrl: string;
   backendAuthToken: string | null;
-  profile: string;
+  /** CardKit client — the direct-HTTPS hot path (never spawns lark-cli). */
+  cardClient: CardKitClient;
   webUrl: string | null;
-  /** Plain-text send for the seal fallback. Throws on failure. */
+  /** Plain-text send for the seal fallback (lark-cli; rare by design). */
   sendText: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
 }
 
@@ -59,6 +68,7 @@ function rowStatus(state: RunCardState): string {
   if (state.waiting) return "waiting";
   return state.output.length > 0 || state.toolCount > 0 ? "streaming" : "creating";
 }
+
 async function fetchRunOutcome(
   backendUrl: string,
   token: string | null,
@@ -89,14 +99,14 @@ export function watchRunCard(
   larkChatId: string,
   opts: RunCardWatcherOptions,
 ): RunCardWatcherHandle {
-  const { db, backendUrl, backendAuthToken, profile, webUrl, sendText } = opts;
+  const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText } = opts;
   let aborted = false;
-  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconnectTimer: Timer | undefined;
   let abortController: AbortController | null = null;
 
   const meta = { runId, startedAt: Date.now(), webUrl };
 
-  // Restart recovery: reuse the row (accumulated output, card message id).
+  // Restart recovery: reuse the row (card entity, sequence, output).
   const existing = getRunCard(db, runId);
   if (existing && !["creating", "streaming", "waiting"].includes(existing.status)) {
     return { runId, close: () => {} };
@@ -112,7 +122,9 @@ export function watchRunCard(
         toolCount: existing.toolCount,
       }
     : initialRunCardState();
+  let cardKitId = existing?.cardKitId ?? null;
   let larkMessageId = existing?.larkMessageId ?? null;
+  let seq = existing?.cardSeq ?? 0;
 
   const persist = () => {
     updateRunCard(db, runId, {
@@ -120,19 +132,72 @@ export function watchRunCard(
       accumulated: state.output,
       toolCount: state.toolCount,
       larkMessageId,
+      cardKitId,
+      cardSeq: seq,
     });
   };
 
+  /** Element contents already pushed — only changed elements get a call. */
+  let pushedOutput = "";
+  let pushedStatus = "";
+  /** Header frame at the last full replace — element streams cannot
+   * change the header, so a key change forces one full-card replace. */
+  let pushedCardKey: string | null = null;
+
+  const nextSeq = () => {
+    seq += 1;
+    return seq;
+  };
+
   const flush = createCardFlushController(async () => {
-    if (!larkMessageId || state.terminal) return;
-    const result = await updateCard({
-      profile,
-      messageId: larkMessageId,
-      card: renderRunCard(state, meta),
-    });
-    if (!result.ok) {
-      // Non-fatal (ADR 0031 §2): the next delta re-flushes.
-      updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: result.error });
+    if (!cardKitId || state.terminal) return;
+    const frameKey = cardStatusKey(state);
+    const frameChanged = frameKey !== pushedCardKey;
+    if (frameChanged) {
+      // Full replace (header + elements) on phase transitions: queued →
+      // running → waiting_* are rare, so the cost is fine and it is the
+      // ONLY way the header moves mid-run.
+      const r = await cardClient.updateCard(cardKitId, renderRunCard(state, meta), nextSeq());
+      if (!r.ok) {
+        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
+        return;
+      }
+      pushedCardKey = frameKey;
+      pushedOutput = renderOutputContent(state);
+      pushedStatus = renderStatusContent(state, meta);
+      persist();
+      return;
+    }
+    const outputContent = renderOutputContent(state);
+    const statusContent = renderStatusContent(state, meta);
+    if (outputContent !== pushedOutput) {
+      const r = await cardClient.streamElement({
+        cardId: cardKitId,
+        elementId: OUTPUT_ELEMENT_ID,
+        content: outputContent,
+        sequence: nextSeq(),
+        uuid: `${runId}-out-${seq}`,
+      });
+      if (!r.ok) {
+        // Non-fatal (ADR 0031 §2): the next delta re-flushes.
+        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
+        return;
+      }
+      pushedOutput = outputContent;
+    }
+    if (statusContent !== pushedStatus) {
+      const r = await cardClient.streamElement({
+        cardId: cardKitId,
+        elementId: STATUS_ELEMENT_ID,
+        content: statusContent,
+        sequence: nextSeq(),
+        uuid: `${runId}-st-${seq}`,
+      });
+      if (!r.ok) {
+        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
+        return;
+      }
+      pushedStatus = statusContent;
     }
     persist();
   });
@@ -142,15 +207,32 @@ export function watchRunCard(
 
   const maybeFlush = (textLength: number) => {
     pendingChars += textLength;
-    if (
-      Date.now() - lastFlushAt >= FLUSH_INTERVAL_MS ||
-      pendingChars >= MAX_BUFFER_CHARS_BEFORE_FLUSH
-    ) {
+    const intervalElapsed = Date.now() - lastFlushAt >= FLUSH_INTERVAL_MS;
+    const bufferFull = pendingChars >= MAX_BUFFER_CHARS_BEFORE_FLUSH;
+    if (intervalElapsed || bufferFull) {
       lastFlushAt = Date.now();
       pendingChars = 0;
       flush.request();
     }
   };
+
+  // Status ticker: the elapsed line must tick every second even while the
+  // model thinks or a tool runs (no deltas arrive then). The flush skips
+  // unchanged elements, so a tick with no new text costs one cheap status
+  // PUT — well within CardKit's streaming design point.
+  const STATUS_TICK_MS = 1000;
+  let statusTimer: Timer | undefined;
+  const stopTicker = () => {
+    clearInterval(statusTimer);
+    statusTimer = undefined;
+  };
+  statusTimer = setInterval(() => {
+    if (aborted || state.terminal) {
+      stopTicker();
+      return;
+    }
+    flush.request();
+  }, STATUS_TICK_MS);
 
   async function sendFinalText(text: string): Promise<void> {
     let lastError: unknown = null;
@@ -166,8 +248,9 @@ export function watchRunCard(
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
-  /** Terminal seal (ADR 0031 §3): canonical text in-card; text fallback. */
+  /** Terminal seal (ADR 0031 §3): full-card replace with canonical text. */
   async function seal(): Promise<void> {
+    stopTicker();
     // The terminal status event can beat the ledger commit by a beat —
     // retry the run detail briefly before giving up on the canonical text.
     let finalText: string | null = null;
@@ -181,25 +264,29 @@ export function watchRunCard(
     state = { ...state, output: content };
 
     let sealed = false;
-    if (larkMessageId) {
+    if (cardKitId) {
       for (let attempt = 0; attempt < 3 && !sealed; attempt++) {
-        const result = await updateCard({
-          profile,
-          messageId: larkMessageId,
-          card: renderRunCard(state, meta),
-        });
-        if (result.ok) sealed = true;
-        else await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+        const r = await cardClient.updateCard(cardKitId, renderRunCard(state, meta), nextSeq());
+        if (r.ok) sealed = true;
+        else await new Promise((r2) => setTimeout(r2, 500 * 2 ** attempt));
       }
     }
     if (sealed) {
+      // Close streaming mode so the client leaves the streaming view and
+      // renders the frozen terminal card (reference: setCardStreamingMode).
+      const closed = await cardClient.closeStreaming(cardKitId!, nextSeq());
+      if (!closed.ok) {
+        // Non-fatal: the content is already terminal; the mode also
+        // self-closes on the platform's streaming timeout.
+        updateRunCard(db, runId, { lastError: `closeStreaming: ${closed.error}` });
+      }
       updateRunCard(db, runId, {
         status: state.terminal?.status ?? "completed",
         accumulated: content,
       });
       return;
     }
-    // Card unpatchable: the final answer must still reach the user.
+    // Card unreplaceable: the final answer must still reach the user.
     try {
       await sendFinalText(content);
       updateRunCard(db, runId, {
@@ -229,24 +316,29 @@ export function watchRunCard(
   const drive = async () => {
     if (aborted) return;
 
-    // ── Placeholder card (idempotent by conversationId:runId:card) ──
-    if (!larkMessageId) {
-      const result = await sendCard({
-        profile,
-        chatId: larkChatId,
-        card: renderRunCard(state, meta),
-        idempotencyKey: larkIdempotencyKey(conversationId, runId, "card"),
-      });
-      if (!result.ok) {
+    // ── Create the card entity + send its message reference ──
+    if (!cardKitId) {
+      const created = await cardClient.createCard(renderRunCard(state, meta));
+      if (!created.ok) {
         // Hand the run back to the text bridge; it delivers the final row.
         updateRunCard(db, runId, {
           status: "fallback_text",
           cardSendFailed: 1,
-          lastError: result.error,
+          lastError: created.error,
         });
         return;
       }
-      larkMessageId = result.messageId;
+      cardKitId = created.cardId;
+      const sent = await cardClient.sendCard(larkChatId, cardKitId);
+      if (!sent.ok) {
+        updateRunCard(db, runId, {
+          status: "fallback_text",
+          cardSendFailed: 1,
+          lastError: sent.error,
+        });
+        return;
+      }
+      larkMessageId = sent.messageId;
       persist();
     }
 
@@ -348,10 +440,9 @@ export function watchRunCard(
     runId,
     close: () => {
       aborted = true;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = undefined;
-      }
+      stopTicker();
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
       abortController?.abort();
     },
   };

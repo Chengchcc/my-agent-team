@@ -297,6 +297,10 @@ export interface RunCardRecord {
   conversationId: string;
   larkChatId: string;
   larkMessageId: string | null;
+  /** The CardKit card entity the hot path streams into. */
+  cardKitId: string | null;
+  /** Strictly increasing per card — CardKit stream/replace ordering. */
+  cardSeq: number;
   sourceMessageId: string | null;
   status: string;
   accumulated: string;
@@ -321,6 +325,8 @@ function parseRunCard(row: typeof schema.runCard.$inferSelect): RunCardRecord {
     conversationId: row.conversationId,
     larkChatId: row.larkChatId,
     larkMessageId: row.larkMessageId,
+    cardKitId: row.cardKitId,
+    cardSeq: row.cardSeq,
     sourceMessageId: row.sourceMessageId,
     status: row.status,
     accumulated: row.accumulated,
@@ -379,6 +385,21 @@ export function listActiveRunCards(db: Database, larkChatId: string): RunCardRec
     .all()
     .map(parseRunCard)
     .filter((c) => RUN_CARD_ACTIVE_STATUSES[c.status] === true);
+}
+
+/** The active card carried by one Lark message (reaction-triggered stop). */
+export function getActiveRunCardByLarkMessage(
+  db: Database,
+  larkMessageId: string,
+): RunCardRecord | null {
+  const row = d(db)
+    .select()
+    .from(schema.runCard)
+    .where(eq(schema.runCard.larkMessageId, larkMessageId))
+    .get();
+  if (!row) return null;
+  const card = parseRunCard(row);
+  return RUN_CARD_ACTIVE_STATUSES[card.status] === true ? card : null;
 }
 
 /** Non-terminal cards to re-drive after a bot restart. */

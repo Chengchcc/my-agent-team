@@ -130,7 +130,7 @@ describe("renderRunCard", () => {
     const config = card.config as Record<string, unknown>;
     expect(card.schema).toBe("2.0");
     expect(config.streaming_mode).toBe(true);
-    expect(JSON.stringify(card)).toContain("发送 /stop 可停止");
+    expect(JSON.stringify(card)).toContain("点卡片上的「停止」可取消");
     expect(JSON.stringify(card)).not.toContain("在 Web 查看");
   });
 

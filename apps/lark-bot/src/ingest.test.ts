@@ -341,7 +341,7 @@ describe("ingest /stop control command", () => {
     );
   }
 
-  test("cancels every live card for the chat and replies", async () => {
+  test("cancels every live card for the chat; success is silent (card is the feedback)", async () => {
     const db = makeDb();
     seedCard(db, "run_a", "streaming");
     seedCard(db, "run_b", "waiting");
@@ -367,7 +367,7 @@ describe("ingest /stop control command", () => {
     );
 
     expect(result.action).toBe("consumed");
-    expect(replies).toEqual(["已发送停止信号（2 个任务）。"]);
+    expect(replies).toEqual([]);
     db.close();
   });
 

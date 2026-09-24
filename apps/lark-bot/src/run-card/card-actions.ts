@@ -1,0 +1,155 @@
+import type { Database } from "bun:sqlite";
+import { getActiveRunCardByLarkMessage } from "../bindings-sqlite.js";
+
+/**
+ * ADR 0031 §6 (revised): card.action.trigger IS reachable — lark-cli ≥1.0.9x
+ * exposes it as an EventKey over the same outbound websocket (no public
+ * ingress). This module parses one NDJSON callback line into a validated
+ * run action and executes it against the Run control API.
+ *
+ * Trust model (single-operator local deployment, ADR 0026): we never trust
+ * action_value alone — the message_id must map to a live card row of THIS
+ * chat, and the embedded runId must match that row. Operator allowlisting
+ * reuses the agent's lark.allowedSenders at the message-ingest layer; the
+ * signed-action-token + backend-side dedup is the multi-operator hardening
+ * step this seam is shaped for.
+ */
+
+export interface CardActionEvent {
+  eventId: string;
+  operatorId: string;
+  chatId: string;
+  messageId: string;
+  actionTag: string;
+  actionValue: string;
+}
+
+/** Extract the callback fields from one lark-cli NDJSON line (defensive:
+ * the envelope layout varies by CLI version — search shallowly). */
+export function parseCardActionLine(line: string): CardActionEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  const found = searchFields(parsed, 0);
+  const complete =
+    found.eventId !== undefined &&
+    found.operatorId !== undefined &&
+    found.chatId !== undefined &&
+    found.messageId !== undefined;
+  if (!complete) return null;
+  return {
+    eventId: found.eventId!,
+    operatorId: found.operatorId!,
+    chatId: found.chatId!,
+    messageId: found.messageId!,
+    actionTag: found.actionTag ?? "",
+    actionValue: found.actionValue ?? "",
+  };
+}
+
+interface FoundFields {
+  eventId?: string;
+  operatorId?: string;
+  chatId?: string;
+  messageId?: string;
+  actionTag?: string;
+  actionValue?: string;
+}
+
+function searchFields(node: unknown, depth: number): FoundFields {
+  const found: FoundFields = {};
+  collectFields(node, depth, found);
+  return found;
+}
+
+function collectFields(node: unknown, depth: number, found: FoundFields): void {
+  if (depth > 4 || typeof node !== "object" || node === null) return;
+  for (const [key, value] of Object.entries(node)) {
+    if (typeof value !== "string") continue;
+    if (key === "event_id") found.eventId = value;
+    if (key === "operator_id") found.operatorId = value;
+    if (key === "chat_id") found.chatId = value;
+    if (key === "message_id") found.messageId = value;
+    if (key === "action_tag") found.actionTag = value;
+    if (key === "action_value") found.actionValue = value;
+  }
+  for (const value of Object.values(node)) {
+    if (typeof value === "object" && value !== null) collectFields(value, depth + 1, found);
+  }
+}
+
+export type RunCardAction = { action: "stop"; runId: string };
+
+/** Decode the button payload; only shapes we explicitly emit are accepted. */
+export function decodeActionValue(raw: string): RunCardAction | null {
+  try {
+    const value = JSON.parse(raw) as { action?: unknown; runId?: unknown };
+    const runId = value.runId;
+    if (value.action === "stop" && typeof runId === "string" && runId.length > 0) {
+      return { action: "stop", runId };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bounded in-memory event_id dedup (restart replays are idempotent anyway:
+ * cancel on a settled run is a no-op). */
+const SEEN_CAP = 512;
+const seenEventIds = new Map<string, true>();
+
+export function reserveEventId(eventId: string): boolean {
+  if (seenEventIds.has(eventId)) return false;
+  seenEventIds.set(eventId, true);
+  if (seenEventIds.size > SEEN_CAP) {
+    const oldest = seenEventIds.keys().next().value;
+    if (oldest !== undefined) seenEventIds.delete(oldest);
+  }
+  return true;
+}
+
+export interface CardActionDeps {
+  db: Database;
+  cancelRun: (runId: string) => Promise<{ error?: unknown }>;
+  log: (message: string) => void;
+}
+
+/** Handle one callback line end to end. Returns a short outcome for logs. */
+export async function handleCardActionLine(line: string, deps: CardActionDeps): Promise<string> {
+  const event = parseCardActionLine(line);
+  if (!event) return "unparsed";
+  if (!reserveEventId(event.eventId)) return "duplicate";
+  const action = decodeActionValue(event.actionValue);
+  if (!action) {
+    deps.log(`card action ignored: tag=${event.actionTag} value=${event.actionValue.slice(0, 80)}`);
+    return "ignored";
+  }
+  // Cross-check the callback against local card state: the message must be
+  // THIS chat's live card, and its run must be the one the button names.
+  const card = getActiveRunCardByLarkMessage(deps.db, event.messageId);
+  const chatMatches = card?.larkChatId === event.chatId;
+  const runMatches = card?.runId === action.runId;
+  if (!card || !chatMatches || !runMatches) {
+    deps.log(
+      `card action rejected: msg=${event.messageId} chat=${event.chatId} run=${action.runId}` +
+        (card ? "" : " (no active card)"),
+    );
+    return "rejected";
+  }
+  const { error } = await deps.cancelRun(action.runId);
+  if (error) {
+    deps.log(
+      `card action cancel failed: run=${action.runId} ${JSON.stringify(error).slice(0, 120)}`,
+    );
+    return "cancel-failed";
+  }
+  // Success is silent: the watcher's SSE sees the cancelled status and
+  // seals the card into the grey 已停止 frame.
+  return "stopped";
+}

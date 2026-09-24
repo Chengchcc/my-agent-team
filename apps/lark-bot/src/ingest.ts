@@ -80,14 +80,25 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     const cards = listActiveRunCards(db, event.chat_id);
     const binding = getChatBinding(db, event.chat_id);
     let cancelled = 0;
+    let failed = 0;
     for (const card of cards) {
       const { error } = await client.api["agent-runs"]({ runId: card.runId }).cancel.post();
       if (!error) cancelled++;
-      else console.error(`[ingest] cancel ${card.runId} failed: ${JSON.stringify(error)}`);
+      else {
+        failed++;
+        console.error(`[ingest] cancel ${card.runId} failed: ${JSON.stringify(error)}`);
+      }
     }
     confirmInbound(db, event.event_id, binding?.conversationId ?? null, null);
+    // Success is silent: the card itself flips to the grey cancelled frame.
+    // Text only when there was nothing to stop or a cancel failed.
+    if (failed === 0 && cancelled > 0) {
+      return { action: "consumed", triggered: false, triggeredRuns: [] };
+    }
     const reply =
-      cancelled > 0 ? `已发送停止信号（${cancelled} 个任务）。` : "当前没有正在运行的任务。";
+      failed > 0
+        ? `停止失败（${failed} 个任务），请重试或到 Web 处理。`
+        : "当前没有正在运行的任务。";
     await ctx.onCommandReply?.(event.chat_id, reply);
     return { action: "consumed", triggered: false, triggeredRuns: [] };
   }

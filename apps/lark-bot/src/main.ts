@@ -4,9 +4,13 @@ import { createInterface } from "node:readline";
 import { parseArgs } from "./args.js";
 import { getAllChatBindings, getChatBinding, listNonTerminalRunCards } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
+import { createClient } from "./client.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
 import { parseEvent } from "./event-parser.js";
 import { ingest } from "./ingest.js";
+import { createTokenProvider } from "./lark-api.js";
+import { handleCardActionLine } from "./run-card/card-actions.js";
+import { createCardKitClient } from "./run-card/card-kit.js";
 import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
 import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
@@ -64,6 +68,11 @@ for (const binding of getAllChatBindings(state.db)) {
 }
 
 // ─── Run cards (ADR 0031) — one per live run ───
+// Hot path is direct HTTPS (CardKit client + tenant token recovered from
+// lark-cli's local secret store); lark-cli keeps profiles, inbound events
+// and the rare plain-text fallback sends.
+const cardTokens = createTokenProvider(profile);
+const cardClient = createCardKitClient(cardTokens);
 const cardWatchers = new Map<string, RunCardWatcherHandle>();
 
 function startRunCard(runId: string, conversationId: string, larkChatId: string) {
@@ -72,7 +81,7 @@ function startRunCard(runId: string, conversationId: string, larkChatId: string)
     db: state.db,
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
-    profile,
+    cardClient,
     webUrl: args.webUrl,
     sendText: async (chatId, text, idempotencyKey) => {
       const result = await sendMessage(profile, chatId, text, idempotencyKey);
@@ -166,6 +175,41 @@ rl.on("line", (line: string) => {
       `[lark-bot] event handling failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   });
+});
+
+// ─── Card action callbacks (ADR 0031 §6; lark-cli ≥1.0.9x) ───
+// Button clicks arrive as card.action.trigger over the same outbound
+// websocket — no public ingress. lark-bot validates the callback against
+// its local run_card row and calls the Run control API.
+const actionChild = spawn(
+  "lark-cli",
+  ["--profile", profile, "event", "consume", "card.action.trigger", "--as", "bot"],
+  { stdio: ["pipe", "pipe", "pipe"] },
+);
+const actionBackendClient = createClient(args.backendUrl, args.backendAuthToken);
+createInterface({ input: actionChild.stdout! }).on("line", (line) => {
+  void handleCardActionLine(line, {
+    db: state.db,
+    cancelRun: async (runId) => {
+      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
+      return { error: error ?? undefined };
+    },
+    log: (message) => console.log(`[lark-bot] ${message}`),
+  })
+    .then((outcome) => console.log(`[lark-bot] card action: ${outcome}`))
+    .catch((err) => {
+      console.error(
+        `[lark-bot] card action failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+});
+actionChild.stderr?.on("data", (d: Buffer) => {
+  if (d.toString().includes("[event] ready")) {
+    console.log("[lark-bot] lark-cli card-action consume ready");
+  }
+});
+actionChild.on("exit", (code, signal) => {
+  console.error(`[lark-bot] card-action consumer exited code=${code} signal=${signal}`);
 });
 
 // stderr ready marker

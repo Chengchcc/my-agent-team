@@ -53,7 +53,12 @@ export const runCard = sqliteTable("run_card", {
   runId: text().primaryKey(),
   conversationId: text().notNull(),
   larkChatId: text().notNull(),
+  /** The IM message that carries the card (sent by card_id reference). */
   larkMessageId: text(),
+  /** The CardKit card entity the hot path streams into. */
+  cardKitId: text(),
+  /** Strictly increasing per card — CardKit stream/replace ordering. */
+  cardSeq: integer().notNull().default(0),
   sourceMessageId: text(),
   status: text().notNull().default("creating"),
   accumulated: text().notNull().default(""),

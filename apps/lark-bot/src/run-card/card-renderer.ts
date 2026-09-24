@@ -2,13 +2,23 @@ import { normalizeForLarkMarkdown } from "../markdown-normalizer.js";
 import type { RunCardState } from "./card-state.js";
 
 /**
- * ADR 0031: render the card display state as Lark Card JSON 2.0 with
- * streaming_mode (client-side typewriter). Shape resurrected from M15.1
- * (git ae005601^); element_ids stay stable across PATCHes.
+ * ADR 0031: render the card display state as Lark Card JSON 2.0.
+ *
+ * Two consumers share this module as the single content source:
+ *  - the full-card renders (CardKit create / terminal replace)
+ *  - the streaming element pushes (CardKit `elements/:id/content`), which
+ *    need the SAME text the final card shows so the client-side diff only
+ *    ever appends
+ * Element ids stay stable for the card's whole life; both streamed elements
+ * exist from creation (CardKit can only push to existing elements).
  */
 
 /** Keep the tail ~10k chars of the transcript (ADR: 8–12k window). */
 const MAX_OUTPUT_CHARS = 10_000;
+
+export const OUTPUT_ELEMENT_ID = "agent_output";
+export const STATUS_ELEMENT_ID = "run_status";
+export const ERROR_ELEMENT_ID = "err_msg";
 
 export interface RunCardMeta {
   runId: string;
@@ -27,7 +37,10 @@ const HEADER_BY_STATUS: Record<string, { title: string; template: string; footer
   cancelled: { title: "已停止", template: "grey", footer: "已停止" },
 };
 
-function statusKey(state: RunCardState): string {
+/** The card's frame key: header title/template + status word all derive
+ *  from it. CardKit element streams cannot touch the header, so the
+ *  watcher full-replaces the card whenever this key changes. */
+export function cardStatusKey(state: RunCardState): string {
   if (state.terminal) return state.terminal.status;
   if (state.waiting === "approval") return "waiting_approval";
   if (state.waiting === "input") return "waiting_input";
@@ -45,72 +58,78 @@ function windowOutput(output: string): string {
   return `…（较早内容已折叠，完整过程在 Web 查看）\n${output.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
-export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<string, unknown> {
-  const status = statusKey(state);
-  const meta2 = HEADER_BY_STATUS[status] ?? HEADER_BY_STATUS.running!;
-
+/** The streamed body text: identical to what the full card renders. */
+export function renderOutputContent(state: RunCardState): string {
+  if (state.output.length === 0 && !state.terminal) return "_正在思考…_";
   const normalized = normalizeForLarkMarkdown(windowOutput(state.output));
-  const markdownContent =
-    state.output.length === 0 && !state.terminal
-      ? "_正在思考…_"
-      : normalized.markdown || (state.terminal ? "（无输出）" : "_正在思考…_");
+  if (normalized.markdown) return normalized.markdown;
+  return state.terminal ? "（无输出）" : "_正在思考…_";
+}
+
+/** One-line tool summary; empty when there is nothing to say. */
+function renderToolContent(state: RunCardState): string {
+  if (state.activeTool) return `正在执行：${state.activeTool}`;
+  if (state.toolCount > 0) return `已完成 ${state.toolCount} 个工具步骤`;
+  return "";
+}
+
+/** The streamed footer line: status + tool summary + elapsed + Web link.
+ *  The tool summary lives here (not in its own element) so the streamed
+ *  element set is stable from card creation. */
+export function renderStatusContent(state: RunCardState, meta: RunCardMeta): string {
+  const entry = HEADER_BY_STATUS[cardStatusKey(state)] ?? HEADER_BY_STATUS.running!;
+  const tool = renderToolContent(state);
+  const toolSegment = tool ? ` · ${tool}` : "";
+  const elapsed = state.terminal ? "" : ` · 耗时 ${elapsedLine(meta.startedAt)}`;
+  const webLink = meta.webUrl ? ` · [在 Web 查看](${meta.webUrl})` : "";
+  const stopHint = state.terminal ? "" : " · 点卡片上的「停止」可取消";
+  return `**${entry.footer}**${toolSegment}${elapsed}${webLink}${stopHint}`;
+}
+
+export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<string, unknown> {
+  const status = cardStatusKey(state);
+  const header = HEADER_BY_STATUS[status] ?? HEADER_BY_STATUS.running!;
 
   const elements: Record<string, unknown>[] = [
-    { tag: "markdown", element_id: "agent_output", content: markdownContent },
+    { tag: "markdown", element_id: OUTPUT_ELEMENT_ID, content: renderOutputContent(state) },
+    { tag: "markdown", element_id: STATUS_ELEMENT_ID, content: renderStatusContent(state, meta) },
   ];
 
-  // Tool summary: one line for the active tool, a count for the rest.
-  const toolLine = state.activeTool
-    ? `正在执行：${state.activeTool}`
-    : state.toolCount > 0
-      ? `已完成 ${state.toolCount} 个工具步骤`
-      : null;
-  if (toolLine) {
-    // Card 2.0 body elements only accept real element tags — `plain_text` is
-    // a text-object tag, and using it as an element fails the whole PATCH
-    // with 200621 "type of element is not supported" (measured 2026-09-23).
-    elements.push({ tag: "markdown", element_id: "tool_summary", content: toolLine });
+  if (!state.terminal) {
+    // Card 2.0 button: callback behavior rides the card.action.trigger
+    // event (lark-cli ≥1.0.9x) — no public ingress needed. The payload is
+    // cross-checked against the local run_card row on arrival; it is never
+    // trusted alone.
+    elements.push({
+      tag: "button",
+      element_id: "stop_button",
+      text: { tag: "plain_text", content: "停止" },
+      type: "danger",
+      behaviors: [{ type: "callback", value: { runId: meta.runId, action: "stop" } }],
+    });
   }
 
   if (state.terminal?.error) {
-    elements.push({ tag: "markdown", element_id: "err_msg", content: state.terminal.error });
+    // Card 2.0 body elements accept element tags only — `plain_text` is a
+    // text-object tag and fails the whole update with 200621 (measured).
+    elements.push({ tag: "markdown", element_id: ERROR_ELEMENT_ID, content: state.terminal.error });
   }
 
-  // Footer: status + elapsed + optional Web deep link (markdown link — no
-  // card button schema risk; URL affordances need no callback channel).
-  const elapsed = state.terminal ? "" : ` · 耗时 ${elapsedLine(meta.startedAt)}`;
-  const webLink = meta.webUrl ? ` · [在 Web 查看](${meta.webUrl})` : "";
-  const stopHint = state.terminal ? "" : " · 发送 /stop 可停止";
-  elements.push({
-    tag: "markdown",
-    element_id: "run_status",
-    content: `**${meta2.footer}**${elapsed}${webLink}${stopHint}`,
-  });
-
-  // streaming_mode only while live: terminal cards freeze client-side.
-  const streamingConfig = state.terminal
-    ? {}
-    : {
-        streaming_mode: true,
-        streaming_config: {
-          print_frequency_ms: { default: 50 },
-          print_step: { default: 3 },
-          print_strategy: "fast",
-        },
-      };
+  // streaming_mode only while live: the CardKit create REQUIRES it for the
+  // streaming element updates; terminal cards freeze client-side.
+  const streamingConfig = state.terminal ? {} : { streaming_mode: true };
 
   return {
     schema: "2.0",
     config: {
       ...streamingConfig,
-      summary: { content: meta2.footer },
       update_multi: true,
       width_mode: "fill",
       enable_forward: false,
     },
     header: {
-      title: { tag: "plain_text", content: meta2.title },
-      template: meta2.template,
+      title: { tag: "plain_text", content: header.title },
+      template: header.template,
     },
     body: {
       direction: "vertical",
