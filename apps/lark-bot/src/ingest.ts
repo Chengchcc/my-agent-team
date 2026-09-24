@@ -226,12 +226,16 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       .messages.post({
         senderMemberId,
         addressedTo,
-        content: {
-          text: event.content,
-          source: "lark",
-          larkEventId: event.event_id,
-          larkMessageId: event.message_id,
-        },
+        // The text IS the content. This used to be an envelope
+        // `{ text, source, larkEventId, larkMessageId }` — an object the
+        // writer does not understand, so the text was dropped and every Lark
+        // message reached the agent as an empty turn (the model then invented
+        // work from whatever old context it could find). The three extra
+        // fields had no reader anywhere: the bot keeps the Lark ids in its own
+        // inbound_message table, and the card keeps its own message id. If a
+        // surface label is ever needed, it belongs on the ledger entry, not
+        // smuggled inside the content the agent reads.
+        content: event.content,
       });
 
     if (msgError) {

@@ -43,10 +43,14 @@ const originalFetch = globalThis.fetch;
 
 type MockResponse = { body: unknown; status?: number };
 
-function mockFetch(responses: MockResponse[]) {
+type SeenRequest = { url: string; body: string | null };
+
+function mockFetch(responses: MockResponse[]): SeenRequest[] {
   let i = 0;
+  const seen: SeenRequest[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).fetch = (_url: string, _opts?: RequestInit) => {
+  (globalThis as any).fetch = (url: string, opts?: RequestInit) => {
+    seen.push({ url: String(url), body: typeof opts?.body === "string" ? opts.body : null });
     const resp = responses[i++]!;
     if (!resp) throw new Error(`Mock fetch exhausted at index ${i - 1}`);
     const status = resp.status ?? 200;
@@ -58,6 +62,7 @@ function mockFetch(responses: MockResponse[]) {
       }),
     );
   };
+  return seen;
 }
 
 /** The H7 gate GETs the agent config first; empty allowlist = allow all. */
@@ -164,6 +169,43 @@ describe("ingest", () => {
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(false); // no @mention
+
+    db.close();
+  });
+
+  test("the message text is posted as content — not wrapped in an envelope", async () => {
+    const db = makeDb();
+
+    // The bot used to post `content: { text, source, larkEventId, ... }`. The
+    // backend's writer only reads a plain string or a block array, so the
+    // object validated (the route said `content: t.Any()`) and then matched
+    // nothing: every Lark message reached the agent as an empty turn, and the
+    // agent improvised from whatever stale context it found. The shape is now
+    // stated on the route, so this payload is also a compile error — this test
+    // pins the value, which a type cannot.
+    const seen = mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_payload" } },
+      { body: { seq: 1 } },
+    ]);
+
+    await ingest(
+      { ...baseEvent, event_id: "evt_payload", message_id: "om_payload", content: "hello" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+
+    const posted = seen.find((r) => r.url.includes("/messages"));
+    expect(posted).toBeDefined();
+    const body = JSON.parse(posted!.body!) as { content?: unknown };
+    expect(body.content).toBe("hello");
+    expect(JSON.stringify(body)).not.toContain("larkEventId");
 
     db.close();
   });
