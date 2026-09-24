@@ -48,7 +48,7 @@ const HEADER_BY_STATUS: Record<string, { title: string; template: string; footer
 export function cardStatusKey(state: RunCardState): string {
   if (state.terminal) return state.terminal.status;
   if (state.waiting === "approval") return "waiting_approval";
-  if (state.waiting === "input") return "waiting_input";
+  if (state.waiting === "ask") return "waiting_input";
   return state.phase;
 }
 
@@ -75,6 +75,15 @@ export function renderOutputContent(state: RunCardState): string {
  *  Raw tool input/output never appears here — labels only. */
 export function renderProcessContent(state: RunCardState): string {
   const lines: string[] = [];
+  if (state.todos.length > 0) {
+    for (const todo of state.todos.slice(-5)) {
+      if (todo.status === "completed") lines.push(`✓ ${todo.text}`);
+      else if (todo.status === "in_progress") lines.push(`● ${todo.text}`);
+      else lines.push(`○ ${todo.text}`);
+    }
+    if (state.todos.length > 5) lines.push(`… 共 ${state.todos.length} 项`);
+    lines.push("");
+  }
   if (state.activeTool && !state.terminal) {
     lines.push(`🧪 正在：${state.activeTool.label}`);
   }
@@ -89,6 +98,9 @@ export function renderProcessContent(state: RunCardState): string {
   if (state.terminal?.error) {
     lines.push(`⚠️ 失败：${state.terminal.error.slice(0, 200)}`);
   }
+  if (state.pendingAction && state.pendingAction.prompt) {
+    lines.push(`❓ ${state.pendingAction.prompt}`);
+  }
   if (lines.length === 0) return "…";
   return lines.join("\n");
 }
@@ -99,6 +111,76 @@ export function renderStatusContent(state: RunCardState, meta: RunCardMeta): str
   const elapsed = state.terminal ? "" : ` · 耗时 ${elapsedLine(meta.startedAt)}`;
   const webLink = meta.webUrl ? ` · [在 Web 查看](${meta.webUrl})` : "";
   return `**${entry.footer}**${elapsed}${webLink}`;
+}
+
+function pendingActionButtons(
+  runId: string,
+  action: import("./card-state.js").PendingActionState,
+): Record<string, unknown>[] {
+  const buttons: Record<string, unknown>[] = [];
+  for (const opt of action.options.slice(0, 4)) {
+    buttons.push({
+      tag: "button",
+      element_id: `ask_${opt.value.replace(/[^a-zA-Z0-9]/g, "_")}`,
+      text: { tag: "plain_text", content: opt.label },
+      type: "default",
+      behaviors: [
+        {
+          type: "callback",
+          value: {
+            runId,
+            callId: action.callId,
+            questionId: action.questionId,
+            action: "answer_ask",
+            selectedValue: opt.value,
+          },
+        },
+      ],
+    });
+  }
+  if (action.allowFreeText) {
+    buttons.push({
+      tag: "button",
+      element_id: "ask_other",
+      text: { tag: "plain_text", content: "其他…" },
+      type: "default",
+      behaviors: [
+        {
+          type: "callback",
+          value: {
+            runId,
+            callId: action.callId,
+            questionId: action.questionId,
+            action: "answer_ask",
+            selectedValue: "",
+          },
+        },
+      ],
+    });
+  }
+  if (action.kind === "approval") {
+    return [
+      {
+        tag: "button",
+        element_id: "approve_button",
+        text: { tag: "plain_text", content: "批准" },
+        type: "primary",
+        behaviors: [
+          { type: "callback", value: { runId, callId: action.callId, action: "approve" } },
+        ],
+      },
+      {
+        tag: "button",
+        element_id: "reject_button",
+        text: { tag: "plain_text", content: "拒绝" },
+        type: "danger",
+        behaviors: [
+          { type: "callback", value: { runId, callId: action.callId, action: "reject" } },
+        ],
+      },
+    ];
+  }
+  return buttons;
 }
 
 function stopButton(runId: string): Record<string, unknown> {
@@ -140,8 +222,8 @@ export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<st
     { tag: "markdown", element_id: STATUS_ELEMENT_ID, content: renderStatusContent(state, meta) },
   ];
 
-  if (state.waiting === "approval" && state.approvalCallId) {
-    elements.push(...approvalButtons(meta.runId, state.approvalCallId));
+  if (state.pendingAction) {
+    elements.push(...pendingActionButtons(meta.runId, state.pendingAction));
   } else if (!state.terminal) {
     elements.push(stopButton(meta.runId));
   }

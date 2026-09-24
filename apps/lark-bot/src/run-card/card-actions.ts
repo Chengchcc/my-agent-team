@@ -9,10 +9,7 @@ import { getActiveRunCardByLarkMessage } from "../bindings-sqlite.js";
  *
  * Trust model (single-operator local deployment, ADR 0026): we never trust
  * action_value alone — the message_id must map to a live card row of THIS
- * chat, and the embedded runId must match that row. Operator allowlisting
- * reuses the agent's lark.allowedSenders at the message-ingest layer; the
- * signed-action-token + backend-side dedup is the multi-operator hardening
- * step this seam is shaped for.
+ * chat, and the embedded runId must match that row.
  */
 
 export interface CardActionEvent {
@@ -24,8 +21,6 @@ export interface CardActionEvent {
   actionValue: string;
 }
 
-/** Extract the callback fields from one lark-cli NDJSON line (defensive:
- * the envelope layout varies by CLI version — search shallowly). */
 export function parseCardActionLine(line: string): CardActionEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -85,9 +80,15 @@ function collectFields(node: unknown, depth: number, found: FoundFields): void {
 
 export type RunCardAction =
   | { action: "stop"; runId: string }
-  | { action: "approve" | "reject"; runId: string; callId: string };
+  | { action: "approve" | "reject"; runId: string; callId: string }
+  | {
+      action: "answer_ask";
+      runId: string;
+      callId: string;
+      questionId: string;
+      selectedValue: string;
+    };
 
-/** Decode the button payload; only shapes we explicitly emit are accepted. */
 export function decodeActionValue(raw: string): RunCardAction | null {
   let parsed: unknown;
   try {
@@ -99,18 +100,27 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   const runId = "runId" in parsed ? parsed.runId : undefined;
   const action = "action" in parsed ? parsed.action : undefined;
   const callId = "callId" in parsed ? parsed.callId : undefined;
+  const questionId = "questionId" in parsed ? parsed.questionId : undefined;
+  const selectedValue = "selectedValue" in parsed ? parsed.selectedValue : undefined;
   const runIdValid = typeof runId === "string" && runId.length > 0;
-  if (action === "stop" && runIdValid) return { action: "stop", runId };
   const callIdValid = typeof callId === "string" && callId.length > 0;
+  if (action === "stop" && runIdValid) return { action: "stop", runId };
   const isApproval = action === "approve" || action === "reject";
   if (isApproval && runIdValid && callIdValid) {
     return { action, runId, callId };
   }
+  if (action === "answer_ask" && runIdValid && callIdValid) {
+    return {
+      action: "answer_ask",
+      runId,
+      callId,
+      questionId: typeof questionId === "string" ? questionId : "",
+      selectedValue: typeof selectedValue === "string" ? selectedValue : "",
+    };
+  }
   return null;
 }
 
-/** Bounded in-memory event_id dedup (restart replays are idempotent anyway:
- * cancel on a settled run is a no-op). */
 const SEEN_CAP = 512;
 const seenEventIds = new Map<string, true>();
 
@@ -127,16 +137,20 @@ export function reserveEventId(eventId: string): boolean {
 export interface CardActionDeps {
   db: Database;
   cancelRun: (runId: string) => Promise<{ error?: unknown }>;
-  /** HITL approval resolve (durable PendingAction path, run stays live). */
   resolveApproval: (
     runId: string,
     callId: string,
     decision: "allow" | "deny",
   ) => Promise<{ error?: unknown }>;
+  resolveAsk: (input: {
+    runId: string;
+    callId: string;
+    questionId: string;
+    selectedValue: string;
+  }) => Promise<{ error?: unknown }>;
   log: (message: string) => void;
 }
 
-/** Handle one callback line end to end. Returns a short outcome for logs. */
 export async function handleCardActionLine(line: string, deps: CardActionDeps): Promise<string> {
   const event = parseCardActionLine(line);
   if (!event) return "unparsed";
@@ -146,8 +160,6 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
     deps.log(`card action ignored: tag=${event.actionTag} value=${event.actionValue.slice(0, 80)}`);
     return "ignored";
   }
-  // Cross-check the callback against local card state: the message must be
-  // THIS chat's live card, and its run must be the one the button names.
   const card = getActiveRunCardByLarkMessage(deps.db, event.messageId);
   const chatMatches = card?.larkChatId === event.chatId;
   const runMatches = card?.runId === action.runId;
@@ -166,9 +178,22 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
       );
       return "cancel-failed";
     }
-    // Success is silent: the watcher's SSE sees the cancelled status and
-    // seals the card into the grey 已停止 frame.
     return "stopped";
+  }
+  if (action.action === "answer_ask") {
+    const { error } = await deps.resolveAsk({
+      runId: action.runId,
+      callId: action.callId,
+      questionId: action.questionId,
+      selectedValue: action.selectedValue,
+    });
+    if (error) {
+      deps.log(
+        `card action ask failed: run=${action.runId} ${JSON.stringify(error).slice(0, 120)}`,
+      );
+      return "ask-failed";
+    }
+    return "answered";
   }
   const decision = action.action === "approve" ? "allow" : "deny";
   const { error } = await deps.resolveApproval(action.runId, action.callId, decision);
@@ -178,6 +203,5 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
     );
     return "approval-failed";
   }
-  // The card's waiting frame clears when the run's next event arrives.
   return action.action === "approve" ? "approved" : "rejected";
 }

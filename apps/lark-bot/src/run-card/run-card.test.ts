@@ -72,11 +72,12 @@ describe("run_card store (migration 0002)", () => {
 describe("applyRunEvent reducer", () => {
   test("text deltas accumulate and clear the HITL wait", () => {
     let s = initialRunCardState();
-    s = applyRunEvent(s, { type: "backend.oma.approval_request" });
+    s = applyRunEvent(s, { type: "backend.oma.approval_request", payload: { callId: "c" } });
     expect(s.waiting).toBe("approval");
     s = applyRunEvent(s, { type: "text_delta", text: "hi" });
     expect(s.output).toBe("hi");
     expect(s.waiting).toBeNull();
+    expect(s.pendingAction).toBeNull();
     s = applyRunEvent(s, { type: "text_delta", text: " there" });
     expect(s.output).toBe("hi there");
   });
@@ -106,22 +107,39 @@ describe("applyRunEvent reducer", () => {
     expect(s.output).toBe("answer");
   });
 
-  test("approval_request keeps the callId for the buttons", () => {
+  test("approval_request keeps the callId in pendingAction", () => {
     const s = applyRunEvent(initialRunCardState(), {
       type: "backend.oma.approval_request",
       payload: { callId: "call-1" },
     });
     expect(s.waiting).toBe("approval");
-    expect(s.approvalCallId).toBe("call-1");
+    expect(s.pendingAction?.callId).toBe("call-1");
+    expect(s.pendingAction?.kind).toBe("approval");
   });
 
-  test("ask_requested sets waiting input; running status upgrades phase", () => {
+  test("ask_requested sets waiting ask with parsed question; running upgrades phase", () => {
     let s = initialRunCardState();
     expect(s.phase).toBe("queued");
     s = applyRunEvent(s, { type: "status", status: "running" });
     expect(s.phase).toBe("streaming");
-    s = applyRunEvent(s, { type: "backend.oma.ask_requested" });
-    expect(s.waiting).toBe("input");
+    s = applyRunEvent(s, {
+      type: "backend.oma.ask_requested",
+      payload: {
+        callId: "c1",
+        questions: [
+          {
+            id: "q1",
+            question: "选择分支",
+            kind: "select",
+            options: [{ label: "main", value: "main" }],
+          },
+        ],
+      },
+    });
+    expect(s.waiting).toBe("ask");
+    expect(s.pendingAction?.prompt).toBe("选择分支");
+    expect(s.pendingAction?.options).toEqual([{ label: "main", value: "main" }]);
+    expect(s.pendingAction?.questionId).toBe("q1");
   });
 
   test("terminal statuses map and freeze the state", () => {
@@ -171,7 +189,14 @@ describe("renderRunCard", () => {
       ...initialRunCardState(),
       phase: "streaming" as const,
       waiting: "approval" as const,
-      approvalCallId: "call-9",
+      pendingAction: {
+        callId: "call-9",
+        kind: "approval" as const,
+        prompt: "",
+        options: [],
+        allowFreeText: false,
+        questionId: "",
+      },
     };
     const card = renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null });
     const json = JSON.stringify(card);
@@ -217,7 +242,7 @@ describe("renderRunCard", () => {
     );
     expect(JSON.stringify(approval)).toContain("等待你的确认");
     const ask = renderRunCard(
-      { ...initialRunCardState(), phase: "running", waiting: "input" },
+      { ...initialRunCardState(), phase: "streaming", waiting: "ask" },
       { runId: "r1", startedAt: Date.now(), webUrl: null },
     );
     expect(JSON.stringify(ask)).toContain("等待你的回答");

@@ -201,6 +201,18 @@ createInterface({ input: actionChild.stdout! }).on("line", (line) => {
       });
       return { error: error ?? undefined };
     },
+    resolveAsk: async ({ runId, callId, questionId, selectedValue }) => {
+      const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
+        runId,
+        callId,
+        answer: {
+          answers: [
+            { id: questionId, selectedValues: selectedValue ? [selectedValue] : [], freeText: "" },
+          ],
+        },
+      });
+      return { error: error ?? undefined };
+    },
     log: (message) => console.log(`[lark-bot] ${message}`),
   })
     .then((outcome) => console.log(`[lark-bot] card action: ${outcome}`))
