@@ -175,6 +175,11 @@ export function conversationRoutes(
         const inputs = await svc.listPendingInputs(conversationId);
         return { inputs };
       })
+      .get("/api/conversations/:id/inputs/:inputId", async ({ params: { inputId } }) => {
+        const input = await svc.getInputState(inputId);
+        if (!input) return Response.json({ error: "Input not found" }, { status: 404 });
+        return input;
+      })
       .post("/api/conversations/:id/inputs/:inputId/steer", async ({ params: { inputId } }) => {
         try {
           await svc.steerInput(inputId);

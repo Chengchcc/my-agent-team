@@ -31,7 +31,9 @@
 1. **一轮 agent loop = 一张卡片。** 同话题里继续说 = **下一张卡片**，不把新消息并进正在跑的那一轮。实现上端侧发消息时显式带 `mode: "normal"`：分支忙时 `enqueueAndAcquire` **一律排队**（有活跃 run 就 `queued: true`，与 mode 无关），空闲时立刻开新 run——于是每条消息各有自己的 run 与卡片。
 2. **前一轮没跑完时，新消息的卡片先画「排队中」。** 排队输入被 `acquireNextRun` 提升成新 run（它会把 `run_id` 回写到排队行），届时**同一张卡片**接管那一轮的流式，不另发新卡。
 3. **排队卡片支持「取消」，且只作用于这条排队消息**（`POST /api/conversations/:id/inputs/:inputId/cancel`），正在跑的那一轮不受影响。这正是「取消 steer」的语义：那条消息原本会被并进当前轮，现在它独立排队、可独立撤销。
-4. 端侧需要排队消息的句柄：`TriggeredRun` 因此带上 `inputId`（`runId` 为空即「没起 run，在排队」）。交接所需的「这条输入被提升成了哪个 run」由排队行的 `run_id` 提供，端侧轮询 `/conversations/:id/inputs` 即可（该端点需要把已提升的输入连同 `runId` 一并返回）。
+4. 端侧需要排队消息的句柄：`TriggeredRun` 因此带上 `inputId`（`runId` 为空即「没起 run，在排队」）。交接所需的「这条输入被提升成了哪个 run」由排队行的 `run_id` 提供，端侧**读这条输入自己的状态**（`GET /conversations/:id/inputs/:inputId` → `{status, runId}`）。
+
+   **实现时发现的坑：不能用 pending 列表判断。** 输入被提升后状态走 `pending → delivering → delivered`，会**同样从 pending 列表里消失**——「列表里没有」既可能是被取消，也可能是已经在跑。按缺席判取消，会把一张正在流式回答的卡片标成「已取消」。所以：提升看 `runId`，取消看**显式**的 `status === "cancelled"`，读不到状态时保持等待（卡片本身仍可手动取消）。
 
 ## 后果
 

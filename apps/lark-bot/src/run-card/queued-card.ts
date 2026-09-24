@@ -81,43 +81,50 @@ function queuedCardJson(inputId: string, text: string): Record<string, unknown> 
 
 /** What the next poll should do, given the card's row and the input's state.
  *
- *  Pure so the decision can be tested without timers or a backend. The
- *  ambiguous case is `found: false`: promoted inputs stop being listed as
- *  pending, and so do cancelled ones — the row is what disambiguates, which is
- *  why the watcher writes `promoted` BEFORE it hands the card over. */
+ *  Pure so the decision can be tested without timers or a backend.
+ *
+ *  The input's OWN state is what answers this, not the pending list: a promoted
+ *  input leaves that list (pending → delivering → delivered) exactly like a
+ *  cancelled one, so absence there is NOT cancellation — reading it that way
+ *  would cancel a card whose run is already streaming. A missing input (no row
+ *  at all) is unexpected rather than terminal, so the card keeps waiting; the
+ *  user can always cancel it by hand. */
 export function planQueuedCardStep(
   cardStatus: string,
-  input: { found: boolean; runId: string | null },
+  input: { status?: string; runId: string | null } | null,
 ): "stop" | "wait" | "promote" | "cancelled" {
   if (cardStatus !== "queued") return "stop";
-  if (!input.found) return "cancelled";
+  if (!input) return "wait";
+  if (input.status === "cancelled") return "cancelled";
   if (input.runId) return "promote";
   return "wait";
 }
 
-/** Fetch the input's current state: `runId` set means it was promoted (it is
- *  running or about to), a terminal status means it is gone for good. */
+/** This input's own state: `runId` set means it was promoted (its run is
+ *  starting or streaming), `status: "cancelled"` means it is gone for good,
+ *  anything else means still waiting. Unknown on transport errors — the card
+ *  then keeps waiting rather than guessing, and the input is durable either
+ *  way. */
 async function fetchInputState(
   deps: QueuedCardDeps,
   conversationId: string,
   inputId: string,
-): Promise<{ found: boolean; runId: string | null }> {
+): Promise<{ status: string; runId: string | null } | null> {
   const headers: Record<string, string> = {};
   if (deps.backendAuthToken) headers["x-auth-token"] = deps.backendAuthToken;
   try {
-    const resp = await fetch(`${deps.backendUrl}/api/conversations/${conversationId}/inputs`, {
-      headers,
-    });
-    if (!resp.ok) return { found: true, runId: null };
-    const body = (await resp.json()) as {
-      inputs?: Array<{ inputId?: string; runId?: string | null }>;
+    const resp = await fetch(
+      `${deps.backendUrl}/api/conversations/${conversationId}/inputs/${inputId}`,
+      { headers },
+    );
+    if (!resp.ok) return null;
+    const body = (await resp.json()) as { status?: string; runId?: string | null };
+    return {
+      status: typeof body.status === "string" ? body.status : "pending",
+      runId: typeof body.runId === "string" ? body.runId : null,
     };
-    const match = (body.inputs ?? []).find((i) => i.inputId === inputId);
-    if (!match) return { found: false, runId: null };
-    return { found: true, runId: typeof match.runId === "string" ? match.runId : null };
   } catch {
-    // Unreachable backend: keep waiting, the input is durable either way.
-    return { found: true, runId: null };
+    return null;
   }
 }
 
@@ -172,13 +179,15 @@ export function startQueuedCard(
         // whoever cancelled it redrew the card. Just stop watching.
         return;
       case "cancelled":
-        updateInputCard(db, inputId, { status: "cancelled" });
+        // Cancelled from another surface (the web composer): say so on this
+        // card too, so the user is not left staring at a queue that is gone.
+        await markQueuedCardCancelled({ db, cardClient }, inputId);
         return;
       case "promote":
         // Written BEFORE the handover: the run card reads the row, and the
         // input may already have dropped out of the pending list by then.
         updateInputCard(db, inputId, { status: "promoted" });
-        deps.onPromoted(inputId, state.runId ?? "", cardKitId ?? "", larkMessageId ?? "");
+        deps.onPromoted(inputId, state?.runId ?? "", cardKitId ?? "", larkMessageId ?? "");
         return;
       case "wait":
         schedule();

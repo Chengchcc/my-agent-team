@@ -16,15 +16,17 @@ afterEach(() => {
   });
 });
 
-/** The inputs endpoint, as the promotion poll reads it. */
-function serveInputs(runId: string | null): void {
+/** The single-input state route, as the promotion poll reads it. */
+function serveInput(state: { status: string; runId: string | null } | null): void {
   Object.defineProperty(globalThis, "fetch", {
     value: () =>
       Promise.resolve(
-        new Response(JSON.stringify({ inputs: [{ inputId: "in_1", runId }] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        state === null
+          ? new Response("{}", { status: 404 })
+          : new Response(JSON.stringify({ inputId: "in_1", ...state }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
       ),
     configurable: true,
     writable: true,
@@ -76,13 +78,18 @@ async function withDb(fn: (db: ReturnType<typeof openBindings>) => Promise<void>
 
 describe("queued card step (pure)", () => {
   test("wait / promote / cancelled / stop", () => {
-    expect(planQueuedCardStep("queued", { found: true, runId: null })).toBe("wait");
-    expect(planQueuedCardStep("queued", { found: true, runId: "run-1" })).toBe("promote");
-    // Promoted inputs and cancelled ones both stop being listed: the row is
-    // what tells the two apart.
-    expect(planQueuedCardStep("queued", { found: false })).toBe("cancelled");
-    expect(planQueuedCardStep("cancelled", { found: false })).toBe("stop");
-    expect(planQueuedCardStep("promoted", { found: true, runId: "run-1" })).toBe("stop");
+    expect(planQueuedCardStep("queued", { status: "pending", runId: null })).toBe("wait");
+    expect(planQueuedCardStep("queued", { status: "delivering", runId: "run-1" })).toBe("promote");
+    // A run may already own the input (status delivered) before the poll sees
+    // it — a promoted input is promoted however far along it is.
+    expect(planQueuedCardStep("queued", { status: "delivered", runId: "run-1" })).toBe("promote");
+    expect(planQueuedCardStep("queued", { status: "cancelled", runId: null })).toBe("cancelled");
+    // Absence is NOT cancellation: the pending list drops promoted inputs too,
+    // and reading that as "cancelled" would cancel a card whose run is already
+    // streaming. Unknown state keeps waiting.
+    expect(planQueuedCardStep("queued", null)).toBe("wait");
+    expect(planQueuedCardStep("cancelled", { status: "pending", runId: null })).toBe("stop");
+    expect(planQueuedCardStep("promoted", { status: "delivered", runId: "run-1" })).toBe("stop");
   });
 });
 
@@ -90,7 +97,7 @@ describe("queued card (ADR 0037: one turn = one card)", () => {
   test("a waiting message gets its own card, in the topic, with a cancel", async () => {
     await withDb(async (db) => {
       const fake = fakeCardClient();
-      serveInputs(null);
+      serveInput({ status: "pending", runId: null });
       const handle = startQueuedCard("in_1", "conv_1", "oc_1", {
         db,
         backendUrl: "http://backend",
@@ -127,7 +134,7 @@ describe("queued card (ADR 0037: one turn = one card)", () => {
   test("promotion hands the SAME card to the run (no second card)", async () => {
     await withDb(async (db) => {
       const fake = fakeCardClient();
-      serveInputs("run_promoted");
+      serveInput({ status: "delivering", runId: "run_promoted" });
       const promoted = Promise.withResolvers<{
         inputId: string;
         runId: string;
@@ -162,7 +169,7 @@ describe("queued card (ADR 0037: one turn = one card)", () => {
   test("cancelling redraws that card only — it never touches the running turn", async () => {
     await withDb(async (db) => {
       const fake = fakeCardClient();
-      serveInputs(null);
+      serveInput({ status: "pending", runId: null });
       const handle = startQueuedCard("in_1", "conv_1", "oc_1", {
         db,
         backendUrl: "http://backend",

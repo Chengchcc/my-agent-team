@@ -133,6 +133,10 @@ export interface ConversationService {
   >;
   /** Inject a queued input into the branch's LIVE run ("Send now"). Throws
    *  when the input is gone or no longer pending. */
+  /** Input status for a surface holding a queued card (ADR 0037). */
+  getInputState(
+    inputId: string,
+  ): Promise<{ inputId: string; status: string; runId: string | null } | null>;
   steerInput(inputId: string): Promise<void>;
   /** CAS a pending input's message; false when no longer pending. */
   updateInput(inputId: string, text: string): Promise<boolean>;
@@ -664,6 +668,18 @@ class ConversationServiceImpl implements ConversationService {
       agentId: i.agentId,
       createdAt: i.createdAt,
     }));
+  }
+
+  /** One input's own state, whatever it is (ADR 0037): the surface waiting on
+   *  a queued message cannot judge by the PENDING LIST, because a promoted
+   *  input leaves it (status delivering → delivered) exactly like a cancelled
+   *  one. `runId` non-null is the promotion signal; `cancelled` is explicit. */
+  async getInputState(
+    inputId: string,
+  ): Promise<{ inputId: string; status: string; runId: string | null } | null> {
+    const input = await this.#agentRuns.getInput(inputId);
+    if (!input) return null;
+    return { inputId: input.inputId, status: input.status, runId: input.runId ?? null };
   }
 
   async steerInput(inputId: string): Promise<void> {
