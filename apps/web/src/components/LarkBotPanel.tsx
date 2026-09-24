@@ -118,7 +118,13 @@ export function LarkBotPanel({ agentId }: { agentId: string }) {
       }
       await api.updateAgent(agentId, {
         lark: {
-          enabled: agent?.lark?.enabled ?? true,
+          // `enabled` is deliberately NOT sent. The backend treats
+          // `enabled: true` as "turn it on", which requires appId+appSecret
+          // whenever the agent has no stored profile yet — so always sending
+          // it made every save fail with 400 for an agent in that state (a
+          // real one: enabled, no profile_ref). This panel edits access, it
+          // does not toggle the bot; when a toggle lands it must send the
+          // field only when the value actually changes.
           botDisplayName: botName,
           allowedSenders,
           groupPolicy,
