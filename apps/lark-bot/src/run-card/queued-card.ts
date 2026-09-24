@@ -59,20 +59,19 @@ function queuedCardJson(inputId: string, text: string): Record<string, unknown> 
       title: { tag: "plain_text", content: "排队中" },
       template: "grey",
     },
+    // Buttons go straight into `elements`. Wrapping them in a `tag: "action"`
+    // container — the shape the older card schema used — is rejected by
+    // CardKit V2 with 200861 ("unsupported tag action"), and the run card's
+    // controls have always been built this way.
     body: {
       elements: [
         { tag: "markdown", element_id: "queued_note", content: text },
         {
-          tag: "action",
-          element_id: "queued_action",
-          actions: [
-            {
-              tag: "button",
-              text: { tag: "plain_text", content: "取消这条" },
-              type: "default",
-              behaviors: [{ type: "callback", value: { action: "cancel_input", inputId } }],
-            },
-          ],
+          tag: "button",
+          element_id: "cancel_queued_input",
+          text: { tag: "plain_text", content: "取消这条" },
+          type: "default",
+          behaviors: [{ type: "callback", value: { action: "cancel_input", inputId } }],
         },
       ],
     },

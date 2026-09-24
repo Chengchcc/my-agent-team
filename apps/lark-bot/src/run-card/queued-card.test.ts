@@ -116,6 +116,9 @@ describe("queued card (ADR 0037: one turn = one card)", () => {
       expect(card).toContain("排队中");
       expect(card).toContain("cancel_input");
       expect(card).toContain("in_1");
+      // CardKit V2 rejects a `tag: "action"` container with 200861 (observed
+      // live): buttons belong directly in `elements`.
+      expect(card).not.toContain('"tag":"action"');
       // It lands in the topic (so it sits where the conversation is), and its
       // ids are on the row for the handover.
       expect(fake.sends[0]!.replyTo).toBe("om_root");
