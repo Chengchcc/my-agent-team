@@ -9,5 +9,12 @@
   "chat_type": "group",
   "message_type": "text",
   "sender_id": "ou_user001",
-  "content": "@小开 测试群聊 @"
+  "content": "@小开 测试群聊 @",
+  "mentions": [
+    {
+      "id": "ou_bot_xiaokai",
+      "key": "@_user_1",
+      "name": "小开"
+    }
+  ]
 }

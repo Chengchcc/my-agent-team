@@ -29,8 +29,28 @@ export const larkMessageEventSchema = z.object({
    *  present, non-"user" senders (bots) must never drive an agent run
    *  (H7: bot-to-bot loops). */
   sender_type: z.string().optional(),
+  /** Structured mentions. Presence in THIS array is what proves a real @
+   *  entity: lark-cli pre-renders `.content` to text (with mentions resolved
+   *  to display names) and appends the compact array alongside it, so a typed
+   *  "@name" appears in the text but never here.
+   *
+   *  `key` is the placeholder ("@_user_1"); `key === "@_all"` is an @everyone
+   *  entry, which is NOT a mention of this bot.
+   *
+   *  There is deliberately no sender display name: lark-cli's own schema says
+   *  "sender_id is open_id only — the event payload carries no display name",
+   *  and the field this used to declare was never populated by anything. */
+  mentions: z
+    .array(
+      z.object({
+        /** Mentioned user's open_id. */
+        id: z.string(),
+        key: z.string(),
+        name: z.string(),
+      }),
+    )
+    .optional(),
   content: z.string(),
-  senderDisplayName: z.string().nullable().optional(),
 });
 
 export type LarkMessageEvent = z.infer<typeof larkMessageEventSchema>;

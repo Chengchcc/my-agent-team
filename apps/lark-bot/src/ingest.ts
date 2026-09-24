@@ -177,14 +177,15 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // human member) and targets (the agent member) for 1:1 conversations.
   // Group chats keep explicit values: multiple humans, @mention fail-closed
   // (botDisplayName missing → addressedTo=[] → no trigger, spec §六).
+  // The mention check reads the structured `mentions` array, so a hand-typed
+  // "@name" (which renders identically in the text) does not trigger a run.
   let addressedTo: string[] | undefined;
   let senderMemberId: string | undefined;
   if (event.chat_type === "p2p") {
     addressedTo = undefined;
   } else if (event.chat_type === "group") {
     senderMemberId = memberId;
-    addressedTo =
-      botDisplayName && isBotMentioned(event.content, botDisplayName) ? [selfAgentId] : [];
+    addressedTo = isBotMentioned(event, botDisplayName) ? [selfAgentId] : [];
   }
 
   // ─── Step 2: POST /messages ───

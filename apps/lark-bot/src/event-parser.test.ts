@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isBotMentioned, parseEvent } from "./event-parser.js";
+import { isBotMentioned, isMentionAll, parseEvent } from "./event-parser.js";
 
 const fixtureDir = join(import.meta.dir, "..", "fixtures");
 
@@ -25,14 +25,57 @@ describe("parseEvent", () => {
     const event = parseEvent(line);
     expect(event).not.toBeNull();
     expect(event!.chat_type).toBe("group");
-    expect(isBotMentioned(event!.content, "小开")).toBe(true);
+    // The structured array survives the shared schema — it used to be
+    // silently dropped because the schema did not declare it.
+    expect(event!.mentions?.map((m) => m.id)).toEqual(["ou_bot_xiaokai"]);
+    expect(isBotMentioned(event!, "小开")).toBe(true);
+  });
+
+  test("a hand-typed @name does NOT count as a mention", () => {
+    // lark-cli pre-renders `.content` with mentions resolved to display
+    // names, so this text is character-for-character what a real mention
+    // produces. Only the structured array can tell them apart; matching the
+    // text made anyone in the group able to trigger a run by typing.
+    const line = loadFixture("message-group-mention-forged.json");
+    const event = parseEvent(line);
+    expect(event).not.toBeNull();
+    expect(event!.content).toContain("@小开");
+    expect(isBotMentioned(event!, "小开")).toBe(false);
   });
 
   test("parses group no-mention message", () => {
     const line = loadFixture("message-group-no-mention.json");
     const event = parseEvent(line);
     expect(event).not.toBeNull();
-    expect(isBotMentioned(event!.content, "小开")).toBe(false);
+    expect(isBotMentioned(event!, "小开")).toBe(false);
+  });
+
+  test("@everyone is not a mention of the bot", () => {
+    const event = parseEvent(
+      JSON.stringify({
+        type: "im.message.receive_v1",
+        event_id: "evt_all",
+        timestamp: "1700000004000",
+        id: "msg_all",
+        create_time: "1700000004000",
+        message_id: "om_all",
+        chat_id: "oc_1",
+        chat_type: "group",
+        message_type: "text",
+        sender_id: "ou_x",
+        content: "@所有人 通知",
+        mentions: [{ id: "", key: "@_all", name: "所有人" }],
+      }),
+    );
+    expect(event).not.toBeNull();
+    expect(isMentionAll(event!)).toBe(true);
+    expect(isBotMentioned(event!, "小开")).toBe(false);
+  });
+
+  test("no bot display name means no mention — fail closed", () => {
+    const event = parseEvent(loadFixture("message-group-mention-bot.json"));
+    expect(isBotMentioned(event!, null)).toBe(false);
+    expect(isBotMentioned(event!, "   ")).toBe(false);
   });
 
   test("parses interactive card (raw JSON content)", () => {

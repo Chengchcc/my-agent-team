@@ -1,0 +1,14 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "evt_grp003",
+  "timestamp": "1700000003000",
+  "id": "msg_grp003",
+  "message_id": "om_grp003",
+  "create_time": "1700000003000",
+  "chat_id": "oc_grp001",
+  "chat_type": "group",
+  "message_type": "text",
+  "sender_id": "ou_user003",
+  "content": "@小开 帮我看看生产库",
+  "mentions": []
+}

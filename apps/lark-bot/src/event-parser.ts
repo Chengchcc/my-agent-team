@@ -17,8 +17,34 @@ export function parseEvent(line: string): LarkMessageEvent | null {
   }
 }
 
-/** Check if the message content contains @mention of the bot by display name.
- *  Relies on lark-cli's Process hook having resolved mention keys to @name in content text. */
-export function isBotMentioned(content: string, botDisplayName: string): boolean {
-  return content.includes(`@${botDisplayName}`);
+/** The `@everyone` placeholder key lark-cli emits in the mentions array. */
+const MENTION_ALL_KEY = "@_all";
+
+/** Whether the bot was actually @-mentioned.
+ *
+ *  Reads the structured `mentions` array, NOT the rendered text. lark-cli
+ *  pre-renders `.content` to human-readable text with mentions resolved to
+ *  display names, so a member typing "@backend-agent" by hand produces the
+ *  same text as a real mention — while only a real mention produces an entry
+ *  in `mentions`. Matching the text made the bot answer to strings anyone
+ *  could type.
+ *
+ *  `@everyone` is an explicit entry of its own and is never a mention of the
+ *  bot; whether it should trigger is a policy decision (see the group gate).
+ *
+ *  Matching is by display name because the bot's own open_id is not recorded
+ *  anywhere yet; once the setup flow stores it, this should compare `id`
+ *  (lark-cli gives the mentioned open_id in each entry). */
+export function isBotMentioned(event: LarkMessageEvent, botDisplayName: string | null): boolean {
+  if (!botDisplayName) return false;
+  const wanted = botDisplayName.trim().toLowerCase();
+  if (wanted.length === 0) return false;
+  return (event.mentions ?? []).some(
+    (m) => m.key !== MENTION_ALL_KEY && m.name.trim().toLowerCase() === wanted,
+  );
+}
+
+/** Whether the message @-mentioned everyone in the chat. */
+export function isMentionAll(event: LarkMessageEvent): boolean {
+  return (event.mentions ?? []).some((m) => m.key === MENTION_ALL_KEY);
 }
