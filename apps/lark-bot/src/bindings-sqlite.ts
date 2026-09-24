@@ -265,6 +265,97 @@ export function getMemberBindingsForChat(db: Database, larkChatId: string): Memb
     }));
 }
 
+// ─── input_card (ADR 0037: the card of a message that has to WAIT) ──
+
+export interface InputCardRecord {
+  inputId: string;
+  conversationId: string;
+  larkChatId: string;
+  cardKitId: string | null;
+  larkMessageId: string | null;
+  status: string;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function parseInputCard(row: typeof schema.inputCard.$inferSelect): InputCardRecord {
+  return {
+    inputId: row.inputId,
+    conversationId: row.conversationId,
+    larkChatId: row.larkChatId,
+    cardKitId: row.cardKitId,
+    larkMessageId: row.larkMessageId,
+    status: row.status,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function insertInputCard(
+  db: Database,
+  rec: { inputId: string; conversationId: string; larkChatId: string; now: number },
+): void {
+  d(db)
+    .insert(schema.inputCard)
+    .values({
+      inputId: rec.inputId,
+      conversationId: rec.conversationId,
+      larkChatId: rec.larkChatId,
+      createdAt: rec.now,
+      updatedAt: rec.now,
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+export function getInputCard(db: Database, inputId: string): InputCardRecord | null {
+  const row = d(db)
+    .select()
+    .from(schema.inputCard)
+    .where(eq(schema.inputCard.inputId, inputId))
+    .get();
+  return row ? parseInputCard(row) : null;
+}
+
+/** The queued card carried by one Lark message (cancel callbacks arrive with a
+ *  message id, exactly like the run-card controls). */
+export function getInputCardByLarkMessage(
+  db: Database,
+  larkMessageId: string,
+): InputCardRecord | null {
+  const row = d(db)
+    .select()
+    .from(schema.inputCard)
+    .where(eq(schema.inputCard.larkMessageId, larkMessageId))
+    .get();
+  return row ? parseInputCard(row) : null;
+}
+
+export function updateInputCard(
+  db: Database,
+  inputId: string,
+  patch: Partial<Omit<InputCardRecord, "inputId" | "createdAt">>,
+): void {
+  d(db)
+    .update(schema.inputCard)
+    .set({ ...patch, updatedAt: Date.now() })
+    .where(eq(schema.inputCard.inputId, inputId))
+    .run();
+}
+
+/** Queued cards still waiting: what the promotion poll works from. Terminal
+ *  ones (`promoted` / `cancelled`) are kept as the dedup/audit record. */
+export function listQueuedInputCards(db: Database): InputCardRecord[] {
+  return d(db)
+    .select()
+    .from(schema.inputCard)
+    .where(eq(schema.inputCard.status, "queued"))
+    .all()
+    .map(parseInputCard);
+}
+
 // ─── inbound_message (reserve → confirm flow) ──────────────────────
 
 export function inboundExists(db: Database, larkEventId: string, larkMessageId: string): boolean {

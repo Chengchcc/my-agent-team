@@ -51,6 +51,7 @@ tags: [lark, surfaces, backend]
 | `member_binding` | `(lark_chat_id, lark_open_id)` | 飞书用户 → 本地 memberId 标签，形如 `human:lark:<open_id>` |
 | `inbound_message` | `lark_event_id` | 入站幂等，`lark_message_id` 上另有唯一约束 |
 | `message_delivery` | `(conversation_id, message_id, lark_chat_id)` | 文本桥出站投递意图与最后状态 |
+| `input_card` | `input_id` | 排队消息的卡片状态（`queued / promoted / cancelled`，ADR 0037） |
 | `run_card` | `run_id` | Run 卡片投递状态：lark 消息 id、状态机、累计输出、失败计数（ADR 0031） |
 
 ## 出站
@@ -92,6 +93,15 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 - **幂等键**：飞书 `--idempotency-key` 有 **50 字符上限**（99992402），自然键天然超限，统一 `larkIdempotencyKey()` 哈希成 40 位十六进制。
 - **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；Run SSE 晚订阅语义保证已结算 run 立即给终态。
 - **配额警示**：每应用**卡片实体绑定数有配额**（错误 200780，实测约 18 张触发）；高频部署需关注，或为超配额场景保留 IM-patch 降级路径。
+
+## 排队卡片（ADR 0037：一轮 = 一张卡）
+
+一条消息如果落在**正在跑的那一轮**之后，它不会并进当前轮（端侧 POST 消息固定带 `mode: "normal"`，后端在有活跃 run 时一律排队），而是**自己得到一张卡**：卡片头写「排队中」，正文说明「上一轮还在跑，这条消息在排队」，并带一个**取消这条**按钮。
+
+- 取消只取消这条消息（`POST /api/conversations/:id/inputs/:inputId/cancel`），正在跑的那一轮不受影响——就是「取消 steer」的语义。
+- 轮询 `GET /api/conversations/:id/inputs`：该输入被提升成新 run（后端会把 `run_id` 回写到排队行）时，**同一张卡片**接管那一轮（`watchRunCard` 的 `adopt`：复用既有 CardKit 实体与消息 id，首次 flush 整卡替换成运行中的卡），所以一个消息永远只有一张卡。
+- 卡片自己的消息 id 与它拿到的话题 id 也登记进 `topic_binding`（用户可能在它排队时回复它）。
+- 排队卡片的记录在 `input_card` 表（`queued → promoted | cancelled`），取消回调按「回调的 message_id 必须就是承载该输入卡片的那条、且 chat 一致」校验。
 
 ## 内容渲染
 

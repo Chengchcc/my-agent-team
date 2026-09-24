@@ -372,20 +372,27 @@ describe("ingest", () => {
     db.close();
   });
 
-  test("a queued input starts no card — the entry carries no run id", async () => {
+  test("a queued message reports its INPUT, not a run", async () => {
     const db = makeDb();
-    // The backend answers a message that queues behind a running run with
-    // `{agentId, runId: "", queued: true}` — a deliberate state, since the
-    // input joined an existing run instead of starting one. Reading "" as a
-    // run id created a card row that could never settle, and restart recovery
-    // then tried to drive it forever.
+    // The backend answers a message that has to wait behind the running turn
+    // with `{agentId, runId: "", inputId, queued: true}` — a deliberate state:
+    // no run exists yet, the input does. ADR 0037 turns that into a card that
+    // says it is queued, so what the surface needs is the INPUT handle.
+    // Reading "" as a run id used to create a card row that could never
+    // settle, and restart recovery then tried to drive it forever.
     mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_queued" } },
-      { body: { seq: 7, triggeredRuns: [{ agentId: "agent_123", runId: "", queued: true }] } },
+      {
+        body: {
+          seq: 7,
+          triggeredRuns: [{ agentId: "agent_123", runId: "", inputId: "in_queued", queued: true }],
+        },
+      },
     ]);
 
     const started: string[] = [];
+    const queued: Array<{ inputId: string; conversationId: string }> = [];
     const result = await ingest(
       { ...baseEvent, event_id: "evt_queued", message_id: "om_queued", content: "queued behind" },
       {
@@ -396,12 +403,14 @@ describe("ingest", () => {
         backendUrl: "http://localhost",
         profile: "test-profile",
         onTriggeredRun: (runId) => started.push(runId),
+        onQueuedInput: (inputId, conversationId) => queued.push({ inputId, conversationId }),
       },
     );
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(true); // the message WAS addressed
     expect(started).toEqual([]);
+    expect(queued).toEqual([{ inputId: "in_queued", conversationId: "conv_queued" }]);
 
     db.close();
   });

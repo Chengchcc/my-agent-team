@@ -35,6 +35,9 @@ export interface IngestContext {
   onNewBinding?: (conversationId: string, larkChatId: string) => void;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
   onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
+  /** ADR 0037: called for a message that has to WAIT — it became a queued
+   *  input behind the running turn, so it gets its own card saying so. */
+  onQueuedInput?: (inputId: string, conversationId: string, sourceMessageId: string) => void;
 }
 export interface IngestResult {
   action: "consumed" | "skipped" | "error";
@@ -278,6 +281,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         // surface label is ever needed, it belongs on the ledger entry, not
         // smuggled inside the content the agent reads.
         content: event.content,
+        // Each Lark message is its OWN turn (ADR 0037): "normal" keeps the
+        // backend from folding this message into the running turn as a steer,
+        // so a busy branch queues it and it becomes its own run later — which
+        // is what gives every message its own card.
+        mode: "normal",
       });
 
     if (msgError) {
@@ -293,6 +301,8 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     const triggeredRuns = (body.triggeredRuns ?? []) as Array<{
       agentId: string;
       runId: string;
+      inputId?: string;
+      queued?: boolean;
     }>;
 
     // ─── Step 3: Confirm inbound (backfill ledger_seq) ───
@@ -303,16 +313,16 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     const triggered = (addressedTo?.length ?? 0) > 0 || (triggeredRuns?.length ?? 0) > 0;
     const runs = triggeredRuns ?? [];
 
-    // M15.1: Start streaming card lifecycle for each triggered run
-    if (ctx.onTriggeredRun) {
-      for (const run of runs) {
-        // A queued or cancelled entry carries NO run: the input was appended
-        // to an existing run's queue (queued) or dropped at enqueue
-        // (cancelled). Those are deliberate DTO states, not run ids — taking
-        // "" for one created a card row that can never settle, and restart
-        // recovery would keep trying to drive it ("run card started:  → oc_").
-        if (!run.runId) continue;
-        ctx.onTriggeredRun(run.runId, conversationId, event.message_id);
+    // Card lifecycle per triggered entry. Two shapes, deliberately distinct:
+    //  - a run started  -> its streaming card (the run is the unit of work);
+    //  - queued instead -> this message waits behind the running turn and gets
+    //    its own card in a queued state (ADR 0037). "" is never a run id: it
+    //    used to create a card row that could never settle.
+    for (const entry of runs) {
+      if (entry.runId) {
+        ctx.onTriggeredRun?.(entry.runId, conversationId, event.message_id);
+      } else if (entry.queued && entry.inputId) {
+        ctx.onQueuedInput?.(entry.inputId, conversationId, event.message_id);
       }
     }
 

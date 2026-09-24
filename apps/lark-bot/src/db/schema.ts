@@ -43,6 +43,27 @@ export const topicBinding = sqliteTable(
   (table) => [primaryKey({ columns: [table.larkChatId, table.topicKey] })],
 );
 
+/** ADR 0037: the card of a message that has to WAIT — one agent-loop turn is
+ *  one card, so a message queued behind the running turn gets its own card
+ *  saying it is queued (and offering a cancel). It exists BEFORE any run does:
+ *  when the input is promoted to its own run, the same card takes that run
+ *  over (`run_card` adopts its card kit / message ids), so the user never sees
+ *  a second card appear for the same message. */
+export const inputCard = sqliteTable("input_card", {
+  inputId: text().primaryKey(),
+  conversationId: text().notNull(),
+  larkChatId: text().notNull(),
+  /** The CardKit entity the queued frame lives in. */
+  cardKitId: text(),
+  /** The IM message carrying it (the handover needs it for reaction cleanup). */
+  larkMessageId: text(),
+  /** queued → promoted (a run took it over) | cancelled (the user dropped it). */
+  status: text().notNull().default("queued"),
+  lastError: text(),
+  createdAt: integer({ mode: "number" }).notNull(),
+  updatedAt: integer({ mode: "number" }).notNull(),
+});
+
 export const memberBinding = sqliteTable(
   "member_binding",
   {

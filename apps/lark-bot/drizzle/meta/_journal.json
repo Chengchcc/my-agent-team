@@ -50,6 +50,13 @@
       "when": 1790240408712,
       "tag": "0006_lush_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790241789546,
+      "tag": "0007_empty_proteus",
+      "breakpoints": true
     }
   ]
 }

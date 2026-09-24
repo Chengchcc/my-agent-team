@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getActiveRunCardByLarkMessage } from "../bindings-sqlite.js";
+import { getActiveRunCardByLarkMessage, getInputCardByLarkMessage } from "../bindings-sqlite.js";
 
 /**
  * ADR 0031 §6 (revised): card.action.trigger IS reachable — lark-cli ≥1.0.9x
@@ -80,6 +80,9 @@ function collectFields(node: unknown, depth: number, found: FoundFields): void {
 
 export type RunCardAction =
   | { action: "stop"; runId: string }
+  /** ADR 0037: drop a message that is still waiting. Cancels THAT input — the
+   *  turn already running is untouched. */
+  | { action: "cancel_input"; inputId: string }
   | { action: "approve" | "reject"; runId: string; callId: string }
   | {
       action: "answer_ask";
@@ -102,6 +105,10 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   const callId = "callId" in parsed ? parsed.callId : undefined;
   const questionId = "questionId" in parsed ? parsed.questionId : undefined;
   const selectedValue = "selectedValue" in parsed ? parsed.selectedValue : undefined;
+  const inputId = "inputId" in parsed ? parsed.inputId : undefined;
+  if (action === "cancel_input" && typeof inputId === "string" && inputId.length > 0) {
+    return { action: "cancel_input", inputId };
+  }
   const runIdValid = typeof runId === "string" && runId.length > 0;
   const callIdValid = typeof callId === "string" && callId.length > 0;
   if (action === "stop" && runIdValid) return { action: "stop", runId };
@@ -148,6 +155,8 @@ export interface CardActionDeps {
     questionId: string;
     selectedValue: string;
   }) => Promise<{ error?: unknown }>;
+  /** Cancel a queued input (the message only, never the running turn). */
+  cancelQueuedInput: (inputId: string) => Promise<{ error?: unknown }>;
   log: (message: string) => void;
 }
 
@@ -159,6 +168,28 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
   if (!action) {
     deps.log(`card action ignored: tag=${event.actionTag} value=${event.actionValue.slice(0, 80)}`);
     return "ignored";
+  }
+  // Queued-card controls first: a waiting message has no run card, so it is
+  // validated against its own record — the callback's message must be the one
+  // carrying that input's card, in the chat the card lives in. Same trust
+  // model as the run controls (operator logged, not enforced: single-user
+  // deployment, ADR 0026).
+  if (action.action === "cancel_input") {
+    const queued = getInputCardByLarkMessage(deps.db, event.messageId);
+    if (!queued || queued.larkChatId !== event.chatId || queued.inputId !== action.inputId) {
+      deps.log(
+        `card action rejected: operator=${event.operatorId} msg=${event.messageId} input=${action.inputId} (no queued card)`,
+      );
+      return "rejected";
+    }
+    const { error } = await deps.cancelQueuedInput(action.inputId);
+    if (error) {
+      deps.log(
+        `card action input-cancel failed: input=${action.inputId} ${JSON.stringify(error).slice(0, 120)}`,
+      );
+      return "cancel-failed";
+    }
+    return "input-cancelled";
   }
   const card = getActiveRunCardByLarkMessage(deps.db, event.messageId);
   const chatMatches = card?.larkChatId === event.chatId;

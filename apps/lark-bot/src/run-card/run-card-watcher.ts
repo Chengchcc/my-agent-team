@@ -63,6 +63,11 @@ export interface RunCardWatcherOptions {
    *  the chat is a topic chat (only those accept `reply_in_thread`). */
   replyTo?: string | null;
   replyInThread?: boolean;
+  /** Adopt an EXISTING card instead of creating one: the message waited behind
+   *  a running turn, its queued card is already in the topic, and that same
+   *  card must now stream this run (ADR 0037 decision 2 — one message, one
+   *  card). The first flush replaces the queued frame with the run frame. */
+  adopt?: { cardKitId: string; larkMessageId: string };
 }
 
 export interface RunCardWatcherHandle {
@@ -140,6 +145,12 @@ export function watchRunCard(
   }
   if (!existing) {
     insertRunCard(db, { runId, conversationId, larkChatId, sourceMessageId: null });
+    if (opts.adopt) {
+      updateRunCard(db, runId, {
+        cardKitId: opts.adopt.cardKitId,
+        larkMessageId: opts.adopt.larkMessageId,
+      });
+    }
   }
   let state: RunCardState = existing
     ? {
@@ -172,8 +183,8 @@ export function watchRunCard(
     })();
   }
 
-  let cardKitId = existing?.cardKitId ?? null;
-  let larkMessageId = existing?.larkMessageId ?? null;
+  let cardKitId = existing?.cardKitId ?? opts.adopt?.cardKitId ?? null;
+  let larkMessageId = existing?.larkMessageId ?? opts.adopt?.larkMessageId ?? null;
   let seq = existing?.cardSeq ?? 0;
 
   const persist = () => {

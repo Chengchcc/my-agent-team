@@ -2,12 +2,14 @@ import type { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   getRunCard,
+  insertInputCard,
   insertRunCard,
   listActiveRunCards,
   listNonTerminalRunCards,
   openBindings,
   runCardOwnsDelivery,
   runIdFromMessageId,
+  updateInputCard,
   updateRunCard,
 } from "../bindings-sqlite.js";
 import { handleCardActionLine } from "./card-actions.js";
@@ -403,6 +405,10 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
           calls.push(`cancel:${runId}`);
           return {};
         },
+        cancelQueuedInput: async (inputId: string) => {
+          calls.push(`cancelInput:${inputId}`);
+          return {};
+        },
         resolveApproval: async (runId: string, callId: string, decision: string) => {
           calls.push(`approval:${runId}:${callId}:${decision}`);
           return {};
@@ -496,6 +502,47 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
     expect(await handleCardActionLine(line, d)).toBe("stopped");
     expect(await handleCardActionLine(line, d)).toBe("duplicate");
     expect(calls).toEqual(["cancel:run-dup"]);
+  });
+  test("cancel_input cancels the INPUT and never the running turn", async () => {
+    // A waiting message has no run card to compare against, so it is validated
+    // against its own record: the callback's message must be the one carrying
+    // that input's queued card.
+    insertInputCard(db, {
+      inputId: "in_q",
+      conversationId: "conv-q",
+      larkChatId: "oc_actions",
+      now: Date.now(),
+    });
+    updateInputCard(db, "in_q", { larkMessageId: "om_queued_card", cardKitId: "card_q" });
+    const h = deps();
+    const cancelled = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-cancel-input",
+        operator_id: "ou_user",
+        chat_id: "oc_actions",
+        message_id: "om_queued_card",
+        action_tag: "button",
+        action_value: JSON.stringify({ action: "cancel_input", inputId: "in_q" }),
+      }),
+      h.deps,
+    );
+    expect(cancelled).toBe("input-cancelled");
+    // The INPUT is cancelled: no run was touched.
+    expect(h.calls).toEqual(["cancelInput:in_q"]);
+
+    const forged = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-cancel-forged",
+        operator_id: "ou_user",
+        chat_id: "oc_actions",
+        message_id: "om_not_our_card",
+        action_tag: "button",
+        action_value: JSON.stringify({ action: "cancel_input", inputId: "in_q" }),
+      }),
+      h.deps,
+    );
+    expect(forged).toBe("rejected");
+    expect(h.calls).toEqual(["cancelInput:in_q"]);
   });
 });
 

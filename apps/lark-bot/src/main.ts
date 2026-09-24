@@ -5,6 +5,7 @@ import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
   getConversationBinding,
+  getInputCard,
   listConversationBindings,
   listNonTerminalRunCards,
   updateChatMode,
@@ -17,6 +18,7 @@ import { ingest } from "./ingest.js";
 import { createTokenProvider } from "./lark-api.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
+import { markQueuedCardCancelled, startQueuedCard } from "./run-card/queued-card.js";
 import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
 import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
@@ -93,6 +95,7 @@ async function startRunCard(
   conversationId: string,
   larkChatId: string,
   sourceMessageId: string | null = null,
+  adopt?: { cardKitId: string; larkMessageId: string },
 ) {
   if (cardWatchers.has(runId)) return;
   // Where this answer belongs (ADR 0037). The conversation records its topic's
@@ -124,6 +127,7 @@ async function startRunCard(
     sourceMessageId,
     replyTo,
     replyInThread,
+    ...(adopt ? { adopt } : {}),
     sendText: async (chatId, text, idempotencyKey, reply) => {
       const result = await sendMessage(profile, chatId, text, idempotencyKey, reply);
       if (!result.ok) throw new Error(result.error ?? "unknown lark send error");
@@ -193,6 +197,28 @@ async function handleLine(line: string): Promise<void> {
       ensureWatcher(conversationId, larkChatId, 0);
     },
     // ADR 0031: a triggered run gets its streaming card immediately.
+    // ADR 0037 decision 2: a message that has to wait gets its own card in a
+    // queued state; when the backend promotes it into a run, the SAME card
+    // takes that run over (`adopt`), so nothing new appears in the topic.
+    onQueuedInput: (inputId, conversationId, sourceMessageId) => {
+      const binding = getConversationBinding(state.db, conversationId);
+      startQueuedCard(inputId, conversationId, event.chat_id, {
+        db: state.db,
+        backendUrl: args.backendUrl,
+        backendAuthToken: args.backendAuthToken,
+        cardClient,
+        replyTo: binding?.topicRootMessageId ?? null,
+        replyInThread: replyInThreadFor(binding?.chatMode ?? null),
+        onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
+          if (!cardKitId || !larkMessageId) return;
+          console.log(`[lark-bot] queued card promoted: ${promotedInput} → run ${runId}`);
+          void startRunCard(runId, conversationId, event.chat_id, sourceMessageId, {
+            cardKitId,
+            larkMessageId,
+          });
+        },
+      });
+    },
     onTriggeredRun: (runId, conversationId) => {
       // The user's own message is what the ack reaction goes on; the card is a
       // separate message the bot sends into the chat. The TOPIC's root is what
@@ -246,6 +272,18 @@ createInterface({ input: actionChild.stdout! }).on("line", (line) => {
         callId,
         decision,
       });
+      return { error: error ?? undefined };
+    },
+    cancelQueuedInput: async (inputId) => {
+      const record = getInputCard(state.db, inputId);
+      if (!record) return { error: "unknown input" };
+      const { error } = await actionBackendClient.api
+        .conversations({ id: record.conversationId })
+        .inputs({ inputId })
+        .cancel.post();
+      if (!error) {
+        await markQueuedCardCancelled({ db: state.db, cardClient }, inputId);
+      }
       return { error: error ?? undefined };
     },
     resolveAsk: async ({ runId, callId, questionId, selectedValue }) => {
