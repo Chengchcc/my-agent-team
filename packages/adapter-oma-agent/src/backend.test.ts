@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackendRunInput } from "@chengchenccc/agent-contract";
-import { OmaBackend, OmaProcessError } from "./backend.js";
+import { COMMAND_ID_MAX, commandId, OmaBackend, OmaProcessError } from "./backend.js";
 import { OmaModelCatalog } from "./model-catalog.js";
 import type { OmaCommandConfig } from "./process.js";
 
@@ -353,4 +353,24 @@ describe("OmaBackend spawn-slot limit (maxConcurrent)", () => {
     expect(lines.filter((l) => l.startsWith("execute "))).toHaveLength(1);
     expect(lines[0]).toContain("r-hold");
   }, 10_000);
+});
+
+describe("command ids", () => {
+  const REAL_RUN_ID = "11255f2b74a24309ad8af7e0b6"; // 24 chars, like the ones production makes
+
+  test("every correlation id fits the protocol's 64-char budget", () => {
+    // The approval id used to be `approval-${runId}-${callId}-<8 hex>` = 72
+    // chars: the child rejected the frame as a malformed command, its reader
+    // loop threw, and the run died while a human was deciding. Length is part
+    // of this wire contract exactly like the type name is.
+    for (const kind of ["steer", "abort", "approval"] as const) {
+      const id = commandId(kind, REAL_RUN_ID);
+      expect(id.length).toBeLessThanOrEqual(COMMAND_ID_MAX);
+      expect(id.startsWith(`${kind}-`)).toBe(true);
+    }
+  });
+
+  test("ids stay unique for the same run so concurrent waiters never collide", () => {
+    expect(commandId("steer", REAL_RUN_ID)).not.toBe(commandId("steer", REAL_RUN_ID));
+  });
 });

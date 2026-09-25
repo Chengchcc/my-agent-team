@@ -38,6 +38,18 @@ export class OmaProcessError extends Error {
   }
 }
 
+/** The child's command schema caps the correlation id at 64 chars. `steer`,
+ *  `abort` and `resolve_approval` all key their response on this id, so it
+ *  must stay short AND unique per child: uniqueness comes from the random
+ *  suffix, never from concatenating runId + callId — that reached 72 chars,
+ *  the child rejected the frame as malformed, and its reader loop died,
+ *  taking the run with it. */
+export const COMMAND_ID_MAX = 64;
+
+export function commandId(kind: "steer" | "abort" | "approval", runId: string): string {
+  return `${kind}-${runId}-${randomUUID().slice(0, 8)}`;
+}
+
 export interface OmaBackendOptions {
   /** Bounded grace for the child to exit after outcome/abort before kill. */
   abortGraceMs?: number;
@@ -300,7 +312,7 @@ export class OmaBackend implements AgentBackend<"oma"> {
     // M11: unique suffix — concurrent steers for one run used to collide
     // on the same id and the second waiter map entry silently orphaned
     // the first pending promise (permanent hang).
-    const id = `steer-${runId}-${randomUUID().slice(0, 8)}`;
+    const id = commandId("steer", runId);
     const response = await this.sendCommand(handle, id, {
       id,
       type: "steer",
@@ -319,8 +331,7 @@ export class OmaBackend implements AgentBackend<"oma"> {
     if (!handle || handle.settled) {
       throw new OmaProcessError("not_found", `no live child for run: ${runId}`);
     }
-    // M11: unique suffix — see steer; callId alone could collide on retry.
-    const id = `approval-${runId}-${callId}-${randomUUID().slice(0, 8)}`;
+    const id = commandId("approval", runId);
     const response = await this.sendCommand(handle, id, {
       id,
       type: "resolve_approval",
@@ -345,7 +356,7 @@ export class OmaBackend implements AgentBackend<"oma"> {
     }
     const sendAbort = (): void => {
       if (handle.settled) return;
-      const id = `abort-${runId}-${randomUUID().slice(0, 8)}`;
+      const id = commandId("abort", runId);
       void this.sendCommand(handle, id, {
         id,
         type: "abort",
@@ -407,6 +418,15 @@ export class OmaBackend implements AgentBackend<"oma"> {
       decision?: "allow" | "deny";
     },
   ): Promise<{ success: boolean; error?: string }> {
+    // Over-long ids were the bug that killed runs: the child reads the frame
+    // as malformed and its reader loop dies with it. Fail here instead, where
+    // the message says what is wrong.
+    if (id.length > COMMAND_ID_MAX) {
+      throw new OmaProcessError(
+        "invalid_request",
+        `command id is ${id.length} chars, the protocol allows ${COMMAND_ID_MAX}: ${id}`,
+      );
+    }
     const { promise: response, resolve } = Promise.withResolvers<{
       success: boolean;
       error?: string;
