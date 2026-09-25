@@ -347,24 +347,25 @@ export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<st
   const header = HEADER_BY_STATUS[status] ?? HEADER_BY_STATUS.streaming!;
 
   // Visual hierarchy (plan): what the agent is doing → the answer → progress
-  // → steps → actions → footer. Empty sections are omitted entirely, so the
-  // card never carries an element that says nothing.
-  const elements: Record<string, unknown>[] = [];
-  const activity = renderActivityContent(state);
-  if (activity) {
-    elements.push({ tag: "markdown", element_id: ACTIVITY_ELEMENT_ID, content: activity });
-  }
-  elements.push({
-    tag: "markdown",
-    element_id: OUTPUT_ELEMENT_ID,
-    content: renderOutputContent(state),
-  });
+  // → steps → actions → footer. activity/output/tools/status are ALWAYS
+  // present even when empty: CardKit's element update needs the target
+  // element to exist, and omitting an empty one made the first tool
+  // completion fail with 300313 (not find elementID).
+  const elements: Record<string, unknown>[] = [
+    { tag: "markdown", element_id: ACTIVITY_ELEMENT_ID, content: renderActivityContent(state) },
+    {
+      tag: "markdown",
+      element_id: OUTPUT_ELEMENT_ID,
+      content: renderOutputContent(state),
+    },
+  ];
   const todoPanel = renderTodoPanel(state);
   if (todoPanel) elements.push(todoPanel);
-  const tools = renderToolsContent(state);
-  if (tools) {
-    elements.push({ tag: "markdown", element_id: TOOLS_ELEMENT_ID, content: tools });
-  }
+  elements.push({
+    tag: "markdown",
+    element_id: TOOLS_ELEMENT_ID,
+    content: renderToolsContent(state),
+  });
 
   if (state.pendingAction) {
     elements.push(...pendingActionButtons(meta.runId, state.pendingAction));

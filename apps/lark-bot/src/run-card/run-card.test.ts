@@ -936,3 +936,20 @@ describe("card updater degradation", () => {
     expect(getRunCard(db, "run-deg")?.lastError).toBeTruthy();
   });
 });
+
+describe("run card element set", () => {
+  test("activity/output/tools/status are always present, even when empty", () => {
+    // CardKit's element update needs the target element to EXIST. Omitting an
+    // empty one made the first tool completion fail with 300313 (not find
+    // elementID: tool_summary) and, after three strikes, degraded the card.
+    const card = renderRunCard(initialRunCardState(), {
+      runId: "r1",
+      startedAt: Date.now(),
+      webUrl: null,
+    }) as { body: { elements: Array<{ element_id?: string }> } };
+    const ids = card.body.elements.map((e) => e.element_id).filter(Boolean);
+    expect(ids).toEqual(
+      expect.arrayContaining(["activity_md", "agent_output", "tool_summary", "run_status"]),
+    );
+  });
+});
