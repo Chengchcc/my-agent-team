@@ -17,7 +17,9 @@
 
 **`commit_failed` 会把分支永久占住。** 它算活跃状态，所以那个分支不会再接新 Run；而唯一的重试入口在没被调起的恢复函数里。修法是把 `recover()` 接上，或者给提交失败一条独立的退路。
 
-**HITL 的持久化差最后一环：Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。超时语义已补齐（2026-09-24）：oma 循环层的审批等待现在自带截止时间（默认 2 分钟，`OMA_APPROVAL_TIMEOUT_MS` 可调，静默人类 fail-closed 为 deny）——此前只有 run 模式（run-runtime）有截止时间，rpc / 子代理走的 `createOmaSession` 路径会无限等，测试已钉住。仍缺：pending 事项对 Lark 端不可见（Run 卡片第三期的消费面）。
+**HITL 的持久化差最后一环：Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。超时语义已补齐（2026-09-25）：oma 循环层的审批等待自带截止时间（默认 24 小时，`OMA_APPROVAL_TIMEOUT_MS` 可调），MCP 侧两层计时器都按 server 声明的 `timeoutMs` 走（`BACKEND_ASK_TIMEOUT_MS` 默认 24 小时），静默人类 fail-closed。仍缺：pending 事项在 Web 之外只有卡片一个消费面。
+
+**子进程死了，run 不知道。**（2026-09-25，两次真实 run。）适配器的 `segment.outcome` 只在子进程输出流结束时兑现；实测有 run 在子进程已经消失的情况下仍是 `running`，卡片停在「思考中」并任由计时器往上走，只有 30 分钟的墙钟看门狗兜底——用户感知就是「卡住/反应慢」。两条卡住的 run 只能靠手工取消结算。修法方向：给 `AgentBackend` 端口加一条存活查询（`isAlive(runId)` 或子进程 exit 事件），dispatch 在等 `outcome` 期间轮询，确认进程已死就以明确原因结算（也顺带覆盖子代理委派时父进程退出、管道被孙进程占住这类情形）。
 
 ## 上下文与历史
 
