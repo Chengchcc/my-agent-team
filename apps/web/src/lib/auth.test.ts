@@ -42,7 +42,10 @@ describe("auth login (F3)", () => {
     const auth = await freshAuth();
     const result = await auth.login("admin");
     expect("error" in result).toBe(true);
-    expect((result as { error: string }).error).toBe("Invalid password");
+    // The machine code, not a sentence: the login page matches on it, and the
+    // prose it used to be made every JSON attempt fall through to the
+    // generic message (the "wrong password shows no error" report).
+    expect((result as { error: string }).error).toBe(auth.INVALID_PASSWORD);
   });
 
   test("a configured MOCK_PASSWORD signs in", async () => {
@@ -59,6 +62,16 @@ describe("auth login (F3)", () => {
     expect(auth.timingSafeEqualPassword("same", "diff")).toBe(false);
     // Different lengths are safe (both sides hashed to 32 bytes first).
     expect(auth.timingSafeEqualPassword("a", "bbbbbbbbbbbbbbbbbbbbbbbb")).toBe(false);
+  });
+});
+
+describe("the wrong-password wire code", () => {
+  test("login reports the code the page matches, so the specific message is reachable", async () => {
+    delete process.env.MOCK_PASSWORD;
+    const auth = await freshAuth();
+    const rejected = await auth.login("nope");
+    expect(rejected).toEqual({ error: auth.INVALID_PASSWORD });
+    expect(auth.INVALID_PASSWORD).toBe("invalid_password");
   });
 });
 

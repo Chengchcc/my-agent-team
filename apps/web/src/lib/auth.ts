@@ -62,11 +62,15 @@ async function storedPasswordMatches(password: string): Promise<boolean | undefi
   }
 }
 
+import { INVALID_PASSWORD } from "@/lib/auth-codes";
+
+export { INVALID_PASSWORD };
+
 export async function login(password: string): Promise<{ cookie: string } | { error: string }> {
   const fromStore = await storedPasswordMatches(password);
   const accepted =
     fromStore === undefined ? timingSafeEqualPassword(password, mockPassword()) : fromStore;
-  if (!accepted) return { error: "Invalid password" };
+  if (!accepted) return { error: INVALID_PASSWORD };
   const session = await createSession(mockUserId());
   return { cookie: sessionCookieHeader(session) };
 }

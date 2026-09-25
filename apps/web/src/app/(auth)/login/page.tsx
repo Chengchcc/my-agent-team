@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { INVALID_PASSWORD } from "@/lib/auth-codes";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ function LoginForm() {
   const errorParam = searchParams.get("error");
   const next = searchParams.get("next");
   const [serverError, setServerError] = useState<string | null>(
-    errorParam === "invalid_password"
+    errorParam === INVALID_PASSWORD
       ? "Invalid password. Please try again."
       : errorParam
         ? "Sign in failed. Please try again."
@@ -56,7 +57,7 @@ function LoginForm() {
       if (res.status === 401) {
         const body = await res.json().catch(() => ({ error: "Invalid password" }));
         setServerError(
-          body.error === "invalid_password"
+          body.error === INVALID_PASSWORD
             ? "Invalid password. Please try again."
             : "Sign in failed. Please try again.",
         );

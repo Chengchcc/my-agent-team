@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { login } from "@/lib/auth";
+import { INVALID_PASSWORD } from "@/lib/auth-codes";
 import { createRateLimiter } from "@/lib/rate-limit";
 
 // Single-user product: one global bucket, not per-IP. The old
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     return new Response(null, {
       status: 302,
-      headers: { Location: "/login?error=invalid_password" },
+      headers: { Location: `/login?error=${INVALID_PASSWORD}` },
     });
   }
   limiter.reset(BUCKET);
