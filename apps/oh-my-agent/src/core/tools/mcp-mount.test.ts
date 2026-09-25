@@ -175,3 +175,41 @@ describe("hung servers fail bounded, never block the mount", () => {
     }
   }, 15_000);
 });
+
+describe("a server's declared timeout outlives the global default", () => {
+  test("the tool call deadline follows the server's timeoutMs, not the mount default", async () => {
+    // The ask tool parks until a human answers. Two timers guarded it and
+    // only the SDK one read server.timeoutMs, so the wrapper's 120s default
+    // killed the ask first (live: 'mcp tool ask_question timed out after
+    // 120000ms' while the run sat waiting).
+    const ws = mkdtempSync(join(tmpdir(), "oma-mcp-server-timeout-"));
+    writeFileSync(
+      join(ws, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          patient: {
+            command: "bun",
+            args: [join(import.meta.dir, "..", "__fixtures__", "mcp-echo-server.ts")],
+            timeoutMs: 6_000,
+          },
+        },
+      }),
+    );
+    try {
+      const mounted = await mountWorkspaceMcpServers(ws, new Set(), [], true, {
+        mcpTimeoutMs: 900,
+      });
+      const tool = mounted.tools.find((t) => t.name === "mcp__patient__echo");
+      expect(tool).toBeDefined();
+      expect(tool?.timeoutMs).toBe(6_000);
+      // 2s of work: over the 900ms mount default, under the server's own.
+      const res = (await tool?.execute({ echo: "slow:2000" }, undefined)) as {
+        content?: string;
+      };
+      expect(res.content ?? "").toContain("slow:2000");
+      await mounted.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});

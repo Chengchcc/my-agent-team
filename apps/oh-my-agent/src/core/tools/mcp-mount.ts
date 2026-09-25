@@ -105,16 +105,18 @@ async function connectServer(
   server: McpJsonServer,
   workspaceRoot: string,
   connectTimeoutMs: number,
+  sdkCallTimeoutMs: number,
 ): Promise<{ client: McpClientLike } | { error: string }> {
   // Declared OUTSIDE the try: the catch must reach it to tear down a
   // half-open connect.
   let bestEffortClose: (() => void) | null = null;
   try {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-    // One options object for both transports: the HITL ask must outlive the
-    // SDK's 60s default or the human's answer can never arrive (observed
-    // 2026-09-25: the ask died at 60s and became an unsettleable waiting run).
-    const callOptions = server.timeoutMs ? { timeout: server.timeoutMs } : undefined;
+    // One options object for both transports. The SDK's own 60s default is
+    // never relied on: a server that declares how long its tools take (the
+    // product-tools ask waits for a human) passes that value down here, and
+    // anything else falls back to the mount's call timeout.
+    const callOptions = { timeout: server.timeoutMs ?? sdkCallTimeoutMs };
     let stdioRootPid: number | null = null;
     let closeSdk: () => Promise<void>;
     let callTool: McpClientLike["callTool"];
@@ -243,7 +245,13 @@ export async function testMcpServer(
   let connectError: string | undefined;
   try {
     const raced = await Promise.race([
-      connectServer(name, server, workspaceRoot, MCP_TEST_TIMEOUT_MS),
+      connectServer(
+        name,
+        server,
+        workspaceRoot,
+        MCP_TEST_TIMEOUT_MS,
+        server.timeoutMs ?? MCP_TEST_TIMEOUT_MS,
+      ),
       timeout,
     ]);
     if (raced === null) connectError = "timeout";
@@ -367,7 +375,18 @@ export async function mountWorkspaceMcpServers(
         continue;
       }
     }
-    const connected = await connectServer(name, server, workspaceRoot, callTimeoutMs);
+    // A server may declare how long its tools take (the product-tools ask
+    // waits for a human). That value must drive BOTH timers: the SDK request
+    // option and the wrapper below. Fixing only the SDK left the wrapper's
+    // 120s default killing the ask first (observed 2026-09-25).
+    const serverCallTimeoutMs = server.timeoutMs ?? callTimeoutMs;
+    const connected = await connectServer(
+      name,
+      server,
+      workspaceRoot,
+      callTimeoutMs,
+      serverCallTimeoutMs,
+    );
     if (!("client" in connected)) {
       reports.push({ server: name, ok: false, toolsCount: 0, error: connected.error });
       continue;
@@ -407,12 +426,12 @@ export async function mountWorkspaceMcpServers(
         name: qualified,
         description: t.description ?? `MCP tool ${t.name} (server ${name})`,
         inputSchema: (t.inputSchema ?? { type: "object" }) as PluginTool["inputSchema"],
-        timeoutMs: callTimeoutMs,
+        timeoutMs: serverCallTimeoutMs,
         async execute(args, signal) {
           const res = await withCallTimeout(
             client.callTool({ name: t.name, arguments: args }),
             `mcp tool ${t.name}`,
-            callTimeoutMs,
+            serverCallTimeoutMs,
             signal,
           );
           const text = (res.content ?? [])
