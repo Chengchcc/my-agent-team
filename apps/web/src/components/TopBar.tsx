@@ -62,10 +62,11 @@ function RuntimeChips({ agents }: { agents?: AgentRow[] }) {
  *  configured when nothing was ever started), so the old `status === "healthy"`
  *  comparison was never true and the chip printed the raw vocabulary. */
 function larkChipState(statuses: string[]): { label: string; tone: string } {
-  if (statuses.includes("error")) return { label: "连接失败", tone: "var(--destructive)" };
-  if (statuses.includes("degraded")) return { label: "需要处理", tone: "var(--destructive)" };
-  if (statuses.includes("running")) return { label: "已上线", tone: "var(--accent-violet)" };
-  return { label: "未连接", tone: "var(--muted-foreground)" };
+  if (statuses.includes("error")) return { label: "connection failed", tone: "var(--destructive)" };
+  if (statuses.includes("degraded"))
+    return { label: "needs attention", tone: "var(--destructive)" };
+  if (statuses.includes("running")) return { label: "online", tone: "var(--accent-violet)" };
+  return { label: "not connected", tone: "var(--muted-foreground)" };
 }
 
 function LarkChip() {
@@ -83,10 +84,10 @@ function LarkChip() {
         borderColor: `color-mix(in srgb, ${tone} 30%, transparent)`,
         color: tone,
       }}
-      title={`飞书：${label}`}
+      title={`Lark: ${label}`}
     >
       <ArrowLeftRight className="size-3" />
-      飞书：{label}
+      Lark: {label}
     </Link>
   );
 }
