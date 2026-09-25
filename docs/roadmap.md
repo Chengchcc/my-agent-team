@@ -19,7 +19,7 @@
 
 **HITL 的持久化差最后一环：Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。超时语义已补齐（2026-09-25）：oma 循环层的审批等待自带截止时间（默认 24 小时，`OMA_APPROVAL_TIMEOUT_MS` 可调），MCP 侧两层计时器都按 server 声明的 `timeoutMs` 走（`BACKEND_ASK_TIMEOUT_MS` 默认 24 小时），静默人类 fail-closed。仍缺：pending 事项在 Web 之外只有卡片一个消费面。
 
-**子进程死了，run 不知道。**（2026-09-25，两次真实 run。）适配器的 `segment.outcome` 只在子进程输出流结束时兑现；实测有 run 在子进程已经消失的情况下仍是 `running`，卡片停在「思考中」并任由计时器往上走，只有 30 分钟的墙钟看门狗兜底——用户感知就是「卡住/反应慢」。两条卡住的 run 只能靠手工取消结算。修法方向：给 `AgentBackend` 端口加一条存活查询（`isAlive(runId)` 或子进程 exit 事件），dispatch 在等 `outcome` 期间轮询，确认进程已死就以明确原因结算（也顺带覆盖子代理委派时父进程退出、管道被孙进程占住这类情形）。
+**子进程活着但沉默，run 与卡片都不知道。**（2026-09-25，两次真实 run。）适配器的读取器会在子进程退出后 5 秒内收尾（Bun `child.exited` + 孤儿管道宽限），所以「子进程死了不结算」并不成立——实测是**子进程还在、但数分钟零事件**：一条 run 是 `ask` 权限模式下启动后什么都没吐（连 `agent_start` 都没有），另一条停在子代理委派之后。此时卡片只有计时器在走，唯一兜底是 30 分钟墙钟看门狗，两条 run 都得手工取消才结算。两条可选修法（未选）：①dispatch 加「静默看门狗」——连续 N 分钟无事件且无 pending action 就停掉并以明确原因结算，风险是合法的长工具（一条跑十分钟的 bash）会被误杀；②让**子进程自己发心跳**（loop 每 N 秒一个无副作用的 status 事件），父侧与卡片据此区分「安静但活着」和「卡死」，代价是事件契约 + oma 循环各改一处。推荐 ②，因为 ① 的误杀是不可逆的。
 
 ## 上下文与历史
 
