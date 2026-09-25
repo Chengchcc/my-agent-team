@@ -38,6 +38,9 @@ export const envSchema = z.object({
   BACKEND_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
   BACKEND_CANCEL_GRACE_MS: z.coerce.number().int().positive().default(5_000),
   BACKEND_RUN_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  // How long an ask_question parks for a human (default 24h in config.ts);
+  // also the baseline for the product-tools mount's tool-call timeout.
+  BACKEND_ASK_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   SMOKE_CRON: z.string().optional().describe("cron expr for the self-smoke workflow run"),
   // ── Workflow script sandbox (H2) ──
   WORKFLOW_SCRIPTS_ENABLED: z

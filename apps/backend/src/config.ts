@@ -15,8 +15,14 @@ export interface BackendConfig {
   maxConcurrentRuns: number;
   cancelGraceMs: number;
   /** Wall-clock cap on a run: the dispatch watchdog stops the backend and
-   *  settles the run aborted when it exceeds this. */
+   *  settles the run aborted when it exceeds this. A run parked on a HITL
+   *  ask is exempt (the human is the progress). */
   runTimeoutMs: number;
+  /** How long an ask_question parks waiting for a human, and the baseline
+   *  for the product-tools mount's tool-call timeout. HITL over a chat
+   *  surface means hours, not minutes: the person may open Lark the next
+   *  morning (user decision 2026-09-25). */
+  askTimeoutMs: number;
   /** Root of the stack's file resources (skills/, docs/, workflow-showcase/).
    *  Defaults to the repo root — what a source checkout has; a packaged stack
    *  ships resources/ and points this at it. */
@@ -91,6 +97,7 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     maxConcurrentRuns: env.BACKEND_MAX_CONCURRENT,
     cancelGraceMs: env.BACKEND_CANCEL_GRACE_MS,
     runTimeoutMs: env.BACKEND_RUN_TIMEOUT_MS ?? 30 * 60_000,
+    askTimeoutMs: env.BACKEND_ASK_TIMEOUT_MS ?? 24 * 60 * 60_000,
     resourcesDir,
     builtinSkillsDir: resolve(resourcesDir, "skills"),
     knowledgePacksDir: resolve(resourcesDir, "docs"),

@@ -62,6 +62,9 @@ describe("workspace bridge", () => {
         transport: "sse",
         url: "http://127.0.0.1:9/mcp",
         headers: { Authorization: "Bearer t" },
+        // A parked HITL ask needs a call timeout above its own deadline;
+        // without this the SDK's 60s default kills the question.
+        timeoutMs: 86_460_000,
       },
       {
         name: "stdio-srv",
@@ -79,6 +82,7 @@ describe("workspace bridge", () => {
       type: "sse",
       url: "http://127.0.0.1:9/mcp",
       headers: { Authorization: "Bearer t" },
+      timeoutMs: 86_460_000,
     });
     expect(parsed.mcpServers["stdio-srv"]).toEqual({
       type: "stdio",

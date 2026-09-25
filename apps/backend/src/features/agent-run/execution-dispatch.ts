@@ -185,14 +185,30 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     debugLog("agent-run", `input_delivered runId=${runId} inputId=${input.inputId}`);
     const drain = liveEvents.forwardEvents(runId, segment);
     // Wall-clock run cap: a looping CLI (no native max-turns) must not own
-    // the branch forever. stop() settles the segment aborted.
-    const watchdog = setTimeout(() => {
-      void backend.stop(runId).catch(() => {});
-    }, runTimeoutMs);
+    // the branch forever. stop() settles the segment aborted — EXCEPT while
+    // the run is parked on a HITL ask/approval: the human is the progress,
+    // and a 24h ask would otherwise be killed at 30 minutes (the whole point
+    // of a chat ask is that the person may answer hours later). Each time the
+    // cap elapses we re-check; the ask's own deadline still bounds the wait.
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const armWatchdog = (): void => {
+      watchdog = setTimeout(() => {
+        void (async () => {
+          const pending = await runPort.listPendingActions(runId).catch(() => []);
+          if (pending.some((a) => a.status === "pending")) {
+            debugLog("agent-run", `watchdog deferred runId=${runId} (waiting for human)`);
+            armWatchdog();
+            return;
+          }
+          await backend.stop(runId).catch(() => {});
+        })();
+      }, runTimeoutMs);
+    };
+    armWatchdog();
     try {
       return { outcome: await segment.outcome, segment, drain };
     } finally {
-      clearTimeout(watchdog);
+      if (watchdog) clearTimeout(watchdog);
     }
   }
 

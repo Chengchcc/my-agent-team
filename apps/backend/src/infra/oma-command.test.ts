@@ -13,6 +13,7 @@ const baseConfig: BackendConfig = {
   authToken: "test-token",
   cancelGraceMs: 100,
   runTimeoutMs: 30 * 60_000,
+  askTimeoutMs: 24 * 60 * 60_000,
   maxConcurrentRuns: 4,
   builtinSkillsDir: "/tmp/skills",
   resourcesDir: "/tmp",

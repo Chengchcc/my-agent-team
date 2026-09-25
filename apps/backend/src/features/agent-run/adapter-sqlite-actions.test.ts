@@ -383,3 +383,41 @@ describe("Agent Run: Phase 5 config snapshot", () => {
     expect(after).toContain(a.branch.branchId);
   });
 });
+
+describe("Agent Run: a waiting run still settles", () => {
+  test("commit succeeds while a durable ask is open", async () => {
+    // Observed 2026-09-25: an ask parked the run in `waiting`, the child then
+    // exited (its MCP call had hit the SDK's 60s default), and the terminal
+    // commit was refused because only running/commit_failed were accepted —
+    // the run became an unsettleable zombie holding the branch forever, and
+    // the user saw a card sealed "completed" with no options.
+    const { conversationId, agentId, branch } = await setupBranch("pa-wait");
+    const result = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "first" },
+      inputIdempotencyKey: "ikey-pa-wait",
+      runIdempotencyKey: "rkey-pa-wait",
+      deliveryIdempotencyKey: "dkey-pa-wait",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+    });
+    const runId = result.run!.runId;
+    await runPort.createPendingAction(runId, {
+      actionId: "action-wait",
+      kind: "ask",
+      payload: { callId: "call-wait", questions: [] },
+    });
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    await runPort.commitCompletedRun({
+      runId,
+      outcome: { status: "completed", messages: [] },
+      messages: [],
+    });
+    expect((await runPort.getRun(runId))?.status).toBe("completed");
+  });
+});

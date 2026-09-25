@@ -210,8 +210,16 @@ export function createRunMethods(
         // Idempotent replay: already completed -> return, never rewrite.
         if (run.status === "completed") return { run: parseRun(run), seqs: [] };
 
-        // Only a running or commit_failed run may be committed.
-        if (run.status !== "running" && run.status !== "commit_failed") {
+        // Only a running, waiting or commit_failed run may be committed.
+        // `waiting` matters: a durable ask parks the run there, and if the
+        // child then exits (ask timed out on the child side, or the model
+        // gave up), the outcome must still settle — otherwise the run is an
+        // unsettled zombie holding the branch forever (observed 2026-09-25).
+        if (
+          run.status !== "running" &&
+          run.status !== "waiting" &&
+          run.status !== "commit_failed"
+        ) {
           throw new AgentRunConflictError(runId);
         }
 
@@ -392,7 +400,10 @@ export function createRunMethods(
           .where(
             and(
               eq(schema.agentRun.runId, runId),
-              inArray(schema.agentRun.status, ["running", "commit_failed"]),
+              // `waiting` (a parked HITL ask) must settle too: the child can
+              // exit while parked, and refusing the transition strands the
+              // run as an unsettleable zombie (observed 2026-09-25).
+              inArray(schema.agentRun.status, ["running", "waiting", "commit_failed"]),
             ),
           )
           .returning()
@@ -426,7 +437,14 @@ export function createRunMethods(
             terminalResult: JSON.stringify(outcome),
             terminalAt: now,
           })
-          .where(and(eq(schema.agentRun.runId, runId), eq(schema.agentRun.status, "running")))
+          // Same as commitCompletedRun: a waiting run (parked HITL ask whose
+          // child exited) must be settleable, or it strands the branch.
+          .where(
+            and(
+              eq(schema.agentRun.runId, runId),
+              inArray(schema.agentRun.status, ["running", "waiting"]),
+            ),
+          )
           .returning()
           .get();
         if (!updated) throw new AgentRunConflictError(runId);

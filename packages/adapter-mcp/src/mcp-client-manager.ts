@@ -187,9 +187,15 @@ export function createMcpClientManager(): McpClientManager {
         throw new Error(`[mcp] server ${serverId} is not connected`);
       }
       const client = entry.client as {
-        callTool: (req: { name: string; arguments: Record<string, unknown> }) => Promise<unknown>;
+        callTool: (
+          req: { name: string; arguments: Record<string, unknown> },
+          resultSchema?: unknown,
+          options?: { timeout?: number },
+        ) => Promise<unknown>;
       };
-      return await client.callTool({ name: toolName, arguments: args });
+      return await client.callTool({ name: toolName, arguments: args }, undefined, {
+        ...(entry.config.timeoutMs ? { timeout: entry.config.timeoutMs } : {}),
+      });
     },
 
     async restart(serverId: string): Promise<void> {

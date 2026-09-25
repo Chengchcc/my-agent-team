@@ -421,6 +421,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     artifactService,
     emitAsk: (input) => broadcastAskEvent?.(input),
     emitTodo: (input) => broadcastTodoEvent?.(input),
+    // HITL over chat: hours, not minutes (user decision 2026-09-25).
+    askTimeoutMs: config.askTimeoutMs,
   });
   let productToolsMcp: Awaited<ReturnType<typeof createProductToolsMcpServer>> | null = null;
   // Default set: product-tools + agent-config + workflow. The workflow DSL
@@ -868,6 +870,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
               // claude expands the ${VAR} placeholder in headers. The
               // per-run bearer arrives via spawn env. File stays static.
               bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN",
+              // An ask_question parks until a human answers — the call must
+              // outlive the SDK's 60s default and the backend's own ask
+              // deadline, or the question dies before it can be read.
+              timeoutMs: config.askTimeoutMs + 60_000,
             },
           ]
         : []),

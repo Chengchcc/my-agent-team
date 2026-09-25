@@ -17,6 +17,11 @@ interface McpJsonServer {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Per-request timeout for tool calls on this server (ms). The SDK's
+   *  default is 60s, which silently kills long-parking tools — the HITL ask
+   *  parks for as long as the human needs, so product-tools declares a
+   *  timeout above its own ask deadline. Absent = SDK default. */
+  timeoutMs?: number;
 }
 
 interface McpCallResult {
@@ -106,6 +111,10 @@ async function connectServer(
   let bestEffortClose: (() => void) | null = null;
   try {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    // One options object for both transports: the HITL ask must outlive the
+    // SDK's 60s default or the human's answer can never arrive (observed
+    // 2026-09-25: the ask died at 60s and became an unsettleable waiting run).
+    const callOptions = server.timeoutMs ? { timeout: server.timeoutMs } : undefined;
     let stdioRootPid: number | null = null;
     let closeSdk: () => Promise<void>;
     let callTool: McpClientLike["callTool"];
@@ -132,7 +141,7 @@ async function connectServer(
       callTool = (params) =>
         // MCP wire boundary: the SDK returns a wide content union; our
         // consumer only reads text blocks and isError.
-        client.callTool(params) as Promise<McpCallResult>;
+        client.callTool(params, undefined, callOptions) as Promise<McpCallResult>;
       listTools = () => client.listTools();
       closeSdk = () => client.close();
     } else if (server.command) {
@@ -157,7 +166,7 @@ async function connectServer(
       stdioRootPid = transport.pid;
       callTool = (params) =>
         // MCP wire boundary: see the sse branch above.
-        client.callTool(params) as Promise<McpCallResult>;
+        client.callTool(params, undefined, callOptions) as Promise<McpCallResult>;
       listTools = () => client.listTools();
       closeSdk = () => client.close();
     } else {

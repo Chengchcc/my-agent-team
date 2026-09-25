@@ -14,6 +14,11 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   enabled: boolean;
+  /** Per-request timeout for tool calls on this server (ms). The MCP SDK
+   *  defaults to 60s, which silently kills long-parking tools — the HITL
+   *  ask parks for as long as a human needs (roadmap: 自由文本追问/HITL).
+   *  Absent = the SDK default. */
+  timeoutMs?: number;
 }
 
 /** Cached connection + discovered tools for one MCP server. */

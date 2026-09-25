@@ -23,7 +23,13 @@ export interface ApprovalDecision {
 
 export type ApprovalHandler = (req: ApprovalRequest) => Promise<ApprovalDecision>;
 
-export const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
+/** How long an approval may wait for a human before it fails closed.
+ *  HITL over a chat surface means hours — the person may read the card the
+ *  next morning — so the default is a day (user decision 2026-09-25, after
+ *  two minutes routinely denied requests nobody had seen yet). Interactive
+ *  surfaces that cannot wait still fail closed on their own (print/json use
+ *  denyAllApprovals). `OMA_APPROVAL_TIMEOUT_MS` overrides; 0 = wait. */
+export const DEFAULT_APPROVAL_TIMEOUT_MS = 24 * 60 * 60_000;
 
 export function approvalTimeoutMs(): number {
   const raw = process.env.OMA_APPROVAL_TIMEOUT_MS;

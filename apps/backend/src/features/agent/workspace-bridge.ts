@@ -40,6 +40,11 @@ export interface McpServerEntry {
    *  bearer_token_env_var). The per-run token reaches the child via spawn
    *  env (PRODUCT_TOOLS_RUN_TOKEN) — the file stays static and secret-free. */
   bearerTokenEnv?: string;
+  /** Per-request tool-call timeout for this server (ms). Written into
+   *  `.mcp.json`; oma honours it (mcp-mount). The product-tools mount needs
+   *  it ABOVE its ask deadline, or the SDK's 60s default kills a parked
+   *  HITL ask before any human can answer (observed 2026-09-25). */
+  timeoutMs?: number;
 }
 
 /** Product policy the child consumes GENERICALLY (oma holds no product
@@ -130,6 +135,7 @@ export function writeMcpConfig(workspacePath: string, servers: readonly McpServe
     if (s.transport === "stdio" && s.args && s.args.length > 0) entry.args = s.args;
     if (s.env && Object.keys(s.env).length > 0) entry.env = s.env;
     if (s.headers) entry.headers = s.headers;
+    if (s.timeoutMs) entry.timeoutMs = s.timeoutMs;
 
     // Per-kind env-name auth: pi and omp read the named var at connect
     // time; claude (no such field) expands ${VAR} inside header strings.
