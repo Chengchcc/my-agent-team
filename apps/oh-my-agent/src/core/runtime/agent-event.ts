@@ -1,3 +1,4 @@
+import type { ToolPresentation } from "@chengchenccc/agent-contract";
 import type { TodoItem } from "../tools/todo-store.js";
 
 /** Pi-style typed lifecycle events per runtime/oma.md. */
@@ -24,6 +25,8 @@ export type OmaLoopEvent =
        *  safeToolSummary. Absent means "the tool cannot describe itself" —
        *  surfaces then fall back to the tool name. */
       activity?: string;
+      /** Structured form of the same description (title/detail/icon). */
+      presentation?: ToolPresentation;
       /** Wall-clock timeout for this tool (ms, 0 = disabled). */
       timeoutMs?: number;
     }
@@ -33,6 +36,8 @@ export type OmaLoopEvent =
       kind?: "native" | "product";
       callId: string;
       result?: Readonly<Record<string, unknown>>;
+      /** Result-side display metadata (resultSummary / errorSummary). */
+      presentation?: ToolPresentation;
     }
   | {
       /** Streaming partial output from a running tool (bash stdout). */

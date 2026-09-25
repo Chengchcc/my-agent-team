@@ -49,4 +49,4 @@ export {
 } from "./parser.js";
 export type { MessageRevision } from "./revision.js";
 export { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "./stream-utils.js";
-export type { Tool, ToolExecuteResult } from "./tool.js";
+export type { Tool, ToolExecuteResult, ToolPresentation } from "./tool.js";

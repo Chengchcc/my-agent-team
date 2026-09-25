@@ -1,4 +1,8 @@
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
+import type {
+  AskQuestionInput,
+  AskQuestionResult,
+  ToolPresentation,
+} from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type { OmaLoopEvent } from "./agent-event.js";
 import type { ApprovalDecision } from "./approval.js";
@@ -14,9 +18,12 @@ export interface PluginTool {
   /** What this call is DOING, in one short user-visible line. Native tools
    *  declare it on the `@chengchenccc/message` Tool contract (see
    *  `Tool.describeStart`); the loop reads it off the runtime's PluginTool
-   *  shape, so it is declared here too. The string crosses the process
-   *  boundary to every surface — never return raw args. */
-  describeStart?(input: unknown): string | undefined;
+   *  shape, so it is declared here too. The text crosses the process boundary
+   *  to every surface — never return raw args. A plain string is the
+   *  shorthand (title only); the structured form adds detail/icon. */
+  describeStart?(input: unknown): ToolPresentation | string | undefined;
+  /** What the call produced, summarized safely (never the raw result). */
+  describeResult?(input: unknown, result: unknown): ToolPresentation | string | undefined;
   /** Wall-clock timeout for this tool in ms (0 = disabled). Shown in the
    *  TUI tool card and surfaced on tool_execution_start for live display. */
   readonly timeoutMs?: number;

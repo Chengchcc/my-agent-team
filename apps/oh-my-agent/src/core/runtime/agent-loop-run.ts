@@ -2,7 +2,11 @@ import type { Usage } from "@chengchenccc/agent-contract";
 import { debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type { SessionStore } from "../store/session-store.js";
-import { safeToolSummary } from "../tools/presentation.js";
+import {
+  normalizeToolPresentation,
+  presentationActivity,
+  safeToolSummary,
+} from "../tools/presentation.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import type {
   ModelTurn,
@@ -188,9 +192,20 @@ export async function executeTools(
     };
     // The activity line is what leaves the process: the tool picks what is
     // meaningful about its input, safeToolSummary makes it safe to display.
+    // The structured presentation rides alongside; surfaces prefer it.
     const described = tool?.describeStart?.(call.input);
     if (described !== undefined) {
-      startEvent.activity = safeToolSummary(described, `正在调用 ${call.name}`);
+      const fallback = `正在调用 ${call.name}`;
+      const presentation = normalizeToolPresentation(described, fallback);
+      if (presentation) {
+        startEvent.presentation = presentation;
+      }
+      startEvent.activity =
+        typeof described === "string"
+          ? safeToolSummary(described, fallback)
+          : presentation
+            ? presentationActivity(presentation)
+            : fallback;
     }
     if (tool?.timeoutMs !== undefined) startEvent.timeoutMs = tool.timeoutMs;
     await emit(startEvent);
@@ -303,12 +318,25 @@ export async function executeTools(
       "oma",
       `tool_end runId=${state.debugRunId} name=${call.name} callId=${call.id} error=${isError}`,
     );
-    await emit({
+    const endEvent: OmaLoopEvent & { type: "tool_execution_end" } = {
       type: "tool_execution_end",
       toolName: call.name,
       callId: call.id,
       result: (result ?? {}) as Readonly<Record<string, unknown>>,
-    });
+    };
+    // Result-side summary: the tool decides what about its result is safe and
+    // useful to show ("命中 6 处，涉及 3 个文件"); the raw result stays inside.
+    const describedResult = tool?.describeResult?.(call.input, result);
+    if (describedResult !== undefined) {
+      const fallback = call.name;
+      const presentation = normalizeToolPresentation(describedResult, fallback);
+      if (presentation) {
+        endEvent.presentation = isError
+          ? { ...presentation, errorSummary: presentation.errorSummary ?? presentation.title }
+          : presentation;
+      }
+    }
+    await emit(endEvent);
     // afterTool: observe (emit event) or patch (override result fields).
     for (const p of opts.plugins) {
       try {

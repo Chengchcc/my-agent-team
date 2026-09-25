@@ -1,4 +1,36 @@
-import type { BackendEvent } from "@chengchenccc/agent-contract";
+import type { BackendEvent, ToolPresentation } from "@chengchenccc/agent-contract";
+
+/** Narrow the loosely-typed transport field into the contract shape. The
+ *  child authored it, so this only refuses garbage — a malformed field must
+ *  not reach a surface as a half-built object. */
+function readPresentation(value: unknown): ToolPresentation | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === "string" ? record.title : undefined;
+  if (title === undefined) return undefined;
+  const isIcon = (
+    icon: unknown,
+  ): icon is "read" | "edit" | "search" | "command" | "web" | "agent" | "generic" =>
+    icon === "read" ||
+    icon === "edit" ||
+    icon === "search" ||
+    icon === "command" ||
+    icon === "web" ||
+    icon === "agent" ||
+    icon === "generic";
+  const visibility =
+    record.visibility === "expandable" || record.visibility === "hidden"
+      ? record.visibility
+      : "compact";
+  return {
+    title,
+    detail: typeof record.detail === "string" ? record.detail : undefined,
+    icon: isIcon(record.icon) ? record.icon : undefined,
+    resultSummary: typeof record.resultSummary === "string" ? record.resultSummary : undefined,
+    errorSummary: typeof record.errorSummary === "string" ? record.errorSummary : undefined,
+    visibility,
+  };
+}
 
 /** Map Oma transport event envelopes to Backend core events,
  *  namespacing Runtime-specific details under `backend.oma.*`.
@@ -37,19 +69,29 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
     case "tool_execution_start": {
       const toolName = String(event.data.toolName ?? "unknown");
       const callId = String(event.data.callId ?? `call-${event.id}`);
-      const activity = event.data.activity;
+      const activity = typeof event.data.activity === "string" ? event.data.activity : undefined;
+      const presentation = readPresentation(event.data.presentation);
       // `input` deliberately does NOT cross this boundary: it can hold full
       // commands, absolute paths, MCP args, tokens. Only the tool-authored,
-      // sanitized activity line travels.
-      if (typeof activity === "string" && activity.length > 0) {
-        return { type: "native_tool_started", toolName, callId, activity };
+      // sanitized description travels — the structured presentation, and the
+      // legacy activity line for surfaces that predate it.
+      const base = { type: "native_tool_started" as const, toolName, callId };
+      if (presentation !== undefined) {
+        return activity ? { ...base, presentation, activity } : { ...base, presentation };
       }
-      return { type: "native_tool_started", toolName, callId };
+      if (activity !== undefined && activity.length > 0) {
+        return { ...base, activity };
+      }
+      return base;
     }
     case "tool_execution_end": {
       const toolName = String(event.data.toolName ?? "unknown");
       const callId = String(event.data.callId ?? `call-${event.id}`);
       const result = event.data.result as Readonly<Record<string, unknown>> | undefined;
+      const presentation = readPresentation(event.data.presentation);
+      if (presentation !== undefined) {
+        return { type: "native_tool_completed", toolName, callId, result, presentation };
+      }
       return { type: "native_tool_completed", toolName, callId, result };
     }
     case "agent_start":

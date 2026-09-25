@@ -17,7 +17,13 @@ export {
   encodeEnvList,
   MCP_EXPANDABLE_VARS_ENV,
 } from "./env.js";
-export type { BackendEvent, BackendExtensionEvent, CoreBackendEvent, Usage } from "./event.js";
+export type {
+  BackendEvent,
+  BackendExtensionEvent,
+  CoreBackendEvent,
+  ToolPresentation,
+  Usage,
+} from "./event.js";
 export type {
   AgentRunSnapshot,
   ProjectedHistoryItem,

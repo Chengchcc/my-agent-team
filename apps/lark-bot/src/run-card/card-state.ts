@@ -111,7 +111,17 @@ const TERMINAL_RUN_STATUSES: Record<string, "completed" | "failed" | "cancelled"
  *  describe itself, the tool name is the only honest thing left — the card
  *  must never synthesize a summary from the name (that is how a surface
  *  starts claiming it knows what a tool is doing). */
-export function toolActivity(activity: string | undefined, name: string | undefined): string {
+export function toolActivity(
+  activity: string | undefined,
+  name: string | undefined,
+  presentation?: { title: string; detail?: string; resultSummary?: string; errorSummary?: string },
+): string {
+  // The structured form first (title + detail), then the legacy line, then
+  // the tool name.
+  if (presentation) {
+    const detail = presentation.resultSummary ?? presentation.errorSummary ?? presentation.detail;
+    return detail ? `${presentation.title}：${detail}` : presentation.title;
+  }
   if (activity) return activity;
   const raw = name ?? "";
   const mcp = /^mcp__(.+?)__(.+)$/.exec(raw);
@@ -127,6 +137,13 @@ export interface RunStreamEvent {
   toolName?: string;
   callId?: string;
   activity?: string;
+  /** Structured display metadata the tool authored (title/detail/summaries). */
+  presentation?: {
+    title: string;
+    detail?: string;
+    resultSummary?: string;
+    errorSummary?: string;
+  };
   result?: unknown;
   payload?:
     | {
@@ -230,7 +247,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
         waiting: null,
         pendingAction: null,
         activeTool: {
-          label: toolActivity(ev.activity, ev.toolName),
+          label: toolActivity(ev.activity, ev.toolName, ev.presentation),
           startedAt: Date.now(),
         },
       };
@@ -240,7 +257,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
       const completed = [
         ...state.completedTools,
         {
-          label: toolActivity(ev.activity, ev.toolName),
+          label: toolActivity(ev.activity, ev.toolName, ev.presentation),
           outcome: isErrorResult(ev.result) ? ("error" as const) : ("success" as const),
         },
       ].slice(-MAX_COMPLETED_TOOLS);

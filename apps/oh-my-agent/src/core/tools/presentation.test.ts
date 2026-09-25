@@ -68,22 +68,54 @@ describe("readStringField", () => {
 describe("tool describeStart", () => {
   test("bash describes the command", () => {
     const tool = createBashTool({ workspaceRoot: "/tmp", scope: "test" });
-    expect(tool.describeStart?.({ command: "bun test apps/backend" })).toBe(
-      "正在执行：bun test apps/backend",
-    );
-    expect(tool.describeStart?.({})).toBe("正在执行命令");
+    // Structured form: the card renders title + detail, and the detail is the
+    // only place the command appears (never the raw args record).
+    expect(tool.describeStart?.({ command: "bun test apps/backend" })).toEqual({
+      title: "运行命令",
+      detail: "bun test apps/backend",
+      icon: "command",
+      visibility: "expandable",
+    });
+    expect(tool.describeStart?.({})).toEqual({
+      title: "运行命令",
+      icon: "command",
+      visibility: "compact",
+    });
   });
 
   test("read describes the path", () => {
     const tool = createReadTool({ cwd: "/tmp" });
-    expect(tool.describeStart?.({ path: "src/main.ts" })).toBe("正在读取：src/main.ts");
-    expect(tool.describeStart?.({})).toBe("正在读取文件");
+    expect(tool.describeStart?.({ path: "src/main.ts" })).toEqual({
+      title: "读取文件",
+      detail: "src/main.ts",
+      icon: "read",
+      visibility: "compact",
+    });
+    expect(tool.describeStart?.({})).toEqual({
+      title: "读取文件",
+      icon: "read",
+      visibility: "compact",
+    });
   });
 
   test("grep describes pattern and scope", () => {
     const tool = createGrepTool({ workspaceRoot: "/tmp" });
-    expect(tool.describeStart?.({ pattern: "TODO", path: "apps" })).toBe("正在搜索：TODO（apps）");
-    expect(tool.describeStart?.({ pattern: "TODO" })).toBe("正在搜索：TODO");
-    expect(tool.describeStart?.({})).toBe("正在搜索代码");
+    expect(tool.describeStart?.({ pattern: "TODO", path: "apps" })).toEqual({
+      title: "搜索代码",
+      detail: "TODO（apps）",
+      icon: "search",
+      visibility: "compact",
+    });
+    expect(tool.describeStart?.({ pattern: "TODO" })).toEqual({
+      title: "搜索代码",
+      detail: "TODO",
+      icon: "search",
+      visibility: "compact",
+    });
+    expect(tool.describeStart?.({})).toEqual({
+      title: "搜索代码",
+      icon: "search",
+      visibility: "compact",
+    });
   });
 });

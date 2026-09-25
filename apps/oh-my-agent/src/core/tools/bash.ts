@@ -190,7 +190,9 @@ export function createBashTool(opts: {
     // truncates, so this never leaks a key or a multi-line script.
     describeStart: (input) => {
       const command = readStringField(input, "command");
-      return command ? `正在执行：${command}` : "正在执行命令";
+      return command
+        ? { title: "运行命令", detail: command, icon: "command", visibility: "expandable" }
+        : { title: "运行命令", icon: "command", visibility: "compact" };
     },
     description:
       "Execute a bash shell command. Returns exit code, stdout, and stderr. Default timeout 30s, max 600s. " +

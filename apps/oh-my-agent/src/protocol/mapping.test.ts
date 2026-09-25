@@ -96,6 +96,74 @@ describe("tool activity crosses the RPC boundary, raw input does not", () => {
     expect(JSON.stringify(mapped)).not.toContain("secret-token");
   });
 
+  test("structured presentation rides through both tool events", () => {
+    const started = mapRunEvent({
+      id: 9,
+      type: "tool_execution_start",
+      data: {
+        toolName: "bash",
+        callId: "call-9",
+        input: { command: "rm -rf /tmp/x" },
+        activity: "运行命令：rm -rf /tmp/x",
+        presentation: {
+          title: "运行命令",
+          detail: "rm -rf /tmp/x",
+          icon: "command",
+          visibility: "expandable",
+        },
+      },
+    });
+    expect(started).toEqual({
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "call-9",
+      activity: "运行命令：rm -rf /tmp/x",
+      presentation: {
+        title: "运行命令",
+        detail: "rm -rf /tmp/x",
+        icon: "command",
+        visibility: "expandable",
+      },
+    });
+
+    const ended = mapRunEvent({
+      id: 10,
+      type: "tool_execution_end",
+      data: {
+        toolName: "grep",
+        callId: "call-10",
+        result: { content: "a.ts:1:hit" },
+        presentation: {
+          title: "搜索代码",
+          resultSummary: "命中 1 处，涉及 1 个文件",
+          icon: "search",
+          visibility: "compact",
+        },
+      },
+    });
+    expect(ended).toEqual({
+      type: "native_tool_completed",
+      toolName: "grep",
+      callId: "call-10",
+      result: { content: "a.ts:1:hit" },
+      presentation: {
+        title: "搜索代码",
+        resultSummary: "命中 1 处，涉及 1 个文件",
+        icon: "search",
+        visibility: "compact",
+      },
+    });
+  });
+
+  test("a malformed presentation is dropped, not half-forwarded", () => {
+    const mapped = mapRunEvent({
+      id: 11,
+      type: "tool_execution_start",
+      data: { toolName: "bash", callId: "call-11", presentation: { detail: "no title" } },
+    });
+    expect(mapped).toEqual({ type: "native_tool_started", toolName: "bash", callId: "call-11" });
+  });
+
   test("a tool without describeStart maps no activity (surface falls back)", () => {
     expect(
       mapRunEvent({

@@ -181,7 +181,9 @@ export function createReadTool(opts: { cwd: string; freshness?: FileFreshness })
     name: "read",
     describeStart: (input) => {
       const path = readStringField(input, "path");
-      return path ? `正在读取：${path}` : "正在读取文件";
+      return path
+        ? { title: "读取文件", detail: path, icon: "read", visibility: "compact" }
+        : { title: "读取文件", icon: "read", visibility: "compact" };
     },
     description:
       "Read a file from the workspace. Returns file contents with line numbers (line\\tcontent). " +
@@ -274,7 +276,9 @@ export function createWriteTool(opts: {
     name: "write",
     describeStart: (input) => {
       const path = readStringField(input, "path");
-      return path ? `正在写入：${path}` : "正在写入文件";
+      return path
+        ? { title: "写入文件", detail: path, icon: "edit", visibility: "compact" }
+        : { title: "写入文件", icon: "edit", visibility: "compact" };
     },
     description:
       "Write content to a file in the workspace. Creates parent directories if needed. Overwrites if file exists." +
@@ -345,7 +349,9 @@ export function createEditTool(opts: {
     name: "edit",
     describeStart: (input) => {
       const path = readStringField(input, "path");
-      return path ? `正在修改：${path}` : "正在修改文件";
+      return path
+        ? { title: "修改文件", detail: path, icon: "edit", visibility: "expandable" }
+        : { title: "修改文件", icon: "edit", visibility: "compact" };
     },
     description:
       "Perform exact string replacement in a file. old_string must match exactly and be unique " +

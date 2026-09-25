@@ -1,6 +1,7 @@
+import type { ToolPresentation } from "@chengchenccc/agent-contract";
+
 /**
  * The single place that sanitizes a user-visible tool activity line.
- *
  * Tools describe what they are doing (`Tool.describeStart`); this function
  * makes that description safe to cross the process boundary and reach every
  * surface. It is deliberately NOT a generic input formatter — a tool knows
@@ -104,4 +105,39 @@ export function readStringField(input: unknown, key: string): string | undefined
   if (typeof input !== "object" || input === null) return undefined;
   const value = (input as Record<string, unknown>)[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** Normalize a tool's self-description into the wire shape.
+ *
+ *  A plain string is the legacy shorthand (title only) so existing tools keep
+ *  working; the structured form is the contract new tools should use. Every
+ *  text field is sanitized exactly like the activity line — a tool may author
+ *  the content, it may not decide what is safe to publish. */
+export function normalizeToolPresentation(
+  value: ToolPresentation | string | undefined,
+  fallbackTitle: string,
+): ToolPresentation | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") {
+    return { title: safeToolSummary(value, fallbackTitle), visibility: "compact" };
+  }
+  const clean = (text: string | undefined): string | undefined => {
+    if (text === undefined) return undefined;
+    const out = safeToolSummary(text, "");
+    return out.length > 0 ? out : undefined;
+  };
+  return {
+    title: safeToolSummary(value.title, fallbackTitle),
+    detail: clean(value.detail),
+    icon: value.icon,
+    resultSummary: clean(value.resultSummary),
+    errorSummary: clean(value.errorSummary),
+    visibility: value.visibility,
+  };
+}
+
+/** The one-line activity string a presentation implies, for surfaces (and the
+ *  legacy `activity` field) that predate the structured form. */
+export function presentationActivity(presentation: ToolPresentation): string {
+  return presentation.detail ? `${presentation.title}：${presentation.detail}` : presentation.title;
 }

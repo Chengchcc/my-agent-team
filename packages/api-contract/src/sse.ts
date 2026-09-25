@@ -55,12 +55,24 @@ export const conversationEvents = {
   "surface.control": ConversationEvent,
 } as const satisfies SSEEventMap;
 
+/** Display metadata for one tool call, authored by the tool (see
+ *  ToolPresentation in @chengchenccc/agent-contract). Raw tool arguments and
+ *  results never cross the wire for display; surfaces render from this. */
+export const ToolPresentationSchema = z.object({
+  title: z.string(),
+  detail: z.string().optional(),
+  icon: z.enum(["read", "edit", "search", "command", "web", "agent", "generic"]).optional(),
+  resultSummary: z.string().optional(),
+  errorSummary: z.string().optional(),
+  visibility: z.enum(["compact", "expandable", "hidden"]),
+});
+
+export type ToolPresentation = z.infer<typeof ToolPresentationSchema>;
+
 /** One todo in the run's plan. The vocabulary is the oma todo plugin's
- *  (`pending | in_progress | done | cancelled`) — the backend forwards the
  *  snapshot verbatim, so surfaces must NOT invent a second vocabulary or
  *  `done` items silently vanish. */
 export const OmaTodoStatus = z.enum(["pending", "in_progress", "done", "cancelled"]);
-
 export type OmaTodoStatus = z.infer<typeof OmaTodoStatus>;
 
 export const OmaTodoItem = z.object({
@@ -113,12 +125,15 @@ export const runEvents = {
      *  child (see Tool.describeStart). Absent means the surface falls back to
      *  the tool name — surfaces must NOT synthesize one from toolName. */
     activity: z.string().optional(),
+    /** Structured display metadata. Preferred over `activity` when present. */
+    presentation: ToolPresentationSchema.optional(),
   }),
   native_tool_completed: z.object({
     type: z.literal("native_tool_completed"),
     toolName: z.string().optional(),
     callId: z.string().optional(),
     result: z.unknown().optional(),
+    presentation: ToolPresentationSchema.optional(),
   }),
   "backend.oma.todo_update": z.object({
     type: z.literal("backend.oma.todo_update"),

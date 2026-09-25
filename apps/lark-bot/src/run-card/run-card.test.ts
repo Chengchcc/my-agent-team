@@ -78,6 +78,30 @@ describe("run_card store (migration 0002)", () => {
 });
 
 describe("applyRunEvent reducer", () => {
+  test("the tool line prefers the structured presentation", () => {
+    // The presentation is the tool's own account of the call; the activity
+    // string is the legacy fallback. A surface must never prefer the
+    // fallback when the structured form is present.
+    let s = initialRunCardState();
+    s = applyRunEvent(s, {
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "c1",
+      activity: "运行命令：ls",
+      presentation: { title: "运行命令", detail: "ls -la" },
+    });
+    expect(s.activeTool?.label).toBe("运行命令：ls -la");
+
+    s = applyRunEvent(s, {
+      type: "native_tool_completed",
+      toolName: "grep",
+      callId: "c2",
+      activity: "搜索代码：TODO",
+      presentation: { title: "搜索代码", resultSummary: "命中 6 处，涉及 3 个文件" },
+    });
+    expect(s.completedTools.at(-1)?.label).toBe("搜索代码：命中 6 处，涉及 3 个文件");
+  });
+
   test("pendingActionFromBackend reproduces the live event reduction", () => {
     // Restart recovery rebuilds the card's pending action from the backend's
     // durable record; a restored card must be indistinguishable from a live
