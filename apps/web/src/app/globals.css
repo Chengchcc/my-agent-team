@@ -4,10 +4,10 @@
 /* Single dark-canvas surface + electric-green accent. Hairline borders, no shadows. */
 
 @theme inline {
-  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-display: var(--font-geist), var(--font-inter), system-ui, sans-serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-serif: Charter, Georgia, "Times New Roman", serif;
-  --font-mono: var(--font-mono-sf), "JetBrains Mono", "Geist Mono", Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   --color-background: var(--canvas);
   --color-foreground: var(--ink);
