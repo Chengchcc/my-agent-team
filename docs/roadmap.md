@@ -13,9 +13,9 @@
 
 ## 执行的可靠性
 
-**重启恢复没有接线。** `recover()` 实现了四类恢复（重投 `delivering` 输入、补崩溃期间的排队长队、重试 `commit_failed`、清理孤儿），但启动时只调用了 Workflow 的 `recover()`。后果：进程重启后之前的状态一直躺着，直到那个对话来了新消息才被动触发僵尸清理。
+**重启恢复已接线**（2026-09-25 复核）：`bootstrap/features.ts` 的 `start()` 先调 `agentRunExecution.recover()` 再调 `workflowExecutionService.recover()`（注释写明顺序理由：老状态先结算，Workflow 重驱时才不会在已被占用的分支上派发新 Run）。四类恢复都在：重投 `delivering` 输入、补崩溃期的排队长队、重试 `commit_failed`、把重启孤儿终结为 `aborted` 并提升队首。
 
-**`commit_failed` 会把分支永久占住。** 它算活跃状态，所以那个分支不会再接新 Run；而唯一的重试入口在没被调起的恢复函数里。修法是把 `recover()` 接上，或者给提交失败一条独立的退路。
+**`commit_failed` 的残余：只在启动时重试一次。** 它算活跃状态（分支不接新 Run），而重试入口只有启动时的 `recover()`（会调 `retryTerminalCommit`）——所以「提交失败之后再提交还是失败」这种情况，运维要么重启后端，要么等下一次启动才重试；没有运行期的显式重试入口（`retryTerminalCommit` 在 service 上，但没暴露 HTTP）。真遇到再补一条 `POST /api/agent-runs/:id/retry-commit`，目前不投机加。
 
 **HITL 的持久化差最后一环：Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。超时语义已补齐（2026-09-25）：oma 循环层的审批等待自带截止时间（默认 24 小时，`OMA_APPROVAL_TIMEOUT_MS` 可调），MCP 侧两层计时器都按 server 声明的 `timeoutMs` 走（`BACKEND_ASK_TIMEOUT_MS` 默认 24 小时），静默人类 fail-closed。仍缺：pending 事项在 Web 之外只有卡片一个消费面。
 
