@@ -659,12 +659,43 @@ describe("product tools service", () => {
     await answered;
     // Resolved: the lookup is empty and a second resolve reports false.
     expect(await service.pendingTextAskForConversation(CONV)).toBeNull();
-    expect(service.resolveAsk(runId, callId, { answers: [{ id: "q1", selectedValues: [] }] })).toBe(
-      false,
-    );
+  });
+  test("a select ask that allows other is answerable in prose", async () => {
+    const runId = await createRun("hi");
+    const callId = "ask-3";
+    const answered = service.call({
+      identity: identity(runId),
+      callId,
+      idempotencyKey: `${runId}:${callId}`,
+      tool: "ask_question",
+      args: {
+        questions: [
+          {
+            id: "where",
+            kind: "select",
+            question: "Where?",
+            options: [{ label: "a", value: "a" }],
+            allowOther: true,
+          },
+        ],
+      },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await service.pendingTextAskForConversation(CONV)).toEqual({
+      runId,
+      callId,
+      questionId: "where",
+    });
+    expect(
+      service.resolveAsk(runId, callId, {
+        answers: [{ id: "where", selectedValues: [], freeText: "docs/" }],
+      }),
+    ).toBe(true);
+    await answered;
+    expect(await service.pendingTextAskForConversation(CONV)).toBeNull();
   });
 
-  test("a select ask is not offered to the free-text answer path", async () => {
+  test("a closed select ask is not offered to the free-text answer path", async () => {
     const runId = await createRun("hi");
     const callId = "ask-select";
     void service.call({

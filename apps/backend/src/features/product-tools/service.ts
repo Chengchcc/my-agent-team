@@ -570,7 +570,13 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           const questions = record.payload.questions;
           const first = Array.isArray(questions) ? questions[0] : undefined;
           if (typeof first !== "object" || first === null || !("kind" in first)) continue;
-          if (first.kind !== "text") continue;
+          // A text question wants prose; a select question that allows
+          // "other" is equally answerable in prose — the card offers the same
+          // affordance, so a topic reply must not be a dead end.
+          const answerableByText =
+            first.kind === "text" ||
+            (first.kind === "select" && "allowOther" in first && first.allowOther === true);
+          if (!answerableByText) continue;
           if (!("id" in first) || typeof first.id !== "string") continue;
           return { runId, callId, questionId: first.id };
         }
