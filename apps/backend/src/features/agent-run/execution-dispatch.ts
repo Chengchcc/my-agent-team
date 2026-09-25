@@ -34,6 +34,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
   const { deps, liveEvents, liveRuns, inflight, inflightPromises, state } = ctx;
   const { runPort, contextPort, resolveWorkspace } = deps;
   const runTimeoutMs = deps.runTimeoutMs ?? 30 * 60_000;
+  const silenceWindowMs = deps.silenceWindowMs ?? 90_000;
 
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -205,10 +206,37 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       }, runTimeoutMs);
     };
     armWatchdog();
+
+    // Silence watchdog: the child heartbeats while it works, so a stale
+    // last-event time means it stopped reporting rather than "thinking". A
+    // parked run is exempt: the human is the progress and the ask carries its
+    // own deadline.
+    let silenceTimer: ReturnType<typeof setInterval> | undefined;
+    if (silenceWindowMs > 0) {
+      const forwardingSince = Date.now();
+      silenceTimer = setInterval(
+        () => {
+          const last = liveEvents.lastEventAt(runId) ?? forwardingSince;
+          if (Date.now() - last < silenceWindowMs) return;
+          void (async () => {
+            const pending = await runPort.listPendingActions(runId).catch(() => []);
+            if (pending.some((a) => a.status === "pending")) return;
+            debugLog(
+              "agent-run",
+              `run_silent runId=${runId} windowMs=${silenceWindowMs} - stopping`,
+            );
+            await backend.stop(runId).catch(() => {});
+          })();
+        },
+        Math.max(500, Math.floor(silenceWindowMs / 3)),
+      );
+    }
+
     try {
       return { outcome: await segment.outcome, segment, drain };
     } finally {
       if (watchdog) clearTimeout(watchdog);
+      if (silenceTimer) clearInterval(silenceTimer);
     }
   }
 

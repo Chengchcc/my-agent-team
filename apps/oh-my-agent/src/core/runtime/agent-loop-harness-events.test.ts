@@ -13,6 +13,38 @@ import {
 const { storeFactory, reopenFactory } = createMemoryStores();
 
 describe("agent loop harness events/plugins", () => {
+  test("16. a quiet-but-working run heartbeats, so the parent can tell it from a stuck one", async () => {
+    const store = storeFactory("h16");
+    await createSession(store, "h16");
+    const beats: number[] = [];
+    // The model takes a while with nothing to report: exactly the window in
+    // which a parent cannot distinguish "working" from "wedged".
+    async function* slowModel(): AsyncIterable<AIMessageChunk> {
+      await new Promise((r) => setTimeout(r, 60));
+      yield { delta: { type: "text", text: "done" } };
+    }
+    const loop = createOmaSession({
+      sessionId: "h16",
+      store,
+      plugins: [],
+      maxSteps: 1,
+      maxForceContinues: 0,
+      summarize: fakeSummarize,
+      modelStream: slowModel,
+      heartbeatIntervalMs: 10,
+    });
+    loop.onEvent((e) => {
+      if (e.type === "heartbeat") beats.push(Date.now());
+      return undefined;
+    });
+    await loop.startLoop(loopInput({ message: "go" }));
+    expect(beats.length).toBeGreaterThan(1);
+    // …and they stop with the run: nothing ticks after settlement.
+    const after = beats.length;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(beats.length).toBe(after);
+  });
+
   test("14. delayed listener blocks loop settlement", async () => {
     const store = storeFactory("h14");
     await createSession(store, "h14");

@@ -45,6 +45,8 @@ export interface OmaSessionOptions {
   readonly store: SessionStore;
   readonly plugins: readonly Plugin[];
   readonly maxSteps: number;
+  /** Liveness heartbeat cadence (ms). 0 disables it; tests shorten it. */
+  readonly heartbeatIntervalMs?: number;
   readonly maxForceContinues: number;
   /** The model call for one turn. */
   readonly modelStream: (

@@ -8,6 +8,10 @@ export interface LiveEventBus {
   closeSubscribers(runId: string): void;
   /** Fan out the segment's event stream. Resolves when fully drained. */
   forwardEvents(runId: string, segment: BackendRunSegment): Promise<void>;
+  /** Wall-clock of the last event seen for this run (undefined = none yet).
+   *  The dispatch's silence watchdog reads it: the loop heartbeats every few
+   *  seconds, so a stale value means the child is mute, not "thinking". */
+  lastEventAt(runId: string): number | undefined;
   subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent>;
 }
 
@@ -27,6 +31,7 @@ export function createLiveEventBus(deps: {
   }) => void;
 }): LiveEventBus {
   const subscribers = new Map<string, Set<(e: BackendEvent) => void>>();
+  const lastEventByRun = new Map<string, number>();
 
   /** Extract a runtime MCP mount observation from the oma extension event.
    *  Returns undefined for every other event shape. */
@@ -71,9 +76,13 @@ export function createLiveEventBus(deps: {
   }
 
   function broadcast(runId: string, event: BackendEvent): void {
+    lastEventByRun.set(runId, Date.now());
     // Durable telemetry: persist the normalized event log (tool calls,
-    // status, workflow steps). Transient text/thinking deltas are skipped.
-    if (deps.persistRunEvent && TELEMETRY_EVENT_TYPES.has(event.type)) {
+    // status, workflow steps). Transient text/thinking deltas are skipped, and
+    // so are liveness heartbeats: they exist for the parent's silence
+    // watchdog and would otherwise add a row every few seconds per run.
+    const liveness = event.type === "status" && "status" in event && event.status === "heartbeat";
+    if (deps.persistRunEvent && !liveness && TELEMETRY_EVENT_TYPES.has(event.type)) {
       void deps.persistRunEvent(runId, event).catch(() => {
         /* telemetry is best-effort */
       });
@@ -107,6 +116,7 @@ export function createLiveEventBus(deps: {
 
   function closeSubscribers(runId: string): void {
     subscribers.delete(runId);
+    lastEventByRun.delete(runId);
   }
 
   /** Transient live-update fan-out: events from the run's segment are
@@ -155,5 +165,11 @@ export function createLiveEventBus(deps: {
     })();
   }
 
-  return { broadcast, closeSubscribers, forwardEvents, subscribe };
+  return {
+    broadcast,
+    closeSubscribers,
+    forwardEvents,
+    subscribe,
+    lastEventAt: (runId: string) => lastEventByRun.get(runId),
+  };
 }

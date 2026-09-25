@@ -98,6 +98,8 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
     case "turn_start":
     case "turn_end":
       return { type: "status", status: event.type };
+    case "heartbeat":
+      return { type: "status", status: "heartbeat" };
     case "agent_end": {
       // agent_end carries the ACTUAL terminal status from the loop
       // (completed | failed | stopped): map it onto the core terminal

@@ -64,6 +64,10 @@ interface LoopStepState {
   systemPrompt: string;
 }
 
+/** Default liveness cadence: often enough that a silence watchdog notices
+ *  within a minute, rare enough to be free (heartbeats are transient). */
+const DEFAULT_HEARTBEAT_MS = 15_000;
+
 /** Start the loop: bind runtime, resolve tools, persist the prompt, and
  *  return the system prompt + first branch messages. */
 async function prepareLoopStart(
@@ -574,6 +578,20 @@ export async function runLoop(
 ): Promise<OmaLoopResult> {
   const { opts, emit, state, mutable } = ctx;
   let runError: string | undefined;
+  // Liveness: the parent cannot tell a working-but-quiet child from a stuck
+  // one, so the loop proves it is alive. Without this a run whose child stops
+  // reporting ends only at the 30-minute wall clock (live, 2026-09-25); with
+  // it the parent's silence watchdog can settle in a minute.
+  const heartbeatMs = opts.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat =
+    heartbeatMs > 0
+      ? setInterval(() => {
+          void Promise.resolve(emit({ type: "heartbeat" })).catch(() => {
+            /* liveness is best-effort */
+          });
+        }, heartbeatMs)
+      : null;
+  if (heartbeat && typeof heartbeat.unref === "function") heartbeat.unref();
 
   try {
     const { systemPrompt, messages: initialMessages } = await prepareLoopStart(
@@ -638,6 +656,7 @@ export async function runLoop(
     await emit({ type: "agent_end", status: finalStatus });
     return { status: finalStatus, usage: state.runUsage, error: runError };
   } finally {
+    if (heartbeat) clearInterval(heartbeat);
     mutable.active = false;
     mutable.controller = null;
     mutable.steerQueue.length = 0;

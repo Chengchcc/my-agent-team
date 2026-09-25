@@ -26,6 +26,12 @@ export interface AgentRunExecutionDeps {
   /** Wall-clock cap on a run (ms); the dispatch watchdog stops the
    *  backend and settles aborted on expiry. */
   readonly runTimeoutMs?: number;
+  /** How long a run may go WITHOUT any event before the dispatch stops it
+   *  (ms, 0 disables). The loop heartbeats every few seconds, so silence
+   *  means the child stopped reporting - a wedged bootstrap or model call
+   *  (live 2026-09-25: two runs sat mute until a human cancelled them, as
+   *  nothing but the 30-minute wall clock would have ended them). */
+  readonly silenceWindowMs?: number;
   readonly resolveWorkspace: (input: {
     conversationId: string;
     agentId: string;

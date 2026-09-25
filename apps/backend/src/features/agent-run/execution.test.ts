@@ -139,6 +139,7 @@ function makeExecution(
     agentId: string;
     error: string;
   }) => void,
+  extraDeps: Record<string, unknown> = {},
 ) {
   const activeRunPort = runPortOverride ?? runPort;
   const ledgerResolver = {
@@ -176,6 +177,7 @@ function makeExecution(
     workspaceLocks: createWorkspaceLockRegistry(),
     productToolsTokenRegistry: tokenRegistry ?? createRunTokenRegistry(),
     ...(onRunFailed ? { onRunFailed } : {}),
+    ...extraDeps,
   });
 }
 
@@ -343,6 +345,62 @@ describe("agent run execution (Run-centric)", () => {
     expect(bridged).toContain("[tool result] file-a");
     expect(bridged.endsWith("continue")).toBe(true);
   }, 15_000);
+  test("a child that stops reporting is stopped by the silence watchdog", async () => {
+    // The loop heartbeats while it works, so silence means the child went
+    // mute. Before this, such a run waited for the 30-minute wall clock and
+    // the user saw a card with nothing but a climbing timer.
+    const fake = createFakeDaemon({ scenario: "no-events" });
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      silenceWindowMs: 300,
+    });
+    const run = await enqueue("normal", "silent-1", "go");
+    await execution.dispatch(run.run!.runId);
+    const settled = await waitForTerminal(run.run!.runId);
+    expect(settled.status).toBe("aborted");
+  }, 15_000);
+
+  test("the silence watchdog stands down while a human owes an answer", async () => {
+    const fake = createFakeDaemon({ scenario: "no-events" });
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      silenceWindowMs: 300,
+    });
+    const run = await enqueue("normal", "silent-2", "go");
+    const runId = run.run!.runId;
+    const dispatched = execution.dispatch(runId);
+    // The park CAS is running->waiting, so the action can only land once the
+    // run is actually running.
+    for (let i = 0; i < 60; i++) {
+      const current = await runPort.getRun(runId);
+      if (current?.status === "running") break;
+      await Bun.sleep(25);
+    }
+    const actionId = `${runId}:c1`;
+    await runPort.createPendingAction(runId, {
+      actionId,
+      kind: "ask",
+      payload: { callId: "c1", questions: [{ id: "q", kind: "text", question: "hi" }] },
+    });
+    for (let i = 0; i < 60; i++) {
+      const current = await runPort.getRun(runId);
+      if (current?.status === "waiting") break;
+      await Bun.sleep(25);
+    }
+    // Well past the silence window: a parked run is NOT silent (the human is
+    // the progress, and the ask carries its own deadline).
+    await Bun.sleep(900);
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // Answer it: the watchdog may act again and settle the run.
+    await runPort.consumePendingAction(
+      actionId,
+      { actionId, response: { answered: true } },
+      `${actionId}:resolved`,
+    );
+    await dispatched;
+    const settled = await waitForTerminal(runId);
+    expect(settled.status).toBe("aborted");
+  }, 20_000);
+
   test("session ref round-trip: the second run carries the ref, no history bridge", async () => {
     const fake = createFakeDaemon({ sessionRef: "cli-sess-1" });
     const execution = makeExecution(fake);

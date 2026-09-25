@@ -4,6 +4,10 @@ import type { TodoItem } from "../tools/todo-store.js";
 /** Pi-style typed lifecycle events per runtime/oma.md. */
 export type OmaLoopEvent =
   | { type: "agent_start" }
+  /** Liveness only: proves the loop is alive while it waits on something that
+   *  produces no events (a long tool, a slow model call, a subagent). Carries
+   *  no content, is never persisted, and every surface ignores it. */
+  | { type: "heartbeat" }
   | { type: "agent_end"; status: "completed" | "failed" | "stopped" }
   | { type: "turn_start"; turn: number }
   | { type: "turn_end"; turn: number }
