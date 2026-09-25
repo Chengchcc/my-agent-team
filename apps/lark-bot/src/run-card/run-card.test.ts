@@ -953,3 +953,80 @@ describe("run card element set", () => {
     );
   });
 });
+
+describe("element id legality (Feishu 300301)", () => {
+  /** Every element_id anywhere in a card body: ASCII, starts with a letter,
+   *  ≤20 chars. Deriving an id from content (an option's value) violated this
+   *  on the first Chinese/path label and the rejected card degraded. */
+  function collectIds(node: unknown, out: string[]): void {
+    if (typeof node !== "object" || node === null) return;
+    if (Array.isArray(node)) {
+      for (const item of node) collectIds(item, out);
+      return;
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "element_id" && typeof value === "string") out.push(value);
+      else collectIds(value, out);
+    }
+  }
+
+  test("every rendered card keeps its element ids legal", () => {
+    const legal = /^[a-zA-Z][a-zA-Z0-9_]{0,19}$/;
+    const meta = { runId: "r1", startedAt: Date.now(), webUrl: "http://web/r1" };
+    const longLabelOptions = [
+      { label: "tmp/plan.md（当前工作区）", value: "tmp/plan.md（当前工作区）" },
+      { label: "docs/plan.md（仓库文档目录）", value: "docs/plan.md（仓库文档目录）" },
+    ];
+    const states: RunCardState[] = [];
+    let base = initialRunCardState();
+    base = applyRunEvent(base, { type: "text_delta", text: "working" });
+    base = applyRunEvent(base, {
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "c1",
+      activity: "运行命令：ls",
+    });
+    base = applyRunEvent(base, {
+      type: "backend.oma.todo_update",
+      payload: {
+        items: [
+          { id: "1", text: "一步", status: "done" },
+          { id: "2", text: "二步", status: "in_progress" },
+        ],
+      },
+    });
+    states.push(base);
+    let selectAsk = initialRunCardState();
+    selectAsk = applyRunEvent(selectAsk, {
+      type: "backend.oma.ask_requested",
+      payload: {
+        callId: "c",
+        questions: [{ id: "q", kind: "select", question: "哪？", options: longLabelOptions }],
+      },
+    });
+    states.push(selectAsk);
+    let textAsk = initialRunCardState();
+    textAsk = applyRunEvent(textAsk, {
+      type: "backend.oma.ask_requested",
+      payload: { callId: "c", questions: [{ id: "q", kind: "text", question: "说说？" }] },
+    });
+    states.push(textAsk);
+    let approval = initialRunCardState();
+    approval = applyRunEvent(approval, {
+      type: "backend.oma.approval_request",
+      payload: { callId: "c" },
+    });
+    states.push(approval);
+    const terminal = applyRunEvent(base, { type: "status", status: "completed" });
+    states.push(terminal);
+
+    for (const state of states) {
+      const ids: string[] = [];
+      collectIds(renderCard(state, meta), ids);
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) {
+        expect(id).toMatch(legal);
+      }
+    }
+  });
+});

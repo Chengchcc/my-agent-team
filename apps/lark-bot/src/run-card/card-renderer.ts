@@ -183,10 +183,15 @@ function pendingActionButtons(
   action: PendingActionState,
 ): Record<string, unknown>[] {
   const buttons: Record<string, unknown>[] = [];
-  for (const opt of action.options.slice(0, 4)) {
+  // Element ids must be ASCII, start with a letter and stay ≤20 chars
+  // (Feishu 300301). Deriving them from the option VALUE blew that limit on
+  // the first real Chinese/path label (`ask_tmp_plans_plan_md`), which
+  // rejected the whole card and, after three strikes, degraded it — the ask
+  // never became clickable. Position is the only stable, short identity.
+  action.options.slice(0, 4).forEach((opt, index) => {
     buttons.push({
       tag: "button",
-      element_id: `ask_${opt.value.replace(/[^a-zA-Z0-9]/g, "_")}`,
+      element_id: `ask_opt_${index}`,
       text: { tag: "plain_text", content: opt.label },
       type: "default",
       behaviors: [
@@ -202,7 +207,7 @@ function pendingActionButtons(
         },
       ],
     });
-  }
+  });
   if (action.kind === "approval") {
     return [
       {
