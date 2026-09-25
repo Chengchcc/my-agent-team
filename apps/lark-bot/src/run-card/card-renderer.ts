@@ -16,11 +16,15 @@ import type { PendingActionState, RunCardState } from "./card-state.js";
 /** Keep the tail ~10k chars of the transcript (ADR: 8–12k window). */
 const MAX_OUTPUT_CHARS = 10_000;
 /** Steps shown while running vs at the terminal (full history lives in Web). */
-const LIVE_STEPS = 3;
+const LIVE_STEPS = 2;
 const TERMINAL_STEPS = 5;
 
+/** Stable element ids (CardKit element updates address these; the renderer
+ *  must not depend on element order). */
 export const OUTPUT_ELEMENT_ID = "agent_output";
-export const PROCESS_ELEMENT_ID = "process";
+export const ACTIVITY_ELEMENT_ID = "activity_md";
+export const TOOLS_ELEMENT_ID = "tool_summary";
+export const TODO_ELEMENT_ID = "todo_summary";
 export const STATUS_ELEMENT_ID = "run_status";
 
 export interface RunCardMeta {
@@ -71,46 +75,99 @@ export function renderOutputContent(state: RunCardState): string {
   return state.terminal ? "（无输出）" : "_正在思考…_";
 }
 
-/** The process strip: current action while running, archived steps after.
- *  Raw tool input/output never appears here — labels only. */
-export function renderProcessContent(state: RunCardState): string {
-  const lines: string[] = [];
-  if (state.todos.length > 0) {
-    for (const todo of state.todos.slice(-5)) {
-      if (todo.status === "done") lines.push(`✓ ${todo.text}`);
-      else if (todo.status === "in_progress") lines.push(`● ${todo.text}`);
-      else if (todo.status === "cancelled") lines.push(`✗ ${todo.text}`);
-      else lines.push(`○ ${todo.text}`);
-    }
-    if (state.todos.length > 5) lines.push(`… 共 ${state.todos.length} 项`);
-    lines.push("");
-  }
-  if (state.activeTool && !state.terminal) {
-    lines.push(`🧪 ${state.activeTool.label}`);
-  }
-  const cap = state.terminal ? TERMINAL_STEPS : LIVE_STEPS;
-  const recent = state.completedTools.slice(-cap);
-  if (recent.length > 0) {
-    lines.push(`已完成 ${state.completedTools.length} 步`);
-    for (const step of recent) {
-      lines.push(step.outcome === "error" ? `⚠️ ${step.label}（失败）` : `✓ ${step.label}`);
-    }
-  }
-  if (state.terminal?.error) {
-    lines.push(`⚠️ 失败：${state.terminal.error.slice(0, 200)}`);
-  }
-  if (state.pendingAction?.prompt) {
-    lines.push(`❓ ${state.pendingAction.prompt}`);
-    // A question that wants free text must say so: the card cannot collect
-    // it yet (Card JSON 2.0 input/form is not wired), and an unanswered ask
-    // parks the run. A button that resolved with an empty value would
-    // silently discard the user's intent, so there is no such button.
+/** The activity line: what the agent is doing RIGHT NOW. Thinking stays a
+ *  light line (raw thinking is never shown), the current tool its label, and
+ *  a parked ask its prompt — the ask is the one thing the user must act on. */
+export function renderActivityContent(state: RunCardState): string {
+  if (state.terminal) return "";
+  if (state.pendingAction) {
+    const lines: string[] = [];
+    if (state.pendingAction.prompt) lines.push(`❓ ${state.pendingAction.prompt}`);
     if (state.pendingAction.kind === "ask" && state.pendingAction.allowFreeText) {
-      lines.push("（这题需要自由输入，请在 Web 端回答）");
+      // Free text: replying in the topic answers the ask (postMessage
+      // intercept) — the hint names the action that actually works.
+      lines.push("（直接在本话题回复即可作答）");
     }
+    return lines.join("\n");
   }
-  if (lines.length === 0) return "…";
+  if (state.activeTool) return `🧪 ${state.activeTool.label}`;
+  return "🧠 正在分析问题";
+}
+
+/** Completed tool steps: a compact tail. Raw arguments and results never
+ *  appear here — the labels come from the tool's own describeStart. */
+export function renderToolsContent(state: RunCardState): string {
+  // Nothing to say while live with no steps yet.
+  if (!state.terminal && state.completedTools.length === 0) return "";
+  const recent = state.completedTools.slice(-(state.terminal ? TERMINAL_STEPS : LIVE_STEPS));
+  const lines: string[] = [];
+  // Terminal headline (the plan: "执行了 N 个操作"); a run with no tools at
+  // all still owes the user its failure text below.
+  if (state.terminal && state.completedTools.length > 0) {
+    lines.push(`执行了 ${state.completedTools.length} 个操作`);
+  }
+  for (const step of recent) {
+    lines.push(step.outcome === "error" ? `⚠️ ${step.label}（失败）` : `✓ ${step.label}`);
+  }
+  if (state.terminal?.error) lines.push(`⚠️ 失败：${state.terminal.error.slice(0, 200)}`);
+  if (lines.length === 0) return "";
   return lines.join("\n");
+}
+
+/** The todo panel: a LOW-WEIGHT progress projection (never a second card,
+ *  never mixed into the ask area). Shows the active item, at most two
+ *  completed and two pending, and says how much is left. Structural state:
+ *  it is replaced, never typewriter-updated. */
+export function renderTodoPanel(state: RunCardState): Record<string, unknown> | null {
+  const items = state.todos;
+  if (items.length === 0) return null;
+  const done = items.filter((t) => t.status === "done");
+  const active = items.filter((t) => t.status === "in_progress");
+  const pending = items.filter((t) => t.status === "pending");
+  const cancelled = items.filter((t) => t.status === "cancelled");
+  const visible = [...done.slice(-2), ...active.slice(0, 1), ...pending.slice(0, 2)];
+
+  const icon = (status: string): string => {
+    if (status === "done") return "✓";
+    if (status === "in_progress") return "●";
+    if (status === "cancelled") return "—";
+    return "○";
+  };
+  const sanitize = (text: string): string =>
+    text
+      .replace(/[*_~`[\]<>]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+  const lines = visible.map((t) => {
+    const label = sanitize(t.text);
+    return t.status === "in_progress"
+      ? `${icon(t.status)} **${label}**`
+      : `${icon(t.status)} ${label}`;
+  });
+  // Cancelled items only clutter a live plan; they show once the run is over.
+  if (state.terminal && cancelled.length > 0) {
+    for (const t of cancelled.slice(-2)) lines.push(`${icon("cancelled")} ${sanitize(t.text)}`);
+  }
+  const remaining = items.length - visible.length;
+  if (remaining > 0) lines.push(`还有 ${remaining} 项 · 在 Web 查看`);
+
+  return {
+    tag: "collapsible_panel",
+    element_id: TODO_ELEMENT_ID,
+    expanded: active.length > 0 && !state.terminal,
+    header: {
+      title: { tag: "markdown", content: `**进度 ${done.length} / ${items.length}**` },
+      vertical_align: "center",
+      icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
+      icon_position: "follow_text",
+      icon_expanded_angle: -180,
+    },
+    border: { color: "grey", corner_radius: "5px" },
+    padding: "8px 8px 8px 8px",
+    vertical_spacing: "4px",
+    elements: [{ tag: "markdown", content: lines.join("\n"), text_size: "notation" }],
+  };
 }
 
 /** The streamed footer line: status word + elapsed + Web link. */
@@ -185,17 +242,36 @@ export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<st
   const status = cardStatusKey(state);
   const header = HEADER_BY_STATUS[status] ?? HEADER_BY_STATUS.streaming!;
 
-  const elements: Record<string, unknown>[] = [
-    { tag: "markdown", element_id: OUTPUT_ELEMENT_ID, content: renderOutputContent(state) },
-    { tag: "markdown", element_id: PROCESS_ELEMENT_ID, content: renderProcessContent(state) },
-    { tag: "markdown", element_id: STATUS_ELEMENT_ID, content: renderStatusContent(state, meta) },
-  ];
+  // Visual hierarchy (plan): what the agent is doing → the answer → progress
+  // → steps → actions → footer. Empty sections are omitted entirely, so the
+  // card never carries an element that says nothing.
+  const elements: Record<string, unknown>[] = [];
+  const activity = renderActivityContent(state);
+  if (activity) {
+    elements.push({ tag: "markdown", element_id: ACTIVITY_ELEMENT_ID, content: activity });
+  }
+  elements.push({
+    tag: "markdown",
+    element_id: OUTPUT_ELEMENT_ID,
+    content: renderOutputContent(state),
+  });
+  const todoPanel = renderTodoPanel(state);
+  if (todoPanel) elements.push(todoPanel);
+  const tools = renderToolsContent(state);
+  if (tools) {
+    elements.push({ tag: "markdown", element_id: TOOLS_ELEMENT_ID, content: tools });
+  }
 
   if (state.pendingAction) {
     elements.push(...pendingActionButtons(meta.runId, state.pendingAction));
   } else if (!state.terminal) {
     elements.push(stopButton(meta.runId));
   }
+  elements.push({
+    tag: "markdown",
+    element_id: STATUS_ELEMENT_ID,
+    content: renderStatusContent(state, meta),
+  });
 
   // streaming_mode only while live: the CardKit create REQUIRES it for the
   // streaming element updates; terminal cards freeze client-side.

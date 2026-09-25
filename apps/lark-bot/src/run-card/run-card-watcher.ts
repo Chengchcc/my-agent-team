@@ -13,14 +13,17 @@ import { swapAckReaction } from "./ack-reaction.js";
 import { createCardFlushController } from "./card-flush.js";
 import type { CardKitClient } from "./card-kit.js";
 import {
+  ACTIVITY_ELEMENT_ID,
   cardStatusKey,
   OUTPUT_ELEMENT_ID,
-  PROCESS_ELEMENT_ID,
+  renderActivityContent,
   renderOutputContent,
-  renderProcessContent,
   renderRunCard,
   renderStatusContent,
+  renderTodoPanel,
+  renderToolsContent,
   STATUS_ELEMENT_ID,
+  TOOLS_ELEMENT_ID,
 } from "./card-renderer.js";
 import {
   applyRunEvent,
@@ -252,10 +255,16 @@ export async function watchRunCard(
 
   /** Element contents already pushed — only changed elements get a call. */
   let pushedOutput = "";
-  let pushedProcess = "";
+  let pushedActivity = "";
+  let pushedTools = "";
   let pushedStatus = "";
+  /** Todo panel signature at the last full replace. A panel is structural:
+   *  changing it costs a whole-card replace, throttled so a burst of
+   *  todo_write calls cannot flood CardKit. */
+  let pushedTodo = "null";
+  let lastTodoReplaceAt = 0;
   /** Header frame at the last full replace — element streams cannot
-   * change the header, so a key change forces one full-card replace. */
+   *  change the header, so a key change forces one full-card replace. */
   let pushedCardKey: string | null = null;
 
   const nextSeq = () => {
@@ -263,29 +272,56 @@ export async function watchRunCard(
     return seq;
   };
 
+  /** After a full replace, every element is current by definition. */
+  const cacheElements = () => {
+    pushedOutput = renderOutputContent(state);
+    pushedActivity = renderActivityContent(state);
+    pushedTools = renderToolsContent(state);
+    pushedStatus = renderStatusContent(state, meta);
+    pushedTodo = JSON.stringify(renderTodoPanel(state));
+  };
+
+  const TODO_REPLACE_MIN_MS = 800;
+
   const flush = createCardFlushController(async () => {
     if (!cardKitId || state.terminal) return;
     const frameKey = cardStatusKey(state);
     const frameChanged = frameKey !== pushedCardKey;
-    if (frameChanged) {
+    const todoSignature = JSON.stringify(renderTodoPanel(state));
+    const todoChanged = todoSignature !== pushedTodo;
+    const todoDue = Date.now() - lastTodoReplaceAt >= TODO_REPLACE_MIN_MS;
+    if (frameChanged || (todoChanged && todoDue)) {
       // Full replace (header + elements) on phase transitions: queued →
       // running → waiting_* are rare, so the cost is fine and it is the
-      // ONLY way the header moves mid-run.
+      // ONLY way the header moves mid-run. The todo panel rides the same
+      // path because a container cannot be patched as an element content.
       const r = await cardClient.updateCard(cardKitId, renderRunCard(state, meta), nextSeq());
       if (!r.ok) {
         updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
         return;
       }
       pushedCardKey = frameKey;
-      pushedOutput = renderOutputContent(state);
-      pushedProcess = renderProcessContent(state);
-      pushedStatus = renderStatusContent(state, meta);
+      lastTodoReplaceAt = Date.now();
+      cacheElements();
       persist();
       return;
     }
+    const activityContent = renderActivityContent(state);
+    if (activityContent !== pushedActivity) {
+      const r = await cardClient.streamElement({
+        cardId: cardKitId,
+        elementId: ACTIVITY_ELEMENT_ID,
+        content: activityContent,
+        sequence: nextSeq(),
+        uuid: `${runId}-act-${seq}`,
+      });
+      if (!r.ok) {
+        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
+        return;
+      }
+      pushedActivity = activityContent;
+    }
     const outputContent = renderOutputContent(state);
-    const processContent = renderProcessContent(state);
-    const statusContent = renderStatusContent(state, meta);
     if (outputContent !== pushedOutput) {
       const r = await cardClient.streamElement({
         cardId: cardKitId,
@@ -301,20 +337,22 @@ export async function watchRunCard(
       }
       pushedOutput = outputContent;
     }
-    if (processContent !== pushedProcess) {
+    const toolsContent = renderToolsContent(state);
+    if (toolsContent !== pushedTools) {
       const r = await cardClient.streamElement({
         cardId: cardKitId,
-        elementId: PROCESS_ELEMENT_ID,
-        content: processContent,
+        elementId: TOOLS_ELEMENT_ID,
+        content: toolsContent,
         sequence: nextSeq(),
-        uuid: `${runId}-pr-${seq}`,
+        uuid: `${runId}-tl-${seq}`,
       });
       if (!r.ok) {
         updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
         return;
       }
-      pushedProcess = processContent;
+      pushedTools = toolsContent;
     }
+    const statusContent = renderStatusContent(state, meta);
     if (statusContent !== pushedStatus) {
       const r = await cardClient.streamElement({
         cardId: cardKitId,

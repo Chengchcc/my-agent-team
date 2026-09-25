@@ -217,10 +217,15 @@ describe("applyRunEvent reducer", () => {
     const content = JSON.stringify(
       renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null }),
     );
+    // The panel carries a count header and the plan lines; the active item
+    // is bold, done/pending keep their plain symbols. Cancelled items stay
+    // out of a LIVE plan (they appear on the terminal card).
+    expect(content).toContain("进度 1 / 4");
     expect(content).toContain("✓ 读代码");
-    expect(content).toContain("● 改代码");
-    expect(content).toContain("✗ 别做");
+    expect(content).toContain("● **改代码**");
     expect(content).toContain("○ 待办");
+    expect(content).toContain("collapsible_panel");
+    expect(content).not.toContain("✗ 别做");
   });
 
   test("terminal statuses map and freeze the state", () => {
