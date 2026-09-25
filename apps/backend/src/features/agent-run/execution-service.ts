@@ -23,6 +23,14 @@ export interface ExecutionServiceCtx {
   ) => AgentRunExecutionDeps["backends"][keyof AgentRunExecutionDeps["backends"]] | undefined;
 }
 
+export class ApprovalNotApplicableError extends Error {}
+
+/** A resolution for an approval the run is not waiting on — a stale card
+ *  click, or a loop that is gone. Forwarding it would reach the child as an
+ *  RPC response for an unknown command id, which the child reads as protocol
+ *  corruption and dies: a stale button used to kill a run that was sitting
+ *  there waiting for a human. The route answers 409 instead.
+ */
 export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecutionService {
   const { deps, liveEvents, liveRuns, inflight, inflightPromises, state, dispatchFn, entryFor } =
     ctx;
@@ -161,9 +169,19 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
     },
 
     async resolveApproval(runId, callId, decision) {
+      // Validate against the durable action first: an unknown callId is a
+      // stale click, not a decision, and must never reach the child.
+      const action = await runPort.getPendingAction(`${runId}:${callId}`);
+      if (!action || action.status !== "pending") {
+        throw new ApprovalNotApplicableError(
+          `approval rejected: run ${runId} is not waiting for ${callId}`,
+        );
+      }
       const live = liveRuns.get(runId);
       if (!live) {
-        throw new Error(`approval rejected: run ${runId} has no live loop on this process`);
+        throw new ApprovalNotApplicableError(
+          `approval rejected: run ${runId} has no live loop on this process`,
+        );
       }
       const run = await runPort.getRun(runId);
       const entry = run ? entryFor(run.modelRef.backendKind) : undefined;

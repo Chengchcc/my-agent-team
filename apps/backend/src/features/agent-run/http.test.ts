@@ -202,6 +202,19 @@ describe("agent-run routes over seeded runs", () => {
     expect(terminal.status).toBe(409);
   });
 
+  test("a stale approval click cannot kill a waiting run", async () => {
+    // Forwarding an unknown callId reached the child as an RPC response for
+    // an unknown command id; the child treats that as protocol corruption and
+    // dies, so a button left over from a previous process killed the run that
+    // was sitting there waiting for a human.
+    const stale = await api(harness, "POST", `/api/agent-runs/${runLive.runId}/approval`, {
+      callId: "call_that_never_existed",
+      decision: "allow",
+    });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { error: string }).error).toContain("no longer waiting");
+  });
+
   test("usage summary prices via reported cost when no catalog entry exists", async () => {
     const res = await api(
       harness,

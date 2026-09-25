@@ -3,7 +3,11 @@ import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
-import { type AgentRunExecutionService, runEventStreamFor } from "./execution.js";
+import {
+  type AgentRunExecutionService,
+  ApprovalNotApplicableError,
+  runEventStreamFor,
+} from "./execution.js";
 import type { AgentRunService } from "./service.js";
 
 const ACTIVE_STATUSES = ["running", "waiting", "commit_failed"];
@@ -331,11 +335,19 @@ export function agentRunRoutes(input: {
         set.status = 400;
         return { error: "body must be { callId: string, decision: 'allow' | 'deny' }" };
       }
-      await agentRunExecution.resolveApproval(
-        runId,
-        payload.callId as string,
-        payload.decision as "allow" | "deny",
-      );
+      try {
+        await agentRunExecution.resolveApproval(
+          runId,
+          payload.callId as string,
+          payload.decision as "allow" | "deny",
+        );
+      } catch (err) {
+        if (err instanceof ApprovalNotApplicableError) {
+          set.status = 409;
+          return { error: "This approval is no longer waiting for an answer" };
+        }
+        throw err;
+      }
       return { ok: true, runId, callId: payload.callId, decision: payload.decision };
     })
     .get("/api/agent-runs/:runId/events", async ({ request, params: { runId } }) => {

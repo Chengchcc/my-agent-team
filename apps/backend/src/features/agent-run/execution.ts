@@ -54,6 +54,8 @@ export function runEventStreamFor(
   })();
 }
 
+export { ApprovalNotApplicableError } from "./execution-service.js";
+
 export function createAgentRunExecutionService(
   deps: AgentRunExecutionDeps,
 ): AgentRunExecutionService {
