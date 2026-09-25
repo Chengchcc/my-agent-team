@@ -111,6 +111,7 @@ lark:
 **7. 非对称差异的取舍(per-backend，不强行对齐)**
 - **steer/abort**：自研 oma 保留协议内 live steer + abort(adapter 层特例)；CLI backend steer=排队下一 turn、stop=杀进程。`AgentBackend.steer/stop` 契约不变，差异收在 conversation 路由 + adapter。
 - **权限**：`agent.yml` 保留 `permission_mode`(ask/auto/deny)；oma→workspace access(read_only/read_write)、claude→`--permission-mode`、omp/pi→忽略。
+  - 修订(2026-09-25)：oma 的 workspace access **恒为 read_write**，不再由 `permission_mode` 推导。推导把 `ask` 变成了静默只读——只读工作区不挂 `write`/`bash`/`edit`/`eval`/`browser`，于是该模式没有任何需要审批的工具，审批卡不可达。`ask`/`deny` 都在权限闸门处生效，不需要削弱工作区。决策抽到 `features/agent-run/run-workspace.ts` 并有测试钉住。
 - **思考强度**：`agent.yml` 存规范枚举 `none/low/high/max`；adapter 映射(claude `--effort` low/medium/high、omp `--thinking`、pi `thinkingLevel`)。
 - **产品工具事件**：CLI backend 产品树不记 `product_tool_exchange`(wire 分不清产品/原生工具)，只记 ledger 消息 + 最终 assistant 消息；信息密度降级被接受。
 

@@ -96,7 +96,7 @@ Run 每次 spawn 之前都会 `rewriteWorkspaceBridge` 从数据库真相源重�
 - 对话绑了 project 且 agent 已 attach → `<agentWorkspace>/projects/<projectId>`；
 - 对话绑了 project 但 agent 没 attach → **直接报错**，错误信息指向 agent 的 `runtime_config.projects`，不静默回退。
 
-访问级别由 agent 的 `permission_mode` 决定：`ask` 给只读，其余给读写。Run 自己 pin 了 `run.workspace` 时优先于 `resolveWorkspace`。
+访问级别**恒为读写**，不由 `permission_mode` 决定（2026-09-25 修正）：只读工作区只挂读侧工具，把 `ask` 映射成只读会让那个模式想审批的 `write`/`bash` 根本不存在，审批卡因此不可达、模式静默变成只读。`deny` 在权限闸门处阻断、`ask` 在闸门处问人，都不需要削弱工作区。Run 自己 pin 了 `run.workspace` 时优先于 `resolveWorkspace`（决策抽在 `features/agent-run/run-workspace.ts`）。
 
 **context 与 cwd 是两件事**：技能、prompt、token、身份永远来自 agent 工作区，只有 cwd 是 worktree，加上那两个桥接文件。
 

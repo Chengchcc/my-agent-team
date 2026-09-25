@@ -41,6 +41,7 @@ import {
   buildHistoryTools,
   createAgentRunExecutionService,
   createAgentRunService,
+  resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
 import {
@@ -608,26 +609,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // Default workspace comes from the Agent record; Loop scopes pin
       // their workspace as a Run fact at enqueue time.
       const agent = agentId ? await agentSvc.getById(agentId).catch(() => null) : null;
-      const access =
-        agent?.config.runtime_config.permission_mode === "ask" ? "read_only" : "read_write";
-      // Project-bound conversation (ADR 0023): cwd is the agent's worktree
-      // for that project; context (skills/prompt/token) still comes from
-      // the agent workspace. Not attached = explicit dispatch failure.
       const convRow = conv.convPort.getConversation(conversationId);
-      if (convRow?.projectId) {
-        if (!agent?.config.runtime_config.projects.includes(convRow.projectId)) {
-          throw new Error(
-            `agent ${agentId ?? "?"} has not attached project ${convRow.projectId}; ` +
-              `attach it via the agent update API (agent.yml runtime_config.projects)`,
-          );
-        }
-        const worktree = join(agent.workspacePath, "projects", convRow.projectId);
-        return { root: worktree, access };
-      }
-      return {
-        root: agent?.workspacePath ?? config.workspaceRoot,
-        access,
-      };
+      return resolveRunWorkspace({
+        agentId,
+        agentWorkspacePath: agent?.workspacePath ?? null,
+        agentProjects: agent?.config.runtime_config.projects ?? [],
+        fallbackRoot: config.workspaceRoot,
+        conversationProjectId: convRow?.projectId ?? null,
+      });
     },
     productToolsEntrypoint: config.productToolsMcpUrl
       ? `sse:${sseUrlEndpoint(config.productToolsMcpUrl)}`
