@@ -197,7 +197,11 @@ export function buildLarkSurfaceView(input: BuildLarkSurfaceInput): LarkSurfaceV
       // path that accepts an appId/appSecret pair (`larkProfileInit` is
       // internal). Promising them made the DTO a wish list.
       canDisable: authorized,
-      canRestart: false,
+      // Restart is a COMPOSED capability here: toggling `enabled` off then on
+      // runs the same stop/start lifecycle the registry owns, so it is real.
+      canRestart: authorized,
+      // Replacing the bot's app has no HTTP entry point yet (`larkProfileInit`
+      // is internal and the settings route refuses secret-shaped keys).
       canReplaceApp: false,
     },
   };

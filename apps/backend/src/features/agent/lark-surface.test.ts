@@ -156,12 +156,12 @@ describe("buildLarkSurfaceView access + actions", () => {
       config: config({ enabled: true, profileRef: "agent:1", botDisplayName: "bot" }),
       runtime: runtime({ lastSeenAt: NOW }),
     });
-    // Only what has an entry point: enable/disable exists (PATCH), restart
-    // and app-replacement do not.
+    // Only what has an entry point: enable/disable exists (PATCH), restart is
+    // that same toggle composed, app-replacement has none.
     expect(online.actions).toEqual({
       canStartSetup: true,
       canDisable: true,
-      canRestart: false,
+      canRestart: true,
       canReplaceApp: false,
     });
   });
