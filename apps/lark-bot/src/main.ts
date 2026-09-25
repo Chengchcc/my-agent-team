@@ -22,7 +22,6 @@ import { createTokenProvider } from "./lark-api.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
 import { markQueuedCardCancelled, startQueuedCard } from "./run-card/queued-card.js";
-import { handleReactionLine } from "./run-card/reaction-actions.js";
 import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
 import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
@@ -351,41 +350,6 @@ actionChild.on("exit", (code, signal) => {
   console.error(`[lark-bot] card-action consumer exited code=${code} signal=${signal}`);
 });
 
-// A reaction on a message that carries a live Run card is the second way to
-// stop that run (the card's button is the first). The subscription has been
-// live since the app was built; only the consumption was missing.
-const reactionChild = spawn(
-  "lark-cli",
-  ["--profile", profile, "event", "consume", "im.message.reaction.created_v1", "--as", "bot"],
-  { stdio: ["pipe", "pipe", "pipe"] },
-);
-createInterface({ input: reactionChild.stdout! }).on("line", (line) => {
-  void handleReactionLine(line, {
-    db: state.db,
-    cancelRun: async (runId) => {
-      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
-      return { error: error ?? undefined };
-    },
-    log: (message) => console.log(`[lark-bot] ${message}`),
-  })
-    .then((outcome) => {
-      if (outcome !== "no-live-card") console.log(`[lark-bot] reaction: ${outcome}`);
-    })
-    .catch((err) => {
-      console.error(
-        `[lark-bot] reaction failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    });
-});
-reactionChild.stderr?.on("data", (d: Buffer) => {
-  if (d.toString().includes("[event] ready")) {
-    console.log("[lark-bot] lark-cli reaction consume ready");
-  }
-});
-reactionChild.on("exit", (code, signal) => {
-  console.error(`[lark-bot] reaction consumer exited code=${code} signal=${signal}`);
-});
-
 // stderr ready marker
 child.stderr?.on("data", (d: Buffer) => {
   const text = d.toString();
@@ -423,13 +387,11 @@ process.on("SIGTERM", () => {
   // with the parent skipped lark-cli's own unsubscribe (it warns about it).
   child.kill("SIGTERM");
   actionChild.kill("SIGTERM");
-  reactionChild.kill("SIGTERM");
 });
 process.on("SIGINT", () => {
   cleanup();
   child.kill("SIGTERM");
   actionChild.kill("SIGTERM");
-  reactionChild.kill("SIGTERM");
   process.exit(0);
 });
 

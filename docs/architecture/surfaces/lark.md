@@ -146,7 +146,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。
 - 群聊的 @ 检测依赖 `botDisplayName`，缺了就只有单聊可用。
 - 出站没有回执：投递成功与否只体现在 lark-cli 的退出码上。
-- 卡片交互只差 reaction 触发（`im.message.reaction.created_v1`，lark-cli 的 event 目录没有）。按钮回调（`card.action.trigger`）已实现，见 ADR 0031 决策 6 的 2026-09-24 修订。
+- **reaction 触发做不了，已删**（2026-09-25 实测）：订阅本来就在，但飞书的表情集合里没有可用于「停止」的负向表情——`X`/`THUMBSDOWN`/`CROSS`/`NO` 全部 `231001 reaction type is invalid`，合法值只有 `SMILE`/`THUMBSUP`/`DONE`/`OnIt`/`HEART`/`CLAP`/`OK`/`THANKS`/`FISTBUMP`/`LOL`/`WINK` 这类正向表情。停止一个 run 用卡片按钮或 `/stop`（两条都验过）。教训：依赖平台枚举值的功能，先枚举平台接受值再写代码。
 - 多选（`multi`）追问只按单选取值，卡片渲染不出多选控件。自由文本追问走 form（`input` + submit，`form_value` 一次性回传），选择题走整行按钮（`width: fill`），`allowOther` 的选择题也接受话题文字作答。
 - 回调只做了单操作者的防重放（event_id 去重 + message↔run_card 映射）。签名 action token 与 backend 侧事件去重留给多操作者场景。
 - 工具步骤那行依赖子进程声明活动（`describeStart`）：omp 后端至今不给（`adapter-omp-agent` 只带 `toolName`/`toolCallId`），所以 omp Run 永远只显示工具名；外部 MCP 工具同理，除非它自己声明。
