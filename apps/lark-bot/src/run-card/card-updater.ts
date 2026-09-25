@@ -53,8 +53,15 @@ export function createCardUpdater(deps: {
   getCardId: () => string | null;
   nextSeq: () => number;
   onPersist: () => void;
+  /** Whether this row is already known degraded (restart resumes the state
+   *  instead of hammering CardKit again). */
+  degradedAtStart?: boolean;
+  /** Base delay between replace retries (500ms doubling). Calibration knob:
+   *  a test drives the degrade path without waiting seconds for it. */
+  retryBackoffMs?: number;
 }): CardUpdater {
   const { cardClient, db, runId, meta } = deps;
+  const retryBackoffMs = deps.retryBackoffMs ?? 500;
 
   /** Element contents already pushed — only changed elements get a call. */
   let pushedOutput = "";
@@ -64,12 +71,24 @@ export function createCardUpdater(deps: {
   let pushedTodo = "null";
   let lastTodoReplaceAt = 0;
   let streamingClosed = false;
+  let degraded = deps.degradedAtStart ?? false;
+  /** Consecutive CardKit failures. Live painting gives up after three: the
+   *  run is unaffected and the terminal text fallback still delivers, so a
+   *  card that keeps failing must stop burning calls (plan §degraded). */
+  let consecutiveFailures = 0;
   /** Header frame at the last full replace — element streams cannot change
    *  the header, so a key change forces one full-card replace. */
   let pushedCardKey: string | null = null;
 
   const fail = (error: string): void => {
-    updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: error });
+    consecutiveFailures += 1;
+    const isDegraded = consecutiveFailures >= 3;
+    if (isDegraded && !degraded) degraded = true;
+    updateRunCard(db, runId, {
+      cardUpdateFailed: 1,
+      lastError: error,
+      degraded: isDegraded ? true : undefined,
+    });
   };
 
   /** After a full replace, every element is current by definition. */
@@ -84,6 +103,7 @@ export function createCardUpdater(deps: {
   };
 
   const flushController = createCardFlushController(async () => {
+    if (degraded) return;
     const state = deps.getState();
     const cardId = deps.getCardId();
     if (!cardId || state.terminal) return;
@@ -96,7 +116,9 @@ export function createCardUpdater(deps: {
       // An interactive card must not sit in the streaming view (plan §ask).
       const closed = await cardClient.closeStreaming(cardId, deps.nextSeq());
       if (!closed.ok) fail(`closeStreaming: ${closed.error}`);
+      else consecutiveFailures = 0;
       streamingClosed = true;
+      updateRunCard(db, runId, { streamingEnabled: false });
     }
 
     if (frameChanged || streamingClosed || (todoChanged && todoDue)) {
@@ -105,6 +127,7 @@ export function createCardUpdater(deps: {
         fail(r.error);
         return;
       }
+      consecutiveFailures = 0;
       cacheElements(state);
       deps.onPersist();
       return;
@@ -183,16 +206,25 @@ export function createCardUpdater(deps: {
     finish: () => flushController.finish(),
     invalidate: cacheElements,
     async replaceNow(state: RunCardState): Promise<boolean> {
+      // Degraded means "stop painting": the seal then falls through to the
+      // reliable text delivery the conversation watcher owns.
+      if (degraded) return false;
       const cardId = deps.getCardId();
       if (!cardId) return false;
+      let lastError = "card replace failed";
       for (let attempt = 0; attempt < 3; attempt++) {
         const r = await cardClient.updateCard(cardId, renderCard(state, meta), deps.nextSeq());
         if (r.ok) {
+          consecutiveFailures = 0;
           cacheElements(state);
           return true;
         }
-        await new Promise((r2) => setTimeout(r2, 500 * 2 ** attempt));
+        lastError = r.error;
+        await new Promise((r2) => setTimeout(r2, retryBackoffMs * 2 ** attempt));
       }
+      // Exhausted retries: this counts toward the degrade threshold too, so a
+      // card that cannot be sealed stops being retried forever.
+      fail(lastError);
       return false;
     },
   };

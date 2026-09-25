@@ -256,6 +256,8 @@ export async function watchRunCard(
       return seq;
     },
     onPersist: persist,
+    // A restart resumes the remembered degrade instead of hammering CardKit.
+    degradedAtStart: existing?.degraded ?? false,
   });
 
   let pendingChars = 0;

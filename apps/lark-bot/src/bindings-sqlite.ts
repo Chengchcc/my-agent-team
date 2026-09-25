@@ -556,6 +556,11 @@ export interface RunCardRecord {
   status: string;
   accumulated: string;
   toolCount: number;
+  /** CardKit streaming mode currently on for this card (0 after an
+   *  interactive frame closed it — it cannot be resumed). */
+  streamingEnabled: boolean;
+  /** Live painting given up after repeated CardKit failures. */
+  degraded: boolean;
   cardSendFailed: number;
   cardUpdateFailed: number;
   lastError: string | null;
@@ -583,6 +588,8 @@ function parseRunCard(row: typeof schema.runCard.$inferSelect): RunCardRecord {
     status: row.status,
     accumulated: row.accumulated,
     toolCount: row.toolCount,
+    streamingEnabled: row.streamingEnabled !== 0,
+    degraded: row.degraded !== 0,
     cardSendFailed: row.cardSendFailed,
     cardUpdateFailed: row.cardUpdateFailed,
     lastError: row.lastError,
@@ -621,9 +628,17 @@ export function updateRunCard(
   runId: string,
   patch: Partial<Omit<RunCardRecord, "runId" | "createdAt">>,
 ): void {
+  const { streamingEnabled, degraded, ...rest } = patch;
+  const asInt = (value: boolean | undefined): number | undefined =>
+    value === undefined ? undefined : value ? 1 : 0;
   d(db)
     .update(schema.runCard)
-    .set({ ...patch, updatedAt: Date.now() })
+    .set({
+      ...rest,
+      streamingEnabled: asInt(streamingEnabled),
+      degraded: asInt(degraded),
+      updatedAt: Date.now(),
+    })
     .where(eq(schema.runCard.runId, runId))
     .run();
 }

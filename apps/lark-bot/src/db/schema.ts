@@ -124,6 +124,14 @@ export const runCard = sqliteTable("run_card", {
   status: text().notNull().default("creating"),
   accumulated: text().notNull().default(""),
   toolCount: integer().notNull().default(0),
+  /** 1 while CardKit streaming mode is on for this card. Interactive frames
+   *  (ask/approval) turn it off, and it cannot be resumed on the same card —
+   *  the flag is what a restart needs to know which update style to use. */
+  streamingEnabled: integer().notNull().default(1),
+  /** 1 once live painting was given up on after repeated CardKit failures.
+   *  The run keeps going and the terminal text fallback still delivers; only
+   *  the card stops being patched. */
+  degraded: integer().notNull().default(0),
   cardSendFailed: integer().notNull().default(0),
   cardUpdateFailed: integer().notNull().default(0),
   lastError: text(),

@@ -21,6 +21,7 @@ import {
   pendingActionFromBackend,
   toolActivity,
 } from "./card-state.js";
+import { createCardUpdater } from "./card-updater.js";
 import { finalAnswerText } from "./run-card-watcher.js";
 
 const testDir = `/tmp/test-lark-run-card-${Date.now()}`;
@@ -886,5 +887,52 @@ describe("free-text ask form", () => {
     });
     expect(await handleCardActionLine(line, d)).toBe("unparsed-form");
     expect(calls).toEqual([]);
+  });
+});
+
+describe("card updater degradation", () => {
+  test("three consecutive CardKit failures stop live painting", async () => {
+    insertRunCard(db, {
+      runId: "run-deg",
+      conversationId: "conv-deg",
+      larkChatId: "oc_deg",
+      sourceMessageId: "om_src_deg",
+    });
+    updateRunCard(db, "run-deg", { status: "streaming", cardKitId: "card-deg" });
+    let calls = 0;
+    const failingClient = {
+      updateCard: async () => {
+        calls += 1;
+        return { ok: false, error: "boom" };
+      },
+      streamElement: async () => {
+        calls += 1;
+        return { ok: false, error: "boom" };
+      },
+      closeStreaming: async () => ({ ok: true }),
+    } as never;
+    const state = initialRunCardState();
+    const updater = createCardUpdater({
+      cardClient: failingClient,
+      db,
+      runId: "run-deg",
+      meta: { runId: "run-deg", startedAt: Date.now(), webUrl: null },
+      getState: () => state,
+      getCardId: () => "card-deg",
+      nextSeq: () => 1,
+      onPersist: () => {},
+      retryBackoffMs: 1,
+    });
+
+    // Three exhausted replaces (each retries internally) cross the threshold.
+    await updater.replaceNow(state);
+    await updater.replaceNow(state);
+    await updater.replaceNow(state);
+    expect(calls).toBeGreaterThan(0);
+    expect(getRunCard(db, "run-deg")?.degraded).toBe(true);
+    const before = calls;
+    await updater.replaceNow(state);
+    expect(calls).toBe(before); // degraded: no further CardKit calls
+    expect(getRunCard(db, "run-deg")?.lastError).toBeTruthy();
   });
 });
