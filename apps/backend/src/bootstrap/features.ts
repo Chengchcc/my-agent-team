@@ -758,6 +758,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           status: session.status,
           expiresAt: session.expiresAt,
           ...(session.brand ? { brand: session.brand } : {}),
+          ...(session.error ? { error: session.error } : {}),
         }
       : null;
     return {

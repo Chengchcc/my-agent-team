@@ -28,6 +28,7 @@ export type LarkSurfaceStatus =
 export type LarkAccessMode = "owner_only" | "allowlist" | "chat_members" | "everyone";
 
 export type LarkSetupIssueCode =
+  | "setup_failed"
   | "cli_missing"
   | "setup_expired"
   | "profile_invalid"
@@ -104,6 +105,8 @@ export interface LarkSetupFacts {
   expiresAt: number;
   /** The brand the session was authorized against, when the manager knows it. */
   brand?: "feishu" | "lark";
+  /** Why a failed session failed, for the wizard to show instead of silence. */
+  error?: string | null;
 }
 
 export interface BuildLarkSurfaceInput {
@@ -239,6 +242,17 @@ function deriveIssue(input: {
 }): LarkSetupIssue | null {
   if (input.setup?.status === "expired") {
     return { code: "setup_expired", title: "授权链接已失效", action: "restart_setup" };
+  }
+  // A failed session used to fall through every branch: the wizard showed
+  // "not connected" with no reason at all, which is the one thing a failure
+  // must never do.
+  if (input.setup?.status === "failed") {
+    const reason = input.setup.error?.trim();
+    return {
+      code: "setup_failed",
+      title: reason ? `授权未能完成：${reason.slice(0, 140)}` : "授权未能完成",
+      action: "restart_setup",
+    };
   }
   if (!input.runtime.setupAvailable) {
     return { code: "cli_missing", title: "未安装 Lark CLI", action: "install_cli" };

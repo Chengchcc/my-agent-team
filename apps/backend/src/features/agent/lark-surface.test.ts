@@ -128,6 +128,25 @@ describe("buildLarkSurfaceView access + actions", () => {
     expect(p2pOnly.groupMention.reason).toContain("私聊");
   });
 
+  test("a failed session says why, never just 'not connected'", () => {
+    const failed = build({
+      setup: {
+        id: "s1",
+        status: "failed",
+        expiresAt: NOW + 1_000,
+        error: "lark-cli exited 1: app not published",
+      },
+    });
+    expect(failed.setup.issue?.code).toBe("setup_failed");
+    expect(failed.setup.issue?.title).toContain("app not published");
+    expect(failed.setup.issue?.action).toBe("restart_setup");
+
+    // No reason recorded: still an issue, still actionable, no empty colon.
+    const bare = build({ setup: { id: "s2", status: "failed", expiresAt: NOW + 1_000 } });
+    expect(bare.setup.issue?.code).toBe("setup_failed");
+    expect(bare.setup.issue?.title).toBe("授权未能完成");
+  });
+
   test("the brand comes from the session when it knows one", () => {
     const session = build({
       setup: { id: "s1", status: "pending", expiresAt: NOW + 1_000, brand: "lark" },
