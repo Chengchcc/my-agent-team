@@ -935,6 +935,138 @@ describe("card updater degradation", () => {
     expect(calls).toBe(before); // degraded: no further CardKit calls
     expect(getRunCard(db, "run-deg")?.lastError).toBeTruthy();
   });
+
+  test("a question frame still gets one attempt after degrading", async () => {
+    // Own bindings db: the shared `db` is assigned inside another test's body,
+    // so this case would break when run alone or under a name filter.
+    const askDir = `/tmp/test-lark-run-card-ask-${Date.now()}`;
+    const askDb = openBindings("test-ask-deg", askDir);
+    try {
+      insertRunCard(askDb, {
+        runId: "run-ask-deg",
+        conversationId: "conv-ask-deg",
+        larkChatId: "oc_ask_deg",
+        sourceMessageId: "om_src_ask_deg",
+      });
+      updateRunCard(askDb, "run-ask-deg", { status: "streaming", cardKitId: "card-ask-deg" });
+      let calls = 0;
+      let healthy = false;
+      const client = {
+        updateCard: async () => {
+          calls += 1;
+          return healthy ? { ok: true, seq: calls } : { ok: false, error: "boom" };
+        },
+        streamElement: async () => ({ ok: false, error: "boom" }),
+        closeStreaming: async () => ({ ok: true }),
+      } as never;
+      let state = initialRunCardState();
+      const updater = createCardUpdater({
+        cardClient: client,
+        db: askDb,
+        runId: "run-ask-deg",
+        meta: { runId: "run-ask-deg", startedAt: Date.now(), webUrl: null },
+        getState: () => state,
+        getCardId: () => "card-ask-deg",
+        nextSeq: () => 1,
+        onPersist: () => {},
+        retryBackoffMs: 1,
+      });
+      for (let i = 0; i < 3; i++) await updater.replaceNow(state);
+      expect(getRunCard(askDb, "run-ask-deg")?.degraded).toBe(true);
+
+      // A question is the one frame the human must see (buttons, form). While
+      // the card is degraded it is attempted once, then left alone: a broken
+      // card must not become an unanswerable question.
+      state = applyRunEvent(state, {
+        type: "backend.oma.ask_requested",
+        payload: {
+          callId: "c",
+          questions: [
+            { id: "q", kind: "select", question: "哪？", options: [{ label: "a", value: "a" }] },
+          ],
+        },
+      });
+      const afterDegrade = calls;
+      expect(await updater.replaceNow(state)).toBe(false);
+      expect(calls).toBeGreaterThan(afterDegrade);
+      expect(getRunCard(askDb, "run-ask-deg")?.degraded).toBe(true);
+      const afterAsk = calls;
+      await updater.replaceNow(state);
+      expect(calls).toBe(afterAsk); // once per question, not per flush
+
+      // And when CardKit is healthy again, the attempt revives the card.
+      healthy = true;
+      const nextQuestion = applyRunEvent(initialRunCardState(), {
+        type: "backend.oma.ask_requested",
+        payload: {
+          callId: "c2",
+          questions: [
+            {
+              id: "q2",
+              kind: "select",
+              question: "第二个问题？",
+              options: [{ label: "a", value: "a" }],
+            },
+          ],
+        },
+      });
+      expect(await updater.replaceNow(nextQuestion)).toBe(true);
+      expect(getRunCard(askDb, "run-ask-deg")?.degraded).toBe(false);
+    } finally {
+      askDb.close();
+    }
+  });
+
+  test("the flush path also lets a pending question through while degraded", async () => {
+    const dir = `/tmp/test-lark-run-card-flush-${Date.now()}`;
+    const flushDb = openBindings("test-flush-deg", dir);
+    try {
+      insertRunCard(flushDb, {
+        runId: "run-flush-deg",
+        conversationId: "conv-flush-deg",
+        larkChatId: "oc_flush_deg",
+        sourceMessageId: "om_src_flush_deg",
+      });
+      updateRunCard(flushDb, "run-flush-deg", { status: "streaming", cardKitId: "card-flush-deg" });
+      let healthy = false;
+      const client = {
+        updateCard: async () => (healthy ? { ok: true, seq: 1 } : { ok: false, error: "boom" }),
+        streamElement: async () => ({ ok: false, error: "boom" }),
+        closeStreaming: async () => ({ ok: true }),
+      } as never;
+      let state = initialRunCardState();
+      const updater = createCardUpdater({
+        cardClient: client,
+        db: flushDb,
+        runId: "run-flush-deg",
+        meta: { runId: "run-flush-deg", startedAt: Date.now(), webUrl: null },
+        getState: () => state,
+        getCardId: () => "card-flush-deg",
+        nextSeq: () => 1,
+        onPersist: () => {},
+        retryBackoffMs: 1,
+      });
+      for (let i = 0; i < 3; i++) await updater.replaceNow(state);
+      expect(getRunCard(flushDb, "run-flush-deg")?.degraded).toBe(true);
+
+      state = applyRunEvent(state, {
+        type: "backend.oma.ask_requested",
+        payload: {
+          callId: "c-flush",
+          questions: [{ id: "q", kind: "text", question: "说说？" }],
+        },
+      });
+      // The flush's own degraded guard used to swallow this frame, so a
+      // question raised after the card gave up was never painted.
+      healthy = true;
+      updater.request();
+      await updater.finish();
+      expect(getRunCard(flushDb, "run-flush-deg")?.degraded).toBe(false);
+      expect(getRunCard(flushDb, "run-flush-deg")?.lastError).toBeTruthy();
+    } finally {
+      flushDb.close();
+    }
+  });
 });
 
 describe("run card element set", () => {

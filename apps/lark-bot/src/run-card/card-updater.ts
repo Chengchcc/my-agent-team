@@ -76,6 +76,12 @@ export function createCardUpdater(deps: {
    *  run is unaffected and the terminal text fallback still delivers, so a
    *  card that keeps failing must stop burning calls (plan §degraded). */
   let consecutiveFailures = 0;
+  /** An interactive frame already attempted while degraded. A question the
+   *  human must answer is the one frame worth a fresh attempt after the card
+   *  gave up: without it a degraded card leaves the run unanswerable from
+   *  Lark (observed live 2026-09-25). Keyed by the question's callId, so the
+   *  same question is attempted once and a later one still gets its chance. */
+  let attemptedWhileDegraded: string | null = null;
   /** Header frame at the last full replace — element streams cannot change
    *  the header, so a key change forces one full-card replace. */
   let pushedCardKey: string | null = null;
@@ -102,11 +108,58 @@ export function createCardUpdater(deps: {
     lastTodoReplaceAt = Date.now();
   };
 
+  const replaceNow = async (state: RunCardState): Promise<boolean> => {
+    // Degraded means "stop painting": the seal then falls through to the
+    // reliable text delivery the conversation watcher owns. The exception
+    // is a question frame the human must answer - one attempt, once.
+    if (degraded) {
+      const frameKey = cardStatusKey(state);
+      // Keyed by the question: two questions in one run share the
+      // "waiting_input" frame and each deserves its own attempt.
+      const askKey = state.pendingAction?.callId ?? frameKey;
+      const worthRetry = INTERACTIVE_FRAMES.has(frameKey) && attemptedWhileDegraded !== askKey;
+      if (!worthRetry) return false;
+      attemptedWhileDegraded = askKey;
+      consecutiveFailures = 0;
+    }
+    const cardId = deps.getCardId();
+    if (!cardId) return false;
+    let lastError = "card replace failed";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await cardClient.updateCard(cardId, renderCard(state, meta), deps.nextSeq());
+      if (r.ok) {
+        consecutiveFailures = 0;
+        cacheElements(state);
+        if (degraded) {
+          // The card demonstrably works again: resume painting, and let
+          // future failures re-trip the threshold.
+          degraded = false;
+          attemptedWhileDegraded = null;
+          updateRunCard(db, runId, { degraded: false });
+        }
+        return true;
+      }
+      lastError = r.error;
+      await new Promise((r2) => setTimeout(r2, retryBackoffMs * 2 ** attempt));
+    }
+    // Exhausted retries: this counts toward the degrade threshold too, so a
+    // card that cannot be sealed stops being retried forever.
+    fail(lastError);
+    return false;
+  };
+
   const flushController = createCardFlushController(async () => {
-    if (degraded) return;
     const state = deps.getState();
     const cardId = deps.getCardId();
     if (!cardId || state.terminal) return;
+    if (degraded) {
+      // A degraded card keeps quiet except for a question the human must
+      // answer; replaceNow allows exactly one attempt per question.
+      if (!state.pendingAction) return;
+      const painted = await replaceNow(state);
+      if (painted) deps.onPersist();
+      return;
+    }
     const frameKey = cardStatusKey(state);
     const frameChanged = frameKey !== pushedCardKey;
     const todoChanged = JSON.stringify(renderTodoPanel(state)) !== pushedTodo;
@@ -122,14 +175,8 @@ export function createCardUpdater(deps: {
     }
 
     if (frameChanged || streamingClosed || (todoChanged && todoDue)) {
-      const r = await cardClient.updateCard(cardId, renderCard(state, meta), deps.nextSeq());
-      if (!r.ok) {
-        fail(r.error);
-        return;
-      }
-      consecutiveFailures = 0;
-      cacheElements(state);
-      deps.onPersist();
+      const painted = await replaceNow(state);
+      if (painted) deps.onPersist();
       return;
     }
 
@@ -205,27 +252,6 @@ export function createCardUpdater(deps: {
     request: () => flushController.request(),
     finish: () => flushController.finish(),
     invalidate: cacheElements,
-    async replaceNow(state: RunCardState): Promise<boolean> {
-      // Degraded means "stop painting": the seal then falls through to the
-      // reliable text delivery the conversation watcher owns.
-      if (degraded) return false;
-      const cardId = deps.getCardId();
-      if (!cardId) return false;
-      let lastError = "card replace failed";
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const r = await cardClient.updateCard(cardId, renderCard(state, meta), deps.nextSeq());
-        if (r.ok) {
-          consecutiveFailures = 0;
-          cacheElements(state);
-          return true;
-        }
-        lastError = r.error;
-        await new Promise((r2) => setTimeout(r2, retryBackoffMs * 2 ** attempt));
-      }
-      // Exhausted retries: this counts toward the degrade threshold too, so a
-      // card that cannot be sealed stops being retried forever.
-      fail(lastError);
-      return false;
-    },
+    replaceNow,
   };
 }
