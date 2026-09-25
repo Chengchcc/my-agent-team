@@ -74,7 +74,7 @@ typecheck 有个容易踩的地方：backend 的 `bun run typecheck` 用的是 `
 `next build` 这类构建在 2 核 / 3.5G 上不会失败，会把机器拖进 swap 抖动，表现为长时间没有输出、内存打满。要跑就用 memguard 套一层：
 
 ```bash
-bash scripts/memguard.sh --limit 2G -- bun run build
+bash scripts/memguard.sh --limit 6G -- bun run build   # size the cap to `free -m`: the stack alone idles at 4-5GB
 ```
 
 它用 cgroup v2 把整棵进程树一起 OOM 掉（`memory.oom.group=1`），所以得到的是「命令被杀」而不是「机器卡死」。发行版构建交给 CI。
