@@ -725,9 +725,6 @@ describe("dedicated ask / approval card", () => {
     const flat = JSON.stringify(card);
     expect(flat).toContain("要修改哪个分支？");
     expect(flat).toContain("answer_ask");
-    // The plan's container rule: the todo panel is a collapsible_panel and
-    // must never share a card with an interactive form area.
-    expect(card.body.elements.some((e) => e.tag === "collapsible_panel")).toBe(false);
     // …and the run card's streaming controls are gone.
     expect(flat).not.toContain("stop_button");
   });
@@ -830,7 +827,7 @@ describe("free-text ask form", () => {
     });
   });
 
-  test("a select ask keeps callback buttons instead of a form", () => {
+  test("a select ask renders one full-width option row each", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
     let s = initialRunCardState();
     s = applyRunEvent(s, {
@@ -842,14 +839,57 @@ describe("free-text ask form", () => {
             id: "q1",
             kind: "select",
             question: "哪个？",
-            options: [{ label: "main", value: "main" }],
+            options: [
+              { label: "main", value: "main" },
+              { label: "release/2026.09 的长期维护分支", value: "release" },
+            ],
           },
         ],
       },
     });
-    const flat = JSON.stringify(renderCard(s, meta));
-    expect(flat).not.toContain('"tag":"form"');
-    expect(flat).toContain("answer_ask");
+    const card = renderCard(s, meta) as {
+      body: { elements: Array<Record<string, unknown>> };
+    };
+    // Not a form: a form must contain a submit button (Feishu 300123), and
+    // these options answer in one click.
+    expect(card.body.elements.some((e) => e.tag === "form")).toBe(false);
+    const buttons = card.body.elements.filter((e) => e.tag === "button") as Array<
+      Record<string, unknown>
+    >;
+    expect(buttons).toHaveLength(2);
+    // width: fill is what makes the rows line up; ragged inline buttons were
+    // the live complaint (2026-09-25).
+    for (const b of buttons) expect(b.width).toBe("fill");
+    expect(JSON.stringify(buttons)).toContain("answer_ask");
+  });
+
+  test("a question keeps the progress panel on the card", () => {
+    const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
+    let s = initialRunCardState();
+    s = applyRunEvent(s, {
+      type: "backend.oma.todo_update",
+      payload: {
+        items: [
+          { id: "1", text: "读需求", status: "done" },
+          { id: "2", text: "写 plan.md", status: "in_progress" },
+        ],
+      },
+    });
+    s = applyRunEvent(s, {
+      type: "backend.oma.ask_requested",
+      payload: {
+        callId: "c1",
+        questions: [
+          { id: "q1", kind: "select", question: "放哪？", options: [{ label: "a", value: "a" }] },
+        ],
+      },
+    });
+    const card = renderCard(s, meta) as {
+      body: { elements: Array<{ tag: string; header?: { title?: { content?: string } } }> };
+    };
+    const panel = card.body.elements.find((e) => e.tag === "collapsible_panel");
+    // The ask used to drop the plan, so the question arrived with no context.
+    expect(panel?.header?.title?.content).toBe("**进度 1 / 2**");
   });
 
   test("a form submit resolves the ask with the typed text", async () => {

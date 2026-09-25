@@ -20,6 +20,7 @@ tags: [lark, surfaces, backend]
 - `apps/lark-bot/src/ingest.ts` — 入站主管线与 `/stop` 控制命令
 - `apps/lark-bot/src/bindings-sqlite.ts` — 五张表的读写与 `rebindChatConversation`
 - `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（事件→状态的纯 reducer）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
+- `apps/lark-bot/scripts/probe-cards.ts` — 把真实渲染出的每种卡片 POST 给建卡接口，做线级校验（不给任何聊天发消息）
 - `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
 - `apps/lark-bot/src/render.ts` 与 `markdown-normalizer.ts` — 行到文本的渲染、换行与截断
 - `apps/lark-bot/src/sender.ts` 与 `send-text-only.ts` — 经 lark-cli 投递
@@ -133,6 +134,9 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 6. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
 7. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
 8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；`pushed_seq` 属于会话而非聊天（ADR 0037）。**群里**的话题内仍然要求 @ 机器人（话题下可能有其他人交流）；**私聊不要求**——私聊本身就是点名，用户「在话题里回复」是续问的唯一动作，再要求 @ 就等于把这条动作废掉。
+9. 卡片 JSON 必须过飞书的线级校验，三条踩过的规则：`form` 容器**至少含一个 submit 按钮**（否则 300123，整卡被拒，所以选项按钮不进 form）；`element_id` 只能 ASCII 字母开头、字母数字下划线、**≤20 字符**（300301，所以选项按钮用位置 id `ask_opt_<i>`，不拿选项值拼）；元素内容更新要求目标元素**已存在**（300313，所以 Run 卡的 activity/answer/tools/status 永远渲染，空内容也渲染）。
+10. 改渲染器后跑一次 `bun apps/lark-bot/scripts/probe-cards.ts <profile>`：它把真实渲染结果 POST 给建卡接口（不给任何聊天发消息），把只有线上才暴露的拒绝变成几秒的本地检查。会占少量卡片实体配额（应用级，且平台没有删除接口），所以是改渲染器后的动作，不是每次提交的门禁。
+11. 卡片连败三次进降级（停止绘制），但**待回答的问题仍重试一次**（按问题 callId 记一次），成功后恢复绘制——降级不能让一个提问变成没人能回答的僵尸。
 
 ## 已知缺口
 
@@ -141,7 +145,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 - 群聊的 @ 检测依赖 `botDisplayName`，缺了就只有单聊可用。
 - 出站没有回执：投递成功与否只体现在 lark-cli 的退出码上。
 - 卡片交互只差 reaction 触发（`im.message.reaction.created_v1`，lark-cli 的 event 目录没有）。按钮回调（`card.action.trigger`）已实现，见 ADR 0031 决策 6 的 2026-09-24 修订。
-- 追问的自由输入只有「其他…」按钮占位：Card JSON 2.0 的 `input`/`form` 未接，需要自由文本回答时得到 Web 端。多选（`multi`）也只按单选取值。
+- 多选（`multi`）追问只按单选取值，卡片渲染不出多选控件。自由文本追问走 form（`input` + submit，`form_value` 一次性回传），选择题走整行按钮（`width: fill`），`allowOther` 的选择题也接受话题文字作答。
 - 回调只做了单操作者的防重放（event_id 去重 + message↔run_card 映射）。签名 action token 与 backend 侧事件去重留给多操作者场景。
 - 工具步骤那行依赖子进程声明活动（`describeStart`）：omp 后端至今不给（`adapter-omp-agent` 只带 `toolName`/`toolCallId`），所以 omp Run 永远只显示工具名；外部 MCP 工具同理，除非它自己声明。
 - `native_tool_started.activity` 会随 telemetry 落进 `agent_run_event`（按事件名白名单），也就是活动行进库；目前没有保留期清理。

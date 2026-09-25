@@ -194,6 +194,7 @@ function pendingActionButtons(
       element_id: `ask_opt_${index}`,
       text: { tag: "plain_text", content: opt.label },
       type: "default",
+      width: "fill",
       behaviors: [
         {
           type: "callback",
@@ -215,6 +216,7 @@ function pendingActionButtons(
         element_id: "approve_button",
         text: { tag: "plain_text", content: "批准" },
         type: "primary",
+        width: "fill",
         behaviors: [
           { type: "callback", value: { runId, callId: action.callId, action: "approve" } },
         ],
@@ -224,6 +226,7 @@ function pendingActionButtons(
         element_id: "reject_button",
         text: { tag: "plain_text", content: "拒绝" },
         type: "danger",
+        width: "fill",
         behaviors: [
           { type: "callback", value: { runId, callId: action.callId, action: "reject" } },
         ],
@@ -252,14 +255,6 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
   const isApproval = action?.kind === "approval";
   const elements: Record<string, unknown>[] = [];
 
-  const done = state.todos.filter((t) => t.status === "done").length;
-  if (state.todos.length > 0) {
-    elements.push({
-      tag: "markdown",
-      content: `当前进度：${done} / ${state.todos.length}`,
-      text_size: "notation",
-    });
-  }
   if (action?.prompt) {
     // ≤3 lines of question: more context belongs in Web.
     const prompt = action.prompt.split("\n").slice(0, 3).join("\n");
@@ -305,8 +300,16 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
     });
   }
   if (action && !freeTextAsk) {
+    // Options stay OUTSIDE a form: a form container must hold at least one
+    // submit button (Feishu 300123, verified against the card API), so a
+    // buttons-only form is rejected outright and the question would vanish.
+    // Alignment comes from width:fill instead - each option owns a row.
     elements.push(...pendingActionButtons(meta.runId, action));
   }
+  // The plan the question is about stays on the card: the progress panel is
+  // what makes "which branch?" answerable in context (live feedback).
+  const todoPanel = renderTodoPanel(state);
+  if (todoPanel) elements.push(todoPanel);
   if (meta.webUrl) {
     elements.push({
       tag: "markdown",
