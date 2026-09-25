@@ -28,6 +28,24 @@ export interface DoctorOptions {
   /** Seam for tests: replaces the release HEAD probe. Returns the HTTP status,
    *  or undefined when the host could not be reached. */
   probeRelease?: (url: string) => Promise<number | undefined>;
+  /** Seam for tests: replaces the Lark probe (cli version + backend surfaces). */
+  probeLark?: () => Promise<LarkProbe>;
+}
+
+/** What the Lark diagnosis needs: is lark-cli here, and what do the surfaces
+ *  the CONTROL PLANE owns say? The CLI reports; it does not become a second
+ *  Lark console (no `oma lark *` verbs on purpose). */
+export interface LarkProbe {
+  /** `lark-cli version X.Y.Z`, or null when the binary is not on PATH. */
+  cliVersion: string | null;
+  /** False when the backend did not answer: then there is nothing to report. */
+  reachable: boolean;
+  surfaces: Array<{
+    agentId: string;
+    agentName: string;
+    status: string;
+    lastError: string | null;
+  }>;
 }
 
 /** Provider env names oma's builtin catalog knows (the product backend
@@ -415,7 +433,53 @@ export async function diagnoseGateway(opts: DoctorOptions = {}): Promise<Gateway
     }
   }
 
-  // 13. the binary the backend spawns per Run
+  // 13. the Lark surface: is it runnable here, and is anything wrong? The
+  // state itself lives in the backend (agent config + registry + heartbeat);
+  // this only summarizes it and points at where to fix it.
+  const lark = await (opts.probeLark ?? defaultLarkProbe(home))();
+  checks.push({
+    id: "lark-cli",
+    ok: true,
+    detail:
+      lark.cliVersion === null
+        ? "lark-cli not found on PATH (no agent can be connected to Lark here)"
+        : `lark-cli ${lark.cliVersion}`,
+    ...(lark.cliVersion === null
+      ? { fix: "install lark-cli, then connect an agent from the web UI (agent -> Lark tab)" }
+      : {}),
+  });
+  if (!lark.reachable) {
+    checks.push({
+      id: "lark-surface",
+      ok: true,
+      detail: "no Lark state to report (the backend is not answering)",
+    });
+  } else if (lark.surfaces.length === 0) {
+    checks.push({ id: "lark-surface", ok: true, detail: "no agent has a Lark surface" });
+  } else {
+    const running = lark.surfaces.filter((s) => s.status === "running");
+    const broken = lark.surfaces.filter((s) => s.status === "degraded" || s.status === "error");
+    checks.push({
+      id: "lark-surface",
+      ok: broken.length === 0,
+      detail:
+        broken.length === 0
+          ? `${lark.surfaces.length} configured, ${running.length} running`
+          : `${lark.surfaces.length} configured, ${running.length} running, ${broken.length} needing attention: ` +
+            broken
+              .map((s) => `${s.agentName} (${s.status}${s.lastError ? `: ${s.lastError}` : ""})`)
+              .join("; "),
+      ...(broken.length > 0
+        ? {
+            fix: broken
+              .map((s) => `open http://127.0.0.1:3001/team/${s.agentId}?tab=lark`)
+              .join(" | "),
+          }
+        : {}),
+    });
+  }
+
+  // 14. the binary the backend spawns per Run
   try {
     const entry = resolveOmaBin();
     checks.push({ id: "oma-bin", ok: true, detail: `runs will spawn ${entry}` });
@@ -429,4 +493,63 @@ export async function diagnoseGateway(opts: DoctorOptions = {}): Promise<Gateway
   }
 
   return checks;
+}
+
+/** `lark-cli version X.Y.Z` -> "X.Y.Z". Absent binary is reported, not fatal:
+ *  Lark is optional, so a gateway without it still passes doctor. */
+function probeLarkCliVersion(): string | null {
+  try {
+    const out = Bun.spawnSync(["lark-cli", "--version"], { stdout: "pipe", stderr: "pipe" });
+    if (out.exitCode !== 0) return null;
+    const text = out.stdout.toString().trim();
+    const match = text.match(/\d+\.\d+(?:\.\d+)?/);
+    return match ? match[0] : text.slice(0, 24) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function defaultLarkProbe(home: string): () => Promise<LarkProbe> {
+  return async () => {
+    const cliVersion = probeLarkCliVersion();
+    try {
+      const token = readSecrets(home).BACKEND_AUTH_TOKEN ?? "";
+      const res = await fetch("http://127.0.0.1:3000/api/ops/surfaces", {
+        headers: { "x-auth-token": token },
+        signal: AbortSignal.timeout(2000),
+      });
+      // A 401/500 body is not "no surfaces configured": without a readable
+      // answer the doctor must say it could not look, not that nothing exists.
+      if (!res.ok) return { cliVersion, reachable: false, surfaces: [] };
+      const body: unknown = await res.json();
+      // The route returns a bare array today; accept a wrapped shape too so a
+      // future envelope does not silently read as "no Lark surfaces".
+      const items = Array.isArray(body)
+        ? body
+        : typeof body === "object" && body !== null && "surfaces" in body
+          ? body.surfaces
+          : undefined;
+      if (!Array.isArray(items)) return { cliVersion, reachable: true, surfaces: [] };
+      const surfaces: LarkProbe["surfaces"] = [];
+      for (const item of items) {
+        if (typeof item !== "object" || item === null) continue;
+        // The web chip matches on a substring (`lark-bot` and friends), so an
+        // exact "lark" comparison silently reported an empty deployment.
+        if (!("surface" in item) || typeof item.surface !== "string") continue;
+        if (!item.surface.toLowerCase().includes("lark")) continue;
+        const status =
+          "status" in item && typeof item.status === "string" ? item.status : "unknown";
+        const agentId = "agentId" in item && typeof item.agentId === "string" ? item.agentId : "";
+        const agentName =
+          "agentName" in item && typeof item.agentName === "string" ? item.agentName : agentId;
+        const lastError =
+          "lastError" in item && typeof item.lastError === "string" ? item.lastError : null;
+        if (agentId === "") continue;
+        surfaces.push({ agentId, agentName, status, lastError });
+      }
+      return { cliVersion, reachable: true, surfaces };
+    } catch {
+      return { cliVersion, reachable: false, surfaces: [] };
+    }
+  };
 }
