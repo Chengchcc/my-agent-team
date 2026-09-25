@@ -129,11 +129,14 @@ const STALE_HEARTBEAT_MS = 95_000;
 export function buildLarkSurfaceView(input: BuildLarkSurfaceInput): LarkSurfaceView {
   const { config, runtime, setup, now } = input;
 
-  const authorized = config.enabled && config.profileRef !== null;
   const heartbeatFresh =
     runtime.lastSeenAt !== null &&
     runtime.lastSeenAt !== undefined &&
     now - runtime.lastSeenAt < STALE_HEARTBEAT_MS;
+  // A bot that is beating is authorized, whatever `profile_ref` says: a bot
+  // started with an explicit profile never writes one back to the agent row,
+  // and calling that "not connected" is a lie the user can see through.
+  const authorized = config.enabled && (config.profileRef !== null || heartbeatFresh);
   const awaitingAuthorization = setup !== null && setup.status === "pending";
 
   const status = deriveStatus({
@@ -264,7 +267,7 @@ function deriveIssue(input: {
   if (!input.runtime.setupAvailable) {
     return { code: "cli_missing", title: "未安装 Lark CLI", action: "install_cli" };
   }
-  if (input.config.enabled && input.config.profileRef === null) {
+  if (input.config.enabled && input.config.profileRef === null && !input.heartbeatFresh) {
     return { code: "profile_invalid", title: "机器人授权失效", action: "reconnect" };
   }
   // Enabled, authorized, but nobody is listening — and only a fresh start

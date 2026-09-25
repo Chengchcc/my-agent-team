@@ -66,6 +66,18 @@ describe("buildLarkSurfaceView status ladder", () => {
     expect(view.setup.url).toBeNull();
   });
 
+  test("a beating bot without a profile_ref is still online, not broken", () => {
+    // The gateway starts a bot with an explicit profile and never writes one
+    // back to the agent row; the console read that as "authorization failed"
+    // while the bot was answering messages.
+    const view = build({
+      config: config({ enabled: true, botDisplayName: "oma CLI" }),
+      runtime: runtime({ registryStatus: "configured", lastSeenAt: NOW - 10_000 }),
+    });
+    expect(view.status).toBe("online");
+    expect(view.setup.issue).toBeNull();
+  });
+
   test("authorized with a fresh heartbeat is online", () => {
     const view = build({
       config: config({ enabled: true, profileRef: "agent:1", botDisplayName: "bot" }),
