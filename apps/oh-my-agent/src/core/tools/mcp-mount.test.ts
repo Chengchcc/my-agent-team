@@ -213,3 +213,33 @@ describe("a server's declared timeout outlives the global default", () => {
     }
   });
 });
+
+describe("the mount phase has its own budget", () => {
+  test("a server that never speaks fails on the mount budget, not the call budget", async () => {
+    // The runtime is not accepted until every mount finishes, so a hung mount
+    // used to inherit the per-call ceiling (minutes) and delay the run's
+    // start. 20s of call budget must not become 20s of mount budget.
+    const ws = mkdtempSync(join(tmpdir(), "oma-mcp-mount-budget-"));
+    writeFileSync(
+      join(ws, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          stuck: { command: "bash", args: ["-c", "exec -a oma-mcp-mount-stuck sleep 30"] },
+        },
+      }),
+    );
+    try {
+      const started = Date.now();
+      const mounted = await mountWorkspaceMcpServers(ws, new Set(), [], true, {
+        mcpTimeoutMs: 20_000,
+        mountTimeoutMs: 500,
+      });
+      const report = mounted.reports.find((r) => r.server === "stuck");
+      expect(report?.ok).toBe(false);
+      expect(Date.now() - started).toBeLessThan(5_000);
+      await mounted.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});

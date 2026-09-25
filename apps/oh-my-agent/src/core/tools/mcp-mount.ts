@@ -305,6 +305,22 @@ export function mcpCallTimeoutMs(settings?: {
   return n;
 }
 
+/** Default budget for the MOUNT phase (connect + tools/list) per server.
+ *  The runtime is not accepted until every mount finishes, so a server that
+ *  accepts the connection and then says nothing used to eat the much larger
+ *  per-call ceiling and delay the whole run's start (2026-09-25). A mount is
+ *  a local handshake: seconds, not minutes. */
+export const DEFAULT_MCP_MOUNT_TIMEOUT_MS = 30_000;
+
+/** Mount-phase timeout (ms), independent of the per-call one. */
+export function mcpMountTimeoutMs(settings?: {
+  mountTimeoutMs?: number;
+  mcpTimeoutMs?: number;
+}): number {
+  if (settings?.mountTimeoutMs !== undefined) return settings.mountTimeoutMs;
+  return Math.min(DEFAULT_MCP_MOUNT_TIMEOUT_MS, mcpCallTimeoutMs(settings));
+}
+
 /** Race a tool call against a wall-clock timeout and the run's abort
  * signal. The losing call keeps running server-side (the MCP SDK's
  * callTool takes no signal) but its result lands nowhere. The Bun timer
@@ -356,9 +372,10 @@ export async function mountWorkspaceMcpServers(
   nativeNames: ReadonlySet<string>,
   pluginServers: readonly PluginMcpConfig[] = [],
   includeWorkspace = true,
-  timeouts?: { mcpTimeoutMs?: number; maxToolTimeoutMs?: number },
+  timeouts?: { mcpTimeoutMs?: number; maxToolTimeoutMs?: number; mountTimeoutMs?: number },
 ): Promise<MountedMcpServers> {
   const callTimeoutMs = mcpCallTimeoutMs(timeouts);
+  const mountTimeoutMs = mcpMountTimeoutMs(timeouts);
   const servers = includeWorkspace
     ? mergeMcpConfigs(workspaceRoot, pluginServers)
     : mergePluginMcpConfigs(pluginServers);
@@ -384,7 +401,7 @@ export async function mountWorkspaceMcpServers(
       name,
       server,
       workspaceRoot,
-      callTimeoutMs,
+      mountTimeoutMs,
       serverCallTimeoutMs,
     );
     if (!("client" in connected)) {
@@ -397,7 +414,7 @@ export async function mountWorkspaceMcpServers(
     try {
       // Same bound as connect: a server that connected but never answers
       // tools/list must fail ITS entry, not hang the assembly.
-      listed = (await withCallTimeout(client.listTools(), `mcp listTools ${name}`, callTimeoutMs))
+      listed = (await withCallTimeout(client.listTools(), `mcp listTools ${name}`, mountTimeoutMs))
         .tools;
     } catch (err) {
       console.error(
