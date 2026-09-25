@@ -1,10 +1,14 @@
 /**
- * M15.1: In-memory Lark profile setup session manager.
- * Sessions live in memory only; agent DB is updated on completion.
- * Backend restart loses pending sessions (safe: no half-enabled state).
+ * Lark profile setup sessions, PERSISTED (see setup-store.ts).
+ *
+ * Two things the in-memory version could not do: survive a backend restart,
+ * and report that a link expired - it deleted expired sessions, so the read
+ * model's `setup_expired` branch was unreachable. Expired and cancelled rows
+ * are now tombstones the wizard can explain.
  */
 
 import type { LarkProfileProvisioner } from "./provisioner.js";
+import type { LarkSetupStore } from "./setup-store.js";
 
 export interface LarkProfileSetupSession {
   setupId: string;
@@ -22,9 +26,11 @@ export interface LarkProfileSetupSession {
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const EXPIRE_CHECK_INTERVAL_MS = 60_000; // 1 minute
+/** Settled sessions stay readable for a day, then stop taking space. */
+const RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export class LarkSetupManager {
-  #sessions = new Map<string, LarkProfileSetupSession>();
+  #store: LarkSetupStore;
   #provisioner: LarkProfileProvisioner;
   #expiryTimer: ReturnType<typeof setInterval>;
   #cancelFns = new Map<string, () => Promise<void>>();
@@ -34,9 +40,14 @@ export class LarkSetupManager {
   constructor(
     provisioner: LarkProfileProvisioner,
     onComplete: (session: LarkProfileSetupSession) => Promise<void>,
+    store: LarkSetupStore,
   ) {
     this.#provisioner = provisioner;
     this.#onComplete = onComplete;
+    this.#store = store;
+    // Rows left pending by a previous process are unreachable: their lark-cli
+    // child died with the process, so they are expired, not "still working".
+    this.#store.expireAllPending();
     this.#expiryTimer = setInterval(() => this.#reapExpired(), EXPIRE_CHECK_INTERVAL_MS);
   }
 
@@ -81,23 +92,26 @@ export class LarkSetupManager {
           // prints it (stdout TTY or stderr piped) — do not wait for exit.
           session.url = url;
           session.updatedAt = Date.now();
+          this.#store.update(setupId, { url, updatedAt: session.updatedAt });
         },
       })
       .then((result) => {
         // Store cancel function so cancel() can SIGTERM the lark-cli process
         this.#cancelFns.set(setupId, result.cancel);
         session.updatedAt = Date.now();
+        this.#store.update(setupId, { updatedAt: session.updatedAt });
 
         void result.waitForCompletion
           .then((url) => {
             session.url = url; // resolved after all stdout data has arrived
+            this.#store.update(setupId, { url, updatedAt: Date.now() });
             this.#cancelFns.delete(setupId);
-            this.complete(setupId);
+            void this.complete(setupId);
           })
           .catch((err: Error) => {
             this.#cancelFns.delete(setupId);
             // Don't mark as failed if user cancelled
-            if (session.status !== "cancelled") {
+            if (this.#store.get(setupId)?.status !== "cancelled") {
               this.fail(setupId, err.message);
             }
           });
@@ -106,27 +120,26 @@ export class LarkSetupManager {
         this.fail(setupId, err.message);
       });
 
-    this.#sessions.set(setupId, session);
+    this.#store.insert(session);
     return { ...session };
   }
 
   get(setupId: string): LarkProfileSetupSession | null {
-    return this.#sessions.get(setupId) ?? null;
+    return this.#store.get(setupId);
   }
 
-  /** Get the most recent setup session for an agent. */
+  /** The most recent session for an agent. "Most recent" now means newest by
+   *  creation, not whichever the Map happened to yield first. */
   getByAgentId(agentId: string): LarkProfileSetupSession | null {
-    for (const [, s] of this.#sessions) {
-      if (s.agentId === agentId) return s;
-    }
-    return null;
+    return this.#store.latestForAgent(agentId);
   }
 
   async complete(setupId: string): Promise<void> {
-    const session = this.#sessions.get(setupId);
+    const session = this.#store.get(setupId);
     if (!session) return;
     session.status = "completed";
     session.updatedAt = Date.now();
+    this.#store.update(setupId, { status: "completed", updatedAt: session.updatedAt });
     try {
       await this.#onComplete(session);
     } catch (err) {
@@ -138,19 +151,14 @@ export class LarkSetupManager {
   }
 
   fail(setupId: string, error: string): void {
-    const session = this.#sessions.get(setupId);
-    if (!session) return;
-    session.status = "failed";
-    session.error = error;
-    session.updatedAt = Date.now();
+    if (!this.#store.get(setupId)) return;
+    this.#store.update(setupId, { status: "failed", error, updatedAt: Date.now() });
   }
 
   cancel(setupId: string): void {
-    const session = this.#sessions.get(setupId);
-    if (!session) return;
-    session.status = "cancelled";
-    session.updatedAt = Date.now();
-    this.#sessions.delete(setupId);
+    if (!this.#store.get(setupId)) return;
+    // A tombstone, not a delete: the wizard has to be able to say "cancelled".
+    this.#store.update(setupId, { status: "cancelled", updatedAt: Date.now() });
     // SIGTERM the provisioner's lark-cli process (never SIGKILL)
     const cancelFn = this.#cancelFns.get(setupId);
     if (cancelFn) {
@@ -159,16 +167,11 @@ export class LarkSetupManager {
     }
   }
 
-  /** Check for expired sessions. */
+  /** Expire what passed its deadline and drop what is long settled. */
   #reapExpired(): void {
     const now = Date.now();
-    for (const [id, session] of this.#sessions) {
-      if (session.status === "pending" && now > session.expiresAt) {
-        session.status = "expired";
-        session.updatedAt = now;
-        this.#sessions.delete(id);
-      }
-    }
+    this.#store.expireStale(now);
+    this.#store.purgeBefore(now - RETENTION_MS);
   }
 
   dispose(): void {
@@ -177,6 +180,5 @@ export class LarkSetupManager {
       void cancelFn();
     }
     this.#cancelFns.clear();
-    this.#sessions.clear();
   }
 }

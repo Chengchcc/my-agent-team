@@ -199,7 +199,7 @@ sessions actually running inside that app.
 | `apps/backend/src/features/agent-run/execution-dispatch.ts` | Run dispatch: preflight, workspace, projection, execute, settle, follow-up |
 | `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` | Terminal commit, failed commit, next-run promotion |
 | `apps/backend/src/features/agent-context/projection.ts` | Full branch projection (the only agent-context part with a production caller) |
-| `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 21 tables, single SQLite file |
+| `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 22 tables, single SQLite file |
 | `apps/oh-my-agent/src/core/runtime/agent-loop.ts` | `createOmaSession()` — the agent loop |
 | `apps/oh-my-agent/src/core/runtime/plugin.ts` | `Plugin`/`PluginHooks`, `validatePlugins()` |
 | `packages/message/src/chat-model.ts` | `ChatModel` contract |

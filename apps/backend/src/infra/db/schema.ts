@@ -475,6 +475,31 @@ export const pendingAction = sqliteTable(
   ],
 );
 
+// Lark setup session: the wizard's authorization attempt. Persisted (not a
+// Map) so a restart does not lose the session, and EXPIRED/CANCELLED rows are
+// kept as tombstones - the read model reports "the link expired" from them,
+// which an in-memory map that deleted on expiry could never say.
+export const larkSetupSession = sqliteTable(
+  "lark_setup_session",
+  {
+    setupId: text("setup_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    profileRef: text("profile_ref").notNull(),
+    botDisplayName: text("bot_display_name"),
+    brand: text().notNull().default("feishu"), // feishu | lark
+    status: text().notNull().default("pending"), // pending | completed | failed | expired | cancelled
+    url: text(),
+    error: text(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.setupId] }),
+    index("idx_lark_setup_agent").on(table.agentId, table.createdAt),
+  ],
+);
+
 // Product Tool Call: durable idempotency + audit for SEMANTIC MUTATION calls
 // (e.g. history_retain). Read-only tools never write here. One row per
 // (runId, callId); replay returns the stored result, conflicting input fails.

@@ -65,6 +65,7 @@ import {
 } from "../features/knowledge/index.js";
 import {
   CliSetupProvisioner,
+  createLarkSetupStore,
   LarkSetupManager,
   probeCliSetupCapability,
 } from "../features/lark-bot/index.js";
@@ -679,17 +680,26 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   let setupManager: LarkSetupManager | undefined;
   function getSetupManager(provisioner = new CliSetupProvisioner()): LarkSetupManager {
     if (!setupManager) {
-      setupManager = new LarkSetupManager(provisioner, async (session) => {
-        await agentSvc.update(session.agentId, {
-          lark: { enabled: true, botDisplayName: session.botDisplayName ?? undefined },
-        });
-        await larkBotRegistry.ensureLarkBot(
-          session.agentId,
-          session.botDisplayName,
-          session.profileRef,
-        );
-        console.log(`[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`);
-      });
+      // Persisted: a restart must not lose a half-finished authorization, and
+      // an expired one has to stay readable for the wizard to explain it.
+      const setupStore = createLarkSetupStore(db);
+      setupManager = new LarkSetupManager(
+        provisioner,
+        async (session) => {
+          await agentSvc.update(session.agentId, {
+            lark: { enabled: true, botDisplayName: session.botDisplayName ?? undefined },
+          });
+          await larkBotRegistry.ensureLarkBot(
+            session.agentId,
+            session.botDisplayName,
+            session.profileRef,
+          );
+          console.log(
+            `[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`,
+          );
+        },
+        setupStore,
+      );
     }
     return setupManager;
   }
