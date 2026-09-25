@@ -19,6 +19,11 @@ export interface CardActionEvent {
   messageId: string;
   actionTag: string;
   actionValue: string;
+  /** The clicked element's name — form submits may strip `value`, so the
+   *  name is the second carrier of identity. */
+  actionName?: string;
+  /** Card JSON 2.0 form submission: one flat map of field name → value. */
+  formValue?: Record<string, string>;
 }
 
 export function parseCardActionLine(line: string): CardActionEvent | null {
@@ -44,6 +49,8 @@ export function parseCardActionLine(line: string): CardActionEvent | null {
     messageId: found.messageId!,
     actionTag: found.actionTag ?? "",
     actionValue: found.actionValue ?? "",
+    actionName: found.actionName,
+    formValue: found.formValue,
   };
 }
 
@@ -54,6 +61,8 @@ interface FoundFields {
   messageId?: string;
   actionTag?: string;
   actionValue?: string;
+  actionName?: string;
+  formValue?: Record<string, string>;
 }
 
 function searchFields(node: unknown, depth: number): FoundFields {
@@ -65,6 +74,21 @@ function searchFields(node: unknown, depth: number): FoundFields {
 function collectFields(node: unknown, depth: number, found: FoundFields): void {
   if (depth > 4 || typeof node !== "object" || node === null) return;
   for (const [key, value] of Object.entries(node)) {
+    if (key === "form_value" && typeof value === "object" && value !== null) {
+      // Card JSON 2.0 carries every form field in one map. Values arrive as
+      // strings, booleans (checkers) or arrays (multi-select); flatten so a
+      // reader never has to guess.
+      const flat: Record<string, string> = {};
+      for (const [k, v] of Object.entries(value)) {
+        if (typeof v === "string") flat[k] = v;
+        else if (typeof v === "number" || typeof v === "boolean") flat[k] = String(v);
+        else if (Array.isArray(v)) {
+          flat[k] = v.filter((x): x is string => typeof x === "string").join(",");
+        }
+      }
+      found.formValue = flat;
+      continue;
+    }
     if (typeof value !== "string") continue;
     if (key === "event_id") found.eventId = value;
     if (key === "operator_id") found.operatorId = value;
@@ -72,6 +96,7 @@ function collectFields(node: unknown, depth: number, found: FoundFields): void {
     if (key === "message_id") found.messageId = value;
     if (key === "action_tag") found.actionTag = value;
     if (key === "action_value") found.actionValue = value;
+    if (key === "action_name") found.actionName = value;
   }
   for (const value of Object.values(node)) {
     if (typeof value === "object" && value !== null) collectFields(value, depth + 1, found);
@@ -90,6 +115,8 @@ export type RunCardAction =
       callId: string;
       questionId: string;
       selectedValue: string;
+      /** A Card JSON 2.0 form submit carries free text instead of a choice. */
+      freeText?: string;
     };
 
 export function decodeActionValue(raw: string): RunCardAction | null {
@@ -154,6 +181,8 @@ export interface CardActionDeps {
     callId: string;
     questionId: string;
     selectedValue: string;
+    /** Free-text answer from a form submit (Card JSON 2.0 input element). */
+    freeText?: string;
   }) => Promise<{ error?: unknown }>;
   /** Cancel a queued input (the message only, never the running turn). */
   cancelQueuedInput: (inputId: string) => Promise<{ error?: unknown }>;
@@ -164,7 +193,23 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
   const event = parseCardActionLine(line);
   if (!event) return "unparsed";
   if (!reserveEventId(event.eventId)) return "duplicate";
-  const action = decodeActionValue(event.actionValue);
+  const decoded = decodeActionValue(event.actionValue);
+  // Card JSON 2.0 form: the typed answer rides `form_value`, while the submit
+  // button still carries the identity in its `value` (both carriers exist on
+  // purpose — a submit may strip either one).
+  const typedAnswer = event.formValue?.answer?.trim();
+  const action: RunCardAction | null =
+    decoded?.action === "answer_ask" && typedAnswer && typedAnswer.length > 0
+      ? { ...decoded, freeText: typedAnswer }
+      : decoded;
+  if (!action && event.formValue && Object.keys(event.formValue).length > 0) {
+    // Probe: a form submit whose identity we could not read. Log the shape so
+    // the wire format is learned from the real callback instead of guessed.
+    deps.log(
+      `card form submit without identity: tag=${event.actionTag} name=${event.actionName ?? "?"} fields=${Object.keys(event.formValue).join(",")}`,
+    );
+    return "unparsed-form";
+  }
   if (!action) {
     deps.log(`card action ignored: tag=${event.actionTag} value=${event.actionValue.slice(0, 80)}`);
     return "ignored";
@@ -220,6 +265,7 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
       callId: action.callId,
       questionId: action.questionId,
       selectedValue: action.selectedValue,
+      freeText: action.freeText,
     });
     if (error) {
       deps.log(

@@ -492,9 +492,10 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
           callId: string;
           questionId: string;
           selectedValue: string;
+          freeText?: string;
         }) => {
           calls.push(
-            `ask:${input.runId}:${input.callId}:${input.questionId}:${input.selectedValue}`,
+            `ask:${input.runId}:${input.callId}:${input.questionId}:${input.selectedValue}:${input.freeText ?? ""}`,
           );
           return {};
         },
@@ -524,7 +525,7 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
       d,
     );
     expect(outcome).toBe("answered");
-    expect(calls).toEqual(["ask:run-ask:call-ask:q1:main"]);
+    expect(calls).toEqual(["ask:run-ask:call-ask:q1:main:"]);
   });
 
   test("a callback whose chat does not own the card is rejected", async () => {
@@ -754,5 +755,136 @@ describe("dedicated ask / approval card", () => {
     s = applyRunEvent(s, { type: "text_delta", text: "继续" });
     const card = renderCard(s, meta) as { header: { title: { content: string } } };
     expect(card.header.title.content).not.toBe("需要你的回答");
+  });
+});
+
+describe("free-text ask form", () => {
+  function seedFormCard(runId: string, messageId: string): void {
+    insertRunCard(db, {
+      runId,
+      conversationId: `conv-${runId}`,
+      larkChatId: "oc_actions",
+      sourceMessageId: "om_src",
+    });
+    updateRunCard(db, runId, { status: "streaming", larkMessageId: messageId });
+  }
+
+  function formDeps() {
+    const calls: string[] = [];
+    return {
+      calls,
+      deps: {
+        db,
+        cancelRun: async () => ({}),
+        cancelQueuedInput: async () => ({}),
+        resolveApproval: async () => ({}),
+        resolveAsk: async (input: {
+          runId: string;
+          callId: string;
+          questionId: string;
+          selectedValue: string;
+          freeText?: string;
+        }) => {
+          calls.push(
+            `ask:${input.runId}:${input.callId}:${input.questionId}:${input.selectedValue}:${input.freeText ?? ""}`,
+          );
+          return {};
+        },
+        log: () => {},
+      },
+    };
+  }
+
+  test("a text ask renders a root-level form with an input and a submit", () => {
+    const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
+    let s = initialRunCardState();
+    s = applyRunEvent(s, {
+      type: "backend.oma.ask_requested",
+      payload: {
+        callId: "c1",
+        questions: [{ id: "q1", kind: "text", question: "要改哪个分支？" }],
+      },
+    });
+    const card = renderCard(s, meta) as {
+      body: { elements: Array<Record<string, unknown>> };
+    };
+    const form = card.body.elements.find((e) => e.tag === "form") as
+      | { name: string; elements: Array<Record<string, unknown>> }
+      | undefined;
+    expect(form).toBeDefined();
+    expect(form!.elements.some((e) => e.tag === "input" && e.name === "answer")).toBe(true);
+    const submit = form!.elements.find((e) => e.tag === "button") as {
+      form_action_type: string;
+      name: string;
+      value: Record<string, unknown>;
+    };
+    expect(submit.form_action_type).toBe("submit");
+    expect(submit.name).toBe("ask_submit");
+    // Identity travels in the button value (200340 also requires it to exist).
+    expect(submit.value).toEqual({
+      runId: "r1",
+      callId: "c1",
+      questionId: "q1",
+      action: "answer_ask",
+    });
+  });
+
+  test("a select ask keeps callback buttons instead of a form", () => {
+    const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
+    let s = initialRunCardState();
+    s = applyRunEvent(s, {
+      type: "backend.oma.ask_requested",
+      payload: {
+        callId: "c1",
+        questions: [
+          {
+            id: "q1",
+            kind: "select",
+            question: "哪个？",
+            options: [{ label: "main", value: "main" }],
+          },
+        ],
+      },
+    });
+    const flat = JSON.stringify(renderCard(s, meta));
+    expect(flat).not.toContain('"tag":"form"');
+    expect(flat).toContain("answer_ask");
+  });
+
+  test("a form submit resolves the ask with the typed text", async () => {
+    seedFormCard("run-form", "om_form");
+    const { calls, deps: d } = formDeps();
+    const line = JSON.stringify({
+      event_id: "ev-form",
+      operator_id: "ou_1",
+      chat_id: "oc_actions",
+      message_id: "om_form",
+      action_tag: "form_submit",
+      action_name: "ask_submit",
+      action_value: JSON.stringify({
+        runId: "run-form",
+        callId: "call-form",
+        questionId: "q-form",
+        action: "answer_ask",
+      }),
+      form_value: { answer: "用 release 分支" },
+    });
+    expect(await handleCardActionLine(line, d)).toBe("answered");
+    expect(calls).toEqual(["ask:run-form:call-form:q-form::用 release 分支"]);
+  });
+
+  test("a form submit without identity is logged, not guessed", async () => {
+    const { calls, deps: d } = formDeps();
+    const line = JSON.stringify({
+      event_id: "ev-form-2",
+      operator_id: "ou_1",
+      chat_id: "oc_actions",
+      message_id: "om_form",
+      action_tag: "form_submit",
+      action_name: "ask_submit",
+      form_value: { answer: "hi" },
+    });
+    expect(await handleCardActionLine(line, d)).toBe("unparsed-form");
+    expect(calls).toEqual([]);
   });
 });

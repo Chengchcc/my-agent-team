@@ -316,13 +316,17 @@ createInterface({ input: actionChild.stdout! }).on("line", (line) => {
       }
       return { error: error ?? undefined };
     },
-    resolveAsk: async ({ runId, callId, questionId, selectedValue }) => {
+    resolveAsk: async ({ runId, callId, questionId, selectedValue, freeText }) => {
       const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
         runId,
         callId,
         answer: {
           answers: [
-            { id: questionId, selectedValues: selectedValue ? [selectedValue] : [], freeText: "" },
+            {
+              id: questionId,
+              selectedValues: selectedValue ? [selectedValue] : [],
+              freeText: freeText ?? "",
+            },
           ],
         },
       });

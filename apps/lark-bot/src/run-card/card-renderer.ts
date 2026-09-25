@@ -260,14 +260,46 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
     const prompt = action.prompt.split("\n").slice(0, 3).join("\n");
     elements.push({ tag: "markdown", content: prompt });
   }
-  if (action && !isApproval && action.allowFreeText) {
+  const freeTextAsk =
+    action !== null && !isApproval && action.allowFreeText && action.options.length === 0;
+  if (freeTextAsk && action !== null) {
+    // Card JSON 2.0 form: the input holds the text locally and one submit
+    // carries every field — no per-keystroke callbacks. The button keeps a
+    // `value` (Feishu rejects interactive components without one, 200340) AND
+    // a `name`, so identity survives whichever carrier the submit preserves.
+    elements.push({
+      tag: "form",
+      name: "ask_form",
+      elements: [
+        {
+          tag: "input",
+          name: "answer",
+          placeholder: { tag: "plain_text", content: "输入你的回答…" },
+        },
+        {
+          tag: "button",
+          element_id: "ask_submit",
+          name: "ask_submit",
+          type: "primary",
+          form_action_type: "submit",
+          text: { tag: "plain_text", content: "继续执行" },
+          value: {
+            runId: meta.runId,
+            callId: action.callId,
+            questionId: action.questionId,
+            action: "answer_ask",
+          },
+        },
+      ],
+    });
+  } else if (action && !isApproval && action.allowFreeText) {
     elements.push({
       tag: "markdown",
       content: "（也可以直接在本话题回复作答）",
       text_size: "notation",
     });
   }
-  if (action) {
+  if (action && !freeTextAsk) {
     elements.push(...pendingActionButtons(meta.runId, action));
   }
   if (meta.webUrl) {
