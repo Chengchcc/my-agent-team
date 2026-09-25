@@ -215,6 +215,19 @@ describe("OmaBackend (child process)", () => {
 });
 
 describe("OmaBackend.dispose (deterministic shutdown)", () => {
+  test("a child that never accepts is failed by the deadline, not by a human", async () => {
+    // The input used to sit in "delivering" with zero events until someone
+    // cancelled the run (live 2026-09-25). The handshake is bounded now.
+    const backend = new OmaBackend(makeConfig("silent"), { acceptanceTimeoutMs: 250 });
+    const started = Date.now();
+    const error = await backend.execute(inputWith("r-no-accept")).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(OmaProcessError);
+    expect((error as OmaProcessError).code).toBe("spawn_failed");
+    expect((error as OmaProcessError).message).toContain("did not accept");
+    expect(Date.now() - started).toBeLessThan(5_000);
+    await backend.dispose();
+  });
+
   test("SIGTERMs a pre-acceptance child (silent) without awaiting acceptance", async () => {
     const backend = new OmaBackend(makeConfig("silent"), { abortGraceMs: 300 });
     // execute() blocks on acceptance forever for a silent child - never

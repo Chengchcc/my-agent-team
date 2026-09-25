@@ -19,7 +19,7 @@
 
 **HITL 的持久化差最后一环：Lark 可见。** approval 与 ask 都已走 durable PendingAction v1（`approval_request`/`ask_question` 写 `pending_action` 表，run CAS `running→waiting`，回答与超时经 `consumePendingAction` 修复回 `running`）。超时语义已补齐（2026-09-25）：oma 循环层的审批等待自带截止时间（默认 24 小时，`OMA_APPROVAL_TIMEOUT_MS` 可调），MCP 侧两层计时器都按 server 声明的 `timeoutMs` 走（`BACKEND_ASK_TIMEOUT_MS` 默认 24 小时），静默人类 fail-closed。仍缺：pending 事项在 Web 之外只有卡片一个消费面。
 
-**子进程活着但沉默，run 与卡片都不知道。**（2026-09-25，两次真实 run。）适配器的读取器会在子进程退出后 5 秒内收尾（Bun `child.exited` + 孤儿管道宽限），所以「子进程死了不结算」并不成立——实测是**子进程还在、但数分钟零事件**：一条 run 是 `ask` 权限模式下启动后什么都没吐（连 `agent_start` 都没有），另一条停在子代理委派之后。此时卡片只有计时器在走，唯一兜底是 30 分钟墙钟看门狗，两条 run 都得手工取消才结算。两条可选修法（未选）：①dispatch 加「静默看门狗」——连续 N 分钟无事件且无 pending action 就停掉并以明确原因结算，风险是合法的长工具（一条跑十分钟的 bash）会被误杀；②让**子进程自己发心跳**（loop 每 N 秒一个无副作用的 status 事件），父侧与卡片据此区分「安静但活着」和「卡死」，代价是事件契约 + oma 循环各改一处。推荐 ②，因为 ① 的误杀是不可逆的。
+**子进程活着但沉默，run 与卡片都不知道。**（2026-09-25，两次真实 run。）适配器的读取器会在子进程退出后 5 秒内收尾（Bun `child.exited` + 孤儿管道宽限），所以「子进程死了不结算」并不成立。两条 run 的成因查清后是**两种**：其一的输入停在 `delivering`，即 `backend.execute` 从未返回——oma 适配器等子进程的 **acceptance 握手**没有超时，子进程 bootstrap 卡住（MCP 挂载、机器吃紧）就永久占住这一轮；**已修**（`acceptanceTimeoutMs`，默认 180 秒，超时 reap 子进程并以 `spawn_failed` 失败，测试用 `silent` 夹具钉住 + 变异验证）。另一个子问题是子进程**活着但数分钟零事件**（另一条 run 停在子代理委派之后），卡片只有计时器在走，唯一兜底是 30 分钟墙钟看门狗。两条可选修法（未选）：①dispatch 加「静默看门狗」——连续 N 分钟无事件且无 pending action 就停掉并以明确原因结算，风险是合法的长工具（一条跑十分钟的 bash）会被误杀，不可逆；②让**子进程自己发心跳**（loop 每 N 秒一个无副作用的 status 事件），父侧与卡片据此区分「安静但活着」和「卡死」，代价是事件契约 + oma 循环各改一处。推荐 ②。另外这次暴露的两个次要缺口：acceptance 的 180 秒上限会被 MCP 挂载的 120 秒调用上限撑满（挂载阶段该有自己的、更短的截止时间），以及取消后仍有子进程存活（实测一个取消过的 run 的子进程活了 8 分钟）。
 
 ## 上下文与历史
 

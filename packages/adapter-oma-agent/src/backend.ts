@@ -41,6 +41,12 @@ export class OmaProcessError extends Error {
 export interface OmaBackendOptions {
   /** Bounded grace for the child to exit after outcome/abort before kill. */
   abortGraceMs?: number;
+  /** How long execute() waits for the child's acceptance envelope. Bootstrap
+   *  can stall (MCP mounts, a loaded box) and a child that never accepts used
+   *  to own the Run forever: the input stayed "delivering" with zero events
+   *  until a human cancelled it (observed live 2026-09-25). Generous on
+   *  purpose - the point is that it is bounded at all. */
+  acceptanceTimeoutMs?: number;
   /** Max simultaneously LIVE children (spawned Runs). Further executes wait
    *  FIFO for a slot; the input stays undelivered while queued. `stop()`
    *  cancels a queued wait so the Run never spawns. No pool: the limit only
@@ -73,6 +79,18 @@ interface ActiveHandle {
 
 /** Race a promise against a timeout; the timer is cleared so a settled race
  *  never holds the event loop. */
+/** Reject after `ms` unless `promise` settles first. Unlike withTimeout the
+ *  deadline is an error, so a caller can tell "timed out" from a null result. */
+function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const raced = Promise.race([
@@ -91,6 +109,7 @@ export class OmaBackend implements AgentBackend<"oma"> {
   readonly kind = "oma" as const;
   private readonly command: OmaCommandConfig;
   private readonly abortGraceMs: number;
+  private readonly acceptanceTimeoutMs: number;
   private readonly maxConcurrent: number;
   private readonly active = new Map<string, ActiveHandle>();
   /** Per-run command response waiters (steer/abort), matched by command id. */
@@ -107,6 +126,7 @@ export class OmaBackend implements AgentBackend<"oma"> {
   constructor(command: OmaCommandConfig, opts: OmaBackendOptions = {}) {
     this.command = command;
     this.abortGraceMs = opts.abortGraceMs ?? 3_000;
+    this.acceptanceTimeoutMs = opts.acceptanceTimeoutMs ?? 180_000;
     this.maxConcurrent = opts.maxConcurrent ?? 0; // 0 = unbounded
   }
 
@@ -244,7 +264,22 @@ export class OmaBackend implements AgentBackend<"oma"> {
     );
     debugLog("oma-adapter", `execute_sent runId=${runId}`);
 
-    const acceptanceError = await handle.acceptance;
+    let acceptanceError: string | null;
+    try {
+      acceptanceError = await withDeadline(
+        handle.acceptance,
+        this.acceptanceTimeoutMs,
+        `oma child did not accept execute within ${this.acceptanceTimeoutMs}ms`,
+      );
+    } catch (err) {
+      // A child stuck pre-acceptance (bootstrap) cannot own the Run: reap it
+      // and fail the input, so the caller settles instead of sitting with an
+      // input marked "delivering" and a card that shows nothing.
+      const message = err instanceof Error ? err.message : "oma child did not accept execute";
+      handle.settle({ status: "failed", error: message });
+      await this.reap(handle);
+      throw new OmaProcessError("spawn_failed", message);
+    }
     if (acceptanceError !== null) {
       // Settle explicitly: a child that REJECTED but kept running never
       // reaches the exit/outcome paths, and the spawn slot must be freed.
