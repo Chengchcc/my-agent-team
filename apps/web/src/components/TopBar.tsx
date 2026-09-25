@@ -58,23 +58,35 @@ function RuntimeChips({ agents }: { agents?: AgentRow[] }) {
   );
 }
 
+/** User-facing Lark state. The producer emits running | degraded | error (plus
+ *  configured when nothing was ever started), so the old `status === "healthy"`
+ *  comparison was never true and the chip printed the raw vocabulary. */
+function larkChipState(statuses: string[]): { label: string; tone: string } {
+  if (statuses.includes("error")) return { label: "连接失败", tone: "var(--destructive)" };
+  if (statuses.includes("degraded")) return { label: "需要处理", tone: "var(--destructive)" };
+  if (statuses.includes("running")) return { label: "已上线", tone: "var(--accent-violet)" };
+  return { label: "未连接", tone: "var(--muted-foreground)" };
+}
+
 function LarkChip() {
   const { data: surfaces } = useQuery(surfacesQuery());
-  const lark = (surfaces ?? []).find((s) => s.surface.toLowerCase().includes("lark"));
-  if (!lark) return null;
-  const healthy = lark.status === "healthy";
+  const larks = (surfaces ?? []).filter((s) => s.surface.toLowerCase().includes("lark"));
+  if (larks.length === 0) return null;
+  const { label, tone } = larkChipState(larks.map((s) => s.status));
+  // One surface = one place to fix it; several = the ops page that lists them.
+  const href = larks.length === 1 ? `/team/${larks[0]?.agentId}?tab=lark` : "/system";
   return (
     <Link
-      href="/system"
+      href={href}
       className="hidden items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] md:flex"
       style={{
-        borderColor: "color-mix(in srgb, var(--accent-violet) 30%, transparent)",
-        color: "var(--accent-violet)",
+        borderColor: `color-mix(in srgb, ${tone} 30%, transparent)`,
+        color: tone,
       }}
-      title={`Lark surface: ${lark.status}`}
+      title={`飞书：${label}`}
     >
       <ArrowLeftRight className="size-3" />
-      lark {healthy ? "sync" : lark.status}
+      飞书：{label}
     </Link>
   );
 }

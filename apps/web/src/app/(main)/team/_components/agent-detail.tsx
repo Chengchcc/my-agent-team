@@ -2,6 +2,7 @@
 
 import { MessageCircle, Package } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -60,8 +61,15 @@ type PackStatus = "pending" | "installing" | "ready" | "failed" | "syncing";
 /** Column 3 of the master-detail split: agent header + description card +
  *  inline config bar + the seven-tab content area. Content per tab is the
  *  existing real panels, only the tab shell moved to SubTabs. */
+const TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
+
 export function AgentDetail({ agentId }: { agentId: string }) {
-  const [tab, setTab] = useState<Tab>("persona");
+  // ?tab=lark is what the surface chip and the wizard's "open the settings"
+  // links point at; without reading it every deep link landed on Persona.
+  const requestedTab = useSearchParams().get("tab");
+  const [tab, setTab] = useState<Tab>(
+    requestedTab && TAB_KEYS.has(requestedTab) ? (requestedTab as Tab) : "persona",
+  );
   const { data: agent, isLoading } = useAgentDetail(agentId);
   const chat = useStartChat(agentId, agent?.name);
 
