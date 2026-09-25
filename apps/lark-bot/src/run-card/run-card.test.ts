@@ -14,7 +14,7 @@ import {
 } from "../bindings-sqlite.js";
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
-import { renderRunCard } from "./card-renderer.js";
+import { renderCard, renderRunCard } from "./card-renderer.js";
 import {
   applyRunEvent,
   initialRunCardState,
@@ -688,5 +688,71 @@ describe("tool activity (surfaces display, never invent)", () => {
         }).activeTool,
       ).toBeNull();
     }
+  });
+});
+
+describe("dedicated ask / approval card", () => {
+  const meta = { runId: "r1", startedAt: Date.now(), webUrl: "http://web/runs/r1" };
+
+  test("a parked ask replaces the run card with an orange form card", () => {
+    let s = initialRunCardState();
+    s = applyRunEvent(s, { type: "text_delta", text: "正在处理。" });
+    s = applyRunEvent(s, {
+      type: "backend.oma.ask_requested",
+      payload: {
+        callId: "c1",
+        questions: [
+          {
+            id: "q1",
+            kind: "select",
+            question: "要修改哪个分支？",
+            options: [
+              { label: "main", value: "main" },
+              { label: "release/2026.09", value: "release" },
+            ],
+          },
+        ],
+      },
+    });
+    const card = renderCard(s, meta) as {
+      header: { title: { content: string }; template: string };
+      body: { elements: Array<{ tag: string; content?: string }> };
+    };
+    expect(card.header.title.content).toBe("需要你的回答");
+    expect(card.header.template).toBe("orange");
+    const flat = JSON.stringify(card);
+    expect(flat).toContain("要修改哪个分支？");
+    expect(flat).toContain("answer_ask");
+    // The plan's container rule: the todo panel is a collapsible_panel and
+    // must never share a card with an interactive form area.
+    expect(card.body.elements.some((e) => e.tag === "collapsible_panel")).toBe(false);
+    // …and the run card's streaming controls are gone.
+    expect(flat).not.toContain("stop_button");
+  });
+
+  test("an approval keeps approve/reject and names the frame", () => {
+    let s = initialRunCardState();
+    s = applyRunEvent(s, {
+      type: "backend.oma.approval_request",
+      payload: { callId: "c2" },
+    });
+    const card = renderCard(s, meta) as {
+      header: { title: { content: string } };
+    };
+    const flat = JSON.stringify(card);
+    expect(card.header.title.content).toBe("需要确认");
+    expect(flat).toContain("批准");
+    expect(flat).toContain("拒绝");
+  });
+
+  test("the running frame is the run card again once the ask clears", () => {
+    let s = initialRunCardState();
+    s = applyRunEvent(s, {
+      type: "backend.oma.ask_requested",
+      payload: { callId: "c3", questions: [] },
+    });
+    s = applyRunEvent(s, { type: "text_delta", text: "继续" });
+    const card = renderCard(s, meta) as { header: { title: { content: string } } };
+    expect(card.header.title.content).not.toBe("需要你的回答");
   });
 });

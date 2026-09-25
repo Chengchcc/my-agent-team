@@ -10,21 +10,8 @@ import {
 } from "../bindings-sqlite.js";
 import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { swapAckReaction } from "./ack-reaction.js";
-import { createCardFlushController } from "./card-flush.js";
 import type { CardKitClient } from "./card-kit.js";
-import {
-  ACTIVITY_ELEMENT_ID,
-  cardStatusKey,
-  OUTPUT_ELEMENT_ID,
-  renderActivityContent,
-  renderOutputContent,
-  renderRunCard,
-  renderStatusContent,
-  renderTodoPanel,
-  renderToolsContent,
-  STATUS_ELEMENT_ID,
-  TOOLS_ELEMENT_ID,
-} from "./card-renderer.js";
+import { renderCard } from "./card-renderer.js";
 import {
   applyRunEvent,
   initialRunCardState,
@@ -32,6 +19,7 @@ import {
   pendingActionFromBackend,
   type RunCardState,
 } from "./card-state.js";
+import { createCardUpdater } from "./card-updater.js";
 
 /**
  * ADR 0031: the streaming card lifecycle for one Agent Run.
@@ -253,121 +241,21 @@ export async function watchRunCard(
     });
   };
 
-  /** Element contents already pushed — only changed elements get a call. */
-  let pushedOutput = "";
-  let pushedActivity = "";
-  let pushedTools = "";
-  let pushedStatus = "";
-  /** Todo panel signature at the last full replace. A panel is structural:
-   *  changing it costs a whole-card replace, throttled so a burst of
-   *  todo_write calls cannot flood CardKit. */
-  let pushedTodo = "null";
-  let lastTodoReplaceAt = 0;
-  /** Header frame at the last full replace — element streams cannot
-   *  change the header, so a key change forces one full-card replace. */
-  let pushedCardKey: string | null = null;
-
-  const nextSeq = () => {
-    seq += 1;
-    return seq;
-  };
-
-  /** After a full replace, every element is current by definition. */
-  const cacheElements = () => {
-    pushedOutput = renderOutputContent(state);
-    pushedActivity = renderActivityContent(state);
-    pushedTools = renderToolsContent(state);
-    pushedStatus = renderStatusContent(state, meta);
-    pushedTodo = JSON.stringify(renderTodoPanel(state));
-  };
-
-  const TODO_REPLACE_MIN_MS = 800;
-
-  const flush = createCardFlushController(async () => {
-    if (!cardKitId || state.terminal) return;
-    const frameKey = cardStatusKey(state);
-    const frameChanged = frameKey !== pushedCardKey;
-    const todoSignature = JSON.stringify(renderTodoPanel(state));
-    const todoChanged = todoSignature !== pushedTodo;
-    const todoDue = Date.now() - lastTodoReplaceAt >= TODO_REPLACE_MIN_MS;
-    if (frameChanged || (todoChanged && todoDue)) {
-      // Full replace (header + elements) on phase transitions: queued →
-      // running → waiting_* are rare, so the cost is fine and it is the
-      // ONLY way the header moves mid-run. The todo panel rides the same
-      // path because a container cannot be patched as an element content.
-      const r = await cardClient.updateCard(cardKitId, renderRunCard(state, meta), nextSeq());
-      if (!r.ok) {
-        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
-        return;
-      }
-      pushedCardKey = frameKey;
-      lastTodoReplaceAt = Date.now();
-      cacheElements();
-      persist();
-      return;
-    }
-    const activityContent = renderActivityContent(state);
-    if (activityContent !== pushedActivity) {
-      const r = await cardClient.streamElement({
-        cardId: cardKitId,
-        elementId: ACTIVITY_ELEMENT_ID,
-        content: activityContent,
-        sequence: nextSeq(),
-        uuid: `${runId}-act-${seq}`,
-      });
-      if (!r.ok) {
-        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
-        return;
-      }
-      pushedActivity = activityContent;
-    }
-    const outputContent = renderOutputContent(state);
-    if (outputContent !== pushedOutput) {
-      const r = await cardClient.streamElement({
-        cardId: cardKitId,
-        elementId: OUTPUT_ELEMENT_ID,
-        content: outputContent,
-        sequence: nextSeq(),
-        uuid: `${runId}-out-${seq}`,
-      });
-      if (!r.ok) {
-        // Non-fatal (ADR 0031 §2): the next delta re-flushes.
-        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
-        return;
-      }
-      pushedOutput = outputContent;
-    }
-    const toolsContent = renderToolsContent(state);
-    if (toolsContent !== pushedTools) {
-      const r = await cardClient.streamElement({
-        cardId: cardKitId,
-        elementId: TOOLS_ELEMENT_ID,
-        content: toolsContent,
-        sequence: nextSeq(),
-        uuid: `${runId}-tl-${seq}`,
-      });
-      if (!r.ok) {
-        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
-        return;
-      }
-      pushedTools = toolsContent;
-    }
-    const statusContent = renderStatusContent(state, meta);
-    if (statusContent !== pushedStatus) {
-      const r = await cardClient.streamElement({
-        cardId: cardKitId,
-        elementId: STATUS_ELEMENT_ID,
-        content: statusContent,
-        sequence: nextSeq(),
-        uuid: `${runId}-st-${seq}`,
-      });
-      if (!r.ok) {
-        updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: r.error });
-        return;
-      }
-      pushedStatus = statusContent;
-    }
-    persist();
+  /** Painting (element streams, full replaces, caches) lives in
+   *  card-updater.ts; the watcher keeps lifecycle only. */
+  const getState = (): RunCardState => state;
+  const updater = createCardUpdater({
+    cardClient,
+    db,
+    runId,
+    meta,
+    getState,
+    getCardId: () => cardKitId,
+    nextSeq: () => {
+      seq += 1;
+      return seq;
+    },
+    onPersist: persist,
   });
 
   let pendingChars = 0;
@@ -380,7 +268,7 @@ export async function watchRunCard(
     if (intervalElapsed || bufferFull) {
       lastFlushAt = Date.now();
       pendingChars = 0;
-      flush.request();
+      updater.request();
     }
   };
 
@@ -399,7 +287,7 @@ export async function watchRunCard(
       stopTicker();
       return;
     }
-    flush.request();
+    updater.request();
   }, STATUS_TICK_MS);
 
   async function sendFinalText(text: string): Promise<void> {
@@ -453,15 +341,15 @@ export async function watchRunCard(
     let sealed = false;
     if (cardKitId) {
       for (let attempt = 0; attempt < 3 && !sealed; attempt++) {
-        const r = await cardClient.updateCard(cardKitId, renderRunCard(state, meta), nextSeq());
-        if (r.ok) sealed = true;
-        else await new Promise((r2) => setTimeout(r2, 500 * 2 ** attempt));
+        sealed = await updater.replaceNow(state);
+        if (!sealed) await new Promise((r2) => setTimeout(r2, 500 * 2 ** attempt));
       }
     }
     if (sealed) {
       // Close streaming mode so the client leaves the streaming view and
       // renders the frozen terminal card (reference: setCardStreamingMode).
-      const closed = await cardClient.closeStreaming(cardKitId!, nextSeq());
+      seq += 1;
+      const closed = await cardClient.closeStreaming(cardKitId!, seq);
       if (!closed.ok) {
         // Non-fatal: the content is already terminal; the mode also
         // self-closes on the platform's streaming timeout.
@@ -505,7 +393,7 @@ export async function watchRunCard(
 
     // ── Create the card entity + send its message reference ──
     if (!cardKitId) {
-      const created = await cardClient.createCard(renderRunCard(state, meta));
+      const created = await cardClient.createCard(renderCard(state, meta));
       if (!created.ok) {
         // Hand the run back to the text bridge; it delivers the final row.
         updateRunCard(db, runId, {
@@ -574,7 +462,7 @@ export async function watchRunCard(
             if (!state.terminal) {
               state = applyRunEvent(state, { type: "status", status: "completed" });
             }
-            await flush.finish();
+            await updater.finish();
             await seal();
             await leaveTerminalReaction();
           } else {
@@ -598,7 +486,7 @@ export async function watchRunCard(
                 state = applyRunEvent(state, ev as never);
                 if (state !== before) {
                   if (state.terminal) {
-                    await flush.finish();
+                    await updater.finish();
                     await seal();
                     await leaveTerminalReaction();
                     return;

@@ -238,6 +238,78 @@ function stopButton(runId: string): Record<string, unknown> {
   };
 }
 
+/** The dedicated ask/approval card. While a human must act, the run card
+ *  steps aside: Card JSON 2.0 cannot nest a form with a collapsible panel,
+ *  and the user's attention belongs on the question. Header is orange — an
+ *  ask is not a failure. Shows ONE progress line, never the todo panel. */
+export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<string, unknown> {
+  const action = state.pendingAction;
+  const isApproval = action?.kind === "approval";
+  const elements: Record<string, unknown>[] = [];
+
+  const done = state.todos.filter((t) => t.status === "done").length;
+  if (state.todos.length > 0) {
+    elements.push({
+      tag: "markdown",
+      content: `当前进度：${done} / ${state.todos.length}`,
+      text_size: "notation",
+    });
+  }
+  if (action?.prompt) {
+    // ≤3 lines of question: more context belongs in Web.
+    const prompt = action.prompt.split("\n").slice(0, 3).join("\n");
+    elements.push({ tag: "markdown", content: prompt });
+  }
+  if (action && !isApproval && action.allowFreeText) {
+    elements.push({
+      tag: "markdown",
+      content: "（也可以直接在本话题回复作答）",
+      text_size: "notation",
+    });
+  }
+  if (action) {
+    elements.push(...pendingActionButtons(meta.runId, action));
+  }
+  if (meta.webUrl) {
+    elements.push({
+      tag: "markdown",
+      content: `[在 Web 查看](${meta.webUrl})`,
+      text_size: "notation",
+    });
+  }
+
+  return {
+    schema: "2.0",
+    config: {
+      // No streaming_mode: an interactive card must not be in the streaming
+      // view (the watcher closes the mode before replacing with this card).
+      update_multi: true,
+      width_mode: "fill",
+      enable_forward: false,
+    },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: isApproval ? "需要确认" : "需要你的回答",
+      },
+      template: "orange",
+    },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      vertical_spacing: "8px",
+      elements,
+    },
+  };
+}
+
+/** One entry point for the watcher: a parked action replaces the run card
+ *  with the ask card; everything else renders as the run card. */
+export function renderCard(state: RunCardState, meta: RunCardMeta): Record<string, unknown> {
+  if (state.pendingAction && !state.terminal) return renderAskCard(state, meta);
+  return renderRunCard(state, meta);
+}
+
 export function renderRunCard(state: RunCardState, meta: RunCardMeta): Record<string, unknown> {
   const status = cardStatusKey(state);
   const header = HEADER_BY_STATUS[status] ?? HEADER_BY_STATUS.streaming!;
