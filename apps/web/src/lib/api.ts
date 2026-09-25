@@ -156,6 +156,9 @@ export const api = {
   getIdentity: (id: string) => unwrap(client.api.agents({ id }).identity.get()),
   setIdentity: (id: string, body: { soul?: string; user?: string }) =>
     unwrap(client.api.agents({ id }).identity.put(body)),
+  // Lark surface read model: the ONE answer to "can this agent talk to Lark
+  // right now" (status + issue + health + which actions are real).
+  larkSurface: (id: string) => unwrap(client.api.agents({ id }).lark.get()),
   // Lark setup
   larkSetup: (id: string, body: { botDisplayName?: string; brand?: "feishu" | "lark" }) =>
     unwrap(client.api.agents({ id }).lark.setup.post(body)),

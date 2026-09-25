@@ -10,7 +10,6 @@ import { AgentMemoryPanel } from "@/components/AgentMemoryPanel";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
 import { KnowledgePackPanel } from "@/components/KnowledgePackPanel";
-import { LarkBotPanel } from "@/components/LarkBotPanel";
 import { McpServerPanel } from "@/components/McpServerPanel";
 import { AgentRunsTable } from "@/components/ops/AgentRunsTable";
 import { QueryState } from "@/components/ops/QueryState";
@@ -22,6 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { WorkspaceExplorer } from "@/components/WorkspaceExplorer";
 import { useAgentDetail } from "@/features/agents/hooks";
 import { useStartChat } from "@/features/conversations/hooks";
+import { LarkSurfacePanel } from "@/features/lark/LarkSurfacePanel";
 import { useAgentRuns } from "@/features/ops/hooks";
 import {
   useAgentSkillPacks,
@@ -141,7 +141,7 @@ export function AgentDetail({ agentId }: { agentId: string }) {
           {tab === "mcp" && <McpServerPanel agentId={agentId} />}
           {tab === "knowledge" && <KnowledgePackPanel agentId={agentId} />}
           {tab === "projects" && <AgentProjectsPanel agent={agent} />}
-          {tab === "lark" && <LarkBotPanel agentId={agentId} />}
+          {tab === "lark" && <LarkSurfacePanel agentId={agentId} />}
           {tab === "memory" && <AgentMemoryPanel agentId={agentId} />}
           {tab === "workspace" && <WorkspaceExplorer agentId={agentId} />}
           {tab === "activity" && (

@@ -1,7 +1,6 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -28,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { agentKeys, useCreateAgent, useMcpCatalog, useUpdateAgent } from "@/features/agents/hooks";
+import { useCreateAgent, useMcpCatalog, useUpdateAgent } from "@/features/agents/hooks";
 import { useKnowledgePacks } from "@/features/knowledge/hooks";
 import { useModelList } from "@/features/models/hooks";
 import {
@@ -36,7 +35,7 @@ import {
   useSetAgentPacks,
   useSkillPackList,
 } from "@/features/skill-packs/hooks";
-import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
+import { type AgentRow, api } from "@/lib/api";
 import { fieldClass, overlineClass } from "@/lib/form-styles";
 import { ProviderSetupInline } from "./ProviderSetupInline";
 
@@ -61,11 +60,8 @@ export function AgentForm({
   alwaysOpen,
 }: AgentFormProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const isEdit = !!editAgent;
-  const [setupSession, setSetupSession] = useState<LarkSetupSession | null>(null);
   const [open, setOpen] = useState(false);
-  const [setupLoading, setSetupLoading] = useState(false);
   const [serverError, setServerError] = useState("");
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
   const [selectedMcpIds, setSelectedMcpIds] = useState<string[]>([]);
@@ -165,7 +161,6 @@ export function AgentForm({
         (editAgent.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId),
       );
       setSelectedKnowledgeIds(editAgent.knowledgePacks ?? []);
-      setSetupSession(null);
       return;
     }
     if (!draft) return;
@@ -205,28 +200,6 @@ export function AgentForm({
     );
     if (first) form.setValue("model", first.id, { shouldValidate: true });
   }, [isEdit, modelGroups, form]);
-
-  // Poll setup session when pending
-  useEffect(() => {
-    const status = setupSession?.status;
-    const setupId = setupSession?.setupId;
-    const agentId = editAgent?.id;
-    if (status !== "pending" || !agentId || !setupId) return;
-    const interval = setInterval(async () => {
-      try {
-        const session = await api.larkSetupStatus(agentId, setupId);
-        setSetupSession(session);
-        if (session.status !== "pending") {
-          clearInterval(interval);
-          queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
-          queryClient.invalidateQueries({ queryKey: agentKeys.lists() });
-        }
-      } catch {
-        clearInterval(interval);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [setupSession?.status, setupSession?.setupId, editAgent?.id, queryClient]);
 
   // Skill pack assignments
   const { data: availablePacks } = useSkillPackList();
@@ -329,7 +302,9 @@ export function AgentForm({
         }
         form.reset();
         setOpen(false);
-        router.push(`/team/${agent.id}/edit`);
+        router.push(
+          values.enableLark ? `/team/${agent.id}/edit?setup=lark` : `/team/${agent.id}/edit`,
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to save agent";
         setServerError(msg);
@@ -673,11 +648,6 @@ export function AgentForm({
                   isEdit={isEdit}
                   editAgent={editAgent}
                   enableLark={enableLark}
-                  setupSession={setupSession}
-                  setupLoading={setupLoading}
-                  setSetupSession={setSetupSession}
-                  setSetupLoading={setSetupLoading}
-                  getBotDisplayName={() => form.getValues("botDisplayName")}
                 />
 
                 <AgentFormResourceSection
