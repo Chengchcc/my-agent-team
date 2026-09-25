@@ -827,7 +827,7 @@ describe("free-text ask form", () => {
     });
   });
 
-  test("a select ask renders one full-width option row each", () => {
+  test("a select ask renders one label+button row per option", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
     let s = initialRunCardState();
     s = applyRunEvent(s, {
@@ -840,7 +840,7 @@ describe("free-text ask form", () => {
             kind: "select",
             question: "哪个？",
             options: [
-              { label: "main", value: "main" },
+              { label: "main", value: "main", description: "默认分支，改动最显眼" },
               { label: "release/2026.09 的长期维护分支", value: "release" },
             ],
           },
@@ -850,17 +850,26 @@ describe("free-text ask form", () => {
     const card = renderCard(s, meta) as {
       body: { elements: Array<Record<string, unknown>> };
     };
+    // The model's per-option helper line has to survive parsing; it was being
+    // dropped (AskOption had no description field).
+    expect(JSON.stringify(card)).toContain("默认分支，改动最显眼");
     // Not a form: a form must contain a submit button (Feishu 300123), and
     // these options answer in one click.
     expect(card.body.elements.some((e) => e.tag === "form")).toBe(false);
-    const buttons = card.body.elements.filter((e) => e.tag === "button") as Array<
-      Record<string, unknown>
-    >;
-    expect(buttons).toHaveLength(2);
-    // width: fill is what makes the rows line up; ragged inline buttons were
-    // the live complaint (2026-09-25).
-    for (const b of buttons) expect(b.width).toBe("fill");
-    expect(JSON.stringify(buttons)).toContain("answer_ask");
+    const rows = card.body.elements.filter((e) => e.tag === "column_set") as Array<{
+      columns: Array<{ elements: Array<Record<string, unknown>> }>;
+    }>;
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      // Label left, button right: the buttons carry the same text, so the
+      // rows line up. No width:"fill" - a live card rejected the click with it.
+      const label = JSON.stringify(row.columns[0]?.elements ?? []);
+      expect(label).toMatch(/main|release/);
+      const button = row.columns[1]?.elements?.[0] as Record<string, unknown>;
+      expect(button.tag).toBe("button");
+      expect(button.width).toBeUndefined();
+    }
+    expect(JSON.stringify(rows)).toContain("answer_ask");
   });
 
   test("a question keeps the progress panel on the card", () => {
@@ -885,11 +894,14 @@ describe("free-text ask form", () => {
       },
     });
     const card = renderCard(s, meta) as {
-      body: { elements: Array<{ tag: string; header?: { title?: { content?: string } } }> };
+      body: { elements: Array<{ tag: string; content?: string }> };
     };
-    const panel = card.body.elements.find((e) => e.tag === "collapsible_panel");
     // The ask used to drop the plan, so the question arrived with no context.
-    expect(panel?.header?.title?.content).toBe("**进度 1 / 2**");
+    const progress = card.body.elements.find((e) => e.content?.includes("进度 1 / 2"));
+    expect(progress?.content).toContain("● **写 plan.md**");
+    // …as flat markdown, never a container: a container plus interactive
+    // elements is what broke the click on a live card.
+    expect(card.body.elements.some((e) => e.tag === "collapsible_panel")).toBe(false);
   });
 
   test("a form submit resolves the ask with the typed text", async () => {

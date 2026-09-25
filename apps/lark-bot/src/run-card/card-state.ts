@@ -24,6 +24,9 @@ export interface CompletedTool {
 export interface AskOption {
   label: string;
   value: string;
+  /** Optional helper line the model attached to the option; the card shows it
+   *  under the label so a choice reads as a choice. */
+  description?: string;
 }
 
 export interface PendingActionState {
@@ -190,7 +193,10 @@ function parseAskQuestion(questions: unknown): PendingActionState | null {
       if (typeof opt !== "object" || opt === null) continue;
       const label = "label" in opt && typeof opt.label === "string" ? opt.label : null;
       const value = "value" in opt && typeof opt.value === "string" ? opt.value : null;
-      if (label !== null && value !== null) options.push({ label, value });
+      const description =
+        "description" in opt && typeof opt.description === "string" ? opt.description : undefined;
+      if (label !== null && value !== null)
+        options.push({ label, value, ...(description ? { description } : {}) });
     }
   }
   const isText = "kind" in q && q.kind === "text";

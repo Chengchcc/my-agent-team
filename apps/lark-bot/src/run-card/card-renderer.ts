@@ -118,7 +118,17 @@ export function renderToolsContent(state: RunCardState): string {
  *  never mixed into the ask area). Shows the active item, at most two
  *  completed and two pending, and says how much is left. Structural state:
  *  it is replaced, never typewriter-updated. */
-export function renderTodoPanel(state: RunCardState): Record<string, unknown> | null {
+/** The plan rendered for a card: header + the visible subset of items. */
+export interface TodoPlanView {
+  header: string;
+  lines: string[];
+  expanded: boolean;
+}
+
+/** Shared by the collapsible panel (Run card) and the flat block on a
+ *  question card: a question card must not mix a container with interactive
+ *  elements, so there the same plan renders as plain markdown. */
+export function renderTodoPlan(state: RunCardState): TodoPlanView | null {
   const items = state.todos;
   if (items.length === 0) return null;
   const done = items.filter((t) => t.status === "done");
@@ -153,11 +163,23 @@ export function renderTodoPanel(state: RunCardState): Record<string, unknown> | 
   if (remaining > 0) lines.push(`还有 ${remaining} 项 · 在 Web 查看`);
 
   return {
+    header: `**进度 ${done.length} / ${items.length}**`,
+    lines,
+    expanded: active.length > 0 && !state.terminal,
+  };
+}
+
+/** The Run card's collapsible panel. A question card uses the flat form
+ *  instead (see renderTodoPlan). */
+export function renderTodoPanel(state: RunCardState): Record<string, unknown> | null {
+  const plan = renderTodoPlan(state);
+  if (!plan) return null;
+  return {
     tag: "collapsible_panel",
     element_id: TODO_ELEMENT_ID,
-    expanded: active.length > 0 && !state.terminal,
+    expanded: plan.expanded,
     header: {
-      title: { tag: "markdown", content: `**进度 ${done.length} / ${items.length}**` },
+      title: { tag: "markdown", content: plan.header },
       vertical_align: "center",
       icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
       icon_position: "follow_text",
@@ -166,7 +188,7 @@ export function renderTodoPanel(state: RunCardState): Record<string, unknown> | 
     border: { color: "grey", corner_radius: "5px" },
     padding: "8px 8px 8px 8px",
     vertical_spacing: "4px",
-    elements: [{ tag: "markdown", content: lines.join("\n"), text_size: "notation" }],
+    elements: [{ tag: "markdown", content: plan.lines.join("\n"), text_size: "notation" }],
   };
 }
 
@@ -189,22 +211,47 @@ function pendingActionButtons(
   // rejected the whole card and, after three strikes, degraded it — the ask
   // never became clickable. Position is the only stable, short identity.
   action.options.slice(0, 4).forEach((opt, index) => {
+    // Label left, fixed-text button right, one row per option: the buttons are
+    // equal width so the rows line up. width:"fill" is NOT used - it is not in
+    // the reference and a live card rejected the click (2026-09-25).
+    const label = opt.description ? `**${opt.label}**\n${opt.description}` : `**${opt.label}**`;
     buttons.push({
-      tag: "button",
-      element_id: `ask_opt_${index}`,
-      text: { tag: "plain_text", content: opt.label },
-      type: "default",
-      width: "fill",
-      behaviors: [
+      tag: "column_set",
+      flex_mode: "stretch",
+      horizontal_spacing: "8px",
+      margin: "6px 0 0 0",
+      columns: [
         {
-          type: "callback",
-          value: {
-            runId,
-            callId: action.callId,
-            questionId: action.questionId,
-            action: "answer_ask",
-            selectedValue: opt.value,
-          },
+          tag: "column",
+          width: "weighted",
+          weight: 4,
+          vertical_align: "center",
+          elements: [{ tag: "markdown", content: label }],
+        },
+        {
+          tag: "column",
+          width: "auto",
+          vertical_align: "center",
+          elements: [
+            {
+              tag: "button",
+              element_id: `ask_opt_${index}`,
+              text: { tag: "plain_text", content: "选这个" },
+              type: "default",
+              behaviors: [
+                {
+                  type: "callback",
+                  value: {
+                    runId,
+                    callId: action.callId,
+                    questionId: action.questionId,
+                    action: "answer_ask",
+                    selectedValue: opt.value,
+                  },
+                },
+              ],
+            },
+          ],
         },
       ],
     });
@@ -216,7 +263,6 @@ function pendingActionButtons(
         element_id: "approve_button",
         text: { tag: "plain_text", content: "批准" },
         type: "primary",
-        width: "fill",
         behaviors: [
           { type: "callback", value: { runId, callId: action.callId, action: "approve" } },
         ],
@@ -226,7 +272,6 @@ function pendingActionButtons(
         element_id: "reject_button",
         text: { tag: "plain_text", content: "拒绝" },
         type: "danger",
-        width: "fill",
         behaviors: [
           { type: "callback", value: { runId, callId: action.callId, action: "reject" } },
         ],
@@ -306,10 +351,17 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
     // Alignment comes from width:fill instead - each option owns a row.
     elements.push(...pendingActionButtons(meta.runId, action));
   }
-  // The plan the question is about stays on the card: the progress panel is
-  // what makes "which branch?" answerable in context (live feedback).
-  const todoPanel = renderTodoPanel(state);
-  if (todoPanel) elements.push(todoPanel);
+  // The plan the question is about stays on the card, as PLAIN markdown: a
+  // container (collapsible_panel) does not belong on a card that carries
+  // interactive elements - mixing them costs the click (live 2026-09-25).
+  const plan = renderTodoPlan(state);
+  if (plan) {
+    elements.push({
+      tag: "markdown",
+      content: [plan.header, ...plan.lines].join("\n"),
+      text_size: "notation",
+    });
+  }
   if (meta.webUrl) {
     elements.push({
       tag: "markdown",
