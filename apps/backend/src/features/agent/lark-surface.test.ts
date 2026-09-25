@@ -46,6 +46,26 @@ describe("buildLarkSurfaceView status ladder", () => {
     expect(view.setup.id).toBe("s1");
   });
 
+  test("the authorization link lives in the view, not only in the session", () => {
+    // The CLI prints the link minutes after the session starts, so a panel
+    // that only kept the POST response would sit on "asking lark-cli" forever
+    // after a reload while a working link sat on the server.
+    const view = build({
+      setup: {
+        id: "s1",
+        status: "pending",
+        expiresAt: NOW + 60_000,
+        url: "https://open.feishu.cn/page/cli?user_code=AB12-CD34",
+      },
+    });
+    expect(view.setup.url).toBe("https://open.feishu.cn/page/cli?user_code=AB12-CD34");
+  });
+
+  test("a session that has no link yet reports null, not a missing field", () => {
+    const view = build({ setup: { id: "s1", status: "pending", expiresAt: NOW + 60_000 } });
+    expect(view.setup.url).toBeNull();
+  });
+
   test("authorized with a fresh heartbeat is online", () => {
     const view = build({
       config: config({ enabled: true, profileRef: "agent:1", botDisplayName: "bot" }),

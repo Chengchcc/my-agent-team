@@ -54,7 +54,12 @@ function countdown(expiresAt: number | null): string | null {
 export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const qc = useQueryClient();
   const { data: agent } = useAgentDetail(agentId) as { data?: AgentRow };
-  const { data: surface } = useQuery(larkSurfaceQuery(agentId));
+  const { data: surface, isPending: surfaceLoading } = useQuery(larkSurfaceQuery(agentId));
+  /** The surface view is the single source of truth for the state; a local
+   *  session only carries the streamed URL. Anything that changes the state
+   *  must therefore refresh the view, or the panel keeps showing the screen it
+   *  was on when the button was pressed. */
+  const refreshSurface = () => qc.invalidateQueries({ queryKey: larkKeys.surface(agentId) });
 
   // Settings (ported from the panel this replaced, including the rule that
   // `enabled` is never sent: the backend reads `enabled: true` as "turn it
@@ -132,6 +137,9 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
     setStartedAt(Date.now());
     try {
       setSession(await api.larkSetup(agentId, { botDisplayName: botName.trim() || undefined }));
+      // The session is pending now: without this the view still reads
+      // not_connected and its polling stays off.
+      await refreshSurface();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start Lark setup");
     } finally {
@@ -140,8 +148,12 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   };
 
   const cancelSetup = async () => {
-    if (session) await api.larkSetupCancel(agentId, session.setupId).catch(() => {});
+    // A reloaded page has no local session: the view still knows which session
+    // is live, so Cancel keeps working there too.
+    const id = session?.setupId ?? surface?.setup.id ?? null;
+    if (id) await api.larkSetupCancel(agentId, id).catch(() => {});
     setSession(null);
+    await refreshSurface();
   };
 
   /** Restart is a composed capability: toggling `enabled` off then on runs the
@@ -199,9 +211,22 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
 
   startSetupRef.current = startSetup;
 
+  if (surfaceLoading && !surface) {
+    // A default of "not connected" here put a working Connect button on screen
+    // before the read model answered - the first click raced the load.
+    return (
+      <div className="rounded-(--radius-card) border border-(--hairline) bg-(--panel) p-4 text-sm text-muted-foreground">
+        Checking the Lark surface...
+      </div>
+    );
+  }
+
   const status = surface?.status ?? "not_connected";
   const issue = surface?.setup.issue ?? null;
-  const url = session?.url ?? "";
+  // The session outlives this component, so a reload (or a second tab) must
+  // still find the link: read it from the view, and fall back to the session
+  // this tab started only because that answers one render sooner.
+  const url = session?.url ?? surface?.setup.url ?? "";
   const waitingTooLong =
     session?.status === "pending" && !url && startedAt > 0 && Date.now() - startedAt > URL_WAIT_MS;
   const expires = countdown(surface?.setup.expiresAt ?? null);

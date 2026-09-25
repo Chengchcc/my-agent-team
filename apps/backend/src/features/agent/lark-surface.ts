@@ -58,6 +58,8 @@ export interface LarkSurfaceView {
     id: string | null;
     status: "pending" | "completed" | "failed" | "expired" | "cancelled" | null;
     expiresAt: number | null;
+    /** The authorization link the CLI printed, when there is one. */
+    url: string | null;
     issue: LarkSetupIssue | null;
   };
   health: {
@@ -107,6 +109,10 @@ export interface LarkSetupFacts {
   brand?: "feishu" | "lark";
   /** Why a failed session failed, for the wizard to show instead of silence. */
   error?: string | null;
+  /** The authorization link, once the CLI has printed it. It arrives minutes
+   *  after the session starts, so it cannot be carried by the POST response -
+   *  a reload would lose it while the session is still live on the server. */
+  url?: string | null;
 }
 
 export interface BuildLarkSurfaceInput {
@@ -186,6 +192,7 @@ export function buildLarkSurfaceView(input: BuildLarkSurfaceInput): LarkSurfaceV
       id: setup?.id ?? null,
       status: setup?.status ?? null,
       expiresAt: setup?.expiresAt ?? null,
+      url: setup?.url ?? null,
       issue,
     },
     health: {
