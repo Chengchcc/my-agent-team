@@ -93,12 +93,48 @@ describe("buildLarkSurfaceView status ladder", () => {
 });
 
 describe("buildLarkSurfaceView access + actions", () => {
-  test("an empty allowlist is reported as everyone, not as an empty list", () => {
-    // The lark-bot ingest treated [] as "allow all" while the UI said
-    // nothing; naming it is the point of this projection.
-    const view = build({ config: config({ allowedSenders: [] }) });
-    expect(view.access.mode).toBe("everyone");
-    expect(view.access.users).toEqual([]);
+  test("an empty allowlist is a LOCKED surface, and only the wildcard is everyone", () => {
+    // The ingest denies an empty list (`matchesAllowlist`: empty -> false).
+    // Reporting it as "everyone" made the view lie about a surface nobody can
+    // reach - the test used to pin that lie.
+    const locked = build({ config: config({ allowedSenders: [] }) });
+    expect(locked.access.mode).toBe("allowlist");
+    expect(locked.access.users).toEqual([]);
+
+    const open = build({ config: config({ allowedSenders: ["*"] }) });
+    expect(open.access.mode).toBe("everyone");
+    // The wildcard is a rule, not a person.
+    expect(open.access.users).toEqual([]);
+  });
+
+  test("group @ readiness names the missing half, or says groups are off", () => {
+    const named = build({
+      config: config({
+        enabled: true,
+        profileRef: "agent:1",
+        botDisplayName: "bot",
+        groupPolicy: "open",
+      }),
+    });
+    expect(named.groupMention).toEqual({ enabled: true, ready: true, reason: null });
+
+    const unnamed = build({ config: config({ groupPolicy: "open" }) });
+    expect(unnamed.groupMention.enabled).toBe(true);
+    expect(unnamed.groupMention.ready).toBe(false);
+    expect(unnamed.groupMention.reason).toContain("名称");
+
+    const p2pOnly = build({ config: config({ botDisplayName: "bot", groupPolicy: "disabled" }) });
+    expect(p2pOnly.groupMention.enabled).toBe(false);
+    expect(p2pOnly.groupMention.reason).toContain("私聊");
+  });
+
+  test("the brand comes from the session when it knows one", () => {
+    const session = build({
+      setup: { id: "s1", status: "pending", expiresAt: NOW + 1_000, brand: "lark" },
+    });
+    expect(session.brand).toBe("lark");
+    const unknown = build({});
+    expect(unknown.brand).toBe("feishu");
   });
 
   test("a populated allowlist is an allowlist", () => {
@@ -120,11 +156,13 @@ describe("buildLarkSurfaceView access + actions", () => {
       config: config({ enabled: true, profileRef: "agent:1", botDisplayName: "bot" }),
       runtime: runtime({ lastSeenAt: NOW }),
     });
+    // Only what has an entry point: enable/disable exists (PATCH), restart
+    // and app-replacement do not.
     expect(online.actions).toEqual({
       canStartSetup: true,
-      canRestart: true,
       canDisable: true,
-      canReplaceApp: true,
+      canRestart: false,
+      canReplaceApp: false,
     });
   });
 

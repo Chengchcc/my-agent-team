@@ -743,7 +743,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       setupAvailable: await setupAvailable(),
     };
     const setup = session
-      ? { id: session.setupId, status: session.status, expiresAt: session.expiresAt }
+      ? {
+          id: session.setupId,
+          status: session.status,
+          expiresAt: session.expiresAt,
+          ...(session.brand ? { brand: session.brand } : {}),
+        }
       : null;
     return {
       config: {
@@ -752,6 +757,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         profileRef: lk.profile_ref !== "" ? lk.profile_ref : null,
         botDisplayName: lk.bot_display_name !== "" ? lk.bot_display_name : null,
         allowedSenders: lk.allowed_senders,
+        ...(lk.group_policy ? { groupPolicy: lk.group_policy } : {}),
       },
       runtime,
       setup,

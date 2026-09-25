@@ -79,6 +79,8 @@ export interface LarkSurfaceConfig {
   profileRef: string | null;
   botDisplayName: string | null;
   allowedSenders: readonly string[];
+  /** Whether groups are listened to at all (`disabled` = p2p only). */
+  groupPolicy?: "open" | "allowlist" | "disabled";
 }
 
 /** Runtime half — gathered by the composition root (registry + heartbeat). */
@@ -100,6 +102,8 @@ export interface LarkSetupFacts {
   id: string;
   status: "pending" | "completed" | "failed" | "expired" | "cancelled";
   expiresAt: number;
+  /** The brand the session was authorized against, when the manager knows it. */
+  brand?: "feishu" | "lark";
 }
 
 export interface BuildLarkSurfaceInput {
@@ -143,23 +147,37 @@ export function buildLarkSurfaceView(input: BuildLarkSurfaceInput): LarkSurfaceV
 
   const groupName = config.botDisplayName;
 
+  const groupsListened = config.groupPolicy !== "disabled";
+  const mentionReady = groupsListened && groupName !== null;
+
   return {
     status,
-    brand: "feishu",
+    // No brand is persisted per agent yet: the provisioner authorizes new
+    // sessions against feishu, and a session that knows its brand is the only
+    // honest source. Hardcoding "feishu" regardless was a guess.
+    brand: setup?.brand ?? "feishu",
     botDisplayName: groupName,
     access: {
-      // Legacy mapping, named in the type so the UI can show it: an empty
-      // list meant "allow everyone" in the lark-bot ingest, which the UI
-      // never said out loud. Non-empty is a plain allowlist.
-      mode: config.allowedSenders.length === 0 ? "everyone" : "allowlist",
-      users: config.allowedSenders.map((openId) => ({ openId, name: null })),
+      // `matchesAllowlist` (lark-bot inbound-policy) DENIES an empty list, so
+      // an empty allowlist is a locked surface, not an open one; only the
+      // wildcard grants everyone. This used to say the opposite and the UI
+      // believed it.
+      mode: config.allowedSenders.includes("*") ? "everyone" : "allowlist",
+      users: config.allowedSenders
+        .filter((id) => id !== "*")
+        .map((openId) => ({ openId, name: null })),
     },
     groupMention: {
-      // @ detection is always attempted; it can only work with a name, and
-      // the failure mode is silent (the bot starts, group @ does nothing).
-      enabled: true,
-      ready: groupName !== null,
-      reason: groupName === null ? "未设置机器人名称，群聊里 @ 不会触发" : null,
+      // Group @ needs BOTH a policy that listens in groups and a name that
+      // matches the bot's; either one missing is a silent failure, so both
+      // are reported instead of asserting "enabled".
+      enabled: groupsListened,
+      ready: mentionReady,
+      reason: groupsListened
+        ? groupName === null
+          ? "未设置机器人名称，群聊里 @ 不会触发"
+          : null
+        : "群聊已禁用（group_policy=disabled），只能在私聊使用",
     },
     setup: {
       id: setup?.id ?? null,
@@ -174,9 +192,13 @@ export function buildLarkSurfaceView(input: BuildLarkSurfaceInput): LarkSurfaceV
     },
     actions: {
       canStartSetup: runtime.setupAvailable && !awaitingAuthorization,
-      canRestart: authorized,
+      // Only actions with a real entry point are advertised: `enabled: false`
+      // via PATCH stops the bot, but there is no restart endpoint and no HTTP
+      // path that accepts an appId/appSecret pair (`larkProfileInit` is
+      // internal). Promising them made the DTO a wish list.
       canDisable: authorized,
-      canReplaceApp: runtime.setupAvailable,
+      canRestart: false,
+      canReplaceApp: false,
     },
   };
 }
