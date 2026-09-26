@@ -10,8 +10,10 @@ class Queue {
   private wake: (() => void) | null = null;
   private closed = false;
 
+  /** `unsubscribe` removes the queue from the bus before closing it, so a
+   *  closed queue is unreachable and needs no inert-flag guard: the "late
+   *  emits are swallowed" test pins the behaviour, this pins the mechanism. */
   push(ev: WorkflowEvent): void {
-    if (this.closed) return;
     this.items.push(ev);
     if (this.wake) {
       const w = this.wake;
