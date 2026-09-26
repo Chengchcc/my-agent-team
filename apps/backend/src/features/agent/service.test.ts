@@ -43,7 +43,7 @@ function makeInMemoryPort(): AgentPort {
     },
     async hardDelete(id) {
       const existed = rows.delete(id);
-      return { deletedAgent: existed, deletedThreads: 0, deletedMembers: 0 };
+      return { deletedAgent: existed };
     },
   };
 }

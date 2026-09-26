@@ -93,25 +93,16 @@ export function sqliteAgentAdapter(db: Database): AgentPort {
 
     // M11: Permanent hard delete — all in single backend.db transaction.
     // Enable foreign_keys for CASCADE, then restore original value to avoid side effects.
-    async hardDelete(
-      id: string,
-    ): Promise<{ deletedAgent: boolean; deletedThreads: number; deletedMembers: number }> {
+    async hardDelete(id: string): Promise<{ deletedAgent: boolean }> {
       const prevFk = db.query("PRAGMA foreign_keys").get() as { foreign_keys?: number } | null;
       const prev = prevFk?.foreign_keys ?? 0;
       db.run("PRAGMA foreign_keys = ON");
       try {
-        const deletedMembers = db
-          .prepare("SELECT COUNT(*) AS c FROM member WHERE agent_id = ?")
-          .get(id) as { c: number };
-        const deletedThreads = db
-          .prepare("SELECT COUNT(*) AS c FROM thread WHERE agent_id = ?")
-          .get(id) as { c: number };
+        // Cascade does the rest (conversations, runs, bindings); the member and
+        // thread tables this used to count are long gone, and querying them is
+        // what made every hard delete answer 500.
         const deletedAgent = db.prepare("DELETE FROM agents WHERE id = ?").run(id);
-        return {
-          deletedAgent: deletedAgent.changes > 0,
-          deletedThreads: deletedThreads.c,
-          deletedMembers: deletedMembers.c,
-        };
+        return { deletedAgent: deletedAgent.changes > 0 };
       } finally {
         db.run(`PRAGMA foreign_keys = ${prev}`);
       }

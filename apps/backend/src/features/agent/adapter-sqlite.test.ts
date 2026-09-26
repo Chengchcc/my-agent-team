@@ -16,6 +16,19 @@ function cfg(id: string, name: string, extra?: Partial<Parameters<typeof buildAg
 }
 
 describe("sqliteAgentAdapter", () => {
+  test("hardDelete works without touching tables the schema dropped", async () => {
+    // It used to SELECT COUNT(*) FROM member/thread - tables the schema no
+    // longer has - so every hard delete answered 500 ("no such table: member").
+    await adapter.create({
+      id: "hd1",
+      workspacePath: "/ws/hd1",
+      config: cfg("hd1", "gone"),
+      now: 2000,
+    });
+    expect(await adapter.hardDelete("hd1")).toEqual({ deletedAgent: true });
+    expect(await adapter.hardDelete("hd1")).toEqual({ deletedAgent: false });
+  });
+
   test("create and findById roundtrip", async () => {
     const agent = await adapter.create({
       id: "a1",

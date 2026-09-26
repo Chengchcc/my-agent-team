@@ -1579,11 +1579,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     await ensureAgent("default", "Assistant", seedModel);
   }
 
-  // B4: one best-effort reconcile over every agent at boot — worktrees and
-  // bridged configs refresh without waiting for the first PATCH (replaces
-  // any stale static-bearer .mcp.json from older installs). Failures warn
-  // per agent; startup proceeds.
-  for (const agent of await agentSvc.list(true)) {
+  // B4: one best-effort reconcile over every LIVE agent at boot — worktrees
+  // and bridged configs refresh without waiting for the first PATCH (replaces
+  // any stale static-bearer .mcp.json from older installs). Failures warn per
+  // agent; startup proceeds. Archived rows are skipped for the same reason the
+  // bot pull-up skips them: `getById` refuses archived agents, so listing them
+  // only produced a warning per ghost on every boot.
+  for (const agent of await agentSvc.list()) {
     try {
       await reconcileAgent.fn(agent.id);
     } catch (err) {
