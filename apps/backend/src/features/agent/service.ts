@@ -24,7 +24,9 @@ export function createAgentService(opts: {
   workspaceRoot: string;
   materializeWorkspace: (agentId: string, template?: string, name?: string) => Promise<string>;
   // M11 hardDelete dependencies — all closures from composition root (main.ts)
-  purgeWorkspace: (agentId: string) => Promise<void>;
+  /** Recursive delete of the workspace the row recorded. The directory is
+   *  named after the agent's slug, never its id, so the id is useless here. */
+  purgeWorkspace: (workspacePath: string) => Promise<void>;
   /** Guard: throws BusyError when the agent has an ACTIVE Agent Run
    *  (running/waiting/commit_failed). Agent Run is the only execution
    *  identity in Phase 5 - old session/attempt queries are gone. */
@@ -188,8 +190,10 @@ export function createAgentService(opts: {
       // 2. DB: hard delete the agent row + cascade
       const result = await port.hardDelete(id);
       if (!result.deletedAgent) throw new AgentNotFoundError(id);
-      // 3. workspace: physical rm -rf (idempotent)
-      await opts.purgeWorkspace(id);
+      // 3. workspace: physical rm -rf of the path the row carried (the
+      //    directory is slug-named, so recomputing it from the id missed it and
+      //    left the workspace on disk behind every hard delete).
+      await opts.purgeWorkspace(existing.workspacePath);
     },
   };
 }

@@ -26,18 +26,24 @@ export async function materializeWorkspace(opts: {
   return wsPath;
 }
 
-/** M11: Physically remove an agent's workspace directory.
- *  Idempotent (ENOENT = no-op). Rejects paths that escape workspaceRoot. */
+/** M11: Physically remove one agent's workspace directory.
+ *
+ *  Takes the path the agent row recorded, NOT an id: the directory is named
+ *  after the agent's slug, so recomputing it from the id silently purged
+ *  nothing and every hard delete left its workspace on disk. Idempotent
+ *  (ENOENT = no-op), and refuses anything outside `workspaceRoot` - the value
+ *  comes from the database and this is a recursive delete. */
 export async function purgeWorkspace(opts: {
   workspaceRoot: string;
-  agentId: string;
+  workspacePath: string;
 }): Promise<void> {
   const resolvedRoot = path.resolve(opts.workspaceRoot);
-  const wsPath = path.resolve(resolvedRoot, opts.agentId);
+  const wsPath = path.resolve(opts.workspacePath);
 
-  // Path traversal guard: resolved path must start with resolved root
-  if (!wsPath.startsWith(resolvedRoot + path.sep) && wsPath !== resolvedRoot) {
-    throw new Error(`path traversal rejected: ${opts.agentId}`);
+  // Strictly inside the root: equality is the agents directory itself, which is
+  // never one agent's workspace.
+  if (wsPath === resolvedRoot || !wsPath.startsWith(resolvedRoot + path.sep)) {
+    throw new Error(`path traversal rejected: ${opts.workspacePath}`);
   }
 
   await rm(wsPath, { recursive: true, force: true });

@@ -50,7 +50,7 @@ function makeInMemoryPort(): AgentPort {
 
 function makeSvc(overrides?: {
   assertNoActiveRun?: (id: string) => void;
-  purgeWorkspace?: (id: string) => Promise<void>;
+  purgeWorkspace?: (workspacePath: string) => Promise<void>;
 }) {
   let next = 1;
   const port = makeInMemoryPort();
@@ -153,13 +153,16 @@ describe("AgentService", () => {
       port,
       idGen: () => "agent-hd",
       workspaceRoot: "/tmp/ws",
+      // Production names the directory after the agent's slug, NOT its id -
+      // the old fixture used the id, which is exactly why the test agreed with
+      // a purge that never removed anything.
       materializeWorkspace: async () => {
-        const dir = "/tmp/ws/agent-hd";
+        const dir = "/tmp/ws/to-delete-1";
         mkdirSync(dir, { recursive: true });
         return dir;
       },
-      purgeWorkspace: async (id) => {
-        purgeLog.push(id);
+      purgeWorkspace: async (workspacePath) => {
+        purgeLog.push(workspacePath);
       },
       assertNoActiveRun: () => {},
     });
@@ -169,8 +172,8 @@ describe("AgentService", () => {
 
     // Agent should be gone
     await expect(svc.getById("agent-hd")).rejects.toThrow(AgentNotFoundError);
-    // Workspace should be purged
-    expect(purgeLog).toContain("agent-hd");
+    // The workspace must be purged by the path the row carried, not by id.
+    expect(purgeLog).toEqual(["/tmp/ws/to-delete-1"]);
   });
 
   test("hardDelete throws AgentBusyError when assertNoActiveRun throws", async () => {

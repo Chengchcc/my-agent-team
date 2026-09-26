@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackendConfig } from "../../config.js";
 import { ulid } from "../../infra/ids.js";
+import { purgeWorkspace } from "../../infra/workspace.js";
 import { type LarkBotRegistry, larkProfileInit } from "../lark-bot/index.js";
 import { sqliteAgentAdapter } from "./adapter-sqlite.js";
 import { withLarkLifecycle } from "./agent-lark.js";
@@ -48,10 +48,8 @@ export function createAgentSvc(
       return ensureAgentWorkspace(dir);
     },
 
-    purgeWorkspace: async (agentId) => {
-      const dir = join(agentsDir, agentId);
-      await rm(dir, { recursive: true, force: true });
-    },
+    // One implementation, in infra: it owns the containment guard.
+    purgeWorkspace: (workspacePath) => purgeWorkspace({ workspaceRoot: agentsDir, workspacePath }),
 
     assertNoActiveRun: (agentId) => {
       opts?.assertNoActiveRun?.(agentId);

@@ -50,25 +50,31 @@ describe("purgeWorkspace", () => {
     await mkdir(wsPath, { recursive: true });
     await writeFile(path.join(wsPath, "some-file.txt"), "data");
 
-    await purgeWorkspace({ workspaceRoot: ROOT, agentId: path.basename(wsPath) });
+    await purgeWorkspace({ workspaceRoot: ROOT, workspacePath: wsPath });
 
     expect(existsSync(wsPath)).toBe(false);
   });
 
   test("idempotent: double purge does not throw", async () => {
-    const agentId = `purge-idem-${Date.now()}`;
-    const wsPath = path.join(ROOT, agentId);
+    const wsPath = path.join(ROOT, `purge-idem-${Date.now()}`);
     await mkdir(wsPath, { recursive: true });
 
-    await purgeWorkspace({ workspaceRoot: ROOT, agentId });
-    await purgeWorkspace({ workspaceRoot: ROOT, agentId });
+    await purgeWorkspace({ workspaceRoot: ROOT, workspacePath: wsPath });
+    await purgeWorkspace({ workspaceRoot: ROOT, workspacePath: wsPath });
 
     expect(existsSync(wsPath)).toBe(false);
   });
 
   test("rejects path traversal", async () => {
-    await expect(purgeWorkspace({ workspaceRoot: ROOT, agentId: "../escape" })).rejects.toThrow(
+    await expect(
+      purgeWorkspace({ workspaceRoot: ROOT, workspacePath: `${ROOT}/../escape` }),
+    ).rejects.toThrow("path traversal");
+  });
+
+  test("refuses to purge the agents directory itself", async () => {
+    await expect(purgeWorkspace({ workspaceRoot: ROOT, workspacePath: ROOT })).rejects.toThrow(
       "path traversal",
     );
+    expect(existsSync(ROOT)).toBe(true);
   });
 });
