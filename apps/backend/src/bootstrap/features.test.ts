@@ -127,6 +127,29 @@ test("boot pull-up starts bots for lark-enabled agents", async () => {
   );
   expect(res.status).toBe(200);
 
+  // An archived agent keeps its lark config; the pull-up used to list archived
+  // rows too and started a bot for a deleted agent on every restart.
+  const archivable = await app.handle(
+    new Request("http://localhost/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-auth-token": cfg.authToken },
+      body: JSON.stringify({
+        name: "ArchivedBotProbe",
+        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        lark: { enabled: true, appId: "cli_archived", appSecret: "secret" },
+      }),
+    }),
+  );
+  const archivableBody = (await archivable.json()) as { id?: string };
+  expect(archivable.status).toBe(201);
+  const archived = await app.handle(
+    new Request(`http://localhost/api/agents/${archivableBody.id}`, {
+      method: "DELETE",
+      headers: { "x-auth-token": cfg.authToken },
+    }),
+  );
+  expect(archived.status).toBe(200);
+
   await installed.start();
   // PATCH starts the bot immediately and the boot pull-up re-ensures it —
   // both callers, one contract: only enabled agents, derived profile.

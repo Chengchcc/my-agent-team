@@ -1519,7 +1519,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // when its config was re-saved, so a backend restart silently dropped
     // every bot until someone touched the agent. Runs after listen (main
     // calls start() post server.start), so the children can connect.
-    for (const agent of await agentSvc.list(true)) {
+    // Live agents only: an archived agent keeps its lark config, so listing
+    // archived rows here resurrected a bot for a deleted agent on every boot
+    // ("boot start for <id>" then a restart loop against a missing entry).
+    for (const agent of await agentSvc.list()) {
       const lk = agent.config.lark;
       const bootable =
         agent.config.enabled === true && lk.enabled === true && lk.profile_ref !== "";
