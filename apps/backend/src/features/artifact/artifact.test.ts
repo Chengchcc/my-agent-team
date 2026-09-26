@@ -16,6 +16,17 @@ test("parse artifact url and path safety", () => {
   expect(() => splitPath("a/../../x.txt")).toThrow(/unsafe/);
 });
 
+test("the filename segment is checked too, not just the folder", () => {
+  // These reach the filename guard at the end of splitPath. Disabling it used
+  // to survive the whole suite, and an artifact filename does reach the
+  // filesystem - the earlier cases all threw in the folder loop first.
+  for (const bad of ["folder/..", "folder/.", "folder/*"]) {
+    expect(() => splitPath(bad), bad).toThrow(/unsafe artifact filename/);
+  }
+  expect(splitPath("shots/one.png")).toEqual(["shots", "one.png"]);
+  expect(splitPath("shots\\one.png")).toEqual(["shots", "one.png"]);
+});
+
 test("upload and download utf8 + base64", async () => {
   const dir = mkdtempSync(join(tmpdir(), "art-"));
   const svc = createArtifactService(createArtifactFsAdapter(dir));
