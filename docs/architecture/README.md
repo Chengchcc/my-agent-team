@@ -26,7 +26,7 @@ tags: [conventions, rules]
 | 改模型与 provider | [模型与 Provider](./runtime/models.md) → [Oma Runtime](./runtime/oma.md) |
 | 改 Workflow 或 Project | [Agentic Workflow](./workflow.md) → [数据模型](./backend/data-model.md) → [Project 与 Worktree](./agents/projects-and-worktrees.md) |
 | 改 Web 端 | [Web 消息端到端](./flows/e2e-web-message.md) → [Web 端](./surfaces/web.md) → [端总览](./surfaces/overview.md) |
-| 改飞书端 | [飞书](./surfaces/lark.md) → [飞书消息端到端](./flows/e2e-lark-message.md) → [Conversation History](./conversation/history.md) |
+| 改飞书端 | [飞书](./surfaces/lark.md) → [飞书接入向导](./surfaces/lark-setup.md) → [飞书消息端到端](./flows/e2e-lark-message.md) → [Conversation History](./conversation/history.md) |
 | 改自研 runtime | [Oma Runtime](./runtime/oma.md) → [Oma 插件与 HITL](./plugins/oma-plugins.md) → [Compaction](./runtime/compaction.md) → [Oma Tools](./runtime/oma-tools.md) |
 | 查安全边界与欠债 | [安全模型](./security/overview.md) → [oma 内核防线](./security/oma-kernel.md) → [bash 沙箱](./security/bash-sandbox.md) → [安全与债务清单](./security/debt.md) |
 | 线上出问题 | [排障指南](./operations/troubleshooting.md) |
@@ -74,6 +74,7 @@ tags: [conventions, rules]
 - [端总览](./surfaces/overview.md)
 - [Web 端](./surfaces/web.md)
 - [飞书](./surfaces/lark.md)
+- [飞书接入向导](./surfaces/lark-setup.md)
 - [Web 消息端到端](./flows/e2e-web-message.md)
 - [飞书消息端到端](./flows/e2e-lark-message.md)
 

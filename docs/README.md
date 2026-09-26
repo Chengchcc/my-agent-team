@@ -36,7 +36,7 @@
 | 改工具或 MCP | `execution/agent-backend` → `agents/context` → `plugins/oma-plugins` |
 | 改 Workflow 或 Project | `workflow` → `backend/overview` → `agents/projects-and-worktrees` |
 | 改 Web 端 | `flows/e2e-web-message` → `surfaces/web` → `surfaces/overview` |
-| 改飞书端 | `surfaces/lark` → `flows/e2e-lark-message` → `conversation/history` |
+| 改飞书端 | `surfaces/lark` → `surfaces/lark-setup` → `flows/e2e-lark-message` → `conversation/history` |
 | 改自研 runtime | `runtime/oma` → `plugins/oma-plugins` → `runtime/compaction` → `runtime/oma-tools` |
 | 查安全边界 | `architecture/security/overview` → `security/oma-kernel` → `security/debt` |
 | 线上出问题 | `architecture/operations/troubleshooting` |
