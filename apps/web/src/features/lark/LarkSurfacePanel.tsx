@@ -21,12 +21,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAgentDetail } from "@/features/agents/hooks";
 import { agentKeys } from "@/features/agents/query-keys";
 import { larkKeys, larkSurfaceQuery } from "@/features/lark/queries";
-import { type AgentRow, api, type LarkSetupSession } from "@/lib/api";
+import { type AgentRow, api } from "@/lib/api";
 
 /** The agent's Lark surface, driven by ONE read model
  *  (`GET /api/agents/:id/lark`). Everything the page shows - whether it is
  *  connected, why it is not, and which buttons are honest - comes from that
- *  view; the setup session is only polled to stream the authorization URL.
+ *  view; the setup session's own link rides that same view.
  *
  *  This panel replaced a second, parallel wizard (`LarkBotPanel`) whose state
  *  machine lived inside the component: two entries meant two answers. */
@@ -38,10 +38,6 @@ const STATUS_LABEL: Record<string, string> = {
   degraded: "Needs attention",
   error: "Failed",
 };
-
-/** The URL is not in the read model: a session streams it while it runs, so
- *  the one thing polled here is the session itself. */
-const URL_WAIT_MS = 5_000;
 
 function countdown(expiresAt: number | null): string | null {
   if (!expiresAt) return null;
@@ -55,10 +51,10 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const qc = useQueryClient();
   const { data: agent } = useAgentDetail(agentId) as { data?: AgentRow };
   const { data: surface, isPending: surfaceLoading } = useQuery(larkSurfaceQuery(agentId));
-  /** The surface view is the single source of truth for the state; a local
-   *  session only carries the streamed URL. Anything that changes the state
-   *  must therefore refresh the view, or the panel keeps showing the screen it
-   *  was on when the button was pressed. */
+  /** The surface view is the single source of truth for the state - including
+   *  the authorization link. Anything that changes the state must therefore
+   *  refresh the view, or the panel keeps showing the screen it was on when
+   *  the button was pressed. */
   const refreshSurface = () => qc.invalidateQueries({ queryKey: larkKeys.surface(agentId) });
 
   // Settings (ported from the panel this replaced, including the rule that
@@ -74,8 +70,6 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
-  const [session, setSession] = useState<LarkSetupSession | null>(null);
-  const [startedAt, setStartedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   /** The create flow links here as `?setup=lark`: the user asked for Lark
    *  when creating the agent, so making them find a button afterwards is the
@@ -103,24 +97,18 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
     setRespondAll(agent.lark?.respondToMentionAll ?? false);
   }, [agent]);
 
-  // Stream the authorization URL; the surface view then reports the outcome.
+  // The link, the countdown and the outcome all come from the surface view,
+  // which polls itself while it is still moving. The only thing left to do
+  // here is re-read the agent row once authorization ends: the config it
+  // carries (app id, profile) is written on completion.
+  const wasAuthorizing = useRef(false);
   useEffect(() => {
-    if (session?.status !== "pending") return;
-    const timer = setInterval(async () => {
-      try {
-        const next = await api.larkSetupStatus(agentId, session.setupId);
-        setSession(next);
-        if (next.status !== "pending") {
-          clearInterval(timer);
-          void qc.invalidateQueries({ queryKey: larkKeys.surface(agentId) });
-          void qc.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
-        }
-      } catch {
-        clearInterval(timer);
-      }
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [agentId, qc, session?.setupId, session?.status]);
+    const authorizing = surface?.status === "authorizing";
+    if (wasAuthorizing.current && !authorizing) {
+      void qc.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+    }
+    wasAuthorizing.current = authorizing;
+  }, [agentId, qc, surface?.status]);
 
   const startSetupRef = useRef<() => Promise<void>>(async () => {});
 
@@ -134,9 +122,8 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const startSetup = async () => {
     setBusy(true);
     setError("");
-    setStartedAt(Date.now());
     try {
-      setSession(await api.larkSetup(agentId, { botDisplayName: botName.trim() || undefined }));
+      await api.larkSetup(agentId, { botDisplayName: botName.trim() || undefined });
       // The session is pending now: without this the view still reads
       // not_connected and its polling stays off.
       await refreshSurface();
@@ -148,11 +135,8 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   };
 
   const cancelSetup = async () => {
-    // A reloaded page has no local session: the view still knows which session
-    // is live, so Cancel keeps working there too.
-    const id = session?.setupId ?? surface?.setup.id ?? null;
+    const id = surface?.setup.id ?? null;
     if (id) await api.larkSetupCancel(agentId, id).catch(() => {});
-    setSession(null);
     await refreshSurface();
   };
 
@@ -223,12 +207,9 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
 
   const status = surface?.status ?? "not_connected";
   const issue = surface?.setup.issue ?? null;
-  // The session outlives this component, so a reload (or a second tab) must
-  // still find the link: read it from the view, and fall back to the session
-  // this tab started only because that answers one render sooner.
-  const url = session?.url ?? surface?.setup.url ?? "";
-  const waitingTooLong =
-    session?.status === "pending" && !url && startedAt > 0 && Date.now() - startedAt > URL_WAIT_MS;
+  // The link belongs to the server-side session, not to this component: a
+  // reload or a second tab must still find it, so the view is the only source.
+  const url = surface?.setup.url ?? "";
   const expires = countdown(surface?.setup.expiresAt ?? null);
 
   const settingsCard = (
@@ -395,18 +376,6 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
                 >
                   Copy link
                 </Button>
-              </div>
-            </div>
-          ) : waitingTooLong ? (
-            <div className="space-y-2 rounded-md border border-destructive/40 p-3">
-              <p className="text-sm text-foreground">No authorization link yet.</p>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => void startSetup()}>
-                  Generate a new link
-                </Button>
-                <Link className="text-xs text-muted-foreground underline" href="/system">
-                  Diagnostics
-                </Link>
               </div>
             </div>
           ) : (
