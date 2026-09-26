@@ -33,7 +33,7 @@ tags: [lark, surfaces, backend]
 
 进程用 `spawn("lark-cli", ["--profile", profile, "event", "consume", "im.message.receive_v1", "--as", "bot"])` 起事件消费，profile 默认 `agent:<safeAgentId>`。stdout 按行交给 `parseEvent`，解析失败的行只打日志。每条事件的流水线是 reserve → POST → confirm：
 
-1. **鉴权**（`ingest.ts`）：`sender_type` 存在且不是 `"user"` 直接 skip，防机器人互相触发；再按 `agent.lark.allowedSenders`（open_id 白名单）过滤，白名单为空表示单人自托管，放行所有人。
+1. **鉴权**（`ingest.ts`）：`sender_type` 存在且不是 `"user"` 直接 skip，防机器人互相触发；再按 `agent.lark.allowedSenders`（open_id 白名单）过滤。**空白名单是拒绝，不是放行**（`matchesAllowlist` 对空数组返回 false，DM 里落 `dm_denied`）；只有显式写 `"*"` 才放行所有人。Web 的读模型按同一语义显示为 `allowlist`（0 人）与 `everyone`。
 2. **幂等占位**：`inboundExists` 按 `event_id` 或 `message_id` 命中即 skip，否则 `reserveInbound` 在同一事务里落一行 `status = "processing"`。占位先于 POST，取舍是宁可丢一条入站也不重复触发 run。
 3. **绑定解析（话题 = 会话，ADR 0037）**：会话的边界是飞书**话题**，不是聊天。从事件取 `thread_id`／`root_id`（两者都由平台给出，实测见 ADR 0037）依次查 `topic_binding`：命中就续接该会话；都没命中说明这条消息**开了新话题**，返回 `needCreateConv`。`member_binding` 缺失时现写一条 `human:lark:<open_id>`。
 4. **建会话**：只有 `needCreateConv` 时调 `POST /api/conversations {agentId}`。随后写 `conversation_binding`（会话 → 聊天，带自己的推送游标与聊天模式）与 `topic_binding`（本话题的所有键 → 该会话），没有成员相关的 HTTP 调用，后端也没有成员表。

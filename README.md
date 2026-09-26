@@ -26,7 +26,8 @@ my-agent-team 是一个**团队级 Agent 运行时**。每个 Agent 有独立的
 - **多 Provider 多协议** — 支持 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 三种 API 协议；builtin provider 只需环境有 API Key 即自动生效；用户通过 `~/.oma/models.yml` 添加自定义 provider
 - **Thinking/Reasoning** — 全链路支持 Anthropic extended thinking、DeepSeek reasoning_content、OpenAI reasoning_effort；Web UI 可选 thinking level
 - **终端 TUI（oma）** — 独立交互式终端：流式渲染、工具调用/结果、thinking 与 tool detail 切换、mermaid ASCII 图、`/resume` 与 `/fork`、模型选择持久化到项目 `.oma/settings.json`，composer loader 实时摘要当前动作
-- **双端同步** — Web 控制台 + 飞书（Lark IM）Bot，同一条对话两边实时可见
+- **双端同步** — Web 控制台 + 飞书（Lark IM）Bot，同一条对话两边实时可见：Run 卡片流式投影（CardKit）、过程视图、停止按钮、话题即会话、等待中的消息各自成卡
+- **权限与人在环** — `ask` 把写文件/跑命令隔在审批卡后面、`auto` 让分类器判断高风险动作、`deny` 直接拒绝（`--yolo` 跳过全部、`--read-only` 只挂读侧工具）；Run 停在 `waiting` 等人回答，问题与回答都经 `pending_action` 持久化，超时默认 24 小时并按拒绝处理（fail-closed）。飞书卡片上直接批准/拒绝，重启后卡片按 run 详情重建按钮
 - **对话账本** — canonical conversation store（conversation_ledger）：人发的消息、Agent 的终态提交、错误气泡、撤销标记都落在这里，端只做渲染，不持有事实
 - **Agent Run 执行链** — 每个 Run 由 Agent Backend spawn 一次性子进程（oma 走 stdin/stdout JSONL，claude / pi / omp 各用自己的 argv 与输出格式），`BackendRunOutcome` 是唯一终态，terminal commit 在一个事务里写入 History + Context
 - **Agentic Workflow** — 声明式节点图（agent/script/human + 条件边 + cron 触发）：agent 节点派发 Agent Run、script 节点进程沙箱执行、human 节点 Web 表单；产物经 Artifact 在节点间流转，Web 可视化编排与调试
@@ -263,6 +264,8 @@ bun run lint        # Biome + ESLint
 bun run typecheck   # tsc --noEmit（全仓）
 bun run test        # 全仓测试
 bun run build       # 全仓构建（turbo）
+bun run audit       # 契约 / 工作区 / 文档 / UI 四道快门禁（秒级，提交前跑）
+bun run audit:coverage  # oma 运行时语义文件的覆盖率底线
 ```
 
 > **数据库升级策略**：迁移只保证 fresh-boot 路径。改动 schema 后若旧开发库
