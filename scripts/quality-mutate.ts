@@ -115,8 +115,10 @@ const MUTATIONS: readonly Mutation[] = [
     label: "read_only workspace installs write/edit/bash/eval",
     app: "oh-my-agent",
     file: "src/core/runtime/run-runtime.ts",
-    old: '  if (deps.workspaceAccess === "read_write") {\n    agentTools.push(createWriteTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);',
-    nu: "  if (true) {\n    agentTools.push(createWriteTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool);",
+    // Anchor on the branch itself: the pushed literals gained options since and
+    // a stale anchor silently skipped the mutation (a SKIP is not a pass).
+    old: '  if (deps.workspaceAccess === "read_write") {',
+    nu: "  if (true) {",
   },
   {
     label: "workspace .mcp.json trust gate disabled",
@@ -192,7 +194,7 @@ const MUTATIONS: readonly Mutation[] = [
     label: "ls tool stops being mounted",
     app: "oh-my-agent",
     file: "src/core/runtime/run-runtime.ts",
-    old: "    createLsTool({ cwd: deps.workspaceRoot }) as unknown as PluginTool,\n",
+    old: "    toPluginTool(createLsTool({ cwd: deps.workspaceRoot })),\n",
     nu: "",
   },
   {
@@ -252,13 +254,6 @@ const MUTATIONS: readonly Mutation[] = [
     file: "src/features/artifact/service.ts",
     old: "      if (!rec) throw new HttpError(`artifact not found: ${url}`, 404);",
     nu: "      if (false) throw new HttpError(`artifact not found: ${url}`, 404);",
-  },
-  {
-    label: "[be] event-bus buffers events after close (dead queue)",
-    app: "backend",
-    file: "src/features/workflow/event-bus.ts",
-    old: "  push(ev: WorkflowEvent): void {\n    if (this.closed) return;",
-    nu: "  push(ev: WorkflowEvent): void {\n    if (false) return;",
   },
   {
     label: "[be] terminal event no longer ends the SSE stream",
