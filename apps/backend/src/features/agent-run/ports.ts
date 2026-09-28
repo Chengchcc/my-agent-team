@@ -17,8 +17,13 @@ export interface AgentRunPort {
   enqueueAndAcquire(command: AcquireAgentRunCommand): Promise<AcquireAgentRunResult>;
 
   /** Claim the input already bound to a run (run_id = ?). One Run / one
-   *  input: a run NEVER claims inputs bound to another run. */
-  claimInputForRun(runId: string): Promise<ClaimedBranchInput | null>;
+   *  input: a run NEVER claims inputs bound to another run.
+   *  `includeDelivered` (ADR 0038) also claims a DELIVERED row — the
+   *  resume dispatch re-runs the very input the dead child accepted. */
+  claimInputForRun(
+    runId: string,
+    opts?: { includeDelivered?: boolean },
+  ): Promise<ClaimedBranchInput | null>;
 
   /** One Run / one input: after a run settles, promote the oldest still-
    *  queued NON-STEER input (run_id IS NULL) into a FRESH Run on the same
@@ -59,6 +64,12 @@ export interface AgentRunPort {
     response: PendingActionResponse,
     responseIdempotencyKey: string,
   ): Promise<{ action: PendingActionRecord; runId: string }>;
+
+  /** Every RESOLVED action of a run with its stored response (ADR 0038):
+   * the resume payload — each decision replays into the resumed turn. */
+  listDecidedActions(
+    runId: string,
+  ): Promise<ReadonlyArray<{ callId: string; kind: string; response: Record<string, unknown> }>>;
 
   /** Cancel every still-pending action of a run (terminal settle: the run
    *  ended, so no approval response can be validly consumed anymore). */

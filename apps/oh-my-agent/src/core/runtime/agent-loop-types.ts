@@ -118,6 +118,21 @@ export interface OmaSessionOptions {
    *  the caller write the session file in real time (pi's appendMessage):
    *  a killed/failed process still leaves its message trail behind. */
   readonly onPersistMessages?: (messages: readonly Message[]) => void;
+  /** Fired with the assistant(tool_use) message JUST BEFORE the turn's tools
+   * execute (ADR 0038). The atomic batch discipline keeps a dangling
+   * tool_use out of the store, so this is the only durable trace of a turn
+   * interrupted mid-execution: the caller writes it as a parked-turn marker
+   * to the session file, invisible to normal loads. */
+  readonly onParkedTurn?: (message: Message) => void;
+}
+
+/** One human decision replayed into a resumed run (ADR 0038). `callId` is
+ * the parked tool_use id; `response` is the durable pending_action
+ * response — an approval decision ({decision}) or an ask answer. */
+export interface ResumeDecision {
+  readonly callId: string;
+  readonly kind: "approval" | "ask";
+  readonly response: Record<string, unknown>;
 }
 
 /** One TTSR-style stream rule. Matching is text-only; each rule fires at

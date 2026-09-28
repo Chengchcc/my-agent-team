@@ -104,6 +104,9 @@ function createFakeDaemon(opts: FakeDaemonOptions = {}) {
     get steerCalls(): string[] {
       return readCalls("steer").map((l) => l.split(" ")[0]!);
     },
+    get resumeCalls(): string[][] {
+      return readCalls("execute_resume").map((l) => JSON.parse(l) as string[]);
+    },
     get stopCalls(): string[] {
       return readCalls("abort").map((l) => l.split(" ")[0]!);
     },
@@ -408,4 +411,70 @@ describe("agent run execution recovery", () => {
     await execution2.recover();
     expect(fake.executeCalls).toHaveLength(1);
   }, 15_000);
+});
+
+describe("agent run restart resume (ADR 0038)", () => {
+  test("a run parked on an approval survives recover() and resumes when answered", async () => {
+    const fake = createFakeDaemon({ outcomeDelayMs: 10 });
+    void makeExecution(fake); // the "old" process: parks the run, then dies
+
+    const acquired = await enqueue("normal", "ikey-resume-1", "hello");
+    const runId = acquired.run!.runId;
+    const callId = "toolu-parked";
+    // The parked state: input DELIVERED (child accepted before dying), one
+    // approval pending, run CAS'd to waiting.
+    await runPort.markInputAccepted(acquired.inputId!);
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:${callId}`,
+      kind: "approval",
+      payload: { callId, toolName: "bash" },
+    });
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // Restart: the orphan sweep must SPARE the parked run (ADR 0038) —
+    // its pending action keeps the answer path alive.
+    const execution2 = makeExecution(fake);
+    await execution2.recover();
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // The human answers on the fresh process: the decision is consumed and
+    // the SAME runId/input re-dispatches with the decision on the wire.
+    await execution2.resolveApproval(runId, callId, "allow");
+    const settled = await waitForTerminal(runId);
+    expect(settled.status).toBe("completed");
+    // The resumed child carried the decision list.
+    expect(fake.resumeCalls).toContainEqual([callId]);
+    // Exactly one child ever executed: the resume dispatch.
+    expect(fake.executeCalls.map((c) => c.runId)).toEqual([runId]);
+  }, 20_000);
+
+  test("a parked run with siblings still open stays parked until the last answer", async () => {
+    const fake = createFakeDaemon({ outcomeDelayMs: 10 });
+    void makeExecution(fake);
+    const acquired = await enqueue("normal", "ikey-resume-2", "hello");
+    const runId = acquired.run!.runId;
+    await runPort.markInputAccepted(acquired.inputId!);
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:c-a`,
+      kind: "approval",
+      payload: { callId: "c-a" },
+    });
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:c-b`,
+      kind: "approval",
+      payload: { callId: "c-b" },
+    });
+
+    const execution2 = makeExecution(fake);
+    await execution2.recover();
+    await execution2.resolveApproval(runId, "c-a", "allow");
+    // Sibling still open: NOT resumed, no child spawned, still waiting.
+    expect(fake.executeCalls).toHaveLength(0);
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    await execution2.resolveApproval(runId, "c-b", "deny");
+    const settled = await waitForTerminal(runId);
+    expect(settled.status).toBe("completed");
+    expect(fake.resumeCalls).toContainEqual(["c-a", "c-b"]);
+  }, 20_000);
 });

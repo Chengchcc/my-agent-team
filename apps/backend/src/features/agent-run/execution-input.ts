@@ -1,6 +1,7 @@
 import type {
   BackendRunInput,
   ProjectedHistoryItem,
+  ResumeDecision,
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
 import type { ContentBlock, Message } from "@chengchenccc/message";
@@ -97,6 +98,9 @@ export function buildRunInput(
   cliSessionRef: string | undefined,
   lastTodo: string | null,
   productToolsToken: string,
+  /** ADR 0038: present only on a resume dispatch — decisions that complete
+   * the interrupted turn child-side. */
+  resume?: { readonly decisions: readonly ResumeDecision[] },
 ): BackendRunInput {
   const bridge = !cliSessionRef && history.length > 0 ? renderHistoryBridge(history) : "";
   const inputText = input.message.text ?? "";
@@ -164,5 +168,7 @@ export function buildRunInput(
       agentId: run.agentId,
       branchId: run.branchId,
     },
+    // ADR 0038: present only on a resume dispatch.
+    ...(resume ? { resume } : {}),
   };
 }

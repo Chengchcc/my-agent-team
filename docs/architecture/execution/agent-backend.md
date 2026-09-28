@@ -41,6 +41,8 @@ tags: [backend, runs, runtime]
 | `stop(runId)` | 请求取消；segment 的 outcome 仍然会解析为 `aborted` |
 | `dispose()` | 确定性关停全部 child：拒绝新 execute、取消排队中的 spawn、先 SIGTERM 后 SIGKILL、等每个 child 退出 |
 
+`BackendRunInput.resume`（可选，ADR 0038）：仅在**重派一条停靠中死去的 run** 时出现——该 run 已决定的人机决定清单（callId/kind/response）。oma 子进程据此刻从 session 停靠标记补完中断轮：ask 答案注入为合成 tool_result、allow 审批真执行且决定按 callId 预供（人不重问）、其余诚实落 denied/interrupted。三个 CLI 后端忽略它。
+
 契约上没有 `abort` 方法，也没有跨 Run 的 session handle（oma 的 wire 里那条 `abort` 命令是 adapter 实现 `stop` 的手段，不是契约方法）。
 
 ## 一次 Run 的输入

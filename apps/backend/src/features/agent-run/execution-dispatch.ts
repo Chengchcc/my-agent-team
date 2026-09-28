@@ -4,6 +4,7 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
   ProjectedHistoryItem,
+  ResumeDecision,
 } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, type BackendKind, debugLog } from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
@@ -23,6 +24,9 @@ export interface ExecutionDispatchCtx {
   inflight: Set<string>;
   inflightPromises: Map<string, Promise<void>>;
   state: { disposed: boolean };
+  /** ADR 0038: decisions for a parked run being resumed. deliverInput
+   * drains (and deletes) the entry into the wire input. */
+  resumeInbox: Map<string, readonly ResumeDecision[]>;
 }
 
 export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
@@ -31,7 +35,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     kind: string,
   ): AgentRunExecutionDeps["backends"][keyof AgentRunExecutionDeps["backends"]] | undefined;
 } {
-  const { deps, liveEvents, liveRuns, inflight, inflightPromises, state } = ctx;
+  const { deps, liveEvents, liveRuns, inflight, inflightPromises, state, resumeInbox } = ctx;
   const { runPort, contextPort, resolveWorkspace } = deps;
   const runTimeoutMs = deps.runTimeoutMs ?? 30 * 60_000;
   const silenceWindowMs = deps.silenceWindowMs ?? 90_000;
@@ -163,10 +167,6 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // H1: the bridge is the ONLY author of workspace config files. Rewrite
     // from the DB source of truth right before spawn so an agent-tampered
     // .mcp.json (forged product-tools server, run-token exfil) never
-    // mounts. Fail-closed: a failed rewrite aborts the dispatch.
-    if (deps.rewriteWorkspaceBridge) {
-      await deps.rewriteWorkspaceBridge(run.agentId, workspace.root);
-    }
     const segment = await backend.execute(
       buildRunInput(
         deps,
@@ -177,8 +177,13 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         cliSessionRef,
         lastTodo,
         productToolsToken,
+        // ADR 0038: drain the resume inbox — this dispatch re-runs a run
+        // that died parked on HITL; the decisions complete its interrupted
+        // turn child-side.
+        resumeInbox.has(runId) ? { decisions: resumeInbox.get(runId)! } : undefined,
       ),
     );
+    resumeInbox.delete(runId);
     liveRuns.set(runId, { segment });
     debugLog("agent-run", `backend_accepted runId=${runId}`);
 
@@ -309,11 +314,16 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       if (!run || !isActiveStatus(run.status)) return;
       stage.name = "model_preflight";
       await assertModelAvailable(run.modelRef);
-      debugLog("agent-run", `model_preflight_ok runId=${runId} model=${run.modelRef.modelId}`);
-
       for (let i = 0; i < 8; i++) {
         stage.name = "claim_input";
-        const claimed = await runPort.claimInputForRun(runId);
+        const claimed = await runPort.claimInputForRun(runId, {
+          // ADR 0038: a resumed run's input row is already `delivered` —
+          // the original child accepted it before dying parked. Claiming
+          // it again re-runs the SAME input (same runId/payload): the
+          // fresh child has no memory, and adapter idempotency is
+          // per-process.
+          includeDelivered: resumeInbox.has(runId),
+        });
         if (!claimed) break;
         if (claimed.input.mode === "steer" && !liveRuns.has(runId)) {
           // Crash residue: the steer was being injected when the process

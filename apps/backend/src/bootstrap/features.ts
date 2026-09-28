@@ -425,6 +425,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     emitTodo: (input) => broadcastTodoEvent?.(input),
     // HITL over chat: hours, not minutes (user decision 2026-09-25).
     askTimeoutMs: config.askTimeoutMs,
+    // ADR 0038: an answered ask whose run lost its live child (restart
+    // while parked) resume-dispatches. Late-bound: the execution service is
+    // assembled after this point, and ask resolves only happen at runtime.
+    onRunWoke: (runId) => {
+      void agentRunExecution?.resumeParkedRun(runId);
+    },
   });
   let productToolsMcp: Awaited<ReturnType<typeof createProductToolsMcpServer>> | null = null;
   // Default set: product-tools + agent-config + workflow. The workflow DSL

@@ -1,6 +1,6 @@
 # 停靠 HITL 的 Run 在 backend 重启后可恢复（中途落盘 + 决定注入）
 
-> 状态：**Accepted**（设计已定，实现分期见「后果」末节）。
+> 状态：**Implemented**（2026-09-28；实现时把决策 2 修订为「停靠标记」设计，见该条）。
 
 ## 背景
 
@@ -22,8 +22,8 @@ one-shot child 架构下，子进程与 backend 同生共死。`recover()` 的�
 ## 决策
 
 1. **决定注入，不是重演。** durable pending action 的 response——approval 的 decision、ask 的 answer，一律作为该停靠 tool_use 的**合成 tool_result** 注入恢复后的循环：child 载入 session 种子后，不重调模型重演前文，循环从断点继续。callId 即 tool_use id，无需对载荷做匹配器。
-2. **oma 循环中途落盘（per-step durability）。** 轮内每完成一个 tool result、每产生一条 assistant 消息，立即 append 进 session 文件。这是恢复的前提——崩溃时文件里已有 partial turn；也是工具 exactly-once 的来源——恢复的循环看到已完成工具的结果，跳过它们。append 是 O(1)（`lastIdBySession` 缓存已在）。
-3. **wire 协议加 resume 输入。** `agent-contract` 的 `BackendRunInput` 增加可选 `resume` 字段：该 run 已决定的 action 清单（callId + 合成 result）。child 侧语义：载入种子后注入这些 tool_result；session 里有 tool_use 但既无结果也无决定的（人没答、进程先死），按「工具被中断」注入 isError 结果——诚实，且循环可继续。
+2. **oma 轮内落盘：实时对话消息 + 停靠标记（实现修订）。** 原案是「每完成一个 tool result 立即 append」，实现时发现它撞上循环的既有不变量：assistant(tool_use) 与全部 tool_result **一批原子写入**，store 里永远没有悬空 tool_use（悬空对模型 API 是 400）。修订为两层：①对话消息（prompt/assistant 文本轮/tool_result）经 `onPersistMessages` **实时**落 session 文件（TUI 已有的钩子，rpc-mode 此前没接）；②`executeTools` 之前把该轮的 assistant(tool_use) 以独立事件类型 **parked_turn 标记**写入文件——正常加载只读 message 事件、标记不可见（崩溃轮从普通视角「从未发生」），只有 resume 路径读它。悬空状态只存在于崩溃与恢复之间，由恢复阶段修复配对。
+3. **wire 协议加 resume 输入。** `agent-contract` 的 `BackendRunInput` 增加可选 `resume` 字段：该 run 已决定的 action 清单（callId + kind + response）。child 侧语义：种子 = session 消息 + 未失效标记的 assistant(tool_use)；恢复阶段对每个停靠调用分流——ask 的答案直接成为合成 tool_result（重新发起 ask 会挂起一个**新** pending action，绝不重发）；approval allow 则**真执行**该工具（决定经 callId 预供，人不被重问——批准的是动作，不是结果文本）；deny 与无决定的调用注入诚实的 denied/interrupted 错误结果。恢复的结果先于新一轮 meta 落盘，首个模型调用永远看不到未配对的 tool_use。
 4. **backend `recover()` 停止清场停靠 run。** `waiting` 且仍有 pending action 的 run 不进孤儿扫描（保持 waiting，分支继续被占）。它的终局只有三种：人答了（→ 见 5）；审批超时/取消（→ 合成 deny/timeout 结果，同样走 5 收尾）；显式 stop。
 5. **回答触发 resume-dispatch。** 无活 loop 时消费 pending action，记录决定后，用**原 runId、原输入**附 `resume.decisions` 重新 dispatch（`recover()` 重投 `delivering` 输入已依赖「新进程无记忆、同 runId 同 payload 可重入」的既有语义）。run 状态经既有的消费 CAS 回 `running`，watchdog 重新武装。
 6. **ask 与 approval 在 oma 内走同一机制——经济选择，不是分层必需。** `ask_question` 的 MCP tool_use 也是轮内工具调用，其合成 result 就是答案 JSON。它的状态所有权本在 backend（分层上它可以走 7 的重派机制），但 per-step 落盘与注入这台机器已为审批造好，ask 搭车零边际成本，还省掉重跑的 token 与副作用重放。

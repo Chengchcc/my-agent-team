@@ -156,6 +156,10 @@ export interface ProductToolsServiceDeps {
    *  notice it, read it and tap an option — 60s expired routinely before
    *  anyone could answer, which the model then saw as a timeout. */
   readonly askTimeoutMs?: number;
+  /** ADR 0038: fired after an ask resolve consumed its durable row — when
+   * the run has no live child (restart while parked) the wake must
+   * resume-dispatch it. No-op otherwise (the execution service guards). */
+  readonly onRunWoke?: (runId: string) => void;
 }
 
 export interface ProductToolsService {
@@ -554,14 +558,17 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       const key = `${runId}:${callId}`;
       const resolve = pendingAsks.get(key);
       if (resolve) resolve(answer);
-      // Durable ask v1: consume even without a live resolver - a late
-      // answer must still repair the run's waiting->running CAS.
+      // Durable ask: consume even without a live resolver - a late answer
+      // must still repair the run's waiting->running CAS. The ANSWER rides
+      // the response (ADR 0038): a resumed run replays it into the parked
+      // tool_use as the synthetic tool_result.
       void runPort
         .consumePendingAction(
           key,
-          { actionId: key, response: { answered: true } },
+          { actionId: key, response: { answered: true, answer } },
           `${key}:resolved`,
         )
+        .then(() => deps.onRunWoke?.(runId))
         .catch(() => {});
       return Boolean(resolve);
     },

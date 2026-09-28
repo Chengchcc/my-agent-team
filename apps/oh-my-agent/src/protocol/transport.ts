@@ -63,6 +63,21 @@ export const executeRunInputSchema = z.object({
       args: z.unknown().optional(),
     })
     .optional(),
+  /** ADR 0038: present only on a resume dispatch. The child completes the
+   * interrupted turn from its session seed (parked-turn marker) instead of
+   * re-running it. Keep in sync with adapter-oma-agent/src/protocol.ts —
+   * the two copies are the accepted duplication (wire drift test guards). */
+  resume: z
+    .object({
+      decisions: z.array(
+        z.object({
+          callId: z.string().min(1),
+          kind: z.enum(["approval", "ask"]),
+          response: z.record(z.string(), z.unknown()),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type ExecuteRunInput = z.infer<typeof executeRunInputSchema>;
 

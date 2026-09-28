@@ -67,7 +67,8 @@ BFF 只做 cookie 换 `x-auth-token` 与 `x-user-id`，不解析业务载荷；�
 | 输入发了但没执行 | `branch_input_queue.status`，分支上是否已有 active run | `adapter-sqlite-enqueue.ts` |
 | 同一输入被执行两次 | 幂等键（input / delivery 两组）是否命中重放分支 | `adapter-sqlite-enqueue.ts` |
 | 提交失败后无法继续 | `commit_failed` 的 Run 是否被 `retryTerminalCommit` 重试过 | `execution-service.ts` |
-| backend 重启后 Run 凭空结束 | 启动恢复把已投递输入的孤儿 run 终结为 `aborted`，这是预期行为 | `execution-service.ts` 的 `recover` |
+| backend 重启后 Run 凭空结束 | 启动恢复把**无停靠**的孤儿 run 终结为 `aborted`（停靠 run 见下一行），这是预期行为 | `execution-service.ts` 的 `recover` |
+| 重启后 Run 仍停在 waiting | 这是停靠 run 被 ADR 0038 宽免的预期行为：回答（或显式取消）是唯一出口，回答触发 resume-dispatch | `execution-service.ts` 的 `recover` 与 `resumeParkedRun`；诊断日志 `recover_parked` / `resume_parked` |
 | SSE 流自己断开并出现 error 帧 | 账本里是否出现了没有对应 wire schema 的 kind | `apps/backend/src/features/conversation/http.ts`、`packages/api-contract/src/sse.ts` |
 
 ## adapter

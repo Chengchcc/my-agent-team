@@ -125,6 +125,11 @@ export interface AgentRunExecutionService {
   /** Resolve a pending HITL approval in the live run (spec: approval
    *  pipeline Phase B). Explicit failure when no live child exists. */
   resolveApproval(runId: string, callId: string, decision: "allow" | "deny"): Promise<void>;
+  /** ADR 0038: stash a parked run's decided actions and re-dispatch it
+   * (answer arrived with no live child after a restart). No-op when the
+   * run still waits on siblings or has a live loop. Also the wake hook for
+   * product-tools ask resolves. */
+  resumeParkedRun(runId: string): Promise<void>;
   subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent>;
   /** Push a run-scoped event to the live SSE stream (web observes it). */
   broadcastRunEvent(runId: string, event: BackendEvent): void;

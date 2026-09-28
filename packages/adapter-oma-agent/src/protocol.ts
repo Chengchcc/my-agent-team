@@ -56,6 +56,19 @@ export const executeRunInputSchema = z.object({
     agentId: agentIdSchema,
     branchId: branchIdSchema,
   }),
+  /** ADR 0038: present only on a resume dispatch. The child completes the
+   * interrupted turn from its session seed instead of re-running it. */
+  resume: z
+    .object({
+      decisions: z.array(
+        z.object({
+          callId: z.string().min(1),
+          kind: z.enum(["approval", "ask"]),
+          response: z.record(z.string(), z.unknown()),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type ExecuteRunInput = z.infer<typeof executeRunInputSchema>;
 

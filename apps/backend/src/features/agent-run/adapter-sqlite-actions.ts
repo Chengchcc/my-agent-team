@@ -18,6 +18,7 @@ type ActionMethods = Pick<
   | "consumePendingAction"
   | "getPendingAction"
   | "listPendingActions"
+  | "listDecidedActions"
   | "cancelPendingActionsForRun"
 >;
 
@@ -187,6 +188,25 @@ export function createActionMethods(db: Database): ActionMethods {
         )
         .all();
       return rows.map(parsePendingAction);
+    },
+
+    async listDecidedActions(runId) {
+      const rows = d
+        .select()
+        .from(schema.pendingAction)
+        .where(
+          and(eq(schema.pendingAction.runId, runId), eq(schema.pendingAction.status, "resolved")),
+        )
+        .all();
+      return rows.map((row) => ({
+        // actionId is `${runId}:${callId}` (deterministic: the live bus
+        // hook and product-tools askQuestion both build it that way).
+        callId: row.actionId.startsWith(`${runId}:`)
+          ? row.actionId.slice(runId.length + 1)
+          : row.actionId,
+        kind: row.kind,
+        response: row.response ? (JSON.parse(row.response) as Record<string, unknown>) : {},
+      }));
     },
   };
 }

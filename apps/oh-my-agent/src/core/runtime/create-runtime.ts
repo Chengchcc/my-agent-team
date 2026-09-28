@@ -52,6 +52,10 @@ export interface CreateOmaRuntimeOptions {
    *  persist (pi appendMessage). When set, the caller owns writing these
    *  messages to its session file as they happen. */
   onPersistMessages?: (messages: readonly Message[]) => void;
+  /** Parked-turn marker (ADR 0038): fired with the assistant(tool_use)
+   * message just before the turn's tools execute. The caller writes it to
+   * the session file as the durable trace of an interrupted turn. */
+  onParkedTurn?: (message: Message) => void;
   /** --tools filter (CLI): applied to the final tool table. */
   toolFilter?: ToolFilter;
   /** Standalone-only: mount vector memory tools + the learn/facts
@@ -223,6 +227,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     skillRoots: options.skillRoots,
     bashPtyConsole: options.bashPtyConsole,
     ...(options.onPersistMessages ? { onPersistMessages: options.onPersistMessages } : {}),
+    ...(options.onParkedTurn ? { onParkedTurn: options.onParkedTurn } : {}),
     ...(options.planMode ? { planMode: options.planMode } : {}),
     ...(options.pluginComponents?.plugins.length
       ? { codePlugins: options.pluginComponents.plugins }
@@ -343,6 +348,9 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
             run: input.run as never,
             workspace: input.workspace,
             metadata: input.metadata,
+            // ADR 0038: resume decisions ride the run input; absent on
+            // every non-resume dispatch.
+            ...(input.resume ? { resume: input.resume } : {}),
           });
           if (result.status === "completed") {
             // Autonomous memory: extract durable facts from this Run's

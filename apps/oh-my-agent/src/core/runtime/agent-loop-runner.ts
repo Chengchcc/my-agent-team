@@ -4,9 +4,12 @@ import type { Message } from "@chengchenccc/message";
 import type { MessageEntry } from "../store/session-tree.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import {
+  buildAssistantToolMessage,
   buildTextAssistantEntry,
   buildThinkingBlock,
   buildToolBatch,
+  buildToolResultEntry,
+  type ToolExecutionResult,
 } from "./agent-loop-messages.js";
 import {
   executeTools,
@@ -16,7 +19,13 @@ import {
   readBranchMessages,
   streamModelTurn,
 } from "./agent-loop-run.js";
-import type { OmaLoopResult, OmaSession, OmaSessionOptions } from "./agent-loop-types.js";
+import type {
+  OmaLoopResult,
+  OmaSession,
+  OmaSessionOptions,
+  PendingToolCall,
+  ResumeDecision,
+} from "./agent-loop-types.js";
 import { compactSession, latestCompaction } from "./compaction.js";
 import {
   estimateContextTokens,
@@ -129,6 +138,51 @@ async function prepareLoopStart(
     model,
   });
   const systemPrompt = codingInput.run.systemPrompt ?? "";
+  if (codingInput.resume) {
+    // ADR 0038 resume: this run re-dispatches one that died parked on
+    // HITL. The seed already carries the original input and the parked
+    // assistant(tool_use) (from the session file's parked-turn marker), so
+    // the branch order is [history, (prompt deduped via productEntryId),
+    // tool_results, meta] — the interrupted turn completes BEFORE the
+    // fresh meta lands, and the first model call never sees an unpaired
+    // tool_use.
+    const historyEntries = (codingInput.history ?? []).map((item) => ({
+      type: "message",
+      productEntryId: item.productEntryId,
+      role: item.message.role as "user" | "assistant" | "system",
+      source: "product_history",
+      message: item.message,
+      createdAt: Date.now(),
+    }));
+    const promptEntry = {
+      type: "message",
+      // The seed's copy of the input shares this productEntryId (rpc-mode
+      // assigns session:<i>), so the store's productEntryId dedup drops
+      // the second append — no duplicated user message.
+      productEntryId: codingInput.input.productEntryId ?? null,
+      role: codingInput.input.message.role as "user" | "assistant" | "system",
+      source: "prompt",
+      message: codingInput.input.message,
+      createdAt: Date.now(),
+    };
+    await persist([...historyEntries, promptEntry]);
+    const parked = trailingUnpairedToolCalls(await readBranchMessages(opts.store, opts.sessionId));
+    if (parked.length > 0) {
+      await resumeParkedCalls(ctx, parked, codingInput.resume.decisions);
+    }
+    await persist([
+      {
+        type: "message",
+        productEntryId: null,
+        role: "user",
+        source: "meta",
+        message: { role: "user", text: metaText } as Message,
+        createdAt: Date.now(),
+      },
+    ]);
+    const messages = await readBranchMessages(opts.store, opts.sessionId);
+    return { systemPrompt, messages };
+  }
   const built = buildLoopInput(
     {
       systemPrompt,
@@ -141,6 +195,72 @@ async function prepareLoopStart(
   await persist(built.batch.entries);
   const messages = await readBranchMessages(opts.store, opts.sessionId);
   return { systemPrompt, messages };
+}
+
+/** Tool calls of the seed's assistant turns that never got a tool_result —
+ * the parked set a resumed run must complete (ADR 0038). */
+function trailingUnpairedToolCalls(messages: readonly Message[]): PendingToolCall[] {
+  const answered = new Set<string>();
+  for (const m of messages) {
+    for (const b of (m.blocks ?? []) as Array<{ type?: string; tool_use_id?: string }>) {
+      if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        answered.add(b.tool_use_id);
+      }
+    }
+  }
+  const calls: PendingToolCall[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    for (const b of (m.blocks ?? []) as Array<{
+      type?: string;
+      id?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+    }>) {
+      if (
+        b.type === "tool_use" &&
+        typeof b.id === "string" &&
+        typeof b.name === "string" &&
+        !answered.has(b.id)
+      ) {
+        calls.push({ id: b.id, name: b.name, input: (b.input ?? {}) as Record<string, unknown> });
+      }
+    }
+  }
+  return calls;
+}
+
+/** Complete the interrupted turn (ADR 0038): ask answers become synthetic
+ * tool_results (re-issuing ask_question would park a NEW pending action);
+ * allowed approvals EXECUTE with the decision pre-supplied by the caller's
+ * approval-handler wrapper (same callId — the human is never re-asked);
+ * everything else (denied, unanswered, mid-execution at crash) becomes an
+ * honest interrupted/denied error result the model can react to. */
+async function resumeParkedCalls(
+  ctx: LoopRunnerContext,
+  parked: readonly PendingToolCall[],
+  decisions: readonly ResumeDecision[],
+): Promise<void> {
+  const { opts, persist, callCtx } = ctx;
+  const byCallId = new Map(decisions.map((d) => [d.callId, d]));
+  const results: ToolExecutionResult[] = [];
+  for (const call of parked) {
+    const d = byCallId.get(call.id);
+    if (d?.kind === "ask") {
+      results.push({ id: call.id, result: d.response, isError: false, terminate: false });
+      continue;
+    }
+    if (d?.kind === "approval" && (d.response as { decision?: unknown }).decision === "allow") {
+      const [executed] = await executeTools(callCtx(), [call]);
+      results.push(executed!);
+      continue;
+    }
+    const reason = d
+      ? `denied by human: ${JSON.stringify(d.response)}`
+      : "interrupted by a restart before this tool produced a result";
+    results.push({ id: call.id, result: { content: reason }, isError: true, terminate: false });
+  }
+  await persist(results.map((r) => buildToolResultEntry(r, opts)));
 }
 
 /** Drain any queued steer inputs at a safe boundary, returning updated
@@ -445,6 +565,18 @@ async function runModelTurnLoop(
             action: "return",
             result: { status: mutable.status, usage: state.runUsage, error: "stopped by user" },
           };
+        }
+
+        // Durable parked-turn marker (ADR 0038): the atomic batch below
+        // keeps a dangling tool_use out of the store, so a crash mid-
+        // execution would leave no trace of this turn. The marker carries
+        // the assistant(tool_use) message to the session file BEFORE the
+        // tools run; normal loads skip it, the resume path completes from
+        // it. Failures never block the turn - durability is best-effort.
+        try {
+          opts.onParkedTurn?.(buildAssistantToolMessage(turn));
+        } catch {
+          /* marker write failure never affects the run */
         }
 
         // Execute tools FIRST, then persist assistant + results in ONE

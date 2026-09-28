@@ -13,11 +13,13 @@ import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-run
 import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts.js";
 import { resolveModelEntry } from "../../core/runtime/run-runtime.js";
 import {
-  appendSessionCompaction,
+  appendParkedTurnMarker,
   appendSessionMessages,
+  loadLastParkedTurn,
   loadSessionMessages,
   newSessionId,
 } from "../../core/session/session-file.js";
+import { persistSessionTurn } from "../../core/session/session-loop.js";
 import {
   readWorkspaceSystemPrompt,
   scanWorkspaceSkillRoots,
@@ -254,6 +256,35 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         console.warn(`[rpc] skipping malformed session line ${i} for ${resumeId}`);
       }
     }
+    // ADR 0038 resume: this dispatch re-runs a turn that died parked on
+    // HITL. The parked-turn marker carries the interrupted assistant
+    // (tool_use) message; its calls complete from the wire's decisions
+    // instead of re-running the turn.
+    const resume = input.resume;
+    const parkedTurn = resume ? loadLastParkedTurn(sessionId) : null;
+    if (resume && parkedTurn?.interrupted) {
+      try {
+        parsedTranscript.push({
+          productEntryId: `session:${parsedTranscript.length}`,
+          message: MessageSchema.parse(parkedTurn.message) as Message,
+        });
+      } catch {
+        console.warn(`[rpc] malformed parked-turn marker for ${sessionId}: ignoring`);
+      }
+    }
+    // File-level message-id seen set: the real-time persistence hook must
+    // never write a message the file already has (the resume prompt is the
+    // SAME canonical message as the seed's copy — the store dedups it by
+    // productEntryId, this guards the file side).
+    const persistedIds = new Set(
+      parsedTranscript.map((t) => t.message.id).filter((id): id is string => id != null),
+    );
+    const inputCopyIndex = parsedTranscript.findIndex(
+      (t) =>
+        t.message.id != null &&
+        input.input.message.id != null &&
+        t.message.id === input.input.message.id,
+    );
     const sessionTranscript = parsedTranscript.length > 0 ? parsedTranscript : undefined;
     let effectiveInput: typeof input;
 
@@ -264,7 +295,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
       // Explicit run-input values (Loop scopes) win over the cwd fallback.
       const cwdSkills = scanWorkspaceSkillRoots(input.workspace.root);
       const cwdPrompt = readWorkspaceSystemPrompt(input.workspace.root);
-      effectiveInput = input.run.systemPrompt
+      const bridged = input.run.systemPrompt
         ? input
         : {
             ...input,
@@ -277,6 +308,28 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
               }),
             },
           };
+      // Resume dedup (ADR 0038): the seed already carries this input as
+      // `session:<k>`; sharing that productEntryId makes the store's dedup
+      // drop the second prompt append.
+      effectiveInput =
+        inputCopyIndex >= 0
+          ? {
+              ...bridged,
+              input: { ...bridged.input, productEntryId: `session:${inputCopyIndex}` },
+            }
+          : bridged;
+      // ADR 0038: decisions for the resumed turn's approvals, pre-supplied
+      // so re-executing an allowed tool never re-asks the human (same
+      // callId — the parked tool_use id).
+      const resumeApprovals = new Map<string, ApprovalDecision>();
+      for (const d of resume?.decisions ?? []) {
+        if (d.kind === "approval" && (d.response as { decision?: unknown }).decision === "allow") {
+          resumeApprovals.set(d.callId, {
+            decision: "allow",
+            reason: "human decision replayed into the resumed run (ADR 0038)",
+          });
+        }
+      }
       // Plugin components (spec): policy resolved in the mode layer — RPC
       // NEVER loads project-scope code; user-scope needs enablement only.
       const pluginRt = await assemblePluginRuntime(input.workspace.root, "rpc");
@@ -331,7 +384,12 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         });
       runtime = await createOmaRuntime({
         runId,
-        approvalHandler: rpcApproval,
+        // ADR 0038: a resumed turn's allowed approvals answer from the
+        // pre-supplied map (same callId) — the human is never re-asked.
+        approvalHandler: (req) =>
+          resumeApprovals.has(req.callId)
+            ? Promise.resolve(resumeApprovals.get(req.callId)!)
+            : rpcApproval(req),
         modelId: input.run.model.modelId,
         workspaceRoot: input.workspace.root,
         workspaceAccess: input.workspace.access,
@@ -350,6 +408,19 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
           : {}),
         ...(input.run.permissionMode ? { permissionMode: input.run.permissionMode } : {}),
         sessionTranscript,
+        // Real-time session persistence (pi appendMessage, ADR 0038): every
+        // conversational message lands in the file as it happens, so a
+        // killed process leaves its trail. The seen-id set keeps the resume
+        // prompt's store-level dedup from double-writing the file.
+        onPersistMessages: (messages) => {
+          const fresh = messages.filter((m) => !m.id || !persistedIds.has(m.id));
+          for (const m of fresh) if (m.id) persistedIds.add(m.id);
+          if (fresh.length > 0) appendSessionMessages(sessionId, process.cwd(), fresh);
+        },
+        // Parked-turn marker (ADR 0038): the assistant(tool_use) of a turn
+        // whose tools are about to run — the durable trace an interrupted
+        // turn resumes from.
+        onParkedTurn: (message) => appendParkedTurnMarker(sessionId, message),
         onEvent: (event) => {
           // forWire drops oma-internal fields (raw tool input) before the
           // frame leaves the process — the mapper's later omission of `input`
@@ -385,7 +456,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     segment: BackendRunSegment<"oma">,
     runId: string,
     sessionId: string,
-    inputMessage: Record<string, unknown>,
+    _inputMessage: Record<string, unknown>,
   ): Promise<void> {
     let outcome: BackendRunOutcome;
     try {
@@ -393,18 +464,18 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     } catch (caught) {
       outcome = { status: "failed", error: redactError(caught) };
     }
-    // Persist the turn into the child's session file (user + assistant/tool
-    // messages) so the next run resumes the transcript (ADR 0003).
-    if (outcome.status === "completed" && outcome.messages?.length) {
-      appendSessionMessages(sessionId, process.cwd(), [inputMessage, ...outcome.messages]);
-      for (const compaction of await runtime.compactions()) {
-        appendSessionCompaction(
-          sessionId,
-          compaction.summary,
-          undefined,
-          compaction.replacesEarlierMessages,
-        );
-      }
+    // Finalize the turn in the session file (ADR 0003 + ADR 0038):
+    // conversational messages were already written in REAL TIME by
+    // onPersistMessages; what remains is compaction summaries and the auto
+    // title/summary.
+    if (outcome.status === "completed") {
+      await persistSessionTurn({
+        sessionId,
+        cwd: process.cwd(),
+        runtime,
+        ...(outcome.title ? { title: outcome.title } : {}),
+        ...(outcome.summary ? { summary: outcome.summary } : {}),
+      });
     }
     const outcomeWithRef: BackendRunOutcome = {
       ...outcome,

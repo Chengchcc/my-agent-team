@@ -1,5 +1,5 @@
 import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
-import type { AgentBackend } from "@chengchenccc/agent-contract";
+import type { AgentBackend, ResumeDecision } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import { isActiveStatus } from "./domain.js";
@@ -19,6 +19,9 @@ export interface ExecutionServiceCtx {
   inflightPromises: Map<string, Promise<void>>;
   state: { disposed: boolean };
   dispatchFn: (runId: string) => Promise<void>;
+  /** ADR 0038: decisions awaiting the resume dispatch of a parked run
+   * (shared with the dispatcher — deliverInput drains it into the wire). */
+  resumeInbox: Map<string, readonly ResumeDecision[]>;
   entryFor: (
     kind: string,
   ) => AgentRunExecutionDeps["backends"][keyof AgentRunExecutionDeps["backends"]] | undefined;
@@ -36,6 +39,28 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
   const { deps, liveEvents, liveRuns, inflight, inflightPromises, state, dispatchFn, entryFor } =
     ctx;
   const { runPort, backends } = deps;
+  const { resumeInbox } = ctx;
+
+  /** ADR 0038: a parked run's answer arrived with no live child (the
+   *  backend restarted while it waited). Stash the decided actions and
+   *  re-dispatch the SAME runId/input: the fresh child completes the
+   *  interrupted turn from its session seed with the decisions attached. */
+  const resumeParkedRun = async (runId: string): Promise<void> => {
+    const run = await runPort.getRun(runId);
+    // Only a WOKEN run resumes: still-waiting means sibling actions are
+    // open — their consume will trigger this again (multi-slot rule).
+    if (run?.status !== "running" || liveRuns.has(runId)) return;
+    const decided = (await runPort
+      .listDecidedActions(runId)
+      .catch(
+        () => [] as { callId: string; kind: string; response: Record<string, unknown> }[],
+      )) as readonly ResumeDecision[];
+    resumeInbox.set(runId, decided);
+    debugLog("agent-run", `resume_parked runId=${runId} decisions=${decided.length}`);
+    await dispatchFn(runId).catch((err) => {
+      console.error(`[agent-run] resume dispatch failed for ${runId}:`, err);
+    });
+  };
 
   return {
     async dispatch(runId) {
@@ -118,12 +143,24 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         });
       }
       // Restart orphans: a run whose input was DELIVERED (child accepted)
-      // has no live child after a restart and cannot be resumed (one-shot
-      // child architecture). Terminal it, cancel nothing (already
-      // delivered), release the branch, and promote the next queued input.
+      // has no live child after a restart — EXCEPT one parked on HITL
+      // (ADR 0038): its pending actions keep the answer path alive, and
+      // answering re-dispatches it. Everything else cannot be resumed
+      // (one-shot child architecture): terminal it, cancel nothing
+      // (already delivered), release the branch, promote the next input.
       const orphans = await runPort.listActiveRunsWithDeliveredInputs();
       for (const orphan of orphans) {
         if (liveRuns.has(orphan.runId)) continue;
+        if (orphan.status === "waiting") {
+          const pending = await runPort.listPendingActions(orphan.runId).catch(() => []);
+          if (pending.length > 0) {
+            debugLog(
+              "agent-run",
+              `recover_parked runId=${orphan.runId} pending=${pending.length} (awaiting answer)`,
+            );
+            continue;
+          }
+        }
         debugLog(
           "agent-run",
           `recover_orphan runId=${orphan.runId} status=${orphan.status} branchId=${orphan.branchId}`,
@@ -205,6 +242,25 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       }
       const live = liveRuns.get(runId);
       if (!live) {
+        // ADR 0038: the child died with the backend while parked on this
+        // approval. A WAITING run records the decision durably and
+        // resume-dispatches — the fresh child completes the interrupted
+        // turn with the decision pre-supplied. Anything else (settling,
+        // terminal, zombie) keeps the explicit failure.
+        const parked = await runPort.getRun(runId);
+        if (parked?.status === "waiting") {
+          await runPort
+            .consumePendingAction(
+              actionId,
+              { actionId, response: { decision } },
+              `${actionId}:${decision}`,
+            )
+            .catch((err) => {
+              console.error(`[agent-run] parked approval consume failed for ${actionId}:`, err);
+            });
+          await resumeParkedRun(runId);
+          return;
+        }
         throw new ApprovalNotApplicableError(
           `approval rejected: run ${runId} has no live loop on this process`,
         );
@@ -262,6 +318,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           console.error(`[agent-run] approval consume failed for ${actionId}:`, err);
         });
     },
+    resumeParkedRun,
 
     async stop(runId) {
       const live = liveRuns.get(runId);

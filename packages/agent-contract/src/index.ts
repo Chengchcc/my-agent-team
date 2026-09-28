@@ -47,4 +47,5 @@ export type {
   BackendRunSegment,
   PendingAction,
   PendingActionResponse,
+  ResumeDecision,
 } from "./run.js";

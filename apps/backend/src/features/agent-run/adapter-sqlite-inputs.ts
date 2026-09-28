@@ -28,14 +28,23 @@ export function createInputQueueMethods(db: Database): InputQueueMethods {
     /** Claim the input bound to THIS run (run_id = ?). One Run / one
      *  input: pending inputs are never bound to a run by a claim - only
      *  acquire (enqueue/acquireNextRun) binds them. */
-    async claimInputForRun(runId: string): Promise<ClaimedBranchInput | null> {
+    async claimInputForRun(
+      runId: string,
+      opts?: { includeDelivered?: boolean },
+    ): Promise<ClaimedBranchInput | null> {
       const row = d
         .select()
         .from(schema.branchInputQueue)
         .where(
           and(
             eq(schema.branchInputQueue.runId, runId),
-            inArray(schema.branchInputQueue.status, ["pending", "delivering"]),
+            // ADR 0038: a resume dispatch claims the DELIVERED row too —
+            // the dead child accepted it; the fresh one re-runs it.
+            inArray(schema.branchInputQueue.status, [
+              "pending",
+              "delivering",
+              ...(opts?.includeDelivered ? (["delivered"] as const) : []),
+            ]),
           ),
         )
         .orderBy(schema.branchInputQueue.seq)

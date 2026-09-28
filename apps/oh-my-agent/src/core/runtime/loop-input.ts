@@ -5,6 +5,7 @@ import type {
   WorkspaceBinding,
 } from "@chengchenccc/agent-contract";
 import type { AppendBatchInput } from "../store/session-store.js";
+import type { ResumeDecision } from "./agent-loop-types.js";
 export interface LoopInputResult {
   readonly batch: AppendBatchInput;
   readonly systemPrompt: string;
@@ -25,6 +26,11 @@ export interface CodingLoopInput {
     readonly agentId: string;
     readonly branchId: string;
   };
+  /** ADR 0038 resume: decisions for the interrupted turn's parked tool
+   * calls. Present only when this run re-dispatches a run that died
+   * parked on HITL; the loop completes the interrupted turn from the
+   * session seed before its first model call. */
+  readonly resume?: { readonly decisions: readonly ResumeDecision[] };
 }
 
 export interface LoopInputDeps {

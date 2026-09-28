@@ -759,3 +759,85 @@ export function appendSessionMessages(
   lastIdBySession.set(cacheKey, prevId);
   appendFileSync(path, `${lines.join("\n")}\n`);
 }
+
+// ─── Parked-turn markers (ADR 0038) ──────────────────────────────────
+
+/** Append a parked-turn marker: the assistant(tool_use) message of a turn
+ * whose tools are ABOUT to execute. The loop's atomic discipline keeps a
+ * dangling tool_use out of the store, so the marker is the only durable
+ * trace of an interrupted turn. Invisible to loadSessionMessages (it reads
+ * `message` events only). Self-invalidating: the turn's atomic batch
+ * (assistant + tool_results) lands after the marker when the tools finish,
+ * and loadLastParkedTurn pairs the tool_use ids against message events
+ * FOLLOWING the marker. */
+export function appendParkedTurnMarker(
+  id: string,
+  message: unknown,
+  dir: string = sessionDir(),
+): void {
+  mkdirSync(dir, { recursive: true });
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return; // no session yet: nothing to resume into
+  appendFileSync(
+    path,
+    `${JSON.stringify({
+      type: "parked_turn",
+      timestamp: new Date().toISOString(),
+      message,
+    })}\n`,
+  );
+}
+
+/** The last parked-turn marker, and whether every tool_use it carries has a
+ * paired tool_result among the message events AFTER it (completed turn —
+ * the marker is stale). `interrupted: true` means a turn died mid-execution
+ * and resume must complete it. */
+export function loadLastParkedTurn(
+  id: string,
+  dir: string = sessionDir(),
+): { message: Record<string, unknown>; interrupted: boolean } | null {
+  const path = sessionFilePath(id, dir);
+  if (!existsSync(path)) return null;
+  const lines = readFileSync(path, "utf8").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line?.trim()) continue;
+    try {
+      const evt = JSON.parse(line) as {
+        type?: string;
+        message?: Record<string, unknown>;
+      };
+      if (evt.type !== "parked_turn" || !evt.message) continue;
+      const toolUseIds = new Set(
+        ((evt.message.blocks as Array<{ type?: string; id?: string }> | undefined) ?? [])
+          .filter((b) => b.type === "tool_use" && typeof b.id === "string")
+          .map((b) => b.id as string),
+      );
+      const answered = new Set<string>();
+      for (const later of lines.slice(i + 1)) {
+        if (!later.trim()) continue;
+        try {
+          const m = JSON.parse(later) as {
+            type?: string;
+            message?: { blocks?: Array<{ type?: string; tool_use_id?: string }> };
+          };
+          if (m.type !== "message") continue;
+          for (const b of m.message?.blocks ?? []) {
+            if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+              answered.add(b.tool_use_id);
+            }
+          }
+        } catch {
+          /* skip malformed line */
+        }
+      }
+      return {
+        message: evt.message,
+        interrupted: [...toolUseIds].some((t) => !answered.has(t)),
+      };
+    } catch {
+      /* skip malformed line */
+    }
+  }
+  return null;
+}

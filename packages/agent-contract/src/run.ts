@@ -59,6 +59,22 @@ export interface BackendRunInput<K extends string = string> {
     readonly agentId: string;
     readonly branchId: string;
   };
+  /** ADR 0038: present only when this dispatch RESUMES a run that died
+   * parked on HITL. The child completes the interrupted turn from its
+   * session seed (parked-turn marker) instead of re-running it: each
+   * decision becomes the parked tool_use's result — an allowed approval
+   * executes with the decision pre-supplied, an ask answer is replayed
+   * verbatim, anything else settles as denied/interrupted. */
+  readonly resume?: { readonly decisions: readonly ResumeDecision[] };
+}
+
+/** One human decision replayed into a resumed run (ADR 0038). `callId` is
+ * the parked tool_use id; `response` is the durable pending_action
+ * response — an approval decision ({decision}) or an ask answer. */
+export interface ResumeDecision {
+  readonly callId: string;
+  readonly kind: "approval" | "ask";
+  readonly response: Record<string, unknown>;
 }
 
 /** A pending approval, question or permission request awaiting a product

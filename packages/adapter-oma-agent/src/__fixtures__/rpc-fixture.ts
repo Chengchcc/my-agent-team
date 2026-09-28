@@ -96,6 +96,7 @@ async function main(): Promise<void> {
         input?: {
           run?: { runId?: string; cliSessionRef?: string };
           input?: { message?: { text?: string } };
+          resume?: { decisions?: Array<{ callId?: string }> };
         };
       };
       try {
@@ -134,6 +135,14 @@ async function main(): Promise<void> {
         // flat text with \n\n separators, recorded as ONE log line).
         note("execute_msg", JSON.stringify(cmd.input?.input?.message?.text ?? ""));
         note("execute_ref", JSON.stringify(cmd.input?.run?.cliSessionRef ?? null));
+        if (cmd.input?.resume) {
+          // ADR 0038 resume E2E: which callIds the resumed child was told
+          // to complete from (decisions ride the wire input).
+          note(
+            "execute_resume",
+            JSON.stringify((cmd.input.resume.decisions ?? []).map((d) => d.callId ?? "?")),
+          );
+        }
         if (cwdMarker) writeFileSync(cwdMarker, process.cwd());
         if (scenario === "silent") {
           // Never respond to execute: models a child stuck pre-acceptance

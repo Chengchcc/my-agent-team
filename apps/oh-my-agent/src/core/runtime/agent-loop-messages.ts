@@ -63,12 +63,9 @@ export function attachTurnTelemetry(message: Message, turn: ModelTurn): void {
   }
 }
 
-/** Build the atomic assistant(tool_use) + tool_result batch for one turn. */
-export function buildToolBatch(
-  turn: ModelTurn,
-  toolResults: readonly ToolExecutionResult[],
-  opts: { toolFailureReminder?: boolean },
-): BatchEntry[] {
+/** The assistant(tool_use) message for one tool turn (ADR 0038: also the
+ * payload of the parked-turn marker, fired before tools execute). */
+export function buildAssistantToolMessage(turn: ModelTurn): Message {
   const collapsedThinking = makeThinkingBlock(turn.thinking, turn);
   const orderedWithCollapsedThinking: Array<{ type: string; text: string }> = [];
   let thinkingInserted = false;
@@ -110,59 +107,74 @@ export function buildToolBatch(
     ],
   } as Message;
   attachTurnTelemetry(assistantMessage, turn);
+  return assistantMessage;
+}
 
+/** Build the atomic assistant(tool_use) + tool_result batch for one turn. */
+export function buildToolBatch(
+  turn: ModelTurn,
+  toolResults: readonly ToolExecutionResult[],
+  opts: { toolFailureReminder?: boolean },
+): BatchEntry[] {
   return [
     {
       type: "message",
       role: "assistant",
       source: "assistant",
-      message: assistantMessage,
+      message: buildAssistantToolMessage(turn),
       createdAt: Date.now(),
     },
-    ...toolResults.map((result) => {
-      // Vision passthrough: a tool result carrying `images` (read_image)
-      // keeps them on the tool_result block so providers map them onto the
-      // wire content array.
-      const imgs = (result.result as { images?: unknown } | null | undefined)?.images;
-      const images =
-        Array.isArray(imgs) && imgs.length > 0
-          ? {
-              images: imgs as Message["blocks"],
-            }
-          : {};
-      // Tool result content contract (spec): a string `content` field is the
-      // model-visible text verbatim (tool-formatted); everything else stays
-      // the JSON dump for both model and UI.
-      const res = result.result as { content?: unknown } | null | undefined;
-      const raw = typeof res?.content === "string" ? res.content : JSON.stringify(result.result);
-      // Tool-failure system reminder (absorbed from oh-my-pi): in-band on the
-      // failing result so it survives into the canonical ledger — "the fix
-      // sticks" across runs. The message `text` stays the clean JSON for UI.
-      const content =
-        result.isError && opts.toolFailureReminder !== false
-          ? `${TOOL_FAILURE_REMINDER}\n\n${raw}`
-          : raw;
-      return {
-        type: "message" as const,
-        role: "tool" as const,
-        source: "tool_result" as const,
-        message: {
-          role: "tool",
-          text: raw,
-          blocks: [
-            {
-              type: "tool_result" as const,
-              tool_use_id: result.id,
-              content,
-              ...(result.isError ? { is_error: true } : {}),
-              ...images,
-            },
-          ],
-        } as Message,
-        createdAt: Date.now(),
-      };
-    }),
+    ...toolResults.map((result) => buildToolResultEntry(result, opts)),
   ];
+}
+
+/** One tool_result entry, shared by the atomic batch and the resume
+ * completion phase (interrupted turns persist results alone). */
+export function buildToolResultEntry(
+  result: ToolExecutionResult,
+  opts: { toolFailureReminder?: boolean },
+): BatchEntry {
+  // Vision passthrough: a tool result carrying `images` (read_image)
+  // keeps them on the tool_result block so providers map them onto the
+  // wire content array.
+  const imgs = (result.result as { images?: unknown } | null | undefined)?.images;
+  const images =
+    Array.isArray(imgs) && imgs.length > 0
+      ? {
+          images: imgs as Message["blocks"],
+        }
+      : {};
+  // Tool result content contract (spec): a string `content` field is the
+  // model-visible text verbatim (tool-formatted); everything else stays the
+  // JSON dump for both model and UI.
+  const res = result.result as { content?: unknown } | null | undefined;
+  const raw = typeof res?.content === "string" ? res.content : JSON.stringify(result.result);
+  // Tool-failure system reminder (absorbed from oh-my-pi): in-band on the
+  // failing result so it survives into the canonical ledger — "the fix
+  // sticks" across runs. The message `text` stays the clean JSON for UI.
+  const content =
+    result.isError && opts.toolFailureReminder !== false
+      ? `${TOOL_FAILURE_REMINDER}\n\n${raw}`
+      : raw;
+  return {
+    type: "message" as const,
+    role: "tool" as const,
+    source: "tool_result" as const,
+    message: {
+      role: "tool",
+      text: raw,
+      blocks: [
+        {
+          type: "tool_result" as const,
+          tool_use_id: result.id,
+          content,
+          ...(result.isError ? { is_error: true } : {}),
+          ...images,
+        },
+      ],
+    } as Message,
+    createdAt: Date.now(),
+  };
 }
 
 /** Build the assistant(text) entry for a text-only turn. */

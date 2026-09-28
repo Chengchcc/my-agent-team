@@ -564,3 +564,109 @@ describe("rpc approval wire", () => {
     }
   }, 10_000);
 });
+
+describe("rpc resume (ADR 0038)", () => {
+  test("a parked turn completes from the marker: allowed approval executes, ask answer replays, unanswered settles interrupted", async () => {
+    // Seed the dead child's session file: the input message plus a
+    // parked-turn marker whose three tool_use calls never got results.
+    const { appendParkedTurnMarker, appendSessionMessages, newSessionId } = await import(
+      "../../core/session/session-file.js"
+    );
+    const sessionId = newSessionId();
+    const inputMessage = { id: "msg-resume-in", role: "user" as const, text: "run the batch" };
+    appendSessionMessages(sessionId, tmp, [inputMessage]);
+    appendParkedTurnMarker(sessionId, {
+      role: "assistant",
+      text: "",
+      blocks: [
+        {
+          type: "tool_use",
+          id: "toolu-allow",
+          name: "bash",
+          input: { command: "echo resumed-ok" },
+        },
+        {
+          type: "tool_use",
+          id: "toolu-ask",
+          name: "mcp__product-tools__ask_question",
+          input: {},
+        },
+        { type: "tool_use", id: "toolu-orphan", name: "bash", input: { command: "echo orphan" } },
+      ],
+    });
+
+    const h = makeHarness({ provider: fakeProvider({}) });
+    h.write(
+      JSON.stringify({
+        id: "e-resume",
+        type: "execute",
+        input: {
+          input: { inputId: "in-resume", message: inputMessage },
+          run: {
+            runId: "r-resume",
+            model: { backendKind: "oma", modelId: "fake/echo" },
+            configRevision: 1,
+            skillRoots: [],
+            permissionMode: "ask",
+            cliSessionRef: sessionId,
+          },
+          workspace: { root: tmp, access: "read_write" },
+          metadata: { conversationId: "c", agentId: "m", branchId: "b" },
+          resume: {
+            decisions: [
+              { callId: "toolu-allow", kind: "approval", response: { decision: "allow" } },
+              {
+                callId: "toolu-ask",
+                kind: "ask",
+                response: { answers: [{ id: "q1", selectedValues: ["opt-a"] }] },
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      h.lines().some((l) => {
+        try {
+          return (JSON.parse(l) as { type?: string }).type === "outcome";
+        } catch {
+          return false;
+        }
+      }),
+    );
+    const outcome = h
+      .lines()
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type?: string;
+            outcome?: { status?: string; messages?: Array<{ role?: string; blocks?: unknown[] }> };
+          },
+      )
+      .find((o) => o.type === "outcome");
+    expect(outcome?.outcome?.status).toBe("completed");
+
+    const results = new Map(
+      (outcome?.outcome?.messages ?? [])
+        .flatMap((m) => (m.blocks ?? []) as Array<Record<string, unknown>>)
+        .filter((b) => b.type === "tool_result")
+        .map((b) => [
+          b.tool_use_id as string,
+          { content: String(b.content ?? ""), isError: b.is_error === true },
+        ]),
+    );
+    // Allowed approval EXECUTED (real bash output, no re-ask).
+    expect(results.get("toolu-allow")?.isError).toBe(false);
+    expect(results.get("toolu-allow")?.content).toContain("resumed-ok");
+    // Ask answer replayed verbatim as the synthetic tool result.
+    expect(results.get("toolu-ask")?.content).toContain("opt-a");
+    // No decision for this one: honest interrupted error result.
+    expect(results.get("toolu-orphan")?.isError).toBe(true);
+    expect(results.get("toolu-orphan")?.content).toContain("interrupted");
+    // The pre-supplied decision means no approval_request ever hit the wire.
+    expect(h.lines().some((l) => l.includes("approval_request"))).toBe(false);
+    h.stop();
+    await h.exitCode.catch(() => -1);
+  }, 15_000);
+});

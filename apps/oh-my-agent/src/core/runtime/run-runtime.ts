@@ -1444,6 +1444,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     resolveModel,
     ...(streamRules.length > 0 ? { streamRules } : {}),
     ...(deps.onPersistMessages ? { onPersistMessages: deps.onPersistMessages } : {}),
+    ...(deps.onParkedTurn ? { onParkedTurn: deps.onParkedTurn } : {}),
     ...(permissionGate ? { permissionGate } : {}),
     askHandler: deps.askHandler,
   });

@@ -1,4 +1,4 @@
-import type { BackendEvent } from "@chengchenccc/agent-contract";
+import type { BackendEvent, ResumeDecision } from "@chengchenccc/agent-contract";
 import type { AgentRun } from "./domain.js";
 import { isTerminalStatus } from "./domain.js";
 import { createExecutionDispatcher } from "./execution-dispatch.js";
@@ -66,6 +66,11 @@ export function createAgentRunExecutionService(
   /** Dispatch promises by runId: dispose() drains them AFTER the children
    *  are dead so the DB is never closed mid-finalize. */
   const inflightPromises = new Map<string, Promise<void>>();
+  /** ADR 0038 resume inbox: decisions stashed by the service when a parked
+   * run's answer arrives with no live child (backend restarted while the
+   * run waited on HITL). The dispatcher drains it into the next dispatch's
+   * wire input; the child completes the interrupted turn from them. */
+  const resumeInbox = new Map<string, readonly ResumeDecision[]>();
   const execState = { disposed: false };
   const liveEvents = createLiveEventBus({
     ...deps,
@@ -88,6 +93,7 @@ export function createAgentRunExecutionService(
     inflight,
     inflightPromises,
     state: execState,
+    resumeInbox,
   });
 
   return createExecutionService({
@@ -99,5 +105,6 @@ export function createAgentRunExecutionService(
     state: execState,
     dispatchFn,
     entryFor,
+    resumeInbox,
   });
 }
