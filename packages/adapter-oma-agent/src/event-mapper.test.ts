@@ -58,3 +58,13 @@ describe("the adapter forwards the child's activity line verbatim", () => {
     expect(ev).toEqual({ type: "native_tool_started", toolName: "read", callId: "call-10" });
   });
 });
+
+describe("heartbeat mapping", () => {
+  test("heartbeat becomes the bare status event, not a telemetry extension event", () => {
+    // The backend's liveness check reads exactly {type:"status",status:
+    // "heartbeat"}; the default extension mapping would have persisted a
+    // telemetry row every 15 seconds per run instead.
+    const ev = mapRunEvent({ id: 7, type: "heartbeat", data: {} } as never);
+    expect(ev).toEqual({ type: "status", status: "heartbeat" });
+  });
+});

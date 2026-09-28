@@ -51,9 +51,14 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
       const result = event.data.result as Readonly<Record<string, unknown>> | undefined;
       return { type: "native_tool_completed", toolName, callId, result };
     }
+    // The runtime protocol maps heartbeat onto a bare status event and the
+    // backend's liveness check reads exactly that shape; leaving it to the
+    // default extension mapping turned every 15s heartbeat into a telemetry
+    // row nobody wanted.
     case "agent_start":
     case "turn_start":
     case "turn_end":
+    case "heartbeat":
       return { type: "status", status: event.type };
     case "agent_end": {
       // agent_end carries the ACTUAL terminal status from the loop
