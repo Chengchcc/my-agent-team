@@ -170,15 +170,15 @@ describe("applyRunEvent reducer", () => {
     expect(flat).toContain("需要确认：执行命令");
     expect(flat).toContain("执行内容");
     expect(flat).toContain("```\\necho lark-resume-acceptance\\n```");
-    const buttons = (card.body as { elements: Array<Record<string, unknown>> }).elements.find(
-      (el) => el.tag === "column_set",
-    ) as { columns: Array<{ weight: number; elements: Array<{ element_id: string }> }> };
-    expect(buttons.columns.map((c) => c.elements[0]!.element_id)).toEqual([
-      "reject_button",
-      "approve_button",
-    ]);
-    // Equal widths: the decision pair must not look like a colour-coded stack.
-    expect(buttons.columns.map((c) => c.weight)).toEqual([1, 1]);
+    // One button per row, full width, in decision order - no column_set.
+    const buttons = (card.body as { elements: Array<Record<string, unknown>> }).elements.filter(
+      (el) => el.tag === "button",
+    );
+    expect(buttons.map((b) => b.element_id)).toEqual(["approve_button", "reject_button"]);
+    expect(JSON.stringify(card)).not.toContain("column_set");
+    // width:"fill" is the thing that broke clicks on a live card; the vertical
+    // flow already spans the row.
+    expect(JSON.stringify(buttons)).not.toContain("fill");
   });
 
   test("an approval states its OS-sandbox truth (the decision needs it)", () => {

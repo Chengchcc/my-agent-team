@@ -257,10 +257,11 @@ function pendingActionButtons(
     });
   });
   if (action.kind === "approval") {
-    // Side by side, equal width: two full-width stacked buttons read as a
-    // mobile dialog and bury the decision under its own chrome. No
-    // width:"fill" on the buttons themselves - a live card rejected the
-    // click with it (2026-09-25).
+    // ONE button per row, each filling it: the body is a vertical flow, so a
+    // plain button already spans the width (the user asked for this on the
+    // live card, 2026-09-28 - side-by-side columns felt cramped). width:"fill"
+    // is still NOT used: a live card rejected the click with it (2026-09-25),
+    // and the vertical flow makes it unnecessary.
     const decideButton = (
       id: string,
       label: string,
@@ -274,27 +275,8 @@ function pendingActionButtons(
       behaviors: [{ type: "callback", value: { runId, callId: action.callId, action: action_ } }],
     });
     return [
-      {
-        tag: "column_set",
-        flex_mode: "stretch",
-        horizontal_spacing: "8px",
-        columns: [
-          {
-            tag: "column",
-            width: "weighted",
-            weight: 1,
-            vertical_align: "center",
-            elements: [decideButton("reject_button", "拒绝", "danger", "reject")],
-          },
-          {
-            tag: "column",
-            width: "weighted",
-            weight: 1,
-            vertical_align: "center",
-            elements: [decideButton("approve_button", "批准执行", "primary", "approve")],
-          },
-        ],
-      },
+      decideButton("approve_button", "批准执行", "primary", "approve"),
+      decideButton("reject_button", "拒绝", "danger", "reject"),
     ];
   }
   return buttons;
