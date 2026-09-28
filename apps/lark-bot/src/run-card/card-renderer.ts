@@ -262,6 +262,10 @@ function pendingActionButtons(
     // live card, 2026-09-28 - side-by-side columns felt cramped). width:"fill"
     // is still NOT used: a live card rejected the click with it (2026-09-25),
     // and the vertical flow makes it unnecessary.
+    // One button per row, spanning it: width:"fill" on the button itself is
+    // the way (verified on a live card, 2026-09-28 - it renders full width
+    // AND the click lands, so the 2026-09-25 click failure was the container
+    // mixing, not this property).
     const decideButton = (
       id: string,
       label: string,
@@ -270,29 +274,14 @@ function pendingActionButtons(
     ): Record<string, unknown> => ({
       tag: "button",
       element_id: id,
+      width: "fill",
       text: { tag: "plain_text", content: label },
       type,
       behaviors: [{ type: "callback", value: { runId, callId: action.callId, action: action_ } }],
     });
-    // A plain button hugs its label; ONE weighted column per row is what
-    // stretches it across the card (the options layout has always used a
-    // column for the same reason, and that path is proven clickable).
-    const fullWidthRow = (button: Record<string, unknown>): Record<string, unknown> => ({
-      tag: "column_set",
-      flex_mode: "stretch",
-      columns: [
-        {
-          tag: "column",
-          width: "weighted",
-          weight: 1,
-          vertical_align: "center",
-          elements: [button],
-        },
-      ],
-    });
     return [
-      fullWidthRow(decideButton("approve_button", "批准执行", "primary", "approve")),
-      fullWidthRow(decideButton("reject_button", "拒绝", "danger", "reject")),
+      decideButton("approve_button", "批准执行", "primary", "approve"),
+      decideButton("reject_button", "拒绝", "danger", "reject"),
     ];
   }
   return buttons;
