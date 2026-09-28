@@ -39,6 +39,7 @@ import {
   outcomeOutputSchema,
   responseOutputSchema,
 } from "../../protocol/index.js";
+import { forWire } from "../../protocol/mapping.js";
 import { createJsonlReader } from "./jsonl.js";
 /** Minimal RPC mode: stdin JSONL commands, stdout JSONL outputs only, stderr
  *  for logs. One process = at most one execute = one Run = one outcome, then
@@ -439,6 +440,13 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         // whose tools are about to run — the durable trace an interrupted
         // turn resumes from.
         onParkedTurn: (message) => appendParkedTurnMarker(sessionId, message, sessionDir),
+        onEvent: (event) => {
+          // forWire drops oma-internal fields (raw tool input) before the
+          // frame leaves the process — the mapper's later omission of `input`
+          // cannot protect stdout/logs/backend, which see the frame first.
+          if (!finished)
+            emit(eventOutputSchema.parse({ type: "event", runId, event: forWire(event) }));
+        },
       });
       // run() resolves when the loop is live: acceptance ⟹ routable.
       segment = await runtime.run(effectiveInput as never);
