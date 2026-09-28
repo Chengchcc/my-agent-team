@@ -257,28 +257,75 @@ function pendingActionButtons(
     });
   });
   if (action.kind === "approval") {
+    // Side by side, equal width: two full-width stacked buttons read as a
+    // mobile dialog and bury the decision under its own chrome. No
+    // width:"fill" on the buttons themselves - a live card rejected the
+    // click with it (2026-09-25).
+    const decideButton = (
+      id: string,
+      label: string,
+      type: string,
+      action_: string,
+    ): Record<string, unknown> => ({
+      tag: "button",
+      element_id: id,
+      text: { tag: "plain_text", content: label },
+      type,
+      behaviors: [{ type: "callback", value: { runId, callId: action.callId, action: action_ } }],
+    });
     return [
       {
-        tag: "button",
-        element_id: "approve_button",
-        text: { tag: "plain_text", content: "批准" },
-        type: "primary",
-        behaviors: [
-          { type: "callback", value: { runId, callId: action.callId, action: "approve" } },
-        ],
-      },
-      {
-        tag: "button",
-        element_id: "reject_button",
-        text: { tag: "plain_text", content: "拒绝" },
-        type: "danger",
-        behaviors: [
-          { type: "callback", value: { runId, callId: action.callId, action: "reject" } },
+        tag: "column_set",
+        flex_mode: "stretch",
+        horizontal_spacing: "8px",
+        columns: [
+          {
+            tag: "column",
+            width: "weighted",
+            weight: 1,
+            vertical_align: "center",
+            elements: [decideButton("reject_button", "拒绝", "danger", "reject")],
+          },
+          {
+            tag: "column",
+            width: "weighted",
+            weight: 1,
+            vertical_align: "center",
+            elements: [decideButton("approve_button", "批准执行", "primary", "approve")],
+          },
         ],
       },
     ];
   }
   return buttons;
+}
+
+function approvalHeader(toolName: string | undefined): string {
+  const label = approvalActionLabel(toolName);
+  return label ? `需要确认：${label}` : "需要确认";
+}
+
+/** What the human is being asked to authorise, in their language: a bare
+ *  tool name ("bash") says nothing about the action. Unknown tools fall back
+ *  to their own name, which is at least the truth. */
+function approvalActionLabel(toolName: string | undefined): string {
+  switch (toolName) {
+    case "bash":
+      return "执行命令";
+    case "write":
+    case "edit":
+    case "str_replace":
+      return "修改文件";
+    case "browser":
+      return "访问网页";
+    case "eval":
+      return "运行脚本";
+    case undefined:
+      // No tool name: the header stays bare rather than inventing one.
+      return "";
+    default:
+      return `执行 ${toolName}`;
+  }
 }
 
 function stopButton(runId: string): Record<string, unknown> {
@@ -301,9 +348,37 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
   const elements: Record<string, unknown>[] = [];
 
   if (action?.prompt) {
-    // ≤3 lines of question: more context belongs in Web.
-    const prompt = action.prompt.split("\n").slice(0, 3).join("\n");
-    elements.push({ tag: "markdown", content: prompt });
+    if (isApproval) {
+      // An approval's prompt IS the argument: show it as a command block a
+      // human can read at a glance, not as prose (≤3 lines of question is
+      // the ask rule, not this one).
+      elements.push({
+        tag: "markdown",
+        content: `执行内容：\n\n\`\`\`\n${action.prompt}\n\`\`\``,
+      });
+    } else {
+      // ≤3 lines of question: more context belongs in Web.
+      const prompt = action.prompt.split("\n").slice(0, 3).join("\n");
+      elements.push({ tag: "markdown", content: prompt });
+    }
+  }
+  if (isApproval && action) {
+    // The decision's security context travels with the decision: a bash
+    // approval without the sandbox truth asks the human to guess the blast
+    // radius (the Web card has shown this chip all along).
+    const risk =
+      action.sandboxed === false
+        ? "⚠️ 无 OS 沙箱：该命令可读写文件、可访问网络"
+        : action.sandboxed === true
+          ? "🛡️ 将在 OS 沙箱内执行（仅可写工作区、无网络）"
+          : null;
+    if (risk) {
+      elements.push({
+        tag: "markdown",
+        content: risk,
+        text_size: "notation",
+      });
+    }
   }
   const freeTextAsk =
     action !== null && !isApproval && action.allowFreeText && action.options.length === 0;
@@ -382,7 +457,7 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
     header: {
       title: {
         tag: "plain_text",
-        content: isApproval ? "需要确认" : "需要你的回答",
+        content: isApproval ? approvalHeader(action?.toolName) : "需要你的回答",
       },
       template: "orange",
     },

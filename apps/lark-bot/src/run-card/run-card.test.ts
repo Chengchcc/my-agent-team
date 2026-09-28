@@ -157,13 +157,47 @@ describe("applyRunEvent reducer", () => {
       type: "backend.oma.approval_request",
       payload,
     });
-    expect(live.pendingAction?.prompt).toContain("bash");
-    expect(live.pendingAction?.prompt).toContain("echo lark-resume-acceptance");
-    // Restart restore must render the identical prompt.
+    // The prompt IS the argument: the tool name and the internal reason are
+    // not something a human approves, and the card renders them separately.
+    expect(live.pendingAction?.prompt).toBe("echo lark-resume-acceptance");
+    expect(live.pendingAction?.toolName).toBe("bash");
+    // Restart restore must produce the identical action.
     expect(pendingActionFromBackend("approval", payload)).toEqual(live.pendingAction);
-    // And the rendered card carries the argument text.
-    const card = renderRunCard(live, { runId: "r1", startedAt: Date.now(), webUrl: null });
-    expect(JSON.stringify(card)).toContain("echo lark-resume-acceptance");
+    // The rendered card: action-typed header, the command in its own block,
+    // and the two decisions side by side.
+    const card = renderCard(live, { runId: "r1", startedAt: Date.now(), webUrl: null });
+    const flat = JSON.stringify(card);
+    expect(flat).toContain("需要确认：执行命令");
+    expect(flat).toContain("执行内容");
+    expect(flat).toContain("```\\necho lark-resume-acceptance\\n```");
+    const buttons = (card.body as { elements: Array<Record<string, unknown>> }).elements.find(
+      (el) => el.tag === "column_set",
+    ) as { columns: Array<{ weight: number; elements: Array<{ element_id: string }> }> };
+    expect(buttons.columns.map((c) => c.elements[0]!.element_id)).toEqual([
+      "reject_button",
+      "approve_button",
+    ]);
+    // Equal widths: the decision pair must not look like a colour-coded stack.
+    expect(buttons.columns.map((c) => c.weight)).toEqual([1, 1]);
+  });
+
+  test("an approval states its OS-sandbox truth (the decision needs it)", () => {
+    const frame = (sandboxed: boolean | undefined) => {
+      const s = applyRunEvent(initialRunCardState(), {
+        type: "backend.oma.approval_request",
+        payload: {
+          callId: "c-sb",
+          toolName: "bash",
+          input: { command: "rm -rf build" },
+          ...(sandboxed === undefined ? {} : { sandboxed }),
+        },
+      });
+      return JSON.stringify(renderCard(s, { runId: "r1", startedAt: Date.now(), webUrl: null }));
+    };
+    expect(frame(false)).toContain("无 OS 沙箱");
+    expect(frame(true)).toContain("OS 沙箱");
+    // No signal from the runtime = no claim on the card.
+    expect(frame(undefined)).not.toContain("沙箱");
   });
 
   test("buildApprovalPrompt truncates a huge argument instead of flooding the card", () => {
@@ -772,9 +806,20 @@ describe("dedicated ask / approval card", () => {
       header: { title: { content: string } };
     };
     const flat = JSON.stringify(card);
+    // No toolName in the payload: the header stays bare rather than naming a
+    // tool nobody told us about.
     expect(card.header.title.content).toBe("需要确认");
-    expect(flat).toContain("批准");
+    expect(flat).toContain("批准执行");
     expect(flat).toContain("拒绝");
+    // …and with a tool name it names the ACTION, not the binary.
+    const named = renderCard(
+      applyRunEvent(initialRunCardState(), {
+        type: "backend.oma.approval_request",
+        payload: { callId: "c3", toolName: "bash" },
+      }),
+      meta,
+    ) as { header: { title: { content: string } } };
+    expect(named.header.title.content).toBe("需要确认：执行命令");
   });
 
   test("the running frame is the run card again once the ask clears", () => {

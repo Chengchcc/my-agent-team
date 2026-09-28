@@ -32,8 +32,14 @@ export interface AskOption {
 export interface PendingActionState {
   callId: string;
   kind: "ask" | "approval";
-  /** The user-facing prompt (question or approval reason). */
+  /** The user-facing prompt: an ask's question, an approval's ARGUMENT (the
+   *  command / path being approved, never the internal reason text). */
   prompt: string;
+  /** Approval only: the tool being approved, for the action-typed header. */
+  toolName?: string;
+  /** Approval only: the runtime's truthful OS-bash-sandbox signal. Security
+   *  context belongs on the card that asks for the decision. */
+  sandboxed?: boolean;
   /** Select options for ask questions (kind=select only). */
   options: AskOption[];
   /** Whether a free-text input row should be offered. */
@@ -42,29 +48,40 @@ export interface PendingActionState {
   questionId: string;
 }
 
-/** Human-readable "what is being approved" text — the approval card's value
- *  is the ARGUMENT, not the tool name (an empty prompt turns the tap into a
- *  blind yes/no). Keeps tool name, reason, and the argument preview. */
+/** The argument preview for an approval card — the command/path itself, in
+ *  the shape the Web card shows (command first, JSON only as a fallback).
+ *  Empty string when the payload carries nothing readable: the renderer then
+ *  omits the block instead of printing `{}`. */
 export function buildApprovalPrompt(payload: Record<string, unknown>): string {
-  const toolName = typeof payload.toolName === "string" ? payload.toolName : "";
-  const reason = typeof payload.reason === "string" ? payload.reason : "";
   const input = payload.input;
-  const lines: string[] = [];
-  if (toolName) lines.push(`批准执行 \`${toolName}\``);
-  if (reason) lines.push(reason);
-  if (input !== undefined && input !== null) {
-    let preview: string;
-    try {
-      preview = typeof input === "string" ? input : JSON.stringify(input);
-    } catch {
-      preview = String(input);
-    }
-    // One line: the argument the human must read before allowing.
-    if (preview.length > 400) preview = `${preview.slice(0, 400)}…`;
-    if (preview) lines.push(preview);
+  if (input === undefined || input === null) return "";
+  // Truncation is always marked: a silently cut command would read as the
+  // whole command, and the human approves what they can see.
+  const clip = (text: string): string => (text.length > 400 ? `${text.slice(0, 400)}…` : text);
+  if (typeof input === "string") return clip(input);
+  // `in` narrowing, not a cast: the lark audit bans bare cross-process
+  // assertions, and this payload came off the wire.
+  if (typeof input === "object" && input !== null && "command" in input) {
+    const command = input.command;
+    if (typeof command === "string") return clip(command);
   }
-  if (lines.length === 0) return "";
-  return lines.join("\n");
+  try {
+    return clip(JSON.stringify(input));
+  } catch {
+    return clip(String(input));
+  }
+}
+
+/** The tool's approval facts: name + sandbox truth, straight from the payload
+ *  (the same record the durable restore reads). */
+export function approvalFacts(payload: Record<string, unknown>): {
+  toolName?: string;
+  sandboxed?: boolean;
+} {
+  const facts: { toolName?: string; sandboxed?: boolean } = {};
+  if (typeof payload.toolName === "string" && payload.toolName) facts.toolName = payload.toolName;
+  if (typeof payload.sandboxed === "boolean") facts.sandboxed = payload.sandboxed;
+  return facts;
 }
 
 /** Rebuild a pending action from the backend's durable record — the restart
@@ -81,6 +98,7 @@ export function pendingActionFromBackend(
       callId,
       kind: "approval",
       prompt: buildApprovalPrompt(payload),
+      ...approvalFacts(payload),
       options: [],
       allowFreeText: false,
       questionId: "",
@@ -305,6 +323,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
           callId,
           kind: "approval",
           prompt: buildApprovalPrompt(ev.payload ?? {}),
+          ...approvalFacts(ev.payload ?? {}),
           options: [],
           allowFreeText: false,
           questionId: "",
