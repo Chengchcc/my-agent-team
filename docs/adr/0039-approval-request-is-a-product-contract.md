@@ -85,7 +85,7 @@ openclaw/acpx 是 ACP 的无头客户端（MIT，3.3k 星），自带可嵌入 r
 - **事件形状（映射参考）**：`AcpRuntimeEvent` 与核心事件几乎同构——`text_delta`（分 output/thought 两流）、`tool_call`（含 title/kind/locations/rawInput/content）、`plan`（整表替换，即我们的计划条）、`usage_update`、终态 `completed/cancelled/failed + stopReason`。`session/update` 到核心事件的映射按这张表写。
 - **会话模型**：`persistent | oneshot` 两态，`resumeSessionId` 对应我们的 `cliSessionRef` 回传。我们只用 oneshot + 自己的 Run 身份，不用它的持久层（`~/.acpx` 记录）。
 - **已知能力差（诚实记录）**：ACP 没有 mid-turn steer（acpx 自己注明；oma RPC 有，acp kind 的 run 需接受排队或不支持）；elicitation 仍在演进（ask 继续走 product-tools MCP，四端同构不受影响）；fs/terminal 回调可关（我们关掉，agent 用自己的文件工具）。
-- **为什么不嵌入**：acpx runtime 自带会话持久与重连，叠在我们的账本/Run 之上就是第二执行身份（Phase 6 教训）；Node ≥22.13 与我们的 Bun 栈有门槛；pre-1.0 的 runtime API 演进快。官方 `@agentclientprotocol/sdk`（1.5.x，纯 TS、stdio JSON-RPC）是我们真正依赖的那一层，Bun 兼容性在 P1 首日验证。
+- **为什么不嵌入**：acpx runtime 自带会话持久与重连，叠在我们的账本/Run 之上就是第二执行身份（Phase 6 教训）；Node ≥22.13 与我们的 Bun 栈有门槛；pre-1.0 的 runtime API 演进快。官方 `@agentclientprotocol/sdk`（1.5.x，纯 TS、stdio JSON-RPC）是我们真正依赖的那一层；其 Bun 兼容性已于 2026-09-28 实测通过（spike：Bun 下经 SDK 驱动 `omp acp --approval-mode always-ask`，initialize / newSession / prompt / 全量 session/update 流 / request_permission 浮到宿主回调并回 allow_once / end_turn，19 秒一轮，脚本存 /tmp/acp-spike/spike.ts，P1 开工时收编为种子）。
 
 ### 落地相位（决策 4 修订版）
 
