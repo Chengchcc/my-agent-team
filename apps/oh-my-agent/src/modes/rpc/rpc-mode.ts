@@ -20,6 +20,7 @@ import {
   loadSessionMessages,
   newSessionId,
   sessionDirFor,
+  withoutOrphanToolResults,
 } from "../../core/session/session-file.js";
 import { persistSessionTurn } from "../../core/session/session-loop.js";
 import {
@@ -259,7 +260,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         debugLog("oma", `resume_adopted_session runId=${runId} session=${adopted}`);
       }
     }
-    const loaded = loadSessionMessages(sessionId, sessionDir);
+    const loaded = withoutOrphanToolResults(loadSessionMessages(sessionId, sessionDir));
     const resume = input.resume;
     // A corrupt line must degrade that entry (log + skip), never brick the
     // whole resume: MessageSchema.parse throws on the first bad shape.
@@ -279,12 +280,26 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     // (tool_use) message; its calls complete from the wire's decisions
     // instead of re-running the turn.
     const parkedTurn = resume ? loadLastParkedTurn(sessionId, sessionDir) : null;
+    /** The interrupted assistant this dispatch completes. It is a marker, not
+     *  a logged message, so nothing else will ever write it: unless THIS run
+     *  persists and commits it, the log and the ledger keep a tool_result
+     *  whose assistant(tool_use) is missing and the provider refuses the next
+     *  turn ("Messages with role 'tool' must be a response to a preceding
+     *  message with 'tool_calls'", live 2026-09-28). Written here, before the
+     *  tools run, so the log order stays assistant -> tool_result. */
+    let resumedAssistant: Message | null = null;
     if (resume && parkedTurn?.interrupted) {
       try {
+        const parkedMessage = MessageSchema.parse(parkedTurn.message) as Message;
         parsedTranscript.push({
           productEntryId: `session:${parsedTranscript.length}`,
-          message: MessageSchema.parse(parkedTurn.message) as Message,
+          message: parkedMessage,
         });
+        const alreadyLogged = loaded.some((m) => m.id === parkedMessage.id);
+        if (!alreadyLogged) {
+          appendSessionMessages(sessionId, process.cwd(), [parkedMessage], sessionDir);
+          resumedAssistant = parkedMessage;
+        }
       } catch {
         console.warn(`[rpc] malformed parked-turn marker for ${sessionId}: ignoring`);
       }
@@ -465,7 +480,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     debugLog("oma", `loop_live runId=${runId}`);
     emitResponse(command.id, "execute", true, undefined);
 
-    void driveOutcome(runtime, segment, runId, sessionId, sessionDir, effectiveInput.input.message);
+    void driveOutcome(runtime, segment, runId, sessionId, sessionDir, resumedAssistant);
   }
   /** Await the outcome, emit the outcome envelope, flush, close the runtime,
    *  then END the reader so the process exits on its own (one Run → one
@@ -476,13 +491,22 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     runId: string,
     sessionId: string,
     sessionDir: string,
-    _inputMessage: Record<string, unknown>,
+    resumedAssistant: Message | null,
   ): Promise<void> {
     let outcome: BackendRunOutcome;
     try {
       outcome = await segment.outcome;
     } catch (caught) {
       outcome = { status: "failed", error: redactError(caught) };
+    }
+    // The resumed turn's own first message: the assistant(tool_use) whose
+    // calls this run executed. The product commits outcome.messages verbatim,
+    // so omitting it leaves the ledger's canonical sequence invalid.
+    if (resumedAssistant && outcome.status === "completed") {
+      outcome = {
+        ...outcome,
+        messages: [resumedAssistant, ...(outcome.messages ?? [])],
+      };
     }
     // Finalize the turn in the session file (ADR 0003 + ADR 0038):
     // conversational messages were already written in REAL TIME by

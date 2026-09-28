@@ -776,6 +776,32 @@ describe("rpc resume (ADR 0038)", () => {
       // decision - no re-ask ever hit the wire.
       expect(String(adopted?.content ?? "")).toContain("adopted-ok");
       expect(h.lines().some((l) => l.includes("approval_request"))).toBe(false);
+      // The parked assistant(tool_use) belongs to THIS run's turn (its tools
+      // execute here), so this run commits it FIRST: without it the ledger
+      // holds a tool_result with no partner and the provider rejects the next
+      // turn (live 2026-09-28).
+      const committed = outcome?.outcome?.messages ?? [];
+      const firstBlocks = (committed[0]?.blocks ?? []) as Array<{ type?: string }>;
+      expect(firstBlocks.some((b) => b.type === "tool_use")).toBe(true);
+      // ...and it is in the SESSION LOG too, ahead of the tool_result, so the
+      // next turn loads a well-formed transcript.
+      const logged = sf.loadSessionMessages(sessionId, dir);
+      const blocksOf = (m: Record<string, unknown>): Array<{ type?: string }> =>
+        (Array.isArray(m.blocks) ? m.blocks : []) as Array<{ type?: string }>;
+      const useIndex = logged.findIndex((m) => blocksOf(m).some((b) => b.type === "tool_use"));
+      const resultIndex = logged.findIndex((m) =>
+        blocksOf(m).some((b) => b.type === "tool_result"),
+      );
+      expect(useIndex).toBeGreaterThanOrEqual(0);
+      expect(resultIndex).toBeGreaterThan(useIndex);
+      // And the guard: the loader still refuses to hand over an orphan result.
+      const withOrphan = sf.withoutOrphanToolResults([
+        { role: "user", text: "hi" },
+        { role: "tool", blocks: [{ type: "tool_result", tool_use_id: "gone" }] },
+        { role: "assistant", blocks: [{ type: "tool_use", id: "kept" }] },
+        { role: "tool", blocks: [{ type: "tool_result", tool_use_id: "kept" }] },
+      ]);
+      expect(withOrphan.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
       h.stop();
       await h.exitCode.catch(() => -1);
     } finally {

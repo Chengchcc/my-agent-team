@@ -41,6 +41,37 @@ beforeEach(
   () => rmSync(dir, { recursive: true, force: true }) || mkdirSync(dir, { recursive: true }),
 );
 
+describe("withoutOrphanToolResults (ADR 0038 log repair)", () => {
+  test("drops a tool_result whose tool_use is not in the log", async () => {
+    const sf = await import("./session-file.js");
+    const repaired = sf.withoutOrphanToolResults([
+      { role: "user", text: "go" },
+      // The pre-fix shape: the resumed turn's assistant(tool_use) lived only
+      // in the parked marker, so the log held this orphan and every later
+      // turn died with a provider 400.
+      { role: "tool", blocks: [{ type: "tool_result", tool_use_id: "orphan", content: "x" }] },
+      { role: "assistant", blocks: [{ type: "tool_use", id: "paired", name: "bash" }] },
+      { role: "tool", blocks: [{ type: "tool_result", tool_use_id: "paired", content: "y" }] },
+      { role: "assistant", text: "done" },
+    ]);
+    expect(repaired.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
+    // Non-tool blocks in a mixed message survive; only the orphan goes.
+    const mixed = sf.withoutOrphanToolResults([
+      { role: "assistant", blocks: [{ type: "tool_use", id: "a" }] },
+      {
+        role: "tool",
+        blocks: [
+          { type: "tool_result", tool_use_id: "a", content: "kept" },
+          { type: "tool_result", tool_use_id: "b", content: "orphan" },
+        ],
+      },
+    ]);
+    expect((mixed[1]!.blocks as unknown[]).length).toBe(1);
+    // Messages without blocks (plain text) pass through untouched.
+    expect(sf.withoutOrphanToolResults([{ role: "user", text: "hi" }]).length).toBe(1);
+  });
+});
+
 describe("session-file compaction round-trip", () => {
   test("compaction event replaces everything before it with the summary", () => {
     appendSessionMessages("s1", dir, [

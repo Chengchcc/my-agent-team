@@ -98,6 +98,54 @@ export function newSessionId(): string {
  *  wins" would resurrect every message the user deliberately compacted away.
  *  Ignoring a partial summary is always safe — its content is either already
  *  summarized or still present as messages. */
+/** Drop tool_result blocks whose tool_use is nowhere in the log. A resumed
+ *  turn's assistant(tool_use) used to live only in the parked_turn marker, so
+ *  the log (and the ledger) could carry a tool message with no partner - and
+ *  OpenAI-style providers reject the whole request outright ("Messages with
+ *  role 'tool' must be a response to a preceding message with 'tool_calls'",
+ *  live 2026-09-28: every following turn in that conversation died with 400).
+ *  The dispatch now persists that message itself; this keeps logs written
+ *  before the fix loadable. Assistant tool_use blocks are left alone: an
+ *  unanswered tool_use is a resume point, not an inconsistency. */
+export function withoutOrphanToolResults(
+  messages: readonly Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const answered = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const message of messages) {
+    const role = message.role;
+    const blocks = Array.isArray(message.blocks) ? (message.blocks as unknown[]) : [];
+    if (role === "assistant") {
+      for (const block of blocks) {
+        if (
+          typeof block === "object" &&
+          block !== null &&
+          (block as { type?: unknown }).type === "tool_use"
+        ) {
+          const id = (block as { id?: unknown }).id;
+          if (typeof id === "string") answered.add(id);
+        }
+      }
+      out.push(message);
+      continue;
+    }
+    if (role !== "tool") {
+      out.push(message);
+      continue;
+    }
+    const kept = blocks.filter((block) => {
+      if (typeof block !== "object" || block === null) return true;
+      if ((block as { type?: unknown }).type !== "tool_result") return true;
+      const id = (block as { tool_use_id?: unknown }).tool_use_id;
+      return typeof id !== "string" || answered.has(id);
+    });
+    if (kept.length === blocks.length) out.push(message);
+    else if (kept.length > 0) out.push({ ...message, blocks: kept });
+    // Everything was orphaned: the message itself carries no meaning.
+  }
+  return out;
+}
+
 export function loadSessionMessages(
   id: string,
   dir: string = sessionDir(),
