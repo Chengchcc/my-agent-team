@@ -53,6 +53,19 @@ export function createWorktreeOps(deps: {
     return project;
   };
 
+  /** diff / fast-forward / merge must refuse an agent that is not attached
+   *  to the project: a leftover branch from before a detach is reachable
+   *  otherwise, and the base branch could even be moved onto it. status()
+   *  filters these agents out; these three operations throw instead. */
+  const assertAgentAttached = async (projectId: string, agentId: string): Promise<void> => {
+    const attached = (await deps.listAgentConfigs()).some(
+      (a) => a.id === agentId && a.projects.includes(projectId),
+    );
+    if (!attached) {
+      throw new ConflictError(`agent ${agentId} is not attached to project ${projectId}`);
+    }
+  };
+
   const mirrorOf = async (projectId: string): Promise<string> => {
     const project = projectOf(projectId);
     return ensureMirror(deps.dataDir, {
@@ -106,6 +119,7 @@ export function createWorktreeOps(deps: {
     const mirror = await mirrorOf(projectId);
     const base = await baseRef(projectId, mirror);
     const branch = branchName(agentId, projectId, opts.slug);
+    await assertAgentAttached(projectId, agentId);
     await preflight(mirror, base, branch);
     const prevTip = (await Bun.$`git -C ${mirror} rev-parse ${base}`.quiet().text()).trim();
     await Bun.$`git -C ${mirror} branch -f ${base} ${branch}`.quiet();
@@ -144,6 +158,7 @@ export function createWorktreeOps(deps: {
     },
 
     async diff(projectId, agentId, ref) {
+      await assertAgentAttached(projectId, agentId);
       assertSlug(ref?.slug);
       const mirror = await mirrorOf(projectId);
       const base = await baseRef(projectId, mirror);

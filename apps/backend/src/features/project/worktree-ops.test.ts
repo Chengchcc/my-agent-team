@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ConflictError } from "../../infra/domain-errors.js";
 import type { ProjectRow } from "./domain.js";
 import type { ProjectPort } from "./ports.js";
 import { ensureMirror, ensureWorktree } from "./worktree.js";
@@ -223,4 +224,30 @@ describe("C3: defaultBranch resolution", () => {
     const st = await ops.status(PID);
     expect(st[0]?.ahead).toBe(1);
   }, 20_000);
+});
+
+describe("attachment guard on diff / fast-forward / merge", () => {
+  test("an agent that is not attached cannot read or move the project's branches", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wops-guard-"));
+    dirs.push(dir);
+    const { src } = await setup(dir);
+    const ops = createWorktreeOps({
+      dataDir: join(dir, "data"),
+      projectPort: fakeProjectPort(src),
+      // a1 HAS the worktree and the branch from setup(); a2 is a bystander.
+      listAgentConfigs: async () => [
+        { id: "a1", workspacePath: join(dir, "agent"), projects: [PID] },
+        { id: "a2", workspacePath: join(dir, "agent2"), projects: [] },
+      ],
+    });
+
+    // a1 (attached) reads fine; a2 (detached, leftover branch irrelevant) is refused.
+    await expect(ops.diff(PID, "a1")).resolves.toBeDefined();
+    await expect(ops.diff(PID, "a2")).rejects.toThrow(ConflictError);
+    await expect(ops.diff(PID, "a2")).rejects.toThrow(/not attached/);
+    await expect(ops.fastForward(PID, "a2", { push: false })).rejects.toThrow(/not attached/);
+    await expect(ops.merge(PID, "a2", { push: false })).rejects.toThrow(/not attached/);
+    // An unknown agent is refused the same way - never a silent empty diff.
+    await expect(ops.diff(PID, "nobody")).rejects.toThrow(/not attached/);
+  });
 });

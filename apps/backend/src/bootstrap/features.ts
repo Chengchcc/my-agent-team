@@ -966,6 +966,35 @@ export async function installFeatures(services: BackendServices): Promise<Instal
               },
               agentId,
             );
+            // Task worktrees (ADR 0023's task axis) sit beside the main one
+            // as projects/<projectId>.<slug>; a detach must take them too or
+            // the checkout and its branch outlive the attachment. Dirty ones
+            // are left in place and reported - never force-deleted.
+            for (const task of listTaskWorktrees(project.projectId, [
+              { id: agentId, workspacePath: agent.workspacePath },
+            ])) {
+              try {
+                await removeTaskWorktree(
+                  mirror,
+                  agent.workspacePath,
+                  {
+                    projectId: project.projectId,
+                    repoUrl: project.repoUrl,
+                    defaultBranch: project.defaultBranch,
+                  },
+                  agentId,
+                  task.slug,
+                  // Never force on detach: losing uncommitted work silently is
+                  // worse than a leftover the Coding surface can still see.
+                  { force: false },
+                );
+              } catch (taskErr) {
+                console.warn(
+                  `[reconcile] task worktree ${project.projectId}.${task.slug} left in place for ${agentId}:`,
+                  taskErr instanceof Error ? taskErr.message : String(taskErr),
+                );
+              }
+            }
           } catch (err) {
             console.warn(`[reconcile] detach cleanup for ${agentId}/${pid} failed:`, err);
           }
