@@ -70,8 +70,8 @@ per-run 流是 `/api/bff/agent-runs/:runId/events`（路径来自 `sseEndpoints.
 | `native_tool_started` / `native_tool_completed` | 工具步骤起止，`todo_write` 的 result 归一化后进 todo 面板 |
 | `backend.oma.todo_update` | 直接替换该 run 的 todo 快照 |
 | `backend.oma.stream_rule_triggered` | 推一条「规则命中，输出丢弃重试」的提示 |
-| `backend.oma.approval_request` | 渲染审批卡片 |
-| `backend.oma.ask_requested` | 渲染问答卡片 |
+| `approval_requested` | 渲染审批卡片 |
+| `ask_requested` | 渲染问答卡片 |
 | `delegation_batch_started` / `delegation_agent_started` / `delegation_agent_completed` / `delegation_batch_completed` | workflow 进度面板 |
 
 注册表里还有 `delegation_batch_failed`，Web 不订阅（`packages/api-contract/src/sse.ts`）。
@@ -137,7 +137,7 @@ worktree 双轴：主 worktree 是 `(agent × project)` 的 attach 产物，缺�
 
 ## 已知缺口
 
-- "Awaiting approval" 标签等不到输入：后端只写 `state` 为 `done` 与 `error` 的账本消息，`waiting` 分支事实上是死代码；真正的审批入口是 run 流的 `backend.oma.approval_request` 卡片。
+- "Awaiting approval" 标签等不到输入：后端只写 `state` 为 `done` 与 `error` 的账本消息，`waiting` 分支事实上是死代码；真正的审批入口是 run 流的 `approval_requested` 卡片。
 - reducer 的 `member` action 没有分支，任何 `member` 派发都会被静默丢弃。
 - notice 只能由 `role: "system"` 的账本消息产生，而当前没有这样的写入方。
 - `apps/web/src/lib/revision-render.ts` 仍然导出 `isOpenMessageState`，全仓没有消费者。

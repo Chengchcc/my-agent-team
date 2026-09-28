@@ -75,7 +75,7 @@ Tool.describeStart(input)          ← 工具自己挑有意义的字段
 - **`Tool.describeStart?(input): string | undefined`**（`packages/message/src/tool.ts`）：语义词是「用户可见的活动」，不是「input 的缩略」。返回 undefined 表示这个工具说不出自己的活动，界面就只显示工具名——**界面不得从工具名反推摘要**。
 - **`input` 永不跨进程**：它可能带完整 bash 命令、绝对路径、MCP 参数、用户输入、token/URL/header、大文本引用。`tool_execution_start.input` 只服务 oma 内部的 transcript/TUI。
 - **`safeToolSummary`**（`core/tools/presentation.ts`）是唯一的格式化点：单行化、去 ANSI、截断 160 字、脱敏常见凭证形态（`gh[pousr]_`/`sk-`/`xox[baprs]-`、`Bearer …`、`api_key=…`、URL 里的 `user:pass@`、AWS key id）、拒绝控制字符、为空则回退。它刻意**不是**通用 input formatter：`read` 要路径、`bash` 要命令、`grep` 要模式，只有工具自己知道该展示什么。
-- **产品工具不走这条路**：`todo_write` 由 `backend.oma.todo_update` 呈现（计划条），`ask_question` 由 `backend.oma.ask_requested`（问题 + 选项按钮），审批由审批帧。它们的 MCP 调用在 wire 上仍是 `native_tool_started`，但两端渲染时按工具名把它们挡在通用过程步之外——否则就会出现「正在调用 todo_write」这行无信息量的降级。
+- **产品工具不走这条路**：`todo_write` 由 `backend.oma.todo_update` 呈现（计划条），`ask_question` 由 `ask_requested`（问题 + 选项按钮），审批由审批帧。它们的 MCP 调用在 wire 上仍是 `native_tool_started`，但两端渲染时按工具名把它们挡在通用过程步之外——否则就会出现「正在调用 todo_write」这行无信息量的降级。
 - **MCP 工具默认只给名字**：外部 MCP 工具不该默认展示参数（`正在调用：database query SELECT * FROM users`）。要展示得由该工具显式声明 `describeStart`。飞书侧对 `mcp__<server>__<tool>` 只做名字的可读化（`github · create_issue`），不声称任何参数。
 - **omp 后端没有这一层**：`adapter-omp-agent` 的事件只带 `toolName`/`toolCallId`，所以 omp Run 的活动行永远是工具名回退。
 

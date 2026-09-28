@@ -41,19 +41,20 @@ stdout 上是三类帧：`{id, type:"event", runId, event}`、`{type:"outcome", 
 | `agent_start` / `turn_start` / `turn_end` | `status` |
 | `agent_end` | `status: completed \| failed \| aborted` |
 | `delegation_*` | 对应的核心委派事件 |
-| 其余（含 `approval_request`、`todo_update`、`mcp_mount_result`、`stream_rule_triggered`、`tool_output`） | `backend.oma.<事件名>` |
+| `approval_request` | `approval_requested`（核心事件，ADR 0039 把审批提升为产品契约，映射在 oma 适配器内） |
+| 其余（`todo_update`、`mcp_mount_result`、`stream_rule_triggered`、`tool_output` 等） | `backend.oma.<事件名>` |
 
-扩展事件这条路很关键：审批请求、todo 更新、ask 请求都是这么到达产品的。
+扩展事件这条路很关键：todo 更新、MCP 挂载结果、流规则触发都是这么到达产品的。审批与问答不在其中，它们在 ADR 0039 之后是核心事件，由适配器与后端分别产出。
 
-线上事件的 `type` 就是 `ev.type` 原文，`id` 是 runId。`packages/api-contract/src/sse.ts` 的 `runEvents` 登记了 11 个事件名：`status`、`text_delta`、`thinking_delta`、`native_tool_started`、`native_tool_completed`、`backend.oma.todo_update`，以及五个 `delegation_*`（batch started / agent started / agent completed / batch completed / batch failed）。登记表之外的事件照样会流过去。对话侧的 SSE 只有三种：`message`、`undo`、`surface.control`。
+线上事件的 `type` 就是 `ev.type` 原文，`id` 是 runId。`packages/api-contract/src/sse.ts` 的 `runEvents` 登记了 13 个事件名：`status`、`text_delta`、`thinking_delta`、`native_tool_started`、`native_tool_completed`、`backend.oma.todo_update`、`approval_requested`、`ask_requested`，以及五个 `delegation_*`（batch started / agent started / agent completed / batch completed / batch failed）。登记表之外的事件照样会流过去。对话侧的 SSE 只有三种：`message`、`undo`、`surface.control`。
 
-Web 侧实际消费的是：`status`、`text_delta`、`thinking_delta`、`native_tool_started/completed`、`backend.oma.todo_update`、`backend.oma.stream_rule_triggered`、`backend.oma.approval_request`、`backend.oma.ask_requested`、以及 `delegation_*`。`status` 落在 `completed|failed|aborted|timeout` 时关闭或标红当前气泡。
+Web 侧实际消费的是：`status`、`text_delta`、`thinking_delta`、`native_tool_started/completed`、`backend.oma.todo_update`、`backend.oma.stream_rule_triggered`、`approval_requested`、`ask_requested`、以及 `delegation_*`。`status` 落在 `completed|failed|aborted|timeout` 时关闭或标红当前气泡。
 
 ## 什么落库，什么不落
 
 **不落**：整个事件流本身。它只广播给进程内订阅者。
 
-**落**：白名单里的事件类型（`status`、`native_tool_started/completed`、`delegation_*`）尽力写进 `agent_run_event`。文本与 thinking 增量、以及全部 `backend.oma.*` 扩展事件都不落库。
+**落**：白名单里的事件类型（`status`、`native_tool_started/completed`、`approval_requested`、`ask_requested`、`delegation_*`）尽力写进 `agent_run_event`。文本与 thinking 增量、以及其余 `backend.oma.*` 扩展事件都不落库。
 
 ## 终态提交
 
