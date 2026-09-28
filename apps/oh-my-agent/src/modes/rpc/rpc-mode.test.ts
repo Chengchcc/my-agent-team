@@ -179,6 +179,27 @@ describe("RPC mode (in-process)", () => {
     for (const line of h.lines()) expect(() => JSON.parse(line)).not.toThrow();
   }, 10_000);
 
+  test("the turn's transient events reach the wire", async () => {
+    // Regression teeth: b181a077 dropped the runtime's onEvent callback and
+    // the child emitted NOTHING, yet this whole suite stayed green — no test
+    // ever looked at the frames this mode exists to produce. Approvals are
+    // the exception (rpcApproval emits directly), so the loss surfaced as a
+    // dead UI card rather than a failing test.
+    const h = makeHarness({ provider: fakeProvider({}) });
+    h.write(JSON.stringify(EXECUTE));
+    await waitFor(() => parseLines(h.lines()).some((o) => o.type === "outcome"));
+    const frames = parseLines(h.lines()).flatMap((o) =>
+      o.type === "event" ? [o.event as { type?: string; data?: { text?: string } }] : [],
+    );
+    expect(frames.length).toBeGreaterThan(0);
+    // The model's own text must be among them: that is what every surface
+    // (Web timeline, Lark card) renders.
+    expect(frames.some((e) => e.type === "message_update" && (e.data?.text ?? "").length > 0)).toBe(
+      true,
+    );
+    expect(frames.some((e) => e.type === "message_end")).toBe(true);
+  }, 10_000);
+
   test("a second execute is a protocol error", async () => {
     const h = makeHarness({ slowMs: 200 });
     // Both executes are buffered before the reader processes the first; the
