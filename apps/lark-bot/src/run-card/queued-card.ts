@@ -141,6 +141,15 @@ export function startQueuedCard(
 
   async function ensureCard(): Promise<boolean> {
     if (cardKitId) return true;
+    // Restart recovery: if this input already has a card on screen, adopt it.
+    // Sending a second one would duplicate the card in the topic AND burn
+    // CardKit's per-app card-entity quota.
+    const existing = getInputCard(db, inputId);
+    if (existing?.cardKitId && existing?.larkMessageId) {
+      cardKitId = existing.cardKitId;
+      larkMessageId = existing.larkMessageId;
+      return true;
+    }
     insertInputCard(db, { inputId, conversationId, larkChatId, now: Date.now() });
     const created = await cardClient.createCard(
       queuedCardJson(inputId, "上一轮还在跑，这条消息在排队。到它时会用这张卡片回答。"),

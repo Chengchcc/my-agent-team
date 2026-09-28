@@ -21,7 +21,11 @@ import { ingest } from "./ingest.js";
 import { createTokenProvider } from "./lark-api.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
-import { markQueuedCardCancelled, startQueuedCard } from "./run-card/queued-card.js";
+import {
+  liveQueuedInputCards,
+  markQueuedCardCancelled,
+  startQueuedCard,
+} from "./run-card/queued-card.js";
 import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
 import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
@@ -159,6 +163,31 @@ async function startRunCard(
 // Restart recovery: re-drive cards that were still live when we died.
 for (const card of listNonTerminalRunCards(state.db)) {
   void startRunCard(card.runId, card.conversationId, card.larkChatId, card.sourceMessageId);
+}
+// Queued inputs need their watchers back too: the backend may promote a
+// waiting message into a run long after we died, and nothing else notices -
+// the card would sit on "queued" forever while the run answers nowhere. The
+// card itself is adopted (never re-sent); the promoted run takes it over.
+for (const inputId of liveQueuedInputCards(state.db)) {
+  const row = getInputCard(state.db, inputId);
+  if (!row) continue;
+  const binding = getConversationBinding(state.db, row.conversationId);
+  startQueuedCard(inputId, row.conversationId, row.larkChatId, {
+    db: state.db,
+    backendUrl: args.backendUrl,
+    backendAuthToken: args.backendAuthToken,
+    cardClient,
+    replyTo: binding?.topicRootMessageId ?? null,
+    replyInThread: replyInThreadFor(binding?.chatMode ?? null),
+    onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
+      if (!cardKitId || !larkMessageId) return;
+      console.log(`[lark-bot] queued card promoted (restored): ${promotedInput} → run ${runId}`);
+      void startRunCard(runId, row.conversationId, row.larkChatId, null, {
+        cardKitId,
+        larkMessageId,
+      });
+    },
+  });
 }
 
 // M16: Surface health heartbeat (every 30s)

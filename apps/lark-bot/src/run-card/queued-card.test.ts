@@ -2,9 +2,19 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getInputCard, openBindings } from "../bindings-sqlite.js";
+import {
+  getInputCard,
+  insertInputCard,
+  openBindings,
+  updateInputCard,
+} from "../bindings-sqlite.js";
 import type { CardKitClient } from "./card-kit.js";
-import { markQueuedCardCancelled, planQueuedCardStep, startQueuedCard } from "./queued-card.js";
+import {
+  liveQueuedInputCards,
+  markQueuedCardCancelled,
+  planQueuedCardStep,
+  startQueuedCard,
+} from "./queued-card.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -192,5 +202,35 @@ describe("queued card (ADR 0037: one turn = one card)", () => {
       await markQueuedCardCancelled({ db, cardClient: fake.client }, "in_1");
       expect(fake.updates).toHaveLength(1);
     });
+  });
+});
+
+describe("restart recovery for queued cards", () => {
+  test("a restored watcher adopts the persisted card instead of sending a new one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "qc-adopt-"));
+    const db = openBindings("test-agent", dir);
+    // A previous process already sent this card; its ids are persisted.
+    insertInputCard(db, { inputId: "in_1", conversationId: "c1", larkChatId: "oc_1", now: 1 });
+    updateInputCard(db, "in_1", { cardKitId: "card_existing", larkMessageId: "om_existing" });
+    expect(liveQueuedInputCards(db)).toEqual(["in_1"]);
+
+    const { client, cards, sends } = fakeCardClient();
+    serveInput({ status: "pending", runId: null });
+    const handle = startQueuedCard("in_1", "c1", "oc_1", {
+      db,
+      cardClient: client,
+      backendUrl: "http://backend",
+      backendAuthToken: "t",
+      onPromoted: () => {},
+      pollMs: 10,
+    });
+    await handle.ready;
+
+    // Adoption, not a second card: no CardKit entity, no chat message.
+    expect(cards).toEqual([]);
+    expect(sends).toEqual([]);
+    expect(getInputCard(db, "in_1")?.cardKitId).toBe("card_existing");
+    handle.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
