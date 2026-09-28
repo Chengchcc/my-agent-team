@@ -23,7 +23,6 @@ const mockManager: McpClientManager = {
   disconnect: async (serverId) => {
     disconnectCalls.push(serverId);
   },
-  getTools: () => [],
   getStatus: () => "connected",
   getToolCount: () => 3,
   disconnectAll: async () => {},

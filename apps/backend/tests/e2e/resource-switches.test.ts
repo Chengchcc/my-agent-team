@@ -33,7 +33,6 @@ import { openDb } from "../../src/infra/sqlite/db.js";
 const mockManager: McpClientManager = {
   connect: async () => {},
   disconnect: async () => {},
-  getTools: () => [],
   getStatus: () => "connected",
   getToolCount: () => 2,
   disconnectAll: async () => {},

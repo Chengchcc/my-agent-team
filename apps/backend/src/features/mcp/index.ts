@@ -1,7 +1,6 @@
 export {
   fileMcpServerAdapter,
   mcpCatalogPath,
-  mergeMcpCatalog,
   readMcpCatalog,
 } from "./adapter-file.js";
 export type {

@@ -41,16 +41,6 @@ function writeMcpCatalog(dataDir: string, servers: FileEntry[]): void {
   writeFileSync(mcpCatalogPath(dataDir), `${JSON.stringify({ servers }, null, 2)}\n`);
 }
 
-/** Backfill seam: merge entries into the catalog file (used by the 0027
- *  promotion). */
-export function mergeMcpCatalog(dataDir: string, entries: FileEntry[]): void {
-  const byServerId = new Map(readMcpCatalog(dataDir).map((e) => [e.serverId, e]));
-  for (const entry of entries) {
-    if (!byServerId.has(entry.serverId)) byServerId.set(entry.serverId, entry);
-  }
-  writeMcpCatalog(dataDir, [...byServerId.values()]);
-}
-
 function parseJson<T>(raw: string | null, fallback: T): T {
   try {
     return JSON.parse(raw ?? "") as T;

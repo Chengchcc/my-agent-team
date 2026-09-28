@@ -13,7 +13,6 @@ export type { McpToolCatalogEntry } from "./types.js";
 export interface McpClientManager {
   connect(config: McpServerConfig): Promise<void>;
   disconnect(serverId: string): Promise<void>;
-  getTools(agentId: string): Tool[];
   getStatus(serverId: string): McpConnectionStatus | undefined;
   getToolCount(serverId: string): number;
   disconnectAll(): Promise<void>;
@@ -102,7 +101,7 @@ export function createMcpClientManager(): McpClientManager {
         });
       } catch (err) {
         console.error(`[mcp] connect failed for ${config.name}:`, err);
-        // ponytail: degraded-mode entry keeps getTools NPE-free without a second lookup
+        // ponytail: a degraded entry keeps the status reads NPE-free
         connections.set(serverId, {
           config,
           tools: [],
@@ -134,17 +133,6 @@ export function createMcpClientManager(): McpClientManager {
       for (const serverIds of agentServers.values()) {
         serverIds.delete(serverId);
       }
-    },
-
-    getTools(agentId: string): Tool[] {
-      const serverIds = agentServers.get(agentId);
-      if (!serverIds) return [];
-      const tools: Tool[] = [];
-      for (const serverId of serverIds) {
-        const entry = connections.get(serverId);
-        if (entry) tools.push(...entry.tools);
-      }
-      return tools;
     },
 
     getStatus(serverId: string): McpConnectionStatus | undefined {
