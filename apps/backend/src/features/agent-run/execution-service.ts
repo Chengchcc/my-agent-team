@@ -1,3 +1,4 @@
+import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
 import type { AgentBackend } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
@@ -215,7 +216,39 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           `approval rejected: backend "${run?.modelRef.backendKind}" has no approval pipeline`,
         );
       }
-      await entry.backend.resolveApproval(runId, callId, decision);
+      try {
+        await entry.backend.resolveApproval(runId, callId, decision);
+      } catch (err) {
+        // The child no longer knows this approval (its deadline denied it,
+        // or the run is settling): the decision NEVER reached the loop.
+        // Consume the durable row honestly as timed out and answer 409 -
+        // recording the operator's click as the outcome would be a lie the
+        // UI shows as success. Other failures (protocol, transport) stay
+        // loud: their cause is not "this approval is gone".
+        if (
+          err instanceof OmaProcessError &&
+          (err.code === "conflict" || err.code === "not_found")
+        ) {
+          if (err.code === "conflict") {
+            await runPort
+              .consumePendingAction(
+                actionId,
+                { actionId, response: { timeout: true } },
+                `${actionId}:timeout`,
+              )
+              .catch((consumeErr) => {
+                console.error(
+                  `[agent-run] approval timeout consume failed for ${actionId}:`,
+                  consumeErr,
+                );
+              });
+          }
+          throw new ApprovalNotApplicableError(
+            `approval rejected: the child has no pending approval for ${callId} (${err.message})`,
+          );
+        }
+        throw err;
+      }
       // Durable approvals v1: record the response and repair the run's
       // waiting->running CAS. Best-effort - the child already has the
       // decision; a missing/stale action must not fail the HTTP call.

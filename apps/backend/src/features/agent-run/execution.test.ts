@@ -6,6 +6,7 @@ import {
   OmaBackend,
   type OmaCommandConfig,
   OmaModelCatalog,
+  OmaProcessError,
 } from "@chengchenccc/adapter-oma-agent";
 import { assistantMessageId, parseMessageRevision } from "@chengchenccc/message";
 import { openDb } from "../../infra/sqlite/db.js";
@@ -18,7 +19,7 @@ import {
 import { createWorkspaceLockRegistry } from "../project/workspace-lock.js";
 import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
-import { createAgentRunExecutionService } from "./execution.js";
+import { ApprovalNotApplicableError, createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
 
 // ─── Real RPC child (fixture) harness ─────────────────────────────────
@@ -487,4 +488,51 @@ describe("agent run execution (Run-centric)", () => {
       .filter((e) => e.kind === "message");
     expect(ledgerAfter).toHaveLength(1);
   }, 15_000);
+});
+
+describe("approval late clicks (deadline already denied the child)", () => {
+  test("a rejected child answer consumes the row as timeout, 409s, and never fakes success", async () => {
+    const fake = createFakeDaemon({ outcomeDelayMs: 10_000 });
+    // The child-side truth after a deadline: resolve_approval fails with
+    // "no pending approval" (rpc-mode deletes the resolver on timeout).
+    const rejecting = Object.create(fake.backend) as typeof fake.backend;
+    rejecting.resolveApproval = async () => {
+      throw new OmaProcessError(
+        "conflict",
+        "resolve_approval rejected: no pending approval c-late",
+      );
+    };
+    const execution = makeExecution({ ...fake, backend: rejecting });
+
+    const acquired = await enqueue("normal", "ikey-late", "hello");
+    const runId = acquired.run!.runId;
+    const dispatched = execution.dispatch(runId);
+    await Bun.sleep(500); // acceptance handshake + live-loop registration
+
+    const actionId = `${runId}:c-late`;
+    await runPort.createPendingAction(runId, {
+      actionId,
+      kind: "approval",
+      payload: { callId: "c-late" },
+    });
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // First late click: 409-shaped rejection, row consumed as timeout.
+    await expect(execution.resolveApproval(runId, "c-late", "allow")).rejects.toThrow(
+      ApprovalNotApplicableError,
+    );
+    const action = await runPort.getPendingAction(actionId);
+    expect(action?.status).toBe("resolved");
+    expect(action?.response).toEqual({ timeout: true });
+    // No sibling pending: the timeout consume woke the run.
+    expect((await runPort.getRun(runId))?.status).toBe("running");
+
+    // A SECOND late click must not turn into a replay success either.
+    await expect(execution.resolveApproval(runId, "c-late", "allow")).rejects.toThrow(
+      ApprovalNotApplicableError,
+    );
+
+    await execution.dispose();
+    await dispatched.catch(() => {});
+  }, 20_000);
 });

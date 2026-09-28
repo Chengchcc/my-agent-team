@@ -130,7 +130,7 @@ Tool.describeStart(input)          ← 工具自己挑有意义的字段
 | 单次模型调用 | 300s | provider 卡住时 Run 失败，不自动重试（env `OMA_MODEL_TIMEOUT_MS`） |
 | MCP 单次调用 | 120s | `maxToolTimeoutMs` 是全局上限（env `OMA_MCP_TIMEOUT_MS`） |
 | 原生工具包装 | 30s | bash 与 eval 自己有更细的死线，包装层按各自上限兜底 |
-| 审批等待 | 120s | 超时等于 deny（env `OMA_APPROVAL_TIMEOUT_MS`） |
+| 审批等待 | 24h | 聊天面上的人可能隔天才回；超时等于 deny（env `OMA_APPROVAL_TIMEOUT_MS`，0 = 一直等） |
 | 分类器 | 30s | env `OMA_CLASSIFIER_TIMEOUT_MS` |
 | `maxSteps` | 500 | 防失控的步数上限（env `OMA_MAX_STEPS`） |
 | `--tools` | — | 纯名字是白名单，`!name` 是黑名单；同时约束主会话与子代理表 |

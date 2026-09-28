@@ -374,6 +374,99 @@ describe("rpc approval wire", () => {
     }
   }, 15_000);
 
+  test("after the deadline denies, a late resolve_approval fails explicitly - no fake success", async () => {
+    // The regression: the deadline resolved the race but left the resolver
+    // in the map, so a late click "succeeded" over a loop that had already
+    // been denied - the UI showed success the agent never saw.
+    const key = "OMA_APPROVAL_TIMEOUT_MS";
+    const prevTimeout = process.env[key];
+    process.env[key] = "60";
+    /** Turn 1 asks for a gated tool (own tool_use id = the approval callId);
+     * turn 2 stays slow so the run is still live after the denial. */
+    let calls = 0;
+    const provider: Provider = {
+      id: "fake",
+      name: "Fake",
+      getModels: () => [FAKE_MODEL],
+      async *stream(): AsyncIterable<AIMessageChunk> {
+        if (calls++ === 0) {
+          yield {
+            delta: { type: "tool_use", id: "toolu-late", name: "bash", input: { command: "true" } },
+          };
+          yield { stopReason: "tool_use" };
+        } else {
+          await new Promise((r) => setTimeout(r, 3000));
+          yield { delta: { type: "text", text: "done" } };
+          yield { stopReason: "end_turn" };
+        }
+      },
+    };
+    try {
+      const h = makeHarness({ provider });
+      h.write(
+        JSON.stringify({
+          ...EXECUTE,
+          input: {
+            ...EXECUTE.input,
+            input: { inputId: "in-late", message: { role: "user", text: "go" } },
+            run: { ...EXECUTE.input.run, runId: "r-late", permissionMode: "ask" },
+          },
+        }),
+      );
+      await waitFor(() =>
+        h.lines().some((l) => {
+          try {
+            return (
+              (JSON.parse(l) as { event?: { type?: string } }).event?.type === "approval_request"
+            );
+          } catch {
+            return false;
+          }
+        }),
+      );
+      // Past the deadline: the resolver must be gone from the map.
+      await new Promise((r) => setTimeout(r, 250));
+      h.write(
+        JSON.stringify({
+          id: "ap-late",
+          type: "resolve_approval",
+          runId: "r-late",
+          callId: "toolu-late",
+          decision: "allow",
+        }),
+      );
+      await waitFor(() =>
+        h.lines().some((l) => {
+          try {
+            const o = JSON.parse(l) as {
+              type?: string;
+              command?: string;
+              success?: boolean;
+              error?: string;
+            };
+            return o.type === "response" && o.command === "resolve_approval";
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const response = h
+        .lines()
+        .map(
+          (l) =>
+            JSON.parse(l) as { type?: string; command?: string; success?: boolean; error?: string },
+        )
+        .find((o) => o.type === "response" && o.command === "resolve_approval");
+      expect(response?.success).toBe(false);
+      expect(response?.error).toContain("no pending approval");
+      h.stop();
+      await h.exitCode.catch(() => -1);
+    } finally {
+      if (prevTimeout === undefined) delete process.env[key];
+      else process.env[key] = prevTimeout;
+    }
+  }, 15_000);
+
   test("ask-mode plugin tool emits approval_request; resolve_approval allow executes it", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "rpc-appr-ws-"));
     const agent = mkdtempSync(join(tmpdir(), "rpc-appr-agent-"));

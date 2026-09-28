@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { PendingActionResponse } from "@chengchenccc/agent-contract";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { parsePendingAction } from "./adapter-sqlite-parse.js";
@@ -29,11 +29,13 @@ export function createActionMethods(db: Database): ActionMethods {
       const now = Date.now();
       return db.transaction(() => {
         const run = d.select().from(schema.agentRun).where(eq(schema.agentRun.runId, runId)).get();
+        // Multi-slot HITL: a run parks on its FIRST pending action and stays
+        // parked while siblings are open (concurrent tool batches can raise
+        // two approvals in one turn). Terminal/commit_failed still refuse:
+        // nothing can answer an action there.
         if (!run) throw new Error(`Agent Run not found: ${runId}`);
-        if (run.status !== "running") {
-          throw new Error(
-            `Cannot create PendingAction: run ${runId} is ${run.status}, not running`,
-          );
+        if (run.status !== "running" && run.status !== "waiting") {
+          throw new Error(`Cannot create PendingAction: run ${runId} is ${run.status}, not active`);
         }
 
         // Insert PendingAction (idempotent: duplicate actionId will fail via PK)
@@ -48,16 +50,12 @@ export function createActionMethods(db: Database): ActionMethods {
           })
           .run();
 
-        // CAS: run running -> waiting
-        const updated = d
-          .update(schema.agentRun)
+        // First action parks the run (running -> waiting). Already waiting =
+        // a sibling is open, no second CAS.
+        d.update(schema.agentRun)
           .set({ status: "waiting" })
           .where(and(eq(schema.agentRun.runId, runId), eq(schema.agentRun.status, "running")))
-          .returning()
-          .get();
-        if (!updated) {
-          throw new Error(`CAS failed: run ${runId} is not running`);
-        }
+          .run();
 
         const row = d
           .select()
@@ -80,10 +78,25 @@ export function createActionMethods(db: Database): ActionMethods {
 
         // Already resolved: same key = replay (return stored + fix run if needed),
         // different key = conflict.
+        const hasSiblingPending = (): boolean =>
+          d
+            .select({ actionId: schema.pendingAction.actionId })
+            .from(schema.pendingAction)
+            .where(
+              and(
+                eq(schema.pendingAction.runId, row.runId),
+                eq(schema.pendingAction.status, "pending"),
+                ne(schema.pendingAction.actionId, actionId),
+              ),
+            )
+            .all().length > 0;
+
         if (row.status === "resolved") {
           if (row.responseIdempotencyKey === responseIdempotencyKey) {
             // Verify run state: if waiting (crash after resolve), fix it;
             // if terminal, the data is corrupt and we must signal an error.
+            // A sibling still pending means the run is waiting on IT - the
+            // repair must never wake a run that parks for someone else.
             const run = d
               .select()
               .from(schema.agentRun)
@@ -93,7 +106,7 @@ export function createActionMethods(db: Database): ActionMethods {
             if (isTerminalStatus(run.status as AgentRun["status"])) {
               throw new AgentRunConflictError(row.runId);
             }
-            if (run.status === "waiting") {
+            if (run.status === "waiting" && !hasSiblingPending()) {
               d.update(schema.agentRun)
                 .set({ status: "running" })
                 .where(
@@ -105,12 +118,9 @@ export function createActionMethods(db: Database): ActionMethods {
           }
           throw new PendingActionAlreadyConsumedError(actionId);
         }
-        if (row.status === "cancelled") {
-          throw new PendingActionAlreadyConsumedError(actionId);
-        }
-
-        // Consume: CAS action pending -> resolved + CAS run waiting -> running.
-        // Single transaction so if either fails, the whole operation rolls back.
+        // Consume: CAS action pending -> resolved. Single transaction: the
+        // sibling check and the run wake below roll back with it if anything
+        // fails.
         const now = Date.now();
         const result = d
           .update(schema.pendingAction)
@@ -133,16 +143,14 @@ export function createActionMethods(db: Database): ActionMethods {
           throw new PendingActionAlreadyConsumedError(actionId);
         }
 
-        // CAS run waiting -> running
-        const resumed = d
-          .update(schema.agentRun)
-          .set({ status: "running" })
-          .where(and(eq(schema.agentRun.runId, row.runId), eq(schema.agentRun.status, "waiting")))
-          .returning()
-          .get();
-
-        if (!resumed) {
-          throw new AgentRunConflictError(row.runId);
+        // Last one out wakes the run: only when NO sibling is still pending
+        // does waiting -> running fire. A run already running (an earlier
+        // consume woke it) needs no touch - the decision is recorded above.
+        if (!hasSiblingPending()) {
+          d.update(schema.agentRun)
+            .set({ status: "running" })
+            .where(and(eq(schema.agentRun.runId, row.runId), eq(schema.agentRun.status, "waiting")))
+            .run();
         }
 
         return {

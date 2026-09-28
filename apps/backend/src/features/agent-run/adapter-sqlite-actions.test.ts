@@ -117,6 +117,103 @@ describe("Agent Run: PendingAction consume-once", () => {
   });
 });
 
+describe("Agent Run: multi-slot PendingActions", () => {
+  async function acquiredRun(tag: string): Promise<string> {
+    const { conversationId, agentId, branch } = await setupBranch(tag);
+    const result = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: tag },
+      inputIdempotencyKey: `ikey-${tag}`,
+      runIdempotencyKey: `rkey-${tag}`,
+      deliveryIdempotencyKey: `dkey-${tag}`,
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+    });
+    return result.run!.runId;
+  }
+
+  test("a second action opens while the run is waiting; the run wakes only after the last one", async () => {
+    const runId = await acquiredRun("ms1");
+    await runPort.createPendingAction(runId, {
+      actionId: "a-ms1-a",
+      kind: "approval",
+      payload: {},
+    });
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // The concurrent-tool-batch case: sibling approval raised while parked.
+    await runPort.createPendingAction(runId, {
+      actionId: "a-ms1-b",
+      kind: "approval",
+      payload: {},
+    });
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // First consume: the sibling still parks the run.
+    await runPort.consumePendingAction(
+      "a-ms1-a",
+      { actionId: "a-ms1-a", response: { decision: "allow" } },
+      "resp-ms1-a",
+    );
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // Last consume wakes it.
+    await runPort.consumePendingAction(
+      "a-ms1-b",
+      { actionId: "a-ms1-b", response: { decision: "deny" } },
+      "resp-ms1-b",
+    );
+    expect((await runPort.getRun(runId))?.status).toBe("running");
+  });
+
+  test("a replay of a resolved action never wakes a run parked on a sibling", async () => {
+    const runId = await acquiredRun("ms2");
+    await runPort.createPendingAction(runId, {
+      actionId: "a-ms2-a",
+      kind: "approval",
+      payload: {},
+    });
+    await runPort.createPendingAction(runId, {
+      actionId: "a-ms2-b",
+      kind: "approval",
+      payload: {},
+    });
+    await runPort.consumePendingAction(
+      "a-ms2-a",
+      { actionId: "a-ms2-a", response: { decision: "allow" } },
+      "resp-ms2-a",
+    );
+
+    // The exact regression: replaying the OLD click while b is still open.
+    await runPort.consumePendingAction(
+      "a-ms2-a",
+      { actionId: "a-ms2-a", response: { decision: "allow" } },
+      "resp-ms2-a",
+    );
+    expect((await runPort.getRun(runId))?.status).toBe("waiting");
+
+    // And b still consumes cleanly - the state machine did not desync.
+    await runPort.consumePendingAction(
+      "a-ms2-b",
+      { actionId: "a-ms2-b", response: { decision: "deny" } },
+      "resp-ms2-b",
+    );
+    expect((await runPort.getRun(runId))?.status).toBe("running");
+  });
+
+  test("terminal runs still refuse new actions", async () => {
+    const runId = await acquiredRun("ms3");
+    await runPort.finalizeRun(runId, { status: "completed", messages: [] });
+    await expect(
+      runPort.createPendingAction(runId, { actionId: "a-ms3", kind: "approval", payload: {} }),
+    ).rejects.toThrow(/not active/);
+  });
+});
+
 describe("Agent Run: terminal CAS", () => {
   test("finalizeRun sets terminal status and result", async () => {
     const { conversationId, agentId, branch } = await setupBranch("term1");

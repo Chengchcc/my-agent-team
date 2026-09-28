@@ -8,7 +8,6 @@ import {
   type ApprovalDecision,
   type ApprovalHandler,
   approvalTimeoutMs,
-  withApprovalDeadline,
 } from "../../core/runtime/approval.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts.js";
@@ -284,12 +283,23 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
       for (const w of pluginRt.warnings) debugLog("oma", `plugin: ${w}`);
       // HITL approval pipe (spec): emit approval_request on stdout, park the
       // resolver, resolve on the resolve_approval command; deadline = deny.
+      // The resolver settles EXACTLY once and leaves the map the moment it
+      // fires (human or deadline): a late second click then gets the
+      // explicit "no pending approval" failure instead of a false success
+      // over a race that already ended.
       const pendingApprovals = new Map<string, (d: ApprovalDecision) => void>();
       pendingApprovalsByRun.set(runId, pendingApprovals);
       let approvalSeq = 10_000;
       const rpcApproval: ApprovalHandler = (req) =>
         new Promise<ApprovalDecision>((resolve) => {
-          pendingApprovals.set(req.callId, resolve);
+          let settled = false;
+          const settle = (d: ApprovalDecision): void => {
+            if (settled) return;
+            settled = true;
+            pendingApprovals.delete(req.callId);
+            resolve(d);
+          };
+          pendingApprovals.set(req.callId, settle);
           emit(
             eventOutputSchema.parse({
               type: "event",
@@ -311,9 +321,17 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
               },
             }),
           );
+          const timeoutMs = approvalTimeoutMs();
+          if (timeoutMs > 0) {
+            setTimeout(
+              () => settle({ decision: "deny", reason: "approval deadline exceeded" }),
+              timeoutMs,
+            );
+          }
         });
       runtime = await createOmaRuntime({
         runId,
+        approvalHandler: rpcApproval,
         modelId: input.run.model.modelId,
         workspaceRoot: input.workspace.root,
         workspaceAccess: input.workspace.access,
@@ -331,7 +349,6 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
           ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
           : {}),
         ...(input.run.permissionMode ? { permissionMode: input.run.permissionMode } : {}),
-        approvalHandler: (req) => withApprovalDeadline(rpcApproval(req), approvalTimeoutMs()),
         sessionTranscript,
         onEvent: (event) => {
           // forWire drops oma-internal fields (raw tool input) before the

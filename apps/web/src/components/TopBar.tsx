@@ -126,6 +126,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
         <button
           type="button"
           onClick={() => router.push("/today")}
+          className="relative flex size-7 items-center justify-center rounded-sm text-(--mute) transition-colors hover:bg-(--panel2) hover:text-(--ink)"
           aria-label={`Notifications: ${waitingOnYou} waiting for you`}
         >
           <Bell className="size-4" />

@@ -50,7 +50,7 @@ browser 工具用同一个 guard，另外单独拒绝 metadata 端点。
 
 `ApprovalRequest` 的来源有三种：权限、工具、分类器；另外留着 `sandboxed` 字段，当前恒为 false。
 
-超时默认 120 秒，可用 `OMA_APPROVAL_TIMEOUT_MS` 覆盖，静默超时按拒绝处理。无界面模式（print / json）一律拒绝。
+超时默认 24 小时（聊天面的人可能隔天才回；2026-09-25 从 2 分钟改掉），可用 `OMA_APPROVAL_TIMEOUT_MS` 覆盖（0 = 一直等），静默超时按拒绝处理，且超时后 resolver 即刻失效——迟到的 resolve_approval 显式失败，不会假成功。无界面模式（print / json）一律拒绝。
 
 ask 模式下如果没配管线，工具调用会被阻断而不是放行；handlers 抛错也阻断。也就是说这条链是 fail-closed 的。
 
