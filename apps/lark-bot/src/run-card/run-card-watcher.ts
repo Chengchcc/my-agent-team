@@ -98,7 +98,7 @@ function rowStatus(state: RunCardState): string {
 
 /** Pending durable actions for one run (durable approvals/asks v1): the
  *  restart recovery reads the same record the live event wrote. */
-async function fetchPendingActions(
+export async function fetchPendingActions(
   backendUrl: string,
   token: string | null,
   runId: string,
@@ -107,22 +107,29 @@ async function fetchPendingActions(
   if (token) headers["x-auth-token"] = token;
   const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
   if (!resp.ok) return null;
+  // The run's actions live INSIDE the run object (GET /api/agent-runs/:id ->
+  // { run: { …, pendingActions }, inputs }). Reading them at the top level
+  // found nothing, so a restored card came back without its buttons.
   const body = z
     .object({
-      pendingActions: z
-        .array(
-          z.object({
-            kind: z.string(),
-            status: z.string(),
-            payload: z.record(z.string(), z.unknown()),
-          }),
-        )
-        .nullable()
+      run: z
+        .object({
+          pendingActions: z
+            .array(
+              z.object({
+                kind: z.string(),
+                status: z.string(),
+                payload: z.record(z.string(), z.unknown()),
+              }),
+            )
+            .nullable()
+            .optional(),
+        })
         .optional(),
     })
-    .catch({ pendingActions: [] })
+    .catch({ run: { pendingActions: [] } })
     .parse(await resp.json());
-  const record = (body.pendingActions ?? []).find((a) => a.status === "pending");
+  const record = (body.run?.pendingActions ?? []).find((a) => a.status === "pending");
   if (!record) return null;
   return pendingActionFromBackend(record.kind, record.payload);
 }

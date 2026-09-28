@@ -23,7 +23,7 @@ import {
   toolActivity,
 } from "./card-state.js";
 import { createCardUpdater } from "./card-updater.js";
-import { finalAnswerText } from "./run-card-watcher.js";
+import { fetchPendingActions, finalAnswerText } from "./run-card-watcher.js";
 
 const testDir = `/tmp/test-lark-run-card-${Date.now()}`;
 let db: Database;
@@ -972,6 +972,64 @@ describe("free-text ask form", () => {
     });
     expect(await handleCardActionLine(line, d)).toBe("unparsed-form");
     expect(calls).toEqual([]);
+  });
+});
+
+describe("card restore reads the durable action where it really lives", () => {
+  test("fetchPendingActions parses the run-nested payload (GET /api/agent-runs/:id)", async () => {
+    // The live shape: { run: { …, pendingActions: [...] }, inputs: [...] }.
+    // Reading it at the top level (the old bug) found nothing, so a card
+    // restored after a bot restart came back WITHOUT its approval buttons.
+    const realFetch = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      calls.push(String(url));
+      return new Response(
+        JSON.stringify({
+          run: {
+            runId: "r-nested",
+            status: "waiting",
+            pendingActions: [
+              { kind: "resolved-one", status: "resolved", payload: {} },
+              {
+                kind: "approval",
+                status: "pending",
+                payload: {
+                  callId: "c-nested",
+                  toolName: "bash",
+                  reason: "permission",
+                  input: { command: "echo nested-ok" },
+                },
+              },
+            ],
+          },
+          inputs: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const action = await fetchPendingActions("http://backend.test", "tok", "r-nested");
+      expect(calls).toEqual(["http://backend.test/api/agent-runs/r-nested"]);
+      expect(action?.kind).toBe("approval");
+      expect(action?.callId).toBe("c-nested");
+      expect(action?.prompt).toContain("echo nested-ok");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("fetchPendingActions returns null when nothing is pending", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ run: { pendingActions: [] }, inputs: [] }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+    try {
+      expect(await fetchPendingActions("http://backend.test", null, "r-none")).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
 
