@@ -560,6 +560,20 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     }
   }
 
+  /** Deny a run's parked approvals so an abort can unwind. A tool call
+   *  blocked on the human (default wait: 24h) never returns otherwise, the
+   *  loop cannot stop, and the parent waits out its abort grace and SIGKILLs
+   *  the child - "oma process did not stop within the abort grace period",
+   *  which reads as a crash instead of "you stopped it" (live 2026-09-28). */
+  function releaseParkedApprovals(runId: string): void {
+    const pending = pendingApprovalsByRun.get(runId);
+    if (!pending || pending.size === 0) return;
+    // Snapshot the resolvers: settling deletes from the map.
+    for (const settle of [...pending.values()]) {
+      settle({ decision: "deny", reason: "run stopped by the user" });
+    }
+  }
+
   function handleAbort(command: AbortCommand): void {
     debugLog("oma", `abort_received runId=${command.runId}`);
     if (!executed || command.runId !== currentRunId || !runtime) {
@@ -571,6 +585,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
       );
       return;
     }
+    releaseParkedApprovals(command.runId);
     void runtime.stop().then(
       () => emitResponse(command.id, "abort", true),
       (err: unknown) => emitResponse(command.id, "abort", false, redactError(err)),

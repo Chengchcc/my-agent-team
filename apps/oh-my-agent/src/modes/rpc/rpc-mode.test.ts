@@ -395,6 +395,55 @@ describe("rpc approval wire", () => {
     }
   }, 15_000);
 
+  test("abort while parked on an approval unwinds the run instead of hanging", async () => {
+    // Live bug (2026-09-28): stopping a parked run called runtime.stop(), but
+    // the tool call was still awaiting the human. The loop could not unwind,
+    // so the parent waited out its whole abort grace and SIGKILLed the child
+    // ("oma process did not stop within the abort grace period") - a stop the
+    // user asked for looked like a crash. The default approval wait is 24h,
+    // so nothing else would ever have released that call.
+    const prevTool = process.env.OMA_FAKE_TOOL;
+    process.env.OMA_FAKE_TOOL = JSON.stringify([{ name: "bash", input: { command: "true" } }]);
+    try {
+      const h = makeHarness({ provider: fakeProvider(process.env) });
+      h.write(
+        JSON.stringify({
+          ...EXECUTE,
+          input: {
+            ...EXECUTE.input,
+            input: { inputId: "in-abort", message: { role: "user", text: "go" } },
+            run: { ...EXECUTE.input.run, runId: "r-abortparked", permissionMode: "ask" },
+          },
+        }),
+      );
+      await waitFor(() => h.lines().some((l) => l.includes("approval_request")));
+      const parkedAt = Date.now();
+      h.write(JSON.stringify({ id: "a-parked", type: "abort", runId: "r-abortparked" }));
+      await waitFor(
+        () => parseLines(h.lines()).some((o) => (o as { type?: string }).type === "outcome"),
+        8000,
+      );
+      const elapsed = Date.now() - parkedAt;
+      const all = parseLines(h.lines());
+      const abortResponse = all.find(
+        (o) =>
+          (o as { type?: string; id?: string }).type === "response" &&
+          (o as { id?: string }).id === "a-parked",
+      ) as { success?: boolean } | undefined;
+      expect(abortResponse?.success).toBe(true);
+      const outcome = all.find((o) => (o as { type?: string }).type === "outcome") as
+        | { outcome?: { status?: string } }
+        | undefined;
+      expect(outcome?.outcome?.status).toBe("aborted");
+      // Prompt, not "waited out the grace period".
+      expect(elapsed).toBeLessThan(5000);
+      await h.exitCode.catch(() => -1);
+    } finally {
+      if (prevTool === undefined) delete process.env.OMA_FAKE_TOOL;
+      else process.env.OMA_FAKE_TOOL = prevTool;
+    }
+  }, 15_000);
+
   test("after the deadline denies, a late resolve_approval fails explicitly - no fake success", async () => {
     // The regression: the deadline resolved the race but left the resolver
     // in the map, so a late click "succeeded" over a loop that had already
