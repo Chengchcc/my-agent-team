@@ -23,7 +23,9 @@
    - pi：一个 pi 扩展，用 `on("tool_call")` 拦截，问产品，回 `{block, reason}`；
    - omp：ACP 的 `session/request_permission`（omp 是唯一原生讲 ACP 的）。
 
-4. **传输统一算副产品，有触发条件。** 只有当（a）有两个以上 agent 原生讲 ACP，或（b）桥补齐了工具审批与 MCP 接线，才建通用 `acp` kind。今天 omp 一个原生；cc 经桥可作第二目标；pi 经桥不达标。
+   > 2026-09-28 修订：决策 4 改为「ACP 为目标传输」后，cc 走官方桥、pi 走 `pi-acp`（若工具审批仍不覆盖，pi 扩展作为过渡保留），本条的自制缝降级为 fallback 与应急路径。
+
+4. **传输统一：采纳 ACP 为目标协议，分相落地（2026-09-28 修订，取代「有触发条件才做」的原案）。** 原案把 `acp` kind 押后到「两个以上原生 ACP agent 或桥补齐」；复审时生态已过拐点：ACP 官方组织自己维护 cc 与 codex 的桥（`@agentclientprotocol/claude-agent-acp` ^0.76、`@agentclientprotocol/codex-acp` ^1.1.5），gemini / cursor / copilot / qwen 等约二十个 agent 原生 `--acp`，acpx（MIT，3.3k 星，0.19.x）证明一个客户端可驱动整个生态。产品要的是协议层的统一与可扩展，因此直接以 ACP 为目标传输。实现取「自建薄客户端于官方 `@agentclientprotocol/sdk`」，不嵌入 acpx/runtime：它自带会话持久层，会与「账本加 Run 是唯一执行身份」冲突，且 pre-1.0、要求 Node 22.13。acpx 作为参考实现借三样东西（见附录二）。
 
 5. **恢复跟状态所有权走**（沿用 ADR 0038 的判据）：action 记录、期限、卡片、答案归产品；agent 自己的策略（例如 cc 的 `PermissionUpdate` durable 规则）归 agent；产品只如实展示「将创建什么规则」，不假装能撤销。
 
@@ -37,7 +39,7 @@
 - **代价**：改四处硬编码的事件名，事件契约加两个类型；cc 加一个 MCP 工具与一个启动参数；pi 加一个扩展；omp 要写 ACP 客户端，这是唯一需要写协议的一层。
 - **风险**：cc 的 flag 是私有接口（`--help` 里没有，靠二进制与实测确认），版本漂移要盯；桥的版本耦合与失败面；A2A 规范仍在演进，只做我们需要的三样（Task、`input-required`、流式）。
 
-- **落地进度（2026-09-28）**：决策 1 已落地。`approval_requested` / `ask_requested` 进核心事件集（`packages/agent-contract/src/event.ts`），oma 子进程的帧名不动，翻译在 `packages/adapter-oma-agent/src/event-mapper.ts`；后端四处硬编码的名字收口（bus 识别、重放合成、ask 广播、telemetry 白名单），其中重放合成从盲信 `action.payload` 改为校验读取，缺身份的旧行不再变成无法解决的卡；Web 与飞书改订新名，Web 那条裸字符串的订阅并回类型化客户端。决策 2 本就成立（顺序保证只在 live bus）。决策 3 的四个后端适配与决策 4 的通用 `acp` kind 尚未开工。
+- **落地进度（2026-09-28）**：决策 1 已落地。`approval_requested` / `ask_requested` 进核心事件集（`packages/agent-contract/src/event.ts`），oma 子进程的帧名不动，翻译在 `packages/adapter-oma-agent/src/event-mapper.ts`；后端四处硬编码的名字收口（bus 识别、重放合成、ask 广播、telemetry 白名单），其中重放合成从盲信 `action.payload` 改为校验读取，缺身份的旧行不再变成无法解决的卡；Web 与飞书改订新名，Web 那条裸字符串的订阅并回类型化客户端。决策 2 本就成立（顺序保证只在 live bus）。决策 3 的四个后端适配与决策 4 的通用 `acp` kind 尚未开工；同日决策 4 修订为「ACP 为目标传输、分相落地」，相位与依据见决策 4 与附录二。
 
 ## 附录：三家缝的实测契约
 
@@ -69,3 +71,28 @@ session/request_permission {
 
 **pi 扩展的 `on("tool_call")`**
 pi 核心没有工具审批策略（`approvalMode` 一类配置不存在）。扩展收到 `{ type:"tool_call", toolCallId, input }`，返回 `{ block?: boolean, reason?: string }` 即可拦住。`pi-acp` 桥的 `request_permission` 只覆盖扩展 UI 确认，不覆盖工具审批，也不接 MCP 服务器。
+
+
+## 附录二：acpx 精读（2026-09-28，/root/acpx @ ee6090d，v0.19.3）
+
+openclaw/acpx 是 ACP 的无头客户端（MIT，3.3k 星），自带可嵌入 runtime（`acpx/runtime`）与约二十五个 agent 的注册表。精读结论与可借之物：
+
+- **注册表格式（直接镜像）**：`AGENT_DEFINITIONS: Record<name, {argv, installedArgv, requiredCommands, package}>`，桥走 npm 范围钉版（`pi-acp ^0.0.33`、`codex-acp ^1.1.5`、`claude-agent-acp ^0.76.0`，后两者由 @agentclientprotocol 官方组织发布）。我们的 `acp` kind 用同构表，acpx 已知的 agent 即插即用。
+- **权限回调设计（照抄语义）**：宿主 `onPermissionRequest(request, {signal}) => Promise<decision | undefined>` 拿首答权，不答落策略；**回合结束即取消**，迟到的回答不能批准已退役的请求（fail-closed）。这与我们的 `requestApproval`（durable pending_action + 期限 + 人答）语义一致，适配层只需把回调接到 pending_action 管线上。
+- **conformance 用例（当验收件）**：`conformance/cases/*.json` 二十条（握手、session/new、单轮/多轮、update 流终止、在途取消、权限拒绝/读批/写批、未知会话、非法参数、后台轮完成、结构化 prompt 块）。每个新接入的 ACP agent 先跑这套；将来 oma 自己的 ACP server 也用它验。
+- **事件形状（映射参考）**：`AcpRuntimeEvent` 与核心事件几乎同构——`text_delta`（分 output/thought 两流）、`tool_call`（含 title/kind/locations/rawInput/content）、`plan`（整表替换，即我们的计划条）、`usage_update`、终态 `completed/cancelled/failed + stopReason`。`session/update` 到核心事件的映射按这张表写。
+- **会话模型**：`persistent | oneshot` 两态，`resumeSessionId` 对应我们的 `cliSessionRef` 回传。我们只用 oneshot + 自己的 Run 身份，不用它的持久层（`~/.acpx` 记录）。
+- **已知能力差（诚实记录）**：ACP 没有 mid-turn steer（acpx 自己注明；oma RPC 有，acp kind 的 run 需接受排队或不支持）；elicitation 仍在演进（ask 继续走 product-tools MCP，四端同构不受影响）；fs/terminal 回调可关（我们关掉，agent 用自己的文件工具）。
+- **为什么不嵌入**：acpx runtime 自带会话持久与重连，叠在我们的账本/Run 之上就是第二执行身份（Phase 6 教训）；Node ≥22.13 与我们的 Bun 栈有门槛；pre-1.0 的 runtime API 演进快。官方 `@agentclientprotocol/sdk`（1.5.x，纯 TS、stdio JSON-RPC）是我们真正依赖的那一层，Bun 兼容性在 P1 首日验证。
+
+### 落地相位（决策 4 修订版）
+
+```
+P1  backend 加 acp kind（官方 SDK 薄客户端）+ omp（原生）端到端 HITL
+P2  oma 的 ACP server（resume 决定注入做 oma/ 前缀私有扩展）
+P3  cc 经 @agentclientprotocol/claude-agent-acp 接入
+P4  pi 经 pi-acp（复测工具审批；不达标则过渡用决策 3 的 pi 扩展）
+P5  逐个下线旧 native adapter（oma RPC 是否保留为私有快路径，P2 验收后定）
+```
+
+每个相位先过 conformance 用例，再过我们的隔离验收（审批卡端到端），最后才进 live。
