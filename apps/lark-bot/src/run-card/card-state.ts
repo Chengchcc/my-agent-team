@@ -40,6 +40,9 @@ export interface PendingActionState {
   /** Approval only: the runtime's truthful OS-bash-sandbox signal. Security
    *  context belongs on the card that asks for the decision. */
   sandboxed?: boolean;
+  /** Approval only: when this request fails closed (epoch ms). The card says
+   *  it so the human is not guessing how long their click stays valid. */
+  deadlineAt?: number;
   /** Select options for ask questions (kind=select only). */
   options: AskOption[];
   /** Whether a free-text input row should be offered. */
@@ -77,11 +80,23 @@ export function buildApprovalPrompt(payload: Record<string, unknown>): string {
 export function approvalFacts(payload: Record<string, unknown>): {
   toolName?: string;
   sandboxed?: boolean;
+  deadlineAt?: number;
 } {
-  const facts: { toolName?: string; sandboxed?: boolean } = {};
+  const facts: { toolName?: string; sandboxed?: boolean; deadlineAt?: number } = {};
   if (typeof payload.toolName === "string" && payload.toolName) facts.toolName = payload.toolName;
   if (typeof payload.sandboxed === "boolean") facts.sandboxed = payload.sandboxed;
+  if (typeof payload.deadlineAt === "number" && payload.deadlineAt > 0) {
+    facts.deadlineAt = payload.deadlineAt;
+  }
   return facts;
+}
+
+/** "MM-DD HH:mm" in the reader's own timezone. Hand-formatted: no ICU, no
+ *  locale surprises, and the same string in the tests wherever they run. */
+export function formatDeadline(epochMs: number): string {
+  const d = new Date(epochMs);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** Rebuild a pending action from the backend's durable record — the restart

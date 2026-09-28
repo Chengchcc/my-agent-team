@@ -1,5 +1,6 @@
 import { normalizeForLarkMarkdown } from "../markdown-normalizer.js";
 import type { PendingActionState, RunCardState } from "./card-state.js";
+import { formatDeadline } from "./card-state.js";
 
 /**
  * ADR 0031: render the card display state as Lark Card JSON 2.0.
@@ -363,6 +364,15 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
       elements.push({
         tag: "markdown",
         content: risk,
+        text_size: "notation",
+      });
+    }
+    // A click has a shelf life (the runtime fails closed on its deadline):
+    // leaving it unsaid lets the human believe the card waits forever.
+    if (action.deadlineAt) {
+      elements.push({
+        tag: "markdown",
+        content: `有效期至 ${formatDeadline(action.deadlineAt)}（超时自动拒绝）`,
         text_size: "notation",
       });
     }

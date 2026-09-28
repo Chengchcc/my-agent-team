@@ -18,6 +18,7 @@ import { renderCard, renderRunCard } from "./card-renderer.js";
 import {
   applyRunEvent,
   buildApprovalPrompt,
+  formatDeadline,
   initialRunCardState,
   pendingActionFromBackend,
   toolActivity,
@@ -179,6 +180,30 @@ describe("applyRunEvent reducer", () => {
     expect(buttons.map((b) => b.element_id)).toEqual(["approve_button", "reject_button"]);
     for (const button of buttons) expect(button.width).toBe("fill");
     expect(JSON.stringify(card)).not.toContain("column_set");
+  });
+
+  test("an approval says when it expires (the click has a shelf life)", () => {
+    const deadlineAt = Date.now() + 24 * 60 * 60_000;
+    const s = applyRunEvent(initialRunCardState(), {
+      type: "backend.oma.approval_request",
+      payload: { callId: "c-dl", toolName: "bash", input: { command: "true" }, deadlineAt },
+    });
+    expect(s.pendingAction?.deadlineAt).toBe(deadlineAt);
+    const card = JSON.stringify(
+      renderCard(s, { runId: "r1", startedAt: Date.now(), webUrl: null }),
+    );
+    expect(card).toContain("超时自动拒绝");
+    expect(formatDeadline(deadlineAt)).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(card).toContain(formatDeadline(deadlineAt));
+    // No stamped deadline: the card claims nothing.
+    const withoutDeadline = renderCard(
+      applyRunEvent(initialRunCardState(), {
+        type: "backend.oma.approval_request",
+        payload: { callId: "c-nodl", toolName: "bash" },
+      }),
+      { runId: "r1", startedAt: Date.now(), webUrl: null },
+    );
+    expect(JSON.stringify(withoutDeadline)).not.toContain("超时自动拒绝");
   });
 
   test("an approval states its OS-sandbox truth (the decision needs it)", () => {
