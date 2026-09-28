@@ -44,6 +44,7 @@
 | 0036 | product-tool-identity-from-token(身份取自 run token，模型参数不参与授权) | Implemented |
 | 0037 | lark-topic-as-conversation(话题 = 会话边界；回答回复进话题；话题内排队；私聊由卡片建话题) | Accepted |
 | 0038 | hitl-run-resume-after-restart(停靠 HITL 的 Run 重启后可恢复：实时落盘 + 停靠标记 + 决定注入) | **Implemented** |
+| 0039 | approval-request-is-a-product-contract(审批请求是产品的一等契约；各后端薄适配；ACP 传输统一留作副产品) | **Proposed** |
 
 > 状态翻转纪律：任何 ADR 状态变更(Obsolete/Superseded/Deferred→Implemented 等)**必须同 PR 更新本索引**，避免索引与正文失配(2026-08-21 修复 0004/0006/0024 时立规)。
 
