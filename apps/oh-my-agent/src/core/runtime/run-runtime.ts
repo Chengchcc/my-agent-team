@@ -73,7 +73,7 @@ import {
 import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
-import { DEFAULT_APPROVAL_TIMEOUT_MS, withApprovalDeadline } from "./approval.js";
+import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
 import { estimateMessageTokens } from "./context-estimate.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
 import { fakeProvider } from "./fake-provider.js";
@@ -741,7 +741,7 @@ function createRunPermissionGates(
     };
     // Same truthful signal as the ask gate (BashSandbox design P4).
     if (toolName === "bash") escalation.sandboxed = bashSandboxed;
-    const human = await withApprovalDeadline(deps.approvalHandler(escalation), approvalDeadlineMs);
+    const human = await requestApproval(deps.approvalHandler, escalation, approvalDeadlineMs);
     if (human.decision === "deny") {
       return {
         block: true,
@@ -829,10 +829,7 @@ function createRunPermissionGates(
       if (toolName === "bash") approvalInput.sandboxed = bashSandboxed;
       let verdict: { decision: string; reason?: string };
       try {
-        verdict = await withApprovalDeadline(
-          deps.approvalHandler(approvalInput),
-          approvalDeadlineMs,
-        );
+        verdict = await requestApproval(deps.approvalHandler, approvalInput, approvalDeadlineMs);
       } catch (err) {
         return {
           block: true,
@@ -1159,13 +1156,14 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
                         isError: true,
                       };
                     }
-                    const verdict = await withApprovalDeadline(
-                      deps.approvalHandler({
+                    const verdict = await requestApproval(
+                      deps.approvalHandler,
+                      {
                         callId: options?.callId ?? "",
                         toolName: t.name,
                         input: args,
                         source: "permission",
-                      }),
+                      },
                       approvalDeadlineMs,
                     );
                     if (verdict.decision === "deny") {

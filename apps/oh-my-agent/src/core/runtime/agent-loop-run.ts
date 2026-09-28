@@ -16,7 +16,7 @@ import type {
   TurnBlock,
 } from "./agent-loop-types.js";
 import { matchStreamRule, safeParseJson } from "./agent-loop-utils.js";
-import { approvalTimeoutMs, withApprovalDeadline } from "./approval.js";
+import { approvalTimeoutMs, requestApproval } from "./approval.js";
 import { latestCompaction } from "./compaction.js";
 import type { TurnUsage } from "./context-estimate.js";
 import type { Plugin, PluginTool } from "./plugin.js";
@@ -283,14 +283,15 @@ export async function executeTools(
             ...(opts.approvalHandler
               ? {
                   request: (req: { reason?: string }) =>
-                    withApprovalDeadline(
-                      opts.approvalHandler!({
+                    requestApproval(
+                      opts.approvalHandler!,
+                      {
                         callId: call.id,
                         toolName: call.name,
                         input,
                         source: "tool",
                         ...(req.reason ? { reason: req.reason } : {}),
-                      }),
+                      },
                       approvalTimeoutMs(),
                     ),
                 }

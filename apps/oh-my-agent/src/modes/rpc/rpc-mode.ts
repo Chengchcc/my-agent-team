@@ -404,11 +404,18 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
                   // BashSandbox design P4: distinguish unsandboxed fallback
                   // from OS-sandboxed execution on the approval card.
                   ...(req.sandboxed === undefined ? {} : { sandboxed: req.sandboxed }),
+                  // The runtime's stamped deadline: the card shows it, so the
+                  // local fail-closed must use the SAME number (two sources
+                  // would let the card promise a moment that never arrives).
+                  ...(req.deadlineAt === undefined ? {} : { deadlineAt: req.deadlineAt }),
                 },
               },
             }),
           );
-          const timeoutMs = approvalTimeoutMs();
+          const timeoutMs =
+            req.deadlineAt === undefined
+              ? approvalTimeoutMs()
+              : Math.max(1, req.deadlineAt - Date.now());
           if (timeoutMs > 0) {
             setTimeout(
               () => settle({ decision: "deny", reason: "approval deadline exceeded" }),

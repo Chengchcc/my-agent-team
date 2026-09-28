@@ -367,6 +367,11 @@ describe("rpc approval wire", () => {
       const callId = request?.event?.data?.callId;
       expect(callId).toBeTruthy();
       expect(callId).toMatch(/toolu-/);
+      // The stamped deadline travels with the request: the card shows it, so
+      // the human knows how long the click stays valid (up to 24h).
+      const deadlineAt = (request?.event?.data as { deadlineAt?: number } | undefined)?.deadlineAt;
+      expect(typeof deadlineAt).toBe("number");
+      expect(deadlineAt!).toBeGreaterThan(Date.now());
       // The id minted by the gate is the one the wire accepts: resolving it
       // must be acknowledged (this is the round-trip the empty callId broke).
       h.write(

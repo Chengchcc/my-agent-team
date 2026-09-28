@@ -2,8 +2,48 @@ import { describe, expect, test } from "bun:test";
 import {
   approvalTimeoutMs,
   DEFAULT_APPROVAL_TIMEOUT_MS,
+  requestApproval,
   withApprovalDeadline,
 } from "./approval.js";
+
+describe("requestApproval stamps the deadline (one number for every surface)", () => {
+  test("the handler sees deadlineAt = now + timeout, and 0 means no deadline", async () => {
+    const seen: Array<{ deadlineAt?: number }> = [];
+    const handler = async (req: { deadlineAt?: number }) => {
+      seen.push(req);
+      return { decision: "allow" as const };
+    };
+    const before = Date.now();
+    await requestApproval(
+      handler as never,
+      { callId: "c", toolName: "bash", input: {}, source: "permission" },
+      60_000,
+    );
+    const stamped = seen[0]!.deadlineAt!;
+    expect(stamped).toBeGreaterThanOrEqual(before + 60_000);
+    expect(stamped).toBeLessThanOrEqual(Date.now() + 60_000);
+    // 0 = wait forever: no claim on any card.
+    await requestApproval(
+      handler as never,
+      { callId: "c", toolName: "bash", input: {}, source: "permission" },
+      0,
+    );
+    expect(seen[1]!.deadlineAt).toBeUndefined();
+  });
+
+  test("an unstamped request keeps whatever the caller set", async () => {
+    const seen: Array<{ deadlineAt?: number }> = [];
+    await requestApproval(
+      (async (req: { deadlineAt?: number }) => {
+        seen.push(req);
+        return { decision: "allow" as const };
+      }) as never,
+      { callId: "c", toolName: "bash", input: {}, source: "tool", deadlineAt: 123 },
+      0,
+    );
+    expect(seen[0]!.deadlineAt).toBe(123);
+  });
+});
 
 describe("withApprovalDeadline", () => {
   test("the decision wins when it arrives within the deadline", async () => {

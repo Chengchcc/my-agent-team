@@ -14,6 +14,10 @@ export interface ApprovalRequest {
    * (BashSandbox design, P4) — surfaces let the human distinguish "sandboxed,
    * auto-allowable" from "unsandboxed fallback". */
   readonly sandboxed?: boolean;
+  /** Wall-clock ms after which this request fails closed. Absent = no
+   *  deadline (surfaces then claim nothing). Stamped by requestApproval() so
+   *  the wire, the durable row and the card all show ONE number. */
+  readonly deadlineAt?: number;
 }
 
 export interface ApprovalDecision {
@@ -52,6 +56,18 @@ export function withApprovalDeadline(
       ),
     ),
   ]);
+}
+
+/** Ask the human with a deadline. The deadline is stamped ON the request, so
+ *  every surface can say when the question expires instead of the human
+ *  guessing (the wait is up to 24h; nothing else carried that number). */
+export async function requestApproval(
+  handler: ApprovalHandler,
+  req: ApprovalRequest,
+  timeoutMs: number,
+): Promise<ApprovalDecision> {
+  const stamped = timeoutMs === 0 ? req : { ...req, deadlineAt: Date.now() + timeoutMs };
+  return withApprovalDeadline(handler(stamped), timeoutMs);
 }
 
 /** The fail-closed handler for headless one-shot modes (print/json). */
