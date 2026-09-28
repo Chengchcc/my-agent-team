@@ -669,4 +669,99 @@ describe("rpc resume (ADR 0038)", () => {
     h.stop();
     await h.exitCode.catch(() => -1);
   }, 15_000);
+
+  test("resume without a cliSessionRef adopts the workspace's interrupted session (kill-mid-run gap)", async () => {
+    // The real gap this pins: a run killed mid-flight never settles, so
+    // the branch holds NO session reference — the resume dispatch arrives
+    // with none, and the child must find the interrupted predecessor
+    // itself (workspace lock serializes runs per root). Uses the REAL
+    // per-workspace session layout, not the flat OMA_SESSION_DIR override.
+    const sf = await import("../../core/session/session-file.js");
+    const agentRoot = mkdtempSync(join(tmpdir(), "rpc-adopt-agent-"));
+    const prevAgentDir = process.env.OMA_CODING_AGENT_DIR;
+    const prevSessionDir = process.env.OMA_SESSION_DIR;
+    process.env.OMA_CODING_AGENT_DIR = agentRoot;
+    delete process.env.OMA_SESSION_DIR;
+    const dir = sf.sessionDirFor(tmp);
+    const sessionId = sf.newSessionId();
+    const inputMessage = { id: "msg-adopt-in", role: "user" as const, text: "run it" };
+    sf.appendSessionMessages(sessionId, tmp, [inputMessage], dir);
+    sf.appendParkedTurnMarker(
+      sessionId,
+      {
+        role: "assistant",
+        text: "",
+        blocks: [
+          {
+            type: "tool_use",
+            id: "toolu-adopt",
+            name: "bash",
+            input: { command: "echo adopted-ok" },
+          },
+        ],
+      },
+      dir,
+    );
+    try {
+      const h = makeHarness({ provider: fakeProvider({}) });
+      h.write(
+        JSON.stringify({
+          id: "e-adopt",
+          type: "execute",
+          input: {
+            input: { inputId: "in-adopt", message: inputMessage },
+            run: {
+              runId: "r-adopt",
+              model: { backendKind: "oma", modelId: "fake/echo" },
+              configRevision: 1,
+              skillRoots: [],
+              permissionMode: "ask",
+              // NO cliSessionRef: the kill-mid-run shape.
+            },
+            workspace: { root: tmp, access: "read_write" },
+            metadata: { conversationId: "c", agentId: "m", branchId: "b" },
+            resume: {
+              decisions: [
+                { callId: "toolu-adopt", kind: "approval", response: { decision: "allow" } },
+              ],
+            },
+          },
+        }),
+      );
+      await waitFor(() =>
+        h.lines().some((l) => {
+          try {
+            return (JSON.parse(l) as { type?: string }).type === "outcome";
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const outcome = h
+        .lines()
+        .map(
+          (l) =>
+            JSON.parse(l) as {
+              type?: string;
+              outcome?: { status?: string; messages?: Array<{ blocks?: unknown[] }> };
+            },
+        )
+        .find((o) => o.type === "outcome");
+      expect(outcome?.outcome?.status).toBe("completed");
+      const adopted = (outcome?.outcome?.messages ?? [])
+        .flatMap((m) => (m.blocks ?? []) as Array<Record<string, unknown>>)
+        .find((b) => b.type === "tool_result" && b.tool_use_id === "toolu-adopt");
+      // The adopted session's parked tool EXECUTED with the pre-supplied
+      // decision - no re-ask ever hit the wire.
+      expect(String(adopted?.content ?? "")).toContain("adopted-ok");
+      expect(h.lines().some((l) => l.includes("approval_request"))).toBe(false);
+      h.stop();
+      await h.exitCode.catch(() => -1);
+    } finally {
+      if (prevAgentDir === undefined) delete process.env.OMA_CODING_AGENT_DIR;
+      else process.env.OMA_CODING_AGENT_DIR = prevAgentDir;
+      if (prevSessionDir !== undefined) process.env.OMA_SESSION_DIR = prevSessionDir;
+      rmSync(agentRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

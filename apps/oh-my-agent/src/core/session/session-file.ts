@@ -841,3 +841,24 @@ export function loadLastParkedTurn(
   }
   return null;
 }
+
+/** Find the workspace's most recent INTERRUPTED session (ADR 0038): a
+ * run killed mid-flight never settles, so the branch holds no
+ * cliSessionRef and the resume dispatch arrives with none. Workspace runs
+ * serialize under the workspace lock, so the newest session file with an
+ * unresolved parked_turn marker is unambiguously the predecessor to
+ * adopt. Null when nothing is interrupted. */
+export function findInterruptedSession(workspaceRoot: string): string | null {
+  const dir = sessionDirFor(workspaceRoot);
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".jsonl"))
+    .map((f) => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+  for (const { f } of files) {
+    const id = f.slice(0, -".jsonl".length);
+    const marker = loadLastParkedTurn(id, dir);
+    if (marker?.interrupted) return id;
+  }
+  return null;
+}

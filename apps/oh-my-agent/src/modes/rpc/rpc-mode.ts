@@ -15,9 +15,11 @@ import { resolveModelEntry } from "../../core/runtime/run-runtime.js";
 import {
   appendParkedTurnMarker,
   appendSessionMessages,
+  findInterruptedSession,
   loadLastParkedTurn,
   loadSessionMessages,
   newSessionId,
+  sessionDirFor,
 } from "../../core/session/session-file.js";
 import { persistSessionTurn } from "../../core/session/session-loop.js";
 import {
@@ -37,7 +39,6 @@ import {
   outcomeOutputSchema,
   responseOutputSchema,
 } from "../../protocol/index.js";
-import { forWire } from "../../protocol/mapping.js";
 import { createJsonlReader } from "./jsonl.js";
 /** Minimal RPC mode: stdin JSONL commands, stdout JSONL outputs only, stderr
  *  for logs. One process = at most one execute = one Run = one outcome, then
@@ -239,10 +240,26 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     // product forwards the branch's opaque reference. Resume loads the
     // transcript as the loop's seed history (validated at the file
     // boundary); a ref whose file is missing/empty degrades to a fresh
-    // session (the first-turn bridge already lives in the input message).
     const resumeId = input.run.cliSessionRef;
-    const sessionId = resumeId ?? newSessionId();
-    const loaded = resumeId ? loadSessionMessages(resumeId) : [];
+    // The session dir is a RUN fact, not a process fact: derived from the
+    // run's workspace root (the child's cwd in production), with the flat
+    // OMA_SESSION_DIR override still winning for dev/tests.
+    const sessionDir = process.env.OMA_SESSION_DIR ?? sessionDirFor(input.workspace.root);
+    let sessionId = resumeId ?? newSessionId();
+    // ADR 0038: a run killed mid-flight never settles, so the branch has
+    // no cliSessionRef to forward — the resume child must find its own
+    // predecessor. The workspace lock serializes runs per root, so the
+    // newest INTERRUPTED parked_turn marker in the workspace's session dir
+    // is unambiguously the session to adopt (continuation appends to it).
+    if (input.resume && !resumeId) {
+      const adopted = findInterruptedSession(input.workspace.root);
+      if (adopted) {
+        sessionId = adopted;
+        debugLog("oma", `resume_adopted_session runId=${runId} session=${adopted}`);
+      }
+    }
+    const loaded = loadSessionMessages(sessionId, sessionDir);
+    const resume = input.resume;
     // A corrupt line must degrade that entry (log + skip), never brick the
     // whole resume: MessageSchema.parse throws on the first bad shape.
     const parsedTranscript: { productEntryId: string; message: Message }[] = [];
@@ -260,8 +277,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     // HITL. The parked-turn marker carries the interrupted assistant
     // (tool_use) message; its calls complete from the wire's decisions
     // instead of re-running the turn.
-    const resume = input.resume;
-    const parkedTurn = resume ? loadLastParkedTurn(sessionId) : null;
+    const parkedTurn = resume ? loadLastParkedTurn(sessionId, sessionDir) : null;
     if (resume && parkedTurn?.interrupted) {
       try {
         parsedTranscript.push({
@@ -415,19 +431,14 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         onPersistMessages: (messages) => {
           const fresh = messages.filter((m) => !m.id || !persistedIds.has(m.id));
           for (const m of fresh) if (m.id) persistedIds.add(m.id);
-          if (fresh.length > 0) appendSessionMessages(sessionId, process.cwd(), fresh);
+          if (fresh.length > 0) {
+            appendSessionMessages(sessionId, process.cwd(), fresh, sessionDir);
+          }
         },
         // Parked-turn marker (ADR 0038): the assistant(tool_use) of a turn
         // whose tools are about to run — the durable trace an interrupted
         // turn resumes from.
-        onParkedTurn: (message) => appendParkedTurnMarker(sessionId, message),
-        onEvent: (event) => {
-          // forWire drops oma-internal fields (raw tool input) before the
-          // frame leaves the process — the mapper's later omission of `input`
-          // cannot protect stdout/logs/backend, which see the frame first.
-          if (!finished)
-            emit(eventOutputSchema.parse({ type: "event", runId, event: forWire(event) }));
-        },
+        onParkedTurn: (message) => appendParkedTurnMarker(sessionId, message, sessionDir),
       });
       // run() resolves when the loop is live: acceptance ⟹ routable.
       segment = await runtime.run(effectiveInput as never);
@@ -446,7 +457,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     debugLog("oma", `loop_live runId=${runId}`);
     emitResponse(command.id, "execute", true, undefined);
 
-    void driveOutcome(runtime, segment, runId, sessionId, effectiveInput.input.message);
+    void driveOutcome(runtime, segment, runId, sessionId, sessionDir, effectiveInput.input.message);
   }
   /** Await the outcome, emit the outcome envelope, flush, close the runtime,
    *  then END the reader so the process exits on its own (one Run → one
@@ -456,6 +467,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     segment: BackendRunSegment<"oma">,
     runId: string,
     sessionId: string,
+    sessionDir: string,
     _inputMessage: Record<string, unknown>,
   ): Promise<void> {
     let outcome: BackendRunOutcome;
@@ -473,6 +485,7 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
         sessionId,
         cwd: process.cwd(),
         runtime,
+        dir: sessionDir,
         ...(outcome.title ? { title: outcome.title } : {}),
         ...(outcome.summary ? { summary: outcome.summary } : {}),
       });
