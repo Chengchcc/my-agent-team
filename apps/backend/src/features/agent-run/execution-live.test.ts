@@ -58,6 +58,28 @@ describe("createLiveEventBus durable HITL ordering", () => {
     void reading;
   });
 
+  test("HITL events land in the telemetry log (a parked run is not eventless)", async () => {
+    // Diagnosed the hard way (2026-09-28): agent_run_event holds no HITL
+    // rows, so "no events" read as "nothing happened" while the run sat
+    // waiting for a human. The ops view wants the wait too.
+    const persisted: string[] = [];
+    const bus = createLiveEventBus({
+      persistRunEvent: async (_runId, event) => {
+        persisted.push(event.type);
+      },
+      onApprovalRequest: async () => {},
+    });
+    await bus.broadcast("r-hitl", approvalEvent);
+    await bus.broadcast("r-hitl", {
+      type: "backend.oma.ask_requested",
+      payload: { callId: "call-ask" },
+    } as BackendEvent);
+    await bus.broadcast("r-hitl", { type: "text_delta", text: "still transient" } as BackendEvent);
+    // persistRunEvent is fire-and-forget; let its microtasks drain.
+    await Bun.sleep(1);
+    expect(persisted).toEqual(["backend.oma.approval_request", "backend.oma.ask_requested"]);
+  });
+
   test("non-approval events pass straight through (no hook involved)", async () => {
     let hookCalls = 0;
     const bus = createLiveEventBus({

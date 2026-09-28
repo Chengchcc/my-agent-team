@@ -18,11 +18,19 @@ export function finalAnswerMessage(messages: readonly Message[] | undefined): Me
 }
 
 /** Normalized events worth persisting for telemetry. Text/thinking deltas
- *  are transient and large; usage lives on agent_run.terminal_result. */
+ *  are transient and large; usage lives on agent_run.terminal_result.
+ *
+ *  HITL (approval_request / ask_requested) belongs here: a parked run is
+ *  otherwise invisible in the event log, so "no rows" reads like "no events"
+ *  while the run sits waiting for a human (diagnosed the hard way,
+ *  2026-09-28: a parked run looked eventless). The payload is the same
+ *  record the pending_action row already stores. */
 export const TELEMETRY_EVENT_TYPES = new Set([
   "status",
   "native_tool_started",
   "native_tool_completed",
+  "backend.oma.approval_request",
+  "backend.oma.ask_requested",
   "delegation_batch_started",
   "delegation_agent_started",
   "delegation_agent_completed",
