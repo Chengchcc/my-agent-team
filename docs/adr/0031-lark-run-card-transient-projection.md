@@ -24,5 +24,5 @@ ledger 仍是 assistant 消息的唯一权威出口——卡片只消费 transie
 
 - 实施时 `apps/lark-bot/src` 按 inbound / conversation（终态投递）/ run-card（流式与控制）/ storage / lark-api 分组，终态投递与卡片 PATCH 的故障语义不得混在同一模块；backend `features/lark-bot` 随本期改名 `lark-surface`（它管 surface 生命周期与 registry，不是 bot 业务实现）。
 - 第一期必须与终态可靠投递（ADR 0032）同切片交付：只有流式而没有可靠终态，用户看得到过程却收不到结论。
-- 卡片交互的载体已从「命令 / reaction」推进到卡片按钮回调（2026-09-24）：`card.action.trigger` 走 lark-cli 的出站长连接，**零新增公网暴露面**（与 ADR 0026 单用户本地边界一致）。仍然没有的：reaction 触发、自由文本输入（`input`/`form`）、多选取值；回调防重放目前只覆盖单操作者（event_id 去重 + message↔run_card 映射），签名 action token 与 backend 侧事件去重留给多操作者场景。
+- 卡片交互的载体已从「命令 / reaction」推进到卡片按钮回调（2026-09-24）：`card.action.trigger` 走 lark-cli 的出站长连接，**零新增公网暴露面**（与 ADR 0026 单用户本地边界一致）。仍然没有的：reaction 触发、多选取值。（2026-09-28 修订：自由文本输入已在追问卡落地，见 `card-renderer.ts` 的 `ask_form` + `ask_submit` 与 `run-card.test.ts` 的 `free-text ask form` 测试。）回调防重放目前只覆盖单操作者（event_id 去重 + message↔run_card 映射），签名 action token 与 backend 侧事件去重留给多操作者场景。
 - 追问（ask）的事实已经持久：`askQuestion` 写 `pending_action`（`actionId = runId:callId`，kind `ask`，payload 带 questions），超时以 `{timeout:true}` 消费、回答以 `{answered:true}` 消费，且 `resolveAsk` 在没有活 resolver 时照样消费，晚到的回答仍能修复 run 的 `waiting → running` CAS。缺的是**卡片侧的回读**：卡片的 waiting 帧来自 transient 的 `ask_requested` 帧，lark-bot 重启后重新驱动卡片时只拿到后续 delta，不会去 `pending_action` 把题目捞回来（已经渲染出来的按钮不受影响，callId 仍可解析）。
