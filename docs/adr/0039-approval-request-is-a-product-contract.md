@@ -27,6 +27,8 @@
 
 4. **传输统一：采纳 ACP 为目标协议，分相落地（2026-09-28 修订，取代「有触发条件才做」的原案）。** 原案把 `acp` kind 押后到「两个以上原生 ACP agent 或桥补齐」；复审时生态已过拐点：ACP 官方组织自己维护 cc 与 codex 的桥（`@agentclientprotocol/claude-agent-acp` ^0.76、`@agentclientprotocol/codex-acp` ^1.1.5），gemini / cursor / copilot / qwen 等约二十个 agent 原生 `--acp`，acpx（MIT，3.3k 星，0.19.x）证明一个客户端可驱动整个生态。产品要的是协议层的统一与可扩展，因此直接以 ACP 为目标传输。实现取「自建薄客户端于官方 `@agentclientprotocol/sdk`」，不嵌入 acpx/runtime：它自带会话持久层，会与「账本加 Run 是唯一执行身份」冲突，且 pre-1.0、要求 Node 22.13。acpx 作为参考实现借三样东西（见附录二）。
 
+   目标定位（2026-09-28 明确）：要造的是**编排协议层本身**——一个客户端驱动所有 ACP agent 的会话、轮次、事件流、权限与恢复，达到 acpx 的成熟度；审批在各端一致只是这个层的顺带结果，不是目的。因此没有原生能力的 agent（pi 无 ACP、核心也无审批策略）**不强行对齐**，留在各自 native kind；`acp` kind 对所有原生 ACP agent 开放，不为我们四家私有。
+
 5. **恢复跟状态所有权走**（沿用 ADR 0038 的判据）：action 记录、期限、卡片、答案归产品；agent 自己的策略（例如 cc 的 `PermissionUpdate` durable 规则）归 agent；产品只如实展示「将创建什么规则」，不假装能撤销。
 
 6. **A2A 是另一个轴，不依赖 ACP。** 把 backend 暴露成 A2A agent 复用同一份契约：run 的 `waiting` 对应 A2A 的 `input-required`。任何非 loopback 暴露先过 ADR 0026 的检查项；A2A 作 client 是未来的第五个 `AgentBackend` 实现。
@@ -88,11 +90,13 @@ openclaw/acpx 是 ACP 的无头客户端（MIT，3.3k 星），自带可嵌入 r
 ### 落地相位（决策 4 修订版）
 
 ```
-P1  backend 加 acp kind（官方 SDK 薄客户端）+ omp（原生）端到端 HITL
-P2  oma 的 ACP server（resume 决定注入做 oma/ 前缀私有扩展）
-P3  cc 经 @agentclientprotocol/claude-agent-acp 接入
-P4  pi 经 pi-acp（复测工具审批；不达标则过渡用决策 3 的 pi 扩展）
-P5  逐个下线旧 native adapter（oma RPC 是否保留为私有快路径，P2 验收后定）
+P1  acp 编排层：官方 SDK 薄客户端（initialize / session / prompt / 事件流 /
+    request_permission / 恢复）+ omp 端到端打通——验收是编排面工作，不止审批
+P2  oma 的 ACP server（resume 决定注入做 oma/ 前缀私有扩展）——反向收益：
+    我们自己的 agent 也能被 acpx / Zed 这类生态客户端编排
+P3  cc 经 @agentclientprotocol/claude-agent-acp 接入（conformance 先行）
+P4  workflow 的 agent 节点支持 acp kind（对应 acpx flows 的组合编排）
+P5  逐个下线旧 native adapter；pi 不强行对齐，留在 native kind
 ```
 
 每个相位先过 conformance 用例，再过我们的隔离验收（审批卡端到端），最后才进 live。
