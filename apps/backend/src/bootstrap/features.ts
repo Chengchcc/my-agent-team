@@ -1591,6 +1591,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // (Product Tools MCP) and finally Lark/setup.
     smokeCron?.stop();
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
+    codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();
     await workflowExecutionService.dispose();
     await larkBotRegistry.dispose();
