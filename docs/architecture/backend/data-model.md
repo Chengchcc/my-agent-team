@@ -45,7 +45,7 @@ lark-bot 有自己独立的库与 schema（四张表），与 `backend.db` 无�
 |---|---|
 | `agent_run` | 一次产品执行；含模型引用、工作区、产品工具清单、系统提示、权限模式 |
 | `branch_input_queue` | 待投递输入，按单调 `seq` 排序 |
-| `pending_action` | 定义在案，但**没有生产写入方**（见下） |
+| `pending_action` | 等人回答的审批/追问：durable HITL 的唯一事实源（消费走 CAS + 幂等键），也是 `agent_run.status='waiting'` 的生产写入方 |
 | `product_tool_call` | 产品工具调用的幂等账 |
 | `agent_run_event` | Run 级遥测，只落白名单里的事件类型 |
 
@@ -103,7 +103,7 @@ lark-bot 有自己独立的库与 schema（四张表），与 `backend.db` 无�
 
 ## 死表与死状态
 
-`pending_action` 有表、有读写函数，但**没有生产调用方**（只有单测在调）。真实的审批走子进程的 `approval_request` 事件加 `POST /api/agent-runs/:runId/approval`，真实的提问走内存里的 resolver。后果是 `agent_run.status` 里的 `waiting` 在生产中不可达。
+当前没有。`pending_action` 曾长期「有表无生产写入方」，durable HITL v1 起已有两个写入方：审批经事件总线的落库钩子（卡片可见之前先落行），追问经 product-tools（先落库再发卡）；全局读模型是 `GET /api/pending-actions`。
 
 ## 已经删掉的表
 

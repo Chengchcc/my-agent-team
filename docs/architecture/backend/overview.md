@@ -105,9 +105,7 @@ Run 自己 pin 的工作区优先，否则由 `resolveWorkspace` 决定（见 [P
 
 ## 已知缺口
 
-- `AgentRunExecutionService.recover()` **没有生产调用方**：启动时只跑了 workflow 的 `recover()`。进程重启后，`delivering` 的输入与活跃 Run 会一直躺着，直到该对话来了新消息才触发 `abortStaleRun`。
-- 同样因为没有调用方，`retryTerminalCommit` 在线上不可达；而 `commit_failed` 又算活跃状态，于是提交失败会把那个分支**永久占住**。
-- `agent_run.status` 里的 `waiting` 没有生产写入方（`pending_action` 无人写）。
+- `commit_failed` 只有启动时 `recover()` 的重试入口，没有运行期 HTTP；重启之前该分支一直被占。
 - Context 的 `summary` 条目没有生产者，投影里的 summary 分支在生产路径上不可达。
 
 详细清单见 [`../../roadmap.md`](../../roadmap.md)。

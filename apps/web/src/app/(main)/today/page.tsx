@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CheckCircle2, Clock, Coins, GitBranch, Loader2, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -12,6 +13,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { formatNextRun, nextCronRun } from "@/components/workflow/cron-next";
 import { useAgentList } from "@/features/agents/hooks";
 import { useAgentRuns, useTelemetrySummary } from "@/features/ops/hooks";
+import { type PendingHitlAction, pendingActionsQuery } from "@/features/runs/queries";
 import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
 
@@ -71,12 +73,34 @@ function hhmm(ts: number) {
   return new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** One-line read of a pending HITL action: approvals name the tool, asks
+ * quote the first question. Payload is opaque DB JSON - guard every field. */
+function hitlSummary(a: PendingHitlAction): { title: string; detail: string } {
+  const p = a.payload as { toolName?: unknown; reason?: unknown; questions?: unknown };
+  if (a.kind === "approval") {
+    return {
+      title: `Approve ${typeof p.toolName === "string" && p.toolName ? p.toolName : "a tool"}`,
+      detail:
+        typeof p.reason === "string" && p.reason !== ""
+          ? p.reason
+          : "an agent run is parked on your decision",
+    };
+  }
+  const first = Array.isArray(p.questions) ? (p.questions[0] as { question?: unknown }) : undefined;
+  return {
+    title: typeof first?.question === "string" ? first.question : "A question from your agent",
+    detail: "answer it in the conversation",
+  };
+}
+
 export default function TodayPage() {
   const [executions, setExecutions] = useState<ExecutionRow[]>([]);
   const [definitions, setDefinitions] = useState<DefinitionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabFilter>("all");
   const { data: runs } = useAgentRuns();
+  const qc = useQueryClient();
+  const { data: hitlActions = [] } = useQuery(pendingActionsQuery());
   const telemetry = useTelemetrySummary();
   const { data: agents } = useAgentList() as { data?: AgentRow[] };
 
@@ -197,22 +221,24 @@ export default function TodayPage() {
             >
               Workflows
             </Link>
-            {waitingHuman.length > 0 && (
+            {(waitingHuman.length > 0 || hitlActions.length > 0) && (
               <>
                 <Link
                   href="#needs-you"
                   className="rounded-sm border border-(--hairline) bg-(--panel2)/50 px-3 py-1.5 text-xs text-(--ink) transition-colors hover:border-(--faint)"
                 >
-                  Needs you ({waitingHuman.length})
+                  Needs you ({waitingHuman.length + hitlActions.length})
                 </Link>
-                <button
-                  type="button"
-                  disabled={approvingAll}
-                  onClick={() => void approveAllGates()}
-                  className="rounded-sm bg-(--primary-soft) px-3 py-1.5 text-xs font-semibold text-(--on-primary) transition-colors hover:bg-(--primary) disabled:opacity-60"
-                >
-                  {approvingAll ? "Approving…" : `Batch approve (${waitingHuman.length})`}
-                </button>
+                {waitingHuman.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={approvingAll}
+                    onClick={() => void approveAllGates()}
+                    className="rounded-sm bg-(--primary-soft) px-3 py-1.5 text-xs font-semibold text-(--on-primary) transition-colors hover:bg-(--primary) disabled:opacity-60"
+                  >
+                    {approvingAll ? "Approving…" : `Batch approve (${waitingHuman.length})`}
+                  </button>
+                )}
               </>
             )}
           </>
@@ -264,14 +290,16 @@ export default function TodayPage() {
 
         <div className="grid gap-4 lg:grid-cols-4">
           <div className="min-w-0 space-y-4 lg:col-span-3">
-            {waitingHuman.length > 0 && (
+            {(waitingHuman.length > 0 || hitlActions.length > 0) && (
               <section
                 id="needs-you"
                 className="rounded-lg border border-(--hairline) bg-(--panel) p-4"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <MonoLabel>Pending human decisions</MonoLabel>
-                  <StatusPill tone="waiting">{waitingHuman.length} required</StatusPill>
+                  <StatusPill tone="waiting">
+                    {waitingHuman.length + hitlActions.length} required
+                  </StatusPill>
                 </div>
                 <div className="space-y-2">
                   {waitingHuman.slice(0, 8).map((e) => (
@@ -339,6 +367,73 @@ export default function TodayPage() {
                     </Link>
                   ))}
                 </div>
+                {hitlActions.length > 0 && (
+                  <div className="mt-2 space-y-2 border-t border-(--hairline)/60 pt-2">
+                    {hitlActions.slice(0, 8).map((a) => {
+                      const summary = hitlSummary(a);
+                      const agentName = agents?.find((ag) => ag.id === a.agentId)?.name;
+                      const callId = typeof a.payload.callId === "string" ? a.payload.callId : null;
+                      const answerApproval = (decision: "allow" | "deny") => {
+                        if (!callId) return;
+                        void (async () => {
+                          try {
+                            await api.resolveApproval(a.runId, callId, decision);
+                            toast.success(decision === "allow" ? "Approved" : "Denied");
+                            await qc.invalidateQueries({ queryKey: ["pending-actions"] });
+                          } catch {
+                            toast.error("Resolve failed — open the conversation to retry");
+                          }
+                        })();
+                      };
+                      return (
+                        <Link
+                          key={a.actionId}
+                          href={`/chat/${encodeURIComponent(a.conversationId)}`}
+                          className="flex items-center justify-between gap-3 rounded-md border border-(--hairline) bg-(--canvas) px-3 py-2 transition-colors hover:border-(--accent-violet)"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-(--ink)">
+                              {summary.title}
+                            </div>
+                            <div className="truncate font-mono text-[10px] text-(--mute)">
+                              {agentName ?? a.agentId} · {a.kind} · {hhmm(a.createdAt)}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {a.kind === "approval" && callId !== null ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="rounded-sm border border-(--err)/40 px-2 py-1 text-[11px] text-(--err) transition-colors hover:bg-(--err)/10"
+                                  onClick={(ev) => {
+                                    ev.preventDefault();
+                                    answerApproval("deny");
+                                  }}
+                                >
+                                  Deny
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-sm bg-(--primary-soft) px-2 py-1 text-[11px] font-semibold text-(--on-primary) transition-colors hover:bg-(--primary)"
+                                  onClick={(ev) => {
+                                    ev.preventDefault();
+                                    answerApproval("allow");
+                                  }}
+                                >
+                                  Allow
+                                </button>
+                              </>
+                            ) : (
+                              <span className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
+                                open chat
+                              </span>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
             )}
 

@@ -145,10 +145,11 @@ tag 的含义：`conversation` 是触发与入队，`agent-run` 是执行生命�
 
 ## 两条 HITL 通道
 
-审批与问答都走 per-run 事件流，卡在 `waiting` 时先看这两条链：
+审批与问答都以 `pending_action` 行为事实源（卡片可见前先落行），卡在 `waiting` 时先看这两条链：
 
-- `backend.oma.approval_request`（web 渲染审批卡片）→ `POST /api/agent-runs/:runId/approval`（body 是 `{ callId, decision }`，run 已终结返回 409，body 不合法返回 400，run 不存在返回 404）。
-- `backend.oma.ask_requested`（web 渲染问答卡片）→ `POST /api/product-tools/ask/resolve`，超时时间默认 60 秒，超时按未回答返回 null。
+- `backend.oma.approval_request`（web 渲染审批卡片）→ `POST /api/agent-runs/:runId/approval`（body 是 `{ callId, decision }`；run 已终结返回 409，body 不合法返回 400，run 不存在返回 404；**重复点击同一 decision 是重放（200），反过来才 409**）。
+- `backend.oma.ask_requested`（web 渲染问答卡片）→ `POST /api/product-tools/ask/resolve`，等待默认 24 小时（`BACKEND_ASK_TIMEOUT_MS`），超时按未回答返回 null。
+- 全局待办：`GET /api/pending-actions`（所有活跃 run 的待答事项，Web 铃铛与 Today「Needs you」同源）；单个 run 的看 `GET /api/agent-runs/:runId` 的 `pendingActions`。
 
 ## 不变量
 

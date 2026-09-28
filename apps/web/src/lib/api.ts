@@ -234,6 +234,7 @@ export const api = {
         decision,
       }),
     ),
+  listPendingActions: () => unwrap(client.api["pending-actions"].get()),
   getUsageSummary: (scope: { conversationId?: string; agentId?: string }) =>
     unwrap(
       client.api.usage.summary.get({

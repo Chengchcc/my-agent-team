@@ -244,6 +244,46 @@ export function agentRunRoutes(input: {
         }),
       },
     )
+    .get("/api/pending-actions", () => {
+      // Global HITL read model: one row per thing a human can still answer.
+      // Terminal settles cancel their actions, so the active-run join is
+      // belt-and-suspenders against a cancelled row racing the sweep. The
+      // Today page and the TopBar bell read this instead of fan-out run
+      // detail calls.
+      const rows = db
+        .query(
+          `SELECT pa.action_id, pa.run_id, pa.kind, pa.payload, pa.created_at,
+                  ar.conversation_id, ar.agent_id, ar.status AS run_status
+             FROM pending_action pa
+             JOIN agent_run ar ON ar.run_id = pa.run_id
+            WHERE pa.status = 'pending'
+              AND ar.status IN ('running', 'waiting', 'commit_failed')
+            ORDER BY pa.created_at DESC
+            LIMIT 200`,
+        )
+        .all() as Array<{
+        action_id: string;
+        run_id: string;
+        kind: string;
+        payload: string;
+        created_at: number;
+        conversation_id: string;
+        agent_id: string;
+        run_status: string;
+      }>;
+      return {
+        actions: rows.map((r) => ({
+          actionId: r.action_id,
+          runId: r.run_id,
+          conversationId: r.conversation_id,
+          agentId: r.agent_id,
+          runStatus: r.run_status,
+          kind: r.kind,
+          payload: JSON.parse(r.payload) as Record<string, unknown>,
+          createdAt: r.created_at,
+        })),
+      };
+    })
     .get(
       "/api/usage/summary",
       async ({ query }) => {

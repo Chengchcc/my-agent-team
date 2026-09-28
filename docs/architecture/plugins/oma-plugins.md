@@ -87,7 +87,7 @@ hooks 走同步签名：`beforeTool` 返回 block 时，权限门都不再执行
 - `permissionMode` 三态与 `yolo` 的差别见 [Oma Tools](../runtime/oma-tools.md) 的权限门一节。
 - `ApprovalRequest.source` 标明是谁在问：`permission`（ask 门）、`tool`（插件工具自己请求）、`classifier`（auto 模式判 block 后升级给人）。`sandboxed` 用来在卡片上区分"沙箱内执行"与"不受沙箱约束的回退"。
 - `callId` 必须是**工具调用自己的 id**：它是人卡唯一能对上的键，另造一个会让审批往返静默失效。
-- 超时默认 120 秒（`OMA_APPROVAL_TIMEOUT_MS`），超时等于 deny；没有 handler 的 ask 也是 deny（fail-closed）。print / json 两个无人模式用 `denyAllApprovals`。
+- 超时默认 24 小时（`OMA_APPROVAL_TIMEOUT_MS`，0 = 一直等；2026-09-25 从 2 分钟改掉——聊天面上的人可能第二天早上才看到卡），超时等于 deny；没有 handler 的 ask 也是 deny（fail-closed）。print / json 两个无人模式用 `denyAllApprovals`。
 - 审批表按 Run 隔离，Run 结束后没有人再能解决它的审批。
 
 分类器（`auto` 模式）：

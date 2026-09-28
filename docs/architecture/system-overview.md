@@ -93,9 +93,7 @@ Web 不直连后端数据，走 BFF 代理并带上服务端 token（见 [Web �
 
 **超时。** 每个 Run 有墙钟上限，默认 30 分钟，到点让 backend `stop()`，Run 落 aborted。
 
-**重启恢复。** `AgentRunExecutionService.recover()` 处理四类：`delivering` 输入按原 runId 重投、崩溃缺口把空闲分支上的 pending 输入晋升成新 Run、`commit_failed` 逐个重试提交（只用已存的 outcome，不重跑后端）、已投递但没有活子进程的孤儿置 aborted 并晋升下一个。
-
-> 注意：`recover()` 目前**没有生产调用方**（启动时只跑了 workflow 的 `recover()`）。四类恢复逻辑都在代码里，但线上不会被调起，详见 [Product Backend 总览](./backend/overview.md#已知缺口)。
+**重启恢复。** `AgentRunExecutionService.recover()` 处理四类：`delivering` 输入按原 runId 重投、崩溃缺口把空闲分支上的 pending 输入晋升成新 Run、`commit_failed` 逐个重试提交（只用已存的 outcome，不重跑后端）、已投递但没有活子进程的孤儿置 aborted 并晋升下一个。启动时由 `bootstrap/features.ts` 的 `start()` 调起（先于 Workflow 的 `recover()`：老状态先结算，Workflow 重驱时才不会撞上被占用的分支）。
 
 **收尾。** dispatch 的 finally 统一清 live 句柄、吊销产品工具 token、关闭订阅者；进程退出时先杀所有子进程再排空在飞的 dispatch。
 

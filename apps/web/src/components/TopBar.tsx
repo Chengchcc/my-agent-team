@@ -8,6 +8,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAgentList } from "@/features/agents/hooks";
 import { useCurrentUser } from "@/features/identity/hooks";
 import { backendPingQuery, surfacesQuery } from "@/features/ops/queries";
+import { pendingActionsQuery } from "@/features/runs/queries";
 import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
 
@@ -97,6 +98,8 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
   const { data: user } = useCurrentUser();
   const { data: agents } = useAgentList() as { data?: AgentRow[] };
   const { data: waitingGates } = useQuery(waitingGatesQuery());
+  const { data: pendingActions } = useQuery(pendingActionsQuery());
+  const waitingOnYou = (waitingGates ?? 0) + (pendingActions?.length ?? 0);
   const initials = (user?.userId ?? "ua").slice(0, 2).toUpperCase();
 
   return (
@@ -123,13 +126,12 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
         <button
           type="button"
           onClick={() => router.push("/today")}
-          className="relative flex size-7 items-center justify-center rounded-sm text-(--mute) transition-colors hover:bg-(--panel2) hover:text-(--ink)"
-          aria-label={`Notifications: ${waitingGates ?? 0} workflow gates waiting`}
+          aria-label={`Notifications: ${waitingOnYou} waiting for you`}
         >
           <Bell className="size-4" />
-          {(waitingGates ?? 0) > 0 && (
+          {waitingOnYou > 0 && (
             <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-(--accent-violet) font-mono text-[8px] font-semibold text-(--on-accent-violet)">
-              {waitingGates}
+              {waitingOnYou}
             </span>
           )}
         </button>

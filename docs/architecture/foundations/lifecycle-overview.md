@@ -53,15 +53,15 @@ tags: [runs, backend]
 | `completed` | 子进程给出成功终态 | 终态提交事务 |
 | `failed` | 预检/投影/spawn 失败，子进程崩溃，协议损坏 | 终态提交 |
 | `aborted` | 用户取消、超时、僵尸清理 | 终态提交 |
-| `commit_failed` | 终态提交事务失败 | 重试提交（**当前线上不可达**） |
+| `commit_failed` | 终态提交事务失败 | 启动时 `recover()` 重试（无运行期入口） |
 
-`waiting` 之所以没有生产者：唯一会写它的路径需要一个待响应事项的持久化记录，而那条路径没有任何生产调用方。真实的审批走 Run 级 SSE 加审批端点，Run 全程保持 `running`。
+`waiting` 是 HITL 停车状态：`pending_action` 落行时 Run 从 `running` CAS 成 `waiting`，回答/超时消费该行时修回 `running`。
 
 ## 终态提交
 
 completed 走一次事务：账本行、Context 引用、分支 CAS、Run CAS。失败、中止、超时则广播状态、落一条用户可见的错误消息、写终态；只有 canonical 提交才写账本里的 assistant 消息，错误气泡是另一回事。
 
-**提交失败的分支会被永久占住**：`commit_failed` 算活跃状态，而唯一的重试入口只从「没被调起的恢复函数」里可达。
+**提交失败的分支在重启前一直被占**：`commit_failed` 算活跃状态，唯一的重试入口是启动时的 `recover()`（没有运行期 HTTP）。
 
 ## 取消、超时与恢复
 
@@ -71,7 +71,7 @@ completed 走一次事务：账本行、Context 引用、分支 CAS、Run CAS。
 
 **重启恢复** 分四类：`delivering` 的输入按原 runId 重投（适配器幂等）；崩溃缺口把空闲分支上没有 runId 的 pending 输入晋升成新 Run，用它自己的配置快照；`commit_failed` 逐个重试提交（只用已存的 outcome）；已投递但没有活子进程的孤儿置 aborted 并晋升下一个。
 
-这四类都写在 `recover()` 里，**但启动时没有人调它**——目前只有 Workflow 的 `recover()` 被调起。进程重启后，之前的状态会一直躺着，直到那个对话来了新消息才触发僵尸清理。
+这四类都写在 `recover()` 里，启动时由 `bootstrap/features.ts` 的 `start()` 调起，且先于 Workflow 的 `recover()`（老状态先结算，Workflow 重驱时才不会撞上被占用的分支）。
 
 ## 收尾
 

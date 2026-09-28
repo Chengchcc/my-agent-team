@@ -171,11 +171,36 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
     async resolveApproval(runId, callId, decision) {
       // Validate against the durable action first: an unknown callId is a
       // stale click, not a decision, and must never reach the child.
-      const action = await runPort.getPendingAction(`${runId}:${callId}`);
-      if (!action || action.status !== "pending") {
+      const actionId = `${runId}:${callId}`;
+      const action = await runPort.getPendingAction(actionId);
+      if (!action || action.status === "cancelled") {
         throw new ApprovalNotApplicableError(
           `approval rejected: run ${runId} is not waiting for ${callId}`,
         );
+      }
+      if (action.status === "resolved") {
+        // Replay of a click the backend already accepted (double-tap, a
+        // card that outlived its refresh): same decision returns the stored
+        // outcome - and the same-key consume's replay branch also repairs a
+        // waiting->running CAS a crash may have left behind. An opposite
+        // decision is a conflict, never a second answer forwarded to the
+        // child.
+        const stored = action.response as { decision?: unknown } | null;
+        if (stored?.decision !== decision) {
+          throw new ApprovalNotApplicableError(
+            `approval rejected: ${callId} was already answered "${String(stored?.decision)}"`,
+          );
+        }
+        await runPort
+          .consumePendingAction(
+            actionId,
+            { actionId, response: { decision } },
+            `${actionId}:${decision}`,
+          )
+          .catch((err) => {
+            console.error(`[agent-run] approval replay repair failed for ${actionId}:`, err);
+          });
+        return;
       }
       const live = liveRuns.get(runId);
       if (!live) {
@@ -194,12 +219,11 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       // Durable approvals v1: record the response and repair the run's
       // waiting->running CAS. Best-effort - the child already has the
       // decision; a missing/stale action must not fail the HTTP call.
-      const actionId = `${runId}:${callId}`;
       await runPort
         .consumePendingAction(
           actionId,
           { actionId, response: { decision } },
-          `${runId}:${callId}:${decision}`,
+          `${actionId}:${decision}`,
         )
         .catch((err) => {
           console.error(`[agent-run] approval consume failed for ${actionId}:`, err);
