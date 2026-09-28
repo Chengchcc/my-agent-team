@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { Elysia } from "elysia";
 import type { AgentRow } from "./domain.js";
 import { agentRoutes } from "./http.js";
@@ -244,6 +244,14 @@ describe("agent HTTP routes", () => {
     expect(body.memSummary).toContain("JWT expiry 15m");
     expect(body.memories).toHaveLength(1);
     expect(body.memories[0]!.file).toBe("run-1.md");
+
+    // Where it lands matters: the agent reads .oma/memory (its memory
+    // pipeline and the learn tool write there), so the panel must use the
+    // same directory. A round-trip through the API alone passes either way.
+    const ws = `/tmp/ws/${created.id}`;
+    expect(existsSync(`${ws}/.oma/memory/memory_summary.md`)).toBe(true);
+    expect(existsSync(`${ws}/.oma/memory/facts/run-1.md`)).toBe(true);
+    expect(existsSync(`${ws}/memory`)).toBe(false);
 
     // Path traversal in a fact filename is rejected.
     const evilResp = await app.handle(

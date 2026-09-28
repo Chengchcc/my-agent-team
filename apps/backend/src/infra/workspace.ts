@@ -9,7 +9,6 @@ export async function materializeWorkspace(opts: {
 }): Promise<string> {
   const wsPath = path.join(opts.workspaceRoot, opts.agentId);
   await mkdir(wsPath, { recursive: true });
-  await mkdir(path.join(wsPath, "memory"), { recursive: true });
 
   if (opts.template) {
     const src = path.join(opts.templateDir, opts.template);

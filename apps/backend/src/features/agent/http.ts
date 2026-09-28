@@ -402,7 +402,9 @@ export function agentRoutes(
       } catch {
         return { memories: [], memSummary: null, memoryMd: null };
       }
-      const memDir = pathJoin(root, "memory");
+      // The agent owns its memory under .oma/memory (its learn tool and
+      // memory pipeline both write there): read and write THAT directory.
+      const memDir = pathJoin(root, ".oma", "memory");
       const factsDir = pathJoin(memDir, "facts");
       const factFiles = existsSync(factsDir)
         ? readdirSync(factsDir).filter((f) => f.endsWith(".md"))
@@ -428,7 +430,7 @@ export function agentRoutes(
         } catch {
           return Response.json({ error: "Not found" }, { status: 404 });
         }
-        const memDir = pathJoin(root, "memory");
+        const memDir = pathJoin(root, ".oma", "memory");
         mkdirSync(memDir, { recursive: true });
         if (typeof body.memSummary === "string") {
           writeFileSync(pathJoin(memDir, "memory_summary.md"), body.memSummary, "utf-8");

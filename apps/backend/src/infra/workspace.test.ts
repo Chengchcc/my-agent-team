@@ -15,7 +15,7 @@ afterAll(async () => {
 });
 
 describe("materializeWorkspace", () => {
-  test("creates workspace and memory/ directory", async () => {
+  test("creates the workspace directory", async () => {
     const agentId = `agent-${Date.now()}`;
     const wsPath = await materializeWorkspace({
       workspaceRoot: ROOT,
@@ -24,7 +24,6 @@ describe("materializeWorkspace", () => {
     });
 
     expect(existsSync(wsPath)).toBe(true);
-    expect(existsSync(path.join(wsPath, "memory"))).toBe(true);
   });
 
   test("copies template if provided", async () => {

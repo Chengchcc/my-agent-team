@@ -30,13 +30,9 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
   }
 }
 
-/** Read memory facts from the agent workspace.
- *
- *  Layout:
- *    memory/MEMORY.md          — summary / dated memory
- *    memory/facts/*.md         — agent-written facts
- *
- *  Also reads flat memory/*.md for backward compat (legacy agents). */
+/** Identity files live at the workspace root (SOUL.md, USER.md). Agent
+ *  memory is NOT read here: the agent owns it under .oma/memory and injects
+ *  it into its own prompt. */
 
 export function createAgentIdentityStore(opts: {
   dataDir: string;
@@ -59,9 +55,6 @@ export function createAgentIdentityStore(opts: {
       const agent = await opts.getAgent(agentId); // validate agent exists
       const root = agent.workspacePath;
       await mkdir(root, { recursive: true });
-
-      // Ensure memory/facts/ directory exists so the agent can write
-      await mkdir(path.join(root, "memory", "facts"), { recursive: true });
 
       if (typeof patch.soul === "string") {
         await writeFile(path.join(root, "SOUL.md"), patch.soul, "utf-8");
