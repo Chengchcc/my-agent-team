@@ -239,7 +239,10 @@ describe("transient reducer — approval", () => {
     expect(formatApprovalInput("plain")).toBe("plain");
     expect(formatApprovalInput({ path: "/a/b" })).toContain("/a/b");
     expect(formatApprovalInput(undefined)).toBe("");
-    expect(formatApprovalInput({ command: "x".repeat(500) }).length).toBe(400);
+    // Truncation is marked, never silent.
+    const clipped = formatApprovalInput({ command: "x".repeat(500) });
+    expect(clipped.length).toBeLessThanOrEqual(401);
+    expect(clipped.endsWith("…")).toBe(true);
   });
 
   test("detail survives the approval round-trip and a failed resolve", () => {

@@ -136,11 +136,14 @@ export interface TransientApproval {
 /** One-line preview of a tool call's argument for the approval card. */
 export function formatApprovalInput(input: unknown): string {
   if (input === undefined || input === null) return "";
-  if (typeof input === "string") return input.slice(0, 400);
+  // Truncation is always marked: a silently cut command reads as the whole
+  // command, and the human approves what they can see.
+  const clip = (text: string): string => (text.length > 400 ? `${text.slice(0, 400)}…` : text);
+  if (typeof input === "string") return clip(input);
   const cmd = (input as { command?: unknown }).command;
-  if (typeof cmd === "string") return cmd.slice(0, 400);
+  if (typeof cmd === "string") return clip(cmd);
   try {
-    return JSON.stringify(input).slice(0, 400);
+    return clip(JSON.stringify(input));
   } catch {
     return "";
   }
