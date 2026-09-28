@@ -581,7 +581,7 @@ describe("agent run execution failure & subscription", () => {
           })(),
         pendingActionEvents: async () => [
           {
-            type: "backend.oma.approval_request",
+            type: "approval_requested",
             payload: { callId: "c-r", toolName: "bash", input: { command: "echo hi" } },
           },
         ],
@@ -590,7 +590,7 @@ describe("agent run execution failure & subscription", () => {
     );
     const seen: string[] = [];
     for await (const ev of stream) seen.push(ev.type);
-    expect(seen).toEqual(["backend.oma.approval_request", "status"]);
+    expect(seen).toEqual(["approval_requested", "status"]);
     // Primed before the replay read: a live event landing in that window is
     // buffered by the bus, not lost.
     expect(order).toEqual(["subscribed"]);
@@ -610,7 +610,7 @@ describe("agent run execution failure & subscription", () => {
         subscribe: () => (async function* () {})(),
         pendingActionEvents: async () => [
           {
-            type: "backend.oma.ask_requested",
+            type: "ask_requested",
             payload: { callId: "c-a", questions: [{ id: "q1", question: "which?" }] },
           },
         ],
@@ -619,7 +619,7 @@ describe("agent run execution failure & subscription", () => {
     );
     const seen: Array<{ type: string; payload?: unknown }> = [];
     for await (const ev of stream) seen.push(ev as { type: string; payload?: unknown });
-    expect(seen.map((e) => e.type)).toEqual(["backend.oma.ask_requested"]);
+    expect(seen.map((e) => e.type)).toEqual(["ask_requested"]);
     expect(seen[0]!.payload).toEqual({
       callId: "c-a",
       questions: [{ id: "q1", question: "which?" }],
@@ -654,13 +654,27 @@ describe("agent run execution failure & subscription", () => {
     );
 
     const events = await execution.pendingActionEvents(runId);
-    expect(events.map((e) => e.type)).toEqual([
-      "backend.oma.approval_request",
-      "backend.oma.ask_requested",
-    ]);
+    expect(events.map((e) => e.type)).toEqual(["approval_requested", "ask_requested"]);
     const payloadOf = (e: BackendEvent): unknown => ("payload" in e ? e.payload : undefined);
     expect(payloadOf(events[0]!)).toMatchObject({ callId: "call-live", toolName: "bash" });
     expect(payloadOf(events[1]!)).toMatchObject({ callId: "call-ask" });
+
+    // A row whose payload is not the shape the card needs cannot become a
+    // card: the stored record is read with checks, not asserted into an event.
+    // Without this, a half-written row paints an approval whose callId or tool
+    // name is `undefined` - a card the human cannot answer.
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:call-shapeless`,
+      kind: "approval",
+      payload: { callId: "call-shapeless" },
+    });
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:call-empty`,
+      kind: "ask",
+      payload: { callId: "", questions: [] },
+    });
+    const still = await execution.pendingActionEvents(runId);
+    expect(still.map((e) => e.type)).toEqual(["approval_requested", "ask_requested"]);
   });
 
   test("commit_failed run: SSE reports failed WITHOUT aborting the Product run", async () => {

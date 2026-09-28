@@ -327,7 +327,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
       ].slice(-MAX_COMPLETED_TOOLS);
       return { ...state, activeTool: null, completedTools: completed };
     }
-    case "backend.oma.approval_request": {
+    case "approval_requested": {
       const callId = ev.payload?.callId ?? null;
       if (!callId) return state;
       return {
@@ -345,7 +345,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
         },
       };
     }
-    case "backend.oma.ask_requested": {
+    case "ask_requested": {
       const callId = ev.payload?.callId ?? null;
       const parsed = parseAskQuestion(ev.payload?.questions);
       if (!callId || !parsed) return state;

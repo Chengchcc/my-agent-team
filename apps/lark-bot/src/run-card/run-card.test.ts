@@ -111,7 +111,7 @@ describe("applyRunEvent reducer", () => {
     // one, or buttons appear with different payloads than the resolve path
     // expects.
     const approvalLive = applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload: { callId: "c1" },
     });
     expect(pendingActionFromBackend("approval", { callId: "c1" })).toEqual(
@@ -131,7 +131,7 @@ describe("applyRunEvent reducer", () => {
       },
     ];
     const askLive = applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: { callId: "c2", questions },
     });
     expect(pendingActionFromBackend("ask", { callId: "c2", questions })).toEqual(
@@ -155,7 +155,7 @@ describe("applyRunEvent reducer", () => {
       input: { command: "echo lark-resume-acceptance" },
     };
     const live = applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload,
     });
     // The prompt IS the argument: the tool name and the internal reason are
@@ -185,7 +185,7 @@ describe("applyRunEvent reducer", () => {
   test("an approval says when it expires (the click has a shelf life)", () => {
     const deadlineAt = Date.now() + 24 * 60 * 60_000;
     const s = applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload: { callId: "c-dl", toolName: "bash", input: { command: "true" }, deadlineAt },
     });
     expect(s.pendingAction?.deadlineAt).toBe(deadlineAt);
@@ -198,7 +198,7 @@ describe("applyRunEvent reducer", () => {
     // No stamped deadline: the card claims nothing.
     const withoutDeadline = renderCard(
       applyRunEvent(initialRunCardState(), {
-        type: "backend.oma.approval_request",
+        type: "approval_requested",
         payload: { callId: "c-nodl", toolName: "bash" },
       }),
       { runId: "r1", startedAt: Date.now(), webUrl: null },
@@ -209,7 +209,7 @@ describe("applyRunEvent reducer", () => {
   test("an approval states its OS-sandbox truth (the decision needs it)", () => {
     const frame = (sandboxed: boolean | undefined) => {
       const s = applyRunEvent(initialRunCardState(), {
-        type: "backend.oma.approval_request",
+        type: "approval_requested",
         payload: {
           callId: "c-sb",
           toolName: "bash",
@@ -237,7 +237,7 @@ describe("applyRunEvent reducer", () => {
 
   test("text deltas accumulate and clear the HITL wait", () => {
     let s = initialRunCardState();
-    s = applyRunEvent(s, { type: "backend.oma.approval_request", payload: { callId: "c" } });
+    s = applyRunEvent(s, { type: "approval_requested", payload: { callId: "c" } });
     expect(s.waiting).toBe("approval");
     s = applyRunEvent(s, { type: "text_delta", text: "hi" });
     expect(s.output).toBe("hi");
@@ -277,7 +277,7 @@ describe("applyRunEvent reducer", () => {
 
   test("approval_request keeps the callId in pendingAction", () => {
     const s = applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload: { callId: "call-1" },
     });
     expect(s.waiting).toBe("approval");
@@ -291,7 +291,7 @@ describe("applyRunEvent reducer", () => {
     s = applyRunEvent(s, { type: "status", status: "running" });
     expect(s.phase).toBe("streaming");
     s = applyRunEvent(s, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: {
         callId: "c1",
         questions: [
@@ -792,7 +792,7 @@ describe("dedicated ask / approval card", () => {
     let s = initialRunCardState();
     s = applyRunEvent(s, { type: "text_delta", text: "正在处理。" });
     s = applyRunEvent(s, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: {
         callId: "c1",
         questions: [
@@ -824,7 +824,7 @@ describe("dedicated ask / approval card", () => {
   test("an approval keeps approve/reject and names the frame", () => {
     let s = initialRunCardState();
     s = applyRunEvent(s, {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload: { callId: "c2" },
     });
     const card = renderCard(s, meta) as {
@@ -839,7 +839,7 @@ describe("dedicated ask / approval card", () => {
     // …and with a tool name it names the ACTION, not the binary.
     const named = renderCard(
       applyRunEvent(initialRunCardState(), {
-        type: "backend.oma.approval_request",
+        type: "approval_requested",
         payload: { callId: "c3", toolName: "bash" },
       }),
       meta,
@@ -850,7 +850,7 @@ describe("dedicated ask / approval card", () => {
   test("the running frame is the run card again once the ask clears", () => {
     let s = initialRunCardState();
     s = applyRunEvent(s, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: { callId: "c3", questions: [] },
     });
     s = applyRunEvent(s, { type: "text_delta", text: "继续" });
@@ -900,7 +900,7 @@ describe("free-text ask form", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
     let s = initialRunCardState();
     s = applyRunEvent(s, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: {
         callId: "c1",
         questions: [{ id: "q1", kind: "text", question: "要改哪个分支？" }],
@@ -934,7 +934,7 @@ describe("free-text ask form", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
     let s = initialRunCardState();
     s = applyRunEvent(s, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: {
         callId: "c1",
         questions: [
@@ -988,7 +988,7 @@ describe("free-text ask form", () => {
       },
     });
     s = applyRunEvent(s, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: {
         callId: "c1",
         questions: [
@@ -1191,7 +1191,7 @@ describe("card updater degradation", () => {
       // the card is degraded it is attempted once, then left alone: a broken
       // card must not become an unanswerable question.
       state = applyRunEvent(state, {
-        type: "backend.oma.ask_requested",
+        type: "ask_requested",
         payload: {
           callId: "c",
           questions: [
@@ -1210,7 +1210,7 @@ describe("card updater degradation", () => {
       // And when CardKit is healthy again, the attempt revives the card.
       healthy = true;
       const nextQuestion = applyRunEvent(initialRunCardState(), {
-        type: "backend.oma.ask_requested",
+        type: "ask_requested",
         payload: {
           callId: "c2",
           questions: [
@@ -1263,7 +1263,7 @@ describe("card updater degradation", () => {
       expect(getRunCard(flushDb, "run-flush-deg")?.degraded).toBe(true);
 
       state = applyRunEvent(state, {
-        type: "backend.oma.ask_requested",
+        type: "ask_requested",
         payload: {
           callId: "c-flush",
           questions: [{ id: "q", kind: "text", question: "说说？" }],
@@ -1343,7 +1343,7 @@ describe("element id legality (Feishu 300301)", () => {
     states.push(base);
     let selectAsk = initialRunCardState();
     selectAsk = applyRunEvent(selectAsk, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: {
         callId: "c",
         questions: [{ id: "q", kind: "select", question: "哪？", options: longLabelOptions }],
@@ -1352,13 +1352,13 @@ describe("element id legality (Feishu 300301)", () => {
     states.push(selectAsk);
     let textAsk = initialRunCardState();
     textAsk = applyRunEvent(textAsk, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: { callId: "c", questions: [{ id: "q", kind: "text", question: "说说？" }] },
     });
     states.push(textAsk);
     let approval = initialRunCardState();
     approval = applyRunEvent(approval, {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload: { callId: "c" },
     });
     states.push(approval);

@@ -7,6 +7,38 @@ export interface Usage {
   readonly costUsd?: number;
 }
 
+/** A pending approval request, exactly the object persisted as
+ *  `pending_action.payload`. The broadcast event, the durable row and the
+ *  replay all carry this one object on purpose: one fact, one shape, so the
+ *  surfaces never have to re-shape what the backend stored. */
+export interface ApprovalRequestedPayload {
+  readonly callId: string;
+  readonly toolName: string;
+  /** Why the gate asked. Displayed as secondary text, never as the subject of
+   *  the decision - the subject is `input`. */
+  readonly reason?: string;
+  /** The tool call's arguments: the thing being approved. The card MUST show
+   *  it, or the tap is a blind yes/no. */
+  readonly input?: unknown;
+  /** Truthful OS-bash-sandbox signal (bash approvals only). Display-only,
+   *  never an authorization basis. */
+  readonly sandboxed?: boolean;
+  /** Epoch ms at which the request fails closed (deny). The card says so, so
+   *  the human is not guessing how long their click stays valid. */
+  readonly deadlineAt?: number;
+}
+
+/** A pending question from `ask_question`. `questions` stays loose on purpose:
+ *  the authoritative item shape is `AskQuestionItem`, but the tool schema only
+ *  requires `id` + `question` (a question may arrive without `kind`), so
+ *  claiming the full item type here would assert a shape the wire does not
+ *  guarantee. Surfaces parse defensively; the convergence path is validating
+ *  the items into the DTO before they are emitted. */
+export interface AskRequestedPayload {
+  readonly callId: string;
+  readonly questions?: readonly unknown[];
+}
+
 /** How one tool call should be shown to a human. The TOOL authors it — it is
  *  the only layer that knows what is safe and useful to show — and every
  *  surface (Lark card, Web) renders from it instead of from raw arguments.
@@ -61,6 +93,11 @@ export type CoreBackendEvent =
       readonly presentation?: ToolPresentation;
     }
   | { readonly type: "pending_action"; readonly actionId: string }
+  // The two HITL requests carry their payload as one object instead of flat
+  // fields: that object IS the durable `pending_action` row, so broadcast,
+  // storage and replay stay the same shape (see the payload interfaces).
+  | { readonly type: "approval_requested"; readonly payload: ApprovalRequestedPayload }
+  | { readonly type: "ask_requested"; readonly payload: AskRequestedPayload }
   | { readonly type: "status"; readonly status: string; readonly error?: string }
   | {
       readonly type: "delegation_batch_started";

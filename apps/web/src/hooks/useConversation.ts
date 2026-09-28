@@ -514,7 +514,7 @@ export function useConversation(
           /* malformed - ignore */
         }
       });
-      ts.on("backend.oma.approval_request", (ev) => {
+      ts.on("approval_requested", (ev) => {
         const p = ev.payload;
         if (!p) return;
         const approval: TransientApproval = {
@@ -534,25 +534,19 @@ export function useConversation(
           return next;
         });
       });
-      es.addEventListener("backend.oma.ask_requested", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as {
-            payload?: { callId?: string; questions?: unknown[] };
-          };
-          const p = ev.payload;
-          if (typeof p?.callId === "string") {
-            setTransients((prev) => {
-              const next = setTransientAsk(prev, runId, agentId, {
-                callId: p.callId as string,
-                questions: Array.isArray(p.questions) ? p.questions : [],
-              });
-              transientsRef.current = next;
-              return next;
-            });
-          }
-        } catch {
-          /* malformed - ignore */
-        }
+      // Same typed client as the approval handler above: a raw listener keyed
+      // by a bare string is invisible to the compiler, so a rename that misses
+      // this one line would silently stop painting questions.
+      ts.on("ask_requested", (ev) => {
+        const payload = ev.payload;
+        const callId = payload?.callId;
+        if (typeof callId !== "string") return;
+        const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+        setTransients((prev) => {
+          const next = setTransientAsk(prev, runId, agentId, { callId, questions });
+          transientsRef.current = next;
+          return next;
+        });
       });
       const upsertWorkflow = (
         workflowId: string,

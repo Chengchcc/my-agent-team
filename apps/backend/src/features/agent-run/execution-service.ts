@@ -1,5 +1,11 @@
 import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
-import type { AgentBackend, BackendEvent, ResumeDecision } from "@chengchenccc/agent-contract";
+import type {
+  AgentBackend,
+  ApprovalRequestedPayload,
+  AskRequestedPayload,
+  BackendEvent,
+  ResumeDecision,
+} from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import { isActiveStatus } from "./domain.js";
@@ -25,6 +31,37 @@ export interface ExecutionServiceCtx {
   entryFor: (
     kind: string,
   ) => AgentRunExecutionDeps["backends"][keyof AgentRunExecutionDeps["backends"]] | undefined;
+}
+
+/** Read a durable pending-action payload back into an approval request. The
+ *  row is JSON, not a typed value: fields are checked, never asserted, and a
+ *  record missing its identity (callId/toolName) is dropped instead of
+ *  becoming a card that cannot be resolved. */
+function readApprovalPayload(
+  payload: Readonly<Record<string, unknown>>,
+): ApprovalRequestedPayload | undefined {
+  const { callId, toolName } = payload;
+  if (typeof callId !== "string" || callId.length === 0) return undefined;
+  if (typeof toolName !== "string") return undefined;
+  return {
+    callId,
+    toolName,
+    ...(typeof payload.reason === "string" ? { reason: payload.reason } : {}),
+    ...("input" in payload ? { input: payload.input } : {}),
+    ...(typeof payload.sandboxed === "boolean" ? { sandboxed: payload.sandboxed } : {}),
+    ...(typeof payload.deadlineAt === "number" ? { deadlineAt: payload.deadlineAt } : {}),
+  };
+}
+
+/** Same for an ask: `questions` is only carried when it is an array, because
+ *  the surfaces parse the items themselves (the item shape is not what this
+ *  boundary owns). */
+function readAskPayload(
+  payload: Readonly<Record<string, unknown>>,
+): AskRequestedPayload | undefined {
+  const { callId, questions } = payload;
+  if (typeof callId !== "string" || callId.length === 0) return undefined;
+  return { callId, ...(Array.isArray(questions) ? { questions } : {}) };
 }
 
 export class ApprovalNotApplicableError extends Error {}
@@ -390,17 +427,21 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
 
     /** ADR 0038: the durable side of a HITL park, in wire-event form, so a
      *  subscriber that arrived late still learns what is being asked. Kind
-     *  -> event type mirrors the child's own emission, and the payload is
-     *  the stored record verbatim: one fact, read back two ways. */
+     *  -> event type, and the stored record is the payload: one fact, read
+     *  back two ways. The read is validated rather than asserted - a row is
+     *  JSON that a previous build may have written differently, and a card
+     *  built from a half-shaped payload is a card the human cannot answer. */
     async pendingActionEvents(runId) {
       const actions = await runPort.listPendingActions(runId).catch(() => []);
       const events: BackendEvent[] = [];
       for (const action of actions) {
         if (action.status !== "pending") continue;
         if (action.kind === "approval") {
-          events.push({ type: "backend.oma.approval_request", payload: action.payload });
+          const payload = readApprovalPayload(action.payload);
+          if (payload) events.push({ type: "approval_requested", payload });
         } else if (action.kind === "ask") {
-          events.push({ type: "backend.oma.ask_requested", payload: action.payload });
+          const payload = readAskPayload(action.payload);
+          if (payload) events.push({ type: "ask_requested", payload });
         }
       }
       return events;

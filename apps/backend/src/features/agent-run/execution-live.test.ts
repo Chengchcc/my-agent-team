@@ -9,7 +9,7 @@ function deferredHook() {
 }
 
 const approvalEvent: BackendEvent = {
-  type: "backend.oma.approval_request",
+  type: "approval_requested",
   payload: { callId: "call-1", toolName: "bash" },
 } as BackendEvent;
 
@@ -36,7 +36,7 @@ describe("createLiveEventBus durable HITL ordering", () => {
     gate.done();
     await new Promise((r) => setTimeout(r, 30));
     expect(persisted).toBe(true);
-    expect(seen.map((e) => e.type)).toEqual(["backend.oma.approval_request"]);
+    expect(seen.map((e) => e.type)).toEqual(["approval_requested"]);
     void reading;
   });
 
@@ -71,13 +71,13 @@ describe("createLiveEventBus durable HITL ordering", () => {
     });
     await bus.broadcast("r-hitl", approvalEvent);
     await bus.broadcast("r-hitl", {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: { callId: "call-ask" },
     } as BackendEvent);
     await bus.broadcast("r-hitl", { type: "text_delta", text: "still transient" } as BackendEvent);
     // persistRunEvent is fire-and-forget; let its microtasks drain.
     await Bun.sleep(1);
-    expect(persisted).toEqual(["backend.oma.approval_request", "backend.oma.ask_requested"]);
+    expect(persisted).toEqual(["approval_requested", "ask_requested"]);
   });
 
   test("non-approval events pass straight through (no hook involved)", async () => {

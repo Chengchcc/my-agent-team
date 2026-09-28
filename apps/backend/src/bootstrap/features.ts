@@ -652,7 +652,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Late-bound: ask_question routes onto the run's live SSE stream.
   broadcastAskEvent = ({ runId, callId, question }) => {
     agentRunExecution.broadcastRunEvent(runId, {
-      type: "backend.oma.ask_requested",
+      type: "ask_requested",
       payload: { callId, questions: question.questions },
     });
   };

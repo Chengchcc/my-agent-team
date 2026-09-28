@@ -51,6 +51,26 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
       const result = event.data.result as Readonly<Record<string, unknown>> | undefined;
       return { type: "native_tool_completed", toolName, callId, result };
     }
+    // ADR 0039 decision 1: the HITL approval IS a product contract, not an oma
+    // detail. The child keeps emitting its own `approval_request` frame (the
+    // wire name does not move), and the translation to the core event happens
+    // here - the one place that already owns "oma frame -> product event".
+    case "approval_request": {
+      const reason = event.data.reason;
+      const sandboxed = event.data.sandboxed;
+      const deadlineAt = event.data.deadlineAt;
+      return {
+        type: "approval_requested",
+        payload: {
+          callId: String(event.data.callId ?? ""),
+          toolName: String(event.data.toolName ?? "unknown"),
+          ...(typeof reason === "string" ? { reason } : {}),
+          ...("input" in event.data ? { input: event.data.input } : {}),
+          ...(typeof sandboxed === "boolean" ? { sandboxed } : {}),
+          ...(typeof deadlineAt === "number" ? { deadlineAt } : {}),
+        },
+      };
+    }
     // The runtime protocol maps heartbeat onto a bare status event and the
     // backend's liveness check reads exactly that shape; leaving it to the
     // default extension mapping turned every 15s heartbeat into a telemetry

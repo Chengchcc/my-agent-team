@@ -18,6 +18,8 @@ export {
   MCP_EXPANDABLE_VARS_ENV,
 } from "./env.js";
 export type {
+  ApprovalRequestedPayload,
+  AskRequestedPayload,
   BackendEvent,
   BackendExtensionEvent,
   CoreBackendEvent,

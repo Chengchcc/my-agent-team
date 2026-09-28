@@ -62,19 +62,17 @@ export function createLiveEventBus(deps: {
     };
   }
 
-  /** Extract a HITL approval request from the oma extension event. Returns
-   *  undefined for every other event shape or a payload without a callId
-   *  (nothing to key the pending action on). */
+  /** Extract a HITL approval request from the core approval event. Returns
+   *  undefined for every other event shape or an empty callId (nothing to key
+   *  the pending action on - an empty id would be unresolvable forever). */
   function approvalRequest(
     runId: string,
     event: BackendEvent,
   ): { runId: string; callId: string; payload: Readonly<Record<string, unknown>> } | undefined {
-    if (event.type !== "backend.oma.approval_request") return undefined;
-    if (!("payload" in event)) return undefined;
-    const payload = event.payload;
-    if (typeof payload !== "object" || payload === null) return undefined;
-    if (typeof payload.callId !== "string") return undefined;
-    return { runId, callId: payload.callId, payload };
+    if (event.type !== "approval_requested") return undefined;
+    const { payload } = event;
+    if (typeof payload.callId !== "string" || payload.callId.length === 0) return undefined;
+    return { runId, callId: payload.callId, payload: { ...payload } };
   }
 
   async function broadcast(runId: string, event: BackendEvent): Promise<void> {

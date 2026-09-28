@@ -43,7 +43,7 @@ function readCode(body: string): number | null {
 
 function ask(kind: string, allowOther: boolean): RunCardState {
   return applyRunEvent(initialRunCardState(), {
-    type: "backend.oma.ask_requested",
+    type: "ask_requested",
     payload: {
       callId: "probe-call",
       questions: [
@@ -106,7 +106,7 @@ const cases: Array<{ label: string; state: RunCardState }> = [
   {
     label: "approval card",
     state: applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.approval_request",
+      type: "approval_requested",
       payload: { callId: "probe-call" },
     } as never),
   },

@@ -84,8 +84,10 @@ export const OmaTodoItem = z.object({
 export type OmaTodoItem = z.infer<typeof OmaTodoItem>;
 
 /** Product tools whose semantics a surface renders from a DEDICATED event:
- *  `todo_write` drives `backend.oma.todo_update` (the plan strip),
- *  `ask_question` drives `backend.oma.ask_requested` (the question frame).
+ *  `todo_write` drives `backend.oma.todo_update` (the plan strip, an oma
+ *  extension because progressive todo IS an oma plugin), `ask_question` drives
+ *  the core `ask_requested` (the question frame - the ask channel is
+ *  backend-owned and shared by every CLI backend, so it is not oma's).
  *  Showing them as a generic "calling <tool>" step degrades a semantic event
  *  into noise, so both surfaces filter them out of the tool-step list — from
  *  ONE list, because two copies is how one side ends up showing the step.
@@ -139,8 +141,9 @@ export const runEvents = {
     type: z.literal("backend.oma.todo_update"),
     payload: z.object({ items: z.array(OmaTodoItem).optional() }).optional(),
   }),
-  /** HITL ask (oma rpc emits; backend maps via backend.oma.*). `callId` is
-   *  the resolve handle (`POST /api/product-tools/ask/resolve`).
+  /** HITL ask — a CORE event: the ask channel is backend-owned and shared by
+   *  every CLI backend (ADR 0038 decision 7), so it is not oma's to name.
+   *  `callId` is the resolve handle (`POST /api/product-tools/ask/resolve`).
    *
    *  `questions` stays loose on purpose: the authoritative item shape is
    *  `AskQuestionItem` in `@chengchenccc/agent-contract`, and this package
@@ -148,8 +151,8 @@ export const runEvents = {
    *  those fields here would be a third hand-written copy to drift; the
    *  surfaces parse defensively, and the convergence path is the backend
    *  emitting a validated DTO (recorded as a gap, not pretended away). */
-  "backend.oma.ask_requested": z.object({
-    type: z.literal("backend.oma.ask_requested"),
+  ask_requested: z.object({
+    type: z.literal("ask_requested"),
     payload: z
       .object({
         callId: z.string(),
@@ -157,13 +160,15 @@ export const runEvents = {
       })
       .optional(),
   }),
-  /** HITL approval card (oma rpc emits; adapter maps via backend.oma.*).
+  /** HITL approval card — a CORE event: the child's oma-specific
+   *  `approval_request` frame is mapped onto it inside the oma adapter
+   *  (ADR 0039 decision 1), so surfaces never read an oma-namespaced name.
    *  `sandboxed` is the truthful OS-bash-sandbox signal (bash approvals
    *  only) — display-only, never an authorization basis. `input` is the
    *  tool call's argument (the command being approved): the card MUST show
    *  it, or the tap is a blind yes/no. */
-  "backend.oma.approval_request": z.object({
-    type: z.literal("backend.oma.approval_request"),
+  approval_requested: z.object({
+    type: z.literal("approval_requested"),
     payload: z
       .object({
         callId: z.string(),
