@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import type { TransientApproval } from "@/lib/transient-reducer";
+import { formatDeadline, type TransientApproval } from "@/lib/transient-reducer";
 
 interface TimelineApprovalCardProps {
   runId: string;
@@ -66,6 +66,11 @@ export function TimelineApprovalCard({
         >
           {approval.detail}
         </pre>
+      )}
+      {approval.deadlineAt && (
+        <p data-testid="approval-deadline" className="mt-1 text-[11px] text-amber-700">
+          Expires {formatDeadline(approval.deadlineAt)} — denied automatically after that
+        </p>
       )}
       {approval.error && (
         <p data-testid="approval-error" className="mt-1 text-xs text-red-600">

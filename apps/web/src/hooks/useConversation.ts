@@ -329,6 +329,7 @@ export function useConversation(
               reason?: string;
               input?: unknown;
               sandboxed?: boolean;
+              deadlineAt?: number;
               questions?: unknown[];
             };
             if (action.kind === "approval" && typeof payload.callId === "string") {
@@ -340,6 +341,9 @@ export function useConversation(
               const detail = formatApprovalInput(payload.input);
               if (detail) approval.detail = detail;
               if (typeof payload.sandboxed === "boolean") approval.sandboxed = payload.sandboxed;
+              if (typeof payload.deadlineAt === "number" && payload.deadlineAt > 0) {
+                approval.deadlineAt = payload.deadlineAt;
+              }
               setTransients((prev) => {
                 const next = setTransientApproval(prev, runId, agentId, approval);
                 transientsRef.current = next;
@@ -521,6 +525,9 @@ export function useConversation(
         const detail = formatApprovalInput(p.input);
         if (detail) approval.detail = detail;
         if (typeof p.sandboxed === "boolean") approval.sandboxed = p.sandboxed;
+        if (typeof p.deadlineAt === "number" && p.deadlineAt > 0) {
+          approval.deadlineAt = p.deadlineAt;
+        }
         setTransients((prev) => {
           const next = setTransientApproval(prev, runId, agentId, approval);
           transientsRef.current = next;

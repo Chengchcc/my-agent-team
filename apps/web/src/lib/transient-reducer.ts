@@ -129,8 +129,18 @@ export interface TransientApproval {
    *  bwrap/Seatbelt active vs unsandboxed fallback. Displayed, never an
    *  auto-allow basis. */
   sandboxed?: boolean;
+  /** When this request fails closed (epoch ms): the card says so, so the
+   *  human is not guessing how long their click stays valid. */
+  deadlineAt?: number;
   /** Last resolve POST failed: the card stays and shows a retry hint. */
   error?: string;
+}
+
+/** "MM-DD HH:mm" in the reader's own timezone (no ICU, deterministic). */
+export function formatDeadline(epochMs: number): string {
+  const d = new Date(epochMs);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** One-line preview of a tool call's argument for the approval card. */

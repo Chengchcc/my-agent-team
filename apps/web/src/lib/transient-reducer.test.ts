@@ -7,6 +7,7 @@ import {
   clearTransientApproval,
   completeTool,
   formatApprovalInput,
+  formatDeadline,
   type LiveToolMap,
   markTransientApprovalError,
   markTransientError,
@@ -256,6 +257,20 @@ describe("transient reducer — approval", () => {
     expect(s.r1?.approval?.detail).toBe("echo lark-resume-acceptance");
     s = markTransientApprovalError(s, "r1", "boom");
     expect(s.r1?.approval?.detail).toBe("echo lark-resume-acceptance");
+  });
+
+  test("a deadline survives the round-trip and formats in local time", () => {
+    const deadlineAt = Date.now() + 24 * 60 * 60_000;
+    let s: TransientMap = {};
+    s = setTransientApproval(s, "r2", "m", {
+      callId: "c2",
+      toolName: "bash",
+      reason: "",
+      detail: "true",
+      deadlineAt,
+    });
+    expect(s.r2?.approval?.deadlineAt).toBe(deadlineAt);
+    expect(formatDeadline(deadlineAt)).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
   test("setTransientApproval creates and replaces per run", () => {

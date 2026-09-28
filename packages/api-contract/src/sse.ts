@@ -171,6 +171,9 @@ export const runEvents = {
         reason: z.string().optional(),
         input: z.unknown().optional(),
         sandboxed: z.boolean().optional(),
+        /** When the request fails closed (epoch ms): the card says so, so the
+         *  human is not guessing how long their click stays valid. */
+        deadlineAt: z.number().optional(),
       })
       .optional(),
   }),
