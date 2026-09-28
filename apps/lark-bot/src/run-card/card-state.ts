@@ -42,6 +42,31 @@ export interface PendingActionState {
   questionId: string;
 }
 
+/** Human-readable "what is being approved" text — the approval card's value
+ *  is the ARGUMENT, not the tool name (an empty prompt turns the tap into a
+ *  blind yes/no). Keeps tool name, reason, and the argument preview. */
+export function buildApprovalPrompt(payload: Record<string, unknown>): string {
+  const toolName = typeof payload.toolName === "string" ? payload.toolName : "";
+  const reason = typeof payload.reason === "string" ? payload.reason : "";
+  const input = payload.input;
+  const lines: string[] = [];
+  if (toolName) lines.push(`批准执行 \`${toolName}\``);
+  if (reason) lines.push(reason);
+  if (input !== undefined && input !== null) {
+    let preview: string;
+    try {
+      preview = typeof input === "string" ? input : JSON.stringify(input);
+    } catch {
+      preview = String(input);
+    }
+    // One line: the argument the human must read before allowing.
+    if (preview.length > 400) preview = `${preview.slice(0, 400)}…`;
+    if (preview) lines.push(preview);
+  }
+  if (lines.length === 0) return "";
+  return lines.join("\n");
+}
+
 /** Rebuild a pending action from the backend's durable record — the restart
  *  recovery path. Must produce EXACTLY what the live event reductions
  *  produce, so a restored card is indistinguishable from a live one. */
@@ -55,7 +80,7 @@ export function pendingActionFromBackend(
     return {
       callId,
       kind: "approval",
-      prompt: "",
+      prompt: buildApprovalPrompt(payload),
       options: [],
       allowFreeText: false,
       questionId: "",
@@ -279,7 +304,7 @@ export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardS
         pendingAction: {
           callId,
           kind: "approval",
-          prompt: "",
+          prompt: buildApprovalPrompt(ev.payload ?? {}),
           options: [],
           allowFreeText: false,
           questionId: "",

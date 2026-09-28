@@ -17,6 +17,7 @@ import { createCardFlushController } from "./card-flush.js";
 import { renderCard, renderRunCard } from "./card-renderer.js";
 import {
   applyRunEvent,
+  buildApprovalPrompt,
   initialRunCardState,
   pendingActionFromBackend,
   toolActivity,
@@ -141,6 +142,38 @@ describe("applyRunEvent reducer", () => {
     expect(pendingActionFromBackend("unknown-kind", {})).toBeNull();
     expect(pendingActionFromBackend("approval", {})).toBeNull(); // no callId
     expect(pendingActionFromBackend("ask", { callId: "c" })).toBeNull(); // no questions
+  });
+
+  test("an approval card shows WHAT is being approved (argument, not just tool)", () => {
+    // The live complaint (2026-09-28): the card carried only 批准/拒绝 and an
+    // empty prompt, so the tap was a blind yes/no.
+    const payload = {
+      callId: "c-arg",
+      toolName: "bash",
+      reason: "bash requested approval (permission)",
+      input: { command: "echo lark-resume-acceptance" },
+    };
+    const live = applyRunEvent(initialRunCardState(), {
+      type: "backend.oma.approval_request",
+      payload,
+    });
+    expect(live.pendingAction?.prompt).toContain("bash");
+    expect(live.pendingAction?.prompt).toContain("echo lark-resume-acceptance");
+    // Restart restore must render the identical prompt.
+    expect(pendingActionFromBackend("approval", payload)).toEqual(live.pendingAction);
+    // And the rendered card carries the argument text.
+    const card = renderRunCard(live, { runId: "r1", startedAt: Date.now(), webUrl: null });
+    expect(JSON.stringify(card)).toContain("echo lark-resume-acceptance");
+  });
+
+  test("buildApprovalPrompt truncates a huge argument instead of flooding the card", () => {
+    const prompt = buildApprovalPrompt({
+      callId: "c",
+      toolName: "bash",
+      input: { command: "x".repeat(5000) },
+    });
+    expect(prompt.length).toBeLessThan(600);
+    expect(prompt).toContain("…");
   });
 
   test("text deltas accumulate and clear the HITL wait", () => {
