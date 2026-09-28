@@ -170,15 +170,29 @@ describe("applyRunEvent reducer", () => {
     expect(flat).toContain("需要确认：执行命令");
     expect(flat).toContain("执行内容");
     expect(flat).toContain("```\\necho lark-resume-acceptance\\n```");
-    // One button per row, full width, in decision order - no column_set.
-    const buttons = (card.body as { elements: Array<Record<string, unknown>> }).elements.filter(
-      (el) => el.tag === "button",
-    );
-    expect(buttons.map((b) => b.element_id)).toEqual(["approve_button", "reject_button"]);
-    expect(JSON.stringify(card)).not.toContain("column_set");
-    // width:"fill" is the thing that broke clicks on a live card; the vertical
-    // flow already spans the row.
-    expect(JSON.stringify(buttons)).not.toContain("fill");
+    // One button per row, each in its own single weighted column: a plain
+    // button hugs its label (live 2026-09-28: "按钮没有铺满"), and a weighted
+    // column is what stretches it - the same shape the options rows use.
+    const rows = (card.body as { elements: Array<Record<string, unknown>> }).elements.filter(
+      (el) => el.tag === "column_set",
+    ) as Array<{
+      flex_mode: string;
+      columns: Array<{ width: string; weight: number; elements: Array<Record<string, unknown>> }>;
+    }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.columns[0]!.elements[0]!.element_id)).toEqual([
+      "approve_button",
+      "reject_button",
+    ]);
+    for (const row of rows) {
+      expect(row.columns).toHaveLength(1);
+      expect(row.columns[0]!.width).toBe("weighted");
+      expect(row.columns[0]!.weight).toBe(1);
+    }
+    // width:"fill" is what a live card rejected the click with (2026-09-25):
+    // the column does the stretching, never the button (the card-level
+    // width_mode is a different, long-standing setting).
+    for (const row of rows) expect(JSON.stringify(row)).not.toContain('"fill"');
   });
 
   test("an approval states its OS-sandbox truth (the decision needs it)", () => {

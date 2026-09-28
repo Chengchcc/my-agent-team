@@ -274,9 +274,25 @@ function pendingActionButtons(
       type,
       behaviors: [{ type: "callback", value: { runId, callId: action.callId, action: action_ } }],
     });
+    // A plain button hugs its label; ONE weighted column per row is what
+    // stretches it across the card (the options layout has always used a
+    // column for the same reason, and that path is proven clickable).
+    const fullWidthRow = (button: Record<string, unknown>): Record<string, unknown> => ({
+      tag: "column_set",
+      flex_mode: "stretch",
+      columns: [
+        {
+          tag: "column",
+          width: "weighted",
+          weight: 1,
+          vertical_align: "center",
+          elements: [button],
+        },
+      ],
+    });
     return [
-      decideButton("approve_button", "批准执行", "primary", "approve"),
-      decideButton("reject_button", "拒绝", "danger", "reject"),
+      fullWidthRow(decideButton("approve_button", "批准执行", "primary", "approve")),
+      fullWidthRow(decideButton("reject_button", "拒绝", "danger", "reject")),
     ];
   }
   return buttons;
