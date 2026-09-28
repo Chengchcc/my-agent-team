@@ -7,6 +7,7 @@ import {
   type OmaCommandConfig,
   OmaModelCatalog,
 } from "@chengchenccc/adapter-oma-agent";
+import type { BackendEvent } from "@chengchenccc/agent-contract";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import { sqliteConversationAdapter } from "../conversation/adapter-sqlite.js";
@@ -514,6 +515,7 @@ describe("agent run execution failure & subscription", () => {
       {
         isLive: () => false,
         isInflight: () => true,
+        isParked: async () => false,
         abortStaleRun: async (id) => {
           aborted.push(id);
         },
@@ -521,12 +523,144 @@ describe("agent run execution failure & subscription", () => {
           (async function* () {
             yield { type: "status", status: "running" };
           })(),
+        pendingActionEvents: async () => [],
       },
       "r-inflight",
     );
     for await (const ev of stream) events.push(ev.type);
     expect(events).toEqual(["status"]);
     expect(aborted).toEqual([]);
+  });
+
+  test("a parked run's late subscription subscribes quietly, never aborts", async () => {
+    // The live bug (2026-09-28): after a restart the Lark bot re-subscribed
+    // on card restore, the zombie branch saw a childless active run, and
+    // aborted the very run the user was about to answer.
+    const aborted: string[] = [];
+    const events: string[] = [];
+    const stream = runEventStreamFor(
+      { status: "waiting" },
+      {
+        isLive: () => false,
+        isInflight: () => false,
+        isParked: async () => true,
+        abortStaleRun: async (id) => {
+          aborted.push(id);
+        },
+        subscribe: () =>
+          (async function* () {
+            yield { type: "status", status: "running" };
+          })(),
+        pendingActionEvents: async () => [],
+      },
+      "r-parked",
+    );
+    for await (const ev of stream) events.push(ev.type);
+    expect(events).toEqual(["status"]);
+    expect(aborted).toEqual([]);
+  });
+
+  test("a late subscriber replays the durable approval BEFORE the live stream", async () => {
+    // The live bug (2026-09-28, round 3): the first turn beat the Lark card's
+    // create+send by about a second, so the approval event was broadcast to
+    // nobody. The bus has no replay and the card sat on its initial "queued"
+    // frame for the whole park. The durable action is the same fact, so the
+    // stream leads with it.
+    const order: string[] = [];
+    const stream = runEventStreamFor(
+      { status: "running" },
+      {
+        isLive: () => true,
+        isInflight: () => false,
+        isParked: async () => false,
+        abortStaleRun: async () => {},
+        subscribe: () =>
+          (async function* () {
+            order.push("subscribed");
+            yield { type: "status", status: "running" };
+          })(),
+        pendingActionEvents: async () => [
+          {
+            type: "backend.oma.approval_request",
+            payload: { callId: "c-r", toolName: "bash", input: { command: "echo hi" } },
+          },
+        ],
+      },
+      "r-replay",
+    );
+    const seen: string[] = [];
+    for await (const ev of stream) seen.push(ev.type);
+    expect(seen).toEqual(["backend.oma.approval_request", "status"]);
+    // Primed before the replay read: a live event landing in that window is
+    // buffered by the bus, not lost.
+    expect(order).toEqual(["subscribed"]);
+  });
+
+  test("a parked run's late subscription replays its durable ask", async () => {
+    const stream = runEventStreamFor(
+      { status: "waiting" },
+      {
+        isLive: () => false,
+        isInflight: () => false,
+        isParked: async () => true,
+        abortStaleRun: async () => {
+          throw new Error("must not abort a parked run");
+        },
+        // A restarted backend has no live child: nothing left to subscribe to.
+        subscribe: () => (async function* () {})(),
+        pendingActionEvents: async () => [
+          {
+            type: "backend.oma.ask_requested",
+            payload: { callId: "c-a", questions: [{ id: "q1", question: "which?" }] },
+          },
+        ],
+      },
+      "r-parked-ask",
+    );
+    const seen: Array<{ type: string; payload?: unknown }> = [];
+    for await (const ev of stream) seen.push(ev as { type: string; payload?: unknown });
+    expect(seen.map((e) => e.type)).toEqual(["backend.oma.ask_requested"]);
+    expect(seen[0]!.payload).toEqual({
+      callId: "c-a",
+      questions: [{ id: "q1", question: "which?" }],
+    });
+  });
+
+  test("pendingActionEvents maps durable kinds and drops resolved ones", async () => {
+    // Driven through the REAL service: an action row the approval pipeline
+    // wrote must come back as the wire event the child's emission produced.
+    const execution = makeExecution(createFakeDaemon());
+    const acquired = await enqueue("normal", "pa-map-1", "hello");
+    const runId = acquired.run!.runId;
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:call-live`,
+      kind: "approval",
+      payload: { callId: "call-live", toolName: "bash", input: { command: "echo hi" } },
+    });
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:call-ask`,
+      kind: "ask",
+      payload: { callId: "call-ask", questions: [{ id: "q1", question: "which?" }] },
+    });
+    await runPort.createPendingAction(runId, {
+      actionId: `${runId}:call-done`,
+      kind: "approval",
+      payload: { callId: "call-done", toolName: "bash" },
+    });
+    await runPort.consumePendingAction(
+      `${runId}:call-done`,
+      { actionId: `${runId}:call-done`, response: { approved: false } },
+      "resp-done",
+    );
+
+    const events = await execution.pendingActionEvents(runId);
+    expect(events.map((e) => e.type)).toEqual([
+      "backend.oma.approval_request",
+      "backend.oma.ask_requested",
+    ]);
+    const payloadOf = (e: BackendEvent): unknown => ("payload" in e ? e.payload : undefined);
+    expect(payloadOf(events[0]!)).toMatchObject({ callId: "call-live", toolName: "bash" });
+    expect(payloadOf(events[1]!)).toMatchObject({ callId: "call-ask" });
   });
 
   test("commit_failed run: SSE reports failed WITHOUT aborting the Product run", async () => {
@@ -537,10 +671,12 @@ describe("agent run execution failure & subscription", () => {
       {
         isLive: () => false,
         isInflight: () => false,
+        isParked: async () => false,
         abortStaleRun: async (id) => {
           aborted.push(id);
         },
         subscribe: () => (async function* () {})(),
+        pendingActionEvents: async () => [],
       },
       "r-cf",
     );

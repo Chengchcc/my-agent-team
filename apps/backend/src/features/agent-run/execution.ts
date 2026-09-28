@@ -32,8 +32,13 @@ export function runEventStreamFor(
   execution: {
     isLive(runId: string): boolean;
     isInflight(runId: string): boolean;
+    /** ADR 0038: waiting with a pending action — parked, NOT a zombie. A
+     *  restart leaves it childless on purpose, and the answer resumes it. */
+    isParked(runId: string): Promise<boolean>;
     abortStaleRun(runId: string): Promise<void>;
     subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent>;
+    /** Durable pending HITL actions, as wire events (see the service). */
+    pendingActionEvents(runId: string): Promise<BackendEvent[]>;
   },
   runId: string,
   signal?: AbortSignal,
@@ -42,13 +47,41 @@ export function runEventStreamFor(
     (async function* () {
       yield { type: "status", status };
     })();
+  /** Replay the durable HITL state, then the live stream. Neither alone is
+   *  enough: the bus has no replay, and an approval can fire before the
+   *  subscriber gets here (live acceptance 2026-09-28: the first turn beat
+   *  the Lark card's create+send by a second and the card sat on its initial
+   *  "queued" frame for the whole park). The live iterator is PRIMED before
+   *  the replay read — an async generator only registers its callback on the
+   *  first `next()` — so an event landing inside that window is buffered by
+   *  the bus instead of lost. A duplicate (replayed AND live) is harmless:
+   *  both surfaces reduce an event into idempotent state. */
+  const replayThenLive = (): AsyncIterable<BackendEvent> =>
+    (async function* () {
+      const live = execution.subscribe(runId, signal)[Symbol.asyncIterator]();
+      const primed = live.next();
+      const replayed = await execution.pendingActionEvents(runId).catch(() => []);
+      for (const event of replayed) yield event;
+      let next = await primed;
+      while (!next.done) {
+        yield next.value;
+        next = await live.next();
+      }
+    })();
   if (!run) return terminal("failed");
   if (isTerminalStatus(run.status)) return terminal(run.status);
   if (run.status === "commit_failed") return terminal("failed");
-  if (execution.isLive(runId) || execution.isInflight(runId)) {
-    return execution.subscribe(runId, signal);
-  }
+  if (execution.isLive(runId) || execution.isInflight(runId)) return replayThenLive();
   return (async function* () {
+    // A parked run is childless BY DESIGN after a restart. Aborting it here
+    // was the live bug that killed a parked run the moment the Lark bot
+    // re-subscribed on card restore (live acceptance, 2026-09-28): the
+    // stream stays quiet until the answer resumes the run and its events
+    // flow.
+    if (await execution.isParked(runId).catch(() => false)) {
+      yield* replayThenLive();
+      return;
+    }
     await execution.abortStaleRun(runId);
     yield { type: "status", status: "aborted" };
   })();

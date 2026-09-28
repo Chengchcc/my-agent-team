@@ -1,5 +1,5 @@
 import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
-import type { AgentBackend, ResumeDecision } from "@chengchenccc/agent-contract";
+import type { AgentBackend, BackendEvent, ResumeDecision } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import { isActiveStatus } from "./domain.js";
@@ -374,8 +374,36 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       await runPort.cancelRunInput(runId);
     },
 
+    /** ADR 0038: waiting AND still holding a pending action — a parked run,
+     *  not a zombie. Every "childless means dead" cleanup path must ask this
+     *  first (recover's sweep and the SSE late-subscription path both do). */
+    async isParked(runId) {
+      const run = await runPort.getRun(runId);
+      if (run?.status !== "waiting") return false;
+      const pending = await runPort.listPendingActions(runId).catch(() => []);
+      return pending.length > 0;
+    },
+
     subscribe(runId, signal) {
       return liveEvents.subscribe(runId, signal);
+    },
+
+    /** ADR 0038: the durable side of a HITL park, in wire-event form, so a
+     *  subscriber that arrived late still learns what is being asked. Kind
+     *  -> event type mirrors the child's own emission, and the payload is
+     *  the stored record verbatim: one fact, read back two ways. */
+    async pendingActionEvents(runId) {
+      const actions = await runPort.listPendingActions(runId).catch(() => []);
+      const events: BackendEvent[] = [];
+      for (const action of actions) {
+        if (action.status !== "pending") continue;
+        if (action.kind === "approval") {
+          events.push({ type: "backend.oma.approval_request", payload: action.payload });
+        } else if (action.kind === "ask") {
+          events.push({ type: "backend.oma.ask_requested", payload: action.payload });
+        }
+      }
+      return events;
     },
 
     broadcastRunEvent(runId, event) {
