@@ -17,6 +17,8 @@ one-shot child 架构下，子进程与 backend 同生共死。`recover()` 的�
 
 结论：**恢复的单位必须是「停靠的 tool_use + 已到达的人的决定」，而不是整轮重跑。** 这要求轮内中间产物先落盘。
 
+分层前提（恢复机制跟着**状态所有权**走）：HITL 有两层。**编排层**的 `ask_question` 是产品功能，经 product-tools MCP 注入四端、停靠与落库都在 backend——它的恢复原则上不需要 child 配合。**运行时原生层**的 oma 审批是 oma 自己的 permission 门经 RPC 透出，parked promise 活在 child 循环里——它的恢复必须 child 侧机制（下述 2+3）。三个 CLI 后端的原生提示在 headless 下没有可应答的 wire，对编排器不可见，不在讨论范围。
+
 ## 决策
 
 1. **决定注入，不是重演。** durable pending action 的 response——approval 的 decision、ask 的 answer，一律作为该停靠 tool_use 的**合成 tool_result** 注入恢复后的循环：child 载入 session 种子后，不重调模型重演前文，循环从断点继续。callId 即 tool_use id，无需对载荷做匹配器。
@@ -24,7 +26,7 @@ one-shot child 架构下，子进程与 backend 同生共死。`recover()` 的�
 3. **wire 协议加 resume 输入。** `agent-contract` 的 `BackendRunInput` 增加可选 `resume` 字段：该 run 已决定的 action 清单（callId + 合成 result）。child 侧语义：载入种子后注入这些 tool_result；session 里有 tool_use 但既无结果也无决定的（人没答、进程先死），按「工具被中断」注入 isError 结果——诚实，且循环可继续。
 4. **backend `recover()` 停止清场停靠 run。** `waiting` 且仍有 pending action 的 run 不进孤儿扫描（保持 waiting，分支继续被占）。它的终局只有三种：人答了（→ 见 5）；审批超时/取消（→ 合成 deny/timeout 结果，同样走 5 收尾）；显式 stop。
 5. **回答触发 resume-dispatch。** 无活 loop 时消费 pending action，记录决定后，用**原 runId、原输入**附 `resume.decisions` 重新 dispatch（`recover()` 重投 `delivering` 输入已依赖「新进程无记忆、同 runId 同 payload 可重入」的既有语义）。run 状态经既有的消费 CAS 回 `running`，watchdog 重新武装。
-6. **ask 与 approval 在 oma 内走同一机制。** `ask_question` 的 MCP tool_use 也是轮内工具调用，其合成 result 就是答案 JSON，不为 ask 单开路径。
+6. **ask 与 approval 在 oma 内走同一机制——经济选择，不是分层必需。** `ask_question` 的 MCP tool_use 也是轮内工具调用，其合成 result 就是答案 JSON。它的状态所有权本在 backend（分层上它可以走 7 的重派机制），但 per-step 落盘与注入这台机器已为审批造好，ask 搭车零边际成本，还省掉重跑的 token 与副作用重放。
 7. **两条通道的范围不同，恢复机制也不同。** approval（`backend.oma.approval_request` + `resolveApproval` RPC）是 oma 独有：另外三个 CLI 后端没有审批管道，headless 下也不产生可回答的审批卡。**ask 通道则四端同构**：`ask_question` 经工作区 `.mcp.json` 注入（omp/pi 读 cwd，claude 走 `--mcp-config`，oma 走 mcp-mount），停靠完全发生在 backend 进程（product-tools 服务）——所以三个 CLI 后端的 run 同样会「ask 停靠中 backend 重启 → 孤儿 abort」，只是它们的恢复不能走 session 注入（外部 CLI 没有「替它补一个 tool_result」的线）：re-dispatch 带各自 session 引用重跑中断轮，若模型再次问到**内容一致**的问题，backend 用已存答案自动应答（ask 的答案对应问题文本，内容匹配语义成立——这与 approval 不同，批准绑定的是具体动作，错配即假授权）；不一致则重新问人。内容匹配自动应答是增强，第一期允许「多问一次」。
 8. **明确不做：**
    - 不做整轮 checkpoint / 回滚（roadmap「Run 的中途暂停」保持独立条目）；
