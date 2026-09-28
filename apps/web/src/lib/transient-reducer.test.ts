@@ -6,6 +6,7 @@ import {
   clearRunTools,
   clearTransientApproval,
   completeTool,
+  formatApprovalInput,
   type LiveToolMap,
   markTransientApprovalError,
   markTransientError,
@@ -233,6 +234,27 @@ describe("transient reducer — errors and notices", () => {
 });
 
 describe("transient reducer — approval", () => {
+  test("formatApprovalInput surfaces the command, not a JSON blob", () => {
+    expect(formatApprovalInput({ command: "echo hi", description: "x" })).toBe("echo hi");
+    expect(formatApprovalInput("plain")).toBe("plain");
+    expect(formatApprovalInput({ path: "/a/b" })).toContain("/a/b");
+    expect(formatApprovalInput(undefined)).toBe("");
+    expect(formatApprovalInput({ command: "x".repeat(500) }).length).toBe(400);
+  });
+
+  test("detail survives the approval round-trip and a failed resolve", () => {
+    let s: TransientMap = {};
+    s = setTransientApproval(s, "r1", "m", {
+      callId: "c1",
+      toolName: "bash",
+      reason: "permission",
+      detail: "echo lark-resume-acceptance",
+    });
+    expect(s.r1?.approval?.detail).toBe("echo lark-resume-acceptance");
+    s = markTransientApprovalError(s, "r1", "boom");
+    expect(s.r1?.approval?.detail).toBe("echo lark-resume-acceptance");
+  });
+
   test("setTransientApproval creates and replaces per run", () => {
     let s: TransientMap = {};
     s = setTransientApproval(s, "r1", "m", { callId: "c1", toolName: "bash", reason: "r1" });

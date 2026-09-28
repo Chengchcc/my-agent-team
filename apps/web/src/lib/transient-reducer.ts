@@ -122,12 +122,28 @@ export interface TransientApproval {
   callId: string;
   toolName: string;
   reason: string;
+  /** The argument being approved (bash command, write path…), truncated.
+   *  Without it the card is a blind yes/no — the whole point of asking. */
+  detail?: string;
   /** Truthful OS-sandbox signal from the runtime (bash approvals):
    *  bwrap/Seatbelt active vs unsandboxed fallback. Displayed, never an
    *  auto-allow basis. */
   sandboxed?: boolean;
   /** Last resolve POST failed: the card stays and shows a retry hint. */
   error?: string;
+}
+
+/** One-line preview of a tool call's argument for the approval card. */
+export function formatApprovalInput(input: unknown): string {
+  if (input === undefined || input === null) return "";
+  if (typeof input === "string") return input.slice(0, 400);
+  const cmd = (input as { command?: unknown }).command;
+  if (typeof cmd === "string") return cmd.slice(0, 400);
+  try {
+    return JSON.stringify(input).slice(0, 400);
+  } catch {
+    return "";
+  }
 }
 
 /** Set (or replace) the pending approval on runId. */

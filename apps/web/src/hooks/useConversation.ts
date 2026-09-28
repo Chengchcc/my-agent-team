@@ -19,6 +19,7 @@ import {
   clearRunTools,
   clearTransientApproval,
   completeTool,
+  formatApprovalInput,
   type LiveToolCall,
   type LiveToolMap,
   markTransientApprovalError,
@@ -326,6 +327,7 @@ export function useConversation(
               callId?: string;
               toolName?: string;
               reason?: string;
+              input?: unknown;
               sandboxed?: boolean;
               questions?: unknown[];
             };
@@ -335,6 +337,8 @@ export function useConversation(
                 toolName: typeof payload.toolName === "string" ? payload.toolName : "tool",
                 reason: typeof payload.reason === "string" ? payload.reason : "",
               };
+              const detail = formatApprovalInput(payload.input);
+              if (detail) approval.detail = detail;
               if (typeof payload.sandboxed === "boolean") approval.sandboxed = payload.sandboxed;
               setTransients((prev) => {
                 const next = setTransientApproval(prev, runId, agentId, approval);
@@ -514,6 +518,8 @@ export function useConversation(
           toolName: p.toolName,
           reason: p.reason ?? "",
         };
+        const detail = formatApprovalInput(p.input);
+        if (detail) approval.detail = detail;
         if (typeof p.sandboxed === "boolean") approval.sandboxed = p.sandboxed;
         setTransients((prev) => {
           const next = setTransientApproval(prev, runId, agentId, approval);

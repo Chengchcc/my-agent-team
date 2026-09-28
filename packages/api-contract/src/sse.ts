@@ -159,7 +159,9 @@ export const runEvents = {
   }),
   /** HITL approval card (oma rpc emits; adapter maps via backend.oma.*).
    *  `sandboxed` is the truthful OS-bash-sandbox signal (bash approvals
-   *  only) — display-only, never an authorization basis. */
+   *  only) — display-only, never an authorization basis. `input` is the
+   *  tool call's argument (the command being approved): the card MUST show
+   *  it, or the tap is a blind yes/no. */
   "backend.oma.approval_request": z.object({
     type: z.literal("backend.oma.approval_request"),
     payload: z
@@ -167,6 +169,7 @@ export const runEvents = {
         callId: z.string(),
         toolName: z.string(),
         reason: z.string().optional(),
+        input: z.unknown().optional(),
         sandboxed: z.boolean().optional(),
       })
       .optional(),

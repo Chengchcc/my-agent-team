@@ -59,6 +59,14 @@ export function TimelineApprovalCard({
           Deny
         </Button>
       </div>
+      {approval.detail && (
+        <pre
+          data-testid="approval-detail"
+          className="mt-1 max-h-24 overflow-auto rounded bg-(--canvas)/60 px-2 py-1 font-mono text-[11px] whitespace-pre-wrap wrap-break-word text-(--ink)"
+        >
+          {approval.detail}
+        </pre>
+      )}
       {approval.error && (
         <p data-testid="approval-error" className="mt-1 text-xs text-red-600">
           {approval.error}
