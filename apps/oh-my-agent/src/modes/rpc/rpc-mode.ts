@@ -254,7 +254,9 @@ export function runRpcMode(opts: RpcModeOptions): RpcModeController {
     // newest INTERRUPTED parked_turn marker in the workspace's session dir
     // is unambiguously the session to adopt (continuation appends to it).
     if (input.resume && !resumeId) {
-      const adopted = findInterruptedSession(input.workspace.root);
+      // The SAME directory this dispatch reads and writes: deriving it here
+      // would ignore the OMA_SESSION_DIR override.
+      const adopted = findInterruptedSession(sessionDir);
       if (adopted) {
         sessionId = adopted;
         debugLog("oma", `resume_adopted_session runId=${runId} session=${adopted}`);

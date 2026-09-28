@@ -890,14 +890,19 @@ export function loadLastParkedTurn(
   return null;
 }
 
-/** Find the workspace's most recent INTERRUPTED session (ADR 0038): a
- * run killed mid-flight never settles, so the branch holds no
- * cliSessionRef and the resume dispatch arrives with none. Workspace runs
- * serialize under the workspace lock, so the newest session file with an
- * unresolved parked_turn marker is unambiguously the predecessor to
- * adopt. Null when nothing is interrupted. */
-export function findInterruptedSession(workspaceRoot: string): string | null {
-  const dir = sessionDirFor(workspaceRoot);
+/** Find the most recent INTERRUPTED session in ONE session directory
+ *  (ADR 0038): a run killed mid-flight never settles, so the branch holds
+ *  no cliSessionRef and the resume dispatch arrives with none. Runs
+ *  serialize under the workspace lock, so the newest session file with an
+ *  unresolved parked_turn marker is unambiguously the predecessor to
+ *  adopt. Null when nothing is interrupted.
+ *
+ *  The DIRECTORY is a parameter, never derived here: the caller must pass
+ *  the same directory it writes to (rpc-mode honours the flat
+ *  OMA_SESSION_DIR override, and a flat directory mixes every workspace's
+ *  sessions - scanning the wrong one either misses the predecessor or
+ *  adopts an unrelated run's). */
+export function findInterruptedSession(dir: string): string | null {
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".jsonl"))

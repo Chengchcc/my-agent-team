@@ -636,6 +636,92 @@ describe("rpc approval wire", () => {
 });
 
 describe("rpc resume (ADR 0038)", () => {
+  test("resume adoption scans the SAME dir the dispatch writes (OMA_SESSION_DIR override)", async () => {
+    // The mismatch this pins: findInterruptedSession derived its directory
+    // from the workspace root while the dispatch honoured OMA_SESSION_DIR
+    // (the flat dev/test layout). Scanning the wrong directory either found
+    // nothing - the resume then started a FRESH session and re-ran the turn -
+    // or, in a flat directory shared by several workspaces, adopted an
+    // unrelated run's session.
+    const sf = await import("../../core/session/session-file.js");
+    const flat = mkdtempSync(join(tmpdir(), "rpc-flat-sessions-"));
+    const prevSessionDir = process.env.OMA_SESSION_DIR;
+    const prevAgentDir = process.env.OMA_CODING_AGENT_DIR;
+    process.env.OMA_SESSION_DIR = flat; // the whole point: NOT sessionDirFor(root)
+    process.env.OMA_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "rpc-flat-agent-"));
+    const sessionId = sf.newSessionId();
+    const inputMessage = { id: "msg-flat-in", role: "user" as const, text: "run it" };
+    sf.appendSessionMessages(sessionId, tmp, [inputMessage], flat);
+    sf.appendParkedTurnMarker(
+      sessionId,
+      {
+        role: "assistant",
+        text: "",
+        blocks: [
+          { type: "tool_use", id: "toolu-flat", name: "bash", input: { command: "echo flat-ok" } },
+        ],
+      },
+      flat,
+    );
+    try {
+      const h = makeHarness({ provider: fakeProvider({}) });
+      h.write(
+        JSON.stringify({
+          id: "e-flat",
+          type: "execute",
+          input: {
+            input: { inputId: "in-flat", message: inputMessage },
+            run: {
+              runId: "r-flat",
+              model: { backendKind: "oma", modelId: "fake/echo" },
+              configRevision: 1,
+              skillRoots: [],
+              permissionMode: "ask",
+            },
+            workspace: { root: tmp, access: "read_write" },
+            metadata: { conversationId: "c", agentId: "m", branchId: "b" },
+            resume: {
+              decisions: [
+                { callId: "toolu-flat", kind: "approval", response: { decision: "allow" } },
+              ],
+            },
+          },
+        }),
+      );
+      await waitFor(() =>
+        h.lines().some((l) => {
+          try {
+            return (JSON.parse(l) as { type?: string }).type === "outcome";
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const outcome = h
+        .lines()
+        .map((l) => JSON.parse(l) as { type?: string; outcome?: { cliSessionRef?: string } })
+        .find((o) => o.type === "outcome");
+      // The adopted session is the one written into the FLAT dir.
+      expect(outcome?.outcome?.cliSessionRef).toBe(sessionId);
+      const logged = sf.loadSessionMessages(sessionId, flat);
+      const hasResult = logged.some((m) =>
+        ((m.blocks ?? []) as Array<{ type?: string }>).some(
+          (b) =>
+            b.type === "tool_result" &&
+            (b as { tool_use_id?: string }).tool_use_id === "toolu-flat",
+        ),
+      );
+      expect(hasResult).toBe(true);
+      h.stop();
+      await h.exitCode.catch(() => -1);
+    } finally {
+      if (prevSessionDir === undefined) process.env.OMA_SESSION_DIR = SESSION_DIR;
+      else process.env.OMA_SESSION_DIR = prevSessionDir;
+      if (prevAgentDir === undefined) delete process.env.OMA_CODING_AGENT_DIR;
+      else process.env.OMA_CODING_AGENT_DIR = prevAgentDir;
+      rmSync(flat, { recursive: true, force: true });
+    }
+  }, 15_000);
   test("a parked turn completes from the marker: allowed approval executes, ask answer replays, unanswered settles interrupted", async () => {
     // Seed the dead child's session file: the input message plus a
     // parked-turn marker whose three tool_use calls never got results.
