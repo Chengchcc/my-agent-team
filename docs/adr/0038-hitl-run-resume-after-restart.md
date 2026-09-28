@@ -24,8 +24,9 @@ one-shot child 架构下，子进程与 backend 同生共死。`recover()` 的�
 3. **wire 协议加 resume 输入。** `agent-contract` 的 `BackendRunInput` 增加可选 `resume` 字段：该 run 已决定的 action 清单（callId + 合成 result）。child 侧语义：载入种子后注入这些 tool_result；session 里有 tool_use 但既无结果也无决定的（人没答、进程先死），按「工具被中断」注入 isError 结果——诚实，且循环可继续。
 4. **backend `recover()` 停止清场停靠 run。** `waiting` 且仍有 pending action 的 run 不进孤儿扫描（保持 waiting，分支继续被占）。它的终局只有三种：人答了（→ 见 5）；审批超时/取消（→ 合成 deny/timeout 结果，同样走 5 收尾）；显式 stop。
 5. **回答触发 resume-dispatch。** 无活 loop 时消费 pending action，记录决定后，用**原 runId、原输入**附 `resume.decisions` 重新 dispatch（`recover()` 重投 `delivering` 输入已依赖「新进程无记忆、同 runId 同 payload 可重入」的既有语义）。run 状态经既有的消费 CAS 回 `running`，watchdog 重新武装。
-6. **ask 与 approval 走同一机制。** `ask_question` 的 MCP tool_use 也是轮内工具调用，其合成 result 就是答案 JSON。不为 ask 单开路径。
-7. **明确不做：**
+6. **ask 与 approval 在 oma 内走同一机制。** `ask_question` 的 MCP tool_use 也是轮内工具调用，其合成 result 就是答案 JSON，不为 ask 单开路径。
+7. **两条通道的范围不同，恢复机制也不同。** approval（`backend.oma.approval_request` + `resolveApproval` RPC）是 oma 独有：另外三个 CLI 后端没有审批管道，headless 下也不产生可回答的审批卡。**ask 通道则四端同构**：`ask_question` 经工作区 `.mcp.json` 注入（omp/pi 读 cwd，claude 走 `--mcp-config`，oma 走 mcp-mount），停靠完全发生在 backend 进程（product-tools 服务）——所以三个 CLI 后端的 run 同样会「ask 停靠中 backend 重启 → 孤儿 abort」，只是它们的恢复不能走 session 注入（外部 CLI 没有「替它补一个 tool_result」的线）：re-dispatch 带各自 session 引用重跑中断轮，若模型再次问到**内容一致**的问题，backend 用已存答案自动应答（ask 的答案对应问题文本，内容匹配语义成立——这与 approval 不同，批准绑定的是具体动作，错配即假授权）；不一致则重新问人。内容匹配自动应答是增强，第一期允许「多问一次」。
+8. **明确不做：**
    - 不做整轮 checkpoint / 回滚（roadmap「Run 的中途暂停」保持独立条目）；
    - 不为无停靠点的崩溃 run 做 resume（重跑 = 副作用重放，孤儿 abort 语义保持）；
    - 不加回 span/attempt 之类的第二执行身份（Phase 6 的教训：恢复机制不得拥有独立生命周期）。
