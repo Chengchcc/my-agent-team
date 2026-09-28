@@ -91,7 +91,7 @@ export interface AgentRunExecutionDeps {
     runId: string;
     callId: string;
     payload: Readonly<Record<string, unknown>>;
-  }) => void;
+  }) => Promise<void>;
 }
 
 export interface LiveRun {

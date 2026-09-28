@@ -714,3 +714,94 @@ describe("product tools service", () => {
     service.resolveAsk(runId, callId, { answers: [{ id: "q1", selectedValues: ["a"] }] });
   });
 });
+
+describe("durable ask: the card is shown only after its action row exists", () => {
+  function wrappedService(mode: { kind: "defer" } | { kind: "reject" } | { kind: "pass" }) {
+    const asks: Array<{ runId: string; callId: string }> = [];
+    const gate = Promise.withResolvers<void>();
+    const wrapped = {
+      ...runPort,
+      async createPendingAction(
+        ...args: Parameters<typeof runPort.createPendingAction>
+      ): Promise<
+        ReturnType<typeof runPort.createPendingAction> extends Promise<infer T> ? T : never
+      > {
+        if (mode.kind === "defer") await gate.promise;
+        if (mode.kind === "reject") throw new Error("persist failed");
+        return runPort.createPendingAction(...args);
+      },
+    } as typeof runPort;
+    const svc = createProductToolsService({
+      runPort: wrapped,
+      contextPort,
+      conversationPort: convPort,
+      callPort: sqliteProductToolCallAdapter(db),
+      artifactService: {
+        upload: async () => ({ url: "artifacts://a/b.txt" }),
+        download: async () => ({ content: "x", encoding: "utf8", mimeType: "text/plain" }),
+      } as never,
+      idGen: { ulid: () => `y-${Math.random().toString(36).slice(2, 8)}` },
+      emitAsk: (input) => asks.push({ runId: input.runId, callId: input.callId }),
+      emitTodo: () => {},
+      askTimeoutMs: 2000,
+    });
+    return { svc, asks, gate };
+  }
+
+  test("emitAsk fires only after createPendingAction resolves", async () => {
+    const runId = await createRun("hi");
+    const { svc, asks, gate } = wrappedService({ kind: "defer" });
+    const call = svc.call({
+      identity: identity(runId),
+      callId: "ask-order",
+      idempotencyKey: `${runId}:ask-order`,
+      tool: "ask_question",
+      args: {
+        questions: [{ id: "q1", kind: "select", question: "Pick?", options: [{ value: "a" }] }],
+      },
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    // The row is not committed yet, so no surface may render a card.
+    expect(asks).toEqual([]);
+    gate.resolve();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(asks.map((a) => a.callId)).toEqual(["ask-order"]);
+    svc.resolveAsk(runId, "ask-order", { answers: [{ id: "q1", selectedValues: ["a"] }] });
+    await call;
+  });
+
+  test("a persistence failure fails the call and unparks the resolver", async () => {
+    const runId = await createRun("hi");
+    const { svc } = wrappedService({ kind: "reject" });
+    const attempt = svc.call({
+      identity: identity(runId),
+      callId: "ask-persist-fail",
+      idempotencyKey: `${runId}:ask-persist-fail`,
+      tool: "ask_question",
+      args: {
+        questions: [{ id: "q1", kind: "select", question: "Pick?", options: [{ value: "a" }] }],
+      },
+    });
+    await expect(attempt).rejects.toThrow(ProductToolRejectedError);
+    await expect(attempt).rejects.toThrow(/could not be persisted/);
+
+    // The resolver must be unparked: a retry with the same callId is not
+    // "already pending" and can be answered normally.
+    const { svc: retrySvc, asks: retryAsks } = wrappedService({ kind: "pass" });
+    const retry = retrySvc.call({
+      identity: identity(runId),
+      callId: "ask-persist-fail",
+      idempotencyKey: `${runId}:ask-persist-fail`,
+      tool: "ask_question",
+      args: {
+        questions: [{ id: "q1", kind: "select", question: "Pick?", options: [{ value: "a" }] }],
+      },
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(retryAsks.map((a) => a.callId)).toEqual(["ask-persist-fail"]);
+    retrySvc.resolveAsk(runId, "ask-persist-fail", {
+      answers: [{ id: "q1", selectedValues: ["a"] }],
+    });
+    await retry;
+  });
+});

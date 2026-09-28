@@ -265,7 +265,9 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
     },
 
     broadcastRunEvent(runId, event) {
-      liveEvents.broadcast(runId, event);
+      // ask/todo only - never approvals; the ordering for those is enforced
+      // inside the bus itself.
+      void liveEvents.broadcast(runId, event);
     },
   };
 }

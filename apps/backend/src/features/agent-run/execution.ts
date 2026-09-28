@@ -69,18 +69,16 @@ export function createAgentRunExecutionService(
   const execState = { disposed: false };
   const liveEvents = createLiveEventBus({
     ...deps,
-    // Durable approvals v1: persist every observed approval_request — the
-    // idempotency key makes event replays no-ops. createPendingAction CASes
-    // the run running->waiting (the intended semantics); conflicts and
-    // races are swallowed (the card stays live regardless).
-    onApprovalRequest: ({ runId, callId, payload }) => {
-      void deps.runPort
-        .createPendingAction(runId, {
-          actionId: `${runId}:${callId}`,
-          kind: "approval",
-          payload: { ...payload },
-        })
-        .catch(() => {});
+    // Durable approvals: the bus awaits this hook BEFORE any subscriber sees
+    // the approval event, so a card is only shown once its action row exists.
+    // createPendingAction is idempotent by actionId (event replays are
+    // no-ops) and CASes the run running->waiting.
+    onApprovalRequest: async ({ runId, callId, payload }) => {
+      await deps.runPort.createPendingAction(runId, {
+        actionId: `${runId}:${callId}`,
+        kind: "approval",
+        payload: { ...payload },
+      });
     },
   });
   const { dispatchFn, entryFor } = createExecutionDispatcher({

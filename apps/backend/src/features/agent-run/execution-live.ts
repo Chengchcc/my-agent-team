@@ -4,7 +4,9 @@ import { TELEMETRY_EVENT_TYPES } from "./execution-input.js";
 export interface LiveEventBus {
   /** Broadcast a transient event to current-process subscribers and the
    *  durable telemetry sink (best-effort). */
-  broadcast(runId: string, event: BackendEvent): void;
+  /** Async since durable HITL: an approval must be persisted before any
+   *  subscriber (SSE, Lark card) may see the event. */
+  broadcast(runId: string, event: BackendEvent): Promise<void>;
   closeSubscribers(runId: string): void;
   /** Fan out the segment's event stream. Resolves when fully drained. */
   forwardEvents(runId: string, segment: BackendRunSegment): Promise<void>;
@@ -28,7 +30,7 @@ export function createLiveEventBus(deps: {
     runId: string;
     callId: string;
     payload: Readonly<Record<string, unknown>>;
-  }) => void;
+  }) => Promise<void>;
 }): LiveEventBus {
   const subscribers = new Map<string, Set<(e: BackendEvent) => void>>();
   const lastEventByRun = new Map<string, number>();
@@ -75,7 +77,7 @@ export function createLiveEventBus(deps: {
     return { runId, callId: payload.callId, payload };
   }
 
-  function broadcast(runId: string, event: BackendEvent): void {
+  async function broadcast(runId: string, event: BackendEvent): Promise<void> {
     lastEventByRun.set(runId, Date.now());
     // Durable telemetry: persist the normalized event log (tool calls,
     // status, workflow steps). Transient text/thinking deltas are skipped, and
@@ -97,10 +99,19 @@ export function createLiveEventBus(deps: {
     }
     const approval = approvalRequest(runId, event);
     if (approval) {
+      // Durable HITL: the action row must exist BEFORE any surface can see
+      // this event - resolveApproval refuses a click with no durable action,
+      // so shipping the card first would show the user something unanswerable.
+      // On persistence failure we drop the event entirely: the child's own
+      // approval deadline then denies it, which is the honest fail-closed.
       try {
-        deps.onApprovalRequest?.(approval);
-      } catch {
-        /* persistence failure never affects the run */
+        await deps.onApprovalRequest?.(approval);
+      } catch (err) {
+        console.error(
+          `[agent-run] approval persistence failed for ${approval.runId}/${approval.callId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return;
       }
     }
     const set = subscribers.get(runId);
@@ -125,7 +136,7 @@ export function createLiveEventBus(deps: {
   function forwardEvents(runId: string, segment: BackendRunSegment): Promise<void> {
     return (async () => {
       try {
-        for await (const ev of segment.events) broadcast(runId, ev);
+        for await (const ev of segment.events) await broadcast(runId, ev);
       } catch {
         /* event stream closing is not a run failure */
       }

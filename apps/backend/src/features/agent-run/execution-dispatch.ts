@@ -278,7 +278,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // Live subscribers learn WHY the run died (the error text) before the
     // stream closes; the onRunFailed hook persists an assistant error
     // message so the failure survives refresh (T3-2).
-    liveEvents.broadcast(run.runId, {
+    await liveEvents.broadcast(run.runId, {
       type: "status",
       status: outcome.status,
       error: outcome.error,
@@ -389,7 +389,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
           // Same live-failure record as settleOutcome's terminal branch:
           // pre-child failures (spawn, catalog, projection) leave no
           // assistant message, so the status event carries the error text.
-          liveEvents.broadcast(runId, { type: "status", status: "failed", error: detail });
+          await liveEvents.broadcast(runId, { type: "status", status: "failed", error: detail });
           deps.onRunFailed?.({
             runId,
             conversationId: run.conversationId,

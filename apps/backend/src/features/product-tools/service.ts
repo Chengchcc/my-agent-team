@@ -458,16 +458,25 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     // Park the resolver; emit + await until resolveAsk (web) or timeout (null).
     const { promise, resolve } = Promise.withResolvers<AskQuestionResult | null>();
     pendingAsks.set(key, resolve);
-    // Durable ask v1: persist so the card survives refresh and the run
-    // records waiting honestly; actionId dedupes retries. Swallow errors -
-    // the live ask works regardless.
-    void runPort
-      .createPendingAction(run.runId, {
+    // Durable ask: persist BEFORE the card is clickable. A surface can only
+    // answer a durable action, so emitting first showed the user something
+    // nothing could resolve; a persistence failure must fail the tool call
+    // instead. createPendingAction is idempotent by actionId (retries are
+    // no-ops).
+    try {
+      await runPort.createPendingAction(run.runId, {
         actionId: key,
         kind: "ask",
         payload: { callId: input.callId, questions: parsed.questions },
-      })
-      .catch(() => {});
+      });
+    } catch (err) {
+      pendingAsks.delete(key);
+      throw new ProductToolRejectedError(
+        `ask could not be persisted for ${input.callId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
     deps.emitAsk?.({ runId: run.runId, callId: input.callId, question: parsed });
     let answer: AskQuestionResult | null;
     try {
