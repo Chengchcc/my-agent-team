@@ -29,6 +29,7 @@ import type {
   RootState,
   SessionState,
   SessionStatus,
+  SystemNotificationResponsePart,
   ToolCallResponsePart,
   ToolCallState,
   URI,
@@ -275,6 +276,10 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
     });
   }
 
+  turns.push(...continuityTurns(ledger));
+  // 续接记录来自账本里非消息的行，按时间插回正确位置。
+  turns.sort((a, b) => (a.startedAt ?? "").localeCompare(b.startedAt ?? ""));
+
   const status = activeTurn
     ? waiting
       ? INPUT_NEEDED
@@ -289,6 +294,57 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
     status,
     modifiedAt: row.lastActivityAt ?? newestTs(ledger) ?? 0,
   };
+}
+
+/** 续接记录（surface 写的那行「这条对话续到了新对话」）在 AHP 里落成一条系统提示
+ *  轮次：上游的 `systemNotification` 来源就是为「转录连续性」设计的，surface 看到它
+ *  就知道该把自己改绑到哪里。规范的 id 放在 `_meta`，文案由 surface 自己决定。 */
+function continuityTurns(ledger: readonly AhpLedgerRow[]): AhpTurn[] {
+  const out: AhpTurn[] = [];
+  for (const row of ledger) {
+    const notice = continuityNotice(row.content);
+    if (!notice) continue;
+    const text = "This conversation continued in a new one.";
+    const part: SystemNotificationResponsePart = {
+      kind: enumValue<SystemNotificationResponsePart["kind"]>("systemNotification"),
+      content: text,
+      _meta: {
+        newConversationId: notice.newConversationId,
+        requestedByRunId: notice.requestedByRunId,
+      },
+    };
+    out.push({
+      id: `continuity:${row.seq}`,
+      startedAt: isoOf(row.ts),
+      message: {
+        text,
+        origin: { kind: enumValue<AhpMessage["origin"]["kind"]>("systemNotification") },
+      },
+      responseParts: [part],
+      usage: undefined,
+      state: enumValue<AhpTurn["state"]>("complete"),
+    });
+  }
+  return out;
+}
+
+function continuityNotice(
+  content: unknown,
+): { newConversationId: string; requestedByRunId: string } | undefined {
+  try {
+    const parsed = (typeof content === "string" ? JSON.parse(content) : content) as {
+      newConversationId?: unknown;
+      requestedByRunId?: unknown;
+    } | null;
+    const newConversationId = parsed?.newConversationId;
+    const requestedByRunId = parsed?.requestedByRunId;
+    if (typeof newConversationId !== "string" || typeof requestedByRunId !== "string") {
+      return undefined;
+    }
+    return { newConversationId, requestedByRunId };
+  } catch {
+    return undefined;
+  }
 }
 
 function turnStateOf(status: "completed" | "failed" | "cancelled"): AhpTurn["state"] {

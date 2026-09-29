@@ -261,3 +261,33 @@ describe("tool call projection", () => {
     expect(part?.toolCall.error?.message).toBeTruthy();
   });
 });
+
+test("a continuity row becomes a system-notification turn carrying the new chat id", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "completed");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      ...fake.deps.getLedgerEntries("c1"),
+      {
+        seq: 9,
+        content: JSON.stringify({
+          oldConversationId: "c1",
+          newConversationId: "c2",
+          reason: "fresh",
+          requestedByRunId: "r1",
+        }),
+        agentRunId: null,
+        messageIndex: 0,
+        ts: 9000,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  const notice = chat?.turns.at(-1);
+  expect(notice?.message.origin.kind as string).toBe("systemNotification");
+  expect(notice?.responseParts[0]).toMatchObject({
+    kind: "systemNotification",
+    _meta: { newConversationId: "c2", requestedByRunId: "r1" },
+  });
+});
