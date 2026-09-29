@@ -17,7 +17,7 @@ tags: [surfaces, web, lark, terminal]
 ## 实现文件
 
 - `apps/web/src/hooks/useConversation.ts` — Web 对话页的 AHP 连接、run 流（流规则提示与工作流进度）与 busy 推导
-- `apps/web/src/lib/ahp-view.ts` — AHP chat 状态到列表与在飞轮次的映射
+- `apps/web/src/lib/chat-state.ts` — AHP chat 状态到列表与在飞轮次的映射
 - `apps/web/src/lib/conversation-reducer.ts` — Web 渲染状态机
 - `apps/web/src/features/coding/components/coding-page.tsx` — 终端页
 - `apps/lark-bot/src/ingest.ts` — 飞书入站

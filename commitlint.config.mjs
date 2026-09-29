@@ -31,6 +31,8 @@ export default {
         "lark-bot",
         // Features
         "agent-run",
+        "ahp",
+        "ahp-client",
         "workflow",
         "sandbox",
         "mcp",

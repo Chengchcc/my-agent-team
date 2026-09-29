@@ -185,9 +185,7 @@ export function createChatActionTranslator(): ChatActionTranslator {
           message: {
             text: opening.text,
             origin: { kind: "user" },
-            ...(opening.messageId === undefined
-              ? {}
-              : { _meta: { messageId: opening.messageId } }),
+            ...(opening.messageId === undefined ? {} : { _meta: { messageId: opening.messageId } }),
           },
         } as unknown as StateAction,
       ];

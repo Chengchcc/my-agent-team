@@ -514,7 +514,10 @@ class ConversationServiceImpl implements ConversationService {
         if (c.requestedByRunId === requestedByRunId && c.newConversationId) {
           // Replayed across a restart or a retried tool call: a surface may have connected since,
           // and the announcement is idempotent on its side (parts are keyed by id).
-          this.#onContinuityRecorded?.({ conversationId: oldConversationId, controlSeq: entry.seq });
+          this.#onContinuityRecorded?.({
+            conversationId: oldConversationId,
+            controlSeq: entry.seq,
+          });
           return {
             oldConversationId,
             newConversationId: c.newConversationId,

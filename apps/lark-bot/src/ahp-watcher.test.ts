@@ -85,7 +85,12 @@ describe("watching a conversation over AHP", () => {
         type: "action",
         params: {
           channel: uri,
-          action: { type: "chat/titleChanged", title: "renamed" },
+          action: {
+            type: "chat/turnStarted",
+            turnId: "run-2",
+            startedAt: "2026-09-29T00:00:00.000Z",
+            message: { text: "go", origin: { kind: "user" } },
+          },
           serverSeq: 1,
           origin: undefined,
         },
@@ -94,7 +99,16 @@ describe("watching a conversation over AHP", () => {
         type: "action",
         params: {
           channel: uri,
-          action: { type: "chat/turnStarted", turnId: "run-2", startedAt: "t", message: {} },
+          action: {
+            type: "chat/responsePart",
+            turnId: "run-2",
+            part: {
+              kind: "markdown",
+              id: "run-2:text:0",
+              content: "live",
+              _meta: { messageId: "run:run-2:assistant:0" },
+            },
+          },
           serverSeq: 2,
           origin: undefined,
         },
@@ -115,8 +129,9 @@ describe("watching a conversation over AHP", () => {
     handle.close();
     db.close();
     rmSync(dir, { recursive: true, force: true });
-    // The snapshot's message is delivered once; upstream's reducer applies the actions, which
-    // here produce no new text to send. What this pins is that the plumbing survives them.
-    expect(sent).toEqual(["first"]);
+    // The snapshot's message, then the one the action stream carried: the live reply is delivered
+    // as it arrives, through upstream's reducer. Both actions here are real protocol actions, so a
+    // dropped or invented frame shows up as a missing send instead of passing silently.
+    expect(sent).toEqual(["first", "live"]);
   });
 });

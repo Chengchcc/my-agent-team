@@ -24,7 +24,7 @@ tags: [surfaces, ahp, protocol]
 - `apps/backend/src/features/ahp/run-events.ts` — 运行期事件翻成 chat 动作，动作那条边
 - `apps/backend/src/features/ahp/conformance/` — 上游 v0.9.0 的 218 条一致性向量
 - `packages/ahp-client/src/transport.ts`、`uris.ts` — 共享传输与 URI 规则
-- `apps/web/src/lib/ahp.ts`、`apps/web/src/lib/ahp-view.ts` — Web 侧连接，以及状态到列表的映射
+- `apps/web/src/lib/ahp.ts`、`apps/web/src/lib/chat-state.ts` — Web 侧连接，以及状态到列表的映射
 - `apps/lark-bot/src/ahp-delivery.ts` — 飞书侧的投递判定
 
 ## 通道与鉴权
@@ -70,9 +70,10 @@ tags: [surfaces, ahp, protocol]
 
 ## 已知缺口
 
-- 审批与询问只活在快照那条边上。没有一处派发 `chat/inputRequested`，已经连着的端在 Run 停靠时要等一次重新订阅才看得到卡片；Web 原来那条直读 Run 流的审批订阅已经拆掉，这一格空着。
-- todo 同理，只在 chat 状态的 `_meta.todos` 里，刷新才有。
-- `apps/web/src/lib/ahp-view.ts` 在坐标缺失时用 `seq: 0` 兜底，等于编一个坐标，要按上面那条改成关掉动作。
+- 人工输入的请求现在会随动作到达（`inputRequest` 片段，id 与投影一致，一问一次），但**答复的效果仍然只在轮次提交或重新订阅时到达**：点下批准之后，卡片要等这一轮结束才从「待答复」变成已答复。补法是答复落库时派发 `chat/inputCompleted`，那需要在 resolve 路径上再加一个缝。
+- todo 只在 chat 状态的 `_meta.todos` 里，也就是只在快照里。协议没有任何动作能改 chat 的 `_meta`，所以「直播刷新 todo」要么等上游给出动作，要么由我们自定义一个动作、两端各自解释，要么退回重订阅。这条是待决策项。
+- 续接提示写完就派发（`announceContinuity`）。代价：端如果在记录写入与派发之间订阅，它会从快照拿到这一轮、又收到这次派发，客户端状态里于是有同一轮的第二份副本；两端的渲染与投递都按 id 合并，所以看不出来。要消掉它，得让派发只发给「订阅早于这次写入」的连接。
+- `apps/web/src/lib/chat-state.ts` 在坐标缺失时用 `seq: 0` 兜底，等于编一个坐标，要按上面那条改成关掉那个动作。
 - Web 与飞书都还订着 Run 流（流规则提示、工作流进度、飞书的跑动卡）。旧事件词汇与 SSE 端点的删除还没做，清单在 [ADR 0040](../../adr/0040-run-contract-acp-surface-contract-ahp.md)。
 
 ## 相关页

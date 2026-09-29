@@ -23,7 +23,7 @@ tags: [lark, surfaces, backend]
 - `apps/lark-bot/scripts/probe-cards.ts` — 把真实渲染出的每种卡片 POST 给建卡接口，做线级校验（不给任何聊天发消息）
 - `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
 - `apps/lark-bot/src/ahp-watcher.ts` 与 `ahp-delivery.ts` — 出站：AHP 连接、按 chat 状态判定投递、续接改绑
-- `apps/lark-bot/src/markdown-normalizer.ts` — 行到文本的换行与截断（切 AHP 后暂无生产调用方，见已知缺口）
+- `apps/lark-bot/src/markdown-normalizer.ts` — 行到文本的换行与截断（跑动卡的渲染仍在用）
 - `apps/lark-bot/src/sender.ts` 与 `send-text-only.ts` — 经 lark-cli 投递
 - `apps/lark-bot/src/{bootstrap,args,event-parser,client,safe-agent-id,diagnostics}.ts` — 启动、参数、事件解析、treaty 客户端、id 安全化、心跳
 - `apps/lark-bot/src/db/schema.ts` 与 `apps/lark-bot/drizzle/` — 本地 schema 与迁移
@@ -145,7 +145,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 ## 已知缺口
 
 - 续接提示只在快照里到达：`startNewConversationForSurface` 写了账本行，但宿主没有派发对应动作，已经连着 watcher 要等一次重新订阅才会改绑。
-- `apps/lark-bot/src/markdown-normalizer.ts` 在切 AHP 后没有生产调用方，正文按片段原文发出。
+
 
 - `surface.control` 的重绑路径没有生产触发入口：`POST /api/conversations/:id/start-new` 目前只有测试调用，旧的触发工具已不存在。路由与端侧消费都已具备。
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。

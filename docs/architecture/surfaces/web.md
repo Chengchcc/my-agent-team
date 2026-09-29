@@ -51,7 +51,7 @@ reducer 的 action 名单是 `bootstrap`、`send`、`send/settled`、`conn`、`s
 
 ## 实时状态的两条来源
 
-对话的实时状态来自 AHP：`apps/web/src/lib/ahp.ts` 经 BFF 取票、用共享传输连上 `/ws/ahp`，`initialize` 拿 chat 快照、订阅拿动作流，上游 `chatReducer` 折出状态，`useConversation.ts` 把它映射成列表与在飞轮次（`apps/web/src/lib/ahp-view.ts`）。历史也在这条线上，刷新即得，没有游标要续；`_meta.seq`、`_meta.undone`、`_meta.messageId` 供撤销、分叉与去重使用（见 [AHP host](./ahp.md)）。
+对话的实时状态来自 AHP：`apps/web/src/lib/ahp.ts` 经 BFF 取票、用共享传输连上 `/ws/ahp`，`initialize` 拿 chat 快照、订阅拿动作流，上游 `chatReducer` 折出状态，`useConversation.ts` 把它映射成列表与在飞轮次（`apps/web/src/lib/chat-state.ts`）。历史也在这条线上，刷新即得，没有游标要续；`_meta.seq`、`_meta.undone`、`_meta.messageId` 供撤销、分叉与去重使用（见 [AHP host](./ahp.md)）。
 
 run 流还剩两样用途，路径是 `/api/bff/agent-runs/:runId/events`（来自 `sseEndpoints.agentRunEvents`），每个 run 一条 EventSource：
 

@@ -115,6 +115,9 @@ const GATES: readonly AppGate[] = [
       "src/features/ahp/http.ts": 95,
       "src/features/ahp/protocol.ts": 95,
       "src/features/ahp/state-source.ts": 80,
+      // The translator is the writer a surface's live state comes from; its predecessor declared
+      // a private event shape, matched nothing, and kept green tests while nothing streamed.
+      "src/features/ahp/run-events.ts": 85,
       // Trust boundaries + SSE contract
       "src/features/artifact/domain.ts": 95,
       "src/features/artifact/service.ts": 95,
