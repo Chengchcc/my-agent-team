@@ -122,7 +122,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     this.extraEnv = opts.env;
     this.approvalTimeoutMs = opts.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
     this.abortGraceMs = opts.abortGraceMs ?? 3_000;
-    this.spawnImpl = opts.spawnImpl ?? nodeSpawn;
+    this.spawnImpl = opts.spawnImpl ?? createNodeSpawn(this.abortGraceMs);
   }
 
   async execute(input: BackendRunInput<"acp">): Promise<BackendRunSegment<"acp">> {
@@ -245,11 +245,19 @@ export class AcpBackend implements AgentBackend<"acp"> {
             if (resumeRef !== undefined && resumeRef !== "") {
               // session/load replays history and KEEPS the id we passed
               // (LoadSessionResponse carries no sessionId of its own).
+              // ADR 0039 extension-vehicle rule 2: replayed decisions ride
+              // the standard params' _meta under a namespaced key; agents
+              // that don't read it ignore it (today's entire population -
+              // oma's own server, P2, will define the semantics).
+              const decisions = input.resume?.decisions;
               await ctx.request(acp.methods.agent.session.load, {
                 sessionId: resumeRef,
                 cwd,
                 mcpServers: [],
-              });
+                ...(decisions && decisions.length > 0
+                  ? { _meta: { "my-agent-team/resume": { decisions } } }
+                  : {}),
+              } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1]);
               run.sessionId = resumeRef;
             } else {
               const created = await ctx.request(acp.methods.agent.session.new, {
@@ -297,6 +305,10 @@ export class AcpBackend implements AgentBackend<"acp"> {
         });
       }
     }
+    // Wait out the child (bounded) before forgetting the run: dispose()
+    // must never lose track of a lingering process (npx-wrapped bridges
+    // can outlive the JSON-RPC stream close).
+    await withTimeout(transport.exit, this.abortGraceMs);
     this.active.delete(run.runId);
   }
 
@@ -313,7 +325,12 @@ export class AcpBackend implements AgentBackend<"acp"> {
       type: "approval_requested",
       payload: {
         callId,
-        toolName: params.toolCall.title ?? params.toolCall.name ?? "unknown",
+        // Identity fields, never display prose: omp's permission toolCall
+        // carries no name at all (its title is the command line - that goes
+        // to `reason`, the subject stays `input`), so kind is the honest
+        // identity floor.
+        toolName: params.toolCall.name ?? params.toolCall.kind ?? "tool",
+        ...(params.toolCall.title ? { reason: params.toolCall.title } : {}),
         ...(params.toolCall.rawInput !== undefined ? { input: params.toolCall.rawInput } : {}),
         deadlineAt,
       },
@@ -352,25 +369,26 @@ export class AcpBackend implements AgentBackend<"acp"> {
 }
 
 /** Default transport: spawn the agent server, speak NDJSON over stdio. */
-const nodeSpawn: AcpSpawn = ({ argv, cwd, env }) => {
-  const child = spawn(argv[0]!, [...argv.slice(1)], {
-    cwd,
-    env: { ...process.env, ...env },
-    stdio: ["pipe", "pipe", "inherit"],
-  });
-  child.on("exit", () => {});
-  return {
-    stream: acp.ndJsonStream(
-      Writable.toWeb(child.stdin!),
-      Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
-    ),
-    exit: new Promise((resolve) => child.on("exit", (code) => resolve(code))),
-    kill() {
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 3_000);
-    },
+function createNodeSpawn(graceMs: number): AcpSpawn {
+  return ({ argv, cwd, env }) => {
+    const child = spawn(argv[0]!, [...argv.slice(1)], {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ["pipe", "pipe", "inherit"],
+    });
+    return {
+      stream: acp.ndJsonStream(
+        Writable.toWeb(child.stdin!),
+        Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
+      ),
+      exit: new Promise((resolve) => child.on("exit", (code) => resolve(code))),
+      kill() {
+        child.kill("SIGTERM");
+        setTimeout(() => child.kill("SIGKILL"), graceMs);
+      },
+    };
   };
-};
+}
 
 function createActiveRun(runId: string): ActiveRun {
   let settled = false;
@@ -393,6 +411,11 @@ function createActiveRun(runId: string): ActiveRun {
       if (settled) return;
       settled = true;
       eventsClosed = true;
+      // Terminal = every held permission answers cancelled: an agent that
+      // died right after asking leaves neither a dangling ACP response
+      // promise nor a live fail-closed timer behind.
+      for (const held of this.held.values()) held.cancel();
+      this.held.clear();
       settleOutcome?.(o);
       for (const w of waiters.splice(0)) w();
     },

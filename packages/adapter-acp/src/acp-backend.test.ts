@@ -45,7 +45,6 @@ interface FakeAgentObservations {
   newSessionCalls: number;
   permissionOutcomes: Array<unknown>;
   elicitationOutcome: unknown;
-  cancelled: boolean;
 }
 
 interface FakeAgentScript {
@@ -54,6 +53,9 @@ interface FakeAgentScript {
   /** Send an elicitation mid-prompt. */
   elicit?: boolean;
   stopReason?: string;
+  /** Close the connection right after asking for permission (the agent
+   *  died mid-request: the held ACP promise must not outlive the run). */
+  dieAfterPermission?: boolean;
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
@@ -65,6 +67,11 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       resolveExit = resolve;
     });
 
+    const die = () => {
+      void backendToAgent.writable.close().catch(() => {});
+      void agentToBackend.writable.close().catch(() => {});
+      resolveExit(null);
+    };
     const app = acp
       .agent({ name: "fake-acp-agent" })
       .onRequest(acp.methods.agent.initialize, async () => ({
@@ -105,6 +112,10 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
           status: "completed",
           rawOutput: { ok: true },
         });
+        if (script.dieAfterPermission) {
+          die();
+          return { stopReason: "end_turn" };
+        }
         if (script.permissionOptions) {
           const decision = await ctx.client.request(acp.methods.client.session.requestPermission, {
             sessionId,
@@ -198,7 +209,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
     const segment = await backend.execute(makeInput());
@@ -226,7 +236,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({
       spawnImpl: startFakeAgent(
@@ -247,7 +256,8 @@ describe("AcpBackend against an in-memory fake agent", () => {
       type: "approval_requested",
       payload: {
         callId: "call-perm-1",
-        toolName: "run command",
+        toolName: "execute",
+        reason: "run command",
         input: { command: "echo hi" },
       },
     });
@@ -272,7 +282,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({
       spawnImpl: startFakeAgent(
@@ -301,7 +310,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
     const segment = await backend.execute(makeInput());
@@ -318,7 +326,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({
       approvalTimeoutMs: 80,
@@ -345,7 +352,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({
       spawnImpl: startFakeAgent(
@@ -374,7 +380,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
     const segment = await backend.execute(makeInput({ cliSessionRef: "sess-fake-1" }));
@@ -391,7 +396,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({
       spawnImpl: startFakeAgent({ stopReason: "cancelled" }, obs),
@@ -408,7 +412,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({ elicit: true }, obs) });
     const segment = await backend.execute(makeInput());
@@ -418,13 +421,42 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   });
 
+  test("run terminal clears held permissions: a connection that dies mid-request leaves nothing dangling", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      approvalTimeoutMs: 60_000,
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
+          dieAfterPermission: true,
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    const { outcome } = await collect(segment);
+    // The connection died with the request in flight: the run settles
+    // failed (not a 60s hang on the fail-closed timer)...
+    expect(outcome.status).toBe("failed");
+    // ...and the held entry is gone, so a late click maps to not_found
+    // (the execution service turns that into the honest 409 + timeout row).
+    await expect(backend.resolveApproval("run-1", "call-perm-1", "allow")).rejects.toBeInstanceOf(
+      AcpBackendError,
+    );
+    await backend.dispose();
+  }, 10_000);
+
   test("steer rejects explicitly (queue as follow-up, the omp precedent)", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
     await expect(
@@ -439,7 +471,6 @@ describe("AcpBackend against an in-memory fake agent", () => {
       newSessionCalls: 0,
       permissionOutcomes: [],
       elicitationOutcome: undefined,
-      cancelled: false,
     };
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
     const first = await backend.execute(makeInput());

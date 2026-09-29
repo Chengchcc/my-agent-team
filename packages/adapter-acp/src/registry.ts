@@ -13,12 +13,6 @@ export interface AcpAgentEntry {
   readonly argv: readonly string[];
   /** Binaries that must exist on PATH for this entry to be usable. */
   readonly requiredCommands?: readonly string[];
-  /** Product-tools injection track. "workspace" = the run workspace's
-   *  .mcp.json (the agent reads cwd itself, ADR 0033 decision 1's real
-   *  injection path); "acp" = the mcp/message relay (MCP-over-ACP RFCD —
-   *  zero agents advertise the capability today, kept as the declared
-   *  end-state slot only). */
-  readonly mcp: "workspace" | "acp";
 }
 
 export const ACP_AGENTS: Readonly<Record<string, AcpAgentEntry>> = {
@@ -26,19 +20,16 @@ export const ACP_AGENTS: Readonly<Record<string, AcpAgentEntry>> = {
     name: "omp (native ACP)",
     argv: ["omp", "acp", "--approval-mode", "always-ask"],
     requiredCommands: ["omp"],
-    mcp: "workspace",
   },
   claude: {
     name: "Claude Code (official bridge)",
     argv: ["npx", "-y", "@agentclientprotocol/claude-agent-acp@^0.76.0"],
     requiredCommands: ["claude"],
-    mcp: "workspace",
   },
   pi: {
     name: "pi (pi-acp bridge)",
     argv: ["npx", "-y", "pi-acp@^0.0.33"],
     requiredCommands: ["pi"],
-    mcp: "workspace",
   },
 };
 

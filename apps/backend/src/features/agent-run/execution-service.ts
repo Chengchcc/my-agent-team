@@ -1,3 +1,4 @@
+import { AcpBackendError } from "@chengchenccc/adapter-acp";
 import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
 import type {
   AgentBackend,
@@ -318,11 +319,14 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         // recording the operator's click as the outcome would be a lie the
         // UI shows as success. Other failures (protocol, transport) stay
         // loud: their cause is not "this approval is gone".
-        if (
-          err instanceof OmaProcessError &&
-          (err.code === "conflict" || err.code === "not_found")
-        ) {
-          if (err.code === "conflict") {
+        // Adapter not-found errors carry the same string codes in
+        // per-adapter classes (oma and acp today); recognize either class
+        // so a late click on ANY backend's gone approval settles as
+        // timeout instead of a 500.
+        const adapterErr =
+          err instanceof OmaProcessError || err instanceof AcpBackendError ? err : undefined;
+        if (adapterErr && (adapterErr.code === "conflict" || adapterErr.code === "not_found")) {
+          if (adapterErr.code === "conflict") {
             await runPort
               .consumePendingAction(
                 actionId,
@@ -337,7 +341,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
               });
           }
           throw new ApprovalNotApplicableError(
-            `approval rejected: the child has no pending approval for ${callId} (${err.message})`,
+            `approval rejected: the child has no pending approval for ${callId} (${adapterErr.message})`,
           );
         }
         throw err;
