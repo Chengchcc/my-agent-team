@@ -16,7 +16,6 @@ export {
   hasDedicatedEvent,
   OmaTodoItem,
   OmaTodoStatus,
-  runEvents,
   sseEndpoints,
   workflowDefinitionEvents,
   workflowExecutionEvents,

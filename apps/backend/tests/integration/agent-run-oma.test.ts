@@ -61,6 +61,8 @@ let runPort: ReturnType<typeof sqliteAgentRunAdapter>;
 let ledgerResolver: { resolveMessage(cid: string, seq: number): Promise<Message | null> };
 let backend: ReturnType<typeof createAgentRunService>;
 let execution: ReturnType<typeof createAgentRunExecutionService>;
+/** Every live event the channel published, as a surface would see it (ADR 0040). */
+const liveEvents: Array<{ type: string }> = [];
 let mcp: Awaited<ReturnType<typeof createProductToolsMcpServer>>;
 let branchId: string;
 
@@ -152,6 +154,7 @@ beforeAll(async () => {
     idGen: { ulid: () => `z-${Math.random().toString(36).slice(2, 8)}` },
     resolveWorkspace: async () => ({ root: ws, access: "read_write" }),
     productToolsEntrypoint: `sse:${mcp.url}`,
+    onLiveEvent: (_runId, event) => liveEvents.push(event as { type: string }),
   });
 
   convPort.createConversation({ conversationId: CONV, agentId: MEMBER, createdAt: Date.now() });
@@ -198,15 +201,10 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     expect(acquired.acquired).toBe(true);
     const runId = acquired.run!.runId;
 
-    const events: string[] = [];
-    const sub = execution.subscribe(runId);
-    const collector = (async () => {
-      for await (const ev of sub) events.push(ev.type);
-    })();
-
+    const seenFrom = liveEvents.length;
     await execution.dispatch(runId);
     const run = await waitForTerminal(runId);
-    await collector;
+    const events = liveEvents.slice(seenFrom).map((ev) => ev.type);
 
     // Terminal outcome is the authority: the run completed.
     expect(run?.status).toBe("completed");

@@ -24,10 +24,6 @@ export interface AgentRunnerDeps {
   };
   agentRunExecution?: {
     dispatch(runId: string): Promise<void>;
-    subscribe(
-      runId: string,
-      signal?: AbortSignal,
-    ): AsyncIterable<{ type: string; status?: string }>;
   };
   convPort?: {
     getConversation(id: string): unknown;

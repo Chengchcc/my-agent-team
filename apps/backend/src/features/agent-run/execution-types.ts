@@ -123,9 +123,6 @@ export interface AgentRunExecutionService {
    *  settling) even without a live child yet. "owned" = isLive || isInflight;
    *  only a run that is neither is a true zombie. */
   isInflight(runId: string): boolean;
-  /** ADR 0038: waiting AND holding a pending action — parked, never a
-   *  zombie. Childless cleanup paths must check this before aborting. */
-  isParked(runId: string): Promise<boolean>;
   /** Terminal a DB-active run that has NO live child (zombie): Run aborted,
    *  bound input cancelled, branch released. Only used by the auto-steer
    *  fallback; explicit steer never silently converts. */
@@ -145,14 +142,7 @@ export interface AgentRunExecutionService {
    * run still waits on siblings or has a live loop. Also the wake hook for
    * product-tools ask resolves. */
   resumeParkedRun(runId: string): Promise<void>;
-  subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent>;
-  /** Durable HITL actions still waiting for the human, as the wire events a
-   *  live subscriber would have seen (ADR 0038). The live bus never replays
-   *  (`broadcast` only reaches subscribers present at that instant), so a
-   *  subscriber arriving after the approval event — a fast first turn beats
-   *  the Lark card's create+send round trip — must read the durable record
-   *  or stay blind for the whole park. */
-  pendingActionEvents(runId: string): Promise<BackendEvent[]>;
-  /** Push a run-scoped event to the live SSE stream (web observes it). */
+  /** Push a run-scoped event onto the live bus: the observer hooks see it, and whatever is
+   *  keeping a durable log keeps it. */
   broadcastRunEvent(runId: string, event: BackendEvent): void;
 }

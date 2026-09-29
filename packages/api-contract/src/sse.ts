@@ -78,111 +78,6 @@ export function hasDedicatedEvent(toolName: string | undefined): boolean {
  *  carry fields at top level, oma extensions carry `{ payload }`. Schemas
  *  are intentionally loose on opaque payloads (workflow usage); typed where
  *  two surfaces must agree on the shape (todo items). */
-export const runEvents = {
-  status: z.object({
-    type: z.literal("status"),
-    status: z.string(),
-    error: z.string().optional(),
-  }),
-  text_delta: z.object({ type: z.literal("text_delta"), text: z.string() }),
-  thinking_delta: z.object({ type: z.literal("thinking_delta"), text: z.string() }),
-  native_tool_started: z.object({
-    type: z.literal("native_tool_started"),
-    toolName: z.string().optional(),
-    callId: z.string().optional(),
-    /** User-visible activity line, authored by the tool and sanitized in the
-     *  child (see Tool.describeStart). Absent means the surface falls back to
-     *  the tool name — surfaces must NOT synthesize one from toolName. */
-    activity: z.string().optional(),
-    /** Structured display metadata. Preferred over `activity` when present. */
-    presentation: ToolPresentationSchema.optional(),
-  }),
-  native_tool_completed: z.object({
-    type: z.literal("native_tool_completed"),
-    toolName: z.string().optional(),
-    callId: z.string().optional(),
-    result: z.unknown().optional(),
-    presentation: ToolPresentationSchema.optional(),
-  }),
-  "backend.oma.todo_update": z.object({
-    type: z.literal("backend.oma.todo_update"),
-    payload: z.object({ items: z.array(OmaTodoItem).optional() }).optional(),
-  }),
-  /** HITL ask — a CORE event: the ask channel is backend-owned and shared by
-   *  every CLI backend (ADR 0038 decision 7), so it is not oma's to name.
-   *  `callId` is the resolve handle (`POST /api/product-tools/ask/resolve`).
-   *
-   *  `questions` stays loose on purpose: the authoritative item shape is
-   *  `AskQuestionItem` in `@chengchenccc/agent-contract`, and this package
-   *  deliberately does not depend on it (a different boundary). Mirroring
-   *  those fields here would be a third hand-written copy to drift; the
-   *  surfaces parse defensively, and the convergence path is the backend
-   *  emitting a validated DTO (recorded as a gap, not pretended away). */
-  ask_requested: z.object({
-    type: z.literal("ask_requested"),
-    payload: z
-      .object({
-        callId: z.string(),
-        questions: z.array(z.unknown()).optional(),
-      })
-      .optional(),
-  }),
-  /** HITL approval card — a CORE event: the child's oma-specific
-   *  `approval_request` frame is mapped onto it inside the oma adapter
-   *  (ADR 0039 decision 1), so surfaces never read an oma-namespaced name.
-   *  `sandboxed` is the truthful OS-bash-sandbox signal (bash approvals
-   *  only) — display-only, never an authorization basis. `input` is the
-   *  tool call's argument (the command being approved): the card MUST show
-   *  it, or the tap is a blind yes/no. */
-  approval_requested: z.object({
-    type: z.literal("approval_requested"),
-    payload: z
-      .object({
-        callId: z.string(),
-        toolName: z.string(),
-        reason: z.string().optional(),
-        input: z.unknown().optional(),
-        sandboxed: z.boolean().optional(),
-        /** When the request fails closed (epoch ms): the card says so, so the
-         *  human is not guessing how long their click stays valid. */
-        deadlineAt: z.number().optional(),
-      })
-      .optional(),
-  }),
-  delegation_batch_started: z.object({
-    type: z.literal("delegation_batch_started"),
-    batchId: z.string().optional(),
-    label: z.string().optional(),
-    agentCount: z.number().optional(),
-  }),
-  delegation_agent_started: z.object({
-    type: z.literal("delegation_agent_started"),
-    batchId: z.string().optional(),
-    agentId: z.string().optional(),
-    label: z.string().optional(),
-  }),
-  delegation_agent_completed: z.object({
-    type: z.literal("delegation_agent_completed"),
-    batchId: z.string().optional(),
-    agentId: z.string().optional(),
-    label: z.string().optional(),
-    ok: z.boolean().optional(),
-    error: z.string().optional(),
-    usage: z.unknown().optional(),
-  }),
-  delegation_batch_completed: z.object({
-    type: z.literal("delegation_batch_completed"),
-    batchId: z.string().optional(),
-    ok: z.boolean().optional(),
-    agentCount: z.number().optional(),
-    totalTokens: z.number().optional(),
-  }),
-  delegation_batch_failed: z.object({
-    type: z.literal("delegation_batch_failed"),
-    batchId: z.string().optional(),
-    error: z.string().optional(),
-  }),
-} as const satisfies SSEEventMap;
 
 /** Workflow execution live stream (`/workflow-executions/:id/events`).
  *  One wire event name ("wf"); the payload is the event envelope with the
@@ -254,10 +149,6 @@ export const agentConfigEvents = {
 } as const satisfies SSEEventMap;
 
 export const sseEndpoints = {
-  agentRunEvents: {
-    path: (p: { runId: string }) => `/agent-runs/${p.runId}/events`,
-    events: runEvents,
-  },
   workflowExecutionEvents: {
     path: (p: { executionId: string }) => `/workflow-executions/${p.executionId}/events`,
     events: workflowExecutionEvents,

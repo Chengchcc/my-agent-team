@@ -255,22 +255,18 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
 describe("agent run execution (Run-centric)", () => {
   test("a normal input creates one Run; terminal commit writes a parseable final Message", async () => {
     const fake = createFakeDaemon();
-    const execution = makeExecution(fake);
+    const events: string[] = [];
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      onLiveEvent: (_runId: string, ev: { type: string }) => events.push(ev.type),
+    });
 
     const acquired = await enqueue("normal", "ikey-1", "hello");
     expect(acquired.acquired).toBe(true);
     const runId = acquired.run!.runId;
 
-    const events: string[] = [];
-    const sub = execution.subscribe(runId);
-    const collector = (async () => {
-      for await (const ev of sub) events.push(ev.type);
-    })();
-
     await execution.dispatch(runId);
     const run = await waitForTerminal(runId);
     expect(run.status).toBe("completed");
-    await collector;
 
     // one input, one backend execute, one delivered input
     expect(fake.executeCalls).toHaveLength(1);
@@ -423,22 +419,18 @@ describe("agent run execution (Run-centric)", () => {
     expect(fake.executeMessages[1]).toBe("second");
   }, 15_000);
 
-  test("tool trace and todo_update survive the wire onto the Run SSE", async () => {
+  test("tool trace and todo_update survive the wire onto the live channel", async () => {
     const fake = createFakeDaemon({ toolTodo: true });
-    const execution = makeExecution(fake);
+    const seen: Array<Record<string, unknown>> = [];
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      onLiveEvent: (_runId: string, ev: unknown) => seen.push(ev as Record<string, unknown>),
+    });
 
     const acquired = await enqueue("normal", "ikey-tools", "use ls");
     const runId = acquired.run!.runId;
 
-    const seen: Array<Record<string, unknown>> = [];
-    const sub = execution.subscribe(runId);
-    const collector = (async () => {
-      for await (const ev of sub) seen.push(ev as Record<string, unknown>);
-    })();
-
     await execution.dispatch(runId);
     await waitForTerminal(runId);
-    await collector;
 
     expect(seen).toContainEqual(
       expect.objectContaining({ type: "native_tool_started", toolName: "ls", callId: "call-1" }),

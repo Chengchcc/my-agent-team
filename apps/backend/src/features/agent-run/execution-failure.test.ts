@@ -7,7 +7,6 @@ import {
   type OmaCommandConfig,
   OmaModelCatalog,
 } from "@chengchenccc/adapter-oma-agent";
-import type { BackendEvent } from "@chengchenccc/agent-contract";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import { sqliteConversationAdapter } from "../conversation/adapter-sqlite.js";
@@ -18,7 +17,7 @@ import {
 import { createWorkspaceLockRegistry } from "../project/workspace-lock.js";
 import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
-import { createAgentRunExecutionService, runEventStreamFor } from "./execution.js";
+import { createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
 
 // ─── Real RPC child (fixture) harness ─────────────────────────────────
@@ -250,7 +249,7 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
 }
 
 describe("agent run execution failure & subscription", () => {
-  test("preflight failure closes subscribers (no SSE hang)", async () => {
+  test("preflight failure marks the run failed with the reason", async () => {
     const fake = createFakeDaemon();
     const execution = makeExecution(fake, undefined, {
       list: async () => {
@@ -261,27 +260,15 @@ describe("agent run execution failure & subscription", () => {
     const acquired = await enqueue("normal", "close-1", "hello");
     const runId = acquired.run!.runId;
 
-    const collector = (async () => {
-      const events: Array<{ type: string; status?: string; error?: string }> = [];
-      for await (const ev of execution.subscribe(runId)) {
-        if (ev.type === "status") events.push(ev);
-      }
-      return events;
-    })();
-
     await expect(execution.dispatch(runId)).rejects.toThrow("catalog down");
 
-    // The subscriber stream must END after the failed dispatch, not hang
-    // until the HTTP layer's headers timeout — and the sole event carries
-    // the failure so the UI can show WHY the run died.
-    await expect(
-      Promise.race([
-        collector,
-        Bun.sleep(500).then(() => {
-          throw new Error("subscriber did not close");
-        }),
-      ]),
-    ).resolves.toEqual([{ type: "status", status: "failed", error: "catalog down" }]);
+    // Why the run died is a durable fact on the run, not something only a live
+    // connection saw.
+    const run = await waitForTerminal(runId);
+    expect(run.status).toBe("failed");
+    if (run.terminalResult?.status === "failed") {
+      expect(run.terminalResult.error).toContain("catalog down");
+    }
   }, 15_000);
 
   test("failed dispatch fires onRunFailed with the error (T3-2)", async () => {
@@ -310,7 +297,7 @@ describe("agent run execution failure & subscription", () => {
     expect(failures).toEqual([{ runId, error: "catalog down" }]);
   }, 15_000);
 
-  test("spawn failure is permanent: run finalized failed, delivering input cancelled, subscribers closed", async () => {
+  test("spawn failure is permanent: run finalized failed, delivering input cancelled", async () => {
     const fake = createFakeDaemon();
     const execution = makeExecution({
       backend: new OmaBackend({
@@ -323,14 +310,6 @@ describe("agent run execution failure & subscription", () => {
     const acquired = await enqueue("normal", "perm-1", "hello");
     const runId = acquired.run!.runId;
 
-    const collector = (async () => {
-      const events: Array<{ type: string; status?: string; error?: string }> = [];
-      for await (const ev of execution.subscribe(runId)) {
-        if (ev.type === "status") events.push(ev);
-      }
-      return events;
-    })();
-
     await expect(execution.dispatch(runId)).rejects.toThrow();
 
     const run = await waitForTerminal(runId);
@@ -342,18 +321,6 @@ describe("agent run execution failure & subscription", () => {
     const inputs = await runPort.listInputs(run.branchId);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]!.status).toBe("cancelled");
-
-    // The failed status event (with the error text) is the only live
-    // failure record subscribers get before the stream closes.
-    const events = await Promise.race([
-      collector,
-      Bun.sleep(500).then(() => {
-        throw new Error("subscriber did not close");
-      }),
-    ]);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ type: "status", status: "failed" });
-    expect(events[0]!.error).toContain("ENOENT");
   }, 15_000);
 
   test("execute rejection is a pre-acceptance failure: run failed + input cancelled", async () => {
@@ -371,7 +338,7 @@ describe("agent run execution failure & subscription", () => {
     expect(inputs[0]!.status).toBe("cancelled");
   }, 15_000);
 
-  test("Context projection failure: run failed, input cancelled, subscriber closed", async () => {
+  test("Context projection failure: run failed, input cancelled", async () => {
     const fake = createFakeDaemon();
     const execution = makeExecution(fake, undefined, undefined, {
       listEntriesToLeaf: async () => {
@@ -382,29 +349,12 @@ describe("agent run execution failure & subscription", () => {
     const acquired = await enqueue("normal", "proj-1", "hello");
     const runId = acquired.run!.runId;
 
-    const collector = (async () => {
-      const events: Array<{ type: string; status?: string; error?: string }> = [];
-      for await (const ev of execution.subscribe(runId)) {
-        if (ev.type === "status") events.push(ev);
-      }
-      return events;
-    })();
-
     await expect(execution.dispatch(runId)).rejects.toThrow("projection boom");
 
     const run = await waitForTerminal(runId);
     expect(run.status).toBe("failed");
     const inputs = await runPort.listInputs(run.branchId);
     expect(inputs[0]!.status).toBe("cancelled");
-
-    await expect(
-      Promise.race([
-        collector,
-        Bun.sleep(500).then(() => {
-          throw new Error("subscriber did not close");
-        }),
-      ]),
-    ).resolves.toEqual([{ type: "status", status: "failed", error: "projection boom" }]);
   }, 15_000);
 
   test("no-live cancel releases the branch and promotes the next queued input", async () => {
@@ -444,260 +394,4 @@ describe("agent run execution failure & subscription", () => {
     await waitForTerminal(delivered.runId!);
     expect(fake.executeCalls.map((c) => c.runId)).toEqual([delivered.runId!]);
   }, 15_000);
-
-  test("late subscription to a settled run closes immediately with a terminal status", async () => {
-    const fake = createFakeDaemon();
-    const execution = makeExecution(fake);
-    const acquired = await enqueue("normal", "late-1", "hello");
-    const runId = acquired.run!.runId;
-    await execution.dispatch(runId);
-    await waitForTerminal(runId);
-
-    // The run settled BEFORE the UI connected: the stream must yield one
-    // terminal status and end, not hang until an HTTP timeout.
-    const events: string[] = [];
-    for await (const ev of runEventStreamFor({ status: "completed" }, execution, runId)) {
-      events.push(ev.type);
-    }
-    expect(events).toEqual(["status"]);
-  }, 15_000);
-
-  test("late subscription to a zombie run terminalizes it and reports aborted", async () => {
-    const fake = createFakeDaemon();
-    const execution = makeExecution(fake);
-    const acquired = await enqueue("normal", "late-2", "hello");
-    const runId = acquired.run!.runId;
-    // Never dispatched: active in DB, no live child, not in flight.
-    const events: string[] = [];
-    for await (const ev of runEventStreamFor({ status: "running" }, execution, runId)) {
-      events.push(ev.type);
-    }
-    expect(events).toEqual(["status"]);
-    const run = await waitForTerminal(runId);
-    expect(run.status).toBe("aborted");
-    const inputs = await runPort.listInputs(run.branchId);
-    expect(inputs[0]!.status).toBe("cancelled");
-  }, 15_000);
-
-  test("SSE subscription during pre-acceptance dispatch does NOT abort the run", async () => {
-    // The exact user-visible race: Web connects to /agent-runs/:id/events
-    // right after POST, while the child has NOT accepted yet (isLive=false,
-    // isInflight=true). The stream must subscribe, never abortStaleRun.
-    const fake = createFakeDaemon({ outcomeDelayMs: 80 });
-    const execution = makeExecution(fake);
-
-    const acquired = await enqueue("normal", "inflight-1", "hello");
-    const runId = acquired.run!.runId;
-
-    // Fire dispatch; subscribe BEFORE the (slow) acceptance lands.
-    const dispatchP = execution.dispatch(runId);
-    const events: string[] = [];
-    const collectP = (async () => {
-      for await (const ev of runEventStreamFor({ status: "running" }, execution, runId)) {
-        events.push(ev.type);
-      }
-    })();
-    await dispatchP;
-    await collectP;
-
-    // The run was NOT aborted: it completed and its input was delivered.
-    const run = await waitForTerminal(runId);
-    expect(run.status).toBe("completed");
-    const inputs = await runPort.listInputs(run.branchId);
-    expect(inputs[0]!.status).toBe("delivered");
-  }, 15_000);
-
-  test("runEventStreamFor subscribes for inflight runs without aborting", async () => {
-    const aborted: string[] = [];
-    const events: string[] = [];
-    const stream = runEventStreamFor(
-      { status: "running" },
-      {
-        isLive: () => false,
-        isInflight: () => true,
-        isParked: async () => false,
-        abortStaleRun: async (id) => {
-          aborted.push(id);
-        },
-        subscribe: () =>
-          (async function* () {
-            yield { type: "status", status: "running" };
-          })(),
-        pendingActionEvents: async () => [],
-      },
-      "r-inflight",
-    );
-    for await (const ev of stream) events.push(ev.type);
-    expect(events).toEqual(["status"]);
-    expect(aborted).toEqual([]);
-  });
-
-  test("a parked run's late subscription subscribes quietly, never aborts", async () => {
-    // The live bug (2026-09-28): after a restart the Lark bot re-subscribed
-    // on card restore, the zombie branch saw a childless active run, and
-    // aborted the very run the user was about to answer.
-    const aborted: string[] = [];
-    const events: string[] = [];
-    const stream = runEventStreamFor(
-      { status: "waiting" },
-      {
-        isLive: () => false,
-        isInflight: () => false,
-        isParked: async () => true,
-        abortStaleRun: async (id) => {
-          aborted.push(id);
-        },
-        subscribe: () =>
-          (async function* () {
-            yield { type: "status", status: "running" };
-          })(),
-        pendingActionEvents: async () => [],
-      },
-      "r-parked",
-    );
-    for await (const ev of stream) events.push(ev.type);
-    expect(events).toEqual(["status"]);
-    expect(aborted).toEqual([]);
-  });
-
-  test("a late subscriber replays the durable approval BEFORE the live stream", async () => {
-    // The live bug (2026-09-28, round 3): the first turn beat the Lark card's
-    // create+send by about a second, so the approval event was broadcast to
-    // nobody. The bus has no replay and the card sat on its initial "queued"
-    // frame for the whole park. The durable action is the same fact, so the
-    // stream leads with it.
-    const order: string[] = [];
-    const stream = runEventStreamFor(
-      { status: "running" },
-      {
-        isLive: () => true,
-        isInflight: () => false,
-        isParked: async () => false,
-        abortStaleRun: async () => {},
-        subscribe: () =>
-          (async function* () {
-            order.push("subscribed");
-            yield { type: "status", status: "running" };
-          })(),
-        pendingActionEvents: async () => [
-          {
-            type: "approval_requested",
-            payload: { callId: "c-r", toolName: "bash", input: { command: "echo hi" } },
-          },
-        ],
-      },
-      "r-replay",
-    );
-    const seen: string[] = [];
-    for await (const ev of stream) seen.push(ev.type);
-    expect(seen).toEqual(["approval_requested", "status"]);
-    // Primed before the replay read: a live event landing in that window is
-    // buffered by the bus, not lost.
-    expect(order).toEqual(["subscribed"]);
-  });
-
-  test("a parked run's late subscription replays its durable ask", async () => {
-    const stream = runEventStreamFor(
-      { status: "waiting" },
-      {
-        isLive: () => false,
-        isInflight: () => false,
-        isParked: async () => true,
-        abortStaleRun: async () => {
-          throw new Error("must not abort a parked run");
-        },
-        // A restarted backend has no live child: nothing left to subscribe to.
-        subscribe: () => (async function* () {})(),
-        pendingActionEvents: async () => [
-          {
-            type: "ask_requested",
-            payload: { callId: "c-a", questions: [{ id: "q1", question: "which?" }] },
-          },
-        ],
-      },
-      "r-parked-ask",
-    );
-    const seen: Array<{ type: string; payload?: unknown }> = [];
-    for await (const ev of stream) seen.push(ev as { type: string; payload?: unknown });
-    expect(seen.map((e) => e.type)).toEqual(["ask_requested"]);
-    expect(seen[0]!.payload).toEqual({
-      callId: "c-a",
-      questions: [{ id: "q1", question: "which?" }],
-    });
-  });
-
-  test("pendingActionEvents maps durable kinds and drops resolved ones", async () => {
-    // Driven through the REAL service: an action row the approval pipeline
-    // wrote must come back as the wire event the child's emission produced.
-    const execution = makeExecution(createFakeDaemon());
-    const acquired = await enqueue("normal", "pa-map-1", "hello");
-    const runId = acquired.run!.runId;
-    await runPort.createPendingAction(runId, {
-      actionId: `${runId}:call-live`,
-      kind: "approval",
-      payload: { callId: "call-live", toolName: "bash", input: { command: "echo hi" } },
-    });
-    await runPort.createPendingAction(runId, {
-      actionId: `${runId}:call-ask`,
-      kind: "ask",
-      payload: { callId: "call-ask", questions: [{ id: "q1", question: "which?" }] },
-    });
-    await runPort.createPendingAction(runId, {
-      actionId: `${runId}:call-done`,
-      kind: "approval",
-      payload: { callId: "call-done", toolName: "bash" },
-    });
-    await runPort.consumePendingAction(
-      `${runId}:call-done`,
-      { actionId: `${runId}:call-done`, response: { approved: false } },
-      "resp-done",
-    );
-
-    const events = await execution.pendingActionEvents(runId);
-    expect(events.map((e) => e.type)).toEqual(["approval_requested", "ask_requested"]);
-    const payloadOf = (e: BackendEvent): unknown => ("payload" in e ? e.payload : undefined);
-    expect(payloadOf(events[0]!)).toMatchObject({ callId: "call-live", toolName: "bash" });
-    expect(payloadOf(events[1]!)).toMatchObject({ callId: "call-ask" });
-
-    // A row whose payload is not the shape the card needs cannot become a
-    // card: the stored record is read with checks, not asserted into an event.
-    // Without this, a half-written row paints an approval whose callId or tool
-    // name is `undefined` - a card the human cannot answer.
-    await runPort.createPendingAction(runId, {
-      actionId: `${runId}:call-shapeless`,
-      kind: "approval",
-      payload: { callId: "call-shapeless" },
-    });
-    await runPort.createPendingAction(runId, {
-      actionId: `${runId}:call-empty`,
-      kind: "ask",
-      payload: { callId: "", questions: [] },
-    });
-    const still = await execution.pendingActionEvents(runId);
-    expect(still.map((e) => e.type)).toEqual(["approval_requested", "ask_requested"]);
-  });
-
-  test("commit_failed run: SSE reports failed WITHOUT aborting the Product run", async () => {
-    const aborted: string[] = [];
-    const events: string[] = [];
-    const stream = runEventStreamFor(
-      { status: "commit_failed" },
-      {
-        isLive: () => false,
-        isInflight: () => false,
-        isParked: async () => false,
-        abortStaleRun: async (id) => {
-          aborted.push(id);
-        },
-        subscribe: () => (async function* () {})(),
-        pendingActionEvents: async () => [],
-      },
-      "r-cf",
-    );
-    for await (const ev of stream) events.push(ev.type);
-    // The stored outcome is the terminal authority; retryTerminalCommit owns
-    // recovery. The SSE must NOT touch the run.
-    expect(events).toEqual(["status"]);
-    expect(aborted).toEqual([]);
-  });
 });

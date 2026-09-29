@@ -419,7 +419,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         // Every terminal path (outcome, preflight failure, crash) funnels
         // here: the run's product-tools bearer dies with the run.
         deps.productToolsTokenRegistry.revoke(runId);
-        liveEvents.closeSubscribers(runId);
+        liveEvents.forgetRun(runId);
         debugLog("agent-run", `dispatch_end runId=${runId}`);
       }
     })();
