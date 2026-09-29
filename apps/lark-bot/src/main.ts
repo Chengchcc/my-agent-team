@@ -44,6 +44,11 @@ const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 // ─── AHP watchers: one per bound conversation (ADR 0040 surface contract) ───
 const watchers = new Map<string, WatcherHandle>();
 
+// Run cards answer runs in these same conversations, and the chat state that arrives at the
+// watcher below is where they read what their run is doing (ADR 0040 decision 4). They are
+// declared before the watchers so a state arriving during startup already has somewhere to go.
+const cardWatchers = new Map<string, RunCardWatcherHandle>();
+
 function ensureWatcher(conversationId: string, larkChatId: string) {
   if (watchers.has(conversationId)) return;
   const handle = watchConversationOverAhp(conversationId, larkChatId, {
@@ -71,6 +76,11 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
         throw new Error(msg);
       }
     },
+    // One update path for the channel: a state that does not carry a card's run is a no-op
+    // there, so broadcasting costs a map walk and keeps the seam free of routing tables.
+    onChatState: (chat) => {
+      for (const handle of cardWatchers.values()) void handle.update(chat);
+    },
     // M15.1: Handle conversation rebind from surface.control
     onRebind: (oldConvId, newConvId) => {
       const oldWatcher = watchers.get(oldConvId);
@@ -81,7 +91,7 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
       ensureWatcher(newConvId, larkChatId);
     },
     // M15.1: Send text directly to Lark (not through conversation ingest).
-    // Still inside the topic (ADR 0037): the SSE bridge knows the conversation,
+    // Still inside the topic (ADR 0037): the watcher knows the conversation,
     // whose binding carries the chat mode and the topic root it was created by.
     sendTextOnly: async (chatId, text) => {
       const result = await sendIntoTopic({
@@ -97,10 +107,10 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     },
   });
   watchers.set(conversationId, handle);
-  console.log(`[lark-bot] SSE watcher started: ${conversationId} → ${larkChatId}`);
+  console.log(`[lark-bot] AHP watcher started: ${conversationId} → ${larkChatId}`);
 }
 
-// Restore SSE watchers for existing conversations (one per topic)
+// Restore AHP watchers for existing conversations (one per topic)
 for (const binding of listConversationBindings(state.db)) {
   ensureWatcher(binding.conversationId, binding.larkChatId);
 }
@@ -111,7 +121,6 @@ for (const binding of listConversationBindings(state.db)) {
 // and the rare plain-text fallback sends.
 const cardTokens = createTokenProvider(profile);
 const cardClient = createCardKitClient(cardTokens);
-const cardWatchers = new Map<string, RunCardWatcherHandle>();
 
 async function startRunCard(
   runId: string,

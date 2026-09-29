@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { extractText } from "@chengchenccc/message";
+import type { ChatState } from "@microsoft/agent-host-protocol";
 import { z } from "zod";
 import {
   getRunCard,
@@ -13,17 +14,18 @@ import { swapAckReaction } from "./ack-reaction.js";
 import type { CardKitClient } from "./card-kit.js";
 import { renderCard } from "./card-renderer.js";
 import {
-  applyRunEvent,
+  cardStateFromChatTurn,
   initialRunCardState,
   type PendingActionState,
   pendingActionFromBackend,
   type RunCardState,
+  terminalFromRunStatus,
 } from "./card-state.js";
 import { createCardUpdater } from "./card-updater.js";
 
 /**
  * ADR 0031: the streaming card lifecycle for one Agent Run.
- * Consumes the Run SSE (transient) and drives a CardKit card entity:
+ * Fed the chat channel's state (ADR 0040 decision 4) and drives a CardKit card entity:
  * create (+ streaming_mode) → send the card_id reference → stream the
  * cumulative text into the output element (the client renders appends with
  * a typewriter) → terminal full-card replace sealed from the canonical
@@ -69,6 +71,9 @@ export interface RunCardWatcherOptions {
 
 export interface RunCardWatcherHandle {
   runId: string;
+  /** Feed the chat channel's state in. The card reads its own run out of it (ADR 0040 decision 4),
+   *  so a state that does not carry this run is a no-op and the caller may broadcast. */
+  update: (chat: ChatState) => Promise<void>;
   close: () => void;
 }
 
@@ -134,6 +139,23 @@ export async function fetchPendingActions(
   return pendingActionFromBackend(record.kind, record.payload);
 }
 
+/** The run's own status, for the one case the chat state cannot answer: a run that settled
+ *  before it ever produced a turn. A product read, not a stream. */
+async function fetchRunStatus(
+  backendUrl: string,
+  token: string | null,
+  runId: string,
+): Promise<string | null> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers["x-auth-token"] = token;
+  const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
+  if (!resp.ok) return null;
+  const body = z
+    .object({ run: z.object({ status: z.string() }).optional() })
+    .parse(await resp.json());
+  return body.run?.status ?? null;
+}
+
 async function fetchRunOutcome(
   backendUrl: string,
   token: string | null,
@@ -168,15 +190,16 @@ export async function watchRunCard(
   const replyTo = opts.replyTo ?? null;
   const replyInThread = opts.replyInThread === true;
   let aborted = false;
-  let reconnectTimer: Timer | undefined;
-  let abortController: AbortController | null = null;
+  /** One product read per card, only if the state never carries its run (see `update`). */
+  let settleChecked = false;
 
   const meta = { runId, startedAt: Date.now(), webUrl };
 
   // Restart recovery: reuse the row (card entity, sequence, output).
   const existing = getRunCard(db, runId);
   if (existing && !["creating", "streaming", "waiting"].includes(existing.status)) {
-    return { runId, close: () => {} };
+    // Already settled: nothing will ever update this card again.
+    return { runId, update: async () => {}, close: () => {} };
   }
   if (!existing) {
     insertRunCard(db, { runId, conversationId, larkChatId, sourceMessageId: null });
@@ -388,15 +411,6 @@ export async function watchRunCard(
     }
   }
 
-  function scheduleReconnect(delayMs: number) {
-    if (aborted) return;
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = undefined;
-      void drive();
-    }, delayMs);
-  }
-
   const drive = async () => {
     if (aborted) return;
 
@@ -438,111 +452,49 @@ export async function watchRunCard(
       if (replyTo === null) setTopicRoot(db, conversationId, sent.messageId);
       persist();
     }
+  };
 
-    abortController = new AbortController();
-    const headers: Record<string, string> = { Accept: "text/event-stream" };
-    if (backendAuthToken) headers["x-auth-token"] = backendAuthToken;
-
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    try {
-      const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}/events`, {
-        headers,
-        signal: abortController.signal,
-      });
-      if (!resp.ok || !resp.body) {
-        scheduleReconnect(5000);
-        return;
-      }
-      reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let currentData = "";
-
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) {
-          // Stream ends only after the run settled (late-subscription
-          // semantics); if we somehow missed the terminal event, fetch the
-          // run once to decide instead of looping forever.
-          const outcome = await fetchRunOutcome(backendUrl, backendAuthToken, runId).catch(
-            () => null,
-          );
-          if (outcome || state.terminal) {
-            if (!state.terminal) {
-              state = applyRunEvent(state, { type: "status", status: "completed" });
-            }
-            await updater.finish();
-            await seal();
-            await leaveTerminalReaction();
-          } else {
-            scheduleReconnect(2000);
-          }
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            currentData += currentData ? `\n${line.slice(6)}` : line.slice(6);
-          } else if (line === "" && currentData) {
-            try {
-              const ev: { type?: string } = JSON.parse(currentData);
-              if (ev?.type) {
-                const before = state;
-                state = applyRunEvent(state, ev as never);
-                if (state !== before) {
-                  if (state.terminal) {
-                    await updater.finish();
-                    await seal();
-                    await leaveTerminalReaction();
-                    return;
-                  }
-                  maybeFlush(state.output.length - before.output.length);
-                }
-              }
-            } catch {
-              /* malformed frame — skip, never reconnect-loop on it */
-            }
-            currentData = "";
-          }
-        }
-      }
-    } catch (err) {
-      if (!aborted) {
-        console.error(
-          `[run-card] stream error for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        scheduleReconnect(5000);
-      }
-    } finally {
-      if (reader) {
-        try {
-          await reader.cancel();
-        } catch {
-          /* cleanup */
-        }
-        try {
-          reader.releaseLock();
-        } catch {
-          /* cleanup */
-        }
-      }
+  /** The chat channel's state in, the card's next frame out. This is the whole update path: the
+   *  run knows nothing else about itself (ADR 0040 decision 4). An update that carries no new
+   *  text still flushes, because the phase and the steps may have moved. */
+  const update = async (chat: ChatState): Promise<void> => {
+    if (aborted) return;
+    const next = cardStateFromChatTurn(chat, runId, Date.now());
+    if (next === undefined) {
+      // No turn for this run in a state that HAS been sent: if the run is already over it will
+      // never produce one, so the card takes the product's word once instead of saying
+      // "thinking" forever. A live run just waits for the next state.
+      if (settleChecked) return;
+      settleChecked = true;
+      const terminal = terminalFromRunStatus(
+        await fetchRunStatus(backendUrl, backendAuthToken, runId).catch(() => null),
+      );
+      if (terminal === null) return;
+      state = { ...state, terminal };
+      await updater.finish();
+      await seal();
+      await leaveTerminalReaction();
+      return;
     }
+    const before = state;
+    state = next;
+    if (state.terminal) {
+      await updater.finish();
+      await seal();
+      await leaveTerminalReaction();
+      return;
+    }
+    maybeFlush(Math.max(0, state.output.length - before.output.length));
   };
 
   void drive();
 
   return {
     runId,
+    update,
     close: () => {
       aborted = true;
       stopTicker();
-      clearTimeout(reconnectTimer);
-      reconnectTimer = undefined;
-      abortController?.abort();
     },
   };
 }

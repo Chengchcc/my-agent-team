@@ -30,6 +30,9 @@ export interface AhpDeliveryDeps {
   readonly onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
   readonly onRebind?: (oldConversationId: string, newConversationId: string) => void;
   readonly sendTextOnly?: (chatId: string, text: string) => Promise<void>;
+  /** The state itself, for whatever else watches this conversation. The run card reads its own
+   *  run out of it (ADR 0040 decision 4), so it is fed the same snapshot the delivery is. */
+  readonly onChatState?: (state: ChatState, target: AhpDeliveryTarget) => void | Promise<void>;
 }
 
 /** Sends whatever the state says has not been sent yet. Safe to re-run. */
@@ -44,6 +47,7 @@ export async function deliverChatState(
   if (state.activeTurn) {
     await deliverParts(state.activeTurn.responseParts, target, deps);
   }
+  await deps.onChatState?.(state, target);
 }
 
 async function deliverParts(

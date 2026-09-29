@@ -19,10 +19,10 @@ tags: [lark, surfaces, backend]
 - `apps/lark-bot/src/main.ts` — 起 `lark-cli event consume`、按行解析、watcher 表、重绑、心跳、退出处理
 - `apps/lark-bot/src/ingest.ts` — 入站主管线与 `/stop` 控制命令
 - `apps/lark-bot/src/bindings-sqlite.ts` — 五张表的读写与 `rebindChatConversation`
-- `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（事件→状态的纯 reducer）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
+- `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（从 chat 状态读出卡片状态的纯函数）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
 - `apps/lark-bot/scripts/probe-cards.ts` — 把真实渲染出的每种卡片 POST 给建卡接口，做线级校验（不给任何聊天发消息）
 - `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
-- `apps/lark-bot/src/ahp-watcher.ts` 与 `ahp-delivery.ts` — 出站：AHP 连接、按 chat 状态判定投递、续接改绑
+- `apps/lark-bot/src/ahp-watcher.ts` 与 `ahp-delivery.ts` — 出站：AHP 连接、按 chat 状态判定投递、续接改绑；每份状态投递完再转给跑动卡（`onChatState`），卡片和文本读的是同一份事实
 - `apps/lark-bot/src/markdown-normalizer.ts` — 行到文本的换行与截断（跑动卡的渲染仍在用）
 - `apps/lark-bot/src/sender.ts` 与 `send-text-only.ts` — 经 lark-cli 投递
 - `apps/lark-bot/src/{bootstrap,args,event-parser,client,safe-agent-id,diagnostics}.ts` — 启动、参数、事件解析、treaty 客户端、id 安全化、心跳
@@ -82,11 +82,11 @@ canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值
 
 ## Run 卡片（ADR 0031 第一期）
 
-ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并发送引用消息，状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。**loop 事件先归并成运行视图、绝不直接映射**：`thinking_delta` 只产生阶段词（原始推理永不进 Lark）、`text_delta` 是唯一逐字流（主输出区）、工具事件折叠成「当前动作 + 已完成步骤」摘要（结果按 `result.isError` 判成败，原始输入输出留在 Web）、`approval_request` 携带 callId 切换审批帧。**热路径直连 CardKit OpenAPI**（`run-card/card-kit.ts`，纯 fetch）；tenant token 由 `lark-api.ts` 从 lark-cli 本地密钥库解出 secret 自行铸造并缓存——lark-cli 只保留 profile 管理、入站事件与普通文本发送。
+ingest 拿到 `triggeredRuns` 后立刻为每个 run 建 CardKit 卡片实体并发送引用消息，状态机 `creating → streaming → waiting → completed | failed | cancelled | fallback_text`。**卡片的来源是 chat 状态里的那一轮，那条 Run 流不再有消费者**（ADR 0040）：run 就是它的 turn，markdown 片段是唯一逐字流（主输出区），工具调用片段折叠成「当前动作 + 已完成步骤」摘要（成败看片段的 `success`，原始输入输出留在 Web），还没答复的 `inputRequest` 片段就是按钮，`_meta.todos` 是计划条；推理片段永不进 Lark，用阶段词代替。turn 折进 `turns` 即封版。**热路径直连 CardKit OpenAPI**（`run-card/card-kit.ts`，纯 fetch）；tenant token 由 `lark-api.ts` 从 lark-cli 本地密钥库解出 secret 自行铸造并缓存——lark-cli 只保留 profile 管理、入站事件与普通文本发送。
 
-oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：backend 注入、执行、鉴权后以标准 Run SSE 事件下发，卡片只是投影的一环。`backend.oma.todo_update` 的计划条渲染进过程区（最近 5 条，`done` ✓ / `in_progress` ● / `cancelled` ✗ / `pending` ○）；`ask_requested` 把第一题解析成 `pendingAction`（题面 + 选项 + 是否允许自由输入），活卡据此把「停止」换成选项按钮。**todo 状态词表属于生产方（oma todo 插件：`pending | in_progress | done | cancelled`），卡片不得自造词表**——两端的形状定义收敛在 `packages/api-contract/src/sse.ts` 的 `OmaTodoItem`（Web reducer 同样复用），`done` 曾被卡片侧误写成 `completed` 而整条丢失。
+oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：backend 注入、执行、鉴权后由投影带进 chat 状态，卡片只是投影的一环。`_meta.todos` 的计划条渲染进过程区（最近 5 条，`done` ✓ / `in_progress` ● / `cancelled` ✗ / `pending` ○）；未答复的 `inputRequest` 片段把第一题解析成 `pendingAction`（题面 + 选项 + 是否允许自由输入），活卡据此把「停止」换成选项按钮；产品 payload 挂在片段的 `_meta.productRequest` 上，那是本仓库的约定，上游 `ChatInputRequest` 没有这个槽。**todo 状态词表属于生产方（oma todo 插件：`pending | in_progress | done | cancelled`），卡片不得自造词表**——两端的形状定义收敛在 `packages/api-contract/src/sse.ts` 的 `OmaTodoItem`（Web reducer 同样复用），`done` 曾被卡片侧误写成 `completed` 而整条丢失。
 
-工具步骤那行显示的是**子进程自己声明的活动**（`native_tool_started.activity`，由 oma 的 `Tool.describeStart` 产出并清洗过，见 [Oma Tools](../runtime/oma-tools.md#活动描述工具自己声明)），不是卡片从工具名猜出来的摘要——早先那版把 `bash` 映射成「执行命令」、`read` 映射成「读取文件」，那是在声称自己知道工具在做什么。没有 `activity` 时只显示 `正在调用 <名字>`（MCP 名字读作 `server · tool`）。有专用事件的产品工具（`todo_write`、`ask_question`）不进过程条：判断走 `api-contract` 的 `hasDedicatedEvent()`，**按叶子名匹配**——线上名字是全限定的 `mcp__product-tools__todo_write`（backend workspace-bridge 写进 `.mcp.json`、oma `mcp-mount.ts` 拼成 `mcp__<server>__<tool>`），直等裸名永远不命中，这个坑先踩在 Web 的四处过滤上、又踩在飞书首版上。
+工具步骤那行显示的是**子进程自己声明的活动**（协议里是工具调用片段的 `intention`，也就是 oma 的 `Tool.describeStart` 产出并清洗过的活动串；它缺席时才读协议放在调用上的 `invocationMessage`，见 [Oma Tools](../runtime/oma-tools.md#活动描述工具自己声明)），不是卡片从工具名猜出来的摘要——早先那版把 `bash` 映射成「执行命令」、`read` 映射成「读取文件」，那是在声称自己知道工具在做什么。没有 `activity` 时只显示 `正在调用 <名字>`（MCP 名字读作 `server · tool`）。有专用事件的产品工具（`todo_write`、`ask_question`）不进过程条：判断走 `api-contract` 的 `hasDedicatedEvent()`，**按叶子名匹配**——线上名字是全限定的 `mcp__product-tools__todo_write`（backend workspace-bridge 写进 `.mcp.json`、oma `mcp-mount.ts` 拼成 `mcp__<server>__<tool>`），直等裸名永远不命中，这个坑先踩在 Web 的四处过滤上、又踩在飞书首版上。
 
 - **传输分层（决策 9）**：正文逐字 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画；正文/过程条/状态行三个元素各自只推变化）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，也是按钮集变化的唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
 - **节流与节拍**：150ms/120 字符合并、单飞 flush（互斥 + 补刷 + 只推变化元素）；另有一个 1 秒状态节拍器，保证「耗时 N 秒」在模型思考/工具运行期间也每秒跳动（内容没变就不发请求）。
@@ -96,7 +96,7 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 - **回调载荷形状**：lark-cli 把事件摊平成顶层 snake_case 键（`event_id`/`operator_id`/`chat_id`/`message_id`/`action_tag`/`action_value`），不是 Lark 原始 schema 的 `action.value`——`card-actions.ts` 按这个形状取值，测试 fixture 也照此构造。
 - **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态）。
 - **幂等键**：飞书 `--idempotency-key` 有 **50 字符上限**（99992402），自然键天然超限，统一 `larkIdempotencyKey()` 哈希成 40 位十六进制。
-- **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；Run SSE 晚订阅语义保证已结算 run 立即给终态。
+- **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；AHP 重连后先收到快照，折进 `turns` 的轮次一到就封版，所以迟到的卡片也能拿到终态。
 - **配额警示**：每应用**卡片实体绑定数有配额**（错误 200780，实测约 18 张触发）；高频部署需关注，或为超配额场景保留 IM-patch 降级路径。
 
 ## 排队卡片（ADR 0037：一轮 = 一张卡）

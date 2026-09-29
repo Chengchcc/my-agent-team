@@ -1,15 +1,16 @@
 import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
 import { hasDedicatedEvent, OmaTodoItem } from "@chengchenccc/api-contract";
 import type { ChatState } from "@microsoft/agent-host-protocol";
+import { z } from "zod";
 
 /**
- * ADR 0031: pure reducer from Run SSE events to the card's display state.
+ * ADR 0031: the card's display state, read out of the chat channel (ADR 0040 decision 4).
  * Kept free of I/O so the whole projection is unit-testable.
  *
- * Process view: loop events are FOLDED, never mirrored — thinking shows a
- * phase word only, tools archive as summarized completed steps, text_delta
- * is the single streaming surface. Todo and ask come from oma product
- * tools via backend (never parsed from text_delta by the Lark surface).
+ * Process view: a run is a turn, so the card mirrors what the protocol already folded rather
+ * than re-deriving it — thinking shows a phase word only, tools archive as summarized completed
+ * steps, and the markdown parts are the single streaming surface. Todo and ask arrive as parts
+ * the projection typed (never parsed out of markdown by the Lark surface).
  */
 
 export interface ActiveTool {
@@ -160,14 +161,6 @@ export function initialRunCardState(): RunCardState {
   };
 }
 
-const TERMINAL_RUN_STATUSES: Record<string, "completed" | "failed" | "cancelled"> = {
-  completed: "completed",
-  failed: "failed",
-  cancelled: "cancelled",
-  aborted: "cancelled",
-  commit_failed: "failed",
-};
-
 /** The line shown for a tool call. The child sends an activity string it
  *  authored and sanitized (oma `Tool.describeStart`); when a tool cannot
  *  describe itself, the tool name is the only honest thing left — the card
@@ -191,39 +184,15 @@ export function toolActivity(
   return `正在调用 ${raw || "工具"}`;
 }
 
-export interface RunStreamEvent {
-  type: string;
-  status?: string;
-  error?: string;
-  text?: string;
-  toolName?: string;
-  callId?: string;
-  activity?: string;
-  /** Structured display metadata the tool authored (title/detail/summaries). */
-  presentation?: {
-    title: string;
-    detail?: string;
-    resultSummary?: string;
-    errorSummary?: string;
-  };
-  result?: unknown;
-  payload?:
-    | {
-        callId?: string;
-        toolName?: string;
-        questions?: unknown;
-        items?: unknown;
-      }
-    | undefined;
+/** A plain object, or undefined. The contract audit bans bare casts in this app, so the shape is
+ *  validated rather than asserted - which also means a payload that is not an object cannot
+ *  reach the builders below. */
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  const parsed = PlainRecord.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
-/** A plain object, or undefined. The contract audit bans bare casts in this app, so shapes are
- *  narrowed by inspection rather than asserted. */
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
+const PlainRecord = z.record(z.string(), z.unknown());
 
 /** The protocol lets an invocation message be a plain string or markdown; the card wants the
  *  line, so both forms fold to one. */
@@ -231,11 +200,6 @@ function invocationLine(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   const markdown = recordOf(value)?.["markdown"];
   return typeof markdown === "string" ? markdown : undefined;
-}
-
-function isErrorResult(result: unknown): boolean {
-  if (typeof result !== "object" || result === null) return false;
-  return "isError" in result && result.isError === true;
 }
 
 /** Parse todo items with the shared wire schema — the same definition the
@@ -292,6 +256,24 @@ function parseAskQuestion(questions: unknown): PendingActionState | null {
  *
  *  Read-only and total: it never guesses. A part it does not recognise is skipped, and an
  *  unanswered question is the only thing that puts buttons on the card. */
+/** A run that settled without ever producing a turn: the state has nothing to read, and the card
+ *  must not sit on "thinking" forever. The caller supplies the product fact - the run's status -
+ *  because that is a run fact, not something the chat channel carries. */
+export function terminalFromRunStatus(status: string | null | undefined): RunCardState["terminal"] {
+  switch (status) {
+    case "completed":
+      return { status: "completed", error: null };
+    case "failed":
+    case "commit_failed":
+      return { status: "failed", error: null };
+    case "cancelled":
+    case "aborted":
+      return { status: "cancelled", error: null };
+    default:
+      return null;
+  }
+}
+
 export function cardStateFromChatTurn(
   state: ChatState,
   runId: string,
@@ -378,102 +360,4 @@ export function cardStateFromChatTurn(
     todos: parseTodoItems(state._meta?.todos),
     terminal,
   };
-}
-
-export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardState {
-  if (state.terminal) return state;
-
-  switch (ev.type) {
-    case "status": {
-      const mapped = ev.status ? TERMINAL_RUN_STATUSES[ev.status] : undefined;
-      if (mapped) {
-        return {
-          ...state,
-          waiting: null,
-          pendingAction: null,
-          activeTool: null,
-          terminal: { status: mapped, error: ev.error ?? null },
-        };
-      }
-      if (ev.status === "running") return { ...state, phase: "streaming" };
-      return state;
-    }
-    case "thinking_delta": {
-      return state.activeTool === null && state.phase !== "thinking"
-        ? { ...state, phase: "thinking" }
-        : state;
-    }
-    case "text_delta": {
-      const next: RunCardState = {
-        ...state,
-        phase: "streaming",
-        output: state.output + (ev.text ?? ""),
-      };
-      return state.waiting !== null || state.activeTool !== null
-        ? { ...next, waiting: null, pendingAction: null, activeTool: null }
-        : next;
-    }
-    case "native_tool_started": {
-      // Product tools own a dedicated event; a generic step for them would
-      // be the "正在调用 todo_write" degradation. The wire name is MCP-qualified.
-      if (hasDedicatedEvent(ev.toolName)) return state;
-      return {
-        ...state,
-        phase: "tool_running",
-        waiting: null,
-        pendingAction: null,
-        activeTool: {
-          label: toolActivity(ev.activity, ev.toolName, ev.presentation),
-          startedAt: Date.now(),
-        },
-      };
-    }
-    case "native_tool_completed": {
-      if (hasDedicatedEvent(ev.toolName)) return state;
-      const completed = [
-        ...state.completedTools,
-        {
-          label: toolActivity(ev.activity, ev.toolName, ev.presentation),
-          outcome: isErrorResult(ev.result) ? ("error" as const) : ("success" as const),
-        },
-      ].slice(-MAX_COMPLETED_TOOLS);
-      return { ...state, activeTool: null, completedTools: completed };
-    }
-    case "approval_requested": {
-      const callId = ev.payload?.callId ?? null;
-      if (!callId) return state;
-      return {
-        ...state,
-        phase: "streaming",
-        waiting: "approval",
-        pendingAction: {
-          callId,
-          kind: "approval",
-          prompt: buildApprovalPrompt(ev.payload ?? {}),
-          ...approvalFacts(ev.payload ?? {}),
-          options: [],
-          allowFreeText: false,
-          questionId: "",
-        },
-      };
-    }
-    case "ask_requested": {
-      const callId = ev.payload?.callId ?? null;
-      const parsed = parseAskQuestion(ev.payload?.questions);
-      if (!callId || !parsed) return state;
-      return {
-        ...state,
-        phase: "streaming",
-        waiting: "ask",
-        pendingAction: { ...parsed, callId },
-      };
-    }
-    case "backend.oma.todo_update": {
-      const todos = parseTodoItems(ev.payload?.items);
-      if (todos.length === 0) return state;
-      return { ...state, todos };
-    }
-    default:
-      return state;
-  }
 }

@@ -3,7 +3,7 @@
  *  whatever its turn says, and nothing here guesses. */
 import { describe, expect, test } from "bun:test";
 import type { ChatState } from "@microsoft/agent-host-protocol";
-import { cardStateFromChatTurn } from "./card-state.js";
+import { cardStateFromChatTurn, terminalFromRunStatus } from "./card-state.js";
 
 const markdown = (content: string, id = "t0") => ({ kind: "markdown", id, content });
 
@@ -217,5 +217,21 @@ describe("the card state from a chat turn", () => {
 
   test("a run the state does not know gives no card", () => {
     expect(cardStateFromChatTurn(state({}), "run-1")).toBeUndefined();
+  });
+});
+
+describe("a run that never produced a turn", () => {
+  test("the product's own status decides the terminal", () => {
+    expect(terminalFromRunStatus("completed")).toEqual({ status: "completed", error: null });
+    expect(terminalFromRunStatus("failed")).toEqual({ status: "failed", error: null });
+    expect(terminalFromRunStatus("commit_failed")).toEqual({ status: "failed", error: null });
+    expect(terminalFromRunStatus("cancelled")).toEqual({ status: "cancelled", error: null });
+    expect(terminalFromRunStatus("aborted")).toEqual({ status: "cancelled", error: null });
+  });
+
+  test("a live run stays open, and so does a status nobody mapped", () => {
+    for (const status of ["running", "waiting", "queued", "something_new", null, undefined]) {
+      expect(terminalFromRunStatus(status)).toBeNull();
+    }
   });
 });
