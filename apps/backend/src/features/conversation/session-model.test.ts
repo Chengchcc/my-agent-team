@@ -203,3 +203,52 @@ describe("buildTurns", () => {
     expect(turns[0]?.input).toBeUndefined();
   });
 });
+
+test("a failed run folds its persisted bubble into a trailing error part", () => {
+  const bubble = JSON.stringify({
+    messageId: "run:r-fail:error",
+    state: "error",
+    role: "assistant",
+    text: "boom",
+    visibility: "conversation",
+    updatedAt: 2,
+    error: { message: "boom", code: "run_failed" },
+  } satisfies MessageRevision);
+  const turns = buildTurns({
+    ledger: [
+      ledgerRow("r-fail", 0, revision({ messageId: "a1", role: "assistant", text: "working" })),
+      // The bubble carries no run id: its messageId is what says which run it belongs to.
+      { seq: ++seq, conversationId: "conv-1", content: bubble, agentRunId: null, messageIndex: 0 },
+    ],
+    queue: [queueRow("r-fail", { role: "user", text: "go" })],
+    runs: [{ runId: "r-fail", status: "failed" }],
+    pendingActions: [],
+  });
+  expect(turns).toHaveLength(1);
+  expect(turns[0]!.status).toBe("failed");
+  expect(turns[0]!.parts.map((p) => p.kind)).toEqual(["text", "error"]);
+  expect(turns[0]!.parts[1]).toMatchObject({
+    kind: "error",
+    message: "boom",
+    code: "run_failed",
+  });
+});
+
+test("a ledger row that names no run stays out of the model", () => {
+  const note = JSON.stringify({
+    messageId: "sys-1",
+    state: "done",
+    role: "system",
+    text: "note",
+    updatedAt: 1,
+  } satisfies MessageRevision);
+  const turns = buildTurns({
+    ledger: [
+      { seq: ++seq, conversationId: "conv-1", content: note, agentRunId: null, messageIndex: 0 },
+    ],
+    queue: [],
+    runs: [{ runId: "r-1", status: "completed" }],
+    pendingActions: [],
+  });
+  expect(turns[0]!.parts).toEqual([]);
+});

@@ -11,6 +11,7 @@
 import {
   attachInputRequests,
   type CanonicalInputRequest,
+  type CanonicalPart,
   type CanonicalTurn,
   type CanonicalTurnStatus,
   deserializeLedgerContent,
@@ -61,13 +62,16 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
   const messagesByRun = groupLedgerMessages(input.ledger);
   const inputByRun = mapQueueInputs(input.queue);
   const requestsByRun = mapPendingActions(input.pendingActions);
+  const errorByRun = errorPartsByRun(input.ledger);
 
   return input.runs.map((run) => {
     const requests = requestsByRun.get(run.runId) ?? [];
-    const parts = attachInputRequests(
+    const attached = attachInputRequests(
       turnPartsFromMessages(messagesByRun.get(run.runId) ?? []),
       requests,
     );
+    const errorPart = errorByRun.get(run.runId);
+    const parts = errorPart ? [...attached, errorPart] : attached;
     const message = inputByRun.get(run.runId);
     return {
       turnId: run.runId,
@@ -76,6 +80,43 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
       parts,
     };
   });
+}
+
+/** 失败轮次的错误片段。T3-2 的持久化气泡（`run:<runId>:error`）不挂 `agent_run_id`，
+ *  按 run 归组会被跳过，失败事实就进不了规范模型。它用 messageId 指认自己属于哪个 Run，
+ *  折成那一轮的末尾；账本行本身保留，等 surface 切到规范模型后再撤掉写入方。 */
+function errorPartsByRun(ledger: readonly SessionModelLedgerRow[]): Map<string, CanonicalPart> {
+  const out = new Map<string, CanonicalPart>();
+  for (const row of ledger) {
+    if (row.agentRunId !== null) continue;
+    let revision: {
+      messageId?: unknown;
+      error?: { message?: unknown; code?: unknown };
+      text?: unknown;
+    };
+    try {
+      revision = deserializeLedgerContent(row.content) as typeof revision;
+    } catch {
+      continue;
+    }
+    const messageId = revision.messageId;
+    if (typeof messageId !== "string") continue;
+    const match = /^run:(.+):error$/.exec(messageId);
+    if (!match) continue;
+    const error = revision.error ?? {};
+    const message =
+      typeof error.message === "string"
+        ? error.message
+        : typeof revision.text === "string"
+          ? revision.text
+          : "run failed";
+    out.set(match[1]!, {
+      kind: "error",
+      message,
+      ...(typeof error.code === "string" ? { code: error.code } : {}),
+    });
+  }
+  return out;
 }
 
 function groupLedgerMessages(ledger: readonly SessionModelLedgerRow[]): Map<string, Message[]> {
