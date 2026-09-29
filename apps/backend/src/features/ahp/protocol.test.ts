@@ -1,5 +1,5 @@
-/** 互操作用例：官方 TS 客户端连我们的服务端核心（ADR 0040 决策二的升级闸门）。
- *  传输用上游的内存对，不需要端口。 */
+/** Interop vectors: the official TS client against our server core (the upgrade gate of
+ *  ADR 0040 decision 2). The transport is upstream's in-memory pair, so no port is needed. */
 import { describe, expect, test } from "bun:test";
 import type { SessionLifecycle, SessionStatus, URI } from "@microsoft/agent-host-protocol";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@microsoft/agent-host-protocol";
@@ -13,7 +13,8 @@ import { AHP_ROOT, type AhpServer, type AhpStateSource, createAhpServer } from "
 const SESSION_URI = "ahp-session:/s1";
 const CHAT_URI = "ahp-chat:/c1";
 
-/** 命令端口：记下客户端命令，可选地再应用到频道状态上（模拟产品侧处理）。 */
+/** The command port: records client commands and optionally applies them to channel state,
+ *  standing in for the product side. */
 function createPort(onSubmit?: (command: { channel: string; action: unknown }) => void) {
   const calls: Array<{ channel: string; action: unknown; origin: unknown }> = [];
   const port = {
@@ -48,11 +49,11 @@ function fakeSource(): AhpStateSource {
   };
 }
 
-/** 把内存传输的一半接到服务端连接上。 */
+/** Wires one half of the in-memory transport to a server connection. */
 function connect(server: AhpServer) {
   const [clientSide, serverSide] = InMemoryTransport.pair();
-  // `received` 记的是服务端**发出**的帧（在 send 回调里），drain 循环只负责把
-  // 客户端发来的帧喂进 handle。
+  // `received` records the frames the server **sends** (in the send callback); the drain loop
+  // only feeds frames the client sends into `handle`.
   const received: string[] = [];
   const connection = server.createConnection((frame) => {
     received.push(frame);
@@ -204,7 +205,7 @@ describe("AHP server core against the official client", () => {
     } as never);
     await Bun.sleep(10);
 
-    // 命令到了产品侧，带着来源；协议模块自己不改变这根频道的状态。
+    // The command reaches the product side with its origin; the protocol module does not touch
     expect(calls).toHaveLength(1);
     expect(calls[0]?.channel).toBe(SESSION_URI);
     expect(calls[0]?.action).toMatchObject({ type: "session/titleChanged", title: "renamed" });
@@ -213,7 +214,7 @@ describe("AHP server core against the official client", () => {
     const stillOld = await client.subscribe(SESSION_URI);
     expect((stillOld.result.snapshot?.state as { title?: string }).title).toBe("session");
 
-    // 产品侧做完后把结果作为动作派发，两端随即收敛（同一份 reducer）。
+    // this channel's state itself. It dispatches the result, and both ends converge.
     await server.dispatch(SESSION_URI, { type: "session/titleChanged", title: "renamed" } as never);
     await Bun.sleep(10);
     expect(mirror.sessions.get(SESSION_URI)?.title).toBe("renamed");
@@ -308,7 +309,7 @@ describe("AHP server core against the official client", () => {
     expect(replay.type).toBe("replay");
     expect(replay.actions).toHaveLength(2);
 
-    // 差距超出缓冲：回快照而不是无限重放。
+    // Gap beyond the buffer: fall back to a snapshot instead of replaying without bound.
     for (const title of ["c", "d", "e"]) {
       await server.dispatch(SESSION_URI, { type: "session/titleChanged", title } as never);
     }

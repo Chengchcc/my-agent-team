@@ -1,4 +1,5 @@
-/** 面挂载点的路由级向量：票制入口与「产品侧持有 server」这两件事。 */
+/** Route-level vectors for the mount point: the ticket endpoint, and the product side holding
+ *  the server. */
 import { describe, expect, test } from "bun:test";
 import type { SessionLifecycle, SessionStatus } from "@microsoft/agent-host-protocol";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@microsoft/agent-host-protocol";
@@ -52,8 +53,8 @@ describe("AHP face routes", () => {
   });
 });
 
-/** 真 WS 走一遍：票是 upgrade 的门，凭票的连接要能完成一次 initialize 握手。
- *  单元测试碰不到 Elysia 的 ws 生命周期，只有真连一次才看得见。 */
+/** A real WS round trip: the ticket gates the upgrade, and a ticketed connection completes an
+ *  initialize handshake. Unit tests cannot reach Elysia's ws lifecycle; only a real connect can. */
 describe("AHP face over a real websocket", () => {
   test("no ticket is refused; a minted ticket gets a root snapshot", async () => {
     const face = faceWith();
@@ -100,7 +101,7 @@ describe("AHP face over a real websocket", () => {
       expect(reply.result?.snapshots?.[0]?.resource).toBe(AHP_ROOT);
       socket.close();
 
-      // 票是一次性的：同一张票再来一次应当被拒。
+      // The ticket is one-shot: the same ticket a second time must be refused.
       const replay = new WebSocket(`ws://127.0.0.1:${port}/ws/ahp?ticket=${ticket}`);
       const replayCode = await new Promise<number>((resolve) => {
         replay.addEventListener("close", (event) => resolve((event as CloseEvent).code));
@@ -108,7 +109,7 @@ describe("AHP face over a real websocket", () => {
       });
       expect(replayCode).toBe(4001);
     } finally {
-      // 优雅停止会等连接收尾，测试里别让它算进超时：强制停服务器。
+      // A graceful stop waits for connections, so stop the server forcibly in a test.
       (app.server as { stop?: (force?: boolean) => void } | null)?.stop?.(true);
       await app.stop().catch(() => undefined);
     }

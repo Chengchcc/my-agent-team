@@ -1,14 +1,15 @@
-/** 上游一致性向量（ADR 0040 决策二的升级闸门）。
+/** Upstream conformance vectors (the upgrade gate of ADR 0040 decision 2).
  *
- *  数据来源：github.com/microsoft/agent-host-protocol 的 `types/test-cases/reducers/`，
- *  取自 tag `v0.9.0`——**必须与 package.json 里钉的依赖同源**：仓库 HEAD 的向量比
- *  0.9.0 多十来条，拿它跑会在「上游自己都没实现的动作」上假红（实测过）。只纳入我们
- *  真正服务的三类频道：root / session / chat，共 218 条；上游另有 terminal、changeset、
- *  annotations、automation 等 54 条，属于我们不提供的频道，故未纳入。
+ *  Source: github.com/microsoft/agent-host-protocol, `types/test-cases/reducers/`, taken from
+ *  tag `v0.9.0` - it **must match the dependency pinned in package.json**: the repository HEAD
+ *  carries about a dozen more, and running those fails on actions upstream's own 0.9.0 reducers
+ *  do not implement (measured). Only the three channel kinds we serve are included - root,
+ *  session and chat, 218 vectors; upstream's other 54 (terminal, changeset, annotations,
  *
- *  每条向量都走我们自己的服务端：派发它的动作序列，再用一条新连接订阅，拿到的快照
- *  必须等于向量给出的期望状态。这样测的是**我们的**播种、reduce、快照三件事，而不是
- *  上游 reducer 自身（那部分由上游自己的测试保证）。 */
+ *  automation, ...) belong to channels we do not serve and are left out. Every vector runs
+ *  through our own server: dispatch its actions, subscribe on a fresh connection, and the
+ *  snapshot must equal the expected state. That tests **our** seeding, reduction and
+ *  snapshotting rather than upstream's reducers, which their own tests cover. */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,8 +28,9 @@ interface Vector {
   readonly expected: unknown;
 }
 
-/** 上游向量把「无值」序列化成显式 `null`，reducer 的内存结果里是缺键。两者同义，
- *  比对前统一成「丢 null 属性」（数组里的 null 是有意义的，保留）。 */
+/** Upstream serializes "no value" as an explicit `null` while a reducer's in-memory result
+ *  omits the key. The two are synonymous, so both sides drop nulls before comparing (a null
+ *  inside an array is meaningful and stays). */
 function stripNulls(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripNulls);
   if (value !== null && typeof value === "object") {
@@ -48,7 +50,7 @@ function channelOf(reducer: Vector["reducer"]): URI {
   return "ahp-chat:/conformance" as URI;
 }
 
-/** 状态源只回答这一条向量的初始状态；其余频道不参与。 */
+/** The state source answers with this vector's initial state only; no other channel is involved. */
 function sourceOf(initial: unknown): AhpStateSource {
   return {
     root: async () => initial as never,
@@ -91,7 +93,8 @@ describe("upstream conformance vectors", () => {
     const files = readdirSync(CONFORMANCE_DIR)
       .filter((name) => name.endsWith(".json"))
       .sort();
-    // 数量写死：向量被误删或少拷时，闸门要红，而不是悄悄少跑几条。
+    // A hard-coded count: dropped vectors or a partial copy turn the gate red instead of
+    // quietly running fewer.
     expect(files.length).toBe(218);
 
     const failures: string[] = [];
