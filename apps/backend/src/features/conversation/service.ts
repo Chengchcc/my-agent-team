@@ -12,7 +12,7 @@ import { DomainError } from "../../infra/domain-errors.js";
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
-import type { ConversationPort, LedgerEntry, LedgerKind } from "./ports.js";
+import type { ConversationPort, LedgerKind } from "./ports.js";
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
@@ -88,15 +88,6 @@ export interface ConversationService {
     /** Per-input model override (same-kind guard applies). */
     modelOverride?: BackendModelRef;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
-  subscribeConversation(
-    conversationId: string,
-    opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
-  ): AsyncIterable<LedgerEntry>;
-  /** Push an already-persisted ledger entry (e.g. the agent-run terminal
-   *  commit, which writes conversation_ledger directly) to live SSE
-   *  subscribers. Reads the row back by seq so the wire payload matches
-   *  what #appendAndBroadcast would have emitted. */
-  notifySeq(conversationId: string, seq: number): void;
   startNewConversationForSurface(input: {
     oldConversationId: string;
     reason: string;
@@ -171,10 +162,6 @@ class ConversationServiceImpl implements ConversationService {
 
   #idGen: () => string;
 
-  // Push-based SSE: subscribers are notified immediately when new ledger
-  // entries are appended.
-  #subscribers = new Map<string, Set<(entry: LedgerEntry) => void>>();
-
   constructor(deps: ConversationServiceDeps) {
     this.port = deps.port;
     this.#agentRuns = deps.agentRunService;
@@ -192,29 +179,9 @@ class ConversationServiceImpl implements ConversationService {
 
   // ─── Private helpers ───────────────────────────────
 
-  #notify(conversationId: string, entry: LedgerEntry) {
-    const subs = this.#subscribers.get(conversationId);
-    if (!subs) return;
-    for (const sub of subs) {
-      try {
-        sub(entry);
-      } catch (e) {
-        console.error(`[conversation] subscriber error for ${conversationId}:`, e);
-      }
-    }
-  }
-
-  /** Public push for entries written outside #appendAndBroadcast (the
-   *  agent-run terminal commit). Reads the row back so subscribers get the
-   *  exact persisted payload, matching what the normal append path emits. */
-  notifySeq(conversationId: string, seq: number): void {
-    const entry = this.port.getLedgerEntry(conversationId, seq);
-    if (entry) this.#notify(conversationId, entry);
-  }
-
-  /** Append a ledger entry and broadcast it to subscribers. Returns seq.
+  /** Append a ledger entry. Returns seq.
    *  For kind:"message", content MUST be a MessageRevision. */
-  async #appendAndBroadcast(input: {
+  async #appendEntry(input: {
     conversationId: string;
     kind: LedgerKind;
     content: unknown;
@@ -230,14 +197,6 @@ class ConversationServiceImpl implements ConversationService {
       content: serialized,
       ts,
     });
-    const entry: LedgerEntry = {
-      seq,
-      conversationId: input.conversationId,
-      kind: input.kind,
-      content: serialized,
-      ts,
-    };
-    this.#notify(input.conversationId, entry);
     return seq;
   }
 
@@ -364,7 +323,7 @@ class ConversationServiceImpl implements ConversationService {
       visibility: "conversation" as const,
       updatedAt: Date.now(),
     };
-    const seq = await this.#appendAndBroadcast({
+    const seq = await this.#appendEntry({
       conversationId: input.conversationId,
       kind: "message",
       content: userRev,
@@ -403,90 +362,6 @@ class ConversationServiceImpl implements ConversationService {
     }
 
     return { seq, triggeredRuns };
-  }
-
-  // ─── SSE projection ─────────────────────────────
-
-  async *subscribeConversation(
-    conversationId: string,
-    opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
-  ): AsyncIterable<LedgerEntry> {
-    const since = opts?.afterSeq ?? 0;
-    const pollMs = opts?.pollMs ?? 100;
-    let lastSeq = since;
-    let silentPolls = 0;
-    const heartbeatInterval = 3;
-
-    const pushBuffer: LedgerEntry[] = [];
-    let pushResolver: (() => void) | null = null;
-    const onPush = (entry: LedgerEntry) => {
-      pushBuffer.push(entry);
-      pushResolver?.();
-    };
-    const subs = this.#subscribers.get(conversationId) ?? new Set();
-    subs.add(onPush);
-    this.#subscribers.set(conversationId, subs);
-
-    try {
-      // First, yield all existing entries (catch up)
-      const initial = this.port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-      for (const entry of initial) {
-        yield entry;
-        lastSeq = entry.seq;
-      }
-
-      while (true) {
-        if (opts?.signal?.aborted) break;
-
-        while (pushBuffer.length > 0) {
-          const entry = pushBuffer.shift()!;
-          yield entry;
-          if (entry.seq > lastSeq) lastSeq = entry.seq;
-          silentPolls = 0;
-        }
-
-        if (pollMs === 0) break;
-
-        if (pushBuffer.length === 0) {
-          const pushPromise = new Promise<void>((r) => {
-            pushResolver = r;
-          });
-          const pollTimeout = new Promise<void>((r) => setTimeout(r, 5000));
-          await Promise.race([pushPromise, pollTimeout]);
-          pushResolver = null;
-
-          while (pushBuffer.length > 0) {
-            const entry = pushBuffer.shift()!;
-            yield entry;
-            if (entry.seq > lastSeq) lastSeq = entry.seq;
-          }
-
-          const entries = this.port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-          if (entries.length > 0) {
-            for (const entry of entries) {
-              yield entry;
-              lastSeq = entry.seq;
-            }
-            silentPolls = 0;
-          } else {
-            silentPolls++;
-            if (silentPolls % heartbeatInterval === 0) {
-              yield {
-                seq: 0,
-                conversationId,
-                kind: "message" as const,
-                content: "",
-                ts: Date.now(),
-                _heartbeat: true as const,
-              } as LedgerEntry & { _heartbeat: true };
-            }
-          }
-        }
-      }
-    } finally {
-      subs.delete(onPush);
-      if (subs.size === 0) this.#subscribers.delete(conversationId);
-    }
   }
 
   /** M15.1: Start a fresh conversation from a surface control tool call.
@@ -558,7 +433,7 @@ class ConversationServiceImpl implements ConversationService {
       reason,
       requestedByRunId,
     };
-    const controlSeq = await this.#appendAndBroadcast({
+    const controlSeq = await this.#appendEntry({
       conversationId: oldConversationId,
       kind: "surface.control",
       content: control,
@@ -635,7 +510,7 @@ class ConversationServiceImpl implements ConversationService {
       undoneSeqs.push(entry.seq);
     }
     if (undoneSeqs.length > 0) {
-      await this.#appendAndBroadcast({
+      await this.#appendEntry({
         conversationId: input.conversationId,
         kind: "undo",
         content: { undoneSeqs },

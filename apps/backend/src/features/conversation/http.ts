@@ -1,39 +1,7 @@
-import { conversationEvents, createSseEncoder } from "@chengchenccc/api-contract";
-import { extractText, MessageRevisionSchema } from "@chengchenccc/message";
+import { extractText } from "@chengchenccc/message";
 import { Elysia, t } from "elysia";
-import { sseResponse } from "../../http/response.js";
 import { senderLabelOf } from "./ledger-codec.js";
-import type { LedgerEntry } from "./ports.js";
 import type { ConversationService } from "./service.js";
-
-/** Map a storage LedgerEntry to the wire ConversationEvent (1:1 collapse:
- *  content arrives server-parsed; message-kind rows validate as
- *  MessageRevision, everything else rides as payload). */
-function toConversationEvent(entry: LedgerEntry) {
-  let raw: unknown;
-  try {
-    raw = typeof entry.content === "string" ? JSON.parse(entry.content) : entry.content;
-  } catch {
-    raw = undefined; // heartbeat frames carry content: ""
-  }
-  if (entry.kind === "message" && raw !== undefined && raw !== null) {
-    const rev = MessageRevisionSchema.safeParse(raw);
-    if (rev.success) {
-      return {
-        seq: entry.seq,
-        kind: entry.kind,
-        message: rev.data,
-        ...(entry.undone ? { undone: true } : {}),
-      };
-    }
-  }
-  return {
-    seq: entry.seq,
-    kind: entry.kind,
-    ...(raw === undefined ? {} : { payload: raw }),
-    ...(entry.undone ? { undone: true } : {}),
-  };
-}
 
 export function conversationRoutes(
   svc: ConversationService,
@@ -225,28 +193,6 @@ export function conversationRoutes(
           body: t.Object({ title: t.Optional(t.String()) }),
         },
       )
-      // SSE — returns raw Response (stream, not typed JSON)
-      .get("/api/conversations/:id/events", ({ request, params: { id: conversationId } }) => {
-        const req = request;
-        const qsAfterSeq = new URL(req.url).searchParams.get("afterSeq");
-        const afterSeq = qsAfterSeq
-          ? parseInt(qsAfterSeq, 10) || 0
-          : parseInt(req.headers.get("Last-Event-ID") ?? "0", 10) || 0;
-        const stream = svc.subscribeConversation(conversationId, { afterSeq, signal: req.signal });
-        const encodeConv = createSseEncoder(conversationEvents);
-        return sseResponse(
-          stream,
-          (entry) => {
-            const wire = toConversationEvent(entry);
-            return encodeConv(
-              entry.kind as keyof typeof conversationEvents,
-              wire,
-              String(entry.seq),
-            );
-          },
-          req.signal,
-        );
-      })
       .get("/api/conversations/:id/export", async ({ params: { id } }) => {
         const entries = svc.port.getLedgerEntries(id);
         const conv = svc.port.getConversation(id);

@@ -1,32 +1,5 @@
 import type { MessageRevision } from "@chengchenccc/message";
-import { MessageRevisionSchema } from "@chengchenccc/message";
 import { z } from "zod";
-
-// ── Conversation SSE payload (1:1 collapse, spec 2026-08-25) ──
-
-/** Conversation event kinds on the wire. Storage keeps a richer set; this
- *  is the surface-facing subset ("todo" has zero writers, heartbeat carries
- *  no payload). */
-export const ConversationEventKind = z.enum(["message", "undo", "surface.control"]);
-
-export type ConversationEventKind = z.infer<typeof ConversationEventKind>;
-
-/** The conversation SSE payload. The wire unit is the domain event, not the
- *  storage row: `message` arrives server-parsed and zod-validated (role is
- *  the authorship discriminator); other kinds carry a `payload`. Legacy
- *  rows whose content is not a MessageRevision surface as `payload` and are
- *  skipped by consumers, same as before the collapse. */
-export const ConversationEvent = z.object({
-  /** Ledger seq — SSE event id, replay cursor, undo/fork targeting. */
-  seq: z.number(),
-  kind: ConversationEventKind,
-  /** Present iff kind="message" and content parsed as a MessageRevision. */
-  message: MessageRevisionSchema.optional(),
-  /** Parsed non-message payloads ({ undoneSeqs }, member notices, controls). */
-  payload: z.unknown().optional(),
-  /** Soft-delete flag on replayed rows (greyed-out messages). */
-  undone: z.boolean().optional(),
-});
 
 export interface AgentMember {
   kind: "agent";
@@ -48,12 +21,6 @@ export type Member = AgentMember | HumanMember;
 export type { MessageRevision };
 
 // ── SSE event maps (event name → zod schema) ──
-
-export const conversationEvents = {
-  message: ConversationEvent,
-  undo: ConversationEvent,
-  "surface.control": ConversationEvent,
-} as const satisfies SSEEventMap;
 
 /** Display metadata for one tool call, authored by the tool (see
  *  ToolPresentation in @chengchenccc/agent-contract). Raw tool arguments and
@@ -287,10 +254,6 @@ export const agentConfigEvents = {
 } as const satisfies SSEEventMap;
 
 export const sseEndpoints = {
-  conversationEvents: {
-    path: (p: { id: string }) => `/conversations/${p.id}/events`,
-    events: conversationEvents,
-  },
   agentRunEvents: {
     path: (p: { runId: string }) => `/agent-runs/${p.runId}/events`,
     events: runEvents,

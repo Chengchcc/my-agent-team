@@ -548,18 +548,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const onRunCommitted = (
     runId: string,
     output: Message | undefined,
-    committedSeq: readonly number[],
+    _committedSeq: readonly number[],
   ): void => {
     void (async () => {
       const run = await agentRunPort.getRun(runId);
       if (!run || !output) return;
-      // Push the just-committed ledger rows to live conversation SSE
-      // subscribers IMMEDIATELY. commitCompletedRun writes conversation_ledger
-      // directly (bypassing the service's #appendAndBroadcast), so without
-      // this push the canonical assistant message is only discovered by the
-      // 5s poll fallback in subscribeConversation — a blank frame after the
-      // run stream closes.
-      for (const seq of committedSeq) conv.convSvc.notifySeq(run.conversationId, seq);
       // Persist auto-generated title (first Run only; !convRow.title guard).
       const convRow = conv.convPort.getConversation(run.conversationId);
       const outcome = run.terminalResult;

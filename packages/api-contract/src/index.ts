@@ -11,9 +11,6 @@ export type {
 export {
   AGENT_DRAFT_ID,
   agentConfigEvents,
-  ConversationEvent,
-  ConversationEventKind,
-  conversationEvents,
   createSseEncoder,
   DEDICATED_EVENT_TOOLS,
   hasDedicatedEvent,

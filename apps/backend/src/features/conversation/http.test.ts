@@ -176,32 +176,4 @@ describe("conversation routes", () => {
     const compact = await api(harness, "POST", `${BASE}/c-clear/compact`);
     expect(await compact.json()).toEqual({ ok: true });
   });
-
-  test("event stream replays the ledger as SSE frames", async () => {
-    await createConversation("c-sse");
-    await api(harness, "POST", `${BASE}/c-sse/messages`, { content: "sse frame text" });
-
-    const controller = new AbortController();
-    const res = await harness.app.handle(
-      new Request("http://localhost/api/conversations/c-sse/events?afterSeq=0", {
-        headers: { "x-auth-token": "test-token" },
-        signal: controller.signal,
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/event-stream");
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let frames = "";
-    while (!frames.includes("sse frame text")) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      frames += decoder.decode(value);
-    }
-    controller.abort();
-    // Wire shape: id=seq, event=kind, data=ConversationEvent JSON.
-    expect(frames).toContain("event: message");
-    expect(frames).toContain('"text":"sse frame text"');
-  });
 });

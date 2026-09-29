@@ -55,7 +55,7 @@ export type Action =
   | { type: "send/error"; message: string }
   | { type: "member"; seq: number; kind: string; payload: unknown }
   | {
-      /** Wire ConversationEvent message (zod-validated at the SSE boundary).
+      /** A settled message from the conversation's timeline.
        *  role is the authorship discriminator: user → viewer side,
        *  assistant/tool → agent side, system → notice item. */
       type: "message";
@@ -64,9 +64,15 @@ export type Action =
       /** Soft-delete flag from ledger entry (absent = live). */
       undone?: boolean;
     }
-  | { type: "undo"; undoneSeqs: number[] }
+  | {
+      type: "undo";
+      undoneSeqs: number[];
+    }
   /** The history as AHP state has it (ADR 0040): authoritative, and re-derived on every change. */
-  | { type: "items"; items: UiItem[] };
+  | {
+      type: "items";
+      items: UiItem[];
+    };
 
 export function initialState(): ConvState {
   return {
