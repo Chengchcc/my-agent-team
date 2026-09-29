@@ -1,8 +1,9 @@
-/** AHP 面的 HTTP/WS 挂载点。
+/** The AHP face's HTTP/WS mount point.
  *
- *  协议机械在 `protocol.ts`，这里只做三件事：发票（浏览器 WebSocket 带不了自定义
- *  头，所以鉴权在 upgrade 时凭票完成）、把 WS 帧喂给连接、连接关闭时收尾。票制逻辑
- *  与 coding 终端流共用 `infra/ws-ticket`。 */
+ *  The protocol machinery lives in `protocol.ts`; this file does three things: mint tickets
+ *  (a browser cannot set headers on a WebSocket handshake, so the upgrade carries the auth),
+ *  feed frames into a connection, and clean up on close. The ticket registry is shared
+ *  with the coding terminal stream (`infra/ws-ticket`). */
 import { Elysia } from "elysia";
 import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
 import { type AhpCommandPort, type AhpStateSource, createAhpServer } from "./protocol.js";
@@ -10,7 +11,7 @@ import { type AhpCommandPort, type AhpStateSource, createAhpServer } from "./pro
 export interface AhpFaceOptions {
   readonly source: AhpStateSource;
   readonly commands: AhpCommandPort;
-  /** 浏览器可达的 ws 地址（通配绑定要换成回环）。 */
+  /** A ws address a browser can reach (a wildcard bind has to become the loopback). */
   readonly wsBase: string;
   readonly replayBufferSize?: number;
 }
@@ -22,9 +23,10 @@ export function createAhpFace(opts: AhpFaceOptions) {
     commands: opts.commands,
     ...(opts.replayBufferSize !== undefined ? { replayBufferSize: opts.replayBufferSize } : {}),
   });
-  /** 连接挂在 socket 自己的 data 上：Elysia 每次回调给的 `ws` 包装对象并不保证是
-   *  同一个（用 WeakMap 以 `ws` 为键时，open 里存进去、message 里取出来是 undefined，
-   *  实测过），而 `ws.data` 是它为该 socket 保留的那一份。 */
+  /** The connection lives on the socket's own data. Elysia does not promise that the `ws`
+   *  wrapper it hands to each callback is the same object - keying a WeakMap on `ws` gave an
+   *  undefined lookup in `message` for a connection stored in `open` (measured) - while
+   *  `ws.data` is the per-socket slot kept for exactly this. */
   type AhpSocketData = { ahp?: { handle(frame: string): void; close(): void } };
   const dataOf = (ws: { data: unknown }): AhpSocketData => ws.data as AhpSocketData;
 
@@ -42,7 +44,7 @@ export function createAhpFace(opts: AhpFaceOptions) {
       message(ws, raw) {
         const connection = dataOf(ws).ahp;
         if (!connection) return;
-        // Elysia 会预解析 JSON 帧，而 AHP 的帧就是 JSON：重新序列化即可。
+        // Elysia pre-parses JSON frames and an AHP frame is JSON: re-serializing is enough.
         connection.handle(typeof raw === "string" ? raw : JSON.stringify(raw));
       },
       close(ws) {
@@ -55,5 +57,5 @@ export function createAhpFace(opts: AhpFaceOptions) {
   return { server, routes };
 }
 
-/** 路由实例的具体类型（Elysia 的泛型不能宽化成 `Elysia`，否则 `.use()` 不收）。 */
+/** The routes' concrete type (Elysia's generics reject widening to `Elysia`). */
 export type AhpFace = ReturnType<typeof createAhpFace>;

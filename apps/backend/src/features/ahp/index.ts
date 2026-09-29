@@ -1,7 +1,7 @@
-/** AHP 面（ADR 0040）：协议机械、状态投影与 WebSocket 传输。
+/** The AHP face (ADR 0040): protocol machinery, state projection and the WebSocket transport.
  *
- *  对外只有三件事：`createAhpServer`（传输无关的协议核心）、
- *  `createAhpStateSource`（产品只读投影）、`createAhpFace`（挂到 Elysia 的 WS 路由）。 */
+ *  Three things are public: `createAhpServer` (the transport-agnostic core),
+ *  `createAhpStateSource` (the product's read-only projection) and `createAhpFace` (the ws mount). */
 
 export {
   AHP_CHAT_PREFIX,

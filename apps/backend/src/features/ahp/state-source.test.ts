@@ -66,7 +66,7 @@ describe("AHP state source", () => {
     expect(chat?.turns[0]).toMatchObject({ id: "r1", state: "complete" });
     expect(chat?.turns[0]?.message).toMatchObject({ text: "go", origin: { kind: "user" } });
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ kind: "markdown", content: "hello" });
-    // 身份随片段出线：surface 靠它去重（Lark 的恰好一次投递）。
+    // The identity rides out with the part: a surface dedupes on it (Lark's exactly-once).
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ _meta: { messageId: "m1" } });
     expect(chat?.modifiedAt).toBe(new Date(4000).toISOString());
   });
@@ -243,7 +243,7 @@ describe("tool call projection", () => {
       toolName: "bash",
       status: "completed",
       success: true,
-      // 产品已经放行它跑过了，对 AHP 就是「不需要确认」。
+      // The product already let it run, which reads as "no confirmation needed" for AHP.
       confirmed: "not-needed",
     });
     expect(part?.toolCall.toolInput).toBe(JSON.stringify({ command: "ls" }));
