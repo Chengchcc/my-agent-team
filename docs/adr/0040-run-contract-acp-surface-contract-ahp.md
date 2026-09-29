@@ -53,6 +53,8 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
    落地进度（2026-09-29，`feat/ahp2acp`）：协议层模型与配对规则在 `packages/message/src/session-model.ts`，后端派生在 `apps/backend/src/features/conversation/session-model.ts`（只吃普通行对象，不碰数据库），两侧共十条向量，其中一条就是「N 次工具调用必须留下 N 组工具事实」。工具调用的配对按 `tool_use_id` 完成，配不上 use 的 result 也保留成一次已结算的调用。
 
+   - 续接记录（原 `surface.control` 行，2026-09-29）：账本里只留规范事实，也就是旧会话续到了哪条新会话、由哪个 Run 请求；surface 方言串与 surface 自造的幂等键已删，幂等改按 Run 坐标判定。Lark 侧的改绑记账仍属 surface，等 S2 的 chat 状态落地后随它搬走。行的种类名暂留（改动它的代价是数据迁移加一条线词汇），它在 S3 随自研事件词汇一并退休。
+
 4. **权威关系不变。** 账本加 Run 状态是唯一权威；AHP 面只有两条边——只读投影、命令进控制面，禁止直写账本；终态提交是唯一写路径。这与 [system-overview](../architecture/system-overview.md) 的不变量 3、4、5 一致，Run 仍是唯一执行身份。
 
 5. **替换而非并列。** 未完成替换前，不新增依赖旧方言的功能；每条标准轨的删除项与期限写在本 ADR 的删除清单里。

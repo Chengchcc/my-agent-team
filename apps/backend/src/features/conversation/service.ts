@@ -98,7 +98,6 @@ export interface ConversationService {
     reason: string;
     title?: string;
     requestedByRunId: string;
-    idempotencyKey: string;
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }>;
   clearConversation(conversationId: string): Promise<void>;
   compactConversation(conversationId: string): Promise<void>;
@@ -492,9 +491,8 @@ class ConversationServiceImpl implements ConversationService {
     reason: string;
     title?: string;
     requestedByRunId: string;
-    idempotencyKey: string;
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }> {
-    const { oldConversationId, reason, title, requestedByRunId, idempotencyKey } = input;
+    const { oldConversationId, reason, title, requestedByRunId } = input;
 
     // 1. Idempotency: check if this control was already written
     const existingEntries = this.port.getLedgerEntries(oldConversationId);
@@ -503,12 +501,11 @@ class ConversationServiceImpl implements ConversationService {
       try {
         const raw = typeof entry.content === "string" ? JSON.parse(entry.content) : entry.content;
         const c = raw as {
-          type: string;
-          requestedByRunId: string;
-          newConversationId: string;
-          idempotencyKey?: string;
+          requestedByRunId?: string;
+          newConversationId?: string;
         };
-        if (c.type === "lark.start_new_conversation" && c.idempotencyKey === idempotencyKey) {
+        // 幂等按规范坐标判定：同一个 Run 的同一个请求只落一次（方言串与 surface 自造键已删）。
+        if (c.requestedByRunId === requestedByRunId && c.newConversationId) {
           return {
             oldConversationId,
             newConversationId: c.newConversationId,
@@ -542,13 +539,12 @@ class ConversationServiceImpl implements ConversationService {
     }
 
     // 4. Write surface.control entry to OLD conversation ledger
+    // 只写规范事实：这条对话续到了哪条新对话、由哪个 Run 请求。
     const control = {
-      type: "lark.start_new_conversation",
       oldConversationId,
       newConversationId,
       reason,
       requestedByRunId,
-      idempotencyKey,
     };
     const controlSeq = await this.#appendAndBroadcast({
       conversationId: oldConversationId,

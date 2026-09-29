@@ -171,7 +171,6 @@ export async function processEntry(
   // ─── surface.control (payload arrives server-parsed; validated here) ───
   if (event.kind === "surface.control") {
     const SurfaceControlSchema = z.object({
-      type: z.string(),
       oldConversationId: z.string(),
       newConversationId: z.string(),
     });
@@ -185,11 +184,7 @@ export async function processEntry(
       return;
     }
     const control = parsed.data;
-    if (
-      control.type === "lark.start_new_conversation" &&
-      control.oldConversationId &&
-      control.newConversationId
-    ) {
+    if (control.oldConversationId && control.newConversationId) {
       const wasRebound = rebindConversation(
         db,
         control.oldConversationId,

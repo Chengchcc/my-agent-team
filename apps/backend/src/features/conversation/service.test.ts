@@ -373,7 +373,6 @@ describe("conversation service (Agent Run cutover)", () => {
         oldConversationId: id,
         reason: "test",
         requestedByRunId: "run-missing",
-        idempotencyKey: "k1",
       }),
     ).rejects.toThrow("run not found");
     await expect(
@@ -381,7 +380,6 @@ describe("conversation service (Agent Run cutover)", () => {
         oldConversationId: id,
         reason: "test",
         requestedByRunId: "run-other",
-        idempotencyKey: "k2",
       }),
     ).rejects.toThrow("does not belong");
   });
@@ -395,11 +393,19 @@ describe("conversation service (Agent Run cutover)", () => {
       reason: "fresh",
       title: "New chat",
       requestedByRunId: "run-known",
-      idempotencyKey: "k3",
     });
     expect(result.newConversationId).toBeTruthy();
     const control = port.getLedgerEntries(id).find((e) => e.kind === "surface.control");
     expect(control).toBeTruthy();
+    // 幂等按规范的 Run 坐标判定：同一个 Run 再问一次，返回同一条新对话、同一条控制记录。
+    const again = await svc.startNewConversationForSurface({
+      oldConversationId: id,
+      reason: "fresh",
+      requestedByRunId: "run-known",
+    });
+    expect(again.newConversationId).toBe(result.newConversationId);
+    expect(again.controlSeq).toBe(result.controlSeq);
+    expect(port.getLedgerEntries(id).filter((e) => e.kind === "surface.control")).toHaveLength(1);
     // 1:1: the new conversation keeps the same agent binding.
     expect(port.getConversation(result.newConversationId)!.agentId).toBe("a-1");
     expect(port.getConversation(result.newConversationId)!.title).toBe("New chat");

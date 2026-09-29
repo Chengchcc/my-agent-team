@@ -292,7 +292,6 @@ export function conversationRoutes(
             reason: t.String({ minLength: 1 }),
             title: t.Optional(t.String()),
             requestedByRunId: t.String({ minLength: 1 }),
-            idempotencyKey: t.String({ minLength: 1 }),
           }),
         },
       )

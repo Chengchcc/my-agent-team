@@ -137,7 +137,6 @@ describe("conversation routes", () => {
     const res = await api(harness, "POST", `${BASE}/c1/start-new`, {
       reason: "surface reset",
       requestedByRunId: "no-such-run",
-      idempotencyKey: "idem-1",
     });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toContain("run not found");
