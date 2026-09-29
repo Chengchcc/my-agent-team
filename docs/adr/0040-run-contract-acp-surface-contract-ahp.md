@@ -172,12 +172,11 @@ R1 至 R3 承接 [ADR 0039](./0039-approval-request-is-a-product-contract.md) �
 
 ## Web 侧还缺哪些事实
 
-Web 的 run 流只剩三处消费者，都在 `apps/web/src/hooks/useConversation.ts`。删掉它们之前，两条产品事实得先落进投影：
+Web 的 run 流只剩三处消费者，都在 `apps/web/src/hooks/useConversation.ts`。查过来源之后，三条的情况不一样：
 
-- `backend.oma.stream_rule_triggered`：模型这一轮输出被流规则判废、正在重试。Web 拿它推一条提示。投影要把它写成轮次里的一个通知片段，否则删流之后这条提示就没有来源。
-- `delegation_batch_started`、`delegation_agent_started`、`delegation_agent_completed`：喂的是工作流进度表。它们同样是产品事实，今天只从流里出。
-
-`status` 那一处不用补事实。轮次本就按 run 行构造，失败 run 的 `run:<id>:error` 行会折成轮次尾部的错误片段、轮次状态是 `error`，投影已经带着它，流里那份是重复的。
+- `status`：不用补事实。轮次本就按 run 行构造，失败 run 的 `run:<id>:error` 行会折成轮次尾部的错误片段、轮次状态是 `error`，投影已经带着它，流里那份是重复的。
+- `delegation_batch_started`、`delegation_agent_started`、`delegation_agent_completed`：喂的是工作流进度表。事件本身是运行时转发出来的，但**事实在产品里已经有了**（工作流的执行与节点运行都在自己的表里），投影缺的只是「哪个节点运行对应哪条会话」这一层映射。所以这一处是补投影，不用新落库。
+- `backend.oma.stream_rule_triggered`：模型这一轮输出被流规则判废、正在重试。后端只是转发这个运行时事件，产品里没有任何行记过它。要么把它落成一行（像失败那样，让投影折成通知片段），要么认它属于运行时细节、不上面——按「能不能当产品事实站住」来定，不按好不好做来定。
 
 ## 后果
 
