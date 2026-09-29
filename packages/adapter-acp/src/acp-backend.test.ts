@@ -256,7 +256,26 @@ describe("AcpBackend against an in-memory fake agent", () => {
     expect(events[1]).toEqual({ type: "text_delta", text: "hello " });
     expect(outcome.status).toBe("completed");
     if (outcome.status === "completed") {
-      expect(outcome.messages).toEqual([{ role: "assistant", text: "hello " }]);
+      // Canonical sequence (ADR 0017): assistant text, the tool call as its own
+      // assistant message, the result as a `tool` message.
+      expect(outcome.messages).toEqual([
+        { role: "assistant", text: "hello " },
+        {
+          role: "assistant",
+          blocks: [{ type: "tool_use", id: "call-1", name: "Running tests", input: {} }],
+        },
+        {
+          role: "tool",
+          blocks: [
+            {
+              type: "tool_result",
+              tool_use_id: "call-1",
+              content: '{"ok":true}',
+              is_error: false,
+            },
+          ],
+        },
+      ]);
       expect(outcome.cliSessionRef).toBe("sess-fake-1");
     }
     expect(obs.newSessionCalls).toBe(1);
@@ -302,7 +321,28 @@ describe("AcpBackend against an in-memory fake agent", () => {
     expect(outcome.status).toBe("completed");
     if (outcome.status === "completed") {
       // Chunks join into one message: v1 has no boundary marker.
-      expect(outcome.messages).toEqual([{ role: "assistant", text: "hello after-permission" }]);
+      // The tool facts stay, and text that arrives after them is its own
+      // message: joining every chunk into one string merged turns that the
+      // ledger should keep apart.
+      expect(outcome.messages).toEqual([
+        { role: "assistant", text: "hello " },
+        {
+          role: "assistant",
+          blocks: [{ type: "tool_use", id: "call-1", name: "Running tests", input: {} }],
+        },
+        {
+          role: "tool",
+          blocks: [
+            {
+              type: "tool_result",
+              tool_use_id: "call-1",
+              content: '{"ok":true}',
+              is_error: false,
+            },
+          ],
+        },
+        { role: "assistant", text: "after-permission" },
+      ]);
     }
     // The response echoed the AGENT's optionId, picked by kind.
     expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "allow-once" }]);

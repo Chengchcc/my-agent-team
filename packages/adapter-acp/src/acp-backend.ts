@@ -449,7 +449,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
           // v1 has no message-boundary marker: chunks are a stream, so
           // the turn's text lands as ONE assistant message (the ledger's
           // shape), never one message per chunk.
-          messages: buildOutcomeMessages([run.acc.texts.join("")]),
+          messages: buildOutcomeMessages(run.acc.parts),
           ...(usage ? { usage } : {}),
           ...(sessionRef ? { cliSessionRef: sessionRef } : {}),
         });

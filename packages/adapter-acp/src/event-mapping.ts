@@ -17,18 +17,50 @@ type SessionUpdate = SessionNotification["update"];
  *  NOT here: the v1 update union carries no typed usage payload (it rides
  *  `_meta`, which v1 strips) — the prompt response's `usage` field is the
  *  honest source and the backend reads it at settle time. */
+/** One durable piece of a run's output, in arrival order. The canonical
+ *  outcome (ADR 0017) is derived from these: text and tool_use become
+ *  assistant messages, tool_result becomes a `tool` message. Live events are
+ *  transient; these parts are what survives into the ledger. */
+export type AcpOutcomePart =
+  | { readonly kind: "text"; readonly text: string }
+  | {
+      readonly kind: "tool_call";
+      readonly toolCallId: string;
+      readonly name: string;
+      readonly input: unknown;
+    }
+  | {
+      readonly kind: "tool_result";
+      readonly toolCallId: string;
+      readonly content: string;
+      readonly isError: boolean;
+    };
+
 export interface AcpAccumulator {
-  /** Assistant text pieces, in arrival order (one outcome message each,
-   *  mirroring the omp adapter's outcome shape). */
-  readonly texts: string[];
+  /** Durable output pieces, in arrival order. */
+  readonly parts: AcpOutcomePart[];
   /** toolCallId → tool name, from the FIRST report: tool_call_update is an
    *  upsert whose later reports omit the name, and the completed event must
    *  still name the tool it finished. */
   readonly toolNames: Map<string, string>;
+  /** toolCallId → rawInput, from whichever report carried it: later upserts
+   *  omit it, and the durable tool_use must keep the arguments the model
+   *  actually sent. */
+  readonly toolInputs: Map<string, unknown>;
+  /** toolCallIds already recorded as a tool_call part. */
+  readonly started: Set<string>;
+  /** toolCallIds already recorded as a tool_result part. */
+  readonly settled: Set<string>;
 }
 
 export function createAcpAccumulator(): AcpAccumulator {
-  return { texts: [], toolNames: new Map() };
+  return {
+    parts: [],
+    toolNames: new Map(),
+    toolInputs: new Map(),
+    started: new Set(),
+    settled: new Set(),
+  };
 }
 
 /** Map one session/update into core events (0..n) and accumulate text.
@@ -41,7 +73,7 @@ export function mapAcpUpdate(
   switch (update.sessionUpdate) {
     case "agent_message_chunk": {
       if (update.content.type !== "text") return [];
-      acc.texts.push(update.content.text);
+      acc.parts.push({ kind: "text", text: update.content.text });
       return [{ type: "text_delta", text: update.content.text }];
     }
     case "agent_thought_chunk": {
@@ -53,8 +85,31 @@ export function mapAcpUpdate(
       const callId = update.toolCallId;
       const reported = update.name ?? update.title;
       if (reported) acc.toolNames.set(callId, reported);
+      if (update.rawInput !== undefined) acc.toolInputs.set(callId, update.rawInput);
       const toolName = acc.toolNames.get(callId) ?? "unknown";
       const status = update.status ?? "pending";
+      // Durable facts first (ADR 0017): one tool_use when the call is first
+      // seen, one tool_result when it settles. The events below are transient
+      // and never survive a restart, which is how four tool calls could run
+      // and leave zero rows in the ledger.
+      if (!acc.started.has(callId)) {
+        acc.started.add(callId);
+        acc.parts.push({
+          kind: "tool_call",
+          toolCallId: callId,
+          name: toolName,
+          input: acc.toolInputs.get(callId) ?? {},
+        });
+      }
+      if ((status === "completed" || status === "failed") && !acc.settled.has(callId)) {
+        acc.settled.add(callId);
+        acc.parts.push({
+          kind: "tool_result",
+          toolCallId: callId,
+          content: toolResultText(update),
+          isError: status === "failed",
+        });
+      }
       if (status === "pending" || status === "in_progress") {
         return [
           {
@@ -131,8 +186,67 @@ export function mapAcpUsage(usage: PromptResponse["usage"]): Usage | undefined {
 /** Build the canonical outcome messages: one assistant message per text
  *  piece, in order (matches the omp adapter's outcome shape; the final
  *  answer is the last one with text). */
-export function buildOutcomeMessages(texts: readonly string[]): Message[] {
-  return texts.map((text) => ({ role: "assistant", text }));
+export function buildOutcomeMessages(parts: readonly AcpOutcomePart[]): Message[] {
+  const out: Message[] = [];
+  let text = "";
+  const flush = () => {
+    if (text === "") return;
+    out.push({ role: "assistant", text });
+    text = "";
+  };
+  for (const part of parts) {
+    if (part.kind === "text") {
+      text += part.text;
+      continue;
+    }
+    flush();
+    if (part.kind === "tool_call") {
+      out.push({
+        role: "assistant",
+        blocks: [{ type: "tool_use", id: part.toolCallId, name: part.name, input: part.input }],
+      });
+      continue;
+    }
+    out.push({
+      role: "tool",
+      blocks: [
+        {
+          type: "tool_result",
+          tool_use_id: part.toolCallId,
+          content: part.content,
+          is_error: part.isError,
+        },
+      ],
+    });
+  }
+  flush();
+  return out;
+}
+
+/** Text of a settled tool call. `rawOutput` wins when it is a string; then
+ *  the text blocks inside `content`; otherwise the structured payload is
+ *  serialized as-is. A tool result must say something — silence in the
+ *  ledger is the defect this file just stopped producing. */
+function toolResultText(update: {
+  readonly rawOutput?: unknown;
+  readonly content?: readonly unknown[] | null;
+}): string {
+  if (typeof update.rawOutput === "string" && update.rawOutput !== "") return update.rawOutput;
+  const texts: string[] = [];
+  for (const entry of update.content ?? []) {
+    const item = entry as { type?: unknown; text?: unknown; content?: unknown };
+    const inner = item.content as { type?: unknown; text?: unknown } | undefined;
+    if (inner?.type === "text" && typeof inner.text === "string") texts.push(inner.text);
+    else if (item.type === "text" && typeof item.text === "string") texts.push(item.text);
+  }
+  if (texts.length > 0) return texts.join("");
+  if (update.content && update.content.length > 0) return JSON.stringify(update.content);
+  if (update.rawOutput === undefined || update.rawOutput === null) return "";
+  try {
+    return JSON.stringify(update.rawOutput);
+  } catch {
+    return String(update.rawOutput);
+  }
 }
 
 function planEntriesToItems(
