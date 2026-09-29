@@ -529,8 +529,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       };
       conv.convPort.appendLedgerEntry({
         conversationId: input.conversationId,
-        senderMemberId: input.agentId,
-        addressedTo: [],
         kind: "message",
         content: serializeMessageRevision(msg),
         ts: Date.now(),

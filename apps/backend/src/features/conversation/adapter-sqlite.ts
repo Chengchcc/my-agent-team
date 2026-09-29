@@ -4,6 +4,7 @@ import { and, desc, eq, gt, inArray, isNotNull, like, notInArray, sql } from "dr
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { ConflictError } from "../../infra/domain-errors.js";
+import { senderLabelOf } from "./ledger-codec.js";
 import type {
   AppendLedgerInput,
   ConversationPort,
@@ -205,8 +206,6 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .insert(schema.conversationLedger)
         .values({
           conversationId: input.conversationId,
-          senderMemberId: input.senderMemberId,
-          addressedTo: JSON.stringify(input.addressedTo ?? []),
           kind: input.kind,
           content: input.content,
           ts: input.ts,
@@ -232,12 +231,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return rows.map((r) => {
         const result = schema.conversationLedgerSelectSchema.safeParse(r);
         if (result.success) return result.data as LedgerEntry;
-        // Defensive fallback for rows with malformed JSON in addressedTo/content columns.
+        // Defensive fallback for rows with malformed JSON in the content column.
         return {
           seq: r.seq,
           conversationId: r.conversationId,
-          senderMemberId: r.senderMemberId,
-          addressedTo: [] as string[],
           kind: r.kind as LedgerEntry["kind"],
           content: r.content,
           ts: r.ts,
@@ -263,8 +260,6 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       return {
         seq: row.seq,
         conversationId: row.conversationId,
-        senderMemberId: row.senderMemberId,
-        addressedTo: [] as string[],
         kind: row.kind as LedgerEntry["kind"],
         content: row.content,
         ts: row.ts,
@@ -276,9 +271,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .select({
           conversationId: schema.conversationLedger.conversationId,
           seq: schema.conversationLedger.seq,
-          content: schema.conversationLedger.content,
           ts: schema.conversationLedger.ts,
-          senderName: schema.conversationLedger.senderMemberId,
+          content: schema.conversationLedger.content,
           conversationTitle: schema.conversation.title,
         })
         .from(schema.conversationLedger)
@@ -294,7 +288,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         seq: r.seq,
         snippet: r.content.slice(0, 200),
         ts: r.ts,
-        senderName: r.senderName ?? "unknown",
+        senderName: senderLabelOf(r.content),
         conversationTitle: r.conversationTitle ?? null,
       }));
     },

@@ -351,6 +351,13 @@
       "when": 1790307530256,
       "tag": "0049_high_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1790671632056,
+      "tag": "0050_drop_vestigial_ledger_columns",
+      "breakpoints": true
     }
   ]
 }

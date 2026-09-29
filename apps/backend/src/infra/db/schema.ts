@@ -53,8 +53,6 @@ export const conversationLedger = sqliteTable(
     conversationId: text()
       .notNull()
       .references(() => conversation.conversationId, { onDelete: "cascade" }),
-    senderMemberId: text().notNull(),
-    addressedTo: text().notNull().default("[]"),
     kind: text().notNull(),
     content: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
@@ -258,7 +256,6 @@ export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
 });
 
 export const conversationLedgerSelectSchema = createSelectSchema(conversationLedger, {
-  addressedTo: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
   content: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
   undone: (s) => s.transform((v: number) => v !== 0),
 });

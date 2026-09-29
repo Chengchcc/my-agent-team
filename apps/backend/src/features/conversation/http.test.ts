@@ -115,7 +115,7 @@ describe("conversation routes", () => {
     expect(exported.headers.get("content-type")).toContain("text/markdown");
     const md = await exported.text();
     expect(md).toContain("# Titled chat");
-    expect(md).toContain("**user**: hello ledger");
+    expect(md).toContain("**User**: hello ledger");
   });
 
   test("pending input queue: empty list and unknown-input error branches", async () => {

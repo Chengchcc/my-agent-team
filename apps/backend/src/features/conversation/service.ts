@@ -211,8 +211,6 @@ class ConversationServiceImpl implements ConversationService {
    *  For kind:"message", content MUST be a MessageRevision. */
   async #appendAndBroadcast(input: {
     conversationId: string;
-    senderMemberId: string;
-    addressedTo: string[];
     kind: LedgerKind;
     content: unknown;
   }): Promise<number> {
@@ -223,8 +221,6 @@ class ConversationServiceImpl implements ConversationService {
         : JSON.stringify(input.content);
     const seq = this.port.appendLedgerEntry({
       conversationId: input.conversationId,
-      senderMemberId: input.senderMemberId,
-      addressedTo: input.addressedTo,
       kind: input.kind,
       content: serialized,
       ts,
@@ -232,8 +228,6 @@ class ConversationServiceImpl implements ConversationService {
     const entry: LedgerEntry = {
       seq,
       conversationId: input.conversationId,
-      senderMemberId: input.senderMemberId,
-      addressedTo: input.addressedTo,
       kind: input.kind,
       content: serialized,
       ts,
@@ -367,8 +361,6 @@ class ConversationServiceImpl implements ConversationService {
     };
     const seq = await this.#appendAndBroadcast({
       conversationId: input.conversationId,
-      senderMemberId,
-      addressedTo: input.addressedTo ?? (agentId ? [agentId] : []),
       kind: "message",
       content: userRev,
     });
@@ -477,8 +469,6 @@ class ConversationServiceImpl implements ConversationService {
               yield {
                 seq: 0,
                 conversationId,
-                senderMemberId: "",
-                addressedTo: [],
                 kind: "message" as const,
                 content: "",
                 ts: Date.now(),
@@ -562,8 +552,6 @@ class ConversationServiceImpl implements ConversationService {
     };
     const controlSeq = await this.#appendAndBroadcast({
       conversationId: oldConversationId,
-      senderMemberId: "__system__",
-      addressedTo: [],
       kind: "surface.control",
       content: control,
     });
@@ -614,8 +602,6 @@ class ConversationServiceImpl implements ConversationService {
     for (const entry of entries) {
       this.port.appendLedgerEntry({
         conversationId: newId,
-        senderMemberId: entry.senderMemberId,
-        addressedTo: entry.addressedTo,
         kind: entry.kind,
         content: typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
         ts: entry.ts,
@@ -642,8 +628,6 @@ class ConversationServiceImpl implements ConversationService {
     if (undoneSeqs.length > 0) {
       await this.#appendAndBroadcast({
         conversationId: input.conversationId,
-        senderMemberId: "__system__",
-        addressedTo: [],
         kind: "undo",
         content: { undoneSeqs },
       });

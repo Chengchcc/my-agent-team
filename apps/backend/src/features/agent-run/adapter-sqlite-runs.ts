@@ -291,8 +291,6 @@ export function createRunMethods(
             .insert(schema.conversationLedger)
             .values({
               conversationId: run.conversationId,
-              senderMemberId: run.agentId,
-              addressedTo: "[]",
               kind: "message",
               content: serializeMessageRevision(revision),
               ts: now,

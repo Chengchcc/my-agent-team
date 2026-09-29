@@ -121,21 +121,18 @@ beforeEach(async () => {
   // seed conversation history (two user messages + one internal)
   convPort.appendLedgerEntry({
     conversationId: CONV,
-    senderMemberId: "user",
     kind: "message",
     content: JSON.stringify({ role: "user", text: "first message" }),
     ts: Date.now(),
   });
   convPort.appendLedgerEntry({
     conversationId: CONV,
-    senderMemberId: "user",
     kind: "message",
     content: JSON.stringify({ role: "user", text: "searchable keyword alpha" }),
     ts: Date.now(),
   });
   convPort.appendLedgerEntry({
     conversationId: CONV,
-    senderMemberId: "user",
     kind: "message",
     content: JSON.stringify({ role: "user", text: "internal note", visibility: "internal" }),
     ts: Date.now(),
@@ -224,7 +221,6 @@ describe("product tools service", () => {
     convPort.createConversation({ conversationId: "other-conv", createdAt: Date.now() });
     convPort.appendLedgerEntry({
       conversationId: "other-conv",
-      senderMemberId: "user",
       kind: "message",
       content: JSON.stringify({ role: "user", text: "leaked secret" }),
       ts: Date.now(),
@@ -247,7 +243,6 @@ describe("product tools service", () => {
     convPort.createConversation({ conversationId: "other-conv2", createdAt: Date.now() });
     convPort.appendLedgerEntry({
       conversationId: "other-conv2",
-      senderMemberId: "user",
       kind: "message",
       content: JSON.stringify({ role: "user", text: "alpha elsewhere" }),
       ts: Date.now(),
@@ -310,7 +305,6 @@ describe("product tools service", () => {
     // a message appended AFTER the run acquired: not yet projected, retainable
     const seq = convPort.appendLedgerEntry({
       conversationId: CONV,
-      senderMemberId: "user",
       kind: "message",
       content: JSON.stringify({ role: "user", text: "post-acquire message" }),
       ts: Date.now(),
@@ -387,7 +381,6 @@ describe("product tools service", () => {
     const runId = await createRun("hi");
     const seq = convPort.appendLedgerEntry({
       conversationId: CONV,
-      senderMemberId: "user",
       kind: "message",
       content: JSON.stringify({ role: "user", text: "concurrent pin" }),
       ts: Date.now(),

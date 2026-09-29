@@ -37,7 +37,6 @@ function freshFixture(prefix: string) {
   });
   conv.appendLedgerEntry({
     conversationId,
-    senderMemberId: agentId,
     kind: "message",
     content: JSON.stringify({ role: "user", text: `hello-${prefix}` }),
     ts: Date.now(),

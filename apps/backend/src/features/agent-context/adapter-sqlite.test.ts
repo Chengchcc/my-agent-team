@@ -143,10 +143,9 @@ describe("Agent Context: entry append and CAS", () => {
 
 describe("Agent Context: ledger_message stores ref only", () => {
   test("ledger_message entry stores ledgerSeq, not message content", async () => {
-    const { conversationId, agentId } = freshFixture("ref");
+    const { conversationId } = freshFixture("ref");
     const seq = conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: agentId,
       kind: "message",
       content: JSON.stringify({ text: "full message content" }),
       ts: Date.now(),

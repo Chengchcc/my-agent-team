@@ -2,6 +2,7 @@ import { conversationEvents, createSseEncoder } from "@chengchenccc/api-contract
 import { extractText, MessageRevisionSchema } from "@chengchenccc/message";
 import { Elysia, t } from "elysia";
 import { sseResponse } from "../../http/response.js";
+import { senderLabelOf } from "./ledger-codec.js";
 import type { LedgerEntry } from "./ports.js";
 import type { ConversationService } from "./service.js";
 
@@ -254,7 +255,7 @@ export function conversationRoutes(
         for (const e of entries) {
           if (e.kind !== "message") continue;
           const ts = new Date(e.ts).toISOString();
-          const sender = e.senderMemberId === "__system__" ? "System" : e.senderMemberId;
+          const sender = senderLabelOf(e.content);
           let text: string;
           try {
             // Drizzle's select schema auto-parses content from JSON string to object.

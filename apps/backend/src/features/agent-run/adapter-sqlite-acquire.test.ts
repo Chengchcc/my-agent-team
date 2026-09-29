@@ -70,8 +70,6 @@ describe("Agent Run: atomic acquire", () => {
     // A user message lands in the ledger
     conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: "user-1",
-      addressedTo: [agentId],
       kind: "message",
       content: JSON.stringify({ role: "user", text: "hello" }),
       ts: Date.now(),

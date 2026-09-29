@@ -43,7 +43,6 @@ export function freshFixture(prefix: string) {
   // Add a ledger message
   conv.appendLedgerEntry({
     conversationId,
-    senderMemberId: agentId,
     kind: "message",
     content: JSON.stringify({ role: "user", text: `hello-${prefix}` }),
     ts: Date.now(),

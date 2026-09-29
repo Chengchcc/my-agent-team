@@ -159,7 +159,7 @@ test("M10 conversation/conversation_ledger tables exist after migration", () => 
     name: string;
   }[];
   expect(ledgerCols.map((c) => c.name)).toContain("seq");
-  expect(ledgerCols.map((c) => c.name)).toContain("sender_member_id");
+  expect(ledgerCols.map((c) => c.name)).not.toContain("sender_member_id");
   expect(ledgerCols.map((c) => c.name)).toContain("kind");
 
   db.close();

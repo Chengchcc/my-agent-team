@@ -27,6 +27,12 @@ import { createProductToolsService } from "../../src/features/product-tools/serv
 import { createWorkspaceLockRegistry } from "../../src/features/project/workspace-lock.js";
 import { openDb } from "../../src/infra/sqlite/db.js";
 
+/** 账本行的署名改由 payload 的 role 推导（成员列已在 0050 删除）。 */
+function isRunMessage(entry: { content?: unknown }): boolean {
+  const role = (entry.content as { role?: string } | null)?.role;
+  return role === "assistant" || role === "tool";
+}
+
 /** THE Phase 5 acceptance chain, all real:
  *
  *  Product Backend (this process)
@@ -174,7 +180,6 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     // seed a conversation message the child's history_recent call will read
     convPort.appendLedgerEntry({
       conversationId: CONV,
-      senderMemberId: "human-1",
       kind: "message",
       content: JSON.stringify({ role: "user", text: "seed question" }),
       ts: Date.now(),
@@ -219,7 +224,7 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     // as separate ledger messages, in order.
     const ledgerMessages = convPort.getLedgerEntries(CONV).filter((e) => e.kind === "message");
     expect(ledgerMessages).toHaveLength(4); // seed user + 3 run messages
-    const runMessages = ledgerMessages.filter((e) => e.senderMemberId === MEMBER);
+    const runMessages = ledgerMessages.filter(isRunMessage);
     expect(runMessages).toHaveLength(3);
     // SURFACE CONTRACT: the canonical assistant Message must parse as a full
     // MessageRevision (messageId/state/updatedAt) - Web reducer and Lark
@@ -291,7 +296,7 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
       assistantMessageId(secondRunId, 0),
     ]);
     const assistantCount = ledger.filter((e) => {
-      if (e.senderMemberId !== MEMBER) return false;
+      if (!isRunMessage(e)) return false;
       try {
         return ourMessageIds.has(parseMessageRevision(e.content).messageId);
       } catch {
