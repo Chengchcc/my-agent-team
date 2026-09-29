@@ -143,6 +143,29 @@ describe("AHP state source", () => {
     expect(session?.chats[0]?.resource).toBe(chatUri("c1"));
   });
 
+  test("a session says which workspace it is about", async () => {
+    const withRoot = createAhpStateSource({
+      ...fixture().deps,
+      workspaceRootOf: async () => "/tmp/ws",
+    });
+    const session = await withRoot.session(sessionUri("c1"));
+    // The session is the agent and its workspace; a surface opening it needs the directory.
+    expect(session?.workingDirectories).toEqual(["file:///tmp/ws"]);
+
+    // Nothing to show when the product cannot resolve one (an unattached project throws there):
+    // the field is absent rather than the snapshot failing.
+    const failing = createAhpStateSource({
+      ...fixture().deps,
+      workspaceRootOf: async () => {
+        throw new Error("agent has not attached project p1");
+      },
+    });
+    expect((await failing.session(sessionUri("c1")))?.workingDirectories).toBeUndefined();
+
+    const silent = createAhpStateSource(fixture().deps);
+    expect((await silent.session(sessionUri("c1")))?.workingDirectories).toBeUndefined();
+  });
+
   test("an unknown or malformed channel resolves to nothing", async () => {
     const source = createAhpStateSource(fixture().deps);
     expect(await source.chat(chatUri("nope"))).toBeUndefined();

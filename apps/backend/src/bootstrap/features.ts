@@ -678,6 +678,24 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     readRunTurnContext: readRunTurn,
   });
 
+  /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
+   *  fallback root. The run dispatch lets a mis-attached project throw (that is a real failure);
+   *  the AHP session read treats the same failure as "nothing to show". */
+  const resolveWorkspaceFor = async (input: {
+    conversationId: string;
+    agentId?: string | null;
+  }): Promise<{ root: string; access: "read_write" }> => {
+    const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
+    const convRow = conv.convPort.getConversation(input.conversationId);
+    return resolveRunWorkspace({
+      agentId: input.agentId ?? null,
+      agentWorkspacePath: agent?.workspacePath ?? null,
+      agentProjects: agent?.config.runtime_config.projects ?? [],
+      fallbackRoot: config.workspaceRoot,
+      conversationProjectId: convRow?.projectId ?? null,
+    });
+  };
+
   const agentRunExecution = createAgentRunExecutionService({
     workspaceLocks,
     productToolsTokenRegistry,
@@ -687,19 +705,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ledgerResolver,
     backends,
     idGen: { ulid },
-    resolveWorkspace: async ({ conversationId, agentId }) => {
-      // Default workspace comes from the Agent record; Loop scopes pin
-      // their workspace as a Run fact at enqueue time.
-      const agent = agentId ? await agentSvc.getById(agentId).catch(() => null) : null;
-      const convRow = conv.convPort.getConversation(conversationId);
-      return resolveRunWorkspace({
-        agentId,
-        agentWorkspacePath: agent?.workspacePath ?? null,
-        agentProjects: agent?.config.runtime_config.projects ?? [],
-        fallbackRoot: config.workspaceRoot,
-        conversationProjectId: convRow?.projectId ?? null,
-      });
-    },
+    resolveWorkspace: ({ conversationId, agentId }) =>
+      resolveWorkspaceFor({ conversationId, agentId }),
     onHumanInputResolved: (input) => {
       // A settled request has to stop reading as pending on the surface too, without waiting for
       // the turn to commit: a card that survives its own click reads as "my answer did not land".
@@ -1513,6 +1520,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       })),
     getRun: (runId) => agentRunPort.getRun(runId),
     // Todos are stored per branch; the chat state keys them by run.
+    workspaceRootOf: async (conversationId) => {
+      const row = conv.convPort.getConversation(conversationId);
+      const workspace = await resolveWorkspaceFor({
+        conversationId,
+        agentId: row?.agentId ?? null,
+      }).catch(() => null);
+      return workspace?.root ?? null;
+    },
     latestRunTodo: async (runId) => {
       const run = await agentRunPort.getRun(runId);
       return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;

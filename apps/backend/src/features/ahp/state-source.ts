@@ -107,6 +107,9 @@ export interface AhpStateSourceDeps {
   readonly getRun: (runId: string) => Promise<AhpRunRow | null>;
   /** The run's latest todo snapshot (product tool output), or null when it never wrote one. */
   readonly latestRunTodo?: (runId: string) => Promise<string | null>;
+  /** Where the conversation's runs work. Missing or failing means "nothing to show": a session
+   *  whose project is not attached still has a state, it just has no directory. */
+  readonly workspaceRootOf?: (conversationId: string) => Promise<string | null>;
 }
 
 export function createAhpStateSource(deps: AhpStateSourceDeps): AhpStateSource {
@@ -139,10 +142,14 @@ async function sessionState(
   const row = deps.getConversation(conversationId);
   if (!row) return undefined;
   const view = await chatView(deps, row);
+  const root = (await deps.workspaceRootOf?.(conversationId).catch(() => null)) ?? null;
   return {
     provider: providerOf(agents, row),
     title: row.title ?? row.conversationId,
     status: view.status,
+    // The session is the agent *and* its workspace (ADR 0040 decision 3): a surface that opens a
+    // session has to know which directory it is about.
+    ...(root === null ? {} : { workingDirectories: [fileUri(root)] }),
     lifecycle: "ready" as SessionState["lifecycle"],
     // No client registry yet: the AHP face has nowhere to record advertised client capabilities.
     activeClients: [],
@@ -377,6 +384,11 @@ function newestTs(ledger: readonly AhpLedgerRow[]): number | undefined {
     if (ts === undefined || entry.ts > ts) ts = entry.ts;
   }
   return ts;
+}
+
+/** The protocol addresses working directories as URIs; a filesystem path becomes `file://…`. */
+function fileUri(path: string): URI {
+  return `file://${path}` as URI;
 }
 
 function isoOf(ts: number): string {

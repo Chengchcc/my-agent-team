@@ -31,6 +31,8 @@ tags: [surfaces, ahp, protocol]
 
 三个频道：root（`ahp-root://`，agent 目录）、session（`ahp-session:/<conversationId>`，agent 加工作区）、chat（`ahp-chat:/<conversationId>`，会话本身）。对话端订 chat，需要 agent 目录时再订 root。
 
+会话那份状态里 `workingDirectories` 给出这次会话的工作区（产品侧按 Agent 的工作区、项目 worktree、兜底根依次解析，与 Run 派发用的是同一条规则）。解析不出来时这个键缺席而不是让整份快照失败——项目没挂到 Agent 上在 Run 派发那侧是硬失败，在会话状态这侧只是「没有可展示的目录」。
+
 鉴权在 upgrade 那一步完成。端先 `POST /api/ahp/ws-ticket` 取一次性票据，再连 `/ws/ahp?ticket=…`；票据只消费一次，无效票据以 4001 关闭。浏览器没法在 WebSocket 握手上带自定义头，所以票由 BFF 转发，URI 规则收在 `packages/ahp-client`，省得两端各写一份。
 
 ## 两条边
