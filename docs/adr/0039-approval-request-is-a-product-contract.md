@@ -16,14 +16,14 @@
 
 2. **「先持久化、再广播」只允许一处实现。** 这条顺序保证今天写在 oma 事件的形状里（live bus 的 `broadcast`），抽象之后仍只保留 live bus 这一处；适配器不得自己做持久化，否则报文的可见顺序会跟着各家实现漂。
 
-3. **各后端只做薄适配**，把自家缝接到契约上，不新增协议层：
+3. **各后端经 ACP 接入，自制缝降为 fallback（2026-09-29 重写；原案实测契约仍存附录一）。**
 
-   - oma：不变；
-   - cc：`--permission-prompt-tool <我们的 MCP 工具>`，工具 `request_approval` 停靠 durable action，按 cc 的契约返回；
-   - pi：一个 pi 扩展，用 `on("tool_call")` 拦截，问产品，回 `{block, reason}`；
-   - omp：ACP 的 `session/request_permission`（omp 是唯一原生讲 ACP 的）。
+   - oma：保持 native RPC，P2 并行加 ACP 面（最终去留 P5 验收后定）；
+   - cc：经官方桥 `@agentclientprotocol/claude-agent-acp`（组织维护，其内部就是 cc SDK 的 `canUseTool`，翻译为 `request_permission`）；
+   - pi：经 `pi-acp` 桥获得编排面（会话、事件、恢复）；审批天然缺席，不硬凑；
+   - omp：原生 `omp acp`（注意必须 `--approval-mode always-ask` 才发权限请求）。
 
-   > 2026-09-28 修订：决策 4 改为「ACP 为目标传输」后，cc 走官方桥、pi 走 `pi-acp`（若工具审批仍不覆盖，pi 扩展作为过渡保留），本条的自制缝降级为 fallback 与应急路径。
+   原案（2026-09-28）为每家自制缝：cc 用 `--permission-prompt-tool` 挂我们的 MCP 工具、pi 写 `on("tool_call")` 扩展。决策 4 修订后两者均降级为应急路径——桥由官方组织维护后，自制缝只剩「桥不可用」的场景价值。
 
 4. **传输统一：采纳 ACP 为目标协议，分相落地（2026-09-28 修订，取代「有触发条件才做」的原案）。** 原案把 `acp` kind 押后到「两个以上原生 ACP agent 或桥补齐」；复审时生态已过拐点：ACP 官方组织自己维护 cc 与 codex 的桥（`@agentclientprotocol/claude-agent-acp` ^0.76、`@agentclientprotocol/codex-acp` ^1.1.5），gemini / cursor / copilot / qwen 等约二十个 agent 原生 `--acp`，acpx（MIT，3.3k 星，0.19.x）证明一个客户端可驱动整个生态。产品要的是协议层的统一与可扩展，因此直接以 ACP 为目标传输。实现取「自建薄客户端于官方 `@agentclientprotocol/sdk`」，不嵌入 acpx/runtime：它自带会话持久层，会与「账本加 Run 是唯一执行身份」冲突，且 pre-1.0、要求 Node 22.13。acpx 作为参考实现借三样东西（见附录二）。
 
@@ -42,13 +42,13 @@
 
 6. **A2A 是另一个轴，不依赖 ACP。** 把 backend 暴露成 A2A agent 复用同一份契约：run 的 `waiting` 对应 A2A 的 `input-required`。任何非 loopback 暴露先过 ADR 0026 的检查项；A2A 作 client 是未来的第五个 `AgentBackend` 实现。
 
-7. **不做：** 不做通用协议插件系统；不给 `pi-acp` 的洞打补丁（pi 走自家扩展）；不动 oma 的 RPC 与恢复机制。
+7. **不做：** 不做通用协议插件系统；不给 `pi-acp` 的洞打补丁（2026-09-29 注：pi 无审批可对齐，桥只承担编排面，洞不再影响我们）；不动 oma 的 RPC 与恢复机制（P2 只并行加 ACP 面，不替换）。
 
 ## 后果
 
-- **收益**：三家后端的 HITL 行为一致：同一套卡、同一个期限、同一份重放与重启恢复；A2A 的 `input-required` 顺带具备；现有产品的 durable 机制一行不用改。
-- **代价**：改四处硬编码的事件名，事件契约加两个类型；cc 加一个 MCP 工具与一个启动参数；pi 加一个扩展；omp 要写 ACP 客户端，这是唯一需要写协议的一层。
-- **风险**：cc 的 flag 是私有接口（`--help` 里没有，靠二进制与实测确认），版本漂移要盯；桥的版本耦合与失败面；A2A 规范仍在演进，只做我们需要的三样（Task、`input-required`、流式）。
+- **收益（2026-09-29 重写）**：oma、cc、omp 三家的 HITL 行为一致——同一套卡、同一个期限、同一份重放与重启恢复（pi 无审批策略，如实缺席）；任何原生 ACP agent 以注册表一行接入（acpx 注册表约二十五家）；oma 经 ACP 面反向可被生态客户端（Zed 等）编排；A2A 的 `input-required` 顺带具备；现有产品的 durable 机制一行不用改。
+- **代价（2026-09-29 重写）**：一个 ACP 客户端（acp kind：客户端 + 注册表 + 事件映射 + conformance 收编）；oma 的 ACP server（P2，含 `_session/steering`、`_meta` 决定注入、mcp-over-acp 先行者）；桥的版本钉扎与漂移管理；注入双轨的过渡期维护。原案的「cc 加 MCP 工具与启动参数、pi 加扩展」不再需要。
+- **风险（2026-09-29 重写）**：桥与 agent 的版本耦合（cc 桥 ^0.76 滚动、pi-acp 0.0.x 且停更风险——备选是围绕 `pi -p --mode json` 自造薄壳，方言已被 adapter-pi 证明）；v2 与 MCP-over-ACP RFCD 仍在演进（已以「线说 v1、形状按 v2」与「实验性 SDK 不作地基」对冲）；扩展机制依赖对端握手声明的诚实性；A2A 规范演进，只做我们需要的三样（Task、`input-required`、流式）。
 
 - **落地进度（2026-09-28）**：决策 1 已落地。`approval_requested` / `ask_requested` 进核心事件集（`packages/agent-contract/src/event.ts`），oma 子进程的帧名不动，翻译在 `packages/adapter-oma-agent/src/event-mapper.ts`；后端四处硬编码的名字收口（bus 识别、重放合成、ask 广播、telemetry 白名单），其中重放合成从盲信 `action.payload` 改为校验读取，缺身份的旧行不再变成无法解决的卡；Web 与飞书改订新名，Web 那条裸字符串的订阅并回类型化客户端。决策 2 本就成立（顺序保证只在 live bus）。决策 3 的四个后端适配与决策 4 的通用 `acp` kind 尚未开工；同日决策 4 修订为「ACP 为目标传输、分相落地」，相位与依据见决策 4 与附录二。2026-09-29 设计收敛：版本定位（线 v1、形状 v2）、扩展载体五条、注入双轨、pi 表述修正（审批不对齐、传输照迁）写入决策 4 与附录二、附录三；P1 仍未开工。
 
