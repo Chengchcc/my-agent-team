@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { AcpBackend, AcpModelCatalog } from "@chengchenccc/adapter-acp";
 import { ClaudeBackend, ClaudeModelCatalog } from "@chengchenccc/adapter-claude-agent";
 import { OmaBackend, OmaModelCatalog } from "@chengchenccc/adapter-oma-agent";
 import { OmpBackend, OmpModelCatalog } from "@chengchenccc/adapter-omp-agent";
@@ -588,11 +589,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // on non-root deployments (Gate 0).
     permissionMode: config.claudePermissionMode,
   });
+  const acpBackend = new AcpBackend();
   const backends: BackendRegistry = {
     oma: { backend: codingAgentBackend, catalog: codingAgentCatalog },
     omp: { backend: ompBackend, catalog: new OmpModelCatalog() },
     pi: { backend: piBackend, catalog: new PiModelCatalog() },
     claude_code: { backend: claudeBackend, catalog: new ClaudeModelCatalog() },
+    // ADR 0039 decision 4: the ACP orchestration kind — every native/bridged
+    // ACP agent through one client; the run's model id picks the registry
+    // entry (omp today, cc/pi bridges as they pass conformance).
+    acp: { backend: acpBackend, catalog: new AcpModelCatalog() },
   };
   // Catalog honesty (see served-models.ts): the model picker must not offer a
   // declared id the provider no longer serves. "Unknown" never flips anything.

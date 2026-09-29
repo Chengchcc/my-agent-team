@@ -49,7 +49,7 @@ The current-state description of each layer lives in the wiki: start at
 missing from this list; `@chengchenccc/` is the scope of every name below):
 - Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`
 - Contracts: `@chengchenccc/agent-contract` (spawn-neutral `AgentBackend`), `@chengchenccc/api-contract` (HTTP `App` + SSE event maps — the web↔backend wire, type-only)
-- Adapters (child-process boundary): `@chengchenccc/adapter-oma-agent`, `@chengchenccc/adapter-claude-agent`, `@chengchenccc/adapter-pi-agent`, `@chengchenccc/adapter-omp-agent` (the 4 implement `AgentBackend`), `@chengchenccc/adapter-mcp` (MCP client mount — not an `AgentBackend`)
+- Adapters (child-process boundary): `@chengchenccc/adapter-oma-agent`, `@chengchenccc/adapter-claude-agent`, `@chengchenccc/adapter-pi-agent`, `@chengchenccc/adapter-omp-agent` (the 4 implement `AgentBackend`), `@chengchenccc/adapter-acp` (ACP orchestration kind, ADR 0039: every ACP agent through one client), `@chengchenccc/adapter-mcp` (MCP client mount — not an `AgentBackend`)
 - Runtime support: `@chengchenccc/ai` (provider + model registry; `createProvider` over the three protocol implementations), `@chengchenccc/test-helpers` (`echoModel()`)
 - Plugins: 0 plugins as standalone packages; oma-native todo/progressive-skill live in `apps/oh-my-agent/src/core`
 - Apps: `@chengchenccc/backend` (consumes all), `@chengchenccc/oh-my-agent` (oma CLI + runtime), `@chengchenccc/web` (Next.js), `@chengchenccc/lark-bot`
