@@ -1,6 +1,6 @@
 # 审批请求是产品的一等契约
 
-> 状态：**Accepted**（2026-09-28；三家缝的实测契约见文末附录，落地进度见「后果」）。
+> 状态：**Accepted**（2026-09-28；2026-09-29 设计收敛修订见决策 4 与附录二、附录三；三家缝的实测契约见文末附录，落地进度见「后果」）。
 
 ## 背景
 
@@ -27,7 +27,16 @@
 
 4. **传输统一：采纳 ACP 为目标协议，分相落地（2026-09-28 修订，取代「有触发条件才做」的原案）。** 原案把 `acp` kind 押后到「两个以上原生 ACP agent 或桥补齐」；复审时生态已过拐点：ACP 官方组织自己维护 cc 与 codex 的桥（`@agentclientprotocol/claude-agent-acp` ^0.76、`@agentclientprotocol/codex-acp` ^1.1.5），gemini / cursor / copilot / qwen 等约二十个 agent 原生 `--acp`，acpx（MIT，3.3k 星，0.19.x）证明一个客户端可驱动整个生态。产品要的是协议层的统一与可扩展，因此直接以 ACP 为目标传输。实现取「自建薄客户端于官方 `@agentclientprotocol/sdk`」，不嵌入 acpx/runtime：它自带会话持久层，会与「账本加 Run 是唯一执行身份」冲突，且 pre-1.0、要求 Node 22.13。acpx 作为参考实现借三样东西（见附录二）。
 
-   目标定位（2026-09-28 明确）：要造的是**编排协议层本身**——一个客户端驱动所有 ACP agent 的会话、轮次、事件流、权限与恢复，达到 acpx 的成熟度；审批在各端一致只是这个层的顺带结果，不是目的。因此没有原生能力的 agent（pi 无 ACP、核心也无审批策略）**不强行对齐**，留在各自 native kind；`acp` kind 对所有原生 ACP agent 开放，不为我们四家私有。
+   目标定位（2026-09-28 明确）：要造的是**编排协议层本身**——一个客户端驱动所有 ACP agent 的会话、轮次、事件流、权限与恢复，达到 acpx 的成熟度；审批在各端一致只是这个层的顺带结果，不是目的。因此「不强行对齐」只限定于各端本来就没有的能力（pi 核心无审批策略，便无审批可对齐）；传输面的统一照常覆盖 pi（经 `pi-acp` 桥获得会话、事件、恢复的编排一致性）。`acp` kind 对所有原生 ACP agent 开放，不为我们四家私有。
+   版本定位（2026-09-29 收敛）：**线说 v1，形状按 v2。** 今天零个第三方 agent 说 v2（omp 原生 v1、cc 桥 v1、pi-acp 停在旧 v1），v2 规范与 SDK 均为 draft/experimental；而 v1 线已具备我们需要的全部机制（会话、事件流、权限、elicitation、恢复，以及事实可用的扩展载体）。因此客户端与 oma 的 ACP 面都建在稳定 v1 SDK 上，扩展一律按 v2 扩展规范的形状命名（下划线方法、`_meta`、capabilities 声明），v2 普及之日只改握手里的一个数字。
+
+   扩展载体（2026-09-29 收敛，全部为规范内行为，零私有分叉）：
+   - 自定义方法一律下划线前缀；steer 直接采纳既有约定名 `_session/steering`（官方 cc 桥已实现，握手经 `InitializeResponse._meta.steering.supported` 声明），不另造 `_oma/steer`。
+   - 恢复时的决定注入优先骑标准 `session/load`（v2 名 `session/resume`）params 的 `_meta`；自定义方法只作对端不支持 `_meta` 时的兜底。
+   - oma 的私有事件（todo、委派）走 `_oma/update` 自定义通知；v1 SDK 的 `sessionUpdate` 是封闭联合，自定义标签会被解析丢弃，不得塞入标准联合。
+   - 入站 `elicitation/create`（v1 规范已有，form/url 双模式）映射到问答卡管线；oma↔自家 backend 的 ask 继续走 product-tools MCP（表单更富：多题数组、allowOther、推荐标记、校验）。
+   - 能力发现以握手声明为准，不猜；对端未声明的扩展一律不发。
+
 
 5. **恢复跟状态所有权走**（沿用 ADR 0038 的判据）：action 记录、期限、卡片、答案归产品；agent 自己的策略（例如 cc 的 `PermissionUpdate` durable 规则）归 agent；产品只如实展示「将创建什么规则」，不假装能撤销。
 
@@ -41,7 +50,7 @@
 - **代价**：改四处硬编码的事件名，事件契约加两个类型；cc 加一个 MCP 工具与一个启动参数；pi 加一个扩展；omp 要写 ACP 客户端，这是唯一需要写协议的一层。
 - **风险**：cc 的 flag 是私有接口（`--help` 里没有，靠二进制与实测确认），版本漂移要盯；桥的版本耦合与失败面；A2A 规范仍在演进，只做我们需要的三样（Task、`input-required`、流式）。
 
-- **落地进度（2026-09-28）**：决策 1 已落地。`approval_requested` / `ask_requested` 进核心事件集（`packages/agent-contract/src/event.ts`），oma 子进程的帧名不动，翻译在 `packages/adapter-oma-agent/src/event-mapper.ts`；后端四处硬编码的名字收口（bus 识别、重放合成、ask 广播、telemetry 白名单），其中重放合成从盲信 `action.payload` 改为校验读取，缺身份的旧行不再变成无法解决的卡；Web 与飞书改订新名，Web 那条裸字符串的订阅并回类型化客户端。决策 2 本就成立（顺序保证只在 live bus）。决策 3 的四个后端适配与决策 4 的通用 `acp` kind 尚未开工；同日决策 4 修订为「ACP 为目标传输、分相落地」，相位与依据见决策 4 与附录二。
+- **落地进度（2026-09-28）**：决策 1 已落地。`approval_requested` / `ask_requested` 进核心事件集（`packages/agent-contract/src/event.ts`），oma 子进程的帧名不动，翻译在 `packages/adapter-oma-agent/src/event-mapper.ts`；后端四处硬编码的名字收口（bus 识别、重放合成、ask 广播、telemetry 白名单），其中重放合成从盲信 `action.payload` 改为校验读取，缺身份的旧行不再变成无法解决的卡；Web 与飞书改订新名，Web 那条裸字符串的订阅并回类型化客户端。决策 2 本就成立（顺序保证只在 live bus）。决策 3 的四个后端适配与决策 4 的通用 `acp` kind 尚未开工；同日决策 4 修订为「ACP 为目标传输、分相落地」，相位与依据见决策 4 与附录二。2026-09-29 设计收敛：版本定位（线 v1、形状 v2）、扩展载体五条、注入双轨、pi 表述修正（审批不对齐、传输照迁）写入决策 4 与附录二、附录三；P1 仍未开工。
 
 ## 附录：三家缝的实测契约
 
@@ -94,13 +103,28 @@ openclaw/acpx 是 ACP 的无头客户端（MIT，3.3k 星），自带可嵌入 r
 ### 落地相位（决策 4 修订版）
 
 ```
-P1  acp 编排层：官方 SDK 薄客户端（initialize / session / prompt / 事件流 /
-    request_permission / 恢复）+ omp 端到端打通——验收是编排面工作，不止审批
-P2  oma 的 ACP server（resume 决定注入做 oma/ 前缀私有扩展）——反向收益：
-    我们自己的 agent 也能被 acpx / Zed 这类生态客户端编排
+P1  acp 编排层：稳定 v1 SDK 薄客户端（initialize / session / prompt / 事件流 /
+    request_permission / elicitation 入站 / 恢复）+ omp 端到端打通——
+    验收是编排面工作，不止审批；注入走策略缝（现状 workspace MCP 配置 +
+    product-tools SSE，见附录二的注入双轨）
+P2  oma 的 ACP server：标准面给所有生态客户端（acpx / Zed 可驱动 oma）；
+    扩展按上文载体规则落地，并率先实现 mcp-over-acp（mcpCapabilities.acp）
+    自证注入终态
 P3  cc 经 @agentclientprotocol/claude-agent-acp 接入（conformance 先行）
-P4  workflow 的 agent 节点支持 acp kind（对应 acpx flows 的组合编排）
-P5  逐个下线旧 native adapter；pi 不强行对齐，留在 native kind
+P4  pi 经 pi-acp 迁移（编排面统一；审批天然缺席，不硬凑）；
+    workflow 的 agent 节点支持 acp kind（对应 acpx flows 的组合编排）
+P5  逐个下线旧 native adapter（oma RPC 去留于 P2 验收后定）
 ```
 
 每个相位先过 conformance 用例，再过我们的隔离验收（审批卡端到端），最后才进 live。
+
+## 附录三：协议支持度普查（2026-09-29，实测与源码级确认）
+
+| 对端 | ACP | 版本 | steer | elicitation | mcp-over-acp |
+|---|---|---|---|---|---|
+| omp | 原生 | v1（v2 握手实测失败：响应为 v1 形状，v2 客户端校验不过） | 核心有（pi 血统），ACP 面未接约定方法 | 未声明 | 否（`mcpCapabilities` 仅 http/sse） |
+| cc | 官方桥（SDK 钉 1.5.0） | v1 线，已在用 v2 风格扩展 | ✅ `_session/steering` 已实现（`_meta.steering.supported` 声明，SDK 抢占式注入） | 桥源码含 elicitation 回调处理（steer 的 later 优先级会等待它） | 否 |
+| pi | pi-acp 桥（SDK ^0.26.0；桥 0.0.34，2026-09-24 后未更新） | 旧 v1 | pi 核心有投递模式（`/steering all \| one-at-a-time`），桥面未接约定方法 | 未声明 | 否 |
+| oma | 无（P2 自建） | 目标：v1 线 + v2 形状 | 自家 RPC 有；ACP 面将接 `_session/steering` 约定名 | P2 出站用 elicitation 表达提问 | P2 率先实现 |
+
+SDK 状态：稳定线 1.5.x（v1，Bun 下实测可跑，含 server 侧 AgentApp）；experimental/v2 含 `mcp/message` 但也有 RFCD 明言不存在的 `mcp/connect`/`mcp/disconnect`（实现与草案不同步），不作地基。附：未知自定义请求实测 omp 应答 -32603 而非规范的 -32601，勿依赖错误码值判能力；未知通知被无视且连接存活。
