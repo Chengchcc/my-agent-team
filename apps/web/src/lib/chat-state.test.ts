@@ -321,3 +321,41 @@ describe("an answered request", () => {
     });
   });
 });
+
+describe("an answered question", () => {
+  test("carries the outcome and the durable answer onto the card", () => {
+    const view = activeTurnFromState(
+      state([], {
+        activeTurn: {
+          id: "run-8",
+          startedAt: new Date(0).toISOString(),
+          message: { text: "go", origin: { kind: "user" } },
+          responseParts: [
+            {
+              kind: "inputRequest",
+              request: {
+                id: "run-8:call-3",
+                message: "ask",
+                _meta: {
+                  productRequest: { callId: "call-3", questions: [{ id: "q1" }] },
+                  productResponse: {
+                    answered: true,
+                    answer: { answers: [{ id: "q1", selectedValues: [], freeText: "because" }] },
+                  },
+                },
+              },
+              response: "accept",
+            },
+          ],
+          usage: undefined,
+        },
+      }),
+      "agent-1",
+    );
+    expect(view.transients["run-8"]?.ask).toMatchObject({
+      callId: "call-3",
+      response: "accept",
+      answer: { answers: [{ id: "q1", freeText: "because" }] },
+    });
+  });
+});

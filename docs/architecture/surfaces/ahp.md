@@ -72,7 +72,8 @@ tags: [surfaces, ahp, protocol]
 
 ## 已知缺口
 
-- 人工输入两侧现在都走动作：请求到达时发 `inputRequest` 片段（id 与投影一致，一问一次），人答复或被期限拒绝时发 `chat/inputCompleted`，卡片当场从「待答复」变掉。还欠的是**询问的答复内容**：投影只把审批的 allow/deny 映射成 `accept`/`decline`，`ask` 的答案（按问题 id）目前不进片段，所以询问卡片显示得出「已答复」、显示不出答了什么。这条记在 Review follow-ups 的「Carry input answers through the canonical shape」。
+- 人工输入两侧现在都走动作：请求到达时发 `inputRequest` 片段（id 与投影一致，一问一次），人答复或被期限拒绝时发 `chat/inputCompleted`，卡片当场从「待答复」变掉。
+- 询问的**答复内容**分成两半到端上：动作那条边只带结果（`accept`），内容随投影走——投影把持久行的答复原样挂在片段的 `_meta.productResponse`，端从那里读「答了什么」，也就是刷新或本轮折入之后才有内容。上游还有一条 `answers`（按问题 id 的 `ChatInputAnswer`），我们没往上映射：产品的答案是 `{selectedValues, freeText}` 这样的形状，映射到上游的 text/selected/selected-many 是取舍，属于待决策项（Review follow-ups 的「Carry input answers through the canonical shape」）。第三方端如果只按上游读 `request.answers`，就看不到答复内容。
 - todo 只在 chat 状态的 `_meta.todos` 里，也就是只在快照里。协议没有任何动作能改 chat 的 `_meta`，所以「直播刷新 todo」要么等上游给出动作，要么由我们自定义一个动作、两端各自解释，要么退回重订阅。这条是待决策项。
 - 续接提示写完就派发（`announceContinuity`）。代价：端如果在记录写入与派发之间订阅，它会从快照拿到这一轮、又收到这次派发，客户端状态里于是有同一轮的第二份副本；两端的渲染与投递都按 id 合并，所以看不出来。要消掉它，得让派发只发给「订阅早于这次写入」的连接。
 - `apps/web/src/lib/chat-state.ts` 在坐标缺失时用 `seq: 0` 兜底，等于编一个坐标，要按上面那条改成关掉那个动作。

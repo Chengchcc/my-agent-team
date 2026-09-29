@@ -160,6 +160,9 @@ export interface ProductToolsServiceDeps {
    * the run has no live child (restart while parked) the wake must
    * resume-dispatch it. No-op otherwise (the execution service guards). */
   readonly onRunWoke?: (runId: string) => void;
+  /** A human answer reached the durable row (a late one too - it repairs the row). The surface
+   *  layer turns it into whatever its channel says; the product states the fact. */
+  readonly onAskAnswered?: (input: { runId: string; callId: string }) => void;
 }
 
 export interface ProductToolsService {
@@ -568,7 +571,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           { actionId: key, response: { answered: true, answer } },
           `${key}:resolved`,
         )
-        .then(() => deps.onRunWoke?.(runId))
+        .then(() => {
+          deps.onRunWoke?.(runId);
+          deps.onAskAnswered?.({ runId, callId });
+        })
         .catch(() => {});
       return Boolean(resolve);
     },

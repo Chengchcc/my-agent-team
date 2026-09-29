@@ -1,10 +1,20 @@
 import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
+import type { SenderRef } from "./conversation-reducer";
 
 /** Pure transient-stream state transitions. The hook keeps the maps in
  *  React state; these functions make the multi-run merge/drop semantics
  *  unit-testable without DOM or EventSource. */
 
 export type TransientBlock = { type: "text" | "thinking"; text: string };
+
+/** One live bubble, as the timeline renders it: the transient run, addressed by run id, with its
+ *  tool steps flattened by the caller. Components pass this instead of re-declaring the shape -
+ *  three copies of it is how a new field ends up on one screen and not the others. */
+export type TransientBubble = TransientRun & {
+  readonly runId: string;
+  readonly sender: SenderRef;
+  readonly tools?: readonly LiveToolCall[];
+};
 
 export interface TransientRun {
   text: string;
@@ -27,6 +37,12 @@ export interface TransientRun {
   ask?: {
     callId: string;
     questions: unknown[];
+    /** Set once the request is over (live via `chat/inputCompleted`, and from a reload alike):
+     *  the card stops offering inputs. */
+    response?: "accept" | "decline" | "cancel";
+    /** The durable answer, as the product wrote it (the projection carries it under
+     *  `_meta.productResponse`). Unknown by design: the surface renders what it recognises. */
+    answer?: unknown;
   };
   /** Terminal failure of this run (status event error field). Kept live
    *  because failed runs persist no assistant message. */

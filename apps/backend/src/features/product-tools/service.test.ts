@@ -38,6 +38,8 @@ const TOOL_MANIFEST = [
 let emittedAsks: Array<{ runId: string; callId: string; questions: unknown[] }> = [];
 /** Captures emitTodo calls: the plan strip's live source. */
 let emittedTodos: Array<{ runId: string; items: readonly unknown[] }> = [];
+/** Every ask answer the service announced as landed. */
+let answeredAsks: Array<{ runId: string; callId: string }> = [];
 
 async function createRun(messageText: string): Promise<string> {
   const acq = await backend.enqueueAndAcquire({
@@ -110,10 +112,12 @@ beforeEach(async () => {
         questions: input.question.questions as unknown[],
       }),
     emitTodo: (input) => emittedTodos.push({ runId: input.runId, items: input.items }),
+    onAskAnswered: (input) => answeredAsks.push(input),
     askTimeoutMs: 2000,
   });
   emittedAsks = [];
   emittedTodos = [];
+  answeredAsks = [];
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
   const branch = await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
@@ -561,6 +565,10 @@ describe("product tools service", () => {
       answers: [{ id: "notes_location", selectedValues: ["workspace root"] }],
     });
     expect(await pending).toBeDefined();
+    // The answer reached the durable row, so the surface layer is told: a card that keeps offering
+    // its inputs after being answered can only be refused.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(answeredAsks).toEqual([{ runId, callId }]);
   });
 
   test("todo_write publishes the plan strip event", async () => {

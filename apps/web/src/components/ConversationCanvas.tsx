@@ -19,7 +19,7 @@ import type { SenderRef } from "@/lib/conversation-reducer";
 import type { CommandContext } from "@/lib/slash-commands";
 import { findCommand, parseArgs } from "@/lib/slash-commands";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall, TodoItem, TransientApproval } from "@/lib/transient-reducer";
+import type { TodoItem, TransientBubble } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 import { Composer } from "./Composer";
 import { StatusPill } from "./patterns";
@@ -170,33 +170,16 @@ export function ConversationCanvas({
 
   // One timeline bubble per active run, addressed via its agent member.
   const transientBubbles = useMemo(() => {
-    const bubbles: Array<{
-      runId: string;
-      text: string;
-      thinking: string;
-      sender: SenderRef;
-      tools: LiveToolCall[];
-      error?: string;
-      notices?: string[];
-      approval?: TransientApproval;
-      ask?: { callId: string; questions: unknown[] };
-      ordered?: ReadonlyArray<{ type: "text" | "thinking"; text: string }>;
-    }> = [];
+    const bubbles: TransientBubble[] = [];
     for (const [runId, t] of Object.entries(transients)) {
       const sender = agent ?? { memberId: t.agentId, kind: "agent" as const, agentId: t.agentId };
       bubbles.push({
+        ...t,
         runId,
-        text: t.text,
-        thinking: t.thinking,
         sender,
         tools: Object.values(transientTools).filter(
           (tool) => tool.runId === runId && !hasDedicatedEvent(tool.name),
         ),
-        error: t.error,
-        notices: t.notices,
-        ordered: t.ordered,
-        ...(t.approval ? { approval: t.approval } : {}),
-        ...(t.ask ? { ask: t.ask } : {}),
       });
     }
     return bubbles;

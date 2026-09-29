@@ -113,6 +113,10 @@ describe("the chat channel writer", () => {
     expect(f.sent[0]?.action).toMatchObject({ requestId: "run-1:call-9", response: "accept" });
     await f.writer.announceHumanInput({ runId: "run-1", callId: "call-9", outcome: "timeout" });
     expect(f.sent[1]?.action).toMatchObject({ response: "decline" });
+    // An ask answered with content reads as accepted; the answer's content comes with the
+    // projection (mapping it onto upstream's answer kinds is a decision of its own).
+    await f.writer.announceHumanInput({ runId: "run-1", callId: "call-2", outcome: "answered" });
+    expect(f.sent[2]?.action).toMatchObject({ requestId: "run-1:call-2", response: "accept" });
   });
 
   test("a continuity record is announced as its own turn", async () => {

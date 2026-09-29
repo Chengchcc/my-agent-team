@@ -436,6 +436,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     callPort: sqliteProductToolCallAdapter(db),
     idGen: { ulid },
     artifactService,
+    onAskAnswered: (input) => {
+      void chatWriter
+        .announceHumanInput({ ...input, outcome: "answered" })
+        .catch((err) =>
+          console.error(`[bootstrap] ask announcement failed for ${input.runId}:`, err),
+        );
+    },
     emitAsk: (input) => broadcastAskEvent?.(input),
     emitTodo: (input) => broadcastTodoEvent?.(input),
     // HITL over chat: hours, not minutes (user decision 2026-09-25).

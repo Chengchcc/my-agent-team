@@ -57,11 +57,14 @@ export interface AhpChatWriter {
   /** A continuity record landed: a surface that is already connected has to see it (and move its
    *  binding) instead of waiting for its next snapshot. */
   announceContinuity(input: { conversationId: string; controlSeq: number }): Promise<void>;
-  /** A human answered (or the request expired): the part that asked stops reading as pending. */
+  /** A human answered (or the request expired): the part that asked stops reading as pending.
+   *  `answered` is an ask answered with content - the *outcome* reaches a live surface here, the
+   *  answer's content comes with the projection (mapping the product's answer onto upstream's
+   *  `ChatInputAnswer` kinds is a decision of its own). */
   announceHumanInput(input: {
     runId: string;
     callId: string;
-    outcome: "allow" | "deny" | "timeout";
+    outcome: "allow" | "deny" | "timeout" | "answered";
   }): Promise<void>;
 }
 
@@ -143,7 +146,8 @@ export function createAhpChatWriter(deps: AhpChatWriterDeps): AhpChatWriter {
     async announceHumanInput(input) {
       const context = await contextFor(input.runId);
       if (!context) return;
-      const response = input.outcome === "allow" ? "accept" : "decline";
+      const response =
+        input.outcome === "allow" || input.outcome === "answered" ? "accept" : "decline";
       await send(
         context.conversationId,
         actions.inputCompleted(pendingActionId(input.runId, input.callId), response),

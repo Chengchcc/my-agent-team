@@ -12,7 +12,7 @@ import {
 } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall, TransientApproval } from "@/lib/transient-reducer";
+import type { LiveToolCall, TransientApproval, TransientBubble } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
 import { ArtifactCard } from "./ArtifactCard";
 import { MessageBubble } from "./MessageBubble";
@@ -28,23 +28,7 @@ interface TimelineProps {
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** Transient streaming outputs — one temporary assistant bubble per
    *  active run at the end of the timeline, replaced by canonical Messages. */
-  transients?:
-    | Array<{
-        runId: string;
-        text: string;
-        thinking: string;
-        sender: SenderRef;
-        tools?: readonly LiveToolCall[];
-        error?: string;
-        notices?: string[];
-        approval?: TransientApproval;
-        ask?: { callId: string; questions: unknown[] };
-        /** Interleaved thinking/text deltas in arrival order. When present,
-         *  the trace renders them interleaved instead of lumping all thinking
-         *  on top of the text. */
-        ordered?: ReadonlyArray<{ type: "text" | "thinking"; text: string }>;
-      }>
-    | undefined;
+  transients?: readonly TransientBubble[] | undefined;
   onResolveApproval?: (runId: string, callId: string, decision: "allow" | "deny") => void;
   onResolveAsk?: (runId: string, callId: string, answer: unknown) => void;
   /** Artifacts keyed by producing run id, rendered under the matching agent message. */
@@ -130,6 +114,29 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
     }
   }
   return anchors;
+}
+
+/** One line for what a question was answered with: the selected values and any free text, as the
+ *  product recorded them. Unknown shapes render as nothing rather than as a guess. */
+function summarizeAskAnswer(answer: unknown): string {
+  const items = (answer as { answers?: unknown } | undefined)?.answers;
+  if (!Array.isArray(items)) return "";
+  const parts: string[] = [];
+  for (const item of items) {
+    const record = item as {
+      selectedValues?: unknown;
+      freeText?: unknown;
+      note?: unknown;
+      timedOut?: unknown;
+    };
+    if (record.timedOut === true) parts.push("no answer (timed out)");
+    if (Array.isArray(record.selectedValues)) {
+      parts.push(...record.selectedValues.filter((v): v is string => typeof v === "string"));
+    }
+    if (typeof record.freeText === "string" && record.freeText !== "") parts.push(record.freeText);
+    if (typeof record.note === "string" && record.note !== "") parts.push(record.note);
+  }
+  return parts.length === 0 ? "" : `: ${parts.join(", ")}`;
 }
 
 export function Timeline({
@@ -393,12 +400,20 @@ export function Timeline({
                 )}
                 {t.ask && (
                   <div className="p-1">
-                    <AskQuestionCard
-                      input={{ questions: t.ask.questions as AskQuestionInput["questions"] }}
-                      onSubmit={(result: AskQuestionResult) =>
-                        onResolveAsk?.(t.runId, t.ask!.callId, result)
-                      }
-                    />
+                    {t.ask.response ? (
+                      // Answered (here or on another surface): offering the inputs again would
+                      // invite an answer the backend can only refuse.
+                      <p data-testid="ask-answered" className="text-xs text-(--mute)">
+                        Answered{summarizeAskAnswer(t.ask.answer)}
+                      </p>
+                    ) : (
+                      <AskQuestionCard
+                        input={{ questions: t.ask.questions as AskQuestionInput["questions"] }}
+                        onSubmit={(result: AskQuestionResult) =>
+                          onResolveAsk?.(t.runId, t.ask!.callId, result)
+                        }
+                      />
+                    )}
                   </div>
                 )}
                 {tools.length > 0 && (
