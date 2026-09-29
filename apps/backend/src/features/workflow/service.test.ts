@@ -144,7 +144,6 @@ describe("createWorkflowExecutionService", () => {
         },
         human: { run: async () => ({ output: {} }) },
       } as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
     });
     const result = await svc.runToCompletion("e1", {
@@ -161,7 +160,6 @@ describe("createWorkflowExecutionService", () => {
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: { script: { run: async () => ({ output: {} }) } } as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
     });
     const result = await svc.runToCompletion("e1", {
@@ -177,7 +175,6 @@ describe("createWorkflowExecutionService", () => {
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: {} as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
     });
     const paused = await svc.runToCompletion("e1", {
@@ -195,7 +192,6 @@ describe("createWorkflowExecutionService", () => {
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: {} as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
     });
     const paused = await svc.runToCompletion("e1", {
@@ -218,7 +214,6 @@ describe("createWorkflowExecutionService", () => {
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: {} as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
       agentRunService: {
         enqueueAndAcquire: async () => ({ acquired: true, run: { runId: "r1" } }),
@@ -257,7 +252,6 @@ describe("createWorkflowExecutionService", () => {
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: {} as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
       agentRunService: {
         getRun: async (runId: string) => ({
@@ -328,7 +322,6 @@ describe("createWorkflowExecutionService", () => {
           }),
         },
       } as never,
-      eventBus: { emit: () => {}, subscribe: async function* () {} } as never,
       idGen: () => "e1",
     });
     const def = parseWorkflow({

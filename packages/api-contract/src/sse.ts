@@ -83,15 +83,6 @@ export function hasDedicatedEvent(toolName: string | undefined): boolean {
  *  One wire event name ("wf"); the payload is the event envelope with the
  *  business event name inside. History replay rows also carry `seq` (the
  *  durable row id) for reconnect dedup; live events key by `ts`. */
-export const workflowExecutionEvents = {
-  wf: z.object({
-    event: z.string(),
-    executionId: z.string(),
-    ts: z.number(),
-    data: z.unknown().optional(),
-    seq: z.number().optional(),
-  }),
-} as const satisfies SSEEventMap;
 
 // ── SSE endpoint registry (path template + event map, single source) ──
 
@@ -148,39 +139,4 @@ export const agentConfigEvents = {
   changed: agentConfigEvent,
 } as const satisfies SSEEventMap;
 
-export const sseEndpoints = {
-  workflowExecutionEvents: {
-    path: (p: { executionId: string }) => `/workflow-executions/${p.executionId}/events`,
-    events: workflowExecutionEvents,
-  },
-} as const;
-
-// ── SSE encoder (backend send side — validate payload before wire) ──
-
-/**
- * Create an SSE encoder bound to an event map. The returned `encode` function
- * validates `data` against the schema for `event` before formatting as an
- * `{ id, event, data }` object suitable for `sseResponse()`.
- */
-export function createSseEncoder<M extends SSEEventMap>(_map: M) {
-  return function encode<K extends keyof M & string>(
-    event: K,
-    data: unknown,
-    id: string,
-  ): { id: string; event: string; data: z.infer<M[K]> } {
-    const schema = _map[event] as z.ZodType;
-    const validated = schema.parse(data) as z.infer<M[K]>;
-    return { id, event, data: validated };
-  };
-}
-
-// ── Types ──
-
 export type SSEEventMap = Record<string, z.ZodType<unknown>>;
-
-export interface SSEEndpoint<M extends SSEEventMap> {
-  path: (...args: unknown[]) => string;
-  events: M;
-}
-
-export type SSEEndpoints = Record<string, SSEEndpoint<SSEEventMap>>;

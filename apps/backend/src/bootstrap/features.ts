@@ -133,7 +133,6 @@ import {
   createWorkflowExecutionService,
   createWorkflowMcpServer,
   createWorkflowTriggerScheduler,
-  ExecutionEventBus,
   sqliteWorkflowExecutionAdapter,
   WorkflowDefinitionEventBus,
   workflowRoutes,
@@ -1374,7 +1373,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // ─── Agentic Workflow ───────────────────────────────────
   const workflowPort = sqliteWorkflowExecutionAdapter(db);
-  const workflowEventBus = new ExecutionEventBus();
   const workflowNodeRunners = createNodeRunners({
     dataDir: config.dataDir,
     // H2: script nodes are opt-in; the sandbox denies reads over the
@@ -1382,13 +1380,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // sandbox-exec when available).
     scriptsEnabled: config.workflowScriptsEnabled,
     denyReadDirs: config.workflowScriptDenyReadDirs,
+    // A script log is a durable fact: it lands in the trace the execution page reads.
     onLog: (executionId, data) =>
-      workflowEventBus.emit({ event: "script_log", executionId, ts: Date.now(), data }),
+      workflowPort
+        .appendExecutionEvent({ executionId, event: "script_log", data, ts: Date.now() })
+        .catch(() => {}),
   });
   const workflowExecutionService = createWorkflowExecutionService({
     port: workflowPort,
     nodeRunners: workflowNodeRunners,
-    eventBus: workflowEventBus,
     idGen: ulid,
     agentRunService,
     agentRunExecution,
@@ -1765,7 +1765,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();
-    await workflowExecutionService.dispose();
     await larkBotRegistry.dispose();
     setupManager?.dispose();
     await productToolsMcp?.close();

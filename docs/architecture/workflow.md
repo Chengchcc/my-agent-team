@@ -10,7 +10,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 ## 范围
 
-覆盖：DSL 与校验规则、JSON-Logic 子集、路由与合并语义、backend 执行路径（drive / agent / script / human / retry / cancel / recover）、事件总线与 SSE、cron 触发、Artifact 引用、agent 侧的定义读写面。
+覆盖：DSL 与校验规则、JSON-Logic 子集、路由与合并语义、backend 执行路径（drive / agent / script / human / retry / cancel / recover）、执行事件的落库与读取、cron 触发、Artifact 引用、agent 侧的定义读写面。
 
 不覆盖：Web 编辑器与画布交互（见 [Web 端](./surfaces/web.md)）、Agent Run 自身的生命周期（见 [Product Backend 总览](./backend/overview.md)、[Run 输出与实时更新](./runs/output-and-live-updates.md)）、oma 子进程内部那套 `core/orchestrate/` 脚本工具（它与本 DSL 无关，见文末「两条独立路径」）。
 
@@ -26,7 +26,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 - `apps/backend/src/features/workflow/service.ts` — drive 循环、节点执行、重试、取消、恢复、human 原子 claim
 - `apps/backend/src/features/workflow/node-runners.ts` — script 节点 runner：`WORKFLOW_SCRIPTS_ENABLED` 门 + 进程沙箱
 - `apps/backend/src/features/workflow/adapter-sqlite.ts` — 四张表的 drizzle 适配器
-- `apps/backend/src/features/workflow/{trigger-scheduler,event-bus,definition-events,dry-run,mcp,http}.ts`
+- `apps/backend/src/features/workflow/{trigger-scheduler,definition-events,dry-run,mcp,http}.ts`
 - `apps/backend/src/features/artifact/{domain,service,adapter-fs,http}.ts` — `artifacts://` 引用与文件存储
 - `apps/backend/src/bootstrap/features.ts` — 组装：MCP server、节点 runner、服务、触发同步、showcase 播种
 
@@ -105,7 +105,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 `store_write` 虽然在代码里，但生产路径永远不会触发：写 store 的 `storeApiOf` 没有任何调用方，store 恒为空对象。
 
-SSE 端点是 `GET /api/workflow-executions/:id/events`，顺序是「先订阅 → 重放持久历史 → 再直播」——先订阅才能保证重放期间的事件不丢；execution 已终态则重放完直接结束，`finally` 里必 unsubscribe。事件总线收到 `execution_terminal` 即终止流。
+执行页的实时尾随走轮询：`GET /api/workflow-executions/:id/trace` 一次给出 execution、事件、节点运行与正在等的人工门，运行期间页面按 1.5 秒拉一次，事件列表与拖动回看读的是同一份。原先那条 SSE 端点（先订阅、再重放持久历史、最后直播）连同内存里的事件总线一起删掉了；脚本日志现在走落库那条路，所以不再依赖总线。
 
 ## 触发
 
