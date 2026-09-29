@@ -54,7 +54,11 @@ if [ -z "$CHANGED" ]; then
 fi
 COUNT=$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')
 echo "pre-push: biome + eslint on $COUNT changed files"
-bunx biome check $CHANGED || exit 1
+# --no-errors-on-unmatched: the changed list is taken from git, so it can contain
+# paths biome ignores by config (drizzle migrations, vendored data). Without the
+# flag biome exits 1 on "no files were processed", which blocks any commit that
+# only touches those paths (observed pushing the 0050 snapshot).
+bunx biome check --no-errors-on-unmatched $CHANGED || exit 1
 
 # eslint runs AFTER the push connection is already open, so time spent here is
 # time the remote sees as an idle session. On this box it needs 15+ minutes for
