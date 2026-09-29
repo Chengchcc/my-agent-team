@@ -22,7 +22,11 @@ export function createAhpFace(opts: AhpFaceOptions) {
     commands: opts.commands,
     ...(opts.replayBufferSize !== undefined ? { replayBufferSize: opts.replayBufferSize } : {}),
   });
-  const connections = new WeakMap<object, { handle(frame: string): void; close(): void }>();
+  /** 连接挂在 socket 自己的 data 上：Elysia 每次回调给的 `ws` 包装对象并不保证是
+   *  同一个（用 WeakMap 以 `ws` 为键时，open 里存进去、message 里取出来是 undefined，
+   *  实测过），而 `ws.data` 是它为该 socket 保留的那一份。 */
+  type AhpSocketData = { ahp?: { handle(frame: string): void; close(): void } };
+  const dataOf = (ws: { data: unknown }): AhpSocketData => ws.data as AhpSocketData;
 
   const routes = new Elysia()
     .post("/api/ahp/ws-ticket", () => ({ ticket: tickets.mint(), wsBase: opts.wsBase }))
@@ -33,20 +37,18 @@ export function createAhpFace(opts: AhpFaceOptions) {
           ws.close(4001, "invalid ticket");
           return;
         }
-        connections.set(
-          ws,
-          server.createConnection((frame) => ws.send(frame)),
-        );
+        dataOf(ws).ahp = server.createConnection((frame) => ws.send(frame));
       },
       message(ws, raw) {
-        const connection = connections.get(ws);
+        const connection = dataOf(ws).ahp;
         if (!connection) return;
         // Elysia 会预解析 JSON 帧，而 AHP 的帧就是 JSON：重新序列化即可。
         connection.handle(typeof raw === "string" ? raw : JSON.stringify(raw));
       },
       close(ws) {
-        connections.get(ws)?.close();
-        connections.delete(ws);
+        const connection = dataOf(ws).ahp;
+        connection?.close();
+        dataOf(ws).ahp = undefined;
       },
     });
 

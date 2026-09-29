@@ -109,6 +109,12 @@ const GATES: readonly AppGate[] = [
       "src/features/runtime-ops/http.ts": 95,
       "src/features/settings/http.ts": 95,
       "src/features/skill-pack/http.ts": 85,
+      // The AHP face (ADR 0040): the protocol core, the product-facing read-only
+      // projection, and the ws mount. All three carry behaviour a surface depends
+      // on; without floors they rode the aggregate 70% and a ws bug went unseen.
+      "src/features/ahp/http.ts": 95,
+      "src/features/ahp/protocol.ts": 95,
+      "src/features/ahp/state-source.ts": 80,
       // Trust boundaries + SSE contract
       "src/features/artifact/domain.ts": 95,
       "src/features/artifact/service.ts": 95,

@@ -45,8 +45,7 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
-import { createAhpFace } from "../features/ahp/http.js";
-import { createAhpStateSource } from "../features/ahp/state-source.js";
+import { createAhpFace, createAhpStateSource } from "../features/ahp/index.js";
 import {
   artifactRoutes,
   createArtifactFsAdapter,

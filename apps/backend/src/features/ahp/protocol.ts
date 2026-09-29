@@ -30,6 +30,9 @@ const METHOD_NOT_FOUND = -32601;
 const INVALID_REQUEST = -32600;
 const INVALID_PARAMS = -32602;
 const UNSUPPORTED_PROTOCOL_VERSION = -32005;
+/** 上游 AhpErrorCodes：NotFound / InvalidParams / InternalError。 */
+const NOT_FOUND = -32008;
+const INTERNAL_ERROR = -32603;
 
 /** 产品侧提供的状态来源。服务端只在第一次订阅某个频道时取一次，之后自己用
  *  上游 reducer 推进；产品侧的新事实通过 `dispatch` 送进来。 */
@@ -93,21 +96,41 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
   const cap = opts.replayBufferSize ?? 512;
   let serverSeq = 0;
 
+  /** 我们提供三类频道：root / session / chat（ADR 0040 的范围）。其余一律不服务。 */
+  const isServed = (uri: URI): boolean =>
+    uri === AHP_ROOT || uri.startsWith(SESSION_PREFIX) || uri.startsWith(CHAT_PREFIX);
+
+  /** 频道不可用。**不能**退化成空状态：空状态会被缓存，之后所有动作都在伪造的
+   *  初始值上 reduce，客户端还以为自己订阅到了东西。 */
+  class ChannelUnavailableError extends Error {
+    readonly code: number;
+    constructor(code: number, message: string) {
+      super(message);
+      this.code = code;
+    }
+  }
+
+  const codeOf = (err: unknown): number =>
+    err instanceof ChannelUnavailableError ? err.code : INTERNAL_ERROR;
+  const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
   const seed = async (uri: URI): Promise<unknown> => {
     const known = states.get(uri);
     if (known !== undefined) return known;
+    if (!isServed(uri)) {
+      throw new ChannelUnavailableError(INVALID_PARAMS, `channel not served: ${uri}`);
+    }
     const fromSource =
       uri === AHP_ROOT
         ? await opts.source.root()
         : uri.startsWith(SESSION_PREFIX)
           ? await opts.source.session(uri)
-          : uri.startsWith(CHAT_PREFIX)
-            ? await opts.source.chat(uri)
-            : undefined;
-    // 未知或无状态频道：空状态（规范允许无状态频道返回 {}）。
-    const state = fromSource ?? {};
-    states.set(uri, state);
-    return state;
+          : await opts.source.chat(uri);
+    if (fromSource === undefined) {
+      throw new ChannelUnavailableError(NOT_FOUND, `no such resource: ${uri}`);
+    }
+    states.set(uri, fromSource);
+    return fromSource;
   };
 
   const snapshotOf = async (uri: URI): Promise<Snapshot> => ({
@@ -217,12 +240,20 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         const toSubscribe = Array.isArray(subscriptions)
           ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
           : [];
+        // 先取快照再登记订阅：取不到就报错，且不要留下一条订阅不到东西的登记。
+        let snapshots: Snapshot[];
+        try {
+          snapshots = await Promise.all(toSubscribe.map(snapshotOf));
+        } catch (err) {
+          fail(id, codeOf(err), messageOf(err));
+          return;
+        }
         for (const uri of toSubscribe) connection.subscriptions.add(uri);
         respond(id, {
           protocolVersion: selected,
           serverSeq,
           ...(opts.serverInfo ? { serverInfo: opts.serverInfo } : {}),
-          snapshots: await Promise.all(toSubscribe.map(snapshotOf)),
+          snapshots,
         });
       };
 
@@ -232,8 +263,13 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           fail(id, INVALID_PARAMS, "subscribe needs a channel");
           return;
         }
-        connection.subscriptions.add(uri);
-        respond(id, { snapshot: await snapshotOf(uri) });
+        try {
+          const snapshot = await snapshotOf(uri);
+          connection.subscriptions.add(uri);
+          respond(id, { snapshot });
+        } catch (err) {
+          fail(id, codeOf(err), messageOf(err));
+        }
       };
 
       const onReconnect = async (id: unknown, params: Record<string, unknown>): Promise<void> => {
@@ -241,7 +277,6 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         const uris = Array.isArray(subscriptions)
           ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
           : [];
-        for (const uri of uris) connection.subscriptions.add(uri);
         const lastSeen =
           typeof params.lastSeenServerSeq === "number" ? params.lastSeenServerSeq : 0;
         const missed = buffer.filter((envelope) => envelope.serverSeq > lastSeen);
@@ -251,10 +286,19 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
             ? lastSeen === serverSeq
             : missed.length > 0 && missed[0]!.serverSeq === lastSeen + 1;
         if (canReplay) {
+          for (const uri of uris) connection.subscriptions.add(uri);
           respond(id, { type: "replay", actions: missed, missing: [] });
           return;
         }
-        respond(id, { type: "snapshot", snapshots: await Promise.all(uris.map(snapshotOf)) });
+        let snapshots: Snapshot[];
+        try {
+          snapshots = await Promise.all(uris.map(snapshotOf));
+        } catch (err) {
+          fail(id, codeOf(err), messageOf(err));
+          return;
+        }
+        for (const uri of uris) connection.subscriptions.add(uri);
+        respond(id, { type: "snapshot", snapshots });
       };
 
       const onDispatchAction = (params: Record<string, unknown>): void => {

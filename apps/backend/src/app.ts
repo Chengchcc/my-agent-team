@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import type { agentRoutes } from "./features/agent/http.js";
 import type { agentRunRoutes } from "./features/agent-run/http.js";
-import type { createAhpFace } from "./features/ahp/http.js";
+import type { createAhpFace } from "./features/ahp/index.js";
 import type { artifactRoutes } from "./features/artifact/http.js";
 import type { authRoutes } from "./features/auth/http.js";
 import type { codingRoutes } from "./features/coding/http.js";

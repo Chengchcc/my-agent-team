@@ -33,7 +33,11 @@ import type {
   ToolCallState,
   URI,
 } from "@microsoft/agent-host-protocol";
-import { buildTurns, type SessionModelRunRow } from "../conversation/session-model.js";
+import {
+  buildTurns,
+  canonicalRunIds,
+  type SessionModelRunRow,
+} from "../conversation/session-model.js";
 import type { AhpStateSource } from "./protocol.js";
 
 /** `SessionStatus` 位掩码的线上值（上游 const enum 成员的数值）。 */
@@ -199,7 +203,9 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   const conversationId = row.conversationId;
   const ledger = deps.getLedgerEntries(conversationId);
   const queue = await deps.listPendingInputs(conversationId);
-  const runs = await Promise.all(collectRunIds(ledger, queue).map((runId) => deps.getRun(runId)));
+  const runs = await Promise.all(
+    canonicalRunIds({ ledger, queue }).map((runId) => deps.getRun(runId)),
+  );
   const known = runs.filter((run): run is AhpRunRow => run !== null);
 
   // 动作按 run 成对取回，归属不靠猜。
@@ -291,36 +297,6 @@ function turnStateOf(status: "completed" | "failed" | "cancelled"): AhpTurn["sta
   return "error" as AhpTurn["state"];
 }
 
-/** 一轮里所有能指认 Run 的地方：账本归属、队列输入、失败气泡的 messageId。 */
-function collectRunIds(
-  ledger: readonly AhpLedgerRow[],
-  queue: readonly { readonly runId: string | null }[],
-): string[] {
-  const ids = new Set<string>();
-  for (const entry of ledger) {
-    if (entry.agentRunId) ids.add(entry.agentRunId);
-    else {
-      const bubble = bubbleRunId(entry.content);
-      if (bubble) ids.add(bubble);
-    }
-  }
-  for (const input of queue) if (input.runId !== null) ids.add(input.runId);
-  return [...ids];
-}
-
-function bubbleRunId(content: unknown): string | undefined {
-  try {
-    const parsed = (typeof content === "string" ? JSON.parse(content) : content) as {
-      messageId?: unknown;
-    };
-    const id = parsed.messageId;
-    if (typeof id !== "string") return undefined;
-    return /^run:(.+):error$/.exec(id)?.[1];
-  } catch {
-    return undefined;
-  }
-}
-
 function newestTs(ledger: readonly AhpLedgerRow[]): number | undefined {
   let ts: number | undefined;
   for (const entry of ledger) {
@@ -410,14 +386,36 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
     const pending: InputRequestResponsePart = { kind, request: payload };
     return pending;
   }
-  const resolved: InputRequestResponsePart = {
-    kind,
-    request: payload,
-    response: enumValue<NonNullable<InputRequestResponsePart["response"]>>(
-      request.status === "resolved" ? "accept" : "cancel",
-    ),
-  };
+  const response = inputOutcome(request);
+  if (response === undefined) {
+    const unresolved: InputRequestResponsePart = { kind, request: payload };
+    return unresolved;
+  }
+  const resolved: InputRequestResponsePart = { kind, request: payload, response };
   return resolved;
+}
+
+/** 人工输入的结局。**不能只看 status**：拒绝与超时在 durable 记录里同样是
+ *  `resolved`，只有答复内容分得清；形状不认识时宁可不表态，也不冒充「已接受」。 */
+function inputOutcome(
+  request: CanonicalInputRequest,
+): InputRequestResponsePart["response"] | undefined {
+  const kind = <T>(value: string): T => value as unknown as T;
+  if (request.status === "cancelled") {
+    return kind<NonNullable<InputRequestResponsePart["response"]>>("cancel");
+  }
+  if (request.status !== "resolved") return undefined;
+  const answer = request.response as { decision?: unknown; timeout?: unknown } | null | undefined;
+  if (answer?.timeout === true) {
+    return kind<NonNullable<InputRequestResponsePart["response"]>>("decline");
+  }
+  if (answer?.decision === "allow") {
+    return kind<NonNullable<InputRequestResponsePart["response"]>>("accept");
+  }
+  if (answer?.decision === "deny") {
+    return kind<NonNullable<InputRequestResponsePart["response"]>>("decline");
+  }
+  return undefined;
 }
 
 type ToolCallPending = Extract<ToolCallState, { status: "pending-confirmation" }>;

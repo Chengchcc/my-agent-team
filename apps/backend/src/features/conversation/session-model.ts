@@ -125,6 +125,37 @@ function asJsonString(content: unknown): string {
   return typeof content === "string" ? content : (JSON.stringify(content) ?? "null");
 }
 
+/** 一轮里所有能指认 Run 的地方：账本归属、队列输入、失败气泡指名的 Run。
+ *  失败气泡的 id 形状只在这里出现一次 —— 它由产品写入，面不该认这个约定。 */
+export function canonicalRunIds(input: {
+  readonly ledger: readonly { readonly agentRunId?: string | null; readonly content?: unknown }[];
+  readonly queue: readonly { readonly runId?: string | null }[];
+}): string[] {
+  const ids = new Set<string>();
+  for (const row of input.ledger) {
+    if (row.agentRunId) ids.add(row.agentRunId);
+    else {
+      const bubble = bubbleRunId(row.content);
+      if (bubble) ids.add(bubble);
+    }
+  }
+  for (const row of input.queue) if (row.runId) ids.add(row.runId);
+  return [...ids];
+}
+
+/** T3-2 的持久化气泡：`run:<runId>:error` 的 messageId 指向它属于哪个 Run。 */
+function bubbleRunId(content: unknown): string | undefined {
+  try {
+    const parsed = (typeof content === "string" ? JSON.parse(content) : content) as {
+      messageId?: unknown;
+    };
+    const id = parsed?.messageId;
+    return typeof id === "string" ? /^run:(.+):error$/.exec(id)?.[1] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function groupLedgerMessages(ledger: readonly SessionModelLedgerRow[]): Map<string, Message[]> {
   const byRun = new Map<string, SessionModelLedgerRow[]>();
   for (const row of ledger) {

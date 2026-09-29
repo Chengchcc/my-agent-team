@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { MessageRevision } from "@chengchenccc/message";
 import {
   buildTurns,
+  canonicalRunIds,
   type SessionModelLedgerRow,
   type SessionModelPendingActionRow,
   turnStatus,
@@ -266,4 +267,23 @@ test("a ledger row read back from the database (parsed object) projects the same
       pendingActions: [],
     });
   expect(build(asObject)).toEqual(build(asString));
+});
+
+test("canonicalRunIds finds the run a failure bubble belongs to", () => {
+  const bubble = JSON.stringify({
+    messageId: "run:r-bubble:error",
+    state: "error",
+    role: "assistant",
+    text: "boom",
+    updatedAt: 3,
+  } satisfies MessageRevision);
+  const ids = canonicalRunIds({
+    ledger: [
+      { agentRunId: "r-1", content: revision({ messageId: "m", role: "assistant" }) },
+      { agentRunId: null, content: bubble },
+      { agentRunId: null, content: "not json" },
+    ],
+    queue: [{ runId: "r-2" }, { runId: null }],
+  });
+  expect(ids.sort()).toEqual(["r-1", "r-2", "r-bubble"]);
 });

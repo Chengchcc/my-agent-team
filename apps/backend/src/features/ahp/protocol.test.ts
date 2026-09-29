@@ -98,6 +98,54 @@ describe("AHP server core against the official client", () => {
     await client.shutdown();
   });
 
+  test("an unserved channel is refused instead of fabricating empty state", async () => {
+    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          clientId: "x",
+          protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+          initialSubscriptions: ["ahp-terminal:/nope"],
+        },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number } };
+    // AhpErrorCodes.InvalidParams: we do not serve this channel kind at all.
+    expect(reply.error?.code).toBe(-32602);
+    expect(connection.subscriptions.size).toBe(0);
+  });
+
+  test("an unknown session is NotFound, not a cached empty state", async () => {
+    const server = createAhpServer({
+      source: {
+        root: async () => ({ agents: [] }),
+        session: async () => undefined,
+        chat: async () => undefined,
+      },
+      commands: noopPort,
+    });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "subscribe",
+        params: { channel: "ahp-session:/missing" },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number }; result?: unknown };
+    // AhpErrorCodes.NotFound.
+    expect(reply.error?.code).toBe(-32008);
+    expect(reply.result).toBeUndefined();
+    expect(connection.subscriptions.size).toBe(0);
+  });
+
   test("an unsupported version offer is refused with the supported list", async () => {
     const server = createAhpServer({ source: fakeSource(), commands: noopPort });
     const { connection, received } = connect(server);
