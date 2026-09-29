@@ -48,5 +48,15 @@ export {
   ToolUseBlockSchema,
 } from "./parser.js";
 export type { MessageRevision } from "./revision.js";
+export type {
+  CanonicalInputRequest,
+  CanonicalPart,
+  CanonicalToolCall,
+  CanonicalToolCallStatus,
+  CanonicalToolResult,
+  CanonicalTurn,
+  CanonicalTurnStatus,
+} from "./session-model.js";
+export { attachInputRequests, turnPartsFromMessages } from "./session-model.js";
 export { collectStream, finalizeToolUseInputs, mergeChunkIntoBlocks } from "./stream-utils.js";
 export type { Tool, ToolExecuteResult, ToolPresentation } from "./tool.js";
