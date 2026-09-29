@@ -1,5 +1,6 @@
 import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
 import { hasDedicatedEvent, OmaTodoItem } from "@chengchenccc/api-contract";
+import type { ChatState } from "@microsoft/agent-host-protocol";
 
 /**
  * ADR 0031: pure reducer from Run SSE events to the card's display state.
@@ -216,6 +217,22 @@ export interface RunStreamEvent {
     | undefined;
 }
 
+/** A plain object, or undefined. The contract audit bans bare casts in this app, so shapes are
+ *  narrowed by inspection rather than asserted. */
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** The protocol lets an invocation message be a plain string or markdown; the card wants the
+ *  line, so both forms fold to one. */
+function invocationLine(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  const markdown = recordOf(value)?.["markdown"];
+  return typeof markdown === "string" ? markdown : undefined;
+}
+
 function isErrorResult(result: unknown): boolean {
   if (typeof result !== "object" || result === null) return false;
   return "isError" in result && result.isError === true;
@@ -265,6 +282,101 @@ function parseAskQuestion(questions: unknown): PendingActionState | null {
     options: isText ? [] : options,
     allowFreeText: allowFreeText || isText,
     questionId,
+  };
+}
+
+/** The card's state as the chat channel has it (ADR 0040 decision 4): the run is the turn, its
+ *  markdown is the body, its tool calls are the steps, its still-open input request is the
+ *  buttons, and the chat state's `_meta.todos` is the plan. A turn that has folded into `turns`
+ *  is settled - that fold is the seal.
+ *
+ *  Read-only and total: it never guesses. A part it does not recognise is skipped, and an
+ *  unanswered question is the only thing that puts buttons on the card. */
+export function cardStateFromChatTurn(
+  state: ChatState,
+  runId: string,
+  now = Date.now(),
+): RunCardState | undefined {
+  const committed = state.turns.find((t) => t.id === runId);
+  const turn = state.activeTurn?.id === runId ? state.activeTurn : committed;
+  if (!turn) return undefined;
+
+  let output = "";
+  let activeTool: ActiveTool | null = null;
+  const completedTools: CompletedTool[] = [];
+  let pendingAction: PendingActionState | null = null;
+  let failure: string | null = null;
+
+  for (const part of turn.responseParts) {
+    const kind = part.kind as string;
+    if (kind === "markdown") {
+      if ("content" in part && typeof part.content === "string") output += part.content;
+      continue;
+    }
+    if (kind === "error") {
+      if ("error" in part && typeof part.error.message === "string") failure = part.error.message;
+      continue;
+    }
+    if (kind === "toolCall" && "toolCall" in part) {
+      const call = part.toolCall;
+      if (hasDedicatedEvent(call.toolName)) continue;
+      // The authored line first (the child's own `activity`), then what the protocol set on the
+      // call itself; `toolActivity` synthesizes only when neither exists.
+      const authored =
+        call.intention ??
+        invocationLine("invocationMessage" in call ? call.invocationMessage : undefined);
+      const label = toolActivity(authored, call.toolName);
+      const status = call.status as string;
+      if (status === "running" || status === "pending-confirmation") {
+        activeTool = { label, startedAt: now };
+        continue;
+      }
+      const failed = "success" in call && call.success === false;
+      const outcome = status === "completed" && !failed ? ("success" as const) : ("error" as const);
+      completedTools.push({ label, outcome });
+      continue;
+    }
+    if (kind === "inputRequest" && "request" in part) {
+      // An answered request is not pending any more: the card stops offering it.
+      if ("response" in part && part.response !== undefined) continue;
+      const request = part.request;
+      // `_meta` rides a shape upstream gives no slot to; the page records that convention.
+      const requestMeta = recordOf(recordOf(request)?.["_meta"]);
+      const payload = recordOf(requestMeta?.["productRequest"]);
+      pendingAction = pendingActionFromBackend(request.message as string, payload ?? {});
+    }
+  }
+
+  // Only a folded turn has a state; while it is active the run is still going.
+  const turnState = committed === undefined ? undefined : (committed.state as string);
+  const terminal: RunCardState["terminal"] =
+    turnState === undefined
+      ? null
+      : {
+          status:
+            turnState === "complete"
+              ? "completed"
+              : turnState === "cancelled"
+                ? "cancelled"
+                : "failed",
+          error: failure,
+        };
+
+  return {
+    phase: pendingAction
+      ? "streaming"
+      : activeTool
+        ? "tool_running"
+        : output === ""
+          ? "thinking"
+          : "streaming",
+    waiting: pendingAction ? pendingAction.kind : null,
+    pendingAction,
+    output,
+    activeTool,
+    completedTools: completedTools.slice(-MAX_COMPLETED_TOOLS),
+    todos: parseTodoItems(state._meta?.todos),
+    terminal,
   };
 }
 
