@@ -1,16 +1,14 @@
 "use client";
 
-import { conversationEvents, runEvents, sseEndpoints } from "@chengchenccc/api-contract";
-import { parseMessageRevision } from "@chengchenccc/message";
+import { runEvents, sseEndpoints } from "@chengchenccc/api-contract";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { toast } from "sonner";
 import type { ChatModelOverride } from "@/components/ModelPicker";
 import {
   useConversationSnapshot,
   usePostConversationMessage,
 } from "@/features/conversations/hooks";
 import { connectAhpChat } from "@/lib/ahp";
-import { chatViewFromState } from "@/lib/ahp-view";
+import { chatViewFromState, itemsFromChatState } from "@/lib/ahp-view";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import { initialState, isBusy, reducer } from "@/lib/conversation-reducer";
@@ -163,7 +161,19 @@ export function useConversation(
         transientsRef.current = view.transients;
         setTransientTools(view.tools);
         setRunTodos(view.todos);
+        // The history comes from the same subscription: a snapshot carries all of it, and every
+        // later action keeps it current.
+        dispatch({
+          type: "items",
+          items: itemsFromChatState(
+            state,
+            { memberId: "user", kind: "human" },
+            { memberId: agentId, kind: "agent", agentId },
+          ),
+        });
+        dispatch({ type: "conn", status: "open" });
       },
+      onError: () => dispatch({ type: "conn", status: "reconnecting" }),
     });
     return () => connection.close();
   }, [conversationId, snap.data?.agentId]);
@@ -178,97 +188,6 @@ export function useConversation(
       },
     });
   }, [snap.data]);
-
-  // 2) Conversation event stream — sole message input for Web surface.
-  //    No more run EventSource; all message output arrives via the conversation SSE.
-  useEffect(() => {
-    if (!conversationId) return;
-    // Full replay on every mount: afterSeq=0 re-delivers the whole ledger,
-    // so a page refresh shows the complete history. Reconnects resume via
-    // Last-Event-ID (server ids), and the guard dedupes replays. No
-    // sessionStorage cursor: a cursor that outlives the page would make
-    // refresh look like "the agent never replied".
-    const ts = typedSource(
-      `/api/bff/conversations/${conversationId}/events?afterSeq=0`,
-      conversationEvents,
-      {
-        onError: (_event, _err) => {
-          /* skip malformed entries */
-        },
-      },
-    );
-    let wasDisconnected = false;
-    // W4/W6: reconnected toast only shown when actual gap is detected + recovered
-    let pendingGap = false;
-
-    ts.es.onopen = () => {
-      dispatch({ type: "conn", status: "open" });
-      if (wasDisconnected) {
-        pendingGap = true;
-        wasDisconnected = false;
-      }
-    };
-
-    ts.es.onerror = () => {
-      const status = ts.es.readyState === EventSource.CLOSED ? "closed" : "reconnecting";
-      dispatch({ type: "conn", status });
-      if (status === "reconnecting") wasDisconnected = true;
-    };
-
-    // W6: bounded dedup — waterline + sliding window
-    let lastAppliedSeq = 0;
-    const seen = new Set<number>();
-    const GUARD_WINDOW = 256;
-    const guard = (entry: { seq: number }): number | null => {
-      const seq = entry.seq;
-      if (!Number.isFinite(seq)) return seq;
-      if (seq <= lastAppliedSeq) return null;
-      seen.add(seq);
-      if (seen.size > GUARD_WINDOW) {
-        const sorted = [...seen].sort((a: number, b: number) => a - b);
-        const cutoff = sorted[sorted.length - GUARD_WINDOW]!;
-        for (const s of sorted) if (s <= cutoff) seen.delete(s);
-      }
-      lastAppliedSeq = Math.max(lastAppliedSeq, seq);
-      if (pendingGap) {
-        // Hole detected on reconnect — notify user
-        toast.success("Reconnected — syncing missed messages");
-        pendingGap = false;
-      }
-      return seq;
-    };
-
-    ts.on("message", (entry) => {
-      const seq = guard(entry);
-      if (seq === null) return;
-      if (!entry.message) return; // legacy/raw rows and heartbeat frames
-      // The canonical final Message for a transient run replaces the
-      // temporary bubble — match by messageId prefix `run:<runId>:`.
-      const match = /^run:([^:]+):/.exec(entry.message.messageId);
-      if (match?.[1] && match[1] in transientsRef.current) {
-        dropTransient(match[1]);
-      }
-      // Re-parse through the canonical codec: the wire zod type and the
-      // MessageRevision interface are structurally close but not identical
-      // (nullable legacy fields, passthrough blocks); parseMessageRevision
-      // is the single normalization point. Cannot fail — typedSource already
-      // zod-validated the frame.
-      const rev = parseMessageRevision(entry.message);
-      dispatch({ type: "message", seq, message: rev, undone: entry.undone });
-    });
-
-    ts.on("undo", (entry) => {
-      const seq = guard(entry);
-      if (seq === null) return;
-      const payload = entry.payload as { undoneSeqs?: unknown } | undefined;
-      const seqs = payload?.undoneSeqs;
-      if (Array.isArray(seqs) && seqs.every((n): n is number => typeof n === "number")) {
-        dispatch({ type: "undo", undoneSeqs: seqs });
-      }
-    });
-
-    return () => ts.close();
-  }, [conversationId, dropTransient]);
 
   // 3) Send: optimistic dispatch + POST /conversations/:id/messages.
   //    The conversation SSE delivers the authoritative ledger revision which
