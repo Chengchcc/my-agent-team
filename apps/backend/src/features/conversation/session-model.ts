@@ -82,7 +82,9 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
     const inputFacts = message?.id === undefined ? undefined : seqByMessage.get(message.id);
     return {
       turnId: run.runId,
-      ...(inputFacts === undefined ? {} : { seq: inputFacts.seq, undone: inputFacts.undone }),
+      ...(inputFacts === undefined
+        ? {}
+        : { seq: inputFacts.seq, ...(inputFacts.undone ? { undone: true } : {}) }),
       ...(message ? { input: message } : {}),
       status: turnStatus(run.status),
       parts,
@@ -161,7 +163,8 @@ function withSeq<T extends { readonly messageId?: string; readonly seq?: number 
   factsByMessage: Map<string, RowFacts>,
 ): T {
   const facts = part.messageId === undefined ? undefined : factsByMessage.get(part.messageId);
-  return facts === undefined ? part : { ...part, seq: facts.seq, undone: facts.undone };
+  if (facts === undefined) return part;
+  return { ...part, seq: facts.seq, ...(facts.undone ? { undone: true } : {}) };
 }
 
 /** Everything that can name a Run: ledger ownership, queue inputs, the failure bubble's own
