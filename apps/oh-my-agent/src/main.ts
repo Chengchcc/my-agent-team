@@ -10,6 +10,7 @@ import { parseToolFilter } from "./core/runtime/tool-filter.js";
 import { listSessions } from "./core/session/session-file.js";
 import { resolvePermissionMode } from "./core/settings/project-settings.js";
 import { newerVersion } from "./core/update/release.js";
+import { runAcpMode } from "./modes/acp/acp-mode.js";
 import { runJsonMode } from "./modes/json-mode.js";
 import { runPrintMode } from "./modes/print-mode.js";
 import { runRpcMode } from "./modes/rpc/rpc-mode.js";
@@ -61,6 +62,28 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       ...(args.updateVersion ? { version: args.updateVersion } : {}),
       ...(args.updateCheck ? { check: true } : {}),
     });
+  }
+
+  if (args.mode === "acp") {
+    // ACP stdin is the JSON-RPC stream: NEVER pre-read it (ADR 0039 P2).
+    const controller = runAcpMode({
+      modelRuntime,
+      ...(args.model ? { model: args.model } : {}),
+    });
+    let signaled = false;
+    const onSignal = (): void => {
+      if (signaled) return;
+      signaled = true;
+      controller.stop();
+    };
+    process.on("SIGTERM", onSignal);
+    process.on("SIGINT", onSignal);
+    try {
+      return await controller.promise;
+    } finally {
+      process.off("SIGTERM", onSignal);
+      process.off("SIGINT", onSignal);
+    }
   }
 
   if (args.mode === "rpc") {

@@ -1,7 +1,7 @@
 import { GATEWAY_USAGE, type GatewayCommand, isGatewayCommand } from "./gateway-commands.js";
 import { UPDATE_USAGE } from "./update-command.js";
 
-export type CliMode = "print" | "json" | "rpc" | "tui";
+export type CliMode = "print" | "json" | "rpc" | "tui" | "acp";
 
 export type PermissionFlag = "ask" | "auto" | "deny" | "off" | "yolo";
 
@@ -52,6 +52,7 @@ Usage:
   oma "<prompt>"                 print mode shorthand
   oma --mode json "<prompt>"     json mode: all events + one outcome as JSONL
   oma --mode rpc                 rpc mode: stdin/stdout JSONL protocol
+  oma --mode acp                 ACP server on stdio (agent client protocol)
   oma --list-models              print the model catalog as JSON
   oma update                     update the CLI + gateway artifact to the
                                  newest published version
@@ -75,7 +76,7 @@ Piped stdin (print/json modes):
   cat error.log | oma -p          (stdin only)
 `;
 
-const MODES = ["print", "json", "rpc", "tui"];
+const MODES = ["print", "json", "rpc", "tui", "acp"];
 const PERMISSIONS = ["ask", "auto", "deny", "off", "yolo"];
 
 /** Parse argv SYNTAX only: whether a run actually has an input (prompt or
