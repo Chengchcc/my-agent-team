@@ -27,6 +27,8 @@ export interface SessionModelLedgerRow {
   readonly content: unknown;
   readonly agentRunId: string | null;
   readonly messageIndex: number;
+  /** Soft-delete flag on the row (undo). */
+  readonly undone?: boolean;
 }
 
 export interface SessionModelQueueRow {
@@ -77,10 +79,10 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
     const merged = errorPart ? [...attached, errorPart] : attached;
     const parts = merged.map((part) => withSeq(part, seqByMessage));
     const message = inputByRun.get(run.runId);
-    const inputSeq = message?.id === undefined ? undefined : seqByMessage.get(message.id);
+    const inputFacts = message?.id === undefined ? undefined : seqByMessage.get(message.id);
     return {
       turnId: run.runId,
-      ...(inputSeq === undefined ? {} : { seq: inputSeq }),
+      ...(inputFacts === undefined ? {} : { seq: inputFacts.seq, undone: inputFacts.undone }),
       ...(message ? { input: message } : {}),
       status: turnStatus(run.status),
       parts,
@@ -132,14 +134,21 @@ function asJsonString(content: unknown): string {
 }
 
 /** Ledger coordinate per message id: the coordinate a surface targets for fork and undo. */
-function seqByMessageId(ledger: readonly SessionModelLedgerRow[]): Map<string, number> {
-  const out = new Map<string, number>();
+interface RowFacts {
+  readonly seq: number;
+  readonly undone: boolean;
+}
+
+function seqByMessageId(ledger: readonly SessionModelLedgerRow[]): Map<string, RowFacts> {
+  const out = new Map<string, RowFacts>();
   for (const row of ledger) {
     try {
       const parsed = deserializeLedgerContent(asJsonString(row.content)) as {
         messageId?: unknown;
       };
-      if (typeof parsed.messageId === "string") out.set(parsed.messageId, row.seq);
+      if (typeof parsed.messageId === "string") {
+        out.set(parsed.messageId, { seq: row.seq, undone: row.undone ?? false });
+      }
     } catch {
       /* a row that will not parse carries no identity */
     }
@@ -149,10 +158,10 @@ function seqByMessageId(ledger: readonly SessionModelLedgerRow[]): Map<string, n
 
 function withSeq<T extends { readonly messageId?: string; readonly seq?: number }>(
   part: T,
-  seqByMessage: Map<string, number>,
+  factsByMessage: Map<string, RowFacts>,
 ): T {
-  const seq = part.messageId === undefined ? undefined : seqByMessage.get(part.messageId);
-  return seq === undefined ? part : { ...part, seq };
+  const facts = part.messageId === undefined ? undefined : factsByMessage.get(part.messageId);
+  return facts === undefined ? part : { ...part, seq: facts.seq, undone: facts.undone };
 }
 
 /** Everything that can name a Run: ledger ownership, queue inputs, the failure bubble's own

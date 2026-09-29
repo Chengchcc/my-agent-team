@@ -208,6 +208,7 @@ export function itemsFromChatState(
         content: { role: "assistant", text } satisfies Message,
         // The coordinate the projection put on the part; a part without one came from no row.
         seq: typeof meta?.seq === "number" ? meta.seq : 0,
+        ...(meta?.undone === true ? { undone: true } : {}),
       });
     });
   }
@@ -225,12 +226,15 @@ function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined
     sender: kind === "user" ? viewer : { memberId: "agent", kind: "agent" },
     content: { role: kind === "user" ? "user" : "assistant", text: message.text } satisfies Message,
     seq: typeof meta?.seq === "number" ? meta.seq : 0,
+    ...(meta?.undone === true ? { undone: true } : {}),
   };
 }
 
-function metaOfRequest(part: unknown): { messageId?: unknown; seq?: unknown } | undefined {
+function metaOfRequest(
+  part: unknown,
+): { messageId?: unknown; seq?: unknown; undone?: unknown } | undefined {
   const meta = (part as { _meta?: unknown } | undefined)?._meta;
   return meta !== null && typeof meta === "object"
-    ? (meta as { messageId?: unknown; seq?: unknown })
+    ? (meta as { messageId?: unknown; seq?: unknown; undone?: unknown })
     : undefined;
 }

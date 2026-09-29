@@ -78,6 +78,8 @@ export interface AhpConversationRow {
 export interface AhpLedgerRow {
   readonly seq: number;
   readonly content?: unknown;
+  /** Soft-delete flag on the row (undo). */
+  readonly undone?: boolean;
   /** Always present on the database path; the live push path is a derived event without it,
    *  and an absent value means "belongs to no turn". */
   readonly agentRunId?: string | null;
@@ -239,6 +241,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
       content: entry.content,
       agentRunId: entry.agentRunId ?? null,
       messageIndex: entry.messageIndex ?? 0,
+      undone: entry.undone ?? false,
     })),
     queue: queue.map((input, index) => ({
       inputId: `queue-${index}`,
@@ -276,7 +279,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
       activeTurn ??= {
         id: turn.turnId,
         startedAt: isoOf(startedAtOf(turn.turnId)),
-        message: toAhpMessage(turn.input, turn.seq),
+        message: toAhpMessage(turn.input, turn.seq, turn.undone),
         responseParts: toResponseParts(turn.turnId, turn.parts),
         usage: undefined,
       };
@@ -385,6 +388,7 @@ function isoOf(ts: number): string {
 function toAhpMessage(
   input: { readonly id?: string; readonly role?: string; readonly text?: string } | undefined,
   seq?: number,
+  undone?: boolean,
 ): AhpMessage {
   const role = input?.role ?? "user";
   const kind =
@@ -400,7 +404,7 @@ function toAhpMessage(
     origin: { kind: kind as AhpMessage["origin"]["kind"] },
     // The ledger identity again, on the initiating message: a surface dedupes its own optimistic
     // echo against it.
-    ...metaOf(input?.id, seq),
+    ...metaOf(input?.id, seq, undone),
   };
 }
 
@@ -415,7 +419,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
         kind: enumValue<MarkdownResponsePart["kind"]>("markdown"),
         id: `${turnId}:text:${index}`,
         content: part.text,
-        ...metaOf(part.messageId, part.seq),
+        ...metaOf(part.messageId, part.seq, part.undone),
       };
       return markdown;
     }
@@ -424,7 +428,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
         kind: enumValue<ReasoningResponsePart["kind"]>("reasoning"),
         id: `${turnId}:reasoning:${index}`,
         content: part.text,
-        ...metaOf(part.messageId, part.seq),
+        ...metaOf(part.messageId, part.seq, part.undone),
       };
       return reasoning;
     }
@@ -454,12 +458,17 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
 /** The ledger's message identity goes in `_meta`: a surface dedupes deliveries on it. Upstream
  *  allows implementation metadata, so this exposes a fact that already exists instead of
  *  inventing a field. */
-function metaOf(messageId: string | undefined, seq?: number): { _meta?: Record<string, unknown> } {
-  if (messageId === undefined && seq === undefined) return {};
+function metaOf(
+  messageId: string | undefined,
+  seq?: number,
+  undone?: boolean,
+): { _meta?: Record<string, unknown> } {
+  if (messageId === undefined && seq === undefined && undone === undefined) return {};
   return {
     _meta: {
       ...(messageId === undefined ? {} : { messageId }),
       ...(seq === undefined ? {} : { seq }),
+      ...(undone === undefined ? {} : { undone }),
     },
   };
 }

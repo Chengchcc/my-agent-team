@@ -47,24 +47,28 @@ export type CanonicalPart =
       readonly text: string;
       readonly messageId?: string;
       readonly seq?: number;
+      readonly undone?: boolean;
     }
   | {
       readonly kind: "thinking";
       readonly text: string;
       readonly messageId?: string;
       readonly seq?: number;
+      readonly undone?: boolean;
     }
   | {
       readonly kind: "toolCall";
       readonly toolCall: CanonicalToolCall;
       readonly messageId?: string;
       readonly seq?: number;
+      readonly undone?: boolean;
     }
   | {
       readonly kind: "inputRequest";
       readonly request: CanonicalInputRequest;
       readonly messageId?: string;
       readonly seq?: number;
+      readonly undone?: boolean;
     }
   | {
       readonly kind: "error";
@@ -72,6 +76,7 @@ export type CanonicalPart =
       readonly code?: string;
       readonly messageId?: string;
       readonly seq?: number;
+      readonly undone?: boolean;
     };
 
 export type CanonicalTurnStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
@@ -81,6 +86,8 @@ export interface CanonicalTurn {
   readonly turnId: string;
   /** The initiator's ledger coordinate inside its conversation - what fork and undo target. */
   readonly seq?: number;
+  /** Whether the ledger row behind this turn has been undone. */
+  readonly undone?: boolean;
   /** The user message that triggered this execution (AHP's `ActiveTurn.message` slot). */
   readonly input?: Message;
   readonly status: CanonicalTurnStatus;

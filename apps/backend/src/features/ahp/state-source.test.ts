@@ -308,3 +308,30 @@ test("the active run's todo snapshot rides in the chat state's meta", async () =
     { id: "t1", text: "first", status: "in_progress" },
   ]);
 });
+
+test("an undone row is marked in the projection", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "completed");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      {
+        seq: 11,
+        content: JSON.stringify({
+          messageId: "m-u",
+          state: "done",
+          role: "assistant",
+          text: "gone",
+          updatedAt: 1,
+        }),
+        agentRunId: "r1",
+        messageIndex: 0,
+        ts: 1000,
+        undone: true,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  const part = chat?.turns[0]?.responseParts[0];
+  expect((part as { _meta?: { undone?: boolean } })?._meta?.undone).toBe(true);
+});

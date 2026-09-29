@@ -217,3 +217,25 @@ describe("the message list from AHP chat state", () => {
     expect(items.map((item) => item.id)).toEqual(["msg-3"]);
   });
 });
+
+describe("undo", () => {
+  test("an undone row's message is marked instead of vanishing", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-7",
+          state: "complete",
+          message: {
+            text: "oops",
+            origin: { kind: "user" },
+            _meta: { messageId: "msg-9", seq: 9, undone: true },
+          },
+          responseParts: [],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      null,
+    );
+    expect(items[0]).toMatchObject({ id: "msg-9", seq: 9, undone: true });
+  });
+});
