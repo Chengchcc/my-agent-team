@@ -1,11 +1,12 @@
-/** AHP 服务端核心（ADR 0040 决策二）。
+/** The AHP server core (ADR 0040, decision 2).
  *
- *  传输无关：喂 JSON-RPC 文本，回 JSON-RPC 文本，WebSocket 层只负责搬运。
- *  上游只发客户端与纯 reducer，所以协议机械在这里；产品侧只需要注入一个状态
- *  来源（`AhpStateSource`），其余交给上游的 reducer 与可派发判定。
+ *  Transport-agnostic: JSON-RPC text in, JSON-RPC text out - the WebSocket layer only carries.
+ *  Upstream ships a client and pure reducers, so the protocol machinery lives here; the product
+ *  side injects a state source (`AhpStateSource`) and leaves the rest to those reducers and the
  *
- *  两条纪律与 ADR 0040 决策四一致：服务端的状态只由动作推进（客户端派发的动作
- *  先过 `isClientDispatchable`，越权的一律回绝并回显），产品事实不由这里写入。 */
+ *  dispatchability check. Two disciplines, both from ADR 0040 decision 4: server state advances
+ *  only through actions (client-dispatched ones pass `isClientDispatchable` first, and an
+ *  overreach is reflected back with a reason), and product facts are never written here. */
 
 import { AHP_CHAT_PREFIX, AHP_ROOT_URI, AHP_SESSION_PREFIX } from "@chengchenccc/ahp-client";
 import {
@@ -24,32 +25,34 @@ import {
   type URI,
 } from "@microsoft/agent-host-protocol";
 
-/** 根频道字面量：与 surface 共用同一份（`@chengchenccc/ahp-client`）。 */
+/** The root channel literal: the same string the surfaces use (`@chengchenccc/ahp-client`). */
 export const AHP_ROOT: URI = AHP_ROOT_URI;
 
 const METHOD_NOT_FOUND = -32601;
 const INVALID_REQUEST = -32600;
 const INVALID_PARAMS = -32602;
 const UNSUPPORTED_PROTOCOL_VERSION = -32005;
-/** 上游 AhpErrorCodes：NotFound / InvalidParams / InternalError。 */
+/** Upstream AhpErrorCodes: NotFound / InvalidParams / InternalError. */
 const NOT_FOUND = -32008;
 const INTERNAL_ERROR = -32603;
 
-/** 产品侧提供的状态来源。服务端只在第一次订阅某个频道时取一次，之后自己用
- *  上游 reducer 推进；产品侧的新事实通过 `dispatch` 送进来。 */
+/** The state source the product provides. The server fetches a channel's state once, on the
+ *  first subscription, and advances it with upstream reducers after that; new product facts
+ *  arrive through `dispatch`. */
 export interface AhpStateSource {
-  /** 异步：真实实现要读库（agent 列表、账本投影），同步接口会逼着调用方缓存
-   *  一份可能过期的快照。 */
+  /** Async on purpose: a real implementation reads the database (agent list, ledger projection),
+   *  and a sync signature would force callers to cache a snapshot that may already be stale. */
   root(): Promise<RootState>;
   session(uri: URI): Promise<SessionState | undefined>;
   chat(uri: URI): Promise<ChatState | undefined>;
 }
 
-/** 客户端命令的落点。
+/** Where client commands land.
  *
- *  协议模块**不解释**命令：`chat/turnStarted` 的意思是「开始一轮」，不是一次本地
- *  状态编辑，所以它不能在这里被 reducer 就地应用。产品侧收到命令，做完该做的事，
- *  再把结果作为动作派发回来（`dispatch`），两端因此仍然收敛在同一份 reducer 上。 */
+ *  The protocol module does **not** interpret commands: `chat/turnStarted` means "start a turn",
+ *  not a local state edit, so it cannot be applied in place by a reducer here. The product side
+ *  takes the command, does what it takes, and dispatches the result back - which is how both ends
+ *  stay converged on the same reducer. */
 export interface AhpCommandPort {
   submit(command: {
     readonly channel: URI;
@@ -62,12 +65,12 @@ export interface AhpServerOptions {
   readonly source: AhpStateSource;
   readonly commands: AhpCommandPort;
   readonly serverInfo?: { readonly name: string; readonly version: string };
-  /** 回放缓冲能容纳多少条动作信封；差距超过它就回快照。 */
+  /** How many action envelopes the replay buffer holds; a bigger gap falls back to a snapshot. */
   readonly replayBufferSize?: number;
 }
 
 export interface AhpConnection {
-  /** 收一帧（文本或二进制）。畸形帧被忽略，连接存活（与官方客户端一致）。 */
+  /** Take one frame (text or binary). A malformed frame is ignored; the connection survives. */
   handle(frame: string | Uint8Array): void;
   readonly subscriptions: ReadonlySet<URI>;
   close(): void;
@@ -76,8 +79,8 @@ export interface AhpConnection {
 export interface AhpServer {
   readonly serverSeq: number;
   createConnection(send: (frame: string) => void): AhpConnection;
-  /** 产品侧：应用一个动作并广播给订阅该频道的连接。`origin` 用于把客户端命令
-   *  的结果回显给它自己。返回分发的信封。 */
+  /** Product side: apply an action and broadcast it to the connections subscribed to its channel.
+   *  `origin` echoes the result of a client command back to that client. Returns the envelope. */
   dispatch(uri: URI, action: StateAction, origin?: ActionOrigin): Promise<ActionEnvelope>;
 }
 
@@ -86,7 +89,7 @@ interface ConnectionState {
   readonly subscriptions: Set<URI>;
   initialized: boolean;
   closed: boolean;
-  /** 客户端身份，来自 initialize：回显它的动作时用作信封来源。 */
+  /** The client identity from initialize, used as the envelope origin when echoing its actions. */
   clientId?: string;
 }
 
@@ -97,12 +100,13 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
   const cap = opts.replayBufferSize ?? 512;
   let serverSeq = 0;
 
-  /** 我们提供三类频道：root / session / chat（ADR 0040 的范围）。其余一律不服务。 */
+  /** We serve three channel kinds - root / session / chat (ADR 0040's scope). Nothing else. */
   const isServed = (uri: URI): boolean =>
     uri === AHP_ROOT || uri.startsWith(AHP_SESSION_PREFIX) || uri.startsWith(AHP_CHAT_PREFIX);
 
-  /** 频道不可用。**不能**退化成空状态：空状态会被缓存，之后所有动作都在伪造的
-   *  初始值上 reduce，客户端还以为自己订阅到了东西。 */
+  /** The channel is unavailable. It must **not** degrade to an empty state: that state gets
+   *  cached, every later action reduces against a fabricated initial value, and the client
+   *  believes it subscribed to something. */
   class ChannelUnavailableError extends Error {
     readonly code: number;
     constructor(code: number, message: string) {
@@ -152,7 +156,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
     if (uri.startsWith(AHP_CHAT_PREFIX)) {
       states.set(uri, chatReducer(state as ChatState, action as never));
     }
-    // 其余频道（terminal / changeset / annotations / automation / otlp）本轮不做。
+    // Other channels (terminal / changeset / annotations / automation / otlp) are out of scope.
   };
 
   const fanOut = (envelope: ActionEnvelope): void => {
@@ -241,7 +245,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         const toSubscribe = Array.isArray(subscriptions)
           ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
           : [];
-        // 先取快照再登记订阅：取不到就报错，且不要留下一条订阅不到东西的登记。
+        // Snapshot first, register second: a failure must not leave a dead subscription behind.
         let snapshots: Snapshot[];
         try {
           snapshots = await Promise.all(toSubscribe.map(snapshotOf));
@@ -281,7 +285,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         const lastSeen =
           typeof params.lastSeenServerSeq === "number" ? params.lastSeenServerSeq : 0;
         const missed = buffer.filter((envelope) => envelope.serverSeq > lastSeen);
-        // 差距在缓冲内就放动作，超出就回快照（重放成本不随断线时长无上限）。
+        // A gap inside the buffer replays actions; beyond it, fall back to a snapshot.
         const canReplay =
           buffer.length === 0
             ? lastSeen === serverSeq
@@ -311,7 +315,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           clientSeq: typeof params.clientSeq === "number" ? params.clientSeq : 0,
         };
         if (!isClientDispatchable(action as never)) {
-          // 越权动作必须回显并带原因，客户端才能回滚它的乐观更新。
+          // An overreach must be reflected back with a reason so the client can roll back.
           connection.send(
             JSON.stringify({
               jsonrpc: "2.0",
@@ -327,10 +331,10 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           );
           return;
         }
-        // 交给产品侧：它做出事实变化，再用 dispatch 把结果广播回来。协议模块
-        // 自己不动这根频道的状态，否则客户端的乐观写入会被当成服务端事实。
-        // 先包进 promise 再调用：端口同步抛错时也要走同一条回绝路径，不能把
-        // 帧处理炸掉。
+        // Hand it to the product side: that side makes the fact happen and dispatches the result
+        // back. This module never edits the channel's state itself, or a client's optimistic write
+        // would become a server fact. Wrap before calling too: a port that throws synchronously
+        // must take the same rejection path instead of blowing up frame handling.
         void Promise.resolve()
           .then(() => opts.commands.submit({ channel: uri, action, origin }))
           .catch((err: unknown) => {
@@ -357,7 +361,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         try {
           message = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          return; // 畸形帧忽略，连接存活
+          return; // malformed frame: ignore it, the connection survives
         }
         const method = message.method;
         if (typeof method !== "string") return;

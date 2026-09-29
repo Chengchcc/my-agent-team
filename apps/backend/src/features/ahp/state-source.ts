@@ -1,14 +1,15 @@
-/** AHP 状态源的产品实现（ADR 0040 决策一、四）。
+/** The product's implementation of the AHP state source (ADR 0040, decisions 1 and 4).
  *
- *  这是一条**只读投影**：会话状态来自 agent 与工作区，chat 状态来自规范模型
- *  （`buildTurns`），后者只吃账本、队列与待处理动作三类事实。这里不写任何东西，
- *  产品侧的新事实仍由控制面派发（`dispatch`）。
+ *  This is a **read-only projection**: session state comes from the agent and its workspace,
+ *  chat state from the canonical model (`buildTurns`), which itself reads only the ledger, the
+ *  queue and pending actions. Nothing is written here; new product facts still arrive through the
  *
- *  粒度对齐（ADR 0040 决策三）：session = agent 加工作区，chat = conversation，
- *  turn = Run（`turnId = runId`），片段顺序与工具调用的配对都由规范模型决定。
+ *  control plane's `dispatch`, and granularity follows ADR 0040 decision 3: session = agent plus
+ *  workspace, chat = conversation, turn = Run (`turnId = runId`), with part order and tool-call
  *
- *  上游的 const enum 在 `isolatedModules` 下不能取成员，所以状态值写成线上字面量
- *  并只对该值做断言；对象形状不做整体断言，缺字段由编译器指出。 */
+ *  pairing decided by the canonical model. Upstream's const enums cannot be indexed under
+ *  `isolatedModules`, so state values are wire literals with only the value asserted; object
+ *  shapes are never asserted wholesale, so a missing field is the compiler's to report. */
 
 import {
   AHP_CHAT_PREFIX,
@@ -47,14 +48,15 @@ import {
 } from "../conversation/session-model.js";
 import type { AhpStateSource } from "./protocol.js";
 
-/** `SessionStatus` 位掩码的线上值（上游 const enum 成员的数值）。 */
+/** The wire values of the `SessionStatus` bitmask (upstream const-enum members). */
 const IDLE = 1 as SessionStatus;
 const ERROR = 2 as SessionStatus;
 const IN_PROGRESS = 8 as SessionStatus;
 const INPUT_NEEDED = 24 as SessionStatus;
 
-/** 上游的 const enum 在 `isolatedModules` 下取不到成员，而普通字面量又不被接受：
- *  在**类型级**取成员（`X["kind"]` 合法），只在**值级**做一次断言，字段仍由编译器查。 */
+/** Upstream's const enums cannot be indexed under `isolatedModules`, and a plain literal is not
+ *  accepted either: take the member at **type** level (`X["kind"]` is legal) and assert once at
+ *  **value** level, so fields still get checked by the compiler. */
 function enumValue<T>(value: string): T {
   return value as unknown as T;
 }
@@ -76,7 +78,8 @@ export interface AhpConversationRow {
 export interface AhpLedgerRow {
   readonly seq: number;
   readonly content?: unknown;
-  /** 读库路径必带；实时推送路径的派生事件没有，缺省视为「不入任何轮次」。 */
+  /** Always present on the database path; the live push path is a derived event without it,
+   *  and an absent value means "belongs to no turn". */
   readonly agentRunId?: string | null;
   readonly messageIndex?: number;
   readonly ts: number;
@@ -88,7 +91,7 @@ export interface AhpRunRow {
   readonly createdAt: number;
 }
 
-/** 投影需要的产品读端口：都是只读查询。 */
+/** The read ports this projection needs. All of them are queries. */
 export interface AhpStateSourceDeps {
   readonly listAgents: () => Promise<readonly AhpAgentRow[]>;
   readonly getConversation: (conversationId: string) => AhpConversationRow | null;
@@ -121,7 +124,7 @@ function rootState(agents: readonly AhpAgentRow[]): RootState {
     agents: agents.map((agent) => ({
       provider: agent.runtime,
       displayName: agent.name,
-      // 原样带上，不做结构假设：模型标识是产品自己的字符串。
+      // Carry it through as-is, no structural assumptions: the model id is the product's string.
       description: agent.modelId,
       models: [],
     })),
@@ -143,7 +146,7 @@ async function sessionState(
     title: row.title ?? row.conversationId,
     status: view.status,
     lifecycle: "ready" as SessionState["lifecycle"],
-    // 目前没有客户端注册表：AHP 面还没有客户端能力上报的落点。
+    // No client registry yet: the AHP face has nowhere to record advertised client capabilities.
     activeClients: [],
     chats: [chatSummary(row, view)],
     defaultChat: chatUri(row.conversationId),
@@ -199,7 +202,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   );
   const known = runs.filter((run): run is AhpRunRow => run !== null);
 
-  // 动作按 run 成对取回，归属不靠猜。
+  // Actions are fetched per run, so their attribution is not guessed.
   const paired = await Promise.all(
     known.map(async (run) =>
       (await deps.listPendingActions(run.runId)).map((action) => ({ runId: run.runId, action })),
@@ -246,7 +249,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   for (const turn of canonical) {
     if (turn.status === "running" || turn.status === "waiting") {
       if (turn.status === "waiting") waiting = true;
-      // 上游只允许一个在跑的轮次；产品保证同一会话同时只有一个 Run 在跑。
+      // Upstream allows one running turn; the product guarantees one running Run per conversation.
       activeTurn ??= {
         id: turn.turnId,
         startedAt: isoOf(startedAtOf(turn.turnId)),
@@ -267,7 +270,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   }
 
   turns.push(...continuityTurns(ledger));
-  // 续接记录来自账本里非消息的行，按时间插回正确位置。
+  // Continuity rows come from non-message ledger rows, so sort them back in by time.
   turns.sort((a, b) => (a.startedAt ?? "").localeCompare(b.startedAt ?? ""));
 
   const status = activeTurn
@@ -286,9 +289,10 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   };
 }
 
-/** 续接记录（surface 写的那行「这条对话续到了新对话」）在 AHP 里落成一条系统提示
- *  轮次：上游的 `systemNotification` 来源就是为「转录连续性」设计的，surface 看到它
- *  就知道该把自己改绑到哪里。规范的 id 放在 `_meta`，文案由 surface 自己决定。 */
+/** The continuity record (the surface-written row saying this chat continued elsewhere) projects
+ *  as a system-notification turn: upstream's `systemNotification` origin exists for transcript
+ *  continuity, and a surface that sees it knows where to rebind. The canonical ids go in `_meta`;
+ *  the wording stays the surface's business. */
 function continuityTurns(ledger: readonly AhpLedgerRow[]): AhpTurn[] {
   const out: AhpTurn[] = [];
   for (const row of ledger) {
@@ -420,8 +424,9 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
   }
 }
 
-/** 账本的消息身份放在 `_meta` 里：surface 靠它做恰好一次投递。上游允许实现自定义
- *  元数据，这里只是把既有事实透出去，不发明结构。 */
+/** The ledger's message identity goes in `_meta`: a surface dedupes deliveries on it. Upstream
+ *  allows implementation metadata, so this exposes a fact that already exists instead of
+ *  inventing a field. */
 function metaOf(messageId: string | undefined): { _meta?: Record<string, unknown> } {
   return messageId === undefined ? {} : { _meta: { messageId } };
 }
@@ -432,7 +437,7 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
     message: request.kind,
     ...(request.response === undefined
       ? {}
-      : // 上游 answers 的细化形状尚未核对，原始答复放 _meta，不发明结构。
+      : // Upstream's answer shape is not verified yet, so the raw answer rides in _meta.
         { _meta: { productResponse: request.response } }),
   };
   const kind = enumValue<InputRequestResponsePart["kind"]>("inputRequest");
@@ -449,8 +454,9 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
   return resolved;
 }
 
-/** 人工输入的结局。**不能只看 status**：拒绝与超时在 durable 记录里同样是
- *  `resolved`，只有答复内容分得清；形状不认识时宁可不表态，也不冒充「已接受」。 */
+/** The outcome of a human input. **Status alone is not enough**: a refusal and a timeout are both
+ *  `resolved` in the durable row, and only the answer tells them apart; an unrecognized shape is
+ *  left unstated rather than passed off as an acceptance. */
 function inputOutcome(
   request: CanonicalInputRequest,
 ): InputRequestResponsePart["response"] | undefined {
@@ -513,7 +519,7 @@ function toToolCall(call: CanonicalToolCall): ToolCallState {
       ...base,
       ...params,
       status: enumValue<ToolCallCancelled["status"]>("cancelled"),
-      // 产品语义里 cancelled = 没跑过（跑动被叫停），不是被谁否决。
+      // In this product, cancelled means "never ran" (stopped mid-flight), not "denied".
       reason: enumValue<ToolCallCancelled["reason"]>("skipped"),
     };
     return cancelled;
