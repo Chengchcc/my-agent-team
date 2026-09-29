@@ -233,6 +233,13 @@
         "zod": "^3.23.0",
       },
     },
+    "packages/ahp-client": {
+      "name": "@chengchenccc/ahp-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@microsoft/agent-host-protocol": "^0.9.0",
+      },
+    },
     "packages/ai": {
       "name": "@chengchenccc/ai",
       "version": "0.1.0",
@@ -404,6 +411,8 @@
     "@chengchenccc/adapter-pi-agent": ["@chengchenccc/adapter-pi-agent@workspace:packages/adapter-pi-agent"],
 
     "@chengchenccc/agent-contract": ["@chengchenccc/agent-contract@workspace:packages/agent-contract"],
+
+    "@chengchenccc/ahp-client": ["@chengchenccc/ahp-client@workspace:packages/ahp-client"],
 
     "@chengchenccc/ai": ["@chengchenccc/ai@workspace:packages/ai"],
 
