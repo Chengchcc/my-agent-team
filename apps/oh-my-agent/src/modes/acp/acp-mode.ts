@@ -15,6 +15,7 @@
 import { Readable, Writable } from "node:stream";
 import type { RequestPermissionResponse, Usage as SdkUsage } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
+import { adaptMcpTool } from "@chengchenccc/adapter-mcp";
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { type Message, MessageSchema } from "@chengchenccc/message";
@@ -25,6 +26,7 @@ import {
   approvalTimeoutMs,
 } from "../../core/runtime/approval.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
+import type { Plugin } from "../../core/runtime/plugin.js";
 import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts.js";
 import {
   appendParkedTurnMarker,
@@ -64,9 +66,17 @@ export interface AcpModeController {
 }
 
 /** Everything one session carries across prompts. */
+/** A client-declared MCP server carried over the ACP connection itself
+ *  (RFCD "MCP-over-ACP"; the SDK's McpServerAcp declaration shape). */
+interface AcpMcpServerDeclaration {
+  readonly name: string;
+  readonly serverId: string;
+}
+
 interface AcpSession {
   readonly sessionId: string;
   readonly cwd: string;
+  readonly acpMcpServers: readonly AcpMcpServerDeclaration[];
   /** Decisions read off a session/load's `_meta` (ADR 0039
    *  extension-vehicle rule 2): the NEXT prompt completes the parked turn
    *  with them pre-supplied — the ACP shape of ADR 0038's resume. */
@@ -99,7 +109,12 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     .agent({ name: "oma" })
     .onRequest(acp.methods.agent.initialize, async () => ({
       protocolVersion: acp.PROTOCOL_VERSION,
-      agentCapabilities: { loadSession: true },
+      agentCapabilities: {
+        loadSession: true,
+        // MCP-over-ACP (RFCD): servers declared {type:"acp"} in session/new
+        // are consumed through mcp/message instead of a separate transport.
+        mcpCapabilities: { acp: true },
+      },
       authMethods: [],
       // v2 extensibility shapes on the v1 wire (ADR 0039 decision 4): the
       // ecosystem's agreed steering convention, advertised so clients
@@ -126,6 +141,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       sessions.set(sessionId, {
         sessionId,
         cwd,
+        acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: resumeMeta?.decisions ?? null,
       });
       return { sessionId, configOptions: [] };
@@ -135,6 +151,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       sessions.set(ctx.params.sessionId, {
         sessionId: ctx.params.sessionId,
         cwd: ctx.params.cwd ?? process.cwd(),
+        acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: readResumeDecisions(meta),
       });
       return { sessionId: ctx.params.sessionId, configOptions: [] };
@@ -240,6 +257,10 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
     const pluginRt = await assemblePluginRuntime(session.cwd, "rpc");
     for (const warning of pluginRt.warnings) log(`[acp] plugin: ${warning}`);
+    // MCP-over-ACP servers ride the plugin seam: tools fetched over
+    // mcp/message, executed over mcp/message, adapted with the same
+    // mcp__<server>__<tool> naming every other mount uses.
+    const acpMcpTools = await fetchAcpMcpTools(client, session, log);
     const preSupplied = resumeApprovals(resume);
     const pendingApprovals = new Map<string, (d: ApprovalDecision) => void>();
     const catalog = await modelRuntime.getCatalog();
@@ -272,8 +293,18 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       // auto classifier against nobody.
       permissionMode: "ask",
       todoScope: session.sessionId,
-      ...(pluginRt.plugins.length || pluginRt.mcpServers.length
-        ? { pluginComponents: { plugins: pluginRt.plugins, mcpServers: pluginRt.mcpServers } }
+      ...(pluginRt.plugins.length || pluginRt.mcpServers.length || acpMcpTools.length
+        ? {
+            pluginComponents: {
+              plugins: [
+                ...pluginRt.plugins,
+                ...(acpMcpTools.length > 0
+                  ? [{ name: "acp-mcp", tools: acpMcpTools } as unknown as Plugin]
+                  : []),
+              ],
+              mcpServers: pluginRt.mcpServers,
+            },
+          }
         : {}),
       sessionTranscript: transcript.length > 0 ? transcript : undefined,
       onPersistMessages: (messages) => {
@@ -360,6 +391,90 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
 
 const STEER_METHOD = "_session/steering";
 const OMA_UPDATE_METHOD = "_oma/update";
+
+/** The client's `mcpServers` entries of type "acp" (RFCD declaration). */
+function readAcpMcpServers(mcpServers: unknown): AcpMcpServerDeclaration[] {
+  if (!Array.isArray(mcpServers)) return [];
+  const servers: AcpMcpServerDeclaration[] = [];
+  for (const entry of mcpServers) {
+    const server = entry as { type?: unknown; name?: unknown; serverId?: unknown };
+    if (
+      server?.type === "acp" &&
+      typeof server.name === "string" &&
+      typeof server.serverId === "string"
+    ) {
+      servers.push({ name: server.name, serverId: server.serverId });
+    }
+  }
+  return servers;
+}
+
+/** The per-request MCP metadata the RFCD requires on every inner call. */
+const ACP_MCP_META = {
+  "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+  "io.modelcontextprotocol/clientCapabilities": {},
+  "io.modelcontextprotocol/clientInfo": { name: "oma", version: "1" },
+} as const;
+
+let acpMcpRequestSeq = 0;
+
+/** One `mcp/message` round trip (RFCD envelope: serverId + logical
+ *  requestId + flattened method/params). The inner outcome rides the outer
+ *  success: `{result: {result|error}}` — an inner error is NOT an ACP
+ *  error, so the carrier keeps the provenance. */
+async function acpMcpCall(
+  client: acp.AgentContext,
+  serverId: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const requestId = `oma-mcp-${++acpMcpRequestSeq}`;
+  const response = (await client.request("mcp/message", {
+    serverId,
+    requestId,
+    method,
+    params: { ...params, _meta: ACP_MCP_META },
+  } as never)) as { result?: { result?: unknown; error?: { message?: string } } };
+  const inner = response.result;
+  if (inner?.error) {
+    throw new Error(`mcp/${method} failed: ${inner.error.message ?? "unknown error"}`);
+  }
+  return inner?.result;
+}
+
+/** Fetch every declared ACP MCP server's tools, adapted into oma tools. A
+ *  server that cannot be listed degrades to "no tools" (logged), never a
+ *  failed prompt — the same stance every other mount takes. */
+async function fetchAcpMcpTools(
+  client: acp.AgentContext,
+  session: AcpSession,
+  log: (line: string) => void,
+): Promise<ReturnType<typeof adaptMcpTool>[]> {
+  const tools: ReturnType<typeof adaptMcpTool>[] = [];
+  for (const server of session.acpMcpServers) {
+    try {
+      const listed = (await acpMcpCall(client, server.serverId, "tools/list", {})) as {
+        tools?: { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
+      };
+      for (const tool of listed?.tools ?? []) {
+        tools.push(
+          adaptMcpTool(server.name, tool, {
+            callTool: async ({ name, arguments: args }) => ({
+              content: await acpMcpCall(client, server.serverId, "tools/call", {
+                name,
+                arguments: args,
+              }),
+            }),
+          }),
+        );
+      }
+      log(`[acp] mcp-over-acp ${server.name}: ${listed?.tools?.length ?? 0} tools`);
+    } catch (err) {
+      log(`[acp] mcp-over-acp ${server.name} failed: ${String(err)}`);
+    }
+  }
+  return tools;
+}
 
 function parseSteerParams(raw: unknown): { sessionId: string; text: string } {
   const params = raw as { sessionId?: unknown; prompt?: unknown };
