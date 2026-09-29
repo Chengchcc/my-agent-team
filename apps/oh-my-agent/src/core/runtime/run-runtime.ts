@@ -594,6 +594,28 @@ type SessionPermissionGate = (
   callId: string,
 ) => Promise<{ block: boolean; reason?: string } | undefined>;
 
+const HIGH_RISK_NATIVE_TOOLS: Record<string, true> = {
+  bash: true,
+  browser: true,
+  eval: true,
+  write: true,
+  edit: true,
+  // learn/manage_skill write files; the skill branch writes OUTSIDE the
+  // workspace (<agentDir>/managed-skills), so the workspace-sandbox
+  // exemption cannot cover them (omp marks both approval="write").
+  learn: true,
+  manage_skill: true,
+};
+
+/** Ask-mode high-risk by name. The session gate and the code-plugin ask
+ *  wrapper MUST agree on this set: while they disagreed, a plugin tool
+ *  named `mcp__*` was questioned twice for one call — two human cards, two
+ *  round trips (found through an ACP-mounted MCP plugin tool). Module-level
+ *  and consent-free so both scopes can use it; the gate additionally skips
+ *  spawner-consented product tools. */
+const isAskGatedName = (name: string): boolean =>
+  HIGH_RISK_NATIVE_TOOLS[name] === true || name.startsWith("mcp__");
+
 /** Permission-gate stage (ADR 0020): "deny" blocks outright; "ask" routes
  *  high-risk tools through the approval pipeline; "auto" routes
  *  effect-escaping tools through the classifier with one human escalation
@@ -626,18 +648,6 @@ function createRunPermissionGates(
   // permission classifier; write/edit skip it (workspace-sandboxed, the CC
   // "working-dir edits auto-approve" precedent). Absent mode = ungated
   // (legacy standalone default, unchanged).
-  const HIGH_RISK_NATIVE_TOOLS: Record<string, true> = {
-    bash: true,
-    browser: true,
-    eval: true,
-    write: true,
-    edit: true,
-    // learn/manage_skill write files; the skill branch writes OUTSIDE the
-    // workspace (<agentDir>/managed-skills), so the workspace-sandbox
-    // exemption cannot cover them (omp marks both approval="write").
-    learn: true,
-    manage_skill: true,
-  };
   // Consent for mounted MCP tools is INJECTED policy (spawner-declared env
   // var; name + comma codec single-sourced in agent-contract env.ts): the
   // product declares its own read surfaces — reads of the run's
@@ -789,10 +799,9 @@ function createRunPermissionGates(
           };
         }
       }
-      const isHighRisk =
-        !isConsentedProductTool(toolName) &&
-        (HIGH_RISK_NATIVE_TOOLS[toolName] === true || toolName.startsWith("mcp__"));
-      if (!isHighRisk) return undefined;
+      // Consent is INJECTED policy (spawner-declared env), so it is applied
+      // here where the decoded set lives, not in the name predicate.
+      if (!isAskGatedName(toolName) || isConsentedProductTool(toolName)) return undefined;
       if (deps.permissionMode === "deny") {
         return { block: true, reason: `${toolName}: blocked by permissionMode=deny` };
       }
@@ -1142,7 +1151,9 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
             return t;
           })
           .map((t) =>
-            askGate
+            // A plugin tool the session gate already questions (see
+            // isAskGatedName) must not be asked a second time.
+            askGate && !isAskGatedName(t.name)
               ? {
                   ...t,
                   async execute(

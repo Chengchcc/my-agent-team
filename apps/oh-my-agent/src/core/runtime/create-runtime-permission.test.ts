@@ -823,3 +823,52 @@ describe("local memory tools under the permission gate", () => {
     }),
   );
 });
+
+/** Two ask-mode gates can reach the same tool call: the session gate
+ *  (high-risk native names + mcp__* mounts) and the code-plugin wrapper
+ *  (plugin tools have no naming convention). While they disagreed on the
+ *  mcp__* prefix, a plugin tool named `mcp__*` was asked TWICE for one call:
+ *  two cards, two round trips, and — on the backend — a second pending action
+ *  for a callId that already had one. Found through an MCP-over-ACP plugin
+ *  tool, which is exactly the shape that reaches both gates. */
+describe("ask mode asks once per tool call", () => {
+  test(
+    "an mcp__* plugin tool is asked once (session gate only)",
+    withFakes(async () => {
+      const asked: string[] = [];
+      const out = await autoRun({
+        runId: "r-ask-mcp-plugin-once",
+        script: [{ name: "mcp__plug__tool", input: {} }],
+        text: "",
+        permissionMode: "ask",
+        pluginTool: { name: "mcp__plug__tool", execute: async () => ({ ok: true }) },
+        approvalHandler: async (req) => {
+          asked.push(req.toolName);
+          return { decision: "allow" };
+        },
+      });
+      expect(asked).toEqual(["mcp__plug__tool"]);
+      expect(out).toContain("ok");
+    }),
+  );
+
+  test(
+    "an ordinary plugin tool is asked once (wrapper only)",
+    withFakes(async () => {
+      const asked: string[] = [];
+      const out = await autoRun({
+        runId: "r-ask-plain-plugin-once",
+        script: [{ name: "code_tool", input: {} }],
+        text: "",
+        permissionMode: "ask",
+        pluginTool: { name: "code_tool", execute: async () => ({ ok: true }) },
+        approvalHandler: async (req) => {
+          asked.push(req.toolName);
+          return { decision: "allow" };
+        },
+      });
+      expect(asked).toEqual(["code_tool"]);
+      expect(out).toContain("ok");
+    }),
+  );
+});
