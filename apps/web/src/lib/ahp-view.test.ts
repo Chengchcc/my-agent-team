@@ -239,3 +239,29 @@ describe("undo", () => {
     expect(items[0]).toMatchObject({ id: "msg-9", seq: 9, undone: true });
   });
 });
+
+describe("system rows", () => {
+  test("a notification part becomes a notice item, not a chat message", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-8",
+          state: "complete",
+          message: { text: "", origin: { kind: "user" } },
+          responseParts: [
+            {
+              kind: "systemNotification",
+              content: "member joined",
+              _meta: { messageId: "m-sys" },
+            },
+            { kind: "markdown", id: "t0", content: "hello", _meta: { messageId: "m-1", seq: 3 } },
+          ],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      null,
+    );
+    expect(items[0]).toEqual({ kind: "notice", id: "m-sys", text: "member joined" });
+    expect(items[1]).toMatchObject({ kind: "message", id: "m-1" });
+  });
+});

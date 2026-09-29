@@ -196,7 +196,19 @@ export function itemsFromChatState(
     // same words twice. Its initiating message is real history and stays.
     if (turn.id === state.activeTurn?.id) continue;
     turn.responseParts.forEach((part, index) => {
-      if ((part.kind as string) !== "markdown") return;
+      const kind = part.kind as string;
+      if (kind === "systemNotification") {
+        const noticeText = contentOf(part) ?? "";
+        if (noticeText === "") return;
+        const meta = metaOfRequest(part);
+        items.push({
+          kind: "notice",
+          id: typeof meta?.messageId === "string" ? meta.messageId : `${turn.id}:notice:${index}`,
+          text: noticeText,
+        });
+        return;
+      }
+      if (kind !== "markdown") return;
       const text = contentOf(part);
       if (!text) return;
       const meta = metaOfRequest(part);

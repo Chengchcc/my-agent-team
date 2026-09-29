@@ -415,6 +415,16 @@ function toResponseParts(turnId: string, parts: readonly CanonicalPart[]): Respo
 function toResponsePart(turnId: string, part: CanonicalPart, index: number): ResponsePart {
   switch (part.kind) {
     case "text": {
+      // A system row is not a chat bubble. Upstream has a part for harness-authored lines,
+      // and a surface renders it as a notice rather than as someone's message.
+      if (part.role === "system") {
+        const notice: SystemNotificationResponsePart = {
+          kind: enumValue<SystemNotificationResponsePart["kind"]>("systemNotification"),
+          content: part.text,
+          ...metaOf(part.messageId, part.seq, part.undone),
+        };
+        return notice;
+      }
       const markdown: MarkdownResponsePart = {
         kind: enumValue<MarkdownResponsePart["kind"]>("markdown"),
         id: `${turnId}:text:${index}`,

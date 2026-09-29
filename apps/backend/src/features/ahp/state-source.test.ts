@@ -335,3 +335,32 @@ test("an undone row is marked in the projection", async () => {
   const part = chat?.turns[0]?.responseParts[0];
   expect((part as { _meta?: { undone?: boolean } })?._meta?.undone).toBe(true);
 });
+
+test("a system row projects as a notification part, not as a message", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "completed");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      {
+        seq: 12,
+        content: JSON.stringify({
+          messageId: "m-sys",
+          state: "done",
+          role: "system",
+          text: "member joined",
+          updatedAt: 1,
+        }),
+        agentRunId: "r1",
+        messageIndex: 0,
+        ts: 1000,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  expect(chat?.turns[0]?.responseParts[0]).toMatchObject({
+    kind: "systemNotification",
+    content: "member joined",
+    _meta: { messageId: "m-sys" },
+  });
+});
