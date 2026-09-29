@@ -5,14 +5,9 @@ import { z } from "zod";
 // storage row, not a wire contract. The SSE boundary maps it to
 // ConversationEvent (api-contract) before it leaves the backend.
 
-export const LedgerKind = z.enum([
-  "message",
-  "member.joined",
-  "member.left",
-  "todo",
-  "surface.control",
-  "undo",
-]);
+/** 存储层的 kind。只保留有写入方的值：`member.joined` / `member.left`（成员表已删）
+ *  与 `todo`（从来没有写入方）是历史残留，删掉以免它们继续冒充账本契约的一部分。 */
+export const LedgerKind = z.enum(["message", "surface.control", "undo"]);
 
 export type LedgerKind = z.infer<typeof LedgerKind>;
 
