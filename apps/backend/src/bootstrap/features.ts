@@ -113,6 +113,12 @@ import {
   removeWorktree,
 } from "../features/project/worktree.js";
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
+import {
+  createProposalService,
+  type ProposalService,
+  proposalRoutes,
+  sqliteProposalAdapter,
+} from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
 import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
 import { settingsRoutes } from "../features/settings/index.js";
@@ -163,6 +169,8 @@ export function buildAgentSystemPrompt(
 export interface InstalledFeatures {
   featureSet: FeatureSet;
   /** Phase 5 internal handles (not exposed via HTTP). */
+  /** What an agent proposed and did not apply: the MCP tools write through it, the pages read. */
+  proposalSvc: ProposalService;
   agentRunService: ReturnType<typeof createAgentRunService>;
   agentRunExecution: ReturnType<typeof createAgentRunExecutionService>;
   productTools: ReturnType<typeof createProductToolsService>;
@@ -175,6 +183,10 @@ export interface InstalledFeatures {
 export async function installFeatures(services: BackendServices): Promise<InstalledFeatures> {
   const { config, db, settingsSvc, mcpClientManager, larkBotRegistry } = services;
   const providerSvc = createProviderService(settingsSvc);
+
+  // A change an agent proposes and a human adopts (ADR 0040): the MCP tools write these rows and
+  // the target pages read them, so the proposal outlives the page that was open when it arrived.
+  const proposalSvc = createProposalService({ port: sqliteProposalAdapter(db), idGen: ulid });
 
   // ─── Skill Pack (before agentSvc — onCreate depends on it) ──
 
@@ -1631,6 +1643,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     artifacts: artifactRoutes(artifactService),
     productTools,
     settings: settingsRoutes(settingsSvc),
+    proposal: proposalRoutes(proposalSvc),
 
     auth: authRoutes(passwordSvc),
 
@@ -1796,6 +1809,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   return {
     featureSet,
+    proposalSvc,
     agentRunService,
     agentRunExecution,
     productTools,

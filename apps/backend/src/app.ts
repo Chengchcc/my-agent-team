@@ -12,6 +12,7 @@ import type { modelRoutes } from "./features/models/http.js";
 import { productToolsRoutes } from "./features/product-tools/http.js";
 import type { ProductToolsService } from "./features/product-tools/service.js";
 import type { projectRoutes } from "./features/project/http.js";
+import type { proposalRoutes } from "./features/proposal/http.js";
 import type { providerRoutes } from "./features/provider/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
 import type { settingsRoutes } from "./features/settings/http.js";
@@ -32,6 +33,7 @@ export interface FeatureSet {
   coding: ReturnType<typeof codingRoutes>;
   ahp: ReturnType<typeof createAhpHost>["routes"];
   settings: ReturnType<typeof settingsRoutes>;
+  proposal: ReturnType<typeof proposalRoutes>;
   auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;
   models: ReturnType<typeof modelRoutes>;
@@ -55,6 +57,7 @@ export function createApp(token: string, features: FeatureSet) {
     knowledge,
 
     settings,
+    proposal,
     auth,
     providers,
     models,
@@ -128,6 +131,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(ahp)
     .use(skillPacks)
     .use(settings)
+    .use(proposal)
     .use(auth)
     .use(providers)
     .use(mcp)
