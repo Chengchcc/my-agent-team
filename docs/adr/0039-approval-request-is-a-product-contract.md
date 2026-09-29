@@ -167,6 +167,9 @@ openclaw/acpx 是 ACP 的无头客户端（MIT，3.3k 星），自带可嵌入 r
   - elicitation：现行 v1 规范已含 `elicitation/create`（form/url 双模式，基于 MCP 2026-07-28 锁定 RC，与 v2 页面逐字相同）。「v1 无问信息通道 / elicitation 不稳定」为过时结论，源自旧草案方法名 `session/create_elicitation` 时代的观察。adapter-acp 的入站映射 elicitation→问答卡在 v1 线即可实现；oma↔自家 backend 的 ask 仍走 product-tools MCP（理由只剩表单更富：多题数组、allowOther、推荐标记、校验）。
   - fs/terminal 回调可关（我们关掉，agent 用自己的文件工具）。
 - **产品工具注入（2026-09-29 补，MCP-over-ACP RFCD）**：注入的终态方向是 backend 成为进程内 MCP provider（`session/new` 声明 `type:"acp"`，agent 经 `mcp/message` 调用，每请求自带 MCP 2026-07-28 上下文；ask 即 held-open 请求）。今天零 agent 声明 `mcpCapabilities.acp`（omp 仅 http/sse），且 SDK 的 mcp/message 只在 experimental/v2、其 connect/disconnect 方法与 RFCD 不同步，故 adapter-acp 的注入做成策略缝：现状走 workspace MCP 配置加既有 product-tools SSE；对端声明能力后切 ACP 中继，两轨共用同一 product-tools 服务接口。oma 的 ACP 面（P2）率先实现该能力自证。
+
+  **oma 侧落地（2026-09-29，P2）**：`initialize` 声明 `mcpCapabilities.acp`；`session/new` 里 `{type:"acp", name, serverId}` 的声明被接住，随后按 RFCD 形状经 `mcp/message` 拉 `tools/list`、跑 `tools/call`（信封为 `serverId` 加逻辑 `requestId`，方法名与参数扁平放，每个内层请求自带 MCP 2026-07-28 的 `_meta`；内层错误骑在外层成功里，来源信息因此不丢）。工具复用 `adaptMcpTool`，命名与所有其他挂载一样是 `mcp__<server>__<tool>`，于是权限门、审批卡、工具表一处都不用改。声明形状与 RFCD 一致，而且已经在稳定线 SDK 里（`zMcpServerAcp` 就两个字段 `name` 与 `serverId`）；停在 experimental 的只有消息信封（`MessageMcpRequest` 带 `connectionId`，是 RFCD 之前的草案）。两端都归我们，所以按 RFCD 实现，分叉记在这里。
+  **顺带修掉的真缺陷（2026-09-29）**：ask 模式下，名字以 `mcp__` 开头的插件工具会被问两次，会话权限门一次、代码插件包装器再一次，因为高危名单与会话门的判据各写了一份。后果是同一个 callId 出两张卡，后端还会多一条悬空 pending action。修法是把判据收口成单个 `isAskGatedName`，会话门与包装器共用，包装器只包会话门不管的工具。回归钉两条放在 `create-runtime-permission.test.ts`，变异验证有牙。
 - **为什么不嵌入**：acpx runtime 自带会话持久与重连，叠在我们的账本/Run 之上就是第二执行身份（Phase 6 教训）；Node ≥22.13 与我们的 Bun 栈有门槛；pre-1.0 的 runtime API 演进快。官方 `@agentclientprotocol/sdk`（1.5.x，纯 TS、stdio JSON-RPC）是我们真正依赖的那一层；其 Bun 兼容性已于 2026-09-28 实测通过（spike：Bun 下经 SDK 驱动 `omp acp --approval-mode always-ask`，initialize / newSession / prompt / 全量 session/update 流 / request_permission 浮到宿主回调并回 allow_once / end_turn，19 秒一轮，脚本存 /tmp/acp-spike/spike.ts，P1 开工时收编为种子）。
 
 ### 落地相位（决策 4 修订版）
@@ -196,4 +199,4 @@ P5  逐个下线旧 native adapter（oma RPC 去留于 P2 验收后定）
 | pi | pi-acp 桥（SDK ^0.26.0；桥 0.0.34，2026-09-24 后未更新） | 旧 v1 | pi 核心有投递模式（`/steering all \| one-at-a-time`），桥面未接约定方法 | 未声明 | 否 |
 | oma | 无（P2 自建） | 目标：v1 线 + v2 形状 | 自家 RPC 有；ACP 面将接 `_session/steering` 约定名 | P2 出站用 elicitation 表达提问 | P2 率先实现 |
 
-SDK 状态：稳定线 1.5.x（v1，Bun 下实测可跑，含 server 侧 AgentApp）；experimental/v2 含 `mcp/message` 但也有 RFCD 明言不存在的 `mcp/connect`/`mcp/disconnect`（实现与草案不同步），不作地基。附：未知自定义请求实测 omp 应答 -32603 而非规范的 -32601，勿依赖错误码值判能力；未知通知被无视且连接存活。
+SDK 状态（1.5.1 复核）：`zMcpServerAcp`（`{name, serverId}`）已在稳定线的类型里，只有 `mcp/message` 的信封仍标 experimental。稳定线 1.5.x（v1，Bun 下实测可跑，含 server 侧 AgentApp）；experimental/v2 含 `mcp/message` 但也有 RFCD 明言不存在的 `mcp/connect`/`mcp/disconnect`（实现与草案不同步），不作地基。附：未知自定义请求实测 omp 应答 -32603 而非规范的 -32601，勿依赖错误码值判能力；未知通知被无视且连接存活。
