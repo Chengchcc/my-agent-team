@@ -252,3 +252,18 @@ test("a ledger row that names no run stays out of the model", () => {
   });
   expect(turns[0]!.parts).toEqual([]);
 });
+
+test("a ledger row read back from the database (parsed object) projects the same", () => {
+  const asString = revision({ messageId: "b1", role: "assistant", text: "hi" });
+  const asObject = JSON.parse(asString) as unknown;
+  const build = (content: unknown) =>
+    buildTurns({
+      ledger: [
+        { seq: ++seq, conversationId: "conv-1", content, agentRunId: "r-obj", messageIndex: 0 },
+      ],
+      queue: [],
+      runs: [{ runId: "r-obj", status: "completed" }],
+      pendingActions: [],
+    });
+  expect(build(asObject)).toEqual(build(asString));
+});

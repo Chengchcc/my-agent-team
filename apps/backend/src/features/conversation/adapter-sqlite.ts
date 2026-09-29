@@ -238,6 +238,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           kind: r.kind as LedgerEntry["kind"],
           content: r.content,
           ts: r.ts,
+          agentRunId: r.agentRunId,
+          messageIndex: r.messageIndex,
           undone: r.undone === 1,
         } as LedgerEntry;
       });
@@ -263,6 +265,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         kind: row.kind as LedgerEntry["kind"],
         content: row.content,
         ts: row.ts,
+        agentRunId: row.agentRunId,
+        messageIndex: row.messageIndex,
         undone: row.undone === 1,
       } as LedgerEntry;
     },

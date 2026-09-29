@@ -21,6 +21,9 @@ export const LedgerEntry = z.object({
   ts: z.number(),
   /** Soft-delete flag (fork/undo): logically removed, ledger stays append-only. */
   undone: z.boolean().optional(),
+  /** 规范投影需要的归属与轮内顺序：读库路径必带；实时推送路径是派生事件，不带。 */
+  agentRunId: z.string().nullable().optional(),
+  messageIndex: z.number().optional(),
 });
 
 export type LedgerEntry = z.infer<typeof LedgerEntry>;

@@ -22,7 +22,8 @@ import {
 export interface SessionModelLedgerRow {
   readonly seq: number;
   readonly conversationId: string;
-  readonly content: string;
+  /** 存储行原样：读库路径给的是已解析对象，实时推送路径给的是字符串，这里都收。 */
+  readonly content: unknown;
   readonly agentRunId: string | null;
   readonly messageIndex: number;
 }
@@ -95,7 +96,7 @@ function errorPartsByRun(ledger: readonly SessionModelLedgerRow[]): Map<string, 
       text?: unknown;
     };
     try {
-      revision = deserializeLedgerContent(row.content) as typeof revision;
+      revision = deserializeLedgerContent(asJsonString(row.content)) as typeof revision;
     } catch {
       continue;
     }
@@ -119,6 +120,11 @@ function errorPartsByRun(ledger: readonly SessionModelLedgerRow[]): Map<string, 
   return out;
 }
 
+/** 两种来源的形状归一：读库路径是对象，实时推送路径是字符串。 */
+function asJsonString(content: unknown): string {
+  return typeof content === "string" ? content : (JSON.stringify(content) ?? "null");
+}
+
 function groupLedgerMessages(ledger: readonly SessionModelLedgerRow[]): Map<string, Message[]> {
   const byRun = new Map<string, SessionModelLedgerRow[]>();
   for (const row of ledger) {
@@ -133,7 +139,7 @@ function groupLedgerMessages(ledger: readonly SessionModelLedgerRow[]): Map<stri
     const ordered = [...rows].sort((a, b) => a.messageIndex - b.messageIndex);
     const messages: Message[] = [];
     for (const row of ordered) {
-      const parsed = deserializeLedgerContent(row.content);
+      const parsed = deserializeLedgerContent(asJsonString(row.content));
       if ("messageId" in parsed) messages.push(revisionToMessage(parsed));
     }
     out.set(runId, messages);
