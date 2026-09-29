@@ -34,9 +34,11 @@ const UNSUPPORTED_PROTOCOL_VERSION = -32005;
 /** 产品侧提供的状态来源。服务端只在第一次订阅某个频道时取一次，之后自己用
  *  上游 reducer 推进；产品侧的新事实通过 `dispatch` 送进来。 */
 export interface AhpStateSource {
-  root(): RootState;
-  session(uri: URI): SessionState | undefined;
-  chat(uri: URI): ChatState | undefined;
+  /** 异步：真实实现要读库（agent 列表、账本投影），同步接口会逼着调用方缓存
+   *  一份可能过期的快照。 */
+  root(): Promise<RootState>;
+  session(uri: URI): Promise<SessionState | undefined>;
+  chat(uri: URI): Promise<ChatState | undefined>;
 }
 
 /** 客户端命令的落点。
@@ -72,7 +74,7 @@ export interface AhpServer {
   createConnection(send: (frame: string) => void): AhpConnection;
   /** 产品侧：应用一个动作并广播给订阅该频道的连接。`origin` 用于把客户端命令
    *  的结果回显给它自己。返回分发的信封。 */
-  dispatch(uri: URI, action: StateAction, origin?: ActionOrigin): ActionEnvelope;
+  dispatch(uri: URI, action: StateAction, origin?: ActionOrigin): Promise<ActionEnvelope>;
 }
 
 interface ConnectionState {
@@ -91,16 +93,16 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
   const cap = opts.replayBufferSize ?? 512;
   let serverSeq = 0;
 
-  const seed = (uri: URI): unknown => {
+  const seed = async (uri: URI): Promise<unknown> => {
     const known = states.get(uri);
     if (known !== undefined) return known;
     const fromSource =
       uri === AHP_ROOT
-        ? opts.source.root()
+        ? await opts.source.root()
         : uri.startsWith(SESSION_PREFIX)
-          ? opts.source.session(uri)
+          ? await opts.source.session(uri)
           : uri.startsWith(CHAT_PREFIX)
-            ? opts.source.chat(uri)
+            ? await opts.source.chat(uri)
             : undefined;
     // 未知或无状态频道：空状态（规范允许无状态频道返回 {}）。
     const state = fromSource ?? {};
@@ -108,14 +110,13 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
     return state;
   };
 
-  const snapshotOf = (uri: URI): Snapshot => ({
+  const snapshotOf = async (uri: URI): Promise<Snapshot> => ({
     resource: uri,
-    state: seed(uri) as Snapshot["state"],
+    state: (await seed(uri)) as Snapshot["state"],
     fromSeq: serverSeq,
   });
 
-  const reduce = (uri: URI, action: StateAction): void => {
-    const state = seed(uri);
+  const reduce = (uri: URI, state: unknown, action: StateAction): void => {
     if (uri === AHP_ROOT) {
       states.set(uri, rootReducer(state as RootState, action as never));
       return;
@@ -138,20 +139,21 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
     }
   };
 
-  const dispatchWith = (
+  const dispatchWith = async (
     uri: URI,
     action: StateAction,
     origin: ActionOrigin | undefined,
-  ): ActionEnvelope => {
+  ): Promise<ActionEnvelope> => {
+    const state = await seed(uri);
     serverSeq += 1;
     const envelope: ActionEnvelope = { channel: uri, action, serverSeq, origin };
-    reduce(uri, action);
+    reduce(uri, state, action);
     buffer.push(envelope);
     if (buffer.length > cap) buffer.splice(0, buffer.length - cap);
     fanOut(envelope);
     return envelope;
   };
-  const dispatch = (uri: URI, action: StateAction, origin?: ActionOrigin): ActionEnvelope =>
+  const dispatch = (uri: URI, action: StateAction, origin?: ActionOrigin) =>
     dispatchWith(uri, action, origin);
 
   const server: AhpServer = {
@@ -181,7 +183,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         );
       };
 
-      const onInitialize = (id: unknown, params: Record<string, unknown>): void => {
+      const onInitialize = async (id: unknown, params: Record<string, unknown>): Promise<void> => {
         if (connection.initialized) {
           fail(id, INVALID_REQUEST, "initialize may only be sent once");
           return;
@@ -220,21 +222,21 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           protocolVersion: selected,
           serverSeq,
           ...(opts.serverInfo ? { serverInfo: opts.serverInfo } : {}),
-          snapshots: toSubscribe.map(snapshotOf),
+          snapshots: await Promise.all(toSubscribe.map(snapshotOf)),
         });
       };
 
-      const onSubscribe = (id: unknown, params: Record<string, unknown>): void => {
+      const onSubscribe = async (id: unknown, params: Record<string, unknown>): Promise<void> => {
         const uri = params.channel;
         if (typeof uri !== "string") {
           fail(id, INVALID_PARAMS, "subscribe needs a channel");
           return;
         }
         connection.subscriptions.add(uri);
-        respond(id, { snapshot: snapshotOf(uri) });
+        respond(id, { snapshot: await snapshotOf(uri) });
       };
 
-      const onReconnect = (id: unknown, params: Record<string, unknown>): void => {
+      const onReconnect = async (id: unknown, params: Record<string, unknown>): Promise<void> => {
         const subscriptions = params.subscriptions;
         const uris = Array.isArray(subscriptions)
           ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
@@ -252,7 +254,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           respond(id, { type: "replay", actions: missed, missing: [] });
           return;
         }
-        respond(id, { type: "snapshot", snapshots: uris.map(snapshotOf) });
+        respond(id, { type: "snapshot", snapshots: await Promise.all(uris.map(snapshotOf)) });
       };
 
       const onDispatchAction = (params: Record<string, unknown>): void => {
@@ -330,13 +332,13 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
 
         switch (method) {
           case "initialize":
-            onInitialize(id, params);
+            void onInitialize(id, params);
             return;
           case "subscribe":
-            onSubscribe(id, params);
+            void onSubscribe(id, params);
             return;
           case "reconnect":
-            onReconnect(id, params);
+            void onReconnect(id, params);
             return;
           case "ping":
             respond(id, null);

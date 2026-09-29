@@ -29,8 +29,8 @@ const noopPort = { submit: () => undefined };
 
 function fakeSource(): AhpStateSource {
   return {
-    root: () => ({ agents: [{ id: "agent-1", name: "oma", title: "oma" } as never] }),
-    session: () => ({
+    root: async () => ({ agents: [{ id: "agent-1", name: "oma", title: "oma" } as never] }),
+    session: async () => ({
       provider: "my-agent-team",
       title: "session",
       status: 1 as SessionStatus, // SessionStatus.Idle
@@ -38,7 +38,7 @@ function fakeSource(): AhpStateSource {
       activeClients: [],
       chats: [],
     }),
-    chat: (uri) => ({
+    chat: async (uri) => ({
       resource: uri,
       title: "chat",
       status: 1 as SessionStatus, // SessionStatus.Idle
@@ -166,7 +166,7 @@ describe("AHP server core against the official client", () => {
     expect((stillOld.result.snapshot?.state as { title?: string }).title).toBe("session");
 
     // 产品侧做完后把结果作为动作派发，两端随即收敛（同一份 reducer）。
-    server.dispatch(SESSION_URI, { type: "session/titleChanged", title: "renamed" } as never);
+    await server.dispatch(SESSION_URI, { type: "session/titleChanged", title: "renamed" } as never);
     await Bun.sleep(10);
     expect(mirror.sessions.get(SESSION_URI)?.title).toBe("renamed");
 
@@ -250,7 +250,7 @@ describe("AHP server core against the official client", () => {
     const { client } = await handshake(server);
     const seen = server.serverSeq;
     for (const title of ["a", "b"]) {
-      server.dispatch(SESSION_URI, { type: "session/titleChanged", title } as never);
+      await server.dispatch(SESSION_URI, { type: "session/titleChanged", title } as never);
     }
     const replay = (await client.reconnect({
       clientId: "test-client",
@@ -262,7 +262,7 @@ describe("AHP server core against the official client", () => {
 
     // 差距超出缓冲：回快照而不是无限重放。
     for (const title of ["c", "d", "e"]) {
-      server.dispatch(SESSION_URI, { type: "session/titleChanged", title } as never);
+      await server.dispatch(SESSION_URI, { type: "session/titleChanged", title } as never);
     }
     const fallback = (await client.reconnect({
       clientId: "test-client",
