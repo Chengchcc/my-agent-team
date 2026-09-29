@@ -38,11 +38,20 @@ export interface CanonicalInputRequest {
 }
 
 export type CanonicalPart =
-  | { readonly kind: "text"; readonly text: string }
-  | { readonly kind: "thinking"; readonly text: string }
-  | { readonly kind: "toolCall"; readonly toolCall: CanonicalToolCall }
-  | { readonly kind: "inputRequest"; readonly request: CanonicalInputRequest }
-  | { readonly kind: "error"; readonly message: string; readonly code?: string };
+  | { readonly kind: "text"; readonly text: string; readonly messageId?: string }
+  | { readonly kind: "thinking"; readonly text: string; readonly messageId?: string }
+  | { readonly kind: "toolCall"; readonly toolCall: CanonicalToolCall; readonly messageId?: string }
+  | {
+      readonly kind: "inputRequest";
+      readonly request: CanonicalInputRequest;
+      readonly messageId?: string;
+    }
+  | {
+      readonly kind: "error";
+      readonly message: string;
+      readonly code?: string;
+      readonly messageId?: string;
+    };
 
 export type CanonicalTurnStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
 
@@ -59,23 +68,37 @@ export interface CanonicalTurn {
 /** 一轮的 part，按到达到顺序。工具调用按 `tool_use_id` 配对：结果会落到对应的
  *  call 上并把它标成 completed 或 failed。**配不上 use 的 result 也会保留**，
  *  落成一次已结算的调用；丢掉它就是又把事实漏出日志。 */
+/** 给片段挂上来源消息的身份（账本身份，surface 靠它做恰好一次投递）。
+ *  没有身份时连键都不出现：`undefined` 与「没有这个字段」不是一个意思。 */
+function withMessageId<T extends object>(
+  part: T,
+  messageId: string | undefined,
+): T & { messageId?: string } {
+  return messageId === undefined ? part : { ...part, messageId };
+}
+
 export function turnPartsFromMessages(messages: readonly Message[]): CanonicalPart[] {
   const parts: CanonicalPart[] = [];
   const callIndex = new Map<string, number>();
 
   for (const message of messages) {
     if (message.text !== undefined && message.text !== "") {
-      parts.push({ kind: "text", text: message.text });
+      parts.push(withMessageId({ kind: "text", text: message.text }, message.id));
     }
     for (const block of message.blocks ?? []) {
-      pushBlock(parts, callIndex, block);
+      pushBlock(parts, callIndex, block, message.id);
     }
     if (message.error) {
-      parts.push({
-        kind: "error",
-        message: message.error.message,
-        ...(message.error.code !== undefined ? { code: message.error.code } : {}),
-      });
+      parts.push(
+        withMessageId(
+          {
+            kind: "error",
+            message: message.error.message,
+            ...(message.error.code !== undefined ? { code: message.error.code } : {}),
+          },
+          message.id,
+        ),
+      );
     }
   }
   return parts;
@@ -85,21 +108,32 @@ function pushBlock(
   parts: CanonicalPart[],
   callIndex: Map<string, number>,
   block: ContentBlock,
+  messageId: string | undefined,
 ): void {
   if (block.type === "text") {
-    parts.push({ kind: "text", text: block.text });
+    parts.push(withMessageId({ kind: "text", text: block.text }, messageId));
     return;
   }
   if (block.type === "thinking") {
-    parts.push({ kind: "thinking", text: block.text });
+    parts.push(withMessageId({ kind: "thinking", text: block.text }, messageId));
     return;
   }
   if (block.type === "tool_use") {
     callIndex.set(block.id, parts.length);
-    parts.push({
-      kind: "toolCall",
-      toolCall: { toolCallId: block.id, name: block.name, input: block.input, status: "pending" },
-    });
+    parts.push(
+      withMessageId(
+        {
+          kind: "toolCall",
+          toolCall: {
+            toolCallId: block.id,
+            name: block.name,
+            input: block.input,
+            status: "pending",
+          },
+        },
+        messageId,
+      ),
+    );
     return;
   }
   if (block.type === "tool_result") {
@@ -110,26 +144,34 @@ function pushBlock(
     const index = callIndex.get(block.tool_use_id);
     const part = index === undefined ? undefined : parts[index];
     if (part?.kind === "toolCall") {
-      parts[index!] = {
-        kind: "toolCall",
-        toolCall: {
-          ...part.toolCall,
-          status: result.isError ? "failed" : "completed",
-          result,
+      parts[index!] = withMessageId(
+        {
+          kind: "toolCall",
+          toolCall: {
+            ...part.toolCall,
+            status: result.isError ? "failed" : "completed",
+            result,
+          },
         },
-      };
+        messageId,
+      );
       return;
     }
-    parts.push({
-      kind: "toolCall",
-      toolCall: {
-        toolCallId: block.tool_use_id,
-        name: "unknown",
-        input: {},
-        status: result.isError ? "failed" : "completed",
-        result,
-      },
-    });
+    parts.push(
+      withMessageId(
+        {
+          kind: "toolCall",
+          toolCall: {
+            toolCallId: block.tool_use_id,
+            name: "unknown",
+            input: {},
+            status: result.isError ? "failed" : "completed",
+            result,
+          },
+        },
+        messageId,
+      ),
+    );
   }
   // 图片等块不单独成 part。
 }

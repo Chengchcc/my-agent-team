@@ -102,3 +102,12 @@ describe("canonical turn parts", () => {
     expect(withRequests[3]).toMatchObject({ request: { requestId: "r2" } });
   });
 });
+
+test("parts carry the source message identity, and omit it when there is none", () => {
+  const withId = turnPartsFromMessages([{ id: "m-1", role: "assistant", text: "hi" }]);
+  expect(withId[0]).toEqual({ kind: "text", text: "hi", messageId: "m-1" });
+
+  const withoutId = turnPartsFromMessages([{ role: "assistant", text: "hi" }]);
+  expect(withoutId[0]).toEqual({ kind: "text", text: "hi" });
+  expect("messageId" in (withoutId[0] as object)).toBe(false);
+});
