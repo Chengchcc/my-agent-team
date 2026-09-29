@@ -19,7 +19,7 @@ import { adaptMcpTool } from "@chengchenccc/adapter-mcp";
 import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { type Message, MessageSchema } from "@chengchenccc/message";
-import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
+import { assemblePluginRuntime, type PluginMcpConfig } from "../../core/plugins/plugin-resolve.js";
 import {
   type ApprovalDecision,
   type ApprovalHandler,
@@ -261,6 +261,10 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     // mcp/message, executed over mcp/message, adapted with the same
     // mcp__<server>__<tool> naming every other mount uses.
     const acpMcpTools = await fetchAcpMcpTools(client, session, log);
+    const workspaceMcpServers = withoutAcpDeclaredServers(
+      pluginRt.mcpServers,
+      new Set(session.acpMcpServers.map((server) => server.name)),
+    );
     const preSupplied = resumeApprovals(resume);
     const pendingApprovals = new Map<string, (d: ApprovalDecision) => void>();
     const catalog = await modelRuntime.getCatalog();
@@ -293,7 +297,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       // auto classifier against nobody.
       permissionMode: "ask",
       todoScope: session.sessionId,
-      ...(pluginRt.plugins.length || pluginRt.mcpServers.length || acpMcpTools.length
+      ...(pluginRt.plugins.length || workspaceMcpServers.length || acpMcpTools.length
         ? {
             pluginComponents: {
               plugins: [
@@ -302,7 +306,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
                   ? [{ name: "acp-mcp", tools: acpMcpTools } as unknown as Plugin]
                   : []),
               ],
-              mcpServers: pluginRt.mcpServers,
+              mcpServers: workspaceMcpServers,
             },
           }
         : {}),
@@ -391,6 +395,26 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
 
 const STEER_METHOD = "_session/steering";
 const OMA_UPDATE_METHOD = "_oma/update";
+
+/** Drop workspace-configured MCP servers the ACP client declared on this
+ *  connection. Both rails can name the same server (a deployment injects the
+ *  product-tools SSE URL for every agent kind), and mounting both would put
+ *  one server's tools in the table twice — same name, two transports, one of
+ *  which is a port that this agent is not supposed to need. */
+export function withoutAcpDeclaredServers(
+  configs: readonly PluginMcpConfig[],
+  declared: ReadonlySet<string>,
+): PluginMcpConfig[] {
+  if (declared.size === 0) return [...configs];
+  return configs
+    .map((cfg) => ({
+      ...cfg,
+      servers: Object.fromEntries(
+        Object.entries(cfg.servers).filter(([name]) => !declared.has(name)),
+      ),
+    }))
+    .filter((cfg) => Object.keys(cfg.servers).length > 0);
+}
 
 /** The client's `mcpServers` entries of type "acp" (RFCD declaration). */
 function readAcpMcpServers(mcpServers: unknown): AcpMcpServerDeclaration[] {

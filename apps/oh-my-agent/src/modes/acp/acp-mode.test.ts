@@ -5,7 +5,7 @@ import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { createModelRuntime } from "@chengchenccc/ai";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
-import { runAcpMode } from "./acp-mode.js";
+import { runAcpMode, withoutAcpDeclaredServers } from "./acp-mode.js";
 
 /** Crossed NDJSON stream pairs: our test CLIENT on one side, the oma ACP
  *  server on the other. No processes; the model is the fake provider and
@@ -69,6 +69,8 @@ interface McpOverAcpHarness {
   tool: { name: string; description?: string; inputSchema?: Record<string, unknown> };
   /** What the fake server answers for tools/call. */
   callResult: unknown;
+  /** Reject every inner request — the provider-refuses path. */
+  fail?: boolean;
 }
 
 async function startClient(
@@ -95,6 +97,7 @@ async function startClient(
       (ctx) => {
         if (!mcp) throw new Error("unexpected mcp/message");
         mcp.requests.push(ctx.params);
+        if (mcp.fail) throw new Error("provider unavailable");
         if (ctx.params.method === "tools/list") {
           return Promise.resolve({ result: { result: { tools: [mcp.tool] } } });
         }
@@ -294,14 +297,16 @@ describe("oma ACP server (in-process, fake provider)", () => {
       declare: [{ name: "broken", serverId: "broken:1" }],
       tool: { name: "echo" },
       callResult: { content: [] },
+      fail: true,
     };
     const mode = runAcpMode({
       modelRuntime: makeRuntime(),
       stream: acp.ndJsonStream(c2a.writable, a2c.readable),
       log: () => {},
     });
-    // No mcp harness wired on the client: the request fails at the transport.
-    const client = await startClient(mode, c2a, a2c);
+    // The client declares the server but refuses every inner call: the run
+    // keeps going without those tools.
+    const client = await startClient(mode, c2a, a2c, "allow-once", mcp);
     await client.newSession(cwd);
     const response = await client.prompt("go");
     expect(response.stopReason).toBe("end_turn");
@@ -323,4 +328,33 @@ describe("oma ACP server (in-process, fake provider)", () => {
     ).rejects.toBeTruthy();
     mode.stop();
   }, 20_000);
+});
+
+describe("workspace MCP config vs the ACP declaration", () => {
+  const configs = [
+    {
+      pluginName: "workspace",
+      pluginRoot: "/tmp/ws",
+      scope: "project" as const,
+      servers: {
+        "product-tools": { transport: "sse", url: "http://127.0.0.1:3996/sse" },
+        other: { transport: "stdio", command: "other" },
+      },
+    },
+  ];
+
+  test("a server the client declared is not mounted from the workspace config", () => {
+    expect(withoutAcpDeclaredServers(configs, new Set(["product-tools"]))).toEqual([
+      {
+        pluginName: "workspace",
+        pluginRoot: "/tmp/ws",
+        scope: "project",
+        servers: { other: { transport: "stdio", command: "other" } },
+      },
+    ]);
+  });
+
+  test("nothing declared leaves the workspace config alone", () => {
+    expect(withoutAcpDeclaredServers(configs, new Set())).toEqual(configs);
+  });
 });
