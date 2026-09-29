@@ -3,6 +3,7 @@
  *  Upstream brings the protocol, the state mirror and the reducers; the one thing it does not
  *  ship is a WebSocket transport. */
 
+export type { AhpClientLike } from "./client.js";
 export type { WebSocketTransportOptions } from "./transport.js";
 export { createWebSocketTransport, createWebSocketTransportFactory } from "./transport.js";
 export {

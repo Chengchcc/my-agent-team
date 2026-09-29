@@ -110,6 +110,7 @@
       "dependencies": {
         "@base-ui/react": "^1.5.0",
         "@chengchenccc/agent-contract": "workspace:*",
+        "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/backend": "workspace:*",
         "@chengchenccc/config": "workspace:*",
@@ -119,6 +120,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@elysiajs/eden": "^1.0.0",
         "@hookform/resolvers": "^4",
+        "@microsoft/agent-host-protocol": "^0.9.0",
         "@monaco-editor/react": "^4.7.0",
         "@radix-ui/react-alert-dialog": "^1.1.23",
         "@radix-ui/react-label": "^2.1.10",

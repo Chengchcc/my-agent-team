@@ -9,40 +9,21 @@
  *  Upstream's `MultiHostClient` (its reconnect supervisor) is the next step; this loop is the
  *  same shape the SSE watcher used. */
 
-import { chatUri, createWebSocketTransport } from "@chengchenccc/ahp-client";
+import { type AhpClientLike, chatUri, createWebSocketTransport } from "@chengchenccc/ahp-client";
 import {
   type ChatAction,
   type ChatState,
   chatReducer,
   SUPPORTED_PROTOCOL_VERSIONS,
-  type URI,
 } from "@microsoft/agent-host-protocol";
-import {
-  AhpClient,
-  type AhpTransport,
-  type SubscriptionEvent,
-} from "@microsoft/agent-host-protocol/client";
+import { AhpClient, type AhpTransport } from "@microsoft/agent-host-protocol/client";
 import { type AhpDeliveryDeps, deliverChatState } from "./ahp-delivery.js";
-
-/** The slice of the official client this watcher uses. `AhpClient` satisfies it as it stands. */
-export interface AhpWatcherClient {
-  connect(): void;
-  initialize(args: {
-    readonly clientId: string;
-    readonly protocolVersions: readonly string[];
-    readonly initialSubscriptions?: readonly URI[];
-  }): Promise<{
-    readonly snapshots: ReadonlyArray<{ readonly resource: URI; readonly state: unknown }>;
-  }>;
-  attachSubscription(uri: URI): AsyncIterableIterator<SubscriptionEvent>;
-  shutdown(): Promise<void>;
-}
 
 export interface AhpWatcherDeps extends AhpDeliveryDeps {
   readonly backendUrl: string;
   readonly backendAuthToken: string | null;
   readonly transportFactory?: (url: string) => AhpTransport;
-  readonly clientFactory?: (transport: AhpTransport) => AhpWatcherClient;
+  readonly clientFactory?: (transport: AhpTransport) => AhpClientLike;
   readonly fetchTicket?: (
     url: string,
     headers: Record<string, string>,
@@ -63,7 +44,7 @@ export function watchConversationOverAhp(
   const uri = chatUri(conversationId);
   const target = { conversationId, larkChatId };
   let closed = false;
-  let active: AhpWatcherClient | undefined;
+  let active: AhpClientLike | undefined;
 
   const runOnce = async (): Promise<void> => {
     const request = deps.fetchTicket ?? defaultFetchTicket;
