@@ -5,8 +5,8 @@
  *  surface that reads state does not need that stream at all. This is the pure half: state in,
  *  the view the components already take out, so it can be tested without a socket.
  *
- *  Approval and ask cards are deliberately not derived here yet: their payload shape is its own
- *  step, and nothing switches onto this module until it covers what the surface renders. */
+ *  Approval and ask cards come from the same place: their durable payload rides in the input
+ *  request's `_meta`, so the card can render what was asked without a second stream. */
 import type { ChatState, ResponsePart, ToolCallState } from "@microsoft/agent-host-protocol";
 import {
   type LiveToolCall,
@@ -65,6 +65,12 @@ export function chatViewFromState(state: ChatState, agentId: string): AhpChatVie
           tools[toolKey(turn.id, call.toolCallId)] = live;
           break;
         }
+        case "inputRequest": {
+          const card = cardOf(part);
+          if (card?.kind === "approval") run.approval = card.approval;
+          else if (card) run.ask = card.ask;
+          break;
+        }
         case "error": {
           const message = (part as { error?: { message?: string } }).error?.message;
           if (message) run.error = message;
@@ -74,7 +80,8 @@ export function chatViewFromState(state: ChatState, agentId: string): AhpChatVie
           break;
       }
     }
-    if (run.text !== "" || run.thinking !== "" || run.error !== undefined) {
+    const hasCards = run.approval !== undefined || run.ask !== undefined;
+    if (run.text !== "" || run.thinking !== "" || run.error !== undefined || hasCards) {
       transients[turn.id] = run;
     }
   }
@@ -91,6 +98,53 @@ function toolStateOf(call: ToolCallState): LiveToolCall["state"] {
   }
   if (status === "cancelled") return "error";
   return "running";
+}
+
+/** An input request as the timeline's cards need it: the durable payload carries what was asked
+ *  (tool, reason, the argument being approved), and the request's own `message` says which card. */
+function cardOf(
+  part: ResponsePart,
+):
+  | { kind: "approval"; approval: NonNullable<TransientRun["approval"]> }
+  | { kind: "ask"; ask: NonNullable<TransientRun["ask"]> }
+  | undefined {
+  const request = (part as { request?: RequestLike }).request;
+  if (request === undefined) return undefined;
+  const payload = request._meta?.productRequest as PayloadLike | undefined;
+  const callId = typeof payload?.callId === "string" ? payload.callId : (request.id ?? "");
+  if (request.message !== "approval") {
+    return {
+      kind: "ask",
+      ask: { callId, questions: Array.isArray(payload?.questions) ? payload.questions : [] },
+    };
+  }
+  return {
+    kind: "approval",
+    approval: {
+      callId,
+      toolName: typeof payload?.toolName === "string" ? payload.toolName : "",
+      reason: typeof payload?.reason === "string" ? payload.reason : "",
+      ...(typeof payload?.detail === "string" ? { detail: payload.detail } : {}),
+      ...(typeof payload?.sandboxed === "boolean" ? { sandboxed: payload.sandboxed } : {}),
+      ...(typeof payload?.deadlineAt === "number" ? { deadlineAt: payload.deadlineAt } : {}),
+    },
+  };
+}
+
+interface RequestLike {
+  readonly id?: string;
+  readonly message?: string;
+  readonly _meta?: { readonly productRequest?: unknown };
+}
+
+interface PayloadLike {
+  readonly callId?: unknown;
+  readonly toolName?: unknown;
+  readonly reason?: unknown;
+  readonly detail?: unknown;
+  readonly sandboxed?: unknown;
+  readonly deadlineAt?: unknown;
+  readonly questions?: unknown;
 }
 
 function contentOf(part: ResponsePart): string | undefined {

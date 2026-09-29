@@ -89,3 +89,68 @@ describe("the transient view from AHP chat state", () => {
     expect(view.transients["run-3"]?.text).toBe("working");
   });
 });
+
+describe("human input cards", () => {
+  test("an approval card renders what was asked from the durable payload", () => {
+    const view = chatViewFromState(
+      state([
+        {
+          id: "run-4",
+          state: "complete",
+          message: { text: "go", origin: { kind: "user" } },
+          responseParts: [
+            {
+              kind: "inputRequest",
+              request: {
+                id: "run-4:call-9",
+                message: "approval",
+                _meta: {
+                  productRequest: {
+                    callId: "call-9",
+                    toolName: "bash",
+                    reason: "rm -rf build",
+                    detail: "rm -rf build",
+                    deadlineAt: 1234,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ]),
+      "agent-1",
+    );
+    expect(view.transients["run-4"]?.approval).toEqual({
+      callId: "call-9",
+      toolName: "bash",
+      reason: "rm -rf build",
+      detail: "rm -rf build",
+      deadlineAt: 1234,
+    });
+  });
+
+  test("a question lands on the ask card instead", () => {
+    const view = chatViewFromState(
+      state([
+        {
+          id: "run-5",
+          state: "complete",
+          message: { text: "go", origin: { kind: "user" } },
+          responseParts: [
+            {
+              kind: "inputRequest",
+              request: {
+                id: "run-5:call-1",
+                message: "question",
+                _meta: { productRequest: { callId: "call-1", questions: [{ id: "q1" }] } },
+              },
+            },
+          ],
+        },
+      ]),
+      "agent-1",
+    );
+    expect(view.transients["run-5"]?.ask).toEqual({ callId: "call-1", questions: [{ id: "q1" }] });
+    expect(view.transients["run-5"]?.approval).toBeUndefined();
+  });
+});
