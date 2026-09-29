@@ -205,3 +205,5 @@ P5  逐个下线旧 native adapter（oma RPC 去留于 P2 验收后定）
 | oma | 无（P2 自建） | 目标：v1 线 + v2 形状 | 自家 RPC 有；ACP 面将接 `_session/steering` 约定名 | P2 出站用 elicitation 表达提问 | P2 率先实现 |
 
 SDK 状态（1.5.1 复核）：`zMcpServerAcp`（`{name, serverId}`）已在稳定线的类型里，只有 `mcp/message` 的信封仍标 experimental。稳定线 1.5.x（v1，Bun 下实测可跑，含 server 侧 AgentApp）；experimental/v2 含 `mcp/message` 但也有 RFCD 明言不存在的 `mcp/connect`/`mcp/disconnect`（实现与草案不同步），不作地基。附：未知自定义请求实测 omp 应答 -32603 而非规范的 -32601，勿依赖错误码值判能力；未知通知被无视且连接存活。
+
+> 后续：surface 侧的收敛（AHP 取代自研事件词汇与 SSE）与两条轴的删除清单一并记在 [ADR 0040](./0040-run-contract-acp-surface-contract-ahp.md)。
