@@ -9,31 +9,22 @@ import {
   useConversationSnapshot,
   usePostConversationMessage,
 } from "@/features/conversations/hooks";
+import { connectAhpChat } from "@/lib/ahp";
+import { chatViewFromState } from "@/lib/ahp-view";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import { initialState, isBusy, reducer } from "@/lib/conversation-reducer";
 import {
-  appendThinking,
-  appendTransient,
   clearRunTodos,
   clearRunTools,
   clearTransientApproval,
-  completeTool,
-  formatApprovalInput,
-  type LiveToolCall,
   type LiveToolMap,
   markTransientApprovalError,
   markTransientError,
   pushTransientNotice,
   type RunTodoMap,
   removeTransient,
-  setRunTodos as setRunTodosMap,
-  setTransientApproval,
-  setTransientAsk,
-  type TodoItem,
-  type TransientApproval,
   type TransientMap,
-  upsertTool,
 } from "@/lib/transient-reducer";
 import { typedSource } from "@/lib/typed-source";
 
@@ -79,20 +70,8 @@ export function useConversation(
   /** Live workflow runs (transient progress, cleared with the SSE stream). */
   const [workflows, setWorkflows] = useState<ReadonlyMap<string, WorkflowRunState>>(new Map());
 
-  const upsertToolState = useCallback((call: LiveToolCall) => {
-    setTransientTools((prev) => upsertTool(prev, call));
-  }, []);
-  const completeToolState = useCallback(
-    (runId: string, callId: string, result: unknown, isError: boolean) => {
-      setTransientTools((prev) => completeTool(prev, runId, callId, result, isError));
-    },
-    [],
-  );
   const clearRunToolsState = useCallback((runId: string) => {
     setTransientTools((prev) => clearRunTools(prev, runId));
-  }, []);
-  const setRunTodosState = useCallback((runId: string, items: readonly TodoItem[]) => {
-    setRunTodos((prev) => setRunTodosMap(prev, runId, items));
   }, []);
   const clearRunTodosState = useCallback((runId: string) => {
     setRunTodos((prev) => clearRunTodos(prev, runId));
@@ -115,20 +94,6 @@ export function useConversation(
       setWorkflows(new Map());
     };
   }, [conversationId]);
-  const upsertTransient = useCallback((runId: string, agentId: string, text: string) => {
-    setTransients((prev) => {
-      const next = appendTransient(prev, runId, agentId, text);
-      transientsRef.current = next;
-      return next;
-    });
-  }, []);
-  const upsertThinking = useCallback((runId: string, agentId: string, text: string) => {
-    setTransients((prev) => {
-      const next = appendThinking(prev, runId, agentId, text);
-      transientsRef.current = next;
-      return next;
-    });
-  }, []);
   const dropTransient = useCallback((runId: string) => {
     setTransients((prev) => {
       const next = removeTransient(prev, runId);
@@ -181,6 +146,27 @@ export function useConversation(
   }, []);
   // 1) Snapshot bootstrap (the conversation's agent)
   const snap = useConversationSnapshot(conversationId, preFetchedSnapshot);
+
+  /** Live chat state comes from the AHP face (ADR 0040). It carries what the run-event stream
+   *  used to: streaming text and thinking, live tool steps, the run's todo list and the HITL
+   *  cards. The stream keeps only what AHP does not project yet - stream-rule notices and
+   *  workflow progress - so nothing visible is lost while those two follow. */
+  useEffect(() => {
+    const agentId = snap.data?.agentId;
+    if (!conversationId || !agentId) return;
+    const connection = connectAhpChat({
+      conversationId,
+      clientId: `web:${conversationId}`,
+      onChange: (state) => {
+        const view = chatViewFromState(state, agentId);
+        setTransients(view.transients);
+        transientsRef.current = view.transients;
+        setTransientTools(view.tools);
+        setRunTodos(view.todos);
+      },
+    });
+    return () => connection.close();
+  }, [conversationId, snap.data?.agentId]);
   useEffect(() => {
     if (!snap.data) return;
     dispatch({
@@ -309,61 +295,6 @@ export function useConversation(
       // Durable HITL rehydration: on (re)connect, rebuild the approval/ask
       // cards from the run's persisted pending actions — a page refresh no
       // longer loses a live approval the child is still blocked on.
-      void api
-        .getAgentRun(runId)
-        .then((detail) => {
-          const pending = detail.run?.pendingActions ?? [];
-          for (const action of pending) {
-            if (action.status !== "pending") continue;
-            // Resolve-then-rehydrate race: never resurrect a card the
-            // backend already accepted a decision for.
-            const callId = String(action.payload?.callId ?? "");
-            if (callId !== "" && resolvedCallIdsRef.current.has(`${runId}:${callId}`)) {
-              continue;
-            }
-            // Unchecked named cast (allowed): payload is opaque DB JSON;
-            // every field is type-checked before use below.
-            const payload = action.payload as {
-              callId?: string;
-              toolName?: string;
-              reason?: string;
-              input?: unknown;
-              sandboxed?: boolean;
-              deadlineAt?: number;
-              questions?: unknown[];
-            };
-            if (action.kind === "approval" && typeof payload.callId === "string") {
-              const approval: TransientApproval = {
-                callId: payload.callId,
-                toolName: typeof payload.toolName === "string" ? payload.toolName : "tool",
-                reason: typeof payload.reason === "string" ? payload.reason : "",
-              };
-              const detail = formatApprovalInput(payload.input);
-              if (detail) approval.detail = detail;
-              if (typeof payload.sandboxed === "boolean") approval.sandboxed = payload.sandboxed;
-              if (typeof payload.deadlineAt === "number" && payload.deadlineAt > 0) {
-                approval.deadlineAt = payload.deadlineAt;
-              }
-              setTransients((prev) => {
-                const next = setTransientApproval(prev, runId, agentId, approval);
-                transientsRef.current = next;
-                return next;
-              });
-            } else if (action.kind === "ask" && typeof payload.callId === "string") {
-              setTransients((prev) => {
-                const next = setTransientAsk(prev, runId, agentId, {
-                  callId: payload.callId as string,
-                  questions: Array.isArray(payload.questions) ? payload.questions : [],
-                });
-                transientsRef.current = next;
-                return next;
-              });
-            }
-          }
-        })
-        .catch(() => {
-          /* rehydration is best-effort */
-        });
       const finish = () => {
         runStreamsRef.current.get(runId)?.close();
         runStreamsRef.current.delete(runId);
@@ -418,88 +349,6 @@ export function useConversation(
           /* malformed - ignore */
         }
       });
-      es.addEventListener("text_delta", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as { text?: string };
-          if (ev.text) upsertTransient(runId, agentId, ev.text);
-        } catch {
-          /* malformed - ignore */
-        }
-      });
-      es.addEventListener("thinking_delta", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as { text?: string };
-          if (ev.text) upsertThinking(runId, agentId, ev.text);
-        } catch {
-          /* malformed - ignore */
-        }
-      });
-      const toolStarted = (e: Event) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as {
-            toolName?: string;
-            callId?: string;
-            activity?: string;
-          };
-          if (!ev.callId) return;
-          const call: LiveToolCall = {
-            runId,
-            callId: ev.callId,
-            name: ev.toolName ?? "tool",
-            state: "running",
-          };
-          if (ev.activity) call.activity = ev.activity;
-          upsertToolState(call);
-        } catch {
-          /* malformed - ignore */
-        }
-      };
-      const toolCompleted = (e: Event) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as {
-            toolName?: string;
-            callId?: string;
-            result?: unknown;
-          };
-          // todo_write replaces the whole run's todo snapshot — same state
-          // the backend.oma.todo_update event and the panel read.
-          // todo_write arrives as native_tool_completed on the child backend
-          // (their MCP mount); result shapes differ ({content}/{output} json
-          // string or a direct {items}) — normalize all three.
-          if (ev.toolName === "todo_write" || ev.toolName?.endsWith("__todo_write")) {
-            let payload = ev.result;
-            if (payload && typeof payload === "object") {
-              const rec = payload as { content?: unknown; output?: unknown };
-              if (typeof rec.content === "string" || typeof rec.output === "string") {
-                try {
-                  payload = JSON.parse((rec.content ?? rec.output) as string);
-                } catch {
-                  payload = undefined;
-                }
-              }
-            }
-            const items = (payload as { items?: readonly TodoItem[] } | undefined)?.items;
-            if (Array.isArray(items)) setRunTodosState(runId, items);
-          }
-          if (!ev.callId) return;
-          completeToolState(runId, ev.callId, ev.result, false);
-        } catch {
-          /* malformed - ignore */
-        }
-      };
-      es.addEventListener("native_tool_started", toolStarted);
-      es.addEventListener("native_tool_completed", toolCompleted);
-      es.addEventListener("backend.oma.todo_update", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as {
-            payload?: { items?: readonly TodoItem[] };
-          };
-          const items = ev.payload?.items;
-          if (items) setRunTodosState(runId, items);
-        } catch {
-          /* malformed - ignore */
-        }
-      });
       es.addEventListener("backend.oma.stream_rule_triggered", (e) => {
         try {
           const ev = JSON.parse((e as MessageEvent).data) as { payload?: { rule?: string } };
@@ -514,40 +363,9 @@ export function useConversation(
           /* malformed - ignore */
         }
       });
-      ts.on("approval_requested", (ev) => {
-        const p = ev.payload;
-        if (!p) return;
-        const approval: TransientApproval = {
-          callId: p.callId,
-          toolName: p.toolName,
-          reason: p.reason ?? "",
-        };
-        const detail = formatApprovalInput(p.input);
-        if (detail) approval.detail = detail;
-        if (typeof p.sandboxed === "boolean") approval.sandboxed = p.sandboxed;
-        if (typeof p.deadlineAt === "number" && p.deadlineAt > 0) {
-          approval.deadlineAt = p.deadlineAt;
-        }
-        setTransients((prev) => {
-          const next = setTransientApproval(prev, runId, agentId, approval);
-          transientsRef.current = next;
-          return next;
-        });
-      });
       // Same typed client as the approval handler above: a raw listener keyed
       // by a bare string is invisible to the compiler, so a rename that misses
       // this one line would silently stop painting questions.
-      ts.on("ask_requested", (ev) => {
-        const payload = ev.payload;
-        const callId = payload?.callId;
-        if (typeof callId !== "string") return;
-        const questions = Array.isArray(payload?.questions) ? payload.questions : [];
-        setTransients((prev) => {
-          const next = setTransientAsk(prev, runId, agentId, { callId, questions });
-          transientsRef.current = next;
-          return next;
-        });
-      });
       const upsertWorkflow = (
         workflowId: string,
         patch: (w: WorkflowRunState | undefined) => WorkflowRunState | undefined,
@@ -617,18 +435,7 @@ export function useConversation(
       es.addEventListener("delegation_agent_completed", workflowEvent("agent_completed"));
       es.addEventListener("delegation_batch_completed", workflowEvent("completed"));
     },
-    [
-      clearRunToolsState,
-      clearRunTodosState,
-      completeToolState,
-      dropTransient,
-      failTransient,
-      pushRunNotice,
-      setRunTodosState,
-      upsertToolState,
-      upsertTransient,
-      upsertThinking,
-    ],
+    [clearRunToolsState, clearRunTodosState, dropTransient, failTransient, pushRunNotice],
   );
 
   // Poll this conversation's active runs and start live streaming for any
