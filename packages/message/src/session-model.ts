@@ -48,6 +48,7 @@ export type CanonicalPart =
       readonly messageId?: string;
       readonly seq?: number;
       readonly undone?: boolean;
+      readonly role?: string;
     }
   | {
       readonly kind: "thinking";
@@ -55,6 +56,7 @@ export type CanonicalPart =
       readonly messageId?: string;
       readonly seq?: number;
       readonly undone?: boolean;
+      readonly role?: string;
     }
   | {
       readonly kind: "toolCall";
@@ -62,6 +64,7 @@ export type CanonicalPart =
       readonly messageId?: string;
       readonly seq?: number;
       readonly undone?: boolean;
+      readonly role?: string;
     }
   | {
       readonly kind: "inputRequest";
@@ -69,6 +72,7 @@ export type CanonicalPart =
       readonly messageId?: string;
       readonly seq?: number;
       readonly undone?: boolean;
+      readonly role?: string;
     }
   | {
       readonly kind: "error";
@@ -77,6 +81,7 @@ export type CanonicalPart =
       readonly messageId?: string;
       readonly seq?: number;
       readonly undone?: boolean;
+      readonly role?: string;
     };
 
 export type CanonicalTurnStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
@@ -88,6 +93,8 @@ export interface CanonicalTurn {
   readonly seq?: number;
   /** Whether the ledger row behind this turn has been undone. */
   readonly undone?: boolean;
+  /** The authoring role of the row behind this turn (a system row reads as a notice). */
+  readonly role?: string;
   /** The user message that triggered this execution (AHP's `ActiveTurn.message` slot). */
   readonly input?: Message;
   readonly status: CanonicalTurnStatus;

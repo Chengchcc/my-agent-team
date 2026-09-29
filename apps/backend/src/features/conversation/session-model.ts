@@ -84,7 +84,11 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
       turnId: run.runId,
       ...(inputFacts === undefined
         ? {}
-        : { seq: inputFacts.seq, ...(inputFacts.undone ? { undone: true } : {}) }),
+        : {
+            seq: inputFacts.seq,
+            ...(inputFacts.undone ? { undone: true } : {}),
+            ...(inputFacts.role === undefined ? {} : { role: inputFacts.role }),
+          }),
       ...(message ? { input: message } : {}),
       status: turnStatus(run.status),
       parts,
@@ -139,6 +143,7 @@ function asJsonString(content: unknown): string {
 interface RowFacts {
   readonly seq: number;
   readonly undone: boolean;
+  readonly role: string | undefined;
 }
 
 function seqByMessageId(ledger: readonly SessionModelLedgerRow[]): Map<string, RowFacts> {
@@ -147,9 +152,14 @@ function seqByMessageId(ledger: readonly SessionModelLedgerRow[]): Map<string, R
     try {
       const parsed = deserializeLedgerContent(asJsonString(row.content)) as {
         messageId?: unknown;
+        role?: unknown;
       };
       if (typeof parsed.messageId === "string") {
-        out.set(parsed.messageId, { seq: row.seq, undone: row.undone ?? false });
+        out.set(parsed.messageId, {
+          seq: row.seq,
+          undone: row.undone ?? false,
+          role: typeof parsed.role === "string" ? parsed.role : undefined,
+        });
       }
     } catch {
       /* a row that will not parse carries no identity */
@@ -164,7 +174,12 @@ function withSeq<T extends { readonly messageId?: string; readonly seq?: number 
 ): T {
   const facts = part.messageId === undefined ? undefined : factsByMessage.get(part.messageId);
   if (facts === undefined) return part;
-  return { ...part, seq: facts.seq, ...(facts.undone ? { undone: true } : {}) };
+  return {
+    ...part,
+    seq: facts.seq,
+    ...(facts.undone ? { undone: true } : {}),
+    ...(facts.role === undefined ? {} : { role: facts.role }),
+  };
 }
 
 /** Everything that can name a Run: ledger ownership, queue inputs, the failure bubble's own

@@ -116,10 +116,11 @@ describe("buildTurns", () => {
           status: "completed",
           result: { content: "ok", isError: false },
         },
-        // Merged call: attributed to the result's message.
+        // Merged call: attributed to the result's message, so it carries that row's role.
         messageId: "run:run-1:tool:1",
+        role: "tool",
       },
-      { kind: "text", text: "final", messageId: "run:run-1:assistant:0" },
+      { kind: "text", text: "final", messageId: "run:run-1:assistant:0", role: "assistant" },
     ]);
   });
 
@@ -184,7 +185,7 @@ describe("buildTurns", () => {
       pendingActions: [],
     });
     expect(turns[0]?.parts.map(({ seq: _seq, ...rest }) => rest)).toEqual([
-      { kind: "text", text: "answer", messageId: "run:run-1:assistant:0" },
+      { kind: "text", text: "answer", messageId: "run:run-1:assistant:0", role: "assistant" },
     ]);
   });
 
