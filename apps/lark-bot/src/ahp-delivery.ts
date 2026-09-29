@@ -1,10 +1,13 @@
-/** AHP 状态 → Lark 投递（ADR 0040：surface 契约归 AHP）。
+/** AHP chat state to Lark deliveries (ADR 0040: the surface contract is AHP).
  *
- *  与旧的 SSE 路径共用同一套账：按 messageId 的一次投递表（先记意图、成功后记终态），
- *  以及「Run 卡已接管就不再发文本」那条缝。区别在于这里吃的是**状态**，所以不需要
- *  seq 游标 —— 「哪些已投递」由投递表自己回答，重复跑同一份状态是安全的。
+ *  Same books as the SSE path: one delivery row per message id, an intent state
+ *  before the send and a terminal one after, plus the rule that a run card owning a
+ *  run's delivery suppresses the text. The difference is that this reads *state*, so
+ *  no seq cursor is needed - the table already answers what was delivered, which is
+ *  what makes re-running the same state safe.
  *
- *  投递身份取自片段的 `_meta.messageId`（后端把账本的消息 id 透出来）。 */
+ *  The identity comes from the part's `_meta.messageId`, which the projection
+ *  carries out of the ledger. */
 import type { Database } from "bun:sqlite";
 import { isTerminalMessageState, MessageStateSchema } from "@chengchenccc/message";
 import type { ChatState, ResponsePart } from "@microsoft/agent-host-protocol";
@@ -29,7 +32,7 @@ export interface AhpDeliveryDeps {
   readonly sendTextOnly?: (chatId: string, text: string) => Promise<void>;
 }
 
-/** 把一份 chat 状态里该发的内容发出去。可重复调用：已投递的会自己跳过。 */
+/** Sends whatever the state says has not been sent yet. Safe to re-run. */
 export async function deliverChatState(
   state: ChatState,
   target: AhpDeliveryTarget,
@@ -49,7 +52,7 @@ async function deliverParts(
   deps: AhpDeliveryDeps,
 ): Promise<void> {
   for (const part of parts) {
-    // 上游的判别式是 const enum：比字面量前先落到字符串。
+    // Upstream's discriminant is a const enum: drop to a string before comparing.
     switch (part.kind as string) {
       case "markdown":
         await deliverText(part, target, deps);
@@ -72,15 +75,16 @@ async function deliverText(
   const text = textOf(part);
   if (messageId === undefined || text === undefined || text === "") return;
 
-  // ADR 0031 §8：assistant 行编码了它的 Run。若 Run 卡接管了这个 chat 的投递，
-  // 卡片就是 UX，跳过文本发送（卡片自己会在终态收尾）。
+  // ADR 0031 section 8: an assistant row encodes its run. When a run card owns this
+  // chat's delivery, the card is the UX, so skip the text send (the card seals it).
   const runId = runIdFromMessageId(messageId);
   if (runId && runCardOwnsDelivery(deps.db, runId, target.larkChatId)) return;
 
   const existing = getMessageDelivery(deps.db, target.conversationId, messageId, target.larkChatId);
   if (existing && isTerminalMessageState(MessageStateSchema.parse(existing.lastState))) return;
 
-  // 先记意图再发：崩在中间会重放，同一把幂等键让 Lark 侧去重。
+  // Record intent before sending: a crash replays this, and the same idempotency
+  // key makes that replay a no-op on Lark's side.
   record(deps, target, messageId, "streaming");
   try {
     await deps.onSend(
@@ -95,7 +99,7 @@ async function deliverText(
   }
 }
 
-/** 续接：改绑投递表所在的那条会话，并告诉用户这里开了新对话。 */
+/** Continuity: rebind the conversation this table belongs to, and tell the user. */
 function handleContinuity(
   part: ResponsePart,
   target: AhpDeliveryTarget,

@@ -58,7 +58,7 @@ describe("AHP delivery to Lark", () => {
     const state = stateWith([part("hello", "run:run-1:assistant:0")]);
     await deliverChatState(state, target, deps);
     expect(sent).toEqual(["hello"]);
-    // 同一份状态再跑一遍：投递表里的终态把它挡住了。
+    // Re-running the same state: the terminal row in the delivery table stops it.
     await deliverChatState(state, target, deps);
     expect(sent).toEqual(["hello"]);
   });
