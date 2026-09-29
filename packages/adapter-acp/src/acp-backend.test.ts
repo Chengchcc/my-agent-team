@@ -6,7 +6,7 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "@chengchenccc/agent-contract";
-import { AcpBackend, AcpBackendError, type AcpSpawn } from "./acp-backend.js";
+import { AcpBackend, AcpBackendError, type AcpSpawn, createNodeSpawn } from "./acp-backend.js";
 
 /** ─── In-memory transport: crossed NDJSON stream pairs ────────────────
  *  The same wiring the SDK's own tests use — the backend speaks to a fake
@@ -464,6 +464,21 @@ describe("AcpBackend against an in-memory fake agent", () => {
     ).rejects.toBeInstanceOf(AcpBackendError);
     await backend.dispose();
   });
+
+  test("a missing agent binary fails the run, not the process", async () => {
+    // Regression (live 2026-09-29): Bun reports spawn ENOENT through the
+    // child's `error` event; with no listener it became an uncaught
+    // exception that killed the whole backend during dispatch.
+    const backend = new AcpBackend({ spawnImpl: createNodeSpawn(50) });
+    const input = makeInput();
+    const segment = await backend.execute({
+      ...input,
+      run: { ...input.run, model: { backendKind: "acp", modelId: "definitely-not-a-binary" } },
+    });
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("failed");
+    await backend.dispose();
+  }, 10_000);
 
   test("duplicate runId conflicts", async () => {
     const obs: FakeAgentObservations = {

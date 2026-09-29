@@ -16,6 +16,14 @@ export interface AcpAgentEntry {
 }
 
 export const ACP_AGENTS: Readonly<Record<string, AcpAgentEntry>> = {
+  // Our own agent's ACP face (ADR 0039 P2): the standard session/turn face
+  // plus the `_session/steering` convention and oma-private `_oma/update`
+  // notifications; external clients (Zed, acpx) drive it the same way.
+  oma: {
+    name: "oma (native ACP server)",
+    argv: ["oma", "--mode", "acp"],
+    requiredCommands: ["oma"],
+  },
   omp: {
     name: "omp (native ACP)",
     argv: ["omp", "acp", "--approval-mode", "always-ask"],
@@ -38,10 +46,13 @@ export const DEFAULT_ACP_AGENT = "omp";
 /** Resolve a registry entry by the run's model id (the agent key, e.g.
  *  "omp"). The LLM behind it stays the agent's own configuration — the acp
  *  kind's model catalog lists registry keys, not provider models. */
-export function resolveAcpAgent(id: string | undefined): AcpAgentEntry {
+export function resolveAcpAgentKey(id: string | undefined): string {
   // Accept both the bare registry key and the catalog-joined "acp/<key>"
   // (BackendModelRef.modelId carries whatever the agent record stored).
   const bare = id?.startsWith("acp/") ? id.slice(4) : id;
-  const key = bare && bare in ACP_AGENTS ? bare : DEFAULT_ACP_AGENT;
-  return ACP_AGENTS[key]!;
+  return bare && bare in ACP_AGENTS ? bare : DEFAULT_ACP_AGENT;
+}
+
+export function resolveAcpAgent(id: string | undefined): AcpAgentEntry {
+  return ACP_AGENTS[resolveAcpAgentKey(id)]!;
 }

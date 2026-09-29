@@ -4,7 +4,7 @@ export type {
   AcpSpawn,
   AcpTransport,
 } from "./acp-backend.js";
-export { AcpBackend, AcpBackendError } from "./acp-backend.js";
+export { AcpBackend, AcpBackendError, createNodeSpawn } from "./acp-backend.js";
 export {
   type AcpAccumulator,
   buildOutcomeMessages,
@@ -14,4 +14,4 @@ export {
 } from "./event-mapping.js";
 export { AcpModelCatalog } from "./model-catalog.js";
 export type { AcpAgentEntry } from "./registry.js";
-export { ACP_AGENTS, DEFAULT_ACP_AGENT, resolveAcpAgent } from "./registry.js";
+export { ACP_AGENTS, DEFAULT_ACP_AGENT, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";

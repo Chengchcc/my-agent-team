@@ -589,7 +589,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // on non-root deployments (Gate 0).
     permissionMode: config.claudePermissionMode,
   });
-  const acpBackend = new AcpBackend();
+  const acpBackend = new AcpBackend({
+    // Registry-key launch overrides, the omaBin/ompBin convention: a
+    // deployment where the agent CLI lives outside PATH names it here.
+    commands: { oma: [config.omaBin ?? "oma", "--mode", "acp"] },
+  });
   const backends: BackendRegistry = {
     oma: { backend: codingAgentBackend, catalog: codingAgentCatalog },
     omp: { backend: ompBackend, catalog: new OmpModelCatalog() },

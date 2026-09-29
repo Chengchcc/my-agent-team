@@ -45,7 +45,7 @@ import {
   mapAcpUpdate,
   mapAcpUsage,
 } from "./event-mapping.js";
-import { resolveAcpAgent } from "./registry.js";
+import { resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
 
 export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found";
 
@@ -84,6 +84,10 @@ export interface AcpBackendOptions {
   abortGraceMs?: number;
   /** Transport factory; tests replace it with an in-memory fake. */
   spawnImpl?: AcpSpawn;
+  /** Per-registry-key launch override, the omaBin/ompBin convention:
+   *  deployments where the agent binary lives outside PATH pass its
+   *  absolute path (e2e uses this for the repo-local oma CLI). */
+  commands?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** One held permission request: the resolve handle for the ACP response.
@@ -115,6 +119,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
   private readonly approvalTimeoutMs: number;
   private readonly abortGraceMs: number;
   private readonly spawnImpl: AcpSpawn;
+  private readonly commands: Readonly<Record<string, readonly string[]>>;
   private readonly active = new Map<string, { run: ActiveRun; transport: AcpTransport }>();
   private disposed = false;
 
@@ -123,6 +128,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     this.approvalTimeoutMs = opts.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
     this.abortGraceMs = opts.abortGraceMs ?? 3_000;
     this.spawnImpl = opts.spawnImpl ?? createNodeSpawn(this.abortGraceMs);
+    this.commands = opts.commands ?? {};
   }
 
   async execute(input: BackendRunInput<"acp">): Promise<BackendRunSegment<"acp">> {
@@ -132,14 +138,16 @@ export class AcpBackend implements AgentBackend<"acp"> {
       throw new AcpBackendError("conflict", `runId ${runId} already has a live ACP connection`);
     }
 
+    const agentKey = resolveAcpAgentKey(input.run.model.modelId);
     const entry = resolveAcpAgent(input.run.model.modelId);
+    const argv = this.commands[agentKey] ?? entry.argv;
     const env: Record<string, string | undefined> = {
       ...this.extraEnv,
       ...(input.productToolsToken ? { PRODUCT_TOOLS_RUN_TOKEN: input.productToolsToken } : {}),
     };
     let transport: AcpTransport;
     try {
-      transport = this.spawnImpl({ argv: entry.argv, cwd: input.workspace.root, env });
+      transport = this.spawnImpl({ argv, cwd: input.workspace.root, env });
     } catch (err) {
       throw new AcpBackendError(
         "spawn_failed",
@@ -368,20 +376,34 @@ export class AcpBackend implements AgentBackend<"acp"> {
   }
 }
 
-/** Default transport: spawn the agent server, speak NDJSON over stdio. */
-function createNodeSpawn(graceMs: number): AcpSpawn {
+/** Default transport: spawn the agent server, speak NDJSON over stdio.
+ *  Exported for tests: a missing binary must fail the RUN, never the
+ *  process (Bun reports ENOENT through the child's `error` event, and an
+ *  unhandled `error` event is an uncaught exception that kills the whole
+ *  backend - live 2026-09-29). */
+export function createNodeSpawn(graceMs: number): AcpSpawn {
   return ({ argv, cwd, env }) => {
     const child = spawn(argv[0]!, [...argv.slice(1)], {
       cwd,
       env: { ...process.env, ...env },
       stdio: ["pipe", "pipe", "inherit"],
     });
+    const exit = new Promise<number | null>((resolve) => {
+      child.on("exit", (code) => resolve(code));
+      child.on("error", (err) => {
+        // Fold the spawn failure into the exit promise (the run fails with
+        // "ACP connection closed"); swallow it here so it never escapes as
+        // an unhandled 'error' event.
+        console.error(`[acp] agent spawn failed: ${err.message}`);
+        resolve(null);
+      });
+    });
     return {
       stream: acp.ndJsonStream(
         Writable.toWeb(child.stdin!),
         Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
       ),
-      exit: new Promise((resolve) => child.on("exit", (code) => resolve(code))),
+      exit,
       kill() {
         child.kill("SIGTERM");
         setTimeout(() => child.kill("SIGKILL"), graceMs);
