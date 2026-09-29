@@ -37,7 +37,13 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "@chengchenccc/agent-contract";
-import { guardedConsume } from "@chengchenccc/agent-contract";
+import {
+  CONSENTED_MCP_TOOLS_ENV,
+  debugLog,
+  encodeEnvList,
+  guardedConsume,
+  MCP_EXPANDABLE_VARS_ENV,
+} from "@chengchenccc/agent-contract";
 import {
   type AcpAccumulator,
   buildOutcomeMessages,
@@ -144,6 +150,17 @@ export class AcpBackend implements AgentBackend<"acp"> {
     const env: Record<string, string | undefined> = {
       ...this.extraEnv,
       ...(input.productToolsToken ? { PRODUCT_TOOLS_RUN_TOKEN: input.productToolsToken } : {}),
+      // The workspace .mcp.json carries ${PRODUCT_TOOLS_RUN_TOKEN}; the
+      // child expands it only when the var is on the run's allowlist. The
+      // env-var channel is the oma adapter's, and the ACP path must carry
+      // it too - without it mcp-mount refuses the placeholder and product
+      // tools fail to mount (live 2026-09-29).
+      ...(input.mcpExpandableVars?.length
+        ? { [MCP_EXPANDABLE_VARS_ENV]: encodeEnvList(input.mcpExpandableVars) }
+        : {}),
+      ...(input.consentedMcpTools?.length
+        ? { [CONSENTED_MCP_TOOLS_ENV]: encodeEnvList(input.consentedMcpTools) }
+        : {}),
     };
     let transport: AcpTransport;
     try {
@@ -407,7 +424,13 @@ export function createNodeSpawn(graceMs: number): AcpSpawn {
       stdio: ["pipe", "pipe", "inherit"],
     });
     const exit = new Promise<number | null>((resolve) => {
-      child.on("exit", (code) => resolve(code));
+      child.on("exit", (code, signal) => {
+        // Why a run ended at the transport level is a fact worth one line:
+        // the child exiting takes the session with it, and without this the
+        // failure reads only as "ACP connection closed".
+        debugLog("acp", `agent ${argv[0]} exited code=${code} signal=${signal ?? "none"}`);
+        resolve(code);
+      });
       child.on("error", (err) => {
         // Fold the spawn failure into the exit promise (the run fails with
         // "ACP connection closed"); swallow it here so it never escapes as

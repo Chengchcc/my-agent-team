@@ -58,10 +58,13 @@ interface FakeAgentScript {
   dieAfterPermission?: boolean;
   /** Capture every session/new params object (adopt-declaration tests). */
   newSessionParams?: unknown[];
+  /** Capture the spawn env (allowlist passthrough tests). */
+  spawnEnv?: (Readonly<Record<string, string | undefined>> | undefined)[];
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
-  return () => {
+  return ({ env }) => {
+    script.spawnEnv?.push(env);
     const backendToAgent = streamPair();
     const agentToBackend = streamPair();
     let resolveExit!: (code: number | null) => void;
@@ -519,6 +522,35 @@ describe("AcpBackend against an in-memory fake agent", () => {
     const segment = await backend.execute(makeInput());
     await collect(segment);
     expect(newSessionParams).toEqual([{ cwd: "/tmp/acp-fake-ws", mcpServers: [] }]);
+    await backend.dispose();
+  });
+
+  test("the run's MCP allowlists reach the child env", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const spawnEnv: (Readonly<Record<string, string | undefined>> | undefined)[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ spawnEnv }, obs) });
+    const input = makeInput();
+    const segment = await backend.execute({
+      ...input,
+      productToolsToken: "tok-123",
+      mcpExpandableVars: ["PRODUCT_TOOLS_RUN_TOKEN"],
+      consentedMcpTools: ["mcp__product-tools__history_recent"],
+    });
+    await collect(segment);
+    // Without these the child refuses ${PRODUCT_TOOLS_RUN_TOKEN} in the
+    // workspace .mcp.json and product tools never mount (live 2026-09-29).
+    expect(spawnEnv[0]).toMatchObject({
+      PRODUCT_TOOLS_RUN_TOKEN: "tok-123",
+      // The env-list encoding is comma-joined, not JSON (agent-contract's
+      // encodeEnvList, the same channel the oma adapter uses).
+      OMA_MCP_EXPANDABLE_VARS: "PRODUCT_TOOLS_RUN_TOKEN",
+      OMA_CONSENTED_MCP_TOOLS: "mcp__product-tools__history_recent",
+    });
     await backend.dispose();
   });
 
