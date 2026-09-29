@@ -1,22 +1,15 @@
-import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  createProductToolsDispatch,
+  type ProductToolsDispatch,
+  type WireIdentity,
+} from "./dispatch.js";
 import type { RunTokenContext, RunTokenRegistry } from "./run-token-registry.js";
 import type { ProductToolsService } from "./service.js";
-
-/** Wire identity the Oma Worker attaches to every call:
- *  `_meta.identity` with run/conversation/member/branch/callId/idempotencyKey. */
-interface WireIdentity {
-  runId?: unknown;
-  conversationId?: unknown;
-  agentId?: unknown;
-  branchId?: unknown;
-  callId?: unknown;
-  idempotencyKey?: unknown;
-}
 export interface ProductToolsMcpServerOptions {
   readonly service: ProductToolsService;
   /** Per-run bearer registry — the ONLY accepted auth. A token validates
@@ -49,6 +42,9 @@ export async function createProductToolsMcpServer(
   opts: ProductToolsMcpServerOptions,
 ): Promise<ProductToolsMcpServer> {
   const { service, tokenRegistry } = opts;
+  // Protocol shape, identity rules and tool list live in the dispatch shared
+  // with the in-process (MCP-over-ACP) rail; this file is the SSE shell.
+  const dispatch: ProductToolsDispatch = createProductToolsDispatch({ service });
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
   /** One Server per SSE session. The session's bearer token is the identity:
@@ -62,228 +58,20 @@ export async function createProductToolsMcpServer(
       },
     );
 
-    const identitySchema = {
-      type: "object",
-      properties: {
-        runId: { type: "string" },
-        conversationId: { type: "string" },
-        agentId: { type: "string" },
-        branchId: { type: "string" },
-      },
-    };
-    s.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: "history_recent",
-          description:
-            "Read the most recent messages visible to this agent member in the conversation. Pass the identity from the system prompt.",
-          inputSchema: {
-            type: "object",
-            properties: { limit: { type: "number" }, identity: identitySchema },
-          },
-        },
-        {
-          name: "history_search",
-          description: "Search the conversation ledger for messages matching a keyword.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              keyword: { type: "string" },
-              limit: { type: "number" },
-              identity: identitySchema,
-            },
-            required: ["keyword"],
-          },
-        },
-        {
-          name: "history_around",
-          description: "Read messages around a ledger seq in this conversation.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              seq: { type: "number" },
-              before: { type: "number" },
-              after: { type: "number" },
-              identity: identitySchema,
-            },
-            required: ["seq"],
-          },
-        },
-        {
-          name: "history_retain",
-          description:
-            "Pin a conversation message into this agent's context branch. Semantic mutation; replay-safe.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              seq: { type: "number" },
-              reason: { type: "string" },
-              identity: identitySchema,
-            },
-            required: ["seq"],
-          },
-        },
-        {
-          name: "todo_write",
-          description:
-            "Replace this run's task list (durable, shown in the product UI). Pass the full desired list as items: [{id: string, text: string, status: pending | in_progress | done}]. The product injects your current list as Current Tasks in the system prompt.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              items: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    id: { type: "string" },
-                    text: { type: "string" },
-                    status: { type: "string", enum: ["pending", "in_progress", "done"] },
-                  },
-                  required: ["id", "text", "status"],
-                },
-              },
-              identity: identitySchema,
-            },
-            required: ["items"],
-          },
-        },
-        {
-          name: "ask_question",
-          description:
-            "Ask the user structured questions and wait for answers. Each question needs a string id and question text, a kind of select (with options) or text (free input). Returns {answers:[{id,selectedValues,freeText}]}. Blocks until the user answers in the product UI.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              questions: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    id: { type: "string", description: "Unique id for this question" },
-                    question: { type: "string", description: "The question text" },
-                    kind: { type: "string", enum: ["select", "text"] },
-                    options: {
-                      type: "array",
-                      description: "Required when kind=select",
-                      items: {
-                        type: "object",
-                        properties: {
-                          label: { type: "string", description: "Option text shown to the user" },
-                          value: {
-                            type: "string",
-                            description: "Returned in selectedValues; defaults to label",
-                          },
-                          description: { type: "string" },
-                        },
-                        required: ["label"],
-                      },
-                    },
-                    allowOther: {
-                      type: "boolean",
-                      description: "Offer an extra free-text row of the user's own",
-                    },
-                  },
-                  required: ["id", "question"],
-                },
-              },
-              identity: identitySchema,
-            },
-            required: ["questions"],
-          },
-        },
-        {
-          name: "artifact_upload",
-          description:
-            "Upload a single artifact file into backend artifact storage. Returns an artifacts://<folder>/<filename> URL.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              folder: { type: "string" },
-              filename: { type: "string" },
-              content: { type: "string" },
-              encoding: { type: "string", enum: ["utf8", "base64"] },
-              identity: identitySchema,
-            },
-            required: ["folder", "filename", "content"],
-          },
-        },
-        {
-          name: "artifact_download",
-          description: "Download an artifact file by its artifacts://<folder>/<filename> URL.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              url: { type: "string" },
-              identity: identitySchema,
-            },
-            required: ["url"],
-          },
-        },
-      ],
-    }));
+    s.setRequestHandler(ListToolsRequestSchema, async () => dispatch.listTools());
 
     s.setRequestHandler(CallToolRequestSchema, async (req) => {
-      const name = req.params.name;
-      const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-      const str = (v: unknown): string => (typeof v === "string" ? v : "");
-      const meta = (req.params as { _meta?: { identity?: WireIdentity } })._meta;
-      const argIdentity = (args.identity ?? {}) as Record<string, unknown>;
-      // THE RUN COMES FROM THE BEARER TOKEN, NEVER FROM THE ARGUMENTS.
-      //
-      // Every production MCP client here calls `callTool(name, args)` with no
-      // `_meta` (only a fixture ever described that shape), so the `identity`
-      // argument is text the model copied out of its prompt — and it does not
-      // always copy it right. The old rule ("the args must match the
-      // authenticated run") turned one stale echo into a hard rejection of a
-      // legitimate call: observed live as "弹窗工具连续两次报 identity 不匹配",
-      // after which the model gave up and asked in plain text, i.e. product
-      // features failed for a reason the user could not see or fix. The token
-      // registry already names the run (mint-at-dispatch, revoke-at-settle);
-      // that is the authority, and it cannot be forged by arguments.
-      const runId = caller.runId;
-      const agentId = caller.agentId;
-      // `_meta` is the child's own wire identity, so a mismatch THERE means a
-      // crossed/mis-wired process and still rejects.
-      if (meta?.identity && str(meta.identity.runId) && str(meta.identity.runId) !== runId) {
-        return {
-          content: [
-            { type: "text", text: "identity does not match the session's authenticated run" },
-          ],
-          isError: true,
-        };
-      }
-      // callId stays the caller's when present (it is the model's tool-use id,
-      // which is what makes retries replay); the idempotency key is BUILT HERE
-      // from the authoritative run so a stale echo cannot break the service's
-      // `${runId}:${callId}` invariant.
-      const callId = str(meta?.identity?.callId) || str(argIdentity.callId) || randomUUID();
-      const idempotencyKey = `${runId}:${callId}`;
-      try {
-        const result = await service.call({
-          identity: {
-            runId,
-            agentId,
-            // Only the child's wire identity can carry scope; the model's echo
-            // is not an authorization input (the service derives the scope from
-            // the run row and treats an absent field as "unstated").
-            conversationId: str(meta?.identity?.conversationId),
-            branchId: str(meta?.identity?.branchId),
-          },
-          callId,
-          idempotencyKey,
-          tool: name,
-          args,
-        });
-        return {
-          content: [{ type: "text", text: result.content }],
-          ...(result.isError ? { isError: true } : {}),
-        };
-      } catch (err) {
-        return {
-          content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],
-          isError: true,
-        };
-      }
+      const metaIdentity = (req.params as { _meta?: { identity?: WireIdentity } })._meta?.identity;
+      const result = await dispatch.call({
+        caller: { runId: caller.runId, agentId: caller.agentId },
+        name: req.params.name,
+        args: (req.params.arguments ?? {}) as Record<string, unknown>,
+        ...(metaIdentity ? { metaIdentity } : {}),
+      });
+      return {
+        content: [{ type: "text", text: result.content }],
+        ...(result.isError ? { isError: true as const } : {}),
+      };
     });
 
     return s;
