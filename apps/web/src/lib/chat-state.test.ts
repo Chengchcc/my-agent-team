@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatState } from "@microsoft/agent-host-protocol";
-import { chatViewFromState, itemsFromChatState } from "./ahp-view";
+import { activeTurnFromState, itemsFromChatState } from "./chat-state";
 
 const state = (turns: unknown[], extra: Record<string, unknown> = {}): ChatState =>
   ({
@@ -22,7 +22,7 @@ describe("the transient view from AHP chat state", () => {
   });
 
   test("text and thinking accumulate in the order they arrived", () => {
-    const view = chatViewFromState(
+    const view = activeTurnFromState(
       state([], {
         activeTurn: active([
           { kind: "reasoning", id: "r0", content: "thinking first" },
@@ -43,7 +43,7 @@ describe("the transient view from AHP chat state", () => {
   });
 
   test("a finished turn contributes nothing: its text is the canonical message", () => {
-    const view = chatViewFromState(
+    const view = activeTurnFromState(
       state([
         {
           id: "run-9",
@@ -59,7 +59,7 @@ describe("the transient view from AHP chat state", () => {
   });
 
   test("a tool call becomes a live step with the state it reached", () => {
-    const view = chatViewFromState(
+    const view = activeTurnFromState(
       state([], {
         activeTurn: active([
           {
@@ -86,7 +86,7 @@ describe("the transient view from AHP chat state", () => {
   });
 
   test("the run's todo list comes from the chat's metadata", () => {
-    const view = chatViewFromState(
+    const view = activeTurnFromState(
       state([], {
         _meta: { todos: [{ id: "t1", text: "first", status: "in_progress" }] },
         activeTurn: active([{ kind: "markdown", id: "t0", content: "working" }], "run-3"),
@@ -100,7 +100,7 @@ describe("the transient view from AHP chat state", () => {
 
 describe("human input cards", () => {
   test("an approval card renders what was asked from the durable payload", () => {
-    const view = chatViewFromState(
+    const view = activeTurnFromState(
       state([], {
         activeTurn: {
           id: "run-4",
@@ -139,7 +139,7 @@ describe("human input cards", () => {
   });
 
   test("a question lands on the ask card instead", () => {
-    const view = chatViewFromState(
+    const view = activeTurnFromState(
       state([], {
         activeTurn: {
           id: "run-5",
@@ -263,5 +263,29 @@ describe("system rows", () => {
     );
     expect(items[0]).toEqual({ kind: "notice", id: "m-sys", text: "member joined" });
     expect(items[1]).toMatchObject({ kind: "message", id: "m-1" });
+  });
+});
+
+describe("a failed turn", () => {
+  test("keeps its failure as a line after a re-derive", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-9",
+          state: "error",
+          message: { text: "", origin: { kind: "user" } },
+          responseParts: [
+            {
+              kind: "error",
+              error: { errorType: "run_failed", message: "the child exited 1" },
+              _meta: { messageId: "run:run-9:error" },
+            },
+          ],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      null,
+    );
+    expect(items).toEqual([{ kind: "notice", id: "run:run-9:error", text: "the child exited 1" }]);
   });
 });

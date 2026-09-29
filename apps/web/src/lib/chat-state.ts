@@ -25,14 +25,14 @@ import {
   toolKey,
 } from "./transient-reducer";
 
-export interface AhpChatView {
+export interface ActiveTurn {
   readonly transients: TransientMap;
   readonly tools: LiveToolMap;
   /** The run's todo list, keyed the way the hook already keys it. */
   readonly todos: Record<string, TodoItem[]>;
 }
 
-export function chatViewFromState(state: ChatState, agentId: string): AhpChatView {
+export function activeTurnFromState(state: ChatState, agentId: string): ActiveTurn {
   const transients: TransientMap = {};
   const tools: LiveToolMap = {};
   // Only the turn in flight: a finished turn's text is the canonical message, which the timeline
@@ -208,6 +208,20 @@ export function itemsFromChatState(
         });
         return;
       }
+      if (kind === "error") {
+        // The failure is a ledger row (the run's error bubble), so it has to survive a reload -
+        // live it is a pill on the transient bubble, and after a refresh it is this line.
+        if (!("error" in part)) return;
+        const failure = part.error.message;
+        if (failure === "") return;
+        const meta = metaOfRequest(part);
+        items.push({
+          kind: "notice",
+          id: typeof meta?.messageId === "string" ? meta.messageId : `${turn.id}:error:${index}`,
+          text: failure,
+        });
+        return;
+      }
       if (kind !== "markdown") return;
       const text = contentOf(part);
       if (!text) return;
@@ -229,7 +243,7 @@ export function itemsFromChatState(
 
 function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined {
   if (message.text === "") return undefined;
-  const meta = metaOfRequest({ _meta: (message as { _meta?: unknown })._meta } as never);
+  const meta = metaOfRequest({ _meta: "_meta" in message ? message._meta : undefined });
   const messageId = typeof meta?.messageId === "string" ? meta.messageId : undefined;
   const kind = message.origin?.kind as string;
   return {

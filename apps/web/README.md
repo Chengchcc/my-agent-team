@@ -10,7 +10,7 @@ Next.js 控制台，后端面向人的入口：把后端的 HTTP/SSE API 包装�
 
 ## 实时状态的两条来源
 
-对话状态来自 AHP：`src/lib/ahp.ts` 经 BFF 取票连上 `/ws/ahp`，快照给历史、动作流给增量，上游 reducer 折出状态，`src/lib/ahp-view.ts` 映射成列表与在飞轮次。run 流（`/api/bff/agent-runs/:runId/events`）只剩流规则提示与 workflow 进度，两者都由 `src/hooks/useConversation.ts` 消费。
+对话状态来自 AHP：`src/lib/ahp.ts` 经 BFF 取票连上 `/ws/ahp`，快照给历史、动作流给增量，上游 reducer 折出状态，`src/lib/chat-state.ts` 映射成列表与在飞轮次。run 流（`/api/bff/agent-runs/:runId/events`）只剩流规则提示与 workflow 进度，两者都由 `src/hooks/useConversation.ts` 消费。
 
 ## 取数边界
 

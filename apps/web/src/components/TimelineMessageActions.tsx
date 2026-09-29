@@ -67,6 +67,10 @@ export function TimelineMessageActions({
   const [draft, setDraft] = useState("");
   const isUser = item.sender.kind === "human";
 
+  /** Ledger coordinates start at 1, and an item without one is a live preview: the commit re-states
+   *  the turn with the real seq, and until then "from here" would silently target the first row. */
+  const canTarget = item.seq > 0;
+
   const handleStartEdit = useCallback(() => {
     setDraft(extractText(item.content));
     setEditing(true);
@@ -146,14 +150,16 @@ export function TimelineMessageActions({
             Copy
           </Button>
           {isUser ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 text-[10px] text-(--mute) hover:text-(--body)"
-              onClick={handleStartEdit}
-            >
-              Edit & resend
-            </Button>
+            canTarget && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-[10px] text-(--mute) hover:text-(--body)"
+                onClick={handleStartEdit}
+              >
+                Edit & resend
+              </Button>
+            )
           ) : (
             <>
               {runIdOf(item) && (
@@ -198,26 +204,28 @@ export function TimelineMessageActions({
               Regenerate
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 text-[10px] text-(--mute) hover:text-(--body)"
-            onClick={() =>
-              forkMut.mutate(
-                { id: conversationId, fromSeq: item.seq },
-                {
-                  onSuccess: (data) => router.push(`/chat/${data.newConversationId}`),
-                  onError: (err) =>
-                    toast.error("Fork failed", {
-                      description: err instanceof Error ? err.message : "Unknown error",
-                    }),
-                },
-              )
-            }
-            disabled={forkMut.isPending}
-          >
-            {forkMut.isPending ? "Forking…" : "Fork from here"}
-          </Button>
+          {canTarget && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] text-(--mute) hover:text-(--body)"
+              onClick={() =>
+                forkMut.mutate(
+                  { id: conversationId, fromSeq: item.seq },
+                  {
+                    onSuccess: (data) => router.push(`/chat/${data.newConversationId}`),
+                    onError: (err) =>
+                      toast.error("Fork failed", {
+                        description: err instanceof Error ? err.message : "Unknown error",
+                      }),
+                  },
+                )
+              }
+              disabled={forkMut.isPending}
+            >
+              {forkMut.isPending ? "Forking…" : "Fork from here"}
+            </Button>
+          )}
         </div>
       )}
     </div>

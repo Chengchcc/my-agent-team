@@ -8,9 +8,9 @@ import {
   usePostConversationMessage,
 } from "@/features/conversations/hooks";
 import { connectAhpChat } from "@/lib/ahp";
-import { chatViewFromState, itemsFromChatState } from "@/lib/ahp-view";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
+import { activeTurnFromState, itemsFromChatState } from "@/lib/chat-state";
 import { initialState, isBusy, reducer } from "@/lib/conversation-reducer";
 import {
   clearRunTodos,
@@ -156,7 +156,7 @@ export function useConversation(
       conversationId,
       clientId: `web:${conversationId}`,
       onChange: (state) => {
-        const view = chatViewFromState(state, agentId);
+        const view = activeTurnFromState(state, agentId);
         setTransients(view.transients);
         transientsRef.current = view.transients;
         setTransientTools(view.tools);
@@ -190,8 +190,8 @@ export function useConversation(
   }, [snap.data]);
 
   // 3) Send: optimistic dispatch + POST /conversations/:id/messages.
-  //    The conversation SSE delivers the authoritative ledger revision which
-  //    upserts the optimistic message by messageId. No run EventSource needed.
+  //    The AHP chat channel delivers the committed turn, whose message carries the
+  //    ledger's messageId, so the optimistic item collapses onto it.
   const sendMut = usePostConversationMessage(conversationId);
 
   /** Follow one run through its Live Update stream. Transient only: the
@@ -229,8 +229,8 @@ export function useConversation(
         clearRunTodosState(runId);
       };
       /** Transport failure: Live Updates are best-effort; drop the partial
-       *  bubble. If the run actually completed, the canonical Message still
-       *  arrives via the conversation SSE. */
+       *  bubble. If the run actually completed, its turn is committed to the chat
+       *  channel and arrives from there. */
       const drop = () => {
         finish();
         dropTransient(runId);
@@ -243,7 +243,7 @@ export function useConversation(
         // event may still be in flight (the dispatch drain is raced with
         // a 500ms cap before closeSubscribers), so dropping the bubble
         // here clears a completed answer and leaves a blank frame until
-        // the canonical Message lands on the conversation SSE. Keep the
+        // the committed turn lands on the chat channel. Keep the
         // bubble on CLOSED; drop only on a real reconnect attempt.
         if (es.readyState === EventSource.CONNECTING) drop();
         else finish();
