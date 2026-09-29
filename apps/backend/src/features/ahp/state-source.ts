@@ -42,6 +42,9 @@ import type {
   ToolCallState,
   URI,
 } from "@microsoft/agent-host-protocol";
+import type { AgentRun } from "../agent-run/domain.js";
+import type { LedgerEntry } from "../conversation/ledger-codec.js";
+import type { ConversationRow } from "../conversation/ports.js";
 import {
   buildTurns,
   canonicalRunIds,
@@ -50,10 +53,10 @@ import {
 import type { AhpStateSource } from "./protocol.js";
 
 /** The wire values of the `SessionStatus` bitmask (upstream const-enum members). */
-const IDLE = 1 as SessionStatus;
-const ERROR = 2 as SessionStatus;
-const IN_PROGRESS = 8 as SessionStatus;
-const INPUT_NEEDED = 24 as SessionStatus;
+const IDLE: SessionStatus = 1;
+const ERROR: SessionStatus = 2;
+const IN_PROGRESS: SessionStatus = 8;
+const INPUT_NEEDED: SessionStatus = 24;
 
 export interface AhpAgentRow {
   readonly id: string;
@@ -62,30 +65,17 @@ export interface AhpAgentRow {
   readonly modelId: string;
 }
 
-export interface AhpConversationRow {
-  readonly conversationId: string;
-  readonly agentId: string | null;
-  readonly title: string | null;
-  readonly lastActivityAt?: number | null;
-}
+export type AhpConversationRow = Pick<
+  ConversationRow,
+  "conversationId" | "agentId" | "title" | "createdAt"
+>;
 
-export interface AhpLedgerRow {
-  readonly seq: number;
-  readonly content?: unknown;
-  /** Soft-delete flag on the row (undo). */
-  readonly undone?: boolean;
-  /** Always present on the database path; the live push path is a derived event without it,
-   *  and an absent value means "belongs to no turn". */
-  readonly agentRunId?: string | null;
-  readonly messageIndex?: number;
-  readonly ts: number;
-}
+export type AhpLedgerRow = Pick<
+  LedgerEntry,
+  "seq" | "content" | "undone" | "agentRunId" | "messageIndex" | "ts"
+>;
 
-export interface AhpRunRow {
-  readonly runId: string;
-  readonly status: string;
-  readonly createdAt: number;
-}
+export type AhpRunRow = Pick<AgentRun, "runId" | "status" | "createdAt">;
 
 /** The read ports this projection needs. All of them are queries. */
 export interface AhpStateSourceDeps {
@@ -150,7 +140,7 @@ async function sessionState(
     // The session is the agent *and* its workspace (ADR 0040 decision 3): a surface that opens a
     // session has to know which directory it is about.
     ...(root === null ? {} : { workingDirectories: [fileUri(root)] }),
-    lifecycle: "ready" as SessionState["lifecycle"],
+    lifecycle: enumValue<SessionState["lifecycle"]>("ready"),
     // No client registry yet: the AHP face has nowhere to record advertised client capabilities.
     activeClients: [],
     chats: [chatSummary(row, view)],
@@ -314,7 +304,9 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
     turns,
     activeTurn,
     status,
-    modifiedAt: row.lastActivityAt ?? newestTs(ledger) ?? 0,
+    // A conversation row carries no activity timestamp: the newest ledger entry is the honest
+    // answer, and a chat with no ledger yet is as old as the conversation itself.
+    modifiedAt: newestTs(ledger) ?? row.createdAt,
   };
 }
 
@@ -373,9 +365,9 @@ function continuityNotice(
 }
 
 function turnStateOf(status: "completed" | "failed" | "cancelled"): AhpTurn["state"] {
-  if (status === "completed") return "complete" as AhpTurn["state"];
-  if (status === "cancelled") return "cancelled" as AhpTurn["state"];
-  return "error" as AhpTurn["state"];
+  if (status === "completed") return enumValue<AhpTurn["state"]>("complete");
+  if (status === "cancelled") return enumValue<AhpTurn["state"]>("cancelled");
+  return enumValue<AhpTurn["state"]>("error");
 }
 
 function newestTs(ledger: readonly AhpLedgerRow[]): number | undefined {

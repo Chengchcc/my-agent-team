@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { chatUri, sessionUri } from "@chengchenccc/ahp-client";
 import type { MessageRevision } from "@chengchenccc/message";
+import type { AgentRunStatus } from "../agent-run/domain.js";
 import { type AhpStateSourceDeps, createAhpStateSource } from "./state-source.js";
 
 const revision = (over: Partial<MessageRevision> & Pick<MessageRevision, "messageId" | "role">) =>
@@ -8,11 +9,11 @@ const revision = (over: Partial<MessageRevision> & Pick<MessageRevision, "messag
 
 interface Fake {
   readonly deps: AhpStateSourceDeps;
-  readonly setRun: (runId: string, status: string, createdAt?: number) => void;
+  readonly setRun: (runId: string, status: AgentRunStatus, createdAt?: number) => void;
 }
 
 function fixture(): Fake {
-  const runs = new Map<string, { runId: string; status: string; createdAt: number }>();
+  const runs = new Map<string, { runId: string; status: AgentRunStatus; createdAt: number }>();
   const ledger = [
     {
       seq: 1,
@@ -28,7 +29,7 @@ function fixture(): Fake {
     ],
     getConversation: (conversationId) =>
       conversationId === "c1"
-        ? { conversationId: "c1", agentId: "a1", title: "Titled chat", lastActivityAt: 4000 }
+        ? { conversationId: "c1", agentId: "a1", title: "Titled chat", createdAt: 900 }
         : null,
     getLedgerEntries: () => ledger,
     listPendingInputs: async () => [
@@ -70,7 +71,8 @@ describe("AHP state source", () => {
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ kind: "markdown", content: "hello" });
     // The identity rides out with the part: a surface dedupes on it (Lark's exactly-once).
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ _meta: { messageId: "m1" } });
-    expect(chat?.modifiedAt).toBe(new Date(4000).toISOString());
+    // The newest ledger entry, not a phantom row column.
+    expect(chat?.modifiedAt).toBe(new Date(1000).toISOString());
   });
 
   test("a waiting run is an active turn and reads as input needed", async () => {
