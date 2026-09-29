@@ -94,6 +94,54 @@ export interface AcpBackendOptions {
    *  deployments where the agent binary lives outside PATH pass its
    *  absolute path (e2e uses this for the repo-local oma CLI). */
   commands?: Readonly<Record<string, readonly string[]>>;
+  /** In-process MCP server served over the ACP connection itself
+   *  (MCP-over-ACP, ADR 0039 appendix two). Declared to the agent in
+   *  session/new once it advertises `mcpCapabilities.acp`; the backend
+   *  answers its `mcp/message` requests from here — no port, no bearer. */
+  acpMcpProvider?: AcpMcpProvider;
+}
+
+/** The rail-neutral half of a product MCP server: which tools exist, and how
+ *  one call runs. Structurally the backend's product-tools dispatch. */
+export interface AcpMcpProvider {
+  readonly name: string;
+  readonly serverId: string;
+  /** The tool descriptors as the provider produces them; the adapter only
+   *  carries them to the wire, so the shape stays opaque here (a backend's
+   *  descriptor interface has no index signature and would not match a
+   *  `Record<string, unknown>`). */
+  listTools(): { readonly tools: readonly unknown[] };
+  call(req: {
+    readonly caller: { readonly runId: string; readonly agentId: string };
+    readonly name: string;
+    readonly args: Readonly<Record<string, unknown>>;
+    readonly metaIdentity?: Record<string, unknown>;
+  }): Promise<{ readonly content: string; readonly isError?: boolean }>;
+}
+
+/** One inbound MCP-over-ACP call (RFCD envelope): the server it is bound to,
+ *  a logical request id, and the inner MCP method with its params. Newer
+ *  drafts (SDK `MessageMcpRequest`) also carry a connectionId; both ends here
+ *  speak the stateless RFCD shape, which ignores it. */
+interface McpOverAcpRequest {
+  readonly serverId?: unknown;
+  readonly method?: unknown;
+  readonly params?: unknown;
+}
+
+/** True when the agent's initialize response declares MCP-over-ACP: v1
+ *  `agentCapabilities.mcpCapabilities.acp`, v2 `capabilities.session.mcp.acp`.
+ *  Only a handshake declaration counts — a capability is not inferred from
+ *  the agent's name or version. */
+function declaresAcpMcp(init: unknown): boolean {
+  const res = (init ?? {}) as {
+    agentCapabilities?: { mcpCapabilities?: { acp?: unknown } };
+    capabilities?: { session?: { mcp?: { acp?: unknown } } };
+  };
+  return (
+    res.agentCapabilities?.mcpCapabilities?.acp === true ||
+    res.capabilities?.session?.mcp?.acp !== undefined
+  );
 }
 
 /** One held permission request: the resolve handle for the ACP response.
@@ -126,6 +174,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
   private readonly abortGraceMs: number;
   private readonly spawnImpl: AcpSpawn;
   private readonly commands: Readonly<Record<string, readonly string[]>>;
+  private readonly acpMcpProvider: AcpMcpProvider | undefined;
   private readonly active = new Map<string, { run: ActiveRun; transport: AcpTransport }>();
   private disposed = false;
 
@@ -135,6 +184,50 @@ export class AcpBackend implements AgentBackend<"acp"> {
     this.abortGraceMs = opts.abortGraceMs ?? 3_000;
     this.spawnImpl = opts.spawnImpl ?? createNodeSpawn(this.abortGraceMs);
     this.commands = opts.commands ?? {};
+    this.acpMcpProvider = opts.acpMcpProvider;
+  }
+
+  /** Answer one `mcp/message`. The inner MCP outcome rides the outer ACP
+   *  success (`{result: {result|error}}`) so an MCP-level failure keeps its
+   *  provenance; only a binding failure (unknown server) is an ACP error. */
+  private async onMcpMessage(
+    req: McpOverAcpRequest,
+    caller: { readonly runId: string; readonly agentId: string },
+  ): Promise<{ readonly result: { readonly result: unknown } }> {
+    const provider = this.acpMcpProvider;
+    const inner = (result: unknown) => ({ result: { result } });
+    if (!provider) {
+      return inner({ error: { code: -32601, message: "no MCP provider for this connection" } });
+    }
+    if (req.serverId !== provider.serverId) {
+      // A binding failure is the ACP layer's to report (RFCD error codes).
+      throw acp.RequestError.invalidParams(
+        { serverId: req.serverId, expected: provider.serverId },
+        `unknown MCP connection ${String(req.serverId)}`,
+      );
+    }
+    const method = typeof req.method === "string" ? req.method : "";
+    const params = (req.params ?? {}) as Record<string, unknown>;
+    if (method === "tools/list") return inner(provider.listTools());
+    if (method === "tools/call") {
+      const name = typeof params.name === "string" ? params.name : "";
+      if (name === "") {
+        return inner({ error: { code: -32602, message: "tools/call requires a name" } });
+      }
+      const metaIdentity = (params._meta as { identity?: Record<string, unknown> } | undefined)
+        ?.identity;
+      const out = await provider.call({
+        caller,
+        name,
+        args: (params.arguments ?? {}) as Record<string, unknown>,
+        ...(metaIdentity ? { metaIdentity } : {}),
+      });
+      return inner({
+        content: [{ type: "text", text: out.content }],
+        ...(out.isError ? { isError: true } : {}),
+      });
+    }
+    return inner({ error: { code: -32601, message: `unsupported MCP method ${method}` } });
   }
 
   async execute(input: BackendRunInput<"acp">): Promise<BackendRunSegment<"acp">> {
@@ -255,16 +348,30 @@ export class AcpBackend implements AgentBackend<"acp"> {
           .onRequest(acp.methods.client.elicitation.create, async () => ({
             action: "decline" as const,
           }))
+          .onRequest(
+            "mcp/message",
+            (raw: unknown) => raw as McpOverAcpRequest,
+            (ctx) =>
+              this.onMcpMessage(ctx.params, {
+                runId: input.run.runId,
+                agentId: input.metadata?.agentId ?? "",
+              }) as never,
+          )
           .onNotification(acp.methods.client.session.update, (ctx) => {
             for (const event of mapAcpUpdate(run.acc, ctx.params.update)) {
               run.pushEvent(event);
             }
           })
           .connectWith(transport.stream, async (ctx) => {
-            await ctx.request(acp.methods.agent.initialize, {
+            const init = await ctx.request(acp.methods.agent.initialize, {
               protocolVersion: acp.PROTOCOL_VERSION,
               clientCapabilities: {},
             });
+            const mcpProvider = this.acpMcpProvider;
+            const mcpServers =
+              mcpProvider && declaresAcpMcp(init)
+                ? [{ type: "acp" as const, name: mcpProvider.name, serverId: mcpProvider.serverId }]
+                : [];
             const cwd = input.workspace.root;
             const resumeRef = input.run.cliSessionRef;
             if (resumeRef !== undefined && resumeRef !== "") {
@@ -278,7 +385,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
               await ctx.request(acp.methods.agent.session.load, {
                 sessionId: resumeRef,
                 cwd,
-                mcpServers: [],
+                mcpServers,
                 ...(decisions && decisions.length > 0
                   ? { _meta: { "my-agent-team/resume": { decisions } } }
                   : {}),
@@ -295,7 +402,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
               const decisions = input.resume?.decisions;
               const created = (await ctx.request(acp.methods.agent.session.new, {
                 cwd,
-                mcpServers: [],
+                mcpServers,
                 ...(input.resume
                   ? {
                       _meta: {

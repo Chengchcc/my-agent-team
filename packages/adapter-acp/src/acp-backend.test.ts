@@ -6,7 +6,13 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "@chengchenccc/agent-contract";
-import { AcpBackend, AcpBackendError, type AcpSpawn, createNodeSpawn } from "./acp-backend.js";
+import {
+  AcpBackend,
+  AcpBackendError,
+  type AcpMcpProvider,
+  type AcpSpawn,
+  createNodeSpawn,
+} from "./acp-backend.js";
 
 /** ─── In-memory transport: crossed NDJSON stream pairs ────────────────
  *  The same wiring the SDK's own tests use — the backend speaks to a fake
@@ -45,6 +51,10 @@ interface FakeAgentObservations {
   newSessionCalls: number;
   permissionOutcomes: Array<unknown>;
   elicitationOutcome: unknown;
+  /** Replies to the mcp/message probes (one entry per probe). */
+  mcpReplies?: unknown[];
+  /** Errors from those probes (binding failures reject). */
+  mcpErrors?: unknown[];
 }
 
 interface FakeAgentScript {
@@ -60,6 +70,10 @@ interface FakeAgentScript {
   newSessionParams?: unknown[];
   /** Capture the spawn env (allowlist passthrough tests). */
   spawnEnv?: (Readonly<Record<string, string | undefined>> | undefined)[];
+  /** Advertise `agentCapabilities.mcpCapabilities.acp` on initialize. */
+  acpMcp?: boolean;
+  /** Send these `mcp/message` requests during the prompt. */
+  mcpProbes?: Array<{ serverId: string; method: string; params?: unknown }>;
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
@@ -81,7 +95,7 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       .agent({ name: "fake-acp-agent" })
       .onRequest(acp.methods.agent.initialize, async () => ({
         protocolVersion: acp.PROTOCOL_VERSION,
-        agentCapabilities: {},
+        agentCapabilities: script.acpMcp ? { mcpCapabilities: { acp: true } } : {},
         authMethods: [],
       }))
       .onRequest(acp.methods.agent.session.new, async (ctx) => {
@@ -95,6 +109,19 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       })
       .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
         const sessionId = ctx.params.sessionId;
+        for (const probe of script.mcpProbes ?? []) {
+          try {
+            const reply = await ctx.client.request("mcp/message", {
+              serverId: probe.serverId,
+              requestId: "probe-1",
+              method: probe.method,
+              params: probe.params ?? {},
+            } as never);
+            obs.mcpReplies?.push(reply);
+          } catch (err) {
+            obs.mcpErrors?.push(err);
+          }
+        }
         const notify = (update: unknown) =>
           ctx.client.notify(acp.methods.client.session.update, { sessionId, update } as never);
         await notify({
@@ -582,4 +609,139 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await collect(first);
     await backend.dispose();
   });
+});
+
+describe("MCP over ACP (ADR 0039: the connection carries the servers)", () => {
+  const provider = (over: Partial<AcpMcpProvider> = {}): AcpMcpProvider => ({
+    name: "product-tools",
+    serverId: "product-tools",
+    listTools: () => ({ tools: [{ name: "todo_write", description: "list", inputSchema: {} }] }),
+    call: async () => ({ content: "done" }),
+    ...over,
+  });
+
+  test("a declared capability gets the provider named in session/new", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const newSessionParams: unknown[] = [];
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ acpMcp: true, newSessionParams }, obs),
+      acpMcpProvider: provider(),
+    });
+    const { outcome } = await collect(await backend.execute(makeInput()));
+    expect(outcome.status).toBe("completed");
+    expect(newSessionParams).toEqual([
+      {
+        cwd: "/tmp/acp-fake-ws",
+        mcpServers: [{ type: "acp", name: "product-tools", serverId: "product-tools" }],
+      },
+    ]);
+    await backend.dispose();
+  }, 10_000);
+
+  test("no declaration, no provider (the workspace rail stays)", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const newSessionParams: unknown[] = [];
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ newSessionParams }, obs),
+      acpMcpProvider: provider(),
+    });
+    await collect(await backend.execute(makeInput()));
+    expect(newSessionParams).toEqual([{ cwd: "/tmp/acp-fake-ws", mcpServers: [] }]);
+    await backend.dispose();
+  }, 10_000);
+
+  test("tools/list and tools/call are answered from the provider", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+      mcpReplies: [],
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          acpMcp: true,
+          mcpProbes: [
+            { serverId: "product-tools", method: "tools/list" },
+            {
+              serverId: "product-tools",
+              method: "tools/call",
+              params: { name: "todo_write", arguments: { items: [] } },
+            },
+            { serverId: "product-tools", method: "nope" },
+          ],
+        },
+        obs,
+      ),
+      acpMcpProvider: provider({
+        call: async (req) => {
+          calls.push(req as unknown as Record<string, unknown>);
+          return { content: "done" };
+        },
+      }),
+    });
+    const input = makeInput();
+    const { outcome } = await collect(
+      await backend.execute({
+        ...input,
+        metadata: { conversationId: "conv-1", agentId: "agent-1" },
+      }),
+    );
+    expect(outcome.status).toBe("completed");
+    // The inner MCP outcome rides the outer ACP success (RFCD): a
+    // tools/list reply is a tool list, a tools/call reply is MCP content.
+    // The visible envelope (SDK passthrough for a custom method) is the
+    // RFCD's outer result carrying the inner outcome; oma's client reads
+    // `.result.result` off the same shape.
+    expect(obs.mcpReplies?.[0]).toEqual({
+      result: { result: { tools: [{ name: "todo_write", description: "list", inputSchema: {} }] } },
+    });
+    expect(obs.mcpReplies?.[1]).toEqual({
+      result: { result: { content: [{ type: "text", text: "done" }] } },
+    });
+    // An unsupported inner method is an MCP-level error, not a transport one.
+    expect(obs.mcpReplies?.[2]).toEqual({
+      result: { result: { error: { code: -32601, message: "unsupported MCP method nope" } } },
+    });
+    expect(calls[0]).toMatchObject({
+      caller: { runId: "run-1", agentId: "agent-1" },
+      name: "todo_write",
+      args: { items: [] },
+    });
+    await backend.dispose();
+  }, 10_000);
+
+  test("a message for another server is an ACP binding failure", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+      mcpErrors: [],
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        { acpMcp: true, mcpProbes: [{ serverId: "someone-else", method: "tools/list" }] },
+        obs,
+      ),
+      acpMcpProvider: provider(),
+    });
+    await collect(await backend.execute(makeInput()));
+    const err = obs.mcpErrors?.[0] as { code?: number; message?: string } | undefined;
+    expect(err?.code).toBe(-32602);
+    expect(err?.message).toContain("unknown MCP connection");
+    await backend.dispose();
+  }, 10_000);
 });
