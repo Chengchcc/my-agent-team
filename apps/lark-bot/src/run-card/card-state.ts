@@ -256,24 +256,6 @@ function parseAskQuestion(questions: unknown): PendingActionState | null {
  *
  *  Read-only and total: it never guesses. A part it does not recognise is skipped, and an
  *  unanswered question is the only thing that puts buttons on the card. */
-/** A run that settled without ever producing a turn: the state has nothing to read, and the card
- *  must not sit on "thinking" forever. The caller supplies the product fact - the run's status -
- *  because that is a run fact, not something the chat channel carries. */
-export function terminalFromRunStatus(status: string | null | undefined): RunCardState["terminal"] {
-  switch (status) {
-    case "completed":
-      return { status: "completed", error: null };
-    case "failed":
-    case "commit_failed":
-      return { status: "failed", error: null };
-    case "cancelled":
-    case "aborted":
-      return { status: "cancelled", error: null };
-    default:
-      return null;
-  }
-}
-
 export function cardStateFromChatTurn(
   state: ChatState,
   runId: string,

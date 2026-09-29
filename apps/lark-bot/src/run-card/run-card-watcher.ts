@@ -19,7 +19,6 @@ import {
   type PendingActionState,
   pendingActionFromBackend,
   type RunCardState,
-  terminalFromRunStatus,
 } from "./card-state.js";
 import { createCardUpdater } from "./card-updater.js";
 
@@ -139,23 +138,6 @@ export async function fetchPendingActions(
   return pendingActionFromBackend(record.kind, record.payload);
 }
 
-/** The run's own status, for the one case the chat state cannot answer: a run that settled
- *  before it ever produced a turn. A product read, not a stream. */
-async function fetchRunStatus(
-  backendUrl: string,
-  token: string | null,
-  runId: string,
-): Promise<string | null> {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (token) headers["x-auth-token"] = token;
-  const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
-  if (!resp.ok) return null;
-  const body = z
-    .object({ run: z.object({ status: z.string() }).optional() })
-    .parse(await resp.json());
-  return body.run?.status ?? null;
-}
-
 async function fetchRunOutcome(
   backendUrl: string,
   token: string | null,
@@ -190,8 +172,6 @@ export async function watchRunCard(
   const replyTo = opts.replyTo ?? null;
   const replyInThread = opts.replyInThread === true;
   let aborted = false;
-  /** One product read per card, only if the state never carries its run (see `update`). */
-  let settleChecked = false;
 
   const meta = { runId, startedAt: Date.now(), webUrl };
 
@@ -460,22 +440,10 @@ export async function watchRunCard(
   const update = async (chat: ChatState): Promise<void> => {
     if (aborted) return;
     const next = cardStateFromChatTurn(chat, runId, Date.now());
-    if (next === undefined) {
-      // No turn for this run in a state that HAS been sent: if the run is already over it will
-      // never produce one, so the card takes the product's word once instead of saying
-      // "thinking" forever. A live run just waits for the next state.
-      if (settleChecked) return;
-      settleChecked = true;
-      const terminal = terminalFromRunStatus(
-        await fetchRunStatus(backendUrl, backendAuthToken, runId).catch(() => null),
-      );
-      if (terminal === null) return;
-      state = { ...state, terminal };
-      await updater.finish();
-      await seal();
-      await leaveTerminalReaction();
-      return;
-    }
+    // Every run appears as a turn (the projection builds one per run row, and a failed run's
+    // error row folds into its tail), so a state that does not carry this run is simply a state
+    // from before it existed - the next one will have it.
+    if (next === undefined) return;
     const before = state;
     state = next;
     if (state.terminal) {
