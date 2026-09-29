@@ -44,6 +44,71 @@
 
 7. **不做：** 不做通用协议插件系统；不给 `pi-acp` 的洞打补丁（2026-09-29 注：pi 无审批可对齐，桥只承担编排面，洞不再影响我们）；不动 oma 的 RPC 与恢复机制（P2 只并行加 ACP 面，不替换）。
 
+## 模块分工（图解）
+
+分层总图：产品层一行不动（差异化全在这里），翻译层是唯一新建（P1），agent 侧各按其力。
+
+```mermaid
+flowchart TB
+    subgraph SURF["Surfaces（不动）"]
+        WEB["Web / Lark 卡片"]
+    end
+    subgraph PROD["产品层 apps/backend（一行不动）"]
+        DISPATCH["execution dispatch"]
+        BUS["live bus：先持久化再广播"]
+        PA["durable pending_action：期限、重放、重启恢复"]
+        LEDGER["账本加 Run 唯一身份：终态原子提交"]
+        TOOLS["product-tools：todo 与 ask"]
+    end
+    subgraph ACPL["翻译层 packages/adapter-acp（P1 新建）"]
+        CLIENT["ACP 客户端（稳定 v1 SDK）"]
+        MAP["事件映射：session/update 转核心事件"]
+        BRIDGE["权限与问询桥：request_permission 与 elicitation"]
+        REG["注册表（acpx 同构，桥钉版）"]
+        INJ["注入策略缝：轨A workspace MCP 配置；轨B mcp-over-acp 将来"]
+    end
+    subgraph SIDE["Agent 侧"]
+        OMP["omp：原生 ACP v1"]
+        CCA["cc：官方桥"]
+        PIA["pi：pi-acp 桥（仅编排面）"]
+        OMA["oma：native RPC，P2 加 ACP 面"]
+    end
+
+    DISPATCH --> CLIENT
+    CLIENT <-->|stdio JSON-RPC| OMP
+    CLIENT <-->|spawn 桥| CCA
+    CLIENT <-->|spawn 桥| PIA
+    CLIENT -.->|P2| OMA
+    MAP -->|核心事件| BUS
+    BRIDGE -->|approval_requested 与 ask_requested| BUS
+    BUS <-->|SSE 与审批 API| WEB
+    PA --- BUS
+    TOOLS -.->|轨A：.mcp.json 加 SSE| SIDE
+```
+
+一次审批的完整往返（理解各层怎么接力）：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as agent（omp）
+    participant D as adapter-acp
+    participant B as backend live bus
+    participant S as Surface（Web / Lark）
+    participant H as 人
+
+    A->>D: session/request_permission（toolCall 携带命令与参数）
+    D->>B: approval_requested（callId、toolName、input、deadlineAt）
+    B->>B: 先落 pending_action 行，再广播
+    B->>S: SSE 事件（晚订阅者由 durable 重放补上）
+    S->>H: 审批卡（显示要批的命令与有效期）
+    H->>S: 点批准，POST 审批 API
+    S->>D: resolveApproval(runId, callId, allow)
+    D->>A: outcome 为 selected、optionId 为 allow-once
+    A->>D: 工具真执行，tool_call_update，终态 stopReason
+    Note over A,H: 超时或 stop 走本地 fail-closed 回 cancelled，卡不悬挂；backend 重启后 durable 行仍在，人仍可批
+```
+
 ## 后果
 
 - **收益（2026-09-29 重写）**：oma、cc、omp 三家的 HITL 行为一致——同一套卡、同一个期限、同一份重放与重启恢复（pi 无审批策略，如实缺席）；任何原生 ACP agent 以注册表一行接入（acpx 注册表约二十五家）；oma 经 ACP 面反向可被生态客户端（Zed 等）编排；A2A 的 `input-required` 顺带具备；现有产品的 durable 机制一行不用改。
