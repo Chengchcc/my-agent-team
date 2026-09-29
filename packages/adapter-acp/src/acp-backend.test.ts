@@ -56,6 +56,8 @@ interface FakeAgentScript {
   /** Close the connection right after asking for permission (the agent
    *  died mid-request: the held ACP promise must not outlive the run). */
   dieAfterPermission?: boolean;
+  /** Capture every session/new params object (adopt-declaration tests). */
+  newSessionParams?: unknown[];
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
@@ -79,8 +81,9 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
         agentCapabilities: {},
         authMethods: [],
       }))
-      .onRequest(acp.methods.agent.session.new, async () => {
+      .onRequest(acp.methods.agent.session.new, async (ctx) => {
         obs.newSessionCalls += 1;
+        script.newSessionParams?.push(ctx.params);
         return { sessionId: "sess-fake-1", configOptions: [] };
       })
       .onRequest(acp.methods.agent.session.load, async (ctx) => {
@@ -462,6 +465,60 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await expect(
       backend.steer("run-1", { inputId: "in-2", message: { role: "user", text: "wait" } }),
     ).rejects.toBeInstanceOf(AcpBackendError);
+    await backend.dispose();
+  });
+
+  test("a resume dispatch without a session ref declares adopt-last-interrupted", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const newSessionParams: unknown[] = [];
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ newSessionParams }, obs),
+    });
+    const input = makeInput();
+    const segment = await backend.execute({
+      ...input,
+      resume: {
+        decisions: [{ callId: "call-parked", kind: "approval", response: { decision: "allow" } }],
+      },
+    });
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    // ADR 0038 kill-mid-run gap: with no cliSessionRef the agent is asked to
+    // adopt its own interrupted predecessor, and the decisions ride along.
+    expect(newSessionParams).toEqual([
+      {
+        cwd: "/tmp/acp-fake-ws",
+        mcpServers: [],
+        _meta: {
+          "my-agent-team/resume": {
+            adopt: "last-interrupted",
+            decisions: [
+              { callId: "call-parked", kind: "approval", response: { decision: "allow" } },
+            ],
+          },
+        },
+      },
+    ]);
+    await backend.dispose();
+  }, 10_000);
+
+  test("a fresh dispatch declares nothing extra on session/new", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const newSessionParams: unknown[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ newSessionParams }, obs) });
+    const segment = await backend.execute(makeInput());
+    await collect(segment);
+    expect(newSessionParams).toEqual([{ cwd: "/tmp/acp-fake-ws", mcpServers: [] }]);
     await backend.dispose();
   });
 

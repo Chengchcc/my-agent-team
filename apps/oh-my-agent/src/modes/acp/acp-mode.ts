@@ -29,6 +29,7 @@ import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts
 import {
   appendParkedTurnMarker,
   appendSessionMessages,
+  findInterruptedSession,
   loadLastParkedTurn,
   loadSessionMessages,
   newSessionId,
@@ -106,8 +107,27 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       _meta: { steering: { supported: true } },
     }))
     .onRequest(acp.methods.agent.session.new, async (ctx) => {
-      const sessionId = newSessionId();
-      sessions.set(sessionId, { sessionId, cwd: ctx.params.cwd, resumeDecisions: null });
+      const cwd = ctx.params.cwd;
+      const meta = (ctx.params as { _meta?: Record<string, unknown> | null })._meta;
+      const resumeMeta = readResumeMeta(meta);
+      // ADR 0038 kill-mid-run gap: a resume dispatch with no session
+      // reference asks us to adopt the newest interrupted parked session in
+      // this cwd — the RPC mode's findInterruptedSession, declared over the
+      // extension vehicle (ADR 0039 rule 2) instead of guessed.
+      let sessionId = newSessionId();
+      if (resumeMeta?.adopt === "last-interrupted") {
+        const sessionDir = process.env.OMA_SESSION_DIR ?? sessionDirFor(cwd);
+        const adopted = findInterruptedSession(sessionDir);
+        if (adopted) {
+          sessionId = adopted;
+          log(`[acp] adopted interrupted session ${adopted}`);
+        }
+      }
+      sessions.set(sessionId, {
+        sessionId,
+        cwd,
+        resumeDecisions: resumeMeta?.decisions ?? null,
+      });
       return { sessionId, configOptions: [] };
     })
     .onRequest(acp.methods.agent.session.load, async (ctx) => {
@@ -368,11 +388,29 @@ function promptText(prompt: unknown): string {
     .join("");
 }
 
+/** The namespaced resume envelope: an optional `adopt` declaration and the
+ *  replayed decisions (ADR 0039 extension-vehicle rule 2). */
+function readResumeMeta(meta: Record<string, unknown> | null | undefined): {
+  adopt?: string;
+  decisions: ResumeDecision[] | null;
+} | null {
+  const raw = meta?.["my-agent-team/resume"] as
+    | { adopt?: unknown; decisions?: unknown }
+    | undefined;
+  if (!raw) return null;
+  return {
+    ...(typeof raw.adopt === "string" ? { adopt: raw.adopt } : {}),
+    decisions: parseDecisions(raw.decisions),
+  };
+}
+
 function readResumeDecisions(
   meta: Record<string, unknown> | null | undefined,
 ): ResumeDecision[] | null {
-  const raw = meta?.["my-agent-team/resume"] as { decisions?: unknown } | undefined;
-  const decisions = raw?.decisions;
+  return readResumeMeta(meta)?.decisions ?? null;
+}
+
+function parseDecisions(decisions: unknown): ResumeDecision[] | null {
   if (!Array.isArray(decisions)) return null;
   const parsed: ResumeDecision[] = [];
   for (const decision of decisions) {

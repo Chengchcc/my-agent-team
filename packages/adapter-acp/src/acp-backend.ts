@@ -268,10 +268,28 @@ export class AcpBackend implements AgentBackend<"acp"> {
               } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1]);
               run.sessionId = resumeRef;
             } else {
-              const created = await ctx.request(acp.methods.agent.session.new, {
+              // ADR 0038 kill-mid-run gap: a resume dispatch whose branch
+              // never settled carries no cliSessionRef, so the agent must
+              // find its own interrupted predecessor (the RPC child does
+              // this with findInterruptedSession). Declared over the
+              // extension vehicle instead of guessed: the agent adopts the
+              // newest interrupted parked session in this cwd, and the
+              // replayed decisions ride the same _meta.
+              const decisions = input.resume?.decisions;
+              const created = (await ctx.request(acp.methods.agent.session.new, {
                 cwd,
                 mcpServers: [],
-              });
+                ...(input.resume
+                  ? {
+                      _meta: {
+                        "my-agent-team/resume": {
+                          adopt: "last-interrupted",
+                          ...(decisions && decisions.length > 0 ? { decisions } : {}),
+                        },
+                      },
+                    }
+                  : {}),
+              } as never)) as { sessionId: string };
               run.sessionId = created.sessionId;
             }
             response = await ctx.request(acp.methods.agent.session.prompt, {
