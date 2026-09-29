@@ -119,6 +119,8 @@ sequenceDiagram
 
 - **落地进度（2026-09-29 P2）**：oma 长出 ACP 面（`apps/oh-my-agent/src/modes/acp/acp-mode.ts`，复用 rpc-mode 的会话文件真值、停靠标记、插件装配与审批停靠）——标准面 `initialize` / `session.new` / `session.load` / `session.prompt` / `session.cancel`；审批门经 `session/request_permission` 上浮，期限 fail-closed；`_session/steering` 约定（握手 `_meta.steering.supported` 声明）接 runtime live input；oma 私事件走 `_oma/update` 自定义通知；恢复决定读 `session/load` 的 `_meta["my-agent-team/resume"]` 并在下一轮 prompt 预供（ADR 0038 的 ACP 形状）。隔离栈真机验收：backend 经 adapter-acp 驱动自家 oma ACP server，审批卡 → 批准 → 工具真执行 → `completed`。P2 未竟：mcp-over-acp 消费（`mcpCapabilities.acp` + `mcp/message`）未实现；session/load 恢复与实时 steering 仅单测覆盖，待真机验收。真机另暴露并已修三处：stdio 方向镜像（服务端写 stdout 读 stdin）、CLI 入口应为 `cli.ts`、适配器 spawn ENOENT 会杀死 backend 进程（折进 exit promise 并加回归钉）。
 
+- **落地进度（2026-09-29 P2 续）**：重启恢复在 ACP 传输上真机验收通过。先补一个真缺口：run 停靠时被杀的分支没有 `cliSessionRef`，适配器只能开新会话，human 会被重问一次——客户端改为在 `session/new` 的 `_meta["my-agent-team/resume"]` 声明 `adopt:"last-interrupted"` 与 decisions，oma 侧采纳停靠会话并预供决定。另一真缺口：MCP 白名单没走 ACP 路径，`${PRODUCT_TOOLS_RUN_TOKEN}` 被 mcp-mount 拒展、产品工具挂不上；现经 `OMA_MCP_EXPANDABLE_VARS`/`OMA_CONSENTED_MCP_TOOLS` 随 spawn env 传递（与 oma 适配器同渠道）。验收证据（隔离栈，OMA_DEBUG=1）：`recover_parked pending=1` → 批准 200 → `resume_parked decisions=1` → `[acp] adopted interrupted session …` → 同一 callId 的工具直接执行、无第二次权限请求 → `completed` + `terminal_commit`。方法学教训：崩溃模拟必须**先杀后端**（子进程变孤儿）；先杀子进程等于让适配器合法结算 run，测的就不是崩溃场景了。适配器新增 transport 退出日志（code/signal）用于区分“agent 死了”与“我们关了连接”。
+
 ## 附录：三家缝的实测契约
 
 2026-09-28 在本机（deepseek 网关 + omp 18.2.10 + claude 2.1.229）跑通，帧与返回值如下。
