@@ -2,7 +2,7 @@
   "name": "@chengchenccc/backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Team Runtime HTTP Server \u2014 L5 Backend",
+  "description": "Team Runtime HTTP Server — L5 Backend",
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
@@ -32,6 +32,7 @@
     "@chengchenccc/sandbox": "workspace:*",
     "@chengchenccc/source-fetch": "workspace:*",
     "@chengchenccc/workflow": "workspace:*",
+    "@microsoft/agent-host-protocol": "^0.9.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "bun-pty": "^0.4.10",
     "drizzle-orm": "^0.44.0",
