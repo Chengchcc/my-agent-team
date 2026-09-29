@@ -7,7 +7,7 @@ import { parseWorkflow } from "@chengchenccc/workflow";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { WorkflowDefinitionEventBus } from "./definition-events.js";
+import type { ProposalKind } from "../proposal/domain.js";
 
 /** Workflow DSL MCP server: the ONLY way a Run reads or changes a workflow
  *  definition. Definitions live at `<workflowDir>/<id>.workflow.json` —
@@ -26,8 +26,11 @@ export interface WorkflowMcpServerOptions {
   readonly host?: string;
   /** 0 = ephemeral port. */
   readonly port?: number;
-  /** Emit a "changed" event after workflow_write (SSE live refresh). */
-  readonly definitionEvents?: WorkflowDefinitionEventBus;
+  /** Where a proposed definition goes: one row the editor reads, so a proposal outlives the page
+   *  that happened to be open when the tool ran (ADR 0040). */
+  readonly proposals?: {
+    propose(kind: ProposalKind, targetId: string, payload: unknown): unknown;
+  };
 }
 
 export interface WorkflowMcpServer {
@@ -48,7 +51,10 @@ function safePath(workflowDir: string, workflowId: string): string {
  *  that to isError. Exported so the semantics stay testable without an SSE
  *  round trip. */
 export function callWorkflowTool(
-  deps: { workflowDir: string; definitionEvents?: WorkflowDefinitionEventBus },
+  deps: {
+    workflowDir: string;
+    proposals?: { propose(kind: ProposalKind, targetId: string, payload: unknown): unknown };
+  },
   name: string,
   args: Record<string, unknown>,
 ): string {
@@ -66,10 +72,9 @@ export function callWorkflowTool(
     // on Save must be a failed tool call, not a silent no-op the model only
     // discovers a round trip later.
     parseWorkflow(args.definition);
-    // NO file write. The agent's proposed DSL is pushed to the editor over the
-    // definition SSE; the editor shows it as an unsaved edit and the user
-    // commits it with (Ctrl/Cmd)S. The live file is never touched until then.
-    deps.definitionEvents?.emit(workflowId, { trigger: "mcp", definition: args.definition });
+    // NO file write. The proposal is recorded for the editor, which adopts it as an unsaved edit
+    // the user commits with (Ctrl/Cmd)S. The live file is never touched until then.
+    deps.proposals?.propose("workflow_definition", workflowId, args.definition);
     return `proposed update for ${workflowId} (${randomUUID().slice(0, 8)}) — NOT saved: the editor holds it as an unsaved change and the user applies it with Ctrl/Cmd+S`;
   }
   throw new Error(`unknown tool: ${name}`);
@@ -78,7 +83,7 @@ export function callWorkflowTool(
 export async function createWorkflowMcpServer(
   opts: WorkflowMcpServerOptions,
 ): Promise<WorkflowMcpServer> {
-  const { workflowDir, definitionEvents } = opts;
+  const { workflowDir, proposals } = opts;
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
   mkdirSync(workflowDir, { recursive: true });
@@ -116,7 +121,7 @@ export async function createWorkflowMcpServer(
     s.setRequestHandler(CallToolRequestSchema, async (req) => {
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
       try {
-        const text = callWorkflowTool({ workflowDir, definitionEvents }, req.params.name, args);
+        const text = callWorkflowTool({ workflowDir, proposals }, req.params.name, args);
         return { content: [{ type: "text", text }] };
       } catch (err) {
         return {
