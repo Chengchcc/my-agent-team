@@ -64,4 +64,4 @@
 - `docs/architecture/e2e-contract-rules.md` — 跨进程类型契约规则
 - `docs/architecture/db-typesafe-rules.md` — DB 类型链规则
 - `docs/architecture/execution/backend-kinds-gate0.md` — 多 backend 协议实测记录(决策见 §7)
-| 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 规范模型与账本编码对齐待开工） |
+| 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 首刀已落地：ACP 轨的工具事实进账本，验收向量绿；规范模型其余部分与 S1 至 S3、R1 至 R3 待做。工作分支 feat/ahp2acp） |

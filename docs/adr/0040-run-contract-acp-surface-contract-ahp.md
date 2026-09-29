@@ -28,6 +28,8 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 后果是实证的：ACP 轨的 `buildOutcomeMessages` 只产出 assistant 文本，于是四次 `todo_write` 在账本里一行都没留下（`product_tool_call` 有记录、日志有 `tool_end error=false`，账本零行），而 [conversation/history](../architecture/conversation/history.md) 声明工具消息应进 History。
 
+（2026-09-29 S0 首刀已修：映射改为按到达顺序记产出片段，同一次 run 的四次工具调用现在提交九行账本，向量见 `packages/adapter-acp/src/event-mapping.test.ts` 的「durable tool facts」。）
+
 ## 决策
 
 1. **目标态：运行契约归 ACP，surface 契约归 AHP；两条自研方言下线。** 运行轴只留 `adapter-acp`（其余 agent 经官方桥或原生 `--acp` 接入）；surface 轴只留 AHP，外加快照型 REST 承担 CRUD 与列表（agents、projects、skills、workflows、settings），AHP 不管这些。oma 自己的 RPC 模式保留为本地 CLI 与 TUI 的通道，它不对外。**删除清单见专节，且是每个相位的验收条件。**
