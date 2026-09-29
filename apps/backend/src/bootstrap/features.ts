@@ -86,6 +86,7 @@ import {
   providerOfModelId,
 } from "../features/models/index.js";
 import {
+  createProductToolsDispatch,
   createProductToolsMcpServer,
   createProductToolsService,
   sqliteProductToolCallAdapter,
@@ -593,6 +594,19 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
     commands: { oma: [config.omaBin ?? "oma", "--mode", "acp"] },
+    // MCP-over-ACP (ADR 0039 appendix two): when the agent advertises the
+    // capability, its product tools ride the ACP connection itself, so no
+    // SSE server, port or bearer file is involved for those runs. Same
+    // dispatch as the SSE rail, so authority and keying cannot drift.
+    ...(enabledMcpServers.has("product-tools")
+      ? {
+          acpMcpProvider: {
+            name: "product-tools",
+            serverId: "product-tools",
+            ...createProductToolsDispatch({ service: productTools }),
+          },
+        }
+      : {}),
   });
   const backends: BackendRegistry = {
     oma: { backend: codingAgentBackend, catalog: codingAgentCatalog },
