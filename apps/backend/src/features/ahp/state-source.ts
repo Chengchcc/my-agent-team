@@ -109,6 +109,8 @@ export interface AhpStateSourceDeps {
     }[]
   >;
   readonly getRun: (runId: string) => Promise<AhpRunRow | null>;
+  /** The run's latest todo snapshot (product tool output), or null when it never wrote one. */
+  readonly latestRunTodo?: (runId: string) => Promise<string | null>;
 }
 
 export function createAhpStateSource(deps: AhpStateSourceDeps): AhpStateSource {
@@ -163,6 +165,7 @@ async function chatState(
   const row = deps.getConversation(conversationId);
   if (!row) return undefined;
   const view = await chatView(deps, row);
+  const todos = await activeTodos(deps, view.activeTurn?.id);
   return {
     resource: uri,
     title: row.title ?? row.conversationId,
@@ -170,7 +173,27 @@ async function chatState(
     modifiedAt: isoOf(view.modifiedAt),
     turns: view.turns,
     ...(view.activeTurn ? { activeTurn: view.activeTurn } : {}),
+    // The run's todo list is implementation metadata: a surface that renders it does not have to
+    // listen to a second stream for it (the run-event feed it used to come from is being retired).
+    ...(todos === undefined ? {} : { _meta: { todos } }),
   };
+}
+
+/** The active run's todo snapshot, as the product tool stored it (a JSON string). */
+async function activeTodos(
+  deps: AhpStateSourceDeps,
+  runId: string | undefined,
+): Promise<unknown[] | undefined> {
+  if (runId === undefined || deps.latestRunTodo === undefined) return undefined;
+  const snapshot = await deps.latestRunTodo(runId);
+  if (snapshot === null || snapshot === "") return undefined;
+  try {
+    const parsed = JSON.parse(snapshot) as { items?: unknown; todos?: unknown };
+    const list = Array.isArray(parsed) ? parsed : (parsed.items ?? parsed.todos);
+    return Array.isArray(list) ? list : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function chatSummary(row: AhpConversationRow, view: ChatView): ChatSummary {

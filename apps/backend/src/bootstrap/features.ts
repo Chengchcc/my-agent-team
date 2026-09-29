@@ -1444,6 +1444,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           response: action.response === null ? null : JSON.stringify(action.response),
         })),
       getRun: (runId) => agentRunPort.getRun(runId),
+      // Todos are stored per branch; the chat state keys them by run.
+      latestRunTodo: async (runId) => {
+        const run = await agentRunPort.getRun(runId);
+        return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
+      },
     }),
     commands: {
       submit: () => {

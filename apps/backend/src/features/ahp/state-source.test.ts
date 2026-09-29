@@ -289,3 +289,17 @@ test("a continuity row becomes a system-notification turn carrying the new chat 
     _meta: { newConversationId: "c2", requestedByRunId: "r1" },
   });
 });
+
+test("the active run's todo snapshot rides in the chat state's meta", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "running");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    latestRunTodo: async (runId) =>
+      runId === "r1" ? JSON.stringify([{ id: "t1", text: "first", status: "in_progress" }]) : null,
+  });
+  const chat = await source.chat(chatUri("c1"));
+  expect((chat as { _meta?: { todos?: unknown[] } })._meta?.todos).toEqual([
+    { id: "t1", text: "first", status: "in_progress" },
+  ]);
+});
