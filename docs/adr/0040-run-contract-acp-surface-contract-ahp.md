@@ -43,13 +43,15 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 3. **规范模型与账本编码对齐（S0，AHP 面的前置）。** 定义唯一规范模型 `session` / `chat` / `turn` / `part` / `toolCall` / `inputRequest`，账本按它编码。字段名在概念相同时采用两协议既有的词（`toolCallId`、`turnId`、`status`、`inputRequest` 等），不做与模型无关的机械改名。五处调整：
 
-   - 补轮次实体：一次 Run 的一次输出就是一个 turn，提交时落显式字段，不留给读者推断；
+   - 轮次实体就是 Run 行：`turnId` 即 `runId`，状态取 Run 状态，起止取 Run 的时间列。不另立实体、不新增列（Run 已经是那个显式身份），读取侧也不再从「用户消息加后续 assistant 消息」推断轮次；
    - 工具调用升为一等字段：`toolCallId`、`toolName`、`status`、`rawInput`、`rawOutput`，可仍挂在消息行上，但必须有 id 关联；
-   - 人工输入的解决结果作为片段写回账本（AHP 的 `InputRequestResponsePart` 就是这个位置）；
+   - 人工输入以 `pending_action` 为权威（状态与答复都在那里），由规范模型挂到轮次与具体调用上，**不再往账本复制一份**：同一事实两处存放正是要消灭的形态，AHP 的 `InputRequestResponsePart` 在这里对应模型里的 `inputRequest` 片段；
    - 会话层级定为 session = agent 加工作区（project / worktree），chat = conversation，不需要新表；
    - 坐标权威定为对话内 `seq`，AHP 的 `serverSeq` 由它派生并加回放缓冲，子进程内部顺序不外泄。
 
    判据：两条协议的绑定退化成字段重命名级，映射里不出现推断或聚合；用一致性向量钉住（固定 facts 产出固定的 turn、part、toolCall、inputRequest 结构）。历史行不重写，读取侧容忍旧行。
+
+   落地进度（2026-09-29，`feat/ahp2acp`）：协议层模型与配对规则在 `packages/message/src/session-model.ts`，后端派生在 `apps/backend/src/features/conversation/session-model.ts`（只吃普通行对象，不碰数据库），两侧共十条向量，其中一条就是「N 次工具调用必须留下 N 组工具事实」。工具调用的配对按 `tool_use_id` 完成，配不上 use 的 result 也保留成一次已结算的调用。
 
 4. **权威关系不变。** 账本加 Run 状态是唯一权威；AHP 面只有两条边——只读投影、命令进控制面，禁止直写账本；终态提交是唯一写路径。这与 [system-overview](../architecture/system-overview.md) 的不变量 3、4、5 一致，Run 仍是唯一执行身份。
 
