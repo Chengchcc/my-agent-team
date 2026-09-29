@@ -19,6 +19,22 @@ describe("canonical turn parts", () => {
     expect(turnPartsFromMessages([text("hello")])).toEqual([{ kind: "text", text: "hello" }]);
   });
 
+  test("a body mirrored into blocks is projected once, not twice", () => {
+    // Real rows carry both: the plain string and the same text as a block.
+    const parts = turnPartsFromMessages([
+      { role: "assistant", text: "hello", blocks: [{ type: "text", text: "hello" }] },
+    ]);
+    expect(parts).toEqual([{ kind: "text", text: "hello" }]);
+    // A block that is not the same body is still its own part.
+    const both = turnPartsFromMessages([
+      { role: "assistant", text: "hello", blocks: [{ type: "text", text: "and more" }] },
+    ]);
+    expect(both).toEqual([
+      { kind: "text", text: "hello" },
+      { kind: "text", text: "and more" },
+    ]);
+  });
+
   test("a tool call is one part carrying its own result", () => {
     const parts = turnPartsFromMessages([
       use("a", "bash", { command: "ls" }),

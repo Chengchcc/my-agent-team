@@ -288,7 +288,9 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
     turns.push({
       id: turn.turnId,
       startedAt: isoOf(startedAtOf(turn.turnId)),
-      message: toAhpMessage(turn.input),
+      // History carries the initiating message's own coordinates too: a surface forks or replays
+      // from the message it points at, and an undone message has to read as undone.
+      message: toAhpMessage(turn.input, turn.seq, turn.undone),
       responseParts: toResponseParts(turn.turnId, turn.parts),
       usage: undefined,
       state: turnStateOf(turn.status),
@@ -409,7 +411,13 @@ function toAhpMessage(
 }
 
 function toResponseParts(turnId: string, parts: readonly CanonicalPart[]): ResponsePart[] {
-  return parts.map((part, index) => toResponsePart(turnId, part, index));
+  return (
+    parts
+      // A tool row's text is the tool's raw output, which the tool call part already carries as its
+      // own result: projecting it as well would read as if the agent had said it.
+      .filter((part) => !(part.kind === "text" && part.role === "tool"))
+      .map((part, index) => toResponsePart(turnId, part, index))
+  );
 }
 
 function toResponsePart(turnId: string, part: CanonicalPart, index: number): ResponsePart {

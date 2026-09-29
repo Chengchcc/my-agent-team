@@ -364,3 +364,80 @@ test("a system row projects as a notification part, not as a message", async () 
     _meta: { messageId: "m-sys" },
   });
 });
+
+test("a tool row's output is not projected as the agent's own words", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "completed");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      {
+        seq: 1,
+        content: JSON.stringify({
+          messageId: "m-tool",
+          state: "done",
+          role: "tool",
+          text: "AGENTS.md\nCLAUDE.md",
+          updatedAt: 1,
+        }),
+        agentRunId: "r1",
+        messageIndex: 0,
+        ts: 1000,
+      },
+      {
+        seq: 2,
+        content: JSON.stringify({
+          messageId: "m-answer",
+          state: "done",
+          role: "assistant",
+          text: "the answer",
+          updatedAt: 1,
+        }),
+        agentRunId: "r1",
+        messageIndex: 1,
+        ts: 1100,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  // Only the agent's own text is a part, and it keeps the position the projection would give it.
+  expect(chat?.turns[0]?.responseParts).toMatchObject([
+    { kind: "markdown", id: "r1:text:0", content: "the answer" },
+  ]);
+});
+
+test("a history turn's message carries its own ledger coordinate", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "completed");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      {
+        seq: 7,
+        content: JSON.stringify({
+          messageId: "msg-1",
+          state: "done",
+          role: "user",
+          text: "go",
+          updatedAt: 1,
+        }),
+        agentRunId: null,
+        messageIndex: 0,
+        ts: 1000,
+      },
+      {
+        seq: 8,
+        content: revision({ messageId: "m1", role: "assistant", text: "hello" }),
+        agentRunId: "r1",
+        messageIndex: 1,
+        ts: 1100,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  // The surface sends this seq when it forks or replays from that message.
+  expect(chat?.turns[0]?.message).toMatchObject({
+    text: "go",
+    _meta: { messageId: "msg-1", seq: 7 },
+  });
+});

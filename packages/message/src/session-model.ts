@@ -124,6 +124,10 @@ export function turnPartsFromMessages(messages: readonly Message[]): CanonicalPa
       parts.push(withMessageId({ kind: "text", text: message.text }, message.id));
     }
     for (const block of message.blocks ?? []) {
+      // A revision may carry its body twice: `text` for readers that want the plain string, and the
+      // same body again as a text block. Only one of them is the transcript, and projecting both
+      // showed the answer twice (found on a real run, 2026-09-29).
+      if (block.type === "text" && block.text === message.text) continue;
       pushBlock(parts, callIndex, block, message.id);
     }
     if (message.error) {

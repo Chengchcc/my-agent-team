@@ -147,8 +147,12 @@ export interface AgentRunPort {
 
   /** Pending inputs across every branch of a conversation, oldest first,
    *  with the owning agent member id (queue management UI). */
+  /** A conversation's inputs, pending only unless `includeDelivered` - a promoted input leaves the
+   *  pending list (status delivering → delivered), and a surface that renders history needs the
+   *  message that started a finished run, not just the ones still queued. */
   listPendingInputsForConversation(
     conversationId: string,
+    opts?: { includeDelivered?: boolean },
   ): Promise<Array<BranchInput & { agentId: string }>>;
 
   /** CAS a pending input's message (queue edit). Returns false when the

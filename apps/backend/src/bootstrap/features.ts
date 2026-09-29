@@ -534,6 +534,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         content: serializeMessageRevision(msg),
         ts: Date.now(),
       });
+      // The failure is a row now: the chat channel folds the turn into history, error part included.
+      await foldCommittedTurn(input.runId);
     })().catch((err) => console.error(`[bootstrap] onRunFailed failed for ${input.runId}:`, err));
   };
   const onRunCommitted = (
@@ -557,7 +559,31 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       if (convRow && !convRow.title && outcome?.status === "completed" && outcome.title) {
         conv.convPort.setConversationTitle(run.conversationId, outcome.title);
       }
+      // The turn's rows are committed: the chat channel re-states the turn from the projection and
+      // moves it from "in flight" to history, so a live surface needs no refresh to see it there.
+      await foldCommittedTurn(runId);
     })().catch((err) => console.error(`[bootstrap] onRunCommitted failed for ${runId}:`, err));
+  };
+
+  /** The run's rows are committed, so the projection is the authority on its turn: re-state the
+   *  turn on the chat channel (the streamed parts were a preview without ledger coordinates) and
+   *  fold it into the history. Runs whose events this process never streamed are skipped - the
+   *  surface that asks for a snapshot gets the turn from the projection anyway. */
+  const foldCommittedTurn = async (runId: string): Promise<void> => {
+    const run = await agentRunPort.getRun(runId).catch(() => null);
+    if (!run) return;
+    const uri = chatUri(run.conversationId);
+    const chat = await ahpSource.chat(uri).catch(() => null);
+    const turn = chat?.turns.find((candidate) => candidate.id === runId);
+    if (!turn) return;
+    const durationMs = Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt);
+    for (const action of chatActions.commitTurn(runId, turn, durationMs)) {
+      await ahpFace.server.dispatch(uri, action).catch(() => {
+        /* a surface's channel never fails a run */
+      });
+    }
+    chatActions.drop(runId);
+    turnContextByRun.delete(runId);
   };
 
   const codingAgentCommand = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() });
@@ -636,14 +662,30 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     "timeout",
   ]);
   const chatActions = createChatActionTranslator();
-  const conversationByRun = new Map<string, string | null>();
-  const conversationIdForRun = async (runId: string): Promise<string | null> => {
-    const known = conversationByRun.get(runId);
+  /** What the chat channel needs about a run before its first part arrives: the channel to push to
+   *  and the message that started the turn (the protocol opens a turn with its message). */
+  interface RunTurnContext {
+    readonly conversationId: string;
+    readonly inputText: string;
+    readonly startedAt: string;
+  }
+  const turnContextByRun = new Map<string, RunTurnContext | null>();
+  const turnContextForRun = async (runId: string): Promise<RunTurnContext | null> => {
+    const known = turnContextByRun.get(runId);
     if (known !== undefined) return known;
     const run = await agentRunPort.getRun(runId).catch(() => null);
-    const conversationId = run?.conversationId ?? null;
-    conversationByRun.set(runId, conversationId);
-    return conversationId;
+    let context: RunTurnContext | null = null;
+    if (run) {
+      const inputs = await agentRunPort.listInputs(run.branchId).catch(() => []);
+      const input = inputs.find((candidate) => candidate.runId === runId);
+      context = {
+        conversationId: run.conversationId,
+        inputText: input?.message.text ?? "",
+        startedAt: new Date(run.createdAt).toISOString(),
+      };
+    }
+    turnContextByRun.set(runId, context);
+    return context;
   };
 
   const agentRunExecution = createAgentRunExecutionService({
@@ -669,19 +711,23 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       });
     },
     onLiveEvent: (runId, event) => {
+      // The terminal status only means the run stopped stepping: its preview stays live until the
+      // commit hook replaces it with the projection (which is the authority on the turn).
       if (event.type === "status" && "status" in event && TERMINAL_RUN_STATUSES.has(event.status)) {
-        // The run is over: its parts are the projection's business now, and holding them here
-        // would keep a map alive per finished run.
-        chatActions.drop(runId);
-        conversationByRun.delete(runId);
+        return;
       }
       const actions = chatActions.translate(runId, event);
       if (actions.length === 0) return;
       void (async () => {
-        const conversationId = await conversationIdForRun(runId);
-        if (!conversationId) return;
-        for (const action of actions) {
-          await ahpFace.server.dispatch(chatUri(conversationId), action).catch(() => {
+        const context = await turnContextForRun(runId);
+        if (!context) return;
+        // Every action below addresses the active turn by id, so the turn has to exist first.
+        const opening = chatActions.openTurn(runId, {
+          text: context.inputText,
+          startedAt: context.startedAt,
+        });
+        for (const action of [...opening, ...actions]) {
+          await ahpFace.server.dispatch(chatUri(context.conversationId), action).catch(() => {
             /* a surface's channel never fails a run */
           });
         }
@@ -1449,47 +1495,60 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     { input: number; output: number; cacheRead: number; cacheWrite: number }
   > = new Map();
 
-  // 通配绑定不是浏览器可达的 host：给客户端回环地址。
+  // A wildcard bind is not a host a browser can reach: hand the client a loopback address.
   const browserWsBase = `ws://${
     config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
   }:${config.port}`;
 
-  // AHP 面（ADR 0040）：协议机械在 features/ahp，这里接上状态源与命令端口。状态源是
-  // 只读投影：会话与聊天都由规范模型给出；命令面接上控制面之前明确拒绝。
+  // The AHP face (ADR 0040): the protocol machinery lives in features/ahp, and this is where the
+  // state source and the command port attach. The source is a read-only projection - sessions and
+  // chats come from the canonical model - and the command port refuses until the control plane is
+  // wired to it.
+  /** The projection: the face serves it, and the chat writer reads it back to re-state a committed
+   *  turn exactly as a fresh subscriber would read it. */
+  const ahpSource = createAhpStateSource({
+    listAgents: async () =>
+      (await agentSvc.list(false)).map((agent) => ({
+        id: agent.id,
+        name: agent.config.name,
+        runtime: agent.config.runtime_config.runtime,
+        // model_id is the product's model reference string: pass it through, assume no structure.
+        modelId: agent.config.runtime_config.model_id,
+      })),
+    getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
+    getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
+    listPendingInputs: async (conversationId) =>
+      // Delivered rows included: a turn's message is the input that started it, and that input has
+      // left the pending list by the time the turn is history.
+      (
+        await agentRunPort.listPendingInputsForConversation(conversationId, {
+          includeDelivered: true,
+        })
+      ).map((input) => ({
+        runId: input.runId,
+        message: JSON.stringify(input.message),
+      })),
+    // The canonical model takes plain row objects only: action payloads and answers are
+    // serialized here, so product types never leak into it.
+    listPendingActions: async (runId) =>
+      (await agentRunPort.listPendingActions(runId)).map((action) => ({
+        actionId: action.actionId,
+        kind: action.kind,
+        status: action.status,
+        payload: JSON.stringify(action.payload),
+        response: action.response === null ? null : JSON.stringify(action.response),
+      })),
+    getRun: (runId) => agentRunPort.getRun(runId),
+    // Todos are stored per branch; the chat state keys them by run.
+    latestRunTodo: async (runId) => {
+      const run = await agentRunPort.getRun(runId);
+      return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
+    },
+  });
+
   const ahpFace = createAhpFace({
     wsBase: browserWsBase,
-    source: createAhpStateSource({
-      listAgents: async () =>
-        (await agentSvc.list(false)).map((agent) => ({
-          id: agent.id,
-          name: agent.config.name,
-          runtime: agent.config.runtime_config.runtime,
-          // model_id 是产品里那一串模型引用；原样带上，不做结构假设。
-          modelId: agent.config.runtime_config.model_id,
-        })),
-      getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
-      getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
-      listPendingInputs: async (conversationId) =>
-        (await agentRunPort.listPendingInputsForConversation(conversationId)).map((input) => ({
-          runId: input.runId,
-          message: JSON.stringify(input.message),
-        })),
-      // 规范模型只吃普通行对象：动作的载荷与答复在这里序列化，别把产品类型带进去。
-      listPendingActions: async (runId) =>
-        (await agentRunPort.listPendingActions(runId)).map((action) => ({
-          actionId: action.actionId,
-          kind: action.kind,
-          status: action.status,
-          payload: JSON.stringify(action.payload),
-          response: action.response === null ? null : JSON.stringify(action.response),
-        })),
-      getRun: (runId) => agentRunPort.getRun(runId),
-      // Todos are stored per branch; the chat state keys them by run.
-      latestRunTodo: async (runId) => {
-        const run = await agentRunPort.getRun(runId);
-        return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
-      },
-    }),
+    source: ahpSource,
     commands: {
       submit: () => {
         throw new Error("the AHP command path is not wired yet");

@@ -174,7 +174,10 @@ export function createInputQueueMethods(db: Database): InputQueueMethods {
       return row ? parseInput(row) : null;
     },
 
-    async listPendingInputsForConversation(conversationId: string) {
+    async listPendingInputsForConversation(
+      conversationId: string,
+      opts?: { includeDelivered?: boolean },
+    ) {
       const rows = d
         .select()
         .from(schema.branchInputQueue)
@@ -191,10 +194,12 @@ export function createInputQueueMethods(db: Database): InputQueueMethods {
           eq(schema.agentContextTree.conversationId, schema.conversation.conversationId),
         )
         .where(
-          and(
-            eq(schema.agentContextTree.conversationId, conversationId),
-            eq(schema.branchInputQueue.status, "pending"),
-          ),
+          opts?.includeDelivered
+            ? eq(schema.agentContextTree.conversationId, conversationId)
+            : and(
+                eq(schema.agentContextTree.conversationId, conversationId),
+                eq(schema.branchInputQueue.status, "pending"),
+              ),
         )
         .orderBy(schema.branchInputQueue.seq)
         .all();
