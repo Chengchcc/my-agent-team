@@ -32,7 +32,7 @@ function fixture(): Fake {
         : null,
     getLedgerEntries: () => ledger,
     listPendingInputs: async () => [
-      { runId: "r1", message: JSON.stringify({ role: "user", text: "go" }) },
+      { runId: "r1", message: JSON.stringify({ id: "msg-1", role: "user", text: "go" }) },
     ],
     listPendingActions: async () => [],
     getRun: async (runId) => runs.get(runId) ?? null,
@@ -65,6 +65,8 @@ describe("AHP state source", () => {
     expect(chat?.turns).toHaveLength(1);
     expect(chat?.turns[0]).toMatchObject({ id: "r1", state: "complete" });
     expect(chat?.turns[0]?.message).toMatchObject({ text: "go", origin: { kind: "user" } });
+    // The initiating message carries the ledger id too, so a surface can dedupe its own echo.
+    expect(chat?.turns[0]?.message).toMatchObject({ _meta: { messageId: "msg-1" } });
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ kind: "markdown", content: "hello" });
     // The identity rides out with the part: a surface dedupes on it (Lark's exactly-once).
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ _meta: { messageId: "m1" } });

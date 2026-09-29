@@ -360,7 +360,7 @@ function isoOf(ts: number): string {
 }
 
 function toAhpMessage(
-  input: { readonly role?: string; readonly text?: string } | undefined,
+  input: { readonly id?: string; readonly role?: string; readonly text?: string } | undefined,
 ): AhpMessage {
   const role = input?.role ?? "user";
   const kind =
@@ -374,6 +374,9 @@ function toAhpMessage(
   return {
     text: input?.text ?? "",
     origin: { kind: kind as AhpMessage["origin"]["kind"] },
+    // The ledger identity again, on the initiating message: a surface dedupes its own optimistic
+    // echo against it.
+    ...(input?.id === undefined ? {} : { _meta: { messageId: input.id } }),
   };
 }
 
