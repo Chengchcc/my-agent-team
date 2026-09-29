@@ -6,7 +6,7 @@ import type {
 } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type { AgentContextPort, IdGenerator } from "../agent-context/ports.js";
-import { type AgentRun, isActiveStatus } from "../agent-run/domain.js";
+import { type AgentRun, isActiveStatus, pendingActionId } from "../agent-run/domain.js";
 import type { AgentRunPort } from "../agent-run/ports.js";
 import type { ArtifactService } from "../artifact/index.js";
 import type { ConversationPort, LedgerEntry } from "../conversation/ports.js";
@@ -455,7 +455,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       );
     }
     const parsed: AskQuestionInput = { questions: normalized };
-    const key = `${run.runId}:${input.callId}`;
+    const key = pendingActionId(run.runId, input.callId);
     if (pendingAsks.has(key)) {
       throw new ProductToolRejectedError(`open ask already pending for call ${input.callId}`);
     }
@@ -518,7 +518,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       // The wire idempotencyKey is defined as `${runId}:${callId}` (Phase 3
       // Product Tool identity). Validate it so a forged/crossed field cannot
       // carry a semantic it does not have.
-      if (input.idempotencyKey !== `${run.runId}:${input.callId}`) {
+      if (input.idempotencyKey !== pendingActionId(run.runId, input.callId)) {
         throw new ProductToolRejectedError(
           `idempotencyKey ${input.idempotencyKey} does not match ${run.runId}:${input.callId}`,
         );
@@ -555,7 +555,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       }
     },
     resolveAsk(runId, callId, answer) {
-      const key = `${runId}:${callId}`;
+      const key = pendingActionId(runId, callId);
       const resolve = pendingAsks.get(key);
       if (resolve) resolve(answer);
       // Durable ask: consume even without a live resolver - a late answer

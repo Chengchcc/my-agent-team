@@ -1518,13 +1518,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
     getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
     listPendingInputs: async (conversationId) =>
-      // Delivered rows included: a turn's message is the input that started it, and that input has
-      // left the pending list by the time the turn is history.
-      (
-        await agentRunPort.listPendingInputsForConversation(conversationId, {
-          includeDelivered: true,
-        })
-      ).map((input) => ({
+      // Every status: a turn's message is the input that started it, and that input has left the
+      // queue by the time the turn is history.
+      (await agentRunPort.listInputsForConversation(conversationId)).map((input) => ({
         runId: input.runId,
         message: JSON.stringify(input.message),
       })),

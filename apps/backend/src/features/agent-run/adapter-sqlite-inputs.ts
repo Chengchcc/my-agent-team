@@ -18,6 +18,7 @@ type InputQueueMethods = Pick<
   | "listInputs"
   | "getInput"
   | "listPendingInputsForConversation"
+  | "listInputsForConversation"
   | "updateInput"
 >;
 
@@ -174,10 +175,7 @@ export function createInputQueueMethods(db: Database): InputQueueMethods {
       return row ? parseInput(row) : null;
     },
 
-    async listPendingInputsForConversation(
-      conversationId: string,
-      opts?: { includeDelivered?: boolean },
-    ) {
+    async listPendingInputsForConversation(conversationId: string) {
       const rows = d
         .select()
         .from(schema.branchInputQueue)
@@ -194,13 +192,36 @@ export function createInputQueueMethods(db: Database): InputQueueMethods {
           eq(schema.agentContextTree.conversationId, schema.conversation.conversationId),
         )
         .where(
-          opts?.includeDelivered
-            ? eq(schema.agentContextTree.conversationId, conversationId)
-            : and(
-                eq(schema.agentContextTree.conversationId, conversationId),
-                eq(schema.branchInputQueue.status, "pending"),
-              ),
+          and(
+            eq(schema.agentContextTree.conversationId, conversationId),
+            eq(schema.branchInputQueue.status, "pending"),
+          ),
         )
+        .orderBy(schema.branchInputQueue.seq)
+        .all();
+      return rows.map((r) => ({
+        ...parseInput(r.branch_input_queue),
+        agentId: r.conversation.agentId ?? "",
+      }));
+    },
+
+    async listInputsForConversation(conversationId: string) {
+      const rows = d
+        .select()
+        .from(schema.branchInputQueue)
+        .innerJoin(
+          schema.agentContextBranch,
+          eq(schema.branchInputQueue.branchId, schema.agentContextBranch.branchId),
+        )
+        .innerJoin(
+          schema.agentContextTree,
+          eq(schema.agentContextBranch.treeId, schema.agentContextTree.treeId),
+        )
+        .innerJoin(
+          schema.conversation,
+          eq(schema.agentContextTree.conversationId, schema.conversation.conversationId),
+        )
+        .where(eq(schema.agentContextTree.conversationId, conversationId))
         .orderBy(schema.branchInputQueue.seq)
         .all();
       return rows.map((r) => ({

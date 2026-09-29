@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatState } from "@microsoft/agent-host-protocol";
 import { deliverChatState } from "./ahp-delivery.js";
-import { openBindings, upsertMessageDelivery } from "./bindings-sqlite.js";
+import { getMessageDelivery, openBindings, upsertMessageDelivery } from "./bindings-sqlite.js";
 
 let db: Database;
 let dir: string;
@@ -81,5 +81,49 @@ describe("AHP delivery to Lark", () => {
     });
     await deliverChatState(stateWith([part("hi", "run:run-1:assistant:0")]), target, deps);
     expect(sent).toEqual(["hi"]);
+  });
+});
+
+describe("a failed send", () => {
+  test("is recorded as a failure and retried on the next pass", async () => {
+    const parts = [part("hello", "run-1:assistant:0")];
+    const sent: string[] = [];
+    const failing = {
+      db,
+      onSend: async (_chatId: string, text: string) => {
+        sent.push(text);
+        throw new Error("lark said no");
+      },
+    };
+    // The failure leaves the delivery, because that is what makes the watcher reconnect and retry.
+    await expect(deliverChatState(stateWith(parts), target, failing)).rejects.toThrow(
+      "lark said no",
+    );
+
+    const row = getMessageDelivery(
+      db,
+      target.conversationId,
+      "run-1:assistant:0",
+      target.larkChatId,
+    );
+    // Not "done": the message never landed, and claiming it did would drop the reply.
+    expect(row?.lastState).toBe("error");
+
+    const working = {
+      db,
+      onSend: async (_chatId: string, text: string) => {
+        sent.push(text);
+      },
+    };
+    await deliverChatState(stateWith(parts), target, working);
+    expect(sent).toEqual(["hello", "hello"]);
+    expect(
+      getMessageDelivery(db, target.conversationId, "run-1:assistant:0", target.larkChatId)
+        ?.lastState,
+    ).toBe("done");
+
+    // And a delivered row stays closed: a third pass sends nothing.
+    await deliverChatState(stateWith(parts), target, working);
+    expect(sent).toEqual(["hello", "hello"]);
   });
 });

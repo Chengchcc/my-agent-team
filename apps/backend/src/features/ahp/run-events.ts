@@ -20,6 +20,7 @@
  *  same text. (Upstream action shapes read on 2026-09-29, protocol v0.9.0.) */
 import type { BackendEvent } from "@chengchenccc/agent-contract";
 import type { StateAction, Turn } from "@microsoft/agent-host-protocol";
+import { pendingActionId } from "../agent-run/domain.js";
 
 /** What the surface needs in order to show a turn before its first part arrives. */
 export interface TurnOpening {
@@ -55,6 +56,9 @@ export function createChatActionTranslator(): ChatActionTranslator {
   const open = new Map<string, string>();
   /** Turns this process opened, with the start time the surface was told. */
   const openTurns = new Map<string, { startedAt: string }>();
+  /** Human input requests already announced. The durable row is idempotent by id, and so is the
+   *  card: announcing one twice would put two cards on the surface for one question. */
+  const announcedRequests = new Map<string, Set<string>>();
 
   const partsOf = (runId: string): string[] => {
     let list = parts.get(runId);
@@ -65,12 +69,22 @@ export function createChatActionTranslator(): ChatActionTranslator {
     return list;
   };
 
+  const partAction = (runId: string, part: unknown): StateAction =>
+    ({ type: "chat/responsePart", turnId: runId, part }) as unknown as StateAction;
+
   const responsePart = (runId: string, kind: string, partId: string): StateAction =>
-    ({
-      type: "chat/responsePart",
-      turnId: runId,
-      part: { kind, id: partId, content: "" },
-    }) as unknown as StateAction;
+    partAction(runId, { kind, id: partId, content: "" });
+
+  const announceRequest = (runId: string, requestId: string): boolean => {
+    let seen = announcedRequests.get(runId);
+    if (!seen) {
+      seen = new Set();
+      announcedRequests.set(runId, seen);
+    }
+    if (seen.has(requestId)) return false;
+    seen.add(requestId);
+    return true;
+  };
 
   /** Append a delta, opening the part first when this is a new run of the same kind. */
   const appendDelta = (
@@ -170,6 +184,28 @@ export function createChatActionTranslator(): ChatActionTranslator {
             callId: event.callId,
             ...(event.result !== undefined ? { result: event.result } : {}),
           });
+        case "approval_requested":
+        case "ask_requested": {
+          // A parked run is a product fact, not a backend detail: without this the surface learns
+          // nothing until it re-subscribes, which is exactly the case the card exists for.
+          const requestId = pendingActionId(runId, event.payload.callId);
+          if (!announceRequest(runId, requestId)) return [];
+          // The request is a part of the turn too, so it holds a position among them.
+          partsOf(runId).push(`${runId}:inputRequest:${requestId}`);
+          open.delete(runId);
+          return [
+            partAction(runId, {
+              kind: "inputRequest",
+              request: {
+                id: requestId,
+                message: event.type === "ask_requested" ? "ask" : "approval",
+                // The durable row's payload, under the same key the projection uses, so the card
+                // shows what is being approved on the live edge as well.
+                _meta: { productRequest: event.payload },
+              },
+            }),
+          ];
+        }
         default:
           return [];
       }
@@ -200,6 +236,7 @@ export function createChatActionTranslator(): ChatActionTranslator {
       parts.delete(runId);
       open.delete(runId);
       openTurns.delete(runId);
+      announcedRequests.delete(runId);
     },
   };
 }

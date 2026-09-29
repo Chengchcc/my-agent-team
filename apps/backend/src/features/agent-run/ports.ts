@@ -145,14 +145,17 @@ export interface AgentRunPort {
   /** Get a single queued input by id (queue management UI). */
   getInput(inputId: string): Promise<BranchInput | null>;
 
-  /** Pending inputs across every branch of a conversation, oldest first,
-   *  with the owning agent member id (queue management UI). */
-  /** A conversation's inputs, pending only unless `includeDelivered` - a promoted input leaves the
-   *  pending list (status delivering → delivered), and a surface that renders history needs the
-   *  message that started a finished run, not just the ones still queued. */
+  /** Pending inputs across every branch of a conversation, oldest first, with the owning agent
+   *  member id: what a queue view shows. */
   listPendingInputsForConversation(
     conversationId: string,
-    opts?: { includeDelivered?: boolean },
+  ): Promise<Array<BranchInput & { agentId: string }>>;
+
+  /** The same inputs in every status. A reader that renders history wants the input that started a
+   *  finished run, and that one left the queue long ago; the queue keeps its own narrower read
+   *  instead of this one growing a flag. */
+  listInputsForConversation(
+    conversationId: string,
   ): Promise<Array<BranchInput & { agentId: string }>>;
 
   /** CAS a pending input's message (queue edit). Returns false when the

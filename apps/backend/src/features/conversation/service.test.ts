@@ -137,7 +137,10 @@ function makeRunService(): AgentRunService {
         agentId: i.agentId,
       } as never;
     },
-    async listPendingInputsForConversation() {
+    async listInputsForConversation(conversationId: string) {
+      return this.listPendingInputsForConversation(conversationId);
+    },
+    async listPendingInputsForConversation(_conversationId: string) {
       return [...fakeInputs.values()]
         .filter((i) => i.status === "pending")
         .map(

@@ -9,7 +9,7 @@
  *  The identity comes from the part's `_meta.messageId`, which the projection
  *  carries out of the ledger. */
 import type { Database } from "bun:sqlite";
-import { isTerminalMessageState, MessageStateSchema } from "@chengchenccc/message";
+import { isSucceededMessageState, MessageStateSchema } from "@chengchenccc/message";
 import type { ChatState, ResponsePart } from "@microsoft/agent-host-protocol";
 import {
   getMessageDelivery,
@@ -80,8 +80,10 @@ async function deliverText(
   const runId = runIdFromMessageId(messageId);
   if (runId && runCardOwnsDelivery(deps.db, runId, target.larkChatId)) return;
 
+  // Only a delivered message closes the row. `error` is terminal in the message state machine,
+  // but for delivery it means "not sent": treating it as done would drop the reply silently.
   const existing = getMessageDelivery(deps.db, target.conversationId, messageId, target.larkChatId);
-  if (existing && isTerminalMessageState(MessageStateSchema.parse(existing.lastState))) return;
+  if (existing && isSucceededMessageState(MessageStateSchema.parse(existing.lastState))) return;
 
   // Record intent before sending: a crash replays this, and the same idempotency
   // key makes that replay a no-op on Lark's side.
@@ -94,8 +96,12 @@ async function deliverText(
     );
     record(deps, target, messageId, "done");
   } catch (err) {
+    // Record the failure and let it out: the watcher's loop reconnects on a throw, which re-reads
+    // the snapshot and re-runs this delivery. Swallowing it would leave the reply unsent with
+    // nothing left to trigger another attempt.
     record(deps, target, messageId, "error");
     console.error(`[ahp-delivery] send failed for ${messageId}:`, err);
+    throw err;
   }
 }
 
@@ -131,9 +137,12 @@ function record(
   });
 }
 
+/** `_meta` is optional and not every part kind declares it; the `in` check narrows the union, so
+ *  this reads the field without asserting a shape (bare casts are banned in this app). */
 function metaOf(part: ResponsePart): Record<string, unknown> | undefined {
-  const meta = (part as { _meta?: unknown })._meta;
-  return meta !== null && typeof meta === "object" ? (meta as Record<string, unknown>) : undefined;
+  if (!("_meta" in part)) return undefined;
+  const meta = part._meta;
+  return typeof meta === "object" && meta !== null ? meta : undefined;
 }
 
 function messageIdOf(part: ResponsePart): string | undefined {
@@ -142,6 +151,6 @@ function messageIdOf(part: ResponsePart): string | undefined {
 }
 
 function textOf(part: ResponsePart): string | undefined {
-  const content = (part as { content?: unknown }).content;
-  return typeof content === "string" ? content : undefined;
+  if (!("content" in part)) return undefined;
+  return typeof part.content === "string" ? part.content : undefined;
 }

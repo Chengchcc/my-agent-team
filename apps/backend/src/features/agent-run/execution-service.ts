@@ -9,7 +9,7 @@ import type {
 } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
-import { isActiveStatus } from "./domain.js";
+import { isActiveStatus, pendingActionId } from "./domain.js";
 import { finalAnswerMessage } from "./execution-input.js";
 import type { LiveEventBus } from "./execution-live.js";
 import type {
@@ -247,7 +247,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
     async resolveApproval(runId, callId, decision) {
       // Validate against the durable action first: an unknown callId is a
       // stale click, not a decision, and must never reach the child.
-      const actionId = `${runId}:${callId}`;
+      const actionId = pendingActionId(runId, callId);
       const action = await runPort.getPendingAction(actionId);
       if (!action || action.status === "cancelled") {
         throw new ApprovalNotApplicableError(

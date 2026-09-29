@@ -21,16 +21,16 @@ describe("Agent Run: conversation inputs", () => {
     });
     expect(acquired.run).toBeTruthy();
 
-    const pending = await runPort.listPendingInputsForConversation(conversationId);
-    const all = await runPort.listPendingInputsForConversation(conversationId, {
-      includeDelivered: true,
+    expect(await runPort.listPendingInputsForConversation(conversationId)).toHaveLength(0);
+    const inputs = await runPort.listInputsForConversation(conversationId);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({
+      runId: acquired.run?.runId,
+      message: { text: "start me" },
     });
-    expect(pending).toHaveLength(0);
-    expect(all).toHaveLength(1);
-    expect(all[0]).toMatchObject({ runId: acquired.run?.runId, message: { text: "start me" } });
   });
 
-  test("the pending list still reports what is queued", async () => {
+  test("the queue read reports only what is queued", async () => {
     const { conversationId, agentId, branch } = await setupBranch("inputs2");
     await runPort.enqueueAndAcquire({
       conversationId,
@@ -58,7 +58,12 @@ describe("Agent Run: conversation inputs", () => {
       configRevision: 1,
       expectedRevision: branch.revision,
     });
-    const pending = await runPort.listPendingInputsForConversation(conversationId);
-    expect(pending.map((input) => input.message.text)).toEqual(["second"]);
+    expect(
+      (await runPort.listPendingInputsForConversation(conversationId)).map((i) => i.message.text),
+    ).toEqual(["second"]);
+    // The wider read is not a queue: it carries the promoted input too, oldest first.
+    expect(
+      (await runPort.listInputsForConversation(conversationId)).map((i) => i.message.text),
+    ).toEqual(["first", "second"]);
   });
 });

@@ -32,6 +32,13 @@ export function isActiveStatus(status: AgentRunStatus): boolean {
 
 // ─── Agent Run entity ────────────────────────────────────────────
 
+/** The durable identity of a human input request: one Run, one tool call, one row. The surface
+ *  shows this same string as the request id, so the rule lives here instead of being spelled out
+ *  at every writer (a second copy drifts, and the card then points at a row nobody can resolve). */
+export function pendingActionId(runId: string, callId: string): string {
+  return `${runId}:${callId}`;
+}
+
 export interface AgentRun {
   readonly runId: string;
   readonly branchId: string;

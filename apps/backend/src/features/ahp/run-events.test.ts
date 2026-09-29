@@ -142,6 +142,59 @@ describe("run events to chat actions", () => {
     ).toEqual([]);
   });
 
+  test("a human input request arrives as a card part, once", () => {
+    const translator = createChatActionTranslator();
+    const approval = translator.translate("run-10", {
+      type: "approval_requested",
+      payload: { callId: "call-9", toolName: "bash", input: { command: "rm -rf build" } },
+    });
+    // Same id and shape the projection gives the part, so a surface renders one card either way.
+    expect(approval).toMatchObject([
+      {
+        type: "chat/responsePart",
+        turnId: "run-10",
+        part: {
+          kind: "inputRequest",
+          request: {
+            id: "run-10:call-9",
+            message: "approval",
+            _meta: {
+              productRequest: {
+                callId: "call-9",
+                toolName: "bash",
+                input: { command: "rm -rf build" },
+              },
+            },
+          },
+        },
+      },
+    ]);
+    // The durable row is idempotent by id, so a replayed event must not put up a second card.
+    expect(
+      translator.translate("run-10", {
+        type: "approval_requested",
+        payload: { callId: "call-9", toolName: "bash" },
+      }),
+    ).toEqual([]);
+  });
+
+  test("an ask request says it is a question and carries its items", () => {
+    const translator = createChatActionTranslator();
+    const ask = translator.translate("run-11", {
+      type: "ask_requested",
+      payload: { callId: "call-1", questions: [{ id: "q1", question: "which?" }] },
+    });
+    expect(ask[0]).toMatchObject({
+      part: {
+        request: {
+          id: "run-11:call-1",
+          message: "ask",
+          _meta: { productRequest: { callId: "call-1" } },
+        },
+      },
+    });
+  });
+
   test("a dropped run starts fresh instead of appending to its old part", () => {
     const translator = createChatActionTranslator();
     translator.translate("run-9", { type: "text_delta", text: "a" });

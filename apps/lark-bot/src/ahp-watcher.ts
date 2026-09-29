@@ -116,5 +116,16 @@ async function defaultFetchTicket(
 ): Promise<{ ticket: string; wsBase: string }> {
   const res = await fetch(url, { method: "POST", headers });
   if (!res.ok) throw new Error(`ticket request failed: ${res.status}`);
-  return (await res.json()) as { ticket: string; wsBase: string };
+  const body: unknown = await res.json();
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("ticket" in body) ||
+    !("wsBase" in body) ||
+    typeof body.ticket !== "string" ||
+    typeof body.wsBase !== "string"
+  ) {
+    throw new Error("ticket response is not a {ticket, wsBase} body");
+  }
+  return { ticket: body.ticket, wsBase: body.wsBase };
 }

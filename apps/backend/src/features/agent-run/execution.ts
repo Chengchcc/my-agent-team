@@ -1,6 +1,6 @@
 import type { BackendEvent, ResumeDecision } from "@chengchenccc/agent-contract";
 import type { AgentRun } from "./domain.js";
-import { isTerminalStatus } from "./domain.js";
+import { isTerminalStatus, pendingActionId } from "./domain.js";
 import { createExecutionDispatcher } from "./execution-dispatch.js";
 import { createLiveEventBus } from "./execution-live.js";
 import { createExecutionService } from "./execution-service.js";
@@ -113,7 +113,7 @@ export function createAgentRunExecutionService(
     // no-ops) and CASes the run running->waiting.
     onApprovalRequest: async ({ runId, callId, payload }) => {
       await deps.runPort.createPendingAction(runId, {
-        actionId: `${runId}:${callId}`,
+        actionId: pendingActionId(runId, callId),
         kind: "approval",
         payload: { ...payload },
       });

@@ -81,7 +81,7 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
         if (!closed) deps.onError?.(err);
       }
       if (closed) break;
-      await Bun.sleep(deps.reconnectDelayMs ?? 1000);
+      await new Promise((resolve) => setTimeout(resolve, deps.reconnectDelayMs ?? 1000));
     }
   })();
 

@@ -97,7 +97,11 @@ export interface AgentRunService {
   /** Pending inputs across every branch of a conversation (queue UI). */
   listPendingInputsForConversation(
     conversationId: string,
-    opts?: { includeDelivered?: boolean },
+  ): Promise<Array<BranchInput & { agentId: string }>>;
+  /** The same inputs in every status: a reader that renders history wants the one that started a
+   *  finished run, which has left the queue. */
+  listInputsForConversation(
+    conversationId: string,
   ): Promise<Array<BranchInput & { agentId: string }>>;
   /** CAS a pending input's message; false when no longer pending. */
   updateInput(inputId: string, message: Message): Promise<boolean>;
@@ -237,8 +241,12 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
       return port.getInput(inputId);
     },
 
-    async listPendingInputsForConversation(conversationId, opts) {
-      return port.listPendingInputsForConversation(conversationId, opts);
+    async listPendingInputsForConversation(conversationId) {
+      return port.listPendingInputsForConversation(conversationId);
+    },
+
+    async listInputsForConversation(conversationId) {
+      return port.listInputsForConversation(conversationId);
     },
 
     async updateInput(inputId, message) {

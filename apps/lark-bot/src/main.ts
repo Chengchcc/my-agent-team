@@ -66,7 +66,9 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
       if (!result.ok) {
         const msg = result.error ?? "unknown lark send error";
         console.error(`[lark-bot] send failed for ${chatId}: ${msg}`);
-        // Throwing matters: the delivery row stays non-terminal, so a later pass retries.
+        // Throwing matters: the delivery records the failure instead of claiming the message
+        // landed, and the watcher reconnects, which re-runs the delivery from the same state.
+        throw new Error(msg);
       }
     },
     // M15.1: Handle conversation rebind from surface.control

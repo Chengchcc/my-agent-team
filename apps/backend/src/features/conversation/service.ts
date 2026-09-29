@@ -655,15 +655,18 @@ class ConversationServiceImpl implements ConversationService {
   // ─── Pending input queue (Composer queue area) ───
 
   async listPendingInputs(conversationId: string) {
-    const inputs = await this.#agentRuns.listPendingInputsForConversation(conversationId);
-    return inputs.map((i) => ({
-      inputId: i.inputId,
-      branchId: i.branchId,
-      mode: i.mode,
-      text: extractText(i.message),
-      agentId: i.agentId,
-      createdAt: i.createdAt,
-    }));
+    const inputs = await this.#agentRuns.listInputsForConversation(conversationId);
+    // The queue shows what is still queued; a promoted input has left it (ADR 0037).
+    return inputs
+      .filter((i) => i.status === "pending")
+      .map((i) => ({
+        inputId: i.inputId,
+        branchId: i.branchId,
+        mode: i.mode,
+        text: extractText(i.message),
+        agentId: i.agentId,
+        createdAt: i.createdAt,
+      }));
   }
 
   /** One input's own state, whatever it is (ADR 0037): the surface waiting on
