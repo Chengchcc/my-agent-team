@@ -382,15 +382,6 @@ export function Timeline({
             const showBubble = text || t.error;
             return (
               <div key={`transient-${t.runId}`} className="group relative">
-                {t.notices?.map((n, i) => (
-                  <p
-                    key={`notice-${i}`}
-                    data-testid="stream-rule-notice"
-                    className="px-1 py-0.5 text-xs text-amber-500"
-                  >
-                    ⚠ {n}
-                  </p>
-                ))}
                 {t.approval && (
                   <TimelineApprovalCard
                     runId={t.runId}
