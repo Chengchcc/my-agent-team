@@ -177,6 +177,8 @@ function makeRunService(): AgentRunService {
 const runSvc = makeRunService();
 const injectSteerCalls: Array<{ branchId: string; inputId: string }> = [];
 const abortStaleCalls: string[] = [];
+/** Every continuity record the service announced, in order. */
+const continuityAnnouncements: Array<{ conversationId: string; controlSeq: number }> = [];
 /** RunIds considered "live" (in-process child). DB-active alone is not live. */
 let liveRunIds = new Set<string>();
 /** RunIds with a dispatch in flight (pre-acceptance) on this process. */
@@ -196,6 +198,7 @@ const svc = createConversationService({
     abortStaleCalls.push(runId);
   },
   contextService: contextSvc,
+  onContinuityRecorded: (input) => continuityAnnouncements.push(input),
   resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
   idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
 });
@@ -408,6 +411,12 @@ describe("conversation service (Agent Run cutover)", () => {
     });
     expect(again.newConversationId).toBe(result.newConversationId);
     expect(again.controlSeq).toBe(result.controlSeq);
+    // The record is announced both when it is written and when a retry finds it: a surface may
+    // have connected in between, and announcing it again is idempotent on the surface's side.
+    expect(continuityAnnouncements).toEqual([
+      { conversationId: id, controlSeq: result.controlSeq },
+      { conversationId: id, controlSeq: result.controlSeq },
+    ]);
     expect(port.getLedgerEntries(id).filter((e) => e.kind === "surface.control")).toHaveLength(1);
     // 1:1: the new conversation keeps the same agent binding.
     expect(port.getConversation(result.newConversationId)!.agentId).toBe("a-1");

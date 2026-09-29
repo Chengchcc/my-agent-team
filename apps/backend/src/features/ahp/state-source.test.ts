@@ -441,3 +441,55 @@ test("a history turn's message carries its own ledger coordinate", async () => {
     _meta: { messageId: "msg-1", seq: 7 },
   });
 });
+
+test("a tool call part carries the coordinate of its row", async () => {
+  const fake = fixture();
+  fake.setRun("r1", "completed");
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      {
+        seq: 4,
+        content: JSON.stringify({
+          messageId: "run:r1:tool:1",
+          state: "done",
+          role: "tool",
+          blocks: [{ type: "tool_result", tool_use_id: "call-1", content: "3 files" }],
+          updatedAt: 1,
+        }),
+        agentRunId: "r1",
+        messageIndex: 0,
+        ts: 1000,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  expect(chat?.turns[0]?.responseParts[0]).toMatchObject({
+    kind: "toolCall",
+    _meta: { messageId: "run:r1:tool:1", seq: 4 },
+  });
+});
+
+test("the continuity notice is a notice, not an utterance", async () => {
+  const fake = fixture();
+  const source = createAhpStateSource({
+    ...fake.deps,
+    getLedgerEntries: () => [
+      {
+        seq: 9,
+        content: JSON.stringify({
+          kind: "lark.start_new_conversation",
+          newConversationId: "c2",
+          requestedByRunId: "r1",
+        }),
+        agentRunId: null,
+        messageIndex: 0,
+        ts: 2000,
+      },
+    ],
+  });
+  const chat = await source.chat(chatUri("c1"));
+  const notice = chat?.turns.find((turn) => turn.id.startsWith("continuity:"));
+  expect(notice?.message.text).toBe("");
+  expect(notice?.responseParts[0]).toMatchObject({ kind: "systemNotification" });
+});

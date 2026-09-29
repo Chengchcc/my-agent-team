@@ -36,6 +36,9 @@ export function createConversationFeature(input: {
    *  it to AgentRunExecutionService.abortStaleRun). */
   abortStaleRun: (runId: string) => Promise<void>;
   contextService: AgentContextService;
+  /** Told when a continuity record lands, so the surface layer can announce it. Optional
+   *  pass-through to the service. */
+  onContinuityRecorded?: (input: { conversationId: string; controlSeq: number }) => void;
   /** Roadmap (自由文本追问): mirrors ProductToolsService.pendingTextAskFor
    *  Conversation + resolveAsk into one call. Optional pass-through. */
   answerPendingTextAsk?: (conversationId: string, text: string) => Promise<boolean>;
@@ -51,6 +54,7 @@ export function createConversationFeature(input: {
     isInflight,
     abortStaleRun,
     contextService,
+    onContinuityRecorded,
     answerPendingTextAsk,
   } = input;
 
@@ -63,6 +67,7 @@ export function createConversationFeature(input: {
     isInflight,
     abortStaleRun,
     contextService,
+    onContinuityRecorded,
     answerPendingTextAsk,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {

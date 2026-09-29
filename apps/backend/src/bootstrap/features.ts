@@ -376,6 +376,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const isLive: { fn: (runId: string) => boolean } = { fn: () => false };
   const isInflight: { fn: (runId: string) => boolean } = { fn: () => false };
   const abortStaleRun: { fn: (runId: string) => Promise<void> } = { fn: async () => {} };
+  // The continuity record exists FOR surfaces ("this conversation moved"), so the chat channels
+  // are told when one lands. Filled in once the AHP host exists, like the holders above.
+  const onContinuityRecorded: {
+    fn: (input: { conversationId: string; controlSeq: number }) => void;
+  } = { fn: () => {} };
   const conv = createConversationFeature({
     convPort,
 
@@ -386,6 +391,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     isLive: (runId: string) => isLive.fn(runId),
     isInflight: (runId: string) => isInflight.fn(runId),
     abortStaleRun: (runId: string) => abortStaleRun.fn(runId),
+    onContinuityRecorded: (input) => onContinuityRecorded.fn(input),
     contextService: contextSvc,
     // Roadmap (自由文本追问): the productTools binding is declared below —
     // the closure dereferences it at request time, long after boot wiring.
@@ -667,6 +673,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   interface RunTurnContext {
     readonly conversationId: string;
     readonly inputText: string;
+    /** The ledger row of that input, so the surface's own optimistic item collapses onto it. */
+    readonly messageId?: string;
     readonly startedAt: string;
   }
   const turnContextByRun = new Map<string, RunTurnContext | null>();
@@ -681,6 +689,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       context = {
         conversationId: run.conversationId,
         inputText: input?.message.text ?? "",
+        ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
         startedAt: new Date(run.createdAt).toISOString(),
       };
     }
@@ -725,6 +734,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         const opening = chatActions.openTurn(runId, {
           text: context.inputText,
           startedAt: context.startedAt,
+          ...(context.messageId === undefined ? {} : { messageId: context.messageId }),
         });
         for (const action of [...opening, ...actions]) {
           await ahpHost.server.dispatch(chatUri(context.conversationId), action).catch(() => {
@@ -1551,6 +1561,29 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       },
     },
   });
+
+  /** A continuity record is announced on the chat channel it belongs to: a surface that is already
+   *  connected sees the notice (and moves its binding) instead of waiting for its next snapshot. */
+  const announceContinuity = async (input: {
+    conversationId: string;
+    controlSeq: number;
+  }): Promise<void> => {
+    const uri = chatUri(input.conversationId);
+    const chat = await ahpSource.chat(uri).catch(() => null);
+    const turnId = `continuity:${input.controlSeq}`;
+    const turn = chat?.turns.find((candidate) => candidate.id === turnId);
+    if (!turn) return;
+    for (const action of chatActions.announceContinuity(turnId, turn)) {
+      await ahpHost.server.dispatch(uri, action).catch(() => {
+        /* a surface's channel never fails a run */
+      });
+    }
+  };
+  onContinuityRecorded.fn = (input) => {
+    void announceContinuity(input).catch((err) =>
+      console.error(`[bootstrap] continuity announcement failed for ${input.conversationId}:`, err),
+    );
+  };
 
   const featureSet: FeatureSet = {
     agents: agentRoutes(

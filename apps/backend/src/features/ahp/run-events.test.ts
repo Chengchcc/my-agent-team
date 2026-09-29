@@ -98,11 +98,21 @@ describe("run events to chat actions", () => {
     expect(translator.translate("run-5", { type: "text_delta", text: "" })).toEqual([]);
   });
 
-  test("a turn is opened once", () => {
+  test("a turn is opened once, carrying the identity of the message that started it", () => {
     const translator = createChatActionTranslator();
-    const opening = { text: "hello", startedAt: "2026-09-29T00:00:00.000Z" };
-    expect(types(translator.openTurn("run-6", opening))).toEqual(["chat/turnStarted"]);
+    const opening = {
+      text: "hello",
+      startedAt: "2026-09-29T00:00:00.000Z",
+      messageId: "msg:c1:user:abc",
+    };
+    const opened = translator.openTurn("run-6", opening);
+    expect(types(opened)).toEqual(["chat/turnStarted"]);
+    expect(opened[0]).toMatchObject({ message: { _meta: { messageId: "msg:c1:user:abc" } } });
     expect(translator.openTurn("run-6", opening)).toEqual([]);
+    // Without an id the opening is still valid; the commit re-states the message later.
+    expect(
+      translator.openTurn("run-12", { text: "hi", startedAt: "2026-09-29T00:00:00.000Z" })[0],
+    ).toMatchObject({ message: { text: "hi" } });
   });
 
   test("the committed turn replaces the preview and folds into the history", () => {
@@ -192,6 +202,27 @@ describe("run events to chat actions", () => {
           _meta: { productRequest: { callId: "call-1" } },
         },
       },
+    });
+  });
+
+  test("a continuity record is announced as its own turn", () => {
+    const translator = createChatActionTranslator();
+    const turn = {
+      startedAt: "2026-09-29T00:00:00.000Z",
+      message: { text: "", origin: { kind: "systemNotification" } },
+      responseParts: [
+        {
+          kind: "systemNotification",
+          content: "This conversation continued in a new one.",
+          _meta: { newConversationId: "c2", requestedByRunId: "run-1" },
+        },
+      ],
+    } as unknown as Pick<Turn, "message" | "responseParts" | "startedAt">;
+    const actions = translator.announceContinuity("continuity:9", turn);
+    // No preview to fold, so no open either: nothing was streamed for it.
+    expect(types(actions)).toEqual(["chat/turnStarted", "chat/responsePart", "chat/turnComplete"]);
+    expect(actions[1]).toMatchObject({
+      part: { _meta: { newConversationId: "c2", requestedByRunId: "run-1" } },
     });
   });
 

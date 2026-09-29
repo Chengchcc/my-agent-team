@@ -338,8 +338,10 @@ function continuityTurns(ledger: readonly AhpLedgerRow[]): AhpTurn[] {
     out.push({
       id: `continuity:${row.seq}`,
       startedAt: isoOf(row.ts),
+      // The notice is the part, not an utterance: a turn with a non-empty message would render a
+      // second bubble beside the notice on any surface that shows both.
       message: {
-        text,
+        text: "",
         origin: { kind: enumValue<AhpMessage["origin"]["kind"]>("systemNotification") },
       },
       responseParts: [part],
@@ -454,6 +456,9 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
       const error: ErrorResponsePart = {
         kind: enumValue<ErrorResponsePart["kind"]>("error"),
         error: { errorType: part.code ?? "run_failed", message: part.message },
+        // Every part carries the ledger row it came from, not only prose: a surface dedupes and
+        // addresses parts by these, and a tool result or a failure is no exception.
+        ...metaOf(part.messageId, part.seq, part.undone),
       };
       return error;
     }
@@ -461,6 +466,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
       const call: ToolCallResponsePart = {
         kind: enumValue<ToolCallResponsePart["kind"]>("toolCall"),
         toolCall: toToolCall(part.toolCall),
+        ...metaOf(part.messageId, part.seq, part.undone),
       };
       return call;
     }

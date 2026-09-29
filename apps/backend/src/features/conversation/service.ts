@@ -41,6 +41,10 @@ export interface ConversationServiceDeps {
    *  aborted + input cancelled + branch released, before enqueueing a fresh
    *  normal Run. */
   abortStaleRun: (runId: string) => Promise<void>;
+  /** The continuity record exists so a surface can move its binding, so the surface layer is told
+   *  when one is written. Optional: without it the record is still in the ledger and in the next
+   *  projection, a connected surface just learns about it later. */
+  onContinuityRecorded?: (input: { conversationId: string; controlSeq: number }) => void;
   /** Product Context branch resolution (mode decisions; scope IS the
    *  Conversation/Branch pair since the 1:1 collapse). */
   contextService: AgentContextService;
@@ -161,6 +165,7 @@ class ConversationServiceImpl implements ConversationService {
   #isInflight: ConversationServiceDeps["isInflight"];
   #abortStaleRun: ConversationServiceDeps["abortStaleRun"];
   #answerPendingTextAsk: ConversationServiceDeps["answerPendingTextAsk"];
+  #onContinuityRecorded: ConversationServiceDeps["onContinuityRecorded"];
   #contextService: AgentContextService;
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
 
@@ -179,6 +184,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#isInflight = deps.isInflight;
     this.#abortStaleRun = deps.abortStaleRun;
     this.#answerPendingTextAsk = deps.answerPendingTextAsk;
+    this.#onContinuityRecorded = deps.onContinuityRecorded;
     this.#contextService = deps.contextService;
     this.#resolveDefaultModel = deps.resolveDefaultModel;
     this.#idGen = deps.idGen;
@@ -506,6 +512,9 @@ class ConversationServiceImpl implements ConversationService {
         };
         // 幂等按规范坐标判定：同一个 Run 的同一个请求只落一次（方言串与 surface 自造键已删）。
         if (c.requestedByRunId === requestedByRunId && c.newConversationId) {
+          // Replayed across a restart or a retried tool call: a surface may have connected since,
+          // and the announcement is idempotent on its side (parts are keyed by id).
+          this.#onContinuityRecorded?.({ conversationId: oldConversationId, controlSeq: entry.seq });
           return {
             oldConversationId,
             newConversationId: c.newConversationId,
@@ -552,6 +561,7 @@ class ConversationServiceImpl implements ConversationService {
       content: control,
     });
 
+    this.#onContinuityRecorded?.({ conversationId: oldConversationId, controlSeq });
     return { oldConversationId, newConversationId, controlSeq };
   }
 

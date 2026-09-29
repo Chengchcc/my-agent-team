@@ -27,6 +27,10 @@ export interface TurnOpening {
   /** The message that started the turn. The projection re-states it from the ledger at commit. */
   readonly text: string;
   readonly startedAt: string;
+  /** The ledger row that carries this message, once the product knows it. A surface keys its item
+   *  by that id, and a preview without one would sit beside the real message as a second bubble
+   *  when the commit re-states the turn. */
+  readonly messageId?: string;
 }
 
 export interface ChatActionTranslator {
@@ -43,6 +47,13 @@ export interface ChatActionTranslator {
     runId: string,
     turn: Pick<Turn, "message" | "responseParts">,
     durationMs: number,
+  ): StateAction[];
+  /** A turn the host just appended to the ledger, with nothing streamed for it: the projection is
+   *  the only source (the continuity record works this way). Announcing it in full is what a
+   *  surface watching before the record existed needs; there is no preview to fold. */
+  announceContinuity(
+    turnId: string,
+    turn: Pick<Turn, "message" | "responseParts" | "startedAt">,
   ): StateAction[];
   /** Forget a finished run. */
   drop(runId: string): void;
@@ -110,6 +121,20 @@ export function createChatActionTranslator(): ChatActionTranslator {
     return fresh ? [responsePart(runId, kind, partId as string), delta] : [delta];
   };
 
+  /** State a turn exactly as the projection has it: `chat/turnStarted` replaces the active turn
+   *  wholesale, parts included, which is what puts projected parts in place of a preview. */
+  const turnActions = (
+    turnId: string,
+    startedAt: string,
+    turn: Pick<Turn, "message" | "responseParts">,
+    durationMs: number,
+  ): StateAction[] =>
+    [
+      { type: "chat/turnStarted", turnId, startedAt, message: turn.message },
+      ...turn.responseParts.map((part) => ({ type: "chat/responsePart", turnId, part })),
+      { type: "chat/turnComplete", turnId, duration: durationMs },
+    ] as unknown as StateAction[];
+
   /** A tool call is one part of the turn: it takes a slot, and it ends the current text run. */
   const startTool = (
     runId: string,
@@ -157,7 +182,13 @@ export function createChatActionTranslator(): ChatActionTranslator {
           type: "chat/turnStarted",
           turnId: runId,
           startedAt: opening.startedAt,
-          message: { text: opening.text, origin: { kind: "user" } },
+          message: {
+            text: opening.text,
+            origin: { kind: "user" },
+            ...(opening.messageId === undefined
+              ? {}
+              : { _meta: { messageId: opening.messageId } }),
+          },
         } as unknown as StateAction,
       ];
     },
@@ -214,22 +245,12 @@ export function createChatActionTranslator(): ChatActionTranslator {
     commitTurn(runId, turn, durationMs) {
       const opened = openTurns.get(runId);
       if (!opened) return [];
-      // `chat/turnStarted` replaces the active turn wholesale, parts included: re-stating it is what
-      // discards the preview and puts the projection's parts in its place, under the same ids.
-      return [
-        {
-          type: "chat/turnStarted",
-          turnId: runId,
-          startedAt: opened.startedAt,
-          message: turn.message,
-        },
-        ...turn.responseParts.map((part) => ({
-          type: "chat/responsePart",
-          turnId: runId,
-          part,
-        })),
-        { type: "chat/turnComplete", turnId: runId, duration: durationMs },
-      ] as unknown as StateAction[];
+      return turnActions(runId, opened.startedAt, turn, durationMs);
+    },
+
+    announceContinuity(turnId, turn) {
+      // No duration: a notice is not a turn that ran. The rest is the projection's own statement.
+      return turnActions(turnId, turn.startedAt ?? new Date(0).toISOString(), turn, 0);
     },
 
     drop(runId) {
