@@ -15,6 +15,9 @@ import type { WorkspaceLockRegistry } from "../project/workspace-lock.js";
 import type { AgentRunPort } from "./ports.js";
 
 export interface AgentRunExecutionDeps {
+  /** Every live run event, as broadcast: the composition root turns the chat-shaped ones into
+   *  AHP actions (ADR 0040 decision 4). Observation only. */
+  readonly onLiveEvent?: (runId: string, event: BackendEvent) => void;
   readonly runPort: AgentRunPort;
   readonly contextPort: AgentContextPort;
   readonly ledgerResolver: LedgerMessageResolver;

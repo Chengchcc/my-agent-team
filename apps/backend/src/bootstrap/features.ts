@@ -45,7 +45,8 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
-import { createAhpFace, createAhpStateSource } from "../features/ahp/index.js";
+import { chatUri, createAhpFace, createAhpStateSource } from "../features/ahp/index.js";
+import { createChatActionTranslator } from "../features/ahp/run-events.js";
 import {
   artifactRoutes,
   createArtifactFsAdapter,
@@ -625,6 +626,26 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Config-time (backendKind, model) consistency (see model-check.ts).
   const modelKnownForBackend = createModelCatalogCheck({ backends });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
+  /** The AHP chat channel's writer: the same live events the run stream publishes, as actions.
+   *  Part ids match the projection's, so a streamed part and the projected one are one object. */
+  const TERMINAL_RUN_STATUSES = new Set([
+    "completed",
+    "failed",
+    "aborted",
+    "commit_failed",
+    "timeout",
+  ]);
+  const chatActions = createChatActionTranslator();
+  const conversationByRun = new Map<string, string | null>();
+  const conversationIdForRun = async (runId: string): Promise<string | null> => {
+    const known = conversationByRun.get(runId);
+    if (known !== undefined) return known;
+    const run = await agentRunPort.getRun(runId).catch(() => null);
+    const conversationId = run?.conversationId ?? null;
+    conversationByRun.set(runId, conversationId);
+    return conversationId;
+  };
+
   const agentRunExecution = createAgentRunExecutionService({
     workspaceLocks,
     productToolsTokenRegistry,
@@ -646,6 +667,25 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         fallbackRoot: config.workspaceRoot,
         conversationProjectId: convRow?.projectId ?? null,
       });
+    },
+    onLiveEvent: (runId, event) => {
+      if (event.type === "status" && "status" in event && TERMINAL_RUN_STATUSES.has(event.status)) {
+        // The run is over: its parts are the projection's business now, and holding them here
+        // would keep a map alive per finished run.
+        chatActions.drop(runId);
+        conversationByRun.delete(runId);
+      }
+      const actions = chatActions.translate(runId, event);
+      if (actions.length === 0) return;
+      void (async () => {
+        const conversationId = await conversationIdForRun(runId);
+        if (!conversationId) return;
+        for (const action of actions) {
+          await ahpFace.server.dispatch(chatUri(conversationId), action).catch(() => {
+            /* a surface's channel never fails a run */
+          });
+        }
+      })();
     },
     productToolsEntrypoint: config.productToolsMcpUrl
       ? `sse:${sseUrlEndpoint(config.productToolsMcpUrl)}`

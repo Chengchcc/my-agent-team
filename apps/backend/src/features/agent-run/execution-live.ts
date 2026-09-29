@@ -31,6 +31,10 @@ export function createLiveEventBus(deps: {
     callId: string;
     payload: Readonly<Record<string, unknown>>;
   }) => Promise<void>;
+  /** Every live event, as it is broadcast: the composition root turns these into whatever a
+   *  surface consumes (the AHP chat channel today). Observation only - it never affects the run,
+   *  which is why a throw here is swallowed. */
+  onLiveEvent?: (runId: string, event: BackendEvent) => void;
 }): LiveEventBus {
   const subscribers = new Map<string, Set<(e: BackendEvent) => void>>();
   const lastEventByRun = new Map<string, number>();
@@ -77,6 +81,11 @@ export function createLiveEventBus(deps: {
 
   async function broadcast(runId: string, event: BackendEvent): Promise<void> {
     lastEventByRun.set(runId, Date.now());
+    try {
+      deps.onLiveEvent?.(runId, event);
+    } catch {
+      /* observation never affects the run */
+    }
     // Durable telemetry: persist the normalized event log (tool calls,
     // status, workflow steps). Transient text/thinking deltas are skipped, and
     // so are liveness heartbeats: they exist for the parent's silence
