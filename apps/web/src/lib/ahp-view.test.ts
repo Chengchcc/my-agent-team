@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatState } from "@microsoft/agent-host-protocol";
-import { chatViewFromState } from "./ahp-view";
+import { chatViewFromState, itemsFromChatState } from "./ahp-view";
 
 const state = (turns: unknown[], extra: Record<string, unknown> = {}): ChatState =>
   ({
@@ -162,5 +162,58 @@ describe("human input cards", () => {
     );
     expect(view.transients["run-5"]?.ask).toEqual({ callId: "call-1", questions: [{ id: "q1" }] });
     expect(view.transients["run-5"]?.approval).toBeUndefined();
+  });
+});
+
+describe("the message list from AHP chat state", () => {
+  const viewer = { memberId: "viewer", kind: "human" } as const;
+  const agent = { memberId: "agent-1", kind: "agent", agentId: "agent-1" } as const;
+
+  test("a finished turn yields its initiating message and its text, with the ledger ids", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-1",
+          state: "complete",
+          message: {
+            text: "hello",
+            origin: { kind: "user" },
+            _meta: { messageId: "msg-1", seq: 4 },
+          },
+          responseParts: [
+            {
+              kind: "markdown",
+              id: "t0",
+              content: "hi there",
+              _meta: { messageId: "msg-2", seq: 5 },
+            },
+          ],
+        },
+      ]),
+      viewer,
+      agent,
+    );
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ id: "msg-1", seq: 4, sender: { kind: "human" } });
+    expect(items[1]).toMatchObject({ id: "msg-2", seq: 5, sender: { kind: "agent" } });
+    expect(items[1]?.kind === "message" ? items[1].content.text : "").toBe("hi there");
+  });
+
+  test("the turn in flight contributes no message item for its text", () => {
+    const items = itemsFromChatState(
+      state([], {
+        activeTurn: {
+          id: "run-2",
+          startedAt: new Date(0).toISOString(),
+          message: { text: "go", origin: { kind: "user" }, _meta: { messageId: "msg-3", seq: 6 } },
+          responseParts: [{ kind: "markdown", id: "t0", content: "streaming…" }],
+          usage: undefined,
+        },
+      }),
+      viewer,
+      agent,
+    );
+    // The input is real history; the streaming text is not a message yet.
+    expect(items.map((item) => item.id)).toEqual(["msg-3"]);
   });
 });

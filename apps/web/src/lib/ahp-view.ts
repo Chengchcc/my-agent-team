@@ -7,7 +7,15 @@
  *
  *  Approval and ask cards come from the same place: their durable payload rides in the input
  *  request's `_meta`, so the card can render what was asked without a second stream. */
-import type { ChatState, ResponsePart, ToolCallState } from "@microsoft/agent-host-protocol";
+
+import type { Message } from "@chengchenccc/message";
+import type {
+  Message as AhpMessage,
+  ChatState,
+  ResponsePart,
+  ToolCallState,
+} from "@microsoft/agent-host-protocol";
+import type { SenderRef, UiItem } from "./conversation-reducer";
 import {
   type LiveToolCall,
   type LiveToolMap,
@@ -161,4 +169,68 @@ function todosOf(state: ChatState, transients: TransientMap): Record<string, Tod
   if (!Array.isArray(list)) return {};
   const runId = state.activeTurn?.id ?? Object.keys(transients).at(-1);
   return runId === undefined ? {} : { [runId]: list as TodoItem[] };
+}
+
+/** The timeline's message list, from AHP chat state.
+ *
+ *  Every turn but the one in flight is finished: its initiating message and its text are the
+ *  conversation's history, and the coordinate in `_meta.seq` is what fork and undo address. The
+ *  ids are the ledger's, so the viewer's optimistic echo of their own message collapses onto the
+ *  same item instead of appearing twice. */
+export function itemsFromChatState(
+  state: ChatState,
+  viewer: SenderRef,
+  agent: SenderRef | null,
+): UiItem[] {
+  const items: UiItem[] = [];
+  const turns: Array<{
+    id: string;
+    message: AhpMessage;
+    responseParts: readonly ResponsePart[];
+  }> = [...state.turns, ...(state.activeTurn ? [state.activeTurn] : [])];
+
+  for (const turn of turns) {
+    const input = messageItem(turn.message, viewer);
+    if (input) items.push(input);
+    // The turn in flight streams into the transient bubble; adding its text here would show the
+    // same words twice. Its initiating message is real history and stays.
+    if (turn.id === state.activeTurn?.id) continue;
+    turn.responseParts.forEach((part, index) => {
+      if ((part.kind as string) !== "markdown") return;
+      const text = contentOf(part);
+      if (!text) return;
+      const meta = metaOfRequest(part);
+      const id = typeof meta?.messageId === "string" ? meta.messageId : `${turn.id}:text:${index}`;
+      items.push({
+        kind: "message",
+        id,
+        sender: agent ?? { memberId: "agent", kind: "agent" },
+        content: { role: "assistant", text } satisfies Message,
+        // The coordinate the projection put on the part; a part without one came from no row.
+        seq: typeof meta?.seq === "number" ? meta.seq : 0,
+      });
+    });
+  }
+  return items;
+}
+
+function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined {
+  if (message.text === "") return undefined;
+  const meta = metaOfRequest({ _meta: (message as { _meta?: unknown })._meta } as never);
+  const messageId = typeof meta?.messageId === "string" ? meta.messageId : undefined;
+  const kind = message.origin?.kind as string;
+  return {
+    kind: "message",
+    id: messageId ?? `input:${message.text.slice(0, 24)}`,
+    sender: kind === "user" ? viewer : { memberId: "agent", kind: "agent" },
+    content: { role: kind === "user" ? "user" : "assistant", text: message.text } satisfies Message,
+    seq: typeof meta?.seq === "number" ? meta.seq : 0,
+  };
+}
+
+function metaOfRequest(part: unknown): { messageId?: unknown; seq?: unknown } | undefined {
+  const meta = (part as { _meta?: unknown } | undefined)?._meta;
+  return meta !== null && typeof meta === "object"
+    ? (meta as { messageId?: unknown; seq?: unknown })
+    : undefined;
 }
