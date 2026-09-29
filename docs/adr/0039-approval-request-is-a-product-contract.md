@@ -84,7 +84,11 @@ openclaw/acpx 是 ACP 的无头客户端（MIT，3.3k 星），自带可嵌入 r
 - **conformance 用例（当验收件）**：`conformance/cases/*.json` 二十条（握手、session/new、单轮/多轮、update 流终止、在途取消、权限拒绝/读批/写批、未知会话、非法参数、后台轮完成、结构化 prompt 块）。每个新接入的 ACP agent 先跑这套；将来 oma 自己的 ACP server 也用它验。
 - **事件形状（映射参考）**：`AcpRuntimeEvent` 与核心事件几乎同构——`text_delta`（分 output/thought 两流）、`tool_call`（含 title/kind/locations/rawInput/content）、`plan`（整表替换，即我们的计划条）、`usage_update`、终态 `completed/cancelled/failed + stopReason`。`session/update` 到核心事件的映射按这张表写。
 - **会话模型**：`persistent | oneshot` 两态，`resumeSessionId` 对应我们的 `cliSessionRef` 回传。我们只用 oneshot + 自己的 Run 身份，不用它的持久层（`~/.acpx` 记录）。
-- **已知能力差（诚实记录）**：ACP 没有 mid-turn steer（acpx 自己注明；oma RPC 有，acp kind 的 run 需接受排队或不支持）；elicitation 仍在演进（ask 继续走 product-tools MCP，四端同构不受影响）；fs/terminal 回调可关（我们关掉，agent 用自己的文件工具）。
+- **能力差修订（2026-09-29 复核规范与桥源码，取代本附录早先两条断言）**：
+  - steer：官方 cc 桥已实现 `_session/steering` 约定方法（下划线扩展方法，握手经 `InitializeResponse._meta.steering.supported` 声明，底层是 cc SDK 的抢占式原生注入）。早先「ACP 没有 mid-turn steer」的记录源自 acpx 自身 runtime 的排队语义，已过时；oma 的 ACP 面将直接采纳该约定名。
+  - elicitation：现行 v1 规范已含 `elicitation/create`（form/url 双模式，基于 MCP 2026-07-28 锁定 RC，与 v2 页面逐字相同）。「v1 无问信息通道 / elicitation 不稳定」为过时结论，源自旧草案方法名 `session/create_elicitation` 时代的观察。adapter-acp 的入站映射 elicitation→问答卡在 v1 线即可实现；oma↔自家 backend 的 ask 仍走 product-tools MCP（理由只剩表单更富：多题数组、allowOther、推荐标记、校验）。
+  - fs/terminal 回调可关（我们关掉，agent 用自己的文件工具）。
+- **产品工具注入（2026-09-29 补，MCP-over-ACP RFCD）**：注入的终态方向是 backend 成为进程内 MCP provider（`session/new` 声明 `type:"acp"`，agent 经 `mcp/message` 调用，每请求自带 MCP 2026-07-28 上下文；ask 即 held-open 请求）。今天零 agent 声明 `mcpCapabilities.acp`（omp 仅 http/sse），且 SDK 的 mcp/message 只在 experimental/v2、其 connect/disconnect 方法与 RFCD 不同步，故 adapter-acp 的注入做成策略缝：现状走 workspace MCP 配置加既有 product-tools SSE；对端声明能力后切 ACP 中继，两轨共用同一 product-tools 服务接口。oma 的 ACP 面（P2）率先实现该能力自证。
 - **为什么不嵌入**：acpx runtime 自带会话持久与重连，叠在我们的账本/Run 之上就是第二执行身份（Phase 6 教训）；Node ≥22.13 与我们的 Bun 栈有门槛；pre-1.0 的 runtime API 演进快。官方 `@agentclientprotocol/sdk`（1.5.x，纯 TS、stdio JSON-RPC）是我们真正依赖的那一层；其 Bun 兼容性已于 2026-09-28 实测通过（spike：Bun 下经 SDK 驱动 `omp acp --approval-mode always-ask`，initialize / newSession / prompt / 全量 session/update 流 / request_permission 浮到宿主回调并回 allow_once / end_turn，19 秒一轮，脚本存 /tmp/acp-spike/spike.ts，P1 开工时收编为种子）。
 
 ### 落地相位（决策 4 修订版）
