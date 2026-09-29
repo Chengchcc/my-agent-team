@@ -94,7 +94,12 @@ describe("AHP state source", () => {
     expect(chat?.activeTurn?.id).toBe("r1");
     expect(chat?.activeTurn?.responseParts.at(-1)).toMatchObject({
       kind: "inputRequest",
-      request: { id: "r1:call-1", message: "approval" },
+      // The durable payload rides in the request's own _meta: the card renders what was asked.
+      request: {
+        id: "r1:call-1",
+        message: "approval",
+        _meta: { productRequest: { callId: "call-1" } },
+      },
     });
   });
 

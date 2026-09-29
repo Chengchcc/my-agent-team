@@ -228,6 +228,7 @@ function mapPendingActions(
       ...(action.response !== undefined && action.response !== null
         ? { response: JSON.parse(action.response) as unknown }
         : {}),
+      ...(payloadOf(action.payload) === undefined ? {} : { payload: payloadOf(action.payload) }),
     };
     const list = out.get(action.runId);
     if (list) list.push(request);
@@ -242,6 +243,16 @@ function toolCallIdOf(payload: string): string | undefined {
     const parsed = JSON.parse(payload) as { callId?: unknown; toolCallId?: unknown };
     const id = parsed.toolCallId ?? parsed.callId;
     return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The durable payload, parsed when it is JSON; a surface may render it, so a malformed one is
+ *  left out rather than passed through as a string. */
+function payloadOf(payload: string): unknown {
+  try {
+    return JSON.parse(payload) as unknown;
   } catch {
     return undefined;
   }

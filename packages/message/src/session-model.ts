@@ -34,6 +34,10 @@ export interface CanonicalInputRequest {
   readonly status: "pending" | "resolved" | "cancelled";
   /** The tool call an approval targets (attached when known, so both ends can render a card). */
   readonly toolCallId?: string;
+  /** The durable request payload as the product stored it: what was asked and with which
+   *  parameters. A surface that renders the card needs it, and it is a fact about this
+   *  interaction rather than presentation. */
+  readonly payload?: unknown;
   readonly response?: unknown;
 }
 

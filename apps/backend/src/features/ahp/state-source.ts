@@ -461,10 +461,7 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
   const payload: ChatInputRequest = {
     id: request.requestId,
     message: request.kind,
-    ...(request.response === undefined
-      ? {}
-      : // Upstream's answer shape is not verified yet, so the raw answer rides in _meta.
-        { _meta: { productResponse: request.response } }),
+    ...metaFor(request),
   };
   const kind = enumValue<InputRequestResponsePart["kind"]>("inputRequest");
   if (request.status === "pending") {
@@ -478,6 +475,15 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
   }
   const resolved: InputRequestResponsePart = { kind, request: payload, response };
   return resolved;
+}
+
+/** The durable request payload and answer ride in `_meta`: upstream's answer shape is not
+ *  verified yet, and a surface that renders the card needs what was asked. */
+function metaFor(request: CanonicalInputRequest): { _meta?: Record<string, unknown> } {
+  const meta: Record<string, unknown> = {};
+  if (request.payload !== undefined) meta.productRequest = request.payload;
+  if (request.response !== undefined) meta.productResponse = request.response;
+  return Object.keys(meta).length === 0 ? {} : { _meta: meta };
 }
 
 /** The outcome of a human input. **Status alone is not enough**: a refusal and a timeout are both

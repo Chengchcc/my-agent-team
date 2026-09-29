@@ -291,3 +291,28 @@ test("canonicalRunIds finds the run a failure bubble belongs to", () => {
   });
   expect(ids.sort()).toEqual(["r-1", "r-2", "r-bubble"]);
 });
+
+test("the durable request payload reaches the canonical input request", () => {
+  const turns = buildTurns({
+    ledger: [],
+    queue: [],
+    runs: [{ runId: "run-1", status: "waiting" }],
+    pendingActions: [
+      {
+        actionId: "run-1:call-1",
+        runId: "run-1",
+        kind: "approval",
+        status: "pending",
+        payload: JSON.stringify({ callId: "call-1", toolName: "bash", reason: "rm -rf" }),
+      },
+    ],
+  });
+  const request = turns[0]?.parts.find((part) => part.kind === "inputRequest");
+  expect(request).toMatchObject({
+    request: {
+      requestId: "run-1:call-1",
+      toolCallId: "call-1",
+      payload: { callId: "call-1", toolName: "bash", reason: "rm -rf" },
+    },
+  });
+});
