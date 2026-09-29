@@ -65,6 +65,7 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
   const inputByRun = mapQueueInputs(input.queue);
   const requestsByRun = mapPendingActions(input.pendingActions);
   const errorByRun = errorPartsByRun(input.ledger);
+  const seqByMessage = seqByMessageId(input.ledger);
 
   return input.runs.map((run) => {
     const requests = requestsByRun.get(run.runId) ?? [];
@@ -73,10 +74,13 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
       requests,
     );
     const errorPart = errorByRun.get(run.runId);
-    const parts = errorPart ? [...attached, errorPart] : attached;
+    const merged = errorPart ? [...attached, errorPart] : attached;
+    const parts = merged.map((part) => withSeq(part, seqByMessage));
     const message = inputByRun.get(run.runId);
+    const inputSeq = message?.id === undefined ? undefined : seqByMessage.get(message.id);
     return {
       turnId: run.runId,
+      ...(inputSeq === undefined ? {} : { seq: inputSeq }),
       ...(message ? { input: message } : {}),
       status: turnStatus(run.status),
       parts,
@@ -125,6 +129,30 @@ function errorPartsByRun(ledger: readonly SessionModelLedgerRow[]): Map<string, 
 /** Normalizes the two source shapes: the read path gives objects, the push path gives strings. */
 function asJsonString(content: unknown): string {
   return typeof content === "string" ? content : (JSON.stringify(content) ?? "null");
+}
+
+/** Ledger coordinate per message id: the coordinate a surface targets for fork and undo. */
+function seqByMessageId(ledger: readonly SessionModelLedgerRow[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of ledger) {
+    try {
+      const parsed = deserializeLedgerContent(asJsonString(row.content)) as {
+        messageId?: unknown;
+      };
+      if (typeof parsed.messageId === "string") out.set(parsed.messageId, row.seq);
+    } catch {
+      /* a row that will not parse carries no identity */
+    }
+  }
+  return out;
+}
+
+function withSeq<T extends { readonly messageId?: string; readonly seq?: number }>(
+  part: T,
+  seqByMessage: Map<string, number>,
+): T {
+  const seq = part.messageId === undefined ? undefined : seqByMessage.get(part.messageId);
+  return seq === undefined ? part : { ...part, seq };
 }
 
 /** Everything that can name a Run: ledger ownership, queue inputs, the failure bubble's own

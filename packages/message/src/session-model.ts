@@ -42,19 +42,36 @@ export interface CanonicalInputRequest {
 }
 
 export type CanonicalPart =
-  | { readonly kind: "text"; readonly text: string; readonly messageId?: string }
-  | { readonly kind: "thinking"; readonly text: string; readonly messageId?: string }
-  | { readonly kind: "toolCall"; readonly toolCall: CanonicalToolCall; readonly messageId?: string }
+  | {
+      readonly kind: "text";
+      readonly text: string;
+      readonly messageId?: string;
+      readonly seq?: number;
+    }
+  | {
+      readonly kind: "thinking";
+      readonly text: string;
+      readonly messageId?: string;
+      readonly seq?: number;
+    }
+  | {
+      readonly kind: "toolCall";
+      readonly toolCall: CanonicalToolCall;
+      readonly messageId?: string;
+      readonly seq?: number;
+    }
   | {
       readonly kind: "inputRequest";
       readonly request: CanonicalInputRequest;
       readonly messageId?: string;
+      readonly seq?: number;
     }
   | {
       readonly kind: "error";
       readonly message: string;
       readonly code?: string;
       readonly messageId?: string;
+      readonly seq?: number;
     };
 
 export type CanonicalTurnStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
@@ -62,6 +79,8 @@ export type CanonicalTurnStatus = "running" | "waiting" | "completed" | "failed"
 export interface CanonicalTurn {
   /** A turn is one Run here, so turnId is the runId (ADR 0040 decision 3). */
   readonly turnId: string;
+  /** The initiator's ledger coordinate inside its conversation - what fork and undo target. */
+  readonly seq?: number;
   /** The user message that triggered this execution (AHP's `ActiveTurn.message` slot). */
   readonly input?: Message;
   readonly status: CanonicalTurnStatus;

@@ -105,7 +105,8 @@ describe("buildTurns", () => {
       runs: [{ runId: "run-1", status: "completed" }],
       pendingActions: [],
     });
-    expect(turns[0]?.parts).toEqual([
+    // The ledger coordinate is asserted on its own below, straight off the rows.
+    expect(turns[0]?.parts.map(({ seq: _seq, ...rest }) => rest)).toEqual([
       {
         kind: "toolCall",
         toolCall: {
@@ -115,7 +116,7 @@ describe("buildTurns", () => {
           status: "completed",
           result: { content: "ok", isError: false },
         },
-        // 合并后的调用以「结果那条消息」为来源。
+        // Merged call: attributed to the result's message.
         messageId: "run:run-1:tool:1",
       },
       { kind: "text", text: "final", messageId: "run:run-1:assistant:0" },
@@ -182,7 +183,7 @@ describe("buildTurns", () => {
       runs: [{ runId: "run-1", status: "completed" }],
       pendingActions: [],
     });
-    expect(turns[0]?.parts).toEqual([
+    expect(turns[0]?.parts.map(({ seq: _seq, ...rest }) => rest)).toEqual([
       { kind: "text", text: "answer", messageId: "run:run-1:assistant:0" },
     ]);
   });
@@ -261,11 +262,11 @@ test("a ledger row that names no run stays out of the model", () => {
 test("a ledger row read back from the database (parsed object) projects the same", () => {
   const asString = revision({ messageId: "b1", role: "assistant", text: "hi" });
   const asObject = JSON.parse(asString) as unknown;
+  // One row, two content shapes: the coordinate must not depend on which one arrived.
+  const row = { seq: 500, conversationId: "conv-1", agentRunId: "r-obj", messageIndex: 0 };
   const build = (content: unknown) =>
     buildTurns({
-      ledger: [
-        { seq: ++seq, conversationId: "conv-1", content, agentRunId: "r-obj", messageIndex: 0 },
-      ],
+      ledger: [{ ...row, content }],
       queue: [],
       runs: [{ runId: "r-obj", status: "completed" }],
       pendingActions: [],
@@ -315,4 +316,22 @@ test("the durable request payload reaches the canonical input request", () => {
       payload: { callId: "call-1", toolName: "bash", reason: "rm -rf" },
     },
   });
+});
+
+test("parts carry the ledger coordinate of the row they came from", () => {
+  const rows = [
+    ledgerRow("run-1", 0, revision({ messageId: "m-0", role: "assistant", text: "first" })),
+    ledgerRow("run-1", 1, revision({ messageId: "m-1", role: "assistant", text: "second" })),
+  ];
+  const turns = buildTurns({
+    ledger: rows,
+    queue: [queueRow("run-1", { id: "m-in", role: "user", text: "go" })],
+    runs: [{ runId: "run-1", status: "completed" }],
+    pendingActions: [],
+  });
+  const parts = turns[0]?.parts ?? [];
+  const seqOf = (text: string) =>
+    parts.find((part) => part.kind === "text" && part.text === text)?.seq;
+  expect(seqOf("first")).toBe(rows[0]!.seq);
+  expect(seqOf("second")).toBe(rows[1]!.seq);
 });

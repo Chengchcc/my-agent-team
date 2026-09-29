@@ -276,7 +276,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
       activeTurn ??= {
         id: turn.turnId,
         startedAt: isoOf(startedAtOf(turn.turnId)),
-        message: toAhpMessage(turn.input),
+        message: toAhpMessage(turn.input, turn.seq),
         responseParts: toResponseParts(turn.turnId, turn.parts),
         usage: undefined,
       };
@@ -384,6 +384,7 @@ function isoOf(ts: number): string {
 
 function toAhpMessage(
   input: { readonly id?: string; readonly role?: string; readonly text?: string } | undefined,
+  seq?: number,
 ): AhpMessage {
   const role = input?.role ?? "user";
   const kind =
@@ -399,7 +400,7 @@ function toAhpMessage(
     origin: { kind: kind as AhpMessage["origin"]["kind"] },
     // The ledger identity again, on the initiating message: a surface dedupes its own optimistic
     // echo against it.
-    ...(input?.id === undefined ? {} : { _meta: { messageId: input.id } }),
+    ...metaOf(input?.id, seq),
   };
 }
 
@@ -414,7 +415,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
         kind: enumValue<MarkdownResponsePart["kind"]>("markdown"),
         id: `${turnId}:text:${index}`,
         content: part.text,
-        ...metaOf(part.messageId),
+        ...metaOf(part.messageId, part.seq),
       };
       return markdown;
     }
@@ -423,7 +424,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
         kind: enumValue<ReasoningResponsePart["kind"]>("reasoning"),
         id: `${turnId}:reasoning:${index}`,
         content: part.text,
-        ...metaOf(part.messageId),
+        ...metaOf(part.messageId, part.seq),
       };
       return reasoning;
     }
@@ -453,8 +454,14 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
 /** The ledger's message identity goes in `_meta`: a surface dedupes deliveries on it. Upstream
  *  allows implementation metadata, so this exposes a fact that already exists instead of
  *  inventing a field. */
-function metaOf(messageId: string | undefined): { _meta?: Record<string, unknown> } {
-  return messageId === undefined ? {} : { _meta: { messageId } };
+function metaOf(messageId: string | undefined, seq?: number): { _meta?: Record<string, unknown> } {
+  if (messageId === undefined && seq === undefined) return {};
+  return {
+    _meta: {
+      ...(messageId === undefined ? {} : { messageId }),
+      ...(seq === undefined ? {} : { seq }),
+    },
+  };
 }
 
 function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
