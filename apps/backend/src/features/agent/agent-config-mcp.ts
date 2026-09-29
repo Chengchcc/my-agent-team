@@ -6,7 +6,7 @@ import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { ProposalKind } from "../proposal/domain.js";
+import type { AgentConfigEventBus } from "./agent-config-events.js";
 
 /** Agent-config MCP server: lets a chat agent read/write/create agents
  *  through ordinary MCP tools. This is how the agent edit page's chat
@@ -75,11 +75,8 @@ export interface AgentConfigMcpDeps {
   readonly createAgent: (input: AgentProxyCreateInput) => Promise<{ id: string }>;
   /** Spend-guard for agent_create; throws when the budget is exhausted. */
   readonly reserveCreate: () => void;
-  /** Where a proposed config goes: one row the edit page reads, so a proposal outlives the page
-   *  that happened to be open when the tool ran (ADR 0040). */
-  readonly proposals?: {
-    propose(kind: ProposalKind, targetId: string, payload: unknown): unknown;
-  };
+  /** Emit a "changed" event after agent_write (SSE live refresh). */
+  readonly configEvents?: AgentConfigEventBus;
 }
 
 export interface AgentConfigMcpServerOptions extends Omit<AgentConfigMcpDeps, "reserveCreate"> {
@@ -169,10 +166,10 @@ export async function callAgentConfigTool(
         `unknown agent: ${agentId} — this tool proposes changes to an EXISTING agent; create it with agent_create or on the Team page first`,
       );
     }
-    // NO file write. The proposal is recorded for the edit page (or the create page's form for
-    // the draft id), which adopts it as an unsaved edit the user commits with Save. A row rather
-    // than a live push, because the tool's own answer sends the user to that page.
-    deps.proposals?.propose("agent_config", agentId, args.config);
+    // NO file write. The proposed config is pushed to the edit page (or the
+    // create page's form for the draft id) over the agent-config SSE; the
+    // form shows it as an unsaved edit and the user commits it with Save.
+    deps.configEvents?.emit(agentId, { trigger: "mcp", config: args.config });
     const id8 = randomUUID().slice(0, 8);
     return isDraft
       ? `proposed a new-agent config (${id8}) — NOT created: the create page (/team/new/edit) filled its form, and the user commits it with Create`
@@ -190,7 +187,7 @@ export interface AgentConfigMcpServer {
 export async function createAgentConfigMcpServer(
   opts: AgentConfigMcpServerOptions,
 ): Promise<AgentConfigMcpServer> {
-  const { readConfig, agentExists, createAgent, proposals } = opts;
+  const { readConfig, agentExists, createAgent, configEvents } = opts;
   const reserveCreate = opts.reserveCreate ?? createCreateBudget();
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
@@ -265,7 +262,7 @@ export async function createAgentConfigMcpServer(
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
       try {
         const text = await callAgentConfigTool(
-          { readConfig, agentExists, createAgent, reserveCreate, proposals },
+          { readConfig, agentExists, createAgent, reserveCreate, configEvents },
           req.params.name,
           args,
         );

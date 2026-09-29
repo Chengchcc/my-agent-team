@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WorkflowDefinitionEventBus } from "./definition-events.js";
 import { callWorkflowTool } from "./mcp.js";
 
 /** The agent-facing path into <dataDir>/workflows. The file tools are
@@ -18,26 +19,18 @@ const def = {
 };
 
 let dir: string;
-let proposals: Array<{ kind: string; targetId: string; payload: unknown }>;
-
-/** What a tool hands the proposal store: recorded here, read back by the assertions. */
-function recorder() {
-  return {
-    propose: (kind: string, targetId: string, payload: unknown) => {
-      proposals.push({ kind, targetId, payload });
-    },
-  };
-}
+let events: WorkflowDefinitionEventBus;
 let file: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "wf-mcp-"));
   file = join(dir, "wf.workflow.json");
   writeFileSync(file, JSON.stringify(def, null, 2));
-  proposals = [];
+  events = new WorkflowDefinitionEventBus();
 });
 
 afterEach(() => {
+  events.dispose();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -55,20 +48,30 @@ describe("workflow MCP tools", () => {
 
   test("workflow_write proposes without touching the file (user saves)", async () => {
     const before = readFileSync(file, "utf8");
+    const sub = events.subscribe("wf");
     const patched = { ...def, meta: { name: "patched", status: "draft" } };
-    const text = callWorkflowTool({ workflowDir: dir, proposals: recorder() }, "workflow_write", {
-      workflowId: "wf",
-      definition: patched,
-    });
+    const text = callWorkflowTool(
+      { workflowDir: dir, definitionEvents: events },
+      "workflow_write",
+      {
+        workflowId: "wf",
+        definition: patched,
+      },
+    );
     expect(text).toContain("NOT saved");
-    // The proposal is a row the editor reads, so it is the record of what was asked for.
-    expect(proposals).toEqual([{ kind: "workflow_definition", targetId: "wf", payload: patched }]);
+    // The editor adopts the change off the definition SSE — that event IS the
+    // delivery mechanism, so it is part of the contract.
+    const ev = await sub.stream[Symbol.asyncIterator]().next();
+    expect(ev.value?.workflowId).toBe("wf");
+    expect(ev.value?.data.trigger).toBe("mcp");
+    expect(ev.value?.data.definition).toEqual(patched);
+    sub.unsubscribe();
     expect(readFileSync(file, "utf8")).toBe(before);
   });
 
   test("workflow_write rejects a definition the editor could never save", () => {
     expect(() =>
-      callWorkflowTool({ workflowDir: dir, proposals: recorder() }, "workflow_write", {
+      callWorkflowTool({ workflowDir: dir, definitionEvents: events }, "workflow_write", {
         workflowId: "wf",
         definition: { ...def, nodes: [] },
       }),

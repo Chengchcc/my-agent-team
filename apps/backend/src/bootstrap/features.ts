@@ -499,7 +499,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   if (enabledMcpServers.has("workflow")) {
     workflowMcp = await createWorkflowMcpServer({
       workflowDir: join(config.dataDir, "workflows"),
-      proposals: proposalSvc,
+      definitionEvents: workflowDefinitionEvents,
     });
     console.log(`[bootstrap] workflow MCP listening at ${workflowMcp.url}`);
   }
@@ -529,7 +529,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         const row = await agentSvc.create(input);
         return { id: row.id };
       },
-      proposals: proposalSvc,
+      configEvents: agentConfigEvents,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);
   }

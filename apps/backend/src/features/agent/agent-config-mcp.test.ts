@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
+import { AgentConfigEventBus } from "./agent-config-events.js";
 import {
   type AgentProxyCreateInput,
   callAgentConfigTool,
@@ -16,16 +17,10 @@ import {
 const config = { id: "reviewer", name: "Reviewer" };
 
 function deps(known: readonly string[] = ["reviewer"]) {
-  /** What the tool handed the store: a row the page will read back. */
-  const proposals: Array<{ kind: string; targetId: string; payload: unknown }> = [];
-  const recorder = {
-    propose: (kind: string, targetId: string, payload: unknown) => {
-      proposals.push({ kind, targetId, payload });
-    },
-  };
+  const events = new AgentConfigEventBus();
   const created: AgentProxyCreateInput[] = [];
   return {
-    proposals,
+    events,
     created,
     d: {
       readConfig: async (agentId: string) => {
@@ -38,7 +33,7 @@ function deps(known: readonly string[] = ["reviewer"]) {
         return { id: "ag-new" };
       },
       reserveCreate: () => {},
-      proposals: recorder,
+      configEvents: events,
     },
   };
 }
@@ -58,16 +53,16 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_write proposes for the edit page of an existing agent", async () => {
-    const { d, proposals } = deps();
+    const { d, events } = deps();
+    const stream = events.subscribe("reviewer");
     const text = await callAgentConfigTool(d, "agent_write", {
       agentId: "reviewer",
       config: { ...config, name: "Renamed" },
     });
     expect(text).toContain("NOT saved");
     expect(text).toContain("/team/reviewer/edit");
-    expect(proposals).toEqual([
-      { kind: "agent_config", targetId: "reviewer", payload: { ...config, name: "Renamed" } },
-    ]);
+    const ev = await stream[Symbol.asyncIterator]().next();
+    expect(ev.value?.data.trigger).toBe("mcp");
   });
 
   test("agent_write on an unknown agent fails instead of reporting a proposal", async () => {
@@ -78,16 +73,17 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_write under the draft id proposes for the create page", async () => {
-    const { d, proposals } = deps();
+    const { d, events } = deps();
+    const stream = events.subscribe(AGENT_DRAFT_ID);
     const text = await callAgentConfigTool(d, "agent_write", {
       agentId: AGENT_DRAFT_ID,
       config: { ...config, name: "Drafted" },
     });
     expect(text).toContain("NOT created");
     expect(text).toContain("/team/new/edit");
-    expect(proposals).toEqual([
-      { kind: "agent_config", targetId: AGENT_DRAFT_ID, payload: { ...config, name: "Drafted" } },
-    ]);
+    const ev = await stream[Symbol.asyncIterator]().next();
+    expect(ev.value?.agentId).toBe(AGENT_DRAFT_ID);
+    expect(ev.value?.data.trigger).toBe("mcp");
   });
 
   test("agent_create creates through the service and reports the new id", async () => {
