@@ -1,0 +1,193 @@
+/** 从账本与执行账目派生规范模型（ADR 0040 决策三）。
+ *
+ *  输入是**普通行对象**，不碰数据库：账本行、输入队列行、Run 行、待处理动作行。
+ *  输出是可被两种协议按字段级绑定的轮次（`CanonicalTurn`）。
+ *
+ *  派生只用已存在的链接，不做推断：
+ *  - 轮次 = 一次 Run；触发它的用户消息来自输入队列（`run_id` 链接）；
+ *  - 片段 = 该 Run 的账本行，按 `message_index` 升序；
+ *  - 工具调用 = `tool_use` 与 `tool_result` 按 `tool_use_id` 配对（见 packages/message）；
+ *  - 人工输入 = 待处理动作按 `run_id` 挂到轮次，带 `callId` 的再挂到具体调用上。 */
+import {
+  attachInputRequests,
+  type CanonicalInputRequest,
+  type CanonicalTurn,
+  type CanonicalTurnStatus,
+  deserializeLedgerContent,
+  type Message,
+  turnPartsFromMessages,
+} from "@chengchenccc/message";
+
+export interface SessionModelLedgerRow {
+  readonly seq: number;
+  readonly conversationId: string;
+  readonly content: string;
+  readonly agentRunId: string | null;
+  readonly messageIndex: number;
+}
+
+export interface SessionModelQueueRow {
+  readonly inputId: string;
+  readonly runId: string | null;
+  readonly mode: string;
+  /** 序列化的 Message（JSON）。 */
+  readonly message: string;
+}
+
+export interface SessionModelRunRow {
+  readonly runId: string;
+  readonly status: string;
+  readonly createdAt?: number;
+}
+
+export interface SessionModelPendingActionRow {
+  readonly actionId: string;
+  readonly runId: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly payload: string;
+  readonly response?: string | null;
+}
+
+export interface BuildTurnsInput {
+  /** 顺序不限；内部按 (run, message_index) 归组排序。 */
+  readonly ledger: readonly SessionModelLedgerRow[];
+  readonly queue: readonly SessionModelQueueRow[];
+  readonly runs: readonly SessionModelRunRow[];
+  readonly pendingActions: readonly SessionModelPendingActionRow[];
+}
+
+export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
+  const messagesByRun = groupLedgerMessages(input.ledger);
+  const inputByRun = mapQueueInputs(input.queue);
+  const requestsByRun = mapPendingActions(input.pendingActions);
+
+  return input.runs.map((run) => {
+    const requests = requestsByRun.get(run.runId) ?? [];
+    const parts = attachInputRequests(
+      turnPartsFromMessages(messagesByRun.get(run.runId) ?? []),
+      requests,
+    );
+    const message = inputByRun.get(run.runId);
+    return {
+      turnId: run.runId,
+      ...(message ? { input: message } : {}),
+      status: turnStatus(run.status),
+      parts,
+    };
+  });
+}
+
+function groupLedgerMessages(ledger: readonly SessionModelLedgerRow[]): Map<string, Message[]> {
+  const byRun = new Map<string, SessionModelLedgerRow[]>();
+  for (const row of ledger) {
+    if (row.agentRunId === null) continue;
+    const rows = byRun.get(row.agentRunId);
+    if (rows) rows.push(row);
+    else byRun.set(row.agentRunId, [row]);
+  }
+  const out = new Map<string, Message[]>();
+  for (const [runId, rows] of byRun) {
+    // 只认 message_index 顺序：账本 seq 是对话级共享顺序，run 内顺序由它表达。
+    const ordered = [...rows].sort((a, b) => a.messageIndex - b.messageIndex);
+    const messages: Message[] = [];
+    for (const row of ordered) {
+      const parsed = deserializeLedgerContent(row.content);
+      if ("messageId" in parsed) messages.push(revisionToMessage(parsed));
+    }
+    out.set(runId, messages);
+  }
+  return out;
+}
+
+/** MessageRevision（账本行）到 Message 的直译：字段同名，只换 id 字段名。 */
+function revisionToMessage(revision: ReturnType<typeof deserializeLedgerContent>): Message {
+  if (!("messageId" in revision)) return { role: "system", text: "" };
+  return {
+    id: revision.messageId,
+    role: revision.role,
+    ...(revision.state !== undefined ? { state: revision.state } : {}),
+    ...(revision.text !== undefined ? { text: revision.text } : {}),
+    ...(revision.blocks !== undefined ? { blocks: revision.blocks } : {}),
+    ...(revision.tools !== undefined ? { tools: revision.tools } : {}),
+    ...(revision.conversationId !== undefined ? { conversationId: revision.conversationId } : {}),
+    ...(revision.visibility !== undefined ? { visibility: revision.visibility } : {}),
+    ...(revision.error !== undefined ? { error: revision.error } : {}),
+    updatedAt: revision.updatedAt,
+  };
+}
+
+function mapQueueInputs(queue: readonly SessionModelQueueRow[]): Map<string, Message> {
+  const out = new Map<string, Message>();
+  for (const row of queue) {
+    if (row.runId === null) continue;
+    // 一个 Run 只由一个输入触发；先到者为准（同 run 的重复行不该出现）。
+    if (out.has(row.runId)) continue;
+    try {
+      out.set(row.runId, JSON.parse(row.message) as Message);
+    } catch {
+      /* 解析不了的输入不进模型，但也不该拖垮整轮。 */
+    }
+  }
+  return out;
+}
+
+function mapPendingActions(
+  actions: readonly SessionModelPendingActionRow[],
+): Map<string, CanonicalInputRequest[]> {
+  const out = new Map<string, CanonicalInputRequest[]>();
+  for (const action of actions) {
+    const request: CanonicalInputRequest = {
+      requestId: action.actionId,
+      kind: action.kind,
+      status: actionStatus(action.status),
+      ...(toolCallIdOf(action.payload) !== undefined
+        ? { toolCallId: toolCallIdOf(action.payload)! }
+        : {}),
+      ...(action.response !== undefined && action.response !== null
+        ? { response: JSON.parse(action.response) as unknown }
+        : {}),
+    };
+    const list = out.get(action.runId);
+    if (list) list.push(request);
+    else out.set(action.runId, [request]);
+  }
+  return out;
+}
+
+/** 审批的 payload 里记着它针对的调用 id（`callId` 或 `toolCallId`）。 */
+function toolCallIdOf(payload: string): string | undefined {
+  try {
+    const parsed = JSON.parse(payload) as { callId?: unknown; toolCallId?: unknown };
+    const id = parsed.toolCallId ?? parsed.callId;
+    return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function actionStatus(status: string): CanonicalInputRequest["status"] {
+  if (status === "resolved" || status === "cancelled") return status;
+  return "pending";
+}
+
+/** Run 状态到轮次状态。`aborted` 对 AHP 的 `cancelled`，两者是同一件事：人叫停
+ *  或机器中断，都不是失败。 */
+export function turnStatus(status: string): CanonicalTurnStatus {
+  switch (status) {
+    case "running":
+      return "running";
+    case "waiting":
+      return "waiting";
+    case "completed":
+      return "completed";
+    case "aborted":
+      return "cancelled";
+    case "failed":
+    case "commit_failed":
+    case "timeout":
+      return "failed";
+    default:
+      return "running";
+  }
+}
