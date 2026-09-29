@@ -39,8 +39,22 @@ export interface AhpStateSource {
   chat(uri: URI): ChatState | undefined;
 }
 
+/** 客户端命令的落点。
+ *
+ *  协议模块**不解释**命令：`chat/turnStarted` 的意思是「开始一轮」，不是一次本地
+ *  状态编辑，所以它不能在这里被 reducer 就地应用。产品侧收到命令，做完该做的事，
+ *  再把结果作为动作派发回来（`dispatch`），两端因此仍然收敛在同一份 reducer 上。 */
+export interface AhpCommandPort {
+  submit(command: {
+    readonly channel: URI;
+    readonly action: StateAction;
+    readonly origin: ActionOrigin;
+  }): void | Promise<void>;
+}
+
 export interface AhpServerOptions {
   readonly source: AhpStateSource;
+  readonly commands: AhpCommandPort;
   readonly serverInfo?: { readonly name: string; readonly version: string };
   /** 回放缓冲能容纳多少条动作信封；差距超过它就回快照。 */
   readonly replayBufferSize?: number;
@@ -56,10 +70,9 @@ export interface AhpConnection {
 export interface AhpServer {
   readonly serverSeq: number;
   createConnection(send: (frame: string) => void): AhpConnection;
-  /** 产品侧：应用一个动作并广播给订阅该频道的连接。返回分发的信封。 */
-  dispatch(uri: URI, action: StateAction): ActionEnvelope;
-  /** 客户端派发：带来源回显，其余与产品侧一致。 */
-  dispatchFrom(uri: URI, action: StateAction, origin: ActionOrigin): ActionEnvelope;
+  /** 产品侧：应用一个动作并广播给订阅该频道的连接。`origin` 用于把客户端命令
+   *  的结果回显给它自己。返回分发的信封。 */
+  dispatch(uri: URI, action: StateAction, origin?: ActionOrigin): ActionEnvelope;
 }
 
 interface ConnectionState {
@@ -138,15 +151,14 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
     fanOut(envelope);
     return envelope;
   };
-  const dispatch = (uri: URI, action: StateAction): ActionEnvelope =>
-    dispatchWith(uri, action, undefined);
+  const dispatch = (uri: URI, action: StateAction, origin?: ActionOrigin): ActionEnvelope =>
+    dispatchWith(uri, action, origin);
 
   const server: AhpServer = {
     get serverSeq() {
       return serverSeq;
     },
     dispatch,
-    dispatchFrom: (uri, action, origin) => dispatchWith(uri, action, origin),
     createConnection(send) {
       const connection: ConnectionState = {
         send,
@@ -268,7 +280,27 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           );
           return;
         }
-        dispatchWith(uri, action, origin);
+        // 交给产品侧：它做出事实变化，再用 dispatch 把结果广播回来。协议模块
+        // 自己不动这根频道的状态，否则客户端的乐观写入会被当成服务端事实。
+        // 先包进 promise 再调用：端口同步抛错时也要走同一条回绝路径，不能把
+        // 帧处理炸掉。
+        void Promise.resolve()
+          .then(() => opts.commands.submit({ channel: uri, action, origin }))
+          .catch((err: unknown) => {
+            connection.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "action",
+                params: {
+                  channel: uri,
+                  action,
+                  serverSeq,
+                  origin,
+                  rejectionReason: err instanceof Error ? err.message : String(err),
+                },
+              }),
+            );
+          });
       };
 
       const handle = (frame: string | Uint8Array): void => {
