@@ -22,7 +22,6 @@ export interface ConversationBinding {
    *  something (see `topicRootMessageId` in the schema). */
   topicRootMessageId: string | null;
   createdAt: number;
-  pushedSeq: number;
 }
 
 export interface MemberBinding {
@@ -75,7 +74,6 @@ function toConversationBinding(
     chatMode: row.chatMode,
     topicRootMessageId: row.topicRootMessageId,
     createdAt: row.createdAt,
-    pushedSeq: row.pushedSeq,
   };
 }
 
@@ -106,7 +104,6 @@ export function putConversationBinding(db: Database, binding: ConversationBindin
       chatType: binding.chatType,
       chatMode: binding.chatMode,
       topicRootMessageId: binding.topicRootMessageId,
-      pushedSeq: binding.pushedSeq,
       createdAt: binding.createdAt,
     })
     .onConflictDoNothing()
@@ -164,14 +161,6 @@ export function updateChatMode(db: Database, conversationId: string, chatMode: s
   d(db)
     .update(schema.conversationBinding)
     .set({ chatMode })
-    .where(eq(schema.conversationBinding.conversationId, conversationId))
-    .run();
-}
-
-export function updatePushedSeq(db: Database, conversationId: string, seq: number): void {
-  d(db)
-    .update(schema.conversationBinding)
-    .set({ pushedSeq: seq })
     .where(eq(schema.conversationBinding.conversationId, conversationId))
     .run();
 }
@@ -447,7 +436,7 @@ export function rebindConversation(
   return db.transaction(() => {
     const moved = d(db)
       .update(schema.conversationBinding)
-      .set({ conversationId: newConversationId, pushedSeq: 0 })
+      .set({ conversationId: newConversationId })
       .where(eq(schema.conversationBinding.conversationId, oldConversationId))
       .run();
     // drizzle-orm 0.44 types .run() as void for SQLite; runtime returns { changes }.

@@ -20,7 +20,6 @@ export const conversationBinding = sqliteTable("conversation_binding", {
    *  than inferred from the topic keys, because a conversation has several of
    *  those (`omt_…` cannot be replied to at all) and only one root. */
   topicRootMessageId: text(),
-  pushedSeq: integer().notNull().default(0),
   createdAt: integer({ mode: "number" }).notNull(),
 });
 

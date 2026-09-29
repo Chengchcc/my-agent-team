@@ -20,7 +20,6 @@ import {
   reserveInbound,
   setTopicRoot,
   updateChatMode,
-  updatePushedSeq,
   upsertMessageDelivery,
 } from "./bindings-sqlite.js";
 
@@ -56,24 +55,11 @@ describe("bindings-sqlite", () => {
       chatType: "p2p",
       chatMode: null,
       createdAt: Date.now(),
-      pushedSeq: 0,
     });
     const binding = getConversationBinding(db, "conv_test1");
     expect(binding).not.toBeNull();
     expect(binding!.larkChatId).toBe("oc_test1");
     expect(binding!.chatType).toBe("p2p");
-    expect(binding!.pushedSeq).toBe(0);
-    // Re-inserting must not reset the cursor (restart / rebind race).
-    updatePushedSeq(db, "conv_test1", 7);
-    putConversationBinding(db, {
-      conversationId: "conv_test1",
-      larkChatId: "oc_test1",
-      chatType: "p2p",
-      chatMode: null,
-      createdAt: Date.now(),
-      pushedSeq: 0,
-    });
-    expect(getConversationBinding(db, "conv_test1")!.pushedSeq).toBe(7);
   });
 
   test("listConversationBindings + chatHasConversations", () => {
@@ -83,18 +69,10 @@ describe("bindings-sqlite", () => {
       chatType: "group",
       chatMode: "topic",
       createdAt: Date.now(),
-      pushedSeq: 0,
     });
     expect(listConversationBindings(db).length).toBeGreaterThanOrEqual(2);
     expect(chatHasConversations(db, "oc_test2")).toBe(true);
     expect(chatHasConversations(db, "oc_never_seen")).toBe(false);
-  });
-
-  test("updatePushedSeq is per conversation", () => {
-    updatePushedSeq(db, "conv_test1", 42);
-    expect(getConversationBinding(db, "conv_test1")!.pushedSeq).toBe(42);
-    // Its sibling conversation in the same chat keeps its own cursor.
-    expect(getConversationBinding(db, "conv_test2")!.pushedSeq).toBe(0);
   });
 
   test("updateChatMode records the chat mode once, for reply targeting", () => {
@@ -111,7 +89,6 @@ describe("bindings-sqlite", () => {
       chatType: "group",
       chatMode: "topic",
       createdAt: Date.now(),
-      pushedSeq: 0,
     });
     setTopicRoot(db, "conv_test3", "om_root_test3");
 
@@ -154,7 +131,6 @@ describe("bindings-sqlite", () => {
         chatType: "group",
         chatMode: "topic",
         createdAt,
-        pushedSeq: 0,
       });
     }
     expect(newestConversationForChat(db, "oc_multi_topic")).toBe("conv_new_topic");
@@ -170,7 +146,6 @@ describe("bindings-sqlite", () => {
       chatType: "group",
       chatMode: "topic",
       createdAt: Date.now(),
-      pushedSeq: 0,
     });
     expect(ensureTopicRoot(db, "oc_legacy", "conv_legacy")).toBeNull();
     // The message that opened the topic was recorded first, our own card after
@@ -189,13 +164,10 @@ describe("bindings-sqlite", () => {
       chatType: "group",
       chatMode: "group",
       createdAt: Date.now(),
-      pushedSeq: 9,
     });
     rememberTopicKeys(db, "oc_test4", "conv_old", ["omt_topic"], 1);
     expect(rebindConversation(db, "conv_old", "conv_new")).toBe(true);
     expect(getConversationBinding(db, "conv_old")).toBeNull();
-    const moved = getConversationBinding(db, "conv_new");
-    expect(moved!.pushedSeq).toBe(0); // a fork starts at its own ledger
     // The Lark topic must follow the fork, otherwise the next reply in that
     // topic would open a brand-new conversation.
     expect(findConversationByTopicKey(db, "oc_test4", "omt_topic")).toBe("conv_new");
