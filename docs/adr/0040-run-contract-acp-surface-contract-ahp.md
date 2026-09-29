@@ -32,7 +32,7 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 ## 决策
 
-1. **目标态：运行契约归 ACP，surface 契约归 AHP；两条自研方言下线。** 运行轴只留 `adapter-acp`（其余 agent 经官方桥或原生 `--acp` 接入）；surface 轴只留 AHP，外加快照型 REST 承担 CRUD 与列表（agents、projects、skills、workflows、settings），AHP 不管这些。oma 自己的 RPC 模式保留为本地 CLI 与 TUI 的通道，它不对外。**删除清单见专节，且是每个相位的验收条件。**
+1. **目标态：运行契约归 ACP，surface 契约归 AHP；两条自研方言下线。** 运行轴只留 `adapter-acp`（其余 agent 经官方桥或原生 `--acp` 接入）；surface 轴只留 AHP，外加快照型 REST 承担 CRUD 与列表（agents、projects、skills、workflows、settings），AHP 不管这些。**每一个 surface 都走 AHP 客户端，包括 Web、Lark bot 与第三方 UI（VS Code、ahpx），不设「内部 feed」这类例外通道**：例外通道会让 surface 轴重新长出一条自研线，而本次的目的正是让它只剩一条。Lark 是 Bun 进程，官方客户端的 WebSocket 传输在 Node 21+ 与 Bun 下可用；鉴权沿用既有的「upgrade 时完成」模式。oma 自己的 RPC 模式保留为本地 CLI 与 TUI 的通道，它不对外。**删除清单见专节，且是每个相位的验收条件。**
 
 2. **AHP 的位置、范围与维护契约。**
 
@@ -64,7 +64,7 @@ flowchart TB
   subgraph SURF["端"]
     WEB["Web · Next.js<br/>AHP 客户端 + reducer 派生状态"]
     VS["VS Code Agent Sessions / ahpx"]
-    LARK["Lark bot · 服务端 surface"]
+    LARK["Lark bot · AHP 客户端"]
   end
 
   subgraph WIRE["标准面"]
@@ -96,7 +96,7 @@ flowchart TB
   WEB --> AHPW
   WEB --> RESTW
   VS --> AHPW
-  LARK -->|内部 feed| RUN
+  LARK --> AHPW
   AHPW <-->|订阅快照与动作 · 客户端命令| AHPS
   AHPS -->|命令走控制面| RUN
   AHPS -->|只读| CAN
@@ -145,7 +145,7 @@ flowchart LR
 | 运行 | `packages/adapter-oma-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线 |
 | surface | 自研核心事件词汇（14 类）与 5 个 SSE 端点（`agent-run`、`agent`、`conversation`、`workflow` 两处） | Web 切到 AHP 客户端之后 |
 | surface | Web 侧 `EventSource` 管道 | 同上 |
-| surface | Lark 的 HTTP 事件消费 | 改为内部 feed（服务端进程，不需要交互状态） |
+| surface | Lark 的 HTTP 事件消费与自研事件解析 | 改为 AHP 客户端订阅（与 Web 同时切换） |
 
 ## 相位
 
@@ -154,7 +154,7 @@ flowchart LR
 | S0 | 规范模型与账本编码对齐（决策三），含修 ACP 轨工具事实漏账 | 一致性向量；ACP 轨 N 次工具调用留 N 组工具事实 |
 | S1 | AHP 最小面：root / session / chat，`initialize` / `subscribe` / `dispatchAction` / `reconnect` | 上游 TS 客户端互操作用例；官方语料 |
 | S2 | Web 切到 AHP 客户端，状态由上游同源 reducer 派生；REST 不变 | Web 测试全绿且不再消费自研事件 |
-| S3 | 删事件词汇与 SSE；Lark 切内部 feed | 删除清单逐条勾掉 |
+| S3 | 删事件词汇与 SSE；Lark 切到 AHP 客户端 | 删除清单逐条勾掉 |
 | R1 | cc 经官方桥、pi 经 `pi-acp` 接入 ACP | conformance 先行，再隔离验收 |
 | R2 | Workflow 的 agent 节点支持 `acp` kind | 节点级端到端 |
 | R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉 |
