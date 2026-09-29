@@ -62,6 +62,7 @@
       "name": "@chengchenccc/lark-bot",
       "version": "0.1.0",
       "dependencies": {
+        "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/backend": "workspace:*",
         "@chengchenccc/config": "workspace:*",

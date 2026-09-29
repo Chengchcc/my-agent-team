@@ -19,6 +19,7 @@
     "@chengchenccc/config": "workspace:*",
     "@chengchenccc/message": "workspace:*",
     "zod": "^3.23.0",
-    "@microsoft/agent-host-protocol": "^0.9.0"
+    "@microsoft/agent-host-protocol": "^0.9.0",
+    "@chengchenccc/ahp-client": "workspace:*"
   }
 }
