@@ -28,7 +28,6 @@ import { RunDiagnostics } from "./RunDiagnostics";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
 import { UsagePanel } from "./UsagePanel";
-import { WorkflowPanel } from "./WorkflowPanel";
 
 interface ConversationCanvasProps {
   conversationId: string;
@@ -44,17 +43,8 @@ export function ConversationCanvas({
   anchorSeq,
 }: ConversationCanvasProps) {
   const router = useRouter();
-  const {
-    state,
-    busy,
-    send,
-    transients,
-    transientTools,
-    runTodos,
-    activeRuns,
-    workflows,
-    resolveApproval,
-  } = useConversation(conversationId, snapshot);
+  const { state, busy, send, transients, transientTools, runTodos, activeRunId, resolveApproval } =
+    useConversation(conversationId, snapshot);
   const { agent, items, error, streamConn } = state;
   const { data: artifactsData } = useArtifacts();
   const artifactsByRunId = useMemo(() => {
@@ -240,9 +230,10 @@ export function ConversationCanvas({
     URL.revokeObjectURL(url);
   }, [conversationId]);
 
-  // Active Agent Run (from the transient Live Update stream) - /stop target.
-  // Never inferred from message state; canonical History has no open runs.
-  const currentRunId = activeRuns.size > 0 ? [...activeRuns][0]! : null;
+  // The live Agent Run, as the chat channel reports it (the projection makes the running run the
+  // active turn). The /stop target never comes from message state: canonical history has no
+  // open runs.
+  const currentRunId = activeRunId;
 
   const handleSlashCommand = useCallback(
     async (input: string) => {
@@ -392,9 +383,6 @@ export function ConversationCanvas({
           )}
         </div>
       )}
-
-      {/* Workflow progress — transient, per running workflow */}
-      <WorkflowPanel workflows={workflows} />
 
       {/* M14.6: Todo progress — pinned above message stream */}
       <TodoPanel

@@ -1,6 +1,5 @@
 "use client";
 
-import { runEvents, sseEndpoints } from "@chengchenccc/api-contract";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ChatModelOverride } from "@/components/ModelPicker";
 import {
@@ -13,51 +12,22 @@ import { api } from "@/lib/api";
 import { activeTurnFromState, itemsFromChatState } from "@/lib/chat-state";
 import { initialState, isBusy, reducer } from "@/lib/conversation-reducer";
 import {
-  clearRunTodos,
-  clearRunTools,
   clearTransientApproval,
   type LiveToolMap,
   markTransientApprovalError,
-  markTransientError,
-  pushTransientNotice,
   type RunTodoMap,
-  removeTransient,
   type TransientMap,
 } from "@/lib/transient-reducer";
-import { typedSource } from "@/lib/typed-source";
-
-/** Transient workflow run progress (SSE-driven; cleared on stream close). */
-export interface WorkflowAgentState {
-  readonly label: string;
-  readonly status: "running" | "done" | "failed";
-  readonly error?: string;
-}
-export interface WorkflowRunState {
-  readonly label: string;
-  readonly agentCount: number;
-  readonly agents: ReadonlyMap<string, WorkflowAgentState>;
-  readonly ok: boolean | null;
-  readonly totalTokens: number;
-}
 
 export function useConversation(
   conversationId: string,
   preFetchedSnapshot?: ConversationSnapshot | null,
 ) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  /** Transient Agent Run state (Live Updates): a set of active runIds.
-   *  Runs are removed when their terminal state is observed on the run
-   *  event stream OR when the canonical final Message lands in History. */
-  const [activeRuns, setActiveRuns] = useState<Set<string>>(new Set());
   /** Transient streaming output per active run (one bubble per run in the
    *  Timeline). Never persisted; each entry is replaced by the canonical
    *  final Message (`run:<runId>:assistant:0`) or dropped on failure. */
   const [transients, setTransients] = useState<TransientMap>({});
-  const runStreamsRef = useRef(new Map<string, EventSource>());
-  /** CallIds whose decision the backend ACCEPTED this session: the
-   * durable-card rehydration must not resurrect them from a stale
-   * in-flight detail fetch (resolve-then-rehydrate race). */
-  const resolvedCallIdsRef = useRef(new Set<string>());
   const transientsRef = useRef(transients);
 
   /** Live tool steps per run (`<runId>:<callId>` key). Run-local, transient:
@@ -65,40 +35,22 @@ export function useConversation(
   const [transientTools, setTransientTools] = useState<LiveToolMap>({});
   /** Latest todo snapshot per run (todo_write replaces the whole list). */
   const [runTodos, setRunTodos] = useState<RunTodoMap>({});
-  /** Live workflow runs (transient progress, cleared with the SSE stream). */
-  const [workflows, setWorkflows] = useState<ReadonlyMap<string, WorkflowRunState>>(new Map());
+  /** The run the chat state says is live: the projection builds one active turn per running Run,
+   *  so the id comes from there and not from a stream of its own. */
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
-  const clearRunToolsState = useCallback((runId: string) => {
-    setTransientTools((prev) => clearRunTools(prev, runId));
-  }, []);
-  const clearRunTodosState = useCallback((runId: string) => {
-    setRunTodos((prev) => clearRunTodos(prev, runId));
-  }, []);
-
-  // Leaving the conversation closes every run EventSource and clears all
-  // transient state — a switched conversation must never inherit the
-  // previous one's streaming bubbles. Runs on unmount AND conversationId
-  // change; setState calls after unmount are no-ops in React 18+.
+  // Leaving the conversation clears its transient state: a switched conversation must never
+  // inherit the previous one's streaming bubbles. Runs on unmount AND conversationId change;
+  // setState calls after unmount are no-ops in React 18+.
   // biome-ignore lint/correctness/useExhaustiveDependencies: cleanup-only effect keyed on conversationId
   useEffect(() => {
     return () => {
-      for (const es of runStreamsRef.current.values()) es.close();
-      runStreamsRef.current.clear();
-      setActiveRuns(new Set());
       setTransients({});
       transientsRef.current = {};
       setTransientTools({});
       setRunTodos({});
-      setWorkflows(new Map());
     };
   }, [conversationId]);
-  const dropTransient = useCallback((runId: string) => {
-    setTransients((prev) => {
-      const next = removeTransient(prev, runId);
-      transientsRef.current = next;
-      return next;
-    });
-  }, []);
   /** HITL approval (spec): POST the decision; clear the card ONLY on a
    *  successful response. A failed POST means the child never saw the
    *  decision — dropping the card would silently lose a live approval. */
@@ -106,7 +58,6 @@ export function useConversation(
     async (runId: string, callId: string, decision: "allow" | "deny") => {
       try {
         await api.resolveApproval(runId, callId, decision);
-        resolvedCallIdsRef.current.add(`${runId}:${callId}`);
       } catch (err) {
         console.error("approval resolve failed:", err);
         setTransients((prev) => {
@@ -128,27 +79,12 @@ export function useConversation(
     },
     [],
   );
-  const failTransient = useCallback((runId: string, agentId: string, error: string) => {
-    setTransients((prev) => {
-      const next = markTransientError(prev, runId, agentId, error);
-      transientsRef.current = next;
-      return next;
-    });
-  }, []);
-  const pushRunNotice = useCallback((runId: string, agentId: string, notice: string) => {
-    setTransients((prev) => {
-      const next = pushTransientNotice(prev, runId, agentId, notice);
-      transientsRef.current = next;
-      return next;
-    });
-  }, []);
   // 1) Snapshot bootstrap (the conversation's agent)
   const snap = useConversationSnapshot(conversationId, preFetchedSnapshot);
 
-  /** Live chat state comes from the AHP face (ADR 0040). It carries what the run-event stream
-   *  used to: streaming text and thinking, live tool steps, the run's todo list and the HITL
-   *  cards. The stream keeps only what AHP does not project yet - stream-rule notices and
-   *  workflow progress - so nothing visible is lost while those two follow. */
+  /** Live chat state comes from the AHP face (ADR 0040). It carries everything the run-event
+   *  stream used to: streaming text and thinking, live tool steps, the run's todo list, the HITL
+   *  cards, and which run is live. The stream is gone; this is the only live source. */
   useEffect(() => {
     const agentId = snap.data?.agentId;
     if (!conversationId || !agentId) return;
@@ -161,6 +97,7 @@ export function useConversation(
         transientsRef.current = view.transients;
         setTransientTools(view.tools);
         setRunTodos(view.todos);
+        setActiveRunId(state.activeTurn?.id ?? null);
         // The history comes from the same subscription: a snapshot carries all of it, and every
         // later action keeps it current.
         dispatch({
@@ -194,200 +131,6 @@ export function useConversation(
   //    ledger's messageId, so the optimistic item collapses onto it.
   const sendMut = usePostConversationMessage(conversationId);
 
-  /** Follow one run through its Live Update stream. Transient only: the
-   *  bubble is kept on `completed` until the canonical final Message
-   *  replaces it (no blank frame between stream end and history commit);
-   *  failed/aborted/timeout keeps it with the error pill — those runs have
-   *  no canonical assistant Message to swap in, so the pill is the only
-   *  failure record until reload. */
-  const watchRun = useCallback(
-    (runId: string, agentId: string) => {
-      setActiveRuns((prev) => new Set(prev).add(runId));
-      // One stream per run, tracked centrally so unmount can close all.
-      const existing = runStreamsRef.current.get(runId);
-      existing?.close();
-      // Contract-bound stream: URL from the sseEndpoints registry, opened
-      // through typedSource (the only permitted raw stream constructor).
-      const ts = typedSource(`/api/bff${sseEndpoints.agentRunEvents.path({ runId })}`, runEvents);
-      const { es } = ts;
-      runStreamsRef.current.set(runId, es);
-      // Durable HITL rehydration: on (re)connect, rebuild the approval/ask
-      // cards from the run's persisted pending actions — a page refresh no
-      // longer loses a live approval the child is still blocked on.
-      const finish = () => {
-        runStreamsRef.current.get(runId)?.close();
-        runStreamsRef.current.delete(runId);
-        setActiveRuns((prev) => {
-          const next = new Set(prev);
-          next.delete(runId);
-          return next;
-        });
-        // Tools/todos are Run-local and never enter History: clear them at
-        // terminal regardless of outcome. Only the text bubble survives on
-        // completion (replaced by the canonical Message).
-        clearRunToolsState(runId);
-        clearRunTodosState(runId);
-      };
-      /** Transport failure: Live Updates are best-effort; drop the partial
-       *  bubble. If the run actually completed, its turn is committed to the chat
-       *  channel and arrives from there. */
-      const drop = () => {
-        finish();
-        dropTransient(runId);
-      };
-      es.onerror = () => {
-        // EventSource fires `error` for BOTH a genuine transport blip
-        // (readyState CONNECTING, it will retry) and a server-side close
-        // (readyState CLOSED, the run settled and the backend closed the
-        // stream). A server close is NOT a failure: the terminal status
-        // event may still be in flight (the dispatch drain is raced with
-        // a 500ms cap before closeSubscribers), so dropping the bubble
-        // here clears a completed answer and leaves a blank frame until
-        // the committed turn lands on the chat channel. Keep the
-        // bubble on CLOSED; drop only on a real reconnect attempt.
-        if (es.readyState === EventSource.CONNECTING) drop();
-        else finish();
-      };
-      es.addEventListener("status", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as {
-            type?: string;
-            status?: string;
-            error?: string;
-          };
-          if (ev.type !== "status") return;
-          if (ev.status === "completed") {
-            finish();
-          } else if (["failed", "aborted", "timeout"].includes(ev.status ?? "")) {
-            // Failed runs persist no canonical message: keep the bubble and
-            // attach the error pill as the live failure record.
-            failTransient(runId, agentId, ev.error ?? "Run failed");
-            finish();
-          }
-        } catch {
-          /* malformed - ignore */
-        }
-      });
-      es.addEventListener("backend.oma.stream_rule_triggered", (e) => {
-        try {
-          const ev = JSON.parse((e as MessageEvent).data) as { payload?: { rule?: string } };
-          if (ev.payload?.rule) {
-            pushRunNotice(
-              runId,
-              agentId,
-              `stream rule "${ev.payload.rule}" matched — output discarded, retrying`,
-            );
-          }
-        } catch {
-          /* malformed - ignore */
-        }
-      });
-      // Same typed client as the approval handler above: a raw listener keyed
-      // by a bare string is invisible to the compiler, so a rename that misses
-      // this one line would silently stop painting questions.
-      const upsertWorkflow = (
-        workflowId: string,
-        patch: (w: WorkflowRunState | undefined) => WorkflowRunState | undefined,
-      ): void => {
-        setWorkflows((prev) => {
-          const next = new Map(prev);
-          const updated = patch(prev.get(workflowId));
-          if (updated) next.set(workflowId, updated);
-          else next.delete(workflowId);
-          return next;
-        });
-      };
-      const workflowEvent =
-        (kind: "started" | "agent_started" | "agent_completed" | "completed") => (e: Event) => {
-          try {
-            const ev = JSON.parse((e as MessageEvent).data) as {
-              batchId?: string;
-              label?: string;
-              agentCount?: number;
-              agentId?: string;
-              ok?: boolean;
-              error?: string;
-              totalTokens?: number;
-            };
-            const batchId = String(ev.batchId ?? "");
-            if (!batchId) return;
-            if (kind === "started") {
-              upsertWorkflow(batchId, () => ({
-                label: String(ev.label ?? ""),
-                agentCount: Number(ev.agentCount ?? 0),
-                agents: new Map(),
-                ok: null,
-                totalTokens: 0,
-              }));
-              return;
-            }
-            if (kind === "completed") {
-              upsertWorkflow(batchId, (w) => {
-                if (!w) return w;
-                return { ...w, ok: ev.ok === true, totalTokens: Number(ev.totalTokens ?? 0) };
-              });
-              return;
-            }
-            const agentId = String(ev.agentId ?? "");
-            const agentState: WorkflowAgentState =
-              kind === "agent_started"
-                ? { label: String(ev.label ?? ""), status: "running" }
-                : ev.ok === true
-                  ? { label: String(ev.label ?? ""), status: "done" }
-                  : {
-                      label: String(ev.label ?? ""),
-                      status: "failed",
-                      error: String(ev.error ?? ""),
-                    };
-            upsertWorkflow(batchId, (w) => {
-              if (!w) return w;
-              const agents = new Map(w.agents);
-              agents.set(agentId, agentState);
-              return { ...w, agents };
-            });
-          } catch {
-            /* malformed - ignore */
-          }
-        };
-      es.addEventListener("delegation_batch_started", workflowEvent("started"));
-      es.addEventListener("delegation_agent_started", workflowEvent("agent_started"));
-      es.addEventListener("delegation_agent_completed", workflowEvent("agent_completed"));
-      es.addEventListener("delegation_batch_completed", workflowEvent("completed"));
-    },
-    [clearRunToolsState, clearRunTodosState, dropTransient, failTransient, pushRunNotice],
-  );
-
-  // Poll this conversation's active runs and start live streaming for any
-  // run not triggered by a local send (e.g. workflow agent nodes). This
-  // makes workflow-originated agent messages stream like normal chat.
-  useEffect(() => {
-    if (!conversationId) return;
-    let stopped = false;
-    const poll = async () => {
-      if (stopped) return;
-      try {
-        const res = await api.listAgentRuns({ conversationId });
-        for (const run of res?.runs ?? []) {
-          if (
-            !run.runId ||
-            !["running", "waiting", "commit_failed"].includes(run.status) ||
-            runStreamsRef.current.has(run.runId)
-          )
-            continue;
-          watchRun(run.runId, run.agentId);
-        }
-      } catch {
-        /* transient poll failure — next tick retries */
-      }
-    };
-    void poll();
-    const timer = setInterval(poll, 2000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [conversationId, watchRun]);
-
   const send = useCallback(
     (
       text: string,
@@ -402,7 +145,7 @@ export function useConversation(
       // While a run is live, messages queue for after it settles (the
       // Composer queue area) instead of being injected as a live steer;
       // each queued item can be steered/edited/cancelled individually.
-      const queued = isBusy(state) || activeRuns.size > 0;
+      const queued = isBusy(state) || activeRunId !== null;
       sendMut.mutate(
         {
           text,
@@ -411,11 +154,6 @@ export function useConversation(
           attachments,
         },
         {
-          onSuccess: (result) => {
-            for (const run of result.triggeredRuns ?? []) {
-              if (!run.queued && run.runId) watchRun(run.runId, run.agentId);
-            }
-          },
           onSettled: () => {
             dispatch({ type: "send/settled" });
           },
@@ -425,20 +163,19 @@ export function useConversation(
         },
       );
     },
-    [sendMut, state, watchRun, activeRuns.size],
+    [sendMut, state, activeRunId],
   );
 
-  const busy = isBusy(state) || activeRuns.size > 0;
+  const busy = isBusy(state) || activeRunId !== null;
 
   return {
     state,
     busy,
     send,
-    activeRuns,
+    activeRunId,
     transients,
     transientTools,
     runTodos,
-    workflows,
     resolveApproval,
   };
 }
