@@ -248,6 +248,10 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       // Validate against the durable action first: an unknown callId is a
       // stale click, not a decision, and must never reach the child.
       const actionId = pendingActionId(runId, callId);
+      // Whatever path settles this request, the surface hears about it: a card that keeps reading
+      // as pending after a click is the one thing a human reads as "my answer did not land".
+      const announce = (outcome: "allow" | "deny" | "timeout"): void =>
+        deps.onHumanInputResolved?.({ runId, callId, outcome });
       const action = await runPort.getPendingAction(actionId);
       if (!action || action.status === "cancelled") {
         throw new ApprovalNotApplicableError(
@@ -276,6 +280,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           .catch((err) => {
             console.error(`[agent-run] approval replay repair failed for ${actionId}:`, err);
           });
+        announce(decision);
         return;
       }
       const live = liveRuns.get(runId);
@@ -296,6 +301,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
             .catch((err) => {
               console.error(`[agent-run] parked approval consume failed for ${actionId}:`, err);
             });
+          announce(decision);
           await resumeParkedRun(runId);
           return;
         }
@@ -339,6 +345,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
                   consumeErr,
                 );
               });
+            announce("timeout");
           }
           throw new ApprovalNotApplicableError(
             `approval rejected: the child has no pending approval for ${callId} (${adapterErr.message})`,
@@ -358,6 +365,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         .catch((err) => {
           console.error(`[agent-run] approval consume failed for ${actionId}:`, err);
         });
+      announce(decision);
     },
     resumeParkedRun,
 

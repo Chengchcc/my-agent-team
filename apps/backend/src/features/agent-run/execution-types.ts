@@ -62,6 +62,15 @@ export interface AgentRunExecutionDeps {
     output: Message | undefined,
     committedSeq: readonly number[],
   ) => void;
+  /** Called when a human input request is settled - answered, replayed, or timed out. The
+   *  surface layer turns it into whatever its channel says ("the card stops being pending"); the
+   *  product states the outcome and does not decide how it is shown. Repeated for replays, so
+   *  consumers must be idempotent. */
+  readonly onHumanInputResolved?: (input: {
+    runId: string;
+    callId: string;
+    outcome: "allow" | "deny" | "timeout";
+  }) => void;
   /** Conversation title lookup for the auto-title retry flag. */
   readonly conversationTitleOf?: (conversationId: string) => string | null | undefined;
   /** Called after a failed/aborted/timeout run settles, so the surface can

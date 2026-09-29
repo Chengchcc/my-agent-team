@@ -42,6 +42,7 @@ import {
   buildHistoryTools,
   createAgentRunExecutionService,
   createAgentRunService,
+  pendingActionId,
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
@@ -718,6 +719,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         fallbackRoot: config.workspaceRoot,
         conversationProjectId: convRow?.projectId ?? null,
       });
+    },
+    onHumanInputResolved: (input) => {
+      // A settled request has to stop reading as pending on the surface too, without waiting for
+      // the turn to commit: a card that survives its own click reads as "my answer did not land".
+      void announceHumanInput(input).catch((err) =>
+        console.error(`[bootstrap] human input announcement failed for ${input.runId}:`, err),
+      );
     },
     onLiveEvent: (runId, event) => {
       // The terminal status only means the run stopped stepping: its preview stays live until the
@@ -1579,6 +1587,25 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       });
     }
   };
+  /** The answer reached the product; the surface's card hears about it on the same channel. */
+  const announceHumanInput = async (input: {
+    runId: string;
+    callId: string;
+    outcome: "allow" | "deny" | "timeout";
+  }): Promise<void> => {
+    const context = await turnContextForRun(input.runId);
+    if (!context) return;
+    const response = input.outcome === "allow" ? "accept" : "decline";
+    for (const action of chatActions.inputCompleted(
+      pendingActionId(input.runId, input.callId),
+      response,
+    )) {
+      await ahpHost.server.dispatch(chatUri(context.conversationId), action).catch(() => {
+        /* a surface's channel never fails a run */
+      });
+    }
+  };
+
   onContinuityRecorded.fn = (input) => {
     void announceContinuity(input).catch((err) =>
       console.error(`[bootstrap] continuity announcement failed for ${input.conversationId}:`, err),

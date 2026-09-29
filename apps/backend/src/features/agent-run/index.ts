@@ -19,6 +19,7 @@ export {
   BranchAlreadyActiveError,
   isTerminalStatus,
   PendingActionAlreadyConsumedError,
+  pendingActionId,
   TERMINAL_RUN_STATUSES,
 } from "./domain.js";
 export type { AgentRunExecutionDeps, AgentRunExecutionService } from "./execution.js";

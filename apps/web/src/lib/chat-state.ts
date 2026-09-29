@@ -121,6 +121,7 @@ function cardOf(
   if (request === undefined) return undefined;
   const payload = request._meta?.productRequest as PayloadLike | undefined;
   const callId = typeof payload?.callId === "string" ? payload.callId : (request.id ?? "");
+  const response = settledResponse(part);
   if (request.message !== "approval") {
     return {
       kind: "ask",
@@ -131,6 +132,7 @@ function cardOf(
     kind: "approval",
     approval: {
       callId,
+      ...(response === undefined ? {} : { response }),
       toolName: typeof payload?.toolName === "string" ? payload.toolName : "",
       reason: typeof payload?.reason === "string" ? payload.reason : "",
       ...(typeof payload?.detail === "string" ? { detail: payload.detail } : {}),
@@ -144,6 +146,15 @@ interface RequestLike {
   readonly id?: string;
   readonly message?: string;
   readonly _meta?: { readonly productRequest?: unknown };
+}
+
+/** The part says whether the request is over. The projection fills this in from the durable row,
+ *  and the action edge fills it in when the human answers, so both edges agree. */
+function settledResponse(part: ResponsePart): "accept" | "decline" | "cancel" | undefined {
+  const response = (part as { response?: unknown }).response;
+  return response === "accept" || response === "decline" || response === "cancel"
+    ? response
+    : undefined;
 }
 
 interface PayloadLike {

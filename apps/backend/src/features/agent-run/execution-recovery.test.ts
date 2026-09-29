@@ -141,6 +141,13 @@ function makeExecution(
     agentId: string;
     error: string;
   }) => void,
+  inputHooks?: {
+    onHumanInputResolved?: (input: {
+      runId: string;
+      callId: string;
+      outcome: "allow" | "deny" | "timeout";
+    }) => void;
+  },
 ) {
   const activeRunPort = runPortOverride ?? runPort;
   const ledgerResolver = {
@@ -178,6 +185,9 @@ function makeExecution(
     workspaceLocks: createWorkspaceLockRegistry(),
     productToolsTokenRegistry: tokenRegistry ?? createRunTokenRegistry(),
     ...(onRunFailed ? { onRunFailed } : {}),
+    ...(inputHooks?.onHumanInputResolved
+      ? { onHumanInputResolved: inputHooks.onHumanInputResolved }
+      : {}),
   });
 }
 
@@ -465,7 +475,10 @@ describe("agent run restart resume (ADR 0038)", () => {
       payload: { callId: "c-b" },
     });
 
-    const execution2 = makeExecution(fake);
+    const announcements: Array<{ runId: string; callId: string; outcome: string }> = [];
+    const execution2 = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      onHumanInputResolved: (input) => announcements.push(input),
+    });
     await execution2.recover();
     await execution2.resolveApproval(runId, "c-a", "allow");
     // Sibling still open: NOT resumed, no child spawned, still waiting.
@@ -476,5 +489,11 @@ describe("agent run restart resume (ADR 0038)", () => {
     const settled = await waitForTerminal(runId);
     expect(settled.status).toBe("completed");
     expect(fake.resumeCalls).toContainEqual(["c-a", "c-b"]);
+    // Every settled request is announced, so the surface's card stops reading as pending: the
+    // product states the outcome, the surface layer decides how its channel says it.
+    expect(announcements).toEqual([
+      { runId, callId: "c-a", outcome: "allow" },
+      { runId, callId: "c-b", outcome: "deny" },
+    ]);
   }, 20_000);
 });

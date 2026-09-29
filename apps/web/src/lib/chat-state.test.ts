@@ -289,3 +289,35 @@ describe("a failed turn", () => {
     expect(items).toEqual([{ kind: "notice", id: "run:run-9:error", text: "the child exited 1" }]);
   });
 });
+
+describe("an answered request", () => {
+  test("carries its outcome onto the card, so the buttons are not offered again", () => {
+    const view = activeTurnFromState(
+      state([], {
+        activeTurn: {
+          id: "run-7",
+          startedAt: new Date(0).toISOString(),
+          message: { text: "go", origin: { kind: "user" } },
+          responseParts: [
+            {
+              kind: "inputRequest",
+              request: {
+                id: "run-7:call-1",
+                message: "approval",
+                _meta: { productRequest: { callId: "call-1", toolName: "bash" } },
+              },
+              response: "accept",
+            },
+          ],
+          usage: undefined,
+        },
+      }),
+      "agent-1",
+    );
+    expect(view.transients["run-7"]?.approval).toMatchObject({
+      callId: "call-1",
+      toolName: "bash",
+      response: "accept",
+    });
+  });
+});

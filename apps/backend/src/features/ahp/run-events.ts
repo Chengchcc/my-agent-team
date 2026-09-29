@@ -55,6 +55,10 @@ export interface ChatActionTranslator {
     turnId: string,
     turn: Pick<Turn, "message" | "responseParts" | "startedAt">,
   ): StateAction[];
+  /** The human answered, or the request expired: the part that asked stops reading as pending.
+   *  Upstream targets it by request id, and the response is the projection's own vocabulary, so a
+   *  surface that reloads later agrees with what it was told live. */
+  inputCompleted(requestId: string, response: "accept" | "decline" | "cancel"): StateAction[];
   /** Forget a finished run. */
   drop(runId: string): void;
 }
@@ -249,6 +253,10 @@ export function createChatActionTranslator(): ChatActionTranslator {
     announceContinuity(turnId, turn) {
       // No duration: a notice is not a turn that ran. The rest is the projection's own statement.
       return turnActions(turnId, turn.startedAt ?? new Date(0).toISOString(), turn, 0);
+    },
+
+    inputCompleted(requestId, response) {
+      return [{ type: "chat/inputCompleted", requestId, response } as unknown as StateAction];
     },
 
     drop(runId) {

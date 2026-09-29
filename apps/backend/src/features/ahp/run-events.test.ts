@@ -226,6 +226,17 @@ describe("run events to chat actions", () => {
     });
   });
 
+  test("an answered request is closed on the channel", () => {
+    const translator = createChatActionTranslator();
+    expect(translator.inputCompleted("run-12:call-1", "accept")).toMatchObject([
+      { type: "chat/inputCompleted", requestId: "run-12:call-1", response: "accept" },
+    ]);
+    // A deadline is a refusal the surface can show, not silence.
+    expect(translator.inputCompleted("run-12:call-2", "decline")).toMatchObject([
+      { response: "decline" },
+    ]);
+  });
+
   test("a dropped run starts fresh instead of appending to its old part", () => {
     const translator = createChatActionTranslator();
     translator.translate("run-9", { type: "text_delta", text: "a" });

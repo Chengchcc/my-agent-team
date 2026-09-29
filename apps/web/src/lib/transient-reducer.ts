@@ -134,6 +134,10 @@ export interface TransientApproval {
   deadlineAt?: number;
   /** Last resolve POST failed: the card stays and shows a retry hint. */
   error?: string;
+  /** Set once the request is over: the card stops offering the buttons. It arrives live
+   *  (`chat/inputCompleted`) and from a reload alike, so an answer given on another surface
+   *  (Feishu, another tab) does not leave a card that 409s when it is clicked. */
+  response?: "accept" | "decline" | "cancel";
 }
 
 /** "MM-DD HH:mm" in the reader's own timezone (no ICU, deterministic). */
