@@ -13,19 +13,22 @@ const state = (turns: unknown[], extra: Record<string, unknown> = {}): ChatState
   }) as ChatState;
 
 describe("the transient view from AHP chat state", () => {
+  const active = (parts: unknown[], id = "run-1") => ({
+    id,
+    startedAt: new Date(0).toISOString(),
+    message: { text: "go", origin: { kind: "user" } },
+    responseParts: parts,
+    usage: undefined,
+  });
+
   test("text and thinking accumulate in the order they arrived", () => {
     const view = chatViewFromState(
-      state([
-        {
-          id: "run-1",
-          state: "complete",
-          message: { text: "go", origin: { kind: "user" } },
-          responseParts: [
-            { kind: "reasoning", id: "r0", content: "thinking first" },
-            { kind: "markdown", id: "t0", content: "answer" },
-          ],
-        },
-      ]),
+      state([], {
+        activeTurn: active([
+          { kind: "reasoning", id: "r0", content: "thinking first" },
+          { kind: "markdown", id: "t0", content: "answer" },
+        ]),
+      }),
       "agent-1",
     );
     expect(view.transients["run-1"]).toMatchObject({
@@ -39,32 +42,43 @@ describe("the transient view from AHP chat state", () => {
     ]);
   });
 
-  test("a tool call becomes a live step with the state it reached", () => {
+  test("a finished turn contributes nothing: its text is the canonical message", () => {
     const view = chatViewFromState(
       state([
         {
-          id: "run-2",
+          id: "run-9",
           state: "complete",
           message: { text: "go", origin: { kind: "user" } },
-          responseParts: [
-            {
-              kind: "toolCall",
-              toolCall: {
-                toolCallId: "call-1",
-                toolName: "bash",
-                displayName: "bash",
-                status: "completed",
-                success: true,
-                invocationMessage: "ls",
-              },
-            },
-          ],
+          responseParts: [{ kind: "markdown", id: "t0", content: "already in the list" }],
         },
       ]),
       "agent-1",
     );
-    expect(view.tools["run-2:call-1"]).toMatchObject({
-      runId: "run-2",
+    expect(view.transients).toEqual({});
+    expect(view.tools).toEqual({});
+  });
+
+  test("a tool call becomes a live step with the state it reached", () => {
+    const view = chatViewFromState(
+      state([], {
+        activeTurn: active([
+          {
+            kind: "toolCall",
+            toolCall: {
+              toolCallId: "call-1",
+              toolName: "bash",
+              displayName: "bash",
+              status: "completed",
+              success: true,
+              invocationMessage: "ls",
+            },
+          },
+        ]),
+      }),
+      "agent-1",
+    );
+    expect(view.tools["run-1:call-1"]).toMatchObject({
+      runId: "run-1",
       callId: "call-1",
       name: "bash",
       state: "done",
@@ -75,13 +89,7 @@ describe("the transient view from AHP chat state", () => {
     const view = chatViewFromState(
       state([], {
         _meta: { todos: [{ id: "t1", text: "first", status: "in_progress" }] },
-        activeTurn: {
-          id: "run-3",
-          startedAt: new Date(0).toISOString(),
-          message: { text: "go", origin: { kind: "user" } },
-          responseParts: [{ kind: "markdown", id: "t0", content: "working" }],
-          usage: undefined,
-        },
+        activeTurn: active([{ kind: "markdown", id: "t0", content: "working" }], "run-3"),
       }),
       "agent-1",
     );
@@ -93,10 +101,10 @@ describe("the transient view from AHP chat state", () => {
 describe("human input cards", () => {
   test("an approval card renders what was asked from the durable payload", () => {
     const view = chatViewFromState(
-      state([
-        {
+      state([], {
+        activeTurn: {
           id: "run-4",
-          state: "complete",
+          startedAt: new Date(0).toISOString(),
           message: { text: "go", origin: { kind: "user" } },
           responseParts: [
             {
@@ -116,8 +124,9 @@ describe("human input cards", () => {
               },
             },
           ],
+          usage: undefined,
         },
-      ]),
+      }),
       "agent-1",
     );
     expect(view.transients["run-4"]?.approval).toEqual({
@@ -131,10 +140,10 @@ describe("human input cards", () => {
 
   test("a question lands on the ask card instead", () => {
     const view = chatViewFromState(
-      state([
-        {
+      state([], {
+        activeTurn: {
           id: "run-5",
-          state: "complete",
+          startedAt: new Date(0).toISOString(),
           message: { text: "go", origin: { kind: "user" } },
           responseParts: [
             {
@@ -146,8 +155,9 @@ describe("human input cards", () => {
               },
             },
           ],
+          usage: undefined,
         },
-      ]),
+      }),
       "agent-1",
     );
     expect(view.transients["run-5"]?.ask).toEqual({ callId: "call-1", questions: [{ id: "q1" }] });

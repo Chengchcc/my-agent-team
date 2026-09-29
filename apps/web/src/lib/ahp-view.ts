@@ -27,10 +27,11 @@ export interface AhpChatView {
 export function chatViewFromState(state: ChatState, agentId: string): AhpChatView {
   const transients: TransientMap = {};
   const tools: LiveToolMap = {};
-  const turns: Array<{ id: string; responseParts: readonly ResponsePart[] }> = [
-    ...state.turns,
-    ...(state.activeTurn ? [state.activeTurn] : []),
-  ];
+  // Only the turn in flight: a finished turn's text is the canonical message, which the timeline
+  // already renders from the conversation list, and its steps are history, not live activity.
+  const turns: Array<{ id: string; responseParts: readonly ResponsePart[] }> = state.activeTurn
+    ? [state.activeTurn]
+    : [];
 
   for (const turn of turns) {
     const run: TransientRun = { text: "", thinking: "", ordered: [], agentId };
