@@ -115,8 +115,10 @@ describe("buildTurns", () => {
           status: "completed",
           result: { content: "ok", isError: false },
         },
+        // 合并后的调用以「结果那条消息」为来源。
+        messageId: "run:run-1:tool:1",
       },
-      { kind: "text", text: "final" },
+      { kind: "text", text: "final", messageId: "run:run-1:assistant:0" },
     ]);
   });
 
@@ -180,7 +182,9 @@ describe("buildTurns", () => {
       runs: [{ runId: "run-1", status: "completed" }],
       pendingActions: [],
     });
-    expect(turns[0]?.parts).toEqual([{ kind: "text", text: "answer" }]);
+    expect(turns[0]?.parts).toEqual([
+      { kind: "text", text: "answer", messageId: "run:run-1:assistant:0" },
+    ]);
   });
 
   test("a run without a queue link still produces its turn", () => {

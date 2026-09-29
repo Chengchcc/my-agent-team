@@ -70,6 +70,8 @@ describe("AHP state source", () => {
     expect(chat?.turns[0]).toMatchObject({ id: "r1", state: "complete" });
     expect(chat?.turns[0]?.message).toMatchObject({ text: "go", origin: { kind: "user" } });
     expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ kind: "markdown", content: "hello" });
+    // 身份随片段出线：surface 靠它去重（Lark 的恰好一次投递）。
+    expect(chat?.turns[0]?.responseParts[0]).toMatchObject({ _meta: { messageId: "m1" } });
     expect(chat?.modifiedAt).toBe(new Date(4000).toISOString());
   });
 

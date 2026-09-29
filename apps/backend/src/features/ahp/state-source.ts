@@ -338,6 +338,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
         kind: enumValue<MarkdownResponsePart["kind"]>("markdown"),
         id: `${turnId}:text:${index}`,
         content: part.text,
+        ...metaOf(part.messageId),
       };
       return markdown;
     }
@@ -346,6 +347,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
         kind: enumValue<ReasoningResponsePart["kind"]>("reasoning"),
         id: `${turnId}:reasoning:${index}`,
         content: part.text,
+        ...metaOf(part.messageId),
       };
       return reasoning;
     }
@@ -370,6 +372,12 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
       throw new Error(`unhandled canonical part: ${JSON.stringify(unreachable)}`);
     }
   }
+}
+
+/** 账本的消息身份放在 `_meta` 里：surface 靠它做恰好一次投递。上游允许实现自定义
+ *  元数据，这里只是把既有事实透出去，不发明结构。 */
+function metaOf(messageId: string | undefined): { _meta?: Record<string, unknown> } {
+  return messageId === undefined ? {} : { _meta: { messageId } };
 }
 
 function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
