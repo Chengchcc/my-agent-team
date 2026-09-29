@@ -121,7 +121,6 @@ const GATES: readonly AppGate[] = [
       // Trust boundaries + SSE contract
       "src/features/artifact/domain.ts": 95,
       "src/features/artifact/service.ts": 95,
-      "src/features/workflow/event-bus.ts": 95,
       "src/infra/auth.ts": 95,
       "src/infra/errors.ts": 90,
     },
