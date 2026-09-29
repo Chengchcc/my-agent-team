@@ -3,7 +3,7 @@ import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-co
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ArtifactMeta } from "@/lib/api";
-import type { SenderRef, UiItem } from "@/lib/conversation-reducer";
+import type { UiItem } from "@/lib/conversation-reducer";
 import {
   groupTurns,
   isTurnStart,
@@ -12,7 +12,7 @@ import {
 } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall, TransientApproval, TransientBubble } from "@/lib/transient-reducer";
+import type { TransientBubble } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
 import { ArtifactCard } from "./ArtifactCard";
 import { MessageBubble } from "./MessageBubble";
