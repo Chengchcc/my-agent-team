@@ -105,6 +105,46 @@ describe("AHP state source", () => {
     });
   });
 
+  test("a resolved ask carries the answer in the protocol's shape too", async () => {
+    const fake = fixture();
+    fake.setRun("r1", "waiting");
+    const deps: AhpStateSourceDeps = {
+      ...fake.deps,
+      listPendingActions: async () => [
+        {
+          actionId: "a1",
+          runId: "r1",
+          kind: "ask",
+          status: "resolved",
+          payload: JSON.stringify({
+            callId: "call-2",
+            questions: [{ id: "q1", kind: "select", question: "which?" }],
+          }),
+          // The durable row wraps the answer; the projection reads through that.
+          response: JSON.stringify({
+            answered: true,
+            answer: { answers: [{ id: "q1", selectedValues: ["release"], freeText: "" }] },
+          }),
+        },
+      ],
+    };
+    const chat = await createAhpStateSource(deps).chat(chatUri("c1"));
+    const part = chat?.activeTurn?.responseParts.at(-1);
+    // The part union needs narrowing before its request is readable.
+    if (part === undefined || !("request" in part)) throw new Error("no request part");
+    // Upstream's `answers` is keyed by question id and names the value kind.
+    expect(part.request).toMatchObject({
+      id: "a1",
+      message: "ask",
+      answers: { q1: { state: "submitted", value: { kind: "selected", value: "release" } } },
+    });
+    // The product's own wrapping stays put: a surface moves to `answers` when it is ready, and
+    // `_meta` is our convention on a shape upstream gives no slot to.
+    expect((part.request as unknown as { _meta?: unknown })._meta).toMatchObject({
+      productResponse: expect.anything(),
+    });
+  });
+
   test("a failed run surfaces as an error turn, and the session summarizes the chat", async () => {
     const fake = fixture();
     fake.setRun("r1", "failed");

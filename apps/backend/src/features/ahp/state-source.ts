@@ -26,7 +26,12 @@ import type {
 import type {
   Message as AhpMessage,
   Turn as AhpTurn,
+  ChatInputAnswer,
   ChatInputRequest,
+  ChatInputSelectedAnswerValue,
+  ChatInputSelectedManyAnswerValue,
+  ChatInputSkipped,
+  ChatInputTextAnswerValue,
   ChatState,
   ChatSummary,
   ErrorResponsePart,
@@ -496,9 +501,11 @@ function metaOf(
 }
 
 function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
+  const answers = answersFor(request);
   const payload: ChatInputRequest = {
     id: request.requestId,
     message: request.kind,
+    ...(answers === undefined ? {} : { answers }),
     ...metaFor(request),
   };
   const kind = enumValue<InputRequestResponsePart["kind"]>("inputRequest");
@@ -515,13 +522,89 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
   return resolved;
 }
 
-/** The durable request payload and answer ride in `_meta`: upstream's answer shape is not
- *  verified yet, and a surface that renders the card needs what was asked. */
+/** The durable request payload and answer ride in `_meta`: the product's own shapes are what its
+ *  cards were built on, and they stay until those cards read the protocol's. */
 function metaFor(request: CanonicalInputRequest): { _meta?: Record<string, unknown> } {
   const meta: Record<string, unknown> = {};
   if (request.payload !== undefined) meta.productRequest = request.payload;
   if (request.response !== undefined) meta.productResponse = request.response;
   return Object.keys(meta).length === 0 ? {} : { _meta: meta };
+}
+
+/** The product's answer rows: `{answers: [{id, selectedValues, freeText}]}`, either bare or
+ *  wrapped in the durable row's `{answered, answer}` bookkeeping. Read by inspection - the row is
+ *  JSON a previous build may have written differently - and a row without an id answers nothing. */
+function answerRows(response: unknown): Array<{
+  id: string;
+  selectedValues: string[];
+  freeText?: string;
+}> {
+  let value: unknown = response;
+  if (typeof value === "object" && value !== null && "answer" in value) {
+    value = (value as { answer?: unknown }).answer;
+  }
+  const list =
+    typeof value === "object" && value !== null && "answers" in value
+      ? (value as { answers?: unknown }).answers
+      : value;
+  if (!Array.isArray(list)) return [];
+  const rows: Array<{ id: string; selectedValues: string[]; freeText?: string }> = [];
+  for (const row of list) {
+    if (typeof row !== "object" || row === null) continue;
+    const id = "id" in row && typeof row.id === "string" ? row.id : "";
+    if (id === "") continue;
+    const selected =
+      "selectedValues" in row && Array.isArray(row.selectedValues) ? row.selectedValues : [];
+    const values = selected.filter((v: unknown): v is string => typeof v === "string");
+    const freeText =
+      "freeText" in row && typeof row.freeText === "string" ? row.freeText : undefined;
+    rows.push({ id, selectedValues: values, ...(freeText === undefined ? {} : { freeText }) });
+  }
+  return rows;
+}
+
+/** The same answer in the protocol's shape: one entry per question, keyed by its id. Upstream's
+ *  `ChatInputRequest.answers` is `Record<string, ChatInputAnswer>` (protocol 0.9.0), and the value
+ *  it wants is `{state: "submitted", value: {kind: "text" | "selected" | "selected-many"}}` - so a
+ *  choice is `selected`, a typed answer is `text`, and both together are `selected-many` with the
+ *  free text alongside. An answer with neither is a skip, which is a state upstream names. */
+function answersFor(request: CanonicalInputRequest): Record<string, ChatInputAnswer> | undefined {
+  const rows = answerRows(request.response);
+  if (rows.length === 0) return undefined;
+  const answers: Record<string, ChatInputAnswer> = {};
+  for (const row of rows) {
+    const free = row.freeText;
+    if (row.selectedValues.length === 0 && (free === undefined || free === "")) {
+      answers[row.id] = { state: enumValue<ChatInputSkipped["state"]>("skipped") };
+      continue;
+    }
+    if (row.selectedValues.length === 0) {
+      answers[row.id] = {
+        state: enumValue<NonNullable<ChatInputAnswer["state"]>>("submitted"),
+        value: { kind: enumValue<ChatInputTextAnswerValue["kind"]>("text"), value: free ?? "" },
+      };
+      continue;
+    }
+    if (row.selectedValues.length === 1 && (free === undefined || free === "")) {
+      answers[row.id] = {
+        state: enumValue<NonNullable<ChatInputAnswer["state"]>>("submitted"),
+        value: {
+          kind: enumValue<ChatInputSelectedAnswerValue["kind"]>("selected"),
+          value: row.selectedValues[0]!,
+        },
+      };
+      continue;
+    }
+    answers[row.id] = {
+      state: enumValue<NonNullable<ChatInputAnswer["state"]>>("submitted"),
+      value: {
+        kind: enumValue<ChatInputSelectedManyAnswerValue["kind"]>("selected-many"),
+        value: [...row.selectedValues],
+        ...(free === undefined ? {} : { freeformValues: [free] }),
+      },
+    };
+  }
+  return answers;
 }
 
 /** The outcome of a human input. **Status alone is not enough**: a refusal and a timeout are both
