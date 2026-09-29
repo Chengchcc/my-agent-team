@@ -4,6 +4,7 @@
  *  ship is a WebSocket transport. */
 
 export type { AhpClientLike } from "./client.js";
+export { enumValue } from "./enum-value.js";
 export type { WebSocketTransportOptions } from "./transport.js";
 export { createWebSocketTransport, createWebSocketTransportFactory } from "./transport.js";
 export {

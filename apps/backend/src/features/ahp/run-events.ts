@@ -19,7 +19,24 @@
  *  numbers them; the stream has to hand out the same ids or the surface keeps two copies of the
  *  same text. (Upstream action shapes read on 2026-09-29, protocol v0.9.0.) */
 import type { BackendEvent } from "@chengchenccc/agent-contract";
-import type { StateAction, Turn } from "@microsoft/agent-host-protocol";
+import { enumValue } from "@chengchenccc/ahp-client";
+import type {
+  ChatDeltaAction,
+  ChatInputCompletedAction,
+  ChatReasoningAction,
+  ChatResponsePartAction,
+  ChatToolCallCompleteAction,
+  ChatToolCallStartAction,
+  ChatTurnCompleteAction,
+  ChatTurnStartedAction,
+  InputRequestResponsePart,
+  MarkdownResponsePart,
+  Message,
+  ReasoningResponsePart,
+  ResponsePart,
+  StateAction,
+  Turn,
+} from "@microsoft/agent-host-protocol";
 import { pendingActionId } from "../agent-run/domain.js";
 
 /** What the surface needs in order to show a turn before its first part arrives. */
@@ -84,11 +101,24 @@ export function createChatActionTranslator(): ChatActionTranslator {
     return list;
   };
 
-  const partAction = (runId: string, part: unknown): StateAction =>
-    ({ type: "chat/responsePart", turnId: runId, part }) as unknown as StateAction;
+  const partAction = (runId: string, part: ResponsePart): StateAction => ({
+    type: enumValue<ChatResponsePartAction["type"]>("chat/responsePart"),
+    turnId: runId,
+    part,
+  });
 
-  const responsePart = (runId: string, kind: string, partId: string): StateAction =>
-    partAction(runId, { kind, id: partId, content: "" });
+  /** Announce a part with an empty body; the deltas append to it. */
+  const responsePart = (
+    runId: string,
+    kind: "markdown" | "reasoning",
+    partId: string,
+  ): StateAction =>
+    partAction(
+      runId,
+      kind === "reasoning"
+        ? { kind: enumValue<ReasoningResponsePart["kind"]>("reasoning"), id: partId, content: "" }
+        : { kind: enumValue<MarkdownResponsePart["kind"]>("markdown"), id: partId, content: "" },
+    );
 
   const announceRequest = (runId: string, requestId: string): boolean => {
     let seen = announcedRequests.get(runId);
@@ -110,19 +140,24 @@ export function createChatActionTranslator(): ChatActionTranslator {
     const segment = kind === "reasoning" ? "reasoning" : "text";
     const current = open.get(runId);
     const fresh = current === undefined || !current.startsWith(`${runId}:${segment}:`);
-    let partId = current;
-    if (fresh) {
-      partId = `${runId}:${segment}:${partsOf(runId).length}`;
-      partsOf(runId).push(partId as string);
-    }
-    open.set(runId, partId as string);
-    const delta = {
-      type: kind === "reasoning" ? "chat/reasoning" : "chat/delta",
-      turnId: runId,
-      partId,
-      content: text,
-    } as unknown as StateAction;
-    return fresh ? [responsePart(runId, kind, partId as string), delta] : [delta];
+    const partId = fresh ? `${runId}:${segment}:${partsOf(runId).length}` : (current as string);
+    if (fresh) partsOf(runId).push(partId);
+    open.set(runId, partId);
+    const delta: ChatDeltaAction | ChatReasoningAction =
+      kind === "reasoning"
+        ? {
+            type: enumValue<ChatReasoningAction["type"]>("chat/reasoning"),
+            turnId: runId,
+            partId,
+            content: text,
+          }
+        : {
+            type: enumValue<ChatDeltaAction["type"]>("chat/delta"),
+            turnId: runId,
+            partId,
+            content: text,
+          };
+    return fresh ? [responsePart(runId, kind, partId), delta] : [delta];
   };
 
   /** State a turn exactly as the projection has it: `chat/turnStarted` replaces the active turn
@@ -132,12 +167,20 @@ export function createChatActionTranslator(): ChatActionTranslator {
     startedAt: string,
     turn: Pick<Turn, "message" | "responseParts">,
     durationMs: number,
-  ): StateAction[] =>
-    [
-      { type: "chat/turnStarted", turnId, startedAt, message: turn.message },
-      ...turn.responseParts.map((part) => ({ type: "chat/responsePart", turnId, part })),
-      { type: "chat/turnComplete", turnId, duration: durationMs },
-    ] as unknown as StateAction[];
+  ): StateAction[] => [
+    {
+      type: enumValue<ChatTurnStartedAction["type"]>("chat/turnStarted"),
+      turnId,
+      startedAt,
+      message: turn.message,
+    },
+    ...turn.responseParts.map((part) => partAction(turnId, part)),
+    {
+      type: enumValue<ChatTurnCompleteAction["type"]>("chat/turnComplete"),
+      turnId,
+      duration: durationMs,
+    },
+  ];
 
   /** A tool call is one part of the turn: it takes a slot, and it ends the current text run. */
   const startTool = (
@@ -148,13 +191,13 @@ export function createChatActionTranslator(): ChatActionTranslator {
     open.delete(runId);
     return [
       {
-        type: "chat/toolCallStart",
+        type: enumValue<ChatToolCallStartAction["type"]>("chat/toolCallStart"),
         turnId: runId,
         toolCallId: tool.callId,
         toolName: tool.toolName,
         displayName: tool.toolName,
         ...(tool.activity !== undefined ? { intention: tool.activity } : {}),
-      } as unknown as StateAction,
+      },
     ];
   };
 
@@ -169,11 +212,11 @@ export function createChatActionTranslator(): ChatActionTranslator {
     const pastTenseMessage = failed ? `${tool.toolName} failed` : `${tool.toolName} finished`;
     return [
       {
-        type: "chat/toolCallComplete",
+        type: enumValue<ChatToolCallCompleteAction["type"]>("chat/toolCallComplete"),
         turnId: runId,
         toolCallId: tool.callId,
         result: { success: !failed, pastTenseMessage },
-      } as unknown as StateAction,
+      },
     ];
   };
 
@@ -183,15 +226,15 @@ export function createChatActionTranslator(): ChatActionTranslator {
       openTurns.set(runId, { startedAt: opening.startedAt });
       return [
         {
-          type: "chat/turnStarted",
+          type: enumValue<ChatTurnStartedAction["type"]>("chat/turnStarted"),
           turnId: runId,
           startedAt: opening.startedAt,
           message: {
             text: opening.text,
-            origin: { kind: "user" },
+            origin: { kind: enumValue<Message["origin"]["kind"]>("user") },
             ...(opening.messageId === undefined ? {} : { _meta: { messageId: opening.messageId } }),
           },
-        } as unknown as StateAction,
+        },
       ];
     },
 
@@ -228,13 +271,19 @@ export function createChatActionTranslator(): ChatActionTranslator {
           open.delete(runId);
           return [
             partAction(runId, {
-              kind: "inputRequest",
+              kind: enumValue<InputRequestResponsePart["kind"]>("inputRequest"),
               request: {
                 id: requestId,
-                message: event.type === "ask_requested" ? "ask" : "approval",
-                // The durable row's payload, under the same key the projection uses, so the card
-                // shows what is being approved on the live edge as well.
-                _meta: { productRequest: event.payload },
+                message: enumValue<Message["origin"]["kind"]>(
+                  event.type === "ask_requested" ? "ask" : "approval",
+                ),
+                // The durable row's payload, under the same key the projection uses, so a card
+                // shows what is being approved on the live edge too. Spread rather than written as
+                // a property: upstream's `ChatInputRequest` has no `_meta` slot, and spreading is
+                // how the projection carries it - the key is the convention, not a typed field.
+                ...(event.payload === undefined
+                  ? {}
+                  : { _meta: { productRequest: event.payload } }),
               },
             }),
           ];
@@ -256,7 +305,13 @@ export function createChatActionTranslator(): ChatActionTranslator {
     },
 
     inputCompleted(requestId, response) {
-      return [{ type: "chat/inputCompleted", requestId, response } as unknown as StateAction];
+      return [
+        {
+          type: enumValue<ChatInputCompletedAction["type"]>("chat/inputCompleted"),
+          requestId,
+          response: enumValue<ChatInputCompletedAction["response"]>(response),
+        },
+      ];
     },
 
     drop(runId) {

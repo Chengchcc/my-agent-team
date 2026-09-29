@@ -16,6 +16,7 @@ import {
   AHP_SESSION_PREFIX,
   chatUri,
   conversationIdFrom,
+  enumValue,
 } from "@chengchenccc/ahp-client";
 import type {
   CanonicalInputRequest,
@@ -53,13 +54,6 @@ const IDLE = 1 as SessionStatus;
 const ERROR = 2 as SessionStatus;
 const IN_PROGRESS = 8 as SessionStatus;
 const INPUT_NEEDED = 24 as SessionStatus;
-
-/** Upstream's const enums cannot be indexed under `isolatedModules`, and a plain literal is not
- *  accepted either: take the member at **type** level (`X["kind"]` is legal) and assert once at
- *  **value** level, so fields still get checked by the compiler. */
-function enumValue<T>(value: string): T {
-  return value as unknown as T;
-}
 
 export interface AhpAgentRow {
   readonly id: string;
@@ -532,20 +526,19 @@ function metaFor(request: CanonicalInputRequest): { _meta?: Record<string, unkno
 function inputOutcome(
   request: CanonicalInputRequest,
 ): InputRequestResponsePart["response"] | undefined {
-  const kind = <T>(value: string): T => value as unknown as T;
   if (request.status === "cancelled") {
-    return kind<NonNullable<InputRequestResponsePart["response"]>>("cancel");
+    return enumValue<NonNullable<InputRequestResponsePart["response"]>>("cancel");
   }
   if (request.status !== "resolved") return undefined;
   const answer = request.response as { decision?: unknown; timeout?: unknown } | null | undefined;
   if (answer?.timeout === true) {
-    return kind<NonNullable<InputRequestResponsePart["response"]>>("decline");
+    return enumValue<NonNullable<InputRequestResponsePart["response"]>>("decline");
   }
   if (answer?.decision === "allow") {
-    return kind<NonNullable<InputRequestResponsePart["response"]>>("accept");
+    return enumValue<NonNullable<InputRequestResponsePart["response"]>>("accept");
   }
   if (answer?.decision === "deny") {
-    return kind<NonNullable<InputRequestResponsePart["response"]>>("decline");
+    return enumValue<NonNullable<InputRequestResponsePart["response"]>>("decline");
   }
   return undefined;
 }

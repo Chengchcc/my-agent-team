@@ -55,6 +55,8 @@ tags: [surfaces, ahp, protocol]
 | `todos` | chat 状态 | 活跃轮次的 todo 快照 |
 | `newConversationId`、`requestedByRunId` | 续接提示轮次 | 续到了哪条会话，由哪个 Run 请求 |
 
+这张表是约定，不是全部都有类型保护：协议给多数形状留了 `_meta?: Record<string, unknown>`，但没有给 `ChatInputRequest` 留，那里我们按同一套约定挂 `productRequest`（写入侧靠对象展开带上，编译器查不到）。改这些键名的时候，得同时改投影、动作写入方和两端读它的地方。
+
 ## 寻址用账本坐标
 
 端上要指到某一行的动作有两个：从某条消息分叉、改完重发。它们把 `_meta.seq` 当坐标发给 REST，也就是 `/api/conversations/:id/fork` 与 `/replay` 的 `fromSeq`；撤销不指行，按条数发 `count`，返回被标记的行号。
