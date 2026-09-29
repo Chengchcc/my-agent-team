@@ -55,3 +55,17 @@ test("an aborted signal tears the transport down instead of hanging", async () =
   controller.abort();
   await expect(transport.recv()).rejects.toThrow(/aborted/);
 });
+
+test("a frame sent before the handshake finishes is delivered once it does", async () => {
+  // The client calls initialize right after connect, so this is the normal order, not an edge
+  // case: sending into a CONNECTING socket throws in Bun and in browsers.
+  const transport = createWebSocketTransport(`ws://127.0.0.1:${server.port}`);
+  await transport.send({ jsonrpc: "2.0", id: 9, method: "early" } as never);
+  const first = await transport.recv(); // "hello"
+  expect(first).toEqual({ kind: "text", text: "hello" });
+  const echoed = await transport.recv();
+  expect(echoed?.kind === "text" ? echoed.text : "").toBe(
+    'echo:{"jsonrpc":"2.0","id":9,"method":"early"}',
+  );
+  transport.close();
+});

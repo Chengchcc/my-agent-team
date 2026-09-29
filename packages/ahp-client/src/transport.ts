@@ -57,6 +57,16 @@ export function createWebSocketTransport(
   const socket = open(url);
   const frames = new FrameQueue();
 
+  // A WebSocket refuses `send` before its handshake finishes ("the object is in an invalid
+  // state" in Bun), and clients legitimately call initialize right after connect. Frames sent
+  // that early are queued here and flushed on open, in order.
+  let socketOpen = false;
+  const pending: string[] = [];
+  socket.addEventListener("open", () => {
+    socketOpen = true;
+    for (const frame of pending.splice(0)) socket.send(frame);
+  });
+
   if (options.signal) {
     const abort = () => {
       frames.fail(new Error(`ahp websocket aborted: ${url}`));
@@ -95,7 +105,9 @@ export function createWebSocketTransport(
 
   return {
     send(message: JsonRpcMessage | string): void {
-      socket.send(typeof message === "string" ? message : JSON.stringify(message));
+      const frame = typeof message === "string" ? message : JSON.stringify(message);
+      if (socketOpen) socket.send(frame);
+      else pending.push(frame);
     },
     recv: () => frames.next(),
     close(): void {
