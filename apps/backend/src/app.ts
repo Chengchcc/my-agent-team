@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import type { agentRoutes } from "./features/agent/http.js";
 import type { agentRunRoutes } from "./features/agent-run/http.js";
+import type { createAhpFace } from "./features/ahp/http.js";
 import type { artifactRoutes } from "./features/artifact/http.js";
 import type { authRoutes } from "./features/auth/http.js";
 import type { codingRoutes } from "./features/coding/http.js";
@@ -29,6 +30,7 @@ export interface FeatureSet {
   mcp: ReturnType<typeof mcpRoutes>;
   knowledge: ReturnType<typeof knowledgeRoutes>;
   coding: ReturnType<typeof codingRoutes>;
+  ahp: ReturnType<typeof createAhpFace>["routes"];
   settings: ReturnType<typeof settingsRoutes>;
   auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;
@@ -61,6 +63,7 @@ export function createApp(token: string, features: FeatureSet) {
     artifacts,
     productTools,
     coding,
+    ahp,
   } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -122,6 +125,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(projects)
     .use(productToolsRoutes(productTools))
     .use(coding)
+    .use(ahp)
     .use(skillPacks)
     .use(settings)
     .use(auth)

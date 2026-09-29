@@ -45,6 +45,7 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
+import { createAhpFace } from "../features/ahp/http.js";
 import {
   artifactRoutes,
   createArtifactFsAdapter,
@@ -1410,6 +1411,35 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     { input: number; output: number; cacheRead: number; cacheWrite: number }
   > = new Map();
 
+  // 通配绑定不是浏览器可达的 host：给客户端回环地址。
+  const browserWsBase = `ws://${
+    config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
+  }:${config.port}`;
+
+  // AHP 面（ADR 0040）：协议机械在 features/ahp，这里接上状态源与命令端口。状态源
+  // 目前只声明 agent 目录，会话与聊天随规范模型那一刀接上；命令面接上之前明确拒绝。
+  const ahpFace = createAhpFace({
+    wsBase: browserWsBase,
+    source: {
+      root: async () => ({
+        agents: (await agentSvc.list(false)).map((agent) => ({
+          provider: agent.config.runtime_config.runtime,
+          displayName: agent.config.name,
+          // model_id 是产品里那一串模型引用；原样带上，不做结构假设。
+          description: agent.config.runtime_config.model_id,
+          models: [],
+        })),
+      }),
+      session: async () => undefined,
+      chat: async () => undefined,
+    },
+    commands: {
+      submit: () => {
+        throw new Error("the AHP command path is not wired yet");
+      },
+    },
+  });
+
   const featureSet: FeatureSet = {
     agents: agentRoutes(
       agentSvc,
@@ -1475,12 +1505,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       listTaskWorktrees: listCodingTaskWorktrees,
       createTaskWorktree: createCodingTaskWorktree,
       removeTaskWorktree: removeCodingTaskWorktree,
-      // A wildcard bind is not a browser-reachable host — hand the client
-      // loopback instead.
-      wsBase: `ws://${
-        config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
-      }:${config.port}`,
+      wsBase: browserWsBase,
     }),
+    ahp: ahpFace.routes,
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
     mcp: mcpRoutes(mcpSvc),
