@@ -66,6 +66,7 @@
         "@chengchenccc/config": "workspace:*",
         "@chengchenccc/message": "workspace:*",
         "@elysiajs/eden": "^1.0.0",
+        "@microsoft/agent-host-protocol": "^0.9.0",
         "drizzle-orm": "^0.44.0",
         "zod": "^3.23.0",
       },

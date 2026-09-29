@@ -18,6 +18,7 @@
     "@chengchenccc/backend": "workspace:*",
     "@chengchenccc/config": "workspace:*",
     "@chengchenccc/message": "workspace:*",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@microsoft/agent-host-protocol": "^0.9.0"
   }
 }
