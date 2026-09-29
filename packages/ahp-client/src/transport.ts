@@ -1,8 +1,8 @@
-/** AHP 的 WebSocket 传输。上游客户端只带内存对，浏览器与 Lark 进程都需要这一段，
- *  所以放在这里共用：协议机械与状态镜像都在上游客户端里，这里不重复实现。
+/** The WebSocket transport for AHP. Upstream's client ships only an in-memory pair, and
+ *  both surfaces need this half, so it lives here once instead of twice: the protocol
  *
- *  契约来自上游的 `AhpTransport`：`recv()` 是拉的、`send()` 是推的，干净关闭以
- *  `null` 表示，异常关闭以抛错表示。 */
+ *  machinery and the state mirror stay upstream. The contract is upstream's `AhpTransport`:
+ *  `recv()` pulls, `send()` pushes, a clean close is `null` and an abnormal one throws. */
 import type {
   AhpTransport,
   JsonRpcMessage,
@@ -10,13 +10,13 @@ import type {
 } from "@microsoft/agent-host-protocol/client";
 
 export interface WebSocketTransportOptions {
-  /** 注入替身用；默认用全局 WebSocket。 */
+  /** Injectable for tests; defaults to the global WebSocket. */
   readonly webSocket?: (url: string) => WebSocket;
-  /** 上游 `HostTransportFactory` 的契约：拆除时中止握手，别让慢握手挡住收尾。 */
+  /** Upstream's `HostTransportFactory` contract: abort a slow handshake on teardown. */
   readonly signal?: AbortSignal;
 }
 
-/** 帧队列：WebSocket 事件是推的，`recv()` 是拉的，中间垫一层拉取队列。 */
+/** Frame queue: socket events push, `recv()` pulls, so a small queue sits between them. */
 class FrameQueue {
   readonly #frames: TransportFrame[] = [];
   readonly #waiters: Array<(frame: TransportFrame | null) => void> = [];
@@ -63,7 +63,7 @@ export function createWebSocketTransport(
       try {
         socket.close();
       } catch {
-        /* 还没打开或已经关了 */
+        /* never opened, or already closed */
       }
     };
     if (options.signal.aborted) abort();
@@ -84,7 +84,7 @@ export function createWebSocketTransport(
       frames.push({ kind: "binary", data: new Uint8Array(raw) });
       return;
     }
-    // 浏览器可以给 Blob：读成文本再入队，顺序由队列保证。
+    // Browsers may hand us a Blob: read it as text and enqueue it, in order.
     void (raw as Blob)
       .text()
       .then((text) => frames.push({ kind: "text", text }))
@@ -103,14 +103,15 @@ export function createWebSocketTransport(
       try {
         socket.close();
       } catch {
-        /* 已经关了 */
+        /* already closed */
       }
     },
   };
 }
 
-/** 上游 `MultiHostClient` 要的工厂形状：每次连接（含重连）现开一条传输。
- *  我们只有一个 host，所以这里忽略 `hostId`，只把信号转下去。 */
+/** The factory shape upstream's `MultiHostClient` expects: a fresh transport per connect
+ *  (including reconnects). We have a single host, so the host id is ignored and only the
+ *  abort signal is forwarded. */
 export function createWebSocketTransportFactory(
   resolveUrl: (hostId: string) => string,
   options: WebSocketTransportOptions = {},

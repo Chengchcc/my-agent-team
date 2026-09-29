@@ -1,6 +1,15 @@
-/** AHP 客户端侧的共享机械（ADR 0040：surface 契约归 AHP）。
+/** Client-side machinery shared by the AHP surfaces (ADR 0040: the surface contract is AHP).
  *
- *  上游包提供协议、状态镜像与 reducer；这里补的只有它没带的那半 —— WebSocket 传输。 */
+ *  Upstream brings the protocol, the state mirror and the reducers; the one thing it does not
+ *  ship is a WebSocket transport. */
 
 export type { WebSocketTransportOptions } from "./transport.js";
 export { createWebSocketTransport, createWebSocketTransportFactory } from "./transport.js";
+export {
+  AHP_CHAT_PREFIX,
+  AHP_ROOT_URI,
+  AHP_SESSION_PREFIX,
+  chatUri,
+  conversationIdFrom,
+  sessionUri,
+} from "./uris.js";

@@ -2,7 +2,7 @@
   "name": "@chengchenccc/backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Team Runtime HTTP Server — L5 Backend",
+  "description": "Team Runtime HTTP Server \u2014 L5 Backend",
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
@@ -37,7 +37,8 @@
     "bun-pty": "^0.4.10",
     "drizzle-orm": "^0.44.0",
     "elysia": "1.4.30",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@chengchenccc/ahp-client": "workspace:*"
   },
   "devDependencies": {
     "@chengchenccc/test-helpers": "workspace:*"

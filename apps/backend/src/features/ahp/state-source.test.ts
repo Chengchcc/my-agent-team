@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { chatUri, sessionUri } from "@chengchenccc/ahp-client";
 import type { MessageRevision } from "@chengchenccc/message";
-import {
-  type AhpStateSourceDeps,
-  chatUri,
-  createAhpStateSource,
-  sessionUri,
-} from "./state-source.js";
+import { type AhpStateSourceDeps, createAhpStateSource } from "./state-source.js";
 
 const revision = (over: Partial<MessageRevision> & Pick<MessageRevision, "messageId" | "role">) =>
   JSON.stringify({ state: "done", updatedAt: 1, ...over } satisfies MessageRevision);

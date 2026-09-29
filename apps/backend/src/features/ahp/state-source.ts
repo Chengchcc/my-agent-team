@@ -10,6 +10,12 @@
  *  上游的 const enum 在 `isolatedModules` 下不能取成员，所以状态值写成线上字面量
  *  并只对该值做断言；对象形状不做整体断言，缺字段由编译器指出。 */
 
+import {
+  AHP_CHAT_PREFIX,
+  AHP_SESSION_PREFIX,
+  chatUri,
+  conversationIdFrom,
+} from "@chengchenccc/ahp-client";
 import type {
   CanonicalInputRequest,
   CanonicalPart,
@@ -51,22 +57,6 @@ const INPUT_NEEDED = 24 as SessionStatus;
  *  在**类型级**取成员（`X["kind"]` 合法），只在**值级**做一次断言，字段仍由编译器查。 */
 function enumValue<T>(value: string): T {
   return value as unknown as T;
-}
-
-export const AHP_CHAT_PREFIX = "ahp-chat:/";
-export const AHP_SESSION_PREFIX = "ahp-session:/";
-
-/** 产品 id 与 AHP 频道的互译。协议模块只认前缀，id 在斜杠之后。 */
-export function chatUri(conversationId: string): URI {
-  return `${AHP_CHAT_PREFIX}${conversationId}` as URI;
-}
-export function sessionUri(conversationId: string): URI {
-  return `${AHP_SESSION_PREFIX}${conversationId}` as URI;
-}
-export function conversationIdFrom(uri: URI, prefix: string): string | undefined {
-  if (!uri.startsWith(prefix)) return undefined;
-  const id = uri.slice(prefix.length);
-  return id === "" || id.includes("/") ? undefined : id;
 }
 
 export interface AhpAgentRow {

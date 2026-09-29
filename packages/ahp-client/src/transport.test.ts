@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { createWebSocketTransport } from "./transport.js";
 
-/** 一个真 WS 服务端：打开即问好，收到什么回什么。 */
+/** A real WS server: greets on open, echoes whatever it receives. */
 const server = Bun.serve({
   port: 0,
   fetch(req, srv) {

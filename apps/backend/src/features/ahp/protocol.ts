@@ -6,6 +6,8 @@
  *
  *  两条纪律与 ADR 0040 决策四一致：服务端的状态只由动作推进（客户端派发的动作
  *  先过 `isClientDispatchable`，越权的一律回绝并回显），产品事实不由这里写入。 */
+
+import { AHP_CHAT_PREFIX, AHP_ROOT_URI, AHP_SESSION_PREFIX } from "@chengchenccc/ahp-client";
 import {
   type ActionEnvelope,
   type ActionOrigin,
@@ -22,9 +24,8 @@ import {
   type URI,
 } from "@microsoft/agent-host-protocol";
 
-export const AHP_ROOT: URI = "ahp-root://";
-const SESSION_PREFIX = "ahp-session:/";
-const CHAT_PREFIX = "ahp-chat:/";
+/** 根频道字面量：与 surface 共用同一份（`@chengchenccc/ahp-client`）。 */
+export const AHP_ROOT: URI = AHP_ROOT_URI;
 
 const METHOD_NOT_FOUND = -32601;
 const INVALID_REQUEST = -32600;
@@ -98,7 +99,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
 
   /** 我们提供三类频道：root / session / chat（ADR 0040 的范围）。其余一律不服务。 */
   const isServed = (uri: URI): boolean =>
-    uri === AHP_ROOT || uri.startsWith(SESSION_PREFIX) || uri.startsWith(CHAT_PREFIX);
+    uri === AHP_ROOT || uri.startsWith(AHP_SESSION_PREFIX) || uri.startsWith(AHP_CHAT_PREFIX);
 
   /** 频道不可用。**不能**退化成空状态：空状态会被缓存，之后所有动作都在伪造的
    *  初始值上 reduce，客户端还以为自己订阅到了东西。 */
@@ -123,7 +124,7 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
     const fromSource =
       uri === AHP_ROOT
         ? await opts.source.root()
-        : uri.startsWith(SESSION_PREFIX)
+        : uri.startsWith(AHP_SESSION_PREFIX)
           ? await opts.source.session(uri)
           : await opts.source.chat(uri);
     if (fromSource === undefined) {
@@ -144,11 +145,11 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
       states.set(uri, rootReducer(state as RootState, action as never));
       return;
     }
-    if (uri.startsWith(SESSION_PREFIX)) {
+    if (uri.startsWith(AHP_SESSION_PREFIX)) {
       states.set(uri, sessionReducer(state as SessionState, action as never));
       return;
     }
-    if (uri.startsWith(CHAT_PREFIX)) {
+    if (uri.startsWith(AHP_CHAT_PREFIX)) {
       states.set(uri, chatReducer(state as ChatState, action as never));
     }
     // 其余频道（terminal / changeset / annotations / automation / otlp）本轮不做。
