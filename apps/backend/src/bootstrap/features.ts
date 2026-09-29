@@ -42,12 +42,16 @@ import {
   buildHistoryTools,
   createAgentRunExecutionService,
   createAgentRunService,
-  pendingActionId,
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
-import { chatUri, createAhpHost, createAhpStateSource } from "../features/ahp/index.js";
-import { createChatActionTranslator } from "../features/ahp/run-events.js";
+import {
+  chatUri,
+  createAhpChatWriter,
+  createAhpHost,
+  createAhpStateSource,
+  type RunTurnContext,
+} from "../features/ahp/index.js";
 import {
   artifactRoutes,
   createArtifactFsAdapter,
@@ -542,7 +546,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         ts: Date.now(),
       });
       // The failure is a row now: the chat channel folds the turn into history, error part included.
-      await foldCommittedTurn(input.runId);
+      // No duration: a failed run never ran a turn, the error is the row's business.
+      await chatWriter.foldCommittedTurn(input.runId, 0);
     })().catch((err) => console.error(`[bootstrap] onRunFailed failed for ${input.runId}:`, err));
   };
   const onRunCommitted = (
@@ -561,7 +566,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       }
       // The turn's rows are committed: the chat channel re-states the turn from the projection and
       // moves it from "in flight" to history, so a live surface needs no refresh to see it there.
-      await foldCommittedTurn(runId);
+      await chatWriter.foldCommittedTurn(
+        runId,
+        Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt),
+      );
     })().catch((err) => console.error(`[bootstrap] onRunCommitted failed for ${runId}:`, err));
   };
 
@@ -569,22 +577,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  turn on the chat channel (the streamed parts were a preview without ledger coordinates) and
    *  fold it into the history. Runs whose events this process never streamed are skipped - the
    *  surface that asks for a snapshot gets the turn from the projection anyway. */
-  const foldCommittedTurn = async (runId: string): Promise<void> => {
-    const run = await agentRunPort.getRun(runId).catch(() => null);
-    if (!run) return;
-    const uri = chatUri(run.conversationId);
-    const chat = await ahpSource.chat(uri).catch(() => null);
-    const turn = chat?.turns.find((candidate) => candidate.id === runId);
-    if (!turn) return;
-    const durationMs = Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt);
-    for (const action of chatActions.commitTurn(runId, turn, durationMs)) {
-      await ahpHost.server.dispatch(uri, action).catch(() => {
-        /* a surface's channel never fails a run */
-      });
-    }
-    chatActions.drop(runId);
-    turnContextByRun.delete(runId);
-  };
 
   const codingAgentCommand = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() });
   const codingAgentCatalog = new OmaModelCatalog(codingAgentCommand);
@@ -652,44 +644,32 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Config-time (backendKind, model) consistency (see model-check.ts).
   const modelKnownForBackend = createModelCatalogCheck({ backends });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
-  /** The AHP chat channel's writer: the same live events the run stream publishes, as actions.
-   *  Part ids match the projection's, so a streamed part and the projected one are one object. */
-  const TERMINAL_RUN_STATUSES = new Set([
-    "completed",
-    "failed",
-    "aborted",
-    "commit_failed",
-    "timeout",
-  ]);
-  const chatActions = createChatActionTranslator();
-  /** What the chat channel needs about a run before its first part arrives: the channel to push to
-   *  and the message that started the turn (the protocol opens a turn with its message). */
-  interface RunTurnContext {
-    readonly conversationId: string;
-    readonly inputText: string;
-    /** The ledger row of that input, so the surface's own optimistic item collapses onto it. */
-    readonly messageId?: string;
-    readonly startedAt: string;
-  }
-  const turnContextByRun = new Map<string, RunTurnContext | null>();
-  const turnContextForRun = async (runId: string): Promise<RunTurnContext | null> => {
-    const known = turnContextByRun.get(runId);
-    if (known !== undefined) return known;
+  /** The product read behind a run's turn. The writer owns the per-run caching and the ordering;
+   *  this is the only part that knows about ports. */
+  const readRunTurn = async (runId: string): Promise<RunTurnContext | null> => {
     const run = await agentRunPort.getRun(runId).catch(() => null);
-    let context: RunTurnContext | null = null;
-    if (run) {
-      const inputs = await agentRunPort.listInputs(run.branchId).catch(() => []);
-      const input = inputs.find((candidate) => candidate.runId === runId);
-      context = {
-        conversationId: run.conversationId,
-        inputText: input?.message.text ?? "",
-        ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
-        startedAt: new Date(run.createdAt).toISOString(),
-      };
-    }
-    turnContextByRun.set(runId, context);
-    return context;
+    if (!run) return null;
+    const inputs = await agentRunPort.listInputs(run.branchId).catch(() => []);
+    const input = inputs.find((candidate) => candidate.runId === runId);
+    return {
+      conversationId: run.conversationId,
+      inputText: input?.message.text ?? "",
+      ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
+      startedAt: new Date(run.createdAt).toISOString(),
+    };
   };
+
+  /** The chat channel's writer (ADR 0040 decision 4): live events as actions, a settled turn stated
+   *  from the projection, and the two announcements. `ahpHost`/`ahpSource` are declared below, but
+   *  every use of them sits inside a closure that only runs once the stack is up. */
+  const chatWriter = createAhpChatWriter({
+    dispatch: (uri, action) => ahpHost.server.dispatch(uri, action),
+    projectedTurn: async (conversationId, turnId) => {
+      const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
+      return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;
+    },
+    readRunTurnContext: readRunTurn,
+  });
 
   const agentRunExecution = createAgentRunExecutionService({
     workspaceLocks,
@@ -716,34 +696,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     onHumanInputResolved: (input) => {
       // A settled request has to stop reading as pending on the surface too, without waiting for
       // the turn to commit: a card that survives its own click reads as "my answer did not land".
-      void announceHumanInput(input).catch((err) =>
-        console.error(`[bootstrap] human input announcement failed for ${input.runId}:`, err),
-      );
+      void chatWriter
+        .announceHumanInput(input)
+        .catch((err) =>
+          console.error(`[bootstrap] human input announcement failed for ${input.runId}:`, err),
+        );
     },
-    onLiveEvent: (runId, event) => {
-      // The terminal status only means the run stopped stepping: its preview stays live until the
-      // commit hook replaces it with the projection (which is the authority on the turn).
-      if (event.type === "status" && "status" in event && TERMINAL_RUN_STATUSES.has(event.status)) {
-        return;
-      }
-      const actions = chatActions.translate(runId, event);
-      if (actions.length === 0) return;
-      void (async () => {
-        const context = await turnContextForRun(runId);
-        if (!context) return;
-        // Every action below addresses the active turn by id, so the turn has to exist first.
-        const opening = chatActions.openTurn(runId, {
-          text: context.inputText,
-          startedAt: context.startedAt,
-          ...(context.messageId === undefined ? {} : { messageId: context.messageId }),
-        });
-        for (const action of [...opening, ...actions]) {
-          await ahpHost.server.dispatch(chatUri(context.conversationId), action).catch(() => {
-            /* a surface's channel never fails a run */
-          });
-        }
-      })();
-    },
+    onLiveEvent: chatWriter.onLiveEvent,
     productToolsEntrypoint: config.productToolsMcpUrl
       ? `sse:${sseUrlEndpoint(config.productToolsMcpUrl)}`
       : "stdio:/nonexistent",
@@ -1563,46 +1522,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
   });
 
-  /** A continuity record is announced on the chat channel it belongs to: a surface that is already
-   *  connected sees the notice (and moves its binding) instead of waiting for its next snapshot. */
-  const announceContinuity = async (input: {
-    conversationId: string;
-    controlSeq: number;
-  }): Promise<void> => {
-    const uri = chatUri(input.conversationId);
-    const chat = await ahpSource.chat(uri).catch(() => null);
-    const turnId = `continuity:${input.controlSeq}`;
-    const turn = chat?.turns.find((candidate) => candidate.id === turnId);
-    if (!turn) return;
-    for (const action of chatActions.announceContinuity(turnId, turn)) {
-      await ahpHost.server.dispatch(uri, action).catch(() => {
-        /* a surface's channel never fails a run */
-      });
-    }
-  };
-  /** The answer reached the product; the surface's card hears about it on the same channel. */
-  const announceHumanInput = async (input: {
-    runId: string;
-    callId: string;
-    outcome: "allow" | "deny" | "timeout";
-  }): Promise<void> => {
-    const context = await turnContextForRun(input.runId);
-    if (!context) return;
-    const response = input.outcome === "allow" ? "accept" : "decline";
-    for (const action of chatActions.inputCompleted(
-      pendingActionId(input.runId, input.callId),
-      response,
-    )) {
-      await ahpHost.server.dispatch(chatUri(context.conversationId), action).catch(() => {
-        /* a surface's channel never fails a run */
-      });
-    }
-  };
-
   onContinuityRecorded.fn = (input) => {
-    void announceContinuity(input).catch((err) =>
-      console.error(`[bootstrap] continuity announcement failed for ${input.conversationId}:`, err),
-    );
+    void chatWriter
+      .announceContinuity(input)
+      .catch((err) =>
+        console.error(
+          `[bootstrap] continuity announcement failed for ${input.conversationId}:`,
+          err,
+        ),
+      );
   };
 
   const featureSet: FeatureSet = {
