@@ -8,7 +8,7 @@ import { Elysia } from "elysia";
 import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
 import { type AhpCommandPort, type AhpStateSource, createAhpServer } from "./protocol.js";
 
-export interface AhpFaceOptions {
+export interface AhpHostOptions {
   readonly source: AhpStateSource;
   readonly commands: AhpCommandPort;
   /** A ws address a browser can reach (a wildcard bind has to become the loopback). */
@@ -16,7 +16,7 @@ export interface AhpFaceOptions {
   readonly replayBufferSize?: number;
 }
 
-export function createAhpFace(opts: AhpFaceOptions) {
+export function createAhpHost(opts: AhpHostOptions) {
   const tickets = createWsTicketRegistry();
   const server = createAhpServer({
     source: opts.source,
@@ -57,5 +57,5 @@ export function createAhpFace(opts: AhpFaceOptions) {
   return { server, routes };
 }
 
-/** The routes' concrete type (Elysia's generics reject widening to `Elysia`). */
-export type AhpFace = ReturnType<typeof createAhpFace>;
+/** The host's concrete type (Elysia's generics reject widening to `Elysia`). */
+export type AhpHost = ReturnType<typeof createAhpHost>;

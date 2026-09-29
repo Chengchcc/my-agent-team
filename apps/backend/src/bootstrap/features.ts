@@ -45,7 +45,7 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
-import { chatUri, createAhpFace, createAhpStateSource } from "../features/ahp/index.js";
+import { chatUri, createAhpHost, createAhpStateSource } from "../features/ahp/index.js";
 import { createChatActionTranslator } from "../features/ahp/run-events.js";
 import {
   artifactRoutes,
@@ -578,7 +578,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     if (!turn) return;
     const durationMs = Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt);
     for (const action of chatActions.commitTurn(runId, turn, durationMs)) {
-      await ahpFace.server.dispatch(uri, action).catch(() => {
+      await ahpHost.server.dispatch(uri, action).catch(() => {
         /* a surface's channel never fails a run */
       });
     }
@@ -727,7 +727,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           startedAt: context.startedAt,
         });
         for (const action of [...opening, ...actions]) {
-          await ahpFace.server.dispatch(chatUri(context.conversationId), action).catch(() => {
+          await ahpHost.server.dispatch(chatUri(context.conversationId), action).catch(() => {
             /* a surface's channel never fails a run */
           });
         }
@@ -1546,7 +1546,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
   });
 
-  const ahpFace = createAhpFace({
+  const ahpHost = createAhpHost({
     wsBase: browserWsBase,
     source: ahpSource,
     commands: {
@@ -1623,7 +1623,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       removeTaskWorktree: removeCodingTaskWorktree,
       wsBase: browserWsBase,
     }),
-    ahp: ahpFace.routes,
+    ahp: ahpHost.routes,
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
     mcp: mcpRoutes(mcpSvc),

@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import type { agentRoutes } from "./features/agent/http.js";
 import type { agentRunRoutes } from "./features/agent-run/http.js";
-import type { createAhpFace } from "./features/ahp/index.js";
+import type { createAhpHost } from "./features/ahp/index.js";
 import type { artifactRoutes } from "./features/artifact/http.js";
 import type { authRoutes } from "./features/auth/http.js";
 import type { codingRoutes } from "./features/coding/http.js";
@@ -30,7 +30,7 @@ export interface FeatureSet {
   mcp: ReturnType<typeof mcpRoutes>;
   knowledge: ReturnType<typeof knowledgeRoutes>;
   coding: ReturnType<typeof codingRoutes>;
-  ahp: ReturnType<typeof createAhpFace>["routes"];
+  ahp: ReturnType<typeof createAhpHost>["routes"];
   settings: ReturnType<typeof settingsRoutes>;
   auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;

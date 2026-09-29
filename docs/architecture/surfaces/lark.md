@@ -1,12 +1,12 @@
 ---
 title: 飞书端
-description: 飞书入站的鉴权与幂等占位、本地五张表，Run 流式卡片（ADR 0031），以及 sse-watcher 的出站过滤链、卡片去重缝、投递去重与推送游标
+description: 飞书入站的鉴权与幂等占位、本地五张表，Run 流式卡片（ADR 0031），以及 AHP watcher 的出站判定、卡片去重缝与投递去重
 tags: [lark, surfaces, backend]
 ---
 
 # 飞书端
 
-一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API（`/stop` 控制命令除外，它直接调 Run 取消接口）。出站有两条：Run 流式卡片（ADR 0031，消费 Run SSE 的 transient 投影，终态以 canonical 文本封版）与 sse-watcher 的会话终态文本（卡片不拥有投递时的兜底通道）。工具行不投递，卡片上只显示工具摘要。
+一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API（`/stop` 控制命令除外，它直接调 Run 取消接口）。出站有两条：Run 流式卡片（ADR 0031，消费 Run SSE 的 transient 投影，终态以 canonical 文本封版）与 AHP watcher 的会话文本（订阅 chat 频道，卡片不拥有投递时的兜底通道）。工具行不投递，卡片上只显示工具摘要。
 
 ## 范围
 
@@ -22,7 +22,8 @@ tags: [lark, surfaces, backend]
 - `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（事件→状态的纯 reducer）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
 - `apps/lark-bot/scripts/probe-cards.ts` — 把真实渲染出的每种卡片 POST 给建卡接口，做线级校验（不给任何聊天发消息）
 - `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
-- `apps/lark-bot/src/render.ts` 与 `markdown-normalizer.ts` — 行到文本的渲染、换行与截断
+- `apps/lark-bot/src/ahp-watcher.ts` 与 `ahp-delivery.ts` — 出站：AHP 连接、按 chat 状态判定投递、续接改绑
+- `apps/lark-bot/src/markdown-normalizer.ts` — 行到文本的换行与截断（切 AHP 后暂无生产调用方，见已知缺口）
 - `apps/lark-bot/src/sender.ts` 与 `send-text-only.ts` — 经 lark-cli 投递
 - `apps/lark-bot/src/{bootstrap,args,event-parser,client,safe-agent-id,diagnostics}.ts` — 启动、参数、事件解析、treaty 客户端、id 安全化、心跳
 - `apps/lark-bot/src/db/schema.ts` 与 `apps/lark-bot/drizzle/` — 本地 schema 与迁移
@@ -47,7 +48,7 @@ tags: [lark, surfaces, backend]
 
 | 表 | 主键 | 用途 |
 |---|---|---|
-| `conversation_binding` | `conversation_id` | 会话 → 飞书 chat，带**按会话**的 `pushed_seq` 推送游标、`chat_mode`（话题群回复要 `reply_in_thread`）与 `topic_root_message_id`（本话题的根消息，回答一律回复它） |
+| `conversation_binding` | `conversation_id` | 会话 → 飞书 chat，带 `chat_mode`（话题群回复要 `reply_in_thread`）与 `topic_root_message_id`（本话题的根消息，回答一律回复它） |
 | `topic_binding` | `(lark_chat_id, topic_key)` | 话题键 → 会话：键是话题群的话题线程 `omt_…`，或一条消息 `om_…`（用户开的顶层消息／我们发出、用户会去回复的那条）。一个会话可有多个键（私聊回复链先给 `root_id`，第二次回复才拿到 `thread_id`，两者必须指向同一会话） |
 | `member_binding` | `(lark_chat_id, lark_open_id)` | 飞书用户 → 本地 memberId 标签，形如 `human:lark:<open_id>` |
 | `inbound_message` | `lark_event_id` | 入站幂等，`lark_message_id` 上另有唯一约束 |
@@ -57,15 +58,16 @@ tags: [lark, surfaces, backend]
 
 ## 出站
 
-每个会话一个 watcher（启动时按 `conversation_binding` 全量恢复；新话题开新会话时经 `onNewBinding` 补一个）。请求是 `${backendUrl}/api/conversations/:id/events?afterSeq=<pushedSeq>`，游标大于 0 时另带 `Last-Event-ID`。连接失败 5 秒后重试，流正常结束 1 秒后重试。每帧用 `ConversationEvent.parse` 严格校验；SyntaxError 与 ZodError 只打日志并跳过，其它异常重新抛出让连接重连。
+每个会话一个 watcher（启动时按 `conversation_binding` 全量恢复；新话题开新会话时经 `onNewBinding` 补一个）。watcher 先取一次性票据，再用共享传输连上 `/ws/ahp`，`initialize` 拿 chat 快照、`attachSubscription` 拿动作流，上游 `chatReducer` 把动作折进状态，然后交给 `deliverChatState` 判定该发什么。断线只要重订阅，投递表本身回答了「发过什么」，没有游标要续。
 
-`processEntry` 的过滤链顺序固定：
+`deliverChatState` 按片段类型决定发什么，顺序固定：
 
-1. `seq <= currentSeq` 的帧直接丢弃，只保证不重复处理。
-2. `surface.control` 交给重绑分支处理。
-3. 非 `message` 帧、没有 `message` 的帧、`role === "system"`、`role === "user"`、`role === "tool"` 的行只推进游标。人类自己的话已经在飞书里，不需要回显；工具行的原始输出不进群聊（摘要属于 Run 卡片，见 ADR 0031）。
-4. 查 `message_delivery`，命中且 `isTerminalMessageState(lastState)` 就推进游标跳过。
-5. 先以非终态标记（`streaming`）写投递意图，再渲染发送；发送成功后才写终态确认并推进 `pushedSeq`。
+1. `markdown` 片段才可能发文本；人类自己的行不在账本里当片段，工具行的原始输出不进群聊（摘要属于 Run 卡片，见 ADR 0031）。
+2. 取片段的 `_meta.messageId`，那是账本行的身份；没有它或正文为空就跳过。
+3. assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，解析出 runId 后查这一 (runId, chat) 的卡片：卡片拥有投递权时不发文本，由卡片封版（ADR 0031 第 8 节）。
+4. 查 `message_delivery`，命中且 `isTerminalMessageState(lastState)` 就跳过，重放因此幂等。
+5. 先以非终态标记（`streaming`）写投递意图，再发送；发送成功写终态确认。
+6. `systemNotification` 片段交给续接分支（见下）。
 
 canonical 账本只有终态行：`state` 只有 `done` 与 `error` 两种取值，所以飞书没有流式渲染路径，每个 assistant 行只投递一次。
 
@@ -89,7 +91,7 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 - **传输分层（决策 9）**：正文逐字 = `PUT /cards/:id/elements/:element_id/content`（累计全文 + 严格递增 `card_seq`，客户端对前缀扩展做打字机动画；正文/过程条/状态行三个元素各自只推变化）；header 变化与终态 = 全卡替换 `PUT /cards/:id`（流式元素改不了 header，也是按钮集变化的唯一途径）；终态替换后必须 `PATCH /cards/:id/settings` 关闭 streaming_mode，客户端才离开流式视图。
 - **节流与节拍**：150ms/120 字符合并、单飞 flush（互斥 + 补刷 + 只推变化元素）；另有一个 1 秒状态节拍器，保证「耗时 N 秒」在模型思考/工具运行期间也每秒跳动（内容没变就不发请求）。
 - **终态封版**：`GET /api/agent-runs/:runId` 的 `terminalResult.messages` 取最后一条带文本的 assistant 消息（与账本提交同源），重试 3 次等落库；封版替换失败降级为发送最终纯文本（`larkIdempotencyKey` 哈希键）并把卡标 `fallback_text`。
-- **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，sse-watcher 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
+- **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，`ahp-delivery` 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
 - **控制（决策 6，已实现）**：活卡带红色「停止」按钮（`behaviors:[{type:"callback",value:{runId,action:"stop"}}]`）；`waiting` 帧把按钮换成「批准/拒绝」（`action:"approve" | "reject"` + callId）或问答题的选项按钮（`action:"answer_ask"` + callId、questionId、selectedValue）。点击经 lark-cli ≥1.0.9x 的 `card.action.trigger` 长连接回调 → `run-card/card-actions.ts` 校验（event_id 去重、message↔run_card 映射、chat/run 匹配，action_value 永不单独被信任）→ 停止走 `POST /api/agent-runs/:runId/cancel`，审批走 `.../approval`，追问走 `POST /api/product-tools/ask/resolve`（**与 Web 同一条 resolve 路径，两端各渲染一次而已**）→ Run SSE 的对应事件清掉 `pendingAction`，终态封版。`/stop` 入站命令为等价通道，成功即沉默（卡片即反馈）。
 - **回调载荷形状**：lark-cli 把事件摊平成顶层 snake_case 键（`event_id`/`operator_id`/`chat_id`/`message_id`/`action_tag`/`action_value`），不是 Lark 原始 schema 的 `action.value`——`card-actions.ts` 按这个形状取值，测试 fixture 也照此构造。
 - **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态）。
@@ -114,7 +116,7 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 
 backend 只在「开新对话」时写这个 kind，payload 是 `{ type: "lark.start_new_conversation", oldConversationId, newConversationId, reason, requestedByRunId, idempotencyKey }`，同一 idempotencyKey 重复调用返回既有结果（`apps/backend/src/features/conversation/service.ts`）。HTTP 入口是 `POST /api/conversations/:id/start-new`。
 
-watcher 侧校验 payload 后调 `rebindChatConversation`，成功返回时重置新会话的 `pushedSeq`，关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。
+watcher 收到续接提示（`systemNotification` 片段，`_meta` 带 `newConversationId` 与 `requestedByRunId`）后调 `rebindConversation`，通过 `onRebind` 关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。这条提示现在只在快照里出现，见已知缺口。
 
 ## 进程生命周期与 backend 接线
 
@@ -127,13 +129,13 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 ## 不变量
 
 1. 飞书端不写账本，也不向后端声明任何身份：memberId 是本地标签。
-2. 出站有两个入口：Run 卡片（Run 的 UX 生命周期，含终态）与 sse-watcher（终态 assistant 文本兜底）；对同一条 assistant 行，只有 `fallback_text` 的卡片会让位给文本桥。
+2. 出站有两个入口：Run 卡片（Run 的 UX 生命周期，含终态）与 AHP watcher（assistant 文本兜底）；对同一条 assistant 行，只有 `fallback_text` 的卡片会让位给文本桥。
 3. 卡片是 Run 的 transient 投影：token delta 不持久化到后端，PATCH 失败不影响 Run，终态必须以 canonical 文本封版或降级纯文本送达（ADR 0031/0032）。
 4. 文本桥投递意图以非终态标记先落库，发送成功才确认终态；发送失败经重连重放，靠幂等键去重（at-least-once）。
 5. 每次文本投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`；卡片幂等键是 `<conversationId>:<runId>:card`，封版降级是 `<conversationId>:<runId>:seal`。
-6. `pushedSeq` 只在发送成功并确认终态后推进；重试耗尽抛错，游标停在未投递条目之前。
+6. 投递状态只认 `message_delivery`：先记意图后发送，成功才确认终态；重放的同一行被终态判断挡下，所以重订阅安全。
 7. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
-8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；`pushed_seq` 属于会话而非聊天（ADR 0037）。**群里**的话题内仍然要求 @ 机器人（话题下可能有其他人交流）；**私聊不要求**——私聊本身就是点名，用户「在话题里回复」是续问的唯一动作，再要求 @ 就等于把这条动作废掉。
+8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；投递状态按 `(conversation_id, message_id, lark_chat_id)` 记账（ADR 0037）。**群里**的话题内仍然要求 @ 机器人（话题下可能有其他人交流）；**私聊不要求**——私聊本身就是点名，用户「在话题里回复」是续问的唯一动作，再要求 @ 就等于把这条动作废掉。
 9. 卡片 JSON 必须过飞书的线级校验，三条踩过的规则：`form` 容器**至少含一个 submit 按钮**（否则 300123，整卡被拒，所以选项按钮不进 form）；`element_id` 只能 ASCII 字母开头、字母数字下划线、**≤20 字符**（300301，所以选项按钮用位置 id `ask_opt_<i>`，不拿选项值拼）；元素内容更新要求目标元素**已存在**（300313，所以 Run 卡的 activity/answer/tools/status 永远渲染，空内容也渲染）。
 10. 改渲染器后跑一次 `bun apps/lark-bot/scripts/probe-cards.ts <profile>`：它把真实渲染结果 POST 给建卡接口（不给任何聊天发消息），把只有线上才暴露的拒绝变成几秒的本地检查。会占少量卡片实体配额（应用级，且平台没有删除接口），所以是改渲染器后的动作，不是每次提交的门禁。
 11. 卡片连败三次进降级（停止绘制），但**待回答的问题仍重试一次**（按问题 callId 记一次），成功后恢复绘制——降级不能让一个提问变成没人能回答的僵尸。
@@ -141,6 +143,9 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 13. 带交互元素的卡（追问/批准）不要混排**容器**（`collapsible_panel`）、也不要给按钮加 `width: "fill"`：建卡接口都放行，但真机点击会被客户端拒绝（2026-09-25：同一张卡的停止按钮能点、选项按钮报错）。进度在这种情况下用扁平 markdown，选项对齐靠参考实现的 `column_set`（左列文字 + 右列固定文案按钮，等宽自然对齐）。
 
 ## 已知缺口
+
+- 续接提示只在快照里到达：`startNewConversationForSurface` 写了账本行，但宿主没有派发对应动作，已经连着 watcher 要等一次重新订阅才会改绑。
+- `apps/lark-bot/src/markdown-normalizer.ts` 在切 AHP 后没有生产调用方，正文按片段原文发出。
 
 - `surface.control` 的重绑路径没有生产触发入口：`POST /api/conversations/:id/start-new` 目前只有测试调用，旧的触发工具已不存在。路由与端侧消费都已具备。
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。

@@ -69,7 +69,7 @@ export function codingRoutes(deps: CodingRoutesDeps) {
     removeTaskWorktree,
   } = deps;
   const unsubscribes = new WeakMap<object, () => void>();
-  // 票据逻辑已抽到 infra/ws-ticket.ts，与 AHP 面共用一套（upgrade 时的鉴权方式）。
+  // 票据逻辑已抽到 infra/ws-ticket.ts，与 AHP 宿主共用一套（upgrade 时的鉴权方式）。
   const tickets = createWsTicketRegistry();
 
   const mapDomainError = (err: unknown): Response | null =>

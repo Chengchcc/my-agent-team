@@ -4,12 +4,12 @@ import { describe, expect, test } from "bun:test";
 import type { SessionLifecycle, SessionStatus } from "@microsoft/agent-host-protocol";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@microsoft/agent-host-protocol";
 import { Elysia } from "elysia";
-import { type AhpFaceOptions, createAhpFace } from "./http.js";
+import { type AhpHostOptions, createAhpHost } from "./http.js";
 import { AHP_ROOT } from "./protocol.js";
 
 const SESSION_URI = "ahp-session:/s1";
 
-const source: AhpFaceOptions["source"] = {
+const source: AhpHostOptions["source"] = {
   root: async () => ({ agents: [] }),
   session: async () => ({
     provider: "my-agent-team",
@@ -22,8 +22,8 @@ const source: AhpFaceOptions["source"] = {
   chat: async () => undefined,
 };
 
-const faceWith = (over: Partial<AhpFaceOptions> = {}) =>
-  createAhpFace({
+const hostWith = (over: Partial<AhpHostOptions> = {}) =>
+  createAhpHost({
     source,
     commands: { submit: () => undefined },
     wsBase: "ws://127.0.0.1:3000",
@@ -32,7 +32,7 @@ const faceWith = (over: Partial<AhpFaceOptions> = {}) =>
 
 describe("AHP face routes", () => {
   test("the ticket route mints a ticket and names the ws endpoint", async () => {
-    const face = faceWith();
+    const face = hostWith();
     const res = await face.routes.handle(
       new Request("http://localhost/api/ahp/ws-ticket", { method: "POST" }),
     );
@@ -43,7 +43,7 @@ describe("AHP face routes", () => {
   });
 
   test("the product side holds the server and can dispatch into it", async () => {
-    const face = faceWith();
+    const face = hostWith();
     const envelope = await face.server.dispatch(SESSION_URI, {
       type: "session/titleChanged",
       title: "renamed",
@@ -57,7 +57,7 @@ describe("AHP face routes", () => {
  *  initialize handshake. Unit tests cannot reach Elysia's ws lifecycle; only a real connect can. */
 describe("AHP face over a real websocket", () => {
   test("no ticket is refused; a minted ticket gets a root snapshot", async () => {
-    const face = faceWith();
+    const face = hostWith();
     const app = new Elysia().use(face.routes).listen({ port: 0, hostname: "127.0.0.1" });
     try {
       const port = (app.server as { port: number }).port;

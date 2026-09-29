@@ -16,11 +16,12 @@ tags: [surfaces, web, lark, terminal]
 
 ## 实现文件
 
-- `apps/web/src/hooks/useConversation.ts` — Web 对话页的两条 SSE 与 busy 推导
+- `apps/web/src/hooks/useConversation.ts` — Web 对话页的 AHP 连接、run 流（流规则提示与工作流进度）与 busy 推导
+- `apps/web/src/lib/ahp-view.ts` — AHP chat 状态到列表与在飞轮次的映射
 - `apps/web/src/lib/conversation-reducer.ts` — Web 渲染状态机
 - `apps/web/src/features/coding/components/coding-page.tsx` — 终端页
 - `apps/lark-bot/src/ingest.ts` — 飞书入站
-- `apps/lark-bot/src/sse-watcher.ts` — 飞书唯一出站入口
+- `apps/lark-bot/src/ahp-delivery.ts` — 飞书出站：按 chat 状态判定投递
 - `apps/backend/src/features/conversation/http.ts` — 两个对话端共用的线路
 - `apps/backend/src/features/coding/http.ts` — 终端端的 REST 与 WS
 
@@ -28,11 +29,11 @@ tags: [surfaces, web, lark, terminal]
 
 输入采集。Web 发送走 `usePostConversationMessage` → `api.postConversationMessage` → `POST /api/conversations/:id/messages`。飞书走 `spawn("lark-cli", … "event", "consume", …)` 的 stdout 行循环。
 
-渲染。Web 是 `conversation-reducer.ts` 加 `components/Timeline.tsx`。飞书是 `apps/lark-bot/src/render.ts`，只出纯文本。
+渲染。Web 是 `conversation-reducer.ts` 加 `components/Timeline.tsx`。飞书是 `apps/lark-bot/src/ahp-delivery.ts` 的 `deliverText`，只出纯文本。
 
 端本地的身份映射，只有飞书有。飞书 open_id 在本地 SQLite 里映射成 `human:lark:<open_id>` 标签（`apps/lark-bot/src/bindings-sqlite.ts`）。Web 对话没有身份翻译层，viewer 恒为常量 `"user"`，agent 侧 sender 由 `ConversationSnapshot.agentId` 决定。
 
-UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps/web/src/lib/conversation-reducer.ts` 的 `upsertAuthoritative`）。飞书用 `message_delivery` 表判终态（`apps/lark-bot/src/sse-watcher.ts`）。
+UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps/web/src/lib/conversation-reducer.ts` 的 `upsertAuthoritative`）。飞书用 `message_delivery` 表判终态（`apps/lark-bot/src/ahp-delivery.ts`）。
 
 重试与错误展示。Web 是错误条加 Retry 按钮（`apps/web/src/components/ConversationCanvas.tsx`）。飞书发送失败退避 3 次。
 
@@ -49,12 +50,12 @@ UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps
 | 维度 | Web | 飞书 |
 |---|---|---|
 | 身份 | 无映射，viewer 恒为 `"user"` | open_id → 本地 memberId 标签 |
-| 实时产出 | 订阅 per-run SSE，渲染成临时气泡 | 没有实时产出，只渲染终态行 |
-| 消耗的流 | conversation SSE 加每个 run 一条 run SSE | 每个绑定会话一条 conversation SSE |
+| 实时产出 | 订阅 AHP chat 频道，动作流驱动在飞轮次 | 订阅 AHP chat 频道，只发已成文的片段 |
+| 消耗的流 | AHP chat 频道，加每个 run 一条 run SSE（提示与 workflow 进度） | 每个绑定会话一条 AHP 连接 |
 | 最终产出 | 账本的 canonical 消息 | 账本终态行渲染成纯文本 |
 | 主要风险 | 乐观消息残留、临时气泡不替换 | 重连重放导致重复投递 |
 
-两端消费同一条线路：`GET /api/conversations/:id/events`。线路上只有三个事件名：`message`、`undo`、`surface.control`（`packages/api-contract/src/sse.ts`）。
+两端消费同一份契约：AHP 的 chat 频道，见 [AHP host](./ahp.md)。自研事件词汇与 SSE 端点正在退场，Web 还留着 run 流的两样（流规则提示、workflow 进度），飞书还留着跑动卡，这三处是 ADR 0040 的 S3 收尾项。
 
 ## 终端端
 
@@ -74,6 +75,7 @@ UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps
 
 ## 相关页
 
+- [AHP host](./ahp.md)
 - [Web 端](./web.md)
 - [飞书](./lark.md)
 - [Conversation History](../conversation/history.md)

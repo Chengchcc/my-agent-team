@@ -41,7 +41,7 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
    - 钉 0.9.x。升级是有意识动作：先跑自建互操作用例（我们的 server 对上游 TS 客户端），再看升级内容。
    - 服务端我们自己写（上游没有），复用其 reducer、可派发判定、JSON Schema 与一致性向量；能力一律先声明后使用，版本号不用于能力探测。
 
-3. **规范模型与账本编码对齐（S0，AHP 面的前置）。** 定义唯一规范模型 `session` / `chat` / `turn` / `part` / `toolCall` / `inputRequest`，账本按它编码。字段名在概念相同时采用两协议既有的词（`toolCallId`、`turnId`、`status`、`inputRequest` 等），不做与模型无关的机械改名。五处调整：
+3. **规范模型与账本编码对齐（S0，AHP 宿主的前置）。** 定义唯一规范模型 `session` / `chat` / `turn` / `part` / `toolCall` / `inputRequest`，账本按它编码。字段名在概念相同时采用两协议既有的词（`toolCallId`、`turnId`、`status`、`inputRequest` 等），不做与模型无关的机械改名。五处调整：
 
    - 轮次实体就是 Run 行：`turnId` 即 `runId`，状态取 Run 状态，起止取 Run 的时间列。不另立实体、不新增列（Run 已经是那个显式身份），读取侧也不再从「用户消息加后续 assistant 消息」推断轮次；
    - 工具调用升为一等字段：`toolCallId`、`toolName`、`status`、`rawInput`、`rawOutput`，可仍挂在消息行上，但必须有 id 关联；
@@ -56,7 +56,11 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
    - 上游一致性闸门（2026-09-29）：`apps/backend/src/features/ahp/conformance/` 钉着上游 `v0.9.0` 的 218 条 root/session/chat reducer 向量，逐条经我们的服务端重放（派发动作后新连接订阅，比对快照），覆盖播种、reduce、快照三件事。两条实测教训写在该文件的抬头：向量必须与钉住的依赖同源（仓库 HEAD 的向量包含了 0.9.0 自己都没实现的动作，会假红七十条），以及上游把「无值」序列化成显式 `null` 而 reducer 的内存结果缺键，比对要按同义归一。
    - 续接记录（原 `surface.control` 行，2026-09-29）：账本里只留规范事实，也就是旧会话续到了哪条新会话、由哪个 Run 请求；surface 方言串与 surface 自造的幂等键已删，幂等改按 Run 坐标判定。Lark 侧的改绑记账仍属 surface，等 S2 的 chat 状态落地后随它搬走。行的种类名暂留（改动它的代价是数据迁移加一条线词汇），它在 S3 随自研事件词汇一并退休。
 
-4. **权威关系不变。** 账本加 Run 状态是唯一权威；AHP 面只有两条边——只读投影、命令进控制面，禁止直写账本；终态提交是唯一写路径。这与 [system-overview](../architecture/system-overview.md) 的不变量 3、4、5 一致，Run 仍是唯一执行身份。
+4. **权威关系不变。** 账本加 Run 状态是唯一权威；宿主只有两条边——只读投影、命令进控制面，禁止直写账本；终态提交是唯一写路径。这与 [system-overview](../architecture/system-overview.md) 的不变量 3、4、5 一致，Run 仍是唯一执行身份。
+
+6. **产品事实借 `_meta` 过到端上，不另开产品频道。** 协议为内存里的宿主会话设计，我们有的持久事实它没有位置放。开一条产品频道或者给协议加字段，等于让端同时读两条线再把它们对齐；`_meta` 是上游给宿主事实留的扩展点，也正好是端已经会解析的地方。约定如下，当前字段表与含义见 [AHP host](../architecture/surfaces/ahp.md)：`messageId`（账本行身份，端据此去重）、`seq`（账本坐标，寻址用）、`undone`（撤销标记）、`productRequest` 与 `productResponse`（审批与询问的载荷和答复）、`todos`（活跃轮次的 todo）、`newConversationId` 与 `requestedByRunId`（续接）。顺序不借 `_meta` 过：顺序由宿主定，端按状态里的次序铺，协议里的 `Turn` 没有每轮坐标，端也无从重排。
+
+   落地进度（2026-09-29，`feat/ahp2acp`）：`messageId` 自 `be15ae54`、`seq` 自 `a204bfbf`、`undone` 自 `204e941e`、`productRequest` 与 `productResponse` 自 `5fef88be`、`todos` 自 `3d383bb6`、续接两个键自 `e99810b2`。写这一条时对表发现两个洞：动作那条边没有一处派发 `chat/inputRequested`，审批与询问卡片要等一次重新订阅才出现；`todos` 同样只在快照里。两者都记在 [AHP host](../architecture/surfaces/ahp.md) 的已知缺口里，前者按 HITL 控制面的优先级先修。
 
 5. **替换而非并列。** 未完成替换前，不新增依赖旧方言的功能；每条标准轨的删除项与期限写在本 ADR 的删除清单里。
 
@@ -78,7 +82,7 @@ flowchart TB
   end
 
   subgraph BE["Product Backend · 唯一事实源"]
-    AHPS["AHP 面<br/>命令与订阅路由 · serverSeq · 回放缓冲 · 快照回退"]
+    AHPS["AHP 宿主<br/>命令与订阅路由 · serverSeq · 回放缓冲 · 快照回退"]
     CAN["规范模型层<br/>session · chat · turn · part · toolCall · inputRequest"]
     CONV["conversation<br/>账本 · 只追加 · seq 即顺序"]
     RUN["agent-run 控制面<br/>入队 · 派单 · 终态提交 · 审批与 ask · 恢复"]
@@ -134,7 +138,7 @@ flowchart LR
     E2["子进程<br/>轮次 · 工具对象 · 权限往返"]
     C2["规范模型<br/>turn · part · toolCall · inputRequest"]
     L2["账本<br/>按规范模型编码"]
-    P2["AHP 面<br/>字段级绑定"]
+    P2["AHP 宿主<br/>字段级绑定"]
     S2["各端<br/>上游同源 reducer"]
     E2 -->|"一份归约契约"| C2
     C2 --> L2
@@ -172,7 +176,7 @@ R1 至 R3 承接 [ADR 0039](./0039-approval-request-is-a-product-contract.md) �
 
 代价：AHP 服务端要我们自建；上游处在 0.x，升级要跟；迁移期两条线并存，直到 S3 才回到一条。
 
-风险与对策：接一半就成净负债，所以删除项写进验收；账本权威被绕过，所以 AHP 面只保留两条边；上游发破坏性小版本，所以钉版本加互操作用例当闸门；历史行重写风险高，所以只对新写入生效。
+风险与对策：接一半就成净负债，所以删除项写进验收；账本权威被绕过，所以宿主只保留两条边；上游发破坏性小版本，所以钉版本加互操作用例当闸门；历史行重写风险高，所以只对新写入生效。
 
 ## 关联
 

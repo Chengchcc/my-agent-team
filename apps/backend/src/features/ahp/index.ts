@@ -1,7 +1,7 @@
 /** The AHP face (ADR 0040): protocol machinery, state projection and the WebSocket transport.
  *
  *  Three things are public: `createAhpServer` (the transport-agnostic core),
- *  `createAhpStateSource` (the product's read-only projection) and `createAhpFace` (the ws mount). */
+ *  `createAhpStateSource` (the product's read-only projection) and `createAhpHost` (the ws mount). */
 
 export {
   AHP_CHAT_PREFIX,
@@ -11,8 +11,8 @@ export {
   conversationIdFrom,
   sessionUri,
 } from "@chengchenccc/ahp-client";
-export type { AhpFace, AhpFaceOptions } from "./http.js";
-export { createAhpFace } from "./http.js";
+export type { AhpHost, AhpHostOptions } from "./http.js";
+export { createAhpHost } from "./http.js";
 export type {
   AhpCommandPort,
   AhpConnection,
