@@ -46,6 +46,7 @@ import {
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
 import { createAhpFace } from "../features/ahp/http.js";
+import { createAhpStateSource } from "../features/ahp/state-source.js";
 import {
   artifactRoutes,
   createArtifactFsAdapter,
@@ -1414,23 +1415,37 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
   }:${config.port}`;
 
-  // AHP 面（ADR 0040）：协议机械在 features/ahp，这里接上状态源与命令端口。状态源
-  // 目前只声明 agent 目录，会话与聊天随规范模型那一刀接上；命令面接上之前明确拒绝。
+  // AHP 面（ADR 0040）：协议机械在 features/ahp，这里接上状态源与命令端口。状态源是
+  // 只读投影：会话与聊天都由规范模型给出；命令面接上控制面之前明确拒绝。
   const ahpFace = createAhpFace({
     wsBase: browserWsBase,
-    source: {
-      root: async () => ({
-        agents: (await agentSvc.list(false)).map((agent) => ({
-          provider: agent.config.runtime_config.runtime,
-          displayName: agent.config.name,
+    source: createAhpStateSource({
+      listAgents: async () =>
+        (await agentSvc.list(false)).map((agent) => ({
+          id: agent.id,
+          name: agent.config.name,
+          runtime: agent.config.runtime_config.runtime,
           // model_id 是产品里那一串模型引用；原样带上，不做结构假设。
-          description: agent.config.runtime_config.model_id,
-          models: [],
+          modelId: agent.config.runtime_config.model_id,
         })),
-      }),
-      session: async () => undefined,
-      chat: async () => undefined,
-    },
+      getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
+      getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
+      listPendingInputs: async (conversationId) =>
+        (await agentRunPort.listPendingInputsForConversation(conversationId)).map((input) => ({
+          runId: input.runId,
+          message: JSON.stringify(input.message),
+        })),
+      // 规范模型只吃普通行对象：动作的载荷与答复在这里序列化，别把产品类型带进去。
+      listPendingActions: async (runId) =>
+        (await agentRunPort.listPendingActions(runId)).map((action) => ({
+          actionId: action.actionId,
+          kind: action.kind,
+          status: action.status,
+          payload: JSON.stringify(action.payload),
+          response: action.response === null ? null : JSON.stringify(action.response),
+        })),
+      getRun: (runId) => agentRunPort.getRun(runId),
+    }),
     commands: {
       submit: () => {
         throw new Error("the AHP command path is not wired yet");
