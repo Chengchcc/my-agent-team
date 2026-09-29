@@ -1,12 +1,12 @@
-/** 会话的规范模型（ADR 0040 决策三）。
+/** The session's canonical model (ADR 0040 decision 3).
  *
- *  它回答「一个会话是什么」，与谁来渲染无关：一次执行就是一个 turn，里面是
- *  类型化的 part；工具调用是一等对象，use 与 result 按 `tool_use_id` 配对；
- *  人工输入请求挂在所属的 turn 上。ACP 与 AHP 两端都按字段级绑定到这个形状，
- *  这正是目的：任何一端都不必再重建轮次，或从消息载荷里翻找工具事实。
+ *  It answers "what is a session", independent of who renders it: one execution is one turn,
+ *  made of typed parts; a tool call is a first-class object whose use and result pair by
+ *  `tool_use_id`; human input requests hang off the turn that asked. ACP and AHP both bind to
+ *  this shape field by field, and that is the point: neither end has to rebuild turns, or dig
  *
- *  本模块是纯的、不碰数据库（协议层）。哪几行账本构成哪个 turn，由后端的
- *  session-model 派生器负责。 */
+ *  tool facts back out of message payloads. This module is pure and touches no database (it is
+ *  protocol layer); which ledger rows make up which turn is the backend deriver's business. */
 import type { ContentBlock } from "./content-block.js";
 import type { Message, MessageUsage } from "./message.js";
 
@@ -17,7 +17,7 @@ export interface CanonicalToolResult {
   readonly isError: boolean;
 }
 
-/** 一次工具调用。`toolCallId` 是模型给出的调用 id（ACP 与 AHP 同名同义）。 */
+/** One tool call. `toolCallId` is the id the model gave it (ACP and AHP agree on it). */
 export interface CanonicalToolCall {
   readonly toolCallId: string;
   readonly name: string;
@@ -26,13 +26,13 @@ export interface CanonicalToolCall {
   readonly result?: CanonicalToolResult;
 }
 
-/** 挂在轮次上的人工输入（审批、问答）。`status` 与 `response` 来自产品的
- *  durable 记录，所以「当时问了什么、答了什么」在模型里就是一段状态。 */
+/** A human input on a turn (approval, question). `status` and `response` come from the product's
+ *  durable rows, so "what was asked and what was answered" is part of the model. */
 export interface CanonicalInputRequest {
   readonly requestId: string;
   readonly kind: string;
   readonly status: "pending" | "resolved" | "cancelled";
-  /** 审批针对的那次工具调用（有则挂上，方便两端按调用渲染卡片）。 */
+  /** The tool call an approval targets (attached when known, so both ends can render a card). */
   readonly toolCallId?: string;
   readonly response?: unknown;
 }
@@ -56,20 +56,21 @@ export type CanonicalPart =
 export type CanonicalTurnStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
 
 export interface CanonicalTurn {
-  /** 我们这边 turn 就是一次 Run，所以 turnId 即 runId（ADR 0040 决策三）。 */
+  /** A turn is one Run here, so turnId is the runId (ADR 0040 decision 3). */
   readonly turnId: string;
-  /** 触发这次执行的用户消息（AHP 的 `ActiveTurn.message` 位置）。 */
+  /** The user message that triggered this execution (AHP's `ActiveTurn.message` slot). */
   readonly input?: Message;
   readonly status: CanonicalTurnStatus;
   readonly parts: readonly CanonicalPart[];
   readonly usage?: MessageUsage;
 }
 
-/** 一轮的 part，按到达到顺序。工具调用按 `tool_use_id` 配对：结果会落到对应的
- *  call 上并把它标成 completed 或 failed。**配不上 use 的 result 也会保留**，
- *  落成一次已结算的调用；丢掉它就是又把事实漏出日志。 */
-/** 给片段挂上来源消息的身份（账本身份，surface 靠它做恰好一次投递）。
- *  没有身份时连键都不出现：`undefined` 与「没有这个字段」不是一个意思。 */
+/** A turn's parts, in arrival order. Tool calls pair by `tool_use_id`: a result lands on its
+ *  call and marks it completed or failed. **A result with no matching use is kept too**, as a
+ *  settled call; dropping it would leak a fact out of the log again. */
+/** Attaches the source message's identity to a part (a ledger identity, which surfaces use for
+ *  exactly-once delivery). Without an identity the key is absent altogether: `undefined` and
+ *  "this field does not exist" are not the same claim. */
 function withMessageId<T extends object>(
   part: T,
   messageId: string | undefined,
@@ -173,11 +174,11 @@ function pushBlock(
       ),
     );
   }
-  // 图片等块不单独成 part。
+  // Blocks such as images do not become parts of their own.
 }
 
-/** 把人工输入请求插进 part 序列：有 `toolCallId` 的挂在对应调用之后，没有的
- *  追加在末尾。顺序稳定，便于两端渲染同一张卡。 */
+/** Inserts human input requests into the part sequence: those with a `toolCallId` go after the
+ *  matching call, the rest are appended. The order is stable so both ends render one card. */
 export function attachInputRequests(
   parts: readonly CanonicalPart[],
   requests: readonly CanonicalInputRequest[],
