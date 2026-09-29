@@ -175,7 +175,7 @@ R1 至 R3 承接 [ADR 0039](./0039-approval-request-is-a-product-contract.md) �
 Web 的 run 流只剩三处消费者，都在 `apps/web/src/hooks/useConversation.ts`。查过来源之后，三条的情况不一样：
 
 - `status`：不用补事实。轮次本就按 run 行构造，失败 run 的 `run:<id>:error` 行会折成轮次尾部的错误片段、轮次状态是 `error`，投影已经带着它，流里那份是重复的。
-- `delegation_batch_started`、`delegation_agent_started`、`delegation_agent_completed`：喂的是工作流进度表。事件本身是运行时转发出来的，但**事实在产品里已经有了**（工作流的执行与节点运行都在自己的表里），投影缺的只是「哪个节点运行对应哪条会话」这一层映射。所以这一处是补投影，不用新落库。
+- `delegation_batch_started`、`delegation_agent_started`、`delegation_agent_completed`、`delegation_batch_completed`：面板按 `batchId` 分组，显示一批子代理的进度。它不是工作流引擎的事件，而是 oma 运行时编排脚本 spawn 子代理时发的（`apps/oh-my-agent/src/core/delegation/executor.ts`，TUI 也用同一批事件），事件里既没有工作流 id，产品侧也没有对应行。能走的路三条：把批次落一行（像 todo 那样给投影料）、投影从运行时的会话行里推（子代理各自都有会话行，缺的是与父 run 的关联）、或者认它是过渡面板——它自己的注释写着 durable truth 是工具结果消息，而那份消息本来就在转录里。
 - `backend.oma.stream_rule_triggered`：模型这一轮输出被流规则判废、正在重试。后端只是转发这个运行时事件，产品里没有任何行记过它。要么把它落成一行（像失败那样，让投影折成通知片段），要么认它属于运行时细节、不上面——按「能不能当产品事实站住」来定，不按好不好做来定。
 
 ## 后果
