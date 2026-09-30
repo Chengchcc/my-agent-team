@@ -18,4 +18,8 @@ export interface BackendModelCatalog {
 
 // Reasoning-effort rungs and the untrusted-value narrow live in message
 // (shared with the product surfaces); re-exported for one import site.
-export { normalizeReasoningEffort, REASONING_EFFORTS, type ReasoningEffort } from "@chengchenccc/message";
+export {
+  normalizeReasoningEffort,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "@chengchenccc/message";

@@ -1,5 +1,4 @@
-import type { Message } from "@chengchenccc/message";
-import type { ReasoningEffort } from "@chengchenccc/message";
+import type { Message, ReasoningEffort } from "@chengchenccc/message";
 
 /** A projected history entry. `productEntryId` is the stable Agent Context
  *  entry identity, retained so the Runtime can write it onto its appended
