@@ -301,6 +301,41 @@ export function AgenticWorkflowEditor({
     return () => ts.close();
   }, [workflowId]);
 
+  // A proposed definition is a durable row too (ADR 0040), so this page reads it as well as
+  // listens: a proposal that arrived while the editor was closed is still adoptable. The guards
+  // are the SSE path's - never over a local unsaved edit - and adopting marks the row, so the two
+  // paths cannot both apply the same proposal.
+  useEffect(() => {
+    let stopped = false;
+    let adopted = "";
+    const tick = async () => {
+      const result = await api
+        .getPendingProposal("workflow_definition", workflowId)
+        .catch(() => null);
+      const proposal = result?.proposal;
+      if (stopped || !proposal || proposal.id === adopted) return;
+      if (dirtyRef.current || savingRef.current) return;
+      adopted = proposal.id;
+      const proposed = proposal.payload;
+      if (proposed && typeof proposed === "object") {
+        const draftDef = proposed as WorkflowDefinition;
+        setDefinition(draftDef);
+        definitionRef.current = draftDef;
+        setLastEditedAt(Date.now());
+        setSavedAt(null);
+      }
+      await api.resolveProposal(proposal.id, "adopted").catch(() => {
+        /* a page that got there first is not a failure */
+      });
+    };
+    const timer = setInterval(tick, 2000);
+    void tick();
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [workflowId]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-(--canvas) text-(--ink)">
       {/* Header */}

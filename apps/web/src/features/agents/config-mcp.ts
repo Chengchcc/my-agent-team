@@ -5,6 +5,7 @@ import { agentConfigEvents } from "@chengchenccc/api-contract";
 import { useEffect, useRef } from "react";
 import type { AgentDraft } from "@/components/agent-form-types";
 import type { AgentRow } from "@/lib/api";
+import { api } from "@/lib/api";
 import { typedSource } from "@/lib/typed-source";
 
 // Must stay in sync with AgentRow["permissionMode"] (backend permission_mode).
@@ -105,5 +106,31 @@ export function useAgentConfigEvents(
       }
     });
     return () => ts.close();
+  }, [agentId]);
+
+  // A proposed change is a durable row too (ADR 0040), so the page reads it as well as listens:
+  // a proposal that arrived while this page was closed is still adoptable, and one that arrives
+  // now is adopted exactly once - adopting marks the row, so a second reader gets a 409 that is
+  // not an error. Both paths run while the tools still push over the SSE.
+  useEffect(() => {
+    if (!agentId) return;
+    let stopped = false;
+    let adopted = "";
+    const tick = async () => {
+      const result = await api.getPendingProposal("agent_config", agentId).catch(() => null);
+      const proposal = result?.proposal;
+      if (stopped || !proposal || proposal.id === adopted) return;
+      adopted = proposal.id;
+      handlersRef.current.onProposed(proposal.payload);
+      await api.resolveProposal(proposal.id, "adopted").catch(() => {
+        /* a page that got there first is not a failure */
+      });
+    };
+    const timer = setInterval(tick, 2000);
+    void tick();
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [agentId]);
 }
