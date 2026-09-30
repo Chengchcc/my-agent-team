@@ -464,6 +464,22 @@ export const api = {
     fetch(`/api/bff/agents/${agentId}/workspace/file?path=${encodeURIComponent(path)}`, {
       credentials: "include",
     }).then((r) => r.json()),
+  // Harnesses (direct fetch, same reason as listModels). The harness axis is
+  // its own list: a harness is not a model (ADR 0040 decision 7), and each one
+  // declares the models it can run. Mirror of the backend's
+  // HarnessCatalogEntry - keep both in sync (e2e-contract-rules).
+  listHarnesses: async () => {
+    const resp = await fetch("/api/bff/harnesses", { credentials: "include" });
+    return (await resp.json()) as {
+      harnesses: Array<{
+        key: string;
+        name: string;
+        models: Array<{ value: string; name: string }>;
+        currentModel: string | null;
+        error: string | null;
+      }>;
+    };
+  },
   // Models (direct fetch - route not visible to Eden treaty)
   listModels: async () => {
     const resp = await fetch("/api/bff/models", { credentials: "include" });
