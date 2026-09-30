@@ -126,6 +126,12 @@ export function conversationRoutes(
               t.Object({
                 backendKind: t.String(),
                 modelId: t.String(),
+                // The ACP kind names its harness in modelId and runs what this
+                // names (BackendModelRef.harnessModel). Validated here because
+                // t.Object silently drops what it does not declare - the
+                // caller would think it chose a model and the run would use the
+                // harness default.
+                harnessModel: t.Optional(t.String({ minLength: 1 })),
                 reasoningEffort: t.Optional(
                   t.Union([
                     t.Literal("none"),

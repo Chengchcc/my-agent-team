@@ -296,11 +296,17 @@ describe("conversation service (Agent Run cutover)", () => {
     await svc.postMessage({
       conversationId: id,
       content: "use my model",
-      modelOverride: { backendKind: "oma", modelId: "fake/other", reasoningEffort: "low" },
+      modelOverride: {
+        backendKind: "oma",
+        modelId: "fake/other",
+        harnessModel: "fake/echo2",
+        reasoningEffort: "low",
+      },
     });
     expect(enqueueCalls[0]!.defaultModel).toEqual({
       backendKind: "oma",
       modelId: "fake/other",
+      harnessModel: "fake/echo2",
       reasoningEffort: "low",
     });
 
