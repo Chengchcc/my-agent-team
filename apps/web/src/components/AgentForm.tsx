@@ -52,12 +52,6 @@ interface AgentFormProps {
   alwaysOpen?: boolean;
 }
 
-const KIND_LABELS: Record<string, string> = {
-  claude_code: "claude_code (via ACP)",
-  pi: "pi (via ACP)",
-  omp: "omp (via ACP)",
-};
-
 export function AgentForm({
   editAgent,
   draft,
@@ -76,16 +70,10 @@ export function AgentForm({
   const providers = useMemo(() => modelData?.providers ?? [], [modelData]);
   // ADR 0040 R3: these kinds predate the ACP face and now run through it, so the picker says what
   // will actually run instead of naming an adapter that is on its way out.
-  // Backend kinds present in the aggregated catalog, canonical order.
-  const backendKinds = useMemo(() => {
-    // `acp` is the kind whose "model" is a harness (ADR 0040 decision 7); leaving
-    // it out made the four harnesses unreachable from this form.
-    const order = ["acp", "oma", "claude_code", "pi", "omp"];
-    const seen = new Set<string>();
-    for (const p of providers) for (const m of p.models) if (m.backendKind) seen.add(m.backendKind);
-    return order.filter((k) => seen.has(k));
-  }, [providers]);
-  const [selBackendKind, setSelBackendKind] = useState<string>(editAgent?.backendKind ?? "oma");
+  // ADR 0040 decision 7: the adapter kind is no longer a product concept. One
+  // adapter drives every harness, so the form asks which harness (the model
+  // field below), not which kind.
+  const [selBackendKind] = useState<string>("acp");
   const [selProvider, setSelProvider] = useState<string>(
     (editAgent?.modelName ?? "").includes("/") ? (editAgent?.modelName ?? "").split("/")[0]! : "",
   );
@@ -129,7 +117,7 @@ export function AgentForm({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
       name: editAgent?.name ?? "",
-      backendKind: editAgent?.backendKind ?? "oma",
+      backendKind: "acp",
       // Empty until the catalog loads (see effect below): never hard-code a
       // provider model that may not exist in the runtime catalog.
       model: editAgent?.modelName ?? "",
@@ -166,7 +154,7 @@ export function AgentForm({
     if (editAgent) {
       form.reset({
         name: editAgent.name,
-        backendKind: editAgent.backendKind ?? "oma",
+        backendKind: "acp",
         model:
           editAgent.modelProvider && editAgent.modelName
             ? `${editAgent.modelProvider}/${editAgent.modelName}`
@@ -188,7 +176,7 @@ export function AgentForm({
     if (!draft) return;
     form.reset({
       name: draft.name ?? "",
-      backendKind: draft.backendKind ?? "oma",
+      backendKind: "acp",
       model:
         draft.modelProvider && draft.modelName
           ? `${draft.modelProvider}/${draft.modelName}`
@@ -421,50 +409,6 @@ export function AgentForm({
                 />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <FormField
-                    control={form.control}
-                    name="backendKind"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className={`${overlineClass} mb-1.5 block`}>Backend</FormLabel>
-                        <Select
-                          value={field.value}
-                          onValueChange={(v) => {
-                            const vv = v ?? "";
-                            field.onChange(vv);
-                            setSelBackendKind(vv);
-                            // Switching backend resets provider/model: the
-                            // two catalogs are disjoint (D3). Pick the first
-                            // available model of the new kind.
-                            const current = form.getValues("model");
-                            const stillValid = modelGroups.some(
-                              (m) => m.id === current && m.backendKind === vv && m.available,
-                            );
-                            if (stillValid) return;
-                            setSelProvider("");
-                            const first = modelGroups.find(
-                              (m) => m.backendKind === vv && m.available,
-                            );
-                            form.setValue("model", first?.id ?? "", {
-                              shouldValidate: true,
-                            });
-                          }}
-                        >
-                          <SelectTrigger className={fieldClass}>
-                            <SelectValue placeholder="Select backend…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {backendKinds.map((k) => (
-                              <SelectItem key={k} value={k}>
-                                {KIND_LABELS[k] ?? k}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                   {!hideProvider && (
                     <FormField
                       control={form.control}
