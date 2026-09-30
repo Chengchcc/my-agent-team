@@ -29,6 +29,9 @@ interface StartOptions {
   cliSessionRef?: string;
   resume?: { decisions: Array<Record<string, unknown>> };
   provider?: AcpMcpProvider;
+  productToolsToken?: string;
+  mcpExpandableVars?: string[];
+  consentedMcpTools?: string[];
 }
 
 interface RunHandle {
@@ -67,12 +70,24 @@ async function startRun(opts: StartOptions): Promise<RunHandle> {
     run: typeof runSpec;
     workspace: { root: string; access: "read_write" };
     resume?: { decisions: Array<Record<string, unknown>> };
+    productToolsToken?: string;
+    mcpExpandableVars?: string[];
+    consentedMcpTools?: string[];
   } = {
     input: { inputId: "in-1", message: { role: "user", text: "say hi" } },
     run: runSpec,
     workspace: { root, access: "read_write" },
   };
   if (opts.resume !== undefined) inputSpec.resume = opts.resume;
+  if (opts.productToolsToken !== undefined) {
+    inputSpec.productToolsToken = opts.productToolsToken;
+  }
+  if (opts.mcpExpandableVars !== undefined) {
+    inputSpec.mcpExpandableVars = opts.mcpExpandableVars;
+  }
+  if (opts.consentedMcpTools !== undefined) {
+    inputSpec.consentedMcpTools = opts.consentedMcpTools;
+  }
   const segment = await backend.execute(inputSpec as BackendRunInput<"acp">);
   return { backend, segment, recordPath, root };
 }
@@ -292,6 +307,45 @@ describe("fake ACP harness through a real AcpBackend", () => {
       // The RFCD envelope: the inner MCP outcome rides the outer ACP
       // success (`{result: {result|error}}`).
       reply: { result: { result: { tools: [{ name: "probe_tool" }] } } },
+    });
+  });
+
+  test("a plan update maps to the todo strip; spawn_env records injected env", async () => {
+    const { backend, segment, recordPath } = await startRun({
+      runId: "run-plan-env",
+      productToolsToken: "bearer-run-plan-env",
+      mcpExpandableVars: ["PRODUCT_TOOLS_RUN_TOKEN"],
+      consentedMcpTools: ["history_search"],
+      script: [
+        {
+          plan: [
+            { content: "step 1", status: "completed" },
+            { content: "step 2", status: "in_progress" },
+            { content: "step 3", status: "pending" },
+          ],
+        },
+        { text: "planned" },
+      ],
+    });
+    const { events, outcome } = await collect(segment);
+    await backend.dispose();
+
+    expect(outcome.status).toBe("completed");
+    expect(events).toContainEqual({
+      type: "backend.oma.todo_update",
+      payload: {
+        items: [
+          { id: "0", text: "step 1", status: "done" },
+          { id: "1", text: "step 2", status: "in_progress" },
+          { id: "2", text: "step 3", status: "pending" },
+        ],
+      },
+    });
+    expect(readRecord(recordPath).find((line) => line.event === "spawn_env")).toEqual({
+      event: "spawn_env",
+      PRODUCT_TOOLS_RUN_TOKEN: "bearer-run-plan-env",
+      OMA_MCP_EXPANDABLE_VARS: "PRODUCT_TOOLS_RUN_TOKEN",
+      OMA_CONSENTED_MCP_TOOLS: "history_search",
     });
   });
 

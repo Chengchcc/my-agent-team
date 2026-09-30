@@ -24,6 +24,10 @@
  *        rides rawOutput, `failed: true` settles the call as an error
  *    { tool_call_update: { toolCallId, status?, title?, rawOutput? } }
  *        one raw tool_call_update, exactly as sent (fine-grained control)
+ *    { plan: [{ content, status, priority? }, ...] }
+ *        one session/update "plan" (the full replace-semantics list);
+ *        statuses are pending | in_progress | completed, priorities
+ *        high | medium | low (wire-required; the parent mapping ignores it)
  *    { permission: { toolCallId?, title?, kind?, rawInput?, options?,
  *                    autoAfterMs? } }
  *        session/request_permission with allow/deny-style options (default
@@ -52,6 +56,8 @@
  *        the parent passes mcpServers
  *
  *  Record lines (one JSON object per line, flushed per event):
+ *    { event: "spawn_env", PRODUCT_TOOLS_RUN_TOKEN, OMA_MCP_EXPANDABLE_VARS,
+ *      OMA_CONSENTED_MCP_TOOLS }  values from the child env, null when unset
  *    { event: "initialize", params }
  *    { event: "session/new" | "session/load", params }  verbatim params —
  *        cwd, mcpServers and _meta["my-agent-team/resume"] ride along, and
@@ -92,6 +98,15 @@ function note(line: Record<string, unknown>): void {
     appendFileSync(recordPath, `${JSON.stringify(line)}\n`);
   }
 }
+
+/** The spawn env is a contract fact, not a scenario: the suites assert the
+ *  product bearer and MCP policy reached the child exactly as spawned. */
+note({
+  event: "spawn_env",
+  PRODUCT_TOOLS_RUN_TOKEN: process.env.PRODUCT_TOOLS_RUN_TOKEN ?? null,
+  OMA_MCP_EXPANDABLE_VARS: process.env.OMA_MCP_EXPANDABLE_VARS ?? null,
+  OMA_CONSENTED_MCP_TOOLS: process.env.OMA_CONSENTED_MCP_TOOLS ?? null,
+});
 
 // ─── Wiring state (position-independent steps) ────────────────────────────
 
@@ -222,6 +237,26 @@ async function runToolCallStep(
   await notifyUpdate(client, sessionId, done);
 }
 
+async function runPlanStep(
+  client: acp.AgentContext,
+  sessionId: string,
+  value: unknown,
+): Promise<void> {
+  const entries = (Array.isArray(value) ? value : []) as Array<{
+    content?: unknown;
+    status?: unknown;
+    priority?: unknown;
+  }>;
+  await notifyUpdate(client, sessionId, {
+    sessionUpdate: "plan",
+    entries: entries.map((entry) => ({
+      content: String(entry.content ?? ""),
+      priority: entry.priority ?? "medium",
+      status: entry.status ?? "pending",
+    })),
+  });
+}
+
 async function runToolUpdateStep(
   client: acp.AgentContext,
   sessionId: string,
@@ -318,6 +353,7 @@ async function runStep(
   if ("tool_call_update" in step) {
     return runToolUpdateStep(client, sessionId, step.tool_call_update);
   }
+  if ("plan" in step) return runPlanStep(client, sessionId, step.plan);
   if ("permission" in step) return runPermissionStep(client, sessionId, step.permission);
   if ("mcp_call" in step) return runMcpStep(client, step.mcp_call);
   if ("delay_ms" in step) return sleep(Number(step.delay_ms));

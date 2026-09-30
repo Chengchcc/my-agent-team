@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  OmaBackend,
-  type OmaCommandConfig,
-  OmaModelCatalog,
-} from "@chengchenccc/adapter-oma-agent";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import { sqliteConversationAdapter } from "../conversation/adapter-sqlite.js";
@@ -19,101 +14,7 @@ import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
-
-// ─── Real RPC child (fixture) harness ─────────────────────────────────
-// Every execute() spawns the fixture child (packages/adapter-oma-agent/
-// src/__fixtures__/rpc-fixture.ts) speaking the stdio JSONL protocol. The
-// fixture records every command to a shared record file; the harness reads
-// it back for assertions. This is the REAL child-process transport - no
-// in-process fetch, no SSE, no polling.
-
-const FIXTURE = new URL(
-  "../../../../../packages/adapter-oma-agent/src/__fixtures__/rpc-fixture.ts",
-  import.meta.url,
-).pathname;
-
-interface FakeDaemonOptions {
-  /** Reject the first execute across all children (acceptance-failure
-   *  simulation); later executes accept. */
-  failFirstExecute?: boolean;
-  outcomeDelayMs?: number;
-  /** Fail steer with this message. */
-  steerError?: boolean;
-  /** Emit native tool trace + todo_update events before the outcome. */
-  toolTodo?: boolean;
-  /** The completed outcome carries this cliSessionRef. */
-  sessionRef?: string;
-  /** Raw fixture scenario (overrides the sugar flags). */
-  scenario?: string;
-}
-
-function createFakeDaemon(opts: FakeDaemonOptions = {}) {
-  const record = `${dataDir}/daemon-${daemonSeq++}.log`;
-  const scenario =
-    opts.scenario ??
-    (opts.failFirstExecute
-      ? "reject-first-execute"
-      : opts.steerError
-        ? "steer-error"
-        : opts.toolTodo
-          ? "tool-todo"
-          : "normal");
-
-  const config: OmaCommandConfig = {
-    executable: process.execPath,
-    args: [FIXTURE, "--mode", "rpc"],
-    env: {
-      RPC_FIXTURE_SCENARIO: scenario,
-      RPC_FIXTURE_RECORD: record,
-      RPC_FIXTURE_OUTCOME_DELAY_MS: String(opts.outcomeDelayMs ?? 60),
-      ...(opts.sessionRef ? { RPC_FIXTURE_SESSION_REF: opts.sessionRef } : {}),
-    },
-  };
-  const readCalls = (kind: string): string[] => {
-    if (!existsSync(record)) return [];
-    return readFileSync(record, "utf-8")
-      .trim()
-      .split("\n")
-      .filter((l) => l.startsWith(`${kind} `))
-      .map((l) => l.slice(kind.length + 1));
-  };
-  return {
-    backend: new OmaBackend(config),
-    modelCatalog: new OmaModelCatalog(config),
-    get executeCalls(): Array<{ runId: string; workspaceRoot: string }> {
-      return readCalls("execute").map((line) => {
-        const [runId, ...rest] = line.split(" ");
-        return { runId: runId!, workspaceRoot: rest.join(" ") };
-      });
-    },
-    /** Per-run product-tools bearers the children received via env. */
-    get executeTokens(): string[] {
-      if (!existsSync(record)) return [];
-      return readFileSync(record, "utf-8")
-        .trim()
-        .split("\n")
-        .filter((l) => l.startsWith("tok "))
-        .map((l) => l.slice(4));
-    },
-    get executeMessages(): string[] {
-      return readCalls("execute_msg").map((l) => JSON.parse(l) as string);
-    },
-    get executeRefs(): Array<string | null> {
-      return readCalls("execute_ref").map((l) => JSON.parse(l) as string | null);
-    },
-    get steerCalls(): string[] {
-      return readCalls("steer").map((l) => l.split(" ")[0]!);
-    },
-    get resumeCalls(): string[][] {
-      return readCalls("execute_resume").map((l) => JSON.parse(l) as string[]);
-    },
-    get stopCalls(): string[] {
-      return readCalls("abort").map((l) => l.split(" ")[0]!);
-    },
-  };
-}
-
-let daemonSeq = 0;
+import { createFakeAcpDaemon, type FakeAcpDaemon } from "./test-acp-daemon.js";
 
 // ─── Test harness ──────────────────────────────────────────────────────
 
@@ -128,7 +29,7 @@ const conversationId = "conv-1";
 const agentId = "ag-1";
 
 function makeExecution(
-  fakeDaemon: ReturnType<typeof createFakeDaemon>,
+  fakeDaemon: FakeAcpDaemon,
   runPortOverride?: ReturnType<typeof sqliteAgentRunAdapter>,
   modelCatalogOverride?: {
     list: () => Promise<{ models: Array<{ id: string; available: boolean }> }>;
@@ -161,7 +62,7 @@ function makeExecution(
     contextPort: { ...contextPort, ...contextPortOverride } as never,
     ledgerResolver,
     backends: {
-      oma: {
+      acp: {
         backend: fakeDaemon.backend,
         catalog: (modelCatalogOverride ?? fakeDaemon.modelCatalog) as never,
       },
@@ -240,7 +141,7 @@ beforeEach(async () => {
 
   convPort.createConversation({ conversationId, agentId, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(conversationId);
-  await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
+  await contextPort.getOrCreateDefaultBranch(tree.treeId, "acp");
 });
 
 afterEach(() => {
@@ -252,10 +153,10 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
   return backend.enqueueAndAcquire({
     conversationId,
     agentId,
-    backendKind: "oma",
+    backendKind: "acp",
     mode,
     message: { role: "user", text },
-    defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+    defaultModel: { backendKind: "acp", modelId: "acp/oma" },
     configRevision: 1,
     idempotencyKey: key,
   });
@@ -263,7 +164,7 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
 
 describe("agent run execution recovery", () => {
   test("recovery terminalizes a delivered-active orphan run and promotes the next input", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     void makeExecution(fake);
 
     const first = await enqueue("normal", "orphan-1", "first");
@@ -293,11 +194,12 @@ describe("agent run execution recovery", () => {
     )!;
     expect(promoted.status).toBe("delivered");
     await waitForTerminal(promoted.runId!);
-    expect(fake.executeCalls.map((c) => c.runId)).toEqual([promoted.runId!]);
+    expect(fake.executeCalls).toHaveLength(1);
+    expect(fake.executeMessages).toEqual(["second"]);
   }, 15_000);
 
   test("recover() never sweeps a commit_failed run to aborted, even when its retry keeps failing", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     // Fault EVERY terminal commit: the run lands in commit_failed and every
     // boot-retry of the stored outcome fails again.
     const faultedPort = sqliteAgentRunAdapter(db, {
@@ -337,7 +239,7 @@ describe("agent run execution recovery", () => {
   }, 20_000);
 
   test("follow-up chain promotes queued inputs as fresh FIFO runs", async () => {
-    const fake = createFakeDaemon({ outcomeDelayMs: 120 });
+    const fake = createFakeAcpDaemon({ dataDir, outcomeDelayMs: 120 });
     const execution = makeExecution(fake);
 
     const first = await enqueue("normal", "chain-1", "first");
@@ -350,9 +252,10 @@ describe("agent run execution recovery", () => {
     await execution.dispatch(first.run!.runId);
     await waitForTerminal(first.run!.runId);
 
-    // Both queued inputs became FRESH runs, executed in FIFO order. The
-    // chain promotes one run per settle - wait for the full chain.
-    for (let i = 0; i < 200 && fake.executeCalls.length < 3; i++) {
+    // Both queued inputs became FRESH product runs, executed in FIFO order.
+    // The ACP harness keeps one session, so prompts (not session/new lines)
+    // are the per-turn execution count.
+    for (let i = 0; i < 200 && fake.executeMessages.length < 3; i++) {
       await new Promise((r) => setTimeout(r, 25));
     }
     const inputs = await runPort.listInputs(first.run!.branchId);
@@ -363,37 +266,31 @@ describe("agent run execution recovery", () => {
     expect(second.status).toBe("completed");
     const thirdRun = await waitForTerminal(thirdRunId);
     expect(thirdRun.status).toBe("completed");
-    expect(fake.executeCalls.map((c) => c.runId)).toEqual([
-      first.run!.runId,
-      secondRunId,
-      thirdRunId,
-    ]);
+    expect(fake.executeMessages).toEqual(["first", "second", "third"]);
   }, 20_000);
 
-  test("acceptance failure terminates the run + cancels the input; recover() never re-executes", async () => {
-    const fake = createFakeDaemon({ failFirstExecute: true });
+  test("a prompt failure settles the run; recover() never re-executes", async () => {
+    const fake = createFakeAcpDaemon({ dataDir, failFirstExecute: true });
     const execution = makeExecution(fake);
 
     const acquired = await enqueue("normal", "retry-1", "hello");
     const runId = acquired.run!.runId;
 
-    // First dispatch: the daemon rejects acceptance - a pre-acceptance
-    // failure must terminal the run, never leave a running zombie.
-    await expect(execution.dispatch(runId)).rejects.toThrow(/simulated execute failure/);
+    // The child accepts, then prompt_error settles the turn failed. The
+    // delivered input must never become a retry queue after a restart.
+    await execution.dispatch(runId);
     const run = await waitForTerminal(runId);
     expect(run.status).toBe("failed");
     const inputs = await runPort.listInputs(run.branchId);
-    expect(inputs[0]!.status).toBe("cancelled");
+    expect(inputs[0]!.status).toBe("delivered");
 
-    // A fresh execution service (process restart) must NOT re-deliver the
-    // cancelled input: a running Run is not a retry queue.
     const execution2 = makeExecution(fake);
     await execution2.recover();
-    expect(fake.executeCalls).toHaveLength(1);
+    expect(fake.executeMessages).toHaveLength(1);
   }, 15_000);
 
   test("pinned workspace reaches the child; recover() is a no-op after terminal failure", async () => {
-    const fake = createFakeDaemon({ failFirstExecute: true });
+    const fake = createFakeAcpDaemon({ dataDir, failFirstExecute: true });
     const execution = makeExecution(fake);
 
     const pinnedWorkspace = `${dataDir}/pinned-ws`;
@@ -401,31 +298,30 @@ describe("agent run execution recovery", () => {
     const acquired = await backend.enqueueAndAcquire({
       conversationId,
       agentId,
-      backendKind: "oma",
+      backendKind: "acp",
       mode: "normal",
       message: { role: "user", text: "hello" },
-      defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+      defaultModel: { backendKind: "acp", modelId: "acp/oma" },
       configRevision: 1,
       idempotencyKey: "ws-1",
       workspace: { root: pinnedWorkspace, access: "read_write" },
     });
     const runId = acquired.run!.runId;
-    await expect(execution.dispatch(runId)).rejects.toThrow(/simulated execute failure/);
-    // The child records its cwd (canonicalized on macOS): compare realpaths.
+    await execution.dispatch(runId);
+    // session/new records its cwd before the scripted prompt failure.
     expect(realpathSync(fake.executeCalls[0]!.workspaceRoot)).toBe(realpathSync(pinnedWorkspace));
 
-    // The run is terminal (failed); a restart recovers nothing.
     const run = await waitForTerminal(runId);
     expect(run.status).toBe("failed");
     const execution2 = makeExecution(fake);
     await execution2.recover();
-    expect(fake.executeCalls).toHaveLength(1);
+    expect(fake.executeMessages).toHaveLength(1);
   }, 15_000);
 });
 
 describe("agent run restart resume (ADR 0038)", () => {
   test("a run parked on an approval survives recover() and resumes when answered", async () => {
-    const fake = createFakeDaemon({ outcomeDelayMs: 10 });
+    const fake = createFakeAcpDaemon({ dataDir, outcomeDelayMs: 10 });
     void makeExecution(fake); // the "old" process: parks the run, then dies
 
     const acquired = await enqueue("normal", "ikey-resume-1", "hello");
@@ -455,11 +351,12 @@ describe("agent run restart resume (ADR 0038)", () => {
     // The resumed child carried the decision list.
     expect(fake.resumeCalls).toContainEqual([callId]);
     // Exactly one child ever executed: the resume dispatch.
-    expect(fake.executeCalls.map((c) => c.runId)).toEqual([runId]);
+    expect(fake.executeCalls).toHaveLength(1);
+    expect(fake.executeMessages).toEqual(["hello"]);
   }, 20_000);
 
   test("a parked run with siblings still open stays parked until the last answer", async () => {
-    const fake = createFakeDaemon({ outcomeDelayMs: 10 });
+    const fake = createFakeAcpDaemon({ dataDir, outcomeDelayMs: 10 });
     void makeExecution(fake);
     const acquired = await enqueue("normal", "ikey-resume-2", "hello");
     const runId = acquired.run!.runId;

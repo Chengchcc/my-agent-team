@@ -1,12 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  OmaBackend,
-  type OmaCommandConfig,
-  OmaModelCatalog,
-} from "@chengchenccc/adapter-oma-agent";
+import { AcpBackend } from "@chengchenccc/adapter-acp";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import { sqliteConversationAdapter } from "../conversation/adapter-sqlite.js";
@@ -19,98 +15,7 @@ import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
-
-// ─── Real RPC child (fixture) harness ─────────────────────────────────
-// Every execute() spawns the fixture child (packages/adapter-oma-agent/
-// src/__fixtures__/rpc-fixture.ts) speaking the stdio JSONL protocol. The
-// fixture records every command to a shared record file; the harness reads
-// it back for assertions. This is the REAL child-process transport - no
-// in-process fetch, no SSE, no polling.
-
-const FIXTURE = new URL(
-  "../../../../../packages/adapter-oma-agent/src/__fixtures__/rpc-fixture.ts",
-  import.meta.url,
-).pathname;
-
-interface FakeDaemonOptions {
-  /** Reject the first execute across all children (acceptance-failure
-   *  simulation); later executes accept. */
-  failFirstExecute?: boolean;
-  outcomeDelayMs?: number;
-  /** Fail steer with this message. */
-  steerError?: boolean;
-  /** Emit native tool trace + todo_update events before the outcome. */
-  toolTodo?: boolean;
-  /** The completed outcome carries this cliSessionRef. */
-  sessionRef?: string;
-  /** Raw fixture scenario (overrides the sugar flags). */
-  scenario?: string;
-}
-
-function createFakeDaemon(opts: FakeDaemonOptions = {}) {
-  const record = `${dataDir}/daemon-${daemonSeq++}.log`;
-  const scenario =
-    opts.scenario ??
-    (opts.failFirstExecute
-      ? "reject-first-execute"
-      : opts.steerError
-        ? "steer-error"
-        : opts.toolTodo
-          ? "tool-todo"
-          : "normal");
-
-  const config: OmaCommandConfig = {
-    executable: process.execPath,
-    args: [FIXTURE, "--mode", "rpc"],
-    env: {
-      RPC_FIXTURE_SCENARIO: scenario,
-      RPC_FIXTURE_RECORD: record,
-      RPC_FIXTURE_OUTCOME_DELAY_MS: String(opts.outcomeDelayMs ?? 60),
-      ...(opts.sessionRef ? { RPC_FIXTURE_SESSION_REF: opts.sessionRef } : {}),
-    },
-  };
-  const readCalls = (kind: string): string[] => {
-    if (!existsSync(record)) return [];
-    return readFileSync(record, "utf-8")
-      .trim()
-      .split("\n")
-      .filter((l) => l.startsWith(`${kind} `))
-      .map((l) => l.slice(kind.length + 1));
-  };
-  return {
-    backend: new OmaBackend(config),
-    modelCatalog: new OmaModelCatalog(config),
-    get executeCalls(): Array<{ runId: string; workspaceRoot: string }> {
-      return readCalls("execute").map((line) => {
-        const [runId, ...rest] = line.split(" ");
-        return { runId: runId!, workspaceRoot: rest.join(" ") };
-      });
-    },
-    /** Per-run product-tools bearers the children received via env. */
-    get executeTokens(): string[] {
-      if (!existsSync(record)) return [];
-      return readFileSync(record, "utf-8")
-        .trim()
-        .split("\n")
-        .filter((l) => l.startsWith("tok "))
-        .map((l) => l.slice(4));
-    },
-    get executeMessages(): string[] {
-      return readCalls("execute_msg").map((l) => JSON.parse(l) as string);
-    },
-    get executeRefs(): Array<string | null> {
-      return readCalls("execute_ref").map((l) => JSON.parse(l) as string | null);
-    },
-    get steerCalls(): string[] {
-      return readCalls("steer").map((l) => l.split(" ")[0]!);
-    },
-    get stopCalls(): string[] {
-      return readCalls("abort").map((l) => l.split(" ")[0]!);
-    },
-  };
-}
-
-let daemonSeq = 0;
+import { createFakeAcpDaemon, type FakeAcpDaemon } from "./test-acp-daemon.js";
 
 // ─── Test harness ──────────────────────────────────────────────────────
 
@@ -125,7 +30,7 @@ const conversationId = "conv-1";
 const agentId = "ag-1";
 
 function makeExecution(
-  fakeDaemon: ReturnType<typeof createFakeDaemon>,
+  fakeDaemon: FakeAcpDaemon,
   runPortOverride?: ReturnType<typeof sqliteAgentRunAdapter>,
   modelCatalogOverride?: {
     list: () => Promise<{ models: Array<{ id: string; available: boolean }> }>;
@@ -151,7 +56,7 @@ function makeExecution(
     contextPort: { ...contextPort, ...contextPortOverride } as never,
     ledgerResolver,
     backends: {
-      oma: {
+      acp: {
         backend: fakeDaemon.backend,
         catalog: (modelCatalogOverride ?? fakeDaemon.modelCatalog) as never,
       },
@@ -227,7 +132,7 @@ beforeEach(async () => {
 
   convPort.createConversation({ conversationId, agentId, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(conversationId);
-  await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
+  await contextPort.getOrCreateDefaultBranch(tree.treeId, "acp");
 });
 
 afterEach(() => {
@@ -239,10 +144,10 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
   return backend.enqueueAndAcquire({
     conversationId,
     agentId,
-    backendKind: "oma",
+    backendKind: "acp",
     mode,
     message: { role: "user", text },
-    defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+    defaultModel: { backendKind: "acp", modelId: "acp/oma" },
     configRevision: 1,
     idempotencyKey: key,
   });
@@ -250,7 +155,7 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
 
 describe("agent run execution failure & subscription", () => {
   test("preflight failure marks the run failed with the reason", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake, undefined, {
       list: async () => {
         throw new Error("catalog down");
@@ -272,7 +177,7 @@ describe("agent run execution failure & subscription", () => {
   }, 15_000);
 
   test("failed dispatch fires onRunFailed with the error (T3-2)", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const failures: Array<{ runId: string; error: string }> = [];
     const execution = makeExecution(
       fake,
@@ -298,14 +203,16 @@ describe("agent run execution failure & subscription", () => {
   }, 15_000);
 
   test("spawn failure is permanent: run finalized failed, delivering input cancelled", async () => {
-    const fake = createFakeDaemon();
-    const execution = makeExecution({
-      backend: new OmaBackend({
-        executable: "/nonexistent/definitely-missing-bin",
-        env: {},
-      }),
-      modelCatalog: fake.modelCatalog,
-    } as ReturnType<typeof createFakeDaemon>);
+    const fake = createFakeAcpDaemon({ dataDir });
+    const failingBackend = new AcpBackend({
+      commands: { oma: ["/nonexistent/definitely-missing-bin"] },
+      // The transport factory throwing models the PRE-acceptance spawn
+      // failure (node's async ENOENT would otherwise land post-acceptance).
+      spawnImpl: () => {
+        throw new Error("ENOENT: definitely-missing-bin");
+      },
+    });
+    const execution = makeExecution({ ...fake, backend: failingBackend });
 
     const acquired = await enqueue("normal", "perm-1", "hello");
     const runId = acquired.run!.runId;
@@ -323,23 +230,27 @@ describe("agent run execution failure & subscription", () => {
     expect(inputs[0]!.status).toBe("cancelled");
   }, 15_000);
 
-  test("execute rejection is a pre-acceptance failure: run failed + input cancelled", async () => {
-    const fake = createFakeDaemon({ failFirstExecute: true });
+  test("a prompt failure settles the run failed after delivery", async () => {
+    const fake = createFakeAcpDaemon({ dataDir, failFirstExecute: true });
     const execution = makeExecution(fake);
 
     const acquired = await enqueue("normal", "perm-2", "hello");
     const runId = acquired.run!.runId;
 
-    await expect(execution.dispatch(runId)).rejects.toThrow(/rejected execute/);
-
+    // ACP acceptance is spawn + handshake; prompt_error fails INSIDE the
+    // accepted turn, so dispatch settles the run instead of rejecting.
+    await execution.dispatch(runId);
     const run = await waitForTerminal(runId);
     expect(run.status).toBe("failed");
+    if (run.terminalResult?.status === "failed") {
+      expect(run.terminalResult.error).toContain("boom");
+    }
     const inputs = await runPort.listInputs(run.branchId);
-    expect(inputs[0]!.status).toBe("cancelled");
+    expect(inputs[0]!.status).toBe("delivered");
   }, 15_000);
 
   test("Context projection failure: run failed, input cancelled", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake, undefined, undefined, {
       listEntriesToLeaf: async () => {
         throw new Error("projection boom");
@@ -358,7 +269,7 @@ describe("agent run execution failure & subscription", () => {
   }, 15_000);
 
   test("no-live cancel releases the branch and promotes the next queued input", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake);
 
     const first = await enqueue("normal", "cancel-1", "first");
@@ -392,6 +303,7 @@ describe("agent run execution failure & subscription", () => {
     )!;
     expect(delivered.status).toBe("delivered");
     await waitForTerminal(delivered.runId!);
-    expect(fake.executeCalls.map((c) => c.runId)).toEqual([delivered.runId!]);
+    expect(fake.executeCalls).toHaveLength(1);
+    expect(fake.executeMessages).toEqual(["second"]);
   }, 15_000);
 });

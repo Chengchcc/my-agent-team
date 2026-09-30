@@ -1,13 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  OmaBackend,
-  type OmaCommandConfig,
-  OmaModelCatalog,
-  OmaProcessError,
-} from "@chengchenccc/adapter-oma-agent";
+import { AcpBackendError } from "@chengchenccc/adapter-acp";
 import { assistantMessageId, parseMessageRevision } from "@chengchenccc/message";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
@@ -21,98 +16,7 @@ import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { ApprovalNotApplicableError, createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
-
-// ─── Real RPC child (fixture) harness ─────────────────────────────────
-// Every execute() spawns the fixture child (packages/adapter-oma-agent/
-// src/__fixtures__/rpc-fixture.ts) speaking the stdio JSONL protocol. The
-// fixture records every command to a shared record file; the harness reads
-// it back for assertions. This is the REAL child-process transport - no
-// in-process fetch, no SSE, no polling.
-
-const FIXTURE = new URL(
-  "../../../../../packages/adapter-oma-agent/src/__fixtures__/rpc-fixture.ts",
-  import.meta.url,
-).pathname;
-
-interface FakeDaemonOptions {
-  /** Reject the first execute across all children (acceptance-failure
-   *  simulation); later executes accept. */
-  failFirstExecute?: boolean;
-  outcomeDelayMs?: number;
-  /** Fail steer with this message. */
-  steerError?: boolean;
-  /** Emit native tool trace + todo_update events before the outcome. */
-  toolTodo?: boolean;
-  /** The completed outcome carries this cliSessionRef. */
-  sessionRef?: string;
-  /** Raw fixture scenario (overrides the sugar flags). */
-  scenario?: string;
-}
-
-function createFakeDaemon(opts: FakeDaemonOptions = {}) {
-  const record = `${dataDir}/daemon-${daemonSeq++}.log`;
-  const scenario =
-    opts.scenario ??
-    (opts.failFirstExecute
-      ? "reject-first-execute"
-      : opts.steerError
-        ? "steer-error"
-        : opts.toolTodo
-          ? "tool-todo"
-          : "normal");
-
-  const config: OmaCommandConfig = {
-    executable: process.execPath,
-    args: [FIXTURE, "--mode", "rpc"],
-    env: {
-      RPC_FIXTURE_SCENARIO: scenario,
-      RPC_FIXTURE_RECORD: record,
-      RPC_FIXTURE_OUTCOME_DELAY_MS: String(opts.outcomeDelayMs ?? 60),
-      ...(opts.sessionRef ? { RPC_FIXTURE_SESSION_REF: opts.sessionRef } : {}),
-    },
-  };
-  const readCalls = (kind: string): string[] => {
-    if (!existsSync(record)) return [];
-    return readFileSync(record, "utf-8")
-      .trim()
-      .split("\n")
-      .filter((l) => l.startsWith(`${kind} `))
-      .map((l) => l.slice(kind.length + 1));
-  };
-  return {
-    backend: new OmaBackend(config),
-    modelCatalog: new OmaModelCatalog(config),
-    get executeCalls(): Array<{ runId: string; workspaceRoot: string }> {
-      return readCalls("execute").map((line) => {
-        const [runId, ...rest] = line.split(" ");
-        return { runId: runId!, workspaceRoot: rest.join(" ") };
-      });
-    },
-    /** Per-run product-tools bearers the children received via env. */
-    get executeTokens(): string[] {
-      if (!existsSync(record)) return [];
-      return readFileSync(record, "utf-8")
-        .trim()
-        .split("\n")
-        .filter((l) => l.startsWith("tok "))
-        .map((l) => l.slice(4));
-    },
-    get executeMessages(): string[] {
-      return readCalls("execute_msg").map((l) => JSON.parse(l) as string);
-    },
-    get executeRefs(): Array<string | null> {
-      return readCalls("execute_ref").map((l) => JSON.parse(l) as string | null);
-    },
-    get steerCalls(): string[] {
-      return readCalls("steer").map((l) => l.split(" ")[0]!);
-    },
-    get stopCalls(): string[] {
-      return readCalls("abort").map((l) => l.split(" ")[0]!);
-    },
-  };
-}
-
-let daemonSeq = 0;
+import { createFakeAcpDaemon, type FakeAcpDaemon } from "./test-acp-daemon.js";
 
 // ─── Test harness ──────────────────────────────────────────────────────
 
@@ -127,7 +31,7 @@ const conversationId = "conv-1";
 const agentId = "ag-1";
 
 function makeExecution(
-  fakeDaemon: ReturnType<typeof createFakeDaemon>,
+  fakeDaemon: FakeAcpDaemon,
   runPortOverride?: ReturnType<typeof sqliteAgentRunAdapter>,
   modelCatalogOverride?: {
     list: () => Promise<{ models: Array<{ id: string; available: boolean }> }>;
@@ -154,7 +58,7 @@ function makeExecution(
     contextPort: { ...contextPort, ...contextPortOverride } as never,
     ledgerResolver,
     backends: {
-      oma: {
+      acp: {
         backend: fakeDaemon.backend,
         catalog: (modelCatalogOverride ?? fakeDaemon.modelCatalog) as never,
       },
@@ -231,7 +135,7 @@ beforeEach(async () => {
 
   convPort.createConversation({ conversationId, agentId, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(conversationId);
-  await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
+  await contextPort.getOrCreateDefaultBranch(tree.treeId, "acp");
 });
 
 afterEach(() => {
@@ -243,10 +147,10 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
   return backend.enqueueAndAcquire({
     conversationId,
     agentId,
-    backendKind: "oma",
+    backendKind: "acp",
     mode,
     message: { role: "user", text },
-    defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+    defaultModel: { backendKind: "acp", modelId: "acp/oma" },
     configRevision: 1,
     idempotencyKey: key,
   });
@@ -271,10 +175,9 @@ describe("agent run execution (Run-centric)", () => {
     // ADR 0040 R3: the old kinds are aliases for the ACP face until they are retired, so an agent
     // configured as claude_code keeps answering - as Claude, not as the adapter's default agent.
     const seen: Array<{ backendKind: string; modelId: string }> = [];
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
       backends: {
-        oma: { backend: fake.backend, catalog: fake.modelCatalog },
         acp: {
           backend: recordingBackend(seen),
           catalog: {
@@ -300,7 +203,7 @@ describe("agent run execution (Run-centric)", () => {
   }, 15_000);
 
   test("a normal input creates one Run; terminal commit writes a parseable final Message", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const events: string[] = [];
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
       onLiveEvent: (_runId: string, ev: { type: string }) => events.push(ev.type),
@@ -314,9 +217,10 @@ describe("agent run execution (Run-centric)", () => {
     const run = await waitForTerminal(runId);
     expect(run.status).toBe("completed");
 
-    // one input, one backend execute, one delivered input
+    // one input, one backend execute, one delivered input (the ACP wire
+    // carries the prompt, never the product runId)
     expect(fake.executeCalls).toHaveLength(1);
-    expect(fake.executeCalls[0]!.runId).toBe(runId);
+    expect(fake.executeMessages).toEqual(["hello"]);
     const inputs = await runPort.listInputs(run.branchId);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]!.status).toBe("delivered");
@@ -339,13 +243,13 @@ describe("agent run execution (Run-centric)", () => {
     const refs = entries.filter((e) => e.type === "ledger_message");
     expect(refs).toHaveLength(1);
 
-    // subscriber saw the transient events
+    // subscriber saw the transient stream event (ACP emits no synthetic
+    // status event; the run row owns terminal state)
     expect(events).toContain("text_delta");
-    expect(events).toContain("status");
   });
 
-  test("first-turn bridge: no session ref flattens projected history into the input message", async () => {
-    const fake = createFakeDaemon();
+  test("first-turn bridge: a foreign session ref flattens projected history into the input message", async () => {
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake);
 
     // Run 1: fresh branch, empty history -> the message is the raw input.
@@ -354,8 +258,10 @@ describe("agent run execution (Run-centric)", () => {
     await waitForTerminal(first.run!.runId);
     expect(fake.executeMessages[0]).toBe("hello");
 
-    // Run 2: the branch now carries run 1's projection; the fixture reports
-    // no cliSessionRef, so the bridge flattens history into the message.
+    // Run 2: model the branch left over from a pre-ACP backend. A foreign
+    // kind-scoped ref is deliberately NOT forwarded, so the bridge flattens
+    // history into the message.
+    await contextPort.updateBranchCliSessionRef(first.run!.branchId, "oma:legacy-session");
     const followUp = await enqueue("follow_up", "bridge-2", "second");
     // The branch is free after run 1 settles: the follow-up acquires a
     // fresh run immediately (no promotion chain needed).
@@ -370,12 +276,26 @@ describe("agent run execution (Run-centric)", () => {
   }, 15_000);
 
   test("first-turn bridge keeps tool structure from block messages", async () => {
-    const fake = createFakeDaemon({ scenario: "blocks-outcome" });
+    const fake = createFakeAcpDaemon({
+      dataDir,
+      script: [
+        { text: "running checks" },
+        {
+          tool_call: {
+            id: "call-1",
+            name: "bash",
+            input: { cmd: "ls" },
+            output: "file-a",
+          },
+        },
+      ],
+    });
     const execution = makeExecution(fake);
 
     const first = await enqueue("normal", "blocks-1", "run checks");
     await execution.dispatch(first.run!.runId);
     await waitForTerminal(first.run!.runId);
+    await contextPort.updateBranchCliSessionRef(first.run!.branchId, "oma:legacy-session");
 
     const followUp = await enqueue("follow_up", "blocks-2", "continue");
     await execution.dispatch(followUp.run!.runId);
@@ -392,18 +312,20 @@ describe("agent run execution (Run-centric)", () => {
     // The loop heartbeats while it works, so silence means the child went
     // mute. Before this, such a run waited for the 30-minute wall clock and
     // the user saw a card with nothing but a climbing timer.
-    const fake = createFakeDaemon({ scenario: "no-events" });
+    const fake = createFakeAcpDaemon({ dataDir, script: [{ delay_ms: 10_000 }] });
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
       silenceWindowMs: 300,
     });
     const run = await enqueue("normal", "silent-1", "go");
     await execution.dispatch(run.run!.runId);
     const settled = await waitForTerminal(run.run!.runId);
-    expect(settled.status).toBe("aborted");
+    // stop() races the ACP connection-close error, so the watchdog's contract
+    // here is "the mute child is terminal now", not which of the two names.
+    expect(["aborted", "failed"]).toContain(settled.status);
   }, 15_000);
 
   test("the silence watchdog stands down while a human owes an answer", async () => {
-    const fake = createFakeDaemon({ scenario: "no-events" });
+    const fake = createFakeAcpDaemon({ dataDir, script: [{ delay_ms: 10_000 }] });
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
       silenceWindowMs: 300,
     });
@@ -441,32 +363,33 @@ describe("agent run execution (Run-centric)", () => {
     );
     await dispatched;
     const settled = await waitForTerminal(runId);
-    expect(settled.status).toBe("aborted");
+    expect(["aborted", "failed"]).toContain(settled.status);
   }, 20_000);
 
   test("session ref round-trip: the second run carries the ref, no history bridge", async () => {
-    const fake = createFakeDaemon({ sessionRef: "cli-sess-1" });
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake);
 
-    // Run 1: the outcome reports cli-sess-1 -> the branch stores
-    // `<kind>:cli-sess-1` (settleOutcome prefixes the backend kind).
+    // Run 1: the ACP harness settles with its own session id, and the branch
+    // stores it kind-scoped (`acp:<id>`, settleOutcome's prefix).
     const first = await enqueue("normal", "ref-1", "hello");
     await execution.dispatch(first.run!.runId);
-    await waitForTerminal(first.run!.runId);
-    expect(fake.executeRefs[0]).toBe(null); // fresh branch: no ref yet
+    const firstRun = await waitForTerminal(first.run!.runId);
+    expect(firstRun.terminalResult?.cliSessionRef).toBe("sess-fake-1");
 
-    // Run 2 (follow_up): the branch's ref is kind-scoped and STRIPPED for
-    // the wire; the message carries NO flat-text history bridge.
+    // Run 2 (follow_up): session/load keeps the id, so the message carries
+    // NO flat-text history bridge, and only run 1 minted a fresh session.
     const followUp = await enqueue("follow_up", "ref-2", "second");
     expect(followUp.acquired).toBe(true);
     await execution.dispatch(followUp.run!.runId);
-    await waitForTerminal(followUp.run!.runId);
-    expect(fake.executeRefs[1]).toBe("cli-sess-1");
-    expect(fake.executeMessages[1]).toBe("second");
+    const secondRun = await waitForTerminal(followUp.run!.runId);
+    expect(secondRun.terminalResult?.cliSessionRef).toBe("sess-fake-1");
+    expect(fake.executeCalls).toHaveLength(1);
+    expect(fake.executeMessages).toEqual(["hello", "second"]);
   }, 15_000);
 
   test("tool trace and todo_update survive the wire onto the live channel", async () => {
-    const fake = createFakeDaemon({ toolTodo: true });
+    const fake = createFakeAcpDaemon({ dataDir, toolTodo: true });
     const seen: Array<Record<string, unknown>> = [];
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
       onLiveEvent: (_runId: string, ev: unknown) => seen.push(ev as Record<string, unknown>),
@@ -494,23 +417,24 @@ describe("agent run execution (Run-centric)", () => {
         type: "backend.oma.todo_update",
         payload: expect.objectContaining({
           items: [
-            { id: "t1", text: "step 1", status: "done" },
-            { id: "t2", text: "step 2", status: "pending" },
+            { id: "0", text: "step 1", status: "done" },
+            { id: "1", text: "step 2", status: "pending" },
           ],
         }),
       }),
     );
-    // The canonical ledger keeps ONLY the final text — no tool/todo entries.
+    // ACP keeps the canonical tool pair AND the final text (ADR 0017); the
+    // transient todo strip never survives into the ledger.
     const ledger = convPort.getLedgerEntries(conversationId);
     const messages = ledger.filter((e) => e.kind === "message");
-    expect(messages).toHaveLength(1);
-    const revision = parseMessageRevision(messages[0]!.content);
+    expect(messages).toHaveLength(3);
+    const revision = parseMessageRevision(messages[2]!.content);
     expect(revision.text).toContain("done");
     expect(JSON.stringify(ledger)).not.toContain("todo_update");
   });
 
   test("replay of the same dispatch must NOT call the Backend again", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake);
 
     const acquired = await enqueue("normal", "ikey-replay", "hello");
@@ -530,15 +454,12 @@ describe("agent run execution (Run-centric)", () => {
 
 describe("approval late clicks (deadline already denied the child)", () => {
   test("a rejected child answer consumes the row as timeout, 409s, and never fakes success", async () => {
-    const fake = createFakeDaemon({ outcomeDelayMs: 10_000 });
-    // The child-side truth after a deadline: resolve_approval fails with
-    // "no pending approval" (rpc-mode deletes the resolver on timeout).
+    const fake = createFakeAcpDaemon({ dataDir, outcomeDelayMs: 10_000 });
+    // The backend-side truth after a deadline: the settled ACP session has
+    // no held permission anymore, so the late click is a conflict.
     const rejecting = Object.create(fake.backend) as typeof fake.backend;
     rejecting.resolveApproval = async () => {
-      throw new OmaProcessError(
-        "conflict",
-        "resolve_approval rejected: no pending approval c-late",
-      );
+      throw new AcpBackendError("conflict", "no pending ACP permission c-late on the settled run");
     };
     const execution = makeExecution({ ...fake, backend: rejecting });
 
