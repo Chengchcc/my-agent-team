@@ -16,7 +16,7 @@ import { ACP_AGENTS } from "../src/registry.js";
 
 const key = process.argv[2];
 if (!key) {
-  console.error("usage: bun probe-harness.ts <registry-key> [timeoutMs]");
+  console.error("usage: bun probe-harnesses.ts <registry-key> [timeoutMs] [--set-model <value>]");
   process.exit(2);
 }
 const entry = ACP_AGENTS[key];
@@ -28,6 +28,10 @@ const argv = [...entry.argv];
 // The oma shim: this box has no `oma` on PATH.
 if (key === "oma" && process.env.OMA_SHIM) argv[0] = process.env.OMA_SHIM;
 const timeoutMs = Number(process.argv[3] ?? 120_000);
+// --set-model <value>: exercise session/set_config_option before the prompt -
+// the half a declaration alone does not cover.
+const setIdx = process.argv.indexOf("--set-model");
+const setModel = setIdx > 0 ? process.argv[setIdx + 1] : undefined;
 
 console.log(`harness=${key} | ${entry.name} | argv=${argv.join(" ")}`);
 const started = Date.now();
@@ -85,6 +89,14 @@ try {
       mcpServers: [],
     } as never);
     console.log(`session/new -> ${JSON.stringify(created)}`);
+    if (setModel !== undefined) {
+      const applied = await ctx.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: (created as { sessionId: string }).sessionId,
+        configId: "model",
+        value: setModel,
+      });
+      console.log(`session/set_config_option -> ${JSON.stringify(applied)}`);
+    }
     const promptResult = await ctx.request(acp.methods.agent.session.prompt, {
       sessionId: (created as { sessionId: string }).sessionId,
       prompt: [{ type: "text", text: "Reply with exactly: pong" }],
