@@ -105,6 +105,32 @@ describe("agent config projects field (ADR 0023)", () => {
     const next = buildAgentConfig({ id: "a-prev", name: "Prev", prev });
     expect(next.runtime_config.projects).toEqual(["p1"]);
   });
+
+  test("a configured harness model reaches the model ref, and unset stays unset", () => {
+    const configured = cfg("a-harness", "Harness", {
+      backendKind: "acp",
+      model: { provider: "acp", model: "oma", harnessModel: "deepseek/deepseek-v4-pro" },
+    });
+    expect(configured.runtime_config.harness_model).toBe("deepseek/deepseek-v4-pro");
+    expect(agentModelRef({ config: configured })).toEqual({
+      backendKind: "acp",
+      modelId: "acp/oma",
+      harnessModel: "deepseek/deepseek-v4-pro",
+    });
+
+    // agent.yml is the portable source of truth: a field the serializer
+    // forgets is a field a file-first agent silently loses.
+    expect(serializeAgentYaml(configured)).toContain('harness_model: "deepseek/deepseek-v4-pro"');
+
+    // "" is the stored "nothing named": the ref must not carry a model nobody
+    // chose, or the run would be pinned to whatever the agent last held.
+    const plain = cfg("a-harness-plain", "Plain", { backendKind: "acp" });
+    expect(plain.runtime_config.harness_model).toBe("");
+    expect(agentModelRef({ config: plain })).toEqual({
+      backendKind: "acp",
+      modelId: "anthropic/claude",
+    });
+  });
 });
 
 describe("agent config allowed_senders (H7)", () => {

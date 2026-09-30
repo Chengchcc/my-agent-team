@@ -172,6 +172,7 @@ export function agentRoutes(
           model: t.Object({
             provider: t.String({ minLength: 1 }),
             model: t.String({ minLength: 1 }),
+            harnessModel: t.Optional(t.String({ minLength: 1 })),
           }),
           backendKind: t.Optional(backendKindUnion),
           enabled: t.Optional(t.Boolean()),
@@ -296,6 +297,7 @@ export function agentRoutes(
             t.Object({
               provider: t.String({ minLength: 1 }),
               model: t.String({ minLength: 1 }),
+              harnessModel: t.Optional(t.String({ minLength: 1 })),
             }),
           ),
           backendKind: t.Optional(backendKindUnion),

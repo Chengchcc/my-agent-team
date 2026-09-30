@@ -96,9 +96,13 @@ export function agentModelRef(agent: Pick<AgentRow, "config">): BackendModelRef 
   // before the enum existed (or hand-edited in agent.yml) must degrade to
   // "provider default", never fail the child's whole execute payload.
   const reasoningEffort = normalizeReasoningEffort(rc.reasoning_effort);
+  // "" is the stored "unset": an empty harness model means "let the harness
+  // decide", which is not the same as naming one.
+  const harnessModel = rc.harness_model || undefined;
   return {
     backendKind: rc.runtime,
     modelId: rc.model_id,
+    ...(harnessModel ? { harnessModel } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 }

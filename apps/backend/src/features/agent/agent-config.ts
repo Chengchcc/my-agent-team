@@ -22,6 +22,9 @@ export const agentConfigSchema = z.object({
     /** BackendKind: oma | claude_code | pi | omp. */
     runtime: z.string().min(1),
     model_id: z.string().min(1),
+    /** For the ACP kind: which model the harness runs (BackendModelRef.
+     *  harnessModel). "" = the harness's own default. */
+    harness_model: z.string().default(""),
     reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
     permission_mode: z.enum(["ask", "auto", "deny"]),
     max_steps: z.number().int().nonnegative(),
@@ -98,7 +101,7 @@ export type AgentConfig = z.infer<typeof agentConfigSchema>;
 export function buildAgentConfig(input: {
   id: string;
   name?: string;
-  model?: { provider: string; model: string };
+  model?: { provider: string; model: string; harnessModel?: string };
   backendKind?: string;
   enabled?: boolean;
   reasoningEffort?: string | null;
@@ -140,6 +143,7 @@ export function buildAgentConfig(input: {
     runtime_config: {
       runtime,
       model_id: modelId,
+      harness_model: input.model?.harnessModel ?? prev?.runtime_config.harness_model ?? "",
       reasoning_effort:
         input.reasoningEffort !== undefined
           ? (input.reasoningEffort ?? "")
@@ -201,6 +205,7 @@ export function serializeAgentYaml(config: AgentConfig): string {
     "runtime_config:",
     `  runtime: ${q(rc.runtime)}`,
     `  model_id: ${q(rc.model_id)}`,
+    `  harness_model: ${q(rc.harness_model)}`,
     `  reasoning_effort: ${q(rc.reasoning_effort)}`,
     `  permission_mode: ${q(rc.permission_mode)}`,
     `  max_steps: ${rc.max_steps}`,
