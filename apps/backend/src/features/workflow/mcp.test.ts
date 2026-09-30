@@ -20,6 +20,7 @@ const def = {
 
 let dir: string;
 let events: WorkflowDefinitionEventBus;
+let proposals: Array<{ kind: string; targetId: string; payload: unknown }>;
 let file: string;
 
 beforeEach(() => {
@@ -27,6 +28,7 @@ beforeEach(() => {
   file = join(dir, "wf.workflow.json");
   writeFileSync(file, JSON.stringify(def, null, 2));
   events = new WorkflowDefinitionEventBus();
+  proposals = [];
 });
 
 afterEach(() => {
@@ -51,7 +53,15 @@ describe("workflow MCP tools", () => {
     const sub = events.subscribe("wf");
     const patched = { ...def, meta: { name: "patched", status: "draft" } };
     const text = callWorkflowTool(
-      { workflowDir: dir, definitionEvents: events },
+      {
+        workflowDir: dir,
+        definitionEvents: events,
+        proposals: {
+          propose: (kind: string, targetId: string, payload: unknown) => {
+            proposals.push({ kind, targetId, payload });
+          },
+        },
+      },
       "workflow_write",
       {
         workflowId: "wf",
@@ -65,6 +75,8 @@ describe("workflow MCP tools", () => {
     expect(ev.value?.workflowId).toBe("wf");
     expect(ev.value?.data.trigger).toBe("mcp");
     expect(ev.value?.data.definition).toEqual(patched);
+    // And the same proposal is a row a closed editor can still read.
+    expect(proposals).toEqual([{ kind: "workflow_definition", targetId: "wf", payload: patched }]);
     sub.unsubscribe();
     expect(readFileSync(file, "utf8")).toBe(before);
   });

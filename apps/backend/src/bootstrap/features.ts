@@ -500,6 +500,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     workflowMcp = await createWorkflowMcpServer({
       workflowDir: join(config.dataDir, "workflows"),
       definitionEvents: workflowDefinitionEvents,
+      proposals: proposalSvc,
     });
     console.log(`[bootstrap] workflow MCP listening at ${workflowMcp.url}`);
   }
@@ -530,6 +531,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         return { id: row.id };
       },
       configEvents: agentConfigEvents,
+      proposals: proposalSvc,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);
   }

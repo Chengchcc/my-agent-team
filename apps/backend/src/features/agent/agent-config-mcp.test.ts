@@ -18,9 +18,17 @@ const config = { id: "reviewer", name: "Reviewer" };
 
 function deps(known: readonly string[] = ["reviewer"]) {
   const events = new AgentConfigEventBus();
+  /** What the tool ALSO recorded for a page to read later (ADR 0040). */
+  const proposals: Array<{ kind: string; targetId: string; payload: unknown }> = [];
+  const recorder = {
+    propose: (kind: string, targetId: string, payload: unknown) => {
+      proposals.push({ kind, targetId, payload });
+    },
+  };
   const created: AgentProxyCreateInput[] = [];
   return {
     events,
+    proposals,
     created,
     d: {
       readConfig: async (agentId: string) => {
@@ -34,6 +42,7 @@ function deps(known: readonly string[] = ["reviewer"]) {
       },
       reserveCreate: () => {},
       configEvents: events,
+      proposals: recorder,
     },
   };
 }
@@ -53,7 +62,7 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_write proposes for the edit page of an existing agent", async () => {
-    const { d, events } = deps();
+    const { d, events, proposals } = deps();
     const stream = events.subscribe("reviewer");
     const text = await callAgentConfigTool(d, "agent_write", {
       agentId: "reviewer",
@@ -63,6 +72,10 @@ describe("agent-config MCP tools", () => {
     expect(text).toContain("/team/reviewer/edit");
     const ev = await stream[Symbol.asyncIterator]().next();
     expect(ev.value?.data.trigger).toBe("mcp");
+    // And the same proposal is a row a closed page can still read.
+    expect(proposals).toEqual([
+      { kind: "agent_config", targetId: "reviewer", payload: { ...config, name: "Renamed" } },
+    ]);
   });
 
   test("agent_write on an unknown agent fails instead of reporting a proposal", async () => {
@@ -73,7 +86,7 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_write under the draft id proposes for the create page", async () => {
-    const { d, events } = deps();
+    const { d, events, proposals } = deps();
     const stream = events.subscribe(AGENT_DRAFT_ID);
     const text = await callAgentConfigTool(d, "agent_write", {
       agentId: AGENT_DRAFT_ID,
@@ -84,6 +97,9 @@ describe("agent-config MCP tools", () => {
     const ev = await stream[Symbol.asyncIterator]().next();
     expect(ev.value?.agentId).toBe(AGENT_DRAFT_ID);
     expect(ev.value?.data.trigger).toBe("mcp");
+    expect(proposals).toEqual([
+      { kind: "agent_config", targetId: AGENT_DRAFT_ID, payload: { ...config, name: "Drafted" } },
+    ]);
   });
 
   test("agent_create creates through the service and reports the new id", async () => {
