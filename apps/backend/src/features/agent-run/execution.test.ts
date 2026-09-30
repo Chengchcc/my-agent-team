@@ -171,9 +171,11 @@ function recordingBackend(seen: Array<{ backendKind: string; modelId: string }>)
 }
 
 describe("agent run execution (Run-centric)", () => {
-  test("a legacy kind runs through the ACP backend with the agent its kind names", async () => {
-    // ADR 0040 R3: the old kinds are aliases for the ACP face until they are retired, so an agent
-    // configured as claude_code keeps answering - as Claude, not as the adapter's default agent.
+  test("a retired kind is refused at preflight, never silently aliased", async () => {
+    // The alias retired with the native adapters (ADR 0040 R3 complete): a
+    // stored kind from before the cut can only be a misconfiguration now,
+    // and the loud preflight error beats spawning a DIFFERENT harness than
+    // the row names. No backend call may happen.
     const seen: Array<{ backendKind: string; modelId: string }> = [];
     const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
@@ -197,9 +199,15 @@ describe("agent run execution (Run-centric)", () => {
       idempotencyKey: "alias-1",
     });
     await execution.dispatch(queued.run!.runId).catch(() => {
-      /* the settle path is not what this test is about */
+      /* dispatch rejecting is fine; the run row is the authority */
     });
-    expect(seen).toEqual([{ backendKind: "acp", modelId: "acp/claude" }]);
+    const run = await waitForTerminal(queued.run!.runId);
+    expect(run.status).toBe("failed");
+    expect(run.terminalResult?.status).toBe("failed");
+    if (run.terminalResult?.status === "failed") {
+      expect(run.terminalResult.error).toContain("unknown or unregistered backend kind");
+    }
+    expect(seen).toEqual([]);
   }, 15_000);
 
   test("a normal input creates one Run; terminal commit writes a parseable final Message", async () => {

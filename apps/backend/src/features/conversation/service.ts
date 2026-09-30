@@ -225,24 +225,21 @@ class ConversationServiceImpl implements ConversationService {
     // point (conversation, cron and loop all funnel through it).
     const branch = await this.#contextService.getOrCreateDefaultBranch(input.conversationId, kind);
     const active = await this.#agentRuns.getActiveRun(branch.branchId);
-    // CLI backends run one short-lived process per turn with no mid-turn
-    // steer (ADR 0002): a steer input is queued as the NEXT turn's input
-    // instead of being injected into a live child (and never silently
-    // dropped — the input is durable in branch_input_queue).
-    const cliBackend = kind !== "oma";
-    // Auto-inferred routing needs three states, not two:
-    //   live child      -> steer (routable now)
+    // The ACP rail runs one short-lived process per turn with no mid-turn
+    // steer: a steer input is queued as the NEXT turn's input instead of
+    // being injected into a live child (and never silently dropped — the
+    // input is durable in branch_input_queue). Auto-inferred routing keeps
+    // three states:
+    //   live child      -> next turn (queued)
     //   dispatch in flight (pre-acceptance) -> follow_up (queued, NEVER aborted)
     //   DB active, neither live nor inflight -> zombie: abort + fresh normal Run
-    // An EXPLICIT input.mode is never silently converted — except steer on a
-    // CLI backend, which by design queues as the next turn.
     let mode: BranchInputMode;
-    if (input.mode === "steer" && cliBackend) {
+    if (input.mode === "steer") {
       mode = "normal";
     } else if (input.mode) {
       mode = input.mode;
     } else if (active && this.#isLive(active.runId)) {
-      mode = cliBackend ? "normal" : "steer";
+      mode = "normal";
     } else if (active && this.#isInflight(active.runId)) {
       mode = "follow_up";
     } else {
@@ -266,17 +263,6 @@ class ConversationServiceImpl implements ConversationService {
     if (acquired && run) {
       void this.#dispatchRun(run.runId).catch((err) => {
         console.error(`[conversation] dispatch failed for ${run.runId}:`, err);
-      });
-    } else if (queued && mode === "steer") {
-      // Steer belongs to the CURRENT active run: inject it into the live
-      // loop right away (one Run / one loop - it never starts a new
-      // segment). If the run has already settled, injection fails and the
-      // input is cancelled - a steer is never replayed as a normal input.
-      void this.#injectSteer(branch.branchId, {
-        inputId,
-        message: input.message,
-      }).catch((err) => {
-        console.error(`[conversation] steer injection failed for ${input.agentId}:`, err);
       });
     } else if (cancelled) {
       // A steer with no active Run (race between the active check above and

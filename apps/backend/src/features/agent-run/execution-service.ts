@@ -1,5 +1,4 @@
 import { AcpBackendError } from "@chengchenccc/adapter-acp";
-import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
 import type { AgentBackend, ResumeDecision } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
@@ -292,8 +291,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         // per-adapter classes (oma and acp today); recognize either class
         // so a late click on ANY backend's gone approval settles as
         // timeout instead of a 500.
-        const adapterErr =
-          err instanceof OmaProcessError || err instanceof AcpBackendError ? err : undefined;
+        const adapterErr = err instanceof AcpBackendError ? err : undefined;
         if (adapterErr && (adapterErr.code === "conflict" || adapterErr.code === "not_found")) {
           if (adapterErr.code === "conflict") {
             await runPort

@@ -11,7 +11,6 @@ import { resolveModelAlias } from "@chengchenccc/ai";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
 import { buildHistoryTools } from "../product-tools/manifest.js";
-import { acpAgentForLegacyKind, aliasModelRefForAcp } from "./acp-alias.js";
 import type { AgentRun, ClaimedBranchInput } from "./domain.js";
 import { isActiveStatus } from "./domain.js";
 import { buildRunInput, finalAnswerMessage } from "./execution-input.js";
@@ -48,23 +47,18 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
    *  honest check is against BACKEND_KINDS. */
   function entryFor(kind: string) {
     if (BACKEND_KINDS.includes(kind as BackendKind)) {
-      // ADR 0040 R3, first step: a kind that predates the ACP face resolves to the ACP backend,
-      // so an agent configured before the switch keeps running while its kind is retired.
-      if (acpAgentForLegacyKind(kind) !== undefined) return deps.backends.acp;
       return deps.backends[kind as BackendKind];
     }
     return undefined;
   }
 
   async function assertModelAvailable(ref: BackendModelRef): Promise<void> {
-    // The catalog must be the one the backend will actually use, so the alias applies here too.
-    const modelRef = aliasModelRefForAcp(ref) ?? ref;
-    const entry = entryFor(modelRef.backendKind);
+    const entry = entryFor(ref.backendKind);
     if (!entry) {
       // T3-3: config problems are known business errors — the unified
       // onError surfaces the message instead of swallowing it as 500.
       throw new DomainError(
-        `unknown or unregistered backend kind "${modelRef.backendKind}" ` +
+        `unknown or unregistered backend kind "${ref.backendKind}" ` +
           `(known: ${BACKEND_KINDS.join(", ")})`,
         422,
       );
@@ -72,10 +66,10 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     const catalog = await entry.catalog.list();
     // Legacy model ids in DB rows resolve through the alias table
     // (e.g. claude-sonnet-4-20250514 → claude-sonnet-5).
-    const model = catalog.models.find((m) => m.id === resolveModelAlias(modelRef.modelId));
+    const model = catalog.models.find((m) => m.id === resolveModelAlias(ref.modelId));
     if (!model || model.available === false) {
       throw new DomainError(
-        `model ${modelRef.backendKind}/${modelRef.modelId} not available in ${modelRef.backendKind} catalog`,
+        `model ${ref.backendKind}/${ref.modelId} not available in ${ref.backendKind} catalog`,
         422,
       );
     }
@@ -101,11 +95,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     drain: Promise<void>;
   }> {
     const { input, runId } = claimed;
-    // The model travels with the kind: the ACP backend resolves its agent from the model id, so a
-    // translated kind carrying the old id would silently run the adapter's default agent.
-    const acpRef = aliasModelRefForAcp(run.modelRef);
-    const effective = acpRef === null ? run : { ...run, modelRef: acpRef };
-    const entry = entryFor(effective.modelRef.backendKind);
+    const entry = entryFor(run.modelRef.backendKind);
     if (!entry) {
       throw new Error(
         `unknown or unregistered backend kind "${run.modelRef.backendKind}" ` +
@@ -166,7 +156,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // The branch's CLI session ref is kind-scoped (`<kind>:<ref>`, ADR 0020
     // decision 6): a ref written by another backend is junk to this CLI and
     // must never be forwarded (pi exits empty on a foreign --session id).
-    const kindPrefix = `${effective.modelRef.backendKind}:`;
+    const kindPrefix = `${run.modelRef.backendKind}:`;
     const rawRef = branch?.cliSessionRef;
     // The previous run's task list re-enters the prompt so every backend
     // continues it without a pull round-trip.
@@ -180,7 +170,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     const segment = await backend.execute(
       buildRunInput(
         deps,
-        effective,
+        run,
         history,
         input,
         workspace,

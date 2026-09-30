@@ -263,7 +263,7 @@ describe("conversation service (Agent Run cutover)", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("busy branch with LIVE child -> steer mode, queued, no dispatch of a new run", async () => {
+  test("busy branch with LIVE child -> queued as the next turn, no injection", async () => {
     const id = "cid-c";
     const { agentId } = setupConv(id);
     nextAcquired = false;
@@ -276,16 +276,16 @@ describe("conversation service (Agent Run cutover)", () => {
     const result = await svc.postMessage({ conversationId: id, content: "steer me" });
 
     expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.mode).toBe("steer");
+    expect(enqueueCalls[0]!.mode).toBe("normal");
     expect(result.triggeredRuns).toMatchObject([{ agentId, runId: "", queued: true }]);
     // The input handle travels with it: a message that has to WAIT gets its own
     // card (queued state), and cancelling that card cancels THIS input.
     expect(result.triggeredRuns[0]!.inputId).toBeTruthy();
-    // steer belongs to the CURRENT run: injected into the live child, and
-    // NO new run is dispatched (one Run / one child).
+    // The ACP rail has no mid-turn injection: the message queues as the NEXT
+    // turn's input; no new run is dispatched while one is live, and the
+    // injection path stays untouched.
     expect(dispatchCalls).toHaveLength(0);
-    expect(injectSteerCalls).toHaveLength(1);
-    expect(injectSteerCalls[0]!.inputId).toBeTruthy();
+    expect(injectSteerCalls).toHaveLength(0);
   });
 
   test("postMessage modelOverride: same-kind honored, foreign-kind ignored", async () => {

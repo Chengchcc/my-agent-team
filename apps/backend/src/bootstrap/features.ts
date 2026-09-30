@@ -6,16 +6,7 @@ import {
   AcpModelCatalog,
   probeHarnessCatalog,
 } from "@chengchenccc/adapter-acp";
-import { ClaudeBackend } from "@chengchenccc/adapter-claude-agent";
-import { OmaBackend } from "@chengchenccc/adapter-oma-agent";
-import { OmpBackend } from "@chengchenccc/adapter-omp-agent";
-import { PiBackend } from "@chengchenccc/adapter-pi-agent";
-import type {
-  AskQuestionInput,
-  BackendKind,
-  BackendRegistry,
-  BackendRegistryEntry,
-} from "@chengchenccc/agent-contract";
+import type { AskQuestionInput, BackendRegistry } from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { type Message, serializeMessageRevision } from "@chengchenccc/message";
 import type { WorkflowDefinition } from "@chengchenccc/workflow";
@@ -607,29 +598,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     codingAgentCatalog.invalidate();
   };
 
-  const codingAgentBackend = new OmaBackend(codingAgentCommand, {
-    maxConcurrent: config.maxConcurrentRuns,
-    abortGraceMs: config.cancelGraceMs,
-  });
-  // Per-kind dispatch registry (ADR 0002). New kinds (claude_code/pi/omp)
-  // register their adapter here as they land; unknown kinds get a clear
-  // preflight error from the execution service, never a silent fallback.
-  const ompBackend = new OmpBackend({
-    executable: config.ompBin ?? "omp",
-  });
-  const piBackend = new PiBackend({
-    executable: config.piBin ?? "pi",
-    // `pi install npm:pi-mcp-adapter` registers the adapter; an explicit
-    // path overrides it for per-run spawns (D3 全量对齐).
-    mcpAdapterPath: config.piMcpAdapterPath,
-  });
-  const claudeBackend = new ClaudeBackend({
-    executable: config.claudeBin ?? "claude",
-    // bypassPermissions is refused under root; CLAUDE_PERMISSION_MODE
-    // on non-root deployments (Gate 0).
-    permissionMode: config.claudePermissionMode,
-  });
-  // Same resolution the native adapter uses: this box has no `oma` on PATH.
+  // Same resolution the native adapter used: this box has no `oma` on PATH.
   const omaAcpArgv = resolveOmaAcpArgv(config, { env: providerSvc.getProviderEnv() });
 
   // The harness axis (ADR 0040 decision 7). Reading a harness's models costs a
@@ -666,14 +635,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // never uses. Their `backend` entries stay until the kinds are deleted - the alias routes runs
   // to ACP, so they are already unreachable.
   const acpCatalog = new AcpModelCatalog();
+  // One execution rail (ADR 0040): every harness runs through the single ACP
+  // client; the run's model id names the registry key. The provider catalogue
+  // above is the oma harness's LLM axis (/api/models), not a dispatch table.
   const backends: BackendRegistry = {
-    oma: { backend: codingAgentBackend, catalog: codingAgentCatalog },
-    omp: { backend: ompBackend, catalog: acpCatalog },
-    pi: { backend: piBackend, catalog: acpCatalog },
-    claude_code: { backend: claudeBackend, catalog: acpCatalog },
-    // ADR 0039 decision 4: the ACP orchestration kind — every native/bridged
-    // ACP agent through one client; the run's model id picks the registry
-    // entry (cc today, pi when its bridge passes).
     acp: { backend: acpBackend, catalog: acpCatalog },
   };
   // Catalog honesty (see served-models.ts): the model picker must not offer a
@@ -1632,10 +1597,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           string,
           { input: number; output: number; cacheRead: number; cacheWrite: number }
         >();
-        for (const [kind, entry] of Object.entries(backends)) {
-          for (const m of (await entry.catalog.list()).models) {
-            map.set(`${kind}/${resolveModelAlias(m.id)}`, m.cost);
-          }
+        for (const m of (await codingAgentCatalog.list()).models) {
+          map.set(`oma/${resolveModelAlias(m.id)}`, m.cost);
         }
         return map;
       })().catch((err) => {
@@ -1672,19 +1635,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     harnesses: harnessRoutes(harnessCatalog),
     models: modelRoutes(
       {
-        // Aggregate every registered backend's catalog, tagging each model
-        // with its kind. Each returns composite `<provider>/<model>` ids;
-        // grouping and prefix-stripping happen once in
-        // modelRoutes.groupByProvider. WebModel carries backendKind so the
-        // UI can group by kind first (D3).
+        // The provider axis only (ADR 0040 decision 7): what the oma harness
+        // actually serves, straight from `oma --list-models`. Harness keys are
+        // NOT models and live in /api/harnesses; the two pickers read the two
+        // lists and never mix.
         list: async () => {
-          const lists = await Promise.all(
-            (Object.entries(backends) as Array<[BackendKind, BackendRegistryEntry]>).map(
-              async ([kind, entry]) =>
-                (await entry.catalog.list()).models.map((m) => ({ ...m, backendKind: kind })),
-            ),
-          );
-          const rows = lists.flat();
+          const rows = (await codingAgentCatalog.list()).models.map((m) => ({
+            ...m,
+            backendKind: "oma",
+          }));
           // Kick discovery for every provider on this page; answers land
           // asynchronously (serves() never blocks) and flip availability
           // to false only when the provider is known NOT to serve the id.
@@ -1705,32 +1664,34 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           }));
         },
       },
-      // Per-backend catalog health: one failing backend degrades only its
-      // own row (the aggregate /api/models above fails wholesale — that
-      // blind spot is exactly what this endpoint exists to expose).
-      async () =>
-        Promise.all(
-          Object.entries(backends).map(async ([kind, entry]) => {
-            try {
-              const list = (await entry.catalog.list()).models;
-              return {
-                backendKind: kind,
-                catalogOk: true,
-                models: list.length,
-                available: list.filter((m) => m.available !== false).length,
-                error: null,
-              };
-            } catch (err) {
-              return {
-                backendKind: kind,
-                catalogOk: false,
-                models: 0,
-                available: 0,
-                error: err instanceof Error ? err.message : String(err),
-              };
-            }
-          }),
-        ),
+      // Provider-catalogue health: the aggregate /api/models above fails
+      // wholesale when the CLI listing fails — that blind spot is exactly
+      // what this endpoint exists to expose. Harness probes have their own
+      // health row inside /api/harnesses.
+      async () => {
+        try {
+          const list = (await codingAgentCatalog.list()).models;
+          return [
+            {
+              backendKind: "oma",
+              catalogOk: true,
+              models: list.length,
+              available: list.filter((m) => m.available !== false).length,
+              error: null,
+            },
+          ];
+        } catch (err) {
+          return [
+            {
+              backendKind: "oma",
+              catalogOk: false,
+              models: 0,
+              available: 0,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          ];
+        }
+      },
     ),
   };
 
