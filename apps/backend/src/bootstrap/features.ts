@@ -638,7 +638,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const harnessCatalog = createHarnessCatalog({
     harnesses: () => Object.entries(ACP_AGENTS).map(([key, entry]) => ({ key, name: entry.name })),
     probe: (key) =>
-      probeHarnessCatalog({ key, cwd: config.workspaceRoot, commands: { oma: omaAcpArgv } }),
+      // The cwd only has to exist: posix_spawn answers ENOENT for a missing
+      // working directory, which reads exactly like a missing binary. A model
+      // catalog does not care where it runs, so use the dir the backend owns.
+      probeHarnessCatalog({ key, cwd: config.dataDir, commands: { oma: omaAcpArgv } }),
   });
   const acpBackend = new AcpBackend({
     // Registry-key launch overrides, the omaBin/ompBin convention: a
