@@ -640,15 +640,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
       : {}),
   });
+  // The ACP kind's catalog lists registry keys, and it is also the catalog for the kinds that now
+  // alias to it (ADR 0040 R3): a picker that offered the native models would offer ids the run
+  // never uses. Their `backend` entries stay until the kinds are deleted - the alias routes runs
+  // to ACP, so they are already unreachable.
+  const acpCatalog = new AcpModelCatalog();
   const backends: BackendRegistry = {
     oma: { backend: codingAgentBackend, catalog: codingAgentCatalog },
-    omp: { backend: ompBackend, catalog: new OmpModelCatalog() },
-    pi: { backend: piBackend, catalog: new PiModelCatalog() },
-    claude_code: { backend: claudeBackend, catalog: new ClaudeModelCatalog() },
+    omp: { backend: ompBackend, catalog: acpCatalog },
+    pi: { backend: piBackend, catalog: acpCatalog },
+    claude_code: { backend: claudeBackend, catalog: acpCatalog },
     // ADR 0039 decision 4: the ACP orchestration kind — every native/bridged
     // ACP agent through one client; the run's model id picks the registry
-    // entry (omp today, cc/pi bridges as they pass conformance).
-    acp: { backend: acpBackend, catalog: new AcpModelCatalog() },
+    // entry (cc today, pi when its bridge passes).
+    acp: { backend: acpBackend, catalog: acpCatalog },
   };
   // Catalog honesty (see served-models.ts): the model picker must not offer a
   // declared id the provider no longer serves. "Unknown" never flips anything.
