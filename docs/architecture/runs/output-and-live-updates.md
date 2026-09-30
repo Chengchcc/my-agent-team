@@ -88,12 +88,11 @@ Web 侧实际消费的是：`status`、`text_delta`、`thinking_delta`、`native
 ## 边界与串行化
 
 - 每次 Run 有墙钟上限（默认 30 分钟），到点 `stop()`。
-- 同一个 worktree 的 Run 经 workspace lock 串行。
-- 适配器按 `maxConcurrent` 做 spawn 槽位 FIFO。
+- 同一个 worktree 的 Run 经 workspace lock 串行；并发上限在产品层，不在 backend 里。
 
 ## 契约上声明了但没人发的事件
 
-`product_tool_started`、`product_tool_completed`、`pending_action` 三个事件在 `agent-contract` 里声明着，但**全仓没有任何地方发出它们**，线上事件表里也没有。产品工具的调用实际表现为 `native_tool_*`。
+`product_tool_started`、`product_tool_completed`、`pending_action` 三个事件类型在 `apps/backend/src/features/agent-run/protocol/event.ts`（oma 契约里有镜像副本）声明着，但**没有任何 backend 发出它们**，线上事件表里也没有。产品工具的调用实际表现为 `native_tool_*`；审批等待表现为 Run 的 `waiting` 状态与 `pending_action` 表行，不是这个事件。
 
 ## 不变量
 

@@ -24,7 +24,7 @@ tags: [runtime, backend]
 - `apps/backend/src/features/product-tools/{manifest,mcp,run-token-registry}.ts` — 产品工具 MCP 与每次 Run 的 token
 - `apps/backend/src/bootstrap/features.ts` — 组装点：后端注册表与 execution 依赖
 - `apps/backend/src/features/agent-run/protocol/{backend,run}.ts` — 执行协议与终态契约（原 agent-contract，已吸收进 backend）
-- `packages/adapter-{oma,claude,pi,omp}-agent/src/backend.ts` — 四个 Adapter
+- `apps/backend/src/features/agent-run/acp/` — ACP 客户端（唯一后端面：spawn harness、事件映射、审批挂起）
 - `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — 每次 Run 的 Oma Runtime 装配
 
 ## 容器视图

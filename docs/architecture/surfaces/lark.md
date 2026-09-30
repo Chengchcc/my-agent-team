@@ -154,7 +154,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 - **reaction 触发做不了，已删**（2026-09-25 实测）：订阅本来就在，但飞书的表情集合里没有可用于「停止」的负向表情——`X`/`THUMBSDOWN`/`CROSS`/`NO` 全部 `231001 reaction type is invalid`，合法值只有 `SMILE`/`THUMBSUP`/`DONE`/`OnIt`/`HEART`/`CLAP`/`OK`/`THANKS`/`FISTBUMP`/`LOL`/`WINK` 这类正向表情。停止一个 run 用卡片按钮或 `/stop`（两条都验过）。教训：依赖平台枚举值的功能，先枚举平台接受值再写代码。
 - 多选（`multi`）追问只按单选取值，卡片渲染不出多选控件。自由文本追问走 form（`input` + submit，`form_value` 一次性回传），选择题走整行按钮（`width: fill`），`allowOther` 的选择题也接受话题文字作答。
 - 回调只做了单操作者的防重放（event_id 去重 + message↔run_card 映射）。签名 action token 与 backend 侧事件去重留给多操作者场景。
-- 工具步骤那行依赖子进程声明活动（`describeStart`）：omp 后端至今不给（`adapter-omp-agent` 只带 `toolName`/`toolCallId`），所以 omp Run 永远只显示工具名；外部 MCP 工具同理，除非它自己声明。
+- 工具步骤那行依赖子进程声明活动（`describeStart`）：harness 的 ACP tool_call 只带 `toolName`/`toolCallId`（不带活动文本），对应 Run 就永远只显示工具名；外部 MCP 工具同理，除非它自己声明。
 - `native_tool_started.activity` 会随 telemetry 落进 `agent_run_event`（按事件名白名单），也就是活动行进库；目前没有保留期清理。
 
 ## 相关页

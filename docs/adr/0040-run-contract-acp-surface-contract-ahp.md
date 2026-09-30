@@ -174,9 +174,9 @@ flowchart LR
 
 | 轴 | 删除项 | 何时 |
 |---|---|---|
-| 运行 | `apps/oh-my-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线 |
-| 运行 | 引用上的 `backendKind` 字段，以及 agent 配置、HTTP 与 Web 上的 kind 概念 | R3 逐家下线之后（决策七） |
-| 运行 | `apps/backend/src/features/agent-run/protocol` 整包（词汇分住 `message` 与 ACP 客户端后）；oma `--mode rpc` 及其 transport schema | R4 完成时（决策八） |
+| 运行 | `apps/oh-my-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线。**已删**（2026-09-30，R3）：四家原生 adapter 与 `adapter-acp` 包全部删除（`oma` 一格后来随 oma 改走 ACP 服务面消失）；kind 枚举只剩 `acp` |
+| 运行 | 引用上的 `backendKind` 字段，以及 agent 配置、HTTP 与 Web 上的 kind 概念 | R3 逐家下线之后（决策七）。**已删**（2026-10-01）：产品面改用 `harness` 轴；oma 子侧契约的 model ref 只剩 `{ modelId, reasoningEffort }`；`backendKind` 只活在 backend 注册表内部，恒为 `"acp"` |
+| 运行 | `apps/backend/src/features/agent-run/protocol` 整包（词汇分住 `message` 与 ACP 客户端后）；oma `--mode rpc` 及其 transport schema | R4 完成时（决策八）。**部分已删，落点更正**（2026-10-01）：rpc 与 transport schema 已删；`agent-contract` 解散，ask / env / effort 进 `message`。但运行词汇没有并入 message 或 ACP 客户端，而是**退为 backend 内部词汇**（`features/agent-run/protocol/`，不导出共享包）——决策八落地时选择「backend 拥有词汇、子侧自声明契约」：共享包不存在即达成「词汇不再跨包」的目的，包级删除条款就此作废 |
 | surface | 自研核心事件词汇（14 类）与 5 个 SSE 端点（`agent-run`、`agent`、`conversation`、`workflow` 两处） | Web 切到 AHP 客户端之后。**已删**（2026-09-30）：`conversation` 那条随会话状态切走先删，`agent-run` 这条连同 `runEvents` 词汇、只在迟到订阅路径上存在的服务面（`runEventStreamFor`／`subscribe`／`isParked`／`pendingActionEvents`）与总线的订阅扇出一并删除；运维瀑布图读的是落库的遥测（REST），不受影响。`workflow` 的执行那条也已删除：执行页改成按 1.5 秒轮询 `/trace`，内存里的执行事件总线（`ExecutionEventBus`）与它的扇出一并删掉，脚本日志改走落库；**全部已删**（2026-09-30）：`workflow` 的定义那条与 `agent-config` 的提案改走「待采纳提案」（`proposal` 行 + REST 两个边，网页两页与两个 MCP 工具同一次落），两条 SSE、两个内存总线、两份事件 schema、`sseEndpoints` 与网页的 `typed-source` 一并删除；后端最后一个 SSE 构造器 `sseResponse` 也没了。surface 轴现在只有 AHP（实时状态）与 REST（CRUD） |
 | surface | Web 侧 `EventSource` 管道 | 同上 |
 | surface | Lark 的 HTTP 事件消费与自研事件解析 | 改为 AHP 客户端订阅（与 Web 同时切换）。**已删**（2026-09-29）：跑动卡原先直连 `/api/agent-runs/:runId/events`，现改读 chat 状态（`cardStateFromChatTurn`），自研事件 reducer 与其测试一并删除，`apps/lark-bot` 内已无 `text/event-stream` 消费者 |
@@ -191,8 +191,8 @@ flowchart LR
 | S3 | 删事件词汇与 SSE；Lark 切到 AHP 客户端 | 删除清单逐条勾掉。**surface 侧已完成**（2026-09-30）：五个自研端点、14 类词汇、两个总线、网页的 EventSource 封装与后端的 SSE 构造器全部删除，Lark 与 Web 都走 AHP 客户端；运行轴那半见 R1–R3 |
 | R1 | cc 经官方桥、pi 经 `pi-acp` 接入 ACP | conformance 先行，再隔离验收 |
 | R2 | Workflow 的 agent 节点支持 `acp` kind | 节点级端到端 |
-| R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉；agent 配置只剩 harness 与 model，前端能在这四个 harness 之间选择（决策七） |
-| R4 | backend 直接适配 ACP：吸收 accumulator 与事件映射，端口与自研运行词表退场，`agent-contract` 解散（ask 进 `message`，env 与 effort 进 ACP 客户端），`adapter-acp` 收缩为协议客户端；会话策略显式化 | 删除清单新增项逐条勾掉；六套派发测试跑脚本化假 ACP 子进程且全绿（复用 R3 的夹具，只换父侧接线）；AHP root 与 `/api/harnesses` 同源 |
+| R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉；agent 配置只剩 harness 与 model，前端能在这四个 harness 之间选择（决策七）。**已完成**（2026-09-30）：四家原生 adapter、旧 kind 枚举与 Web 侧 kind 选择器全部退场，配置面只剩 `harness` × `model` 两根轴 |
+| R4 | backend 直接适配 ACP：吸收 accumulator 与事件映射，端口与自研运行词表退场，`agent-contract` 解散（ask 进 `message`，env 与 effort 进 ACP 客户端），`adapter-acp` 收缩为协议客户端；会话策略显式化 | 删除清单新增项逐条勾掉；六套派发测试跑脚本化假 ACP 子进程且全绿（复用 R3 的夹具，只换父侧接线）；AHP root 与 `/api/harnesses` 同源。**已完成**（2026-10-01）：ACP 客户端吸收进 backend（`features/agent-run/acp/`），`adapter-acp` 包删除；`agent-contract` 解散（ask / env / effort 进 `message` 的 agent-vocabulary，oma 契约瘦身为 `{ modelId, reasoningEffort }` 并自声明于 `core/runtime/contract/`）；六套派发测试跑 fake harness 全绿；harness 目录同源喂 AHP root。与原计划的偏差：运行词表归 backend 内部（protocol/），未并入 message——见删除清单落点更正 |
 
 R1 至 R3 承接 [ADR 0039](./0039-approval-request-is-a-product-contract.md) 的 P3 至 P5，本例只是把两条轴的删除并到同一份验收里。
 
