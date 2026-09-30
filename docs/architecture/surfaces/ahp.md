@@ -75,7 +75,7 @@ tags: [surfaces, ahp, protocol]
 ## 已知缺口
 
 - 人工输入两侧现在都走动作：请求到达时发 `inputRequest` 片段（id 与投影一致，一问一次），人答复或被期限拒绝时发 `chat/inputCompleted`，卡片当场从「待答复」变掉。
-- 询问的**答复内容**分成两半到端上：动作那条边只带结果（`accept`），内容随投影走——投影把持久行的答复原样挂在片段的 `_meta.productResponse`，端从那里读「答了什么」，也就是刷新或本轮折入之后才有内容。上游还有一条 `answers`（按问题 id 的 `ChatInputAnswer`），我们没往上映射：产品的答案是 `{selectedValues, freeText}` 这样的形状，映射到上游的 text/selected/selected-many 是取舍，属于待决策项（Review follow-ups 的「Carry input answers through the canonical shape」）。第三方端如果只按上游读 `request.answers`，就看不到答复内容。
+- 询问的**答复内容**分成两半到端上：动作那条边只带结果（`accept`），内容随投影走。投影现在填两处：上游的 `answers`（按问题 id 的 `ChatInputAnswer`，形状已对着协议 0.9.0 的类型核实：`{state, value: {kind: text | selected | selected-many}}`，选择的与手输入的各是一种 kind，两者都有时用 selected-many 并把自由文本放进 `freeformValues`）以及产品自己的 `{id, selectedValues, freeText}` 行（挂在 `_meta.productResponse`）。**端的收尾还没做**：网页与飞书卡片仍只读 `productResponse`，两处改读 `answers` 之后才能把它从投影里删掉；在那之前两处并存，第三方端已经能只按上游读到答复。
 - todo 只在 chat 状态的 `_meta.todos` 里，也就是只在快照里。协议没有任何动作能改 chat 的 `_meta`，所以「直播刷新 todo」要么等上游给出动作，要么由我们自定义一个动作、两端各自解释，要么退回重订阅。这条是待决策项。
 - 续接提示写完就派发（`announceContinuity`）。代价：端如果在记录写入与派发之间订阅，它会从快照拿到这一轮、又收到这次派发，客户端状态里于是有同一轮的第二份副本；两端的渲染与投递都按 id 合并，所以看不出来。要消掉它，得让派发只发给「订阅早于这次写入」的连接。
 - `apps/web/src/lib/chat-state.ts` 在坐标缺失时用 `seq: 0` 兜底，等于编一个坐标，要按上面那条改成关掉那个动作。
