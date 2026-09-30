@@ -64,6 +64,13 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 5. **替换而非并列。** 未完成替换前，不新增依赖旧方言的功能；每条标准轨的删除项与期限写在本 ADR 的删除清单里。
 
+7. **产品词汇是 harness 加 model，`backendKind` 退回实现细节（2026-09-30 增补）。** `kind` 原本的含义是「用哪个 adapter 包启动子进程」，`kinds.ts` 的原话是每个 kind 恰有一个 adapter 包。四个原生 adapter 与它们的 harness 一一对应，区别看不出来；`adapter-acp` 一个包驱动多个 harness（今天四个，且开放加入），这根多出来的轴没有字段可放，于是被塞进 `modelId`（`acp/<注册键>`）。同一个字段因此在原生族里装 provider 模型、在 ACP 族里装 harness。要求与终态：
+
+   - **前端要能选 harness**：选项来自 `ACP_AGENTS`（今天四个），每个 harness 的模型选项来自它自己通过协议声明的 `configOptions`（`category: "model"`）。探测需要开一次会话，必须缓存。
+   - **agent 配置只留两根轴**：`harness`（哪一家）与 `model`（它跑哪个）。`backendKind` 不再出现在产品面（HTTP、Web、agent.yml），退成「我们用哪个 adapter 启动它」的实现常量；四个原生 adapter 删除之后该常量恒为 `acp`，可以从引用里去掉。
+   - **`modelId` 的两种含义随之下线**：ACP 族的引用改带 `harness`（读取侧优先它、回退 `acp/<注册键>`，JSON 列不做迁移）；原生族删除后它只剩「模型」一种含义，`harnessModel` 缩成 `model`。
+   - **落地顺序（先扩展后收缩）**：引用加 `harness`（兼容读取）→ 前端换成 harness 与 model 两个选择器 → 存量 agent 迁移（`LEGACY_KIND_TO_AGENT` 的语义并入）→ 删原生 adapter，`kind` 从 `BACKEND_KINDS` 退场。
+
 ## 模块分工（图解）
 
 目标架构：
@@ -152,6 +159,7 @@ flowchart LR
 | 轴 | 删除项 | 何时 |
 |---|---|---|
 | 运行 | `packages/adapter-oma-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线 |
+| 运行 | 引用上的 `backendKind` 字段，以及 agent 配置、HTTP 与 Web 上的 kind 概念 | R3 逐家下线之后（决策七） |
 | surface | 自研核心事件词汇（14 类）与 5 个 SSE 端点（`agent-run`、`agent`、`conversation`、`workflow` 两处） | Web 切到 AHP 客户端之后。**已删**（2026-09-30）：`conversation` 那条随会话状态切走先删，`agent-run` 这条连同 `runEvents` 词汇、只在迟到订阅路径上存在的服务面（`runEventStreamFor`／`subscribe`／`isParked`／`pendingActionEvents`）与总线的订阅扇出一并删除；运维瀑布图读的是落库的遥测（REST），不受影响。`workflow` 的执行那条也已删除：执行页改成按 1.5 秒轮询 `/trace`，内存里的执行事件总线（`ExecutionEventBus`）与它的扇出一并删掉，脚本日志改走落库；**全部已删**（2026-09-30）：`workflow` 的定义那条与 `agent-config` 的提案改走「待采纳提案」（`proposal` 行 + REST 两个边，网页两页与两个 MCP 工具同一次落），两条 SSE、两个内存总线、两份事件 schema、`sseEndpoints` 与网页的 `typed-source` 一并删除；后端最后一个 SSE 构造器 `sseResponse` 也没了。surface 轴现在只有 AHP（实时状态）与 REST（CRUD） |
 | surface | Web 侧 `EventSource` 管道 | 同上 |
 | surface | Lark 的 HTTP 事件消费与自研事件解析 | 改为 AHP 客户端订阅（与 Web 同时切换）。**已删**（2026-09-29）：跑动卡原先直连 `/api/agent-runs/:runId/events`，现改读 chat 状态（`cardStateFromChatTurn`），自研事件 reducer 与其测试一并删除，`apps/lark-bot` 内已无 `text/event-stream` 消费者 |
@@ -166,7 +174,7 @@ flowchart LR
 | S3 | 删事件词汇与 SSE；Lark 切到 AHP 客户端 | 删除清单逐条勾掉。**surface 侧已完成**（2026-09-30）：五个自研端点、14 类词汇、两个总线、网页的 EventSource 封装与后端的 SSE 构造器全部删除，Lark 与 Web 都走 AHP 客户端；运行轴那半见 R1–R3 |
 | R1 | cc 经官方桥、pi 经 `pi-acp` 接入 ACP | conformance 先行，再隔离验收 |
 | R2 | Workflow 的 agent 节点支持 `acp` kind | 节点级端到端 |
-| R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉 |
+| R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉；agent 配置只剩 harness 与 model，前端能在这四个 harness 之间选择（决策七） |
 
 R1 至 R3 承接 [ADR 0039](./0039-approval-request-is-a-product-contract.md) 的 P3 至 P5，本例只是把两条轴的删除并到同一份验收里。
 
