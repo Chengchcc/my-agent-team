@@ -43,6 +43,13 @@ export const ACP_AGENTS: Readonly<Record<string, AcpAgentEntry>> = {
 
 export const DEFAULT_ACP_AGENT = "omp";
 
+/** The harness a run's ref names: the explicit field when present, else the
+ *  older packing of the key into `modelId` as `acp/<key>`. One place decides
+ *  this so the two forms cannot drift apart between callers. */
+export function harnessOf(ref: { readonly harness?: string; readonly modelId: string }): string {
+  return ref.harness ?? ref.modelId;
+}
+
 /** Resolve a registry entry by the run's model id (the agent key, e.g.
  *  "omp"). The LLM behind it stays the agent's own configuration — the acp
  *  kind's model catalog lists registry keys, not provider models. */

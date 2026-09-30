@@ -51,7 +51,7 @@ import {
   mapAcpUpdate,
   mapAcpUsage,
 } from "./event-mapping.js";
-import { resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
+import { harnessOf, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
 
 export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found" | "unsupported";
 
@@ -244,8 +244,8 @@ export class AcpBackend implements AgentBackend<"acp"> {
       throw new AcpBackendError("conflict", `runId ${runId} already has a live ACP connection`);
     }
 
-    const agentKey = resolveAcpAgentKey(input.run.model.modelId);
-    const entry = resolveAcpAgent(input.run.model.modelId);
+    const agentKey = resolveAcpAgentKey(harnessOf(input.run.model));
+    const entry = resolveAcpAgent(harnessOf(input.run.model));
     const argv = this.commands[agentKey] ?? entry.argv;
     const env: Record<string, string | undefined> = {
       ...this.extraEnv,
@@ -344,7 +344,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     run: ActiveRun,
     transport: AcpTransport,
   ): Promise<void> {
-    const agentKey = resolveAcpAgentKey(input.run.model.modelId);
+    const agentKey = resolveAcpAgentKey(harnessOf(input.run.model));
     let response: PromptResponse | undefined;
     await guardedConsume(
       () =>

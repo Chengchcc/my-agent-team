@@ -899,3 +899,56 @@ describe("harness model selection (ADR 0040 R3)", () => {
     expect(outcome.status).toBe("completed");
   });
 });
+
+describe("which harness a run launches", () => {
+  const MODEL_OPTION = {
+    id: "model",
+    category: "model",
+    type: "select",
+    currentValue: "harness-default",
+    options: [{ value: "harness-default" }],
+  };
+
+  function captureArgv() {
+    let argv: readonly string[] = [];
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const inner = startFakeAgent({ configOptions: [MODEL_OPTION] }, obs);
+    const spawn: AcpSpawn = (cmd) => {
+      argv = cmd.argv;
+      return inner(cmd);
+    };
+    return { spawn, argv: () => argv };
+  }
+
+  test("the ref's harness field decides, ahead of the packed model id", async () => {
+    const captured = captureArgv();
+    const backend = new AcpBackend({ spawnImpl: captured.spawn });
+
+    await collect(
+      await backend.execute(
+        makeInput({
+          model: { backendKind: "acp", modelId: "acp/omp", harness: "pi" },
+        }),
+      ),
+    );
+
+    // The pi entry launches its bridge; reading modelId would have launched omp.
+    expect(captured.argv().join(" ")).toContain("pi-acp");
+  });
+
+  test("without the field, the packed acp/<key> form still decides", async () => {
+    const captured = captureArgv();
+    const backend = new AcpBackend({ spawnImpl: captured.spawn });
+
+    await collect(
+      await backend.execute(makeInput({ model: { backendKind: "acp", modelId: "acp/omp" } })),
+    );
+
+    expect(captured.argv().join(" ")).toContain("omp");
+  });
+});

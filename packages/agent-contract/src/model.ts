@@ -13,6 +13,10 @@ export interface BackendModelRef<K extends string = string> {
    *  the ref's identity (modelId); this is what it runs. Undefined = the
    *  harness's own default. */
   readonly harnessModel?: string;
+  /** For the ACP kind: which harness runs this (a key of the ACP registry).
+   *  Supersedes the older packing of that key into `modelId` as `acp/<key>`;
+   *  readers prefer this field and fall back to that form. */
+  readonly harness?: string;
 }
 
 /** The canonical reasoning-effort rungs. ONE list, shared by the product
