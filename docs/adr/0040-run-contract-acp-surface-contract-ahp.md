@@ -32,7 +32,7 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 ## 决策
 
-1. **目标态：运行契约归 ACP，surface 契约归 AHP；两条自研方言下线。** 运行轴只留 `adapter-acp`（其余 agent 经官方桥或原生 `--acp` 接入）；surface 轴只留 AHP，外加快照型 REST 承担 CRUD 与列表（agents、projects、skills、workflows、settings），AHP 不管这些。**每一个 surface 都走 AHP 客户端，包括 Web、Lark bot 与第三方 UI（VS Code、ahpx），不设「内部 feed」这类例外通道**：例外通道会让 surface 轴重新长出一条自研线，而本次的目的正是让它只剩一条。Lark 是 Bun 进程，官方客户端的 WebSocket 传输在 Node 21+ 与 Bun 下可用；鉴权沿用既有的「upgrade 时完成」模式。oma 自己的 RPC 模式保留为本地 CLI 与 TUI 的通道，它不对外。**删除清单见专节，且是每个相位的验收条件。**
+1. **目标态：运行契约归 ACP，surface 契约归 AHP；两条自研方言下线。** 运行轴只留 `adapter-acp`（其余 agent 经官方桥或原生 `--acp` 接入）；surface 轴只留 AHP，外加快照型 REST 承担 CRUD 与列表（agents、projects、skills、workflows、settings），AHP 不管这些。**每一个 surface 都走 AHP 客户端，包括 Web、Lark bot 与第三方 UI（VS Code、ahpx），不设「内部 feed」这类例外通道**：例外通道会让 surface 轴重新长出一条自研线，而本次的目的正是让它只剩一条。Lark 是 Bun 进程，官方客户端的 WebSocket 传输在 Node 21+ 与 Bun 下可用；鉴权沿用既有的「upgrade 时完成」模式。（2026-09-30 更正：oma 的 RPC 模式并无本地消费方——TUI 是进程内组装 runtime——它随 R3 一并退役，见决策八。）**删除清单见专节，且是每个相位的验收条件。**
 
 2. **AHP 的位置、范围与维护契约。**
 
@@ -71,6 +71,22 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
    - **`modelId` 的两种含义随之下线**：ACP 族的引用改带 `harness`（读取侧优先它、回退 `acp/<注册键>`，JSON 列不做迁移）；原生族删除后它只剩「模型」一种含义，`harnessModel` 缩成 `model`。
    - **落地顺序（先扩展后收缩）**：引用加 `harness`（兼容读取）→ 前端换成 harness 与 model 两个选择器 → 存量 agent 迁移（`LEGACY_KIND_TO_AGENT` 的语义并入）→ 删原生 adapter，`kind` 从 `BACKEND_KINDS` 退场。
 
+8. **运行轴反转：backend 直接适配 ACP，端口与自研运行词表退场（2026-09-30 增补）。** `AgentBackend` 端口是四协议时代的最小公倍数，也是迁移脚手架——正因为它存在，ACP 才能逐家接入而不必重写派发层。协议收敛到一家后，端口剩下的作用是用产品词表（`BackendRunInput`、`BackendEvent`、`BackendModelRef`）复述 ACP 已有的语义，每接一个 ACP 能力都要同时改 agent-contract、adapter-acp 与 backend 三处（`harnessModel` 靠塞字段过线、elicitation 整体拒掉都是实证）。
+
+   **信封转译原则：协议通道上的信封只允许两次转译，且每次必须说得清自己的独立职责。** 一次是 **wire 落事实**：子进程短命，持久真相归产品；这次转译同时是版本减震器——ACP 的信封随上游漂移，账本编码是自己的，协议升级停在映射这一层，历史行永不重写（与决策三同一条纪律）。一次是 **事实投视图**：AHP 是端的契约，而存储还要服务下一次 run 的上下文投影与运维面，视图不能反向吞掉事实。两次之外的转译不服务任何读者，只产出漂移面与丢字段；今天链上的第三次（ACP → `BackendEvent` → 账本）随本决策删除。
+
+   「把 ACP 原文直接持久化、读侧再喂 AHP」被挑战过并否决，账是三条：解释器从一处变 N 处，且存储成为外方线协议的永久档案馆（信封版本按连接协商，存下的原文永远停在旧形状，协议升级即全量历史迁移）；最热的读路径背上外方格式（下一次 run 的上下文重建需要本方 `Message` 词汇，这个映射写在写侧是算一次，搬到读侧是每次 run 重算）；幂等去重在写侧是 `(agent_run_id, message_index)` 一行身份，搬到读侧是每个读者一套。另：对话真相本是两股流的合并（子进程 update 加产品自己的待决审批与 todo），账本正是合并点，只存原文则读侧要现做双源归并。原文附录（原始信封随事实另存，供审计与重放）是便宜的补充，等一致性向量不够用时再加。
+
+   终态分工：
+
+   - `adapter-acp` 收缩为 ACP 协议客户端（spawn、ndjson 传输、JSON-RPC、capability 协商、requestPermission 回调路由），定位对标 `ahp-client`：只封装协议，不定义产品词汇；accumulator 与事件映射（`createAcpAccumulator`、`mapAcpUpdate`、`buildOutcomeMessages`）搬进 backend 执行层，wire 落事实在那里发生一次；
+   - `agent-contract` 解散：ask 的问答形状进 `message`（它本就是内容形状，message 已是 web、oma、backend 三方共用包）；env 通道与 effort 枚举进 ACP 客户端（它们是 spawn 契约的一部分，oma 作为服务端读同一定义）；`run.ts`、`backend.ts`、`event.ts`、`history.ts`、`model.ts`、`kinds.ts` 退场，`redact.ts` 已是零消费方的死代码；
+   - **会话生命周期从实现细节升为显式策略**：今天「一次 run 一个进程一个 ACP 会话」冻在 adapter 里，谁也改不了；反转后它是执行层的策略。现策略的成本有名字（每轮 spawn、MCP 冷挂载），收益也有名字（同工作区串行的工作区锁、内存上限、崩溃隔离、终态唯一权威；全量历史重放对前缀缓存友好），将来若改「一 Conversation 一长驻会话」，改的是执行层策略，协议通道不动；
+   - oma 进程内托管的可能性被挑战过并否决：与外源 harness 保持同一条执行路径（一次测试、一种行为）加上控制面的崩溃与内存隔离，比省一次 spawn 值钱；
+   - 顺带一条边界纪律：**同一事实经两条面（REST 与 AHP）露出时必须只有一个生产者**。实证：AHP root 的 `models: []` 与 `/api/harnesses` 的 216 条出自两处代码，答同一问题给了不同答案；R4 收口时 root 目录改由 harness 目录同源喂。
+
+   落地顺序：先 R3（删四家原生 adapter；测试夹具写成脚本化的假 ACP 子进程，按剧本注入审批、steer 失败与延迟，父侧接线在下一相位更换而夹具不动），再 R4（本决策的反转）。两相位不合并：派发层是心脏，一次只动一层。
+
 ## 模块分工（图解）
 
 目标架构：
@@ -98,8 +114,8 @@ flowchart TB
     DB[("SQLite")]
   end
 
-  subgraph AD["Adapter 层 · 收敛后"]
-    AAC["adapter-acp · 唯一运行适配器<br/>含 mcp/message 中继"]
+  subgraph AD["协议客户端 · R4 后"]
+    AAC["ACP 客户端 · spawn · ndjson · JSON-RPC<br/>含 mcp/message 中继"]
   end
 
   subgraph RT["Runtime 层"]
@@ -160,6 +176,7 @@ flowchart LR
 |---|---|---|
 | 运行 | `packages/adapter-oma-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线 |
 | 运行 | 引用上的 `backendKind` 字段，以及 agent 配置、HTTP 与 Web 上的 kind 概念 | R3 逐家下线之后（决策七） |
+| 运行 | `packages/agent-contract` 整包（词汇分住 `message` 与 ACP 客户端后）；oma `--mode rpc` 及其 transport schema | R4 完成时（决策八） |
 | surface | 自研核心事件词汇（14 类）与 5 个 SSE 端点（`agent-run`、`agent`、`conversation`、`workflow` 两处） | Web 切到 AHP 客户端之后。**已删**（2026-09-30）：`conversation` 那条随会话状态切走先删，`agent-run` 这条连同 `runEvents` 词汇、只在迟到订阅路径上存在的服务面（`runEventStreamFor`／`subscribe`／`isParked`／`pendingActionEvents`）与总线的订阅扇出一并删除；运维瀑布图读的是落库的遥测（REST），不受影响。`workflow` 的执行那条也已删除：执行页改成按 1.5 秒轮询 `/trace`，内存里的执行事件总线（`ExecutionEventBus`）与它的扇出一并删掉，脚本日志改走落库；**全部已删**（2026-09-30）：`workflow` 的定义那条与 `agent-config` 的提案改走「待采纳提案」（`proposal` 行 + REST 两个边，网页两页与两个 MCP 工具同一次落），两条 SSE、两个内存总线、两份事件 schema、`sseEndpoints` 与网页的 `typed-source` 一并删除；后端最后一个 SSE 构造器 `sseResponse` 也没了。surface 轴现在只有 AHP（实时状态）与 REST（CRUD） |
 | surface | Web 侧 `EventSource` 管道 | 同上 |
 | surface | Lark 的 HTTP 事件消费与自研事件解析 | 改为 AHP 客户端订阅（与 Web 同时切换）。**已删**（2026-09-29）：跑动卡原先直连 `/api/agent-runs/:runId/events`，现改读 chat 状态（`cardStateFromChatTurn`），自研事件 reducer 与其测试一并删除，`apps/lark-bot` 内已无 `text/event-stream` 消费者 |
@@ -175,6 +192,7 @@ flowchart LR
 | R1 | cc 经官方桥、pi 经 `pi-acp` 接入 ACP | conformance 先行，再隔离验收 |
 | R2 | Workflow 的 agent 节点支持 `acp` kind | 节点级端到端 |
 | R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉；agent 配置只剩 harness 与 model，前端能在这四个 harness 之间选择（决策七） |
+| R4 | backend 直接适配 ACP：吸收 accumulator 与事件映射，端口与自研运行词表退场，`agent-contract` 解散（ask 进 `message`，env 与 effort 进 ACP 客户端），`adapter-acp` 收缩为协议客户端；会话策略显式化 | 删除清单新增项逐条勾掉；六套派发测试跑脚本化假 ACP 子进程且全绿（复用 R3 的夹具，只换父侧接线）；AHP root 与 `/api/harnesses` 同源 |
 
 R1 至 R3 承接 [ADR 0039](./0039-approval-request-is-a-product-contract.md) 的 P3 至 P5，本例只是把两条轴的删除并到同一份验收里。
 
