@@ -1,10 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AcpBackend, AcpModelCatalog } from "@chengchenccc/adapter-acp";
-import { ClaudeBackend, ClaudeModelCatalog } from "@chengchenccc/adapter-claude-agent";
+import { ClaudeBackend } from "@chengchenccc/adapter-claude-agent";
 import { OmaBackend, OmaModelCatalog } from "@chengchenccc/adapter-oma-agent";
-import { OmpBackend, OmpModelCatalog } from "@chengchenccc/adapter-omp-agent";
-import { PiBackend, PiModelCatalog } from "@chengchenccc/adapter-pi-agent";
+import { OmpBackend } from "@chengchenccc/adapter-omp-agent";
+import { PiBackend } from "@chengchenccc/adapter-pi-agent";
 import type {
   AskQuestionInput,
   BackendKind,
