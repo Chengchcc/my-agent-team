@@ -252,7 +252,53 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
   });
 }
 
+/** A backend that records the model it was handed and completes immediately. */
+function recordingBackend(seen: Array<{ backendKind: string; modelId: string }>) {
+  return {
+    async execute(input: { run: { model: { backendKind: string; modelId: string } } }) {
+      seen.push(input.run.model);
+      return {
+        events: (async function* () {})(),
+        outcome: Promise.resolve({ status: "completed", messages: [] } as never),
+        stop: async () => {},
+      } as never;
+    },
+  };
+}
+
 describe("agent run execution (Run-centric)", () => {
+  test("a legacy kind runs through the ACP backend with the agent its kind names", async () => {
+    // ADR 0040 R3: the old kinds are aliases for the ACP face until they are retired, so an agent
+    // configured as claude_code keeps answering - as Claude, not as the adapter's default agent.
+    const seen: Array<{ backendKind: string; modelId: string }> = [];
+    const fake = createFakeDaemon();
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      backends: {
+        oma: { backend: fake.backend, catalog: fake.modelCatalog },
+        acp: {
+          backend: recordingBackend(seen),
+          catalog: {
+            list: async () => ({ models: [{ id: "acp/claude", name: "claude", available: true }] }),
+          },
+        },
+      },
+    });
+    const queued = await backend.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      backendKind: "claude_code",
+      mode: "normal",
+      message: { role: "user", text: "hello" },
+      defaultModel: { backendKind: "claude_code", modelId: "claude-sonnet-4-6" },
+      configRevision: 1,
+      idempotencyKey: "alias-1",
+    });
+    await execution.dispatch(queued.run!.runId).catch(() => {
+      /* the settle path is not what this test is about */
+    });
+    expect(seen).toEqual([{ backendKind: "acp", modelId: "acp/claude" }]);
+  }, 15_000);
+
   test("a normal input creates one Run; terminal commit writes a parseable final Message", async () => {
     const fake = createFakeDaemon();
     const events: string[] = [];
