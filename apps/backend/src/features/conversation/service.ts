@@ -1,5 +1,5 @@
-import type { BackendModelRef } from "@chengchenccc/agent-contract";
-import { debugLog } from "@chengchenccc/agent-contract";
+import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
+import { debugLog } from "../../features/agent-run/protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import {
   ContentBlockSchema,

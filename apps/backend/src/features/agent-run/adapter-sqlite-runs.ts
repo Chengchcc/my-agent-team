@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
+import type { BackendRunOutcome } from "./protocol/index.js";
 import {
   assistantMessageId,
   type MessageRevision,

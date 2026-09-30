@@ -1,4 +1,4 @@
-import { childEnv } from "@chengchenccc/agent-contract";
+import { childEnv } from "@chengchenccc/message";
 import { z } from "zod";
 
 /** How to launch the oma CLI for a catalogue read. Structurally what

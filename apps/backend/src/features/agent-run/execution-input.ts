@@ -3,7 +3,7 @@ import type {
   ProjectedHistoryItem,
   ResumeDecision,
   WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
+} from "./protocol/index.js";
 import type { ContentBlock, Message } from "@chengchenccc/message";
 import { PRODUCT_CONSENTED_MCP_TOOLS, PRODUCT_MCP_EXPANDABLE_VARS } from "../agent/index.js";
 import type { AgentRun, BranchInput } from "./domain.js";

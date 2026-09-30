@@ -34,13 +34,13 @@ import type {
   BackendRunInput,
   BackendRunOutcome,
   BackendRunSegment,
-} from "@chengchenccc/agent-contract";
+} from "../protocol/index.js";
 import {
   CONSENTED_MCP_TOOLS_ENV,
   encodeEnvList,
   guardedConsume,
   MCP_EXPANDABLE_VARS_ENV,
-} from "@chengchenccc/agent-contract";
+} from "../protocol/index.js";
 import {
   type AcpAccumulator,
   buildOutcomeMessages,

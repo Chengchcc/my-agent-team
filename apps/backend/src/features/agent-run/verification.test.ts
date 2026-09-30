@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
+import type { BackendRunOutcome } from "./protocol/index.js";
 import { deriveVerification } from "./http.js";
 
 function outcome(partial: Partial<BackendRunOutcome>): BackendRunOutcome {

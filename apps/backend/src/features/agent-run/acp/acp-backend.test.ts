@@ -5,7 +5,7 @@ import type {
   BackendRunInput,
   BackendRunOutcome,
   BackendRunSegment,
-} from "@chengchenccc/agent-contract";
+} from "../protocol/index.js";
 import { AcpBackend, AcpBackendError, type AcpMcpProvider } from "./acp-backend.js";
 import { type AcpSpawn, createNodeSpawn } from "./transport.js";
 

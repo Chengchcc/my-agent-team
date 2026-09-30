@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { guardedConsume } from "./cli-consume.js";
+import { guardedConsume } from "./guarded-consume.js";
 
 describe("guardedConsume", () => {
   test("a throwing consume reports the error and never rejects", async () => {
@@ -8,7 +8,7 @@ describe("guardedConsume", () => {
       async () => {
         throw new Error("stream broke");
       },
-      (message) => {
+      (message: string) => {
         state.reported = message;
       },
     );

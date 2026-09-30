@@ -8,7 +8,7 @@
  *  time), so the union here is trusted, not re-guarded. */
 
 import type { PromptResponse, SessionNotification } from "@agentclientprotocol/sdk";
-import type { BackendEvent, Usage } from "@chengchenccc/agent-contract";
+import type { BackendEvent, Usage } from "../protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 
 type SessionUpdate = SessionNotification["update"];

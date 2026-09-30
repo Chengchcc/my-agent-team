@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { PendingActionResponse } from "@chengchenccc/agent-contract";
+import type { PendingActionResponse } from "./protocol/index.js";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";

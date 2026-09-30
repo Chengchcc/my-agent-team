@@ -1,4 +1,4 @@
-import type { ResumeDecision } from "@chengchenccc/agent-contract";
+import type { ResumeDecision } from "./protocol/index.js";
 import { pendingActionId } from "./domain.js";
 import { createExecutionDispatcher } from "./execution-dispatch.js";
 import { createLiveEventBus } from "./execution-live.js";

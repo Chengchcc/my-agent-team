@@ -5,8 +5,8 @@ import type {
   BackendRunSegment,
   ProjectedHistoryItem,
   ResumeDecision,
-} from "@chengchenccc/agent-contract";
-import { BACKEND_KINDS, type BackendKind, debugLog } from "@chengchenccc/agent-contract";
+} from "./protocol/index.js";
+import { BACKEND_KINDS, type BackendKind, debugLog } from "./protocol/index.js";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";

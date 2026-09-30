@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type * as schema from "@agentclientprotocol/sdk";
-import type { BackendEvent } from "@chengchenccc/agent-contract";
+import type { BackendEvent } from "../protocol/index.js";
 import {
   buildOutcomeMessages,
   createAcpAccumulator,

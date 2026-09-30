@@ -1,5 +1,5 @@
-import type { AgentBackend, ResumeDecision } from "@chengchenccc/agent-contract";
-import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
+import type { AgentBackend, ResumeDecision } from "./protocol/index.js";
+import { BACKEND_KINDS, debugLog } from "./protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import { AcpBackendError } from "./acp/acp-backend.js";
 import { isActiveStatus, pendingActionId } from "./domain.js";

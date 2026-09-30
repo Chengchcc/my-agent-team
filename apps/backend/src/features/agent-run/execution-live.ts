@@ -1,4 +1,4 @@
-import type { BackendEvent, BackendRunSegment } from "@chengchenccc/agent-contract";
+import type { BackendEvent, BackendRunSegment } from "./protocol/index.js";
 import { TELEMETRY_EVENT_TYPES } from "./execution-input.js";
 
 export interface LiveEventBus {

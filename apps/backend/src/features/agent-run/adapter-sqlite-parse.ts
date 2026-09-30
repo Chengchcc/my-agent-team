@@ -1,4 +1,4 @@
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
+import type { BackendRunOutcome } from "./protocol/index.js";
 import type * as schema from "../../infra/db/schema.js";
 import type { AgentRun, BranchInput, PendingActionRecord } from "./domain.js";
 

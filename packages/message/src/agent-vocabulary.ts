@@ -16,6 +16,24 @@ export const FORWARDED_KEYS = [
   "GROQ_API_KEY",
   "OPENROUTER_API_KEY",
 ] as const;
+/** Build a child spawn env: the FORWARDED_KEYS allowlist of the caller's
+ *  env surface plus the caller's explicit overrides (`extra` wins). Pure:
+ *  the caller passes its own env surface (process.env). */
+export function childEnv(
+  surface: Readonly<Record<string, string | undefined>>,
+  extra?: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {};
+  for (const key of FORWARDED_KEYS) {
+    const value = surface[key];
+    if (value !== undefined) env[key] = value;
+  }
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
 /** Env names for the spawner→child policy injection. SINGLE SOURCE for
  *  both ends of the wire: the adapter writes them when spawning, the child
  *  reads them at assembly. A drifted name fails closed (empty list = fully

@@ -6,7 +6,7 @@
  *  product never enforces across this boundary; they satisfy the catalog
  *  shape the preflight and /api/models aggregation read. */
 
-import type { BackendModel, BackendModelCatalog } from "@chengchenccc/agent-contract";
+import type { BackendModel, BackendModelCatalog } from "../protocol/index.js";
 import { ACP_AGENTS } from "./registry.js";
 
 export class AcpModelCatalog {

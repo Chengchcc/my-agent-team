@@ -6,7 +6,7 @@
  *  projection, and the product read behind a run - and keeps none of the state itself. That is
  *  the same shape `run-events.ts` uses for the translation half; the driver used to be left
  *  behind in `features.ts`, which also had to reach into the host's dispatch to make it work. */
-import type { BackendEvent } from "@chengchenccc/agent-contract";
+import type { BackendEvent } from "../../features/agent-run/protocol/index.js";
 import { chatUri } from "@chengchenccc/ahp-client";
 import type { StateAction, Turn } from "@microsoft/agent-host-protocol";
 import { pendingActionId } from "../agent-run/index.js";

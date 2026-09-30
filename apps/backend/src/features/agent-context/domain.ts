@@ -1,4 +1,4 @@
-import type { BackendModelRef } from "@chengchenccc/agent-contract";
+import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 
 // ─── Errors ──────────────────────────────────────────────────────

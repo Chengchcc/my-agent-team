@@ -7,7 +7,7 @@ import type {
   BackendRunInput,
   BackendRunOutcome,
   BackendRunSegment,
-} from "@chengchenccc/agent-contract";
+} from "../protocol/index.js";
 import { AcpBackend, type AcpBackendOptions, type AcpMcpProvider } from "./acp-backend.js";
 
 /** Smoke test for the scripted fake ACP harness child: a REAL AcpBackend

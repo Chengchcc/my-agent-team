@@ -1,7 +1,7 @@
 /** The byte transport under the SDK: a spawned agent server by default;
  *  tests inject an in-memory pair wired to a fake agent. */
 import * as acp from "@agentclientprotocol/sdk";
-import { debugLog } from "@chengchenccc/agent-contract";
+import { debugLog } from "../protocol/index.js";
 
 /** The client package's own spawn/probe failure: carries the coarse code the
  *  callers read, but no product vocabulary (ADR 0040 decision 8 - the client

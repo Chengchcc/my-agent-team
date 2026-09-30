@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { BackendRegistry } from "@chengchenccc/agent-contract";
+import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import type { AskQuestionInput } from "@chengchenccc/message";
 import { type Message, serializeMessageRevision } from "@chengchenccc/message";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { BackendEvent } from "@chengchenccc/agent-contract";
+import type { BackendEvent } from "./protocol/index.js";
 import { createLiveEventBus } from "./execution-live.js";
 
 /** A controllable durable hook: the test decides when persistence "completes". */

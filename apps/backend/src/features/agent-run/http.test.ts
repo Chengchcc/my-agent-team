@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
+import type { BackendRunOutcome } from "./protocol/index.js";
 import { openDb } from "../../infra/sqlite/db.js";
 import { api, setupTestApp, type TestApp } from "../../testing/app-harness.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";

@@ -3,7 +3,7 @@ import type {
   BackendRegistry,
   BackendRunSegment,
   WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
+} from "./protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import type {
   AgentContextPort,
