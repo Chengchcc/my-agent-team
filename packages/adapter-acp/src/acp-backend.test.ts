@@ -55,6 +55,10 @@ interface FakeAgentObservations {
   mcpReplies?: unknown[];
   /** Errors from those probes (binding failures reject). */
   mcpErrors?: unknown[];
+  /** Every session/set_config_option call, in order. */
+  setConfigOptions?: Array<{ configId: string; value: unknown }>;
+  /** How many prompts reached the agent. */
+  promptCalls?: number;
 }
 
 interface FakeAgentScript {
@@ -74,6 +78,11 @@ interface FakeAgentScript {
   acpMcp?: boolean;
   /** Send these `mcp/message` requests during the prompt. */
   mcpProbes?: Array<{ serverId: string; method: string; params?: unknown }>;
+  /** The configOptions session/new (and load) answers with. */
+  configOptions?: unknown[];
+  /** Accept set_config_option but keep the old currentValue (a harness that
+   *  ignores the request). */
+  keepsModel?: boolean;
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
@@ -101,13 +110,25 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       .onRequest(acp.methods.agent.session.new, async (ctx) => {
         obs.newSessionCalls += 1;
         script.newSessionParams?.push(ctx.params);
-        return { sessionId: "sess-fake-1", configOptions: [] };
+        return { sessionId: "sess-fake-1", configOptions: script.configOptions ?? [] };
       })
       .onRequest(acp.methods.agent.session.load, async (ctx) => {
         obs.loadedSessionIds.push(ctx.params.sessionId);
-        return { sessionId: ctx.params.sessionId, configOptions: [] };
+        return { sessionId: ctx.params.sessionId, configOptions: script.configOptions ?? [] };
+      })
+      .onRequest(acp.methods.agent.session.setConfigOption, async (ctx) => {
+        obs.setConfigOptions ??= [];
+        obs.setConfigOptions.push({ configId: ctx.params.configId, value: ctx.params.value });
+        const options = (script.configOptions ?? []).map((option) => {
+          const shaped = option as { category?: string; currentValue?: unknown };
+          return shaped.category === "model" && !script.keepsModel
+            ? { ...shaped, currentValue: ctx.params.value }
+            : shaped;
+        });
+        return { configOptions: options } as never;
       })
       .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
+        obs.promptCalls = (obs.promptCalls ?? 0) + 1;
         const sessionId = ctx.params.sessionId;
         for (const probe of script.mcpProbes ?? []) {
           try {
@@ -784,4 +805,97 @@ describe("MCP over ACP (ADR 0039: the connection carries the servers)", () => {
     expect(err?.message).toContain("unknown MCP connection");
     await backend.dispose();
   }, 10_000);
+});
+
+describe("harness model selection (ADR 0040 R3)", () => {
+  const MODEL_OPTION = {
+    id: "model",
+    category: "model",
+    type: "select",
+    currentValue: "harness-default",
+    options: [{ value: "harness-default" }, { value: "deepseek/deepseek-v4-pro" }],
+  };
+
+  test("sets the harness's declared model option before prompting", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ configOptions: [MODEL_OPTION] }, obs),
+    });
+    const probeInput = makeInput({
+      model: { backendKind: "acp", modelId: "omp", harnessModel: "deepseek/deepseek-v4-pro" },
+    });
+    const segment = await backend.execute(probeInput);
+    const { outcome } = await collect(segment);
+
+    expect(outcome.status).toBe("completed");
+    expect(obs.setConfigOptions).toEqual([
+      { configId: "model", value: "deepseek/deepseek-v4-pro" },
+    ]);
+  });
+
+  test("a harness with no model option fails instead of running its default", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
+    const segment = await backend.execute(
+      makeInput({ model: { backendKind: "acp", modelId: "oma", harnessModel: "deepseek-v4-pro" } }),
+    );
+    const { outcome } = await collect(segment);
+
+    expect(outcome.status).toBe("failed");
+    if (outcome.status === "failed") {
+      expect(outcome.error).toContain("declares no 'model' config option");
+    }
+    // The turn never started: asking for a model a harness cannot run must not
+    // look like a normal run.
+    expect(obs.promptCalls ?? 0).toBe(0);
+  });
+
+  test("a harness that accepts the request but ignores it is not accepted silently", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ configOptions: [MODEL_OPTION], keepsModel: true }, obs),
+    });
+    const segment = await backend.execute(
+      makeInput({
+        model: { backendKind: "acp", modelId: "omp", harnessModel: "deepseek/deepseek-v4-pro" },
+      }),
+    );
+    const { outcome } = await collect(segment);
+
+    expect(outcome.status).toBe("failed");
+    if (outcome.status === "failed") {
+      expect(outcome.error).toContain("kept model 'harness-default'");
+    }
+  });
+
+  test("a run that names no model leaves the session alone", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ configOptions: [MODEL_OPTION] }, obs),
+    });
+    const { outcome } = await collect(await backend.execute(makeInput()));
+
+    expect(obs.setConfigOptions ?? []).toEqual([]);
+    expect(outcome.status).toBe("completed");
+  });
 });

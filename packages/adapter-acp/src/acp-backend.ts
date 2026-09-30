@@ -53,7 +53,14 @@ import {
 } from "./event-mapping.js";
 import { resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
 
-export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found";
+export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found" | "unsupported";
+
+/** The part of a session's config options this adapter reads: harnesses
+ *  declare their model here (ADR 0040 R3). */
+interface DeclaredConfigOption {
+  readonly category?: string;
+  readonly currentValue?: string;
+}
 
 export class AcpBackendError extends Error {
   constructor(
@@ -337,6 +344,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     run: ActiveRun,
     transport: AcpTransport,
   ): Promise<void> {
+    const agentKey = resolveAcpAgentKey(input.run.model.modelId);
     let response: PromptResponse | undefined;
     await guardedConsume(
       () =>
@@ -373,6 +381,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
                 ? [{ type: "acp" as const, name: mcpProvider.name, serverId: mcpProvider.serverId }]
                 : [];
             const cwd = input.workspace.root;
+            let declaredOptions: readonly DeclaredConfigOption[];
             const resumeRef = input.run.cliSessionRef;
             if (resumeRef !== undefined && resumeRef !== "") {
               // session/load replays history and KEEPS the id we passed
@@ -382,14 +391,17 @@ export class AcpBackend implements AgentBackend<"acp"> {
               // that don't read it ignore it (today's entire population -
               // oma's own server, P2, will define the semantics).
               const decisions = input.resume?.decisions;
-              await ctx.request(acp.methods.agent.session.load, {
+              const loaded = (await ctx.request(acp.methods.agent.session.load, {
                 sessionId: resumeRef,
                 cwd,
                 mcpServers,
                 ...(decisions && decisions.length > 0
                   ? { _meta: { "my-agent-team/resume": { decisions } } }
                   : {}),
-              } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1]);
+              } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1])) as {
+                configOptions?: readonly DeclaredConfigOption[];
+              };
+              declaredOptions = loaded.configOptions ?? [];
               run.sessionId = resumeRef;
             } else {
               // ADR 0038 kill-mid-run gap: a resume dispatch whose branch
@@ -413,8 +425,40 @@ export class AcpBackend implements AgentBackend<"acp"> {
                       },
                     }
                   : {}),
-              } as never)) as { sessionId: string };
+              } as never)) as {
+                sessionId: string;
+                configOptions?: readonly DeclaredConfigOption[];
+              };
+              declaredOptions = created.configOptions ?? [];
               run.sessionId = created.sessionId;
+            }
+            // A run that names a model sets it on the session before prompting.
+            // Only an option the harness declared can be set, and the response
+            // says whether it took: a harness that ignored the request would
+            // otherwise look like the choice was applied
+            // (BackendModelRef.harnessModel).
+            const harnessModel = input.run.model.harnessModel;
+            if (harnessModel !== undefined) {
+              if (!declaredOptions.some((option) => option.category === "model")) {
+                throw new AcpBackendError(
+                  "unsupported",
+                  `harness '${agentKey}' declares no 'model' config option; cannot run '${harnessModel}'`,
+                );
+              }
+              const applied = (await ctx.request(acp.methods.agent.session.setConfigOption, {
+                sessionId: run.sessionId!,
+                configId: "model",
+                value: harnessModel,
+              })) as { configOptions?: readonly DeclaredConfigOption[] };
+              const current = applied.configOptions?.find(
+                (option) => option.category === "model",
+              )?.currentValue;
+              if (current !== harnessModel) {
+                throw new AcpBackendError(
+                  "unsupported",
+                  `harness '${agentKey}' kept model '${String(current)}' instead of '${harnessModel}'`,
+                );
+              }
             }
             response = await ctx.request(acp.methods.agent.session.prompt, {
               sessionId: run.sessionId!,

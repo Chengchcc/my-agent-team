@@ -7,6 +7,12 @@ export interface BackendModelRef<K extends string = string> {
   /** Thinking-mode effort (Anthropic-format `reasoning` param): none/low/
    *  high/max. Undefined = provider default. */
   readonly reasoningEffort?: ReasoningEffort;
+  /** For the ACP kind: which model the *harness* should run, in that
+   *  harness's own vocabulary (acp `configOptions` values - claude offers
+   *  `opus`, omp offers `deepseek/deepseek-v4-pro`). The harness itself is
+   *  the ref's identity (modelId); this is what it runs. Undefined = the
+   *  harness's own default. */
+  readonly harnessModel?: string;
 }
 
 /** The canonical reasoning-effort rungs. ONE list, shared by the product
