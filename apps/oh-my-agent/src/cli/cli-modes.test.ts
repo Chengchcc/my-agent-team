@@ -54,21 +54,6 @@ async function spawnCli(
   return { stdout, stderr, exitCode: await proc.exited };
 }
 
-const EXECUTE = {
-  id: "e1",
-  type: "execute",
-  input: {
-    input: { inputId: "in-1", message: { role: "user", text: "go" } },
-    run: {
-      runId: "r-cli-1",
-      model: { backendKind: "oma", modelId: "fake/echo" },
-      configRevision: 1,
-    },
-    workspace: { root: tmp, access: "read_write" },
-    metadata: { conversationId: "c", agentId: "m", branchId: "b" },
-  },
-};
-
 afterAll(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
