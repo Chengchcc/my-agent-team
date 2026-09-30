@@ -499,10 +499,13 @@ export class AcpBackend implements AgentBackend<"acp"> {
         });
       }
     }
-    // Wait out the child (bounded) before forgetting the run: dispose()
-    // must never lose track of a lingering process (npx-wrapped bridges
-    // can outlive the JSON-RPC stream close).
-    await withTimeout(transport.exit, this.abortGraceMs);
+    // Wait out the child (bounded), then KILL it. An acp-mode server (and
+    // every npx-wrapped bridge) outlives the JSON-RPC stream close - without
+    // the kill, forgetting the run here leaks one live process per run
+    // (observed: oma children piling up at 45% CPU under the test suite).
+    const exited = await withTimeout(transport.exit, this.abortGraceMs);
+    if (exited === null) transport.kill();
+    await transport.exit.catch(() => {});
     this.active.delete(run.runId);
   }
 

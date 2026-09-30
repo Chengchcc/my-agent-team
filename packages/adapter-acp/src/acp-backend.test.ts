@@ -83,6 +83,12 @@ interface FakeAgentScript {
   /** Accept set_config_option but keep the old currentValue (a harness that
    *  ignores the request). */
   keepsModel?: boolean;
+  /** Exit never resolves on its own - only kill() settles it. Pins the
+   *  drive-tail kill: a child that outlives the run must be killed, not
+   *  forgotten (one live process leaked per run otherwise). */
+  hangOnExit?: boolean;
+  /** Times the fake transport was killed. */
+  killCalls?: number;
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
@@ -94,6 +100,13 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
     const exit = new Promise<number | null>((resolve) => {
       resolveExit = resolve;
     });
+    // hangOnExit: the parent sees an exit that only kill() settles.
+    let resolveParentExit!: (code: number | null) => void;
+    const exitForParent = script.hangOnExit
+      ? new Promise<number | null>((resolve) => {
+          resolveParentExit = resolve;
+        })
+      : exit;
 
     const die = () => {
       void backendToAgent.writable.close().catch(() => {});
@@ -208,11 +221,13 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
 
     return {
       stream: acp.ndJsonStream(backendToAgent.writable, agentToBackend.readable),
-      exit,
+      exit: exitForParent,
       kill() {
+        script.killCalls = (script.killCalls ?? 0) + 1;
         void backendToAgent.writable.close().catch(() => {});
         void agentToBackend.writable.close().catch(() => {});
         resolveExit(null);
+        resolveParentExit?.(null);
       },
     };
   };
@@ -658,6 +673,25 @@ describe("AcpBackend against an in-memory fake agent", () => {
     expect(outcome.status).toBe("failed");
     await backend.dispose();
   }, 10_000);
+
+  test("a child that outlives the run is killed, not forgotten (no per-run leak)", async () => {
+    const script: FakeAgentScript = { hangOnExit: true };
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent(script, obs), abortGraceMs: 50 });
+    const segment = await backend.execute(makeInput());
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    // drive() must kill the lingering child once the grace lapses: a run
+    // that ends may not leave a live process behind it.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(script.killCalls).toBe(1);
+    await backend.dispose();
+  });
 
   test("duplicate runId conflicts", async () => {
     const obs: FakeAgentObservations = {
