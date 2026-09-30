@@ -119,6 +119,9 @@ export type TelemetrySummary = {
 export type ChatModelOverride = {
   backendKind: string;
   modelId: string;
+  /** Which model the named harness runs, in its own vocabulary (the run's
+   *  BackendModelRef.harnessModel). Undefined = the harness's own default. */
+  harnessModel?: string;
   reasoningEffort?: "none" | "low" | "high" | "max";
 };
 
