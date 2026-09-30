@@ -78,7 +78,9 @@ export function AgentForm({
   // will actually run instead of naming an adapter that is on its way out.
   // Backend kinds present in the aggregated catalog, canonical order.
   const backendKinds = useMemo(() => {
-    const order = ["oma", "claude_code", "pi", "omp"];
+    // `acp` is the kind whose "model" is a harness (ADR 0040 decision 7); leaving
+    // it out made the four harnesses unreachable from this form.
+    const order = ["acp", "oma", "claude_code", "pi", "omp"];
     const seen = new Set<string>();
     for (const p of providers) for (const m of p.models) if (m.backendKind) seen.add(m.backendKind);
     return order.filter((k) => seen.has(k));
