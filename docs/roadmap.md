@@ -69,8 +69,6 @@
 
 **配置期的 `(backendKind, model)` 一致性校验已补（2026-09-24）。** `POST/PATCH /api/agents` 现在会把 `provider/model`（经 `MODEL_ALIASES` 归一）对照目标种类的目录，目录里没有就 400（`model-check.ts`；目录列不出来时降级为放行，配置不依赖子进程活着）。PATCH 只换 `backendKind` 时也会用旧模型对新目录查一次——这是当初真机翻车的那条路（`oma + deepseek/deepseek-chat` → 200，run 阶段才死）。
 
-**omp 静态表已对齐实际可跑面（2026-09-24）。** `packages/adapter-omp-agent/src/model-catalog.ts` 现在只列部署 `models.yml` 真正声明的 `deepseek-v4-pro`/`deepseek-v4-flash`——`deepseek-chat`/`deepseek-reasoner` 实测会让 omp 启动即 fatal（回落到无 key 的默认 openrouter provider），不再出现在可选列表；元数据也换成了实测值。`available: true` 仍是硬编码（adapter 读不到 omp 自己 models.yml 里的内联 key），但配置期 `(backendKind, model)` 校验和 `/api/models` 的服务探测已把真正的诚实缺口补上。
-
 ## 安全
 
 完整清单在 [安全与债务清单](./architecture/security/debt.md)，这里只列需要设计决策的那几条：

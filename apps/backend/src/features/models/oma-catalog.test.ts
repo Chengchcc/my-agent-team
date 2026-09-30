@@ -34,9 +34,9 @@ function fakeSpawn(opts: { code?: number; stdout?: string } = {}) {
 }
 
 describe("createOmaModelCatalog", () => {
-  test("spawns --list-models without the rpc pair, caches, re-spawns after invalidate", async () => {
+  test("spawns --list-models verbatim over the launcher args, caches, re-spawns", async () => {
     const { spawn, calls } = fakeSpawn();
-    const catalog = createOmaModelCatalog({ executable: "oma", args: ["--mode", "rpc"] }, spawn);
+    const catalog = createOmaModelCatalog({ executable: "oma" }, spawn);
     const first = await catalog.list();
     expect(first.models[0]?.id).toBe("fake/echo");
     expect(calls[0]?.argv).toEqual(["oma", "--list-models"]);

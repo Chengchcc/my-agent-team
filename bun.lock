@@ -33,11 +33,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@chengchenccc/adapter-acp": "workspace:*",
-        "@chengchenccc/adapter-claude-agent": "workspace:*",
         "@chengchenccc/adapter-mcp": "workspace:*",
-        "@chengchenccc/adapter-oma-agent": "workspace:*",
-        "@chengchenccc/adapter-omp-agent": "workspace:*",
-        "@chengchenccc/adapter-pi-agent": "workspace:*",
         "@chengchenccc/agent-contract": "workspace:*",
         "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/ai": "workspace:*",
@@ -94,7 +90,6 @@
         "zod": "^3.23.0",
       },
       "devDependencies": {
-        "@chengchenccc/adapter-oma-agent": "workspace:*",
         "@chengchenccc/test-helpers": "workspace:*",
         "bun-types": "latest",
         "typescript": "^5.7.0",
@@ -174,60 +169,12 @@
         "typescript": "^5.7.0",
       },
     },
-    "packages/adapter-claude-agent": {
-      "name": "@chengchenccc/adapter-claude-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
     "packages/adapter-mcp": {
       "name": "@chengchenccc/adapter-mcp",
       "version": "0.1.0",
       "dependencies": {
         "@chengchenccc/message": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
-      },
-    },
-    "packages/adapter-oma-agent": {
-      "name": "@chengchenccc/adapter-oma-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "zod": "^3.23.0",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
-    "packages/adapter-omp-agent": {
-      "name": "@chengchenccc/adapter-omp-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
-    "packages/adapter-pi-agent": {
-      "name": "@chengchenccc/adapter-pi-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
       },
     },
     "packages/agent-contract": {
@@ -405,15 +352,7 @@
 
     "@chengchenccc/adapter-acp": ["@chengchenccc/adapter-acp@workspace:packages/adapter-acp"],
 
-    "@chengchenccc/adapter-claude-agent": ["@chengchenccc/adapter-claude-agent@workspace:packages/adapter-claude-agent"],
-
     "@chengchenccc/adapter-mcp": ["@chengchenccc/adapter-mcp@workspace:packages/adapter-mcp"],
-
-    "@chengchenccc/adapter-oma-agent": ["@chengchenccc/adapter-oma-agent@workspace:packages/adapter-oma-agent"],
-
-    "@chengchenccc/adapter-omp-agent": ["@chengchenccc/adapter-omp-agent@workspace:packages/adapter-omp-agent"],
-
-    "@chengchenccc/adapter-pi-agent": ["@chengchenccc/adapter-pi-agent@workspace:packages/adapter-pi-agent"],
 
     "@chengchenccc/agent-contract": ["@chengchenccc/agent-contract@workspace:packages/agent-contract"],
 
@@ -2164,14 +2103,6 @@
     "@base-ui/utils/reselect": ["reselect@5.2.0", "https://registry.npmmirror.com/reselect/-/reselect-5.2.0.tgz", {}, "sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw=="],
 
     "@chengchenccc/adapter-acp/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-claude-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-oma-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-omp-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-pi-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@chengchenccc/oh-my-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

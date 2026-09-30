@@ -88,12 +88,8 @@ export function createOmaModelCatalog(
 
     async list(): Promise<OmaModelCatalogListing> {
       if (cached) return cached;
-      // --list-models is mode-independent; the run command carries
-      // --mode rpc, which is meaningless here - strip the pair.
-      const base = command.args ?? [];
-      const listArgs = base.filter((a) => a !== "--mode" && a !== "rpc");
       const proc = spawn({
-        argv: [command.executable, ...listArgs, "--list-models"],
+        argv: [command.executable, ...(command.args ?? []), "--list-models"],
         env: command.env ?? {},
       });
       const decoder = new TextDecoder();

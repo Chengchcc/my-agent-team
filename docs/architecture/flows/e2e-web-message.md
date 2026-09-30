@@ -20,7 +20,7 @@ tags: [runs, web, backend]
 - `apps/backend/src/features/conversation/service.ts` — `postMessage`、`#triggerForAgent`、订阅与心跳
 - `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 入队与取得 run 的唯一事务
 - `apps/backend/src/features/agent-run/execution-dispatch.ts` — 投影、`backend.execute`、终态结算
-- `packages/adapter-oma-agent/src/backend.ts` 与 `process.ts` — spawn 与 JSONL 命令
+- `packages/adapter-acp/src/acp-backend.ts` 与 `process.ts` — spawn 与 JSONL 命令
 - `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 终态提交事务
 - `apps/backend/src/bootstrap/features.ts` — `onRunCommitted` 的即时推送与 `onRunFailed` 的失败气泡
 - `apps/web/src/hooks/useConversation.ts` — 两条 SSE 的消费
@@ -34,7 +34,7 @@ tags: [runs, web, backend]
 5. **取 run**（`#triggerForAgent`）：取该会话的默认分支，查分支上是否已有 active run，据此定 mode（有 live 子进程是 `steer`，dispatch 在途是 `follow_up`，只剩 DB 记录是僵尸则 abort 后走 `normal`）；CLI 后端的 steer 一律降级为 `normal`。随后调 `AgentRunService.enqueueAndAcquire`，它派生 `<key>:delivery` 与 `<key>:run` 两个幂等键。
 6. **入队与创建 run**（`apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts`，单个事务）：插一条 `branch_input_queue` 行（幂等键冲突时按 payload 判断是重放还是冲突），查分支上是否已有 active run，接着 CAS 分支 revision，读 `ledgerCursor` 之后且未 undone 的账本行，过滤掉 `visibility === "internal"` 与非 `message` 行，取最后 20 条，逐条插 `agent_context_entry(type = "ledger_message")`，推进 `ledgerCursor` 与 `leafEntryId`，创建 `status = "running"` 的 `agent_run`，把队列行标 `delivering`。
 7. **派发**（`#dispatchRun` → `execution-dispatch.ts`）：`assertModelAvailable` 先校验模型在 catalog 里可用，`claimInputForRun` 认领输入，`projectHistory` 做全量投影（没有增量 resume），按分支与 workspace 取锁，然后调 `backend.execute`。
-8. **spawn 子进程**（`packages/adapter-oma-agent/src/backend.ts`）：等一个并发槽位，用 workspace 根目录作 cwd、白名单 env 加本次 run 的 product tools token 起进程，向 stdin 写一行 `{ id, type: "execute", input }`，并等 acceptance。handle 在写命令之前注册，steer 与 stop 才能立刻路由。
+8. **spawn 子进程**（`packages/adapter-acp/src/acp-backend.ts`）：等一个并发槽位，用 workspace 根目录作 cwd、白名单 env 加本次 run 的 product tools token 起进程，向 stdin 写一行 `{ id, type: "execute", input }`，并等 acceptance。handle 在写命令之前注册，steer 与 stop 才能立刻路由。
 9. **子进程期间**（agent-run 的事件流）：`mapRunEvent` 把子进程事件映射成 `BackendEvent`，`execution-live.ts` 的 `forwardEvents` 广播给当前进程的订阅者。这条流不落库（只有 telemetry 类型会落 `agent_run_event`）。Web 的 per-run EventSource 打的是 `/api/bff/agent-runs/:runId/events`，事件名单见 [Web 端](../surfaces/web.md)。
 10. **终态**（`adapter-oma-agent` 的 outcome 到 `execution-dispatch.ts` 的 `settleOutcome`）：子进程写 `{ type: "outcome" }` 后 adapter 映射出 `BackendRunOutcome`。`status === "completed"` 进提交事务，其它终态广播一条 `status` 事件、调 `onRunFailed`、走 `finalizeRun`。
 11. **原子提交**（`apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` 的 `commitCompletedRun`，单个事务）：只接受 `completed`，already-completed 直接返回（重放幂等），校验分支归属，用 `normalizeCanonicalMessages` 归一化后按 `(agent_run_id, message_index)` 一行一条写账本，assistant 的 messageId 由 `assistantMessageId(runId, n)` 生成且 `state` 固定 `done`，工具消息 id 形如 `run:<runId>:tool:<index>`，同时追加 `ledger_message` 引用、推进分支 leaf 与 revision、把 run 标 `completed`。

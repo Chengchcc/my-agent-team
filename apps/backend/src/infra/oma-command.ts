@@ -1,20 +1,25 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import type { OmaCommandConfig } from "@chengchenccc/adapter-oma-agent";
 import type { BackendConfig } from "../config.js";
 
-/** Resolve the Oma process command for a Backend deployment.
+/** How to launch the oma CLI. Declared here (not in the retired adapter
+ *  package): `executable` + explicit `args` only — never a shell string, so
+ *  no argument injection. Secrets travel exclusively via env. */
+export interface OmaCommandConfig {
+  readonly executable: string;
+  readonly args?: readonly string[];
+  env?: Readonly<Record<string, string | undefined>>;
+}
+
+/** Resolve the oma process command for a Backend deployment.
  *
  *  - `OMA_BIN` configured (production): run the built `dist/cli.js`
- *    (or a deployment wrapper) with `--mode rpc`.
+ *    (or a deployment wrapper).
  *  - Not configured (monorepo dev/test): run the SOURCE CLI entry with the
  *    same Bun executable as the Backend — no global install required.
  *
- *  BOTH paths pass `--mode rpc` explicitly: without it the child falls into
- *  print mode and blocks reading piped stdin until EOF, while the adapter
- *  keeps stdin open for JSONL — a permanent deadlock. Never a shell string:
- *  `executable` + explicit `args` only (no argument injection). Secrets
- *  travel exclusively via env. */
+ *  The caller names the mode (`acp` for the ACP face; omitted for the
+ *  interactive terminal and the mode-independent `--list-models`). */
 /** Every `*_API_KEY` in the environment, whatever provider it belongs to. The
  *  child only reads the names its catalog declares, so forwarding the whole
  *  family costs nothing and lets custom providers authenticate. */
@@ -28,21 +33,15 @@ export function collectApiKeyEnv(
   return out;
 }
 
-/** The ACP launch argv for the `oma` registry entry. The ACP route spawns the
- *  registry's argv (the adapter's per-key `commands` override), so it has to
- *  resolve the same way the native adapter does: `OMA_BIN` when a deployment
- *  names it, else our own Bun on the repo's source CLI. A bare `oma` would
- *  silently demand a PATH entry that no deployment here has - the ACP face of
- *  this agent failing where its native face works. */
+/** The ACP launch argv for the `oma` registry entry: `OMA_BIN` when a
+ *  deployment names it, else our own Bun on the repo's source CLI. A bare
+ *  `oma` would silently demand a PATH entry that no deployment here has. */
 export function resolveOmaAcpArgv(
   config: BackendConfig,
   opts: { env?: Readonly<Record<string, string | undefined>>; appEntry?: string } = {},
 ): string[] {
-  // "tui" is the resolver's mode-less branch: it yields the bare launcher
-  // (Bun + the source CLI, or the configured binary), which is what the ACP
-  // argv starts from.
-  const launcher = resolveOmaCommand(config, { ...opts, mode: "tui" });
-  return [launcher.executable, ...(launcher.args ?? []), "--mode", "acp"];
+  const launcher = resolveOmaCommand(config, { ...opts, mode: "acp" });
+  return [launcher.executable, ...(launcher.args ?? [])];
 }
 
 export function resolveOmaCommand(
@@ -50,9 +49,9 @@ export function resolveOmaCommand(
   opts: {
     env?: Readonly<Record<string, string | undefined>>;
     appEntry?: string;
-    /** "tui" (Coding-page terminal): omit --mode entirely — the child is an
-     *  interactive PTY session, not the one-shot RPC child. Default "rpc". */
-    mode?: "rpc" | "tui";
+    /** "acp" adds --mode acp; omitted (the coding terminal, --list-models)
+     *  launches the interactive default. */
+    mode?: "acp";
   } = {},
 ): OmaCommandConfig {
   const env = {
@@ -88,11 +87,7 @@ export function resolveOmaCommand(
     ...opts.env,
   };
 
-  // RPC mode is mandatory for adapter children: without it the child blocks
-  // on piped stdin (print mode) while the adapter keeps stdin open - a
-  // deadlock. The TUI terminal passes no --mode: a PTY runs the interactive
-  // default.
-  const modeArgs = (opts.mode ?? "rpc") === "rpc" ? ["--mode", "rpc"] : [];
+  const modeArgs = opts.mode === "acp" ? ["--mode", "acp"] : [];
 
   if (config.omaBin) {
     return { executable: config.omaBin, args: modeArgs, env };

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { codingAgentOutputSchema, mapRunEvent } from "@chengchenccc/adapter-oma-agent";
 import type { BackendEvent } from "@chengchenccc/agent-contract";
 import { createLiveEventBus } from "./execution-live.js";
 
@@ -86,54 +85,5 @@ describe("createLiveEventBus durable HITL ordering", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(seen.map((e) => e.type)).toEqual(["status"]);
     expect(hookCalls).toBe(0);
-  });
-
-  // The join neither side's unit tests cover: the CHILD's oma frame goes
-  // through the adapter's schema and mapper, and the bus must recognize the
-  // result to persist the durable action. A name drifting on either side
-  // leaves both suites green and the product with no card at all.
-  test("the child's approval frame drives the durable hook end to end", async () => {
-    const persisted: Array<{ runId: string; callId: string; payload: unknown }> = [];
-    const seen: BackendEvent[] = [];
-    const bus = createLiveEventBus({
-      onLiveEvent: (_runId, ev) => seen.push(ev),
-      onApprovalRequest: async (input) => {
-        persisted.push(input);
-      },
-    });
-
-    const frame = codingAgentOutputSchema.parse({
-      type: "event",
-      runId: "r-join",
-      event: {
-        id: 3,
-        type: "approval_request",
-        data: {
-          callId: "call_join",
-          toolName: "bash",
-          reason: "bash requested approval (permission)",
-          input: { command: "rm -rf build" },
-          deadlineAt: 1_800_000_000_000,
-        },
-      },
-    });
-    if (frame.type !== "event") throw new Error("envelope must parse as an event frame");
-    await bus.broadcast("r-join", mapRunEvent(frame.event));
-    await new Promise((r) => setTimeout(r, 30));
-
-    expect(persisted).toEqual([
-      {
-        runId: "r-join",
-        callId: "call_join",
-        payload: {
-          callId: "call_join",
-          toolName: "bash",
-          reason: "bash requested approval (permission)",
-          input: { command: "rm -rf build" },
-          deadlineAt: 1_800_000_000_000,
-        },
-      },
-    ]);
-    expect(seen.map((e) => e.type)).toEqual(["approval_requested"]);
   });
 });

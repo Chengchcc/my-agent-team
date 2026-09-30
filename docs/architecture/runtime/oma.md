@@ -142,7 +142,7 @@ TUI 的路径显示统一走 `formatWorkspace(root, maxLen = 48)`：`$HOME` 先�
 
 ## 事件与终态
 
-子进程把 Runtime 事件包成 `RunEventEnvelope` 发到 stdout；adapter 用自己的映射（`packages/adapter-oma-agent/src/event-mapper.ts`）转成 `BackendEvent` 与 `BackendRunOutcome`，child 侧的 `protocol/mapping.ts` 是另一份独立实现——两份不是同源，见 [Agent Backend](../execution/agent-backend.md)。`agent_end.status` 映射为 completed / failed，stopped 映射为 aborted。outcome 是唯一终态权威。
+子进程把 Runtime 事件包成 `RunEventEnvelope` 发到 stdout；adapter 用自己的映射（`packages/adapter-acp/src/event-mapping.ts`）转成 `BackendEvent` 与 `BackendRunOutcome`，child 侧的 `protocol/mapping.ts` 是另一份独立实现——两份不是同源，见 [Agent Backend](../execution/agent-backend.md)。`agent_end.status` 映射为 completed / failed，stopped 映射为 aborted。outcome 是唯一终态权威。
 
 ## 不变量
 

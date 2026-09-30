@@ -24,33 +24,27 @@ const baseConfig: BackendConfig = {
 };
 
 describe("resolveOmaCommand", () => {
-  test("uses Bun + monorepo source CLI with --mode rpc when OMA_BIN is absent", () => {
+  test("uses Bun + monorepo source CLI when OMA_BIN is absent", () => {
     const result = resolveOmaCommand(baseConfig);
 
     expect(result.executable).toBe(process.execPath);
-    expect(result.args).toEqual([
-      expect.stringMatching(/\/apps\/oh-my-agent\/src\/cli\.ts$/),
-      "--mode",
-      "rpc",
-    ]);
+    expect(result.args).toEqual([expect.stringMatching(/\/apps\/oh-my-agent\/src\/cli\.ts$/)]);
     expect(existsSync(result.args![0]!)).toBe(true);
   });
 
-  test("uses explicit production executable with --mode rpc when OMA_BIN is set", () => {
+  test("explicit production executable carries no mode flags by default", () => {
     const result = resolveOmaCommand({
       ...baseConfig,
       omaBin: "/app/bin/oma",
     });
 
     expect(result.executable).toBe("/app/bin/oma");
-    // RPC mode is mandatory: without it the child blocks on piped stdin
-    // (print mode) while the adapter keeps stdin open - a deadlock.
-    expect(result.args).toEqual(["--mode", "rpc"]);
+    expect(result.args).toEqual([]);
   });
 
-  test("mode tui with OMA_BIN set omits --mode (interactive pane command)", () => {
-    const result = resolveOmaCommand({ ...baseConfig, omaBin: "/app/bin/oma" }, { mode: "tui" });
-    expect(result.args).toEqual([]);
+  test("mode acp adds --mode acp (the ACP face launch)", () => {
+    const result = resolveOmaCommand({ ...baseConfig, omaBin: "/app/bin/oma" }, { mode: "acp" });
+    expect(result.args).toEqual(["--mode", "acp"]);
   });
 
   test("throws when the source fallback entry is missing", () => {

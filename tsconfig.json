@@ -14,22 +14,10 @@
       "path": "./apps/web"
     },
     {
-      "path": "./packages/adapter-claude-agent"
-    },
-    {
       "path": "./packages/adapter-mcp"
     },
     {
-      "path": "./packages/adapter-oma-agent"
-    },
-    {
-      "path": "./packages/adapter-omp-agent"
-    },
-    {
       "path": "./packages/adapter-acp"
-    },
-    {
-      "path": "./packages/adapter-pi-agent"
     },
     {
       "path": "./packages/agent-contract"

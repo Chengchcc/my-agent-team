@@ -32,6 +32,15 @@ function readPresentation(value: unknown): ToolPresentation | undefined {
   };
 }
 
+/** Runtime event envelope: `data` is the raw Oma loop event object. The
+ *  zod schema that validated it retired with the rpc wire (ADR 0040); the
+ *  shape is the vocabulary every mode still speaks. */
+export interface RunEventEnvelope {
+  readonly id: number;
+  readonly type: string;
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
 /** Map Oma transport event envelopes to Backend core events,
  *  namespacing Runtime-specific details under `backend.oma.*`.
  *  Outcome mapping is the ONLY terminal authority. Lives in the CONTRACT

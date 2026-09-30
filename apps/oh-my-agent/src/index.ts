@@ -22,5 +22,3 @@ export {
 export { registerProvidersFromCatalog } from "./core/runtime/runtime-catalog.js";
 export { runJsonMode } from "./modes/json-mode.js";
 export { assistantText, type CliRunOptions, runPrintMode } from "./modes/print-mode.js";
-export { createJsonlReader, type JsonlReaderOptions } from "./modes/rpc/jsonl.js";
-export { type RpcModeController, type RpcModeOptions, runRpcMode } from "./modes/rpc/rpc-mode.js";

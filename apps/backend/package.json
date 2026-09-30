@@ -19,11 +19,7 @@
   },
   "dependencies": {
     "@chengchenccc/adapter-acp": "workspace:*",
-    "@chengchenccc/adapter-claude-agent": "workspace:*",
     "@chengchenccc/adapter-mcp": "workspace:*",
-    "@chengchenccc/adapter-oma-agent": "workspace:*",
-    "@chengchenccc/adapter-omp-agent": "workspace:*",
-    "@chengchenccc/adapter-pi-agent": "workspace:*",
     "@chengchenccc/agent-contract": "workspace:*",
     "@chengchenccc/ahp-client": "workspace:*",
     "@chengchenccc/ai": "workspace:*",

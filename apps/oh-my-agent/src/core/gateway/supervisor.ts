@@ -23,7 +23,7 @@ export function resolveOmaBin(): string {
   );
   for (const candidate of candidates) {
     // Only a JS entry counts: under `bun test` argv[1] is the bun binary, and
-    // handing that to the backend as OMA_BIN would spawn `bun --mode rpc` per Run.
+    // handing that to the backend as OMA_BIN would spawn the raw CLI per Run.
     if (!/\.(js|mjs|ts)$/.test(candidate)) continue;
     try {
       accessSync(candidate, constants.X_OK);

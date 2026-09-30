@@ -43,7 +43,7 @@ import {
   readWorkspaceSystemPrompt,
   scanWorkspaceSkillRoots,
 } from "../../core/settings/workspace-context.js";
-import type { RunEventEnvelope } from "../../protocol/transport.js";
+import type { RunEventEnvelope } from "../../protocol/index.js";
 
 export interface AcpModeOptions {
   /** The assembled model runtime (main.ts registers built-in providers,

@@ -1251,7 +1251,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     if (cwd !== main && !existsSync(cwd)) {
       throw new NotFoundError("task worktree", cwd);
     }
-    const oma = resolveOmaCommand(config, { mode: "tui" });
+    const oma = resolveOmaCommand(config);
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
     const omaLaunch = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
     return {

@@ -13,7 +13,6 @@ import { newerVersion } from "./core/update/release.js";
 import { runAcpMode } from "./modes/acp/acp-mode.js";
 import { runJsonMode } from "./modes/json-mode.js";
 import { runPrintMode } from "./modes/print-mode.js";
-import { runRpcMode } from "./modes/rpc/rpc-mode.js";
 import { runTuiMode } from "./modes/tui/tui-mode.js";
 
 /** --session <id> wins; --continue resolves the workspace's newest session
@@ -70,25 +69,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       modelRuntime,
       ...(args.model ? { model: args.model } : {}),
     });
-    let signaled = false;
-    const onSignal = (): void => {
-      if (signaled) return;
-      signaled = true;
-      controller.stop();
-    };
-    process.on("SIGTERM", onSignal);
-    process.on("SIGINT", onSignal);
-    try {
-      return await controller.promise;
-    } finally {
-      process.off("SIGTERM", onSignal);
-      process.off("SIGINT", onSignal);
-    }
-  }
-
-  if (args.mode === "rpc") {
-    // RPC stdin is the JSONL command stream: NEVER pre-read it.
-    const controller = runRpcMode({ modelRuntime });
     let signaled = false;
     const onSignal = (): void => {
       if (signaled) return;
