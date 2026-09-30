@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import type { HarnessCatalog } from "./harness-catalog.js";
 
 /** Web-facing model DTO. Mirrors apps/web/src/lib/api.ts listModels type —
  *  keep both in sync (e2e-contract-rules). */
@@ -31,6 +32,13 @@ export interface BackendReadinessEntry {
   models: number;
   available: number;
   error: string | null;
+}
+
+/** The harness axis (ADR 0040 decision 7): which harnesses exist, and the
+ *  models each one declares. Separate from /api/models because a harness is not
+ *  a model - the two lists feed two different pickers. */
+export function harnessRoutes(catalog: HarnessCatalog) {
+  return new Elysia().get("/api/harnesses", async () => ({ harnesses: await catalog.list() }));
 }
 
 export function modelRoutes(

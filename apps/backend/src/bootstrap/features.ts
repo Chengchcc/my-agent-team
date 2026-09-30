@@ -1,6 +1,11 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { AcpBackend, AcpModelCatalog } from "@chengchenccc/adapter-acp";
+import {
+  ACP_AGENTS,
+  AcpBackend,
+  AcpModelCatalog,
+  probeHarnessCatalog,
+} from "@chengchenccc/adapter-acp";
 import { ClaudeBackend } from "@chengchenccc/adapter-claude-agent";
 import { OmaBackend, OmaModelCatalog } from "@chengchenccc/adapter-oma-agent";
 import { OmpBackend } from "@chengchenccc/adapter-omp-agent";
@@ -86,8 +91,10 @@ import {
 import {
   applyServedAvailability,
   bareModelId,
+  createHarnessCatalog,
   createProviderModelProbe,
   createServedModelKnowledge,
+  harnessRoutes,
   modelRoutes,
   providerOfModelId,
 } from "../features/models/index.js";
@@ -624,6 +631,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   // Same resolution the native adapter uses: this box has no `oma` on PATH.
   const omaAcpArgv = resolveOmaAcpArgv(config, { env: providerSvc.getProviderEnv() });
+
+  // The harness axis (ADR 0040 decision 7). Reading a harness's models costs a
+  // session, so the catalog caches them; the oma entry reuses the launch
+  // resolution above, the same one the dispatch uses.
+  const harnessCatalog = createHarnessCatalog({
+    harnesses: () => Object.entries(ACP_AGENTS).map(([key, entry]) => ({ key, name: entry.name })),
+    probe: (key) =>
+      probeHarnessCatalog({ key, cwd: config.workspaceRoot, commands: { oma: omaAcpArgv } }),
+  });
   const acpBackend = new AcpBackend({
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
@@ -1650,6 +1666,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
     providers: providerRoutes(providerSvc, { onChange: refreshOmaProviderEnv }),
 
+    harnesses: harnessRoutes(harnessCatalog),
     models: modelRoutes(
       {
         // Aggregate every registered backend's catalog, tagging each model

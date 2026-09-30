@@ -8,7 +8,7 @@ import type { codingRoutes } from "./features/coding/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { knowledgeRoutes } from "./features/knowledge/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
-import type { modelRoutes } from "./features/models/http.js";
+import type { harnessRoutes, modelRoutes } from "./features/models/http.js";
 import { productToolsRoutes } from "./features/product-tools/http.js";
 import type { ProductToolsService } from "./features/product-tools/service.js";
 import type { projectRoutes } from "./features/project/http.js";
@@ -37,6 +37,7 @@ export interface FeatureSet {
   auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;
   models: ReturnType<typeof modelRoutes>;
+  harnesses: ReturnType<typeof harnessRoutes>;
   workflowExecutions: ReturnType<typeof workflowRoutes>;
   artifacts: ReturnType<typeof artifactRoutes>;
   productTools: ProductToolsService;
@@ -61,6 +62,7 @@ export function createApp(token: string, features: FeatureSet) {
     auth,
     providers,
     models,
+    harnesses,
     agentRuns,
     workflowExecutions,
     artifacts,
@@ -136,7 +138,8 @@ export function createApp(token: string, features: FeatureSet) {
     .use(providers)
     .use(mcp)
     .use(knowledge)
-    .use(models);
+    .use(models)
+    .use(harnesses);
 }
 
 export type App = ReturnType<typeof createApp>;

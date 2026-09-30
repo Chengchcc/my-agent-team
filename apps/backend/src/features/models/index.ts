@@ -1,4 +1,10 @@
-export { bareModelId, modelRoutes, providerOfModelId } from "./http.js";
+export {
+  createHarnessCatalog,
+  type HarnessCatalog,
+  type HarnessCatalogEntry,
+  type HarnessCatalogOptions,
+} from "./harness-catalog.js";
+export { bareModelId, harnessRoutes, modelRoutes, providerOfModelId } from "./http.js";
 export {
   applyServedAvailability,
   createProviderModelProbe,
