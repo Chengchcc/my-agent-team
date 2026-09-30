@@ -163,7 +163,7 @@ flowchart LR
 | S0 | 规范模型与账本编码对齐（决策三），含修 ACP 轨工具事实漏账 | 一致性向量；ACP 轨 N 次工具调用留 N 组工具事实 |
 | S1 | AHP 最小面：root / session / chat，`initialize` / `subscribe` / `dispatchAction` / `reconnect` | 上游 TS 客户端互操作用例；官方语料 |
 | S2 | Web 切到 AHP 客户端，状态由上游同源 reducer 派生；REST 不变 | Web 测试全绿且不再消费自研事件 |
-| S3 | 删事件词汇与 SSE；Lark 切到 AHP 客户端 | 删除清单逐条勾掉 |
+| S3 | 删事件词汇与 SSE；Lark 切到 AHP 客户端 | 删除清单逐条勾掉。**surface 侧已完成**（2026-09-30）：五个自研端点、14 类词汇、两个总线、网页的 EventSource 封装与后端的 SSE 构造器全部删除，Lark 与 Web 都走 AHP 客户端；运行轴那半见 R1–R3 |
 | R1 | cc 经官方桥、pi 经 `pi-acp` 接入 ACP | conformance 先行，再隔离验收 |
 | R2 | Workflow 的 agent 节点支持 `acp` kind | 节点级端到端 |
 | R3 | 逐个下线原生 adapter 与旧 kind | 删除清单逐条勾掉 |
