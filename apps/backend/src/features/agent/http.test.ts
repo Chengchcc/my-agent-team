@@ -93,6 +93,44 @@ describe("agent HTTP routes", () => {
     expect(body.name).toBe("test");
   });
 
+  test("the response carries the harness model, so the edit form can round-trip it", async () => {
+    const app = makeSvc();
+    const created = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "harness-model",
+          backendKind: "acp",
+          model: { provider: "acp", model: "oma", harnessModel: "deepseek/deepseek-v4-pro" },
+        }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    const body = (await readJson(created)) as {
+      modelProvider: string;
+      modelName: string;
+      harnessModel: string | null;
+    };
+    expect(body.modelProvider).toBe("acp");
+    expect(body.modelName).toBe("oma");
+    expect(body.harnessModel).toBe("deepseek/deepseek-v4-pro");
+
+    // Unset reads as null: an empty string would look like a choice and pin
+    // every run to whatever the harness last held.
+    const plain = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "no-harness-model",
+          model: { provider: "anthropic", model: "claude" },
+        }),
+      }),
+    );
+    expect(((await readJson(plain)) as { harnessModel: string | null }).harnessModel).toBeNull();
+  });
+
   test("POST /api/agents returns 422 on invalid body", async () => {
     const app = makeSvc();
     const req = new Request("http://localhost/api/agents", {

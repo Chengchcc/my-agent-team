@@ -50,6 +50,9 @@ function toAgentResponse(row: AgentRow, status: string) {
     modelName: slash > 0 ? rc.model_id.slice(slash + 1) : rc.model_id,
     backendKind: rc.runtime,
     reasoningEffort: rc.reasoning_effort !== "" ? rc.reasoning_effort : null,
+    // The harness's own model (ADR 0040 decision 7). Null = nothing named, which
+    // the edit form must round-trip as "" rather than pin a run to a stale value.
+    harnessModel: rc.harness_model !== "" ? rc.harness_model : null,
     permissionMode: rc.permission_mode,
     maxSteps: rc.max_steps > 0 ? rc.max_steps : null,
     mcpServers: rc.mcp_servers.map((s) => ({ serverId: s.server_id, enabled: s.enabled })),
