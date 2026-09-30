@@ -21,8 +21,6 @@
  *    itself. Track "acp" (mcp/message relay) is the declared end state,
  *    unimplemented until an agent advertises mcpCapabilities.acp. */
 
-import { spawn } from "node:child_process";
-import { Readable, Writable } from "node:stream";
 import type {
   PromptResponse,
   RequestPermissionRequest,
@@ -39,7 +37,6 @@ import type {
 } from "@chengchenccc/agent-contract";
 import {
   CONSENTED_MCP_TOOLS_ENV,
-  debugLog,
   encodeEnvList,
   guardedConsume,
   MCP_EXPANDABLE_VARS_ENV,
@@ -52,6 +49,7 @@ import {
   mapAcpUsage,
 } from "./event-mapping.js";
 import { harnessOf, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
+import { type AcpSpawn, type AcpTransport, createNodeSpawn } from "./transport.js";
 
 export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found" | "unsupported";
 
@@ -70,20 +68,6 @@ export class AcpBackendError extends Error {
     super(message);
   }
 }
-
-/** The byte transport under the SDK: a spawned agent server by default;
- *  tests inject an in-memory pair wired to a fake agent. */
-export interface AcpTransport {
-  readonly stream: ReturnType<typeof acp.ndJsonStream>;
-  readonly exit: Promise<number | null>;
-  kill(): void;
-}
-
-export type AcpSpawn = (command: {
-  readonly argv: readonly string[];
-  readonly cwd: string;
-  readonly env: Readonly<Record<string, string | undefined>>;
-}) => AcpTransport;
 
 export interface AcpBackendOptions {
   /** Extra env applied over the parent process env (inherited by the
@@ -570,43 +554,6 @@ export class AcpBackend implements AgentBackend<"acp"> {
  *  process (Bun reports ENOENT through the child's `error` event, and an
  *  unhandled `error` event is an uncaught exception that kills the whole
  *  backend - live 2026-09-29). */
-export function createNodeSpawn(graceMs: number): AcpSpawn {
-  return ({ argv, cwd, env }) => {
-    const child = spawn(argv[0]!, [...argv.slice(1)], {
-      cwd,
-      env: { ...process.env, ...env },
-      stdio: ["pipe", "pipe", "inherit"],
-    });
-    const exit = new Promise<number | null>((resolve) => {
-      child.on("exit", (code, signal) => {
-        // Why a run ended at the transport level is a fact worth one line:
-        // the child exiting takes the session with it, and without this the
-        // failure reads only as "ACP connection closed".
-        debugLog("acp", `agent ${argv[0]} exited code=${code} signal=${signal ?? "none"}`);
-        resolve(code);
-      });
-      child.on("error", (err) => {
-        // Fold the spawn failure into the exit promise (the run fails with
-        // "ACP connection closed"); swallow it here so it never escapes as
-        // an unhandled 'error' event.
-        console.error(`[acp] agent spawn failed: ${err.message}`);
-        resolve(null);
-      });
-    });
-    return {
-      stream: acp.ndJsonStream(
-        Writable.toWeb(child.stdin!),
-        Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
-      ),
-      exit,
-      kill() {
-        child.kill("SIGTERM");
-        setTimeout(() => child.kill("SIGKILL"), graceMs);
-      },
-    };
-  };
-}
-
 function createActiveRun(runId: string): ActiveRun {
   let settled = false;
   let settleOutcome: ((o: BackendRunOutcome) => void) | null = null;

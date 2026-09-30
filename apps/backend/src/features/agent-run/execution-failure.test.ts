@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AcpBackend } from "@chengchenccc/adapter-acp";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import { sqliteConversationAdapter } from "../conversation/adapter-sqlite.js";
@@ -11,6 +10,7 @@ import {
   type RunTokenRegistry,
 } from "../product-tools/run-token-registry.js";
 import { createWorkspaceLockRegistry } from "../project/workspace-lock.js";
+import { AcpBackend } from "./acp/acp-backend.js";
 import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { createAgentRunExecutionService } from "./execution.js";

@@ -32,7 +32,7 @@
       "name": "@chengchenccc/backend",
       "version": "0.1.0",
       "dependencies": {
-        "@chengchenccc/adapter-acp": "workspace:*",
+        "@agentclientprotocol/sdk": "^1.5.1",
         "@chengchenccc/adapter-mcp": "workspace:*",
         "@chengchenccc/agent-contract": "workspace:*",
         "@chengchenccc/ahp-client": "workspace:*",
@@ -154,19 +154,6 @@
         "puppeteer-core": "^24.0.0",
         "tailwindcss": "^4.0.0",
         "typescript": "^6.0.3",
-      },
-    },
-    "packages/adapter-acp": {
-      "name": "@chengchenccc/adapter-acp",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agentclientprotocol/sdk": "^1.5.1",
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
       },
     },
     "packages/adapter-mcp": {
@@ -349,8 +336,6 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.16", "https://registry.npmmirror.com/@biomejs/cli-win32-x64/-/cli-win32-x64-2.4.16.tgz", { "os": "win32", "cpu": "x64" }, "sha512-Kp85jgoBHa05gix6UIRjfCDiUV3w/8VIdZ247VyyO2gEjaw12WEVhdIjlxp/AMzXxqxQwbxNTDVZ3Mwd2RG5rw=="],
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
-
-    "@chengchenccc/adapter-acp": ["@chengchenccc/adapter-acp@workspace:packages/adapter-acp"],
 
     "@chengchenccc/adapter-mcp": ["@chengchenccc/adapter-mcp@workspace:packages/adapter-mcp"],
 
@@ -2101,8 +2086,6 @@
     "@babel/helper-create-class-features-plugin/semver": ["semver@6.3.1", "https://registry.npmmirror.com/semver/-/semver-6.3.1.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@base-ui/utils/reselect": ["reselect@5.2.0", "https://registry.npmmirror.com/reselect/-/reselect-5.2.0.tgz", {}, "sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw=="],
-
-    "@chengchenccc/adapter-acp/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@chengchenccc/oh-my-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

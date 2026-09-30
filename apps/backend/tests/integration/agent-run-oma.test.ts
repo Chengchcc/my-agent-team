@@ -3,7 +3,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AcpBackend, AcpModelCatalog } from "@chengchenccc/adapter-acp";
 import type { Message } from "@chengchenccc/message";
 import { assistantMessageId, parseMessageRevision } from "@chengchenccc/message";
 import {
@@ -11,6 +10,8 @@ import {
   projectAgentContext,
   sqliteAgentContextAdapter,
 } from "../../src/features/agent-context/index.js";
+import { AcpBackend } from "../../src/features/agent-run/acp/acp-backend.js";
+import { AcpModelCatalog } from "../../src/features/agent-run/acp/model-catalog.js";
 import { sqliteAgentRunAdapter } from "../../src/features/agent-run/adapter-sqlite.js";
 import { createAgentRunExecutionService } from "../../src/features/agent-run/execution.js";
 import { createAgentRunService } from "../../src/features/agent-run/service.js";

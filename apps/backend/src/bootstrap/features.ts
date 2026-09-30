@@ -1,11 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-  ACP_AGENTS,
-  AcpBackend,
-  AcpModelCatalog,
-  probeHarnessCatalog,
-} from "@chengchenccc/adapter-acp";
 import type { AskQuestionInput, BackendRegistry } from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { type Message, serializeMessageRevision } from "@chengchenccc/message";
@@ -32,6 +26,10 @@ import {
   sqliteAgentContextAdapter,
 } from "../features/agent-context/index.js";
 import type { LedgerMessageResolver } from "../features/agent-context/ports.js";
+import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
+import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
+import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
+import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
 import {
   agentRunRoutes,
   buildHistoryTools,

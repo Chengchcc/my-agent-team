@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { schema } from "@agentclientprotocol/sdk";
+import type * as schema from "@agentclientprotocol/sdk";
 import type { BackendEvent } from "@chengchenccc/agent-contract";
 import {
   buildOutcomeMessages,
@@ -91,7 +91,7 @@ describe("mapAcpUpdate", () => {
         { content: "third", priority: "medium", status: "pending" },
       ],
     } as Update);
-    expect(events).toEqual([
+    expect(JSON.parse(JSON.stringify(events))).toEqual([
       {
         type: "backend.oma.todo_update",
         payload: {
@@ -103,7 +103,10 @@ describe("mapAcpUpdate", () => {
         },
       },
     ]);
-    expect(mapAcpUpdate(acc, { sessionUpdate: "plan_removed" } as Update)).toEqual([
+    const removed: Array<Record<string, unknown>> = mapAcpUpdate(acc, {
+      sessionUpdate: "plan_removed",
+    } as Update) as unknown as Array<Record<string, unknown>>;
+    expect(JSON.parse(JSON.stringify(removed))).toEqual([
       { type: "backend.oma.todo_update", payload: { items: [] } },
     ]);
   });
@@ -114,7 +117,7 @@ describe("mapAcpUpdate", () => {
       mapAcpUpdate(acc, {
         sessionUpdate: "user_message_chunk",
         content: { type: "text", text: "echo" },
-      } as Update),
+      } as Update) as unknown as Array<Record<string, unknown>>,
     ).toEqual([]);
     expect(
       mapAcpUpdate(acc, { sessionUpdate: "session_info_update", title: "t" } as Update),
@@ -124,14 +127,14 @@ describe("mapAcpUpdate", () => {
 
 describe("mapAcpUsage", () => {
   test("maps present fields, keeps absent ones absent", () => {
-    expect(mapAcpUsage({ inputTokens: 10, outputTokens: 5 })).toEqual({
+    expect(mapAcpUsage({ inputTokens: 10, outputTokens: 5 } as never)).toEqual({
       inputTokens: 10,
       outputTokens: 5,
     });
-    expect(mapAcpUsage({ inputTokens: 1 })).toEqual({ inputTokens: 1 });
+    expect(mapAcpUsage({ inputTokens: 1 } as never)).toEqual({ inputTokens: 1 });
     expect(mapAcpUsage(null)).toBeUndefined();
     expect(mapAcpUsage(undefined)).toBeUndefined();
-    expect(mapAcpUsage({})).toBeUndefined();
+    expect(mapAcpUsage({} as never)).toBeUndefined();
   });
 });
 

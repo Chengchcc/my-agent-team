@@ -198,7 +198,7 @@ const PlainRecord = z.record(z.string(), z.unknown());
  *  line, so both forms fold to one. */
 function invocationLine(value: unknown): string | undefined {
   if (typeof value === "string") return value;
-  const markdown = recordOf(value)?.["markdown"];
+  const markdown = recordOf(value)?.markdown;
   return typeof markdown === "string" ? markdown : undefined;
 }
 
@@ -305,8 +305,8 @@ export function cardStateFromChatTurn(
       if ("response" in part && part.response !== undefined) continue;
       const request = part.request;
       // `_meta` rides a shape upstream gives no slot to; the page records that convention.
-      const requestMeta = recordOf(recordOf(request)?.["_meta"]);
-      const payload = recordOf(requestMeta?.["productRequest"]);
+      const requestMeta = recordOf(recordOf(request)?._meta);
+      const payload = recordOf(requestMeta?.productRequest);
       pendingAction = pendingActionFromBackend(request.message as string, payload ?? {});
     }
   }

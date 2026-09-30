@@ -8,7 +8,7 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "@chengchenccc/agent-contract";
-import { AcpBackend, type AcpBackendOptions, type AcpMcpProvider } from "../acp-backend.js";
+import { AcpBackend, type AcpBackendOptions, type AcpMcpProvider } from "./acp-backend.js";
 
 /** Smoke test for the scripted fake ACP harness child: a REAL AcpBackend
  *  spawning `bun fake-acp-harness.ts` through the `commands` override (the
@@ -331,16 +331,18 @@ describe("fake ACP harness through a real AcpBackend", () => {
     await backend.dispose();
 
     expect(outcome.status).toBe("completed");
-    expect(events).toContainEqual({
-      type: "backend.oma.todo_update",
-      payload: {
-        items: [
-          { id: "0", text: "step 1", status: "done" },
-          { id: "1", text: "step 2", status: "in_progress" },
-          { id: "2", text: "step 3", status: "pending" },
-        ],
-      },
-    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "backend.oma.todo_update",
+        payload: {
+          items: [
+            { id: "0", text: "step 1", status: "done" },
+            { id: "1", text: "step 2", status: "in_progress" },
+            { id: "2", text: "step 3", status: "pending" },
+          ],
+        },
+      }),
+    );
     expect(readRecord(recordPath).find((line) => line.event === "spawn_env")).toEqual({
       event: "spawn_env",
       PRODUCT_TOOLS_RUN_TOKEN: "bearer-run-plan-env",

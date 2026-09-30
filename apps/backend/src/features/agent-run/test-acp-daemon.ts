@@ -1,14 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AcpBackend } from "@chengchenccc/adapter-acp";
+import { AcpBackend } from "./acp/acp-backend.js";
 
 /** The scripted ACP child the agent-run suites drive (ADR 0040 R3): a real
  *  process on the ACP wire, with its JSONL record file as the assertions'
  *  eyes inside the child. */
-const FIXTURE = new URL(
-  "../../../../../packages/adapter-acp/src/__fixtures__/fake-acp-harness.ts",
-  import.meta.url,
-).pathname;
+const FIXTURE = new URL("./acp/fake-acp-harness.ts", import.meta.url).pathname;
 
 type ScriptStep = Record<string, unknown>;
 

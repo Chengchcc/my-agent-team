@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as acp from "@agentclientprotocol/sdk";
-import type { AcpSpawn, AcpTransport } from "./acp-backend.js";
 import { probeHarnessCatalog, toCatalog } from "./harness-catalog.js";
+import type { AcpSpawn, AcpTransport } from "./transport.js";
 
 function streamPair(): {
   readable: ReadableStream<Uint8Array>;
@@ -45,10 +45,14 @@ function fakeHarness(configOptions: unknown[] | null): {
         authMethods: [],
       }));
     if (configOptions !== null) {
-      app.onRequest(acp.methods.agent.session.new, async () => ({
-        sessionId: "sess-fake",
-        configOptions,
-      }));
+      app.onRequest(
+        acp.methods.agent.session.new,
+        async () =>
+          ({
+            sessionId: "sess-fake",
+            configOptions,
+          }) as never,
+      );
     } else {
       // Registers the method and never answers it: the pi-style hang, which
       // must surface as our timeout rather than as a protocol error.

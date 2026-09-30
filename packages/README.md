@@ -9,7 +9,7 @@
 ```text
 Product Backend (apps/backend)
 → Agent Run
-→ ACP 客户端 (packages/adapter-acp)
+→ ACP 客户端 (backend 内的 acp 模块)
 → spawn 一次性 oma 子进程 --mode acp (apps/oh-my-agent)
 → per-Run Runtime
 → BackendRunOutcome (@chengchenccc/agent-contract)
@@ -28,7 +28,7 @@ Product Backend (apps/backend)
 ## Runtime 与执行链
 
 - [`ai`](./ai/) — provider 注册表与模型目录、`createModelRuntime()`。协议实现（Anthropic Messages、OpenAI Completions、OpenAI Responses）自己用 fetch 与 SSE 说话，不引任何模型 SDK。
-- [`adapter-acp`](./adapter-acp/) — 唯一的运行适配器：spawn 子进程、stdio ACP（JSON-RPC）、审批挂起、停止、mcp/message 中继。没有子进程池，一个 Run 一个 child，跑完就回收。
+- （无 adapter 包）运行边界已收进 backend：`apps/backend/src/features/agent-run/acp/` spawn 子进程、stdio ACP（JSON-RPC）、审批挂起、停止、mcp/message 中继。一个 Run 一个 child，跑完即杀。
 - [`adapter-mcp`](./adapter-mcp/) — MCP 客户端挂载与工具适配（工具名形如 `mcp__<server>__<tool>`）。
 
 ## 编排与沙箱
@@ -44,7 +44,7 @@ Product Backend (apps/backend)
 
 ## 从哪读起
 
-- **想理解整体**：`message` → `agent-contract` → `adapter-acp`，这条线就是执行链。
+- **想理解整体**：`message` → backend 的 agent-run feature（内含 ACP 客户端），这条线就是执行链。
 - **想加 oma 能力**：先看 `apps/oh-my-agent/src/core/runtime/plugin.ts` 的插件形状，工具照着 `apps/oh-my-agent/src/core/tools/` 里现成的写。
 - **想接新模型厂商**：看 [`ai`](./ai/) 的 provider 注册表与 `providers/` 下的协议实现。
-- **在做后端**：`agent-contract`（契约）→ `adapter-acp`（子进程边界）→ `apps/backend` 的 agent-run feature（执行编排）。
+- **在做后端**：`apps/backend` 的 agent-run feature——执行编排与 ACP 子进程边界在同一个 feature 里。

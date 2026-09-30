@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AcpBackendError } from "@chengchenccc/adapter-acp";
 import { assistantMessageId, parseMessageRevision } from "@chengchenccc/message";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
@@ -12,6 +11,7 @@ import {
   type RunTokenRegistry,
 } from "../product-tools/run-token-registry.js";
 import { createWorkspaceLockRegistry } from "../project/workspace-lock.js";
+import { AcpBackendError } from "./acp/acp-backend.js";
 import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { ApprovalNotApplicableError, createAgentRunExecutionService } from "./execution.js";

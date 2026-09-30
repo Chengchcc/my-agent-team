@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AcpBackend } from "@chengchenccc/adapter-acp";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import { sqliteConversationAdapter } from "../conversation/adapter-sqlite.js";
 import { createRunTokenRegistry } from "../product-tools/run-token-registry.js";
 import { createWorkspaceLockRegistry } from "../project/workspace-lock.js";
+import { AcpBackend } from "./acp/acp-backend.js";
 import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { createAgentRunExecutionService } from "./execution.js";
@@ -23,10 +23,7 @@ import { createAgentRunService } from "./service.js";
 // durably cancelled (never replayed), and a steer with no live run cancels
 // at enqueue without creating a Run.
 
-const FIXTURE = new URL(
-  "../../../../../packages/adapter-acp/src/__fixtures__/fake-acp-harness.ts",
-  import.meta.url,
-).pathname;
+const FIXTURE = new URL("./acp/fake-acp-harness.ts", import.meta.url).pathname;
 
 function createFakeAcpDaemon(opts: { holdMs?: number } = {}) {
   return new AcpBackend({

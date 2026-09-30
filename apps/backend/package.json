@@ -18,7 +18,7 @@
     "db:migrate:backend": "bun run src/main.ts"
   },
   "dependencies": {
-    "@chengchenccc/adapter-acp": "workspace:*",
+    "@agentclientprotocol/sdk": "^1.5.1",
     "@chengchenccc/adapter-mcp": "workspace:*",
     "@chengchenccc/agent-contract": "workspace:*",
     "@chengchenccc/ahp-client": "workspace:*",

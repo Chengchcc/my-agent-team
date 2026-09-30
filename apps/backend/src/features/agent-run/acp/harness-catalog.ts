@@ -13,13 +13,8 @@
  * probing on every render.
  */
 import * as acp from "@agentclientprotocol/sdk";
-import {
-  AcpBackendError,
-  type AcpSpawn,
-  type AcpTransport,
-  createNodeSpawn,
-} from "./acp-backend.js";
 import { ACP_AGENTS } from "./registry.js";
+import { AcpClientError, type AcpSpawn, type AcpTransport, createNodeSpawn } from "./transport.js";
 
 export interface AcpHarnessModel {
   readonly value: string;
@@ -59,7 +54,7 @@ export async function probeHarnessCatalog(
 ): Promise<AcpHarnessCatalog> {
   const entry = ACP_AGENTS[opts.key];
   if (!entry) {
-    throw new AcpBackendError(
+    throw new AcpClientError(
       "not_found",
       `unknown ACP harness '${opts.key}' (known: ${Object.keys(ACP_AGENTS).join(", ")})`,
     );
@@ -76,7 +71,7 @@ export async function probeHarnessCatalog(
         timer = setTimeout(
           () =>
             reject(
-              new AcpBackendError(
+              new AcpClientError(
                 "spawn_failed",
                 `harness '${opts.key}' did not answer session/new within ${timeoutMs}ms`,
               ),
@@ -110,7 +105,7 @@ async function readCatalog(
     catalog = toCatalog(key, created.configOptions ?? []);
   });
   if (!catalog) {
-    throw new AcpBackendError("spawn_failed", `harness '${key}' closed before declaring a session`);
+    throw new AcpClientError("spawn_failed", `harness '${key}' closed before declaring a session`);
   }
   return catalog;
 }

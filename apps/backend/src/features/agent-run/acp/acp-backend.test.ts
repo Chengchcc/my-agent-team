@@ -6,13 +6,8 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "@chengchenccc/agent-contract";
-import {
-  AcpBackend,
-  AcpBackendError,
-  type AcpMcpProvider,
-  type AcpSpawn,
-  createNodeSpawn,
-} from "./acp-backend.js";
+import { AcpBackend, AcpBackendError, type AcpMcpProvider } from "./acp-backend.js";
+import { type AcpSpawn, createNodeSpawn } from "./transport.js";
 
 /** ─── In-memory transport: crossed NDJSON stream pairs ────────────────
  *  The same wiring the SDK's own tests use — the backend speaks to a fake
@@ -92,7 +87,7 @@ interface FakeAgentScript {
 }
 
 function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): AcpSpawn {
-  return ({ env }) => {
+  return ({ env }: { readonly env: Readonly<Record<string, string | undefined>> }) => {
     script.spawnEnv?.push(env);
     const backendToAgent = streamPair();
     const agentToBackend = streamPair();
@@ -123,11 +118,14 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       .onRequest(acp.methods.agent.session.new, async (ctx) => {
         obs.newSessionCalls += 1;
         script.newSessionParams?.push(ctx.params);
-        return { sessionId: "sess-fake-1", configOptions: script.configOptions ?? [] };
+        return { sessionId: "sess-fake-1", configOptions: script.configOptions ?? [] } as never;
       })
       .onRequest(acp.methods.agent.session.load, async (ctx) => {
         obs.loadedSessionIds.push(ctx.params.sessionId);
-        return { sessionId: ctx.params.sessionId, configOptions: script.configOptions ?? [] };
+        return {
+          sessionId: ctx.params.sessionId,
+          configOptions: script.configOptions ?? [],
+        } as never;
       })
       .onRequest(acp.methods.agent.session.setConfigOption, async (ctx) => {
         obs.setConfigOptions ??= [];
@@ -214,7 +212,7 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
           } as never);
           obs.elicitationOutcome = answer;
         }
-        return { stopReason: script.stopReason ?? "end_turn" };
+        return { stopReason: (script.stopReason ?? "end_turn") as "end_turn" };
       });
 
     void app.connect(acp.ndJsonStream(agentToBackend.writable, backendToAgent.readable));
@@ -793,7 +791,7 @@ describe("MCP over ACP (ADR 0039: the connection carries the servers)", () => {
     const { outcome } = await collect(
       await backend.execute({
         ...input,
-        metadata: { conversationId: "conv-1", agentId: "agent-1" },
+        metadata: { conversationId: "conv-1", agentId: "agent-1", branchId: "br-1" },
       }),
     );
     expect(outcome.status).toBe("completed");

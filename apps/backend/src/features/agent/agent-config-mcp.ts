@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import { ACP_AGENTS } from "@chengchenccc/adapter-acp";
 import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ACP_AGENTS } from "../agent-run/acp/registry.js";
 import type { ProposalKind } from "../proposal/domain.js";
 
 /** Agent-config MCP server: lets a chat agent read/write/create agents

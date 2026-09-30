@@ -14,7 +14,7 @@
  * probe, and every failure is reported as a per-harness `error` with no models
  * rather than thrown.
  */
-import type { AcpHarnessModel } from "@chengchenccc/adapter-acp";
+import type { AcpHarnessModel } from "../agent-run/acp/harness-catalog.js";
 
 export interface HarnessCatalogEntry {
   readonly key: string;

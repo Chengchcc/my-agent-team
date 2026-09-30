@@ -1,7 +1,7 @@
-import { AcpBackendError } from "@chengchenccc/adapter-acp";
 import type { AgentBackend, ResumeDecision } from "@chengchenccc/agent-contract";
 import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
+import { AcpBackendError } from "./acp/acp-backend.js";
 import { isActiveStatus, pendingActionId } from "./domain.js";
 import { finalAnswerMessage } from "./execution-input.js";
 import type { LiveEventBus } from "./execution-live.js";
