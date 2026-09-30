@@ -4,6 +4,9 @@ export const agentFormSchema = z.object({
   name: z.string().trim().min(1, "Agent name is required"),
   backendKind: z.string().trim().min(1, "Backend is required"),
   model: z.string().trim().min(1, "Model is required"),
+  /** For the acp kind: which model the chosen harness runs (ADR 0040 decision 7).
+   *  "" = the harness's own default. */
+  harnessModel: z.string().trim().default(""),
   reasoningEffort: z.enum(["", "none", "low", "high", "max"]).default(""),
   permissionMode: z.enum(["ask", "auto", "deny"]).default("ask"),
   maxSteps: z.string().trim().default(""),

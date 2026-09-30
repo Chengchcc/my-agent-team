@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { useCreateAgent, useMcpCatalog, useUpdateAgent } from "@/features/agents/hooks";
 import { useKnowledgePacks } from "@/features/knowledge/hooks";
-import { useModelList } from "@/features/models/hooks";
+import { useHarnessList, useModelList } from "@/features/models/hooks";
 import {
   useAgentSkillPacks,
   useSetAgentPacks,
@@ -133,6 +133,7 @@ export function AgentForm({
       // Empty until the catalog loads (see effect below): never hard-code a
       // provider model that may not exist in the runtime catalog.
       model: editAgent?.modelName ?? "",
+      harnessModel: editAgent?.harnessModel ?? "",
       reasoningEffort: editAgent?.reasoningEffort ?? "",
       permissionMode: editAgent?.permissionMode ?? "ask",
       maxSteps: editAgent?.maxSteps?.toString() ?? "",
@@ -149,6 +150,16 @@ export function AgentForm({
     [modelGroups, modelValue],
   );
 
+  // The acp kind's model value is the harness key ("acp/oma" -> "oma"); that
+  // harness's own declaration lists the models it can run (ADR 0040 decision 7).
+  const { data: harnessData } = useHarnessList();
+  const harnessModels = useMemo(() => {
+    const value = String(modelValue ?? "");
+    const slash = value.indexOf("/");
+    const key = slash >= 0 ? value.slice(slash + 1) : value;
+    return (harnessData?.harnesses ?? []).find((h) => h.key === key);
+  }, [harnessData, modelValue]);
+
   // Reset form when editAgent changes, or when the create page's chat
   // proposes a draft (which must NOT flip the form into edit mode).
   useEffect(() => {
@@ -160,6 +171,7 @@ export function AgentForm({
           editAgent.modelProvider && editAgent.modelName
             ? `${editAgent.modelProvider}/${editAgent.modelName}`
             : editAgent.modelName,
+        harnessModel: editAgent.harnessModel ?? "",
         reasoningEffort: editAgent.reasoningEffort ?? "",
         permissionMode: editAgent.permissionMode,
         maxSteps: editAgent.maxSteps?.toString() ?? "",
@@ -181,6 +193,7 @@ export function AgentForm({
         draft.modelProvider && draft.modelName
           ? `${draft.modelProvider}/${draft.modelName}`
           : (draft.modelName ?? ""),
+      harnessModel: "",
       reasoningEffort: draft.reasoningEffort ?? "",
       permissionMode: draft.permissionMode ?? "ask",
       maxSteps: draft.maxSteps?.toString() ?? "",
@@ -252,6 +265,7 @@ export function AgentForm({
       model: {
         provider: values.model.split("/")[0] ?? "anthropic",
         model: values.model.split("/").slice(1).join("/") || values.model,
+        ...(values.harnessModel ? { harnessModel: values.harnessModel } : {}),
       },
       permissionMode: values.permissionMode,
       mcpServers: selectedMcpBody(),
@@ -506,7 +520,9 @@ export function AgentForm({
                     name="model"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className={`${overlineClass} mb-1.5 block`}>Model *</FormLabel>
+                        <FormLabel className={`${overlineClass} mb-1.5 block`}>
+                          {selBackendKind === "acp" ? "Harness *" : "Model *"}
+                        </FormLabel>
                         <FormControl>
                           <Select
                             value={field.value}
@@ -537,6 +553,41 @@ export function AgentForm({
                             </SelectContent>
                           </Select>
                         </FormControl>
+                        {selBackendKind === "acp" && (
+                          <FormField
+                            control={form.control}
+                            name="harnessModel"
+                            render={({ field }) => (
+                              <FormItem className="mt-3">
+                                <FormLabel className={`${overlineClass} mb-1.5 block`}>
+                                  Model
+                                </FormLabel>
+                                <FormControl>
+                                  <Select
+                                    value={field.value}
+                                    onValueChange={(v2) => field.onChange(v2 ?? "")}
+                                  >
+                                    <SelectTrigger className={fieldClass}>
+                                      <SelectValue
+                                        placeholder={harnessModels?.error ?? "Select model…"}
+                                      />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {(harnessModels?.models ?? []).map((m) => (
+                                        <SelectItem key={m.value} value={m.value}>
+                                          {m.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </FormControl>
+                                {harnessModels?.error && (
+                                  <p className="text-xs text-(--mute)">{harnessModels.error}</p>
+                                )}
+                              </FormItem>
+                            )}
+                          />
+                        )}
                         {selectedModelMeta && (
                           <div className={`${hintClass} flex flex-wrap gap-x-3 gap-y-0.5`}>
                             {selectedModelMeta.reasoning && (
