@@ -1,12 +1,3 @@
-export type {
-  AskQuestionAnswerItem,
-  AskQuestionFilled,
-  AskQuestionInput,
-  AskQuestionItem,
-  AskQuestionOption,
-  AskQuestionResult,
-  AskQuestionValidation,
-} from "./ask-question.js";
 export type { AgentBackend, BackendRegistry, BackendRegistryEntry } from "./backend.js";
 export { guardedConsume } from "./cli-consume.js";
 export { debugLog } from "./debug.js";
