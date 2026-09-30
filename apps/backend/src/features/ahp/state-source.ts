@@ -87,6 +87,12 @@ export type AhpRunRow = Pick<AgentRun, "runId" | "status" | "createdAt">;
 /** The read ports this projection needs. All of them are queries. */
 export interface AhpStateSourceDeps {
   readonly listAgents: () => Promise<readonly AhpAgentRow[]>;
+  /** The models a harness declares (its own ACP catalogue), so the AHP root
+   *  advertises the same choices the agent form offers. Absent/throwing =
+   *  an empty list, never a made-up one. */
+  readonly harnessModels?: (
+    harness: string,
+  ) => Promise<readonly { readonly value: string; readonly name: string }[]>;
   readonly getConversation: (conversationId: string) => AhpConversationRow | null;
   readonly getLedgerEntries: (conversationId: string) => readonly AhpLedgerRow[];
   readonly listPendingInputs: (
@@ -111,20 +117,35 @@ export interface AhpStateSourceDeps {
 
 export function createAhpStateSource(deps: AhpStateSourceDeps): AhpStateSource {
   return {
-    root: async () => rootState(await deps.listAgents()),
+    root: async () => rootState(await deps.listAgents(), deps.harnessModels),
     session: async (uri) => sessionState(deps, await deps.listAgents(), uri),
     chat: async (uri) => chatState(deps, await deps.listAgents(), uri),
   };
 }
 
-function rootState(agents: readonly AhpAgentRow[]): RootState {
+async function rootState(
+  agents: readonly AhpAgentRow[],
+  harnessModels?: AhpStateSourceDeps["harnessModels"],
+): Promise<RootState> {
+  const catalogue = new Map<string, readonly { readonly value: string; readonly name: string }[]>();
+  if (harnessModels) {
+    for (const harness of new Set(agents.map((a) => a.harness))) {
+      catalogue.set(harness, await harnessModels(harness).catch(() => []));
+    }
+  }
   return {
     agents: agents.map((agent) => ({
       provider: agent.harness,
       displayName: agent.name,
       // Carry it through as-is, no structural assumptions: the model id is the product's string.
       description: agent.model,
-      models: [],
+      // Single source: the same harness catalogue the agent form reads. A
+      // harness whose probe failed advertises nothing rather than a guess.
+      models: (catalogue.get(agent.harness) ?? []).map((m) => ({
+        id: `${agent.harness}/${m.value}`,
+        provider: agent.harness,
+        name: m.name,
+      })),
     })),
   };
 }

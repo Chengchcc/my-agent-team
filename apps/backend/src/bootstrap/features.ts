@@ -1495,6 +1495,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         // The harness's own model, in that harness's vocabulary; "" = its default.
         model: agent.config.runtime_config.model,
       })),
+    harnessModels: async (harness) =>
+      (await harnessCatalog.list()).find((h) => h.key === harness)?.models ?? [],
     getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
     getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
     listPendingInputs: async (conversationId) =>

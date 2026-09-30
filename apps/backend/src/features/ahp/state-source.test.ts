@@ -57,6 +57,31 @@ describe("AHP state source", () => {
     });
   });
 
+  test("root models come from the same harness catalogue the agent form reads", async () => {
+    const deps = fixture().deps;
+    const source = createAhpStateSource({
+      ...deps,
+      harnessModels: async (harness) =>
+        harness === "oma"
+          ? [
+              { value: "fake/echo", name: "echo" },
+              { value: "fake/echo2", name: "echo2" },
+            ]
+          : [],
+    });
+    const root = await source.root();
+    expect(root.agents[0]).toMatchObject({
+      provider: "oma",
+      models: [
+        { id: "oma/fake/echo", name: "echo" },
+        { id: "oma/fake/echo2", name: "echo2" },
+      ],
+    });
+    // A harness the probe knows nothing about advertises nothing.
+    const empty = await createAhpStateSource(fixture().deps).root();
+    expect(empty.agents[0].models).toEqual([]);
+  });
+
   test("a completed run becomes a turn with mapped response parts", async () => {
     const fake = fixture();
     fake.setRun("r1", "completed");
