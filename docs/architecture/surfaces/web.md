@@ -16,9 +16,8 @@ tags: [web, surfaces, terminal]
 
 ## 实现文件
 
-- `apps/web/src/hooks/useConversation.ts` — AHP 连接、run 流残余、临时态、busy
+- `apps/web/src/hooks/useConversation.ts` — AHP 连接、临时态、busy（自研事件流已删）
 - `apps/web/src/lib/conversation-reducer.ts` — ConvState 与 reducer 纯函数
-- `apps/web/src/lib/typed-source.ts` — EventSource 加 zod 校验的封装
 - `apps/web/src/lib/bff.ts` — Next BFF 代理，cookie 换成 `x-auth-token`
 - `apps/web/src/lib/transient-reducer.ts` — 临时气泡、工具步骤、todo、审批与问答
 - `apps/web/src/components/Timeline.tsx` — turn 分组与滚动锚点

@@ -1,7 +1,6 @@
 "use client";
 
 import type { AskQuestionInput } from "@chengchenccc/agent-contract";
-import { workflowDefinitionEvents } from "@chengchenccc/api-contract";
 import {
   parseWorkflow,
   toEditorGraph,
@@ -29,7 +28,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
-import { typedSource } from "@/lib/typed-source";
 import { ChatPanel } from "./ChatPanel";
 
 const DslEditorPanel = dynamic(() => import("./DslEditorPanel").then((m) => m.DslEditorPanel), {
@@ -257,54 +255,9 @@ export function AgenticWorkflowEditor({
     }
   }
 
-  // SSE live refresh: when the chat agent (via the workflow MCP tool) or
-  // another tab saves the definition, the backend emits a "changed" event.
-  // Refetch and adopt the remote definition without recording undo history.
-  // Skip while the user has unsaved local edits (dirty) — stale overwrite
-  // would clobber their canvas work; they can refresh after saving.
-  useEffect(() => {
-    const ts = typedSource(
-      `/api/bff/api/workflow-definitions/${workflowId}/events`,
-      workflowDefinitionEvents,
-    );
-    ts.on("changed", (ev) => {
-      // trigger="mcp": the chat agent proposed a new DSL. Adopt it as an
-      // UNSAVED edit (mark dirty, do not touch savedAt) so the user reviews
-      // the change and commits with (Ctrl/Cmd)S. Never overwrite a local
-      // unsaved edit.
-      // trigger="save": another tab/editor saved — refresh the canonical
-      // definition and clear dirty.
-      void (async () => {
-        if (dirtyRef.current || savingRef.current) return;
-        const trigger = ev?.data?.trigger;
-        const proposed = ev?.data?.definition;
-        if (trigger === "mcp" && proposed && typeof proposed === "object") {
-          const draftDef = proposed as WorkflowDefinition;
-          setDefinition(draftDef);
-          definitionRef.current = draftDef;
-          setLastEditedAt(Date.now());
-          setSavedAt(null);
-          return;
-        }
-        try {
-          const r = await api.getWorkflowDefinition(workflowId);
-          const remote = r?.definition;
-          if (!remote) return;
-          setDefinition(remote);
-          definitionRef.current = remote;
-          setSavedAt(Date.now());
-        } catch {
-          /* transient; keep local state */
-        }
-      })();
-    });
-    return () => ts.close();
-  }, [workflowId]);
-
-  // A proposed definition is a durable row too (ADR 0040), so this page reads it as well as
-  // listens: a proposal that arrived while the editor was closed is still adoptable. The guards
-  // are the SSE path's - never over a local unsaved edit - and adopting marks the row, so the two
-  // paths cannot both apply the same proposal.
+  // A proposed definition is a durable row (ADR 0040), so this page reads it: a proposal that
+  // arrived while the editor was closed is still adoptable. The guard is the old one - never over
+  // a local unsaved edit - and adopting marks the row.
   useEffect(() => {
     let stopped = false;
     let adopted = "";

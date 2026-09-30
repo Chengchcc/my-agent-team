@@ -1,12 +1,10 @@
 "use client";
 
 import { normalizeReasoningEffort } from "@chengchenccc/agent-contract";
-import { agentConfigEvents } from "@chengchenccc/api-contract";
 import { useEffect, useRef } from "react";
 import type { AgentDraft } from "@/components/agent-form-types";
 import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
-import { typedSource } from "@/lib/typed-source";
 
 // Must stay in sync with AgentRow["permissionMode"] (backend permission_mode).
 const PERMISSION_MODES = ["ask", "auto", "deny"] as const;
@@ -94,24 +92,10 @@ export function useAgentConfigEvents(
     handlersRef.current = handlers;
   }, [handlers]);
 
-  useEffect(() => {
-    if (!agentId) return;
-    const url = `/api/bff/api/agents/${encodeURIComponent(agentId)}/events`;
-    const ts = typedSource(url, agentConfigEvents);
-    ts.on("changed", (ev) => {
-      if (ev.data?.trigger === "mcp" && ev.data.config !== undefined) {
-        handlersRef.current.onProposed(ev.data.config);
-      } else if (ev.data?.trigger === "save" && ev.data.config !== undefined) {
-        handlersRef.current.onSaved?.(ev.data.config);
-      }
-    });
-    return () => ts.close();
-  }, [agentId]);
-
-  // A proposed change is a durable row too (ADR 0040), so the page reads it as well as listens:
-  // a proposal that arrived while this page was closed is still adoptable, and one that arrives
-  // now is adopted exactly once - adopting marks the row, so a second reader gets a 409 that is
-  // not an error. Both paths run while the tools still push over the SSE.
+  // A proposed change is a durable row (ADR 0040), so the page reads it instead of listening: a
+  // proposal that arrived while this page was closed is still adoptable, and adopting marks the
+  // row - a second reader gets a 409 that is not an error. The per-target SSE that used to carry
+  // it is gone.
   useEffect(() => {
     if (!agentId) return;
     let stopped = false;
