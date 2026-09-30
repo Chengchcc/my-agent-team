@@ -129,9 +129,9 @@ function cardOf(
         callId,
         questions: Array.isArray(payload?.questions) ? payload.questions : [],
         ...(response === undefined ? {} : { response }),
-        ...(request._meta?.productResponse === undefined
-          ? {}
-          : { answer: unwrapAskAnswer(request._meta.productResponse) }),
+        // The answer rides in the protocol's own slot now (a map keyed by question id); the
+        // timeline reads that shape.
+        ...(request.answers === undefined ? {} : { answer: request.answers }),
       },
     };
   }
@@ -152,14 +152,8 @@ function cardOf(
 interface RequestLike {
   readonly id?: string;
   readonly message?: string;
-  readonly _meta?: { readonly productRequest?: unknown; readonly productResponse?: unknown };
-}
-
-/** The durable ask response wraps the answer (`{answered: true, answer}`) and a timeout carries
- *  none at all; a card wants what was answered, not the row's bookkeeping. */
-function unwrapAskAnswer(response: unknown): unknown {
-  if (response === null || typeof response !== "object" || !("answer" in response)) return response;
-  return (response as { answer?: unknown }).answer;
+  readonly answers?: unknown;
+  readonly _meta?: { readonly productRequest?: unknown };
 }
 
 /** The part says whether the request is over. The projection fills this in from the durable row,

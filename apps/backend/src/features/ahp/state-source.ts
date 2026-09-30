@@ -522,12 +522,11 @@ function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {
   return resolved;
 }
 
-/** The durable request payload and answer ride in `_meta`: the product's own shapes are what its
- *  cards were built on, and they stay until those cards read the protocol's. */
+/** The durable request payload rides in `_meta`: a card renders what was asked, and the product's
+ *  own shape is what its cards were built on. The answer travels in the protocol's `answers`. */
 function metaFor(request: CanonicalInputRequest): { _meta?: Record<string, unknown> } {
   const meta: Record<string, unknown> = {};
   if (request.payload !== undefined) meta.productRequest = request.payload;
-  if (request.response !== undefined) meta.productResponse = request.response;
   return Object.keys(meta).length === 0 ? {} : { _meta: meta };
 }
 

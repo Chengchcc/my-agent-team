@@ -116,25 +116,35 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
   return anchors;
 }
 
-/** One line for what a question was answered with: the selected values and any free text, as the
- *  product recorded them. Unknown shapes render as nothing rather than as a guess. */
+/** One line for what a question was answered with, read from the protocol's `answers`: a map
+ *  keyed by question id whose values are `{state, value: {kind: text | selected | selected-many}}`
+ *  plus optional free-form text. Unknown shapes render as nothing rather than as a guess. */
 function summarizeAskAnswer(answer: unknown): string {
-  const items = (answer as { answers?: unknown } | undefined)?.answers;
-  if (!Array.isArray(items)) return "";
+  if (typeof answer !== "object" || answer === null) return "";
   const parts: string[] = [];
-  for (const item of items) {
-    const record = item as {
-      selectedValues?: unknown;
-      freeText?: unknown;
-      note?: unknown;
-      timedOut?: unknown;
-    };
-    if (record.timedOut === true) parts.push("no answer (timed out)");
-    if (Array.isArray(record.selectedValues)) {
-      parts.push(...record.selectedValues.filter((v): v is string => typeof v === "string"));
+  for (const entry of Object.values(answer as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    if ("state" in entry && entry.state === "skipped") {
+      parts.push("no answer");
+      continue;
     }
-    if (typeof record.freeText === "string" && record.freeText !== "") parts.push(record.freeText);
-    if (typeof record.note === "string" && record.note !== "") parts.push(record.note);
+    const chosen = "value" in entry ? entry.value : undefined;
+    if (typeof chosen !== "object" || chosen === null) continue;
+    const kind = "kind" in chosen && typeof chosen.kind === "string" ? chosen.kind : "";
+    const value = "value" in chosen ? chosen.value : undefined;
+    if (kind === "selected-many" && Array.isArray(value)) {
+      parts.push(...value.filter((v: unknown): v is string => typeof v === "string"));
+    } else if (
+      (kind === "selected" || kind === "text") &&
+      typeof value === "string" &&
+      value !== ""
+    ) {
+      parts.push(value);
+    }
+    const freeform = "freeformValues" in chosen ? chosen.freeformValues : undefined;
+    if (Array.isArray(freeform)) {
+      parts.push(...freeform.filter((v: unknown): v is string => typeof v === "string"));
+    }
   }
   return parts.length === 0 ? "" : `: ${parts.join(", ")}`;
 }

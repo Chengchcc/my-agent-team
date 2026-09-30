@@ -138,10 +138,10 @@ describe("AHP state source", () => {
       message: "ask",
       answers: { q1: { state: "submitted", value: { kind: "selected", value: "release" } } },
     });
-    // The product's own wrapping stays put: a surface moves to `answers` when it is ready, and
-    // `_meta` is our convention on a shape upstream gives no slot to.
+    // What was ASKED still rides in `_meta`: upstream's request shape has no slot for it, and a
+    // card needs the question, not just its id.
     expect((part.request as unknown as { _meta?: unknown })._meta).toMatchObject({
-      productResponse: expect.anything(),
+      productRequest: expect.anything(),
     });
   });
 

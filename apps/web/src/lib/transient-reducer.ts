@@ -37,8 +37,8 @@ export interface TransientRun {
     /** Set once the request is over (live via `chat/inputCompleted`, and from a reload alike):
      *  the card stops offering inputs. */
     response?: "accept" | "decline" | "cancel";
-    /** The durable answer, as the product wrote it (the projection carries it under
-     *  `_meta.productResponse`). Unknown by design: the surface renders what it recognises. */
+    /** The answer, in the protocol's shape (`request.answers`: a map keyed by question id).
+     *  Unknown by design: the surface renders what it recognises. */
     answer?: unknown;
   };
   /** Terminal failure of this run, as the projection's error part reports it. It rides the live

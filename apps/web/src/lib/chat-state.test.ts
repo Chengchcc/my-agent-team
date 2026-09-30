@@ -336,13 +336,8 @@ describe("an answered question", () => {
               request: {
                 id: "run-8:call-3",
                 message: "ask",
-                _meta: {
-                  productRequest: { callId: "call-3", questions: [{ id: "q1" }] },
-                  productResponse: {
-                    answered: true,
-                    answer: { answers: [{ id: "q1", selectedValues: [], freeText: "because" }] },
-                  },
-                },
+                _meta: { productRequest: { callId: "call-3", questions: [{ id: "q1" }] } },
+                answers: { q1: { state: "submitted", value: { kind: "text", value: "because" } } },
               },
               response: "accept",
             },
@@ -355,7 +350,7 @@ describe("an answered question", () => {
     expect(view.transients["run-8"]?.ask).toMatchObject({
       callId: "call-3",
       response: "accept",
-      answer: { answers: [{ id: "q1", freeText: "because" }] },
+      answer: { q1: { state: "submitted", value: { kind: "text", value: "because" } } },
     });
   });
 });
