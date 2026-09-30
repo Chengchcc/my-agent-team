@@ -1,7 +1,7 @@
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import { buildCliRunInput } from "../cli/initial-input.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
+import type { BackendRunOutcome } from "../core/runtime/contract/index.js";
 import { createOmaRuntime } from "../core/runtime/create-runtime.js";
 import { persistSessionTurn, resolveSession } from "../core/session/session-loop.js";
 import type { CliRunOptions } from "./print-mode.js";

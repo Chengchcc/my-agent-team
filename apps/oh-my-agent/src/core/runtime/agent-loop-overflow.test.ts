@@ -1,13 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  AgentRunSnapshot,
-  ProjectedHistoryItem,
-  WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import type { ContextBudget } from "./agent-loop.js";
 import { createOmaSession } from "./agent-loop.js";
+import type { AgentRunSnapshot, ProjectedHistoryItem, WorkspaceBinding } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import type { Plugin } from "./plugin.js";
 

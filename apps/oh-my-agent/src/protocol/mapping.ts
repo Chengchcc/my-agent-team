@@ -1,4 +1,4 @@
-import type { BackendEvent, ToolPresentation } from "@chengchenccc/agent-contract";
+import type { BackendEvent, ToolPresentation } from "../core/runtime/contract/index.js";
 
 /** Narrow the loosely-typed transport field into the contract shape. The
  *  child authored it, so this only refuses garbage — a malformed field must

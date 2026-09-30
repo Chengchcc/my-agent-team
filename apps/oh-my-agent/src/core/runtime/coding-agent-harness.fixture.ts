@@ -1,11 +1,7 @@
-import type {
-  AgentRunSnapshot,
-  BackendInputMessage,
-  WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import type { SessionStore } from "../store/session-store.js";
+import type { AgentRunSnapshot, BackendInputMessage, WorkspaceBinding } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 
 export type StoreFactory = (sid: string) => SessionStore;

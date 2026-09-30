@@ -1,4 +1,3 @@
-import type { BackendInputMessage, Usage } from "@chengchenccc/agent-contract";
 import type {
   AIMessageChunk,
   AskQuestionInput,
@@ -10,6 +9,7 @@ import type { AgentLoopListener, OmaLoopEvent } from "./agent-event.js";
 import type { ApprovalHandler } from "./approval.js";
 import type { CompactionBudget } from "./compaction.js";
 import type { TurnUsage } from "./context-estimate.js";
+import type { BackendInputMessage, Usage } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import type { Plugin, PluginTool } from "./plugin.js";
 import type { PluginRuntime } from "./plugin-runtime.js";

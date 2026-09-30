@@ -1,13 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  type AgentRunSnapshot,
-  CONSENTED_MCP_TOOLS_ENV,
-  debugLog,
-  decodeEnvList,
-  type ProjectedHistoryItem,
-} from "@chengchenccc/agent-contract";
 import { type ModelRuntime, type ModelRuntimeEntry, resolveModelAlias } from "@chengchenccc/ai";
 import type { AIMessageChunk, JsonSchema, Message, Tool } from "@chengchenccc/message";
 import { createHubTool } from "../coordination/index.js";
@@ -75,6 +68,13 @@ import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
 import { estimateMessageTokens } from "./context-estimate.js";
+import {
+  type AgentRunSnapshot,
+  CONSENTED_MCP_TOOLS_ENV,
+  debugLog,
+  decodeEnvList,
+  type ProjectedHistoryItem,
+} from "./contract/index.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
 import { fakeProvider } from "./fake-provider.js";
 import { reasoningEffortOptions } from "./model-effort.js";

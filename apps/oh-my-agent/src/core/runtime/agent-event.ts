@@ -1,5 +1,5 @@
-import type { ToolPresentation } from "@chengchenccc/agent-contract";
 import type { TodoItem } from "../tools/todo-store.js";
+import type { ToolPresentation } from "./contract/index.js";
 
 /** Pi-style typed lifecycle events per runtime/oma.md. */
 export type OmaLoopEvent =

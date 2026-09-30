@@ -1,5 +1,5 @@
-import type { BackendModel, BackendModelCatalog } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
+import type { BackendModel, BackendModelCatalog } from "./contract/index.js";
 
 /** Map the process ModelRuntime catalog to the Backend model contract.
  *  Never exposes credentials, headers, Provider objects, or internal runtime

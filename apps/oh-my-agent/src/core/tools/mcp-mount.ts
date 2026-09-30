@@ -1,8 +1,8 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "@chengchenccc/agent-contract";
 import type { PluginTool } from "../index.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
+import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "../runtime/contract/index.js";
 import { killProcessTree } from "../runtime/process-tree.js";
 
 /** Generic .mcp.json mounting (ADR 0022): the workspace bridge writes one

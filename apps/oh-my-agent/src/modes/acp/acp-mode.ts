@@ -16,7 +16,6 @@ import { Readable, Writable } from "node:stream";
 import type { RequestPermissionResponse, Usage as SdkUsage } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
 import { adaptMcpTool } from "@chengchenccc/adapter-mcp";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { type Message, MessageSchema } from "@chengchenccc/message";
 import { assemblePluginRuntime, type PluginMcpConfig } from "../../core/plugins/plugin-resolve.js";
@@ -25,6 +24,7 @@ import {
   type ApprovalHandler,
   approvalTimeoutMs,
 } from "../../core/runtime/approval.js";
+import type { BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import type { Plugin } from "../../core/runtime/plugin.js";
 import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts.js";

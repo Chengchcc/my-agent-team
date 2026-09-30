@@ -1,6 +1,6 @@
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import { tuiTheme } from "@chengchenccc/tui";
 import type { OmaLoopEvent, TodoItem } from "../../core/index.js";
+import type { BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { formatDurationMs } from "./tui-format.js";
 
 /** Pure view model for the TUI transcript: folds OmaLoopEvents into the

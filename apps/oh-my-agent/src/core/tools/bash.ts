@@ -1,6 +1,6 @@
-import { childEnv } from "@chengchenccc/agent-contract";
 import type { Tool } from "@chengchenccc/message";
 import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
+import { childEnv } from "../runtime/contract/index.js";
 import { ptyWrap, withPtyEnv } from "./bash-pty.js";
 import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";

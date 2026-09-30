@@ -1,10 +1,3 @@
-import type {
-  BackendInputMessage,
-  BackendRunInput,
-  BackendRunOutcome,
-  BackendRunSegment,
-  ProjectedHistoryItem,
-} from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { AskQuestionInput, AskQuestionResult, Message } from "@chengchenccc/message";
 import type { RunEventEnvelope } from "../../protocol/index.js";
@@ -17,6 +10,13 @@ import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import type { RuntimeKnobs } from "../settings/project-settings.js";
 import type { ApprovalHandler } from "./approval.js";
 import { latestCompaction } from "./compaction.js";
+import type {
+  BackendInputMessage,
+  BackendRunInput,
+  BackendRunOutcome,
+  BackendRunSegment,
+  ProjectedHistoryItem,
+} from "./contract/index.js";
 import type { Plugin } from "./plugin.js";
 import { assembleRunRuntime, type RunRuntime, type RunRuntimeDeps } from "./run-runtime.js";
 import type { ToolFilter } from "./tool-filter.js";

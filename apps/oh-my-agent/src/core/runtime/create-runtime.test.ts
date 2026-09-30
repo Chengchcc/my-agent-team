@@ -2,9 +2,9 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BackendRunInput } from "@chengchenccc/agent-contract";
 import type { Model, Provider } from "@chengchenccc/ai";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
+import type { BackendRunInput } from "./contract/index.js";
 import {
   createModelRuntime,
   createOmaRuntime,

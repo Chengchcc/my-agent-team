@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { BackendRunInput, BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { AskQuestionInput } from "@chengchenccc/message";
 import { ProcessTerminal } from "@chengchenccc/tui";
@@ -21,6 +20,7 @@ import {
   planTitle,
 } from "../../core/plans/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
+import type { BackendRunInput, BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
   resolvePermissionMode,

@@ -1,11 +1,11 @@
+import type { AppendBatchInput } from "../store/session-store.js";
+import type { ResumeDecision } from "./agent-loop-types.js";
 import type {
   AgentRunSnapshot,
   BackendInputMessage,
   ProjectedHistoryItem,
   WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
-import type { AppendBatchInput } from "../store/session-store.js";
-import type { ResumeDecision } from "./agent-loop-types.js";
+} from "./contract/index.js";
 export interface LoopInputResult {
   readonly batch: AppendBatchInput;
   readonly systemPrompt: string;

@@ -1,6 +1,6 @@
-import type { ReasoningEffort } from "@chengchenccc/agent-contract";
-import { normalizeReasoningEffort, REASONING_EFFORTS } from "@chengchenccc/agent-contract";
 import type { ProviderStreamOptions } from "@chengchenccc/ai";
+import type { ReasoningEffort } from "./contract/index.js";
+import { normalizeReasoningEffort, REASONING_EFFORTS } from "./contract/index.js";
 
 export type { ReasoningEffort };
 export { normalizeReasoningEffort, REASONING_EFFORTS };

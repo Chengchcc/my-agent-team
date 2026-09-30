@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync } from "node:fs";
-import type { BackendRunInput, BackendRunSegment } from "@chengchenccc/agent-contract";
 import type { Model, Provider } from "@chengchenccc/ai";
 import { createModelRuntime } from "@chengchenccc/ai";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
+import type { BackendRunInput, BackendRunSegment } from "./contract/index.js";
 import { createOmaRuntime } from "./create-runtime.js";
 import { registerBuiltinProviders } from "./run-runtime.js";
 
