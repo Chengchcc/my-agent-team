@@ -70,7 +70,6 @@ function makeSvc(
       undefined,
       undefined,
       undefined,
-      undefined,
       modelKnown,
     ),
   );

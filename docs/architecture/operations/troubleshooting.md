@@ -21,8 +21,8 @@ tags: [backend, runtime, surfaces]
 - `apps/backend/src/features/agent-run/execution-dispatch.ts` — 阶段名与 `dispatch_failed`
 - `apps/backend/src/features/agent-run/execution-service.ts` — 启动恢复、`retryTerminalCommit`、非 completed 终态
 - `apps/backend/src/features/conversation/service.ts` — `[conversation] trigger` 行与 5 秒轮询兜底
-- `apps/backend/src/http/response.ts` — SSE 构造，心跳与「没有 done 事件」
-- `apps/web/src/hooks/useConversation.ts` — 浏览器侧 AHP 连接与 run 流残余的真实路径
+- `apps/backend/src/features/ahp/` — AHP 宿主与 chat 状态投影：现在唯一的实时通道（自研 SSE 已删）
+- `apps/web/src/hooks/useConversation.ts` — 浏览器侧 AHP 连接
 - `scripts/pack-gateway.sh` — 产物的布局、pty 库的落位，以及打出包后自己跑一次 `/health` 的 boot smoke
 
 ## 先分层

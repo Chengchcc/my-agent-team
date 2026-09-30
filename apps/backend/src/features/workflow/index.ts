@@ -1,5 +1,4 @@
 export * from "./adapter-sqlite.js";
-export * from "./definition-events.js";
 export * from "./domain.js";
 export * from "./http.js";
 export * from "./mcp.js";

@@ -19,7 +19,6 @@ import { createAgentSvc } from "../features/agent/agent-compose.js";
 import { createAgentIdentityStore } from "../features/agent/agent-identity.js";
 import {
   AgentBusyError,
-  AgentConfigEventBus,
   agentModelRef,
   agentRoutes,
   createAgentConfigMcpServer,
@@ -140,7 +139,6 @@ import {
   createWorkflowMcpServer,
   createWorkflowTriggerScheduler,
   sqliteWorkflowExecutionAdapter,
-  WorkflowDefinitionEventBus,
   workflowRoutes,
 } from "../features/workflow/index.js";
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
@@ -494,12 +492,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Workflow DSL MCP server (per-server control via ENABLED_MCP_SERVERS):
   // lets the agent read/write *.workflow.json through MCP tools. Injected
   // into the workspace .mcp.json below only when enabled.
-  const workflowDefinitionEvents = new WorkflowDefinitionEventBus();
   let workflowMcp: Awaited<ReturnType<typeof createWorkflowMcpServer>> | null = null;
   if (enabledMcpServers.has("workflow")) {
     workflowMcp = await createWorkflowMcpServer({
       workflowDir: join(config.dataDir, "workflows"),
-      definitionEvents: workflowDefinitionEvents,
       proposals: proposalSvc,
     });
     console.log(`[bootstrap] workflow MCP listening at ${workflowMcp.url}`);
@@ -510,7 +506,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Injected into the workspace .mcp.json below only when enabled. Mirrors
   // the workflow server: agent_write emits a "changed" SSE event and the
   // edit page adopts it as an unsaved edit.
-  const agentConfigEvents = new AgentConfigEventBus();
   let agentConfigMcp: Awaited<ReturnType<typeof createAgentConfigMcpServer>> | null = null;
   if (enabledMcpServers.has("agent")) {
     agentConfigMcp = await createAgentConfigMcpServer({
@@ -530,7 +525,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         const row = await agentSvc.create(input);
         return { id: row.id };
       },
-      configEvents: agentConfigEvents,
       proposals: proposalSvc,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);
@@ -1457,7 +1451,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
     workflowDir: join(config.dataDir, "workflows"),
     resyncTriggers: () => workflowTriggerScheduler.sync(),
-    definitionEvents: workflowDefinitionEvents,
   });
 
   const passwordSvc = createPasswordService(settingsSvc, { dataDir: config.dataDir });
@@ -1588,7 +1581,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       (id: string) => larkBotRegistry.statusOf(id),
       getSetupManager,
       (id: string) => projectSvc.exists(id),
-      agentConfigEvents,
       // Skill/knowledge pack symlinks resolve into the data dir; the
       // read-only workspace file view is allowed to follow them there.
       [config.dataDir],
@@ -1784,7 +1776,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     setupManager?.dispose();
     await productToolsMcp?.close();
     await workflowMcp?.close();
-    workflowDefinitionEvents.dispose();
   }
 
   // Seed the default agent AFTER the whole wiring (the catalog const and

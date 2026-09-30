@@ -7,7 +7,6 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ProposalKind } from "../proposal/domain.js";
-import type { AgentConfigEventBus } from "./agent-config-events.js";
 
 /** Agent-config MCP server: lets a chat agent read/write/create agents
  *  through ordinary MCP tools. This is how the agent edit page's chat
@@ -76,8 +75,6 @@ export interface AgentConfigMcpDeps {
   readonly createAgent: (input: AgentProxyCreateInput) => Promise<{ id: string }>;
   /** Spend-guard for agent_create; throws when the budget is exhausted. */
   readonly reserveCreate: () => void;
-  /** Emit a "changed" event after agent_write (SSE live refresh). */
-  readonly configEvents?: AgentConfigEventBus;
   /** Record the same proposal where a page can read it later (ADR 0040): a proposal that arrives
    *  while the edit page is closed used to be lost, and the tool's own answer sends the user to
    *  that page. */
@@ -176,7 +173,6 @@ export async function callAgentConfigTool(
     // NO file write. The proposed config is pushed to the edit page (or the
     // create page's form for the draft id) over the agent-config SSE; the
     // form shows it as an unsaved edit and the user commits it with Save.
-    deps.configEvents?.emit(agentId, { trigger: "mcp", config: args.config });
     deps.proposals?.propose("agent_config", agentId, args.config);
     const id8 = randomUUID().slice(0, 8);
     return isDraft
@@ -195,7 +191,7 @@ export interface AgentConfigMcpServer {
 export async function createAgentConfigMcpServer(
   opts: AgentConfigMcpServerOptions,
 ): Promise<AgentConfigMcpServer> {
-  const { readConfig, agentExists, createAgent, configEvents, proposals } = opts;
+  const { readConfig, agentExists, createAgent, proposals } = opts;
   const reserveCreate = opts.reserveCreate ?? createCreateBudget();
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
@@ -270,7 +266,7 @@ export async function createAgentConfigMcpServer(
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
       try {
         const text = await callAgentConfigTool(
-          { readConfig, agentExists, createAgent, reserveCreate, configEvents, proposals },
+          { readConfig, agentExists, createAgent, reserveCreate, proposals },
           req.params.name,
           args,
         );
