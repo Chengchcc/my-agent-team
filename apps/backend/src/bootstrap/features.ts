@@ -7,7 +7,7 @@ import {
   probeHarnessCatalog,
 } from "@chengchenccc/adapter-acp";
 import { ClaudeBackend } from "@chengchenccc/adapter-claude-agent";
-import { OmaBackend, OmaModelCatalog } from "@chengchenccc/adapter-oma-agent";
+import { OmaBackend } from "@chengchenccc/adapter-oma-agent";
 import { OmpBackend } from "@chengchenccc/adapter-omp-agent";
 import { PiBackend } from "@chengchenccc/adapter-pi-agent";
 import type {
@@ -92,6 +92,7 @@ import {
   applyServedAvailability,
   bareModelId,
   createHarnessCatalog,
+  createOmaModelCatalog,
   createProviderModelProbe,
   createServedModelKnowledge,
   harnessRoutes,
@@ -599,7 +600,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  surface that asks for a snapshot gets the turn from the projection anyway. */
 
   const codingAgentCommand = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() });
-  const codingAgentCatalog = new OmaModelCatalog(codingAgentCommand);
+  const codingAgentCatalog = createOmaModelCatalog(codingAgentCommand);
 
   const refreshOmaProviderEnv = () => {
     codingAgentCommand.env = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() }).env;
