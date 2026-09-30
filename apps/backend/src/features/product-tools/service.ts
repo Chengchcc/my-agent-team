@@ -3,8 +3,8 @@ import type {
   AskQuestionItem,
   AskQuestionOption,
   AskQuestionResult,
-} from "@chengchenccc/agent-contract";
-import type { Message } from "@chengchenccc/message";
+  Message,
+} from "@chengchenccc/message";
 import type { AgentContextPort, IdGenerator } from "../agent-context/ports.js";
 import { type AgentRun, isActiveStatus, pendingActionId } from "../agent-run/domain.js";
 import type { AgentRunPort } from "../agent-run/ports.js";

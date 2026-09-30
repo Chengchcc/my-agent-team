@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
 import { createAskQuestionTool } from "./ask-question.js";
 
 /** The native ask_question tool is the standalone path into the HITL ask

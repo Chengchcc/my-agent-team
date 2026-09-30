@@ -1,6 +1,6 @@
 "use client";
 
-import type { AskQuestionInput } from "@chengchenccc/agent-contract";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import { toEditorGraph, type WorkflowDefinition } from "@chengchenccc/workflow";
 import Link from "next/link";
 import { useRouter } from "next/navigation";

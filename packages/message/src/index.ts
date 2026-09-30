@@ -1,3 +1,12 @@
+export type {
+  AskQuestionAnswerItem,
+  AskQuestionFilled,
+  AskQuestionInput,
+  AskQuestionItem,
+  AskQuestionOption,
+  AskQuestionResult,
+  AskQuestionValidation,
+} from "./ask-question.js";
 export { normalizeCanonicalMessages } from "./canonical.js";
 export type { AIMessageChunk, ChatModel, ChatModelOptions, JsonSchema } from "./chat-model.js";
 export type {

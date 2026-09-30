@@ -1,6 +1,6 @@
 "use client";
 
-import type { AskQuestionInput } from "@chengchenccc/agent-contract";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import {
   parseWorkflow,
   toEditorGraph,

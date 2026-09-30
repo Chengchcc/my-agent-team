@@ -70,7 +70,8 @@ describe("AHP state source", () => {
           : [],
     });
     const root = await source.root();
-    expect(root.agents[0]).toMatchObject({
+    const first = root.agents[0]!;
+    expect(first).toMatchObject({
       provider: "oma",
       models: [
         { id: "oma/fake/echo", name: "echo" },
@@ -79,7 +80,7 @@ describe("AHP state source", () => {
     });
     // A harness the probe knows nothing about advertises nothing.
     const empty = await createAhpStateSource(fixture().deps).root();
-    expect(empty.agents[0].models).toEqual([]);
+    expect(empty.agents[0]!.models).toEqual([]);
   });
 
   test("a completed run becomes a turn with mapped response parts", async () => {

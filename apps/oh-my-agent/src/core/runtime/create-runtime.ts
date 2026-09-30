@@ -1,6 +1,4 @@
 import type {
-  AskQuestionInput,
-  AskQuestionResult,
   BackendInputMessage,
   BackendRunInput,
   BackendRunOutcome,
@@ -8,8 +6,7 @@ import type {
   ProjectedHistoryItem,
 } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
-
-import type { Message } from "@chengchenccc/message";
+import type { AskQuestionInput, AskQuestionResult, Message } from "@chengchenccc/message";
 import type { RunEventEnvelope } from "../../protocol/index.js";
 import { mapRunEvent } from "../../protocol/index.js";
 import type { CoordinationRegistry } from "../coordination/registry.js";

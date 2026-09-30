@@ -1,8 +1,4 @@
-import type {
-  AskQuestionInput,
-  AskQuestionItem,
-  AskQuestionResult,
-} from "@chengchenccc/agent-contract";
+import type { AskQuestionInput, AskQuestionItem, AskQuestionResult } from "@chengchenccc/message";
 import {
   type Component,
   type Focusable,

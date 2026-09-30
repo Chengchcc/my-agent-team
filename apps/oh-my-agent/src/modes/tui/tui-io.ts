@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AskQuestionResult } from "@chengchenccc/agent-contract";
+import type { AskQuestionResult } from "@chengchenccc/message";
 import {
   applyBackgroundToLine,
   Box,

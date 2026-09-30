@@ -1,11 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type {
-  AskQuestionInput,
-  BackendRunInput,
-  BackendRunOutcome,
-} from "@chengchenccc/agent-contract";
+import type { BackendRunInput, BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import { ProcessTerminal } from "@chengchenccc/tui";
 import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";

@@ -1,5 +1,5 @@
 "use client";
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
+import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ArtifactMeta } from "@/lib/api";
