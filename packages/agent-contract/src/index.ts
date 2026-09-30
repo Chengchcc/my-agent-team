@@ -41,7 +41,6 @@ export type {
   ReasoningEffort,
 } from "./model.js";
 export { normalizeReasoningEffort, REASONING_EFFORTS } from "./model.js";
-export { collectSecrets, redactText } from "./redact.js";
 export type {
   BackendInputMessage,
   BackendRunInput,

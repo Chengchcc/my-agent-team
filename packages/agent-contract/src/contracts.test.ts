@@ -115,7 +115,6 @@ describe("agent-backend contracts", () => {
     const module = await import("./index.js");
     // The barrel exposes the backend-agnostic contracts only.
     expect(module.BACKEND_KINDS).toBeDefined();
-    expect(module.collectSecrets).toBeDefined();
   });
 
   test("extension events are namespaced to the backend kind", () => {
