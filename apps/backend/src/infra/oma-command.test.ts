@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { BackendConfig } from "../config.js";
-import { resolveOmaCommand } from "./oma-command.js";
+import { resolveOmaAcpArgv, resolveOmaCommand } from "./oma-command.js";
 
 const baseConfig: BackendConfig = {
   dataDir: "/tmp",
@@ -98,5 +98,22 @@ describe("resolveOmaCommand", () => {
   test("resolves to the real source entry from this file's location", () => {
     const expected = resolve(import.meta.dir, "../../../oh-my-agent/src/cli.ts");
     expect(existsSync(expected)).toBe(true);
+  });
+});
+
+describe("resolveOmaAcpArgv", () => {
+  test("resolves like the native adapter, so a box without oma on PATH still runs", () => {
+    const argv = resolveOmaAcpArgv(baseConfig);
+
+    expect(argv[0]).toBe(process.execPath);
+    expect(argv[1]).toMatch(/\/apps\/oh-my-agent\/src\/cli\.ts$/);
+    expect(argv.slice(2)).toEqual(["--mode", "acp"]);
+    expect(existsSync(argv[1]!)).toBe(true);
+  });
+
+  test("names the production executable when OMA_BIN is set", () => {
+    const argv = resolveOmaAcpArgv({ ...baseConfig, omaBin: "/opt/oma/bin/oma" });
+
+    expect(argv).toEqual(["/opt/oma/bin/oma", "--mode", "acp"]);
   });
 });

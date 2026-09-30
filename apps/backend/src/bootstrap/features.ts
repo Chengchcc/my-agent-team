@@ -144,7 +144,7 @@ import {
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
 import { ulid } from "../infra/ids.js";
 import { resolveKnowledgeMcpServerEntry } from "../infra/knowledge-mcp-command.js";
-import { resolveOmaCommand } from "../infra/oma-command.js";
+import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
 import { sseUrlEndpoint } from "../infra/sse-url.js";
 import type { BackendServices } from "./services.js";
 
@@ -622,10 +622,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // on non-root deployments (Gate 0).
     permissionMode: config.claudePermissionMode,
   });
+  // Same resolution the native adapter uses: this box has no `oma` on PATH.
+  const omaAcpArgv = resolveOmaAcpArgv(config, { env: providerSvc.getProviderEnv() });
   const acpBackend = new AcpBackend({
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
-    commands: { oma: [config.omaBin ?? "oma", "--mode", "acp"] },
+    commands: { oma: omaAcpArgv },
     // MCP-over-ACP (ADR 0039 appendix two): when the agent advertises the
     // capability, its product tools ride the ACP connection itself, so no
     // SSE server, port or bearer file is involved for those runs. Same

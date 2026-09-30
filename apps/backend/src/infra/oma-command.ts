@@ -28,6 +28,23 @@ export function collectApiKeyEnv(
   return out;
 }
 
+/** The ACP launch argv for the `oma` registry entry. The ACP route spawns the
+ *  registry's argv (the adapter's per-key `commands` override), so it has to
+ *  resolve the same way the native adapter does: `OMA_BIN` when a deployment
+ *  names it, else our own Bun on the repo's source CLI. A bare `oma` would
+ *  silently demand a PATH entry that no deployment here has - the ACP face of
+ *  this agent failing where its native face works. */
+export function resolveOmaAcpArgv(
+  config: BackendConfig,
+  opts: { env?: Readonly<Record<string, string | undefined>>; appEntry?: string } = {},
+): string[] {
+  // "tui" is the resolver's mode-less branch: it yields the bare launcher
+  // (Bun + the source CLI, or the configured binary), which is what the ACP
+  // argv starts from.
+  const launcher = resolveOmaCommand(config, { ...opts, mode: "tui" });
+  return [launcher.executable, ...(launcher.args ?? []), "--mode", "acp"];
+}
+
 export function resolveOmaCommand(
   config: BackendConfig,
   opts: {
