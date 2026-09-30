@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import { BACKEND_KINDS } from "@chengchenccc/agent-contract";
+import { ACP_AGENTS } from "@chengchenccc/adapter-acp";
 import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -26,8 +26,10 @@ import type { ProposalKind } from "../proposal/domain.js";
  *  like the HTTP route). */
 export interface AgentProxyCreateInput {
   name: string;
-  model: { provider: string; model: string };
-  backendKind?: string;
+  /** Which harness runs this agent (an ACP_AGENTS key). */
+  harness: string;
+  /** The model that harness runs; omitted = its own default. */
+  model?: string;
   reasoningEffort?: "none" | "low" | "high" | "max";
   permissionMode?: "ask" | "auto" | "deny";
 }
@@ -101,19 +103,16 @@ function str(value: unknown): string | null {
 export function readAgentCreateInput(args: Record<string, unknown>): AgentProxyCreateInput {
   const name = str(args.name);
   if (!name) throw new Error("name required");
-  const model = typeof args.model === "object" && args.model !== null ? args.model : null;
-  const provider = model && "provider" in model ? str(model.provider) : null;
-  const modelName = model && "model" in model ? str(model.model) : null;
-  if (!provider || !modelName) {
-    throw new Error(
-      'model required, e.g. { "provider": "anthropic", "model": "claude-sonnet-4-6" }',
-    );
+  const harness = str(args.harness);
+  if (!harness) {
+    throw new Error(`harness required, one of ${Object.keys(ACP_AGENTS).join(", ")}`);
   }
-  const rawKind = str(args.backendKind);
-  const backendKind = BACKEND_KINDS.find((kind) => kind === rawKind);
-  if (rawKind && !backendKind) {
-    throw new Error(`backendKind must be one of ${BACKEND_KINDS.join(", ")}`);
+  if (!(harness in ACP_AGENTS)) {
+    throw new Error(`unknown harness ${harness}; one of ${Object.keys(ACP_AGENTS).join(", ")}`);
   }
+  // The model is the harness's own business: omitted runs its default, and an
+  // id it does not serve fails loudly at run time instead of being guessed here.
+  const model = str(args.model);
   const EFFORTS = ["none", "low", "high", "max"] as const;
   const reasoningEffort = EFFORTS.find((e) => e === str(args.reasoningEffort));
   if (str(args.reasoningEffort) && !reasoningEffort) {
@@ -126,8 +125,8 @@ export function readAgentCreateInput(args: Record<string, unknown>): AgentProxyC
   }
   return {
     name,
-    model: { provider, model: modelName },
-    ...(backendKind ? { backendKind } : {}),
+    harness,
+    ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(permissionMode ? { permissionMode } : {}),
   };
@@ -148,8 +147,8 @@ export async function callAgentConfigTool(
     // workspace, write agent.yml, insert the row and run onCreate (builtin
     // skill pack + workspace reconcile). A file write would create a ghost.
     const row = await deps.createAgent(input);
-    const runtime = input.backendKind ? `, runtime ${input.backendKind}` : "";
-    return `created agent "${input.name}" (id: ${row.id}) — model ${input.model.provider}/${input.model.model}${runtime}. It carries the builtin skills; the user can refine it at /team/${row.id}/edit`;
+    const model = input.model ? ` running ${input.model}` : " on its harness default";
+    return `created agent "${input.name}" (id: ${row.id}) — harness ${input.harness}${model}. It carries the builtin skills; the user can refine it at /team/${row.id}/edit`;
   }
   const agentId = typeof args.agentId === "string" ? args.agentId : "";
   if (!agentId) throw new Error("agentId required");
@@ -206,25 +205,20 @@ export async function createAgentConfigMcpServer(
         {
           name: "agent_create",
           description:
-            'Create a NEW agent (a teammate) for the user: real agent row + workspace + builtin skills. Use it when the user asks for another agent and is NOT on the create page; pass a display name and the model to run it on (take your own from the Workspace system reminder if the user has no preference). On the create page (agentId "new") use agent_write with agentId "new" instead, so the user reviews the form before anything is created.',
+            'Create a NEW agent (a teammate) for the user: real agent row + workspace + builtin skills. Use it when the user asks for another agent and is NOT on the create page; pass a display name, the harness to run it on, and optionally its model (take your own from the Workspace system reminder if the user has no preference). On the create page (agentId "new") use agent_write with agentId "new" instead, so the user reviews the form before anything is created.',
           inputSchema: {
             type: "object",
             properties: {
               name: { type: "string", description: "Display name, e.g. Code Reviewer." },
-              model: {
-                type: "object",
-                properties: {
-                  provider: { type: "string" },
-                  model: { type: "string" },
-                },
-                required: ["provider", "model"],
-                description:
-                  'Canonical model pair, e.g. { "provider": "anthropic", "model": "claude-sonnet-4-6" }.',
-              },
-              backendKind: {
+              harness: {
                 type: "string",
-                enum: [...BACKEND_KINDS],
-                description: "Runtime backend (default oma).",
+                enum: [...Object.keys(ACP_AGENTS)],
+                description: "Which harness runs this agent; one adapter drives all of them.",
+              },
+              model: {
+                type: "string",
+                description:
+                  "The model that harness runs, in that harness's own vocabulary; omit for its default.",
               },
               reasoningEffort: { type: "string", enum: ["none", "low", "high", "max"] },
               permissionMode: {
@@ -233,7 +227,7 @@ export async function createAgentConfigMcpServer(
                 description: "Tool-approval posture (default ask; auto = classifier-gated).",
               },
             },
-            required: ["name", "model"],
+            required: ["name", "harness"],
           },
         },
         {

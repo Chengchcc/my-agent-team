@@ -10,7 +10,8 @@ function cfg(id: string, name: string, extra?: Partial<Parameters<typeof buildAg
   return buildAgentConfig({
     id,
     name,
-    model: { provider: "anthropic", model: "claude" },
+    harness: "oma",
+    model: "anthropic/claude",
     ...extra,
   });
 }
@@ -106,12 +107,13 @@ describe("agent config projects field (ADR 0023)", () => {
     expect(next.runtime_config.projects).toEqual(["p1"]);
   });
 
-  test("a configured harness model reaches the model ref, and unset stays unset", () => {
+  test("a configured harness and model reach the ref, and unset stays unset", () => {
     const configured = cfg("a-harness", "Harness", {
-      backendKind: "acp",
-      model: { provider: "acp", model: "oma", harnessModel: "deepseek/deepseek-v4-pro" },
+      harness: "oma",
+      model: "deepseek/deepseek-v4-pro",
     });
-    expect(configured.runtime_config.harness_model).toBe("deepseek/deepseek-v4-pro");
+    expect(configured.runtime_config.harness).toBe("oma");
+    expect(configured.runtime_config.model).toBe("deepseek/deepseek-v4-pro");
     expect(agentModelRef({ config: configured })).toEqual({
       backendKind: "acp",
       modelId: "acp/oma",
@@ -120,15 +122,15 @@ describe("agent config projects field (ADR 0023)", () => {
 
     // agent.yml is the portable source of truth: a field the serializer
     // forgets is a field a file-first agent silently loses.
-    expect(serializeAgentYaml(configured)).toContain('harness_model: "deepseek/deepseek-v4-pro"');
+    expect(serializeAgentYaml(configured)).toContain('model: "deepseek/deepseek-v4-pro"');
 
     // "" is the stored "nothing named": the ref must not carry a model nobody
     // chose, or the run would be pinned to whatever the agent last held.
-    const plain = cfg("a-harness-plain", "Plain", { backendKind: "acp" });
-    expect(plain.runtime_config.harness_model).toBe("");
+    const plain = cfg("a-harness-plain", "Plain", { model: "" });
+    expect(plain.runtime_config.model).toBe("");
     expect(agentModelRef({ config: plain })).toEqual({
       backendKind: "acp",
-      modelId: "anthropic/claude",
+      modelId: "acp/oma",
     });
   });
 });

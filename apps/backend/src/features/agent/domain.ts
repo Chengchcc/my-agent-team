@@ -19,8 +19,10 @@ export interface CreateAgentInput {
   id?: string;
   name: string;
   template?: string;
-  model: { provider: string; model: string };
-  backendKind?: string;
+  /** Which harness runs this agent (an ACP_AGENTS key). */
+  harness: string;
+  /** The model that harness runs; "" or omitted = its own default. */
+  model?: string;
   /** Top-level kill switch (agent.yml enabled). Defaults to true. */
   enabled?: boolean;
   /** Optional workspace override (agent-hub 预留): an absolute path the
@@ -54,8 +56,8 @@ export interface CreateAgentInput {
 
 export interface UpdateAgentInput {
   name?: string;
-  model?: { provider: string; model: string };
-  backendKind?: string;
+  harness?: string;
+  model?: string;
   /** Top-level kill switch (agent.yml enabled). */
   enabled?: boolean;
   workspacePath?: string;
@@ -96,13 +98,13 @@ export function agentModelRef(agent: Pick<AgentRow, "config">): BackendModelRef 
   // before the enum existed (or hand-edited in agent.yml) must degrade to
   // "provider default", never fail the child's whole execute payload.
   const reasoningEffort = normalizeReasoningEffort(rc.reasoning_effort);
-  // "" is the stored "unset": an empty harness model means "let the harness
-  // decide", which is not the same as naming one.
-  const harnessModel = rc.harness_model || undefined;
+  // One adapter drives every harness (ADR 0040 decision 7), so the ref's kind is
+  // a constant and the harness is the identity. "" as the model means "let the
+  // harness decide", which is not the same as naming one.
   return {
-    backendKind: rc.runtime,
-    modelId: rc.model_id,
-    ...(harnessModel ? { harnessModel } : {}),
+    backendKind: "acp",
+    modelId: `acp/${rc.harness}`,
+    ...(rc.model ? { harnessModel: rc.model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 }

@@ -16,8 +16,6 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
   const c = (config ?? {}) as Record<string, unknown>;
   const rc = (c.runtime_config ?? {}) as Record<string, unknown>;
   const lk = (c.lark ?? {}) as Record<string, unknown>;
-  const modelId = String(rc.model_id ?? "");
-  const slash = modelId.indexOf("/");
   const mcpServers = Array.isArray(rc.mcp_servers)
     ? (rc.mcp_servers as Array<{ server_id: string; enabled: boolean }>).map((s) => ({
         serverId: s.server_id,
@@ -30,9 +28,10 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
     ...base,
     name: String(c.name ?? base.name),
     enabled: Boolean(c.enabled ?? base.enabled),
-    modelProvider: slash > 0 ? modelId.slice(0, slash) : "unknown",
-    modelName: slash > 0 ? modelId.slice(slash + 1) : modelId,
-    backendKind: String(rc.runtime ?? base.backendKind),
+    // The harness key is the identity; the model is an opaque id in that
+    // harness's own vocabulary ("" = its own default).
+    harness: String(rc.harness ?? base.harness),
+    model: String(rc.model ?? base.model),
     reasoningEffort: normalizeReasoningEffort(rc.reasoning_effort) ?? null,
     permissionMode: PERMISSION_MODES.find((m) => m === rc.permission_mode) ?? base.permissionMode,
     maxSteps,
@@ -52,18 +51,16 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
 export function agentConfigToDraft(config: unknown): AgentDraft {
   const c = (config ?? {}) as Record<string, unknown>;
   const rc = (c.runtime_config ?? {}) as Record<string, unknown>;
-  const modelId = String(rc.model_id ?? "");
-  const slash = modelId.indexOf("/");
   const maxSteps = typeof rc.max_steps === "number" && rc.max_steps > 0 ? rc.max_steps : null;
   const effort = normalizeReasoningEffort(rc.reasoning_effort);
   const permissionMode = PERMISSION_MODES.find((m) => m === rc.permission_mode);
   const name = typeof c.name === "string" && c.name.trim() !== "" ? c.name : undefined;
-  const backendKind = typeof rc.runtime === "string" && rc.runtime !== "" ? rc.runtime : undefined;
+  const harness = typeof rc.harness === "string" && rc.harness !== "" ? rc.harness : undefined;
+  const model = typeof rc.model === "string" ? rc.model : "";
   return {
     ...(name ? { name } : {}),
-    ...(backendKind ? { backendKind } : {}),
-    modelProvider: slash > 0 ? modelId.slice(0, slash) : "",
-    modelName: slash > 0 ? modelId.slice(slash + 1) : modelId,
+    ...(harness ? { harness } : {}),
+    model,
     ...(effort ? { reasoningEffort: effort } : {}),
     ...(permissionMode ? { permissionMode } : {}),
     maxSteps,

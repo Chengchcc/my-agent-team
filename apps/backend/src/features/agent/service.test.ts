@@ -74,7 +74,8 @@ describe("AgentService", () => {
     const { svc } = makeSvc();
     const agent = await svc.create({
       name: "test",
-      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      harness: "oma",
+      model: "anthropic/claude-sonnet-4-6",
     });
     expect(agent.id).toStartWith("agent-");
     expect(agent.config.name).toBe("test");
@@ -85,7 +86,8 @@ describe("AgentService", () => {
     const { svc } = makeSvc();
     const agent = await svc.create({
       name: "equipped",
-      model: { provider: "anthropic", model: "x" },
+      harness: "oma",
+      model: "anthropic/x",
       mcpServers: [{ serverId: "search", enabled: true }],
       knowledgePacks: ["my-agent-team"],
     });
@@ -102,22 +104,22 @@ describe("AgentService", () => {
 
   test("getById returns agent after create", async () => {
     const { svc } = makeSvc();
-    const created = await svc.create({ name: "a", model: { provider: "anthropic", model: "x" } });
+    const created = await svc.create({ name: "a", harness: "oma", model: "anthropic/x" });
     const found = await svc.getById(created.id);
     expect(found.id).toBe(created.id);
   });
 
   test("list returns active agents only by default", async () => {
     const { svc } = makeSvc();
-    await svc.create({ name: "a1", model: { provider: "anthropic", model: "x" } });
-    await svc.create({ name: "a2", model: { provider: "anthropic", model: "x" } });
+    await svc.create({ name: "a1", harness: "oma", model: "anthropic/x" });
+    await svc.create({ name: "a2", harness: "oma", model: "anthropic/x" });
     const list = await svc.list();
     expect(list.length).toBe(2);
   });
 
   test("list excludes archived agents", async () => {
     const { svc } = makeSvc();
-    const a = await svc.create({ name: "a", model: { provider: "anthropic", model: "x" } });
+    const a = await svc.create({ name: "a", harness: "oma", model: "anthropic/x" });
     await svc.archive(a.id);
     const list = await svc.list();
     expect(list.length).toBe(0);
@@ -125,21 +127,21 @@ describe("AgentService", () => {
 
   test("update changes fields", async () => {
     const { svc } = makeSvc();
-    const a = await svc.create({ name: "old", model: { provider: "anthropic", model: "x" } });
+    const a = await svc.create({ name: "old", harness: "oma", model: "anthropic/x" });
     const updated = await svc.update(a.id, { name: "new" });
     expect(updated.config.name).toBe("new");
   });
 
   test("update throws on archived agent", async () => {
     const { svc } = makeSvc();
-    const a = await svc.create({ name: "a", model: { provider: "anthropic", model: "x" } });
+    const a = await svc.create({ name: "a", harness: "oma", model: "anthropic/x" });
     await svc.archive(a.id);
     await expect(svc.update(a.id, { name: "x" })).rejects.toThrow(AgentNotFoundError);
   });
 
   test("archive sets archivedAt", async () => {
     const { svc } = makeSvc();
-    const a = await svc.create({ name: "a", model: { provider: "anthropic", model: "x" } });
+    const a = await svc.create({ name: "a", harness: "oma", model: "anthropic/x" });
     const archived = await svc.archive(a.id);
     expect(archived.archivedAt).toBeDefined();
   });
@@ -167,7 +169,7 @@ describe("AgentService", () => {
       assertNoActiveRun: () => {},
     });
 
-    await svc.create({ name: "to-delete", model: { provider: "anthropic", model: "x" } });
+    await svc.create({ name: "to-delete", harness: "oma", model: "anthropic/x" });
     await svc.hardDelete("agent-hd");
 
     // Agent should be gone
@@ -192,7 +194,7 @@ describe("AgentService", () => {
       },
     });
 
-    await svc.create({ name: "busy", model: { provider: "anthropic", model: "x" } });
+    await svc.create({ name: "busy", harness: "oma", model: "anthropic/x" });
     await expect(svc.hardDelete("agent-busy")).rejects.toThrow(AgentBusyError);
   });
 
@@ -210,7 +212,7 @@ describe("AgentService", () => {
       assertNoActiveRun: () => {},
     });
 
-    await svc.create({ name: "free", model: { provider: "anthropic", model: "x" } });
+    await svc.create({ name: "free", harness: "oma", model: "anthropic/x" });
     // Should not throw
     await svc.hardDelete("agent-free");
   });

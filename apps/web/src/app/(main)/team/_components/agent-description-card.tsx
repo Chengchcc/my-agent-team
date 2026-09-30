@@ -18,7 +18,7 @@ export function AgentDescriptionCard({ agent }: { agent: AgentRow }) {
       <div className="min-w-0 flex-1">
         <p className="text-(--text-body) text-(--ink)">{agent.name}</p>
         <p className="mt-1 text-(--text-body) text-(--mute)">
-          {agent.modelProvider}/{agent.modelName} · {agent.backendKind}
+          {agent.harness} · {agent.model || "harness default"}
         </p>
         <p className="mt-2 text-(--text-cap) text-(--faint)">
           A2A uses this description to select the agent.

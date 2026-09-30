@@ -275,14 +275,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     assertNoActiveRun: (agentId: string) => busyGuard.check?.(agentId),
   });
 
-  async function ensureAgent(id: string, name: string, model: { provider: string; model: string }) {
+  async function ensureAgent(id: string, name: string, harness: string, model?: string) {
     try {
       await agentSvc.getById(id);
     } catch {
       await agentSvc.create({
         id,
         name,
-        model,
+        harness,
+        ...(model ? { model } : {}),
         permissionMode: "auto",
       });
     }
@@ -294,15 +295,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  configured provider keys determine which appear). When no provider has
    *  a key yet (clean machine), seeds a placeholder so agents still exist
    *  and get configured later in the UI. */
-  async function defaultSeedModel(): Promise<{ provider: string; model: string }> {
+  async function defaultSeedModel(): Promise<{ harness: string; model: string }> {
     try {
       const catalog = await codingAgentCatalog.list();
       const first = catalog.models.find((m) => m.available !== false);
       if (first) {
-        const slash = first.id.indexOf("/");
-        if (slash > 0) {
-          return { provider: first.id.slice(0, slash), model: first.id.slice(slash + 1) };
-        }
+        // oma's ACP server catalogs the provider models themselves, so the
+        // catalog id is already exactly what that harness runs.
+        return { harness: "oma", model: first.id };
       }
     } catch (err) {
       console.warn(
@@ -310,10 +310,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         err instanceof Error ? err.message : String(err),
       );
     }
-    // ponytail: placeholder until a provider key is configured. Agents
-    // exist with identity/memory/skills; dispatch fails until the user
-    // picks a real model in the UI.
-    return { provider: "unconfigured", model: "none" };
+    // ponytail: no provider key yet. Agents still exist with
+    // identity/memory/skills; "" lets the harness run its own default.
+    return { harness: "oma", model: "" };
   }
 
   // ─── Conversation + Phase 5 Agent Run (conversation first: the ledger
@@ -1169,7 +1168,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       reconcileAgentResources({
         extraRoots,
         workspacePath: agent.workspacePath,
-        kind: agent.config.runtime_config.runtime,
+        kind: agent.config.runtime_config.harness,
         skillPacks: packs
           .filter((p) => p.status === "ready")
           .map((p) => ({ id: p.id, source: installPath(config.dataDir, p.id) })),
@@ -1528,9 +1527,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       (await agentSvc.list(false)).map((agent) => ({
         id: agent.id,
         name: agent.config.name,
-        runtime: agent.config.runtime_config.runtime,
-        // model_id is the product's model reference string: pass it through, assume no structure.
-        modelId: agent.config.runtime_config.model_id,
+        harness: agent.config.runtime_config.harness,
+        // The harness's own model, in that harness's vocabulary; "" = its default.
+        model: agent.config.runtime_config.model,
       })),
     getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
     getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
@@ -1809,8 +1808,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // the reconcile binding): an early call reads a TDZ const and skips the
   // workspace reconcile (no skills links, no .mcp.json).
   {
-    const seedModel = await defaultSeedModel();
-    await ensureAgent("default", "Assistant", seedModel);
+    const seed = await defaultSeedModel();
+    await ensureAgent("default", "Assistant", seed.harness, seed.model);
   }
 
   // B4: one best-effort reconcile over every LIVE agent at boot — worktrees

@@ -2,11 +2,13 @@ import { z } from "zod";
 
 export const agentFormSchema = z.object({
   name: z.string().trim().min(1, "Agent name is required"),
-  backendKind: z.string().trim().min(1, "Backend is required"),
-  model: z.string().trim().min(1, "Model is required"),
-  /** For the acp kind: which model the chosen harness runs (ADR 0040 decision 7).
+  /** Which harness runs this agent: an ACP registry key (oma | omp | claude | pi).
+   *  One adapter drives all of them (ADR 0040 decision 7), so this is the only
+   *  "who runs it" field the form has. */
+  harness: z.string().trim().min(1, "Harness is required"),
+  /** The model that harness runs, in that harness's own vocabulary.
    *  "" = the harness's own default. */
-  harnessModel: z.string().trim().default(""),
+  model: z.string().trim().default(""),
   reasoningEffort: z.enum(["", "none", "low", "high", "max"]).default(""),
   permissionMode: z.enum(["ask", "auto", "deny"]).default("ask"),
   maxSteps: z.string().trim().default(""),
@@ -22,9 +24,8 @@ export type AgentFormValues = z.infer<typeof agentFormSchema>;
  *  agent's identity, workspacePath or lark credentials into the form. */
 export interface AgentDraft {
   name?: string;
-  backendKind?: string;
-  modelProvider?: string;
-  modelName?: string;
+  harness?: string;
+  model?: string;
   reasoningEffort?: "none" | "low" | "high" | "max";
   permissionMode?: "ask" | "auto" | "deny";
   maxSteps?: number | null;

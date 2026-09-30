@@ -596,7 +596,7 @@ export default function TodayPage() {
                         <div className="font-mono text-[10px] text-(--mute)">{a.id}</div>
                       </div>
                       <span className="shrink-0 rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                        {a.backendKind}
+                        {a.harness}
                       </span>
                     </Link>
                   ))}

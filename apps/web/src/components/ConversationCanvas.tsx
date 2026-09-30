@@ -210,13 +210,13 @@ export function ConversationCanvas({
   // backend keys every agent-scoped lookup by this id.
   const primaryAgentId = primaryAgent?.agentId ?? primaryAgent?.memberId;
 
-  // Backend kind badge: agentId → agents.backendKind (D2/D3). Drives the
-  // header badge; CLI backends (claude/pi/omp) run with CLI-session
-  // context continuity (ADR 0002).
+  // Harness badge: agentId → agents.harness (D2/D3). Drives the header badge;
+  // every harness (oma/omp/claude/pi) runs through the shared ACP adapter
+  // (ADR 0040).
   const { data: agents } = useAgentList();
-  const primaryKind = useMemo(() => {
+  const primaryHarness = useMemo(() => {
     if (!primaryAgentId) return undefined;
-    return agents?.find((a) => a.id === primaryAgentId)?.backendKind;
+    return agents?.find((a) => a.id === primaryAgentId)?.harness;
   }, [agents, primaryAgentId]);
 
   const handleExport = useCallback(async () => {
@@ -327,9 +327,9 @@ export function ConversationCanvas({
             <span className="text-sm font-medium text-(--ink-strong)">
               {primaryAgent?.displayName ?? primaryAgent?.agentId ?? "Agent"}
             </span>
-            {primaryKind && (
+            {primaryHarness && (
               <span className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                {primaryKind}
+                {primaryHarness}
               </span>
             )}
             <span className="font-mono text-[10px] text-(--faint)">{conversationId}</span>

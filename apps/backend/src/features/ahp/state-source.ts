@@ -66,8 +66,10 @@ const INPUT_NEEDED: SessionStatus = 24;
 export interface AhpAgentRow {
   readonly id: string;
   readonly name: string;
-  readonly runtime: string;
-  readonly modelId: string;
+  /** Which harness runs this agent (an ACP_AGENTS key). */
+  readonly harness: string;
+  /** The model that harness runs; "" = its own default. */
+  readonly model: string;
 }
 
 export type AhpConversationRow = Pick<
@@ -118,10 +120,10 @@ export function createAhpStateSource(deps: AhpStateSourceDeps): AhpStateSource {
 function rootState(agents: readonly AhpAgentRow[]): RootState {
   return {
     agents: agents.map((agent) => ({
-      provider: agent.runtime,
+      provider: agent.harness,
       displayName: agent.name,
       // Carry it through as-is, no structural assumptions: the model id is the product's string.
-      description: agent.modelId,
+      description: agent.model,
       models: [],
     })),
   };
@@ -204,7 +206,7 @@ function chatSummary(row: AhpConversationRow, view: ChatView): ChatSummary {
 }
 
 function providerOf(agents: readonly AhpAgentRow[], row: AhpConversationRow): string {
-  return agents.find((agent) => agent.id === row.agentId)?.runtime ?? "unknown";
+  return agents.find((agent) => agent.id === row.agentId)?.harness ?? "unknown";
 }
 
 interface ChatView {

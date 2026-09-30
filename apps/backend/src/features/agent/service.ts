@@ -67,8 +67,8 @@ export function createAgentService(opts: {
       const config = buildAgentConfig({
         id,
         name: input.name,
+        harness: input.harness,
         model: input.model,
-        backendKind: input.backendKind,
         enabled: input.enabled,
         reasoningEffort: input.reasoningEffort,
         permissionMode: input.permissionMode,
@@ -119,8 +119,8 @@ export function createAgentService(opts: {
       const config = buildAgentConfig({
         id,
         name: input.name,
+        harness: input.harness,
         model: input.model,
-        backendKind: input.backendKind,
         enabled: input.enabled,
         reasoningEffort: input.reasoningEffort,
         permissionMode: input.permissionMode,

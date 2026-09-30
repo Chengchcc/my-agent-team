@@ -135,7 +135,8 @@ test("boot pull-up starts bots for lark-enabled agents", async () => {
       headers: { "content-type": "application/json", "x-auth-token": cfg.authToken },
       body: JSON.stringify({
         name: "ArchivedBotProbe",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        harness: "oma",
+        model: "anthropic/claude-sonnet-4-6",
         lark: { enabled: true, appId: "cli_archived", appSecret: "secret" },
       }),
     }),
@@ -182,12 +183,12 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
   } | null;
   expect(agentRow).not.toBeNull();
   const config = JSON.parse(agentRow!.config) as {
-    runtime_config: { runtime: string; model_id: string };
+    runtime_config: { harness: string; model: string };
   };
-  // The seed derives from the live catalog, never the placeholder.
-  expect(config.runtime_config.runtime).toBe("oma");
-  expect(config.runtime_config.model_id).not.toBe("unconfigured/none");
-  expect(config.runtime_config.model_id).toContain("/");
+  // The seed derives from the live catalogue, never a placeholder.
+  expect(config.runtime_config.harness).toBe("oma");
+  expect(config.runtime_config.model).not.toBe("");
+  expect(config.runtime_config.model).toContain("/");
 
   // A2 chain: the builtin skill pack is assigned on create.
   const packRows = db

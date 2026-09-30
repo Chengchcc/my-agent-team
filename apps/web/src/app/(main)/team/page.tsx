@@ -16,13 +16,12 @@ import { useAgentRuns } from "@/features/ops/hooks";
 const RUNTIME_COLOR: Record<string, string> = {
   oma: "var(--primary)",
   claude: "var(--accent-violet)",
-  "claude-code": "var(--accent-violet)",
   omp: "var(--ok)",
   pi: "var(--err)",
 };
 
-function runtimeColor(kind: string) {
-  return RUNTIME_COLOR[kind] ?? "var(--faint)";
+function runtimeColor(harness: string) {
+  return RUNTIME_COLOR[harness] ?? "var(--faint)";
 }
 
 /** Two-letter avatar initials from the agent display name. */
@@ -55,7 +54,7 @@ export default function TeamPage() {
   const disabled = active.length - enabled;
 
   const runtimes = useMemo(
-    () => [...new Set(active.map((a) => a.backendKind).filter(Boolean))].sort(),
+    () => [...new Set(active.map((a) => a.harness).filter(Boolean))].sort(),
     [active],
   );
 
@@ -85,7 +84,7 @@ export default function TeamPage() {
   );
 
   const visible = active.filter((a) => {
-    if (runtimeFilter !== "all" && a.backendKind !== runtimeFilter) return false;
+    if (runtimeFilter !== "all" && a.harness !== runtimeFilter) return false;
     if (statusFilter === "enabled" && a.enabled === false) return false;
     if (statusFilter === "disabled" && a.enabled !== false) return false;
     if (query && !a.name.toLowerCase().includes(query.toLowerCase())) return false;
@@ -251,7 +250,7 @@ export default function TeamPage() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {visible.map((a) => {
-              const color = runtimeColor(a.backendKind);
+              const color = runtimeColor(a.harness);
               const mcpCount = a.mcpServers?.filter((s) => s.enabled).length ?? 0;
               const knowledgeCount = a.knowledgePacks?.length ?? 0;
               const isDisabled = a.enabled === false;
@@ -282,7 +281,7 @@ export default function TeamPage() {
                             className="shrink-0 rounded bg-(--panel2) px-1.5 py-0.5 font-mono text-[10px] font-medium"
                             style={{ color }}
                           >
-                            {a.backendKind}
+                            {a.harness}
                           </span>
                         </div>
                         <span className="block truncate font-mono text-[10px] text-(--mute)">
@@ -301,12 +300,14 @@ export default function TeamPage() {
                   <dl className="mt-3 space-y-1 rounded bg-(--canvas) p-2.5 font-mono text-[11px]">
                     <div className="flex items-center justify-between gap-2">
                       <dt className="text-(--mute)">Model:</dt>
-                      <dd className="truncate font-medium text-(--ink)">{a.modelName}</dd>
+                      <dd className="truncate font-medium text-(--ink)">
+                        {a.model || "harness default"}
+                      </dd>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <dt className="text-(--mute)">Runtime:</dt>
                       <dd className="font-medium" style={{ color }}>
-                        {a.backendKind}
+                        {a.harness}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-2">

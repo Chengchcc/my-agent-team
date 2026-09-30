@@ -5,25 +5,25 @@ import Link from "next/link";
 import { ProviderSetupInline } from "@/components/ProviderSetupInline";
 import { MonoLabel } from "@/components/patterns";
 import { useAgentList } from "@/features/agents/hooks";
-import { useModelList } from "@/features/models/hooks";
-import { blockedBackends } from "@/lib/model-availability";
+import { useHarnessList } from "@/features/models/hooks";
+import { blockedHarnesses } from "@/lib/harness-availability";
 
-/** Today's setup blocker. An agent whose backend has no usable model is seeded
- *  anyway, and every dispatch then fails — with the cause living in the
- *  deployment (provider keys, custom catalog) rather than in anything the UI
- *  shows. Renders nothing as long as every enabled agent has a usable model. */
+/** Today's setup blocker. An agent can be seeded while the harness it names is
+ *  not startable in this deployment (no bridge installed, provider key missing),
+ *  and every dispatch on it then fails — with the cause living in the deployment
+ *  rather than in anything the UI shows. Renders nothing while every enabled
+ *  agent's harness starts. */
 export function RunBlockerCard() {
   const agents = useAgentList();
-  const models = useModelList();
-  if (agents.isPending || models.isPending) return null;
+  const harnesses = useHarnessList();
+  if (agents.isPending || harnesses.isPending) return null;
 
   const enabled = (agents.data ?? []).filter((agent) => agent.enabled !== false);
   if (enabled.length === 0) return null;
 
-  const catalog = (models.data?.providers ?? []).flatMap((provider) => provider.models);
-  const backends = blockedBackends(enabled, catalog);
-  if (backends.length === 0) return null;
-  const blockedCount = enabled.filter((agent) => backends.includes(agent.backendKind)).length;
+  const blocked = blockedHarnesses(enabled, harnesses.data?.harnesses ?? []);
+  if (blocked.length === 0) return null;
+  const blockedCount = enabled.filter((agent) => blocked.includes(agent.harness)).length;
 
   return (
     <section className="rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
@@ -33,15 +33,16 @@ export function RunBlockerCard() {
       </div>
       <div className="space-y-3 px-4 py-3 text-sm">
         <p>
-          {blockedCount} of {enabled.length} agents have no usable model for their backend (
-          {backends.join(", ")}), so every dispatch on them fails. Add a provider key — it is stored
-          on the server and applies without a restart:
+          {blockedCount} of {enabled.length} agents name a harness this deployment cannot start (
+          {blocked.join(", ")}), so every dispatch on them fails. The oma harness needs a provider
+          key — it is stored on the server and applies without a restart:
         </p>
         <ProviderSetupInline />
         <p className="text-(--muted-foreground)">
-          Using a custom provider? Ship <code>models.yml</code> where <code>OMA_HOME</code> points,
-          then restart the gateway; <code>oma gateway doctor</code> reports what runs will see. The
-          full list lives in{" "}
+          Other harnesses run through their own agent binary; install it and reload. Using a custom
+          provider? Ship <code>models.yml</code> where <code>OMA_HOME</code> points, then restart
+          the gateway; <code>oma gateway doctor</code> reports what runs will see. The full list
+          lives in{" "}
           <Link className="text-(--primary) underline underline-offset-2" href="/system/settings">
             Settings
           </Link>

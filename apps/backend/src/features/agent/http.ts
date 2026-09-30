@@ -9,11 +9,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join as pathJoin, resolve as pathResolve, sep } from "node:path";
-import { BACKEND_KINDS } from "@chengchenccc/agent-contract";
 import { Elysia, t } from "elysia";
 import { probeCliSetupCapability } from "../lark-bot/provisioner.js";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
-import { DEFAULT_BACKEND_KIND, UNCONFIGURED_MODEL_ID } from "./agent-config.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
 import type { AgentRow } from "./domain.js";
 import {
@@ -26,12 +24,6 @@ import {
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
 
-/** Derived from BACKEND_KINDS (single source, e2e-contract-rules): adding
- *  a kind updates the API validator without touching this file. */
-const backendKindUnion = t.Enum(
-  Object.fromEntries(BACKEND_KINDS.map((k) => [k, k])) as Record<string, string>,
-);
-
 /** Bare memory fact filename: no separators, no traversal (memory write API). */
 const FACT_FILE_RE = /^[A-Za-z0-9._-]+\.md$/;
 
@@ -40,19 +32,16 @@ const FACT_FILE_RE = /^[A-Za-z0-9._-]+\.md$/;
 function toAgentResponse(row: AgentRow, status: string) {
   const rc = row.config.runtime_config;
   const lk = row.config.lark;
-  const slash = rc.model_id.indexOf("/");
   return {
     id: row.id,
     name: row.config.name,
     enabled: row.config.enabled,
     workspacePath: row.workspacePath,
-    modelProvider: slash > 0 ? rc.model_id.slice(0, slash) : "unknown",
-    modelName: slash > 0 ? rc.model_id.slice(slash + 1) : rc.model_id,
-    backendKind: rc.runtime,
+    // ADR 0040 decision 7: the product surface carries the two axes and nothing
+    // else. There is no adapter kind to name - one adapter drives every harness.
+    harness: rc.harness,
+    model: rc.model,
     reasoningEffort: rc.reasoning_effort !== "" ? rc.reasoning_effort : null,
-    // The harness's own model (ADR 0040 decision 7). Null = nothing named, which
-    // the edit form must round-trip as "" rather than pin a run to a stale value.
-    harnessModel: rc.harness_model !== "" ? rc.harness_model : null,
     permissionMode: rc.permission_mode,
     maxSteps: rc.max_steps > 0 ? rc.max_steps : null,
     mcpServers: rc.mcp_servers.map((s) => ({ serverId: s.server_id, enabled: s.enabled })),
@@ -152,16 +141,13 @@ export function agentRoutes(
     .post(
       "/api/agents",
       async ({ body, set }) => {
-        if (body.model && modelKnownForBackend) {
-          const kind = body.backendKind ?? DEFAULT_BACKEND_KIND;
-          const known = await modelKnownForBackend(kind, body.model.provider, body.model.model);
+        if (body.harness && modelKnownForBackend) {
+          // The ACP catalog's ids are `acp/<key>` and its provider slot is the
+          // constant adapter, so a harness is looked up exactly like a model of
+          // that family. An unknown key would otherwise run a different agent.
+          const known = await modelKnownForBackend("acp", "acp", body.harness);
           if (!known) {
-            return Response.json(
-              {
-                error: `unknown model ${body.model.provider}/${body.model.model} for backend kind ${kind}`,
-              },
-              { status: 400 },
-            );
+            return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
           }
         }
         const row = await svc.create(body);
@@ -172,12 +158,8 @@ export function agentRoutes(
         body: t.Object({
           name: t.String({ minLength: 1 }),
           template: t.Optional(t.String()),
-          model: t.Object({
-            provider: t.String({ minLength: 1 }),
-            model: t.String({ minLength: 1 }),
-            harnessModel: t.Optional(t.String({ minLength: 1 })),
-          }),
-          backendKind: t.Optional(backendKindUnion),
+          harness: t.String({ minLength: 1 }),
+          model: t.Optional(t.String()),
           enabled: t.Optional(t.Boolean()),
           workspacePath: t.Optional(t.String({ minLength: 1 })),
           reasoningEffort: t.Optional(
@@ -260,29 +242,14 @@ export function agentRoutes(
               }
             }
           }
-          // Config-time model consistency: check when a model arrives, when
-          // the kind switches (the existing model must survive on the new
-          // kind), and never when nothing model-related changed.
-          const modelTouched = body.model !== undefined || body.backendKind !== undefined;
-          if (modelKnownForBackend && modelTouched) {
-            const existing = await svc.getById(id);
-            const kind = body.backendKind ?? existing.config.runtime_config.runtime;
-            const composite = body.model
-              ? `${body.model.provider}/${body.model.model}`
-              : existing.config.runtime_config.model_id;
-            if (composite !== UNCONFIGURED_MODEL_ID) {
-              const slash = composite.indexOf("/");
-              const provider = slash > 0 ? composite.slice(0, slash) : composite;
-              const modelId = slash > 0 ? composite.slice(slash + 1) : composite;
-              const known = await modelKnownForBackend(kind, provider, modelId);
-              if (!known) {
-                return Response.json(
-                  {
-                    error: `unknown model ${provider}/${modelId} for backend kind ${kind}`,
-                  },
-                  { status: 400 },
-                );
-              }
+          // Config-time harness consistency: a typo in the key would silently
+          // run a different agent, so it is checked whenever the harness is
+          // named. The model is the harness's own business - it fails loudly at
+          // run time if that harness does not serve it.
+          if (modelKnownForBackend && body.harness !== undefined) {
+            const known = await modelKnownForBackend("acp", "acp", body.harness);
+            if (!known) {
+              return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
             }
           }
           const row = await svc.update(id, body);
@@ -296,14 +263,8 @@ export function agentRoutes(
       {
         body: t.Object({
           name: t.Optional(t.String({ minLength: 1 })),
-          model: t.Optional(
-            t.Object({
-              provider: t.String({ minLength: 1 }),
-              model: t.String({ minLength: 1 }),
-              harnessModel: t.Optional(t.String({ minLength: 1 })),
-            }),
-          ),
-          backendKind: t.Optional(backendKindUnion),
+          harness: t.Optional(t.String({ minLength: 1 })),
+          model: t.Optional(t.String()),
           enabled: t.Optional(t.Boolean()),
           workspacePath: t.Optional(t.String({ minLength: 1 })),
           reasoningEffort: t.Optional(

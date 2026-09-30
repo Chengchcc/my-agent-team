@@ -24,9 +24,7 @@ function fixture(): Fake {
     },
   ];
   const deps: AhpStateSourceDeps = {
-    listAgents: async () => [
-      { id: "a1", name: "Ada", runtime: "oh-my-agent", modelId: "zai/glm-4.6" },
-    ],
+    listAgents: async () => [{ id: "a1", name: "Ada", harness: "oma", model: "zai/glm-4.6" }],
     getConversation: (conversationId) =>
       conversationId === "c1"
         ? { conversationId: "c1", agentId: "a1", title: "Titled chat", createdAt: 900 }
@@ -49,9 +47,13 @@ describe("AHP state source", () => {
     const root = await createAhpStateSource(fixture().deps).root();
     expect(root.agents).toHaveLength(1);
     expect(root.agents[0]).toMatchObject({
-      provider: "oh-my-agent",
+      // The catalogue names the harness, not an adapter kind (ADR 0040 decision 7).
+      provider: "oma",
       displayName: "Ada",
       description: "zai/glm-4.6",
+      // A harness serves models through its own ACP catalogue; root state cannot
+      // resolve that synchronously, so it advertises none.
+      models: [],
     });
   });
 
@@ -178,7 +180,7 @@ describe("AHP state source", () => {
 
     const session = await source.session(sessionUri("c1"));
     expect(session).toMatchObject({
-      provider: "oh-my-agent",
+      provider: "oma",
       title: "Titled chat",
       lifecycle: "ready",
     });

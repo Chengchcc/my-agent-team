@@ -95,14 +95,16 @@ describe("agent-config MCP tools", () => {
     const { d, created } = deps();
     const text = await callAgentConfigTool(d, "agent_create", {
       name: "Code Reviewer",
-      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      harness: "oma",
+      model: "anthropic/claude-sonnet-4-6",
       permissionMode: "auto",
       reasoningEffort: "high",
     });
     expect(created).toEqual([
       {
         name: "Code Reviewer",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        harness: "oma",
+        model: "anthropic/claude-sonnet-4-6",
         reasoningEffort: "high",
         permissionMode: "auto",
       },
@@ -115,20 +117,20 @@ describe("agent-config MCP tools", () => {
   test("agent_create rejects a missing model before creating anything", async () => {
     const { d, created } = deps();
     await expect(callAgentConfigTool(d, "agent_create", { name: "Nameless" })).rejects.toThrow(
-      /model required/,
+      /harness required/,
     );
     expect(created).toEqual([]);
   });
 
-  test("agent_create rejects an unknown runtime before creating anything", async () => {
+  test("agent_create rejects an unknown harness before creating anything", async () => {
     const { d, created } = deps();
     await expect(
       callAgentConfigTool(d, "agent_create", {
         name: "Ghost",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
-        backendKind: "gpt5",
+        harness: "ghost",
+        model: "anthropic/claude-sonnet-4-6",
       }),
-    ).rejects.toThrow(/backendKind must be one of/);
+    ).rejects.toThrow(/unknown harness ghost/);
     expect(created).toEqual([]);
   });
 
@@ -147,13 +149,15 @@ describe("agent-config MCP tools", () => {
     expect(
       readAgentCreateInput({
         name: "  Reviewer  ",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        harness: "oma",
+        model: "anthropic/claude-sonnet-4-6",
         permissionMode: "deny",
         workspacePath: "/etc", // not accepted: the service owns the workspace
       }),
     ).toEqual({
       name: "Reviewer",
-      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      harness: "oma",
+      model: "anthropic/claude-sonnet-4-6",
       permissionMode: "deny",
     });
   });

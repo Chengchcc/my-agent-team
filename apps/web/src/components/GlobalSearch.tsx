@@ -135,16 +135,14 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
             }),
           ),
           ...agentList
-            .filter(
-              (a) => a.name.toLowerCase().includes(q) || a.backendKind.toLowerCase().includes(q),
-            )
+            .filter((a) => a.name.toLowerCase().includes(q) || a.harness.toLowerCase().includes(q))
             .slice(0, 3)
             .map(
               (a): Hit => ({
                 type: "agent",
                 id: a.id,
                 name: a.name,
-                desc: a.backendKind,
+                desc: a.harness,
                 href: `/team/${a.id}`,
               }),
             ),
