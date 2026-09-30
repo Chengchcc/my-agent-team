@@ -26,7 +26,7 @@ export interface StandaloneSession {
  *  surface keeps its own frozen policy (no gateWorkspaceMcp, no
  *  vectorMemory, no localMemory). */
 export function standaloneRuntimeOptions(
-  built: BackendRunInput<"oma">,
+  built: BackendRunInput,
   opts: {
     modelRuntime: ModelRuntime;
     toolFilter?: ToolFilter;

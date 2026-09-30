@@ -136,7 +136,7 @@ export interface CompactionSummary {
 export interface OmaRuntime {
   /** Start the Run's loop. Returns the segment whose outcome is the Run's
    *  ONLY terminal result. A Runtime accepts exactly one run(). */
-  run(input: BackendRunInput<"oma">): Promise<BackendRunSegment<"oma">>;
+  run(input: BackendRunInput): Promise<BackendRunSegment>;
   /** Inject a steer input into the live loop. Throws when no loop is live. */
   steer(input: BackendInputMessage): Promise<void>;
   /** Request cancellation of the live loop. The segment's outcome still
@@ -411,7 +411,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
         }
       })();
 
-      const segment: BackendRunSegment<"oma"> = {
+      const segment: BackendRunSegment = {
         events: (async function* () {
           while (!closed || queue.length > 0) {
             if (queue.length > 0) {

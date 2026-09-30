@@ -1,5 +1,5 @@
 import type { Message } from "@chengchenccc/message";
-import type { BackendModelRef } from "./model.js";
+import type { ReasoningEffort } from "@chengchenccc/message";
 
 /** A projected history entry. `productEntryId` is the stable Agent Context
  *  entry identity, retained so the Runtime can write it onto its appended
@@ -20,11 +20,10 @@ export interface WorkspaceBinding {
  *  carries it so model and system prompt changes take effect on the next Run
  *  without any shared state. Product Tool definitions ride the workspace
  *  files (.oma/product-tools.json, ADR 0003 decision 6), not this snapshot.
- *  Parameterized by `K` so the model ref's backendKind is locked to the
- *  Backend's kind. */
-export interface AgentRunSnapshot<K extends string = string> {
+ */
+export interface AgentRunSnapshot {
   readonly runId: string;
-  readonly model: BackendModelRef<K>;
+  readonly model: { readonly modelId: string; readonly reasoningEffort?: ReasoningEffort };
   readonly systemPrompt?: string;
   /** Skill pack roots (absolute dirs scanned for SKILL.md), frozen at Run
    *  creation. The Runtime loads them via the progressive skill plugin. */

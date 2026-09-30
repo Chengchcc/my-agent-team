@@ -11,7 +11,7 @@ import type { Plugin } from "./plugin.js";
 const fakeSummarize = async <T>(messages: readonly T[]): Promise<string> =>
   `[Summary of ${messages.length} messages]`;
 
-const LOOP_RUN: AgentRunSnapshot<"oma"> = {
+const LOOP_RUN: AgentRunSnapshot = {
   runId: "sr-run",
   model: { backendKind: "oma", modelId: "test-1" },
   configRevision: 1,

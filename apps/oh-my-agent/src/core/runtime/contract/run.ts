@@ -26,11 +26,10 @@ export interface BackendInputMessage {
  *  the branch has no CLI session reference yet); from the second turn on the
  *  CLI session is the runtime truth. `workspace` is a Run execution fact (the
  *  caller pins the cloned repo for Loop Runs, the agent-record workspace
- *  otherwise), never re-derived by the Backend. Parameterized by `K` so the
- *  snapshot's model ref is locked to the Backend's kind. */
-export interface BackendRunInput<K extends string = string> {
+ *  otherwise), never re-derived by the Backend. */
+export interface BackendRunInput {
   readonly input: BackendInputMessage;
-  readonly run: AgentRunSnapshot<K>;
+  readonly run: AgentRunSnapshot;
   readonly workspace: WorkspaceBinding;
   /** Per-run product-tools bearer. Backends deliver it to their child
    *  (spawn env). Absent = no product tools for this run. */
@@ -133,10 +132,9 @@ export type BackendRunOutcome =
     };
 
 /** A single run segment: an event stream plus a terminal outcome promise.
- *  `stop()` requests cancellation; the outcome still resolves. Parameterized by
- *  `K` so events are namespaced to the Backend's kind. */
-export interface BackendRunSegment<K extends string = string> {
-  readonly events: AsyncIterable<BackendEvent<K>>;
+ *  `stop()` requests cancellation; the outcome still resolves. */
+export interface BackendRunSegment {
+  readonly events: AsyncIterable<BackendEvent>;
   readonly outcome: Promise<BackendRunOutcome>;
   stop(): Promise<void>;
 }

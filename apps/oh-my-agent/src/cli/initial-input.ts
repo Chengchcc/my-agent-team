@@ -156,7 +156,7 @@ export async function buildCliRunInput(opts: {
     mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
     base64: string;
   }>;
-}): Promise<BackendRunInput<"oma">> {
+}): Promise<BackendRunInput> {
   const catalog = await opts.modelRuntime.getCatalog();
   const model = opts.modelId
     ? catalog.models.find((m) => `${m.providerId}/${m.modelId}` === opts.modelId)
@@ -173,14 +173,14 @@ export async function buildCliRunInput(opts: {
   const modelId = `${model.providerId}/${model.modelId}`;
   const runId = `cli-${randomUUID()}`;
   const skillRoots = resolveStandaloneSkillRoots(opts.workspaceRoot);
-  const input: BackendRunInput<"oma"> = {
+  const input: BackendRunInput = {
     input: {
       inputId: `cli-in-${randomUUID()}`,
       message: buildUserMessage(opts.prompt, opts.images),
     },
     run: {
       runId,
-      model: { backendKind: "oma", modelId },
+      model: { modelId },
       systemPrompt: buildSystemPrompt({
         workspacePrompt: readWorkspaceSystemPrompt(opts.workspaceRoot),
         memorySummary: readMemorySummary(opts.workspaceRoot),

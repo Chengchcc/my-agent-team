@@ -10,7 +10,7 @@ import type { Plugin } from "./plugin.js";
 // Title generation performs an extra ephemeral model call; keep counts
 // deterministic.
 
-const LOOP_RUN: AgentRunSnapshot<"oma"> = {
+const LOOP_RUN: AgentRunSnapshot = {
   runId: "ovf-run",
   model: { backendKind: "oma", modelId: "test-1" },
   configRevision: 1,

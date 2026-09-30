@@ -1,6 +1,6 @@
 import type { Tool } from "@chengchenccc/message";
 import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
-import { childEnv } from "../runtime/contract/index.js";
+import { childEnv } from "@chengchenccc/message";
 import { ptyWrap, withPtyEnv } from "./bash-pty.js";
 import type { BashSandbox } from "./bash-sandbox.js";
 import { NullBashSandbox } from "./bash-sandbox.js";
@@ -269,7 +269,7 @@ export function createBashTool(opts: {
       // stderr redaction above it.
       const BASH_ENV_DENY = /API_KEY|AUTH_TOKEN|_TOKEN$|_SECRET$|PASSWORD|PASSWD/;
       const bashEnv: Record<string, string> = Object.fromEntries(
-        Object.entries(childEnv()).filter(([k]) => !BASH_ENV_DENY.test(k)),
+        Object.entries(childEnv(process.env)).filter(([k]) => !BASH_ENV_DENY.test(k)),
       );
       let notice = "";
       let effectiveCommand = command;

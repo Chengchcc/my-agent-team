@@ -577,7 +577,7 @@ describe("createOmaRuntime", () => {
       modelRuntime,
       skillRoots: [],
     });
-    const input: BackendRunInput<"oma"> = {
+    const input: BackendRunInput = {
       input: { inputId: "in-wf", message: { role: "user", text: "" } },
       run: {
         runId: "r-wf-mode",

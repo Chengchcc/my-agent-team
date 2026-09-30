@@ -22,8 +22,8 @@ export const FORWARDED_KEYS = [
 export function childEnv(
   surface: Readonly<Record<string, string | undefined>>,
   extra?: Readonly<Record<string, string | undefined>>,
-): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = {};
+): Record<string, string> {
+  const env: Record<string, string> = {};
   for (const key of FORWARDED_KEYS) {
     const value = surface[key];
     if (value !== undefined) env[key] = value;

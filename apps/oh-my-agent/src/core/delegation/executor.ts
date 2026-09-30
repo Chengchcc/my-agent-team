@@ -325,7 +325,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       const loopInput = {
         run: {
           runId: sessionId,
-          model: { backendKind: "oma" as const, modelId },
+          model: { modelId },
           systemPrompt,
           configRevision: 0,
         },

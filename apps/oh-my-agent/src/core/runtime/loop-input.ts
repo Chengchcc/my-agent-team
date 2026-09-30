@@ -17,7 +17,7 @@ export interface LoopInputResult {
 export interface CodingLoopInput {
   readonly history: readonly ProjectedHistoryItem[];
   readonly input: BackendInputMessage;
-  readonly run: AgentRunSnapshot<"oma">;
+  readonly run: AgentRunSnapshot;
   readonly workspace: WorkspaceBinding;
   /** Product-run identity, when this run is product-driven (RPC path).
    *  Standalone CLI runs omit it: the agent has no product identity. */

@@ -69,10 +69,9 @@ import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
 import { estimateMessageTokens } from "./context-estimate.js";
+import { CONSENTED_MCP_TOOLS_ENV, decodeEnvList } from "@chengchenccc/message";
 import {
   type AgentRunSnapshot,
-  CONSENTED_MCP_TOOLS_ENV,
-  decodeEnvList,
   type ProjectedHistoryItem,
 } from "./contract/index.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
@@ -231,7 +230,7 @@ export interface RunRuntime {
   readonly summarize: ContextSummarizer;
   readonly contextBudget: ContextBudget | undefined;
   /** Set before startLoop so modelStream resolves the run's model. */
-  setActiveRun(run: AgentRunSnapshot<"oma"> | null): void;
+  setActiveRun(run: AgentRunSnapshot | null): void;
   /** Workflow mode: execute a vm-sandboxed script (agent() subagents) and
    *  return its value. Used directly by create-runtime when the Run input
    *  carries `workflow`, and by the workflow_run tool otherwise. */
@@ -1282,7 +1281,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     });
   }
 
-  let activeRun: AgentRunSnapshot<"oma"> | null = null;
+  let activeRun: AgentRunSnapshot | null = null;
 
   // Model plumbing: display-identity resolver, summarizer, compaction
   // budget, and the wall-clock caps — all bound to the RUN's model.

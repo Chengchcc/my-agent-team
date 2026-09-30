@@ -53,7 +53,7 @@ export interface TransportRunEvent {
   data: Readonly<Record<string, unknown>>;
 }
 
-export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
+export function mapRunEvent(event: TransportRunEvent): BackendEvent {
   switch (event.type) {
     case "message_update": {
       const text = String(event.data.text ?? "");

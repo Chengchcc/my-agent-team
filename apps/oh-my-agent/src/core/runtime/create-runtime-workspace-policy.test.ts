@@ -24,7 +24,7 @@ import { parseToolFilter } from "./tool-filter.js";
 const ws = mkdtempSync(join(tmpdir(), "oma-wspolicy-"));
 afterAll(() => rmSync(ws, { recursive: true, force: true }));
 
-function runInput(runId: string, access: "read_only" | "read_write"): BackendRunInput<"oma"> {
+function runInput(runId: string, access: "read_only" | "read_write"): BackendRunInput {
   return {
     input: { inputId: `in-${runId}`, message: { role: "user", text: "go" } },
     run: {

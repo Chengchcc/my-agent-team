@@ -18,7 +18,7 @@ afterAll(() => rmSync(ws, { recursive: true, force: true }));
 
 const MARKER = "oma-p0-bg-probe";
 
-function runInput(runId: string): BackendRunInput<"oma"> {
+function runInput(runId: string): BackendRunInput {
   return {
     input: { inputId: `in-${runId}`, message: { role: "user", text: "go" } },
     run: { runId, model: { backendKind: "oma", modelId: "fake/echo" }, configRevision: 1 },

@@ -44,12 +44,12 @@ export function createRuntimeTestContext() {
     return runtime;
   }
 
-  function runInput(runId: string, systemPrompt?: string): BackendRunInput<"oma"> {
-    const base: BackendRunInput<"oma"> = {
+  function runInput(runId: string, systemPrompt?: string): BackendRunInput {
+    const base: BackendRunInput = {
       input: { inputId: `in-${runId}`, message: { role: "user", text: "go" } },
       run: {
         runId,
-        model: { backendKind: "oma", modelId: "fake/echo" },
+        model: { modelId: "fake/echo" },
         configRevision: 1,
       },
       workspace: { root: tmp, access: "read_write" },
@@ -64,7 +64,7 @@ export function createRuntimeTestContext() {
     return base;
   }
 
-  async function settle(segment: BackendRunSegment<"oma">) {
+  async function settle(segment: BackendRunSegment) {
     const outcome = await segment.outcome;
     const events: string[] = [];
     const collect = (async () => {

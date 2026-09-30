@@ -638,7 +638,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     });
     // `/workflow` queued a script: this run executes the vm workflow instead
     // of a conversational loop (create-runtime branches on input.workflow).
-    let runInput: BackendRunInput<"oma"> = built;
+    let runInput: BackendRunInput = built;
     if (pendingWorkflowScript !== undefined) {
       runInput = { ...built, workflow: { script: pendingWorkflowScript } };
       pendingWorkflowScript = undefined;
