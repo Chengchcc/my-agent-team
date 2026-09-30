@@ -21,10 +21,10 @@ tags: [backend, runs, runtime]
 - `apps/backend/src/features/agent-run/protocol/history.ts` — `WorkspaceBinding`、`AgentRunSnapshot`
 - `apps/backend/src/features/agent-run/protocol/event.ts` — `CoreBackendEvent`、`BackendExtensionEvent`
 - `apps/backend/src/features/agent-run/protocol/kinds.ts` — `BACKEND_KINDS`
-- `packages/adapter-oma-agent/src/{backend,protocol,event-mapper,process,model-catalog}.ts` — oma adapter
-- `packages/adapter-claude-agent/src/{backend,event-mapper,model-catalog}.ts` — claude adapter
-- `packages/adapter-pi-agent/src/{backend,event-mapper,model-catalog}.ts` — pi adapter
-- `packages/adapter-omp-agent/src/{backend,event-mapper,model-catalog}.ts` — omp adapter
+- `apps/oh-my-agent/src/modes/acp/acp-mode.ts` — oma ACP 面
+- `packages/adapter-acp/src/` — claude 经 ACP 桥（已删）
+
+
 - `apps/oh-my-agent/src/protocol/mapping.ts` — child 侧的 wire 定义；`protocol/drift.test.ts` 是两份副本的一致性守卫
 - `apps/backend/src/bootstrap/features.ts` — registry 装四个 entry、workspace bridge 重写
 - `apps/backend/src/features/agent-run/execution-input.ts` — 首轮 flat-text 桥与 Run 快照组装

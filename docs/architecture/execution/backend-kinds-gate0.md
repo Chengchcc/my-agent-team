@@ -18,7 +18,7 @@ tags: [backend, runs, models]
 
 本记录被三处源码注释点名引用，改文件名要连带改这三处：
 
-- `packages/adapter-claude-agent/src/backend.ts` — 头注释指向本文件作为 stream-json 的 wire 记录
+
 - `packages/adapter-omp-agent/src/backend.ts` — 同上
 - `packages/adapter-pi-agent/src/backend.ts` — 头注释标注 pi 未真机验证，指向本记录
 

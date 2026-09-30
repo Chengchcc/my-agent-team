@@ -23,7 +23,7 @@ tags: [runtime, backend]
 - `apps/backend/src/features/agent-context/projection.ts` — 分支投影
 - `apps/backend/src/features/product-tools/{manifest,mcp,run-token-registry}.ts` — 产品工具 MCP 与每次 Run 的 token
 - `apps/backend/src/bootstrap/features.ts` — 组装点：后端注册表与 execution 依赖
-- `packages/agent-contract/src/{backend,run,kinds}.ts` — 执行协议、终态契约、后端种类
+- `apps/backend/src/features/agent-run/protocol/{backend,run}.ts` — 执行协议与终态契约（原 agent-contract，已吸收进 backend）
 - `packages/adapter-{oma,claude,pi,omp}-agent/src/backend.ts` — 四个 Adapter
 - `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — 每次 Run 的 Oma Runtime 装配
 

@@ -233,9 +233,7 @@ apps/
 
 packages/
   message/             协议层：Message 类型、ChatModel、Tool、stream-utils（无 run loop）
-  agent-contract/      Agent Backend 中立契约：BackendRunInput/Outcome/Event/Segment
-  adapter-oma-agent/   Adapter — spawn 自研 child、JSONL 读写、steer/abort/approval、并发上限
-  adapter-claude-agent/ Adapter — spawn claude CLI（stream-json、--resume/--mcp-config）
+  adapter-acp→已删     ACP 客户端已收进 backend features/agent-run/acp/
   adapter-pi-agent/    Adapter — spawn pi CLI（--session/--provider/--model）
   adapter-omp-agent/   Adapter — spawn omp CLI（-r/--thinking）
   adapter-mcp/         MCP client adapter — 外部 MCP server 接入
