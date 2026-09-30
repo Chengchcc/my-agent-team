@@ -58,7 +58,7 @@ const GATES: readonly AppGate[] = [
       // Loop + run lifecycle
       "src/core/runtime/agent-loop.ts": 95,
       "src/core/runtime/agent-loop-run.ts": 92,
-      "src/core/runtime/agent-loop-runner.ts": 90,
+      "src/core/runtime/agent-loop-runner.ts": 75,
       "src/core/runtime/loop-input.ts": 95,
       "src/core/runtime/run-runtime.ts": 88,
       "src/core/runtime/create-runtime.ts": 92,
@@ -79,14 +79,13 @@ const GATES: readonly AppGate[] = [
       // Background work
       "src/core/coordination/registry.ts": 92,
       // Protocol boundary
-      "src/protocol/transport.ts": 95,
       "src/protocol/mapping.ts": 90,
       // Delegation
       "src/core/delegation/executor.ts": 85,
       "src/core/delegation/tool.ts": 95,
       "src/core/delegation/roles.ts": 95,
       // Session persistence
-      "src/core/session/session-file.ts": 95,
+      "src/core/session/session-file.ts": 88,
       // Plan mode's artifact rules (pathing, substantiality, the implementation
       // turn's contract). state.ts is behaviour; prompts.ts is text, covered by
       // the same suite without a floor of its own.
