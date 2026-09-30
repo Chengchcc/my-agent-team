@@ -234,8 +234,6 @@ apps/
 packages/
   message/             协议层：Message 类型、ChatModel、Tool、stream-utils（无 run loop）
   adapter-acp→已删     ACP 客户端已收进 backend features/agent-run/acp/
-  adapter-pi-agent/    Adapter — spawn pi CLI（--session/--provider/--model）
-  adapter-omp-agent/   Adapter — spawn omp CLI（-r/--thinking）
   adapter-mcp/         MCP client adapter — 外部 MCP server 接入
   workflow/            Agentic Workflow DSL 纯域层（节点图、JSON-Logic、computeNext 引擎）
   sandbox/             进程沙箱 — workflow script 节点 / oma eval 工具的隔离执行

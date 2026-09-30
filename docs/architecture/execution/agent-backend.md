@@ -22,7 +22,7 @@ tags: [backend, runs, runtime]
 - `apps/backend/src/features/agent-run/protocol/event.ts` — `CoreBackendEvent`、`BackendExtensionEvent`
 - `apps/backend/src/features/agent-run/protocol/kinds.ts` — `BACKEND_KINDS`
 - `apps/oh-my-agent/src/modes/acp/acp-mode.ts` — oma ACP 面
-- `packages/adapter-acp/src/` — claude 经 ACP 桥（已删）
+- `apps/backend/src/features/agent-run/acp/` — claude 经 ACP 桥（已删）
 
 
 - `apps/oh-my-agent/src/protocol/mapping.ts` — child 侧的 wire 定义；`protocol/drift.test.ts` 是两份副本的一致性守卫

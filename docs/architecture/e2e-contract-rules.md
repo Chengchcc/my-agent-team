@@ -44,7 +44,7 @@ tags: [conventions, rules]
 | 环境变量 | `packages/config/src/env.ts` 的 `envSchema` | `parseEnv()`，一处解析 |
 | 跨进程消息 | 共享 zod schema | 两端 import 并 parse |
 | 枚举与状态 | 共享 `as const` 或 `z.enum` | 两端 import |
-| oma 的 JSONL 协议 | `apps/oh-my-agent` 生成的 canonical fixture | `packages/adapter-oma-agent` 的测试消费 fixture |
+| oma 的 JSONL 协议 | `apps/oh-my-agent` 生成的 canonical fixture | `apps/oh-my-agent` 的测试消费 fixture |
 
 ## 写完自检
 

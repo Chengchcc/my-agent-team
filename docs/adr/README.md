@@ -56,7 +56,7 @@
 - **0022 的「表已删」不成立**：迁移 `0027_mcp_catalog.sql` 只 `RENAME TO mcp_server_legacy`，全仓没有 DROP；它承诺的「存量提升」也没有生产调用者（`features/mcp/adapter-file.ts` 的 `mergeMcpCatalog` 是死代码）。
 - **0012 的进程内缓存已被取代**：`packages/adapter-mcp/src/mcp-client-manager.ts` 的 `getTools()` 全仓无调用点，真实注入由 `writeMcpConfig` 写 `.mcp.json` + `core/tools/mcp-mount.ts` 每 run connect 完成。
 - **0033 的边界例外**：原始 tool input 只保证在 `tool_execution_start` 上被 `forWire` 剥掉；审批帧必须带 input 才能让人看清批的是什么，这是一条有意的例外，正文没写。
-- **0024 的注释过期**：`packages/adapter-oma-agent/src/{protocol,event-mapper}.ts` 里仍写「Lives in the CONTRACT package (agent-backend)」，而 wire schema 已回到 oma/adapter 两侧，`agent-contract` 只剩 backend-agnostic 契约。
+- **0024 的注释过期**：`apps/oh-my-agent/src/{protocol,event-mapper}.ts` 里仍写「Lives in the CONTRACT package (agent-backend)」，而 wire schema 已回到 oma/adapter 两侧，`agent-contract` 只剩 backend-agnostic 契约。
 
 ## 架构级决策文档(非 ADR，但同属决策面)
 

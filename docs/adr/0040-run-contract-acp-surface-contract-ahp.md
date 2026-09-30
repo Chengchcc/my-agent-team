@@ -28,7 +28,7 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 后果是实证的：ACP 轨的 `buildOutcomeMessages` 只产出 assistant 文本，于是四次 `todo_write` 在账本里一行都没留下（`product_tool_call` 有记录、日志有 `tool_end error=false`，账本零行），而 [conversation/history](../architecture/conversation/history.md) 声明工具消息应进 History。
 
-（2026-09-29 S0 首刀已修：映射改为按到达顺序记产出片段，同一次 run 的四次工具调用现在提交九行账本，向量见 `packages/adapter-acp/src/event-mapping.test.ts` 的「durable tool facts」。）
+（2026-09-29 S0 首刀已修：映射改为按到达顺序记产出片段，同一次 run 的四次工具调用现在提交九行账本，向量见 `apps/backend/src/features/agent-run/acp/event-mapping.test.ts` 的「durable tool facts」。）
 
 ## 决策
 
@@ -174,9 +174,9 @@ flowchart LR
 
 | 轴 | 删除项 | 何时 |
 |---|---|---|
-| 运行 | `packages/adapter-oma-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线 |
+| 运行 | `apps/oh-my-agent`、`adapter-claude-agent`、`adapter-pi-agent`、`adapter-omp-agent`，以及 `BackendKind` 里的 `oma` / `claude_code` / `pi` / `omp` | 该家经 ACP 通过 conformance 与隔离验收之后，逐家下线 |
 | 运行 | 引用上的 `backendKind` 字段，以及 agent 配置、HTTP 与 Web 上的 kind 概念 | R3 逐家下线之后（决策七） |
-| 运行 | `packages/agent-contract` 整包（词汇分住 `message` 与 ACP 客户端后）；oma `--mode rpc` 及其 transport schema | R4 完成时（决策八） |
+| 运行 | `apps/backend/src/features/agent-run/protocol` 整包（词汇分住 `message` 与 ACP 客户端后）；oma `--mode rpc` 及其 transport schema | R4 完成时（决策八） |
 | surface | 自研核心事件词汇（14 类）与 5 个 SSE 端点（`agent-run`、`agent`、`conversation`、`workflow` 两处） | Web 切到 AHP 客户端之后。**已删**（2026-09-30）：`conversation` 那条随会话状态切走先删，`agent-run` 这条连同 `runEvents` 词汇、只在迟到订阅路径上存在的服务面（`runEventStreamFor`／`subscribe`／`isParked`／`pendingActionEvents`）与总线的订阅扇出一并删除；运维瀑布图读的是落库的遥测（REST），不受影响。`workflow` 的执行那条也已删除：执行页改成按 1.5 秒轮询 `/trace`，内存里的执行事件总线（`ExecutionEventBus`）与它的扇出一并删掉，脚本日志改走落库；**全部已删**（2026-09-30）：`workflow` 的定义那条与 `agent-config` 的提案改走「待采纳提案」（`proposal` 行 + REST 两个边，网页两页与两个 MCP 工具同一次落），两条 SSE、两个内存总线、两份事件 schema、`sseEndpoints` 与网页的 `typed-source` 一并删除；后端最后一个 SSE 构造器 `sseResponse` 也没了。surface 轴现在只有 AHP（实时状态）与 REST（CRUD） |
 | surface | Web 侧 `EventSource` 管道 | 同上 |
 | surface | Lark 的 HTTP 事件消费与自研事件解析 | 改为 AHP 客户端订阅（与 Web 同时切换）。**已删**（2026-09-29）：跑动卡原先直连 `/api/agent-runs/:runId/events`，现改读 chat 状态（`cardStateFromChatTurn`），自研事件 reducer 与其测试一并删除，`apps/lark-bot` 内已无 `text/event-stream` 消费者 |

@@ -2,7 +2,7 @@
 
 **日期**: 2026-08-11
 **状态**: accepted
-**范围**: `@chengchenccc/message`（契约定义）、`@chengchenccc/agent-backend`（outcome 协议）、`packages/agent`（runtime 输出）、`packages/adapter-oma-agent`（adapter 映射）、`apps/backend`（ledger 提交 + 身份索引）、`apps/web`（tool 消息渲染）、`packages/ai`（provider 纯转换）
+**范围**: `@chengchenccc/message`（契约定义）、`@chengchenccc/agent-backend`（outcome 协议）、`packages/agent`（runtime 输出）、`apps/oh-my-agent`（adapter 映射）、`apps/backend`（ledger 提交 + 身份索引）、`apps/web`（tool 消息渲染）、`packages/ai`（provider 纯转换）
 
 ---
 
@@ -101,7 +101,7 @@ assistant(text)              ← 最终答案
 1. `@chengchenccc/message`：契约 + `normalizeCanonicalMessages`（Wave 1）
 2. `@chengchenccc/agent-backend`：outcome 携带消息序列（Wave 2）
 3. `packages/agent`：runtime 输出 canonical 序列（Wave 3）
-4. `packages/adapter-oma-agent` + `apps/oh-my-agent`：序列透传（Wave 3）
+4. `apps/oh-my-agent` + `apps/oh-my-agent`：序列透传（Wave 3）
 5. `apps/backend`：多消息提交 + 身份索引迁移（Wave 4）
 6. `apps/web`：`groupTurns`/`isConclusionMessage` 支持 tool 消息（Wave 5）
 7. 完整回归：typecheck + lint + 全量测试 + web build + 浏览器多轮实测（Wave 6）

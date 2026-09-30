@@ -19,8 +19,8 @@ tags: [backend, runs, models]
 本记录被三处源码注释点名引用，改文件名要连带改这三处：
 
 
-- `packages/adapter-omp-agent/src/backend.ts` — 同上
-- `packages/adapter-pi-agent/src/backend.ts` — 头注释标注 pi 未真机验证，指向本记录
+- `apps/oh-my-agent/src/modes/acp/acp-mode.ts` — 同上
+- `apps/oh-my-agent/src/modes/acp/acp-mode.ts` — 头注释标注 pi 未真机验证，指向本记录
 
 ## 当时的实测环境
 
