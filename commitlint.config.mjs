@@ -22,6 +22,7 @@ export default {
         "adapter-pi-agent",
         "adapter-claude-agent",
         "adapter-mcp",
+        "adapter-acp",
         "ai",
         // Plugins
         // Apps

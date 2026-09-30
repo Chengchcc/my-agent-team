@@ -12,6 +12,12 @@ export {
   mapAcpUpdate,
   mapAcpUsage,
 } from "./event-mapping.js";
+export type {
+  AcpHarnessCatalog,
+  AcpHarnessModel,
+  ProbeHarnessCatalogOptions,
+} from "./harness-catalog.js";
+export { probeHarnessCatalog } from "./harness-catalog.js";
 export { AcpModelCatalog } from "./model-catalog.js";
 export type { AcpAgentEntry } from "./registry.js";
 export { ACP_AGENTS, DEFAULT_ACP_AGENT, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
