@@ -23,12 +23,16 @@ describe("proposal routes", () => {
   });
 
   test("only adopted or discarded are decisions; anything else is a bad request", async () => {
-    const res = await api(harness, "POST", "/api/proposals/p-nope/maybe");
+    const res = await api(harness, "POST", "/api/proposal-decisions/p-nope", {
+      decision: "maybe",
+    });
     expect(res.status).toBe(400);
   });
 
   test("deciding a proposal that is not pending is a conflict", async () => {
-    const res = await api(harness, "POST", "/api/proposals/p-nope/adopted");
+    const res = await api(harness, "POST", "/api/proposal-decisions/p-nope", {
+      decision: "adopted",
+    });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toContain("no longer pending");
   });

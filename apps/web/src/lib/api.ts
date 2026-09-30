@@ -602,6 +602,13 @@ export const api = {
     input?: Record<string, unknown>;
     artifacts?: string[];
   }) => unwrap(client.api["workflow-executions"].post(body)),
+  /** The pending proposal for a target (ADR 0040: an MCP tool proposes, a page adopts), or null
+   *  when nothing is waiting. */
+  getPendingProposal: (kind: "agent_config" | "workflow_definition", targetId: string) =>
+    unwrap(client.api.proposals({ kind })({ targetId }).get()),
+  /** Say what the page did with it. A second decision on the same proposal is refused (409). */
+  resolveProposal: (id: string, decision: "adopted" | "discarded") =>
+    unwrap(client.api["proposal-decisions"]({ id }).post({ decision })),
   getWorkflowExecutionTrace: (executionId: string) =>
     unwrap(client.api["workflow-executions"]({ executionId }).trace.get()),
   cancelWorkflowExecution: (executionId: string) =>
