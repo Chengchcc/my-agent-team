@@ -17,12 +17,6 @@
       "path": "./packages/adapter-mcp"
     },
     {
-      "path": "./packages/adapter-acp"
-    },
-    {
-      "path": "./packages/agent-contract"
-    },
-    {
       "path": "./packages/ai"
     },
     {

@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import type { PendingActionResponse } from "./protocol/index.js";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
@@ -11,6 +10,7 @@ import {
   PendingActionAlreadyConsumedError,
 } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
+import type { PendingActionResponse } from "./protocol/index.js";
 
 type ActionMethods = Pick<
   AgentRunPort,

@@ -1,6 +1,6 @@
 "use client";
 
-import { normalizeReasoningEffort } from "@chengchenccc/agent-contract";
+import { normalizeReasoningEffort } from "@chengchenccc/message";
 import { useEffect, useRef } from "react";
 import type { AgentDraft } from "@/components/agent-form-types";
 import type { AgentRow } from "@/lib/api";

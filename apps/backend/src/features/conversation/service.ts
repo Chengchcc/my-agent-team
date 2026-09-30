@@ -1,5 +1,3 @@
-import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
-import { debugLog } from "../../features/agent-run/protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import {
   ContentBlockSchema,
@@ -8,6 +6,8 @@ import {
   MessageRevisionSchema,
   serializeMessageRevision,
 } from "@chengchenccc/message";
+import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
+import { debugLog } from "../../features/agent-run/protocol/index.js";
 import { DomainError } from "../../infra/domain-errors.js";
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";

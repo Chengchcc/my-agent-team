@@ -23,7 +23,7 @@ tags: [conventions, backend]
 - `apps/backend/src/server.ts` — Bun.serve 与 Elysia 的 WebSocket 接线
 - `packages/message/src/chat-model.ts` — 最小的模型端口
 - `packages/ai/src/{api-registry,index}.ts` — API 注册表与 provider 工厂
-- `packages/agent-contract/src/backend.ts` — AgentBackend 端口与后端注册表
+- `apps/backend/src/features/agent-run/protocol/backend.ts` — AgentBackend 端口与后端注册表
 - `apps/backend/src/features/agent-run/execution-types.ts` — 执行服务收到的函数式策略
 - `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — oma 侧自己的装配入口
 

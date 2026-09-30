@@ -1,12 +1,3 @@
-import type {
-  AgentBackend,
-  BackendModelRef,
-  BackendRunOutcome,
-  BackendRunSegment,
-  ProjectedHistoryItem,
-  ResumeDecision,
-} from "./protocol/index.js";
-import { BACKEND_KINDS, type BackendKind, debugLog } from "./protocol/index.js";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
@@ -16,6 +7,15 @@ import { isActiveStatus } from "./domain.js";
 import { buildRunInput, finalAnswerMessage } from "./execution-input.js";
 import type { LiveEventBus } from "./execution-live.js";
 import type { AgentRunExecutionDeps, LiveRun } from "./execution-types.js";
+import type {
+  AgentBackend,
+  BackendModelRef,
+  BackendRunOutcome,
+  BackendRunSegment,
+  ProjectedHistoryItem,
+  ResumeDecision,
+} from "./protocol/index.js";
+import { BACKEND_KINDS, type BackendKind, debugLog } from "./protocol/index.js";
 
 export interface ExecutionDispatchCtx {
   deps: AgentRunExecutionDeps;

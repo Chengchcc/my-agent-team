@@ -1,4 +1,7 @@
-import { type BackendModelRef, normalizeReasoningEffort } from "../../features/agent-run/protocol/index.js";
+import {
+  type BackendModelRef,
+  normalizeReasoningEffort,
+} from "../../features/agent-run/protocol/index.js";
 import type { AgentConfig } from "./agent-config.js";
 
 /** Agent row (file-first, ADR 0020 decision 1): the DB keeps only the FK

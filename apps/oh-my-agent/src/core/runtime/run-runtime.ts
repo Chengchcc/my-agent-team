@@ -5,6 +5,7 @@ import { type ModelRuntime, type ModelRuntimeEntry, resolveModelAlias } from "@c
 import type { AIMessageChunk, JsonSchema, Message, Tool } from "@chengchenccc/message";
 import { createHubTool } from "../coordination/index.js";
 import { type CoordinationRegistry, createCoordinationRegistry } from "../coordination/registry.js";
+import { debugLog } from "../debug-log.js";
 import { createDelegationExecutor, type SubagentResult } from "../delegation/executor.js";
 import { createDelegationTools, isValidWorkflowName } from "../delegation/tool.js";
 import {
@@ -71,7 +72,6 @@ import { estimateMessageTokens } from "./context-estimate.js";
 import {
   type AgentRunSnapshot,
   CONSENTED_MCP_TOOLS_ENV,
-  debugLog,
   decodeEnvList,
   type ProjectedHistoryItem,
 } from "./contract/index.js";

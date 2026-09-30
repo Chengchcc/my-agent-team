@@ -1,5 +1,3 @@
-import type { AgentBackend, ResumeDecision } from "./protocol/index.js";
-import { BACKEND_KINDS, debugLog } from "./protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import { AcpBackendError } from "./acp/acp-backend.js";
 import { isActiveStatus, pendingActionId } from "./domain.js";
@@ -10,6 +8,8 @@ import type {
   AgentRunExecutionService,
   LiveRun,
 } from "./execution-types.js";
+import type { AgentBackend, ResumeDecision } from "./protocol/index.js";
+import { BACKEND_KINDS, debugLog } from "./protocol/index.js";
 
 export interface ExecutionServiceCtx {
   deps: AgentRunExecutionDeps;

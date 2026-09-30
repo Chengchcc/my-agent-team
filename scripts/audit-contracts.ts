@@ -36,6 +36,8 @@ const ENV_BRIDGE = new Set([
   "apps/backend/src/config.ts",
   "apps/backend/src/infra/oma-command.ts",
   "apps/backend/src/testing/app-harness.ts",
+  "apps/backend/src/features/agent-run/acp/fake-acp-harness.ts",
+  "apps/backend/src/features/agent-run/protocol/debug-log.ts",
 ]);
 
 const failures: string[] = [];

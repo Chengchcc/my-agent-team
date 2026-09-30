@@ -39,7 +39,7 @@ Surfaces        Web app / Lark bot / oma TUI - talk HTTP/SSE to the backend
 Backend         Product facts + execution control plane (apps/backend)
 Adapter         packages/adapter-* - child process boundary (spawn / JSONL / steer / stop / approval)
 Runtime         apps/oh-my-agent/src/core - model+tool loop, plugins, compaction, todo
-Protocols       Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/{message,agent-contract,api-contract,workflow})
+Protocols       Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/{message,api-contract,workflow})
 ```
 
 The current-state description of each layer lives in the wiki: start at
@@ -47,8 +47,7 @@ The current-state description of each layer lives in the wiki: start at
 
 **Package dependency graph** (`audit:workspace` fails if a workspace member is
 missing from this list; `@chengchenccc/` is the scope of every name below):
-- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`
-- Contracts: `@chengchenccc/agent-contract` (spawn-neutral `AgentBackend`), `@chengchenccc/api-contract` (HTTP `App` + SSE event maps — the web↔backend wire, type-only)
+- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`, `@chengchenccc/api-contract`
 - ACP client (child-process boundary): a backend-local module (`apps/backend/src/features/agent-run/acp/`) — spawn, stdio ACP, one client drives every harness (ADR 0039/0040). `@chengchenccc/adapter-mcp` is the MCP client mount (not an execution rail).
 - Surfaces (client side): `@chengchenccc/ahp-client` (WebSocket transport for the AHP surface contract; the upstream client brings the protocol rules and the state mirror)
 - Runtime support: `@chengchenccc/ai` (provider + model registry; `createProvider` over the three protocol implementations), `@chengchenccc/test-helpers` (`echoModel()`)
@@ -204,7 +203,6 @@ sessions actually running inside that app.
 | `apps/oh-my-agent/src/core/runtime/agent-loop.ts` | `createOmaSession()` — the agent loop |
 | `apps/oh-my-agent/src/core/runtime/plugin.ts` | `Plugin`/`PluginHooks`, `validatePlugins()` |
 | `packages/message/src/chat-model.ts` | `ChatModel` contract |
-| `packages/agent-contract/src/backend.ts` | `AgentBackend` port + backend-kind registry |
 | `apps/backend/src/features/coding/task-worktrees.ts` | Task-axis worktree listing + terminal path whitelist |
 | `packages/ai/src/providers/anthropic-messages.ts` | Anthropic Messages API adapter |
 | `apps/web/src/lib/api.ts` | Typed API client (Eden Treaty) |

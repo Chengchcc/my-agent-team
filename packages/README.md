@@ -12,7 +12,6 @@ Product Backend (apps/backend)
 → ACP 客户端 (backend 内的 acp 模块)
 → spawn 一次性 oma 子进程 --mode acp (apps/oh-my-agent)
 → per-Run Runtime
-→ BackendRunOutcome (@chengchenccc/agent-contract)
 → Product terminal commit
 ```
 
@@ -21,7 +20,6 @@ Product Backend (apps/backend)
 ## 协议与契约
 
 - [`message`](./message/) — `Message` / `MessageRevision` 领域类型与 zod 序列化；`ChatModel`、`Tool`、`ContentBlock`、stream 工具（`collectStream` 等）；`assistantMessageId(runId, ordinal)` 产生 `run:<runId>:assistant:<n>`。整个仓库的叶子节点。
-- [`agent-contract`](./agent-contract/) — `AgentBackend` 端口（`execute` / `steer` / `resolveApproval?` / `stop` / `dispose`）、`BackendRunInput` / `BackendRunOutcome`、核心事件与后端种类名单。
 - [`api-contract`](./api-contract/) — 跨进程的 SSE 事件 map（`SSEEventMap`、`sseEndpoints`）与飞书消息 schema。HTTP 的 `App` 类型不在这里，它是 `apps/backend/src/app.ts` 导出的。
 - [`config`](./config/) — 环境变量 schema 与 `parseEnv()`。
 

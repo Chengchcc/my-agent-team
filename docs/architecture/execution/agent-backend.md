@@ -16,11 +16,11 @@ tags: [backend, runs, runtime]
 
 ## 实现文件
 
-- `packages/agent-contract/src/backend.ts` — `AgentBackend<K>` 接口与 `BackendRegistryEntry` / `BackendRegistry`
-- `packages/agent-contract/src/run.ts` — `BackendInputMessage`、`BackendRunInput`、`BackendRunOutcome`、`BackendRunSegment`、`PendingAction`
-- `packages/agent-contract/src/history.ts` — `WorkspaceBinding`、`AgentRunSnapshot`
-- `packages/agent-contract/src/event.ts` — `CoreBackendEvent`、`BackendExtensionEvent`
-- `packages/agent-contract/src/kinds.ts` — `BACKEND_KINDS`
+- `apps/backend/src/features/agent-run/protocol/backend.ts` — `AgentBackend<K>` 接口与 `BackendRegistryEntry` / `BackendRegistry`
+- `apps/backend/src/features/agent-run/protocol/run.ts` — `BackendInputMessage`、`BackendRunInput`、`BackendRunOutcome`、`BackendRunSegment`、`PendingAction`
+- `apps/backend/src/features/agent-run/protocol/history.ts` — `WorkspaceBinding`、`AgentRunSnapshot`
+- `apps/backend/src/features/agent-run/protocol/event.ts` — `CoreBackendEvent`、`BackendExtensionEvent`
+- `apps/backend/src/features/agent-run/protocol/kinds.ts` — `BACKEND_KINDS`
 - `packages/adapter-oma-agent/src/{backend,protocol,event-mapper,process,model-catalog}.ts` — oma adapter
 - `packages/adapter-claude-agent/src/{backend,event-mapper,model-catalog}.ts` — claude adapter
 - `packages/adapter-pi-agent/src/{backend,event-mapper,model-catalog}.ts` — pi adapter
@@ -119,7 +119,7 @@ outputs  (stdout)   response | event | outcome
 stderr              只有日志（adapter 保留 64KiB 尾部并做脱敏）
 ```
 
-adapter 侧的行为，逐条都能在 `packages/adapter-acp/src/acp-backend.ts` 指出来：
+adapter 侧的行为，逐条都能在 `apps/backend/src/features/agent-run/acp/acp-backend.ts` 指出来：
 
 - FIFO spawn slot：`maxConcurrent` 限定同时活着的 child 数，多出来的 execute 排队等 slot，排队期间输入仍未投递；排队中的 Run 被 `stop` 时直接取消等待，绝不 spawn。`0` 表示不限并发。
 - `execute` 只在 child **接受**（runtime 装配好、steer/abort 已经可路由）之后才返回 segment；拒绝时 reap child，输入保持未接受。
@@ -128,7 +128,7 @@ adapter 侧的行为，逐条都能在 `packages/adapter-acp/src/acp-backend.ts`
 - 收到 outcome 先 reap 再 settle；stdout 关闭却始终没有 outcome，也 settle 为 `failed`。
 - 产品工具 token 只经 spawn env 下传，wire 上的输入里被剥掉。
 
-**wire 是两份手写副本**：child 侧 `apps/oh-my-agent/src/protocol/mapping.ts`，adapter 侧 `packages/adapter-acp/src/event-mapping.ts`。`apps/oh-my-agent/src/protocol/drift.test.ts` 读 adapter 源码文本比对，防两份定义走散。
+**wire 是两份手写副本**：child 侧 `apps/oh-my-agent/src/protocol/mapping.ts`，adapter 侧 `apps/backend/src/features/agent-run/acp/event-mapping.ts`。`` 读 adapter 源码文本比对，防两份定义走散。
 
 ## 四个 kind 的 spawn 形状
 

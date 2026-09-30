@@ -18,7 +18,7 @@
  *  A part's id carries its position among the turn's parts, because that is how the projection
  *  numbers them; the stream has to hand out the same ids or the surface keeps two copies of the
  *  same text. (Upstream action shapes read on 2026-09-29, protocol v0.9.0.) */
-import type { BackendEvent } from "../../features/agent-run/protocol/index.js";
+
 import { enumValue } from "@chengchenccc/ahp-client";
 import type {
   ChatDeltaAction,
@@ -37,6 +37,7 @@ import type {
   StateAction,
   Turn,
 } from "@microsoft/agent-host-protocol";
+import type { BackendEvent } from "../../features/agent-run/protocol/index.js";
 import { pendingActionId } from "../agent-run/domain.js";
 
 /** What the surface needs in order to show a turn before its first part arrives. */

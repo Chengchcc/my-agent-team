@@ -1,9 +1,5 @@
-import type {
-  BackendModelRef,
-  BackendRunOutcome,
-  WorkspaceBinding,
-} from "./protocol/index.js";
 import type { Message } from "@chengchenccc/message";
+import type { BackendModelRef, BackendRunOutcome, WorkspaceBinding } from "./protocol/index.js";
 
 // ─── Agent Run status ────────────────────────────────────────────
 

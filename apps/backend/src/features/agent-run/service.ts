@@ -1,3 +1,9 @@
+import type { Message } from "@chengchenccc/message";
+import { ConflictError } from "../../infra/domain-errors.js";
+import type { IdGenerator, LedgerMessageResolver } from "../agent-context/ports.js";
+import type { AgentContextService } from "../agent-context/service.js";
+import type { AgentRun, BranchInput, BranchInputMode, PendingActionRecord } from "./domain.js";
+import type { AgentRunPort } from "./ports.js";
 import type {
   BackendModelRef,
   BackendRunOutcome,
@@ -5,12 +11,6 @@ import type {
   WorkspaceBinding,
 } from "./protocol/index.js";
 import { debugLog } from "./protocol/index.js";
-import type { Message } from "@chengchenccc/message";
-import { ConflictError } from "../../infra/domain-errors.js";
-import type { IdGenerator, LedgerMessageResolver } from "../agent-context/ports.js";
-import type { AgentContextService } from "../agent-context/service.js";
-import type { AgentRun, BranchInput, BranchInputMode, PendingActionRecord } from "./domain.js";
-import type { AgentRunPort } from "./ports.js";
 
 export class AgentDisabledError extends ConflictError {
   constructor(id: string) {

@@ -23,7 +23,6 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.5.1",
     "@chengchenccc/adapter-mcp": "workspace:*",
-    "@chengchenccc/agent-contract": "workspace:*",
     "@chengchenccc/ai": "workspace:*",
     "@chengchenccc/config": "workspace:*",
     "@chengchenccc/message": "workspace:*",

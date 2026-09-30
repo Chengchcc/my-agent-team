@@ -16,10 +16,10 @@ tags: [runs, backend, runtime]
 
 ## 实现文件
 
-- `packages/agent-contract/src/run.ts` — `BackendRunInput`、`BackendRunOutcome`、`BackendRunSegment`
-- `packages/agent-contract/src/event.ts` — `CoreBackendEvent` 与扩展事件
-- `packages/adapter-acp/src/event-mapping.ts` — 传输事件到核心事件的映射，以及 outcome 映射
-- `packages/adapter-acp/src/acp-backend.ts` — spawn、接收、steer、stop、stdout 路由
+- `apps/backend/src/features/agent-run/protocol/run.ts` — `BackendRunInput`、`BackendRunOutcome`、`BackendRunSegment`
+- `apps/backend/src/features/agent-run/protocol/event.ts` — `CoreBackendEvent` 与扩展事件
+- `apps/backend/src/features/agent-run/acp/event-mapping.ts` — 传输事件到核心事件的映射，以及 outcome 映射
+- `apps/backend/src/features/agent-run/acp/acp-backend.ts` — spawn、接收、steer、stop、stdout 路由
 - `apps/oh-my-agent/src/core/runtime/agent-event.ts` — 子进程自己的事件联合类型
 - `apps/backend/src/features/agent-run/{execution-dispatch,execution-service,execution-live,execution-input,http}.ts`
 - `packages/api-contract/src/sse.ts` — 线上事件 map 与端点注册表

@@ -17,7 +17,7 @@ tags: [backend, runtime, surfaces]
 ## 实现文件
 
 - `apps/backend/src/infra/db/schema.ts` — 事实层与执行层各表的权威定义
-- `packages/agent-contract/src/debug.ts` — `debugLog` 与 `OMA_DEBUG=1`，子进程继承同一个开关
+- `packages/message/src/agent-vocabulary.js` — `debugLog` 与 `OMA_DEBUG=1`，子进程继承同一个开关
 - `apps/backend/src/features/agent-run/execution-dispatch.ts` — 阶段名与 `dispatch_failed`
 - `apps/backend/src/features/agent-run/execution-service.ts` — 启动恢复、`retryTerminalCommit`、非 completed 终态
 - `apps/backend/src/features/conversation/service.ts` — `[conversation] trigger` 行与 5 秒轮询兜底
@@ -73,13 +73,13 @@ BFF 只做 cookie 换 `x-auth-token` 与 `x-user-id`，不解析业务载荷；�
 
 ## adapter
 
-adapter 是 oma 子进程的进程管理与 JSONL 控制器（`packages/adapter-acp/src/acp-backend.ts`）。
+adapter 是 oma 子进程的进程管理与 JSONL 控制器（`apps/backend/src/features/agent-run/acp/acp-backend.ts`）。
 
 | 症状 | 先看 | 位置 |
 |---|---|---|
 | Run 立即失败并提到 spawn | 可执行文件是否存在、并发槽位是否被占满 | `spawnOmaProcess` 与 `acquireSlot` |
 | 子进程拒绝 execute | 请求构造是否合法，`invalid_request` 会带子进程的拒绝原因 | `handle.acceptance` |
-| 子进程崩溃 | 错误详情里的 stderr 尾部，它是脱敏后的截断内容 | `packages/adapter-acp/src/acp-backend.ts` |
+| 子进程崩溃 | 错误详情里的 stderr 尾部，它是脱敏后的截断内容 | `apps/backend/src/features/agent-run/acp/acp-backend.ts` |
 | stdout 协议损坏 | `failProtocol` 路径，一条坏行就会终结该 Run | `consumeStdout` |
 | 审批点了没反应 | 该 run 在本进程里是否还有 live 子进程，以及 backend 是否有 approval 管道 | `execution-service.ts` 的 `resolveApproval` |
 | steer 报 no live child | steer 只注入 live 子进程，run 已终结时输入会被取消 | `backend.ts` 的 `steer` |
@@ -119,7 +119,7 @@ adapter 是 oma 子进程的进程管理与 JSONL 控制器（`packages/adapter-
 
 ## 诊断日志
 
-`OMA_DEBUG=1` 是唯一的开关（`packages/agent-contract/src/debug.ts`），子进程继承同一变量，所以一次开启能同时点亮 backend、adapter、子进程 RPC 与 model loop 的日志。日志只含阶段名、id、计数与状态，不含消息正文、工具输入、prompt 与密钥。child 的 stderr 会保留一份脱敏尾部，但它只在协议失败时拼进错误详情，不做实时转发。
+`OMA_DEBUG=1` 是唯一的开关（`packages/message/src/agent-vocabulary.js`），子进程继承同一变量，所以一次开启能同时点亮 backend、adapter、子进程 RPC 与 model loop 的日志。日志只含阶段名、id、计数与状态，不含消息正文、工具输入、prompt 与密钥。child 的 stderr 会保留一份脱敏尾部，但它只在协议失败时拼进错误详情，不做实时转发。
 
 最短观察链（缺哪一行，故障就落在上一行与下一行之间）：
 

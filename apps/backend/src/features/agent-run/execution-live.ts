@@ -1,5 +1,5 @@
-import type { BackendEvent, BackendRunSegment } from "./protocol/index.js";
 import { TELEMETRY_EVENT_TYPES } from "./execution-input.js";
+import type { BackendEvent, BackendRunSegment } from "./protocol/index.js";
 
 export interface LiveEventBus {
   /** One live event on its way out: the durable telemetry sink (best effort), the observation

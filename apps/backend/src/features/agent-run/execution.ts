@@ -1,4 +1,3 @@
-import type { ResumeDecision } from "./protocol/index.js";
 import { pendingActionId } from "./domain.js";
 import { createExecutionDispatcher } from "./execution-dispatch.js";
 import { createLiveEventBus } from "./execution-live.js";
@@ -8,6 +7,7 @@ import type {
   AgentRunExecutionService,
   LiveRun,
 } from "./execution-types.js";
+import type { ResumeDecision } from "./protocol/index.js";
 
 export { ApprovalNotApplicableError } from "./execution-service.js";
 export type {

@@ -16,12 +16,6 @@ export type {
   AskQuestionResult,
   AskQuestionValidation,
 } from "@chengchenccc/message";
-export type {
-  AgentBackend,
-  BackendRegistry,
-  BackendRegistryEntry,
-} from "./backend.js";
-export { debugLog } from "./debug.js";
 export {
   CONSENTED_MCP_TOOLS_ENV,
   childEnv,
@@ -39,7 +33,6 @@ export type {
   ProjectedHistoryItem,
   WorkspaceBinding,
 } from "./history.js";
-export { BACKEND_KINDS, type BackendKind, backendKindSchema } from "./kinds.js";
 export type { BackendModel, BackendModelCatalog, BackendModelRef } from "./model.js";
 export { normalizeReasoningEffort, REASONING_EFFORTS, type ReasoningEffort } from "./model.js";
 export type {

@@ -1,4 +1,3 @@
-import type { BackendRunOutcome, PendingActionResponse } from "./protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import type {
   AcquireAgentRunCommand,
@@ -8,6 +7,7 @@ import type {
   ClaimedBranchInput,
   PendingActionRecord,
 } from "./domain.js";
+import type { BackendRunOutcome, PendingActionResponse } from "./protocol/index.js";
 
 /** Storage port for Agent Run, queue, and PendingAction persistence. */
 export interface AgentRunPort {

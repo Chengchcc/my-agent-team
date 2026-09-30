@@ -1,9 +1,3 @@
-import type {
-  BackendEvent,
-  BackendRegistry,
-  BackendRunSegment,
-  WorkspaceBinding,
-} from "./protocol/index.js";
 import type { Message } from "@chengchenccc/message";
 import type {
   AgentContextPort,
@@ -13,6 +7,12 @@ import type {
 import type { RunTokenRegistry } from "../product-tools/run-token-registry.js";
 import type { WorkspaceLockRegistry } from "../project/workspace-lock.js";
 import type { AgentRunPort } from "./ports.js";
+import type {
+  BackendEvent,
+  BackendRegistry,
+  BackendRunSegment,
+  WorkspaceBinding,
+} from "./protocol/index.js";
 
 export interface AgentRunExecutionDeps {
   /** Every live run event, as broadcast: the composition root turns the chat-shaped ones into

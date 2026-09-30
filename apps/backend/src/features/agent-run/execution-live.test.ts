@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { BackendEvent } from "./protocol/index.js";
 import { createLiveEventBus } from "./execution-live.js";
+import type { BackendEvent } from "./protocol/index.js";
 
 /** A controllable durable hook: the test decides when persistence "completes". */
 function deferredHook() {

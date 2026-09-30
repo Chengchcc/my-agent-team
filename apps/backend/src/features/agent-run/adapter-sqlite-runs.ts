@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import type { BackendRunOutcome } from "./protocol/index.js";
 import {
   assistantMessageId,
   type MessageRevision,
@@ -19,6 +18,7 @@ import {
   isTerminalStatus,
 } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
+import type { BackendRunOutcome } from "./protocol/index.js";
 
 type RunMethods = Pick<
   AgentRunPort,

@@ -34,7 +34,6 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "^1.5.1",
         "@chengchenccc/adapter-mcp": "workspace:*",
-        "@chengchenccc/agent-contract": "workspace:*",
         "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/ai": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
@@ -78,7 +77,6 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "^1.5.1",
         "@chengchenccc/adapter-mcp": "workspace:*",
-        "@chengchenccc/agent-contract": "workspace:*",
         "@chengchenccc/ai": "workspace:*",
         "@chengchenccc/config": "workspace:*",
         "@chengchenccc/message": "workspace:*",
@@ -104,7 +102,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
-        "@chengchenccc/agent-contract": "workspace:*",
         "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/backend": "workspace:*",
@@ -162,14 +159,6 @@
       "dependencies": {
         "@chengchenccc/message": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
-      },
-    },
-    "packages/agent-contract": {
-      "name": "@chengchenccc/agent-contract",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/message": "workspace:*",
-        "zod": "^3.23.0",
       },
     },
     "packages/ahp-client": {
@@ -338,8 +327,6 @@
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
 
     "@chengchenccc/adapter-mcp": ["@chengchenccc/adapter-mcp@workspace:packages/adapter-mcp"],
-
-    "@chengchenccc/agent-contract": ["@chengchenccc/agent-contract@workspace:packages/agent-contract"],
 
     "@chengchenccc/ahp-client": ["@chengchenccc/ahp-client@workspace:packages/ahp-client"],
 

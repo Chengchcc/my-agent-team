@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { BackendRunOutcome } from "./protocol/index.js";
 import { deriveVerification } from "./http.js";
+import type { BackendRunOutcome } from "./protocol/index.js";
 
 function outcome(partial: Partial<BackendRunOutcome>): BackendRunOutcome {
   return { status: "completed", messages: [], ...partial } as BackendRunOutcome;
