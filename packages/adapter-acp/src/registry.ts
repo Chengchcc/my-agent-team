@@ -41,8 +41,6 @@ export const ACP_AGENTS: Readonly<Record<string, AcpAgentEntry>> = {
   },
 };
 
-export const DEFAULT_ACP_AGENT = "omp";
-
 /** The harness a run's ref names: the explicit field when present, else the
  *  older packing of the key into `modelId` as `acp/<key>`. One place decides
  *  this so the two forms cannot drift apart between callers. */
@@ -52,12 +50,19 @@ export function harnessOf(ref: { readonly harness?: string; readonly modelId: st
 
 /** Resolve a registry entry by the run's model id (the agent key, e.g.
  *  "omp"). The LLM behind it stays the agent's own configuration — the acp
- *  kind's model catalog lists registry keys, not provider models. */
+ *  kind's model catalog lists registry keys, not provider models.
+ *
+ *  An unknown key fails loudly; it must never fall back to a default agent;
+ *  a silent fallback would spawn a DIFFERENT harness than the one the run
+ *  named, and a mistyped harness key would look like it worked. */
 export function resolveAcpAgentKey(id: string | undefined): string {
   // Accept both the bare registry key and the catalog-joined "acp/<key>"
   // (BackendModelRef.modelId carries whatever the agent record stored).
   const bare = id?.startsWith("acp/") ? id.slice(4) : id;
-  return bare && bare in ACP_AGENTS ? bare : DEFAULT_ACP_AGENT;
+  if (bare && bare in ACP_AGENTS) return bare;
+  throw new Error(
+    `unknown ACP harness '${bare ?? ""}' (known: ${Object.keys(ACP_AGENTS).join(", ")})`,
+  );
 }
 
 export function resolveAcpAgent(id: string | undefined): AcpAgentEntry {

@@ -20,4 +20,4 @@ export type {
 export { probeHarnessCatalog } from "./harness-catalog.js";
 export { AcpModelCatalog } from "./model-catalog.js";
 export type { AcpAgentEntry } from "./registry.js";
-export { ACP_AGENTS, DEFAULT_ACP_AGENT, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
+export { ACP_AGENTS, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";

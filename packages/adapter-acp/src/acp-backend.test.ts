@@ -645,13 +645,15 @@ describe("AcpBackend against an in-memory fake agent", () => {
   test("a missing agent binary fails the run, not the process", async () => {
     // Regression (live 2026-09-29): Bun reports spawn ENOENT through the
     // child's `error` event; with no listener it became an uncaught
-    // exception that killed the whole backend during dispatch.
-    const backend = new AcpBackend({ spawnImpl: createNodeSpawn(50) });
-    const input = makeInput();
-    const segment = await backend.execute({
-      ...input,
-      run: { ...input.run, model: { backendKind: "acp", modelId: "definitely-not-a-binary" } },
+    // exception that killed the whole backend during dispatch. The harness
+    // key must be a real one (an unknown key is a loud config error now),
+    // so the missing binary rides the per-key launch override.
+    const backend = new AcpBackend({
+      spawnImpl: createNodeSpawn(50),
+      commands: { omp: ["definitely-not-a-binary"] },
     });
+    const input = makeInput();
+    const segment = await backend.execute(input);
     const { outcome } = await collect(segment);
     expect(outcome.status).toBe("failed");
     await backend.dispose();
