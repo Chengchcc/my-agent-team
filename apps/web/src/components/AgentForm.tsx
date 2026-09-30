@@ -52,6 +52,12 @@ interface AgentFormProps {
   alwaysOpen?: boolean;
 }
 
+const KIND_LABELS: Record<string, string> = {
+  claude_code: "claude_code (via ACP)",
+  pi: "pi (via ACP)",
+  omp: "omp (via ACP)",
+};
+
 export function AgentForm({
   editAgent,
   draft,
@@ -68,6 +74,8 @@ export function AgentForm({
   const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<string[]>([]);
   const { data: modelData } = useModelList();
   const providers = useMemo(() => modelData?.providers ?? [], [modelData]);
+  // ADR 0040 R3: these kinds predate the ACP face and now run through it, so the picker says what
+  // will actually run instead of naming an adapter that is on its way out.
   // Backend kinds present in the aggregated catalog, canonical order.
   const backendKinds = useMemo(() => {
     const order = ["oma", "claude_code", "pi", "omp"];
@@ -432,7 +440,7 @@ export function AgentForm({
                           <SelectContent>
                             {backendKinds.map((k) => (
                               <SelectItem key={k} value={k}>
-                                {k}
+                                {KIND_LABELS[k] ?? k}
                               </SelectItem>
                             ))}
                           </SelectContent>
