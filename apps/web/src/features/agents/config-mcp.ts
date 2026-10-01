@@ -1,11 +1,10 @@
 "use client";
 
-import { normalizeReasoningEffort } from "@chengchenccc/agent-contract";
-import { agentConfigEvents } from "@chengchenccc/api-contract";
+import { normalizeReasoningEffort } from "@chengchenccc/message";
 import { useEffect, useRef } from "react";
 import type { AgentDraft } from "@/components/agent-form-types";
 import type { AgentRow } from "@/lib/api";
-import { typedSource } from "@/lib/typed-source";
+import { api } from "@/lib/api";
 
 // Must stay in sync with AgentRow["permissionMode"] (backend permission_mode).
 const PERMISSION_MODES = ["ask", "auto", "deny"] as const;
@@ -17,8 +16,6 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
   const c = (config ?? {}) as Record<string, unknown>;
   const rc = (c.runtime_config ?? {}) as Record<string, unknown>;
   const lk = (c.lark ?? {}) as Record<string, unknown>;
-  const modelId = String(rc.model_id ?? "");
-  const slash = modelId.indexOf("/");
   const mcpServers = Array.isArray(rc.mcp_servers)
     ? (rc.mcp_servers as Array<{ server_id: string; enabled: boolean }>).map((s) => ({
         serverId: s.server_id,
@@ -31,9 +28,10 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
     ...base,
     name: String(c.name ?? base.name),
     enabled: Boolean(c.enabled ?? base.enabled),
-    modelProvider: slash > 0 ? modelId.slice(0, slash) : "unknown",
-    modelName: slash > 0 ? modelId.slice(slash + 1) : modelId,
-    backendKind: String(rc.runtime ?? base.backendKind),
+    // The harness key is the identity; the model is an opaque id in that
+    // harness's own vocabulary ("" = its own default).
+    harness: String(rc.harness ?? base.harness),
+    model: String(rc.model ?? base.model),
     reasoningEffort: normalizeReasoningEffort(rc.reasoning_effort) ?? null,
     permissionMode: PERMISSION_MODES.find((m) => m === rc.permission_mode) ?? base.permissionMode,
     maxSteps,
@@ -53,18 +51,16 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
 export function agentConfigToDraft(config: unknown): AgentDraft {
   const c = (config ?? {}) as Record<string, unknown>;
   const rc = (c.runtime_config ?? {}) as Record<string, unknown>;
-  const modelId = String(rc.model_id ?? "");
-  const slash = modelId.indexOf("/");
   const maxSteps = typeof rc.max_steps === "number" && rc.max_steps > 0 ? rc.max_steps : null;
   const effort = normalizeReasoningEffort(rc.reasoning_effort);
   const permissionMode = PERMISSION_MODES.find((m) => m === rc.permission_mode);
   const name = typeof c.name === "string" && c.name.trim() !== "" ? c.name : undefined;
-  const backendKind = typeof rc.runtime === "string" && rc.runtime !== "" ? rc.runtime : undefined;
+  const harness = typeof rc.harness === "string" && rc.harness !== "" ? rc.harness : undefined;
+  const model = typeof rc.model === "string" ? rc.model : "";
   return {
     ...(name ? { name } : {}),
-    ...(backendKind ? { backendKind } : {}),
-    modelProvider: slash > 0 ? modelId.slice(0, slash) : "",
-    modelName: slash > 0 ? modelId.slice(slash + 1) : modelId,
+    ...(harness ? { harness } : {}),
+    model,
     ...(effort ? { reasoningEffort: effort } : {}),
     ...(permissionMode ? { permissionMode } : {}),
     maxSteps,
@@ -93,17 +89,29 @@ export function useAgentConfigEvents(
     handlersRef.current = handlers;
   }, [handlers]);
 
+  // A proposed change is a durable row (ADR 0040), so the page reads it instead of listening: a
+  // proposal that arrived while this page was closed is still adoptable, and adopting marks the
+  // row - a second reader gets a 409 that is not an error. The per-target SSE that used to carry
+  // it is gone.
   useEffect(() => {
     if (!agentId) return;
-    const url = `/api/bff/api/agents/${encodeURIComponent(agentId)}/events`;
-    const ts = typedSource(url, agentConfigEvents);
-    ts.on("changed", (ev) => {
-      if (ev.data?.trigger === "mcp" && ev.data.config !== undefined) {
-        handlersRef.current.onProposed(ev.data.config);
-      } else if (ev.data?.trigger === "save" && ev.data.config !== undefined) {
-        handlersRef.current.onSaved?.(ev.data.config);
-      }
-    });
-    return () => ts.close();
+    let stopped = false;
+    let adopted = "";
+    const tick = async () => {
+      const result = await api.getPendingProposal("agent_config", agentId).catch(() => null);
+      const proposal = result?.proposal;
+      if (stopped || !proposal || proposal.id === adopted) return;
+      adopted = proposal.id;
+      handlersRef.current.onProposed(proposal.payload);
+      await api.resolveProposal(proposal.id, "adopted").catch(() => {
+        /* a page that got there first is not a failure */
+      });
+    };
+    const timer = setInterval(tick, 2000);
+    void tick();
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [agentId]);
 }

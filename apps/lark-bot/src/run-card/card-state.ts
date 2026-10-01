@@ -1,14 +1,16 @@
 import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
 import { hasDedicatedEvent, OmaTodoItem } from "@chengchenccc/api-contract";
+import type { ChatState } from "@microsoft/agent-host-protocol";
+import { z } from "zod";
 
 /**
- * ADR 0031: pure reducer from Run SSE events to the card's display state.
+ * ADR 0031: the card's display state, read out of the chat channel (ADR 0040 decision 4).
  * Kept free of I/O so the whole projection is unit-testable.
  *
- * Process view: loop events are FOLDED, never mirrored — thinking shows a
- * phase word only, tools archive as summarized completed steps, text_delta
- * is the single streaming surface. Todo and ask come from oma product
- * tools via backend (never parsed from text_delta by the Lark surface).
+ * Process view: a run is a turn, so the card mirrors what the protocol already folded rather
+ * than re-deriving it — thinking shows a phase word only, tools archive as summarized completed
+ * steps, and the markdown parts are the single streaming surface. Todo and ask arrive as parts
+ * the projection typed (never parsed out of markdown by the Lark surface).
  */
 
 export interface ActiveTool {
@@ -159,14 +161,6 @@ export function initialRunCardState(): RunCardState {
   };
 }
 
-const TERMINAL_RUN_STATUSES: Record<string, "completed" | "failed" | "cancelled"> = {
-  completed: "completed",
-  failed: "failed",
-  cancelled: "cancelled",
-  aborted: "cancelled",
-  commit_failed: "failed",
-};
-
 /** The line shown for a tool call. The child sends an activity string it
  *  authored and sanitized (oma `Tool.describeStart`); when a tool cannot
  *  describe itself, the tool name is the only honest thing left — the card
@@ -190,35 +184,22 @@ export function toolActivity(
   return `正在调用 ${raw || "工具"}`;
 }
 
-export interface RunStreamEvent {
-  type: string;
-  status?: string;
-  error?: string;
-  text?: string;
-  toolName?: string;
-  callId?: string;
-  activity?: string;
-  /** Structured display metadata the tool authored (title/detail/summaries). */
-  presentation?: {
-    title: string;
-    detail?: string;
-    resultSummary?: string;
-    errorSummary?: string;
-  };
-  result?: unknown;
-  payload?:
-    | {
-        callId?: string;
-        toolName?: string;
-        questions?: unknown;
-        items?: unknown;
-      }
-    | undefined;
+/** A plain object, or undefined. The contract audit bans bare casts in this app, so the shape is
+ *  validated rather than asserted - which also means a payload that is not an object cannot
+ *  reach the builders below. */
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  const parsed = PlainRecord.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
-function isErrorResult(result: unknown): boolean {
-  if (typeof result !== "object" || result === null) return false;
-  return "isError" in result && result.isError === true;
+const PlainRecord = z.record(z.string(), z.unknown());
+
+/** The protocol lets an invocation message be a plain string or markdown; the card wants the
+ *  line, so both forms fold to one. */
+function invocationLine(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  const markdown = recordOf(value)?.markdown;
+  return typeof markdown === "string" ? markdown : undefined;
 }
 
 /** Parse todo items with the shared wire schema — the same definition the
@@ -268,100 +249,97 @@ function parseAskQuestion(questions: unknown): PendingActionState | null {
   };
 }
 
-export function applyRunEvent(state: RunCardState, ev: RunStreamEvent): RunCardState {
-  if (state.terminal) return state;
+/** The card's state as the chat channel has it (ADR 0040 decision 4): the run is the turn, its
+ *  markdown is the body, its tool calls are the steps, its still-open input request is the
+ *  buttons, and the chat state's `_meta.todos` is the plan. A turn that has folded into `turns`
+ *  is settled - that fold is the seal.
+ *
+ *  Read-only and total: it never guesses. A part it does not recognise is skipped, and an
+ *  unanswered question is the only thing that puts buttons on the card. */
+export function cardStateFromChatTurn(
+  state: ChatState,
+  runId: string,
+  now = Date.now(),
+): RunCardState | undefined {
+  const committed = state.turns.find((t) => t.id === runId);
+  const turn = state.activeTurn?.id === runId ? state.activeTurn : committed;
+  if (!turn) return undefined;
 
-  switch (ev.type) {
-    case "status": {
-      const mapped = ev.status ? TERMINAL_RUN_STATUSES[ev.status] : undefined;
-      if (mapped) {
-        return {
-          ...state,
-          waiting: null,
-          pendingAction: null,
-          activeTool: null,
-          terminal: { status: mapped, error: ev.error ?? null },
-        };
+  let output = "";
+  let activeTool: ActiveTool | null = null;
+  const completedTools: CompletedTool[] = [];
+  let pendingAction: PendingActionState | null = null;
+  let failure: string | null = null;
+
+  for (const part of turn.responseParts) {
+    const kind = part.kind as string;
+    if (kind === "markdown") {
+      if ("content" in part && typeof part.content === "string") output += part.content;
+      continue;
+    }
+    if (kind === "error") {
+      if ("error" in part && typeof part.error.message === "string") failure = part.error.message;
+      continue;
+    }
+    if (kind === "toolCall" && "toolCall" in part) {
+      const call = part.toolCall;
+      if (hasDedicatedEvent(call.toolName)) continue;
+      // The authored line first (the child's own `activity`), then what the protocol set on the
+      // call itself; `toolActivity` synthesizes only when neither exists.
+      const authored =
+        call.intention ??
+        invocationLine("invocationMessage" in call ? call.invocationMessage : undefined);
+      const label = toolActivity(authored, call.toolName);
+      const status = call.status as string;
+      if (status === "running" || status === "pending-confirmation") {
+        activeTool = { label, startedAt: now };
+        continue;
       }
-      if (ev.status === "running") return { ...state, phase: "streaming" };
-      return state;
+      const failed = "success" in call && call.success === false;
+      const outcome = status === "completed" && !failed ? ("success" as const) : ("error" as const);
+      completedTools.push({ label, outcome });
+      continue;
     }
-    case "thinking_delta": {
-      return state.activeTool === null && state.phase !== "thinking"
-        ? { ...state, phase: "thinking" }
-        : state;
+    if (kind === "inputRequest" && "request" in part) {
+      // An answered request is not pending any more: the card stops offering it.
+      if ("response" in part && part.response !== undefined) continue;
+      const request = part.request;
+      // `_meta` rides a shape upstream gives no slot to; the page records that convention.
+      const requestMeta = recordOf(recordOf(request)?._meta);
+      const payload = recordOf(requestMeta?.productRequest);
+      pendingAction = pendingActionFromBackend(request.message as string, payload ?? {});
     }
-    case "text_delta": {
-      const next: RunCardState = {
-        ...state,
-        phase: "streaming",
-        output: state.output + (ev.text ?? ""),
-      };
-      return state.waiting !== null || state.activeTool !== null
-        ? { ...next, waiting: null, pendingAction: null, activeTool: null }
-        : next;
-    }
-    case "native_tool_started": {
-      // Product tools own a dedicated event; a generic step for them would
-      // be the "正在调用 todo_write" degradation. The wire name is MCP-qualified.
-      if (hasDedicatedEvent(ev.toolName)) return state;
-      return {
-        ...state,
-        phase: "tool_running",
-        waiting: null,
-        pendingAction: null,
-        activeTool: {
-          label: toolActivity(ev.activity, ev.toolName, ev.presentation),
-          startedAt: Date.now(),
-        },
-      };
-    }
-    case "native_tool_completed": {
-      if (hasDedicatedEvent(ev.toolName)) return state;
-      const completed = [
-        ...state.completedTools,
-        {
-          label: toolActivity(ev.activity, ev.toolName, ev.presentation),
-          outcome: isErrorResult(ev.result) ? ("error" as const) : ("success" as const),
-        },
-      ].slice(-MAX_COMPLETED_TOOLS);
-      return { ...state, activeTool: null, completedTools: completed };
-    }
-    case "approval_requested": {
-      const callId = ev.payload?.callId ?? null;
-      if (!callId) return state;
-      return {
-        ...state,
-        phase: "streaming",
-        waiting: "approval",
-        pendingAction: {
-          callId,
-          kind: "approval",
-          prompt: buildApprovalPrompt(ev.payload ?? {}),
-          ...approvalFacts(ev.payload ?? {}),
-          options: [],
-          allowFreeText: false,
-          questionId: "",
-        },
-      };
-    }
-    case "ask_requested": {
-      const callId = ev.payload?.callId ?? null;
-      const parsed = parseAskQuestion(ev.payload?.questions);
-      if (!callId || !parsed) return state;
-      return {
-        ...state,
-        phase: "streaming",
-        waiting: "ask",
-        pendingAction: { ...parsed, callId },
-      };
-    }
-    case "backend.oma.todo_update": {
-      const todos = parseTodoItems(ev.payload?.items);
-      if (todos.length === 0) return state;
-      return { ...state, todos };
-    }
-    default:
-      return state;
   }
+
+  // Only a folded turn has a state; while it is active the run is still going.
+  const turnState = committed === undefined ? undefined : (committed.state as string);
+  const terminal: RunCardState["terminal"] =
+    turnState === undefined
+      ? null
+      : {
+          status:
+            turnState === "complete"
+              ? "completed"
+              : turnState === "cancelled"
+                ? "cancelled"
+                : "failed",
+          error: failure,
+        };
+
+  return {
+    phase: pendingAction
+      ? "streaming"
+      : activeTool
+        ? "tool_running"
+        : output === ""
+          ? "thinking"
+          : "streaming",
+    waiting: pendingAction ? pendingAction.kind : null,
+    pendingAction,
+    output,
+    activeTool,
+    completedTools: completedTools.slice(-MAX_COMPLETED_TOOLS),
+    todos: parseTodoItems(state._meta?.todos),
+    terminal,
+  };
 }

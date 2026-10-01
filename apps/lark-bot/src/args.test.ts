@@ -55,6 +55,17 @@ describe("parseArgs", () => {
     }
   });
 
+  test("--backend-auth-token satisfies the required env var", () => {
+    const prev = process.env.BACKEND_AUTH_TOKEN;
+    delete process.env.BACKEND_AUTH_TOKEN;
+    try {
+      const args = parseArgs(["--agent-id", "x", "--backend-auth-token", "cli-token"]);
+      expect(args.backendAuthToken).toBe("cli-token");
+    } finally {
+      process.env.BACKEND_AUTH_TOKEN = prev;
+    }
+  });
+
   test("throws without --agent-id", () => {
     expect(() => parseArgs(["--other-arg", "value"])).toThrow("--agent-id is required");
   });

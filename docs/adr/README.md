@@ -56,7 +56,7 @@
 - **0022 的「表已删」不成立**：迁移 `0027_mcp_catalog.sql` 只 `RENAME TO mcp_server_legacy`，全仓没有 DROP；它承诺的「存量提升」也没有生产调用者（`features/mcp/adapter-file.ts` 的 `mergeMcpCatalog` 是死代码）。
 - **0012 的进程内缓存已被取代**：`packages/adapter-mcp/src/mcp-client-manager.ts` 的 `getTools()` 全仓无调用点，真实注入由 `writeMcpConfig` 写 `.mcp.json` + `core/tools/mcp-mount.ts` 每 run connect 完成。
 - **0033 的边界例外**：原始 tool input 只保证在 `tool_execution_start` 上被 `forWire` 剥掉；审批帧必须带 input 才能让人看清批的是什么，这是一条有意的例外，正文没写。
-- **0024 的注释过期**：`packages/adapter-oma-agent/src/{protocol,event-mapper}.ts` 里仍写「Lives in the CONTRACT package (agent-backend)」，而 wire schema 已回到 oma/adapter 两侧，`agent-contract` 只剩 backend-agnostic 契约。
+- **0024 的注释过期**：`apps/oh-my-agent/src/{protocol,event-mapper}.ts` 里仍写「Lives in the CONTRACT package (agent-backend)」，而 wire schema 已回到 oma/adapter 两侧，`agent-contract` 只剩 backend-agnostic 契约。
 
 ## 架构级决策文档(非 ADR，但同属决策面)
 
@@ -64,4 +64,4 @@
 - `docs/architecture/e2e-contract-rules.md` — 跨进程类型契约规则
 - `docs/architecture/db-typesafe-rules.md` — DB 类型链规则
 - `docs/architecture/execution/backend-kinds-gate0.md` — 多 backend 协议实测记录(决策见 §7)
-| 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 规范模型与账本编码对齐待开工） |
+| 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 首刀已落地：ACP 轨的工具事实进账本，验收向量绿；规范模型其余部分与 S1 至 S3、R1 至 R3 待做。工作分支 feat/ahp2acp） |

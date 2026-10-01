@@ -15,7 +15,7 @@ import {
   ReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { AskQuestionInput } from "@chengchenccc/agent-contract";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import type { EditorGraph } from "@chengchenccc/workflow";
 import { useEffect, useRef, useState } from "react";
 import { WorkflowNodeCard } from "./workflow-node";

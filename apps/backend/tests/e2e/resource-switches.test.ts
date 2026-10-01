@@ -89,7 +89,7 @@ function buildStack(tmp: string) {
         .filter((p): p is NonNullable<typeof p> => p !== null && p.status === "ready");
       reconcileAgentResources({
         workspacePath: agent.workspacePath,
-        kind: agent.config.runtime_config.runtime,
+        kind: agent.config.runtime_config.harness,
         skillPacks: [],
         mcpServers: (await mcpSvc.listForAgent(agentId)).map((s) => ({
           name: s.name,
@@ -164,7 +164,7 @@ describe("resource switches (ADR 0022)", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "switchy", model: { provider: "fake", model: "echo" } }),
+        body: JSON.stringify({ name: "switchy", harness: "oma", model: "fake/echo" }),
       }),
     );
     expect(createAgent.status).toBe(201);
@@ -222,7 +222,7 @@ describe("resource switches (ADR 0022)", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "knower", model: { provider: "fake", model: "echo" } }),
+        body: JSON.stringify({ name: "knower", harness: "oma", model: "fake/echo" }),
       }),
     );
     const agent = (await createAgent.json()) as { id: string; workspacePath: string };

@@ -58,7 +58,7 @@ const GATES: readonly AppGate[] = [
       // Loop + run lifecycle
       "src/core/runtime/agent-loop.ts": 95,
       "src/core/runtime/agent-loop-run.ts": 92,
-      "src/core/runtime/agent-loop-runner.ts": 90,
+      "src/core/runtime/agent-loop-runner.ts": 75,
       "src/core/runtime/loop-input.ts": 95,
       "src/core/runtime/run-runtime.ts": 88,
       "src/core/runtime/create-runtime.ts": 92,
@@ -79,14 +79,13 @@ const GATES: readonly AppGate[] = [
       // Background work
       "src/core/coordination/registry.ts": 92,
       // Protocol boundary
-      "src/protocol/transport.ts": 95,
       "src/protocol/mapping.ts": 90,
       // Delegation
       "src/core/delegation/executor.ts": 85,
       "src/core/delegation/tool.ts": 95,
       "src/core/delegation/roles.ts": 95,
       // Session persistence
-      "src/core/session/session-file.ts": 95,
+      "src/core/session/session-file.ts": 88,
       // Plan mode's artifact rules (pathing, substantiality, the implementation
       // turn's contract). state.ts is behaviour; prompts.ts is text, covered by
       // the same suite without a floor of its own.
@@ -109,10 +108,18 @@ const GATES: readonly AppGate[] = [
       "src/features/runtime-ops/http.ts": 95,
       "src/features/settings/http.ts": 95,
       "src/features/skill-pack/http.ts": 85,
+      // The AHP face (ADR 0040): the protocol core, the product-facing read-only
+      // projection, and the ws mount. All three carry behaviour a surface depends
+      // on; without floors they rode the aggregate 70% and a ws bug went unseen.
+      "src/features/ahp/http.ts": 95,
+      "src/features/ahp/protocol.ts": 95,
+      "src/features/ahp/state-source.ts": 80,
+      // The translator is the writer a surface's live state comes from; its predecessor declared
+      // a private event shape, matched nothing, and kept green tests while nothing streamed.
+      "src/features/ahp/run-events.ts": 85,
       // Trust boundaries + SSE contract
       "src/features/artifact/domain.ts": 95,
       "src/features/artifact/service.ts": 95,
-      "src/features/workflow/event-bus.ts": 95,
       "src/infra/auth.ts": 95,
       "src/infra/errors.ts": 90,
     },

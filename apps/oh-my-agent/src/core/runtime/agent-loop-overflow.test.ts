@@ -1,20 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  AgentRunSnapshot,
-  ProjectedHistoryItem,
-  WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import type { ContextBudget } from "./agent-loop.js";
 import { createOmaSession } from "./agent-loop.js";
+import type { AgentRunSnapshot, ProjectedHistoryItem, WorkspaceBinding } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import type { Plugin } from "./plugin.js";
 
 // Title generation performs an extra ephemeral model call; keep counts
 // deterministic.
 
-const LOOP_RUN: AgentRunSnapshot<"oma"> = {
+const LOOP_RUN: AgentRunSnapshot = {
   runId: "ovf-run",
   model: { backendKind: "oma", modelId: "test-1" },
   configRevision: 1,

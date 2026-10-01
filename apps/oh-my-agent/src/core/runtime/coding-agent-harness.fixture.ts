@@ -1,11 +1,7 @@
-import type {
-  AgentRunSnapshot,
-  BackendInputMessage,
-  WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
 import type { AIMessageChunk } from "@chengchenccc/message";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import type { SessionStore } from "../store/session-store.js";
+import type { AgentRunSnapshot, BackendInputMessage, WorkspaceBinding } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 
 export type StoreFactory = (sid: string) => SessionStore;
@@ -65,9 +61,9 @@ export function staticTool(name: string) {
   };
 }
 
-export const LOOP_RUN: AgentRunSnapshot<"oma"> = {
+export const LOOP_RUN: AgentRunSnapshot = {
   runId: "loop-run",
-  model: { backendKind: "oma", modelId: "test-1" },
+  model: { modelId: "test-1" },
   configRevision: 1,
 };
 export const LOOP_WS: WorkspaceBinding = { root: "/ws", access: "read_write" };
@@ -78,7 +74,7 @@ export const LOOP_META = { conversationId: "c", agentId: "m", branchId: "b", pro
 export function loopInput(over: {
   message: string;
   history?: CodingLoopInput["history"];
-  run?: AgentRunSnapshot<"oma">;
+  run?: AgentRunSnapshot;
 }): CodingLoopInput {
   const input: BackendInputMessage = {
     inputId: "ti",

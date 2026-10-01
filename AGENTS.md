@@ -39,7 +39,7 @@ Surfaces        Web app / Lark bot / oma TUI - talk HTTP/SSE to the backend
 Backend         Product facts + execution control plane (apps/backend)
 Adapter         packages/adapter-* - child process boundary (spawn / JSONL / steer / stop / approval)
 Runtime         apps/oh-my-agent/src/core - model+tool loop, plugins, compaction, todo
-Protocols       Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/{message,agent-contract,api-contract,workflow})
+Protocols       Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/{message,api-contract,workflow})
 ```
 
 The current-state description of each layer lives in the wiki: start at
@@ -47,9 +47,9 @@ The current-state description of each layer lives in the wiki: start at
 
 **Package dependency graph** (`audit:workspace` fails if a workspace member is
 missing from this list; `@chengchenccc/` is the scope of every name below):
-- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`
-- Contracts: `@chengchenccc/agent-contract` (spawn-neutral `AgentBackend`), `@chengchenccc/api-contract` (HTTP `App` + SSE event maps — the web↔backend wire, type-only)
-- Adapters (child-process boundary): `@chengchenccc/adapter-oma-agent`, `@chengchenccc/adapter-claude-agent`, `@chengchenccc/adapter-pi-agent`, `@chengchenccc/adapter-omp-agent` (the 4 implement `AgentBackend`), `@chengchenccc/adapter-acp` (ACP orchestration kind, ADR 0039: every ACP agent through one client), `@chengchenccc/adapter-mcp` (MCP client mount — not an `AgentBackend`)
+- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`, `@chengchenccc/api-contract`
+- ACP client (child-process boundary): a backend-local module (`apps/backend/src/features/agent-run/acp/`) — spawn, stdio ACP, one client drives every harness (ADR 0039/0040). `@chengchenccc/adapter-mcp` is the MCP client mount (not an execution rail).
+- Surfaces (client side): `@chengchenccc/ahp-client` (WebSocket transport for the AHP surface contract; the upstream client brings the protocol rules and the state mirror)
 - Runtime support: `@chengchenccc/ai` (provider + model registry; `createProvider` over the three protocol implementations), `@chengchenccc/test-helpers` (`echoModel()`)
 - Plugins: 0 plugins as standalone packages; oma-native todo/progressive-skill live in `apps/oh-my-agent/src/core`
 - Apps: `@chengchenccc/backend` (consumes all), `@chengchenccc/oh-my-agent` (oma CLI + runtime), `@chengchenccc/web` (Next.js), `@chengchenccc/lark-bot`
@@ -199,11 +199,10 @@ sessions actually running inside that app.
 | `apps/backend/src/features/agent-run/execution-dispatch.ts` | Run dispatch: preflight, workspace, projection, execute, settle, follow-up |
 | `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` | Terminal commit, failed commit, next-run promotion |
 | `apps/backend/src/features/agent-context/projection.ts` | Full branch projection (the only agent-context part with a production caller) |
-| `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 22 tables, single SQLite file |
+| `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 23 tables, single SQLite file |
 | `apps/oh-my-agent/src/core/runtime/agent-loop.ts` | `createOmaSession()` — the agent loop |
 | `apps/oh-my-agent/src/core/runtime/plugin.ts` | `Plugin`/`PluginHooks`, `validatePlugins()` |
 | `packages/message/src/chat-model.ts` | `ChatModel` contract |
-| `packages/agent-contract/src/backend.ts` | `AgentBackend` port + backend-kind registry |
 | `apps/backend/src/features/coding/task-worktrees.ts` | Task-axis worktree listing + terminal path whitelist |
 | `packages/ai/src/providers/anthropic-messages.ts` | Anthropic Messages API adapter |
 | `apps/web/src/lib/api.ts` | Typed API client (Eden Treaty) |

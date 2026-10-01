@@ -1,6 +1,5 @@
-import type { Usage } from "@chengchenccc/agent-contract";
-import { debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
+import { debugLog } from "../debug-log.js";
 import type { SessionStore } from "../store/session-store.js";
 import {
   normalizeToolPresentation,
@@ -19,6 +18,7 @@ import { matchStreamRule, safeParseJson } from "./agent-loop-utils.js";
 import { approvalTimeoutMs, requestApproval } from "./approval.js";
 import { latestCompaction } from "./compaction.js";
 import type { TurnUsage } from "./context-estimate.js";
+import type { Usage } from "./contract/index.js";
 import type { Plugin, PluginTool } from "./plugin.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
 import { retryStream } from "./retry.js";

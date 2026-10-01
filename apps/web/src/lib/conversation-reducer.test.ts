@@ -10,6 +10,7 @@ import {
   reducer,
   type SenderRef,
   type TurnSegment,
+  type UiItem,
 } from "@/lib/conversation-reducer";
 
 function bootstrap() {
@@ -387,5 +388,52 @@ describe("reducer boundary actions", () => {
     let s = bootstrap();
     s = reducer(s, { type: "send/error", message: "network down" });
     expect(s.error).toBe("network down");
+  });
+});
+
+describe("items from AHP state", () => {
+  const viewer: SenderRef = { memberId: "user", kind: "human" };
+  const agent: SenderRef = { memberId: "agent-1", kind: "agent" };
+
+  const message = (
+    id: string,
+    sender: SenderRef,
+    text: string,
+    seq: number,
+  ): Extract<UiItem, { kind: "message" }> => ({
+    kind: "message",
+    id,
+    sender,
+    content: { id, role: sender.kind === "human" ? "user" : "assistant", text },
+    seq,
+  });
+
+  test("history arrives and an un-echoed send keeps its place", () => {
+    let state = bootstrap();
+    state = reducer(state, { type: "send", text: "hello", viewer });
+    state = reducer(state, {
+      type: "items",
+      items: [message("run:r1:assistant:0", agent, "hi there", 5)],
+    });
+    expect(state.items.map((item) => item.kind)).toEqual(["message", "message"]);
+    expect(state.items[0]?.id.startsWith("opt-")).toBe(true);
+    expect(state.items[1]).toMatchObject({ id: "run:r1:assistant:0", seq: 5 });
+  });
+
+  test("the ledger's echo replaces the optimistic item instead of doubling it", () => {
+    let state = bootstrap();
+    state = reducer(state, { type: "send", text: "hi", viewer });
+    state = reducer(state, { type: "send/settled" });
+    state = reducer(state, { type: "items", items: [message("m-2", viewer, "hi", 5)] });
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0]).toMatchObject({ id: "m-2", seq: 5 });
+  });
+
+  test("re-deriving the same history updates in place rather than appending", () => {
+    const incoming = [message("m-1", viewer, "hi", 4), message("m-2", agent, "hello", 5)];
+    let state = bootstrap();
+    state = reducer(state, { type: "items", items: incoming });
+    state = reducer(state, { type: "items", items: incoming });
+    expect(state.items.map((item) => item.id)).toEqual(["m-1", "m-2"]);
   });
 });

@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { ConflictError, NotFoundError, ValidationError } from "../../infra/domain-errors.js";
+import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
 import { readAgentStatusFor } from "./agent-status.js";
 import type { TaskWorktree } from "./task-worktrees.js";
 import type { TerminalCommand, TerminalInfo, TerminalRegistry } from "./terminal-registry.js";
@@ -51,8 +51,6 @@ export interface CodingRoutesDeps {
   ) => Promise<{ path: string }>;
 }
 
-const TICKET_TTL_MS = 60_000;
-
 interface WsIn {
   t?: string;
   d?: string;
@@ -70,21 +68,9 @@ export function codingRoutes(deps: CodingRoutesDeps) {
     createTaskWorktree,
     removeTaskWorktree,
   } = deps;
-  const tickets = new Map<string, number>();
   const unsubscribes = new WeakMap<object, () => void>();
-
-  function mintTicket(): string {
-    const ticket = randomBytes(32).toString("hex");
-    tickets.set(ticket, Date.now() + TICKET_TTL_MS);
-    for (const [k, exp] of tickets) if (exp < Date.now()) tickets.delete(k);
-    return ticket;
-  }
-
-  function consumeTicket(ticket: string): boolean {
-    const exp = tickets.get(ticket);
-    tickets.delete(ticket);
-    return exp !== undefined && exp >= Date.now();
-  }
+  // 票据逻辑已抽到 infra/ws-ticket.ts，与 AHP 宿主共用一套（upgrade 时的鉴权方式）。
+  const tickets = createWsTicketRegistry();
 
   const mapDomainError = (err: unknown): Response | null =>
     err instanceof NotFoundError
@@ -239,12 +225,12 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       }
       return Response.json({ ok: true });
     })
-    .post("/api/coding/ws-ticket", () => ({ ticket: mintTicket(), wsBase }))
+    .post("/api/coding/ws-ticket", () => ({ ticket: tickets.mint(), wsBase }))
     .ws("/ws/coding/:id", {
       open(ws) {
         const id = ws.data.params.id;
         const ticket = ws.data.query.ticket;
-        if (!ticket || !consumeTicket(ticket)) {
+        if (!ticket || !tickets.consume(ticket)) {
           ws.close(4001, "invalid ticket");
           return;
         }

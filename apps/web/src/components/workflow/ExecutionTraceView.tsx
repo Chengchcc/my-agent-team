@@ -1,7 +1,6 @@
 "use client";
 
-import type { AskQuestionInput } from "@chengchenccc/agent-contract";
-import { sseEndpoints, workflowExecutionEvents } from "@chengchenccc/api-contract";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import { toEditorGraph, type WorkflowDefinition } from "@chengchenccc/workflow";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { api } from "@/lib/api";
-import { typedSource } from "@/lib/typed-source";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { DagStatsBar } from "./DagStatsBar";
 import { humanizeWorkflowError } from "./humanize-error";
@@ -126,29 +124,27 @@ export function ExecutionTraceView({
   useEffect(() => {
     if (followTail.current) setIndex(Math.max(0, liveEvents.length - 1));
   }, [liveEvents]);
-  // Live stream: subscribe to execution events while the run is in flight.
+  // Live tail: poll the persisted trace while the run is in flight. The events it returns are the
+  // same rows the stream replayed, so the scrubber and the console read one list either way; the
+  // route is refreshed only when something outside them moved (a gate opened, the run ended).
   const terminal = ["success", "failure", "custom"].includes(execution.status);
   useEffect(() => {
     if (terminal) return;
-    const ts = typedSource(
-      `/api/bff${sseEndpoints.workflowExecutionEvents.path({ executionId: execution.executionId })}`,
-      workflowExecutionEvents,
-    );
-    const es = ts.es;
-    ts.on("wf", (ev) => {
-      setLiveEvents((prev) => {
-        // Live events key by ts (huge); reconnect replays table seqs — skip dups.
-        const seq = ev.seq ?? ev.ts;
-        if (prev.some((x) => x.seq === seq)) return prev;
-        return [...prev, { seq, event: ev.event, ts: ev.ts, data: ev.data }];
-      });
-      if (ev.event === "execution_terminal") {
-        es.close();
-        router.refresh();
-      }
-    });
-    return () => es.close();
-  }, [execution.executionId, terminal, router]);
+    let stopped = false;
+    const tick = async () => {
+      const trace = await api.getWorkflowExecutionTrace(execution.executionId).catch(() => null);
+      if (!trace || stopped) return;
+      setLiveEvents(trace.events);
+      const moved = trace.execution?.status !== execution.status;
+      const gate = (trace.pendingHuman ?? null) !== (pendingHuman ?? null);
+      if (moved || gate) router.refresh();
+    };
+    const timer = setInterval(tick, 1500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [execution.executionId, execution.status, pendingHuman, terminal, router]);
   const [upstreamArtifacts, setUpstreamArtifacts] = useState<
     Array<{ url: string; from: string; content?: string }>
   >([]);

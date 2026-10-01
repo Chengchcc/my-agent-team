@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type {
-  AskQuestionInput,
-  BackendRunInput,
-  BackendRunOutcome,
-} from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import { ProcessTerminal } from "@chengchenccc/tui";
 import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
@@ -24,6 +20,7 @@ import {
   planTitle,
 } from "../../core/plans/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
+import type { BackendRunInput, BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
   resolvePermissionMode,
@@ -641,7 +638,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     });
     // `/workflow` queued a script: this run executes the vm workflow instead
     // of a conversational loop (create-runtime branches on input.workflow).
-    let runInput: BackendRunInput<"oma"> = built;
+    let runInput: BackendRunInput = built;
     if (pendingWorkflowScript !== undefined) {
       runInput = { ...built, workflow: { script: pendingWorkflowScript } };
       pendingWorkflowScript = undefined;

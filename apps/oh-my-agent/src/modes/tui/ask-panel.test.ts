@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { AskQuestionInput, AskQuestionItem } from "@chengchenccc/agent-contract";
 import {
   AskPanel,
   askAnswerSummary,

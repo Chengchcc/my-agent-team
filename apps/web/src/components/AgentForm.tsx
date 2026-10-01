@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { useCreateAgent, useMcpCatalog, useUpdateAgent } from "@/features/agents/hooks";
 import { useKnowledgePacks } from "@/features/knowledge/hooks";
-import { useModelList } from "@/features/models/hooks";
+import { useHarnessList } from "@/features/models/hooks";
 import {
   useAgentSkillPacks,
   useSetAgentPacks,
@@ -66,63 +66,17 @@ export function AgentForm({
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
   const [selectedMcpIds, setSelectedMcpIds] = useState<string[]>([]);
   const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<string[]>([]);
-  const { data: modelData } = useModelList();
-  const providers = useMemo(() => modelData?.providers ?? [], [modelData]);
-  // Backend kinds present in the aggregated catalog, canonical order.
-  const backendKinds = useMemo(() => {
-    const order = ["oma", "claude_code", "pi", "omp"];
-    const seen = new Set<string>();
-    for (const p of providers) for (const m of p.models) if (m.backendKind) seen.add(m.backendKind);
-    return order.filter((k) => seen.has(k));
-  }, [providers]);
-  const [selBackendKind, setSelBackendKind] = useState<string>(editAgent?.backendKind ?? "oma");
-  const [selProvider, setSelProvider] = useState<string>(
-    (editAgent?.modelName ?? "").includes("/") ? (editAgent?.modelName ?? "").split("/")[0]! : "",
-  );
-  const modelGroups = useMemo(() => {
-    return providers.flatMap((p) =>
-      p.models.map((m) => ({
-        id: `${p.id}/${m.id}`,
-        name: m.name ?? m.id,
-        provider: p.id,
-        providerName: p.name,
-        backendKind: m.backendKind ?? "oma",
-        available: m.available !== false,
-        reasoning: m.reasoning,
-        contextWindow: m.contextWindow,
-        maxTokens: m.maxTokens,
-        inputModalities: m.input,
-        cost: m.cost,
-      })),
-    );
-  }, [providers]);
-  // Providers that actually expose models of the selected backend kind.
-  const kindProviders = useMemo(() => {
-    const ids = new Set(
-      modelGroups.filter((m) => m.backendKind === selBackendKind).map((m) => m.provider),
-    );
-    return providers.filter((p) => ids.has(p.id));
-  }, [providers, modelGroups, selBackendKind]);
-  const filteredModels = useMemo(() => {
-    return modelGroups.filter(
-      (m) => m.backendKind === selBackendKind && (!selProvider || m.provider === selProvider),
-    );
-  }, [modelGroups, selBackendKind, selProvider]);
-
-  // Per-kind capability surface (ADR 0003 decision 7): claude has no
-  // provider concept (its model set is fixed); pi has no reasoning-effort
-  // flag; pi/omp ignore the permission mode. Fields hide, values persist.
-  const hideProvider = selBackendKind === "claude_code";
-  const hideEffort = selBackendKind === "pi";
-  const hidePermission = selBackendKind === "pi" || selBackendKind === "omp";
+  // ADR 0040 decision 7: the adapter kind is no longer a product concept. One
+  // adapter drives every harness, so the form asks which harness runs this agent
+  // (an ACP registry key) and which of that harness's own declared models it uses.
+  const { data: harnessData } = useHarnessList();
+  const harnesses = useMemo(() => harnessData?.harnesses ?? [], [harnessData]);
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
       name: editAgent?.name ?? "",
-      backendKind: editAgent?.backendKind ?? "oma",
-      // Empty until the catalog loads (see effect below): never hard-code a
-      // provider model that may not exist in the runtime catalog.
-      model: editAgent?.modelName ?? "",
+      harness: editAgent?.harness ?? "",
+      model: editAgent?.model ?? "",
       reasoningEffort: editAgent?.reasoningEffort ?? "",
       permissionMode: editAgent?.permissionMode ?? "ask",
       maxSteps: editAgent?.maxSteps?.toString() ?? "",
@@ -133,11 +87,14 @@ export function AgentForm({
   });
 
   const enableLark = useWatch({ control: form.control, name: "enableLark" });
-  const modelValue = useWatch({ control: form.control, name: "model" });
-  const selectedModelMeta = useMemo(
-    () => modelGroups.find((m) => m.id === modelValue),
-    [modelGroups, modelValue],
+  // The chosen harness declares the models it can run; a harness the probe could
+  // not reach still renders, with its reason under the field.
+  const harnessValue = useWatch({ control: form.control, name: "harness" });
+  const selectedHarness = useMemo(
+    () => harnesses.find((h) => h.key === harnessValue),
+    [harnesses, harnessValue],
   );
+  const harnessModelOptions = selectedHarness?.models ?? [];
 
   // Reset form when editAgent changes, or when the create page's chat
   // proposes a draft (which must NOT flip the form into edit mode).
@@ -145,11 +102,8 @@ export function AgentForm({
     if (editAgent) {
       form.reset({
         name: editAgent.name,
-        backendKind: editAgent.backendKind ?? "oma",
-        model:
-          editAgent.modelProvider && editAgent.modelName
-            ? `${editAgent.modelProvider}/${editAgent.modelName}`
-            : editAgent.modelName,
+        harness: editAgent.harness,
+        model: editAgent.model,
         reasoningEffort: editAgent.reasoningEffort ?? "",
         permissionMode: editAgent.permissionMode,
         maxSteps: editAgent.maxSteps?.toString() ?? "",
@@ -166,11 +120,8 @@ export function AgentForm({
     if (!draft) return;
     form.reset({
       name: draft.name ?? "",
-      backendKind: draft.backendKind ?? "oma",
-      model:
-        draft.modelProvider && draft.modelName
-          ? `${draft.modelProvider}/${draft.modelName}`
-          : (draft.modelName ?? ""),
+      harness: draft.harness ?? "",
+      model: draft.model ?? "",
       reasoningEffort: draft.reasoningEffort ?? "",
       permissionMode: draft.permissionMode ?? "ask",
       maxSteps: draft.maxSteps?.toString() ?? "",
@@ -182,24 +133,6 @@ export function AgentForm({
     setSelectedMcpIds((draft.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId));
     setSelectedKnowledgeIds(draft.knowledgePacks ?? []);
   }, [editAgent, draft, form]);
-
-  // New agents: default the model to the first catalog entry of the
-  // selected backend kind once loaded. Keeps the current value if it is
-  // already a valid catalog id.
-  useEffect(() => {
-    if (isEdit || modelGroups.length === 0) return;
-    const current = form.getValues("model");
-    if (
-      current &&
-      modelGroups.some((m) => m.id === current && m.backendKind === form.getValues("backendKind"))
-    ) {
-      return;
-    }
-    const first = modelGroups.find(
-      (m) => m.backendKind === form.getValues("backendKind") && m.available,
-    );
-    if (first) form.setValue("model", first.id, { shouldValidate: true });
-  }, [isEdit, modelGroups, form]);
 
   // Skill pack assignments
   const { data: availablePacks } = useSkillPackList();
@@ -238,11 +171,8 @@ export function AgentForm({
   function buildBody(values: AgentFormValues): Parameters<typeof api.createAgent>[0] {
     const body: Record<string, unknown> = {
       name: values.name,
-      backendKind: values.backendKind,
-      model: {
-        provider: values.model.split("/")[0] ?? "anthropic",
-        model: values.model.split("/").slice(1).join("/") || values.model,
-      },
+      harness: values.harness,
+      model: values.model,
       permissionMode: values.permissionMode,
       mcpServers: selectedMcpBody(),
       knowledgePacks: [...new Set(selectedKnowledgeIds)],
@@ -323,8 +253,6 @@ export function AgentForm({
   // non-reactive getValues("name") read leaves the button stuck disabled.
   const nameValue = useWatch({ control: form.control, name: "name" });
 
-  const hintClass = "text-[10px] text-[var(--mute)] mt-1";
-
   return (
     <>
       {!alwaysOpen && (
@@ -399,148 +327,59 @@ export function AgentForm({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <FormField
                     control={form.control}
-                    name="backendKind"
+                    name="harness"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className={`${overlineClass} mb-1.5 block`}>Backend</FormLabel>
-                        <Select
-                          value={field.value}
-                          onValueChange={(v) => {
-                            const vv = v ?? "";
-                            field.onChange(vv);
-                            setSelBackendKind(vv);
-                            // Switching backend resets provider/model: the
-                            // two catalogs are disjoint (D3). Pick the first
-                            // available model of the new kind.
-                            const current = form.getValues("model");
-                            const stillValid = modelGroups.some(
-                              (m) => m.id === current && m.backendKind === vv && m.available,
-                            );
-                            if (stillValid) return;
-                            setSelProvider("");
-                            const first = modelGroups.find(
-                              (m) => m.backendKind === vv && m.available,
-                            );
-                            form.setValue("model", first?.id ?? "", {
-                              shouldValidate: true,
-                            });
-                          }}
-                        >
-                          <SelectTrigger className={fieldClass}>
-                            <SelectValue placeholder="Select backend…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {backendKinds.map((k) => (
-                              <SelectItem key={k} value={k}>
-                                {k}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  {!hideProvider && (
-                    <FormField
-                      control={form.control}
-                      name="model"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className={`${overlineClass} mb-1.5 block`}>
-                            Provider
-                          </FormLabel>
-                          <Select
-                            value={field.value.split("/")[0] ?? ""}
-                            onValueChange={(v) => {
-                              const vv = v ?? "";
-                              setSelProvider(vv);
-                              // Never carry a model across providers: pick
-                              // the first available model of the new provider.
-                              const current = field.value;
-                              const stillValid = modelGroups.some(
-                                (m) =>
-                                  m.id === current &&
-                                  m.provider === vv &&
-                                  m.backendKind === selBackendKind &&
-                                  m.available,
-                              );
-                              if (stillValid) return;
-                              const first = modelGroups.find(
-                                (m) =>
-                                  m.provider === vv &&
-                                  m.backendKind === selBackendKind &&
-                                  m.available,
-                              );
-                              field.onChange(first?.id ?? "");
-                            }}
-                          >
-                            <SelectTrigger className={fieldClass}>
-                              <SelectValue placeholder="Select provider…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {kindProviders.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                  {p.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                  <FormField
-                    control={form.control}
-                    name="model"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className={`${overlineClass} mb-1.5 block`}>Model *</FormLabel>
+                        <FormLabel className={`${overlineClass} mb-1.5 block`}>Harness *</FormLabel>
                         <FormControl>
                           <Select
                             value={field.value}
                             onValueChange={(v) => field.onChange(v ?? "")}
                           >
                             <SelectTrigger className={fieldClass}>
-                              <SelectValue placeholder="Select model…" />
+                              <SelectValue placeholder="Select harness…" />
                             </SelectTrigger>
                             <SelectContent>
-                              {filteredModels.map((m) => (
-                                <SelectItem key={m.id} value={m.id} disabled={!m.available}>
-                                  <span className="flex items-center gap-2">
-                                    {m.reasoning && (
-                                      <span className="text-[10px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 font-medium">
-                                        reasoning
-                                      </span>
-                                    )}
-                                    <span>{m.name}</span>
-                                    <span className="text-[10px] text-(--mute)">
-                                      {(m.contextWindow / 1000).toFixed(0)}K ctx
-                                    </span>
-                                    {!m.available && (
-                                      <span className="text-(--mute)">— unavailable</span>
-                                    )}
-                                  </span>
+                              {harnesses.map((h) => (
+                                <SelectItem key={h.key} value={h.key}>
+                                  {h.name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                         </FormControl>
-                        {selectedModelMeta && (
-                          <div className={`${hintClass} flex flex-wrap gap-x-3 gap-y-0.5`}>
-                            {selectedModelMeta.reasoning && (
-                              <span className="text-blue-500">🧠 reasoning</span>
-                            )}
-                            <span>ctx: {(selectedModelMeta.contextWindow / 1000).toFixed(0)}K</span>
-                            <span>out: {(selectedModelMeta.maxTokens / 1000).toFixed(0)}K</span>
-                            <span>
-                              ${selectedModelMeta.cost.input}/${selectedModelMeta.cost.output}/M
-                            </span>
-                            {selectedModelMeta.inputModalities.includes("image") && (
-                              <span>📷 image</span>
-                            )}
-                          </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="model"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className={`${overlineClass} mb-1.5 block`}>Model</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onValueChange={(v) => field.onChange(v ?? "")}
+                          >
+                            <SelectTrigger className={fieldClass}>
+                              <SelectValue
+                                placeholder={selectedHarness?.error ?? "Harness default"}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">Harness default</SelectItem>
+                              {harnessModelOptions.map((m) => (
+                                <SelectItem key={m.value} value={m.value}>
+                                  {m.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        {selectedHarness?.error && (
+                          <p className="text-xs text-(--mute)">{selectedHarness.error}</p>
                         )}
                         <FormMessage />
                       </FormItem>
@@ -548,63 +387,61 @@ export function AgentForm({
                   />
                 </div>
 
-                {!hideProvider && modelGroups.length === 0 && <ProviderSetupInline />}
+                {selectedHarness?.key === "oma" && harnessModelOptions.length === 0 && (
+                  <ProviderSetupInline />
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {!hidePermission && (
-                    <FormField
-                      control={form.control}
-                      name="permissionMode"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className={`${overlineClass} mb-1.5 block`}>
-                            Permission Mode
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger className={fieldClass}>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="ask">Ask (approval)</SelectItem>
-                              <SelectItem value="auto">Auto</SelectItem>
-                              <SelectItem value="deny">Deny</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                  {!hideEffort && (
-                    <FormField
-                      control={form.control}
-                      name="reasoningEffort"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className={`${overlineClass} mb-1.5 block`}>
-                            Reasoning Effort
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger className={fieldClass}>
-                                <SelectValue placeholder="Provider default" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="">Provider default</SelectItem>
-                              <SelectItem value="none">None (thinking off)</SelectItem>
-                              <SelectItem value="low">Low</SelectItem>
-                              <SelectItem value="high">High</SelectItem>
-                              <SelectItem value="max">Max</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
+                  <FormField
+                    control={form.control}
+                    name="permissionMode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className={`${overlineClass} mb-1.5 block`}>
+                          Permission Mode
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger className={fieldClass}>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="ask">Ask (approval)</SelectItem>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="deny">Deny</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="reasoningEffort"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className={`${overlineClass} mb-1.5 block`}>
+                          Reasoning Effort
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger className={fieldClass}>
+                              <SelectValue placeholder="Provider default" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="">Provider default</SelectItem>
+                            <SelectItem value="none">None (thinking off)</SelectItem>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="max">Max</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="maxSteps"
@@ -680,11 +517,7 @@ export function AgentForm({
 
                 <Button
                   type="submit"
-                  disabled={
-                    isSaving ||
-                    !(nameValue ?? "").trim() ||
-                    (!isEdit && !hideProvider && modelGroups.length === 0)
-                  }
+                  disabled={isSaving || !(nameValue ?? "").trim()}
                   className="w-full"
                 >
                   {isSaving ? (

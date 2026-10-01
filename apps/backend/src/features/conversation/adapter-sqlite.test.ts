@@ -48,8 +48,6 @@ describe("Ledger CRUD", () => {
   test("appendLedgerEntry inserts and returns seq", () => {
     const seq = adapter.appendLedgerEntry({
       conversationId: "conv-1",
-      senderMemberId: "mem-h1",
-      addressedTo: ["mem-x1"],
       kind: "message",
       content: JSON.stringify({ text: "hello" }),
       ts: Date.now(),
@@ -60,8 +58,6 @@ describe("Ledger CRUD", () => {
   test("appendLedgerEntry auto-increments seq", () => {
     const seq = adapter.appendLedgerEntry({
       conversationId: "conv-1",
-      senderMemberId: "mem-x1",
-      addressedTo: [],
       kind: "message",
       content: JSON.stringify({ text: "response" }),
       ts: Date.now(),
@@ -107,8 +103,6 @@ describe("Ledger CRUD", () => {
     });
     const seq2 = adapter.appendLedgerEntry({
       conversationId: "conv-2",
-      senderMemberId: "mem-y",
-      addressedTo: [],
       kind: "message",
       content: JSON.stringify({ text: "other conv" }),
       ts: Date.now(),
@@ -130,8 +124,6 @@ describe("lastActivityAt", () => {
     const later = (before?.lastActivityAt ?? 0) + 60_000;
     adapter.appendLedgerEntry({
       conversationId: "conv-1",
-      senderMemberId: "mem-h1",
-      addressedTo: [],
       kind: "message",
       content: JSON.stringify({ text: "newer" }),
       ts: later,

@@ -13,7 +13,7 @@
 2. Oma-specific stdio JSONL wire protocol: command/output/event/outcome schemas
    plus `mapRunEvent` / `mapRunOutcome`.
 
-This makes both `apps/oh-my-agent` (child) and `packages/adapter-oma-agent`
+This makes both `apps/oh-my-agent` (child) and `apps/oh-my-agent`
 depend on the same wire schema package. The child's wire format is an internal
 implementation detail, not a cross-backend contract, so coupling it through the
 neutral contract package is the wrong boundary.
@@ -24,13 +24,13 @@ neutral contract package is the wrong boundary.
   schemas and mapping are removed from it.
 - `apps/oh-my-agent` owns its JSONL wire format internally. It does not depend
   on a shared wire-schema package.
-- `packages/adapter-oma-agent` implements `AgentBackend` and contains its own
+- `apps/oh-my-agent` implements `AgentBackend` and contains its own
   parser/types for the oma JSONL format.
 - The two sides do NOT share a wire protocol package. Instead the contract is a
   fixture:
   - `apps/oh-my-agent` generates canonical `rpc-*.jsonl` fixtures with the real
     child and the fake provider.
-  - `packages/adapter-oma-agent` tests consume those fixtures and drive
+  - `apps/oh-my-agent` tests consume those fixtures and drive
     `OmaBackend` against them.
 - Protocol change workflow: change child -> regenerate fixture -> adapter tests
   go red -> update adapter parser.

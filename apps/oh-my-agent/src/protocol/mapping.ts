@@ -1,4 +1,4 @@
-import type { BackendEvent, ToolPresentation } from "@chengchenccc/agent-contract";
+import type { BackendEvent, ToolPresentation } from "../core/runtime/contract/index.js";
 
 /** Narrow the loosely-typed transport field into the contract shape. The
  *  child authored it, so this only refuses garbage — a malformed field must
@@ -32,6 +32,15 @@ function readPresentation(value: unknown): ToolPresentation | undefined {
   };
 }
 
+/** Runtime event envelope: `data` is the raw Oma loop event object. The
+ *  zod schema that validated it retired with the rpc wire (ADR 0040); the
+ *  shape is the vocabulary every mode still speaks. */
+export interface RunEventEnvelope {
+  readonly id: number;
+  readonly type: string;
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
 /** Map Oma transport event envelopes to Backend core events,
  *  namespacing Runtime-specific details under `backend.oma.*`.
  *  Outcome mapping is the ONLY terminal authority. Lives in the CONTRACT
@@ -44,7 +53,7 @@ export interface TransportRunEvent {
   data: Readonly<Record<string, unknown>>;
 }
 
-export function mapRunEvent(event: TransportRunEvent): BackendEvent<"oma"> {
+export function mapRunEvent(event: TransportRunEvent): BackendEvent {
   switch (event.type) {
     case "message_update": {
       const text = String(event.data.text ?? "");

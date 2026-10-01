@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { AgentRunSnapshot } from "@chengchenccc/agent-contract";
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import type { SessionStore } from "../store/session-store.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import { createOmaSession } from "./agent-loop.js";
+import type { AgentRunSnapshot } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import type { Plugin } from "./plugin.js";
 
 const fakeSummarize = async <T>(messages: readonly T[]): Promise<string> =>
   `[Summary of ${messages.length} messages]`;
 
-const LOOP_RUN: AgentRunSnapshot<"oma"> = {
+const LOOP_RUN: AgentRunSnapshot = {
   runId: "sr-run",
   model: { backendKind: "oma", modelId: "test-1" },
   configRevision: 1,

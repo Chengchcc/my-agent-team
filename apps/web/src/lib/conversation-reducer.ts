@@ -55,7 +55,7 @@ export type Action =
   | { type: "send/error"; message: string }
   | { type: "member"; seq: number; kind: string; payload: unknown }
   | {
-      /** Wire ConversationEvent message (zod-validated at the SSE boundary).
+      /** A settled message from the conversation's timeline.
        *  role is the authorship discriminator: user → viewer side,
        *  assistant/tool → agent side, system → notice item. */
       type: "message";
@@ -64,7 +64,15 @@ export type Action =
       /** Soft-delete flag from ledger entry (absent = live). */
       undone?: boolean;
     }
-  | { type: "undo"; undoneSeqs: number[] };
+  | {
+      type: "undo";
+      undoneSeqs: number[];
+    }
+  /** The history as AHP state has it (ADR 0040): authoritative, and re-derived on every change. */
+  | {
+      type: "items";
+      items: UiItem[];
+    };
 
 export function initialState(): ConvState {
   return {
@@ -268,6 +276,23 @@ export function reducer(s: ConvState, a: Action): ConvState {
         item.kind === "message" && undoSet.has(item.seq) ? { ...item, undone: true } : item,
       );
       return { ...s, items };
+    }
+    case "items": {
+      // AHP owns the history and re-derives all of it on every change. Each item goes through the
+      // same upsert the event path used: one that matches an existing item is updated in place,
+      // and the ledger's echo of the viewer's own message replaces the optimistic item rather than
+      // appearing beside it.
+      let list = s.items;
+      for (const item of a.items) {
+        if (item.kind === "notice") {
+          const idx = list.findIndex((existing) => existing.id === item.id);
+          list =
+            idx >= 0 ? list.map((existing, i) => (i === idx ? item : existing)) : [...list, item];
+          continue;
+        }
+        list = upsertAuthoritative(list, item.id, item.sender, item.content, item.seq, item.undone);
+      }
+      return { ...s, items: list };
     }
     case "send": {
       // W7: use stable UUID instead of opt- prefix — enables precise matching

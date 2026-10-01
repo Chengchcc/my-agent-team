@@ -3,11 +3,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  OmaBackend,
-  type OmaCommandConfig,
-  OmaModelCatalog,
-} from "@chengchenccc/adapter-oma-agent";
 import type { Message } from "@chengchenccc/message";
 import { assistantMessageId, parseMessageRevision } from "@chengchenccc/message";
 import {
@@ -15,6 +10,8 @@ import {
   projectAgentContext,
   sqliteAgentContextAdapter,
 } from "../../src/features/agent-context/index.js";
+import { AcpBackend } from "../../src/features/agent-run/acp/acp-backend.js";
+import { AcpModelCatalog } from "../../src/features/agent-run/acp/model-catalog.js";
 import { sqliteAgentRunAdapter } from "../../src/features/agent-run/adapter-sqlite.js";
 import { createAgentRunExecutionService } from "../../src/features/agent-run/execution.js";
 import { createAgentRunService } from "../../src/features/agent-run/service.js";
@@ -27,11 +24,17 @@ import { createProductToolsService } from "../../src/features/product-tools/serv
 import { createWorkspaceLockRegistry } from "../../src/features/project/workspace-lock.js";
 import { openDb } from "../../src/infra/sqlite/db.js";
 
+/** 账本行的署名改由 payload 的 role 推导（成员列已在 0050 删除）。 */
+function isRunMessage(entry: { content?: unknown }): boolean {
+  const role = (entry.content as { role?: string } | null)?.role;
+  return role === "assistant" || role === "tool";
+}
+
 /** THE Phase 5 acceptance chain, all real:
  *
  *  Product Backend (this process)
- *    → OmaBackend (adapter) spawns a REAL child process
- *    → apps/oh-my-agent/src/cli.ts --mode rpc (stdin/stdout JSONL)
+ *    → AcpBackend spawns a REAL child process
+ *    → apps/oh-my-agent/src/cli.ts --mode acp (ACP over stdio)
  *    → per-Run Oma Runtime (fresh in-memory store, no Worker,
  *      no session, no HTTP)
  *    → real OmaSession with the scripted fake provider
@@ -41,7 +44,6 @@ import { openDb } from "../../src/infra/sqlite/db.js";
  *
  *  No fake/in-process Backend anywhere in the chain. */
 
-let TOKEN = "";
 const CONV = "conv-e2e";
 const MEMBER = "mem-e2e";
 
@@ -55,6 +57,12 @@ let runPort: ReturnType<typeof sqliteAgentRunAdapter>;
 let ledgerResolver: { resolveMessage(cid: string, seq: number): Promise<Message | null> };
 let backend: ReturnType<typeof createAgentRunService>;
 let execution: ReturnType<typeof createAgentRunExecutionService>;
+/** The ACP client owns real child processes; unlike the retired rpc rail
+ *  (one run, then exit), an acp-mode oma stays alive between prompts, so the
+ *  suite MUST dispose it or the lingering child keeps bun's loop open. */
+let acpBackendRef: AcpBackend;
+/** Every live event the channel published, as a surface would see it (ADR 0040). */
+const liveEvents: Array<{ type: string }> = [];
 let mcp: Awaited<ReturnType<typeof createProductToolsMcpServer>>;
 let branchId: string;
 
@@ -101,13 +109,13 @@ beforeAll(async () => {
     idGen: { ulid: () => `y-${Math.random().toString(36).slice(2, 8)}` },
   });
   const registry = createRunTokenRegistry();
-  TOKEN = registry.mint({ runId: "run-it", agentId: "agent-it", exp: Date.now() + 120_000 });
   mcp = await createProductToolsMcpServer({ service: productTools, tokenRegistry: registry });
 
-  // Real Oma as a SEPARATE PROCESS per Run (deployment-shaped):
-  // the adapter spawns `bun apps/oh-my-agent/src/cli.ts --mode rpc` and
-  // speaks stdin/stdout JSONL. cwd = the Run workspace; the Product Tools
-  // service token reaches the child ONLY through the process env.
+  // Real oma as a SEPARATE PROCESS per Run (deployment-shaped): the ACP
+  // client spawns `bun apps/oh-my-agent/src/cli.ts --mode acp` and speaks
+  // ACP over stdio. cwd = the Run workspace; the product-tools bearer is
+  // minted per run by the dispatch layer and reaches the child ONLY
+  // through the process env (PRODUCT_TOOLS_RUN_TOKEN).
   const ws = mkdtempSync(join(tmpdir(), "phase5-ws-"));
   // ADR 0003 decision 6: the child builds its tool table from the cwd
   // manifest (.oma/product-tools.json) written by the workspace bridge;
@@ -117,9 +125,8 @@ beforeAll(async () => {
     join(ws, ".oma", "product-tools.json"),
     JSON.stringify(buildHistoryTools(`sse:${mcp.url}`)),
   );
-  const codingAgentCommand: OmaCommandConfig = {
-    executable: process.execPath,
-    args: [OMA_ENTRY, "--mode", "rpc"],
+  acpBackendRef = new AcpBackend({
+    commands: { oma: [process.execPath, OMA_ENTRY, "--mode", "acp"] },
     env: {
       OMA_FAKE_PROVIDER: "1",
       // the child's model calls history_recent ONCE, then produces text
@@ -127,10 +134,8 @@ beforeAll(async () => {
       // bound a hanging MCP call so a stuck tool fails fast and the run
       // still completes (tool error -> model fallback text)
       OMA_PRODUCT_TOOL_TIMEOUT_MS: "2000",
-      // service token the child attaches to its Product Tools MCP transport
-      OMA_PRODUCT_TOOL_TOKEN: TOKEN,
     },
-  };
+  });
   execution = createAgentRunExecutionService({
     productToolsTokenRegistry: registry,
     workspaceLocks: createWorkspaceLockRegistry(),
@@ -138,23 +143,22 @@ beforeAll(async () => {
     contextPort,
     ledgerResolver,
     backends: {
-      oma: {
-        backend: new OmaBackend(codingAgentCommand),
-        catalog: new OmaModelCatalog(codingAgentCommand),
-      },
+      acp: { backend: acpBackendRef, catalog: new AcpModelCatalog() },
     },
     idGen: { ulid: () => `z-${Math.random().toString(36).slice(2, 8)}` },
     resolveWorkspace: async () => ({ root: ws, access: "read_write" }),
     productToolsEntrypoint: `sse:${mcp.url}`,
+    onLiveEvent: (_runId, event) => liveEvents.push(event as { type: string }),
   });
 
   convPort.createConversation({ conversationId: CONV, agentId: MEMBER, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
-  const branch = await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
+  const branch = await contextPort.getOrCreateDefaultBranch(tree.treeId, "acp");
   branchId = branch.branchId;
 });
 
 afterAll(async () => {
+  await acpBackendRef.dispose();
   await mcp.close();
   db.close();
   rmSync(dataDir, { recursive: true, force: true });
@@ -174,7 +178,6 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     // seed a conversation message the child's history_recent call will read
     convPort.appendLedgerEntry({
       conversationId: CONV,
-      senderMemberId: "human-1",
       kind: "message",
       content: JSON.stringify({ role: "user", text: "seed question" }),
       ts: Date.now(),
@@ -183,25 +186,20 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     const acquired = await backend.enqueueAndAcquire({
       conversationId: CONV,
       agentId: MEMBER,
-      backendKind: "oma",
+      backendKind: "acp",
       mode: "normal",
       message: { role: "user", text: "run this" },
-      defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+      defaultModel: { backendKind: "acp", modelId: "acp/oma", harnessModel: "fake/echo" },
       configRevision: 1,
       idempotencyKey: "e2e-run-1",
     });
     expect(acquired.acquired).toBe(true);
     const runId = acquired.run!.runId;
 
-    const events: string[] = [];
-    const sub = execution.subscribe(runId);
-    const collector = (async () => {
-      for await (const ev of sub) events.push(ev.type);
-    })();
-
+    const seenFrom = liveEvents.length;
     await execution.dispatch(runId);
     const run = await waitForTerminal(runId);
-    await collector;
+    const events = liveEvents.slice(seenFrom).map((ev) => ev.type);
 
     // Terminal outcome is the authority: the run completed.
     expect(run?.status).toBe("completed");
@@ -219,7 +217,7 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     // as separate ledger messages, in order.
     const ledgerMessages = convPort.getLedgerEntries(CONV).filter((e) => e.kind === "message");
     expect(ledgerMessages).toHaveLength(4); // seed user + 3 run messages
-    const runMessages = ledgerMessages.filter((e) => e.senderMemberId === MEMBER);
+    const runMessages = ledgerMessages.filter(isRunMessage);
     expect(runMessages).toHaveLength(3);
     // SURFACE CONTRACT: the canonical assistant Message must parse as a full
     // MessageRevision (messageId/state/updatedAt) - Web reducer and Lark
@@ -249,10 +247,10 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     const first = await backend.enqueueAndAcquire({
       conversationId: CONV,
       agentId: MEMBER,
-      backendKind: "oma",
+      backendKind: "acp",
       mode: "normal",
       message: { role: "user", text: "chain first" },
-      defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+      defaultModel: { backendKind: "acp", modelId: "acp/oma", harnessModel: "fake/echo" },
       configRevision: 1,
       idempotencyKey: "e2e-chain-1",
     });
@@ -260,10 +258,10 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
     const followUp = await backend.enqueueAndAcquire({
       conversationId: CONV,
       agentId: MEMBER,
-      backendKind: "oma",
+      backendKind: "acp",
       mode: "follow_up",
       message: { role: "user", text: "chain second" },
-      defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+      defaultModel: { backendKind: "acp", modelId: "acp/oma", harnessModel: "fake/echo" },
       configRevision: 1,
       idempotencyKey: "e2e-chain-2",
     });
@@ -291,7 +289,7 @@ describe("Phase 5 acceptance: Product Backend -> Oma child -> Product Tools MCP"
       assistantMessageId(secondRunId, 0),
     ]);
     const assistantCount = ledger.filter((e) => {
-      if (e.senderMemberId !== MEMBER) return false;
+      if (!isRunMessage(e)) return false;
       try {
         return ourMessageIds.has(parseMessageRevision(e.content).messageId);
       } catch {

@@ -233,7 +233,6 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         // creates the topic (probed: the API returns a `thread_id`).
         topicRootMessageId: topicRootMessageId(event),
         createdAt: Date.now(),
-        pushedSeq: 0,
       });
       rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
       putMemberBinding(db, event.chat_id, event.sender_id, memberId);

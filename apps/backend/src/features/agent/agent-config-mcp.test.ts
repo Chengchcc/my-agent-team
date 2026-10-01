@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
-import { AgentConfigEventBus } from "./agent-config-events.js";
 import {
   type AgentProxyCreateInput,
   callAgentConfigTool,
@@ -17,10 +16,16 @@ import {
 const config = { id: "reviewer", name: "Reviewer" };
 
 function deps(known: readonly string[] = ["reviewer"]) {
-  const events = new AgentConfigEventBus();
+  /** What the tool ALSO recorded for a page to read later (ADR 0040). */
+  const proposals: Array<{ kind: string; targetId: string; payload: unknown }> = [];
+  const recorder = {
+    propose: (kind: string, targetId: string, payload: unknown) => {
+      proposals.push({ kind, targetId, payload });
+    },
+  };
   const created: AgentProxyCreateInput[] = [];
   return {
-    events,
+    proposals,
     created,
     d: {
       readConfig: async (agentId: string) => {
@@ -33,7 +38,7 @@ function deps(known: readonly string[] = ["reviewer"]) {
         return { id: "ag-new" };
       },
       reserveCreate: () => {},
-      configEvents: events,
+      proposals: recorder,
     },
   };
 }
@@ -53,16 +58,17 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_write proposes for the edit page of an existing agent", async () => {
-    const { d, events } = deps();
-    const stream = events.subscribe("reviewer");
+    const { d, proposals } = deps();
     const text = await callAgentConfigTool(d, "agent_write", {
       agentId: "reviewer",
       config: { ...config, name: "Renamed" },
     });
     expect(text).toContain("NOT saved");
     expect(text).toContain("/team/reviewer/edit");
-    const ev = await stream[Symbol.asyncIterator]().next();
-    expect(ev.value?.data.trigger).toBe("mcp");
+    // The proposal is a row a closed page can still read.
+    expect(proposals).toEqual([
+      { kind: "agent_config", targetId: "reviewer", payload: { ...config, name: "Renamed" } },
+    ]);
   });
 
   test("agent_write on an unknown agent fails instead of reporting a proposal", async () => {
@@ -73,31 +79,32 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_write under the draft id proposes for the create page", async () => {
-    const { d, events } = deps();
-    const stream = events.subscribe(AGENT_DRAFT_ID);
+    const { d, proposals } = deps();
     const text = await callAgentConfigTool(d, "agent_write", {
       agentId: AGENT_DRAFT_ID,
       config: { ...config, name: "Drafted" },
     });
     expect(text).toContain("NOT created");
     expect(text).toContain("/team/new/edit");
-    const ev = await stream[Symbol.asyncIterator]().next();
-    expect(ev.value?.agentId).toBe(AGENT_DRAFT_ID);
-    expect(ev.value?.data.trigger).toBe("mcp");
+    expect(proposals).toEqual([
+      { kind: "agent_config", targetId: AGENT_DRAFT_ID, payload: { ...config, name: "Drafted" } },
+    ]);
   });
 
   test("agent_create creates through the service and reports the new id", async () => {
     const { d, created } = deps();
     const text = await callAgentConfigTool(d, "agent_create", {
       name: "Code Reviewer",
-      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      harness: "oma",
+      model: "anthropic/claude-sonnet-4-6",
       permissionMode: "auto",
       reasoningEffort: "high",
     });
     expect(created).toEqual([
       {
         name: "Code Reviewer",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        harness: "oma",
+        model: "anthropic/claude-sonnet-4-6",
         reasoningEffort: "high",
         permissionMode: "auto",
       },
@@ -110,20 +117,20 @@ describe("agent-config MCP tools", () => {
   test("agent_create rejects a missing model before creating anything", async () => {
     const { d, created } = deps();
     await expect(callAgentConfigTool(d, "agent_create", { name: "Nameless" })).rejects.toThrow(
-      /model required/,
+      /harness required/,
     );
     expect(created).toEqual([]);
   });
 
-  test("agent_create rejects an unknown runtime before creating anything", async () => {
+  test("agent_create rejects an unknown harness before creating anything", async () => {
     const { d, created } = deps();
     await expect(
       callAgentConfigTool(d, "agent_create", {
         name: "Ghost",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
-        backendKind: "gpt5",
+        harness: "ghost",
+        model: "anthropic/claude-sonnet-4-6",
       }),
-    ).rejects.toThrow(/backendKind must be one of/);
+    ).rejects.toThrow(/unknown harness ghost/);
     expect(created).toEqual([]);
   });
 
@@ -142,13 +149,15 @@ describe("agent-config MCP tools", () => {
     expect(
       readAgentCreateInput({
         name: "  Reviewer  ",
-        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        harness: "oma",
+        model: "anthropic/claude-sonnet-4-6",
         permissionMode: "deny",
         workspacePath: "/etc", // not accepted: the service owns the workspace
       }),
     ).toEqual({
       name: "Reviewer",
-      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      harness: "oma",
+      model: "anthropic/claude-sonnet-4-6",
       permissionMode: "deny",
     });
   });

@@ -26,7 +26,12 @@ export function parseArgs(raw: string[]): LarkBotArgs {
   const agentId = args["agent-id"];
   if (!agentId) throw new Error("--agent-id is required");
 
-  const env = parseEnv(process.env);
+  // parseEnv requires BACKEND_AUTH_TOKEN, but it can also arrive as a flag:
+  // let the flag stand in for the env var instead of rejecting the launch.
+  const env = parseEnv({
+    ...process.env,
+    ...(args["backend-auth-token"] ? { BACKEND_AUTH_TOKEN: args["backend-auth-token"] } : {}),
+  });
 
   return {
     agentId,

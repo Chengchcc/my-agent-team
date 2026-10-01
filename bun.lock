@@ -32,13 +32,9 @@
       "name": "@chengchenccc/backend",
       "version": "0.1.0",
       "dependencies": {
-        "@chengchenccc/adapter-acp": "workspace:*",
-        "@chengchenccc/adapter-claude-agent": "workspace:*",
+        "@agentclientprotocol/sdk": "^1.5.1",
         "@chengchenccc/adapter-mcp": "workspace:*",
-        "@chengchenccc/adapter-oma-agent": "workspace:*",
-        "@chengchenccc/adapter-omp-agent": "workspace:*",
-        "@chengchenccc/adapter-pi-agent": "workspace:*",
-        "@chengchenccc/agent-contract": "workspace:*",
+        "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/ai": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/config": "workspace:*",
@@ -46,6 +42,7 @@
         "@chengchenccc/sandbox": "workspace:*",
         "@chengchenccc/source-fetch": "workspace:*",
         "@chengchenccc/workflow": "workspace:*",
+        "@microsoft/agent-host-protocol": "^0.9.0",
         "@modelcontextprotocol/sdk": "^1.12.1",
         "bun-pty": "^0.4.10",
         "drizzle-orm": "^0.44.0",
@@ -60,11 +57,13 @@
       "name": "@chengchenccc/lark-bot",
       "version": "0.1.0",
       "dependencies": {
+        "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/backend": "workspace:*",
         "@chengchenccc/config": "workspace:*",
         "@chengchenccc/message": "workspace:*",
         "@elysiajs/eden": "^1.0.0",
+        "@microsoft/agent-host-protocol": "^0.9.0",
         "drizzle-orm": "^0.44.0",
         "zod": "^3.23.0",
       },
@@ -78,7 +77,6 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "^1.5.1",
         "@chengchenccc/adapter-mcp": "workspace:*",
-        "@chengchenccc/agent-contract": "workspace:*",
         "@chengchenccc/ai": "workspace:*",
         "@chengchenccc/config": "workspace:*",
         "@chengchenccc/message": "workspace:*",
@@ -90,7 +88,6 @@
         "zod": "^3.23.0",
       },
       "devDependencies": {
-        "@chengchenccc/adapter-oma-agent": "workspace:*",
         "@chengchenccc/test-helpers": "workspace:*",
         "bun-types": "latest",
         "typescript": "^5.7.0",
@@ -105,7 +102,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
-        "@chengchenccc/agent-contract": "workspace:*",
+        "@chengchenccc/ahp-client": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/backend": "workspace:*",
         "@chengchenccc/config": "workspace:*",
@@ -115,6 +112,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@elysiajs/eden": "^1.0.0",
         "@hookform/resolvers": "^4",
+        "@microsoft/agent-host-protocol": "^0.9.0",
         "@monaco-editor/react": "^4.7.0",
         "@radix-ui/react-alert-dialog": "^1.1.23",
         "@radix-ui/react-label": "^2.1.10",
@@ -155,31 +153,6 @@
         "typescript": "^6.0.3",
       },
     },
-    "packages/adapter-acp": {
-      "name": "@chengchenccc/adapter-acp",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agentclientprotocol/sdk": "^1.5.1",
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
-    "packages/adapter-claude-agent": {
-      "name": "@chengchenccc/adapter-claude-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
     "packages/adapter-mcp": {
       "name": "@chengchenccc/adapter-mcp",
       "version": "0.1.0",
@@ -188,48 +161,11 @@
         "@modelcontextprotocol/sdk": "^1.12.1",
       },
     },
-    "packages/adapter-oma-agent": {
-      "name": "@chengchenccc/adapter-oma-agent",
+    "packages/ahp-client": {
+      "name": "@chengchenccc/ahp-client",
       "version": "0.1.0",
       "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "zod": "^3.23.0",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
-    "packages/adapter-omp-agent": {
-      "name": "@chengchenccc/adapter-omp-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
-    "packages/adapter-pi-agent": {
-      "name": "@chengchenccc/adapter-pi-agent",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/agent-contract": "workspace:*",
-        "@chengchenccc/message": "workspace:*",
-      },
-      "devDependencies": {
-        "bun-types": "latest",
-        "typescript": "^5.7.0",
-      },
-    },
-    "packages/agent-contract": {
-      "name": "@chengchenccc/agent-contract",
-      "version": "0.1.0",
-      "dependencies": {
-        "@chengchenccc/message": "workspace:*",
-        "zod": "^3.23.0",
+        "@microsoft/agent-host-protocol": "^0.9.0",
       },
     },
     "packages/ai": {
@@ -390,19 +326,9 @@
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
 
-    "@chengchenccc/adapter-acp": ["@chengchenccc/adapter-acp@workspace:packages/adapter-acp"],
-
-    "@chengchenccc/adapter-claude-agent": ["@chengchenccc/adapter-claude-agent@workspace:packages/adapter-claude-agent"],
-
     "@chengchenccc/adapter-mcp": ["@chengchenccc/adapter-mcp@workspace:packages/adapter-mcp"],
 
-    "@chengchenccc/adapter-oma-agent": ["@chengchenccc/adapter-oma-agent@workspace:packages/adapter-oma-agent"],
-
-    "@chengchenccc/adapter-omp-agent": ["@chengchenccc/adapter-omp-agent@workspace:packages/adapter-omp-agent"],
-
-    "@chengchenccc/adapter-pi-agent": ["@chengchenccc/adapter-pi-agent@workspace:packages/adapter-pi-agent"],
-
-    "@chengchenccc/agent-contract": ["@chengchenccc/agent-contract@workspace:packages/agent-contract"],
+    "@chengchenccc/ahp-client": ["@chengchenccc/ahp-client@workspace:packages/ahp-client"],
 
     "@chengchenccc/ai": ["@chengchenccc/ai@workspace:packages/ai"],
 
@@ -687,6 +613,8 @@
     "@manypkg/get-packages": ["@manypkg/get-packages@3.1.0", "https://registry.npmmirror.com/@manypkg/get-packages/-/get-packages-3.1.0.tgz", { "dependencies": { "@manypkg/find-root": "^3.1.0", "@manypkg/tools": "^2.1.0" } }, "sha512-0TbBVyvPrP7xGYBI/cP8UP+yl/z+HtbTttAD7FMAJgn/kXOTwh5/60TsqP9ZYY710forNfyV0N8P/IE/ujGZJg=="],
 
     "@manypkg/tools": ["@manypkg/tools@2.1.2", "https://registry.npmmirror.com/@manypkg/tools/-/tools-2.1.2.tgz", { "dependencies": { "jju": "^1.4.0", "tinyglobby": "^0.2.13", "yaml": "^2.9.0" } }, "sha512-6QEf6yqFbETdwGITKq57aYoPfX/3K8XFNwsAlx0C1M7o8cb79sv1M3w+tWuWvIcSbNqrLF7OD7YpZMVVz335hQ=="],
+
+    "@microsoft/agent-host-protocol": ["@microsoft/agent-host-protocol@0.9.0", "", {}, "sha512-XY6zOqLSqlNianiWbEpZkzKRB2AKwcDPk9yAbp+afxyxhWzTfpJKy+03T5rIipJDnqf45rXiJ5JV/dzUA8JHLw=="],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "https://registry.npmmirror.com/@modelcontextprotocol/sdk/-/sdk-1.29.0.tgz", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
 
@@ -2145,16 +2073,6 @@
     "@babel/helper-create-class-features-plugin/semver": ["semver@6.3.1", "https://registry.npmmirror.com/semver/-/semver-6.3.1.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@base-ui/utils/reselect": ["reselect@5.2.0", "https://registry.npmmirror.com/reselect/-/reselect-5.2.0.tgz", {}, "sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw=="],
-
-    "@chengchenccc/adapter-acp/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-claude-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-oma-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-omp-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@chengchenccc/adapter-pi-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@chengchenccc/oh-my-agent/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

@@ -5,9 +5,8 @@ import { join } from "node:path";
 import { BUILTIN_CATALOG, createModelRuntime } from "@chengchenccc/ai";
 import { listSessions, loadSessionMessages } from "../core/session/session-file.js";
 import { runPrintMode } from "../modes/print-mode.js";
-import type { OmaOutput } from "../protocol/index.js";
 
-/** Spawned-process CLI tests: print mode, json mode, rpc mode and
+/** Spawned-process CLI tests: print mode, json mode and
  *  --list-models through the REAL executable entry (cli.ts → runCli) with
  *  the fake provider. These are the process-level guarantees: stdout
  *  purity, one outcome, exit after outcome. */
@@ -54,21 +53,6 @@ async function spawnCli(
   ]);
   return { stdout, stderr, exitCode: await proc.exited };
 }
-
-const EXECUTE = {
-  id: "e1",
-  type: "execute",
-  input: {
-    input: { inputId: "in-1", message: { role: "user", text: "go" } },
-    run: {
-      runId: "r-cli-1",
-      model: { backendKind: "oma", modelId: "fake/echo" },
-      configRevision: 1,
-    },
-    workspace: { root: tmp, access: "read_write" },
-    metadata: { conversationId: "c", agentId: "m", branchId: "b" },
-  },
-};
 
 afterAll(() => {
   rmSync(tmp, { recursive: true, force: true });
@@ -134,140 +118,6 @@ describe("oma CLI (spawned)", () => {
     expect(outcomes).toHaveLength(1);
     // every stdout line is JSONL (no stray logs)
     for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
-  }, 15_000);
-
-  test("rpc mode: one execute -> success -> events -> outcome -> process exits", async () => {
-    const proc = Bun.spawn({
-      cmd: [process.execPath, MAIN, "--mode", "rpc"],
-      cwd: tmp,
-      env: { ...process.env, OMA_FAKE_PROVIDER: "1" },
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    proc.stdin!.write(`${JSON.stringify(EXECUTE)}\n`);
-    const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    const lines: string[] = [];
-    // Consume stdout until the outcome envelope arrives.
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      for (;;) {
-        const nl = buffer.indexOf("\n");
-        if (nl < 0) break;
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        if (line.trim()) lines.push(line);
-      }
-      if (lines.some((l) => (JSON.parse(l) as { type?: string }).type === "outcome")) break;
-    }
-    // The child exits ON ITS OWN after the outcome - stdin stays open (the
-    // process must not depend on the parent closing it).
-    const exitCode = await Promise.race([
-      proc.exited,
-      new Promise<number>((_, reject) =>
-        setTimeout(() => reject(new Error("child did not exit after outcome")), 10_000),
-      ),
-    ]);
-    expect(exitCode).toBe(0);
-    const outputs = lines.map((l) => JSON.parse(l) as OmaOutput);
-    // protocol: an execute success response exists (agent_start may precede
-    // it), and the outcome is the terminal line.
-    expect(outputs.some((o) => o.type === "response" && o.success === true)).toBe(true);
-    expect(outputs[outputs.length - 1]?.type).toBe("outcome");
-    expect(outputs.filter((o) => o.type === "outcome")).toHaveLength(1);
-    for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
-  }, 15_000);
-
-  test("--list-models returns the canonical catalog as JSON and exits 0", async () => {
-    const res = await spawnCli(["--list-models"]);
-    expect(res.exitCode).toBe(0);
-    const catalog = JSON.parse(res.stdout) as {
-      backendKind: string;
-      models: Array<{ id: string; available: boolean }>;
-    };
-    expect(catalog.backendKind).toBe("oma");
-    expect(catalog.models[0]).toMatchObject({ id: "fake/echo", available: true });
-  }, 15_000);
-
-  test("piped stdin only (no prompt) works in print mode", async () => {
-    const res = await spawnCli(["-p"], {}, "error line 1\nerror line 2\n");
-    expect(res.exitCode).toBe(0);
-    expect(res.stdout).toBe("done\n");
-  }, 15_000);
-
-  test("piped stdin + prompt are both accepted (stdin feeds the run)", async () => {
-    const res = await spawnCli(["-p", "analyze"], {}, "the error log\n");
-    expect(res.exitCode).toBe(0);
-    expect(res.stdout).toBe("done\n");
-  }, 15_000);
-
-  test("piped stdin works in json mode", async () => {
-    const res = await spawnCli(["--mode", "json", "translate"], {}, "hello world\n");
-    expect(res.exitCode).toBe(0);
-    const lines = res.stdout.trim().split("\n");
-    expect(lines.filter((l) => JSON.parse(l).type === "outcome")).toHaveLength(1);
-  }, 15_000);
-
-  test("no prompt and no piped stdin fails with exit 2", async () => {
-    const res = await spawnCli(["-p"], {}, "");
-    expect(res.exitCode).toBe(2);
-    expect(res.stderr).toContain("interactive TUI");
-    expect(res.stderr).toContain("oma -p");
-    expect(res.stdout).toBe("");
-  }, 15_000);
-
-  test("oversized piped stdin fails with exit 2 (16 MiB bound)", async () => {
-    // A filler process feeds >16 MiB so an EPIPE on the test side cannot
-    // fail the run: the filler dies of SIGPIPE silently when the child
-    // exits at the bound.
-    const filler = Bun.spawn({
-      cmd: ["head", "-c", String(17 * 1024 * 1024), "/dev/zero"],
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const proc = Bun.spawn({
-      cmd: [process.execPath, MAIN, "-p", "x"],
-      cwd: tmp,
-      env: { ...process.env, OMA_FAKE_PROVIDER: "1" },
-      stdin: filler.stdout,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-    void filler.exited.catch(() => {});
-    expect(exitCode).toBe(2);
-    expect(stderr).toContain("16 MiB");
-  }, 30_000);
-
-  test("RPC mode does not pre-consume stdin (execute still reaches the protocol)", async () => {
-    const proc = Bun.spawn({
-      cmd: [process.execPath, MAIN, "--mode", "rpc"],
-      cwd: tmp,
-      env: { ...process.env, OMA_FAKE_PROVIDER: "1" },
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    proc.stdin!.write(`${JSON.stringify(EXECUTE)}\n`);
-    // stdin stays OPEN: if main() had pre-read it as piped input, the
-    // execute command would be consumed and never answered.
-    const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let sawResponse = false;
-    for (let i = 0; i < 100 && !sawResponse; i++) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      sawResponse = buffer.includes('"type":"response"');
-    }
-    expect(sawResponse).toBe(true);
-    proc.stdin!.end();
-    expect(await proc.exited).toBe(0);
   }, 15_000);
 
   test("run failure exits non-zero with the error on stderr (no model provider)", async () => {

@@ -1,20 +1,21 @@
-import type { BackendEvent, BackendRunSegment } from "@chengchenccc/agent-contract";
 import { TELEMETRY_EVENT_TYPES } from "./execution-input.js";
+import type { BackendEvent, BackendRunSegment } from "./protocol/index.js";
 
 export interface LiveEventBus {
-  /** Broadcast a transient event to current-process subscribers and the
-   *  durable telemetry sink (best-effort). */
-  /** Async since durable HITL: an approval must be persisted before any
-   *  subscriber (SSE, Lark card) may see the event. */
+  /** One live event on its way out: the durable telemetry sink (best effort), the observation
+   *  hooks, and then whatever a surface does with it. */
+  /** Async since durable HITL: an approval must be persisted before any surface may see the
+   *  event. */
   broadcast(runId: string, event: BackendEvent): Promise<void>;
-  closeSubscribers(runId: string): void;
+  /** Forget a settled run's liveness timestamp: the silence watchdog reads it only while the
+   *  run is live, and the map must not grow with every run this process has served. */
+  forgetRun(runId: string): void;
   /** Fan out the segment's event stream. Resolves when fully drained. */
   forwardEvents(runId: string, segment: BackendRunSegment): Promise<void>;
   /** Wall-clock of the last event seen for this run (undefined = none yet).
    *  The dispatch's silence watchdog reads it: the loop heartbeats every few
    *  seconds, so a stale value means the child is mute, not "thinking". */
   lastEventAt(runId: string): number | undefined;
-  subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent>;
 }
 
 export function createLiveEventBus(deps: {
@@ -31,8 +32,11 @@ export function createLiveEventBus(deps: {
     callId: string;
     payload: Readonly<Record<string, unknown>>;
   }) => Promise<void>;
+  /** Every live event, as it is broadcast: the composition root turns these into whatever a
+   *  surface consumes (the AHP chat channel today). Observation only - it never affects the run,
+   *  which is why a throw here is swallowed. */
+  onLiveEvent?: (runId: string, event: BackendEvent) => void;
 }): LiveEventBus {
-  const subscribers = new Map<string, Set<(e: BackendEvent) => void>>();
   const lastEventByRun = new Map<string, number>();
 
   /** Extract a runtime MCP mount observation from the oma extension event.
@@ -112,25 +116,22 @@ export function createLiveEventBus(deps: {
         return;
       }
     }
-    const set = subscribers.get(runId);
-    if (!set) return;
-    for (const fn of set) {
-      try {
-        fn(event);
-      } catch {
-        /* subscriber failure never affects the run */
-      }
+    // Every observer runs LAST. An approval that reached a surface before its row existed would
+    // render a card nobody can answer - resolveApproval refuses a click with no durable action -
+    // so the durable write above decides whether the event is seen at all.
+    try {
+      deps.onLiveEvent?.(runId, event);
+    } catch {
+      /* observation never affects the run */
     }
   }
 
-  function closeSubscribers(runId: string): void {
-    subscribers.delete(runId);
+  function forgetRun(runId: string): void {
     lastEventByRun.delete(runId);
   }
 
-  /** Transient live-update fan-out: events from the run's segment are
-   *  broadcast to current-process subscribers. Never persisted; subscriber
-   *  failure never affects the run; the stream ends when the run settles. */
+  /** Drain the segment's live events through `broadcast`. A closing event stream is not a run
+   *  failure, so it is swallowed here. */
   function forwardEvents(runId: string, segment: BackendRunSegment): Promise<void> {
     return (async () => {
       try {
@@ -141,44 +142,10 @@ export function createLiveEventBus(deps: {
     })();
   }
 
-  function subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent> {
-    return (async function* () {
-      const pending: BackendEvent[] = [];
-      const fn = (e: BackendEvent): void => {
-        pending.push(e);
-      };
-      let set = subscribers.get(runId);
-      if (!set) {
-        set = new Set();
-        subscribers.set(runId, set);
-      }
-      set.add(fn);
-      try {
-        // Drain `pending` even after closeSubscribers: a yield suspends
-        // this generator, so the subscriber set can close while buffered
-        // events are still unyielded. All broadcasts happen before the
-        // close (the dispatch drain race orders them), so pending is
-        // complete by then - never drop the tail.
-        while (pending.length > 0 || subscribers.has(runId)) {
-          if (signal?.aborted) break;
-          if (pending.length > 0) {
-            yield pending.shift()!;
-            continue;
-          }
-          await new Promise((r) => setTimeout(r, 20));
-        }
-      } finally {
-        set.delete(fn);
-        if (set.size === 0) subscribers.delete(runId);
-      }
-    })();
-  }
-
   return {
     broadcast,
-    closeSubscribers,
+    forgetRun,
     forwardEvents,
-    subscribe,
     lastEventAt: (runId: string) => lastEventByRun.get(runId),
   };
 }

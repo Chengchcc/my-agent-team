@@ -22,7 +22,7 @@ oma 运行内核里已经存在的防线：路径 jail、URL guard、审批管�
 - `apps/oh-my-agent/src/core/runtime/approval.ts` — 审批类型、deadline、无管线时的兜底
 - `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — 权限门、`.oma/settings.json` 白名单、沙箱装配
 - `apps/oh-my-agent/src/core/plugins/{plugin-trust,plugin-resolve}.ts` — 信任哈希与作用域乘模式矩阵
-- `packages/agent-contract/src/env.ts` — 子进程环境变量白名单
+- `packages/message/src/agent-vocabulary.ts` — 子进程环境变量白名单
 
 ## 路径 jail
 

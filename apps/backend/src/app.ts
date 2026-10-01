@@ -1,16 +1,18 @@
 import { Elysia } from "elysia";
 import type { agentRoutes } from "./features/agent/http.js";
 import type { agentRunRoutes } from "./features/agent-run/http.js";
+import type { createAhpHost } from "./features/ahp/index.js";
 import type { artifactRoutes } from "./features/artifact/http.js";
 import type { authRoutes } from "./features/auth/http.js";
 import type { codingRoutes } from "./features/coding/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { knowledgeRoutes } from "./features/knowledge/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
-import type { modelRoutes } from "./features/models/http.js";
+import type { harnessRoutes, modelRoutes } from "./features/models/http.js";
 import { productToolsRoutes } from "./features/product-tools/http.js";
 import type { ProductToolsService } from "./features/product-tools/service.js";
 import type { projectRoutes } from "./features/project/http.js";
+import type { proposalRoutes } from "./features/proposal/http.js";
 import type { providerRoutes } from "./features/provider/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
 import type { settingsRoutes } from "./features/settings/http.js";
@@ -29,10 +31,13 @@ export interface FeatureSet {
   mcp: ReturnType<typeof mcpRoutes>;
   knowledge: ReturnType<typeof knowledgeRoutes>;
   coding: ReturnType<typeof codingRoutes>;
+  ahp: ReturnType<typeof createAhpHost>["routes"];
   settings: ReturnType<typeof settingsRoutes>;
+  proposal: ReturnType<typeof proposalRoutes>;
   auth: ReturnType<typeof authRoutes>;
   providers: ReturnType<typeof providerRoutes>;
   models: ReturnType<typeof modelRoutes>;
+  harnesses: ReturnType<typeof harnessRoutes>;
   workflowExecutions: ReturnType<typeof workflowRoutes>;
   artifacts: ReturnType<typeof artifactRoutes>;
   productTools: ProductToolsService;
@@ -53,14 +58,17 @@ export function createApp(token: string, features: FeatureSet) {
     knowledge,
 
     settings,
+    proposal,
     auth,
     providers,
     models,
+    harnesses,
     agentRuns,
     workflowExecutions,
     artifacts,
     productTools,
     coding,
+    ahp,
   } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -122,13 +130,16 @@ export function createApp(token: string, features: FeatureSet) {
     .use(projects)
     .use(productToolsRoutes(productTools))
     .use(coding)
+    .use(ahp)
     .use(skillPacks)
     .use(settings)
+    .use(proposal)
     .use(auth)
     .use(providers)
     .use(mcp)
     .use(knowledge)
-    .use(models);
+    .use(models)
+    .use(harnesses);
 }
 
 export type App = ReturnType<typeof createApp>;

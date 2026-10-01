@@ -1,13 +1,8 @@
 import type { Database } from "bun:sqlite";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { Elysia, t } from "elysia";
-import { sseResponse } from "../../http/response.js";
-import {
-  type AgentRunExecutionService,
-  ApprovalNotApplicableError,
-  runEventStreamFor,
-} from "./execution.js";
+import { type AgentRunExecutionService, ApprovalNotApplicableError } from "./execution.js";
+import type { BackendRunOutcome } from "./protocol/index.js";
 import type { AgentRunService } from "./service.js";
 
 const ACTIVE_STATUSES = ["running", "waiting", "commit_failed"];
@@ -389,18 +384,5 @@ export function agentRunRoutes(input: {
         throw err;
       }
       return { ok: true, runId, callId: payload.callId, decision: payload.decision };
-    })
-    .get("/api/agent-runs/:runId/events", async ({ request, params: { runId } }) => {
-      const run = await agentRunService.getRun(runId);
-      const stream = runEventStreamFor(run, agentRunExecution, runId, request.signal);
-      return sseResponse(
-        stream,
-        (ev) => ({
-          id: runId,
-          event: ev.type,
-          data: ev,
-        }),
-        request.signal,
-      );
     });
 }

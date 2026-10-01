@@ -1,11 +1,7 @@
-import type {
-  AskQuestionInput,
-  AskQuestionResult,
-  ToolPresentation,
-} from "@chengchenccc/agent-contract";
-import type { Message } from "@chengchenccc/message";
+import type { AskQuestionInput, AskQuestionResult, Message } from "@chengchenccc/message";
 import type { OmaLoopEvent } from "./agent-event.js";
 import type { ApprovalDecision } from "./approval.js";
+import type { ToolPresentation } from "./contract/index.js";
 import type { PluginRuntime } from "./plugin-runtime.js";
 
 export interface PluginTool {

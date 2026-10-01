@@ -1,4 +1,3 @@
-import type { BackendRunOutcome, PendingActionResponse } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type {
   AcquireAgentRunCommand,
@@ -8,6 +7,7 @@ import type {
   ClaimedBranchInput,
   PendingActionRecord,
 } from "./domain.js";
+import type { BackendRunOutcome, PendingActionResponse } from "./protocol/index.js";
 
 /** Storage port for Agent Run, queue, and PendingAction persistence. */
 export interface AgentRunPort {
@@ -145,9 +145,16 @@ export interface AgentRunPort {
   /** Get a single queued input by id (queue management UI). */
   getInput(inputId: string): Promise<BranchInput | null>;
 
-  /** Pending inputs across every branch of a conversation, oldest first,
-   *  with the owning agent member id (queue management UI). */
+  /** Pending inputs across every branch of a conversation, oldest first, with the owning agent
+   *  member id: what a queue view shows. */
   listPendingInputsForConversation(
+    conversationId: string,
+  ): Promise<Array<BranchInput & { agentId: string }>>;
+
+  /** The same inputs in every status. A reader that renders history wants the input that started a
+   *  finished run, and that one left the queue long ago; the queue keeps its own narrower read
+   *  instead of this one growing a flag. */
+  listInputsForConversation(
     conversationId: string,
   ): Promise<Array<BranchInput & { agentId: string }>>;
 

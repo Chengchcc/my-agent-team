@@ -1,9 +1,3 @@
-import type {
-  BackendEvent,
-  BackendRegistry,
-  BackendRunSegment,
-  WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type {
   AgentContextPort,
@@ -13,8 +7,17 @@ import type {
 import type { RunTokenRegistry } from "../product-tools/run-token-registry.js";
 import type { WorkspaceLockRegistry } from "../project/workspace-lock.js";
 import type { AgentRunPort } from "./ports.js";
+import type {
+  BackendEvent,
+  BackendRegistry,
+  BackendRunSegment,
+  WorkspaceBinding,
+} from "./protocol/index.js";
 
 export interface AgentRunExecutionDeps {
+  /** Every live run event, as broadcast: the composition root turns the chat-shaped ones into
+   *  AHP actions (ADR 0040 decision 4). Observation only. */
+  readonly onLiveEvent?: (runId: string, event: BackendEvent) => void;
   readonly runPort: AgentRunPort;
   readonly contextPort: AgentContextPort;
   readonly ledgerResolver: LedgerMessageResolver;
@@ -59,6 +62,15 @@ export interface AgentRunExecutionDeps {
     output: Message | undefined,
     committedSeq: readonly number[],
   ) => void;
+  /** Called when a human input request is settled - answered, replayed, or timed out. The
+   *  surface layer turns it into whatever its channel says ("the card stops being pending"); the
+   *  product states the outcome and does not decide how it is shown. Repeated for replays, so
+   *  consumers must be idempotent. */
+  readonly onHumanInputResolved?: (input: {
+    runId: string;
+    callId: string;
+    outcome: "allow" | "deny" | "timeout";
+  }) => void;
   /** Conversation title lookup for the auto-title retry flag. */
   readonly conversationTitleOf?: (conversationId: string) => string | null | undefined;
   /** Called after a failed/aborted/timeout run settles, so the surface can
@@ -111,9 +123,6 @@ export interface AgentRunExecutionService {
    *  settling) even without a live child yet. "owned" = isLive || isInflight;
    *  only a run that is neither is a true zombie. */
   isInflight(runId: string): boolean;
-  /** ADR 0038: waiting AND holding a pending action — parked, never a
-   *  zombie. Childless cleanup paths must check this before aborting. */
-  isParked(runId: string): Promise<boolean>;
   /** Terminal a DB-active run that has NO live child (zombie): Run aborted,
    *  bound input cancelled, branch released. Only used by the auto-steer
    *  fallback; explicit steer never silently converts. */
@@ -133,14 +142,7 @@ export interface AgentRunExecutionService {
    * run still waits on siblings or has a live loop. Also the wake hook for
    * product-tools ask resolves. */
   resumeParkedRun(runId: string): Promise<void>;
-  subscribe(runId: string, signal?: AbortSignal): AsyncIterable<BackendEvent>;
-  /** Durable HITL actions still waiting for the human, as the wire events a
-   *  live subscriber would have seen (ADR 0038). The live bus never replays
-   *  (`broadcast` only reaches subscribers present at that instant), so a
-   *  subscriber arriving after the approval event — a fast first turn beats
-   *  the Lark card's create+send round trip — must read the durable record
-   *  or stay blind for the whole park. */
-  pendingActionEvents(runId: string): Promise<BackendEvent[]>;
-  /** Push a run-scoped event to the live SSE stream (web observes it). */
+  /** Push a run-scoped event onto the live bus: the observer hooks see it, and whatever is
+   *  keeping a durable log keeps it. */
   broadcastRunEvent(runId: string, event: BackendEvent): void;
 }

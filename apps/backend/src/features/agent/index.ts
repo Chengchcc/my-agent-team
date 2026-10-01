@@ -1,5 +1,4 @@
 export { sqliteAgentAdapter } from "./adapter-sqlite.js";
-export { type AgentConfigEvent, AgentConfigEventBus } from "./agent-config-events.js";
 export { createAgentConfigMcpServer } from "./agent-config-mcp.js";
 export {
   type AgentIdentityStore,

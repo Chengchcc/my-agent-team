@@ -1,4 +1,4 @@
-import type { ProjectedHistoryItem } from "@chengchenccc/agent-contract";
+import type { ProjectedHistoryItem } from "../../features/agent-run/protocol/index.js";
 import type {
   AgentContextEntry,
   LedgerMessageEntry,

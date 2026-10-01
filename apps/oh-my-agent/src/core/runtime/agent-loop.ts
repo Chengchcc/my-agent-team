@@ -1,10 +1,10 @@
-import type { BackendInputMessage } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import type { AgentLoopListener, OmaLoopEvent } from "./agent-event.js";
 import type { LoopCallContext, LoopRuntimeState, LoopToolMapRef } from "./agent-loop-run.js";
 import { type LoopRunnerContext, type LoopRunnerMutable, runLoop } from "./agent-loop-runner.js";
 import type { OmaSession, OmaSessionOptions } from "./agent-loop-types.js";
 import { compactSession } from "./compaction.js";
+import type { BackendInputMessage } from "./contract/index.js";
 import { TokenEstimateCache } from "./message-cache.js";
 import { collectTools, validatePlugins } from "./plugin.js";
 import type { PluginRuntime } from "./plugin-runtime.js";

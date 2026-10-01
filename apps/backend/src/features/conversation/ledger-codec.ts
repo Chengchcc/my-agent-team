@@ -3,24 +3,17 @@ import { z } from "zod";
 // ─── Ledger codec (backend-internal storage shape) ───────────────────
 // 1:1 collapse (spec 2026-08-25): LedgerEntry is the conversation_ledger
 // storage row, not a wire contract. The SSE boundary maps it to
-// ConversationEvent (api-contract) before it leaves the backend.
+// the wire shape before it leaves the backend.
 
-export const LedgerKind = z.enum([
-  "message",
-  "member.joined",
-  "member.left",
-  "todo",
-  "surface.control",
-  "undo",
-]);
+/** 存储层的 kind。只保留有写入方的值：`member.joined` / `member.left`（成员表已删）
+ *  与 `todo`（从来没有写入方）是历史残留，删掉以免它们继续冒充账本契约的一部分。 */
+export const LedgerKind = z.enum(["message", "surface.control", "undo"]);
 
 export type LedgerKind = z.infer<typeof LedgerKind>;
 
 export const LedgerEntry = z.object({
   seq: z.number(),
   conversationId: z.string(),
-  senderMemberId: z.string(),
-  addressedTo: z.array(z.string()).default([]),
   kind: LedgerKind,
   // Serialized string on the live push path; parsed object when read back
   // through the drizzle select schema. Callers normalize before use.
@@ -28,6 +21,24 @@ export const LedgerEntry = z.object({
   ts: z.number(),
   /** Soft-delete flag (fork/undo): logically removed, ledger stays append-only. */
   undone: z.boolean().optional(),
+  /** 规范投影需要的归属与轮内顺序：读库路径必带；实时推送路径是派生事件，不带。 */
+  agentRunId: z.string().nullable().optional(),
+  messageIndex: z.number().optional(),
 });
 
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
+
+/** 署名标签：由存储的 payload 自身推导（成员列已删，sender/addressedTo 路由也早已取消）。 */
+export function senderLabelOf(content: unknown): string {
+  try {
+    const parsed = typeof content === "string" ? (JSON.parse(content) as unknown) : content;
+    const role = (parsed as { role?: unknown } | null)?.role;
+    if (role === "user") return "User";
+    if (role === "assistant") return "Agent";
+    if (role === "tool") return "Tool";
+    if (typeof role === "string" && role !== "") return role;
+  } catch {
+    /* 畸形内容按 System 处理 */
+  }
+  return "System";
+}

@@ -12,7 +12,6 @@ import {
 } from "@chengchenccc/workflow";
 import { HttpError } from "../../infra/errors.js";
 import type { WorkflowExecutionRow, WorkflowNodeRunRow } from "./domain.js";
-import type { EventBusSubscription, ExecutionEventBus, WorkflowEvent } from "./event-bus.js";
 import type { WorkflowExecutionPort } from "./ports.js";
 
 export interface AgentRunnerDeps {
@@ -24,10 +23,6 @@ export interface AgentRunnerDeps {
   };
   agentRunExecution?: {
     dispatch(runId: string): Promise<void>;
-    subscribe(
-      runId: string,
-      signal?: AbortSignal,
-    ): AsyncIterable<{ type: string; status?: string }>;
   };
   convPort?: {
     getConversation(id: string): unknown;
@@ -59,7 +54,6 @@ export interface AgentRunnerDeps {
 
 export interface WorkflowExecutionServiceDeps extends AgentRunnerDeps {
   port: WorkflowExecutionPort;
-  eventBus: ExecutionEventBus;
   idGen: () => string;
   nodeRunners: Partial<Record<"script" | "human", NodeRunner>>;
 }
@@ -109,12 +103,7 @@ export interface WorkflowExecutionService {
     form?: Record<string, unknown>;
     status: string;
   } | null>;
-  subscribeEvents(
-    executionId: string,
-    signal?: AbortSignal,
-  ): Promise<EventBusSubscription<WorkflowEvent>>;
   recover(): Promise<void>;
-  dispose(): Promise<void>;
 }
 
 function exitStatus(exit: string): "success" | "failure" | "custom" {
@@ -244,10 +233,8 @@ export function createWorkflowExecutionService(
     if (cancelled.has(executionId)) throw new WorkflowCancelledError();
   }
 
+  /** The durable trace is the only record now: a failure to write it must not block the drive. */
   function emit(executionId: string, event: string, data: unknown) {
-    deps.eventBus.emit({ executionId, event, ts: Date.now(), data });
-    // ponytail: event persistence failure must not block drive; the event bus
-    // copy still fires, the durable trace just misses one row.
     deps.port.appendExecutionEvent({ executionId, event, data, ts: Date.now() }).catch(() => {});
   }
 
@@ -778,19 +765,10 @@ export function createWorkflowExecutionService(
     async getPendingHuman(executionId, nodeId) {
       return deps.port.getPendingHuman(executionId, nodeId);
     },
-    async subscribeEvents(
-      executionId: string,
-      _signal?: AbortSignal,
-    ): Promise<EventBusSubscription<WorkflowEvent>> {
-      return deps.eventBus.subscribe(executionId);
-    },
     async recover() {
       for (const e of await deps.port.listRunningExecutions()) {
         void runWithCatch(e.executionId, () => drive(e));
       }
-    },
-    async dispose() {
-      deps.eventBus.dispose();
     },
   };
 }

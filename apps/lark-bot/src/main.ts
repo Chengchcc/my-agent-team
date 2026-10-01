@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
+import type { WatcherHandle } from "./ahp-watcher.js";
+import { watchConversationOverAhp } from "./ahp-watcher.js";
 import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
@@ -31,8 +33,6 @@ import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
 import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
-import type { WatcherHandle } from "./sse-watcher.js";
-import { watchConversation } from "./sse-watcher.js";
 import { replyInThreadFor } from "./topic-routing.js";
 import { sendIntoTopic } from "./topic-send.js";
 
@@ -41,12 +41,17 @@ const state = await bootstrap(args);
 
 const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
-// ─── SSE watchers — one per bound conversation ───
+// ─── AHP watchers: one per bound conversation (ADR 0040 surface contract) ───
 const watchers = new Map<string, WatcherHandle>();
 
-function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0) {
+// Run cards answer runs in these same conversations, and the chat state that arrives at the
+// watcher below is where they read what their run is doing (ADR 0040 decision 4). They are
+// declared before the watchers so a state arriving during startup already has somewhere to go.
+const cardWatchers = new Map<string, RunCardWatcherHandle>();
+
+function ensureWatcher(conversationId: string, larkChatId: string) {
   if (watchers.has(conversationId)) return;
-  const handle = watchConversation(conversationId, larkChatId, afterSeq, {
+  const handle = watchConversationOverAhp(conversationId, larkChatId, {
     db: state.db,
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
@@ -66,8 +71,15 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
       if (!result.ok) {
         const msg = result.error ?? "unknown lark send error";
         console.error(`[lark-bot] send failed for ${chatId}: ${msg}`);
-        throw new Error(msg); // prevents sse-watcher from advancing pushed_seq
+        // Throwing matters: the delivery records the failure instead of claiming the message
+        // landed, and the watcher reconnects, which re-runs the delivery from the same state.
+        throw new Error(msg);
       }
+    },
+    // One update path for the channel: a state that does not carry a card's run is a no-op
+    // there, so broadcasting costs a map walk and keeps the seam free of routing tables.
+    onChatState: (chat) => {
+      for (const handle of cardWatchers.values()) void handle.update(chat);
     },
     // M15.1: Handle conversation rebind from surface.control
     onRebind: (oldConvId, newConvId) => {
@@ -76,10 +88,10 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
         oldWatcher.close();
         watchers.delete(oldConvId);
       }
-      ensureWatcher(newConvId, larkChatId, 0);
+      ensureWatcher(newConvId, larkChatId);
     },
     // M15.1: Send text directly to Lark (not through conversation ingest).
-    // Still inside the topic (ADR 0037): the SSE bridge knows the conversation,
+    // Still inside the topic (ADR 0037): the watcher knows the conversation,
     // whose binding carries the chat mode and the topic root it was created by.
     sendTextOnly: async (chatId, text) => {
       const result = await sendIntoTopic({
@@ -95,12 +107,12 @@ function ensureWatcher(conversationId: string, larkChatId: string, afterSeq = 0)
     },
   });
   watchers.set(conversationId, handle);
-  console.log(`[lark-bot] SSE watcher started: ${conversationId} → ${larkChatId}`);
+  console.log(`[lark-bot] AHP watcher started: ${conversationId} → ${larkChatId}`);
 }
 
-// Restore SSE watchers for existing conversations (one per topic)
+// Restore AHP watchers for existing conversations (one per topic)
 for (const binding of listConversationBindings(state.db)) {
-  ensureWatcher(binding.conversationId, binding.larkChatId, binding.pushedSeq);
+  ensureWatcher(binding.conversationId, binding.larkChatId);
 }
 
 // ─── Run cards (ADR 0031) — one per live run ───
@@ -109,7 +121,6 @@ for (const binding of listConversationBindings(state.db)) {
 // and the rare plain-text fallback sends.
 const cardTokens = createTokenProvider(profile);
 const cardClient = createCardKitClient(cardTokens);
-const cardWatchers = new Map<string, RunCardWatcherHandle>();
 
 async function startRunCard(
   runId: string,
@@ -241,7 +252,7 @@ async function handleLine(line: string): Promise<void> {
       // A new topic opened: watch its conversation (each topic is its own
       // conversation now, so this is the only place watchers are created at
       // runtime — startup restores the rest).
-      ensureWatcher(conversationId, larkChatId, 0);
+      ensureWatcher(conversationId, larkChatId);
     },
     // ADR 0031: a triggered run gets its streaming card immediately.
     // ADR 0037 decision 2: a message that has to wait gets its own card in a

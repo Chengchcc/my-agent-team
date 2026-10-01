@@ -70,7 +70,6 @@ function makeSvc(
       undefined,
       undefined,
       undefined,
-      undefined,
       modelKnown,
     ),
   );
@@ -86,12 +85,45 @@ describe("agent HTTP routes", () => {
     const req = new Request("http://localhost/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "test", model: { provider: "anthropic", model: "claude" } }),
+      body: JSON.stringify({ name: "test", harness: "oma", model: "anthropic/claude" }),
     });
     const resp = await app.handle(req);
     expect(resp.status).toBe(201);
     const body = (await readJson(resp)) as { id: string; name: string };
     expect(body.name).toBe("test");
+  });
+
+  test("the response carries the harness model, so the edit form can round-trip it", async () => {
+    const app = makeSvc();
+    const created = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "harness-model",
+          harness: "oma",
+          model: "deepseek/deepseek-v4-pro",
+        }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    const body = (await readJson(created)) as { harness: string; model: string };
+    expect(body.harness).toBe("oma");
+    expect(body.model).toBe("deepseek/deepseek-v4-pro");
+
+    // Unset reads as null: an empty string would look like a choice and pin
+    // every run to whatever the harness last held.
+    const plain = await app.handle(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "no-harness-model",
+          harness: "oma",
+        }),
+      }),
+    );
+    expect(((await readJson(plain)) as { model: string }).model).toBe("");
   });
 
   test("POST /api/agents returns 422 on invalid body", async () => {
@@ -112,7 +144,7 @@ describe("agent HTTP routes", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "a1", model: { provider: "a", model: "m" } }),
+        body: JSON.stringify({ name: "a1", harness: "oma" }),
       }),
     );
     const resp = await app.handle(new Request("http://localhost/api/agents"));
@@ -133,7 +165,7 @@ describe("agent HTTP routes", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "old", model: { provider: "a", model: "m" } }),
+        body: JSON.stringify({ name: "old", harness: "oma" }),
       }),
     );
     const created = (await readJson(createResp)) as { id: string };
@@ -155,7 +187,7 @@ describe("agent HTTP routes", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "a", model: { provider: "a", model: "m" } }),
+        body: JSON.stringify({ name: "a", harness: "oma" }),
       }),
     );
     const created = (await readJson(createResp)) as { id: string };
@@ -173,7 +205,7 @@ describe("agent HTTP routes", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "ws", model: { provider: "a", model: "m" } }),
+        body: JSON.stringify({ name: "ws", harness: "oma" }),
       }),
     );
     const created = (await readJson(createResp)) as { id: string };
@@ -217,7 +249,7 @@ describe("agent HTTP routes", () => {
       new Request("http://localhost/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "mem", model: { provider: "anthropic", model: "claude" } }),
+        body: JSON.stringify({ name: "mem", harness: "oma", model: "anthropic/claude" }),
       }),
     );
     const created = (await readJson(createResp)) as { id: string };
@@ -265,17 +297,16 @@ describe("agent HTTP routes", () => {
   });
 });
 
-describe("agent model consistency gate", () => {
-  const KNOWN = new Set(["anthropic/claude", "oma/stub"]);
+describe("agent harness consistency gate", () => {
+  // One adapter drives every harness, so the check receives the constant kind
+  // and provider with the harness key: `acp/oma` is the one id this fixture
+  // serves. A harness the registry does not know would run a different agent.
+  const KNOWN = new Set(["acp/oma"]);
   const modelKnown = async (
     backendKind: string,
     provider: string,
     modelId: string,
-  ): Promise<boolean> => {
-    // The omp static table knows none of the ids this fixture serves.
-    if (backendKind === "omp") return false;
-    return KNOWN.has(`${provider}/${modelId}`);
-  };
+  ): Promise<boolean> => backendKind === "acp" && KNOWN.has(`${provider}/${modelId}`);
 
   const post = (app: { handle: (req: Request) => Promise<Response> }, payload: unknown) =>
     app.handle(
@@ -299,53 +330,41 @@ describe("agent model consistency gate", () => {
       }),
     );
 
-  test("POST refuses a model the kind's catalog doesn't know", async () => {
+  test("POST refuses a harness the registry doesn't know", async () => {
     const app = makeSvc(modelKnown);
-    const resp = await post(app, { name: "a", model: { provider: "zai", model: "glm-9" } });
+    const resp = await post(app, { name: "a", harness: "ghost" });
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as { error: string };
-    expect(body.error).toContain("unknown model zai/glm-9");
+    expect(body.error).toContain("unknown harness ghost");
   });
 
-  test("POST accepts a cataloged model", async () => {
+  test("POST accepts a registered harness", async () => {
     const app = makeSvc(modelKnown);
-    const resp = await post(app, {
-      name: "a",
-      model: { provider: "anthropic", model: "claude" },
-    });
+    const resp = await post(app, { name: "a", harness: "oma", model: "anthropic/claude" });
     expect(resp.status).toBe(201);
   });
 
-  test("routes without the check keep accepting any model", async () => {
+  test("routes without the check keep accepting any harness", async () => {
     const app = makeSvc();
-    const resp = await post(app, { name: "a", model: { provider: "x", model: "y" } });
+    const resp = await post(app, { name: "a", harness: "ghost" });
     expect(resp.status).toBe(201);
   });
 
-  test("PATCH switching kind alone refuses a model the new kind lacks", async () => {
+  test("PATCH switching harness refuses an unregistered one", async () => {
     const app = makeSvc(modelKnown);
-    const created = await post(app, {
-      name: "a",
-      model: { provider: "anthropic", model: "claude" },
-    });
+    const created = await post(app, { name: "a", harness: "oma" });
     const { id } = (await created.json()) as { id: string };
-    const resp = await patch(app, id, { backendKind: "omp" });
+    const resp = await patch(app, id, { harness: "ghost" });
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as { error: string };
-    expect(body.error).toContain("for backend kind omp");
+    expect(body.error).toContain("unknown harness ghost");
   });
 
-  test("PATCH model + kind together passes when the new kind knows it", async () => {
+  test("PATCH harness + model together passes when the registry knows it", async () => {
     const app = makeSvc(modelKnown);
-    const created = await post(app, {
-      name: "a",
-      model: { provider: "anthropic", model: "claude" },
-    });
+    const created = await post(app, { name: "a", harness: "oma" });
     const { id } = (await created.json()) as { id: string };
-    const resp = await patch(app, id, {
-      backendKind: "oma",
-      model: { provider: "oma", model: "stub" },
-    });
+    const resp = await patch(app, id, { harness: "oma", model: "deepseek/deepseek-v4-pro" });
     expect(resp.status).toBe(200);
   });
 });

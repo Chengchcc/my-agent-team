@@ -1,17 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { AcpBackend, AcpModelCatalog } from "@chengchenccc/adapter-acp";
-import { ClaudeBackend, ClaudeModelCatalog } from "@chengchenccc/adapter-claude-agent";
-import { OmaBackend, OmaModelCatalog } from "@chengchenccc/adapter-oma-agent";
-import { OmpBackend, OmpModelCatalog } from "@chengchenccc/adapter-omp-agent";
-import { PiBackend, PiModelCatalog } from "@chengchenccc/adapter-pi-agent";
-import type {
-  AskQuestionInput,
-  BackendKind,
-  BackendRegistry,
-  BackendRegistryEntry,
-} from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
+import type { AskQuestionInput } from "@chengchenccc/message";
 import { type Message, serializeMessageRevision } from "@chengchenccc/message";
 import type { WorkflowDefinition } from "@chengchenccc/workflow";
 import type { FeatureSet } from "../app.js";
@@ -19,7 +9,6 @@ import { createAgentSvc } from "../features/agent/agent-compose.js";
 import { createAgentIdentityStore } from "../features/agent/agent-identity.js";
 import {
   AgentBusyError,
-  AgentConfigEventBus,
   agentModelRef,
   agentRoutes,
   createAgentConfigMcpServer,
@@ -37,6 +26,10 @@ import {
   sqliteAgentContextAdapter,
 } from "../features/agent-context/index.js";
 import type { LedgerMessageResolver } from "../features/agent-context/ports.js";
+import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
+import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
+import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
+import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
 import {
   agentRunRoutes,
   buildHistoryTools,
@@ -45,6 +38,14 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
+import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
+import {
+  chatUri,
+  createAhpChatWriter,
+  createAhpHost,
+  createAhpStateSource,
+  type RunTurnContext,
+} from "../features/ahp/index.js";
 import {
   artifactRoutes,
   createArtifactFsAdapter,
@@ -80,8 +81,11 @@ import {
 import {
   applyServedAvailability,
   bareModelId,
+  createHarnessCatalog,
+  createOmaModelCatalog,
   createProviderModelProbe,
   createServedModelKnowledge,
+  harnessRoutes,
   modelRoutes,
   providerOfModelId,
 } from "../features/models/index.js";
@@ -106,6 +110,12 @@ import {
   removeWorktree,
 } from "../features/project/worktree.js";
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
+import {
+  createProposalService,
+  type ProposalService,
+  proposalRoutes,
+  sqliteProposalAdapter,
+} from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
 import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
 import { settingsRoutes } from "../features/settings/index.js";
@@ -126,15 +136,13 @@ import {
   createWorkflowExecutionService,
   createWorkflowMcpServer,
   createWorkflowTriggerScheduler,
-  ExecutionEventBus,
   sqliteWorkflowExecutionAdapter,
-  WorkflowDefinitionEventBus,
   workflowRoutes,
 } from "../features/workflow/index.js";
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
 import { ulid } from "../infra/ids.js";
 import { resolveKnowledgeMcpServerEntry } from "../infra/knowledge-mcp-command.js";
-import { resolveOmaCommand } from "../infra/oma-command.js";
+import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
 import { sseUrlEndpoint } from "../infra/sse-url.js";
 import type { BackendServices } from "./services.js";
 
@@ -157,6 +165,8 @@ export function buildAgentSystemPrompt(
 export interface InstalledFeatures {
   featureSet: FeatureSet;
   /** Phase 5 internal handles (not exposed via HTTP). */
+  /** What an agent proposed and did not apply: the MCP tools write through it, the pages read. */
+  proposalSvc: ProposalService;
   agentRunService: ReturnType<typeof createAgentRunService>;
   agentRunExecution: ReturnType<typeof createAgentRunExecutionService>;
   productTools: ReturnType<typeof createProductToolsService>;
@@ -169,6 +179,10 @@ export interface InstalledFeatures {
 export async function installFeatures(services: BackendServices): Promise<InstalledFeatures> {
   const { config, db, settingsSvc, mcpClientManager, larkBotRegistry } = services;
   const providerSvc = createProviderService(settingsSvc);
+
+  // A change an agent proposes and a human adopts (ADR 0040): the MCP tools write these rows and
+  // the target pages read them, so the proposal outlives the page that was open when it arrived.
+  const proposalSvc = createProposalService({ port: sqliteProposalAdapter(db), idGen: ulid });
 
   // ─── Skill Pack (before agentSvc — onCreate depends on it) ──
 
@@ -252,14 +266,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     assertNoActiveRun: (agentId: string) => busyGuard.check?.(agentId),
   });
 
-  async function ensureAgent(id: string, name: string, model: { provider: string; model: string }) {
+  async function ensureAgent(id: string, name: string, harness: string, model?: string) {
     try {
       await agentSvc.getById(id);
     } catch {
       await agentSvc.create({
         id,
         name,
-        model,
+        harness,
+        ...(model ? { model } : {}),
         permissionMode: "auto",
       });
     }
@@ -271,15 +286,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  configured provider keys determine which appear). When no provider has
    *  a key yet (clean machine), seeds a placeholder so agents still exist
    *  and get configured later in the UI. */
-  async function defaultSeedModel(): Promise<{ provider: string; model: string }> {
+  async function defaultSeedModel(): Promise<{ harness: string; model: string }> {
     try {
       const catalog = await codingAgentCatalog.list();
       const first = catalog.models.find((m) => m.available !== false);
       if (first) {
-        const slash = first.id.indexOf("/");
-        if (slash > 0) {
-          return { provider: first.id.slice(0, slash), model: first.id.slice(slash + 1) };
-        }
+        // oma's ACP server catalogs the provider models themselves, so the
+        // catalog id is already exactly what that harness runs.
+        return { harness: "oma", model: first.id };
       }
     } catch (err) {
       console.warn(
@@ -287,10 +301,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         err instanceof Error ? err.message : String(err),
       );
     }
-    // ponytail: placeholder until a provider key is configured. Agents
-    // exist with identity/memory/skills; dispatch fails until the user
-    // picks a real model in the UI.
-    return { provider: "unconfigured", model: "none" };
+    // ponytail: no provider key yet. Agents still exist with
+    // identity/memory/skills; "" lets the harness run its own default.
+    return { harness: "oma", model: "" };
   }
 
   // ─── Conversation + Phase 5 Agent Run (conversation first: the ledger
@@ -374,6 +387,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const isLive: { fn: (runId: string) => boolean } = { fn: () => false };
   const isInflight: { fn: (runId: string) => boolean } = { fn: () => false };
   const abortStaleRun: { fn: (runId: string) => Promise<void> } = { fn: async () => {} };
+  // The continuity record exists FOR surfaces ("this conversation moved"), so the chat channels
+  // are told when one lands. Filled in once the AHP host exists, like the holders above.
+  const onContinuityRecorded: {
+    fn: (input: { conversationId: string; controlSeq: number }) => void;
+  } = { fn: () => {} };
   const conv = createConversationFeature({
     convPort,
 
@@ -384,6 +402,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     isLive: (runId: string) => isLive.fn(runId),
     isInflight: (runId: string) => isInflight.fn(runId),
     abortStaleRun: (runId: string) => abortStaleRun.fn(runId),
+    onContinuityRecorded: (input) => onContinuityRecorded.fn(input),
     contextService: contextSvc,
     // Roadmap (自由文本追问): the productTools binding is declared below —
     // the closure dereferences it at request time, long after boot wiring.
@@ -423,6 +442,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     callPort: sqliteProductToolCallAdapter(db),
     idGen: { ulid },
     artifactService,
+    onAskAnswered: (input) => {
+      void chatWriter
+        .announceHumanInput({ ...input, outcome: "answered" })
+        .catch((err) =>
+          console.error(`[bootstrap] ask announcement failed for ${input.runId}:`, err),
+        );
+    },
     emitAsk: (input) => broadcastAskEvent?.(input),
     emitTodo: (input) => broadcastTodoEvent?.(input),
     // HITL over chat: hours, not minutes (user decision 2026-09-25).
@@ -463,12 +489,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Workflow DSL MCP server (per-server control via ENABLED_MCP_SERVERS):
   // lets the agent read/write *.workflow.json through MCP tools. Injected
   // into the workspace .mcp.json below only when enabled.
-  const workflowDefinitionEvents = new WorkflowDefinitionEventBus();
   let workflowMcp: Awaited<ReturnType<typeof createWorkflowMcpServer>> | null = null;
   if (enabledMcpServers.has("workflow")) {
     workflowMcp = await createWorkflowMcpServer({
       workflowDir: join(config.dataDir, "workflows"),
-      definitionEvents: workflowDefinitionEvents,
+      proposals: proposalSvc,
     });
     console.log(`[bootstrap] workflow MCP listening at ${workflowMcp.url}`);
   }
@@ -478,7 +503,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Injected into the workspace .mcp.json below only when enabled. Mirrors
   // the workflow server: agent_write emits a "changed" SSE event and the
   // edit page adopts it as an unsaved edit.
-  const agentConfigEvents = new AgentConfigEventBus();
   let agentConfigMcp: Awaited<ReturnType<typeof createAgentConfigMcpServer>> | null = null;
   if (enabledMcpServers.has("agent")) {
     agentConfigMcp = await createAgentConfigMcpServer({
@@ -498,7 +522,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         const row = await agentSvc.create(input);
         return { id: row.id };
       },
-      configEvents: agentConfigEvents,
+      proposals: proposalSvc,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);
   }
@@ -528,72 +552,69 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       };
       conv.convPort.appendLedgerEntry({
         conversationId: input.conversationId,
-        senderMemberId: input.agentId,
-        addressedTo: [],
         kind: "message",
         content: serializeMessageRevision(msg),
         ts: Date.now(),
       });
+      // The failure is a row now: the chat channel folds the turn into history, error part included.
+      // No duration: a failed run never ran a turn, the error is the row's business.
+      await chatWriter.foldCommittedTurn(input.runId, 0);
     })().catch((err) => console.error(`[bootstrap] onRunFailed failed for ${input.runId}:`, err));
   };
   const onRunCommitted = (
     runId: string,
     output: Message | undefined,
-    committedSeq: readonly number[],
+    _committedSeq: readonly number[],
   ): void => {
     void (async () => {
       const run = await agentRunPort.getRun(runId);
       if (!run || !output) return;
-      // Push the just-committed ledger rows to live conversation SSE
-      // subscribers IMMEDIATELY. commitCompletedRun writes conversation_ledger
-      // directly (bypassing the service's #appendAndBroadcast), so without
-      // this push the canonical assistant message is only discovered by the
-      // 5s poll fallback in subscribeConversation — a blank frame after the
-      // run stream closes.
-      for (const seq of committedSeq) conv.convSvc.notifySeq(run.conversationId, seq);
       // Persist auto-generated title (first Run only; !convRow.title guard).
       const convRow = conv.convPort.getConversation(run.conversationId);
       const outcome = run.terminalResult;
       if (convRow && !convRow.title && outcome?.status === "completed" && outcome.title) {
         conv.convPort.setConversationTitle(run.conversationId, outcome.title);
       }
+      // The turn's rows are committed: the chat channel re-states the turn from the projection and
+      // moves it from "in flight" to history, so a live surface needs no refresh to see it there.
+      await chatWriter.foldCommittedTurn(
+        runId,
+        Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt),
+      );
     })().catch((err) => console.error(`[bootstrap] onRunCommitted failed for ${runId}:`, err));
   };
 
+  /** The run's rows are committed, so the projection is the authority on its turn: re-state the
+   *  turn on the chat channel (the streamed parts were a preview without ledger coordinates) and
+   *  fold it into the history. Runs whose events this process never streamed are skipped - the
+   *  surface that asks for a snapshot gets the turn from the projection anyway. */
+
   const codingAgentCommand = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() });
-  const codingAgentCatalog = new OmaModelCatalog(codingAgentCommand);
+  const codingAgentCatalog = createOmaModelCatalog(codingAgentCommand);
 
   const refreshOmaProviderEnv = () => {
     codingAgentCommand.env = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() }).env;
     codingAgentCatalog.invalidate();
   };
 
-  const codingAgentBackend = new OmaBackend(codingAgentCommand, {
-    maxConcurrent: config.maxConcurrentRuns,
-    abortGraceMs: config.cancelGraceMs,
-  });
-  // Per-kind dispatch registry (ADR 0002). New kinds (claude_code/pi/omp)
-  // register their adapter here as they land; unknown kinds get a clear
-  // preflight error from the execution service, never a silent fallback.
-  const ompBackend = new OmpBackend({
-    executable: config.ompBin ?? "omp",
-  });
-  const piBackend = new PiBackend({
-    executable: config.piBin ?? "pi",
-    // `pi install npm:pi-mcp-adapter` registers the adapter; an explicit
-    // path overrides it for per-run spawns (D3 全量对齐).
-    mcpAdapterPath: config.piMcpAdapterPath,
-  });
-  const claudeBackend = new ClaudeBackend({
-    executable: config.claudeBin ?? "claude",
-    // bypassPermissions is refused under root; CLAUDE_PERMISSION_MODE
-    // on non-root deployments (Gate 0).
-    permissionMode: config.claudePermissionMode,
+  // Same resolution the native adapter used: this box has no `oma` on PATH.
+  const omaAcpArgv = resolveOmaAcpArgv(config, { env: providerSvc.getProviderEnv() });
+
+  // The harness axis (ADR 0040 decision 7). Reading a harness's models costs a
+  // session, so the catalog caches them; the oma entry reuses the launch
+  // resolution above, the same one the dispatch uses.
+  const harnessCatalog = createHarnessCatalog({
+    harnesses: () => Object.entries(ACP_AGENTS).map(([key, entry]) => ({ key, name: entry.name })),
+    probe: (key) =>
+      // The cwd only has to exist: posix_spawn answers ENOENT for a missing
+      // working directory, which reads exactly like a missing binary. A model
+      // catalog does not care where it runs, so use the dir the backend owns.
+      probeHarnessCatalog({ key, cwd: config.dataDir, commands: { oma: omaAcpArgv } }),
   });
   const acpBackend = new AcpBackend({
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
-    commands: { oma: [config.omaBin ?? "oma", "--mode", "acp"] },
+    commands: { oma: omaAcpArgv },
     // MCP-over-ACP (ADR 0039 appendix two): when the agent advertises the
     // capability, its product tools ride the ACP connection itself, so no
     // SSE server, port or bearer file is involved for those runs. Same
@@ -608,15 +629,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
       : {}),
   });
+  // The ACP kind's catalog lists registry keys, and it is also the catalog for the kinds that now
+  // alias to it (ADR 0040 R3): a picker that offered the native models would offer ids the run
+  // never uses. Their `backend` entries stay until the kinds are deleted - the alias routes runs
+  // to ACP, so they are already unreachable.
+  const acpCatalog = new AcpModelCatalog();
+  // One execution rail (ADR 0040): every harness runs through the single ACP
+  // client; the run's model id names the registry key. The provider catalogue
+  // above is the oma harness's LLM axis (/api/models), not a dispatch table.
   const backends: BackendRegistry = {
-    oma: { backend: codingAgentBackend, catalog: codingAgentCatalog },
-    omp: { backend: ompBackend, catalog: new OmpModelCatalog() },
-    pi: { backend: piBackend, catalog: new PiModelCatalog() },
-    claude_code: { backend: claudeBackend, catalog: new ClaudeModelCatalog() },
-    // ADR 0039 decision 4: the ACP orchestration kind — every native/bridged
-    // ACP agent through one client; the run's model id picks the registry
-    // entry (omp today, cc/pi bridges as they pass conformance).
-    acp: { backend: acpBackend, catalog: new AcpModelCatalog() },
+    acp: { backend: acpBackend, catalog: acpCatalog },
   };
   // Catalog honesty (see served-models.ts): the model picker must not offer a
   // declared id the provider no longer serves. "Unknown" never flips anything.
@@ -626,6 +648,51 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // Config-time (backendKind, model) consistency (see model-check.ts).
   const modelKnownForBackend = createModelCatalogCheck({ backends });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
+  /** The product read behind a run's turn. The writer owns the per-run caching and the ordering;
+   *  this is the only part that knows about ports. */
+  const readRunTurn = async (runId: string): Promise<RunTurnContext | null> => {
+    const run = await agentRunPort.getRun(runId).catch(() => null);
+    if (!run) return null;
+    const inputs = await agentRunPort.listInputs(run.branchId).catch(() => []);
+    const input = inputs.find((candidate) => candidate.runId === runId);
+    return {
+      conversationId: run.conversationId,
+      inputText: input?.message.text ?? "",
+      ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
+      startedAt: new Date(run.createdAt).toISOString(),
+    };
+  };
+
+  /** The chat channel's writer (ADR 0040 decision 4): live events as actions, a settled turn stated
+   *  from the projection, and the two announcements. `ahpHost`/`ahpSource` are declared below, but
+   *  every use of them sits inside a closure that only runs once the stack is up. */
+  const chatWriter = createAhpChatWriter({
+    dispatch: (uri, action) => ahpHost.server.dispatch(uri, action),
+    projectedTurn: async (conversationId, turnId) => {
+      const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
+      return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;
+    },
+    readRunTurnContext: readRunTurn,
+  });
+
+  /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
+   *  fallback root. The run dispatch lets a mis-attached project throw (that is a real failure);
+   *  the AHP session read treats the same failure as "nothing to show". */
+  const resolveWorkspaceFor = async (input: {
+    conversationId: string;
+    agentId?: string | null;
+  }): Promise<{ root: string; access: "read_write" }> => {
+    const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
+    const convRow = conv.convPort.getConversation(input.conversationId);
+    return resolveRunWorkspace({
+      agentId: input.agentId ?? null,
+      agentWorkspacePath: agent?.workspacePath ?? null,
+      agentProjects: agent?.config.runtime_config.projects ?? [],
+      fallbackRoot: config.workspaceRoot,
+      conversationProjectId: convRow?.projectId ?? null,
+    });
+  };
+
   const agentRunExecution = createAgentRunExecutionService({
     workspaceLocks,
     productToolsTokenRegistry,
@@ -635,19 +702,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ledgerResolver,
     backends,
     idGen: { ulid },
-    resolveWorkspace: async ({ conversationId, agentId }) => {
-      // Default workspace comes from the Agent record; Loop scopes pin
-      // their workspace as a Run fact at enqueue time.
-      const agent = agentId ? await agentSvc.getById(agentId).catch(() => null) : null;
-      const convRow = conv.convPort.getConversation(conversationId);
-      return resolveRunWorkspace({
-        agentId,
-        agentWorkspacePath: agent?.workspacePath ?? null,
-        agentProjects: agent?.config.runtime_config.projects ?? [],
-        fallbackRoot: config.workspaceRoot,
-        conversationProjectId: convRow?.projectId ?? null,
-      });
+    resolveWorkspace: ({ conversationId, agentId }) =>
+      resolveWorkspaceFor({ conversationId, agentId }),
+    onHumanInputResolved: (input) => {
+      // A settled request has to stop reading as pending on the surface too, without waiting for
+      // the turn to commit: a card that survives its own click reads as "my answer did not land".
+      void chatWriter
+        .announceHumanInput(input)
+        .catch((err) =>
+          console.error(`[bootstrap] human input announcement failed for ${input.runId}:`, err),
+        );
     },
+    onLiveEvent: chatWriter.onLiveEvent,
     productToolsEntrypoint: config.productToolsMcpUrl
       ? `sse:${sseUrlEndpoint(config.productToolsMcpUrl)}`
       : "stdio:/nonexistent",
@@ -1067,7 +1133,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       reconcileAgentResources({
         extraRoots,
         workspacePath: agent.workspacePath,
-        kind: agent.config.runtime_config.runtime,
+        kind: agent.config.runtime_config.harness,
         skillPacks: packs
           .filter((p) => p.status === "ready")
           .map((p) => ({ id: p.id, source: installPath(config.dataDir, p.id) })),
@@ -1184,7 +1250,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     if (cwd !== main && !existsSync(cwd)) {
       throw new NotFoundError("task worktree", cwd);
     }
-    const oma = resolveOmaCommand(config, { mode: "tui" });
+    const oma = resolveOmaCommand(config);
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
     const omaLaunch = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
     return {
@@ -1305,7 +1371,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // ─── Agentic Workflow ───────────────────────────────────
   const workflowPort = sqliteWorkflowExecutionAdapter(db);
-  const workflowEventBus = new ExecutionEventBus();
   const workflowNodeRunners = createNodeRunners({
     dataDir: config.dataDir,
     // H2: script nodes are opt-in; the sandbox denies reads over the
@@ -1313,13 +1378,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // sandbox-exec when available).
     scriptsEnabled: config.workflowScriptsEnabled,
     denyReadDirs: config.workflowScriptDenyReadDirs,
+    // A script log is a durable fact: it lands in the trace the execution page reads.
     onLog: (executionId, data) =>
-      workflowEventBus.emit({ event: "script_log", executionId, ts: Date.now(), data }),
+      workflowPort
+        .appendExecutionEvent({ executionId, event: "script_log", data, ts: Date.now() })
+        .catch(() => {}),
   });
   const workflowExecutionService = createWorkflowExecutionService({
     port: workflowPort,
     nodeRunners: workflowNodeRunners,
-    eventBus: workflowEventBus,
     idGen: ulid,
     agentRunService,
     agentRunExecution,
@@ -1374,7 +1441,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
     workflowDir: join(config.dataDir, "workflows"),
     resyncTriggers: () => workflowTriggerScheduler.sync(),
-    definitionEvents: workflowDefinitionEvents,
   });
 
   const passwordSvc = createPasswordService(settingsSvc, { dataDir: config.dataDir });
@@ -1410,6 +1476,84 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     { input: number; output: number; cacheRead: number; cacheWrite: number }
   > = new Map();
 
+  // A wildcard bind is not a host a browser can reach: hand the client a loopback address.
+  const browserWsBase = `ws://${
+    config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
+  }:${config.port}`;
+
+  // The AHP face (ADR 0040): the protocol machinery lives in features/ahp, and this is where the
+  // state source and the command port attach. The source is a read-only projection - sessions and
+  // chats come from the canonical model - and the command port refuses until the control plane is
+  // wired to it.
+  /** The projection: the face serves it, and the chat writer reads it back to re-state a committed
+   *  turn exactly as a fresh subscriber would read it. */
+  const ahpSource = createAhpStateSource({
+    listAgents: async () =>
+      (await agentSvc.list(false)).map((agent) => ({
+        id: agent.id,
+        name: agent.config.name,
+        harness: agent.config.runtime_config.harness,
+        // The harness's own model, in that harness's vocabulary; "" = its default.
+        model: agent.config.runtime_config.model,
+      })),
+    harnessModels: async (harness) =>
+      (await harnessCatalog.list()).find((h) => h.key === harness)?.models ?? [],
+    getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
+    getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
+    listPendingInputs: async (conversationId) =>
+      // Every status: a turn's message is the input that started it, and that input has left the
+      // queue by the time the turn is history.
+      (await agentRunPort.listInputsForConversation(conversationId)).map((input) => ({
+        runId: input.runId,
+        message: JSON.stringify(input.message),
+      })),
+    // The canonical model takes plain row objects only: action payloads and answers are
+    // serialized here, so product types never leak into it.
+    listPendingActions: async (runId) =>
+      (await agentRunPort.listPendingActions(runId)).map((action) => ({
+        actionId: action.actionId,
+        kind: action.kind,
+        status: action.status,
+        payload: JSON.stringify(action.payload),
+        response: action.response === null ? null : JSON.stringify(action.response),
+      })),
+    getRun: (runId) => agentRunPort.getRun(runId),
+    // Todos are stored per branch; the chat state keys them by run.
+    workspaceRootOf: async (conversationId) => {
+      const row = conv.convPort.getConversation(conversationId);
+      const workspace = await resolveWorkspaceFor({
+        conversationId,
+        agentId: row?.agentId ?? null,
+      }).catch(() => null);
+      return workspace?.root ?? null;
+    },
+    latestRunTodo: async (runId) => {
+      const run = await agentRunPort.getRun(runId);
+      return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
+    },
+  });
+
+  const ahpHost = createAhpHost({
+    wsBase: browserWsBase,
+    source: ahpSource,
+    commands: {
+      submit: () => {
+        throw new Error("the AHP command path is not wired yet");
+      },
+    },
+  });
+
+  onContinuityRecorded.fn = (input) => {
+    void chatWriter
+      .announceContinuity(input)
+      .catch((err) =>
+        console.error(
+          `[bootstrap] continuity announcement failed for ${input.conversationId}:`,
+          err,
+        ),
+      );
+  };
+
   const featureSet: FeatureSet = {
     agents: agentRoutes(
       agentSvc,
@@ -1429,7 +1573,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       (id: string) => larkBotRegistry.statusOf(id),
       getSetupManager,
       (id: string) => projectSvc.exists(id),
-      agentConfigEvents,
       // Skill/knowledge pack symlinks resolve into the data dir; the
       // read-only workspace file view is allowed to follow them there.
       [config.dataDir],
@@ -1455,10 +1598,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           string,
           { input: number; output: number; cacheRead: number; cacheWrite: number }
         >();
-        for (const [kind, entry] of Object.entries(backends)) {
-          for (const m of (await entry.catalog.list()).models) {
-            map.set(`${kind}/${resolveModelAlias(m.id)}`, m.cost);
-          }
+        for (const m of (await codingAgentCatalog.list()).models) {
+          map.set(`oma/${resolveModelAlias(m.id)}`, m.cost);
         }
         return map;
       })().catch((err) => {
@@ -1475,12 +1616,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       listTaskWorktrees: listCodingTaskWorktrees,
       createTaskWorktree: createCodingTaskWorktree,
       removeTaskWorktree: removeCodingTaskWorktree,
-      // A wildcard bind is not a browser-reachable host — hand the client
-      // loopback instead.
-      wsBase: `ws://${
-        config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
-      }:${config.port}`,
+      wsBase: browserWsBase,
     }),
+    ahp: ahpHost.routes,
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
     mcp: mcpRoutes(mcpSvc),
@@ -1489,26 +1627,24 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     artifacts: artifactRoutes(artifactService),
     productTools,
     settings: settingsRoutes(settingsSvc),
+    proposal: proposalRoutes(proposalSvc),
 
     auth: authRoutes(passwordSvc),
 
     providers: providerRoutes(providerSvc, { onChange: refreshOmaProviderEnv }),
 
+    harnesses: harnessRoutes(harnessCatalog),
     models: modelRoutes(
       {
-        // Aggregate every registered backend's catalog, tagging each model
-        // with its kind. Each returns composite `<provider>/<model>` ids;
-        // grouping and prefix-stripping happen once in
-        // modelRoutes.groupByProvider. WebModel carries backendKind so the
-        // UI can group by kind first (D3).
+        // The provider axis only (ADR 0040 decision 7): what the oma harness
+        // actually serves, straight from `oma --list-models`. Harness keys are
+        // NOT models and live in /api/harnesses; the two pickers read the two
+        // lists and never mix.
         list: async () => {
-          const lists = await Promise.all(
-            (Object.entries(backends) as Array<[BackendKind, BackendRegistryEntry]>).map(
-              async ([kind, entry]) =>
-                (await entry.catalog.list()).models.map((m) => ({ ...m, backendKind: kind })),
-            ),
-          );
-          const rows = lists.flat();
+          const rows = (await codingAgentCatalog.list()).models.map((m) => ({
+            ...m,
+            backendKind: "oma",
+          }));
           // Kick discovery for every provider on this page; answers land
           // asynchronously (serves() never blocks) and flip availability
           // to false only when the provider is known NOT to serve the id.
@@ -1529,32 +1665,34 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           }));
         },
       },
-      // Per-backend catalog health: one failing backend degrades only its
-      // own row (the aggregate /api/models above fails wholesale — that
-      // blind spot is exactly what this endpoint exists to expose).
-      async () =>
-        Promise.all(
-          Object.entries(backends).map(async ([kind, entry]) => {
-            try {
-              const list = (await entry.catalog.list()).models;
-              return {
-                backendKind: kind,
-                catalogOk: true,
-                models: list.length,
-                available: list.filter((m) => m.available !== false).length,
-                error: null,
-              };
-            } catch (err) {
-              return {
-                backendKind: kind,
-                catalogOk: false,
-                models: 0,
-                available: 0,
-                error: err instanceof Error ? err.message : String(err),
-              };
-            }
-          }),
-        ),
+      // Provider-catalogue health: the aggregate /api/models above fails
+      // wholesale when the CLI listing fails — that blind spot is exactly
+      // what this endpoint exists to expose. Harness probes have their own
+      // health row inside /api/harnesses.
+      async () => {
+        try {
+          const list = (await codingAgentCatalog.list()).models;
+          return [
+            {
+              backendKind: "oma",
+              catalogOk: true,
+              models: list.length,
+              available: list.filter((m) => m.available !== false).length,
+              error: null,
+            },
+          ];
+        } catch (err) {
+          return [
+            {
+              backendKind: "oma",
+              catalogOk: false,
+              models: 0,
+              available: 0,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          ];
+        }
+      },
     ),
   };
 
@@ -1623,20 +1761,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();
-    await workflowExecutionService.dispose();
     await larkBotRegistry.dispose();
     setupManager?.dispose();
     await productToolsMcp?.close();
     await workflowMcp?.close();
-    workflowDefinitionEvents.dispose();
   }
 
   // Seed the default agent AFTER the whole wiring (the catalog const and
   // the reconcile binding): an early call reads a TDZ const and skips the
   // workspace reconcile (no skills links, no .mcp.json).
   {
-    const seedModel = await defaultSeedModel();
-    await ensureAgent("default", "Assistant", seedModel);
+    const seed = await defaultSeedModel();
+    await ensureAgent("default", "Assistant", seed.harness, seed.model);
   }
 
   // B4: one best-effort reconcile over every LIVE agent at boot — worktrees
@@ -1655,6 +1791,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   return {
     featureSet,
+    proposalSvc,
     agentRunService,
     agentRunExecution,
     productTools,

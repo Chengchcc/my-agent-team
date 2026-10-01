@@ -1,12 +1,12 @@
+import type { ContentBlock, Message } from "@chengchenccc/message";
+import { PRODUCT_CONSENTED_MCP_TOOLS, PRODUCT_MCP_EXPANDABLE_VARS } from "../agent/index.js";
+import type { AgentRun, BranchInput } from "./domain.js";
 import type {
   BackendRunInput,
   ProjectedHistoryItem,
   ResumeDecision,
   WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
-import type { ContentBlock, Message } from "@chengchenccc/message";
-import { PRODUCT_CONSENTED_MCP_TOOLS, PRODUCT_MCP_EXPANDABLE_VARS } from "../agent/index.js";
-import type { AgentRun, BranchInput } from "./domain.js";
+} from "./protocol/index.js";
 
 /** The final answer of a canonical run sequence (ADR 0017): the last
  *  assistant message carrying text. Used for mention cascade and surface

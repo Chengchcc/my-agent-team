@@ -4,12 +4,12 @@ import { z } from "zod";
  *  (ADR 0020 decision 1: agent.yml is the single source; the DB holds
  *  only the FK anchor + this materialized cache). */
 
-/** Backend kind used when nothing else says otherwise (create without one,
- *  or no previous config to inherit). */
-export const DEFAULT_BACKEND_KIND = "oma";
+/** Harness used when nothing else says otherwise (create without one, or no
+ *  previous config to inherit). Keys are ACP_AGENTS keys. */
+export const DEFAULT_HARNESS = "oma";
 
-/** model_id placeholder for an agent that has no real model yet. */
-export const UNCONFIGURED_MODEL_ID = "unconfigured/none";
+/** Stored when an agent names no model: the harness then runs its own default. */
+export const UNCONFIGURED_MODEL = "";
 
 export const agentConfigSchema = z.object({
   schema_version: z.literal("1"),
@@ -19,9 +19,13 @@ export const agentConfigSchema = z.object({
   title: z.string(),
   description: z.string(),
   runtime_config: z.object({
-    /** BackendKind: oma | claude_code | pi | omp. */
-    runtime: z.string().min(1),
-    model_id: z.string().min(1),
+    /** Which harness runs this agent: a key of the ACP registry
+     *  (oma | omp | claude | pi). The adapter is no longer named here - one
+     *  adapter drives every harness (ADR 0040 decision 7). */
+    harness: z.string().min(1),
+    /** The model that harness runs, in the harness's own vocabulary.
+     *  "" = the harness's own default. */
+    model: z.string().default(""),
     reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
     permission_mode: z.enum(["ask", "auto", "deny"]),
     max_steps: z.number().int().nonnegative(),
@@ -98,8 +102,10 @@ export type AgentConfig = z.infer<typeof agentConfigSchema>;
 export function buildAgentConfig(input: {
   id: string;
   name?: string;
-  model?: { provider: string; model: string };
-  backendKind?: string;
+  /** Which harness runs this agent (an ACP_AGENTS key). */
+  harness?: string;
+  /** The model that harness runs, in its own vocabulary. "" = its default. */
+  model?: string;
   enabled?: boolean;
   reasoningEffort?: string | null;
   permissionMode?: "ask" | "auto" | "deny";
@@ -126,10 +132,8 @@ export function buildAgentConfig(input: {
   prev?: AgentConfig;
 }): AgentConfig {
   const prev = input.prev;
-  const runtime = input.backendKind ?? prev?.runtime_config.runtime ?? DEFAULT_BACKEND_KIND;
-  const modelId = input.model
-    ? `${input.model.provider}/${input.model.model}`
-    : (prev?.runtime_config.model_id ?? UNCONFIGURED_MODEL_ID);
+  const harness = input.harness ?? prev?.runtime_config.harness ?? DEFAULT_HARNESS;
+  const model = input.model ?? prev?.runtime_config.model ?? UNCONFIGURED_MODEL;
   return agentConfigSchema.parse({
     schema_version: "1",
     enabled: input.enabled ?? prev?.enabled ?? true,
@@ -138,8 +142,8 @@ export function buildAgentConfig(input: {
     title: input.name ?? prev?.title ?? prev?.name ?? input.id,
     description: prev?.description ?? "",
     runtime_config: {
-      runtime,
-      model_id: modelId,
+      harness,
+      model,
       reasoning_effort:
         input.reasoningEffort !== undefined
           ? (input.reasoningEffort ?? "")
@@ -199,8 +203,8 @@ export function serializeAgentYaml(config: AgentConfig): string {
     `title: ${q(config.title)}`,
     `description: ${q(config.description)}`,
     "runtime_config:",
-    `  runtime: ${q(rc.runtime)}`,
-    `  model_id: ${q(rc.model_id)}`,
+    `  harness: ${q(rc.harness)}`,
+    `  model: ${q(rc.model)}`,
     `  reasoning_effort: ${q(rc.reasoning_effort)}`,
     `  permission_mode: ${q(rc.permission_mode)}`,
     `  max_steps: ${rc.max_steps}`,

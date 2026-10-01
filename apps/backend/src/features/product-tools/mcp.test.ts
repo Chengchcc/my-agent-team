@@ -75,7 +75,6 @@ beforeEach(async () => {
   branchId = branch.branchId;
   convPort.appendLedgerEntry({
     conversationId: CONV,
-    senderMemberId: "user",
     kind: "message",
     content: JSON.stringify({ role: "user", text: "hello mcp" }),
     ts: Date.now(),
@@ -284,7 +283,6 @@ describe("product tools MCP", () => {
       // a post-acquire message to retain
       const seq = convPort.appendLedgerEntry({
         conversationId: CONV,
-        senderMemberId: "user",
         kind: "message",
         content: JSON.stringify({ role: "user", text: "pin me" }),
         ts: Date.now(),

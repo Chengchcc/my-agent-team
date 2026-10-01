@@ -46,7 +46,8 @@ describe("E2E Agent CRUD", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: "e2e-agent",
-          model: { provider: "anthropic", model: "claude" },
+          harness: "oma",
+          model: "fake/echo",
         }),
       }),
     );

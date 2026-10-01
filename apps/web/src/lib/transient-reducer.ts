@@ -1,10 +1,20 @@
 import type { OmaTodoItem as OmaTodoItemType } from "@chengchenccc/api-contract";
+import type { SenderRef } from "./conversation-reducer";
 
 /** Pure transient-stream state transitions. The hook keeps the maps in
  *  React state; these functions make the multi-run merge/drop semantics
  *  unit-testable without DOM or EventSource. */
 
 export type TransientBlock = { type: "text" | "thinking"; text: string };
+
+/** One live bubble, as the timeline renders it: the transient run, addressed by run id, with its
+ *  tool steps flattened by the caller. Components pass this instead of re-declaring the shape -
+ *  three copies of it is how a new field ends up on one screen and not the others. */
+export type TransientBubble = TransientRun & {
+  readonly runId: string;
+  readonly sender: SenderRef;
+  readonly tools?: readonly LiveToolCall[];
+};
 
 export interface TransientRun {
   text: string;
@@ -16,9 +26,6 @@ export interface TransientRun {
    *  text — it would lump all thinking above the text. */
   ordered: TransientBlock[];
   agentId: string;
-  /** Runtime notices (stream-rule triggers): transient status lines shown
-   * above the run's output; never part of the text bubble. */
-  notices?: string[];
   /** Pending HITL approval (spec: approval pipeline). The web confirm card
    *  renders from this; resolving or run end clears it. */
   approval?: TransientApproval;
@@ -27,95 +34,19 @@ export interface TransientRun {
   ask?: {
     callId: string;
     questions: unknown[];
+    /** Set once the request is over (live via `chat/inputCompleted`, and from a reload alike):
+     *  the card stops offering inputs. */
+    response?: "accept" | "decline" | "cancel";
+    /** The answer, in the protocol's shape (`request.answers`: a map keyed by question id).
+     *  Unknown by design: the surface renders what it recognises. */
+    answer?: unknown;
   };
-  /** Terminal failure of this run (status event error field). Kept live
-   *  because failed runs persist no assistant message. */
+  /** Terminal failure of this run, as the projection's error part reports it. It rides the live
+   *  bubble because the turn that carries it is the only record of the failure. */
   error?: string;
 }
 
 export type TransientMap = Record<string, TransientRun>;
-
-/** Append a delta to runId's bubble (creating it on first chunk). Other
- *  runs are untouched — no cross-run text bleed. */
-export function appendTransient(
-  state: TransientMap,
-  runId: string,
-  agentId: string,
-  delta: string,
-): TransientMap {
-  const next = { ...state };
-  next[runId] = {
-    text: `${state[runId]?.text ?? ""}${delta}`,
-    thinking: state[runId]?.thinking ?? "",
-    ordered: [...(state[runId]?.ordered ?? []), { type: "text" as const, text: delta }],
-    agentId,
-  };
-  return next;
-}
-
-/** Append a thinking delta to runId (creating the entry on first chunk). */
-export function appendThinking(
-  state: TransientMap,
-  runId: string,
-  agentId: string,
-  delta: string,
-): TransientMap {
-  const next = { ...state };
-  next[runId] = {
-    text: state[runId]?.text ?? "",
-    thinking: `${state[runId]?.thinking ?? ""}${delta}`,
-    ordered: [...(state[runId]?.ordered ?? []), { type: "thinking" as const, text: delta }],
-    agentId,
-  };
-  return next;
-}
-
-/** Drop exactly one run's bubble. */
-export function removeTransient(state: TransientMap, runId: string): TransientMap {
-  if (!(runId in state)) return state;
-  const next = { ...state };
-  delete next[runId];
-  return next;
-}
-
-/** Mark a run terminal-failed: keep its text, attach the error. Callers
- *  decide when the bubble leaves (never auto-dropped on failure). */
-export function markTransientError(
-  state: TransientMap,
-  runId: string,
-  agentId: string,
-  error: string,
-): TransientMap {
-  const next = { ...state };
-  next[runId] = {
-    text: state[runId]?.text ?? "",
-    thinking: state[runId]?.thinking ?? "",
-    ordered: state[runId]?.ordered ?? [],
-    agentId,
-    error,
-  };
-  return next;
-}
-
-/** Append a runtime notice to runId (creating the entry on first notice).
- * ponytail: capped at 5 per run — a rule storm must not grow the array. */
-export function pushTransientNotice(
-  state: TransientMap,
-  runId: string,
-  agentId: string,
-  notice: string,
-): TransientMap {
-  const next = { ...state };
-  const notices = [...(state[runId]?.notices ?? []), notice].slice(-5);
-  next[runId] = {
-    text: state[runId]?.text ?? "",
-    thinking: state[runId]?.thinking ?? "",
-    ordered: state[runId]?.ordered ?? [],
-    agentId,
-    notices,
-  };
-  return next;
-}
 
 /** Pending HITL approval card state (single source for the field + setter). */
 export interface TransientApproval {
@@ -134,6 +65,10 @@ export interface TransientApproval {
   deadlineAt?: number;
   /** Last resolve POST failed: the card stays and shows a retry hint. */
   error?: string;
+  /** Set once the request is over: the card stops offering the buttons. It arrives live
+   *  (`chat/inputCompleted`) and from a reload alike, so an answer given on another surface
+   *  (Feishu, another tab) does not leave a card that 409s when it is clicked. */
+  response?: "accept" | "decline" | "cancel";
 }
 
 /** "MM-DD HH:mm" in the reader's own timezone (no ICU, deterministic). */
@@ -141,41 +76,6 @@ export function formatDeadline(epochMs: number): string {
   const d = new Date(epochMs);
   const pad = (n: number): string => String(n).padStart(2, "0");
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/** One-line preview of a tool call's argument for the approval card. */
-export function formatApprovalInput(input: unknown): string {
-  if (input === undefined || input === null) return "";
-  // Truncation is always marked: a silently cut command reads as the whole
-  // command, and the human approves what they can see.
-  const clip = (text: string): string => (text.length > 400 ? `${text.slice(0, 400)}…` : text);
-  if (typeof input === "string") return clip(input);
-  const cmd = (input as { command?: unknown }).command;
-  if (typeof cmd === "string") return clip(cmd);
-  try {
-    return clip(JSON.stringify(input));
-  } catch {
-    return "";
-  }
-}
-
-/** Set (or replace) the pending approval on runId. */
-export function setTransientApproval(
-  state: TransientMap,
-  runId: string,
-  agentId: string,
-  approval: TransientApproval,
-): TransientMap {
-  const next = { ...state };
-  next[runId] = {
-    text: state[runId]?.text ?? "",
-    thinking: state[runId]?.thinking ?? "",
-    ordered: state[runId]?.ordered ?? [],
-    agentId,
-    ...(state[runId]?.notices ? { notices: state[runId].notices } : {}),
-    approval,
-  };
-  return next;
 }
 
 /** Clear the pending approval (resolved or run ended). */
@@ -203,35 +103,6 @@ export function markTransientApprovalError(
   return next;
 }
 
-/** Set (or replace) the pending ask_question on runId. */
-export function setTransientAsk(
-  state: TransientMap,
-  runId: string,
-  agentId: string,
-  ask: { callId: string; questions: unknown[] },
-): TransientMap {
-  const next = { ...state };
-  next[runId] = {
-    text: state[runId]?.text ?? "",
-    thinking: state[runId]?.thinking ?? "",
-    ordered: state[runId]?.ordered ?? [],
-    agentId,
-    ...(state[runId]?.notices ? { notices: state[runId].notices } : {}),
-    ask,
-  };
-  return next;
-}
-
-/** Clear the pending ask (answered or run ended). */
-export function clearTransientAsk(state: TransientMap, runId: string): TransientMap {
-  const entry = state[runId];
-  if (!entry?.ask) return state;
-  const next = { ...state };
-  const { ask: _drop, ...rest } = entry;
-  next[runId] = rest;
-  return next;
-}
-
 export interface LiveToolCall {
   runId: string;
   callId: string;
@@ -252,38 +123,6 @@ export function toolKey(runId: string, callId: string): string {
   return `${runId}:${callId}`;
 }
 
-/** A tool started: insert as running (upsert keeps later state). */
-export function upsertTool(state: LiveToolMap, call: LiveToolCall): LiveToolMap {
-  const next = { ...state };
-  next[toolKey(call.runId, call.callId)] = call;
-  return next;
-}
-
-/** A tool completed: mark done (or error when isError), keep the result. */
-export function completeTool(
-  state: LiveToolMap,
-  runId: string,
-  callId: string,
-  result: unknown,
-  isError: boolean,
-): LiveToolMap {
-  const key = toolKey(runId, callId);
-  const cur = state[key];
-  if (!cur) return state;
-  const next = { ...state };
-  next[key] = { ...cur, state: isError ? "error" : "done", result };
-  return next;
-}
-
-/** Remove every tool of one run (run ended). */
-export function clearRunTools(state: LiveToolMap, runId: string): LiveToolMap {
-  const next: LiveToolMap = {};
-  for (const [k, v] of Object.entries(state)) {
-    if (v.runId !== runId) next[k] = v;
-  }
-  return Object.keys(next).length === Object.keys(state).length ? state : next;
-}
-
 // ─── Run-local todos ─────────────────────────────────────────────────────
 
 /** The wire shape lives in api-contract (OmaTodoItem) — both surfaces read
@@ -300,12 +139,5 @@ export function setRunTodos(
 ): RunTodoMap {
   const next = { ...state };
   next[runId] = items;
-  return next;
-}
-
-export function clearRunTodos(state: RunTodoMap, runId: string): RunTodoMap {
-  if (!(runId in state)) return state;
-  const next = { ...state };
-  delete next[runId];
   return next;
 }

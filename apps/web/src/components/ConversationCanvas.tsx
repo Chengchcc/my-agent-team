@@ -19,7 +19,7 @@ import type { SenderRef } from "@/lib/conversation-reducer";
 import type { CommandContext } from "@/lib/slash-commands";
 import { findCommand, parseArgs } from "@/lib/slash-commands";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall, TodoItem, TransientApproval } from "@/lib/transient-reducer";
+import type { TodoItem, TransientBubble } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 import { Composer } from "./Composer";
 import { StatusPill } from "./patterns";
@@ -28,7 +28,6 @@ import { RunDiagnostics } from "./RunDiagnostics";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
 import { UsagePanel } from "./UsagePanel";
-import { WorkflowPanel } from "./WorkflowPanel";
 
 interface ConversationCanvasProps {
   conversationId: string;
@@ -44,17 +43,8 @@ export function ConversationCanvas({
   anchorSeq,
 }: ConversationCanvasProps) {
   const router = useRouter();
-  const {
-    state,
-    busy,
-    send,
-    transients,
-    transientTools,
-    runTodos,
-    activeRuns,
-    workflows,
-    resolveApproval,
-  } = useConversation(conversationId, snapshot);
+  const { state, busy, send, transients, transientTools, runTodos, activeRunId, resolveApproval } =
+    useConversation(conversationId, snapshot);
   const { agent, items, error, streamConn } = state;
   const { data: artifactsData } = useArtifacts();
   const artifactsByRunId = useMemo(() => {
@@ -170,33 +160,16 @@ export function ConversationCanvas({
 
   // One timeline bubble per active run, addressed via its agent member.
   const transientBubbles = useMemo(() => {
-    const bubbles: Array<{
-      runId: string;
-      text: string;
-      thinking: string;
-      sender: SenderRef;
-      tools: LiveToolCall[];
-      error?: string;
-      notices?: string[];
-      approval?: TransientApproval;
-      ask?: { callId: string; questions: unknown[] };
-      ordered?: ReadonlyArray<{ type: "text" | "thinking"; text: string }>;
-    }> = [];
+    const bubbles: TransientBubble[] = [];
     for (const [runId, t] of Object.entries(transients)) {
       const sender = agent ?? { memberId: t.agentId, kind: "agent" as const, agentId: t.agentId };
       bubbles.push({
+        ...t,
         runId,
-        text: t.text,
-        thinking: t.thinking,
         sender,
         tools: Object.values(transientTools).filter(
           (tool) => tool.runId === runId && !hasDedicatedEvent(tool.name),
         ),
-        error: t.error,
-        notices: t.notices,
-        ordered: t.ordered,
-        ...(t.approval ? { approval: t.approval } : {}),
-        ...(t.ask ? { ask: t.ask } : {}),
       });
     }
     return bubbles;
@@ -237,13 +210,13 @@ export function ConversationCanvas({
   // backend keys every agent-scoped lookup by this id.
   const primaryAgentId = primaryAgent?.agentId ?? primaryAgent?.memberId;
 
-  // Backend kind badge: agentId → agents.backendKind (D2/D3). Drives the
-  // header badge; CLI backends (claude/pi/omp) run with CLI-session
-  // context continuity (ADR 0002).
+  // Harness badge: agentId → agents.harness (D2/D3). Drives the header badge;
+  // every harness (oma/omp/claude/pi) runs through the shared ACP adapter
+  // (ADR 0040).
   const { data: agents } = useAgentList();
-  const primaryKind = useMemo(() => {
+  const primaryHarness = useMemo(() => {
     if (!primaryAgentId) return undefined;
-    return agents?.find((a) => a.id === primaryAgentId)?.backendKind;
+    return agents?.find((a) => a.id === primaryAgentId)?.harness;
   }, [agents, primaryAgentId]);
 
   const handleExport = useCallback(async () => {
@@ -257,9 +230,10 @@ export function ConversationCanvas({
     URL.revokeObjectURL(url);
   }, [conversationId]);
 
-  // Active Agent Run (from the transient Live Update stream) - /stop target.
-  // Never inferred from message state; canonical History has no open runs.
-  const currentRunId = activeRuns.size > 0 ? [...activeRuns][0]! : null;
+  // The live Agent Run, as the chat channel reports it (the projection makes the running run the
+  // active turn). The /stop target never comes from message state: canonical history has no
+  // open runs.
+  const currentRunId = activeRunId;
 
   const handleSlashCommand = useCallback(
     async (input: string) => {
@@ -353,9 +327,9 @@ export function ConversationCanvas({
             <span className="text-sm font-medium text-(--ink-strong)">
               {primaryAgent?.displayName ?? primaryAgent?.agentId ?? "Agent"}
             </span>
-            {primaryKind && (
+            {primaryHarness && (
               <span className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                {primaryKind}
+                {primaryHarness}
               </span>
             )}
             <span className="font-mono text-[10px] text-(--faint)">{conversationId}</span>
@@ -409,9 +383,6 @@ export function ConversationCanvas({
           )}
         </div>
       )}
-
-      {/* Workflow progress — transient, per running workflow */}
-      <WorkflowPanel workflows={workflows} />
 
       {/* M14.6: Todo progress — pinned above message stream */}
       <TodoPanel

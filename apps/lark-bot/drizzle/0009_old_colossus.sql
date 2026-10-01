@@ -1,0 +1,1 @@
+ALTER TABLE `conversation_binding` DROP COLUMN `pushed_seq`;

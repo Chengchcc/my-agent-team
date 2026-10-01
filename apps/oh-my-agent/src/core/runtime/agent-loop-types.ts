@@ -1,15 +1,15 @@
 import type {
+  AIMessageChunk,
   AskQuestionInput,
   AskQuestionResult,
-  BackendInputMessage,
-  Usage,
-} from "@chengchenccc/agent-contract";
-import type { AIMessageChunk, Message } from "@chengchenccc/message";
+  Message,
+} from "@chengchenccc/message";
 import type { SessionStore } from "../store/session-store.js";
 import type { AgentLoopListener, OmaLoopEvent } from "./agent-event.js";
 import type { ApprovalHandler } from "./approval.js";
 import type { CompactionBudget } from "./compaction.js";
 import type { TurnUsage } from "./context-estimate.js";
+import type { BackendInputMessage, Usage } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import type { Plugin, PluginTool } from "./plugin.js";
 import type { PluginRuntime } from "./plugin-runtime.js";

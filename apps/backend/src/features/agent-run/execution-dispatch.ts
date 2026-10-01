@@ -1,12 +1,3 @@
-import type {
-  AgentBackend,
-  BackendModelRef,
-  BackendRunOutcome,
-  BackendRunSegment,
-  ProjectedHistoryItem,
-  ResumeDecision,
-} from "@chengchenccc/agent-contract";
-import { BACKEND_KINDS, type BackendKind, debugLog } from "@chengchenccc/agent-contract";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
@@ -16,6 +7,15 @@ import { isActiveStatus } from "./domain.js";
 import { buildRunInput, finalAnswerMessage } from "./execution-input.js";
 import type { LiveEventBus } from "./execution-live.js";
 import type { AgentRunExecutionDeps, LiveRun } from "./execution-types.js";
+import type {
+  AgentBackend,
+  BackendModelRef,
+  BackendRunOutcome,
+  BackendRunSegment,
+  ProjectedHistoryItem,
+  ResumeDecision,
+} from "./protocol/index.js";
+import { BACKEND_KINDS, type BackendKind, debugLog } from "./protocol/index.js";
 
 export interface ExecutionDispatchCtx {
   deps: AgentRunExecutionDeps;
@@ -52,13 +52,13 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     return undefined;
   }
 
-  async function assertModelAvailable(modelRef: BackendModelRef): Promise<void> {
-    const entry = entryFor(modelRef.backendKind);
+  async function assertModelAvailable(ref: BackendModelRef): Promise<void> {
+    const entry = entryFor(ref.backendKind);
     if (!entry) {
       // T3-3: config problems are known business errors — the unified
       // onError surfaces the message instead of swallowing it as 500.
       throw new DomainError(
-        `unknown or unregistered backend kind "${modelRef.backendKind}" ` +
+        `unknown or unregistered backend kind "${ref.backendKind}" ` +
           `(known: ${BACKEND_KINDS.join(", ")})`,
         422,
       );
@@ -66,10 +66,10 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     const catalog = await entry.catalog.list();
     // Legacy model ids in DB rows resolve through the alias table
     // (e.g. claude-sonnet-4-20250514 → claude-sonnet-5).
-    const model = catalog.models.find((m) => m.id === resolveModelAlias(modelRef.modelId));
+    const model = catalog.models.find((m) => m.id === resolveModelAlias(ref.modelId));
     if (!model || model.available === false) {
       throw new DomainError(
-        `model ${modelRef.backendKind}/${modelRef.modelId} not available in ${modelRef.backendKind} catalog`,
+        `model ${ref.backendKind}/${ref.modelId} not available in ${ref.backendKind} catalog`,
         422,
       );
     }
@@ -419,7 +419,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         // Every terminal path (outcome, preflight failure, crash) funnels
         // here: the run's product-tools bearer dies with the run.
         deps.productToolsTokenRegistry.revoke(runId);
-        liveEvents.closeSubscribers(runId);
+        liveEvents.forgetRun(runId);
         debugLog("agent-run", `dispatch_end runId=${runId}`);
       }
     })();

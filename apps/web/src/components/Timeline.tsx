@@ -1,9 +1,9 @@
 "use client";
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
+import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ArtifactMeta } from "@/lib/api";
-import type { SenderRef, UiItem } from "@/lib/conversation-reducer";
+import type { UiItem } from "@/lib/conversation-reducer";
 import {
   groupTurns,
   isTurnStart,
@@ -12,7 +12,7 @@ import {
 } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
 import { extractText } from "@/lib/timeline";
-import type { LiveToolCall, TransientApproval } from "@/lib/transient-reducer";
+import type { TransientBubble } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
 import { ArtifactCard } from "./ArtifactCard";
 import { MessageBubble } from "./MessageBubble";
@@ -28,23 +28,7 @@ interface TimelineProps {
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** Transient streaming outputs — one temporary assistant bubble per
    *  active run at the end of the timeline, replaced by canonical Messages. */
-  transients?:
-    | Array<{
-        runId: string;
-        text: string;
-        thinking: string;
-        sender: SenderRef;
-        tools?: readonly LiveToolCall[];
-        error?: string;
-        notices?: string[];
-        approval?: TransientApproval;
-        ask?: { callId: string; questions: unknown[] };
-        /** Interleaved thinking/text deltas in arrival order. When present,
-         *  the trace renders them interleaved instead of lumping all thinking
-         *  on top of the text. */
-        ordered?: ReadonlyArray<{ type: "text" | "thinking"; text: string }>;
-      }>
-    | undefined;
+  transients?: readonly TransientBubble[] | undefined;
   onResolveApproval?: (runId: string, callId: string, decision: "allow" | "deny") => void;
   onResolveAsk?: (runId: string, callId: string, answer: unknown) => void;
   /** Artifacts keyed by producing run id, rendered under the matching agent message. */
@@ -130,6 +114,39 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
     }
   }
   return anchors;
+}
+
+/** One line for what a question was answered with, read from the protocol's `answers`: a map
+ *  keyed by question id whose values are `{state, value: {kind: text | selected | selected-many}}`
+ *  plus optional free-form text. Unknown shapes render as nothing rather than as a guess. */
+function summarizeAskAnswer(answer: unknown): string {
+  if (typeof answer !== "object" || answer === null) return "";
+  const parts: string[] = [];
+  for (const entry of Object.values(answer as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    if ("state" in entry && entry.state === "skipped") {
+      parts.push("no answer");
+      continue;
+    }
+    const chosen = "value" in entry ? entry.value : undefined;
+    if (typeof chosen !== "object" || chosen === null) continue;
+    const kind = "kind" in chosen && typeof chosen.kind === "string" ? chosen.kind : "";
+    const value = "value" in chosen ? chosen.value : undefined;
+    if (kind === "selected-many" && Array.isArray(value)) {
+      parts.push(...value.filter((v: unknown): v is string => typeof v === "string"));
+    } else if (
+      (kind === "selected" || kind === "text") &&
+      typeof value === "string" &&
+      value !== ""
+    ) {
+      parts.push(value);
+    }
+    const freeform = "freeformValues" in chosen ? chosen.freeformValues : undefined;
+    if (Array.isArray(freeform)) {
+      parts.push(...freeform.filter((v: unknown): v is string => typeof v === "string"));
+    }
+  }
+  return parts.length === 0 ? "" : `: ${parts.join(", ")}`;
 }
 
 export function Timeline({
@@ -375,15 +392,6 @@ export function Timeline({
             const showBubble = text || t.error;
             return (
               <div key={`transient-${t.runId}`} className="group relative">
-                {t.notices?.map((n, i) => (
-                  <p
-                    key={`notice-${i}`}
-                    data-testid="stream-rule-notice"
-                    className="px-1 py-0.5 text-xs text-amber-500"
-                  >
-                    ⚠ {n}
-                  </p>
-                ))}
                 {t.approval && (
                   <TimelineApprovalCard
                     runId={t.runId}
@@ -393,12 +401,20 @@ export function Timeline({
                 )}
                 {t.ask && (
                   <div className="p-1">
-                    <AskQuestionCard
-                      input={{ questions: t.ask.questions as AskQuestionInput["questions"] }}
-                      onSubmit={(result: AskQuestionResult) =>
-                        onResolveAsk?.(t.runId, t.ask!.callId, result)
-                      }
-                    />
+                    {t.ask.response ? (
+                      // Answered (here or on another surface): offering the inputs again would
+                      // invite an answer the backend can only refuse.
+                      <p data-testid="ask-answered" className="text-xs text-(--mute)">
+                        Answered{summarizeAskAnswer(t.ask.answer)}
+                      </p>
+                    ) : (
+                      <AskQuestionCard
+                        input={{ questions: t.ask.questions as AskQuestionInput["questions"] }}
+                        onSubmit={(result: AskQuestionResult) =>
+                          onResolveAsk?.(t.runId, t.ask!.callId, result)
+                        }
+                      />
+                    )}
                   </div>
                 )}
                 {tools.length > 0 && (

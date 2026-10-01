@@ -1,6 +1,6 @@
-import { type BackendInputMessage, debugLog } from "@chengchenccc/agent-contract";
 import { ProviderError } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
+import { debugLog } from "../debug-log.js";
 import type { MessageEntry } from "../store/session-tree.js";
 import type { OmaLoopEvent } from "./agent-event.js";
 import {
@@ -33,6 +33,7 @@ import {
   type UsageAnchor,
   usageTotalTokens,
 } from "./context-estimate.js";
+import type { BackendInputMessage } from "./contract/index.js";
 import type { CodingLoopInput } from "./loop-input.js";
 import { buildLoopInput } from "./loop-input.js";
 import type { TokenEstimateCache } from "./message-cache.js";

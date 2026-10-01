@@ -1,4 +1,4 @@
-import type { ToolPresentation } from "@chengchenccc/agent-contract";
+import type { ToolPresentation } from "../runtime/contract/index.js";
 
 /**
  * The single place that sanitizes a user-visible tool activity line.

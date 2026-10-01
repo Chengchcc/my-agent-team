@@ -9,8 +9,8 @@ const proposed = {
   name: "Code Reviewer",
   enabled: true,
   runtime_config: {
-    runtime: "oma",
-    model_id: "anthropic/claude-sonnet-4-6",
+    harness: "oma",
+    model: "anthropic/claude-sonnet-4-6",
     reasoning_effort: "high",
     permission_mode: "auto",
     max_steps: 40,
@@ -24,9 +24,8 @@ describe("agentConfigToDraft", () => {
   test("maps the modelling choices the form consumes", () => {
     expect(agentConfigToDraft(proposed)).toEqual({
       name: "Code Reviewer",
-      backendKind: "oma",
-      modelProvider: "anthropic",
-      modelName: "claude-sonnet-4-6",
+      harness: "oma",
+      model: "anthropic/claude-sonnet-4-6",
       reasoningEffort: "high",
       permissionMode: "auto",
       maxSteps: 40,
@@ -48,16 +47,16 @@ describe("agentConfigToDraft", () => {
   });
 
   test("survives a sparse or malformed proposal", () => {
+    // No harness at all: the mapper omits the key rather than inventing one, so
+    // the form shows its own required-field error instead of a guess.
     expect(agentConfigToDraft({})).toEqual({
-      modelProvider: "",
-      modelName: "",
+      model: "",
       maxSteps: null,
       mcpServers: [],
       knowledgePacks: [],
     });
     expect(agentConfigToDraft(null)).toEqual({
-      modelProvider: "",
-      modelName: "",
+      model: "",
       maxSteps: null,
       mcpServers: [],
       knowledgePacks: [],

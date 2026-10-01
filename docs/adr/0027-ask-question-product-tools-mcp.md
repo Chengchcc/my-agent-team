@@ -20,7 +20,7 @@ oma 原生 `ask_question` 工具（`apps/oh-my-agent/src/core/tools/ask-question
 ### 为什么可行（关键机制已存在）
 
 - `product-tools/mcp.ts` 的 `CallToolRequestSchema` handler 已 `await service.call(...)`（mcp.ts:200），service 可安全 **block 在一个 parked resolver** 上，等 web 答题后唤醒。
-- 这正是 oma approval 的 **await-until-resolved 模式**（`apps/oh-my-agent/src/modes/rpc/rpc-mode.ts:99` `pendingApprovalsByRun` + `:259-275` emit `approval_request` + `resolve_approval` 命令唤醒），同一思想，只是搬到 **backend MCP 层**，从而所有 runtime 共享。
+- 这正是 oma approval 的 **await-until-resolved 模式**（`apps/oh-my-agent/src/modes/acp/acp-mode.ts:99` `pendingApprovalsByRun` + `:259-275` emit `approval_request` + `resolve_approval` 命令唤醒），同一思想，只是搬到 **backend MCP 层**，从而所有 runtime 共享。
 - 唯一的特殊点：ask 有**人类参与**，MCP 工具必须等 web 答题；`todo_write` 等工具无此需求。
 
 ## 决策

@@ -1,8 +1,8 @@
-import type { BackendRunInput } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
 import { vectorMemoryEnabled } from "../core/memory/vector-memory.js";
 import type { PluginMcpConfig } from "../core/plugins/plugin-resolve.js";
+import type { BackendRunInput } from "../core/runtime/contract/index.js";
 import type { CreateOmaRuntimeOptions } from "../core/runtime/create-runtime.js";
 import type { Plugin } from "../core/runtime/plugin.js";
 import type { ToolFilter } from "../core/runtime/tool-filter.js";
@@ -26,7 +26,7 @@ export interface StandaloneSession {
  *  surface keeps its own frozen policy (no gateWorkspaceMcp, no
  *  vectorMemory, no localMemory). */
 export function standaloneRuntimeOptions(
-  built: BackendRunInput<"oma">,
+  built: BackendRunInput,
   opts: {
     modelRuntime: ModelRuntime;
     toolFilter?: ToolFilter;

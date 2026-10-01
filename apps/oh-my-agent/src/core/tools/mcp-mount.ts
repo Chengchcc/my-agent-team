@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "@chengchenccc/agent-contract";
+import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "@chengchenccc/message";
 import type { PluginTool } from "../index.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import { killProcessTree } from "../runtime/process-tree.js";

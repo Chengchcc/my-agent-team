@@ -31,17 +31,15 @@ function freshFixture(prefix: string) {
 
 describe("Agent Context projection", () => {
   test("linear order with stable productEntryId", async () => {
-    const { conversationId, agentId } = freshFixture("1");
+    const { conversationId } = freshFixture("1");
     conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "msg-1" }),
       ts: Date.now(),
     });
     conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "msg-2" }),
       ts: Date.now(),
@@ -77,10 +75,9 @@ describe("Agent Context projection", () => {
   });
 
   test("summary replaces covered entries without deleting them", async () => {
-    const { conversationId, agentId } = freshFixture("2");
+    const { conversationId } = freshFixture("2");
     conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "old-msg" }),
       ts: Date.now(),
@@ -142,17 +139,15 @@ describe("Agent Context projection", () => {
   });
 
   test("summary retains uncovered tail entries after coverage point", async () => {
-    const { conversationId, agentId } = freshFixture("tail");
+    const { conversationId } = freshFixture("tail");
     const seqCovered = conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "covered-msg" }),
       ts: Date.now(),
     });
     const seqRetained = conv.appendLedgerEntry({
       conversationId,
-      senderMemberId: agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "retained-msg" }),
       ts: Date.now(),
@@ -206,14 +201,12 @@ describe("Agent Context projection", () => {
     // would find B's message; the projection must still resolve A's.
     conv.appendLedgerEntry({
       conversationId: b.conversationId,
-      senderMemberId: b.agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "msg-from-B" }),
       ts: Date.now(),
     });
     const seqA = conv.appendLedgerEntry({
       conversationId: a.conversationId,
-      senderMemberId: a.agentId,
       kind: "message",
       content: JSON.stringify({ role: "user", text: "msg-from-A" }),
       ts: Date.now(),

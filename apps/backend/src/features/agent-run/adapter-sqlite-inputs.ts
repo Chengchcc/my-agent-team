@@ -18,6 +18,7 @@ type InputQueueMethods = Pick<
   | "listInputs"
   | "getInput"
   | "listPendingInputsForConversation"
+  | "listInputsForConversation"
   | "updateInput"
 >;
 
@@ -196,6 +197,31 @@ export function createInputQueueMethods(db: Database): InputQueueMethods {
             eq(schema.branchInputQueue.status, "pending"),
           ),
         )
+        .orderBy(schema.branchInputQueue.seq)
+        .all();
+      return rows.map((r) => ({
+        ...parseInput(r.branch_input_queue),
+        agentId: r.conversation.agentId ?? "",
+      }));
+    },
+
+    async listInputsForConversation(conversationId: string) {
+      const rows = d
+        .select()
+        .from(schema.branchInputQueue)
+        .innerJoin(
+          schema.agentContextBranch,
+          eq(schema.branchInputQueue.branchId, schema.agentContextBranch.branchId),
+        )
+        .innerJoin(
+          schema.agentContextTree,
+          eq(schema.agentContextBranch.treeId, schema.agentContextTree.treeId),
+        )
+        .innerJoin(
+          schema.conversation,
+          eq(schema.agentContextTree.conversationId, schema.conversation.conversationId),
+        )
+        .where(eq(schema.agentContextTree.conversationId, conversationId))
         .orderBy(schema.branchInputQueue.seq)
         .all();
       return rows.map((r) => ({

@@ -358,3 +358,95 @@ describe("workspace MCP config vs the ACP declaration", () => {
     expect(withoutAcpDeclaredServers(configs, new Set())).toEqual(configs);
   });
 });
+interface SessionConfigOptionShape {
+  id?: string;
+  category?: string;
+  currentValue?: string;
+  options?: Array<{ value: string }>;
+}
+
+describe("session model selection (ADR 0040 R3)", () => {
+  function readModelOption(response: { configOptions?: SessionConfigOptionShape[] }) {
+    return response.configOptions?.find((option) => option.category === "model");
+  }
+
+  test("session/new declares the catalog as a selectable model option", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-model-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime(),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c);
+    const created = await client.request<{ configOptions?: SessionConfigOptionShape[] }>(
+      acp.methods.agent.session.new,
+      { cwd, mcpServers: [] },
+    );
+
+    const option = readModelOption(created);
+    expect(option?.id).toBe("model");
+    expect(option?.options?.length ?? 0).toBeGreaterThan(0);
+    // Nothing chosen yet: the current value is the entry a run would take.
+    expect(option?.currentValue).toBe(option?.options?.[0]?.value);
+    mode.stop();
+  }, 20_000);
+
+  test("setting the model changes the session's currentValue, and the turn still runs", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-set-model-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime(),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c);
+    const created = await client.request<{
+      sessionId: string;
+      configOptions?: SessionConfigOptionShape[];
+    }>(acp.methods.agent.session.new, { cwd, mcpServers: [] });
+    const values = readModelOption(created)?.options?.map((o) => o.value) ?? [];
+    const chosen = values[values.length - 1];
+    expect(chosen).toBeDefined();
+
+    const applied = await client.request<{ configOptions?: SessionConfigOptionShape[] }>(
+      acp.methods.agent.session.setConfigOption,
+      { sessionId: created.sessionId, configId: "model", value: chosen },
+    );
+    expect(readModelOption(applied)?.currentValue).toBe(chosen);
+
+    const response = await client.request<acp.PromptResponse>(acp.methods.agent.session.prompt, {
+      sessionId: created.sessionId,
+      prompt: [{ type: "text", text: "go" }],
+    });
+    expect(response.stopReason).toBe("end_turn");
+    mode.stop();
+  }, 30_000);
+
+  test("an id the catalog does not serve is refused, not silently kept", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-bad-model-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime(),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c);
+    const created = await client.request<{ sessionId: string }>(acp.methods.agent.session.new, {
+      cwd,
+      mcpServers: [],
+    });
+
+    await expect(
+      client.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: created.sessionId,
+        configId: "model",
+        value: "no-such-provider/no-such-model",
+      }),
+    ).rejects.toThrow(/not found in catalog/);
+    mode.stop();
+  }, 20_000);
+});

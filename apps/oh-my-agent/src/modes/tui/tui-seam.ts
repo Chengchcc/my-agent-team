@@ -1,5 +1,5 @@
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
+import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
 import type { SlashCommand } from "@chengchenccc/tui";
 import type { ToolFilter } from "../../core/runtime/tool-filter.js";
 import type { SessionBranchNode } from "../../core/session/session-file.js";
@@ -135,7 +135,11 @@ export interface TuiIo {
     cwd: string,
     env: Record<string, string>,
     signal?: AbortSignal,
-  ): Promise<{ exitCode: number | null; tail: string; killed: boolean }>;
+  ): Promise<{
+    exitCode: number | null;
+    tail: string;
+    killed: boolean;
+  }>;
   /** Prefill the editor text (used for `oma "<prompt>"`). */
   setInputText?(text: string): void;
   /** True while the terminal window holds focus (CSI 1004 reporting).

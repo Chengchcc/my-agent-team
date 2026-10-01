@@ -64,10 +64,7 @@ export default function SystemRunDetailPage() {
                 </div>
                 <div>
                   <span className="text-xs text-(--mute)">Model</span>
-                  <div>
-                    {run.model.modelId}
-                    <span className="text-[10px] text-(--mute)"> ({run.model.backendKind})</span>
-                  </div>
+                  <div>{run.model.harness ?? run.model.modelId.replace(/^acp\//, "")}</div>
                 </div>
                 <div>
                   <span className="text-xs text-(--mute)">Created</span>

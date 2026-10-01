@@ -14,10 +14,12 @@
   "dependencies": {
     "drizzle-orm": "^0.44.0",
     "@elysiajs/eden": "^1.0.0",
+    "@chengchenccc/ahp-client": "workspace:*",
     "@chengchenccc/api-contract": "workspace:*",
     "@chengchenccc/backend": "workspace:*",
     "@chengchenccc/config": "workspace:*",
     "@chengchenccc/message": "workspace:*",
+    "@microsoft/agent-host-protocol": "^0.9.0",
     "zod": "^3.23.0"
   }
 }

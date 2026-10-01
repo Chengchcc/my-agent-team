@@ -22,6 +22,7 @@ export default {
         "adapter-pi-agent",
         "adapter-claude-agent",
         "adapter-mcp",
+        "adapter-acp",
         "ai",
         // Plugins
         // Apps
@@ -31,6 +32,8 @@ export default {
         "lark-bot",
         // Features
         "agent-run",
+        "ahp",
+        "ahp-client",
         "workflow",
         "sandbox",
         "mcp",

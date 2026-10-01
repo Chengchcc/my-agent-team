@@ -1,15 +1,6 @@
-import { AcpBackendError } from "@chengchenccc/adapter-acp";
-import { OmaProcessError } from "@chengchenccc/adapter-oma-agent";
-import type {
-  AgentBackend,
-  ApprovalRequestedPayload,
-  AskRequestedPayload,
-  BackendEvent,
-  ResumeDecision,
-} from "@chengchenccc/agent-contract";
-import { BACKEND_KINDS, debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
-import { isActiveStatus } from "./domain.js";
+import { AcpBackendError } from "./acp/acp-backend.js";
+import { isActiveStatus, pendingActionId } from "./domain.js";
 import { finalAnswerMessage } from "./execution-input.js";
 import type { LiveEventBus } from "./execution-live.js";
 import type {
@@ -17,6 +8,8 @@ import type {
   AgentRunExecutionService,
   LiveRun,
 } from "./execution-types.js";
+import type { AgentBackend, ResumeDecision } from "./protocol/index.js";
+import { BACKEND_KINDS, debugLog } from "./protocol/index.js";
 
 export interface ExecutionServiceCtx {
   deps: AgentRunExecutionDeps;
@@ -32,37 +25,6 @@ export interface ExecutionServiceCtx {
   entryFor: (
     kind: string,
   ) => AgentRunExecutionDeps["backends"][keyof AgentRunExecutionDeps["backends"]] | undefined;
-}
-
-/** Read a durable pending-action payload back into an approval request. The
- *  row is JSON, not a typed value: fields are checked, never asserted, and a
- *  record missing its identity (callId/toolName) is dropped instead of
- *  becoming a card that cannot be resolved. */
-function readApprovalPayload(
-  payload: Readonly<Record<string, unknown>>,
-): ApprovalRequestedPayload | undefined {
-  const { callId, toolName } = payload;
-  if (typeof callId !== "string" || callId.length === 0) return undefined;
-  if (typeof toolName !== "string") return undefined;
-  return {
-    callId,
-    toolName,
-    ...(typeof payload.reason === "string" ? { reason: payload.reason } : {}),
-    ...("input" in payload ? { input: payload.input } : {}),
-    ...(typeof payload.sandboxed === "boolean" ? { sandboxed: payload.sandboxed } : {}),
-    ...(typeof payload.deadlineAt === "number" ? { deadlineAt: payload.deadlineAt } : {}),
-  };
-}
-
-/** Same for an ask: `questions` is only carried when it is an array, because
- *  the surfaces parse the items themselves (the item shape is not what this
- *  boundary owns). */
-function readAskPayload(
-  payload: Readonly<Record<string, unknown>>,
-): AskRequestedPayload | undefined {
-  const { callId, questions } = payload;
-  if (typeof callId !== "string" || callId.length === 0) return undefined;
-  return { callId, ...(Array.isArray(questions) ? { questions } : {}) };
 }
 
 export class ApprovalNotApplicableError extends Error {}
@@ -241,13 +203,17 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       });
       deps.onRunCommitted?.(runId, finalAnswerMessage(outcome.messages), seqs);
       liveRuns.delete(runId);
-      liveEvents.closeSubscribers(runId);
+      liveEvents.forgetRun(runId);
     },
 
     async resolveApproval(runId, callId, decision) {
       // Validate against the durable action first: an unknown callId is a
       // stale click, not a decision, and must never reach the child.
-      const actionId = `${runId}:${callId}`;
+      const actionId = pendingActionId(runId, callId);
+      // Whatever path settles this request, the surface hears about it: a card that keeps reading
+      // as pending after a click is the one thing a human reads as "my answer did not land".
+      const announce = (outcome: "allow" | "deny" | "timeout"): void =>
+        deps.onHumanInputResolved?.({ runId, callId, outcome });
       const action = await runPort.getPendingAction(actionId);
       if (!action || action.status === "cancelled") {
         throw new ApprovalNotApplicableError(
@@ -276,6 +242,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           .catch((err) => {
             console.error(`[agent-run] approval replay repair failed for ${actionId}:`, err);
           });
+        announce(decision);
         return;
       }
       const live = liveRuns.get(runId);
@@ -296,6 +263,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
             .catch((err) => {
               console.error(`[agent-run] parked approval consume failed for ${actionId}:`, err);
             });
+          announce(decision);
           await resumeParkedRun(runId);
           return;
         }
@@ -323,8 +291,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         // per-adapter classes (oma and acp today); recognize either class
         // so a late click on ANY backend's gone approval settles as
         // timeout instead of a 500.
-        const adapterErr =
-          err instanceof OmaProcessError || err instanceof AcpBackendError ? err : undefined;
+        const adapterErr = err instanceof AcpBackendError ? err : undefined;
         if (adapterErr && (adapterErr.code === "conflict" || adapterErr.code === "not_found")) {
           if (adapterErr.code === "conflict") {
             await runPort
@@ -339,6 +306,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
                   consumeErr,
                 );
               });
+            announce("timeout");
           }
           throw new ApprovalNotApplicableError(
             `approval rejected: the child has no pending approval for ${callId} (${adapterErr.message})`,
@@ -358,6 +326,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         .catch((err) => {
           console.error(`[agent-run] approval consume failed for ${actionId}:`, err);
         });
+      announce(decision);
     },
     resumeParkedRun,
 
@@ -413,42 +382,6 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       });
       await runPort.cancelPendingActionsForRun(runId).catch(() => {});
       await runPort.cancelRunInput(runId);
-    },
-
-    /** ADR 0038: waiting AND still holding a pending action — a parked run,
-     *  not a zombie. Every "childless means dead" cleanup path must ask this
-     *  first (recover's sweep and the SSE late-subscription path both do). */
-    async isParked(runId) {
-      const run = await runPort.getRun(runId);
-      if (run?.status !== "waiting") return false;
-      const pending = await runPort.listPendingActions(runId).catch(() => []);
-      return pending.length > 0;
-    },
-
-    subscribe(runId, signal) {
-      return liveEvents.subscribe(runId, signal);
-    },
-
-    /** ADR 0038: the durable side of a HITL park, in wire-event form, so a
-     *  subscriber that arrived late still learns what is being asked. Kind
-     *  -> event type, and the stored record is the payload: one fact, read
-     *  back two ways. The read is validated rather than asserted - a row is
-     *  JSON that a previous build may have written differently, and a card
-     *  built from a half-shaped payload is a card the human cannot answer. */
-    async pendingActionEvents(runId) {
-      const actions = await runPort.listPendingActions(runId).catch(() => []);
-      const events: BackendEvent[] = [];
-      for (const action of actions) {
-        if (action.status !== "pending") continue;
-        if (action.kind === "approval") {
-          const payload = readApprovalPayload(action.payload);
-          if (payload) events.push({ type: "approval_requested", payload });
-        } else if (action.kind === "ask") {
-          const payload = readAskPayload(action.payload);
-          if (payload) events.push({ type: "ask_requested", payload });
-        }
-      }
-      return events;
     },
 
     broadcastRunEvent(runId, event) {

@@ -16,7 +16,6 @@ import { Readable, Writable } from "node:stream";
 import type { RequestPermissionResponse, Usage as SdkUsage } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
 import { adaptMcpTool } from "@chengchenccc/adapter-mcp";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { type Message, MessageSchema } from "@chengchenccc/message";
 import { assemblePluginRuntime, type PluginMcpConfig } from "../../core/plugins/plugin-resolve.js";
@@ -25,6 +24,7 @@ import {
   type ApprovalHandler,
   approvalTimeoutMs,
 } from "../../core/runtime/approval.js";
+import type { BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import type { Plugin } from "../../core/runtime/plugin.js";
 import { buildSystemPrompt, readMemorySummary } from "../../core/runtime/prompts.js";
@@ -43,7 +43,7 @@ import {
   readWorkspaceSystemPrompt,
   scanWorkspaceSkillRoots,
 } from "../../core/settings/workspace-context.js";
-import type { RunEventEnvelope } from "../../protocol/transport.js";
+import type { RunEventEnvelope } from "../../protocol/index.js";
 
 export interface AcpModeOptions {
   /** The assembled model runtime (main.ts registers built-in providers,
@@ -81,6 +81,10 @@ interface AcpSession {
    *  extension-vehicle rule 2): the NEXT prompt completes the parked turn
    *  with them pre-supplied — the ACP shape of ADR 0038's resume. */
   resumeDecisions: readonly ResumeDecision[] | null;
+  /** The model this session runs, chosen by the client through the
+   *  `model` config option. null = the mode's own resolution (explicit
+   *  --model, else the first available catalog entry). */
+  model: string | null;
 }
 
 interface ResumeDecision {
@@ -143,8 +147,12 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         cwd,
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: resumeMeta?.decisions ?? null,
+        model: null,
       });
-      return { sessionId, configOptions: [] };
+      return {
+        sessionId,
+        configOptions: modelConfigOptions(await modelRuntime.getCatalog(), null, opts.model),
+      };
     })
     .onRequest(acp.methods.agent.session.load, async (ctx) => {
       const meta = (ctx.params as { _meta?: Record<string, unknown> | null })._meta;
@@ -153,8 +161,42 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         cwd: ctx.params.cwd ?? process.cwd(),
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: readResumeDecisions(meta),
+        model: null,
       });
-      return { sessionId: ctx.params.sessionId, configOptions: [] };
+      return {
+        sessionId: ctx.params.sessionId,
+        configOptions: modelConfigOptions(await modelRuntime.getCatalog(), null, opts.model),
+      };
+    })
+    .onRequest(acp.methods.agent.session.setConfigOption, async (ctx) => {
+      const session = sessions.get(ctx.params.sessionId);
+      if (!session) {
+        throw acp.RequestError.invalidParams(
+          { sessionId: ctx.params.sessionId },
+          `unknown session ${ctx.params.sessionId}`,
+        );
+      }
+      if (ctx.params.configId !== MODEL_CONFIG_ID) {
+        throw acp.RequestError.invalidParams(
+          { configId: ctx.params.configId },
+          `unknown config option '${ctx.params.configId}'`,
+        );
+      }
+      const catalog = await modelRuntime.getCatalog();
+      const value = String(ctx.params.value ?? "");
+      // Refuse an id the catalog does not serve. The client checks the
+      // currentValue that comes back, so silently keeping the old model would
+      // only be discovered by the human wondering why the run ignored them.
+      if (!catalog.models.some((m) => `${m.providerId}/${m.modelId}` === value)) {
+        // A protocol error, not a plain throw: the client must be able to
+        // tell "you asked for something I do not serve" from a crash.
+        throw acp.RequestError.invalidParams(
+          { configId: MODEL_CONFIG_ID, value },
+          `model not found in catalog: ${value}`,
+        );
+      }
+      session.model = value;
+      return { configOptions: modelConfigOptions(catalog, session.model, opts.model) };
     })
     .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
       const session = sessions.get(ctx.params.sessionId);
@@ -270,13 +312,16 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const catalog = await modelRuntime.getCatalog();
     // Same resolution the CLI's one-shot path uses: explicit id wins, else
     // the first available entry; the canonical id is provider/model.
-    const modelEntry = opts.model
-      ? catalog.models.find((m) => `${m.providerId}/${m.modelId}` === opts.model)
+    // The session's model wins over the mode's: that is what the client chose
+    // through the `model` config option.
+    const requested = session.model ?? opts.model;
+    const modelEntry = requested
+      ? catalog.models.find((m) => `${m.providerId}/${m.modelId}` === requested)
       : catalog.models.find((m) => m.available !== false);
     if (!modelEntry) {
       throw new Error(
-        opts.model
-          ? `model not found in catalog: ${opts.model}`
+        requested
+          ? `model not found in catalog: ${requested}`
           : "no available model in the catalog (check provider credentials)",
       );
     }
@@ -394,6 +439,42 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
 // ─── Mapping helpers ───────────────────────────────────────────────────────
 
 const STEER_METHOD = "_session/steering";
+
+/** The ACP config option a client sets to pick this session's model. */
+const MODEL_CONFIG_ID = "model";
+
+/** The session's model as an ACP config option: the catalog is the source of
+ *  truth (the same one `oma --list-models` prints) and values are the
+ *  canonical `provider/model` ids. An empty currentValue means the catalog
+ *  holds nothing runnable yet (no credentials) - a fact the client can show,
+ *  instead of us inventing a model. */
+function modelConfigOptions(
+  catalog: { models: readonly { providerId: string; modelId: string }[] },
+  chosen: string | null,
+  fallback: string | null | undefined,
+) {
+  const options = catalog.models.map((entry) => {
+    const id = `${entry.providerId}/${entry.modelId}`;
+    return { value: id, name: id };
+  });
+  const wanted = chosen ?? fallback ?? null;
+  const effective = catalog.models.find((m) => `${m.providerId}/${m.modelId}` === wanted);
+  const currentValue = effective
+    ? `${effective.providerId}/${effective.modelId}`
+    : (options[0]?.value ?? "");
+  return [
+    {
+      id: MODEL_CONFIG_ID,
+      name: "Model",
+      description: "Select the model for this session",
+      category: "model" as const,
+      type: "select" as const,
+      currentValue,
+      options,
+    },
+  ];
+}
+
 const OMA_UPDATE_METHOD = "_oma/update";
 
 /** Drop workspace-configured MCP servers the ACP client declared on this

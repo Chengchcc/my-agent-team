@@ -1,7 +1,7 @@
 # ADR: Agent Runtime 重构
 
 **日期**: 2026-07-22
-**状态**: Superseded（本文要建的 `packages/agent` 与 `createAgentSession()` 均不存在；现行 runtime 是 `apps/oh-my-agent/src/core` 加 `packages/agent-contract`）
+**状态**: Superseded（本文要建的 `packages/agent` 与 `createAgentSession()` 均不存在；现行 runtime 是 `apps/oh-my-agent/src/core` 加 `apps/backend/src/features/agent-run/protocol`）
 **范围**: `packages/agent`（新建，合并原 `packages/framework` + `packages/harness`）、`packages/framework`（已删除）、`packages/harness`（已删除）、`apps/backend`（精简为薄壳）
 
 ---

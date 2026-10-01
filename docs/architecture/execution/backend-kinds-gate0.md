@@ -6,7 +6,7 @@ tags: [backend, runs, models]
 
 # Backend Kinds：Gate 0 实测记录
 
-一句话：本页是 **2026-08-12 至 08-13** 一次本机实测留下的记录，内容是 claude / pi / omp 三个 CLI 后端的调用形状、wire 事件型录与到 `CoreBackendEvent` 的映射依据。它是一份点时间快照，**不是现状契约**：现行实现以各 adapter 的 `backend.ts`、`event-mapper.ts` 与 `apps/oh-my-agent/src/protocol/drift.test.ts` 为准，本页只在解释那些代码为什么长成这样时有参考价值。
+一句话：本页是 **2026-08-12 至 08-13** 一次本机实测留下的记录，内容是 claude / pi / omp 三个 CLI 后端的调用形状、wire 事件型录与到 `CoreBackendEvent` 的映射依据。它是一份点时间快照，**不是现状契约**：现行实现以 `apps/backend/src/features/agent-run/{protocol,acp}/` 为准（ACP 单轨），本页只在解释那些代码为什么长成这样时有参考价值。
 
 ## 范围
 
@@ -18,9 +18,9 @@ tags: [backend, runs, models]
 
 本记录被三处源码注释点名引用，改文件名要连带改这三处：
 
-- `packages/adapter-claude-agent/src/backend.ts` — 头注释指向本文件作为 stream-json 的 wire 记录
-- `packages/adapter-omp-agent/src/backend.ts` — 同上
-- `packages/adapter-pi-agent/src/backend.ts` — 头注释标注 pi 未真机验证，指向本记录
+
+- `apps/oh-my-agent/src/modes/acp/acp-mode.ts` — 同上
+- `apps/oh-my-agent/src/modes/acp/acp-mode.ts` — 头注释标注 pi 未真机验证，指向本记录
 
 ## 当时的实测环境
 
@@ -124,5 +124,5 @@ MCP 通路当日确认：omp 读工作区级 `.mcp.json`（`{$schema, mcpServers
 
 ## 相关页
 
-- [Agent Backend](./agent-backend.md) — 现行契约与四个 adapter 的实际形状
+- [Agent Backend](./agent-backend.md) — 现行契约与 ACP 客户端的实际形状
 - [Agent 工作区与多后端](../agents/workspace-and-backends.md) — 工作区里那些 CLI 配置文件从哪来

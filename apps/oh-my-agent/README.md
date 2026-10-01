@@ -1,6 +1,6 @@
 # @chengchenccc/oh-my-agent
 
-Oma 是本仓库自研的 Agent 执行引擎：既可**独立交互式 TUI**（默认 `oma` 进入终端界面），也可作为无 UI 的一次性 CLI 被 Product Backend 的 Adapter（`@chengchenccc/adapter-oma-agent`）按**每个 Agent Run** spawn 一次。
+Oma 是本仓库自研的 Agent 执行引擎：既可**独立交互式 TUI**（默认 `oma` 进入终端界面），也可经自己的 **ACP 面**（`--mode acp`）被 Product Backend 按**每个 Agent Run** spawn 一次（ADR 0039/0040）。
 
 ```text
 Product Backend → Agent Run → Adapter → spawn oma --mode rpc
@@ -34,7 +34,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 | `json` | 一次 Run；stdout 全部事件 JSONL + 恰好一个 terminal outcome 行 |
 | `rpc` | 每 Run 一次 `execute` + 可选的 `steer`/`abort`；命令走 stdin，`event`/`outcome`/`response` 走 stdout（严格 LF JSONL，stdout 只承载协议） |
 
-`--mode rpc` 是 Adapter 使用的模式。wire schema 归**本 app 所有**（`src/protocol/`），Adapter 侧保留一份独立的解析/映射副本（`packages/adapter-oma-agent/src/{protocol,event-mapper}.ts`）——两份靠 fixture + `src/protocol/drift.test.ts` 对齐，不共享包（ADR 0024）。改协议：先改这里，再改 adapter 那份，drift 测试会挡住漏改。
+`--mode acp` 是 Product Backend 使用的模式（协议由 ACP SDK 定义，本 app 只实现服务端；曾经的 `--mode rpc` JSONL 面与它的双份 wire schema 已随原生 adapter 一起退役，ADR 0040）。
 
 ## Runtime
 

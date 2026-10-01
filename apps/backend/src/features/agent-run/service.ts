@@ -1,16 +1,16 @@
-import type {
-  BackendModelRef,
-  BackendRunOutcome,
-  PendingActionResponse,
-  WorkspaceBinding,
-} from "@chengchenccc/agent-contract";
-import { debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import { ConflictError } from "../../infra/domain-errors.js";
 import type { IdGenerator, LedgerMessageResolver } from "../agent-context/ports.js";
 import type { AgentContextService } from "../agent-context/service.js";
 import type { AgentRun, BranchInput, BranchInputMode, PendingActionRecord } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
+import type {
+  BackendModelRef,
+  BackendRunOutcome,
+  PendingActionResponse,
+  WorkspaceBinding,
+} from "./protocol/index.js";
+import { debugLog } from "./protocol/index.js";
 
 export class AgentDisabledError extends ConflictError {
   constructor(id: string) {
@@ -96,6 +96,11 @@ export interface AgentRunService {
   getInput(inputId: string): Promise<BranchInput | null>;
   /** Pending inputs across every branch of a conversation (queue UI). */
   listPendingInputsForConversation(
+    conversationId: string,
+  ): Promise<Array<BranchInput & { agentId: string }>>;
+  /** The same inputs in every status: a reader that renders history wants the one that started a
+   *  finished run, which has left the queue. */
+  listInputsForConversation(
     conversationId: string,
   ): Promise<Array<BranchInput & { agentId: string }>>;
   /** CAS a pending input's message; false when no longer pending. */
@@ -238,6 +243,10 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
 
     async listPendingInputsForConversation(conversationId) {
       return port.listPendingInputsForConversation(conversationId);
+    },
+
+    async listInputsForConversation(conversationId) {
+      return port.listInputsForConversation(conversationId);
     },
 
     async updateInput(inputId, message) {

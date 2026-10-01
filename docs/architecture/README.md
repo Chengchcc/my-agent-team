@@ -25,6 +25,7 @@ tags: [conventions, rules]
 | 改工具、MCP 或插件 | [Agent Backend](./execution/agent-backend.md) → [Oma Tools](./runtime/oma-tools.md) → [Oma 插件与 HITL](./plugins/oma-plugins.md) |
 | 改模型与 provider | [模型与 Provider](./runtime/models.md) → [Oma Runtime](./runtime/oma.md) |
 | 改 Workflow 或 Project | [Agentic Workflow](./workflow.md) → [数据模型](./backend/data-model.md) → [Project 与 Worktree](./agents/projects-and-worktrees.md) |
+| 改端与后端的契约 | [AHP host](./surfaces/ahp.md) → [端总览](./surfaces/overview.md) → [Run 输出与实时更新](./runs/output-and-live-updates.md) |
 | 改 Web 端 | [Web 消息端到端](./flows/e2e-web-message.md) → [Web 端](./surfaces/web.md) → [端总览](./surfaces/overview.md) |
 | 改飞书端 | [飞书](./surfaces/lark.md) → [飞书接入向导](./surfaces/lark-setup.md) → [飞书消息端到端](./flows/e2e-lark-message.md) → [Conversation History](./conversation/history.md) |
 | 改自研 runtime | [Oma Runtime](./runtime/oma.md) → [Oma 插件与 HITL](./plugins/oma-plugins.md) → [Compaction](./runtime/compaction.md) → [Oma Tools](./runtime/oma-tools.md) |
@@ -71,6 +72,7 @@ tags: [conventions, rules]
 
 端与流程
 
+- [AHP host](./surfaces/ahp.md)
 - [端总览](./surfaces/overview.md)
 - [Web 端](./surfaces/web.md)
 - [飞书](./surfaces/lark.md)

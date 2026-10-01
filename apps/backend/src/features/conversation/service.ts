@@ -1,5 +1,3 @@
-import type { BackendModelRef } from "@chengchenccc/agent-contract";
-import { debugLog } from "@chengchenccc/agent-contract";
 import type { Message } from "@chengchenccc/message";
 import {
   ContentBlockSchema,
@@ -8,11 +6,13 @@ import {
   MessageRevisionSchema,
   serializeMessageRevision,
 } from "@chengchenccc/message";
+import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
+import { debugLog } from "../../features/agent-run/protocol/index.js";
 import { DomainError } from "../../infra/domain-errors.js";
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
-import type { ConversationPort, LedgerEntry, LedgerKind } from "./ports.js";
+import type { ConversationPort, LedgerKind } from "./ports.js";
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
@@ -41,6 +41,10 @@ export interface ConversationServiceDeps {
    *  aborted + input cancelled + branch released, before enqueueing a fresh
    *  normal Run. */
   abortStaleRun: (runId: string) => Promise<void>;
+  /** The continuity record exists so a surface can move its binding, so the surface layer is told
+   *  when one is written. Optional: without it the record is still in the ledger and in the next
+   *  projection, a connected surface just learns about it later. */
+  onContinuityRecorded?: (input: { conversationId: string; controlSeq: number }) => void;
   /** Product Context branch resolution (mode decisions; scope IS the
    *  Conversation/Branch pair since the 1:1 collapse). */
   contextService: AgentContextService;
@@ -84,21 +88,11 @@ export interface ConversationService {
     /** Per-input model override (same-kind guard applies). */
     modelOverride?: BackendModelRef;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
-  subscribeConversation(
-    conversationId: string,
-    opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
-  ): AsyncIterable<LedgerEntry>;
-  /** Push an already-persisted ledger entry (e.g. the agent-run terminal
-   *  commit, which writes conversation_ledger directly) to live SSE
-   *  subscribers. Reads the row back by seq so the wire payload matches
-   *  what #appendAndBroadcast would have emitted. */
-  notifySeq(conversationId: string, seq: number): void;
   startNewConversationForSurface(input: {
     oldConversationId: string;
     reason: string;
     title?: string;
     requestedByRunId: string;
-    idempotencyKey: string;
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }>;
   clearConversation(conversationId: string): Promise<void>;
   compactConversation(conversationId: string): Promise<void>;
@@ -162,14 +156,11 @@ class ConversationServiceImpl implements ConversationService {
   #isInflight: ConversationServiceDeps["isInflight"];
   #abortStaleRun: ConversationServiceDeps["abortStaleRun"];
   #answerPendingTextAsk: ConversationServiceDeps["answerPendingTextAsk"];
+  #onContinuityRecorded: ConversationServiceDeps["onContinuityRecorded"];
   #contextService: AgentContextService;
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
 
   #idGen: () => string;
-
-  // Push-based SSE: subscribers are notified immediately when new ledger
-  // entries are appended.
-  #subscribers = new Map<string, Set<(entry: LedgerEntry) => void>>();
 
   constructor(deps: ConversationServiceDeps) {
     this.port = deps.port;
@@ -180,6 +171,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#isInflight = deps.isInflight;
     this.#abortStaleRun = deps.abortStaleRun;
     this.#answerPendingTextAsk = deps.answerPendingTextAsk;
+    this.#onContinuityRecorded = deps.onContinuityRecorded;
     this.#contextService = deps.contextService;
     this.#resolveDefaultModel = deps.resolveDefaultModel;
     this.#idGen = deps.idGen;
@@ -187,32 +179,10 @@ class ConversationServiceImpl implements ConversationService {
 
   // ─── Private helpers ───────────────────────────────
 
-  #notify(conversationId: string, entry: LedgerEntry) {
-    const subs = this.#subscribers.get(conversationId);
-    if (!subs) return;
-    for (const sub of subs) {
-      try {
-        sub(entry);
-      } catch (e) {
-        console.error(`[conversation] subscriber error for ${conversationId}:`, e);
-      }
-    }
-  }
-
-  /** Public push for entries written outside #appendAndBroadcast (the
-   *  agent-run terminal commit). Reads the row back so subscribers get the
-   *  exact persisted payload, matching what the normal append path emits. */
-  notifySeq(conversationId: string, seq: number): void {
-    const entry = this.port.getLedgerEntry(conversationId, seq);
-    if (entry) this.#notify(conversationId, entry);
-  }
-
-  /** Append a ledger entry and broadcast it to subscribers. Returns seq.
+  /** Append a ledger entry. Returns seq.
    *  For kind:"message", content MUST be a MessageRevision. */
-  async #appendAndBroadcast(input: {
+  async #appendEntry(input: {
     conversationId: string;
-    senderMemberId: string;
-    addressedTo: string[];
     kind: LedgerKind;
     content: unknown;
   }): Promise<number> {
@@ -223,22 +193,10 @@ class ConversationServiceImpl implements ConversationService {
         : JSON.stringify(input.content);
     const seq = this.port.appendLedgerEntry({
       conversationId: input.conversationId,
-      senderMemberId: input.senderMemberId,
-      addressedTo: input.addressedTo,
       kind: input.kind,
       content: serialized,
       ts,
     });
-    const entry: LedgerEntry = {
-      seq,
-      conversationId: input.conversationId,
-      senderMemberId: input.senderMemberId,
-      addressedTo: input.addressedTo,
-      kind: input.kind,
-      content: serialized,
-      ts,
-    };
-    this.#notify(input.conversationId, entry);
     return seq;
   }
 
@@ -267,24 +225,21 @@ class ConversationServiceImpl implements ConversationService {
     // point (conversation, cron and loop all funnel through it).
     const branch = await this.#contextService.getOrCreateDefaultBranch(input.conversationId, kind);
     const active = await this.#agentRuns.getActiveRun(branch.branchId);
-    // CLI backends run one short-lived process per turn with no mid-turn
-    // steer (ADR 0002): a steer input is queued as the NEXT turn's input
-    // instead of being injected into a live child (and never silently
-    // dropped — the input is durable in branch_input_queue).
-    const cliBackend = kind !== "oma";
-    // Auto-inferred routing needs three states, not two:
-    //   live child      -> steer (routable now)
+    // The ACP rail runs one short-lived process per turn with no mid-turn
+    // steer: a steer input is queued as the NEXT turn's input instead of
+    // being injected into a live child (and never silently dropped — the
+    // input is durable in branch_input_queue). Auto-inferred routing keeps
+    // three states:
+    //   live child      -> next turn (queued)
     //   dispatch in flight (pre-acceptance) -> follow_up (queued, NEVER aborted)
     //   DB active, neither live nor inflight -> zombie: abort + fresh normal Run
-    // An EXPLICIT input.mode is never silently converted — except steer on a
-    // CLI backend, which by design queues as the next turn.
     let mode: BranchInputMode;
-    if (input.mode === "steer" && cliBackend) {
+    if (input.mode === "steer") {
       mode = "normal";
     } else if (input.mode) {
       mode = input.mode;
     } else if (active && this.#isLive(active.runId)) {
-      mode = cliBackend ? "normal" : "steer";
+      mode = "normal";
     } else if (active && this.#isInflight(active.runId)) {
       mode = "follow_up";
     } else {
@@ -308,17 +263,6 @@ class ConversationServiceImpl implements ConversationService {
     if (acquired && run) {
       void this.#dispatchRun(run.runId).catch((err) => {
         console.error(`[conversation] dispatch failed for ${run.runId}:`, err);
-      });
-    } else if (queued && mode === "steer") {
-      // Steer belongs to the CURRENT active run: inject it into the live
-      // loop right away (one Run / one loop - it never starts a new
-      // segment). If the run has already settled, injection fails and the
-      // input is cancelled - a steer is never replayed as a normal input.
-      void this.#injectSteer(branch.branchId, {
-        inputId,
-        message: input.message,
-      }).catch((err) => {
-        console.error(`[conversation] steer injection failed for ${input.agentId}:`, err);
       });
     } else if (cancelled) {
       // A steer with no active Run (race between the active check above and
@@ -365,10 +309,8 @@ class ConversationServiceImpl implements ConversationService {
       visibility: "conversation" as const,
       updatedAt: Date.now(),
     };
-    const seq = await this.#appendAndBroadcast({
+    const seq = await this.#appendEntry({
       conversationId: input.conversationId,
-      senderMemberId,
-      addressedTo: input.addressedTo ?? (agentId ? [agentId] : []),
       kind: "message",
       content: userRev,
     });
@@ -408,92 +350,6 @@ class ConversationServiceImpl implements ConversationService {
     return { seq, triggeredRuns };
   }
 
-  // ─── SSE projection ─────────────────────────────
-
-  async *subscribeConversation(
-    conversationId: string,
-    opts?: { afterSeq?: number; signal?: AbortSignal; pollMs?: number },
-  ): AsyncIterable<LedgerEntry> {
-    const since = opts?.afterSeq ?? 0;
-    const pollMs = opts?.pollMs ?? 100;
-    let lastSeq = since;
-    let silentPolls = 0;
-    const heartbeatInterval = 3;
-
-    const pushBuffer: LedgerEntry[] = [];
-    let pushResolver: (() => void) | null = null;
-    const onPush = (entry: LedgerEntry) => {
-      pushBuffer.push(entry);
-      pushResolver?.();
-    };
-    const subs = this.#subscribers.get(conversationId) ?? new Set();
-    subs.add(onPush);
-    this.#subscribers.set(conversationId, subs);
-
-    try {
-      // First, yield all existing entries (catch up)
-      const initial = this.port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-      for (const entry of initial) {
-        yield entry;
-        lastSeq = entry.seq;
-      }
-
-      while (true) {
-        if (opts?.signal?.aborted) break;
-
-        while (pushBuffer.length > 0) {
-          const entry = pushBuffer.shift()!;
-          yield entry;
-          if (entry.seq > lastSeq) lastSeq = entry.seq;
-          silentPolls = 0;
-        }
-
-        if (pollMs === 0) break;
-
-        if (pushBuffer.length === 0) {
-          const pushPromise = new Promise<void>((r) => {
-            pushResolver = r;
-          });
-          const pollTimeout = new Promise<void>((r) => setTimeout(r, 5000));
-          await Promise.race([pushPromise, pollTimeout]);
-          pushResolver = null;
-
-          while (pushBuffer.length > 0) {
-            const entry = pushBuffer.shift()!;
-            yield entry;
-            if (entry.seq > lastSeq) lastSeq = entry.seq;
-          }
-
-          const entries = this.port.getLedgerEntries(conversationId, { sinceSeq: lastSeq });
-          if (entries.length > 0) {
-            for (const entry of entries) {
-              yield entry;
-              lastSeq = entry.seq;
-            }
-            silentPolls = 0;
-          } else {
-            silentPolls++;
-            if (silentPolls % heartbeatInterval === 0) {
-              yield {
-                seq: 0,
-                conversationId,
-                senderMemberId: "",
-                addressedTo: [],
-                kind: "message" as const,
-                content: "",
-                ts: Date.now(),
-                _heartbeat: true as const,
-              } as LedgerEntry & { _heartbeat: true };
-            }
-          }
-        }
-      }
-    } finally {
-      subs.delete(onPush);
-      if (subs.size === 0) this.#subscribers.delete(conversationId);
-    }
-  }
-
   /** M15.1: Start a fresh conversation from a surface control tool call.
    *  Copies the agent binding (NOT history), writes surface.control to the
    *  old ledger; the lark watcher rebinds its own delivery tables. */
@@ -502,9 +358,8 @@ class ConversationServiceImpl implements ConversationService {
     reason: string;
     title?: string;
     requestedByRunId: string;
-    idempotencyKey: string;
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }> {
-    const { oldConversationId, reason, title, requestedByRunId, idempotencyKey } = input;
+    const { oldConversationId, reason, title, requestedByRunId } = input;
 
     // 1. Idempotency: check if this control was already written
     const existingEntries = this.port.getLedgerEntries(oldConversationId);
@@ -513,12 +368,17 @@ class ConversationServiceImpl implements ConversationService {
       try {
         const raw = typeof entry.content === "string" ? JSON.parse(entry.content) : entry.content;
         const c = raw as {
-          type: string;
-          requestedByRunId: string;
-          newConversationId: string;
-          idempotencyKey?: string;
+          requestedByRunId?: string;
+          newConversationId?: string;
         };
-        if (c.type === "lark.start_new_conversation" && c.idempotencyKey === idempotencyKey) {
+        // 幂等按规范坐标判定：同一个 Run 的同一个请求只落一次（方言串与 surface 自造键已删）。
+        if (c.requestedByRunId === requestedByRunId && c.newConversationId) {
+          // Replayed across a restart or a retried tool call: a surface may have connected since,
+          // and the announcement is idempotent on its side (parts are keyed by id).
+          this.#onContinuityRecorded?.({
+            conversationId: oldConversationId,
+            controlSeq: entry.seq,
+          });
           return {
             oldConversationId,
             newConversationId: c.newConversationId,
@@ -552,22 +412,20 @@ class ConversationServiceImpl implements ConversationService {
     }
 
     // 4. Write surface.control entry to OLD conversation ledger
+    // 只写规范事实：这条对话续到了哪条新对话、由哪个 Run 请求。
     const control = {
-      type: "lark.start_new_conversation",
       oldConversationId,
       newConversationId,
       reason,
       requestedByRunId,
-      idempotencyKey,
     };
-    const controlSeq = await this.#appendAndBroadcast({
+    const controlSeq = await this.#appendEntry({
       conversationId: oldConversationId,
-      senderMemberId: "__system__",
-      addressedTo: [],
       kind: "surface.control",
       content: control,
     });
 
+    this.#onContinuityRecorded?.({ conversationId: oldConversationId, controlSeq });
     return { oldConversationId, newConversationId, controlSeq };
   }
 
@@ -614,8 +472,6 @@ class ConversationServiceImpl implements ConversationService {
     for (const entry of entries) {
       this.port.appendLedgerEntry({
         conversationId: newId,
-        senderMemberId: entry.senderMemberId,
-        addressedTo: entry.addressedTo,
         kind: entry.kind,
         content: typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
         ts: entry.ts,
@@ -640,10 +496,8 @@ class ConversationServiceImpl implements ConversationService {
       undoneSeqs.push(entry.seq);
     }
     if (undoneSeqs.length > 0) {
-      await this.#appendAndBroadcast({
+      await this.#appendEntry({
         conversationId: input.conversationId,
-        senderMemberId: "__system__",
-        addressedTo: [],
         kind: "undo",
         content: { undoneSeqs },
       });
@@ -675,15 +529,18 @@ class ConversationServiceImpl implements ConversationService {
   // ─── Pending input queue (Composer queue area) ───
 
   async listPendingInputs(conversationId: string) {
-    const inputs = await this.#agentRuns.listPendingInputsForConversation(conversationId);
-    return inputs.map((i) => ({
-      inputId: i.inputId,
-      branchId: i.branchId,
-      mode: i.mode,
-      text: extractText(i.message),
-      agentId: i.agentId,
-      createdAt: i.createdAt,
-    }));
+    const inputs = await this.#agentRuns.listInputsForConversation(conversationId);
+    // The queue shows what is still queued; a promoted input has left it (ADR 0037).
+    return inputs
+      .filter((i) => i.status === "pending")
+      .map((i) => ({
+        inputId: i.inputId,
+        branchId: i.branchId,
+        mode: i.mode,
+        text: extractText(i.message),
+        agentId: i.agentId,
+        createdAt: i.createdAt,
+      }));
   }
 
   /** One input's own state, whatever it is (ADR 0037): the surface waiting on

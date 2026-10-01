@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import {
   assistantMessageId,
   type MessageRevision,
@@ -19,6 +18,7 @@ import {
   isTerminalStatus,
 } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
+import type { BackendRunOutcome } from "./protocol/index.js";
 
 type RunMethods = Pick<
   AgentRunPort,
@@ -291,8 +291,6 @@ export function createRunMethods(
             .insert(schema.conversationLedger)
             .values({
               conversationId: run.conversationId,
-              senderMemberId: run.agentId,
-              addressedTo: "[]",
               kind: "message",
               content: serializeMessageRevision(revision),
               ts: now,

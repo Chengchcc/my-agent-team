@@ -1,4 +1,8 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/**/*.ts", "fixtures/**/*.json"]
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "fixtures/**/*.json"]
 }

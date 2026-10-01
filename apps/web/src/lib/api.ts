@@ -119,6 +119,9 @@ export type TelemetrySummary = {
 export type ChatModelOverride = {
   backendKind: string;
   modelId: string;
+  /** Which model the named harness runs, in its own vocabulary (the run's
+   *  BackendModelRef.harnessModel). Undefined = the harness's own default. */
+  harnessModel?: string;
   reasoningEffort?: "none" | "low" | "high" | "max";
 };
 
@@ -464,6 +467,22 @@ export const api = {
     fetch(`/api/bff/agents/${agentId}/workspace/file?path=${encodeURIComponent(path)}`, {
       credentials: "include",
     }).then((r) => r.json()),
+  // Harnesses (direct fetch, same reason as listModels). The harness axis is
+  // its own list: a harness is not a model (ADR 0040 decision 7), and each one
+  // declares the models it can run. Mirror of the backend's
+  // HarnessCatalogEntry - keep both in sync (e2e-contract-rules).
+  listHarnesses: async () => {
+    const resp = await fetch("/api/bff/harnesses", { credentials: "include" });
+    return (await resp.json()) as {
+      harnesses: Array<{
+        key: string;
+        name: string;
+        models: Array<{ value: string; name: string }>;
+        currentModel: string | null;
+        error: string | null;
+      }>;
+    };
+  },
   // Models (direct fetch - route not visible to Eden treaty)
   listModels: async () => {
     const resp = await fetch("/api/bff/models", { credentials: "include" });
@@ -602,6 +621,13 @@ export const api = {
     input?: Record<string, unknown>;
     artifacts?: string[];
   }) => unwrap(client.api["workflow-executions"].post(body)),
+  /** The pending proposal for a target (ADR 0040: an MCP tool proposes, a page adopts), or null
+   *  when nothing is waiting. */
+  getPendingProposal: (kind: "agent_config" | "workflow_definition", targetId: string) =>
+    unwrap(client.api.proposals({ kind })({ targetId }).get()),
+  /** Say what the page did with it. A second decision on the same proposal is refused (409). */
+  resolveProposal: (id: string, decision: "adopted" | "discarded") =>
+    unwrap(client.api["proposal-decisions"]({ id }).post({ decision })),
   getWorkflowExecutionTrace: (executionId: string) =>
     unwrap(client.api["workflow-executions"]({ executionId }).trace.get()),
   cancelWorkflowExecution: (executionId: string) =>

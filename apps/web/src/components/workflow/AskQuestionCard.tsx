@@ -1,6 +1,6 @@
 "use client";
 
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/agent-contract";
+import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
 import { Questionnaire } from "@shadcn/react/questionnaire";
 import { MessageCircle, Sparkles } from "lucide-react";
 import { MonoLabel, StatusPill } from "@/components/patterns";

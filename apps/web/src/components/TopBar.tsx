@@ -12,17 +12,16 @@ import { pendingActionsQuery } from "@/features/runs/queries";
 import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
 
-/** Runtime chip labels for known backend kinds; unknown kinds fall back. */
+/** Runtime chip labels for known harnesses; unknown harnesses fall back. */
 const CHIP_LABEL: Record<string, string> = {
   oma: "oma native",
   claude: "claude cli",
-  "claude-code": "claude cli",
   pi: "pi cli",
   omp: "omp cli",
 };
 
-function chipLabel(kind: string) {
-  return CHIP_LABEL[kind] ?? `${kind.toLowerCase()} cli`;
+function chipLabel(harness: string) {
+  return CHIP_LABEL[harness] ?? `${harness.toLowerCase()} cli`;
 }
 
 function OnlinePill() {
@@ -43,16 +42,16 @@ function OnlinePill() {
 
 function RuntimeChips({ agents }: { agents?: AgentRow[] }) {
   const enabled = (agents ?? []).filter((a) => a.enabled !== false);
-  const kinds = [...new Set(enabled.map((a) => a.backendKind).filter(Boolean))];
+  const kinds = [...new Set(enabled.map((a) => a.harness).filter(Boolean))];
   if (kinds.length === 0) return null;
   return (
     <span className="hidden items-center gap-1 lg:flex">
-      {kinds.slice(0, 4).map((kind) => (
+      {kinds.slice(0, 4).map((harness) => (
         <span
-          key={kind}
+          key={harness}
           className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)"
         >
-          {chipLabel(kind)}
+          {chipLabel(harness)}
         </span>
       ))}
     </span>

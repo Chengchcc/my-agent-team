@@ -19,13 +19,12 @@ const QUERY_FN_DEBT = new Set<string>();
 const EVENT_SOURCE_DEBT = new Set<string>();
 
 /** Known lark-bot bare casts. ingest.ts needs api-contract response schemas;
- *  bindings-sqlite.ts / render.ts are local type narrowings, not contract
+ *  bindings-sqlite.ts is a local type narrowing, not contract
  *  casts — kept here only because the §3 grep is intentionally crude. */
 const LARK_CAST_DEBT = new Set([
   "apps/lark-bot/src/ingest.ts",
   "apps/lark-bot/src/bootstrap.ts",
   "apps/lark-bot/src/bindings-sqlite.ts",
-  "apps/lark-bot/src/render.ts",
 ]);
 
 /** Bare process.env readers that are deliberate bridges, not config parsing:
@@ -37,6 +36,8 @@ const ENV_BRIDGE = new Set([
   "apps/backend/src/config.ts",
   "apps/backend/src/infra/oma-command.ts",
   "apps/backend/src/testing/app-harness.ts",
+  "apps/backend/src/features/agent-run/acp/fake-acp-harness.ts",
+  "apps/backend/src/features/agent-run/protocol/debug-log.ts",
 ]);
 
 const failures: string[] = [];

@@ -40,24 +40,41 @@ export function TimelineApprovalCard({
           </span>
         )}
         <span className="flex-1" />
-        <Button
-          type="button"
-          size="sm"
-          data-testid="approval-allow"
-          className="h-6 bg-emerald-600 px-2 text-xs text-white hover:bg-emerald-500"
-          onClick={() => onResolveApproval?.(runId, approval.callId, "allow")}
-        >
-          Allow
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          data-testid="approval-deny"
-          className="h-6 bg-red-600 px-2 text-xs text-white hover:bg-red-500"
-          onClick={() => onResolveApproval?.(runId, approval.callId, "deny")}
-        >
-          Deny
-        </Button>
+        {approval.response ? (
+          // The request is over: offering the buttons again would invite a click the server can
+          // only answer with 409 (it validates the durable row).
+          <span
+            data-testid="approval-settled"
+            className="rounded px-1 py-0.5 text-[11px] text-(--mute)"
+          >
+            {approval.response === "accept"
+              ? "Approved"
+              : approval.response === "cancel"
+                ? "Cancelled"
+                : "Declined"}
+          </span>
+        ) : (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              data-testid="approval-allow"
+              className="h-6 bg-emerald-600 px-2 text-xs text-white hover:bg-emerald-500"
+              onClick={() => onResolveApproval?.(runId, approval.callId, "allow")}
+            >
+              Allow
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              data-testid="approval-deny"
+              className="h-6 bg-red-600 px-2 text-xs text-white hover:bg-red-500"
+              onClick={() => onResolveApproval?.(runId, approval.callId, "deny")}
+            >
+              Deny
+            </Button>
+          </>
+        )}
       </div>
       {approval.detail && (
         <pre

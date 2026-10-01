@@ -2,9 +2,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync }
 import { join } from "node:path";
 import { parseWorkflow } from "@chengchenccc/workflow";
 import { Elysia, t } from "elysia";
-import { sseResponse } from "../../http/response.js";
 import { HttpError } from "../../infra/errors.js";
-import type { WorkflowDefinitionEvent, WorkflowDefinitionEventBus } from "./definition-events.js";
 import { dryRunWorkflow } from "./dry-run.js";
 import type { WorkflowExecutionService } from "./service.js";
 
@@ -33,7 +31,6 @@ export function workflowRoutes(deps: {
   workflowDir: string;
   resyncTriggers?: () => Promise<void>;
   /** Emits a "changed" event on workflow writes (SSE live refresh). */
-  definitionEvents?: WorkflowDefinitionEventBus;
 }) {
   const svc = deps.workflowExecutionService;
   const dir = deps.workflowDir;
@@ -109,7 +106,6 @@ export function workflowRoutes(deps: {
           );
         }
         writeFileSync(file, JSON.stringify(body.definition, null, 2));
-        deps.definitionEvents?.emit(params.workflowId, { trigger: "save" });
         void deps.resyncTriggers?.();
         return { ok: true, definition: body.definition };
       },
@@ -119,47 +115,7 @@ export function workflowRoutes(deps: {
         }),
       },
     )
-    .get("/api/workflow-definitions/:workflowId/events", ({ request, params: { workflowId } }) => {
-      const bus = deps.definitionEvents;
-      if (!bus) throw new HttpError("definition events not configured", 501);
-      const defEvents: WorkflowDefinitionEventBus = bus;
-      async function* stream(): AsyncIterable<WorkflowDefinitionEvent | { _heartbeat: boolean }> {
-        const sub = defEvents.subscribe(workflowId);
-        const it = sub.stream[Symbol.asyncIterator]();
-        try {
-          // M6: heartbeat every 15s so proxies/browsers never idle-timeout
-          // the connection (reconnects previously amplified the dead-queue
-          // leak); unsubscribe on ANY exit path so the bus Set drains.
-          let pending: Promise<IteratorResult<WorkflowDefinitionEvent>> | null = null;
-          for (;;) {
-            let timer: ReturnType<typeof setTimeout> | undefined;
-            const tick = new Promise<null>((resolve) => {
-              timer = setTimeout(() => resolve(null), 15_000);
-            });
-            timer?.unref?.();
-            if (!pending) pending = it.next();
-            const winner = await Promise.race([pending, tick]);
-            if (winner === null) {
-              yield { _heartbeat: true };
-              continue;
-            }
-            pending = null;
-            if (winner.done) return;
-            yield winner.value;
-          }
-        } finally {
-          sub.unsubscribe();
-        }
-      }
-      return sseResponse(
-        stream(),
-        (ev) =>
-          "_heartbeat" in ev
-            ? { id: `${ev._heartbeat}`, event: "ping", data: null }
-            : { id: String(ev.ts), event: "changed", data: ev },
-        request.signal,
-      );
-    })
+
     .post(
       "/api/workflow-definitions/:workflowId/dry-run",
       async ({ params, body }) => {
@@ -251,44 +207,6 @@ export function workflowRoutes(deps: {
       const ok = await svc.deleteExecution(params.executionId);
       return { ok };
     })
-    .get(
-      "/api/workflow-executions/:executionId/events",
-      async ({ request, params: { executionId } }) => {
-        const row = await svc.getExecution(executionId);
-        if (!row) throw new HttpError("Execution not found", 404);
-        async function* merged(): AsyncGenerator<{
-          event: string;
-          executionId: string;
-          ts: number;
-          data: unknown;
-          seq?: number;
-        }> {
-          // Subscribe FIRST (registration is synchronous — events buffer in
-          // the queue), then replay persisted history, then stream live.
-          // This closes the replay gap; consumers tolerate rare duplicates.
-          const bus = await svc.subscribeEvents(executionId);
-          try {
-            const alreadyTerminal = ["success", "failure", "custom"].includes(row!.status);
-            const history = await svc.listExecutionEvents(executionId);
-            for (const ev of history) {
-              yield { event: ev.event, executionId, ts: ev.ts, data: ev.data, seq: ev.seq };
-            }
-            if (alreadyTerminal) return;
-            for await (const ev of bus.stream) {
-              yield ev;
-            }
-          } finally {
-            // M6: client disconnect / terminal must drain the bus queue.
-            bus.unsubscribe();
-          }
-        }
-        return sseResponse(
-          merged(),
-          (ev) => ({ id: String(ev.ts), event: "wf", data: ev }),
-          request.signal,
-        );
-      },
-    )
     .get("/api/workflow-executions/:executionId", async ({ params }) => {
       const row = await svc.getExecution(params.executionId);
       if (!row) throw new HttpError("Execution not found", 404);

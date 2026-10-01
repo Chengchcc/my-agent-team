@@ -2,6 +2,8 @@
 
 本页是唯一谈「还没做」的地方。wiki 的其余部分只描述代码此刻的样子，任何前瞻性的东西都收在这里，并写明它依赖哪些现有抽象。
 
+外部对照与可吸收概念（全局搜索、提醒、任务可见化、agent 间协作窄路）单独记在 [Raft 产品概念吸收笔记](./notes/raft-product-notes.md)；那篇是方向输入，本页只记代码现状与缺口。
+
 每一条都对着代码核过：不是「想做」，而是「确实没有」。做完就从上面对应的功能页补上描述，然后把这里的条目删掉。
 
 ## 怎么读这一页
@@ -66,8 +68,6 @@
 **技能包的调用计数没有。** 设计里有「今日调用」这类统计，需要工具调用事件带上来源包 id。
 
 **配置期的 `(backendKind, model)` 一致性校验已补（2026-09-24）。** `POST/PATCH /api/agents` 现在会把 `provider/model`（经 `MODEL_ALIASES` 归一）对照目标种类的目录，目录里没有就 400（`model-check.ts`；目录列不出来时降级为放行，配置不依赖子进程活着）。PATCH 只换 `backendKind` 时也会用旧模型对新目录查一次——这是当初真机翻车的那条路（`oma + deepseek/deepseek-chat` → 200，run 阶段才死）。
-
-**omp 静态表已对齐实际可跑面（2026-09-24）。** `packages/adapter-omp-agent/src/model-catalog.ts` 现在只列部署 `models.yml` 真正声明的 `deepseek-v4-pro`/`deepseek-v4-flash`——`deepseek-chat`/`deepseek-reasoner` 实测会让 omp 启动即 fatal（回落到无 key 的默认 openrouter provider），不再出现在可选列表；元数据也换成了实测值。`available: true` 仍是硬编码（adapter 读不到 omp 自己 models.yml 里的内联 key），但配置期 `(backendKind, model)` 校验和 `/api/models` 的服务探测已把真正的诚实缺口补上。
 
 ## 安全
 

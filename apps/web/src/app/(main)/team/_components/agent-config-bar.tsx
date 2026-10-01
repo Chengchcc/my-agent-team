@@ -12,45 +12,24 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { agentKeys } from "@/features/agents/query-keys";
-import { useModelList } from "@/features/models/hooks";
+import { useHarnessList } from "@/features/models/hooks";
 import { type AgentRow, api } from "@/lib/api";
-
-const BACKEND_ORDER = ["oma", "claude_code", "pi", "omp"];
 
 const labelClass = "text-(--text-cap) uppercase tracking-kicker font-semibold text-(--mute)";
 
-/** Inline config bar (spec §4): Backend / Model / Reasoning effort
- *  dropdowns + a Fallback switch. Each change autosaves via PATCH with a
- *  500ms debounce; failures toast and roll the field back to its prior
- *  value. The payloads never carry an `anthropic:` prefix — the backend
- *  persists `{model:{provider,model}}` / `{backendKind}` / `{reasoningEffort}`
- *  verbatim. */
+/** Inline config bar (spec §4): Harness / Model / Reasoning effort dropdowns +
+ *  an Enabled switch. Each change autosaves via PATCH with a 500ms debounce;
+ *  failures toast and roll the field back to its prior value. One adapter drives
+ *  every harness (ADR 0040 decision 7), so the two axes are the harness key and
+ *  the model id in that harness's own vocabulary — the model list comes from the
+ *  harness's own declaration, never from a product-wide catalogue. */
 export function AgentConfigBar({ agent }: { agent: AgentRow }) {
   const qc = useQueryClient();
-  const { data: modelData } = useModelList();
-  const providers = modelData?.providers ?? [];
+  const { data: harnessData } = useHarnessList();
+  const harnesses = useMemo(() => harnessData?.harnesses ?? [], [harnessData]);
 
-  const groups = useMemo(
-    () =>
-      providers.flatMap((p) =>
-        p.models.map((m) => ({
-          id: `${p.id}/${m.id}`,
-          name: m.name ?? m.id,
-          provider: p.id,
-          backendKind: m.backendKind ?? "oma",
-          available: m.available !== false,
-        })),
-      ),
-    [providers],
-  );
-
-  const backendKinds = useMemo(() => {
-    const seen = new Set(groups.map((g) => g.backendKind));
-    return BACKEND_ORDER.filter((k) => seen.has(k));
-  }, [groups]);
-
-  const [backendKind, setBackendKind] = useState(agent.backendKind ?? "oma");
-  const [model, setModel] = useState(`${agent.modelProvider}/${agent.modelName}`);
+  const [harness, setHarness] = useState(agent.harness);
+  const [model, setModel] = useState(agent.model);
   const [effort, setEffort] = useState(agent.reasoningEffort ?? "");
   const [enabled, setEnabled] = useState(agent.enabled ?? true);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -63,9 +42,21 @@ export function AgentConfigBar({ agent }: { agent: AgentRow }) {
     [],
   );
 
-  const filteredModels = useMemo(
-    () => groups.filter((g) => g.backendKind === backendKind),
-    [groups, backendKind],
+  // A harness the probe could not reach still renders: its reason becomes the
+  // placeholder instead of the field silently vanishing. And a harness the
+  // registry does not know (hand-edited agent.yml) is shown as configured, so
+  // the bar never misreports what will actually be spawned.
+  const entry = harnesses.find((h) => h.key === harness);
+  const models = entry?.models ?? [];
+  const options = useMemo(
+    () =>
+      harnesses.some((h) => h.key === harness)
+        ? harnesses
+        : [
+            { key: harness, name: harness, models: [], currentModel: null, error: null },
+            ...harnesses,
+          ],
+    [harnesses, harness],
   );
 
   const commit = (body: Record<string, unknown>, rollback: () => void) => {
@@ -87,21 +78,29 @@ export function AgentConfigBar({ agent }: { agent: AgentRow }) {
     }, 500);
   };
 
-  const onBackend = (v: string | null) => {
-    const next = v ?? "oma";
-    const prev = backendKind;
-    setBackendKind(next);
-    commit({ backendKind: next }, () => setBackendKind(prev));
+  const onHarness = (v: string | null) => {
+    const next = v ?? harness;
+    if (next === harness) return;
+    const prevHarness = harness;
+    const prevModel = model;
+    // A model id only means something inside the harness that serves it, so a
+    // harness switch drops a model the new harness does not declare, rather
+    // than persisting an id that would fail at run time.
+    const declared = harnesses.find((h) => h.key === next)?.models ?? [];
+    const kept = declared.some((m) => m.value === model) ? model : "";
+    setHarness(next);
+    setModel(kept);
+    commit({ harness: next, model: kept }, () => {
+      setHarness(prevHarness);
+      setModel(prevModel);
+    });
   };
 
   const onModel = (v: string | null) => {
     const next = v ?? "";
     const prev = model;
     setModel(next);
-    const slash = next.indexOf("/");
-    const provider = slash > 0 ? next.slice(0, slash) : "";
-    const name = slash > 0 ? next.slice(slash + 1) : next;
-    commit({ model: { provider, model: name } }, () => setModel(prev));
+    commit({ model: next }, () => setModel(prev));
   };
 
   const onEffort = (v: string | null) => {
@@ -121,15 +120,15 @@ export function AgentConfigBar({ agent }: { agent: AgentRow }) {
     <section className="rounded-(--radius-card) border border-(--hairline) bg-(--panel) px-4 py-3">
       <div className="flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1">
-          <span className={labelClass}>Backend</span>
-          <Select value={backendKind} onValueChange={onBackend}>
+          <span className={labelClass}>Harness</span>
+          <Select value={harness} onValueChange={onHarness}>
             <SelectTrigger size="sm" className="min-w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {backendKinds.map((k) => (
-                <SelectItem key={k} value={k}>
-                  {k}
+              {options.map((h) => (
+                <SelectItem key={h.key} value={h.key}>
+                  {h.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -140,11 +139,12 @@ export function AgentConfigBar({ agent }: { agent: AgentRow }) {
           <span className={labelClass}>Model</span>
           <Select value={model} onValueChange={onModel}>
             <SelectTrigger size="sm" className="min-w-48">
-              <SelectValue placeholder="Select model…" />
+              <SelectValue placeholder={entry?.error ?? "Harness default"} />
             </SelectTrigger>
             <SelectContent>
-              {filteredModels.map((m) => (
-                <SelectItem key={m.id} value={m.id} disabled={!m.available}>
+              <SelectItem value="">Harness default</SelectItem>
+              {models.map((m) => (
+                <SelectItem key={m.value} value={m.value}>
                   {m.name}
                 </SelectItem>
               ))}

@@ -35,8 +35,6 @@ export interface CreateConversationInput {
 
 export interface AppendLedgerInput {
   conversationId: string;
-  senderMemberId: string;
-  addressedTo?: string[];
   kind: LedgerKind;
   content: string; // JSON-encoded
   ts: number;

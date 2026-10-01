@@ -6,7 +6,7 @@ tags: [runs, lark, backend]
 
 # 飞书消息端到端
 
-一句话：本页是飞书端一条消息的权威端到端链路。lark-cli 的事件经幂等占位与绑定解析后 POST 给 conversation API，backend 走与 Web 完全相同的入队、派发、终态提交路径，sse-watcher 再从该会话的 conversation SSE 上把终态 assistant 行渲染成纯文本发回飞书。
+一句话：本页是飞书端一条消息的权威端到端链路。lark-cli 的事件经幂等占位与绑定解析后 POST 给 conversation API，backend 走与 Web 完全相同的入队、派发、终态提交路径，watcher 再从该会话的 AHP chat 频道上把新出现的 assistant 片段渲染成纯文本发回飞书。
 
 ## 范围
 
@@ -18,7 +18,7 @@ tags: [runs, lark, backend]
 
 - `apps/lark-bot/src/main.ts` — 事件消费循环、watcher 表与 ingest 调用
 - `apps/lark-bot/src/ingest.ts` — 整条入站路径
-- `apps/lark-bot/src/sse-watcher.ts` — 整条出站路径
+- `apps/lark-bot/src/ahp-watcher.ts` 与 `ahp-delivery.ts` — 整条出站路径
 - `apps/lark-bot/src/bindings-sqlite.ts` — 本地四表与推送游标
 - `apps/backend/src/features/conversation/{http.ts,service.ts}` — 消息写入与触发
 - `apps/backend/src/features/agent-run/{adapter-sqlite-enqueue.ts,execution-dispatch.ts,adapter-sqlite-runs.ts}` — 入队、派发、终态提交
@@ -37,15 +37,15 @@ tags: [runs, lark, backend]
 9. **子进程期间**：adapter 为这个 run spawn 一个 oma 子进程，子进程事件经 `mapRunEvent` 变成 `text_delta`、`thinking_delta`、`status` 等 transient 事件，只广播给当前进程的订阅者，**不落账本**。飞书看不到任何中间态，这个期间它什么也不发。
 10. **确认入站**：POST 成功后 `confirmInbound` 回填 `conversationId` 与 `ledgerSeq`，`status` 转为 `posted`。POST 之后崩掉的话事件不会重放，但账本里那条人类消息已经生效。
 11. **终态提交**（`execution-dispatch.ts` 的 `settleOutcome` → `commitCompletedRun`）：outcome 为 `completed` 时，一个事务里把 canonical 消息逐条写进账本，assistant 的 messageId 是 `run:<runId>:assistant:<n>`，工具行形如 `run:<runId>:tool:<index>`，`state` 统一 `done`；非 `completed` 的终态不写 assistant 行，另由 `onRunFailed` 落一条 `run:<runId>:error` 的失败气泡。
-12. **回推到 watcher**：`onRunCommitted` 对每个提交的 seq 调 `notifySeq`，在线的 conversation SSE 订阅者立刻收到这些帧；漏掉的靠 `subscribeConversation` 的 5 秒轮询兜底。
-13. **出站过滤**（`apps/lark-bot/src/sse-watcher.ts` 的 `processEntry`）：按 seq、`surface.control`、非 message 帧、`role` 为 `system` 或 `user` 依次过滤；`tool` 行不在排除名单里。
-14. **去重**：以 `(conversationId, messageId, larkChatId)` 查 `message_delivery`，命中且上一状态是终态就跳过。未命中则先 `upsertMessageDelivery` 记投递意图，再发送，最后推进 `pushedSeq`。
-15. **投递**：`renderRevision` 取出文本并过 `normalizeForLarkMarkdown`（换行、code fence 收尾、超长截断），再经 `lark-cli im +messages-send --idempotency-key <conversationId:messageId:seq>` 发出。失败退避重试 3 次，耗尽后只记日志并抛错，`pushedSeq` 因此停在原地。
-16. **表面恢复**：进程重启后按 `chat_binding` 为每个会话重开 watcher，从各自的 `pushedSeq` 继续。重放的帧被 `message_delivery` 的终态判断挡掉，所以不会重复发送。
+12. **回推到 watcher**：`onRunCommitted` 把这一轮按投影重述到 chat 频道（`chat/turnStarted` 整轮替换加各片段，再 `chat/turnComplete` 折进历史），在线的 watcher 由上游 reducer 折出新状态。
+13. **投递判定**（`apps/lark-bot/src/ahp-delivery.ts` 的 `deliverParts`）：只处理 `markdown` 片段，`systemNotification` 交给续接分支；工具行没有 markdown 片段，所以原始输出不进群聊。
+14. **去重**：以 `(conversationId, messageId, larkChatId)` 查 `message_delivery`，命中且上一状态是终态就跳过。未命中则先记投递意图（`streaming`），发送成功再写终态。
+15. **投递**：片段的正文经 `lark-cli im +messages-send --idempotency-key <conversationId:messageId:larkChatId>` 发出。发送失败记 `error` 状态。
+16. **表面恢复**：进程重启后按 `conversation_binding` 为每个会话重开 watcher，重新订阅即可。重放的片段被 `message_delivery` 的终态判断挡掉，所以不会重复发送。
 
 ## 重绑（surface.control）
 
-backend 的 `startNewConversationForSurface` 在新会话建好后往旧会话账本写一条 `lark.start_new_conversation`，带 `oldConversationId`、`newConversationId`、`requestedByRunId`，同一 `idempotencyKey` 重复调用返回既有结果。watcher 收到这类帧后调 `rebindChatConversation`，重置新会话的 `pushedSeq`，通过 `onRebind` 关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。
+backend 的 `startNewConversationForSurface` 在新会话建好后往旧会话账本写一条 `lark.start_new_conversation`，带 `oldConversationId`、`newConversationId`、`requestedByRunId`，同一 `idempotencyKey` 重复调用返回既有结果。watcher 在 chat 状态里读到续接提示（`systemNotification` 片段）后调 `rebindConversation`，通过 `onRebind` 关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。这条提示目前只在快照里到达，所以改绑要等一次重新订阅。
 
 HTTP 入口是 `POST /api/conversations/:id/start-new`，目前只有测试调用，没有生产触发方。
 
@@ -63,7 +63,7 @@ HTTP 入口是 `POST /api/conversations/:id/start-new`，目前只有测试调�
 
 1. 入站幂等键是飞书事件与消息 id；出站去重键是 `(conversationId, messageId, larkChatId)`。
 2. 投递意图先落库再发送，发送失败不重发。
-3. `pushedSeq` 只在投递路径走完之后推进。
+3. 投递只在发送成功后才写终态；重放靠 `message_delivery` 的终态判断挡下。
 4. 飞书端不写账本，也不向后端声明身份。
 5. 「飞书 chat 到 conversation」的映射只存在于本地 `chat_binding`，后端不感知。
 

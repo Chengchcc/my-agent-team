@@ -3,7 +3,7 @@ import type {
   AskQuestionItem,
   AskQuestionOption,
   AskQuestionResult,
-} from "@chengchenccc/agent-contract";
+} from "@chengchenccc/message";
 import type { PluginTool } from "../index.js";
 
 /** An option as the contract defines it. A bare string is the shorthand models

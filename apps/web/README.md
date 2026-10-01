@@ -8,9 +8,9 @@ Next.js 控制台，后端面向人的入口：把后端的 HTTP/SSE API 包装�
 
 渲染层的关键组件都在 `src/components/`：`ConversationCanvas`、`Timeline`、`MessageBubble`、`Composer`、`ReasoningTrace`、`TodoPanel`，输入队列与审批卡片分别是独立文件 `ComposerInputQueue.tsx`、`TimelineApprovalCard.tsx`。
 
-## 两条 SSE
+## 实时状态的两条来源
 
-对话流（`/api/bff/conversations/:id/events`）是 canonical 输入：每次挂载全量重放，重连走 `Last-Event-ID`，靠水位线加滑窗去重。每个 Run 另有一条流（`/api/bff/agent-runs/:runId/events`），只产生临时气泡——canonical 行到达即被丢弃，失败运行的气泡留到刷新。两条都由 `src/hooks/useConversation.ts` 消费。
+对话状态来自 AHP：`src/lib/ahp.ts` 经 BFF 取票连上 `/ws/ahp`，快照给历史、动作流给增量，上游 reducer 折出状态，`src/lib/chat-state.ts` 映射成列表与在飞轮次。run 流（`/api/bff/agent-runs/:runId/events`）只剩流规则提示与 workflow 进度，两者都由 `src/hooks/useConversation.ts` 消费。
 
 ## 取数边界
 

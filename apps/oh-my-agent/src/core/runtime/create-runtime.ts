@@ -1,15 +1,5 @@
-import type {
-  AskQuestionInput,
-  AskQuestionResult,
-  BackendInputMessage,
-  BackendRunInput,
-  BackendRunOutcome,
-  BackendRunSegment,
-  ProjectedHistoryItem,
-} from "@chengchenccc/agent-contract";
 import type { ModelRuntime } from "@chengchenccc/ai";
-
-import type { Message } from "@chengchenccc/message";
+import type { AskQuestionInput, AskQuestionResult, Message } from "@chengchenccc/message";
 import type { RunEventEnvelope } from "../../protocol/index.js";
 import { mapRunEvent } from "../../protocol/index.js";
 import type { CoordinationRegistry } from "../coordination/registry.js";
@@ -20,6 +10,13 @@ import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import type { RuntimeKnobs } from "../settings/project-settings.js";
 import type { ApprovalHandler } from "./approval.js";
 import { latestCompaction } from "./compaction.js";
+import type {
+  BackendInputMessage,
+  BackendRunInput,
+  BackendRunOutcome,
+  BackendRunSegment,
+  ProjectedHistoryItem,
+} from "./contract/index.js";
 import type { Plugin } from "./plugin.js";
 import { assembleRunRuntime, type RunRuntime, type RunRuntimeDeps } from "./run-runtime.js";
 import type { ToolFilter } from "./tool-filter.js";
@@ -139,7 +136,7 @@ export interface CompactionSummary {
 export interface OmaRuntime {
   /** Start the Run's loop. Returns the segment whose outcome is the Run's
    *  ONLY terminal result. A Runtime accepts exactly one run(). */
-  run(input: BackendRunInput<"oma">): Promise<BackendRunSegment<"oma">>;
+  run(input: BackendRunInput): Promise<BackendRunSegment>;
   /** Inject a steer input into the live loop. Throws when no loop is live. */
   steer(input: BackendInputMessage): Promise<void>;
   /** Request cancellation of the live loop. The segment's outcome still
@@ -414,7 +411,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
         }
       })();
 
-      const segment: BackendRunSegment<"oma"> = {
+      const segment: BackendRunSegment = {
         events: (async function* () {
           while (!closed || queue.length > 0) {
             if (queue.length > 0) {

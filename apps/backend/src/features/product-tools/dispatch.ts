@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { pendingActionId } from "../agent-run/domain.js";
 import type { ProductToolsService } from "./service.js";
 
 /** Wire identity the child attaches to a call (`_meta.identity` on the MCP
@@ -252,7 +253,7 @@ export function createProductToolsDispatch(deps: {
       // from the authoritative run so a stale echo cannot break the service's
       // `${runId}:${callId}` invariant.
       const callId = str(meta?.identity?.callId) || str(argIdentity.callId) || randomUUID();
-      const idempotencyKey = `${runId}:${callId}`;
+      const idempotencyKey = pendingActionId(runId, callId);
       try {
         return await service.call({
           identity: {

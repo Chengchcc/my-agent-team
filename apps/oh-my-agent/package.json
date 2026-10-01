@@ -23,7 +23,6 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.5.1",
     "@chengchenccc/adapter-mcp": "workspace:*",
-    "@chengchenccc/agent-contract": "workspace:*",
     "@chengchenccc/ai": "workspace:*",
     "@chengchenccc/config": "workspace:*",
     "@chengchenccc/message": "workspace:*",
@@ -37,8 +36,7 @@
   "devDependencies": {
     "@chengchenccc/test-helpers": "workspace:*",
     "bun-types": "latest",
-    "typescript": "^5.7.0",
-    "@chengchenccc/adapter-oma-agent": "workspace:*"
+    "typescript": "^5.7.0"
   },
   "files": [
     "dist",

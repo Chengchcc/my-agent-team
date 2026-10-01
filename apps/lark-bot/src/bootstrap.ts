@@ -47,7 +47,7 @@ function acquirePidLock(stateRoot: string, agentId: string): string {
 }
 
 /**
- * Startup: acquire PID lock, fetch agent info, open sqlite, scan existing chat bindings for SSE watcher recovery.
+ * Startup: acquire PID lock, fetch agent info, open sqlite, scan existing chat bindings for AHP watcher recovery.
  * If agent is archived/not found, exit cleanly (registry won't restart).
  */
 export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
@@ -95,7 +95,7 @@ export async function bootstrap(args: LarkBotArgs): Promise<BootstrapState> {
   // Open bindings database
   const db = openBindings(args.agentId, args.stateRoot);
 
-  // Scan existing conversation bindings for SSE watcher recovery
+  // Scan existing conversation bindings for AHP watcher recovery
   const bindings = listConversationBindings(db);
   const restoredConversationIds = bindings.map((b) => b.conversationId);
   if (restoredConversationIds.length > 0) {

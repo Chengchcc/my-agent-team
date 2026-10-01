@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useModelList } from "@/features/models/hooks";
+import { useHarnessList } from "@/features/models/hooks";
 import type { ChatModelOverride } from "@/lib/api";
 
 export type { ChatModelOverride };
@@ -24,8 +24,12 @@ function shortName(modelId: string): string {
   return idx >= 0 ? modelId.slice(idx + 1) : modelId;
 }
 
-/** Per-conversation model override picker for the chat composer.
- *  Selection persists in localStorage; null = agent default. */
+/** Per-conversation model override picker for the chat composer (ADR 0040
+ *  decision 7): the two axes are the harness (which agent binary runs the
+ *  turn) and the model in that harness's own vocabulary, both from
+ *  /api/harnesses — the harness's own declaration, never a product-wide
+ *  catalogue. "Harness default" lets the harness decide. Selection persists
+ *  in localStorage; null = agent default. */
 export function ModelPicker({
   value,
   onChange,
@@ -33,13 +37,12 @@ export function ModelPicker({
   value: ChatModelOverride | null;
   onChange: (v: ChatModelOverride | null) => void;
 }) {
-  const { data } = useModelList();
+  const { data } = useHarnessList();
 
-  const providers = data?.providers ?? [];
-  const selectedModel = providers
-    .flatMap((p) => p.models)
-    .find((m) => value && m.id === value.modelId && m.backendKind === value.backendKind);
-  const reasoning = selectedModel?.reasoning === true;
+  const harnesses = data?.harnesses ?? [];
+  const selectedHarness = harnesses.find((h) => value?.modelId === `acp/${h.key}`);
+  const selectedModel =
+    selectedHarness?.models.find((m) => value?.harnessModel === m.value) ?? null;
 
   return (
     <DropdownMenu>
@@ -49,10 +52,14 @@ export function ModelPicker({
             variant="ghost"
             size="sm"
             className="h-8 shrink-0 px-2 text-[11px] text-(--mute) hover:text-(--body) mb-0.5"
-            title="Model for the next run (default: agent config)"
+            title="Harness and model for the next run (default: agent config)"
           >
-            {value ? shortName(value.modelId) : "Auto"}
-            {reasoning && value?.reasoningEffort ? ` · ${value.reasoningEffort}` : ""}
+            {value
+              ? selectedModel
+                ? `${selectedHarness?.name ?? shortName(value.modelId)} · ${selectedModel.name}`
+                : (value.harnessModel ?? shortName(value.modelId))
+              : "Auto"}
+            {value?.reasoningEffort ? ` · ${value.reasoningEffort}` : ""}
             <ChevronDown size={12} />
           </Button>
         }
@@ -64,49 +71,61 @@ export function ModelPicker({
         >
           Agent default
         </DropdownMenuItem>
-        {providers.length === 0 && (
+        {harnesses.length === 0 && (
           <div className="px-3 py-2 text-xs/relaxed text-(--mute)">
-            No models configured. Add a provider key in{" "}
+            No harness reachable. Check the agent binaries, or the oma provider key in{" "}
             <Link href="/system/settings" className="text-(--primary) underline">
               Settings
             </Link>
             .
           </div>
         )}
-        {providers.map((p) => (
-          <div key={p.id}>
+        {harnesses.map((h) => (
+          <div key={h.key}>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-[10px] uppercase tracking-kicker">
-              {p.name}
+              {h.name}
             </DropdownMenuLabel>
-            {p.models.map((m) => (
+            <DropdownMenuItem
+              className={
+                value?.modelId === `acp/${h.key}` && !value?.harnessModel
+                  ? "bg-(--canvas-soft)"
+                  : ""
+              }
+              onClick={() =>
+                onChange({
+                  backendKind: "acp",
+                  modelId: `acp/${h.key}`,
+                  reasoningEffort: undefined,
+                })
+              }
+            >
+              <span className="text-(--mute)">Harness default</span>
+            </DropdownMenuItem>
+            {h.models.map((m) => (
               <DropdownMenuItem
-                key={`${m.backendKind}/${m.id}`}
-                disabled={m.available === false}
+                key={m.value}
                 className={
-                  value?.modelId === m.id && value?.backendKind === m.backendKind
+                  value?.modelId === `acp/${h.key}` && value?.harnessModel === m.value
                     ? "bg-(--canvas-soft)"
                     : ""
                 }
                 onClick={() =>
                   onChange({
-                    backendKind: m.backendKind,
-                    modelId: m.id,
+                    backendKind: "acp",
+                    modelId: `acp/${h.key}`,
+                    harnessModel: m.value,
                     reasoningEffort: undefined,
                   })
                 }
               >
-                <div className="flex w-full items-center justify-between gap-2">
-                  <span className="truncate">{shortName(m.id)}</span>
-                  <span className="shrink-0 text-[10px] text-(--mute)">
-                    ${m.cost.input}/${m.cost.output}
-                  </span>
-                </div>
+                <span className="truncate">{m.name}</span>
               </DropdownMenuItem>
             ))}
+            {h.error && <div className="px-3 py-1 text-[10px] text-(--warn)">{h.error}</div>}
           </div>
         ))}
-        {reasoning && (
+        {value && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-[10px] uppercase tracking-kicker">
@@ -119,14 +138,7 @@ export function ModelPicker({
                   size="sm"
                   variant={value?.reasoningEffort === e ? "default" : "outline"}
                   className="h-6 flex-1 px-1 text-[10px]"
-                  onClick={() =>
-                    value &&
-                    onChange({
-                      backendKind: value.backendKind,
-                      modelId: value.modelId,
-                      reasoningEffort: e,
-                    })
-                  }
+                  onClick={() => value && onChange({ ...value, reasoningEffort: e })}
                 >
                   {e}
                 </Button>

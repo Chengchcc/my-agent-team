@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
+import type { ChatState } from "@microsoft/agent-host-protocol";
 import {
   getRunCard,
   insertInputCard,
@@ -16,9 +17,7 @@ import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
 import { renderCard, renderRunCard } from "./card-renderer.js";
 import {
-  applyRunEvent,
-  buildApprovalPrompt,
-  formatDeadline,
+  cardStateFromChatTurn,
   initialRunCardState,
   pendingActionFromBackend,
   toolActivity,
@@ -32,6 +31,74 @@ let db: Database;
 afterAll(() => {
   db?.close();
 });
+
+/** A card state built out of the parts a run produces - the reader's own vocabulary, so a test
+ *  and production cannot describe the same card two different ways. */
+function cardStateOf(spec: {
+  output?: string;
+  tools?: ReadonlyArray<{ toolName: string; activity?: string; status?: string }>;
+  ask?: { callId: string; questions: readonly unknown[] };
+  approval?: { callId: string; toolName?: string; input?: unknown };
+  todos?: readonly unknown[];
+  settled?: "complete" | "error" | "cancelled";
+  error?: string;
+}): RunCardState {
+  const parts: Record<string, unknown>[] = [];
+  if (spec.output !== undefined) parts.push({ kind: "markdown", id: "t0", content: spec.output });
+  for (const tool of spec.tools ?? []) {
+    parts.push({
+      kind: "toolCall",
+      toolCall: {
+        toolCallId: `${tool.toolName}-c`,
+        toolName: tool.toolName,
+        displayName: tool.toolName,
+        status: tool.status ?? "completed",
+        success: true,
+        ...(tool.activity === undefined ? {} : { intention: tool.activity }),
+      },
+    });
+  }
+  const request = spec.ask
+    ? {
+        id: "run-1:call",
+        message: "ask",
+        _meta: {
+          productRequest: { callId: spec.ask.callId, questions: spec.ask.questions },
+        },
+      }
+    : spec.approval === undefined
+      ? undefined
+      : {
+          id: "run-1:call",
+          message: "approval",
+          _meta: { productRequest: { ...spec.approval } },
+        };
+  if (request) parts.push({ kind: "inputRequest", request });
+  if (spec.error !== undefined) {
+    parts.push({ kind: "error", error: { errorType: "run_failed", message: spec.error } });
+  }
+
+  const turn = {
+    id: "run-1",
+    startedAt: new Date(0).toISOString(),
+    message: { text: "go", origin: { kind: "user" } },
+    responseParts: parts,
+    usage: undefined,
+    ...(spec.settled === undefined ? {} : { state: spec.settled }),
+  };
+  const chat = {
+    resource: "ahp-chat:/c1",
+    title: "t",
+    status: 1,
+    modifiedAt: new Date(0).toISOString(),
+    turns: spec.settled === undefined ? [] : [turn],
+    ...(spec.settled === undefined ? { activeTurn: turn } : {}),
+    ...(spec.todos === undefined ? {} : { _meta: { todos: spec.todos } }),
+  } as ChatState;
+  const card = cardStateFromChatTurn(chat, "run-1");
+  if (card === undefined) throw new Error("fixture produced no card state");
+  return card;
+}
 
 describe("run_card store (migration 0002)", () => {
   test("openBindings creates run_card and CRUD roundtrips", () => {
@@ -80,293 +147,6 @@ describe("run_card store (migration 0002)", () => {
   });
 });
 
-describe("applyRunEvent reducer", () => {
-  test("the tool line prefers the structured presentation", () => {
-    // The presentation is the tool's own account of the call; the activity
-    // string is the legacy fallback. A surface must never prefer the
-    // fallback when the structured form is present.
-    let s = initialRunCardState();
-    s = applyRunEvent(s, {
-      type: "native_tool_started",
-      toolName: "bash",
-      callId: "c1",
-      activity: "运行命令：ls",
-      presentation: { title: "运行命令", detail: "ls -la" },
-    });
-    expect(s.activeTool?.label).toBe("运行命令：ls -la");
-
-    s = applyRunEvent(s, {
-      type: "native_tool_completed",
-      toolName: "grep",
-      callId: "c2",
-      activity: "搜索代码：TODO",
-      presentation: { title: "搜索代码", resultSummary: "命中 6 处，涉及 3 个文件" },
-    });
-    expect(s.completedTools.at(-1)?.label).toBe("搜索代码：命中 6 处，涉及 3 个文件");
-  });
-
-  test("pendingActionFromBackend reproduces the live event reduction", () => {
-    // Restart recovery rebuilds the card's pending action from the backend's
-    // durable record; a restored card must be indistinguishable from a live
-    // one, or buttons appear with different payloads than the resolve path
-    // expects.
-    const approvalLive = applyRunEvent(initialRunCardState(), {
-      type: "approval_requested",
-      payload: { callId: "c1" },
-    });
-    expect(pendingActionFromBackend("approval", { callId: "c1" })).toEqual(
-      approvalLive.pendingAction,
-    );
-
-    const questions = [
-      {
-        id: "q1",
-        question: "选一项",
-        kind: "select",
-        allowOther: false,
-        options: [
-          { label: "甲", value: "a" },
-          { label: "乙", value: "b" },
-        ],
-      },
-    ];
-    const askLive = applyRunEvent(initialRunCardState(), {
-      type: "ask_requested",
-      payload: { callId: "c2", questions },
-    });
-    expect(pendingActionFromBackend("ask", { callId: "c2", questions })).toEqual(
-      askLive.pendingAction,
-    );
-  });
-
-  test("pendingActionFromBackend rejects malformed records", () => {
-    expect(pendingActionFromBackend("unknown-kind", {})).toBeNull();
-    expect(pendingActionFromBackend("approval", {})).toBeNull(); // no callId
-    expect(pendingActionFromBackend("ask", { callId: "c" })).toBeNull(); // no questions
-  });
-
-  test("an approval card shows WHAT is being approved (argument, not just tool)", () => {
-    // The live complaint (2026-09-28): the card carried only 批准/拒绝 and an
-    // empty prompt, so the tap was a blind yes/no.
-    const payload = {
-      callId: "c-arg",
-      toolName: "bash",
-      reason: "bash requested approval (permission)",
-      input: { command: "echo lark-resume-acceptance" },
-    };
-    const live = applyRunEvent(initialRunCardState(), {
-      type: "approval_requested",
-      payload,
-    });
-    // The prompt IS the argument: the tool name and the internal reason are
-    // not something a human approves, and the card renders them separately.
-    expect(live.pendingAction?.prompt).toBe("echo lark-resume-acceptance");
-    expect(live.pendingAction?.toolName).toBe("bash");
-    // Restart restore must produce the identical action.
-    expect(pendingActionFromBackend("approval", payload)).toEqual(live.pendingAction);
-    // The rendered card: action-typed header, the command in its own block,
-    // and the two decisions side by side.
-    const card = renderCard(live, { runId: "r1", startedAt: Date.now(), webUrl: null });
-    const flat = JSON.stringify(card);
-    expect(flat).toContain("需要确认：执行命令");
-    expect(flat).toContain("执行内容");
-    expect(flat).toContain("```\\necho lark-resume-acceptance\\n```");
-    // One button per row, each spanning it: width:"fill" on the button is the
-    // verified way (live card 2026-09-28: renders full width AND the click
-    // lands).
-    const buttons = (card.body as { elements: Array<Record<string, unknown>> }).elements.filter(
-      (el) => el.tag === "button",
-    );
-    expect(buttons.map((b) => b.element_id)).toEqual(["approve_button", "reject_button"]);
-    for (const button of buttons) expect(button.width).toBe("fill");
-    expect(JSON.stringify(card)).not.toContain("column_set");
-  });
-
-  test("an approval says when it expires (the click has a shelf life)", () => {
-    const deadlineAt = Date.now() + 24 * 60 * 60_000;
-    const s = applyRunEvent(initialRunCardState(), {
-      type: "approval_requested",
-      payload: { callId: "c-dl", toolName: "bash", input: { command: "true" }, deadlineAt },
-    });
-    expect(s.pendingAction?.deadlineAt).toBe(deadlineAt);
-    const card = JSON.stringify(
-      renderCard(s, { runId: "r1", startedAt: Date.now(), webUrl: null }),
-    );
-    expect(card).toContain("超时自动拒绝");
-    expect(formatDeadline(deadlineAt)).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
-    expect(card).toContain(formatDeadline(deadlineAt));
-    // No stamped deadline: the card claims nothing.
-    const withoutDeadline = renderCard(
-      applyRunEvent(initialRunCardState(), {
-        type: "approval_requested",
-        payload: { callId: "c-nodl", toolName: "bash" },
-      }),
-      { runId: "r1", startedAt: Date.now(), webUrl: null },
-    );
-    expect(JSON.stringify(withoutDeadline)).not.toContain("超时自动拒绝");
-  });
-
-  test("an approval states its OS-sandbox truth (the decision needs it)", () => {
-    const frame = (sandboxed: boolean | undefined) => {
-      const s = applyRunEvent(initialRunCardState(), {
-        type: "approval_requested",
-        payload: {
-          callId: "c-sb",
-          toolName: "bash",
-          input: { command: "rm -rf build" },
-          ...(sandboxed === undefined ? {} : { sandboxed }),
-        },
-      });
-      return JSON.stringify(renderCard(s, { runId: "r1", startedAt: Date.now(), webUrl: null }));
-    };
-    expect(frame(false)).toContain("无 OS 沙箱");
-    expect(frame(true)).toContain("OS 沙箱");
-    // No signal from the runtime = no claim on the card.
-    expect(frame(undefined)).not.toContain("沙箱");
-  });
-
-  test("buildApprovalPrompt truncates a huge argument instead of flooding the card", () => {
-    const prompt = buildApprovalPrompt({
-      callId: "c",
-      toolName: "bash",
-      input: { command: "x".repeat(5000) },
-    });
-    expect(prompt.length).toBeLessThan(600);
-    expect(prompt).toContain("…");
-  });
-
-  test("text deltas accumulate and clear the HITL wait", () => {
-    let s = initialRunCardState();
-    s = applyRunEvent(s, { type: "approval_requested", payload: { callId: "c" } });
-    expect(s.waiting).toBe("approval");
-    s = applyRunEvent(s, { type: "text_delta", text: "hi" });
-    expect(s.output).toBe("hi");
-    expect(s.waiting).toBeNull();
-    expect(s.pendingAction).toBeNull();
-    s = applyRunEvent(s, { type: "text_delta", text: " there" });
-    expect(s.output).toBe("hi there");
-  });
-
-  test("tool events: active label, archived steps with outcomes", () => {
-    let s = initialRunCardState();
-    // These fixtures carry no activity (the wire field is optional), so the
-    // label degrades to the tool name — the card used to map names onto
-    // invented Chinese labels, which claimed knowledge it did not have.
-    s = applyRunEvent(s, { type: "native_tool_started", toolName: "bash" });
-    expect(s.activeTool?.label).toBe("正在调用 bash");
-    expect(s.phase).toBe("tool_running");
-    s = applyRunEvent(s, { type: "native_tool_completed", toolName: "bash", result: {} });
-    expect(s.activeTool).toBeNull();
-    expect(s.completedTools).toEqual([{ label: "正在调用 bash", outcome: "success" }]);
-    const failed = applyRunEvent(s, {
-      type: "native_tool_completed",
-      toolName: "bash",
-      result: { isError: true },
-    });
-    expect(failed.completedTools[1]).toEqual({ label: "正在调用 bash", outcome: "error" });
-  });
-
-  test("thinking sets a phase word only; never stores text", () => {
-    let s = applyRunEvent(initialRunCardState(), { type: "thinking_delta", text: "secret" });
-    expect(s.phase).toBe("thinking");
-    expect(s.output).toBe("");
-    s = applyRunEvent(s, { type: "text_delta", text: "answer" });
-    expect(s.phase).toBe("streaming");
-    expect(s.output).toBe("answer");
-  });
-
-  test("approval_request keeps the callId in pendingAction", () => {
-    const s = applyRunEvent(initialRunCardState(), {
-      type: "approval_requested",
-      payload: { callId: "call-1" },
-    });
-    expect(s.waiting).toBe("approval");
-    expect(s.pendingAction?.callId).toBe("call-1");
-    expect(s.pendingAction?.kind).toBe("approval");
-  });
-
-  test("ask_requested sets waiting ask with parsed question; running upgrades phase", () => {
-    let s = initialRunCardState();
-    expect(s.phase).toBe("queued");
-    s = applyRunEvent(s, { type: "status", status: "running" });
-    expect(s.phase).toBe("streaming");
-    s = applyRunEvent(s, {
-      type: "ask_requested",
-      payload: {
-        callId: "c1",
-        questions: [
-          {
-            id: "q1",
-            question: "选择分支",
-            kind: "select",
-            options: [{ label: "main", value: "main" }],
-          },
-        ],
-      },
-    });
-    expect(s.waiting).toBe("ask");
-    expect(s.pendingAction?.prompt).toBe("选择分支");
-    expect(s.pendingAction?.options).toEqual([{ label: "main", value: "main" }]);
-    expect(s.pendingAction?.questionId).toBe("q1");
-  });
-
-  test("todo_update uses the producer's vocabulary — done/cancelled are kept", () => {
-    const state = applyRunEvent(initialRunCardState(), {
-      type: "backend.oma.todo_update",
-      payload: {
-        items: [
-          { id: "t1", text: "读代码", status: "done" },
-          { id: "t2", text: "改代码", status: "in_progress" },
-          { id: "t3", text: "别做", status: "cancelled" },
-          { id: "t4", text: "待办", status: "pending" },
-          { id: "bad", text: "缺状态" },
-        ],
-      },
-    });
-    // The oma todo plugin emits done/cancelled, not "completed" — a
-    // card-local vocabulary silently dropped every finished step.
-    expect(state.todos.map((t) => t.status)).toEqual([
-      "done",
-      "in_progress",
-      "cancelled",
-      "pending",
-    ]);
-    const content = JSON.stringify(
-      renderRunCard(state, { runId: "r1", startedAt: Date.now(), webUrl: null }),
-    );
-    // The panel carries a count header and the plan lines; the active item
-    // is bold, done/pending keep their plain symbols. Cancelled items stay
-    // out of a LIVE plan (they appear on the terminal card).
-    expect(content).toContain("进度 1 / 4");
-    expect(content).toContain("✓ 读代码");
-    expect(content).toContain("● **改代码**");
-    expect(content).toContain("○ 待办");
-    expect(content).toContain("collapsible_panel");
-    expect(content).not.toContain("✗ 别做");
-  });
-
-  test("terminal statuses map and freeze the state", () => {
-    let s = applyRunEvent(initialRunCardState(), { type: "text_delta", text: "x" });
-    s = applyRunEvent(s, { type: "status", status: "aborted" });
-    expect(s.terminal?.status).toBe("cancelled");
-    s = applyRunEvent(s, { type: "text_delta", text: "y" });
-    expect(s.output).toBe("x");
-    expect(s.terminal?.status).toBe("cancelled");
-
-    const failed = applyRunEvent(initialRunCardState(), {
-      type: "status",
-      status: "commit_failed",
-    });
-    expect(failed.terminal?.status).toBe("failed");
-
-    const done = applyRunEvent(initialRunCardState(), {
-      type: "status",
-      status: "completed",
-    });
-    expect(done.terminal?.status).toBe("completed");
-  });
-});
-
 describe("renderRunCard", () => {
   test("live card: streaming config, stop button, process strip", () => {
     const state = {
@@ -412,7 +192,7 @@ describe("renderRunCard", () => {
   });
 
   test("terminal card: no streaming, no stop hint, keeps web link", () => {
-    const state = applyRunEvent(initialRunCardState(), { type: "status", status: "completed" });
+    const state = cardStateOf({ settled: "complete" });
     const card = renderRunCard(state, {
       runId: "r1",
       startedAt: Date.now(),
@@ -468,11 +248,7 @@ describe("renderRunCard", () => {
     expect(liveBody.elements.length).toBeGreaterThan(1); // tool summary present
     for (const el of liveBody.elements) expect(el.tag).not.toBe("plain_text");
 
-    const failed = applyRunEvent(initialRunCardState(), {
-      type: "status",
-      status: "failed",
-      error: "boom",
-    });
+    const failed = cardStateOf({ settled: "error", error: "boom" });
     const failedCard = renderRunCard(failed, {
       runId: "r1",
       startedAt: Date.now(),
@@ -729,11 +505,8 @@ describe("tool activity (surfaces display, never invent)", () => {
   });
 
   test("the process strip shows the activity line for a native tool", () => {
-    const state = applyRunEvent(initialRunCardState(), {
-      type: "native_tool_started",
-      toolName: "bash",
-      callId: "c1",
-      activity: "正在执行：bun test apps/backend",
+    const state = cardStateOf({
+      tools: [{ toolName: "bash", activity: "正在执行：bun test apps/backend", status: "running" }],
     });
     expect(state.activeTool?.label).toBe("正在执行：bun test apps/backend");
     const content = JSON.stringify(
@@ -743,11 +516,7 @@ describe("tool activity (surfaces display, never invent)", () => {
   });
 
   test("a tool without activity degrades to its name, not a guessed summary", () => {
-    const state = applyRunEvent(initialRunCardState(), {
-      type: "native_tool_started",
-      toolName: "mcp__database__query",
-      callId: "c2",
-    });
+    const state = cardStateOf({ tools: [{ toolName: "mcp__database__query", status: "running" }] });
     expect(state.activeTool?.label).toBe("正在调用 database · query");
     expect(JSON.stringify(state)).not.toContain("SELECT");
   });
@@ -758,29 +527,14 @@ describe("tool activity (surfaces display, never invent)", () => {
     // while the real event still renders "正在调用 product-tools · todo_write"
     // — so both forms are asserted, and the qualified one is the real wire.
     for (const toolName of ["mcp__product-tools__todo_write", "todo_write"]) {
-      const started = applyRunEvent(initialRunCardState(), {
-        type: "native_tool_started",
-        toolName,
-        callId: "c3",
-      });
+      const started = cardStateOf({ tools: [{ toolName, status: "running" }] });
       expect(started.activeTool).toBeNull();
-      const completed = applyRunEvent(started, {
-        type: "native_tool_completed",
-        toolName,
-        callId: "c3",
-        result: { items: [] },
-      });
+      const completed = cardStateOf({ tools: [{ toolName, status: "completed" }] });
       expect(completed.completedTools).toEqual([]);
     }
     // ask_question is answered by the question frame instead.
     for (const toolName of ["mcp__product-tools__ask_question", "ask_question"]) {
-      expect(
-        applyRunEvent(initialRunCardState(), {
-          type: "native_tool_started",
-          toolName,
-          callId: "c4",
-        }).activeTool,
-      ).toBeNull();
+      expect(cardStateOf({ tools: [{ toolName, status: "running" }] }).activeTool).toBeNull();
     }
   });
 });
@@ -789,11 +543,9 @@ describe("dedicated ask / approval card", () => {
   const meta = { runId: "r1", startedAt: Date.now(), webUrl: "http://web/runs/r1" };
 
   test("a parked ask replaces the run card with an orange form card", () => {
-    let s = initialRunCardState();
-    s = applyRunEvent(s, { type: "text_delta", text: "正在处理。" });
-    s = applyRunEvent(s, {
-      type: "ask_requested",
-      payload: {
+    const s = cardStateOf({
+      output: "正在处理。",
+      ask: {
         callId: "c1",
         questions: [
           {
@@ -822,11 +574,7 @@ describe("dedicated ask / approval card", () => {
   });
 
   test("an approval keeps approve/reject and names the frame", () => {
-    let s = initialRunCardState();
-    s = applyRunEvent(s, {
-      type: "approval_requested",
-      payload: { callId: "c2" },
-    });
+    const s = cardStateOf({ approval: { callId: "c2" } });
     const card = renderCard(s, meta) as {
       header: { title: { content: string } };
     };
@@ -838,24 +586,32 @@ describe("dedicated ask / approval card", () => {
     expect(flat).toContain("拒绝");
     // …and with a tool name it names the ACTION, not the binary.
     const named = renderCard(
-      applyRunEvent(initialRunCardState(), {
-        type: "approval_requested",
-        payload: { callId: "c3", toolName: "bash" },
-      }),
+      cardStateOf({ approval: { callId: "c3", toolName: "bash" } }),
       meta,
     ) as { header: { title: { content: string } } };
     expect(named.header.title.content).toBe("需要确认：执行命令");
   });
 
   test("the running frame is the run card again once the ask clears", () => {
-    let s = initialRunCardState();
-    s = applyRunEvent(s, {
-      type: "ask_requested",
-      payload: { callId: "c3", questions: [] },
-    });
-    s = applyRunEvent(s, { type: "text_delta", text: "继续" });
-    const card = renderCard(s, meta) as { header: { title: { content: string } } };
-    expect(card.header.title.content).not.toBe("需要你的回答");
+    // While the question is open the card IS the ask frame…
+    const asking = renderCard(
+      cardStateOf({
+        ask: {
+          callId: "c3",
+          questions: [
+            { id: "q1", kind: "select", question: "哪？", options: [{ label: "a", value: "a" }] },
+          ],
+        },
+      }),
+      meta,
+    ) as { header: { title: { content: string } } };
+    expect(asking.header.title.content).toBe("需要你的回答");
+    // …and the run frame again once the channel stops carrying it (the reader drops an answered
+    // request, so the buttons cannot outlive the question).
+    const running = renderCard(cardStateOf({ output: "继续" }), meta) as {
+      header: { title: { content: string } };
+    };
+    expect(running.header.title.content).not.toBe("需要你的回答");
   });
 });
 
@@ -898,10 +654,8 @@ describe("free-text ask form", () => {
 
   test("a text ask renders a root-level form with an input and a submit", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
-    let s = initialRunCardState();
-    s = applyRunEvent(s, {
-      type: "ask_requested",
-      payload: {
+    const s = cardStateOf({
+      ask: {
         callId: "c1",
         questions: [{ id: "q1", kind: "text", question: "要改哪个分支？" }],
       },
@@ -932,10 +686,8 @@ describe("free-text ask form", () => {
 
   test("a select ask renders one label+button row per option", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
-    let s = initialRunCardState();
-    s = applyRunEvent(s, {
-      type: "ask_requested",
-      payload: {
+    const s = cardStateOf({
+      ask: {
         callId: "c1",
         questions: [
           {
@@ -977,19 +729,12 @@ describe("free-text ask form", () => {
 
   test("a question keeps the progress panel on the card", () => {
     const meta = { runId: "r1", startedAt: Date.now(), webUrl: null };
-    let s = initialRunCardState();
-    s = applyRunEvent(s, {
-      type: "backend.oma.todo_update",
-      payload: {
-        items: [
-          { id: "1", text: "读需求", status: "done" },
-          { id: "2", text: "写 plan.md", status: "in_progress" },
-        ],
-      },
-    });
-    s = applyRunEvent(s, {
-      type: "ask_requested",
-      payload: {
+    const s = cardStateOf({
+      todos: [
+        { id: "1", text: "读需求", status: "done" },
+        { id: "2", text: "写 plan.md", status: "in_progress" },
+      ],
+      ask: {
         callId: "c1",
         questions: [
           { id: "q1", kind: "select", question: "放哪？", options: [{ label: "a", value: "a" }] },
@@ -1190,15 +935,17 @@ describe("card updater degradation", () => {
       // A question is the one frame the human must see (buttons, form). While
       // the card is degraded it is attempted once, then left alone: a broken
       // card must not become an unanswerable question.
-      state = applyRunEvent(state, {
-        type: "ask_requested",
-        payload: {
-          callId: "c",
-          questions: [
-            { id: "q", kind: "select", question: "哪？", options: [{ label: "a", value: "a" }] },
-          ],
-        },
-      });
+      state = {
+        ...state,
+        ...cardStateOf({
+          ask: {
+            callId: "c",
+            questions: [
+              { id: "q", kind: "select", question: "哪？", options: [{ label: "a", value: "a" }] },
+            ],
+          },
+        }),
+      };
       const afterDegrade = calls;
       expect(await updater.replaceNow(state)).toBe(false);
       expect(calls).toBeGreaterThan(afterDegrade);
@@ -1209,9 +956,8 @@ describe("card updater degradation", () => {
 
       // And when CardKit is healthy again, the attempt revives the card.
       healthy = true;
-      const nextQuestion = applyRunEvent(initialRunCardState(), {
-        type: "ask_requested",
-        payload: {
+      const nextQuestion = cardStateOf({
+        ask: {
           callId: "c2",
           questions: [
             {
@@ -1262,13 +1008,13 @@ describe("card updater degradation", () => {
       for (let i = 0; i < 3; i++) await updater.replaceNow(state);
       expect(getRunCard(flushDb, "run-flush-deg")?.degraded).toBe(true);
 
-      state = applyRunEvent(state, {
-        type: "ask_requested",
-        payload: {
-          callId: "c-flush",
-          questions: [{ id: "q", kind: "text", question: "说说？" }],
-        },
-      });
+      // A state that now carries a question (the same shape a live frame has).
+      state = {
+        ...state,
+        ...cardStateOf({
+          ask: { callId: "c-flush", questions: [{ id: "q", kind: "text", question: "说说？" }] },
+        }),
+      };
       // The flush's own degraded guard used to swallow this frame, so a
       // question raised after the card gave up was never painted.
       healthy = true;
@@ -1323,47 +1069,36 @@ describe("element id legality (Feishu 300301)", () => {
       { label: "docs/plan.md（仓库文档目录）", value: "docs/plan.md（仓库文档目录）" },
     ];
     const states: RunCardState[] = [];
-    let base = initialRunCardState();
-    base = applyRunEvent(base, { type: "text_delta", text: "working" });
-    base = applyRunEvent(base, {
-      type: "native_tool_started",
-      toolName: "bash",
-      callId: "c1",
-      activity: "运行命令：ls",
-    });
-    base = applyRunEvent(base, {
-      type: "backend.oma.todo_update",
-      payload: {
-        items: [
-          { id: "1", text: "一步", status: "done" },
-          { id: "2", text: "二步", status: "in_progress" },
-        ],
-      },
-    });
+    const base: RunCardState = {
+      ...initialRunCardState(),
+      phase: "tool_running",
+      output: "working",
+      activeTool: { label: toolActivity("运行命令：ls", "bash"), startedAt: Date.now() },
+      todos: [
+        { id: "1", text: "一步", status: "done" },
+        { id: "2", text: "二步", status: "in_progress" },
+      ],
+    };
     states.push(base);
-    let selectAsk = initialRunCardState();
-    selectAsk = applyRunEvent(selectAsk, {
-      type: "ask_requested",
-      payload: {
-        callId: "c",
-        questions: [{ id: "q", kind: "select", question: "哪？", options: longLabelOptions }],
-      },
+    const askState = (question: unknown): RunCardState | null => {
+      const pending = pendingActionFromBackend("ask", { callId: "c", questions: [question] });
+      return pending ? { ...initialRunCardState(), pendingAction: pending, waiting: "ask" } : null;
+    };
+    const select = askState({
+      id: "q",
+      kind: "select",
+      question: "哪？",
+      options: longLabelOptions,
     });
-    states.push(selectAsk);
-    let textAsk = initialRunCardState();
-    textAsk = applyRunEvent(textAsk, {
-      type: "ask_requested",
-      payload: { callId: "c", questions: [{ id: "q", kind: "text", question: "说说？" }] },
+    const text = askState({ id: "q", kind: "text", question: "说说？" });
+    const approval = pendingActionFromBackend("approval", { callId: "c" });
+    if (!select || !text || !approval) throw new Error("fixture did not build a pending action");
+    states.push(select, text, {
+      ...initialRunCardState(),
+      pendingAction: approval,
+      waiting: "approval",
     });
-    states.push(textAsk);
-    let approval = initialRunCardState();
-    approval = applyRunEvent(approval, {
-      type: "approval_requested",
-      payload: { callId: "c" },
-    });
-    states.push(approval);
-    const terminal = applyRunEvent(base, { type: "status", status: "completed" });
-    states.push(terminal);
+    states.push({ ...base, terminal: { status: "completed", error: null } });
 
     for (const state of states) {
       const ids: string[] = [];

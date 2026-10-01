@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { codingAgentOutputSchema, mapRunEvent } from "@chengchenccc/adapter-oma-agent";
-import type { BackendEvent } from "@chengchenccc/agent-contract";
 import { createLiveEventBus } from "./execution-live.js";
+import type { BackendEvent } from "./protocol/index.js";
 
 /** A controllable durable hook: the test decides when persistence "completes". */
 function deferredHook() {
@@ -15,20 +14,17 @@ const approvalEvent: BackendEvent = {
 } as BackendEvent;
 
 describe("createLiveEventBus durable HITL ordering", () => {
-  test("an approval reaches subscribers only after the durable hook resolves", async () => {
+  test("an approval reaches the observer only after the durable hook resolves", async () => {
     const gate = deferredHook();
     let persisted = false;
+    const seen: BackendEvent[] = [];
     const bus = createLiveEventBus({
+      onLiveEvent: (_runId, ev) => seen.push(ev),
       onApprovalRequest: async () => {
         await gate.promise;
         persisted = true;
       },
     });
-    const seen: BackendEvent[] = [];
-    const sub = bus.subscribe("r1");
-    const reading = (async () => {
-      for await (const ev of sub) seen.push(ev);
-    })();
 
     // Fire-and-forget on purpose: the broadcast must not deliver until the gate opens.
     void bus.broadcast("r1", approvalEvent);
@@ -38,25 +34,20 @@ describe("createLiveEventBus durable HITL ordering", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(persisted).toBe(true);
     expect(seen.map((e) => e.type)).toEqual(["approval_requested"]);
-    void reading;
   });
 
   test("a persistence failure drops the event - no dead card", async () => {
+    const seen: BackendEvent[] = [];
     const bus = createLiveEventBus({
+      onLiveEvent: (_runId, ev) => seen.push(ev),
       onApprovalRequest: async () => {
         throw new Error("sqlite is on fire");
       },
     });
-    const seen: BackendEvent[] = [];
-    const sub = bus.subscribe("r2");
-    const reading = (async () => {
-      for await (const ev of sub) seen.push(ev);
-    })();
 
     await bus.broadcast("r2", approvalEvent); // must not throw, must not deliver
     await new Promise((r) => setTimeout(r, 30));
     expect(seen).toEqual([]);
-    void reading;
   });
 
   test("HITL events land in the telemetry log (a parked run is not eventless)", async () => {
@@ -83,71 +74,16 @@ describe("createLiveEventBus durable HITL ordering", () => {
 
   test("non-approval events pass straight through (no hook involved)", async () => {
     let hookCalls = 0;
+    const seen: BackendEvent[] = [];
     const bus = createLiveEventBus({
+      onLiveEvent: (_runId, ev) => seen.push(ev),
       onApprovalRequest: async () => {
         hookCalls += 1;
       },
     });
-    const seen: BackendEvent[] = [];
-    const reading = (async () => {
-      for await (const ev of bus.subscribe("r3")) seen.push(ev);
-    })();
     await bus.broadcast("r3", { type: "status", status: "running" });
     await new Promise((r) => setTimeout(r, 30));
     expect(seen.map((e) => e.type)).toEqual(["status"]);
     expect(hookCalls).toBe(0);
-    void reading;
-  });
-
-  // The join neither side's unit tests cover: the CHILD's oma frame goes
-  // through the adapter's schema and mapper, and the bus must recognize the
-  // result to persist the durable action. A name drifting on either side
-  // leaves both suites green and the product with no card at all.
-  test("the child's approval frame drives the durable hook end to end", async () => {
-    const persisted: Array<{ runId: string; callId: string; payload: unknown }> = [];
-    const bus = createLiveEventBus({
-      onApprovalRequest: async (input) => {
-        persisted.push(input);
-      },
-    });
-    const seen: BackendEvent[] = [];
-    const reading = (async () => {
-      for await (const ev of bus.subscribe("r-join")) seen.push(ev);
-    })();
-
-    const frame = codingAgentOutputSchema.parse({
-      type: "event",
-      runId: "r-join",
-      event: {
-        id: 3,
-        type: "approval_request",
-        data: {
-          callId: "call_join",
-          toolName: "bash",
-          reason: "bash requested approval (permission)",
-          input: { command: "rm -rf build" },
-          deadlineAt: 1_800_000_000_000,
-        },
-      },
-    });
-    if (frame.type !== "event") throw new Error("envelope must parse as an event frame");
-    await bus.broadcast("r-join", mapRunEvent(frame.event));
-    await new Promise((r) => setTimeout(r, 30));
-
-    expect(persisted).toEqual([
-      {
-        runId: "r-join",
-        callId: "call_join",
-        payload: {
-          callId: "call_join",
-          toolName: "bash",
-          reason: "bash requested approval (permission)",
-          input: { command: "rm -rf build" },
-          deadlineAt: 1_800_000_000_000,
-        },
-      },
-    ]);
-    expect(seen.map((e) => e.type)).toEqual(["approval_requested"]);
-    void reading;
   });
 });

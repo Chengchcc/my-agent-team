@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BackendRunInput } from "@chengchenccc/agent-contract";
+import type { BackendRunInput } from "./contract/index.js";
 import {
   createModelRuntime,
   createOmaRuntime,
@@ -18,7 +18,7 @@ afterAll(() => rmSync(ws, { recursive: true, force: true }));
 
 const MARKER = "oma-p0-bg-probe";
 
-function runInput(runId: string): BackendRunInput<"oma"> {
+function runInput(runId: string): BackendRunInput {
   return {
     input: { inputId: `in-${runId}`, message: { role: "user", text: "go" } },
     run: { runId, model: { backendKind: "oma", modelId: "fake/echo" }, configRevision: 1 },

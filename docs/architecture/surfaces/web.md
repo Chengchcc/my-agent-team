@@ -1,24 +1,23 @@
 ---
 title: Web 端
-description: 对话页的两条 SSE、reducer 与 Timeline 锚点规则，以及 /coding 终端页的鉴权、PTY 生命周期和 worktree 双轴
+description: 对话页的 AHP chat 状态与 run 流残余、reducer 与 Timeline 锚点规则，以及 /coding 终端页的鉴权、PTY 生命周期和 worktree 双轴
 tags: [web, surfaces, terminal]
 ---
 
 # Web 端
 
-一句话：本页是 Web 端的权威描述。Web 端是浏览器里的对话界面 `/chat/[id]` 加 worktree 终端页 `/coding`。对话页把 conversation SSE 的账本行 upsert 进 `items[]`，把 per-run SSE 渲染成临时气泡，两者靠 messageId 对账。终端页持有 backend 进程里的裸 PTY。
+一句话：本页是 Web 端的权威描述。Web 端是浏览器里的对话界面 `/chat/[id]` 加 worktree 终端页 `/coding`。对话页把 AHP chat 状态映射进 `items[]`（历史来自快照，增量来自动作流），run 流只用来出提示与 workflow 进度。终端页持有 backend 进程里的裸 PTY。
 
 ## 范围
 
-覆盖：对话页的渲染模型（ConvState、reducer 的 action 名单、纯函数），两条 SSE 的准确事件名单，busy 的推导，Timeline 锚点规则，错误与断线展示，`/coding` 的鉴权、生命周期、状态点与 worktree 双轴。
+覆盖：对话页的渲染模型（ConvState、reducer 的 action 名单、纯函数），AHP chat 状态到列表的映射，run 流残余的事件名单，busy 的推导，Timeline 锚点规则，错误与断线展示，`/coding` 的鉴权、生命周期、状态点与 worktree 双轴。
 
 不覆盖：账本与 Run 的后端语义（见 [Conversation History](../conversation/history.md)、[Run 输出与实时更新](../runs/output-and-live-updates.md)）、agent 配置页与 workflow 编辑器等其他前端页面、BFF 代理的完整实现（只在需要时提 `apps/web/src/lib/bff.ts`）。
 
 ## 实现文件
 
-- `apps/web/src/hooks/useConversation.ts` — 两条 SSE 的消费、临时态、busy
+- `apps/web/src/hooks/useConversation.ts` — AHP 连接、临时态、busy（自研事件流已删）
 - `apps/web/src/lib/conversation-reducer.ts` — ConvState 与 reducer 纯函数
-- `apps/web/src/lib/typed-source.ts` — EventSource 加 zod 校验的封装
 - `apps/web/src/lib/bff.ts` — Next BFF 代理，cookie 换成 `x-auth-token`
 - `apps/web/src/lib/transient-reducer.ts` — 临时气泡、工具步骤、todo、审批与问答
 - `apps/web/src/components/Timeline.tsx` — turn 分组与滚动锚点
@@ -49,30 +48,19 @@ reducer 的 action 名单是 `bootstrap`、`send`、`send/settled`、`conn`、`s
 
 `role` 是唯一的作者判据：`user` 归人类侧，`assistant` 与 `tool` 归 agent 侧，`system` 进 notice 而不是气泡。
 
-## 两条 SSE
+## 实时状态的两条来源
 
-对话流是 canonical 输入，URL 为 `/api/bff/conversations/:id/events?afterSeq=0`（`apps/web/src/hooks/useConversation.ts`）。每次挂载都全量重放，页面刷新因此能看到完整历史；重连走 `Last-Event-ID`，重放靠 `guard` 去重（水位线加 256 条滑窗，丢帧时弹一次「Reconnected — syncing missed messages」）。
+对话的实时状态来自 AHP：`apps/web/src/lib/ahp.ts` 经 BFF 取票、用共享传输连上 `/ws/ahp`，`initialize` 拿 chat 快照、订阅拿动作流，上游 `chatReducer` 折出状态，`useConversation.ts` 把它映射成列表与在飞轮次（`apps/web/src/lib/chat-state.ts`）。历史也在这条线上，刷新即得，没有游标要续；`_meta.seq`、`_meta.undone`、`_meta.messageId` 供撤销、分叉与去重使用（见 [AHP host](./ahp.md)）。
 
-对话流上只订阅两个事件：
-
-- `message` — 帧里带 `message` 才处理，否则当心跳或旧行跳过。messageId 命中 `^run:([^:]+):` 时，说明这个 run 的 canonical 行到了，丢掉该 run 的临时气泡。
-- `undo` — 从 `payload.undoneSeqs` 取序号，把对应 `items` 标 `undone`（灰显）。
-
-`surface.control` 在事件表里但没有订阅者，Web 不处理。连接没有 idle timeout，后端在连续静默轮询后发 `: ping` 注释帧。
-
-per-run 流是 `/api/bff/agent-runs/:runId/events`（路径来自 `sseEndpoints.agentRunEvents`），每个 run 一条 EventSource。`useConversation.ts` 注册的事件名如下：
+run 流还剩两样用途，路径是 `/api/bff/agent-runs/:runId/events`（来自 `sseEndpoints.agentRunEvents`），每个 run 一条 EventSource：
 
 | 事件名 | 用途 |
 |---|---|
-| `status` | 终态判定：`completed` 收尾，`failed` / `aborted` / `timeout` 留气泡并挂错误 pill |
-| `text_delta` | 追加临时气泡正文 |
-| `thinking_delta` | 追加临时思考块 |
-| `native_tool_started` / `native_tool_completed` | 工具步骤起止，`todo_write` 的 result 归一化后进 todo 面板 |
-| `backend.oma.todo_update` | 直接替换该 run 的 todo 快照 |
+| `status` | 终态判定：`completed` 收尾，`failed` / `aborted` / `timeout` 挂错误 pill |
 | `backend.oma.stream_rule_triggered` | 推一条「规则命中，输出丢弃重试」的提示 |
-| `approval_requested` | 渲染审批卡片 |
-| `ask_requested` | 渲染问答卡片 |
 | `delegation_batch_started` / `delegation_agent_started` / `delegation_agent_completed` / `delegation_batch_completed` | workflow 进度面板 |
+
+流规则提示与 workflow 进度还没有投进 AHP，所以这两样仍走 run 流，属于 ADR 0040 的 S3 收尾项。
 
 注册表里还有 `delegation_batch_failed`，Web 不订阅（`packages/api-contract/src/sse.ts`）。
 
@@ -129,8 +117,8 @@ worktree 双轴：主 worktree 是 `(agent × project)` 的 attach 产物，缺�
 
 ## 不变量
 
-1. 对话历史的唯一 canonical 输入是 conversation SSE，run 流只产生临时气泡。
-2. 临时气泡的生命周期不超过它对应的 run：canonical 行到达时被丢弃，失败运行的气泡留到刷新。
+1. 对话的历史与实时状态都来自 AHP chat 频道；run 流只产生提示与 workflow 进度，不产生对话事实。
+2. 在飞轮次的生命周期不超过它对应的 Run：提交时由投影重述并折进历史。
 3. 每个 run 只有一条 run 流，runId 由后端生成。
 4. 终端字节流不经过 BFF；票一次性且 60 秒过期。
 5. 终端的 cwd 只能是该 agent 的主 worktree 或它的任务 worktree。

@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  OmaBackend,
-  type OmaCommandConfig,
-  OmaModelCatalog,
-} from "@chengchenccc/adapter-oma-agent";
 import { assistantMessageId, parseMessageRevision } from "@chengchenccc/message";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
@@ -21,98 +16,7 @@ import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
 import type { AgentRun } from "./domain.js";
 import { createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
-
-// ─── Real RPC child (fixture) harness ─────────────────────────────────
-// Every execute() spawns the fixture child (packages/adapter-oma-agent/
-// src/__fixtures__/rpc-fixture.ts) speaking the stdio JSONL protocol. The
-// fixture records every command to a shared record file; the harness reads
-// it back for assertions. This is the REAL child-process transport - no
-// in-process fetch, no SSE, no polling.
-
-const FIXTURE = new URL(
-  "../../../../../packages/adapter-oma-agent/src/__fixtures__/rpc-fixture.ts",
-  import.meta.url,
-).pathname;
-
-interface FakeDaemonOptions {
-  /** Reject the first execute across all children (acceptance-failure
-   *  simulation); later executes accept. */
-  failFirstExecute?: boolean;
-  outcomeDelayMs?: number;
-  /** Fail steer with this message. */
-  steerError?: boolean;
-  /** Emit native tool trace + todo_update events before the outcome. */
-  toolTodo?: boolean;
-  /** The completed outcome carries this cliSessionRef. */
-  sessionRef?: string;
-  /** Raw fixture scenario (overrides the sugar flags). */
-  scenario?: string;
-}
-
-function createFakeDaemon(opts: FakeDaemonOptions = {}) {
-  const record = `${dataDir}/daemon-${daemonSeq++}.log`;
-  const scenario =
-    opts.scenario ??
-    (opts.failFirstExecute
-      ? "reject-first-execute"
-      : opts.steerError
-        ? "steer-error"
-        : opts.toolTodo
-          ? "tool-todo"
-          : "normal");
-
-  const config: OmaCommandConfig = {
-    executable: process.execPath,
-    args: [FIXTURE, "--mode", "rpc"],
-    env: {
-      RPC_FIXTURE_SCENARIO: scenario,
-      RPC_FIXTURE_RECORD: record,
-      RPC_FIXTURE_OUTCOME_DELAY_MS: String(opts.outcomeDelayMs ?? 60),
-      ...(opts.sessionRef ? { RPC_FIXTURE_SESSION_REF: opts.sessionRef } : {}),
-    },
-  };
-  const readCalls = (kind: string): string[] => {
-    if (!existsSync(record)) return [];
-    return readFileSync(record, "utf-8")
-      .trim()
-      .split("\n")
-      .filter((l) => l.startsWith(`${kind} `))
-      .map((l) => l.slice(kind.length + 1));
-  };
-  return {
-    backend: new OmaBackend(config),
-    modelCatalog: new OmaModelCatalog(config),
-    get executeCalls(): Array<{ runId: string; workspaceRoot: string }> {
-      return readCalls("execute").map((line) => {
-        const [runId, ...rest] = line.split(" ");
-        return { runId: runId!, workspaceRoot: rest.join(" ") };
-      });
-    },
-    /** Per-run product-tools bearers the children received via env. */
-    get executeTokens(): string[] {
-      if (!existsSync(record)) return [];
-      return readFileSync(record, "utf-8")
-        .trim()
-        .split("\n")
-        .filter((l) => l.startsWith("tok "))
-        .map((l) => l.slice(4));
-    },
-    get executeMessages(): string[] {
-      return readCalls("execute_msg").map((l) => JSON.parse(l) as string);
-    },
-    get executeRefs(): Array<string | null> {
-      return readCalls("execute_ref").map((l) => JSON.parse(l) as string | null);
-    },
-    get steerCalls(): string[] {
-      return readCalls("steer").map((l) => l.split(" ")[0]!);
-    },
-    get stopCalls(): string[] {
-      return readCalls("abort").map((l) => l.split(" ")[0]!);
-    },
-  };
-}
-
-let daemonSeq = 0;
+import { createFakeAcpDaemon, type FakeAcpDaemon } from "./test-acp-daemon.js";
 
 // ─── Test harness ──────────────────────────────────────────────────────
 
@@ -127,7 +31,7 @@ const conversationId = "conv-1";
 const agentId = "ag-1";
 
 function makeExecution(
-  fakeDaemon: ReturnType<typeof createFakeDaemon>,
+  fakeDaemon: FakeAcpDaemon,
   runPortOverride?: ReturnType<typeof sqliteAgentRunAdapter>,
   modelCatalogOverride?: {
     list: () => Promise<{ models: Array<{ id: string; available: boolean }> }>;
@@ -153,7 +57,7 @@ function makeExecution(
     contextPort: { ...contextPort, ...contextPortOverride } as never,
     ledgerResolver,
     backends: {
-      oma: {
+      acp: {
         backend: fakeDaemon.backend,
         catalog: (modelCatalogOverride ?? fakeDaemon.modelCatalog) as never,
       },
@@ -229,7 +133,7 @@ beforeEach(async () => {
 
   convPort.createConversation({ conversationId, agentId, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(conversationId);
-  await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
+  await contextPort.getOrCreateDefaultBranch(tree.treeId, "acp");
 });
 
 afterEach(() => {
@@ -241,10 +145,10 @@ function enqueue(mode: "normal" | "follow_up" | "steer", key: string, text: stri
   return backend.enqueueAndAcquire({
     conversationId,
     agentId,
-    backendKind: "oma",
+    backendKind: "acp",
     mode,
     message: { role: "user", text },
-    defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+    defaultModel: { backendKind: "acp", modelId: "acp/oma" },
     configRevision: 1,
     idempotencyKey: key,
   });
@@ -254,7 +158,7 @@ describe("agent run execution terminal", () => {
   test("retryTerminalCommit replays the STORED outcome without re-executing the Backend", async () => {
     // Fault-inject the commit once so the run lands in commit_failed.
     let failCommit = true;
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const ledgerResolver = {
       async resolveMessage(cid: string, seq: number) {
         const entries = convPort.getLedgerEntries(cid);
@@ -297,7 +201,7 @@ describe("agent run execution terminal", () => {
   });
 
   test("per-run product-tools token: unique across runs, revoked at settle", async () => {
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const registry = createRunTokenRegistry();
     const execution = makeExecution(fake, undefined, undefined, undefined, registry);
 
@@ -317,8 +221,14 @@ describe("agent run execution terminal", () => {
   }, 15_000);
 
   test("stop() requests cancellation on the live segment", async () => {
-    const fake = createFakeDaemon({ outcomeDelayMs: 2000 });
-    const execution = makeExecution(fake);
+    const fake = createFakeAcpDaemon({ dataDir, outcomeDelayMs: 2000 });
+    const stopCalls: string[] = [];
+    const recording = Object.create(fake.backend) as typeof fake.backend;
+    recording.stop = async (runId: string) => {
+      stopCalls.push(runId);
+      await fake.backend.stop(runId);
+    };
+    const execution = makeExecution({ ...fake, backend: recording });
     const acquired = await enqueue("normal", "stop-1", "hello");
     const runId = acquired.run!.runId;
     const dispatchPromise = execution.dispatch(runId);
@@ -331,7 +241,7 @@ describe("agent run execution terminal", () => {
     }
     await execution.stop(runId);
     await dispatchPromise;
-    expect(fake.stopCalls).toEqual([runId]);
+    expect(stopCalls).toEqual([runId]);
     await waitForTerminal(runId);
   }, 15_000);
 
@@ -354,15 +264,15 @@ describe("agent run execution terminal", () => {
       createdAt: Date.now(),
       projectId: "p-attached",
     });
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake);
     const acquired = await backend.enqueueAndAcquire({
       conversationId: "conv-proj",
       agentId,
-      backendKind: "oma",
+      backendKind: "acp",
       mode: "normal",
       message: { role: "user", text: "in project" },
-      defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+      defaultModel: { backendKind: "acp", modelId: "acp/oma" },
       configRevision: 1,
       idempotencyKey: "proj-1",
     });
@@ -391,15 +301,15 @@ describe("agent run execution terminal", () => {
       createdAt: Date.now(),
       projectId: "p-other",
     });
-    const fake = createFakeDaemon();
+    const fake = createFakeAcpDaemon({ dataDir });
     const execution = makeExecution(fake);
     const acquired = await backend.enqueueAndAcquire({
       conversationId: "conv-unattached",
       agentId,
-      backendKind: "oma",
+      backendKind: "acp",
       mode: "normal",
       message: { role: "user", text: "nope" },
-      defaultModel: { backendKind: "oma", modelId: "fake/echo" },
+      defaultModel: { backendKind: "acp", modelId: "acp/oma" },
       configRevision: 1,
       idempotencyKey: "proj-2",
     });

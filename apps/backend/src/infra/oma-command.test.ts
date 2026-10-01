@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { BackendConfig } from "../config.js";
-import { resolveOmaCommand } from "./oma-command.js";
+import { resolveOmaAcpArgv, resolveOmaCommand } from "./oma-command.js";
 
 const baseConfig: BackendConfig = {
   dataDir: "/tmp",
@@ -24,33 +24,27 @@ const baseConfig: BackendConfig = {
 };
 
 describe("resolveOmaCommand", () => {
-  test("uses Bun + monorepo source CLI with --mode rpc when OMA_BIN is absent", () => {
+  test("uses Bun + monorepo source CLI when OMA_BIN is absent", () => {
     const result = resolveOmaCommand(baseConfig);
 
     expect(result.executable).toBe(process.execPath);
-    expect(result.args).toEqual([
-      expect.stringMatching(/\/apps\/oh-my-agent\/src\/cli\.ts$/),
-      "--mode",
-      "rpc",
-    ]);
+    expect(result.args).toEqual([expect.stringMatching(/\/apps\/oh-my-agent\/src\/cli\.ts$/)]);
     expect(existsSync(result.args![0]!)).toBe(true);
   });
 
-  test("uses explicit production executable with --mode rpc when OMA_BIN is set", () => {
+  test("explicit production executable carries no mode flags by default", () => {
     const result = resolveOmaCommand({
       ...baseConfig,
       omaBin: "/app/bin/oma",
     });
 
     expect(result.executable).toBe("/app/bin/oma");
-    // RPC mode is mandatory: without it the child blocks on piped stdin
-    // (print mode) while the adapter keeps stdin open - a deadlock.
-    expect(result.args).toEqual(["--mode", "rpc"]);
+    expect(result.args).toEqual([]);
   });
 
-  test("mode tui with OMA_BIN set omits --mode (interactive pane command)", () => {
-    const result = resolveOmaCommand({ ...baseConfig, omaBin: "/app/bin/oma" }, { mode: "tui" });
-    expect(result.args).toEqual([]);
+  test("mode acp adds --mode acp (the ACP face launch)", () => {
+    const result = resolveOmaCommand({ ...baseConfig, omaBin: "/app/bin/oma" }, { mode: "acp" });
+    expect(result.args).toEqual(["--mode", "acp"]);
   });
 
   test("throws when the source fallback entry is missing", () => {
@@ -98,5 +92,22 @@ describe("resolveOmaCommand", () => {
   test("resolves to the real source entry from this file's location", () => {
     const expected = resolve(import.meta.dir, "../../../oh-my-agent/src/cli.ts");
     expect(existsSync(expected)).toBe(true);
+  });
+});
+
+describe("resolveOmaAcpArgv", () => {
+  test("resolves like the native adapter, so a box without oma on PATH still runs", () => {
+    const argv = resolveOmaAcpArgv(baseConfig);
+
+    expect(argv[0]).toBe(process.execPath);
+    expect(argv[1]).toMatch(/\/apps\/oh-my-agent\/src\/cli\.ts$/);
+    expect(argv.slice(2)).toEqual(["--mode", "acp"]);
+    expect(existsSync(argv[1]!)).toBe(true);
+  });
+
+  test("names the production executable when OMA_BIN is set", () => {
+    const argv = resolveOmaAcpArgv({ ...baseConfig, omaBin: "/opt/oma/bin/oma" });
+
+    expect(argv).toEqual(["/opt/oma/bin/oma", "--mode", "acp"]);
   });
 });

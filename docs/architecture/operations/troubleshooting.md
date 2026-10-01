@@ -17,12 +17,12 @@ tags: [backend, runtime, surfaces]
 ## 实现文件
 
 - `apps/backend/src/infra/db/schema.ts` — 事实层与执行层各表的权威定义
-- `packages/agent-contract/src/debug.ts` — `debugLog` 与 `OMA_DEBUG=1`，子进程继承同一个开关
+- `packages/message/src/agent-vocabulary.js` — `debugLog` 与 `OMA_DEBUG=1`，子进程继承同一个开关
 - `apps/backend/src/features/agent-run/execution-dispatch.ts` — 阶段名与 `dispatch_failed`
 - `apps/backend/src/features/agent-run/execution-service.ts` — 启动恢复、`retryTerminalCommit`、非 completed 终态
 - `apps/backend/src/features/conversation/service.ts` — `[conversation] trigger` 行与 5 秒轮询兜底
-- `apps/backend/src/http/response.ts` — SSE 构造，心跳与「没有 done 事件」
-- `apps/web/src/hooks/useConversation.ts` — 浏览器侧两条 SSE 的真实路径
+- `apps/backend/src/features/ahp/` — AHP 宿主与 chat 状态投影：现在唯一的实时通道（自研 SSE 已删）
+- `apps/web/src/hooks/useConversation.ts` — 浏览器侧 AHP 连接
 - `scripts/pack-gateway.sh` — 产物的布局、pty 库的落位，以及打出包后自己跑一次 `/health` 的 boot smoke
 
 ## 先分层
@@ -37,15 +37,15 @@ tags: [backend, runtime, surfaces]
 
 | 症状 | 先看 | 代码位置 |
 |---|---|---|
-| 对话页消息不出现 | conversation SSE 是否连着，顶部有没有 reconnecting 提示条 | `apps/web/src/components/ConversationCanvas.tsx` |
+| 对话页消息不出现 | AHP chat 连接是否连上，顶部有没有 reconnecting 提示条 | `apps/web/src/lib/ahp.ts`、`apps/web/src/components/ConversationCanvas.tsx` |
 | 页面刷新后看不到历史 | 全量重放是否被 waterline 去重挡掉 | `apps/web/src/hooks/useConversation.ts` 的 `guard` |
 | 同一句话显示两条 | 乐观消息的 `opt-` 替换是否命中 | `apps/web/src/lib/conversation-reducer.ts` 的 `upsertAuthoritative` |
 | 有 run 在跑但页面停在空闲 | per-run 流没接上，2 秒轮询是否命中 `running` / `waiting` / `commit_failed` | `useConversation.ts` 的 run 追踪 |
 | 文本在流但最后一条消息没替换 | canonical 行的 messageId 前缀是否匹配 `^run:<runId>:` | `useConversation.ts` 的 `message` 订阅 |
-| 飞书没收到回复 | `message_delivery` 是否已记意图、`chat_binding.pushed_seq` 是否推进 | `apps/lark-bot/src/sse-watcher.ts`、`bindings-sqlite.ts` |
+| 飞书没收到回复 | `message_delivery` 是否已记意图、AHP watcher 是否在跑 | `apps/lark-bot/src/ahp-delivery.ts`、`bindings-sqlite.ts` |
 | 飞书机器人不响应 | `allowed_senders` 是否含该用户，群聊是否 @ 到机器人 | `apps/lark-bot/src/ingest.ts` |
-| 飞书回复重复 | 重连重放时 `message_delivery` 的终态判断 | `sse-watcher.ts` 的 `processEntry` |
-| 飞书收不到新会话的消息 | `chat_binding` 是否被 `surface.control` 重绑到了别的会话 | `bindings-sqlite.ts` 的 `rebindChatConversation` |
+| 飞书回复重复 | 重连重放时 `message_delivery` 的终态判断 | `ahp-delivery.ts` 的 `deliverText` |
+| 飞书收不到新会话的消息 | 是否被续接记录改绑到了别的会话（目前要等一次重新订阅） | `bindings-sqlite.ts` 的 `rebindConversation` |
 
 ## BFF
 
@@ -73,13 +73,13 @@ BFF 只做 cookie 换 `x-auth-token` 与 `x-user-id`，不解析业务载荷；�
 
 ## adapter
 
-adapter 是 oma 子进程的进程管理与 JSONL 控制器（`packages/adapter-oma-agent/src/backend.ts`）。
+adapter 是 oma 子进程的进程管理与 JSONL 控制器（`apps/backend/src/features/agent-run/acp/acp-backend.ts`）。
 
 | 症状 | 先看 | 位置 |
 |---|---|---|
 | Run 立即失败并提到 spawn | 可执行文件是否存在、并发槽位是否被占满 | `spawnOmaProcess` 与 `acquireSlot` |
 | 子进程拒绝 execute | 请求构造是否合法，`invalid_request` 会带子进程的拒绝原因 | `handle.acceptance` |
-| 子进程崩溃 | 错误详情里的 stderr 尾部，它是脱敏后的截断内容 | `packages/adapter-oma-agent/src/stderr-tail.ts` |
+| 子进程崩溃 | 错误详情里的 stderr 尾部，它是脱敏后的截断内容 | `apps/backend/src/features/agent-run/acp/acp-backend.ts` |
 | stdout 协议损坏 | `failProtocol` 路径，一条坏行就会终结该 Run | `consumeStdout` |
 | 审批点了没反应 | 该 run 在本进程里是否还有 live 子进程，以及 backend 是否有 approval 管道 | `execution-service.ts` 的 `resolveApproval` |
 | steer 报 no live child | steer 只注入 live 子进程，run 已终结时输入会被取消 | `backend.ts` 的 `steer` |
@@ -119,7 +119,7 @@ adapter 是 oma 子进程的进程管理与 JSONL 控制器（`packages/adapter-
 
 ## 诊断日志
 
-`OMA_DEBUG=1` 是唯一的开关（`packages/agent-contract/src/debug.ts`），子进程继承同一变量，所以一次开启能同时点亮 backend、adapter、子进程 RPC 与 model loop 的日志。日志只含阶段名、id、计数与状态，不含消息正文、工具输入、prompt 与密钥。child 的 stderr 会保留一份脱敏尾部，但它只在协议失败时拼进错误详情，不做实时转发。
+`OMA_DEBUG=1` 是唯一的开关（`packages/message/src/agent-vocabulary.js`），子进程继承同一变量，所以一次开启能同时点亮 backend、adapter、子进程 RPC 与 model loop 的日志。日志只含阶段名、id、计数与状态，不含消息正文、工具输入、prompt 与密钥。child 的 stderr 会保留一份脱敏尾部，但它只在协议失败时拼进错误详情，不做实时转发。
 
 最短观察链（缺哪一行，故障就落在上一行与下一行之间）：
 
@@ -160,7 +160,7 @@ tag 的含义：`conversation` 是触发与入队，`agent-run` 是执行生命�
 4. 账本是唯一的对话事实来源。任何端与账本不一致时，错的是端的投影。
 5. 子进程无状态：崩溃等于当前 Run 失败，下一个输入是新 Run，从 Agent Context 全量投影重建。
 6. per-run 事件流不落库，只落 telemetry 类型的事件到 `agent_run_event`。
-7. conversation SSE 不发 `done` 事件，靠心跳与连接中止表达生命周期。
+7. run SSE 不发 `done` 事件，靠心跳与连接中止表达生命周期。
 8. 产物必须自证能启动：`scripts/pack-gateway.sh` 打完包会从干净工作目录启动一次 backend 并要求 `/health` 应答，过不了就不产出 tar。凡是「打包成功但用户起不来」，都是这条自检没覆盖到的东西。
 
 ## 已知缺口

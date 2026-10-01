@@ -1,6 +1,6 @@
-import type { BackendRunOutcome } from "@chengchenccc/agent-contract";
 import type * as schema from "../../infra/db/schema.js";
 import type { AgentRun, BranchInput, PendingActionRecord } from "./domain.js";
+import type { BackendRunOutcome } from "./protocol/index.js";
 
 export function parseModelRef(json: string): AgentRun["modelRef"] {
   return JSON.parse(json) as AgentRun["modelRef"];

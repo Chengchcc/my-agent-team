@@ -137,7 +137,10 @@ function makeRunService(): AgentRunService {
         agentId: i.agentId,
       } as never;
     },
-    async listPendingInputsForConversation() {
+    async listInputsForConversation(conversationId: string) {
+      return this.listPendingInputsForConversation(conversationId);
+    },
+    async listPendingInputsForConversation(_conversationId: string) {
       return [...fakeInputs.values()]
         .filter((i) => i.status === "pending")
         .map(
@@ -174,6 +177,8 @@ function makeRunService(): AgentRunService {
 const runSvc = makeRunService();
 const injectSteerCalls: Array<{ branchId: string; inputId: string }> = [];
 const abortStaleCalls: string[] = [];
+/** Every continuity record the service announced, in order. */
+const continuityAnnouncements: Array<{ conversationId: string; controlSeq: number }> = [];
 /** RunIds considered "live" (in-process child). DB-active alone is not live. */
 let liveRunIds = new Set<string>();
 /** RunIds with a dispatch in flight (pre-acceptance) on this process. */
@@ -193,6 +198,7 @@ const svc = createConversationService({
     abortStaleCalls.push(runId);
   },
   contextService: contextSvc,
+  onContinuityRecorded: (input) => continuityAnnouncements.push(input),
   resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
   idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
 });
@@ -257,7 +263,7 @@ describe("conversation service (Agent Run cutover)", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("busy branch with LIVE child -> steer mode, queued, no dispatch of a new run", async () => {
+  test("busy branch with LIVE child -> queued as the next turn, no injection", async () => {
     const id = "cid-c";
     const { agentId } = setupConv(id);
     nextAcquired = false;
@@ -270,16 +276,16 @@ describe("conversation service (Agent Run cutover)", () => {
     const result = await svc.postMessage({ conversationId: id, content: "steer me" });
 
     expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.mode).toBe("steer");
+    expect(enqueueCalls[0]!.mode).toBe("normal");
     expect(result.triggeredRuns).toMatchObject([{ agentId, runId: "", queued: true }]);
     // The input handle travels with it: a message that has to WAIT gets its own
     // card (queued state), and cancelling that card cancels THIS input.
     expect(result.triggeredRuns[0]!.inputId).toBeTruthy();
-    // steer belongs to the CURRENT run: injected into the live child, and
-    // NO new run is dispatched (one Run / one child).
+    // The ACP rail has no mid-turn injection: the message queues as the NEXT
+    // turn's input; no new run is dispatched while one is live, and the
+    // injection path stays untouched.
     expect(dispatchCalls).toHaveLength(0);
-    expect(injectSteerCalls).toHaveLength(1);
-    expect(injectSteerCalls[0]!.inputId).toBeTruthy();
+    expect(injectSteerCalls).toHaveLength(0);
   });
 
   test("postMessage modelOverride: same-kind honored, foreign-kind ignored", async () => {
@@ -290,11 +296,17 @@ describe("conversation service (Agent Run cutover)", () => {
     await svc.postMessage({
       conversationId: id,
       content: "use my model",
-      modelOverride: { backendKind: "oma", modelId: "fake/other", reasoningEffort: "low" },
+      modelOverride: {
+        backendKind: "oma",
+        modelId: "fake/other",
+        harnessModel: "fake/echo2",
+        reasoningEffort: "low",
+      },
     });
     expect(enqueueCalls[0]!.defaultModel).toEqual({
       backendKind: "oma",
       modelId: "fake/other",
+      harnessModel: "fake/echo2",
       reasoningEffort: "low",
     });
 
@@ -373,7 +385,6 @@ describe("conversation service (Agent Run cutover)", () => {
         oldConversationId: id,
         reason: "test",
         requestedByRunId: "run-missing",
-        idempotencyKey: "k1",
       }),
     ).rejects.toThrow("run not found");
     await expect(
@@ -381,7 +392,6 @@ describe("conversation service (Agent Run cutover)", () => {
         oldConversationId: id,
         reason: "test",
         requestedByRunId: "run-other",
-        idempotencyKey: "k2",
       }),
     ).rejects.toThrow("does not belong");
   });
@@ -395,11 +405,25 @@ describe("conversation service (Agent Run cutover)", () => {
       reason: "fresh",
       title: "New chat",
       requestedByRunId: "run-known",
-      idempotencyKey: "k3",
     });
     expect(result.newConversationId).toBeTruthy();
     const control = port.getLedgerEntries(id).find((e) => e.kind === "surface.control");
     expect(control).toBeTruthy();
+    // 幂等按规范的 Run 坐标判定：同一个 Run 再问一次，返回同一条新对话、同一条控制记录。
+    const again = await svc.startNewConversationForSurface({
+      oldConversationId: id,
+      reason: "fresh",
+      requestedByRunId: "run-known",
+    });
+    expect(again.newConversationId).toBe(result.newConversationId);
+    expect(again.controlSeq).toBe(result.controlSeq);
+    // The record is announced both when it is written and when a retry finds it: a surface may
+    // have connected in between, and announcing it again is idempotent on the surface's side.
+    expect(continuityAnnouncements).toEqual([
+      { conversationId: id, controlSeq: result.controlSeq },
+      { conversationId: id, controlSeq: result.controlSeq },
+    ]);
+    expect(port.getLedgerEntries(id).filter((e) => e.kind === "surface.control")).toHaveLength(1);
     // 1:1: the new conversation keeps the same agent binding.
     expect(port.getConversation(result.newConversationId)!.agentId).toBe("a-1");
     expect(port.getConversation(result.newConversationId)!.title).toBe("New chat");

@@ -53,8 +53,6 @@ export const conversationLedger = sqliteTable(
     conversationId: text()
       .notNull()
       .references(() => conversation.conversationId, { onDelete: "cascade" }),
-    senderMemberId: text().notNull(),
-    addressedTo: text().notNull().default("[]"),
     kind: text().notNull(),
     content: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
@@ -258,7 +256,6 @@ export const surfaceHealthSelectSchema = createSelectSchema(surfaceHealth, {
 });
 
 export const conversationLedgerSelectSchema = createSelectSchema(conversationLedger, {
-  addressedTo: (s) => s.transform((v: string) => JSON.parse(v) as string[]),
   content: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
   undone: (s) => s.transform((v: number) => v !== 0),
 });
@@ -548,4 +545,26 @@ export const pendingActionSelectSchema = createSelectSchema(pendingAction, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as Record<string, unknown>),
   response: (s) =>
     s.transform((v: string | null) => (v ? (JSON.parse(v) as Record<string, unknown>) : null)),
+});
+
+// ─── proposal (ADR 0040: what an agent proposed and did not do) ───────────
+/** An MCP tool can rewrite an agent's config or a workflow's definition, but it must not apply
+ *  the change: it proposes it, and the target page adopts it as an unsaved edit the human commits.
+ *  Durable because the tool's own answer tells the user where to review it. */
+export const proposal = sqliteTable(
+  "proposal",
+  {
+    id: text().primaryKey(),
+    kind: text().notNull(),
+    targetId: text().notNull(),
+    payload: text().notNull(),
+    status: text().notNull(),
+    createdAt: integer({ mode: "number" }).notNull(),
+    resolvedAt: integer({ mode: "number" }),
+  },
+  (table) => [index("idx_proposal_pending").on(table.kind, table.targetId, table.status)],
+);
+
+export const proposalSelectSchema = createSelectSchema(proposal, {
+  payload: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
 });

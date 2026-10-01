@@ -52,16 +52,9 @@ export function ChatPanel({
     const tools = Object.values(transientTools).filter(
       (tool) => tool.runId === runId && !hasDedicatedEvent(tool.name),
     );
-    return {
-      runId,
-      text: t.text,
-      thinking: t.thinking,
-      sender,
-      tools,
-      error: t.error,
-      notices: t.notices,
-      ordered: t.ordered,
-    };
+    // Spread the run itself: copying its fields by hand is how a field ends up on one screen
+    // and not the others (the ask card's answer was the last one to go missing).
+    return { ...t, runId, sender, tools };
   });
 
   const empty = state.items.length === 0 && bubbles.length === 0;
