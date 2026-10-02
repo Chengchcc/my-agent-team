@@ -100,9 +100,7 @@ function UnreadConversations() {
               <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
               <span className="truncate">{c.title || c.conversationId}</span>
             </span>
-            <span className="text-[10px] text-(--mute)">
-              {relativeUnread(c.lastActivityAt)}
-            </span>
+            <span className="text-[10px] text-(--mute)">{relativeUnread(c.lastActivityAt)}</span>
           </Link>
         ))}
       </div>

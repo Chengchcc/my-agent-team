@@ -13,10 +13,10 @@ import { useAgentList } from "@/features/agents/hooks";
 import { useArtifacts } from "@/features/artifacts/hooks";
 import { artifactKeys } from "@/features/artifacts/query-keys";
 import { useConversation } from "@/hooks/useConversation";
-import { markRead } from "@/lib/read-seq";
 import type { ArtifactMeta, ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
+import { markRead } from "@/lib/read-seq";
 import type { CommandContext } from "@/lib/slash-commands";
 import { findCommand, parseArgs } from "@/lib/slash-commands";
 import { extractText } from "@/lib/timeline";
@@ -50,8 +50,7 @@ export function ConversationCanvas({
   // Seeing the conversation marks it read: covers deep links and messages
   // that arrive while the canvas is open (the sidebar dot clears too).
   const maxSeenSeq = useMemo(
-    () =>
-      items.reduce((max, item) => Math.max(max, item.kind === "message" ? item.seq : 0), 0),
+    () => items.reduce((max, item) => Math.max(max, item.kind === "message" ? item.seq : 0), 0),
     [items],
   );
   useEffect(() => {

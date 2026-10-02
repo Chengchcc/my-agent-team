@@ -24,7 +24,6 @@ import { useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { isUnread, markRead } from "@/lib/read-seq";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +59,7 @@ import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
+import { isUnread, markRead } from "@/lib/read-seq";
 
 function NavContent() {
   const pathname = usePathname();
@@ -245,7 +245,7 @@ function NavContent() {
                           {isUnread(conv.conversationId, conv.lastSeq) && (
                             <span
                               className="size-1.5 rounded-full bg-primary shrink-0"
-                              aria-label="Unread"
+                              aria-hidden
                             />
                           )}
                           <span className="truncate">{title}</span>
