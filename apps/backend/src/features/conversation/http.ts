@@ -82,6 +82,7 @@ export function conversationRoutes(
           forkFromSeq: conv.forkFromSeq,
           lastActivityAt: svc.port.getLastActivityAt?.(id) ?? null,
           lastMessagePreview: svc.port.getLastMessagePreview?.(id) ?? null,
+          lastSeq: svc.port.getLastSeq?.(id) ?? null,
         };
       })
       .delete("/api/conversations/:id", async ({ params: { id }, set }) => {

@@ -13,6 +13,7 @@ import { useAgentList } from "@/features/agents/hooks";
 import { useArtifacts } from "@/features/artifacts/hooks";
 import { artifactKeys } from "@/features/artifacts/query-keys";
 import { useConversation } from "@/hooks/useConversation";
+import { markRead } from "@/lib/read-seq";
 import type { ArtifactMeta, ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
@@ -46,6 +47,16 @@ export function ConversationCanvas({
   const { state, busy, send, transients, transientTools, runTodos, activeRunId, resolveApproval } =
     useConversation(conversationId, snapshot);
   const { agent, items, error, streamConn } = state;
+  // Seeing the conversation marks it read: covers deep links and messages
+  // that arrive while the canvas is open (the sidebar dot clears too).
+  const maxSeenSeq = useMemo(
+    () =>
+      items.reduce((max, item) => Math.max(max, item.kind === "message" ? item.seq : 0), 0),
+    [items],
+  );
+  useEffect(() => {
+    if (maxSeenSeq > 0) markRead(conversationId, maxSeenSeq);
+  }, [conversationId, maxSeenSeq]);
   const { data: artifactsData } = useArtifacts();
   const artifactsByRunId = useMemo(() => {
     const map = new Map<string, ArtifactMeta[]>();

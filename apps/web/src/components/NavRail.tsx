@@ -24,6 +24,7 @@ import { useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { isUnread, markRead } from "@/lib/read-seq";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -236,10 +237,17 @@ function NavContent() {
                           tooltip={title}
                           onClick={() => {
                             closeMobile();
+                            markRead(conv.conversationId, conv.lastSeq ?? 0);
                             router.push(`/chat/${conv.conversationId}`);
                           }}
                         >
                           <MessageSquareIcon />
+                          {isUnread(conv.conversationId, conv.lastSeq) && (
+                            <span
+                              className="size-1.5 rounded-full bg-primary shrink-0"
+                              aria-label="Unread"
+                            />
+                          )}
                           <span className="truncate">{title}</span>
                         </SidebarMenuButton>
                         <DropdownMenu>

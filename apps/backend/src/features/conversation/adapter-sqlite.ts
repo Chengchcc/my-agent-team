@@ -25,6 +25,20 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       .get();
     return row?.max ?? null;
   };
+  /** Max ledger seq (undone excluded) — the unread anchor for the web list. */
+  const lastSeq = (conversationId: string): number | null => {
+    const row = d
+      .select({ max: sql<number | null>`MAX(${schema.conversationLedger.seq})` })
+      .from(schema.conversationLedger)
+      .where(
+        and(
+          eq(schema.conversationLedger.conversationId, conversationId),
+          eq(schema.conversationLedger.undone, 0),
+        ),
+      )
+      .get();
+    return row?.max ?? null;
+  };
   /** ≤120-char text preview of the conversation's last message. */
   const lastMessagePreview = (conversationId: string): string | null => {
     const row = d
@@ -107,6 +121,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         ...schema.conversationSelectSchema.parse(c),
         lastActivityAt: lastLedgerTs(c.conversationId),
         lastMessagePreview: lastMessagePreview(c.conversationId),
+        lastSeq: lastSeq(c.conversationId),
       }));
     },
 
@@ -191,10 +206,14 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         ...schema.conversationSelectSchema.parse(c),
         lastActivityAt: lastLedgerTs(c.conversationId),
         lastMessagePreview: lastMessagePreview(c.conversationId),
+        lastSeq: lastSeq(c.conversationId),
       }));
     },
     getLastMessagePreview(conversationId: string): string | null {
       return lastMessagePreview(conversationId);
+    },
+    getLastSeq(conversationId: string): number | null {
+      return lastSeq(conversationId);
     },
     getLastActivityAt(conversationId: string): number | null {
       return lastLedgerTs(conversationId);
