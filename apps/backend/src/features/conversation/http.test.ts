@@ -1,4 +1,6 @@
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { api, setupTestApp, type TestApp } from "../../testing/app-harness.js";
 
 let harness: TestApp;
@@ -241,5 +243,61 @@ describe("conversation member routes (ADR 0041)", () => {
     // Removing a non-member is a 404.
     const notThere = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
     expect(notThere.status).toBe(404);
+  });
+});
+
+describe("anchored artifact comments (raft absorption)", () => {
+  test("a line-anchored comment lands in the ledger with the readable prefix and the structured anchor", async () => {
+    const created = await api(harness, "POST", BASE, {
+      conversationId: "c-anchor",
+      agentId: "default",
+    });
+    expect(created.status).toBe(201);
+
+    const res = await api(harness, "POST", `${BASE}/c-anchor/artifact-comments`, {
+      url: "artifacts://runs/report.md",
+      anchor: { kind: "lines", start: 40, end: 45 },
+      text: "this range misreads the data",
+    });
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { seq: number; triggeredRuns: unknown[] };
+    expect(body.seq).toBeGreaterThan(0);
+
+    // The ledger row carries both forms: prefixed text for the agent,
+    // structured anchor for the UI chip. (No REST messages endpoint — the
+    // web reads via AHP — so the assertion reads the ledger directly.)
+    const db = new Database(join(harness.dataDir, "backend.db"), { readonly: true });
+    try {
+      const row = db
+        .query(
+          "SELECT content FROM conversation_ledger WHERE conversation_id = ? ORDER BY seq DESC LIMIT 1",
+        )
+        .get("c-anchor") as { content: string } | null;
+      expect(row).toBeTruthy();
+      const parsed = JSON.parse(row!.content) as {
+        text: string;
+        anchor?: { url: string; anchor: { kind: string; start: number } };
+      };
+      expect(parsed.text).toBe("[report.md L40-45] this range misreads the data");
+      expect(parsed.anchor?.url).toBe("artifacts://runs/report.md");
+      expect(parsed.anchor?.anchor).toMatchObject({ kind: "lines", start: 40 });
+    } finally {
+      db.close();
+    }
+
+    // A malformed url is a 400, not a comment on a wrong file.
+    const bad = await api(harness, "POST", `${BASE}/c-anchor/artifact-comments`, {
+      url: "not-an-artifact-url",
+      anchor: { kind: "lines", start: 1 },
+      text: "x",
+    });
+    expect(bad.status).toBe(400);
+    // A bogus anchor shape is a 400 too.
+    const badAnchor = await api(harness, "POST", `${BASE}/c-anchor/artifact-comments`, {
+      url: "artifacts://runs/report.md",
+      anchor: { kind: "somewhere" },
+      text: "x",
+    });
+    expect(badAnchor.status).toBe(400);
   });
 });

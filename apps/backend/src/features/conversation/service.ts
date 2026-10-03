@@ -83,6 +83,9 @@ export interface ConversationService {
     senderMemberId?: string;
     addressedTo?: string[];
     content: unknown;
+    /** Anchored comment (raft absorption): structured anchor stored on the
+     *  ledger row for the UI jump chip; readable form baked into content. */
+    anchor?: { url: string; anchor: unknown };
     /** Optional mode override; default: normal when the branch is idle,
      *  steer when a run is active (the caller wants to influence it). */
     mode?: BranchInputMode;
@@ -291,6 +294,10 @@ class ConversationServiceImpl implements ConversationService {
     content: unknown;
     mode?: BranchInputMode;
     modelOverride?: BackendModelRef;
+    /** Anchored comment (raft absorption): structured anchor stored on the
+     *  ledger row for the UI's jump chip. The caller bakes the readable
+     *  form into `content` — the agent reads text, the UI reads anchor. */
+    anchor?: { url: string; anchor: unknown };
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
@@ -316,6 +323,7 @@ class ConversationServiceImpl implements ConversationService {
       conversationId: input.conversationId,
       visibility: "conversation" as const,
       updatedAt: Date.now(),
+      ...(input.anchor ? { anchor: input.anchor } : {}),
     };
     const seq = await this.#appendEntry({
       conversationId: input.conversationId,
