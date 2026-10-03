@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ReminderValidationError } from "./domain.js";
 import type { ReminderRow } from "./domain.js";
+import { ReminderValidationError } from "./domain.js";
 import type { ReminderPort } from "./ports.js";
 import { createReminderService } from "./service.js";
 
@@ -62,9 +62,9 @@ function serviceOf(port: ReminderPort & { rows: ReminderRow[] }) {
 describe("reminders", () => {
   test("create validates text and future fire time", () => {
     const { svc } = serviceOf(memoryPort());
-    expect(() => svc.create({ conversationId: "c1", createdBy: "user", text: "  ", fireAt: 5_000 })).toThrow(
-      ReminderValidationError,
-    );
+    expect(() =>
+      svc.create({ conversationId: "c1", createdBy: "user", text: "  ", fireAt: 5_000 }),
+    ).toThrow(ReminderValidationError);
     expect(() =>
       svc.create({ conversationId: "c1", createdBy: "user", text: "hi", fireAt: 500 }),
     ).toThrow(ReminderValidationError);

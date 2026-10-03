@@ -1,8 +1,8 @@
 import {
-  ReminderValidationError,
   type CreateReminderInput,
   type ReminderDeliver,
   type ReminderRow,
+  ReminderValidationError,
 } from "./domain.js";
 import type { ReminderPort } from "./ports.js";
 

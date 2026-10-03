@@ -151,12 +151,10 @@ export interface ProductToolsServiceDeps {
    *  deployment without the reminder feature must fail the call explicitly,
    *  not silently. */
   readonly reminder?: {
-    create(input: {
-      conversationId: string;
-      createdBy: string;
-      text: string;
+    create(input: { conversationId: string; createdBy: string; text: string; fireAt: number }): {
+      id: string;
       fireAt: number;
-    }): { id: string; fireAt: number };
+    };
   };
   /** Emit the plan strip when todo_write replaces the run's list. Both the
    *  web panel and the Lark card render from this event; the run's snapshot

@@ -212,7 +212,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "remind_me",
     description:
-      "Schedule a one-shot reminder in this conversation. At fireAt (epoch ms, must be future) the product posts the text here and a run voices it. Use for \"remind me in 30 minutes / tomorrow 9am\" style requests and for your own periodic maintenance nudges.",
+      'Schedule a one-shot reminder in this conversation. At fireAt (epoch ms, must be future) the product posts the text here and a run voices it. Use for "remind me in 30 minutes / tomorrow 9am" style requests and for your own periodic maintenance nudges.',
     inputSchema: {
       type: "object",
       properties: {

@@ -578,9 +578,11 @@ export const reminder = sqliteTable(
   "reminder",
   {
     id: text().primaryKey(),
-    conversationId: text().notNull().references(() => conversation.conversationId, {
-      onDelete: "cascade",
-    }),
+    conversationId: text()
+      .notNull()
+      .references(() => conversation.conversationId, {
+        onDelete: "cascade",
+      }),
     /** Agent id or the constant "user" — who asked for it (raft: only the
      *  author is reminded; we deliver to the conversation instead). */
     createdBy: text().notNull(),

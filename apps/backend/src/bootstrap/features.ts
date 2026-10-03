@@ -62,11 +62,6 @@ import { listTaskWorktrees, validateWorktreePath } from "../features/coding/task
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
 import {
-  createReminderService,
-  reminderRoutes,
-  sqliteReminderAdapter,
-} from "../features/reminder/index.js";
-import {
   createKnowledgeService,
   knowledgeRoutes,
   sqliteKnowledgePackAdapter,
@@ -122,6 +117,11 @@ import {
   sqliteProposalAdapter,
 } from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
+import {
+  createReminderService,
+  reminderRoutes,
+  sqliteReminderAdapter,
+} from "../features/reminder/index.js";
 import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
 import { settingsRoutes } from "../features/settings/index.js";
 import type { SkillPackRow } from "../features/skill-pack/index.js";
@@ -1447,10 +1447,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   const reminderInterval = setInterval(() => {
     void reminderSvc.fireDue().catch((err: unknown) => {
-      console.error(
-        "[reminder] tick failed:",
-        err instanceof Error ? err.message : err,
-      );
+      console.error("[reminder] tick failed:", err instanceof Error ? err.message : err);
     });
   }, 30_000);
 

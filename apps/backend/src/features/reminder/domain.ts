@@ -25,9 +25,6 @@ export interface CreateReminderInput {
 
 /** The reminder service only needs to hand text to a conversation — the
  *  full postMessage surface stays behind this narrow seam. */
-export type ReminderDeliver = (input: {
-  conversationId: string;
-  text: string;
-}) => Promise<unknown>;
+export type ReminderDeliver = (input: { conversationId: string; text: string }) => Promise<unknown>;
 
 export class ReminderValidationError extends Error {}
