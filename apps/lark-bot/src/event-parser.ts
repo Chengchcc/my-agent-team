@@ -18,7 +18,7 @@ export function parseEvent(line: string): LarkMessageEvent | null {
 }
 
 /** The `@everyone` placeholder key lark-cli emits in the mentions array. */
-const MENTION_ALL_KEY = "@_all";
+export const MENTION_ALL_KEY = "@_all";
 
 /** Whether the bot was actually @-mentioned.
  *

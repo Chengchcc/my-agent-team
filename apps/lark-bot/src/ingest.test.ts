@@ -289,7 +289,12 @@ describe("ingest", () => {
     expect(inside.conversationId).toBe("conv_topic");
 
     // And a DIFFERENT topic in the same chat is a different conversation.
-    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_topic_2" } }, { body: { seq: 3 } }]);
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_topic_2" } },
+      { body: { members: [] } },
+      { body: { seq: 3 } },
+    ]);
     const other = await ingest(
       {
         ...baseEvent,
@@ -308,7 +313,12 @@ describe("ingest", () => {
   test("group message without @bot — posts but doesn't trigger", async () => {
     const db = makeDb();
 
-    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_grp" } }, { body: { seq: 2 } }]);
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_grp" } },
+      { body: { members: [] } },
+      { body: { seq: 2 } },
+    ]);
 
     const result = await ingest(
       {
@@ -415,10 +425,56 @@ describe("ingest", () => {
     db.close();
   });
 
+  test("group message in a multi-member room routes @name to that member (ADR 0041)", async () => {
+    const db = makeDb();
+    const seen = mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_room" } },
+      { body: { members: ["agent_123", "agent_data"] } },
+      {
+        body: [
+          { id: "agent_123", name: "TestBot" },
+          { id: "agent_data", name: "Data Analyst" },
+        ],
+      },
+      { body: { seq: 4, triggeredRuns: [] } },
+    ]);
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_room",
+        message_id: "om_room",
+        chat_id: "oc_room",
+        chat_type: "group",
+        content: "@Data Analyst pull the weekly numbers",
+        mentions: [{ id: "ou_data", key: "@_user_2", name: "Data Analyst" }],
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+    expect(result.action).toBe("consumed");
+    const post = seen.find((r) => r.url.endsWith("/messages") && r.body);
+    expect(post).toBeTruthy();
+    expect(JSON.parse(post!.body!).addressedTo).toEqual(["agent_data"]);
+  });
+
   test("group message with @bot — triggers agent", async () => {
     const db = makeDb();
 
-    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_grp2" } }, { body: { seq: 3 } }]);
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_grp2" } },
+      // ADR 0041: the group path now GETs the member roster before posting;
+      // a one-member roster keeps legacy [selfAgentId] routing.
+      { body: { members: ["agent_123"] } },
+      { body: { seq: 3 } },
+    ]);
 
     const result = await ingest(
       {
@@ -452,7 +508,12 @@ describe("ingest", () => {
     // `mentions` array is the only thing that distinguishes them: without it
     // any group member could start a run by typing the bot's name.
     const db = makeDb();
-    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_grp3" } }, { body: { seq: 4 } }]);
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_grp3" } },
+      { body: { members: [] } },
+      { body: { seq: 4 } },
+    ]);
 
     const result = await ingest(
       {
@@ -514,6 +575,7 @@ describe("ingest", () => {
     mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_empty" } },
+      { body: { members: [] } },
       { body: { seq: 5, triggeredRuns: [] } },
     ]);
 
