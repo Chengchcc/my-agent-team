@@ -300,8 +300,8 @@ class ConversationServiceImpl implements ConversationService {
     // ADR 0041: routing derives from the member roster (fallback: the
     // conversation's legacy single agent). 1 member = e2e auto-trigger;
     // a room = only @mentioned members run; nobody = ledger-only.
-    const members = this.port.listMembers?.(input.conversationId) ??
-      (agentId !== null ? [agentId] : []);
+    const members =
+      this.port.listMembers?.(input.conversationId) ?? (agentId !== null ? [agentId] : []);
     const targets = resolveTrigger({ members, addressedTo: input.addressedTo });
 
     // ── The human message becomes canonical History FIRST ──

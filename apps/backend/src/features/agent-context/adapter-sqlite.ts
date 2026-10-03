@@ -79,7 +79,7 @@ export function sqliteAgentContextAdapter(
   return {
     async getOrCreateTree(conversationId, agentId) {
       const existing = agentId
-        ? d
+        ? (d
             .select()
             .from(schema.agentContextTree)
             .where(
@@ -101,7 +101,7 @@ export function sqliteAgentContextAdapter(
                 isNull(schema.agentContextTree.agentId),
               ),
             )
-            .get()
+            .get())
         : d
             .select()
             .from(schema.agentContextTree)

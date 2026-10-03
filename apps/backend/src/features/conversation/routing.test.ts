@@ -25,9 +25,7 @@ describe("ADR 0041 response routing (derived from member count)", () => {
   });
 
   test("2+ members: mentions of non-members trigger nobody", () => {
-    expect(resolveTrigger({ members: ["coder", "writer"], addressedTo: ["stranger"] })).toEqual(
-      [],
-    );
+    expect(resolveTrigger({ members: ["coder", "writer"], addressedTo: ["stranger"] })).toEqual([]);
   });
 
   test("system inputs (reminder, workflow) carry their target explicitly", () => {

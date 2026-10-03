@@ -306,10 +306,7 @@ export const agentContextTree = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.treeId] }),
-    uniqueIndex("idx_context_tree_conversation_agent").on(
-      table.conversationId,
-      table.agentId,
-    ),
+    uniqueIndex("idx_context_tree_conversation_agent").on(table.conversationId, table.agentId),
   ],
 );
 

@@ -78,7 +78,11 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       // the routing truth from birth, not repaired lazily.
       if (parsed.agentId !== null) {
         d.insert(schema.conversationMember)
-          .values({ conversationId: input.conversationId, agentId: parsed.agentId, addedAt: input.createdAt })
+          .values({
+            conversationId: input.conversationId,
+            agentId: parsed.agentId,
+            addedAt: input.createdAt,
+          })
           .onConflictDoNothing()
           .run();
       }
