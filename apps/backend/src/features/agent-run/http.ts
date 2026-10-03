@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { taskCardOf } from "./tasks.js";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { Elysia, t } from "elysia";
 import { type AgentRunExecutionService, ApprovalNotApplicableError } from "./execution.js";
@@ -239,6 +240,52 @@ export function agentRunRoutes(input: {
         }),
       },
     )
+    .get("/api/tasks", ({ query }) => {
+      // Raft #3 task cards: the input queue's semantics, made visible. A
+      // task IS a queued input plus its run — read-only projection, no new
+      // execution semantics; statuses are derived (tasks.ts) so the run
+      // state machine stays the only truth.
+      const limit = Math.min(Number(query.limit ?? 100) || 100, 300);
+      const rows = db
+        .query(
+          `SELECT q.input_id, q.status AS queue_status, q.run_id, q.created_at, q.message,
+                  ar.status AS run_status, ar.agent_id, ar.conversation_id,
+                  c.title AS conversation_title
+             FROM branch_input_queue q
+             LEFT JOIN agent_run ar ON ar.run_id = q.run_id
+             LEFT JOIN conversation c ON c.conversation_id = ar.conversation_id
+            ORDER BY q.created_at DESC
+            LIMIT ?`,
+        )
+        .all(limit) as Array<{
+        input_id: string;
+        queue_status: string;
+        run_id: string | null;
+        created_at: number;
+        message: string;
+        run_status: string | null;
+        agent_id: string | null;
+        conversation_id: string | null;
+        conversation_title: string | null;
+      }>;
+      const tasks = rows.map((r) =>
+        taskCardOf({
+          queue: {
+            inputId: r.input_id,
+            status: r.queue_status,
+            runId: r.run_id,
+            createdAt: r.created_at,
+            message: r.message,
+          },
+          run:
+            r.run_status === null
+              ? null
+              : { status: r.run_status, agentId: r.agent_id, conversationId: r.conversation_id },
+          conversationTitle: r.conversation_title,
+        }),
+      );
+      return { tasks };
+    })
     .get("/api/pending-actions", () => {
       // Global HITL read model: one row per thing a human can still answer.
       // Terminal settles cancel their actions, so the active-run join is
