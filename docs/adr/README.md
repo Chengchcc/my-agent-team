@@ -65,3 +65,4 @@
 - `docs/architecture/db-typesafe-rules.md` — DB 类型链规则
 - `docs/architecture/execution/backend-kinds-gate0.md` — 多 backend 协议实测记录(决策见 §7)
 | 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 首刀已落地：ACP 轨的工具事实进账本，验收向量绿；规范模型其余部分与 S1 至 S3、R1 至 R3 待做。工作分支 feat/ahp2acp） |
+| 0041 | conversation-membership-and-response-routing(会话成员 1..N、响应路由由成员数派生；部分取代 0021) | **Proposed**（初稿 2026-10-03；实现未开始——迁移/路由/Web/Lark 四步待排） |
