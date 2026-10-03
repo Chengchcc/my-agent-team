@@ -416,7 +416,16 @@ function isoOf(ts: number): string {
 }
 
 function toAhpMessage(
-  input: { readonly id?: string; readonly role?: string; readonly text?: string } | undefined,
+  input:
+    | {
+        readonly id?: string;
+        readonly role?: string;
+        readonly text?: string;
+        /** Anchored comment (raft absorption): rides the queued message at
+         *  runtime; surfaces read it from _meta to render the jump chip. */
+        readonly anchor?: { url: string; anchor: unknown };
+      }
+    | undefined,
   seq?: number,
   undone?: boolean,
 ): AhpMessage {
@@ -434,7 +443,7 @@ function toAhpMessage(
     origin: { kind: kind as AhpMessage["origin"]["kind"] },
     // The ledger identity again, on the initiating message: a surface dedupes its own optimistic
     // echo against it.
-    ...metaOf(input?.id, seq, undone),
+    ...metaOf(input?.id, seq, undone, input?.anchor),
   };
 }
 
@@ -512,13 +521,17 @@ function metaOf(
   messageId: string | undefined,
   seq?: number,
   undone?: boolean,
+  anchor?: { url: string; anchor: unknown },
 ): { _meta?: Record<string, unknown> } {
-  if (messageId === undefined && seq === undefined && undone === undefined) return {};
+  if (messageId === undefined && seq === undefined && undone === undefined && anchor === undefined) {
+    return {};
+  }
   return {
     _meta: {
       ...(messageId === undefined ? {} : { messageId }),
       ...(seq === undefined ? {} : { seq }),
       ...(undone === undefined ? {} : { undone }),
+      ...(anchor === undefined ? {} : { anchor }),
     },
   };
 }
