@@ -29,8 +29,8 @@ import {
   useReminders,
   useSnoozeReminder,
 } from "@/features/reminders/hooks";
-import { TasksSection } from "@/features/runs/TasksSection";
 import { type PendingHitlAction, pendingActionsQuery } from "@/features/runs/queries";
+import { TasksSection } from "@/features/runs/TasksSection";
 import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
 import { getReadSeqVersion, isUnread, subscribeReadSeq } from "@/lib/read-seq";
