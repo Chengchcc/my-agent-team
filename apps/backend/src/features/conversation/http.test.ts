@@ -195,9 +195,9 @@ describe("conversation member routes (ADR 0041)", () => {
     expect(created.status).toBe(201);
 
     // Roster after creation: exactly the creating agent.
-    const initial = (await (
-      await api(harness, "GET", `${BASE}/c-members/members`)
-    ).json()) as { members: string[] };
+    const initial = (await (await api(harness, "GET", `${BASE}/c-members/members`)).json()) as {
+      members: string[];
+    };
     expect(initial.members).toEqual([first]);
 
     // Adding an unknown agent is a 400, not a silent member.
@@ -231,11 +231,7 @@ describe("conversation member routes (ADR 0041)", () => {
     expect(roster.members.sort()).toEqual([first, second].sort());
 
     // Removing a member keeps the other; removing the last one is a 400.
-    const removed = await api(
-      harness,
-      "DELETE",
-      `${BASE}/c-members/members/${second}`,
-    );
+    const removed = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
     expect(removed.status).toBe(200);
     const afterRemove = (await removed.json()) as { members: string[] };
     expect(afterRemove.members).toEqual([first]);
@@ -243,11 +239,7 @@ describe("conversation member routes (ADR 0041)", () => {
     expect(lastGuard.status).toBe(400);
 
     // Removing a non-member is a 404.
-    const notThere = await api(
-      harness,
-      "DELETE",
-      `${BASE}/c-members/members/${second}`,
-    );
+    const notThere = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
     expect(notThere.status).toBe(404);
   });
 });
