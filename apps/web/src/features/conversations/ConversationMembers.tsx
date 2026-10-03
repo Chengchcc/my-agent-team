@@ -13,8 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAgentList } from "@/features/agents/hooks";
+import { useConversationMembers } from "@/features/conversations/hooks";
 import { api } from "@/lib/api";
-import { useConversationMembers } from "./hooks.js";
 
 /** ADR 0041: the conversation's member roster. One member = e2e (every
  *  message triggers); two or more = room (@mention routing) — the chips are
