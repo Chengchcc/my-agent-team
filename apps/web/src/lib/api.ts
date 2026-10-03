@@ -27,6 +27,7 @@ export type AgentRunDetail = ApiReturn<typeof api.getAgentRun>;
 export type AgentRuntimeStatus = ApiReturn<typeof api.getAgentRuntime>;
 export type SurfaceOpsItem = ApiReturn<typeof api.listSurfaces>[number];
 export type ConversationSnapshot = ApiReturn<typeof api.listConversations>[number];
+export type ReminderRow = ApiReturn<typeof api.listReminders>["reminders"][number];
 export type SettingsMap = ApiReturn<typeof api.getSettings>["settings"];
 export type ProviderInfo = {
   id: string;
@@ -169,6 +170,18 @@ export const api = {
     unwrap(client.api.agents({ id }).lark.setup({ setupId }).get()),
   larkSetupCancel: (id: string, setupId: string) =>
     unwrap(client.api.agents({ id }).lark.setup({ setupId }).delete()),
+  // Reminders
+  listReminders: (conversationId?: string) =>
+    unwrap(
+      client.api.reminders.get({
+        query: conversationId ? { conversationId } : undefined,
+      }),
+    ),
+  createReminder: (body: { conversationId: string; text: string; fireAt: number }) =>
+    unwrap(client.api.reminders.post(body)),
+  snoozeReminder: (id: string, fireAt: number) =>
+    unwrap(client.api.reminders({ id }).snooze.post({ fireAt })),
+  cancelReminder: (id: string) => unwrap(client.api.reminders({ id }).delete()),
   // Conversations
   listConversations: (agentId?: string) =>
     unwrap(client.api.conversations.get({ query: agentId ? { agentId } : undefined })),

@@ -11,7 +11,10 @@ export interface ReminderService {
    *  past is always a caller bug, and the due scan would fire it on the
    *  next tick before the creator even sees the response. */
   create(input: CreateReminderInput): ReminderRow;
-  listPending(conversationId: string): ReminderRow[];
+  listPending(conversationId: string): Array<ReminderRow & { conversationTitle: string | null }>;
+  listAllPending(limit?: number): Array<ReminderRow & { conversationTitle: string | null }>;
+  /** Push a pending reminder's fire time. Same future rule as create. */
+  snooze(id: string, fireAt: number): ReminderRow;
   cancel(id: string): boolean;
   /** Deliver every due reminder: post each into its conversation, then mark
    *  fired. Delivery errors still mark fired — a reminder for a deleted
@@ -38,6 +41,18 @@ export function createReminderService(deps: {
     },
     listPending(conversationId) {
       return deps.port.listPending(conversationId);
+    },
+    listAllPending(limit) {
+      return deps.port.listAllPending(limit);
+    },
+    snooze(id, fireAt) {
+      if (!Number.isFinite(fireAt) || fireAt <= now()) {
+        throw new ReminderValidationError("snooze target must be in the future");
+      }
+      const row = deps.port.listPendingRow(id);
+      if (!row) throw new ReminderValidationError("reminder not found or already fired");
+      deps.port.snooze(id, fireAt);
+      return { ...row, fireAt };
     },
     cancel(id) {
       return deps.port.cancel(id);

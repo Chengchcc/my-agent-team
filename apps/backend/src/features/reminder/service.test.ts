@@ -28,7 +28,24 @@ function memoryPort(): ReminderPort & { rows: ReminderRow[] } {
     listPending(conversationId) {
       return rows
         .filter((r) => r.conversationId === conversationId && r.firedAt === null)
-        .sort((a, b) => a.fireAt - b.fireAt);
+        .sort((a, b) => a.fireAt - b.fireAt)
+        .map((r) => ({ ...r, conversationTitle: null }));
+    },
+    snooze(id, fireAt) {
+      const row = rows.find((r) => r.id === id && r.firedAt === null);
+      if (!row) return false;
+      row.fireAt = fireAt;
+      return true;
+    },
+    listPendingRow(id) {
+      return rows.find((r) => r.id === id && r.firedAt === null) ?? null;
+    },
+    listAllPending(limit = 50) {
+      return rows
+        .filter((r) => r.firedAt === null)
+        .sort((a, b) => a.fireAt - b.fireAt)
+        .slice(0, limit)
+        .map((r) => ({ ...r, conversationTitle: null }));
     },
     cancel(id) {
       const row = rows.find((r) => r.id === id && r.firedAt === null);

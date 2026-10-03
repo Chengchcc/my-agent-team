@@ -54,16 +54,67 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
         .all();
       return rows.length > 0;
     },
-    listPending(conversationId: string): ReminderRow[] {
+    listPending(conversationId: string): Array<ReminderRow & { conversationTitle: string | null }> {
       return d
-        .select()
+        .select({
+          id: schema.reminder.id,
+          conversationId: schema.reminder.conversationId,
+          createdBy: schema.reminder.createdBy,
+          text: schema.reminder.text,
+          fireAt: schema.reminder.fireAt,
+          firedAt: schema.reminder.firedAt,
+          createdAt: schema.reminder.createdAt,
+          conversationTitle: schema.conversation.title,
+        })
         .from(schema.reminder)
+        .leftJoin(
+          schema.conversation,
+          eq(schema.reminder.conversationId, schema.conversation.conversationId),
+        )
         .where(
           and(eq(schema.reminder.conversationId, conversationId), isNull(schema.reminder.firedAt)),
         )
         .orderBy(asc(schema.reminder.fireAt))
-        .all()
-        .map(rowOf);
+        .all();
+    },
+    snooze(id: string, fireAt: number): boolean {
+      const rows = d
+        .update(schema.reminder)
+        .set({ fireAt })
+        .where(and(eq(schema.reminder.id, id), isNull(schema.reminder.firedAt)))
+        .returning({ id: schema.reminder.id })
+        .all();
+      return rows.length > 0;
+    },
+    listPendingRow(id: string): ReminderRow | null {
+      const row = d
+        .select()
+        .from(schema.reminder)
+        .where(and(eq(schema.reminder.id, id), isNull(schema.reminder.firedAt)))
+        .get();
+      return row ? rowOf(row) : null;
+    },
+    listAllPending(limit = 50): Array<ReminderRow & { conversationTitle: string | null }> {
+      return d
+        .select({
+          id: schema.reminder.id,
+          conversationId: schema.reminder.conversationId,
+          createdBy: schema.reminder.createdBy,
+          text: schema.reminder.text,
+          fireAt: schema.reminder.fireAt,
+          firedAt: schema.reminder.firedAt,
+          createdAt: schema.reminder.createdAt,
+          conversationTitle: schema.conversation.title,
+        })
+        .from(schema.reminder)
+        .leftJoin(
+          schema.conversation,
+          eq(schema.reminder.conversationId, schema.conversation.conversationId),
+        )
+        .where(isNull(schema.reminder.firedAt))
+        .orderBy(asc(schema.reminder.fireAt))
+        .limit(limit)
+        .all();
     },
     cancel(id: string): boolean {
       const rows = d
