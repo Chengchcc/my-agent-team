@@ -523,7 +523,12 @@ function metaOf(
   undone?: boolean,
   anchor?: { url: string; anchor: unknown },
 ): { _meta?: Record<string, unknown> } {
-  if (messageId === undefined && seq === undefined && undone === undefined && anchor === undefined) {
+  if (
+    messageId === undefined &&
+    seq === undefined &&
+    undone === undefined &&
+    anchor === undefined
+  ) {
     return {};
   }
   return {
