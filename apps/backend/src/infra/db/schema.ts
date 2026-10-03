@@ -271,8 +271,26 @@ export const boolToInt = (v: boolean): number => (v ? 1 : 0);
 // ─── Phase 1: Agent Context, Branches, Runs, Queue, PendingAction ──────────
 // DESTRUCTIVE CLEAN CUTOVER - old session/checkpoint state is intentionally discarded.
 
-// Agent Context Tree: one per conversation (1:1 collapse; the per-agent-member
-// dimension is gone — a conversation has exactly one agent).
+// Agent Context Tree: one per (conversation, agent) — ADR 0041. Each member
+// agent of a room owns an isolated context line; the shared ledger is the room's truth.
+/** ADR 0041: the conversation's agent members (1..N). Routing semantics are
+ *  DERIVED from the count (1 = auto-respond e2e, N = mention-only); this
+ *  table is the truth, conversation.agentId stays as the default member. */
+export const conversationMember = sqliteTable(
+  "conversation_member",
+  {
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.conversationId, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    addedAt: integer("added_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationId, table.agentId] }),
+    index("idx_conversation_member_agent").on(table.agentId),
+  ],
+);
+
 export const agentContextTree = sqliteTable(
   "agent_context_tree",
   {
@@ -280,11 +298,15 @@ export const agentContextTree = sqliteTable(
     conversationId: text("conversation_id")
       .notNull()
       .references(() => conversation.conversationId, { onDelete: "cascade" }),
+    /** ADR 0041: one tree per (conversation, agent) — a member agent's
+     *  isolated context line inside the room. Nullable on legacy rows;
+     *  backfilled by migration 0053. */
+    agentId: text("agent_id"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.treeId] }),
-    uniqueIndex("idx_context_tree_conversation").on(table.conversationId),
+    uniqueIndex("idx_context_tree_conversation_agent").on(table.conversationId, table.agentId),
   ],
 );
 
@@ -568,3 +590,31 @@ export const proposal = sqliteTable(
 export const proposalSelectSchema = createSelectSchema(proposal, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
 });
+
+/** A one-shot timed nudge (raft step 2): when fire_at arrives, the reminder
+ *  tick posts the text into the bound conversation as a normal input and a
+ *  regular run voices it. fired_at null = pending; set on delivery — errors
+ *  are logged and the row is still marked fired (a reminder for a deleted
+ *  conversation must not retry forever). */
+export const reminder = sqliteTable(
+  "reminder",
+  {
+    id: text().primaryKey(),
+    conversationId: text()
+      .notNull()
+      .references(() => conversation.conversationId, {
+        onDelete: "cascade",
+      }),
+    /** Agent id or the constant "user" — who asked for it (raft: only the
+     *  author is reminded; we deliver to the conversation instead). */
+    createdBy: text().notNull(),
+    text: text().notNull(),
+    fireAt: integer({ mode: "number" }).notNull(),
+    firedAt: integer({ mode: "number" }),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_reminder_due").on(table.firedAt, table.fireAt),
+    index("idx_reminder_conversation").on(table.conversationId, table.createdAt),
+  ],
+);

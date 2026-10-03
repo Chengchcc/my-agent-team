@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { deserializeLedgerContent, extractText } from "@chengchenccc/message";
-import { and, desc, eq, gt, inArray, isNotNull, like, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, like, notInArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { ConflictError } from "../../infra/domain-errors.js";
@@ -22,6 +22,20 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       .select({ max: sql<number | null>`MAX(${schema.conversationLedger.ts})` })
       .from(schema.conversationLedger)
       .where(eq(schema.conversationLedger.conversationId, conversationId))
+      .get();
+    return row?.max ?? null;
+  };
+  /** Max ledger seq (undone excluded) — the unread anchor for the web list. */
+  const lastSeq = (conversationId: string): number | null => {
+    const row = d
+      .select({ max: sql<number | null>`MAX(${schema.conversationLedger.seq})` })
+      .from(schema.conversationLedger)
+      .where(
+        and(
+          eq(schema.conversationLedger.conversationId, conversationId),
+          eq(schema.conversationLedger.undone, 0),
+        ),
+      )
       .get();
     return row?.max ?? null;
   };
@@ -59,7 +73,20 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         })
         .returning()
         .get();
-      return schema.conversationSelectSchema.parse(row);
+      const parsed = schema.conversationSelectSchema.parse(row);
+      // ADR 0041: the creating agent is the first member — the roster is
+      // the routing truth from birth, not repaired lazily.
+      if (parsed.agentId !== null) {
+        d.insert(schema.conversationMember)
+          .values({
+            conversationId: input.conversationId,
+            agentId: parsed.agentId,
+            addedAt: input.createdAt,
+          })
+          .onConflictDoNothing()
+          .run();
+      }
+      return parsed;
     },
 
     getConversation(conversationId: string): ConversationRow | null {
@@ -107,6 +134,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         ...schema.conversationSelectSchema.parse(c),
         lastActivityAt: lastLedgerTs(c.conversationId),
         lastMessagePreview: lastMessagePreview(c.conversationId),
+        lastSeq: lastSeq(c.conversationId),
       }));
     },
 
@@ -191,10 +219,45 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         ...schema.conversationSelectSchema.parse(c),
         lastActivityAt: lastLedgerTs(c.conversationId),
         lastMessagePreview: lastMessagePreview(c.conversationId),
+        lastSeq: lastSeq(c.conversationId),
       }));
     },
     getLastMessagePreview(conversationId: string): string | null {
       return lastMessagePreview(conversationId);
+    },
+    getLastSeq(conversationId: string): number | null {
+      return lastSeq(conversationId);
+    },
+    listMembers(conversationId: string): string[] {
+      return d
+        .select({ agentId: schema.conversationMember.agentId })
+        .from(schema.conversationMember)
+        .where(eq(schema.conversationMember.conversationId, conversationId))
+        .orderBy(asc(schema.conversationMember.addedAt))
+        .all()
+        .map((r) => r.agentId);
+    },
+    addMember(conversationId: string, agentId: string, addedAt: number): boolean {
+      const rows = d
+        .insert(schema.conversationMember)
+        .values({ conversationId, agentId, addedAt })
+        .onConflictDoNothing()
+        .returning({ agentId: schema.conversationMember.agentId })
+        .all();
+      return rows.length > 0;
+    },
+    removeMember(conversationId: string, agentId: string): boolean {
+      const rows = d
+        .delete(schema.conversationMember)
+        .where(
+          and(
+            eq(schema.conversationMember.conversationId, conversationId),
+            eq(schema.conversationMember.agentId, agentId),
+          ),
+        )
+        .returning({ agentId: schema.conversationMember.agentId })
+        .all();
+      return rows.length > 0;
     },
     getLastActivityAt(conversationId: string): number | null {
       return lastLedgerTs(conversationId);

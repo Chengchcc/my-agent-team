@@ -99,6 +99,10 @@ export const MessageRevisionSchema = z.object({
   tools: z.array(MessageToolStateSchema).nullable().optional(),
   conversationId: z.string().nullable().optional(),
   visibility: z.enum(["internal", "conversation"]).nullable().optional(),
+  /** Anchored-comment metadata (raft absorption): opaque to the protocol —
+   *  surfaces render a jump chip from it; the readable form lives in text.
+   *  Nullable for rows written before the field existed. */
+  anchor: z.unknown().nullable().optional(),
   updatedAt: z.number(),
   error: MessageErrorSchema.nullable().optional(),
   runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).nullable().optional(),

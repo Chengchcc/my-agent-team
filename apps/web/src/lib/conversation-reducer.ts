@@ -23,6 +23,8 @@ export type UiItem =
       seq: number;
       /** Soft-delete flag - greyed out when true. */
       undone?: boolean;
+      /** Anchored comment (raft absorption): renders as a jump chip. */
+      anchor?: { url: string; anchor: unknown };
     }
   | { kind: "notice"; id: string; text: string };
 

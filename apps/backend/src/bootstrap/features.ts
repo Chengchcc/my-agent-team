@@ -60,7 +60,11 @@ import {
 import { loadPersistedTerminals, savePersistedTerminals } from "../features/coding/persist.js";
 import { listTaskWorktrees, validateWorktreePath } from "../features/coding/task-worktrees.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
-import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
+import {
+  conversationRoutes,
+  createConversationMembers,
+  sqliteConversationAdapter,
+} from "../features/conversation/index.js";
 import {
   createKnowledgeService,
   knowledgeRoutes,
@@ -117,6 +121,11 @@ import {
   sqliteProposalAdapter,
 } from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
+import {
+  createReminderService,
+  reminderRoutes,
+  sqliteReminderAdapter,
+} from "../features/reminder/index.js";
 import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
 import { settingsRoutes } from "../features/settings/index.js";
 import type { SkillPackRow } from "../features/skill-pack/index.js";
@@ -1427,6 +1436,28 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     }) => workflowExecutionService.startExecution(input),
   });
 
+  // Reminder tick (raft step 2): DB rows are the truth, so a 30s scan is
+  // restart-safe (missed reminders fire on the first tick after boot).
+  const reminderSvc = createReminderService({
+    port: sqliteReminderAdapter(db),
+    idGen: ulid,
+    deliver: async ({ conversationId, text, author }) => {
+      // ADR 0041: system inputs carry their target — in a room, an un-
+      // addressed delivery would land in the ledger and never wake anyone.
+      await conv.convSvc.postMessage({
+        conversationId,
+        content: `⏰ Reminder (set earlier): ${text}`,
+        mode: "normal",
+        ...(author ? { addressedTo: [author] } : {}),
+      });
+    },
+  });
+  const reminderInterval = setInterval(() => {
+    void reminderSvc.fireDue().catch((err: unknown) => {
+      console.error("[reminder] tick failed:", err instanceof Error ? err.message : err);
+    });
+  }, 30_000);
+
   const workflowApp = workflowRoutes({
     workflowExecutionService,
     loadWorkflow: async (ref) => {
@@ -1579,7 +1610,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       larkSurfaceFactsOf,
       modelKnownForBackend,
     ),
-    conversations: conversationRoutes(conv.convSvc, ulid, (id: string) => projectSvc.exists(id)),
+    conversations: conversationRoutes(
+      conv.convSvc,
+      ulid,
+      (id: string) => projectSvc.exists(id),
+      createConversationMembers({
+        port: convPort,
+        agentExists: (id: string) => agentSvc.exists(id),
+      }),
+    ),
+    reminders: reminderRoutes(reminderSvc),
     ops: opsRoutes(opsSvc),
     agentRuns: agentRunRoutes({
       db,
@@ -1706,6 +1746,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   async function start(): Promise<void> {
     await workflowTriggerScheduler.sync();
+    // Reminder catch-up: anything due while the process was down fires now.
+    void reminderSvc.fireDue().catch((err: unknown) => {
+      console.error("[reminder] boot catch-up failed:", err instanceof Error ? err.message : err);
+    });
     // Agent-run recovery first: redeliver delivering inputs, promote crash
     // gaps, retry commit_failed commits, terminalize restart orphans — old
     // state is settled BEFORE workflow recovery re-drives executions that
@@ -1758,6 +1802,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // mid-finalize), THEN close surfaces that children may still call
     // (Product Tools MCP) and finally Lark/setup.
     smokeCron?.stop();
+    clearInterval(reminderInterval);
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();

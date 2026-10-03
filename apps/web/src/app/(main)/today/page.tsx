@@ -3,19 +3,36 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CheckCircle2, Clock, Coins, GitBranch, Loader2, UserCheck } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { KpiTile, MonoLabel, StatusPill, type StatusTone } from "@/components/patterns";
 import { RunBlockerCard } from "@/components/RunBlockerCard";
+import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatNextRun, nextCronRun } from "@/components/workflow/cron-next";
 import { useAgentList } from "@/features/agents/hooks";
+import { useAllConversations } from "@/features/conversations/hooks";
 import { useAgentRuns, useTelemetrySummary } from "@/features/ops/hooks";
+import {
+  useCancelReminder,
+  useCreateReminder,
+  useReminders,
+  useSnoozeReminder,
+} from "@/features/reminders/hooks";
 import { type PendingHitlAction, pendingActionsQuery } from "@/features/runs/queries";
 import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
+import { getReadSeqVersion, isUnread, subscribeReadSeq } from "@/lib/read-seq";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +88,153 @@ function isToday(ts: number | string | undefined) {
 
 function hhmm(ts: number) {
   return new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Conversations with ledger entries past the browser's stored read
+ *  position. Read state lives in localStorage (single user, ADR 0026);
+ *  this re-renders via the store's version when a canvas marks read. */
+function UnreadConversations() {
+  const { data: conversations } = useAllConversations();
+  useSyncExternalStore(subscribeReadSeq, getReadSeqVersion);
+  const unread = (conversations ?? []).filter((c) => isUnread(c.conversationId, c.lastSeq));
+  if (unread.length === 0) return null;
+  return (
+    <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <MonoLabel>Unread conversations</MonoLabel>
+        <StatusPill tone="waiting">{unread.length}</StatusPill>
+      </div>
+      <div className="space-y-1.5">
+        {unread.map((c) => (
+          <Link
+            key={c.conversationId}
+            href={`/chat/${c.conversationId}`}
+            className="flex items-center justify-between rounded-sm border border-(--hairline) px-3 py-2 text-xs text-(--ink) transition-colors hover:border-(--primary)"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+              <span className="truncate">{c.title || c.conversationId}</span>
+            </span>
+            <span className="text-[10px] text-(--mute)">{relativeUnread(c.lastActivityAt)}</span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RemindersSection() {
+  const { data: reminders } = useReminders();
+  const { data: conversations } = useAllConversations();
+  const create = useCreateReminder();
+  const snooze = useSnoozeReminder();
+  const cancel = useCancelReminder();
+  const [convId, setConvId] = useState("");
+  const [text, setText] = useState("");
+  const [when, setWhen] = useState("");
+
+  const convs = conversations ?? [];
+  const target = convId || convs[0]?.conversationId || "";
+  const fireMs = when ? new Date(when).getTime() : NaN;
+  const canCreate = target && text.trim() && Number.isFinite(fireMs) && fireMs > Date.now();
+
+  const snoozeBy = (id: string, ms: number) => snooze.mutate({ id, fireAt: Date.now() + ms });
+
+  return (
+    <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <MonoLabel>Reminders</MonoLabel>
+        <StatusPill tone="waiting">{(reminders ?? []).length}</StatusPill>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Remind me to..."
+          className="min-w-40 flex-1"
+        />
+        <Select value={target} onValueChange={(v) => setConvId(v ?? "")}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Conversation" />
+          </SelectTrigger>
+          <SelectContent>
+            {convs.map((c) => (
+              <SelectItem key={c.conversationId} value={c.conversationId}>
+                {c.title || c.conversationId}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          type="datetime-local"
+          value={when}
+          onChange={(e) => setWhen(e.target.value)}
+          className="w-48"
+        />
+        <Button
+          size="sm"
+          disabled={!canCreate || create.isPending}
+          onClick={() => {
+            create.mutate({ conversationId: target, text: text.trim(), fireAt: fireMs });
+            setText("");
+            setWhen("");
+          }}
+        >
+          Schedule
+        </Button>
+      </div>
+      {(reminders ?? []).length === 0 ? (
+        <p className="text-xs text-(--mute)">Nothing scheduled.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {(reminders ?? []).map((r) => (
+            <div
+              key={r.id}
+              className="flex items-center justify-between gap-2 rounded-sm border border-(--hairline) px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs text-(--ink)">{r.text}</p>
+                <p className="text-[10px] text-(--mute)">
+                  <Link href={`/chat/${r.conversationId}`} className="hover:underline">
+                    {r.conversationTitle || r.conversationId}
+                  </Link>
+                  {" · "}
+                  {new Date(r.fireAt).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button variant="ghost" size="sm" onClick={() => snoozeBy(r.id, 3_600_000)}>
+                  +1h
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => snoozeBy(r.id, 86_400_000)}>
+                  +24h
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-(--mute)"
+                  disabled={cancel.isPending}
+                  onClick={() => cancel.mutate(r.id)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function relativeUnread(ts: number | null): string {
+  if (!ts) return "";
+  const minutes = Math.round((Date.now() - ts) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 /** One-line read of a pending HITL action: approvals name the tool, asks
@@ -436,6 +600,9 @@ export default function TodayPage() {
                 )}
               </section>
             )}
+
+            <UnreadConversations />
+            <RemindersSection />
 
             <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">

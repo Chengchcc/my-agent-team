@@ -59,6 +59,7 @@ import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
+import { isUnread, markRead } from "@/lib/read-seq";
 
 function NavContent() {
   const pathname = usePathname();
@@ -236,10 +237,17 @@ function NavContent() {
                           tooltip={title}
                           onClick={() => {
                             closeMobile();
+                            markRead(conv.conversationId, conv.lastSeq ?? 0);
                             router.push(`/chat/${conv.conversationId}`);
                           }}
                         >
                           <MessageSquareIcon />
+                          {isUnread(conv.conversationId, conv.lastSeq) && (
+                            <span
+                              className="size-1.5 rounded-full bg-primary shrink-0"
+                              aria-hidden
+                            />
+                          )}
                           <span className="truncate">{title}</span>
                         </SidebarMenuButton>
                         <DropdownMenu>

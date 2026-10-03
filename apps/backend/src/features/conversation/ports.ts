@@ -45,6 +45,9 @@ export interface ConversationSummary extends ConversationRow {
   /** Last ledger entry timestamp; null when the conversation has no messages yet. */
   lastActivityAt: number | null;
   lastMessagePreview: string | null;
+  /** Max ledger seq; the unread anchor for the web list (client keeps its
+   *  own per-conversation read position and compares against this). */
+  lastSeq: number | null;
 }
 
 export interface ConversationPort {
@@ -59,6 +62,13 @@ export interface ConversationPort {
   listConversationsByAgent(agentId: string): ConversationSummary[];
   getLastMessagePreview?(conversationId: string): string | null;
   getLastActivityAt?(conversationId: string): number | null;
+  /** Max ledger seq (undone excluded); the unread anchor for the web. */
+  getLastSeq?(conversationId: string): number | null;
+  /** ADR 0041 member roster (routing truth). Optional for legacy doubles —
+   *  callers fall back to conversation.agentId when absent. */
+  listMembers?(conversationId: string): string[];
+  addMember?(conversationId: string, agentId: string, addedAt: number): boolean;
+  removeMember?(conversationId: string, agentId: string): boolean;
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];

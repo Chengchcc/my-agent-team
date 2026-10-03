@@ -1,4 +1,6 @@
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { api, setupTestApp, type TestApp } from "../../testing/app-harness.js";
 
 let harness: TestApp;
@@ -175,5 +177,127 @@ describe("conversation routes", () => {
     expect(await clear.json()).toEqual({ ok: true });
     const compact = await api(harness, "POST", `${BASE}/c-clear/compact`);
     expect(await compact.json()).toEqual({ ok: true });
+  });
+});
+
+describe("conversation member routes (ADR 0041)", () => {
+  test("create seeds the first member; add/list/remove round-trips; last member is protected", async () => {
+    // The harness seeds a "default" agent; anchor the conversation to it so
+    // creation writes the first member row (ADR 0041).
+    const agents = (await (await api(harness, "GET", "/api/agents")).json()) as Array<{
+      id: string;
+      name: string;
+    }>;
+    expect(agents.length).toBeGreaterThan(0);
+    const first = agents[0]!.id;
+    const created = await api(harness, "POST", BASE, {
+      conversationId: "c-members",
+      agentId: first,
+    });
+    expect(created.status).toBe(201);
+
+    // Roster after creation: exactly the creating agent.
+    const initial = (await (await api(harness, "GET", `${BASE}/c-members/members`)).json()) as {
+      members: string[];
+    };
+    expect(initial.members).toEqual([first]);
+
+    // Adding an unknown agent is a 400, not a silent member.
+    const bad = await api(harness, "POST", `${BASE}/c-members/members`, {
+      agentId: "ghost-agent",
+    });
+    expect(bad.status).toBe(400);
+
+    // Add a real second member: the roster grows (room mode from here on).
+    const seeded = (await (await api(harness, "GET", "/api/agents")).json()) as Array<{
+      id: string;
+      name: string;
+      harness: string;
+      model: string;
+    }>;
+    const proto = seeded[0]!;
+    const secondRes = await api(harness, "POST", "/api/agents", {
+      name: "member-two",
+      harness: proto.harness,
+      // The seeded row may carry model: null; the create schema wants a
+      // string (Optional≠nullable) — fall back to the harness default.
+      model: proto.model ?? "deepseek/deepseek-flash",
+    });
+    expect(secondRes.status).toBe(201);
+    const second = ((await secondRes.json()) as { id: string }).id;
+    const added = await api(harness, "POST", `${BASE}/c-members/members`, {
+      agentId: second,
+    });
+    expect(added.status).toBe(201);
+    const roster = (await added.json()) as { members: string[] };
+    expect(roster.members.sort()).toEqual([first, second].sort());
+
+    // Removing a member keeps the other; removing the last one is a 400.
+    const removed = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
+    expect(removed.status).toBe(200);
+    const afterRemove = (await removed.json()) as { members: string[] };
+    expect(afterRemove.members).toEqual([first]);
+    const lastGuard = await api(harness, "DELETE", `${BASE}/c-members/members/${first}`);
+    expect(lastGuard.status).toBe(400);
+
+    // Removing a non-member is a 404.
+    const notThere = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
+    expect(notThere.status).toBe(404);
+  });
+});
+
+describe("anchored artifact comments (raft absorption)", () => {
+  test("a line-anchored comment lands in the ledger with the readable prefix and the structured anchor", async () => {
+    const created = await api(harness, "POST", BASE, {
+      conversationId: "c-anchor",
+      agentId: "default",
+    });
+    expect(created.status).toBe(201);
+
+    const res = await api(harness, "POST", `${BASE}/c-anchor/artifact-comments`, {
+      url: "artifacts://runs/report.md",
+      anchor: { kind: "lines", start: 40, end: 45 },
+      text: "this range misreads the data",
+    });
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { seq: number; triggeredRuns: unknown[] };
+    expect(body.seq).toBeGreaterThan(0);
+
+    // The ledger row carries both forms: prefixed text for the agent,
+    // structured anchor for the UI chip. (No REST messages endpoint — the
+    // web reads via AHP — so the assertion reads the ledger directly.)
+    const db = new Database(join(harness.dataDir, "backend.db"), { readonly: true });
+    try {
+      const row = db
+        .query(
+          "SELECT content FROM conversation_ledger WHERE conversation_id = ? ORDER BY seq DESC LIMIT 1",
+        )
+        .get("c-anchor") as { content: string } | null;
+      expect(row).toBeTruthy();
+      const parsed = JSON.parse(row!.content) as {
+        text: string;
+        anchor?: { url: string; anchor: { kind: string; start: number } };
+      };
+      expect(parsed.text).toBe("[report.md L40-45] this range misreads the data");
+      expect(parsed.anchor?.url).toBe("artifacts://runs/report.md");
+      expect(parsed.anchor?.anchor).toMatchObject({ kind: "lines", start: 40 });
+    } finally {
+      db.close();
+    }
+
+    // A malformed url is a 400, not a comment on a wrong file.
+    const bad = await api(harness, "POST", `${BASE}/c-anchor/artifact-comments`, {
+      url: "not-an-artifact-url",
+      anchor: { kind: "lines", start: 1 },
+      text: "x",
+    });
+    expect(bad.status).toBe(400);
+    // A bogus anchor shape is a 400 too.
+    const badAnchor = await api(harness, "POST", `${BASE}/c-anchor/artifact-comments`, {
+      url: "artifacts://runs/report.md",
+      anchor: { kind: "somewhere" },
+      text: "x",
+    });
+    expect(badAnchor.status).toBe(400);
   });
 });

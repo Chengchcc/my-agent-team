@@ -13,6 +13,7 @@ import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
 import type { ConversationPort, LedgerKind } from "./ports.js";
+import { resolveTrigger } from "./routing.js";
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
@@ -82,6 +83,9 @@ export interface ConversationService {
     senderMemberId?: string;
     addressedTo?: string[];
     content: unknown;
+    /** Anchored comment (raft absorption): structured anchor stored on the
+     *  ledger row for the UI jump chip; readable form baked into content. */
+    anchor?: { url: string; anchor: unknown };
     /** Optional mode override; default: normal when the branch is idle,
      *  steer when a run is active (the caller wants to influence it). */
     mode?: BranchInputMode;
@@ -223,7 +227,11 @@ class ConversationServiceImpl implements ConversationService {
     // The default branch (with any kind-switch fork, D2) is ensured by
     // AgentRunService.enqueueAndAcquire — the single run-creation choke
     // point (conversation, cron and loop all funnel through it).
-    const branch = await this.#contextService.getOrCreateDefaultBranch(input.conversationId, kind);
+    const branch = await this.#contextService.getOrCreateDefaultBranch(
+      input.conversationId,
+      kind,
+      input.agentId,
+    );
     const active = await this.#agentRuns.getActiveRun(branch.branchId);
     // The ACP rail runs one short-lived process per turn with no mid-turn
     // steer: a steer input is queued as the NEXT turn's input instead of
@@ -286,15 +294,22 @@ class ConversationServiceImpl implements ConversationService {
     content: unknown;
     mode?: BranchInputMode;
     modelOverride?: BackendModelRef;
+    /** Anchored comment (raft absorption): structured anchor stored on the
+     *  ledger row for the UI's jump chip. The caller bakes the readable
+     *  form into `content` — the agent reads text, the UI reads anchor. */
+    anchor?: { url: string; anchor: unknown };
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
 
     const agentId = convRow.agentId;
     const senderMemberId = input.senderMemberId ?? "user";
-    // 1:1: absent addressedTo targets the conversation's agent; an explicit
-    // override only triggers when it mentions THIS agent (lark group).
-    const trigger = agentId !== null && (input.addressedTo ?? [agentId]).includes(agentId);
+    // ADR 0041: routing derives from the member roster (fallback: the
+    // conversation's legacy single agent). 1 member = e2e auto-trigger;
+    // a room = only @mentioned members run; nobody = ledger-only.
+    const members =
+      this.port.listMembers?.(input.conversationId) ?? (agentId !== null ? [agentId] : []);
+    const targets = resolveTrigger({ members, addressedTo: input.addressedTo });
 
     // ── The human message becomes canonical History FIRST ──
     const userRev = {
@@ -308,6 +323,7 @@ class ConversationServiceImpl implements ConversationService {
       conversationId: input.conversationId,
       visibility: "conversation" as const,
       updatedAt: Date.now(),
+      ...(input.anchor ? { anchor: input.anchor } : {}),
     };
     const seq = await this.#appendEntry({
       conversationId: input.conversationId,
@@ -316,7 +332,7 @@ class ConversationServiceImpl implements ConversationService {
     });
 
     const triggeredRuns: TriggeredRun[] = [];
-    if (trigger) {
+    for (const target of targets) {
       // Roadmap (自由文本追问): a pending TEXT ask parks this branch's run —
       // enqueueing the reply would make it wait behind the very run that
       // asked, and the ask would time out first. So a reply becomes the
@@ -331,7 +347,7 @@ class ConversationServiceImpl implements ConversationService {
         triggeredRuns.push(
           await this.#triggerForAgent({
             conversationId: input.conversationId,
-            agentId: agentId!,
+            agentId: target,
             message,
             idempotencyKey: `${input.conversationId}:${seq}:${agentId}`,
             mode: input.mode,

@@ -16,6 +16,7 @@ import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned, isMentionAll } from "./event-parser.js";
 import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
+import { resolveMentionTargets } from "./mention-targets.js";
 import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
 
 export interface IngestContext {
@@ -261,6 +262,33 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     // into the conversation (the agent gets context) but addresses nobody.
     senderMemberId = memberId;
     addressedTo = addressed ? [selfAgentId] : [];
+    // ADR 0041 multi-member room: a structured mention of ANY member routes
+    // to that member — including when the bot itself was not mentioned (the
+    // message is still addressed, just at a teammate). One-member
+    // conversations and roster-fetch failures keep the exact legacy shape
+    // above; degrading to legacy routing, never to silence.
+    // ponytail: two GETs per group message; cache if Lark volume ever makes
+    // this hot.
+    try {
+      const membersRes = await client.api.conversations({ id: conversationId }).members.get();
+      const memberIds = membersRes.data?.members ?? [];
+      if (memberIds.length > 1) {
+        const agentsRes = await client.api.agents.get();
+        const agents = agentsRes.data ?? [];
+        const roster: Array<{ agentId: string; name: string }> = [];
+        for (const id of memberIds) {
+          const agent = agents.find((a) => a.id === id);
+          if (agent) roster.push({ agentId: agent.id, name: agent.name });
+        }
+        if (botDisplayName && !roster.some((r) => r.agentId === selfAgentId)) {
+          roster.push({ agentId: selfAgentId, name: botDisplayName });
+        }
+        const resolved = resolveMentionTargets({ mentions: event.mentions, roster });
+        if (resolved.length > 0) addressedTo = resolved;
+      }
+    } catch (err) {
+      console.error("[ingest] multi-member mention resolution failed:", err);
+    }
   }
 
   // ─── Step 2: POST /messages ───

@@ -30,6 +30,7 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "ask_question",
       "artifact_upload",
       "artifact_download",
+      "remind_me",
     ]);
     for (const tool of tools) {
       expect(typeof tool.description).toBe("string");

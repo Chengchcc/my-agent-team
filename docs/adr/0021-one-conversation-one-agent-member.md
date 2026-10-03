@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted(2026-08-13)
+Accepted(2026-08-13)。决策 1/3/5 自 2026-10-03 起被 [ADR 0041](./0041-conversation-membership-and-response-routing.md) 部分取代（会话成员 1..N、@提及路由）；本篇的投影边界约束（session 与 conversation 互不重建）继续有效。
 
 ## 上下文
 

@@ -1,5 +1,7 @@
 "use client";
+
 import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
+import { FileTextIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ArtifactMeta } from "@/lib/api";
@@ -41,6 +43,46 @@ interface TurnAnchor {
   id: string;
   seq: number;
   elementId: string;
+}
+
+/** Split an anchored comment's display: the baked `[file Lx-y] ` prefix
+ *  becomes the chip label; the rest is the comment body. (raft absorption) */
+function splitAnchorText(text: string, hasAnchor: boolean): { label: string | null; text: string } {
+  if (!hasAnchor) return { label: null, text };
+  const m = text.match(/^\[([^\]]+)\]\s/);
+  return m ? { label: m[1]!, text: text.slice(m[0].length) } : { label: null, text };
+}
+
+function synthArtifactMeta(url: string): ArtifactMeta {
+  const rest = url.startsWith("artifacts://") ? url.slice("artifacts://".length) : url;
+  const slash = rest.indexOf("/");
+  const folder = slash === -1 ? "" : rest.slice(0, slash);
+  const filename = slash === -1 ? rest : rest.slice(slash + 1);
+  return { url, folder, filename, size: 0, mimeType: "", encoding: "utf8", updatedAt: 0 };
+}
+
+/** The `re:` chip — a quiet mono file reference that jumps to the artifact
+ *  preview. Carried by anchored comments (raft absorption). */
+function AnchorChip({
+  label,
+  url,
+  onOpen,
+}: {
+  label: string;
+  url: string;
+  onOpen?: (artifact: ArtifactMeta) => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={url}
+      onClick={() => onOpen?.(synthArtifactMeta(url))}
+      className="mb-0.5 inline-flex max-w-full items-center gap-1 self-start rounded-full border border-(--hairline) bg-(--canvas-soft)/60 px-2 py-0.5 font-mono text-[10px] text-(--mute) transition-colors hover:border-(--primary) hover:text-(--body)"
+    >
+      <FileTextIcon className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">{label}</span>
+    </button>
+  );
 }
 
 function SystemNotice({ text }: { text: string }) {
@@ -341,14 +383,24 @@ export function Timeline({
                     canAct={canAct}
                     regen={regen}
                   >
-                    {extractText(m.content) && (
+                    {(() => {
+                      const split = splitAnchorText(extractText(m.content), Boolean(m.anchor));
+                      return split.label !== null && m.anchor ? (
+                        <AnchorChip
+                          label={split.label}
+                          url={m.anchor.url}
+                          onOpen={onPreviewArtifact}
+                        />
+                      ) : null;
+                    })()}
+                    {splitAnchorText(extractText(m.content), Boolean(m.anchor)).text && (
                       <MessageBubble
                         align={isSelf ? "right" : "left"}
                         name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
                         kind={m.sender.kind}
                         agentId={m.sender.agentId}
                         createdAt={m.content.createdAt}
-                        content={extractText(m.content)}
+                        content={splitAnchorText(extractText(m.content), Boolean(m.anchor)).text}
                         isStreaming={m.content.state === "streaming"}
                         runStatus={m.content.runStatus}
                         state={m.content.state}

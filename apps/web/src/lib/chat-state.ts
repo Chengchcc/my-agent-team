@@ -272,12 +272,24 @@ function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined
     content: { role: kind === "user" ? "user" : "assistant", text: message.text } satisfies Message,
     seq: typeof meta?.seq === "number" ? meta.seq : 0,
     ...(meta?.undone === true ? { undone: true } : {}),
+    ...(isAnchorMeta(meta?.anchor) ? { anchor: meta.anchor } : {}),
   };
+}
+
+/** The projection's _meta.anchor (raft absorption): an artifacts:// url plus
+ *  the typed spot. Guarded - it rides an unknown bag. */
+function isAnchorMeta(v: unknown): v is { url: string; anchor: unknown } {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as { url?: unknown }).url === "string" &&
+    "anchor" in v
+  );
 }
 
 function metaOfRequest(
   part: unknown,
-): { messageId?: unknown; seq?: unknown; undone?: unknown } | undefined {
+): { messageId?: unknown; seq?: unknown; undone?: unknown; anchor?: unknown } | undefined {
   const meta = (part as { _meta?: unknown } | undefined)?._meta;
   return meta !== null && typeof meta === "object"
     ? (meta as { messageId?: unknown; seq?: unknown; undone?: unknown })

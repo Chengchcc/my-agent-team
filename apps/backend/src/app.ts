@@ -14,6 +14,7 @@ import type { ProductToolsService } from "./features/product-tools/service.js";
 import type { projectRoutes } from "./features/project/http.js";
 import type { proposalRoutes } from "./features/proposal/http.js";
 import type { providerRoutes } from "./features/provider/http.js";
+import type { reminderRoutes } from "./features/reminder/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
 import type { settingsRoutes } from "./features/settings/http.js";
 import type { skillPackRoutes } from "./features/skill-pack/http.js";
@@ -24,6 +25,7 @@ import { HttpError } from "./infra/errors.js";
 export interface FeatureSet {
   agents: ReturnType<typeof agentRoutes>;
   conversations: ReturnType<typeof conversationRoutes>;
+  reminders: ReturnType<typeof reminderRoutes>;
   ops: ReturnType<typeof opsRoutes>;
   projects: ReturnType<typeof projectRoutes>;
   agentRuns: ReturnType<typeof agentRunRoutes>;
@@ -51,6 +53,7 @@ export function createApp(token: string, features: FeatureSet) {
   const {
     agents,
     conversations,
+    reminders,
     ops,
     projects,
     skillPacks,
@@ -121,6 +124,7 @@ export function createApp(token: string, features: FeatureSet) {
     })
     .use(agents)
     .use(conversations)
+    .use(reminders)
     .use(ops);
 
   return app

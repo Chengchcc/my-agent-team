@@ -1,5 +1,7 @@
 import { extractText } from "@chengchenccc/message";
 import { Elysia, t } from "elysia";
+import { describeAnchor, isArtifactAnchor } from "../artifact/anchor.js";
+import { parseArtifactUrl } from "../artifact/domain.js";
 import { senderLabelOf } from "./ledger-codec.js";
 import type { ConversationService } from "./service.js";
 
@@ -7,6 +9,12 @@ export function conversationRoutes(
   svc: ConversationService,
   idGen: () => string,
   projectExists?: (id: string) => boolean,
+  /** ADR 0041 member management; absent = routes 404/empty-list degrade. */
+  members?: {
+    list(conversationId: string): string[];
+    add(conversationId: string, agentId: string): Promise<boolean> | boolean;
+    remove(conversationId: string, agentId: string): boolean;
+  },
 ) {
   return (
     new Elysia()
@@ -82,7 +90,75 @@ export function conversationRoutes(
           forkFromSeq: conv.forkFromSeq,
           lastActivityAt: svc.port.getLastActivityAt?.(id) ?? null,
           lastMessagePreview: svc.port.getLastMessagePreview?.(id) ?? null,
+          lastSeq: svc.port.getLastSeq?.(id) ?? null,
         };
+      })
+      .post(
+        "/api/conversations/:id/artifact-comments",
+        async ({ params: { id }, body, set }) => {
+          let ref: ReturnType<typeof parseArtifactUrl>;
+          try {
+            ref = parseArtifactUrl(body.url);
+          } catch {
+            set.status = 400;
+            return { error: "malformed artifact url" };
+          }
+          if (!isArtifactAnchor(body.anchor)) {
+            set.status = 400;
+            return { error: "invalid anchor" };
+          }
+          const result = await svc.postMessage({
+            conversationId: id,
+            content: `[${describeAnchor(ref.filename, body.anchor)}] ${body.text}`,
+            addressedTo: body.addressedTo,
+            anchor: { url: body.url, anchor: body.anchor },
+          });
+          set.status = 202;
+          return result;
+        },
+        {
+          body: t.Object({
+            url: t.String({ minLength: 1 }),
+            anchor: t.Unknown(),
+            text: t.String({ minLength: 1 }),
+            addressedTo: t.Optional(t.Array(t.String({ minLength: 1 }))),
+          }),
+        },
+      )
+      .get("/api/conversations/:id/members", ({ params: { id } }) => ({
+        members: members?.list(id) ?? [],
+      }))
+      .post(
+        "/api/conversations/:id/members",
+        async ({ params: { id }, body, set }) => {
+          try {
+            const added = await members?.add(id, body.agentId);
+            set.status = added ? 201 : 200;
+            return { members: members?.list(id) ?? [] };
+          } catch (err) {
+            return Response.json(
+              { error: err instanceof Error ? err.message : "cannot add member" },
+              { status: 400 },
+            );
+          }
+        },
+        { body: t.Object({ agentId: t.String({ minLength: 1 }) }) },
+      )
+      .delete("/api/conversations/:id/members/:agentId", async ({ params, set }) => {
+        try {
+          const removed = members?.remove(params.id, params.agentId) ?? false;
+          if (!removed) {
+            set.status = 404;
+            return { error: "not a member" };
+          }
+          set.status = 200;
+          return { members: members?.list(params.id) ?? [] };
+        } catch (err) {
+          return Response.json(
+            { error: err instanceof Error ? err.message : "cannot remove member" },
+            { status: 400 },
+          );
+        }
       })
       .delete("/api/conversations/:id", async ({ params: { id }, set }) => {
         const deleted = await svc.port.deleteConversation(id);
