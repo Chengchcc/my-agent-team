@@ -147,6 +147,17 @@ export interface ProductToolsServiceDeps {
   readonly artifactService: ArtifactService;
   /** Emit an ask to the product UI (SSE) when ask_question is raised. */
   readonly emitAsk?: (input: { runId: string; callId: string; question: AskQuestionInput }) => void;
+  /** Reminder scheduling (remind_me). Absent = the tool rejects — a
+   *  deployment without the reminder feature must fail the call explicitly,
+   *  not silently. */
+  readonly reminder?: {
+    create(input: {
+      conversationId: string;
+      createdBy: string;
+      text: string;
+      fireAt: number;
+    }): { id: string; fireAt: number };
+  };
   /** Emit the plan strip when todo_write replaces the run's list. Both the
    *  web panel and the Lark card render from this event; the run's snapshot
    *  row is the durable copy, this is the live one. */
@@ -400,6 +411,32 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     );
   }
 
+  async function remindMe(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.reminder) {
+      throw new ProductToolRejectedError("reminders are not available in this deployment");
+    }
+    const text = typeof input.args.text === "string" ? input.args.text.trim() : "";
+    const fireAt = typeof input.args.fireAt === "number" ? Math.floor(input.args.fireAt) : NaN;
+    if (!text) {
+      throw new ProductToolRejectedError("remind_me requires text: what the reminder says");
+    }
+    if (!Number.isFinite(fireAt) || fireAt <= Date.now()) {
+      throw new ProductToolRejectedError("remind_me requires fireAt (epoch ms) in the future");
+    }
+    const r = deps.reminder.create({
+      conversationId: run.conversationId,
+      createdBy: run.agentId,
+      text,
+      fireAt,
+    });
+    return {
+      content: `Reminder scheduled (id ${r.id}) for ${new Date(r.fireAt).toISOString()}: ${text}`,
+    };
+  }
+
   async function todoWrite(
     run: AgentRun,
     input: ProductToolCallInput,
@@ -547,6 +584,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return historyRetain(run, input);
         case "todo_write":
           return todoWrite(run, input);
+        case "remind_me":
+          return remindMe(run, input);
         case "ask_question":
           return askQuestion(run, input);
         case "artifact_upload":

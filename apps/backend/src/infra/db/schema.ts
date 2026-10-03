@@ -568,3 +568,29 @@ export const proposal = sqliteTable(
 export const proposalSelectSchema = createSelectSchema(proposal, {
   payload: (s) => s.transform((v: string) => JSON.parse(v) as unknown),
 });
+
+/** A one-shot timed nudge (raft step 2): when fire_at arrives, the reminder
+ *  tick posts the text into the bound conversation as a normal input and a
+ *  regular run voices it. fired_at null = pending; set on delivery — errors
+ *  are logged and the row is still marked fired (a reminder for a deleted
+ *  conversation must not retry forever). */
+export const reminder = sqliteTable(
+  "reminder",
+  {
+    id: text().primaryKey(),
+    conversationId: text().notNull().references(() => conversation.conversationId, {
+      onDelete: "cascade",
+    }),
+    /** Agent id or the constant "user" — who asked for it (raft: only the
+     *  author is reminded; we deliver to the conversation instead). */
+    createdBy: text().notNull(),
+    text: text().notNull(),
+    fireAt: integer({ mode: "number" }).notNull(),
+    firedAt: integer({ mode: "number" }),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_reminder_due").on(table.firedAt, table.fireAt),
+    index("idx_reminder_conversation").on(table.conversationId, table.createdAt),
+  ],
+);

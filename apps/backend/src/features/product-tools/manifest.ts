@@ -118,6 +118,20 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "remind_me",
+      description:
+        "Schedule a one-shot reminder in this conversation. At fireAt (epoch ms, must be future) the product posts the text here and a run voices it. Use for \"remind me in 30 minutes / tomorrow 9am\" style requests and for your own periodic maintenance nudges.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "What the reminder says" },
+          fireAt: { type: "number", description: "Epoch ms when it fires (future)" },
+        },
+        required: ["text", "fireAt"],
+      },
+      entrypoint,
+    },
+    {
       name: "ask_question",
       description:
         "Ask the user structured questions and wait for answers. Each question needs a string id and question text, a kind of select (with options) or text (free input). Returns {answers:[{id,selectedValues,freeText}]}. Blocks until the user answers in the product UI.",
