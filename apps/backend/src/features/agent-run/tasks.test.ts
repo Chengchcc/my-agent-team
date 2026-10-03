@@ -7,10 +7,10 @@ describe("task card projection (raft #3: queue semantics made visible)", () => {
   });
 
   test("a delivered row with a live run maps to its run phase", () => {
-    expect(deriveTaskStatus({ queueStatus: "delivered", runStatus: "running" })).toBe("in_progress");
-    expect(deriveTaskStatus({ queueStatus: "delivered", runStatus: "waiting" })).toBe(
-      "in_review",
+    expect(deriveTaskStatus({ queueStatus: "delivered", runStatus: "running" })).toBe(
+      "in_progress",
     );
+    expect(deriveTaskStatus({ queueStatus: "delivered", runStatus: "waiting" })).toBe("in_review");
   });
 
   test("a cancelled queue row is closed, whatever the run says", () => {
