@@ -526,7 +526,11 @@ export function ConversationCanvas({
         </>
       )}
 
-      <ArtifactPreviewSheet artifact={previewArtifact} onClose={() => setPreviewArtifact(null)} />
+      <ArtifactPreviewSheet
+        artifact={previewArtifact}
+        onClose={() => setPreviewArtifact(null)}
+        conversationId={conversationId}
+      />
 
       {/* Roster — mobile drawer overlay */}
 

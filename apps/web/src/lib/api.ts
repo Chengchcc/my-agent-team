@@ -197,6 +197,12 @@ export const api = {
     unwrap(client.api.conversations({ id }).members.post({ agentId })),
   removeConversationMember: (id: string, agentId: string) =>
     unwrap(client.api.conversations({ id }).members({ agentId }).delete()),
+  /** Anchored comment (raft absorption): posts into the conversation with
+   *  the readable prefix baked server-side. */
+  postArtifactComment: (
+    id: string,
+    body: { url: string; anchor: unknown; text: string; addressedTo?: string[] },
+  ) => unwrap(client.api.conversations({ id })["artifact-comments"].post(body)),
   postConversationMessage: (
     id: string,
     body: {
