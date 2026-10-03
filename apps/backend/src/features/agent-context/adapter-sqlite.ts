@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { ulid } from "../../infra/ids.js";
@@ -77,23 +77,55 @@ export function sqliteAgentContextAdapter(
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
-    async getOrCreateTree(conversationId) {
-      const existing = d
-        .select()
-        .from(schema.agentContextTree)
-        .where(eq(schema.agentContextTree.conversationId, conversationId))
-        .get();
+    async getOrCreateTree(conversationId, agentId) {
+      const existing = agentId
+        ? d
+            .select()
+            .from(schema.agentContextTree)
+            .where(
+              and(
+                eq(schema.agentContextTree.conversationId, conversationId),
+                eq(schema.agentContextTree.agentId, agentId),
+              ),
+            )
+            .get() ??
+          // Legacy row (agent_id NULL, backfilled or not) claims first: a
+          // pre-0053 tree for this conversation with no owner adopts the
+          // member instead of forking a second line.
+          d
+            .select()
+            .from(schema.agentContextTree)
+            .where(
+              and(
+                eq(schema.agentContextTree.conversationId, conversationId),
+                isNull(schema.agentContextTree.agentId),
+              ),
+            )
+            .get()
+        : d
+            .select()
+            .from(schema.agentContextTree)
+            .where(eq(schema.agentContextTree.conversationId, conversationId))
+            .get();
       if (existing) {
+        // Claim an ownerless legacy tree the first time a member resolves.
+        if (agentId && existing.agentId === null) {
+          d.update(schema.agentContextTree)
+            .set({ agentId })
+            .where(eq(schema.agentContextTree.treeId, existing.treeId))
+            .run();
+        }
         return {
           treeId: existing.treeId,
           conversationId: existing.conversationId,
+          agentId: existing.agentId ?? agentId ?? null,
           createdAt: existing.createdAt,
         };
       }
       const treeId = idGen.ulid();
       try {
         d.insert(schema.agentContextTree)
-          .values({ treeId, conversationId, createdAt: Date.now() })
+          .values({ treeId, conversationId, agentId: agentId ?? null, createdAt: Date.now() })
           .run();
       } catch {
         const raced = d
@@ -105,10 +137,11 @@ export function sqliteAgentContextAdapter(
         return {
           treeId: raced.treeId,
           conversationId: raced.conversationId,
+          agentId: raced.agentId ?? null,
           createdAt: raced.createdAt,
         };
       }
-      return { treeId, conversationId, createdAt: Date.now() };
+      return { treeId, conversationId, agentId: agentId ?? null, createdAt: Date.now() };
     },
 
     async getTree(conversationId) {
@@ -118,7 +151,12 @@ export function sqliteAgentContextAdapter(
         .where(eq(schema.agentContextTree.conversationId, conversationId))
         .get();
       return row
-        ? { treeId: row.treeId, conversationId: row.conversationId, createdAt: row.createdAt }
+        ? {
+            treeId: row.treeId,
+            conversationId: row.conversationId,
+            agentId: row.agentId ?? null,
+            createdAt: row.createdAt,
+          }
         : null;
     },
 
@@ -129,7 +167,12 @@ export function sqliteAgentContextAdapter(
         .where(eq(schema.agentContextTree.treeId, treeId))
         .get();
       return row
-        ? { treeId: row.treeId, conversationId: row.conversationId, createdAt: row.createdAt }
+        ? {
+            treeId: row.treeId,
+            conversationId: row.conversationId,
+            agentId: row.agentId ?? null,
+            createdAt: row.createdAt,
+          }
         : null;
     },
 

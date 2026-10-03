@@ -13,6 +13,7 @@ import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
 import type { ConversationPort, LedgerKind } from "./ports.js";
+import { resolveTrigger } from "./routing.js";
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
@@ -223,7 +224,11 @@ class ConversationServiceImpl implements ConversationService {
     // The default branch (with any kind-switch fork, D2) is ensured by
     // AgentRunService.enqueueAndAcquire — the single run-creation choke
     // point (conversation, cron and loop all funnel through it).
-    const branch = await this.#contextService.getOrCreateDefaultBranch(input.conversationId, kind);
+    const branch = await this.#contextService.getOrCreateDefaultBranch(
+      input.conversationId,
+      kind,
+      input.agentId,
+    );
     const active = await this.#agentRuns.getActiveRun(branch.branchId);
     // The ACP rail runs one short-lived process per turn with no mid-turn
     // steer: a steer input is queued as the NEXT turn's input instead of
@@ -292,9 +297,12 @@ class ConversationServiceImpl implements ConversationService {
 
     const agentId = convRow.agentId;
     const senderMemberId = input.senderMemberId ?? "user";
-    // 1:1: absent addressedTo targets the conversation's agent; an explicit
-    // override only triggers when it mentions THIS agent (lark group).
-    const trigger = agentId !== null && (input.addressedTo ?? [agentId]).includes(agentId);
+    // ADR 0041: routing derives from the member roster (fallback: the
+    // conversation's legacy single agent). 1 member = e2e auto-trigger;
+    // a room = only @mentioned members run; nobody = ledger-only.
+    const members = this.port.listMembers?.(input.conversationId) ??
+      (agentId !== null ? [agentId] : []);
+    const targets = resolveTrigger({ members, addressedTo: input.addressedTo });
 
     // ── The human message becomes canonical History FIRST ──
     const userRev = {
@@ -316,7 +324,7 @@ class ConversationServiceImpl implements ConversationService {
     });
 
     const triggeredRuns: TriggeredRun[] = [];
-    if (trigger) {
+    for (const target of targets) {
       // Roadmap (自由文本追问): a pending TEXT ask parks this branch's run —
       // enqueueing the reply would make it wait behind the very run that
       // asked, and the ask would time out first. So a reply becomes the
@@ -331,7 +339,7 @@ class ConversationServiceImpl implements ConversationService {
         triggeredRuns.push(
           await this.#triggerForAgent({
             conversationId: input.conversationId,
-            agentId: agentId!,
+            agentId: target,
             message,
             idempotencyKey: `${input.conversationId}:${seq}:${agentId}`,
             mode: input.mode,

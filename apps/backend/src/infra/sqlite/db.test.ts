@@ -545,19 +545,25 @@ test("Phase 6: product facts survive 0020 migration, legacy audit deleted, no Co
 });
 
 describe("Phase 1 constraints", () => {
-  test("duplicate tree for one conversation fails (1:1, single-key)", () => {
+  test("one tree per (conversation, agent) — a room holds one line per member (ADR 0041)", () => {
     const db = openDb(":memory:");
     db.exec(
       "INSERT INTO conversation (conversation_id, hop_count, created_at) VALUES ('c1', 0, 1)",
     );
     db.exec(
-      "INSERT INTO agent_context_tree (tree_id, conversation_id, created_at) VALUES ('t1', 'c1', 1)",
+      "INSERT INTO agent_context_tree (tree_id, conversation_id, agent_id, created_at) VALUES ('t1', 'c1', 'a-1', 1)",
     );
+    // A second tree for the SAME member is a duplicate line — rejected.
     expect(() =>
       db.exec(
-        "INSERT INTO agent_context_tree (tree_id, conversation_id, created_at) VALUES ('t2', 'c1', 2)",
+        "INSERT INTO agent_context_tree (tree_id, conversation_id, agent_id, created_at) VALUES ('t2', 'c1', 'a-1', 2)",
       ),
     ).toThrow();
+    // A second tree for a DIFFERENT member is the room's second context
+    // line — exactly what 0041 exists to allow.
+    db.exec(
+      "INSERT INTO agent_context_tree (tree_id, conversation_id, agent_id, created_at) VALUES ('t3', 'c1', 'a-2', 3)",
+    );
     db.close();
   });
 

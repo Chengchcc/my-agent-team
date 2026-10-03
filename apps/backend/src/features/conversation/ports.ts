@@ -64,6 +64,11 @@ export interface ConversationPort {
   getLastActivityAt?(conversationId: string): number | null;
   /** Max ledger seq (undone excluded); the unread anchor for the web. */
   getLastSeq?(conversationId: string): number | null;
+  /** ADR 0041 member roster (routing truth). Optional for legacy doubles —
+   *  callers fall back to conversation.agentId when absent. */
+  listMembers?(conversationId: string): string[];
+  addMember?(conversationId: string, agentId: string, addedAt: number): boolean;
+  removeMember?(conversationId: string, agentId: string): boolean;
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];

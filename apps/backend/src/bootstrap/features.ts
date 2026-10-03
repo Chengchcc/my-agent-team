@@ -60,7 +60,11 @@ import {
 import { loadPersistedTerminals, savePersistedTerminals } from "../features/coding/persist.js";
 import { listTaskWorktrees, validateWorktreePath } from "../features/coding/task-worktrees.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
-import { conversationRoutes, sqliteConversationAdapter } from "../features/conversation/index.js";
+import {
+  conversationRoutes,
+  createConversationMembers,
+  sqliteConversationAdapter,
+} from "../features/conversation/index.js";
 import {
   createKnowledgeService,
   knowledgeRoutes,
@@ -1437,11 +1441,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const reminderSvc = createReminderService({
     port: sqliteReminderAdapter(db),
     idGen: ulid,
-    deliver: async ({ conversationId, text }) => {
+    deliver: async ({ conversationId, text, author }) => {
+      // ADR 0041: system inputs carry their target — in a room, an un-
+      // addressed delivery would land in the ledger and never wake anyone.
       await conv.convSvc.postMessage({
         conversationId,
         content: `⏰ Reminder (set earlier): ${text}`,
         mode: "normal",
+        ...(author ? { addressedTo: [author] } : {}),
       });
     },
   });
@@ -1603,7 +1610,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       larkSurfaceFactsOf,
       modelKnownForBackend,
     ),
-    conversations: conversationRoutes(conv.convSvc, ulid, (id: string) => projectSvc.exists(id)),
+    conversations: conversationRoutes(
+      conv.convSvc,
+      ulid,
+      (id: string) => projectSvc.exists(id),
+      createConversationMembers({
+        port: convPort,
+        agentExists: (id: string) => agentSvc.exists(id),
+      }),
+    ),
     reminders: reminderRoutes(reminderSvc),
     ops: opsRoutes(opsSvc),
     agentRuns: agentRunRoutes({

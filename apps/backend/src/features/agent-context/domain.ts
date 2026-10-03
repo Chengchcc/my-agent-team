@@ -39,6 +39,9 @@ export class InvalidContextEntryError extends Error {
 export interface AgentContextTree {
   readonly treeId: string;
   readonly conversationId: string;
+  /** ADR 0041: the member agent owning this context line. Null on legacy
+   *  rows and on conversations without members (single-agent default). */
+  readonly agentId: string | null;
   readonly createdAt: number;
 }
 

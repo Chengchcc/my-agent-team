@@ -192,6 +192,11 @@ export const api = {
     origin?: string;
   }) => unwrap(client.api.conversations.post(body)),
   getConversation: (id: string) => unwrap(client.api.conversations({ id }).get()),
+  listConversationMembers: (id: string) => unwrap(client.api.conversations({ id }).members.get()),
+  addConversationMember: (id: string, agentId: string) =>
+    unwrap(client.api.conversations({ id }).members.post({ agentId })),
+  removeConversationMember: (id: string, agentId: string) =>
+    unwrap(client.api.conversations({ id }).members({ agentId }).delete()),
   postConversationMessage: (
     id: string,
     body: {
@@ -202,6 +207,8 @@ export const api = {
       content: string | Array<Record<string, unknown>>;
       mode?: "normal" | "steer" | "follow_up";
       model?: ChatModelOverride;
+      /** ADR 0041: @mention targets (agent ids). Absent = auto routing. */
+      addressedTo?: string[];
     },
   ) => unwrap(client.api.conversations({ id }).messages.post(body)),
   listConversationInputs: (id: string) => unwrap(client.api.conversations({ id }).inputs.get()),

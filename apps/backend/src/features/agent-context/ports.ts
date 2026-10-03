@@ -28,7 +28,9 @@ export interface BranchMutationResult {
 /** Storage port for Agent Context persistence. Transaction-scoped operations
  *  (acquire) belong to the Agent Run adapter, not here. */
 export interface AgentContextPort {
-  getOrCreateTree(conversationId: string): Promise<AgentContextTree>;
+  /** agentId (ADR 0041): one tree per (conversation, agent). Omitted =
+   *  legacy single-agent resolution (first tree of the conversation). */
+  getOrCreateTree(conversationId: string, agentId?: string): Promise<AgentContextTree>;
 
   getTree(conversationId: string): Promise<AgentContextTree | null>;
 

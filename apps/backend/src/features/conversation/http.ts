@@ -7,6 +7,12 @@ export function conversationRoutes(
   svc: ConversationService,
   idGen: () => string,
   projectExists?: (id: string) => boolean,
+  /** ADR 0041 member management; absent = routes 404/empty-list degrade. */
+  members?: {
+    list(conversationId: string): string[];
+    add(conversationId: string, agentId: string): Promise<boolean> | boolean;
+    remove(conversationId: string, agentId: string): boolean;
+  },
 ) {
   return (
     new Elysia()
@@ -84,6 +90,41 @@ export function conversationRoutes(
           lastMessagePreview: svc.port.getLastMessagePreview?.(id) ?? null,
           lastSeq: svc.port.getLastSeq?.(id) ?? null,
         };
+      })
+      .get("/api/conversations/:id/members", ({ params: { id } }) => ({
+        members: members?.list(id) ?? [],
+      }))
+      .post(
+        "/api/conversations/:id/members",
+        async ({ params: { id }, body, set }) => {
+          try {
+            const added = await members?.add(id, body.agentId);
+            set.status = added ? 201 : 200;
+            return { members: members?.list(id) ?? [] };
+          } catch (err) {
+            return Response.json(
+              { error: err instanceof Error ? err.message : "cannot add member" },
+              { status: 400 },
+            );
+          }
+        },
+        { body: t.Object({ agentId: t.String({ minLength: 1 }) }) },
+      )
+      .delete("/api/conversations/:id/members/:agentId", async ({ params, set }) => {
+        try {
+          const removed = members?.remove(params.id, params.agentId) ?? false;
+          if (!removed) {
+            set.status = 404;
+            return { error: "not a member" };
+          }
+          set.status = 200;
+          return { members: members?.list(params.id) ?? [] };
+        } catch (err) {
+          return Response.json(
+            { error: err instanceof Error ? err.message : "cannot remove member" },
+            { status: 400 },
+          );
+        }
       })
       .delete("/api/conversations/:id", async ({ params: { id }, set }) => {
         const deleted = await svc.port.deleteConversation(id);

@@ -62,7 +62,11 @@ export function createReminderService(deps: {
       let fired = 0;
       for (const r of due) {
         try {
-          await deps.deliver({ conversationId: r.conversationId, text: r.text });
+          await deps.deliver({
+            conversationId: r.conversationId,
+            text: r.text,
+            author: r.createdBy,
+          });
         } catch (err) {
           console.error(
             `[reminder] delivery failed for ${r.id} (conversation ${r.conversationId}); marking fired anyway:`,
