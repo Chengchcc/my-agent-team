@@ -30,6 +30,7 @@ import {
   useSnoozeReminder,
 } from "@/features/reminders/hooks";
 import { type PendingHitlAction, pendingActionsQuery } from "@/features/runs/queries";
+import { TasksSection } from "@/features/runs/TasksSection";
 import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
 import { getReadSeqVersion, isUnread, subscribeReadSeq } from "@/lib/read-seq";
@@ -193,7 +194,10 @@ function RemindersSection() {
               className="flex items-center justify-between gap-2 rounded-sm border border-(--hairline) px-3 py-2"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs text-(--ink)">{r.text}</p>
+                <p className="truncate text-xs text-(--ink)">
+                  {r.recurrence && <span title={r.recurrence}>↻ </span>}
+                  {r.text}
+                </p>
                 <p className="text-[10px] text-(--mute)">
                   <Link href={`/chat/${r.conversationId}`} className="hover:underline">
                     {r.conversationTitle || r.conversationId}
@@ -603,6 +607,7 @@ export default function TodayPage() {
 
             <UnreadConversations />
             <RemindersSection />
+            <TasksSection />
 
             <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">

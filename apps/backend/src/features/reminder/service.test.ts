@@ -9,9 +9,15 @@ function memoryPort(): ReminderPort & { rows: ReminderRow[] } {
   return {
     rows,
     create(input) {
-      const row: ReminderRow = { ...input, firedAt: null };
+      const row: ReminderRow = { ...input, recurrence: input.recurrence ?? null, firedAt: null };
       rows.push(row);
       return row;
+    },
+    reschedule(id: string, fireAt: number): boolean {
+      const row = rows.find((r) => r.id === id && r.firedAt === null);
+      if (!row) return false;
+      row.fireAt = fireAt;
+      return true;
     },
     due(now, limit = 20) {
       return rows
@@ -46,6 +52,9 @@ function memoryPort(): ReminderPort & { rows: ReminderRow[] } {
         .sort((a, b) => a.fireAt - b.fireAt)
         .slice(0, limit)
         .map((r) => ({ ...r, conversationTitle: null }));
+    },
+    listByAgent(agentId: string) {
+      return rows.filter((r) => r.createdBy === agentId && r.firedAt === null);
     },
     cancel(id) {
       const row = rows.find((r) => r.id === id && r.firedAt === null);
@@ -127,6 +136,35 @@ describe("reminders", () => {
     expect(port.rows[0]?.firedAt).not.toBeNull();
     boom = false;
     expect(svc.fireDue(1_000)).resolves.toBe(0);
+  });
+
+  test("a recurring reminder reschedules instead of firing; bad cron is rejected", () => {
+    const port = memoryPort();
+    const { svc, delivered, advance } = serviceOf(port);
+    // Invalid cron fails closed at create.
+    expect(() =>
+      svc.create({
+        conversationId: "c1",
+        createdBy: "user",
+        text: "never",
+        fireAt: 5_000,
+        recurrence: "not a cron",
+      }),
+    ).toThrow(ReminderValidationError);
+
+    svc.create({
+      conversationId: "c1",
+      createdBy: "user",
+      text: "standup",
+      fireAt: 5_000,
+      recurrence: "0 9 * * *",
+    });
+    advance(6_000);
+    expect(svc.fireDue(1_000)).resolves.toBe(1);
+    // Delivered but STILL pending: the row moved to the next 9am.
+    expect(port.rows[0]?.firedAt).toBeNull();
+    expect(port.rows[0]!.fireAt).toBeGreaterThan(6_000);
+    expect(delivered).toHaveLength(1);
   });
 
   test("cancel removes a pending row; fired rows are not cancellable", () => {

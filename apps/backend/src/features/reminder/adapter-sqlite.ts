@@ -12,6 +12,7 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
     id: r.id,
     conversationId: r.conversationId,
     createdBy: r.createdBy,
+    recurrence: r.recurrence ?? null,
     text: r.text,
     fireAt: r.fireAt,
     firedAt: r.firedAt,
@@ -26,6 +27,7 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
           id: input.id,
           conversationId: input.conversationId,
           createdBy: input.createdBy,
+          recurrence: input.recurrence ?? null,
           text: input.text,
           fireAt: input.fireAt,
           firedAt: null,
@@ -45,6 +47,15 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
         .all()
         .map(rowOf);
     },
+    reschedule(id: string, fireAt: number): boolean {
+      const rows = d
+        .update(schema.reminder)
+        .set({ fireAt })
+        .where(and(eq(schema.reminder.id, id), isNull(schema.reminder.firedAt)))
+        .returning({ id: schema.reminder.id })
+        .all();
+      return rows.length > 0;
+    },
     markFired(id: string, now: number): boolean {
       const rows = d
         .update(schema.reminder)
@@ -60,6 +71,7 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
           id: schema.reminder.id,
           conversationId: schema.reminder.conversationId,
           createdBy: schema.reminder.createdBy,
+          recurrence: schema.reminder.recurrence,
           text: schema.reminder.text,
           fireAt: schema.reminder.fireAt,
           firedAt: schema.reminder.firedAt,
@@ -100,6 +112,7 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
           id: schema.reminder.id,
           conversationId: schema.reminder.conversationId,
           createdBy: schema.reminder.createdBy,
+          recurrence: schema.reminder.recurrence,
           text: schema.reminder.text,
           fireAt: schema.reminder.fireAt,
           firedAt: schema.reminder.firedAt,
@@ -115,6 +128,15 @@ export function sqliteReminderAdapter(db: Database): ReminderPort {
         .orderBy(asc(schema.reminder.fireAt))
         .limit(limit)
         .all();
+    },
+    listByAgent(agentId: string): ReminderRow[] {
+      return d
+        .select()
+        .from(schema.reminder)
+        .where(and(eq(schema.reminder.createdBy, agentId), isNull(schema.reminder.firedAt)))
+        .orderBy(asc(schema.reminder.fireAt))
+        .all()
+        .map(rowOf);
     },
     cancel(id: string): boolean {
       const rows = d

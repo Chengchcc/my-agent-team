@@ -27,6 +27,7 @@ export type AgentRunDetail = ApiReturn<typeof api.getAgentRun>;
 export type AgentRuntimeStatus = ApiReturn<typeof api.getAgentRuntime>;
 export type SurfaceOpsItem = ApiReturn<typeof api.listSurfaces>[number];
 export type ConversationSnapshot = ApiReturn<typeof api.listConversations>[number];
+export type TaskCard = ApiReturn<typeof api.listTasks>["tasks"][number];
 export type ReminderRow = ApiReturn<typeof api.listReminders>["reminders"][number];
 export type SettingsMap = ApiReturn<typeof api.getSettings>["settings"];
 export type ProviderInfo = {
@@ -170,6 +171,9 @@ export const api = {
     unwrap(client.api.agents({ id }).lark.setup({ setupId }).get()),
   larkSetupCancel: (id: string, setupId: string) =>
     unwrap(client.api.agents({ id }).lark.setup({ setupId }).delete()),
+  // Task cards (raft #3): the input queue made visible
+  listTasks: (limit?: number) =>
+    unwrap(client.api.tasks.get({ query: limit ? { limit } : undefined })),
   // Reminders
   listReminders: (conversationId?: string) =>
     unwrap(
