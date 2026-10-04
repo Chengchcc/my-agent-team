@@ -151,10 +151,22 @@ export interface ProductToolsServiceDeps {
    *  deployment without the reminder feature must fail the call explicitly,
    *  not silently. */
   readonly reminder?: {
-    create(input: { conversationId: string; createdBy: string; text: string; fireAt: number }): {
-      id: string;
+    create(input: {
+      conversationId: string;
+      createdBy: string;
+      text: string;
       fireAt: number;
-    };
+      recurrence?: string;
+    }): { id: string; fireAt: number; recurrence: string | null };
+    /** The agent's pending reminders (raft: agents manage theirs). */
+    listByAgent(agentId: string): Array<{
+      id: string;
+      conversationId: string;
+      text: string;
+      fireAt: number;
+      recurrence: string | null;
+    }>;
+    cancel(id: string): boolean;
   };
   /** Emit the plan strip when todo_write replaces the run's list. Both the
    *  web panel and the Lark card render from this event; the run's snapshot
@@ -424,14 +436,55 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     if (!Number.isFinite(fireAt) || fireAt <= Date.now()) {
       throw new ProductToolRejectedError("remind_me requires fireAt (epoch ms) in the future");
     }
+    const recurrence =
+      typeof input.args.recurrence === "string" && input.args.recurrence.trim().length > 0
+        ? input.args.recurrence.trim()
+        : undefined;
     const r = deps.reminder.create({
       conversationId: run.conversationId,
       createdBy: run.agentId,
       text,
       fireAt,
+      ...(recurrence ? { recurrence } : {}),
     });
+    const when = r.recurrence
+      ? `recurring \`${r.recurrence}\` (next ${new Date(r.fireAt).toISOString()})`
+      : `for ${new Date(r.fireAt).toISOString()}`;
+    return { content: `Reminder scheduled (id ${r.id}) ${when}: ${text}` };
+  }
+
+  async function reminderList(
+    run: AgentRun,
+    _input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.reminder) {
+      throw new ProductToolRejectedError("reminders are not available in this deployment");
+    }
+    const rows = deps.reminder.listByAgent(run.agentId);
+    if (rows.length === 0) return { content: "No pending reminders." };
     return {
-      content: `Reminder scheduled (id ${r.id}) for ${new Date(r.fireAt).toISOString()}: ${text}`,
+      content: rows
+        .map(
+          (r) =>
+            `- ${r.id} [${r.recurrence ?? "one-shot"}] ${new Date(r.fireAt).toISOString()}: ${r.text} (conversation ${r.conversationId})`,
+        )
+        .join("\n"),
+    };
+  }
+
+  async function reminderCancel(
+    _run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.reminder) {
+      throw new ProductToolRejectedError("reminders are not available in this deployment");
+    }
+    const id = typeof input.args.id === "string" ? input.args.id.trim() : "";
+    if (!id) throw new ProductToolRejectedError("reminder_cancel requires id");
+    const ok = deps.reminder.cancel(id);
+    return {
+      content: ok ? `Reminder ${id} cancelled.` : `Reminder ${id} not found or already fired.`,
+      ...(ok ? {} : { isError: true }),
     };
   }
 
@@ -584,6 +637,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return todoWrite(run, input);
         case "remind_me":
           return remindMe(run, input);
+        case "reminder_list":
+          return reminderList(run, input);
+        case "reminder_cancel":
+          return reminderCancel(run, input);
         case "ask_question":
           return askQuestion(run, input);
         case "artifact_upload":

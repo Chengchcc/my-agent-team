@@ -75,4 +75,3 @@ export function nextCronRun(expr: string, from = new Date()): Date | null {
   }
   return null;
 }
-
