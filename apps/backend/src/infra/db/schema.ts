@@ -64,9 +64,13 @@ export const conversationLedger = sqliteTable(
      *  sequence order, ADR 0017). */
     messageIndex: integer({ mode: "number" }).notNull().default(0),
     undone: integer({ mode: "number" }).notNull().default(0),
+    /** Bookmark (raft Saved): the user chose to keep this message findable.
+     *  Projection-independent - saving never edits the canonical row. */
+    saved: integer("saved", { mode: "number" }).notNull().default(0),
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
+    index("idx_ledger_saved").on(table.saved, table.seq),
     uniqueIndex("idx_ledger_agent_run_message")
       .on(table.agentRunId, table.messageIndex)
       .where(sql`agent_run_id IS NOT NULL`),
