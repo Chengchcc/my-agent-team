@@ -64,6 +64,16 @@ export interface ConversationPort {
   getLastActivityAt?(conversationId: string): number | null;
   /** Max ledger seq (undone excluded); the unread anchor for the web. */
   getLastSeq?(conversationId: string): number | null;
+  /** Bookmark a ledger row (raft Saved). Returns false for a missing seq. */
+  setSaved(seq: number, saved: boolean): boolean;
+  /** All bookmarked message rows, newest first, with conversation titles. */
+  listSaved(): Array<{
+    seq: number;
+    conversationId: string;
+    conversationTitle: string | null;
+    text: string | null;
+    ts: number;
+  }>;
   /** ADR 0041 member roster (routing truth). Optional for legacy doubles —
    *  callers fall back to conversation.agentId when absent. */
   listMembers?(conversationId: string): string[];

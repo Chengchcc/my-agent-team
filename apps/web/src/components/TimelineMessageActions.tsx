@@ -1,4 +1,6 @@
-"use client";
+import { BookmarkIcon } from "lucide-react";
+
+("use client");
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,6 +14,7 @@ import {
   useReplayFromMessage,
   useUndoMessages,
 } from "@/features/conversations/hooks";
+import { api } from "@/lib/api";
 import type { MessageItem } from "@/lib/conversation-reducer";
 import { extractText } from "@/lib/timeline";
 
@@ -64,6 +67,7 @@ export function TimelineMessageActions({
     );
   }, [regen, undoMut, postMut, conversationId]);
   const [editing, setEditing] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
   const [draft, setDraft] = useState("");
   const isUser = item.sender.kind === "human";
 
@@ -202,6 +206,26 @@ export function TimelineMessageActions({
               disabled={undoMut.isPending || postMut.isPending}
             >
               Regenerate
+            </Button>
+          )}
+          {item.seq > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 text-(--mute) hover:text-(--primary)"
+              title={bookmarked ? "Remove bookmark" : "Save message"}
+              onClick={() => {
+                const next = !bookmarked;
+                setBookmarked(next);
+                api.setSaved(conversationId, item.seq, next).catch(() => {
+                  setBookmarked(!next);
+                  toast.error("Bookmark failed");
+                });
+              }}
+            >
+              <BookmarkIcon
+                className={`size-3 ${bookmarked ? "fill-(--primary) text-(--primary)" : ""}`}
+              />
             </Button>
           )}
           {canTarget && (

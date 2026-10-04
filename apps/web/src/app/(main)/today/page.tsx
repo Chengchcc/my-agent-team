@@ -22,6 +22,7 @@ import {
 import { formatNextRun, nextCronRun } from "@/components/workflow/cron-next";
 import { useAgentList } from "@/features/agents/hooks";
 import { useAllConversations } from "@/features/conversations/hooks";
+import { SavedSection } from "@/features/conversations/SavedSection";
 import { useAgentRuns, useTelemetrySummary } from "@/features/ops/hooks";
 import {
   useCancelReminder,
@@ -608,6 +609,7 @@ export default function TodayPage() {
             <UnreadConversations />
             <RemindersSection />
             <TasksSection />
+            <SavedSection />
 
             <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">

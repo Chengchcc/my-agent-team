@@ -228,6 +228,53 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     getLastSeq(conversationId: string): number | null {
       return lastSeq(conversationId);
     },
+    setSaved(seq: number, saved: boolean): boolean {
+      const rows = d
+        .update(schema.conversationLedger)
+        .set({ saved: saved ? 1 : 0 })
+        .where(eq(schema.conversationLedger.seq, seq))
+        .returning({ seq: schema.conversationLedger.seq })
+        .all();
+      return rows.length > 0;
+    },
+    listSaved(): Array<{
+      seq: number;
+      conversationId: string;
+      conversationTitle: string | null;
+      text: string | null;
+      ts: number;
+    }> {
+      const rows = d
+        .select({
+          seq: schema.conversationLedger.seq,
+          conversationId: schema.conversationLedger.conversationId,
+          conversationTitle: schema.conversation.title,
+          content: schema.conversationLedger.content,
+          ts: schema.conversationLedger.ts,
+        })
+        .from(schema.conversationLedger)
+        .leftJoin(
+          schema.conversation,
+          eq(schema.conversationLedger.conversationId, schema.conversation.conversationId),
+        )
+        .where(eq(schema.conversationLedger.saved, 1))
+        .orderBy(desc(schema.conversationLedger.seq))
+        .limit(200)
+        .all();
+      return rows.map((r) => ({
+        seq: r.seq,
+        conversationId: r.conversationId,
+        conversationTitle: r.conversationTitle,
+        text: (() => {
+          try {
+            return extractText(JSON.parse(r.content) as { text?: string }) ?? null;
+          } catch {
+            return null;
+          }
+        })(),
+        ts: r.ts,
+      }));
+    },
     listMembers(conversationId: string): string[] {
       return d
         .select({ agentId: schema.conversationMember.agentId })
