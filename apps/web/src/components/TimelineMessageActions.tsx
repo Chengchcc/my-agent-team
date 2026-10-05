@@ -1,6 +1,6 @@
-import { BookmarkIcon } from "lucide-react";
+"use client";
 
-("use client");
+import { BookmarkIcon } from "lucide-react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
