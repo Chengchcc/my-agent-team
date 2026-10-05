@@ -33,6 +33,22 @@ tags: [backend, runtime, surfaces]
 
 投影层只影响某个端看到的画面：per-run 事件流、SSE 连接、子进程的 stderr。这一层没有真相，重连或刷新就重建。
 
+## 状态分诊表（raft 吸收）
+
+先看颜色再看日志：每种状态对应**一个恢复动作**，不必读完本页再动手。
+
+| 状态（任务卡/Run） | 含义 | 恢复动作 |
+|---|---|---|
+| `idle` / todo（灰） | 排队中，尚未派发 | 等（workspace lock 串行）；卡住超过预期查 §工作区 |
+| `running`（运行中） | 子进程活着、模型在干活 | 等；墙钟上限默认 30 分钟到点自动 stop |
+| `waiting` / in_review（等待） | **需要人**：审批/追问/权限卡住了 | Today → Needs you / 任务卡 Answer；或对应 Lark 卡片 |
+| `commit_failed` | 结果出来了但提交事务失败 | 系统会重试；连续失败查 backend 日志的 commit 路径 |
+| `failed` | 终态失败，错误已进对话 | 在会话里看错误消息；重发输入即重试 |
+| `aborted` / `timeout` | 被取消或超时 | 正常终态；需要就重发 |
+| completed / done | 完成 | 无 |
+
+「安静 ≠ 坏」：一个 agent 没有输出只说明它没有活着的 Run——查任务卡状态而不是猜进程。
+
 ## 端
 
 | 症状 | 先看 | 代码位置 |

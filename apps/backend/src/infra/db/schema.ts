@@ -64,9 +64,13 @@ export const conversationLedger = sqliteTable(
      *  sequence order, ADR 0017). */
     messageIndex: integer({ mode: "number" }).notNull().default(0),
     undone: integer({ mode: "number" }).notNull().default(0),
+    /** Bookmark (raft Saved): the user chose to keep this message findable.
+     *  Projection-independent - saving never edits the canonical row. */
+    saved: integer("saved", { mode: "number" }).notNull().default(0),
   },
   (table) => [
     index("idx_ledger_conv").on(table.conversationId, table.seq),
+    index("idx_ledger_saved").on(table.saved, table.seq),
     uniqueIndex("idx_ledger_agent_run_message")
       .on(table.agentRunId, table.messageIndex)
       .where(sql`agent_run_id IS NOT NULL`),
@@ -608,6 +612,9 @@ export const reminder = sqliteTable(
     /** Agent id or the constant "user" — who asked for it (raft: only the
      *  author is reminded; we deliver to the conversation instead). */
     createdBy: text().notNull(),
+    /** 5-field cron expression: fire, then reschedule to the next match
+     *  (raft recurring wake-ups). Null = one-shot. */
+    recurrence: text("recurrence"),
     text: text().notNull(),
     fireAt: integer({ mode: "number" }).notNull(),
     firedAt: integer({ mode: "number" }),

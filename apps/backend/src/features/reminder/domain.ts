@@ -9,6 +9,8 @@ export interface ReminderRow {
   conversationId: string;
   /** Agent id, or the constant "user". */
   createdBy: string;
+  /** Cron expr: fires, then reschedules to the next match. Null = one-shot. */
+  recurrence: string | null;
   text: string;
   fireAt: number;
   /** Set on delivery. Null = pending (fires on the first tick past fireAt). */
@@ -21,6 +23,8 @@ export interface CreateReminderInput {
   createdBy: string;
   text: string;
   fireAt: number;
+  /** 5-field cron expression for recurring wake-ups (optional). */
+  recurrence?: string;
 }
 
 /** The reminder service only needs to hand text to a conversation — the

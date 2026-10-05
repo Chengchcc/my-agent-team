@@ -301,3 +301,53 @@ describe("anchored artifact comments (raft absorption)", () => {
     expect(badAnchor.status).toBe(400);
   });
 });
+
+describe("saved bookmarks (raft absorption)", () => {
+  test("toggle round-trips and the global list carries title and text", async () => {
+    const created = await api(harness, "POST", BASE, {
+      conversationId: "c-saved",
+      agentId: "default",
+    });
+    expect(created.status).toBe(201);
+    await api(harness, "POST", `${BASE}/c-saved/messages`, { content: "remember this decision" });
+
+    const rows = (() => {
+      const db = new Database(join(harness.dataDir, "backend.db"), { readonly: true });
+      try {
+        return db
+          .query(
+            "SELECT seq FROM conversation_ledger WHERE conversation_id = 'c-saved' ORDER BY seq",
+          )
+          .all() as Array<{ seq: number }>;
+      } finally {
+        db.close();
+      }
+    })();
+    const seq = rows[rows.length - 1]!.seq;
+
+    const on = await api(harness, "POST", `${BASE}/c-saved/messages/${seq}/saved`, { saved: true });
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as { saved: boolean }).saved).toBe(true);
+
+    const list = (await (await api(harness, "GET", "/api/saved")).json()) as {
+      saved: Array<{ seq: number; text: string | null }>;
+    };
+    const hit = list.saved.find((r) => r.seq === seq);
+    expect(hit?.text).toContain("remember this decision");
+
+    const off = await api(harness, "POST", `${BASE}/c-saved/messages/${seq}/saved`, {
+      saved: false,
+    });
+    expect(off.status).toBe(200);
+    const list2 = (await (await api(harness, "GET", "/api/saved")).json()) as {
+      saved: Array<{ seq: number }>;
+    };
+    expect(list2.saved.find((r) => r.seq === seq)).toBeUndefined();
+
+    // Unknown seq is a 404, not a silent no-op.
+    const bad = await api(harness, "POST", `${BASE}/c-saved/messages/999999/saved`, {
+      saved: true,
+    });
+    expect(bad.status).toBe(404);
+  });
+});

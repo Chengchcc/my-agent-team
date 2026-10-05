@@ -218,8 +218,28 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       properties: {
         text: { type: "string", description: "What the reminder says" },
         fireAt: { type: "number", description: "Epoch ms when it fires (future)" },
+        recurrence: {
+          type: "string",
+          description:
+            "Optional 5-field cron expression for recurring wake-ups (e.g. '0 9 * * *' = daily 9am); omit for one-shot",
+        },
       },
       required: ["text", "fireAt"],
+    },
+  },
+  {
+    name: "reminder_list",
+    description:
+      "List your own pending reminders (one-shot and recurring) with their ids, schedules and texts.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "reminder_cancel",
+    description: "Cancel one of your pending reminders by id (from reminder_list).",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "The reminder id" } },
+      required: ["id"],
     },
   },
 ];

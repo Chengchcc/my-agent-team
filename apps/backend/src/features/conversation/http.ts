@@ -125,6 +125,20 @@ export function conversationRoutes(
           }),
         },
       )
+      .post(
+        "/api/conversations/:id/messages/:seq/saved",
+        ({ params: { id: _id, seq }, body, set }) => {
+          if (!svc.port.setSaved(Number(seq), body.saved)) {
+            set.status = 404;
+            return { error: "no such ledger row" };
+          }
+          return { seq: Number(seq), saved: body.saved };
+        },
+        {
+          body: t.Object({ saved: t.Boolean() }),
+        },
+      )
+      .get("/api/saved", () => ({ saved: svc.port.listSaved() }))
       .get("/api/conversations/:id/members", ({ params: { id } }) => ({
         members: members?.list(id) ?? [],
       }))

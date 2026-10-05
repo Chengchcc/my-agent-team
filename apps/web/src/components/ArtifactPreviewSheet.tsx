@@ -136,7 +136,7 @@ export function ArtifactPreviewSheet({
               <TabsContent value="raw" className="mt-3">
                 <div className="rounded border border-(--hairline) bg-(--canvas)/60">
                   <ScrollArea className="max-h-[calc(100vh-14rem)]">
-                    <div className="py-1 font-mono text-[11px] leading-5">
+                    <div className="py-1 font-mono text-[11px]/5">
                       {(content ?? "").split("\n").map((line, i) => {
                         const n = i + 1;
                         const inSel = sel !== null && n >= sel.start && n <= sel.end;
