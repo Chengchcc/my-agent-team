@@ -122,17 +122,23 @@ export async function run(argv: readonly string[]): Promise<number> {
       }
       if (sub === "add") {
         const [conversationId, text, at] = [positional[1], positional[2], positional[3]];
-        if (!conversationId || !text || !at) {
+        if (!conversationId || !text) {
           console.error(
-            "usage: mmt reminders add <conversationId> <text...> <epoch-ms|--in seconds> [--cron expr]",
+            "usage: mmt reminders add <conversationId> <text...> (--in <seconds> | <epoch-ms>) [--cron expr]",
           );
           return 2;
         }
-        const fireAt = at === "--in" ? undefined : Number(at); // --in handled below
-        const secs = flags.in ? Number(flags.in) : undefined;
-        const when = fireAt ?? (secs !== undefined ? Date.now() + secs * 1000 : NaN);
+        // --in arrives as a FLAG (parseArgs consumes it), so the positional
+        // <at> only exists in the epoch-ms form — check the flag first.
+        // (NaN is not nullish: `NaN ?? x` stays NaN, so compute directly.)
+        const when =
+          flags.in !== undefined
+            ? Date.now() + Number(flags.in) * 1000
+            : at !== undefined
+              ? Number(at)
+              : NaN;
         if (!Number.isFinite(when)) {
-          console.error("mmt: need <epoch-ms> or --in <seconds>");
+          console.error("mmt: need --in <seconds> or an <epoch-ms> positional");
           return 2;
         }
         const r = (await call("POST", "/api/reminders", {

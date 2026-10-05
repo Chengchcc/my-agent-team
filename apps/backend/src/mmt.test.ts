@@ -19,3 +19,13 @@ describe("mmt arg parsing", () => {
     expect(parseArgs([]).positional).toEqual([]);
   });
 });
+
+import { describe as d2, expect as e2, test as t2 } from "bun:test";
+
+d2("mmt reminders add argument forms", () => {
+  t2("--in is a flag: the documented relative form parses without a positional at", () => {
+    const r = parseArgs(["reminders", "add", "c1", "hello", "--in", "60"]);
+    e2(r.flags.in).toBe("60");
+    e2(r.positional).toEqual(["add", "c1", "hello"]);
+  });
+});
