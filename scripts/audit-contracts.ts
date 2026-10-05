@@ -31,13 +31,15 @@ const LARK_CAST_DEBT = new Set([
  *  config.ts is the shared parseEnv entry; oma-command.ts forwards provider
  *  keys to the child CLI (T2 env whitelist); app-harness.ts seeds env before
  *  the dynamic bootstrap imports in route-level tests (same rationale as
- *  app.test.ts, which is exempt as a *.test.ts file). */
+ *  app.test.ts, which is exempt as a *.test.ts file; mmt.ts is the
+ *  product CLI — its whole interface IS the environment). */
 const ENV_BRIDGE = new Set([
   "apps/backend/src/config.ts",
   "apps/backend/src/infra/oma-command.ts",
   "apps/backend/src/testing/app-harness.ts",
   "apps/backend/src/features/agent-run/acp/fake-acp-harness.ts",
   "apps/backend/src/features/agent-run/protocol/debug-log.ts",
+  "apps/backend/src/mmt.ts",
 ]);
 
 const failures: string[] = [];
