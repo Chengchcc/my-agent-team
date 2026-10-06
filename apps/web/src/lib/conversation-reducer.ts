@@ -107,25 +107,15 @@ function senderForRole(role: MessageRevision["role"], s: ConvState): SenderRef {
   return s.agent ?? { memberId: "agent", kind: "agent" };
 }
 
-function upsertAuthoritative(
-  list: UiItem[],
-  id: string,
-  sender: SenderRef,
-  content: Message,
-  seq: number,
-  undone?: boolean,
-): UiItem[] {
-  const idx = list.findIndex((item) => item.kind === "message" && item.id === id);
+function upsertAuthoritative(list: UiItem[], item: MessageItem): UiItem[] {
+  const { id, sender } = item;
+  const idx = list.findIndex((existing) => existing.kind === "message" && existing.id === id);
   if (idx >= 0) {
     const next = [...list];
     const prev = next[idx]!;
     next[idx] = {
-      kind: "message",
-      id,
-      sender,
-      content,
-      seq,
-      undone: undone ?? (prev.kind === "message" ? prev.undone : undefined),
+      ...item,
+      undone: item.undone ?? (prev.kind === "message" ? prev.undone : undefined),
     };
     return next;
   }
@@ -133,15 +123,15 @@ function upsertAuthoritative(
   if (sender.kind === "human") {
     const optIdx = [...list]
       .reverse()
-      .findIndex((item) => item.kind === "message" && item.id.startsWith("opt-"));
+      .findIndex((existing) => existing.kind === "message" && existing.id.startsWith("opt-"));
     if (optIdx >= 0) {
       const real = list.length - 1 - optIdx;
       const next = [...list];
-      next[real] = { kind: "message", id, sender, content, seq, undone };
+      next[real] = item;
       return next;
     }
   }
-  return [...list, { kind: "message", id, sender, content, seq, undone }];
+  return [...list, item];
 }
 
 // ─── Turn Grouping (pure render-layer) ─────────────────────
@@ -265,7 +255,15 @@ export function reducer(s: ConvState, a: Action): ConvState {
       const message = mergeMessageRevision(existing?.content ?? null, revision);
       const id = message.id ?? revision.messageId;
       const sender = senderForRole(revision.role, s);
-      const items = upsertAuthoritative(s.items, id, sender, message, a.seq, a.undone);
+      const items = upsertAuthoritative(s.items, {
+        kind: "message",
+        id,
+        sender,
+        content: message,
+        seq: a.seq,
+        ...(existing?.anchor ? { anchor: existing.anchor } : {}),
+        ...(a.undone ? { undone: true } : {}),
+      });
       // pendingSendCount tracks ONLY the HTTP POST in flight (see
       // send/settled); an agent reply must not fake-clear it.
       return { ...s, items };
@@ -292,7 +290,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
             idx >= 0 ? list.map((existing, i) => (i === idx ? item : existing)) : [...list, item];
           continue;
         }
-        list = upsertAuthoritative(list, item.id, item.sender, item.content, item.seq, item.undone);
+        list = upsertAuthoritative(list, item);
       }
       return { ...s, items: list };
     }

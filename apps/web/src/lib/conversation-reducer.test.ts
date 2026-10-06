@@ -437,3 +437,30 @@ describe("items from AHP state", () => {
     expect(state.items.map((item) => item.id)).toEqual(["m-1", "m-2"]);
   });
 });
+
+describe("anchored comments survive the reducer (raft absorption)", () => {
+  const viewer: SenderRef = { memberId: "user", kind: "human" };
+
+  test("an items round with an anchor keeps it through re-derivation", () => {
+    const anchored: Extract<UiItem, { kind: "message" }> = {
+      kind: "message",
+      id: "m-a",
+      sender: viewer,
+      content: { id: "m-a", role: "user", text: "[report.md L1-3] look here" },
+      seq: 7,
+      anchor: { url: "artifacts://runs/report.md", anchor: { kind: "lines", start: 1, end: 3 } },
+    };
+    let state = bootstrap();
+    state = reducer(state, { type: "items", items: [anchored] });
+    expect(state.items[0]).toMatchObject({
+      id: "m-a",
+      anchor: { url: "artifacts://runs/report.md" },
+    });
+    // AHP re-derives all history on every change; the anchor must survive that too.
+    state = reducer(state, { type: "items", items: [anchored] });
+    expect(state.items[0]).toMatchObject({
+      id: "m-a",
+      anchor: { url: "artifacts://runs/report.md" },
+    });
+  });
+});
