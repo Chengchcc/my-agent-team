@@ -33,6 +33,15 @@ export function getReadSeqVersion(): number {
   return version;
 }
 
+/** The server snapshot React requires for server-rendered content. There is no
+ *  localStorage on the server, so nothing has been read yet and the version is
+ *  always 0. Omitting this made `/today` throw
+ *  "Missing getServerSnapshot" and return 500 — the page only looked fine
+ *  because React fell back to client rendering. */
+export function getReadSeqVersionServer(): number {
+  return 0;
+}
+
 export function getReadSeq(conversationId: string): number {
   return load()[conversationId] ?? 0;
 }
