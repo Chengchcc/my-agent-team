@@ -34,7 +34,12 @@ import { type PendingHitlAction, pendingActionsQuery } from "@/features/runs/que
 import { TasksSection } from "@/features/runs/TasksSection";
 import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
-import { getReadSeqVersion, isUnread, subscribeReadSeq } from "@/lib/read-seq";
+import {
+  getReadSeqVersion,
+  getReadSeqVersionServer,
+  isUnread,
+  subscribeReadSeq,
+} from "@/lib/read-seq";
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +102,7 @@ function hhmm(ts: number) {
  *  this re-renders via the store's version when a canvas marks read. */
 function UnreadConversations() {
   const { data: conversations } = useAllConversations();
-  useSyncExternalStore(subscribeReadSeq, getReadSeqVersion);
+  useSyncExternalStore(subscribeReadSeq, getReadSeqVersion, getReadSeqVersionServer);
   const unread = (conversations ?? []).filter((c) => isUnread(c.conversationId, c.lastSeq));
   if (unread.length === 0) return null;
   return (
