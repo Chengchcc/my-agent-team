@@ -20,6 +20,13 @@ function setup(dir: string) {
   mkdirSync(dir, { recursive: true });
   mkdirSync(builtinDir, { recursive: true });
   writeFileSync(`${dir}/models.yml`, modelsYml);
+  // A minimal builtin wiki root: the boot seeds `architecture`/`guides` from
+  // here, and the onboarding agent attaches what that same boot installed.
+  const docsDir = `${dir}/docs`;
+  for (const zone of ["architecture", "guides"]) {
+    mkdirSync(`${docsDir}/${zone}`, { recursive: true });
+    writeFileSync(`${docsDir}/${zone}/README.md`, `# ${zone}\n`);
+  }
 
   return {
     dataDir: dir,
@@ -31,6 +38,7 @@ function setup(dir: string) {
     cancelGraceMs: 100,
     maxConcurrentRuns: 4,
     builtinSkillsDir: builtinDir,
+    knowledgePacksDir: docsDir,
   };
 }
 
@@ -209,6 +217,27 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
     mcpServers: Record<string, unknown>;
   };
   expect(Object.keys(mcp.mcpServers)).toContain("workflow");
+
+  // Onboarding agent (raft absorption): seeded once with the wiki packs that
+  // the same boot installed, and its own reconciled workspace.
+  const guideRow = db.query("SELECT config FROM agents WHERE id = 'guide'").get() as {
+    config: string;
+  } | null;
+  expect(guideRow).not.toBeNull();
+  const guideConfig = JSON.parse(guideRow!.config) as {
+    name: string;
+    runtime_config: { knowledge_packs: string[] };
+  };
+  expect(guideConfig.name).toBe("Guide");
+  const packNames = db
+    .query(
+      `SELECT p.name FROM knowledge_pack p WHERE p.id IN (${guideConfig.runtime_config.knowledge_packs
+        .map(() => "?")
+        .join(",")})`,
+    )
+    .all(...guideConfig.runtime_config.knowledge_packs) as Array<{ name: string }>;
+  expect(packNames.map((r) => r.name).sort()).toEqual(["architecture", "guides"]);
+  expect(existsSync(`${dir}/agents/guide`)).toBe(true);
 
   await installed.dispose();
   await services.mcpClientManager.disconnectAll();

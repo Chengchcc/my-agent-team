@@ -37,6 +37,33 @@ reads the sick one's memory*. This skill operationalizes it.
    proposal above → session reset (context clears, workspace persists)
    → full reset (last resort; destroys workspace memory too).
 
+## Self-maintenance (the patient books its own check-up)
+
+An agent can watch itself on a schedule instead of waiting for a human
+to notice drift. Ask it, once, in the conversation that should carry the
+nudge:
+
+> Every Monday at 09:00, review your own workspace: quote anything in
+> your notes/memory that the recent conversation contradicted, fix the
+> stale lines, and post a one-line summary of what you changed.
+
+The agent sets this up with `remind_me` (`recurrence: "0 9 * * 1"`,
+5-field cron; `reminder_list` / `reminder_cancel` to inspect or drop
+it). The reminder reschedules itself after each delivery, so one call
+buys the weekly loop until cancelled.
+
+Two rules make it safe to leave running:
+
+- **Scope it to the agent's own workspace.** A self-maintenance run that
+  reads every other agent's memory is the doctor without a license.
+- **It reports, it does not rewrite shared facts.** Memory files it owns
+  are fair game; conversations, other agents' workspaces and config are
+  not — same boundary as the procedure above.
+
+Nothing is scheduled by default: a recurring run spends model budget
+every week, so the seed is the instruction above, not an auto-created
+reminder.
+
 ## Boundaries
 
 - Never edit another agent's workspace files directly; propose, let the

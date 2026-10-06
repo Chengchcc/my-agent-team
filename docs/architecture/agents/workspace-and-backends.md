@@ -45,6 +45,8 @@ tags: [backend, mcp, skills, project]
 
 目录名取 Agent 名字的 slug（同名加 `-2`、`-3` 后缀），显式 id seed 时才用 id 当目录名。`workspacePath` 可以被覆盖，但必须落在允许根内（`<config.workspaceRoot>` 与 `<dataDir>/agents`）：越界直接拒绝，这条检查在创建与更新两条路径上都跑。
 
+开机 seed 两个 Agent，都用固定 id 且只在缺失时创建（改名、换模型、换知识包都是用户的，升级不回滚）：`default`（Assistant，内置技能包经 `onCreate` 分配）与 `guide`（Guide，挂上本次开机装好的 wiki 知识包 `architecture` + `guides`，详见 [问题排查](../operations/troubleshooting.md) 的分诊表与 `agent-doctor` 技能）。没有任何定时任务在 seed 里被排上——循环提醒要用户显式开（见 `agent-doctor` 技能的自我维护一节）。
+
 `SOUL.md` / `USER.md` 平文进系统提示，`AGENTS.md` 链（含用户级 `~/.oma/AGENTS.md`）包在 `<repo-rules>` 里，`knowledge/index.md` 包在 `<available_knowledge>` 里，cwd 下一层未加载的 `AGENTS.md` 只做指针。子进程只认 `AGENTS.md`，不认 `CLAUDE.md` 与 `GEMINI.md`；`CLAUDE.md` 存在是因为 claude CLI 读它。
 
 ## 谁写谁读 agent.yml

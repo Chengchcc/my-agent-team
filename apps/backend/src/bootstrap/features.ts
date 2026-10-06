@@ -275,6 +275,33 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     assertNoActiveRun: (agentId: string) => busyGuard.check?.(agentId),
   });
 
+  /** The onboarding agent (raft absorption): knows this product out of the box
+   *  — the installed wiki packs ride its config and the builtin skill pack
+   *  arrives through onCreate. Created once and never rewritten: a later edit
+   *  of its model, packs or name is the user's, so an upgrade must not revert
+   *  it. */
+  async function ensureGuideAgent(seed: { harness: string; model: string }) {
+    try {
+      await agentSvc.getById("guide");
+      return;
+    } catch {
+      /* not created yet */
+    }
+    const packs = knowledgeSvc
+      .list()
+      .filter((p) => p.status === "ready" && p.sourceKind === "builtin")
+      .filter((p) => p.name === "architecture" || p.name === "guides")
+      .map((p) => p.id);
+    await agentSvc.create({
+      id: "guide",
+      name: "Guide",
+      harness: seed.harness,
+      ...(seed.model ? { model: seed.model } : {}),
+      permissionMode: "auto",
+      ...(packs.length > 0 ? { knowledgePacks: packs } : {}),
+    });
+  }
+
   async function ensureAgent(id: string, name: string, harness: string, model?: string) {
     try {
       await agentSvc.getById(id);
@@ -1196,19 +1223,24 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     builtinRoot: config.knowledgePacksDir,
   });
 
-  // Builtin project knowledge pack: the wiki's current-state zone, copied into
-  // the data dir once and then available to every agent. `docs/architecture/`
-  // is the single source — there is no second copy to drift, and the
-  // ADR archive stays out of it because a skill generates those files.
-  if (!knowledgeSvc.list().some((p) => p.sourceKind === "builtin" && p.name === "architecture")) {
+  // Builtin wiki packs: repo doc zones copied into the data dir once and then
+  // available to every agent. The doc directory is the single source — there is
+  // no second copy to drift, and the ADR archive stays out of it because a
+  // skill generates those files.
+  for (const pack of [
+    {
+      name: "architecture",
+      description: "my-agent-team 现状架构：系统总览、执行链、数据、各子系统、安全与规则",
+    },
+    { name: "guides", description: "my-agent-team 使用与开发指南：安装、部署、配置、排障" },
+  ]) {
+    if (knowledgeSvc.list().some((p) => p.sourceKind === "builtin" && p.name === pack.name)) {
+      continue;
+    }
     await knowledgeSvc
-      .install({
-        name: "architecture",
-        description: "my-agent-team 现状架构：系统总览、执行链、数据、各子系统、安全与规则",
-        sourceKind: "builtin",
-      })
+      .install({ ...pack, sourceKind: "builtin" })
       .catch((err: Error) =>
-        console.error(`[knowledge] builtin my-agent-team seed failed: ${err.message}`),
+        console.error(`[knowledge] builtin ${pack.name} seed failed: ${err.message}`),
       );
   }
 
@@ -1832,6 +1864,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   {
     const seed = await defaultSeedModel();
     await ensureAgent("default", "Assistant", seed.harness, seed.model);
+    await ensureGuideAgent(seed);
   }
 
   // B4: one best-effort reconcile over every LIVE agent at boot — worktrees
