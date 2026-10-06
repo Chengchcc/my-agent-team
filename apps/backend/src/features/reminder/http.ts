@@ -23,6 +23,7 @@ export function reminderRoutes(svc: ReminderService) {
             createdBy: body.createdBy ?? "user",
             text: body.text,
             fireAt: body.fireAt,
+            ...(body.recurrence ? { recurrence: body.recurrence } : {}),
           });
           set.status = 201;
           return { reminder };
@@ -40,6 +41,8 @@ export function reminderRoutes(svc: ReminderService) {
           /** Epoch ms; must be in the future. */
           fireAt: t.Number(),
           createdBy: t.Optional(t.String({ minLength: 1 })),
+          /** 5-field cron: fire, then reschedule to the next match. */
+          recurrence: t.Optional(t.String({ minLength: 1 })),
         }),
       },
     )
