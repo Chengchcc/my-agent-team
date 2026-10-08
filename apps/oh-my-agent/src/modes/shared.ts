@@ -79,14 +79,25 @@ export function standaloneRuntimeOptions(
 export function seedTranscript(
   messages: readonly Record<string, unknown>[],
 ): CreateOmaRuntimeOptions["sessionTranscript"] {
-  let end = messages.length;
-  while (end > 0 && messages[end - 1]?.role === "user") end--;
-  return end === 0
+  const answered = messages.slice(0, answeredPrefixLength(messages));
+  return answered.length === 0
     ? undefined
-    : messages.slice(0, end).map((m, i) => ({
+    : answered.map((m, i) => ({
         productEntryId: `session:${i}`,
         message: toTranscriptMessage(m),
       }));
+}
+
+/** The transcript's answered prefix: a trailing run of user messages with no
+ *  assistant after them is NOT history — the next input (a fresh prompt, or a
+ *  resumed run's re-delivered prompt) takes its place. Every mode seeds
+ *  through this rule (TUI/json/print via seedTranscript, ACP after its own
+ *  schema validation and parked-turn handling), so no mode ever guesses a
+ *  fresh prompt is "already in history". */
+export function answeredPrefixLength(messages: readonly { role?: unknown }[]): number {
+  let end = messages.length;
+  while (end > 0 && messages[end - 1]?.role === "user") end--;
+  return end;
 }
 
 /** Parse-boundary cast (the .omp/rules/no-unknown-as-cast exception):

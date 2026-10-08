@@ -7,6 +7,7 @@ import { createModelRuntime } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
 import { fakeProvider } from "../../core/runtime/fake-provider.js";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
+import { appendSessionMessages } from "../../core/session/session-file.js";
 import { runAcpMode, withoutAcpDeclaredServers } from "./acp-mode.js";
 
 /** Crossed NDJSON stream pairs: our test CLIENT on one side, the oma ACP
@@ -234,6 +235,60 @@ test("session/load keeps a new prompt when restored messages have no inner messa
   }
 }, 30_000);
 
+test("a resumed run's re-delivered prompt is not duplicated by the restored history", async () => {
+  // ADR 0038: a resumed run's input row is already `delivered`, so the fresh
+  // child re-receives the SAME text — and the dead child may already have
+  // persisted that user message to the session file. The seed must drop a
+  // trailing unanswered user run (the same rule as seedTranscript on the TUI
+  // side): the re-delivered prompt takes the dropped turn's place, and the
+  // model sees the question exactly once.
+  const dir = mkdtempSync(join(tmpdir(), "acp-resume-replay-"));
+  const sessionDir = join(dir, "sessions");
+  mkdirSync(sessionDir, { recursive: true });
+  const prevSessionDir = process.env.OMA_SESSION_DIR;
+  process.env.OMA_SESSION_DIR = sessionDir;
+  const modelCalls: Array<readonly Message[]> = [];
+  const runtime = recordingRuntime(modelCalls);
+  const connect = () => {
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: runtime,
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    return startClient(mode, c2a, a2c).then((client) => ({ mode, client }));
+  };
+  try {
+    let sessionId = "";
+    {
+      const { mode, client } = await connect();
+      sessionId = await client.newSession(dir);
+      expect((await client.prompt("first question")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    // The child accepted the next input, persisted it, then died before any
+    // assistant output — the file now ends on an unanswered user turn.
+    appendSessionMessages(sessionId, dir, [{ role: "user", text: "do the thing" }]);
+    {
+      const { mode, client } = await connect();
+      await client.loadSession(sessionId, dir);
+      expect((await client.prompt("do the thing")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    const promptCall = modelCalls.find(
+      (call) => call.at(-1)?.role === "user" && call.at(-1)?.text === "do the thing",
+    );
+    expect(promptCall).toBeDefined();
+    // Exactly once: not again as restored history ahead of the live prompt.
+    expect(promptCall!.filter((m) => m.text === "do the thing")).toHaveLength(1);
+    // The answered past is still there.
+    expect(promptCall!.some((m) => m.text === "first question")).toBe(true);
+  } finally {
+    if (prevSessionDir === undefined) delete process.env.OMA_SESSION_DIR;
+    else process.env.OMA_SESSION_DIR = prevSessionDir;
+  }
+}, 30_000);
 describe("oma ACP server (in-process, fake provider)", () => {
   test("initialize advertises loadSession and the steering convention", async () => {
     const c2a = streamPair();
