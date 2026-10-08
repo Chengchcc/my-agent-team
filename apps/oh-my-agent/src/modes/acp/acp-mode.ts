@@ -293,7 +293,15 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       transcript.map((t) => t.message.id).filter((id): id is string => id != null),
     );
     const promptMessage: Message = { role: "user", text };
-    const seedIndex = transcript.findIndex((t) => t.message.id === promptMessage.id);
+    // Seed only on an explicit, comparable id: restored transcript messages
+    // usually carry none, and `undefined === undefined` matched index 0 —
+    // stamping the brand-new prompt with the first restored entry's
+    // productEntryId, which the session store then deduped away, so the model
+    // answered the system-reminder and the question never reached it.
+    const seedIndex =
+      promptMessage.id == null
+        ? -1
+        : transcript.findIndex((item) => item.message.id === promptMessage.id);
 
     const cwdSkills = scanWorkspaceSkillRoots(session.cwd);
     const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
