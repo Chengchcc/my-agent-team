@@ -181,8 +181,22 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
     fanOut(envelope);
     return envelope;
   };
+  // #28: a dispatch and a subscription handshake must never interleave. The
+  //  handshake snapshots state and then registers; an action landing in that
+  //  async gap is in neither — its reduce updated the state AFTER the
+  //  snapshot read, and fan-out skipped the not-yet-subscribed connection.
+  //  The client missed it until a full resubscribe. Serializing the two
+  //  makes the handshake atomic without idempotency assumptions on the
+  //  reducer; both sections are short, so contention is irrelevant here.
+  let gate: Promise<unknown> = Promise.resolve();
+  const serialized = <T>(fn: () => Promise<T> | T): Promise<T> => {
+    const run = gate.then(fn, fn);
+    gate = run.catch(() => undefined);
+    return run;
+  };
+
   const dispatch = (uri: URI, action: StateAction, origin?: ActionOrigin) =>
-    dispatchWith(uri, action, origin);
+    serialized(() => dispatchWith(uri, action, origin));
 
   const server: AhpServer = {
     get serverSeq() {
@@ -245,20 +259,24 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         const toSubscribe = Array.isArray(subscriptions)
           ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
           : [];
-        // Snapshot first, register second: a failure must not leave a dead subscription behind.
-        let snapshots: Snapshot[];
-        try {
-          snapshots = await Promise.all(toSubscribe.map(snapshotOf));
-        } catch (err) {
-          fail(id, codeOf(err), messageOf(err));
-          return;
-        }
-        for (const uri of toSubscribe) connection.subscriptions.add(uri);
-        respond(id, {
-          protocolVersion: selected,
-          serverSeq,
-          ...(opts.serverInfo ? { serverInfo: opts.serverInfo } : {}),
-          snapshots,
+        // Snapshot first, register second: a failure must not leave a dead
+        // subscription behind. Under the gate (#28) no dispatch can land in
+        // the gap between the snapshot read and the registration.
+        await serialized(async () => {
+          let snapshots: Snapshot[];
+          try {
+            snapshots = await Promise.all(toSubscribe.map(snapshotOf));
+          } catch (err) {
+            fail(id, codeOf(err), messageOf(err));
+            return;
+          }
+          for (const uri of toSubscribe) connection.subscriptions.add(uri);
+          respond(id, {
+            protocolVersion: selected,
+            serverSeq,
+            ...(opts.serverInfo ? { serverInfo: opts.serverInfo } : {}),
+            snapshots,
+          });
         });
       };
 
@@ -268,13 +286,15 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
           fail(id, INVALID_PARAMS, "subscribe needs a channel");
           return;
         }
-        try {
-          const snapshot = await snapshotOf(uri);
-          connection.subscriptions.add(uri);
-          respond(id, { snapshot });
-        } catch (err) {
-          fail(id, codeOf(err), messageOf(err));
-        }
+        await serialized(async () => {
+          try {
+            const snapshot = await snapshotOf(uri);
+            connection.subscriptions.add(uri);
+            respond(id, { snapshot });
+          } catch (err) {
+            fail(id, codeOf(err), messageOf(err));
+          }
+        });
       };
 
       const onReconnect = async (id: unknown, params: Record<string, unknown>): Promise<void> => {

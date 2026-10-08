@@ -323,3 +323,67 @@ describe("AHP server core against the official client", () => {
     await client.shutdown();
   });
 });
+
+describe("#28: the subscription handshake is atomic with dispatches", () => {
+  /** A source whose chat read hangs until the test releases it: the dispatch
+   *  below then lands exactly in the gap the race lives in. */
+  function gatedSource() {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const base = fakeSource();
+    const src: AhpStateSource = {
+      ...base,
+      chat: async (uri: URI) => {
+        await gate;
+        return base.chat(uri);
+      },
+    };
+    return { src, release };
+  }
+
+  test("an action dispatched during the initialize snapshot still reaches the client", async () => {
+    const { src, release } = gatedSource();
+    const server = createAhpServer({ source: src, commands: noopPort });
+    const { connection, received } = connect(server);
+    // initialize subscribes to the chat channel; its snapshot read now hangs.
+    const pending = new Promise<void>((resolve) => {
+      void (async () => {
+        connection.handle(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 7,
+            method: "initialize",
+            params: {
+              channel: "ahp-root://",
+              clientId: "race-client",
+              protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+              initialSubscriptions: [CHAT_URI],
+            },
+          }),
+        );
+        resolve();
+      })();
+    });
+    await pending;
+    // Let the handshake reach its await, then dispatch into the gap.
+    await Bun.sleep(20);
+    server.dispatch(CHAT_URI, { type: "chat/turnStarted", turnId: "t-race" } as never);
+    await Bun.sleep(20);
+    release();
+
+    // Wait for the initialize response, then assert the action arrived.
+    let sawInit = false;
+    let sawAction = false;
+    for (let i = 0; i < 50 && !(sawInit && sawAction); i++) {
+      for (const frame of received) {
+        if (frame.includes('"id":7')) sawInit = true;
+        if (frame.includes("t-race")) sawAction = true;
+      }
+      if (!(sawInit && sawAction)) await Bun.sleep(10);
+    }
+    expect(sawInit).toBe(true);
+    expect(sawAction).toBe(true);
+  });
+});
