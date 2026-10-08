@@ -70,6 +70,20 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
       if (!envelope.action.type.startsWith("chat/")) continue;
       state = chatReducer(state, envelope.action as ChatAction);
       deps.onChange(state);
+      // A DB-only fact -- the plan strip, a commit_failed transition, an undo -- has no action to
+      // carry it, so the host dropped this channel's cached projection. A tool having completed is
+      // exactly when such a write may have landed, so re-read instead of painting a stale strip
+      // until the next reconnect (#52). The carrier subscription is closed immediately: the state
+      // is taken from its response, not from its stream.
+      if (envelope.action.type === "chat/toolCallComplete") {
+        const reply = await client.subscribe(uri);
+        const fresh = reply.result?.snapshot?.state as ChatState | undefined;
+        if (fresh) {
+          state = fresh;
+          deps.onChange(state);
+        }
+        await reply.subscription.close();
+      }
     }
   };
 

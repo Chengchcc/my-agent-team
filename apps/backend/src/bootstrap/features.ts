@@ -752,6 +752,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  every use of them sits inside a closure that only runs once the stack is up. */
   const chatWriter = createAhpChatWriter({
     dispatch: (uri, action) => ahpHost.server.dispatch(uri, action),
+    invalidate: (uri) => ahpHost.server.invalidate(uri),
     projectedTurn: async (conversationId, turnId) => {
       const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
       return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;

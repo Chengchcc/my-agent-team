@@ -15,11 +15,16 @@ const stateWith = (title: string): ChatState =>
     turns: [],
   }) as ChatState;
 
-function fakeClient(snapshot: unknown, events: SubscriptionEvent[]) {
+function fakeClient(snapshot: unknown, events: SubscriptionEvent[], refreshes: unknown[] = []) {
   const queue = [...events];
   return {
     connect: () => {},
     initialize: async () => ({ snapshots: [{ resource: uri, state: snapshot }] }),
+    // The re-read path: each call answers with the next queued state, else the original one.
+    subscribe: async () => ({
+      result: { snapshot: { state: refreshes.length > 0 ? refreshes.shift() : snapshot } },
+      subscription: { close: async () => {} },
+    }),
     attachSubscription: () =>
       ({
         [Symbol.asyncIterator]() {
@@ -35,6 +40,39 @@ function fakeClient(snapshot: unknown, events: SubscriptionEvent[]) {
 }
 
 describe("web surface over AHP", () => {
+  test("a completed tool re-reads the channel, so a DB-only fact is not painted stale (#52)", async () => {
+    const seen: string[] = [];
+    const events: SubscriptionEvent[] = [
+      {
+        type: "action",
+        params: {
+          channel: uri,
+          // A real action in upstream's shape: the plan strip is written by a tool, and no action
+          // carries `_meta.todos`, so the re-read is the only way the surface can see it.
+          action: {
+            type: "chat/toolCallComplete",
+            turnId: "turn-1",
+            callId: "call-1",
+            result: { output: "{}" },
+          },
+          serverSeq: 1,
+        },
+      } as never,
+    ];
+    const connection = connectAhpChat({
+      conversationId: "c1",
+      onChange: (state) => seen.push(state.title),
+      fetchTicket: async () => ({ ticket: "t-3", wsBase: "ws://localhost" }),
+      transportFactory: () => ({}) as AhpTransport,
+      clientFactory: () => fakeClient(stateWith("snapshot"), events, [stateWith("refreshed")]),
+    });
+    await Bun.sleep(30);
+    connection.close();
+    // The action is applied and re-emitted (its title is unchanged), then the re-read paints the
+    // fresh state: what matters is that the last value comes from the re-read.
+    expect(seen).toEqual(["snapshot", "snapshot", "refreshed"]);
+  });
+
   test("the chat snapshot reaches the caller", async () => {
     const seen: string[] = [];
     const connection = connectAhpChat({

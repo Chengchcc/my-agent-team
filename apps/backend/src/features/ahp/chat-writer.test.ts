@@ -9,10 +9,14 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 
 function fixture(over: { projected?: unknown } = {}) {
   const sent: Array<{ uri: string; action: Record<string, unknown> }> = [];
+  const invalidated: string[] = [];
   let reads = 0;
   const writer = createAhpChatWriter({
     dispatch: async (uri, action: StateAction) => {
       sent.push({ uri, action: action as unknown as Record<string, unknown> });
+    },
+    invalidate: (uri) => {
+      invalidated.push(uri);
     },
     projectedTurn: async () => (over.projected ?? null) as never,
     readRunTurnContext: async () => {
@@ -28,12 +32,25 @@ function fixture(over: { projected?: unknown } = {}) {
   return {
     writer,
     sent,
+    invalidated,
     types: () => sent.map((entry) => String(entry.action.type)),
     reads: () => reads,
   };
 }
 
 describe("the chat channel writer", () => {
+  test("a todo update drops the cached projection (no action can carry the plan strip)", async () => {
+    const f = fixture();
+    f.writer.onLiveEvent("run-1", {
+      type: "backend.oma.todo_update",
+      payload: { items: [{ id: "t1", text: "first", status: "in_progress" }] },
+    } as never);
+    await settle();
+    // The field lives in `state._meta`, which only a snapshot can set, so the surface only sees
+    // it after the cache is dropped (#52 step 1: AhpServer.invalidate).
+    expect(f.invalidated).toEqual(["ahp-chat:/c1"]);
+  });
+
   test("opens the turn before streaming into it, and reads the context once", async () => {
     const f = fixture();
     f.writer.onLiveEvent("run-1", { type: "text_delta", text: "he" });

@@ -44,6 +44,10 @@ export interface AhpChatWriterDeps {
   readonly projectedTurn: (conversationId: string, turnId: string) => Promise<ProjectedTurn | null>;
   /** The product read behind a run's turn: its conversation and the input that started it. */
   readonly readRunTurnContext: (runId: string) => Promise<RunTurnContext | null>;
+  /** Drop a channel's cached projection. Some live facts have no action to carry them -- the
+   *  plan strip rides `state._meta.todos`, which only a snapshot can set -- so the surface's
+   *  next read has to be served from the DB instead (#52). */
+  readonly invalidate: (uri: string) => void;
   /** Injectable so a test can drive the writer without a protocol. */
   readonly translate?: ChatActionTranslator;
 }
@@ -104,6 +108,16 @@ export function createAhpChatWriter(deps: AhpChatWriterDeps): AhpChatWriter {
 
   return {
     onLiveEvent(runId, event) {
+      // The plan strip is a DB-only fact: no chat action can carry `_meta.todos` (every reducer
+      // spreads `...state`, so only a snapshot can set it), which means a surface keeps painting
+      // whichever list its first snapshot carried. Dropping the cursor is what makes the next read
+      // come from the DB. Queued on the run's own chain so it cannot overtake the actions above.
+      if (event.type === "backend.oma.todo_update") {
+        queue(runId, async () => {
+          const context = await contextFor(runId);
+          if (context) deps.invalidate(chatUri(context.conversationId));
+        });
+      }
       // The terminal status only means the run stopped stepping: its preview stays live until the
       // commit hook replaces it with the projection (which is the authority on the turn).
       if (event.type === "status" && "status" in event && STOPPED_STEPPING.has(event.status)) {
