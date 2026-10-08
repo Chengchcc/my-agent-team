@@ -54,6 +54,7 @@ tags: [backend, mcp, skills, project]
 - 写：`serializeAgentYaml` 是唯一的 writer，只在 create 与 update 时落盘。
 - 读：读路径只有 DB 的 `config` 列。HTTP 响应、派发、list、getById 全部读缓存列，**没有任何代码读回 `agent.yml`**。
 - 后果：手改 `agent.yml` 不生效，会在下一次 update 被缓存覆盖；Agent 用自己的 write 工具改它同样无效。
+- 升级：`agentConfigSchema` 在 `runtime_config` 上挂了 preprocess，把 harness+model 改名（18fa47fb）之前的旧键（`runtime` / `model_id` / `harness_model`）就地映射成 `harness` / `model`，旧行因此仍能解析。这一层必须在 schema 里、而不是某个调用点：boot 早期就 `list(true)` 取 agent 名字表，任何一行旧 config 解析失败都会让整个后端起不来（ZodError 只报 `runtime_config.harness: Required`，看不出是哪一行）。缓存列本身不改写，下一次 update 落盘即收敛。
 
 ## Workspace Bridge
 

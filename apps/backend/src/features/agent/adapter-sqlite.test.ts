@@ -17,6 +17,26 @@ function cfg(id: string, name: string, extra?: Partial<Parameters<typeof buildAg
 }
 
 describe("sqliteAgentAdapter", () => {
+  test("list() survives a row stored before the harness rename", async () => {
+    // The reported boot crash: parseRow throws on the first row whose config
+    // predates 18fa47fb, and installFeatures' name map (`list(true)`) is the
+    // first thing to read agents — so the backend never started.
+    const current = cfg("a-legacy-row", "Legacy row");
+    const { harness: _h, model: _m, ...restRuntime } = current.runtime_config;
+    const legacy = {
+      ...current,
+      runtime_config: { ...restRuntime, runtime: "oma", model_id: "zai/glm-4.6" },
+    };
+    db.run(
+      "INSERT INTO agents (id, workspace_path, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      ["a-legacy-row", "/ws/legacy", JSON.stringify(legacy), 1, 1],
+    );
+    const listed = await adapter.list(true);
+    const row = listed.find((r) => r.id === "a-legacy-row");
+    expect(row?.config.runtime_config.harness).toBe("oma");
+    expect(row?.config.runtime_config.model).toBe("zai/glm-4.6");
+  });
+
   test("hardDelete works without touching tables the schema dropped", async () => {
     // It used to SELECT COUNT(*) FROM member/thread - tables the schema no
     // longer has - so every hard delete answered 500 ("no such table: member").
@@ -186,6 +206,53 @@ describe("agent config allowed_senders (H7)", () => {
     const parsed = agentConfigSchema.parse(JSON.parse(JSON.stringify(legacy)));
     expect(parsed.lark.allowed_senders).toEqual(["*"]);
     expect(parsed.lark.policy_rev).toBe(2);
+  });
+
+  test("a pre-rename config (runtime/model_id) upgrades instead of bricking boot", () => {
+    // 18fa47fb renamed the axes with no data migration, and the first thing
+    // boot does is list agents for its name map — so ONE row written before it
+    // took the whole backend down with a ZodError on runtime_config.harness.
+    const current = cfg("a-legacy", "Legacy");
+    const { harness: _h, model: _m, ...restRuntime } = current.runtime_config;
+    const legacy = {
+      ...current,
+      runtime_config: { ...restRuntime, runtime: "oma", model_id: "zai/glm-4.6" },
+    };
+    const parsed = agentConfigSchema.parse(JSON.parse(JSON.stringify(legacy)));
+    expect(parsed.runtime_config.harness).toBe("oma");
+    expect(parsed.runtime_config.model).toBe("zai/glm-4.6");
+  });
+
+  test("the old backend-kind spelling and the old model placeholder both map", () => {
+    const current = cfg("a-legacy2", "Legacy2");
+    const { harness: _h, model: _m, ...restRuntime } = current.runtime_config;
+    // claude_code was the BackendKind; the ACP registry key is `claude`.
+    const parsed = agentConfigSchema.parse(
+      JSON.parse(
+        JSON.stringify({
+          ...current,
+          runtime_config: {
+            ...restRuntime,
+            runtime: "claude_code",
+            model_id: "unconfigured/none",
+            harness_model: "claude-sonnet-4-6",
+          },
+        }),
+      ),
+    );
+    expect(parsed.runtime_config.harness).toBe("claude");
+    // The placeholder meant "nothing chosen"; the ACP model is the real one.
+    expect(parsed.runtime_config.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("a config with neither shape still fails loudly", () => {
+    const current = cfg("a-legacy3", "Legacy3");
+    const { harness: _h, model: _m, ...restRuntime } = current.runtime_config;
+    expect(() =>
+      agentConfigSchema.parse(
+        JSON.parse(JSON.stringify({ ...current, runtime_config: restRuntime })),
+      ),
+    ).toThrow();
   });
 
   test("group policy round-trips through the yaml and the input shape", () => {
