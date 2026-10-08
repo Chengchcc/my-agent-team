@@ -57,6 +57,14 @@ export function ConversationCanvas({
   useEffect(() => {
     if (maxSeenSeq > 0) markRead(conversationId, maxSeenSeq);
   }, [conversationId, maxSeenSeq]);
+  // #30: the backend moved this conversation — follow it. The subscription
+  // effect re-runs when the route lands on the new conversationId.
+  const { continuation } = state;
+  useEffect(() => {
+    if (continuation && continuation.conversationId !== conversationId) {
+      router.replace(`/chat/${continuation.conversationId}`);
+    }
+  }, [continuation, conversationId, router]);
   const { data: artifactsData } = useArtifacts();
   const artifactsByRunId = useMemo(() => {
     const map = new Map<string, ArtifactMeta[]>();

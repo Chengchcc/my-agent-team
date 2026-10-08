@@ -33,6 +33,15 @@ export type MessageItem = Extract<UiItem, { kind: "message" }>;
 
 export type StreamConn = "connecting" | "open" | "reconnecting" | "closed";
 
+/** The control fact a continuation carries (#30): the conversation moved —
+ *  surfaces rebind to the new one instead of showing a text notice and
+ *  staying subscribed to the old live owner. */
+export interface SurfaceControl {
+  readonly type: "rebind_conversation";
+  readonly conversationId: string;
+  readonly requestedByRunId: string;
+}
+
 export interface ConvState {
   /** The conversation's agent (1:1 collapse; the human is the viewer). */
   agent: SenderRef | null;
@@ -45,6 +54,8 @@ export interface ConvState {
   overlay: UiItem[];
   /** Rendered = canonical ∪ overlay. Derived — never written directly. */
   items: UiItem[];
+  /** Pending control from the AHP state (#30); null = nothing to do. */
+  continuation: SurfaceControl | null;
   streamConn: StreamConn;
   error: string | null;
   /** Number of sends that have been dispatched locally but not yet settled
@@ -62,6 +73,7 @@ export type Action =
   /** POST settled (success OR error): decrement the in-flight counter. */
   | { type: "send/settled" }
   | { type: "conn"; status: StreamConn }
+  | { type: "continuation"; control: SurfaceControl }
   | { type: "send/error"; message: string }
   | { type: "member"; seq: number; kind: string; payload: unknown }
   | {
@@ -90,6 +102,7 @@ export function initialState(): ConvState {
     canonical: [],
     overlay: [],
     items: [],
+    continuation: null,
     streamConn: "connecting",
     error: null,
     pendingSendCount: 0,
@@ -285,8 +298,11 @@ function reconcile(state: ConvState): ConvState {
 export function reducer(s: ConvState, a: Action): ConvState {
   switch (a.type) {
     case "bootstrap": {
-      return { ...s, agent: a.agent };
+      // A new conversation's state starts fresh: the previous control is gone.
+      return { ...s, agent: a.agent, continuation: null };
     }
+    case "continuation":
+      return { ...s, continuation: a.control };
     case "message": {
       const revision = a.message;
       // System authorship renders as a notice, not a chat bubble.

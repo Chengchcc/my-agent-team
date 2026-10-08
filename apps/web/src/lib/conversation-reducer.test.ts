@@ -535,3 +535,19 @@ describe("#29: canonical AHP state replaces, ghosts do not survive", () => {
     expect(state.items[0]).toMatchObject({ id: "m-1", undone: true });
   });
 });
+
+describe("#30: the continuation control lives on the conversation state", () => {
+  test("the control is stored, and bootstrap clears it", () => {
+    let state = reducer(initialState(), {
+      type: "continuation",
+      control: { type: "rebind_conversation", conversationId: "next", requestedByRunId: "r1" },
+    });
+    expect(state.continuation).toEqual({
+      type: "rebind_conversation",
+      conversationId: "next",
+      requestedByRunId: "r1",
+    });
+    state = reducer(state, { type: "bootstrap", agent: { memberId: "ag", kind: "agent" } });
+    expect(state.continuation).toBeNull();
+  });
+});
