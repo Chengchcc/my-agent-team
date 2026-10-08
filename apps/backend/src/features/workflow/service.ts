@@ -23,7 +23,12 @@ export interface AgentRunnerDeps {
   };
   agentRunExecution?: {
     dispatch(runId: string): Promise<void>;
+    /** Cancel a run's live child / terminalize a zombie (#workflow-acp). */
+    stop?(runId: string): Promise<void>;
   };
+  /** Agent-node poll budget; waiting pauses the clock, running burns it.
+   *  Injectable so tests can collapse the real 10 minutes. */
+  agentNodeTimeoutMs?: number;
   convPort?: {
     getConversation(id: string): unknown;
     createConversation(input: {
@@ -430,23 +435,40 @@ export function createWorkflowExecutionService(
     }
 
     // Poll the run until terminal (reconnect-safe; no long-lived subscribe).
-    const deadline = Date.now() + 600_000;
+    // Success requires a CANONICAL completion: a commit_failed run may carry
+    // a child outcome but its messages are not in the ledger yet, so it must
+    // wait for recovery instead of pretending to be done. A waiting run
+    // (HITL) is not progress either — its own ask timeout is the authority,
+    // so the workflow clock pauses while it waits.
+    const TIMEOUT_MS = deps.agentNodeTimeoutMs ?? 600_000;
+    let deadline = Date.now() + TIMEOUT_MS;
     while (Date.now() < deadline) {
       throwIfCancelled(execution.executionId);
       const run = await deps.agentRunService.getRun(runId);
-      const terminalStatus = ["completed", "failed", "aborted", "commit_failed", "timeout"];
-      // A run is done when status is terminal OR terminalResult is present
-      // (the run may have finished but its status row not yet flushed).
-      if (run && (run.terminalResult != null || terminalStatus.includes(run.status ?? ""))) {
-        if (run.status !== "completed" && run.terminalResult == null)
-          throw new Error(`agent run ${runId} ended ${run.status ?? "unknown"}`);
+      if (run?.status === "completed") {
         const output = extractOutput(run.terminalResult, inputHintToRecord(node.output));
         emit(execution.executionId, "node_agent_completed", { nodeId: node.id, runId });
         return { output };
       }
+      if (run && ["failed", "aborted", "timeout"].includes(run.status ?? "")) {
+        throw new Error(`agent run ${runId} ended ${run.status}`);
+      }
+      // running / waiting / commit_failed keep polling; waiting pauses the clock.
+      if (run?.status === "waiting") deadline = Date.now() + TIMEOUT_MS;
       await new Promise((r) => setTimeout(r, 1000));
     }
-    throw new Error(`agent run ${runId} timed out after 600000ms`);
+    // Timeout: cancel the child first and wait for it to settle, then fail
+    // the node — workflow must never keep a different answer than AgentRun
+    // about whether this execution is alive (a bare throw could let a retry
+    // start a second run beside a live child).
+    await deps.agentRunExecution?.stop?.(runId).catch(() => {});
+    for (let i = 0; i < 10; i++) {
+      const settled = await deps.agentRunService.getRun(runId);
+      if (settled && ["completed", "failed", "aborted", "timeout"].includes(settled.status ?? ""))
+        break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    throw new Error(`agent run ${runId} timed out after ${TIMEOUT_MS}ms`);
   }
 
   async function executeNode(

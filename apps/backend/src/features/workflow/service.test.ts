@@ -353,3 +353,118 @@ describe("createWorkflowExecutionService", () => {
     expect(bad.exit).toBe("failure");
   });
 });
+
+describe("agent node ↔ AgentRun lifecycle (#workflow-acp)", () => {
+  const baseDeps = () => {
+    const { port, nodeRuns } = ramPort();
+    return {
+      port,
+      nodeRuns,
+      postMessage: async () => ({ triggeredRuns: [{ runId: "r1", queued: true }] }),
+    };
+  };
+
+  test("commit_failed is not success: it waits for a canonical completion", async () => {
+    const { port, postMessage } = baseDeps();
+    const statuses = ["commit_failed", "commit_failed", "completed"];
+    let polls = 0;
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentNodeTimeoutMs: 5000,
+      agentRunService: {
+        getRun: async () => {
+          const status = statuses[Math.min(polls, statuses.length - 1)]!;
+          polls += 1;
+          return {
+            status,
+            // commit_failed carries the child outcome but is NOT canonical.
+            terminalResult: {
+              status: "completed",
+              messages: [{ role: "assistant", text: '{"val": 1}' }],
+            },
+          };
+        },
+      } as never,
+      agentRunExecution: { dispatch: async () => {}, stop: async () => {} } as never,
+      convPort: { getConversation: () => null, createConversation: () => {} } as never,
+      conversationService: { postMessage } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+    });
+    const result = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeAgentDef(),
+      input: {},
+    });
+    expect(result.status).toBe("success");
+    expect(polls).toBeGreaterThanOrEqual(3); // it really polled through commit_failed
+  });
+
+  test("a waiting run pauses the workflow clock instead of timing out", async () => {
+    const { port, postMessage } = baseDeps();
+    let polls = 0;
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentNodeTimeoutMs: 5000,
+      agentRunService: {
+        getRun: async () => {
+          polls += 1;
+          // Wait 4 polls (well past the 30ms running budget), then complete.
+          return polls <= 4
+            ? { status: "waiting" }
+            : {
+                status: "completed",
+                terminalResult: {
+                  status: "completed",
+                  messages: [{ role: "assistant", text: '{"val": 1}' }],
+                },
+              };
+        },
+      } as never,
+      agentRunExecution: { dispatch: async () => {}, stop: async () => {} } as never,
+      convPort: { getConversation: () => null, createConversation: () => {} } as never,
+      conversationService: { postMessage } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+    });
+    const result = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeAgentDef(),
+      input: {},
+    });
+    expect(result).toMatchObject({ status: "success" });
+  });
+
+  test("timeout cancels the child first, then fails the node", async () => {
+    const { port, postMessage } = baseDeps();
+    const stopped: string[] = [];
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentNodeTimeoutMs: 20,
+      agentRunService: {
+        getRun: async () => ({ status: "running" }),
+      } as never,
+      agentRunExecution: {
+        dispatch: async () => {},
+        stop: async (runId: string) => {
+          stopped.push(runId);
+        },
+      } as never,
+      convPort: { getConversation: () => null, createConversation: () => {} } as never,
+      conversationService: { postMessage } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+    });
+    const result = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeAgentDef(),
+      input: {},
+    });
+    expect(result.status).toBe("failure");
+    expect(result.error).toContain("timed out");
+    expect(stopped).toEqual(["r1"]);
+  });
+});
