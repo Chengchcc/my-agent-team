@@ -6,7 +6,7 @@ tags: [surfaces, ahp, protocol]
 
 # AHP host
 
-一句话：端读 AHP，不再读自研事件流。后端是宿主（host），端是客户端，宿主握着状态，端把它铺开。
+一句话：端读 AHP，不再读自研事件流。后端是宿主（host），端是客户端，宿主握着状态，端把它铺开。**当前 AHP 是 read model / live view only**：端只能订阅与读快照；`dispatchAction`（客户端命令）这条边**已从协议与组合根删除**（#31 短期方案）——发消息、审批、取消、fork 仍走 REST 控制面，等它们被正式迁到 AHP 时才恢复命令面，届时再补 capability 协商与测试。
 
 这一侧的名字跟协议走：上游把这侧叫 host，代码里是 `createAhpHost`，本页写「宿主」。另一侧是端（surface），指 Web、飞书这类客户端。
 

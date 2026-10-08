@@ -25,7 +25,6 @@ const source: AhpHostOptions["source"] = {
 const hostWith = (over: Partial<AhpHostOptions> = {}) =>
   createAhpHost({
     source,
-    commands: { submit: () => undefined },
     wsBase: "ws://127.0.0.1:3000",
     ...over,
   });

@@ -6,11 +6,10 @@
  *  with the coding terminal stream (`infra/ws-ticket`). */
 import { Elysia } from "elysia";
 import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
-import { type AhpCommandPort, type AhpStateSource, createAhpServer } from "./protocol.js";
+import { type AhpStateSource, createAhpServer } from "./protocol.js";
 
 export interface AhpHostOptions {
   readonly source: AhpStateSource;
-  readonly commands: AhpCommandPort;
   /** A ws address a browser can reach (a wildcard bind has to become the loopback). */
   readonly wsBase: string;
   readonly replayBufferSize?: number;
@@ -20,7 +19,6 @@ export function createAhpHost(opts: AhpHostOptions) {
   const tickets = createWsTicketRegistry();
   const server = createAhpServer({
     source: opts.source,
-    commands: opts.commands,
     ...(opts.replayBufferSize !== undefined ? { replayBufferSize: opts.replayBufferSize } : {}),
   });
   /** The connection lives on the socket's own data. Elysia does not promise that the `ws`
