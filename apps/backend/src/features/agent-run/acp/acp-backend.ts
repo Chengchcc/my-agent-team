@@ -129,6 +129,19 @@ interface McpOverAcpRequest {
  *  `agentCapabilities.mcpCapabilities.acp`, v2 `capabilities.session.mcp.acp`.
  *  Only a handshake declaration counts — a capability is not inferred from
  *  the agent's name or version. */
+/** The steering extension method: oma's own convention (ADR 0039 rule 2),
+ *  declared on initialize and called with { sessionId, text }. */
+const STEER_METHOD = "_session/steering";
+
+/** True when the agent's initialize response declares steering: the
+ *  `_meta.steering.supported` convention (ADR 0039 rule 2). A transport is not
+ *  a capability set — this handshake is the ONLY thing that may gate steering,
+ *  never the backend kind. */
+function declaresSteering(init: unknown): boolean {
+  const res = (init ?? {}) as { _meta?: { steering?: { supported?: unknown } } };
+  return res._meta?.steering?.supported === true;
+}
+
 function declaresAcpMcp(init: unknown): boolean {
   const res = (init ?? {}) as {
     agentCapabilities?: { mcpCapabilities?: { acp?: unknown } };
@@ -172,7 +185,17 @@ export class AcpBackend implements AgentBackend<"acp"> {
   private readonly commands: Readonly<Record<string, readonly string[]>>;
   private readonly acpMcpProvider: AcpMcpProvider | undefined;
   private readonly onSessionBound: ((runId: string, nativeRef: string) => void) | undefined;
-  private readonly active = new Map<string, { run: ActiveRun; transport: AcpTransport }>();
+  private readonly active = new Map<
+    string,
+    {
+      run: ActiveRun;
+      transport: AcpTransport;
+      /** Handshake capability (see declaresSteering); false until initialize. */
+      steering: boolean;
+      /** The live client context: mid-run requests (steering) go through it. */
+      ctx?: { request: (method: string, params: unknown) => Promise<unknown> };
+    }
+  >();
   private disposed = false;
 
   constructor(opts: AcpBackendOptions = {}) {
@@ -264,7 +287,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     }
 
     const run = createActiveRun(runId);
-    this.active.set(runId, { run, transport });
+    this.active.set(runId, { run, transport, steering: false });
     void this.drive(input, run, transport);
     return {
       events: run.events,
@@ -273,13 +296,25 @@ export class AcpBackend implements AgentBackend<"acp"> {
     };
   }
 
-  /** Registry agents do not advertise steering support (`_meta.steering`
-   *  is the future convention); explicit rejection, the omp precedent. */
-  async steer(_runId: string, _input: BackendInputMessage): Promise<void> {
-    throw new AcpBackendError(
-      "not_found",
-      "acp backend has no steering for this agent — queue the input as a follow-up turn",
-    );
+  /** Steering is negotiated at initialize (`_meta.steering.supported`), never
+   *  derived from the backend kind: an agent that declares it gets the input
+   *  injected into its live turn, one that does not is told so explicitly. */
+  async steer(runId: string, input: BackendInputMessage): Promise<void> {
+    const live = this.active.get(runId);
+    if (!live) {
+      throw new AcpBackendError("not_found", `no live acp run ${runId}`);
+    }
+    const sessionId = live.run.sessionId;
+    if (!live.steering || live.ctx === undefined || sessionId === undefined) {
+      throw new AcpBackendError(
+        "unsupported",
+        "this agent declares no steering — queue the input as a follow-up turn",
+      );
+    }
+    await live.ctx.request(STEER_METHOD, {
+      sessionId,
+      text: input.message.text ?? "",
+    });
   }
 
   /** Unblock a held permission request with the human's decision. */
@@ -366,6 +401,15 @@ export class AcpBackend implements AgentBackend<"acp"> {
               protocolVersion: acp.PROTOCOL_VERSION,
               clientCapabilities: {},
             });
+            // The handshake decides what this run may be asked to do later:
+            // steering is a declared capability, not a property of the rail.
+            {
+              const live = this.active.get(input.run.runId);
+              if (live) {
+                live.ctx = ctx as never;
+                live.steering = declaresSteering(init);
+              }
+            }
             const mcpProvider = this.acpMcpProvider;
             const mcpServers =
               mcpProvider && declaresAcpMcp(init)
