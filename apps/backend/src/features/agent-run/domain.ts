@@ -65,6 +65,10 @@ export interface AgentRun {
   readonly todoSnapshot: string | null;
   /** Optional workflow budget (tokens), frozen at Run creation. */
   readonly workflowBudgetTokens: number | null;
+  /** The native session this run bound (schema.agentRun.nativeSessionRef):
+   *  this run's own execution identity, distinct from the branch's
+   *  next-turn continuation pointer. */
+  readonly nativeSessionRef: string | null;
   /** Oma workflow-mode input ({ script, args? }); Loop items execute a
    *  script directly instead of an interactive loop. */
   readonly workflow: { readonly script: string; readonly args?: unknown } | null;

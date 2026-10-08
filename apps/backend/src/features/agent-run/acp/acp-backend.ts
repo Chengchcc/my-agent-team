@@ -73,6 +73,11 @@ export interface AcpBackendOptions {
   /** Extra env applied over the parent process env (inherited by the
    *  agent server and, through it, the agent). */
   env?: Readonly<Record<string, string | undefined>>;
+  /** Called the moment a run binds a native session (session/new or
+   *  session/load succeeded), before any prompt (#25): the product persists
+   *  it as run.nativeSessionRef so recovery uses the run's own identity
+   *  instead of scanning for the newest interrupted session. */
+  onSessionBound?: (runId: string, nativeRef: string) => void;
   /** How long a held permission request waits for the human before the
    *  local fail-closed denies. Default 24h (the product's ask default,
    *  ADR 0038 decision 4). */
@@ -166,6 +171,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
   private readonly spawnImpl: AcpSpawn;
   private readonly commands: Readonly<Record<string, readonly string[]>>;
   private readonly acpMcpProvider: AcpMcpProvider | undefined;
+  private readonly onSessionBound: ((runId: string, nativeRef: string) => void) | undefined;
   private readonly active = new Map<string, { run: ActiveRun; transport: AcpTransport }>();
   private disposed = false;
 
@@ -176,6 +182,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     this.spawnImpl = opts.spawnImpl ?? createNodeSpawn(this.abortGraceMs);
     this.commands = opts.commands ?? {};
     this.acpMcpProvider = opts.acpMcpProvider;
+    this.onSessionBound = opts.onSessionBound;
   }
 
   /** Answer one `mcp/message`. The inner MCP outcome rides the outer ACP
@@ -387,6 +394,10 @@ export class AcpBackend implements AgentBackend<"acp"> {
               };
               declaredOptions = loaded.configOptions ?? [];
               run.sessionId = resumeRef;
+              // #25: this run's own continuation identity, on the run row —
+              // before the prompt, so a run that dies parked is recoverable
+              // without scanning for "the newest interrupted session".
+              this.onSessionBound?.(input.run.runId, resumeRef);
             } else {
               // ADR 0038 kill-mid-run gap: a resume dispatch whose branch
               // never settled carries no cliSessionRef, so the agent must
@@ -415,6 +426,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
               };
               declaredOptions = created.configOptions ?? [];
               run.sessionId = created.sessionId;
+              this.onSessionBound?.(input.run.runId, created.sessionId);
             }
             // A run that names a model sets it on the session before prompting.
             // Only an option the harness declared can be set, and the response

@@ -289,3 +289,31 @@ describe("Agent Run: queue delivery", () => {
     expect(claimed?.input.status).toBe("delivering");
   });
 });
+
+describe("#25: the run's own native session ref", () => {
+  test("persists at bind time and reads back on the run row", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("native1");
+    const acquired = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "bind me" },
+      inputIdempotencyKey: "ikey-native1",
+      runIdempotencyKey: "rkey-native1",
+      deliveryIdempotencyKey: "dkey-native1",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+    });
+    const runId = acquired.run!.runId;
+    // A fresh run has no session yet: recovery must not invent one.
+    expect((await runPort.getRun(runId))?.nativeSessionRef).toBeNull();
+
+    await runPort.setRunNativeSessionRef(runId, "sess-native-1");
+    expect((await runPort.getRun(runId))?.nativeSessionRef).toBe("sess-native-1");
+
+    // Unknown run: loud, never a silent no-op.
+    await expect(runPort.setRunNativeSessionRef("run-missing", "x")).rejects.toThrow();
+  });
+});

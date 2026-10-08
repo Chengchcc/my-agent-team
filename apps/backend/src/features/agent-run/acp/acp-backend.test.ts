@@ -481,6 +481,42 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   }, 10_000);
 
+  test("#25: the bound session is reported for a NEW session, before the prompt", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const bound: Array<{ runId: string; ref: string }> = [];
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({}, obs),
+      onSessionBound: (runId, ref) => bound.push({ runId, ref }),
+    });
+    const { outcome } = await collect(await backend.execute(makeInput()));
+    expect(outcome.status).toBe("completed");
+    expect(bound).toEqual([{ runId: "run-1", ref: "sess-fake-1" }]);
+    await backend.dispose();
+  });
+
+  test("#25: a resumed run reports the session it LOADED, not a new one", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const bound: Array<{ runId: string; ref: string }> = [];
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({}, obs),
+      onSessionBound: (runId, ref) => bound.push({ runId, ref }),
+    });
+    await collect(await backend.execute(makeInput({ cliSessionRef: "sess-fake-1" })));
+    expect(obs.loadedSessionIds).toEqual(["sess-fake-1"]);
+    expect(bound).toEqual([{ runId: "run-1", ref: "sess-fake-1" }]);
+    await backend.dispose();
+  });
+
   test("resume: a cliSessionRef routes through session/load", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],

@@ -262,6 +262,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   /** Shared per-worktree lock registry (A4): run dispatch, loop
    *  clean-start/reset and agent detach serialize on the same roots. */
   const workspaceLocks = createWorkspaceLockRegistry();
+  /** #25: the ACP adapter reports the native session it bound, and the run row
+   *  records it. Late-bound: the run port is built further down. */
+  const onSessionBound: { fn: (runId: string, nativeRef: string) => void } = {
+    fn: () => {},
+  };
 
   // Workspace bridge (ADR 0003 decision 3): reconcile skills/mcp into the
   // agent workspace. Late-bound (mcpSvc is created further down).
@@ -367,6 +372,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ledgerResolver,
   });
   const agentRunPort = sqliteAgentRunAdapter(db, { contextPort, ledgerResolver, idGen: { ulid } });
+  // #25: the ACP adapter reports every session bind here, so a run that dies
+  // parked still owns the native session it was executing in.
+  onSessionBound.fn = (runId, nativeRef) => {
+    void agentRunPort.setRunNativeSessionRef(runId, nativeRef).catch((err: Error) => {
+      console.error(`[bootstrap] native session ref not persisted for ${runId}:`, err.message);
+    });
+  };
   busyGuard.check = (agentId: string) => {
     const row = db
       .query(
@@ -685,6 +697,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       probeHarnessCatalog({ key, cwd: config.dataDir, commands: { oma: omaAcpArgv } }),
   });
   const acpBackend = new AcpBackend({
+    onSessionBound: (runId, nativeRef) => onSessionBound.fn(runId, nativeRef),
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
     commands: { oma: omaAcpArgv },

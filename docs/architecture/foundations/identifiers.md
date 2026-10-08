@@ -89,6 +89,11 @@ Run 产出的消息只有三种形状：
 
 `agent_context_branch.cli_session_ref` 存的是子进程原生 session 的引用，带后端种类前缀（写的时候加，交给子进程之前剥掉）。
 
+**两条 session 身份不能混**（#25）：
+
+- `agent_context_branch.cli_session_ref` —— **下一次正常对话**续接哪个原生 session；带后端种类前缀（写时加、交给子进程前剥掉），只在 Run 终态提交时更新。
+- `agent_run.native_session_ref` —— **本 Run 实际绑定**的原生 session；ACP 适配器在 `session/new` 或 `session/load` 成功、**发 prompt 之前**写入，存裸值不带前缀。死在 parked（HITL）或中途崩溃的 Run 没有终态，分支指针还停在上一次，所以恢复只能认它自己的这一条；否则就会退化成「读分支指针（错的那次）」或「扫描最近一个中断 session（猜）」两种猜法。
+
 - oma：session 文件的路径 / session id（默认在 `~/.oma` 下，`OMA_CODING_AGENT_DIR` 可改）；
 - claude：`--resume <session_id>` 用的 id；
 - pi / omp：`--session <path>` 用的路径。

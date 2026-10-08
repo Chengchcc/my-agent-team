@@ -101,6 +101,11 @@ export interface AgentRunPort {
   setRunProductTools(runId: string, manifest: readonly unknown[]): Promise<void>;
   /** Persist the run's latest task list snapshot (todo_write). */
   setRunTodoSnapshot(runId: string, snapshot: string): Promise<void>;
+  /** Bind this run to the native session it executes in (#25). The ACP
+   *  adapter calls it right after session/new or session/load succeeds and
+   *  BEFORE the prompt: a run that dies parked must still own its
+   *  continuation identity. */
+  setRunNativeSessionRef(runId: string, ref: string): Promise<void>;
   /** The branch's most recent non-null todo snapshot (re-injected into the
    *  next run's prompt). Null = the branch never wrote one. */
   getLatestRunTodo(branchId: string): Promise<string | null>;

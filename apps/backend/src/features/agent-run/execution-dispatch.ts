@@ -2,6 +2,7 @@ import { resolveModelAlias } from "@chengchenccc/ai";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
 import { buildHistoryTools } from "../product-tools/manifest.js";
+import { resolveContinuationRef } from "./continuation-ref.js";
 import type { AgentRun, ClaimedBranchInput } from "./domain.js";
 import { isActiveStatus } from "./domain.js";
 import { buildRunInput, finalAnswerMessage } from "./execution-input.js";
@@ -157,13 +158,22 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // decision 6): a ref written by another backend is junk to this CLI and
     // must never be forwarded (pi exits empty on a foreign --session id).
     const kindPrefix = `${run.modelRef.backendKind}:`;
-    const rawRef = branch?.cliSessionRef;
+    // #25: a re-dispatched run (HITL resume, crash recovery) continues in the
+    // session IT bound — persisted at session/new|load. The branch pointer is
+    // only the NEXT fresh run's continuation, and it lags until a terminal
+    // commit, so using it here loaded the previous turn's session (or fell
+    // into the adapter's "adopt newest interrupted session" scan).
+    // The run's OWN ref is stored raw; the branch pointer is kind-scoped, and
+    // a pointer written by another backend is junk to this CLI (pi exits empty
+    // on a foreign --session id) — so only the branch pointer is filtered.
+    const cliSessionRef = resolveContinuationRef({
+      runNativeRef: run.nativeSessionRef,
+      branchRef: branch?.cliSessionRef,
+      kindPrefix,
+    });
     // The previous run's task list re-enters the prompt so every backend
     // continues it without a pull round-trip.
     const lastTodo = await runPort.getLatestRunTodo(run.branchId);
-    const cliSessionRef = rawRef?.startsWith(kindPrefix)
-      ? rawRef.slice(kindPrefix.length)
-      : undefined;
     // H1: the bridge is the ONLY author of workspace config files. Rewrite
     // from the DB source of truth right before spawn so an agent-tampered
     // .mcp.json (forged product-tools server, run-token exfil) never
