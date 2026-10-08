@@ -548,7 +548,13 @@ async function acpMcpCall(
     serverId,
     requestId,
     method,
-    params: { ...params, _meta: ACP_MCP_META },
+    // The envelope's protocol metadata is the baseline, not a replacement:
+    // the caller's bag (the product-tool identity) must survive, or the
+    // server mints a fresh idempotency key for every replay.
+    params: {
+      ...params,
+      _meta: { ...ACP_MCP_META, ...((params._meta as Record<string, unknown> | undefined) ?? {}) },
+    },
   } as never)) as { result?: { result?: unknown; error?: { message?: string } } };
   const inner = response.result;
   if (inner?.error) {
@@ -574,10 +580,11 @@ async function fetchAcpMcpTools(
       for (const tool of listed?.tools ?? []) {
         tools.push(
           adaptMcpTool(server.name, tool, {
-            callTool: async ({ name, arguments: args }) => ({
+            callTool: async ({ name, arguments: args, _meta }) => ({
               content: await acpMcpCall(client, server.serverId, "tools/call", {
                 name,
                 arguments: args,
+                ...(_meta ? { _meta } : {}),
               }),
             }),
           }),
