@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { createModelRuntime } from "@chengchenccc/ai";
+import type { Message } from "@chengchenccc/message";
+import { fakeProvider } from "../../core/runtime/fake-provider.js";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
 import { runAcpMode, withoutAcpDeclaredServers } from "./acp-mode.js";
 
@@ -42,6 +44,21 @@ function makeRuntime(fakeTool?: readonly { name: string; input: unknown }[]) {
     ...process.env,
     OMA_FAKE_PROVIDER: "1",
     ...(fakeTool ? { OMA_FAKE_TOOL: JSON.stringify(fakeTool) } : {}),
+  });
+  return runtime;
+}
+
+/** The fake provider with a tape deck: snapshots the messages each model
+ *  call received, so a test can assert what the model actually saw. */
+function recordingRuntime(sink: Array<readonly Message[]>) {
+  const runtime = createModelRuntime();
+  const fake = fakeProvider({ OMA_FAKE_PROVIDER: "1" });
+  runtime.registerProvider({
+    ...fake,
+    async *stream(model, messages, opts) {
+      sink.push(messages);
+      yield* fake.stream(model, messages, opts);
+    },
   });
   return runtime;
 }
@@ -162,6 +179,60 @@ async function startClient(
       }),
   };
 }
+
+test("session/load keeps a new prompt when restored messages have no inner message id", async () => {
+  // The product spawns one oma child per run, so every turn after the first
+  // arrives through session/load. Restored transcript messages carry no
+  // inner message.id, and the new prompt has none either — `undefined ===
+  // undefined` used to match index 0, stamping the fresh prompt with the
+  // first restored entry's productEntryId. The store deduped it away and
+  // the model answered the system-reminder instead of the question.
+  const dir = mkdtempSync(join(tmpdir(), "acp-resume-prompt-"));
+  const sessionDir = join(dir, "sessions");
+  mkdirSync(sessionDir, { recursive: true });
+  const prevSessionDir = process.env.OMA_SESSION_DIR;
+  process.env.OMA_SESSION_DIR = sessionDir;
+  const modelCalls: Array<readonly Message[]> = [];
+  const runtime = recordingRuntime(modelCalls);
+  const connect = () => {
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: runtime,
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    return startClient(mode, c2a, a2c).then((client) => ({ mode, client }));
+  };
+  try {
+    let sessionId = "";
+    {
+      const { mode, client } = await connect();
+      sessionId = await client.newSession(dir);
+      expect((await client.prompt("first question")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    {
+      const { mode, client } = await connect();
+      await client.loadSession(sessionId, dir);
+      expect((await client.prompt("second question")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    expect(modelCalls.length).toBeGreaterThanOrEqual(2);
+    // The title generator fires its own model call after the turn (its
+    // input is the rendered conversation), so find the prompt's call by its
+    // shape: the live question is that call's LAST message — not swallowed
+    // by a bogus seed match against the restored transcript.
+    const promptCall = modelCalls.find(
+      (call) => call.at(-1)?.role === "user" && call.at(-1)?.text === "second question",
+    );
+    expect(promptCall).toBeDefined();
+    expect(modelCalls.some((call) => call.some((m) => m.text === "first question"))).toBe(true);
+  } finally {
+    if (prevSessionDir === undefined) delete process.env.OMA_SESSION_DIR;
+    else process.env.OMA_SESSION_DIR = prevSessionDir;
+  }
+}, 30_000);
 
 describe("oma ACP server (in-process, fake provider)", () => {
   test("initialize advertises loadSession and the steering convention", async () => {
