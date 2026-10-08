@@ -37,3 +37,8 @@ export type ReminderDeliver = (input: {
 }) => Promise<unknown>;
 
 export class ReminderValidationError extends Error {}
+
+/** The banner a delivered reminder carries into the conversation. Exported so
+ *  the delivery site and the conversation-title derivation read the same
+ *  string: the title must not be the banner (see conversation/title.ts). */
+export const REMINDER_BANNER_PREFIX = "⏰ Reminder (set earlier): ";

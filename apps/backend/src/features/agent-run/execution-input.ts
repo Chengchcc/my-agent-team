@@ -96,9 +96,6 @@ function renderTodoSection(todoSnapshot: string | null): string {
  *  The Product Context (identity + current task list) rides the same
  *  prompt so CLI backends carry their run identity into product tools. */
 export function buildRunInput(
-  deps: {
-    conversationTitleOf?: (conversationId: string) => string | null | undefined;
-  },
   run: AgentRun,
   history: readonly ProjectedHistoryItem[],
   input: BranchInput,
@@ -168,9 +165,6 @@ export function buildRunInput(
     productToolsToken,
     mcpExpandableVars: PRODUCT_MCP_EXPANDABLE_VARS,
     consentedMcpTools: PRODUCT_CONSENTED_MCP_TOOLS,
-    // Auto-title: tell the child whether this conversation already has a
-    // title so later turns keep retrying only while it is missing.
-    convTitled: Boolean(deps.conversationTitleOf?.(run.conversationId)),
     metadata: {
       conversationId: run.conversationId,
       agentId: run.agentId,

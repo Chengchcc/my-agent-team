@@ -63,6 +63,8 @@ import { createConversationFeature } from "../features/conversation/conversation
 import {
   conversationRoutes,
   createConversationMembers,
+  deriveConversationTitle,
+  firstUserText,
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
 import {
@@ -123,6 +125,7 @@ import {
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
 import {
   createReminderService,
+  REMINDER_BANNER_PREFIX,
   reminderRoutes,
   sqliteReminderAdapter,
 } from "../features/reminder/index.js";
@@ -480,7 +483,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     deliver: async ({ conversationId, text, author }) => {
       await conv.convSvc.postMessage({
         conversationId,
-        content: `⏰ Reminder (set earlier): ${text}`,
+        content: `${REMINDER_BANNER_PREFIX}${text}`,
         mode: "normal",
         ...(author ? { addressedTo: [author] } : {}),
       });
@@ -633,11 +636,17 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     void (async () => {
       const run = await agentRunPort.getRun(runId);
       if (!run || !output) return;
-      // Persist auto-generated title (first Run only; !convRow.title guard).
+      // Product-owned title (see conversation/title.ts): every harness runs
+      // behind ACP, and the title used to arrive on the deleted oma RPC rail as
+      // part of the terminal result — the ACP response carries none. The
+      // conversation is named after the turn that started it, and the guard
+      // retries on later turns while it is still untitled.
       const convRow = conv.convPort.getConversation(run.conversationId);
-      const outcome = run.terminalResult;
-      if (convRow && !convRow.title && outcome?.status === "completed" && outcome.title) {
-        conv.convPort.setConversationTitle(run.conversationId, outcome.title);
+      if (convRow && !convRow.title && run.terminalResult?.status === "completed") {
+        const title = deriveConversationTitle(
+          firstUserText(conv.convPort.getLedgerEntries(run.conversationId)),
+        );
+        if (title) conv.convPort.setConversationTitle(run.conversationId, title);
       }
       // The turn's rows are committed: the chat channel re-states the turn from the projection and
       // moves it from "in flight" to history, so a live surface needs no refresh to see it there.
@@ -788,8 +797,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       writeProductToolsManifest(root, productToolsManifest());
     },
     onRunCommitted,
-    conversationTitleOf: (conversationId: string) =>
-      conv.convPort.getConversation(conversationId)?.title ?? null,
     onRunFailed,
     persistRunEvent: (runId, event) => {
       services.opsStore.appendRunEvent(

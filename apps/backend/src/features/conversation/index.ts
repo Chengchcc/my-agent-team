@@ -5,3 +5,4 @@ export type { ConversationPort, ConversationRow, LedgerEntry } from "./ports.js"
 export { resolveTrigger } from "./routing.js";
 export type { ConversationServiceDeps, TriggeredRun } from "./service.js";
 export { createConversationService } from "./service.js";
+export { deriveConversationTitle, firstUserText } from "./title.js";

@@ -169,7 +169,6 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // .mcp.json (forged product-tools server, run-token exfil) never
     const segment = await backend.execute(
       buildRunInput(
-        deps,
         run,
         history,
         input,

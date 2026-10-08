@@ -84,6 +84,12 @@ export function resolveOmaCommand(
     // permissionMode=auto classifier pin (CC-auto alignment); absent = the
     // child classifies with the run's own model.
     OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel,
+    // Titles are a product fact (conversation/title.ts): the child's own
+    // generator wrote them to its session file and returned them on the oma RPC
+    // rail, which is gone — under ACP nothing can read one, so paying a model
+    // call per completed turn buys nothing. Standalone oma (a human's TUI) is
+    // untouched: this env is only set on the product's spawn.
+    OMA_TITLE_ENABLED: "0",
     ...opts.env,
   };
 
