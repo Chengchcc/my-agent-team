@@ -288,34 +288,39 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         });
       };
 
-      const onReconnect = async (id: unknown, params: Record<string, unknown>): Promise<void> => {
-        const subscriptions = params.subscriptions;
-        const uris = Array.isArray(subscriptions)
-          ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
-          : [];
-        const lastSeen =
-          typeof params.lastSeenServerSeq === "number" ? params.lastSeenServerSeq : 0;
-        const missed = buffer.filter((envelope) => envelope.serverSeq > lastSeen);
-        // A gap inside the buffer replays actions; beyond it, fall back to a snapshot.
-        const canReplay =
-          buffer.length === 0
-            ? lastSeen === serverSeq
-            : missed.length > 0 && missed[0]!.serverSeq === lastSeen + 1;
-        if (canReplay) {
+      const onReconnect = async (id: unknown, params: Record<string, unknown>): Promise<void> =>
+        // #28 follow-up (review P1-3): the snapshot fallback shares the same
+        // handshake race as initialize/subscribe — it must serialize with
+        // dispatches too, or an action landing between the snapshot read and
+        // the registration is lost for this client.
+        serialized(async () => {
+          const subscriptions = params.subscriptions;
+          const uris = Array.isArray(subscriptions)
+            ? subscriptions.filter((uri): uri is URI => typeof uri === "string")
+            : [];
+          const lastSeen =
+            typeof params.lastSeenServerSeq === "number" ? params.lastSeenServerSeq : 0;
+          const missed = buffer.filter((envelope) => envelope.serverSeq > lastSeen);
+          // A gap inside the buffer replays actions; beyond it, fall back to a snapshot.
+          const canReplay =
+            buffer.length === 0
+              ? lastSeen === serverSeq
+              : missed.length > 0 && missed[0]!.serverSeq === lastSeen + 1;
+          if (canReplay) {
+            for (const uri of uris) connection.subscriptions.add(uri);
+            respond(id, { type: "replay", actions: missed, missing: [] });
+            return;
+          }
+          let snapshots: Snapshot[];
+          try {
+            snapshots = await Promise.all(uris.map(snapshotOf));
+          } catch (err) {
+            fail(id, codeOf(err), messageOf(err));
+            return;
+          }
           for (const uri of uris) connection.subscriptions.add(uri);
-          respond(id, { type: "replay", actions: missed, missing: [] });
-          return;
-        }
-        let snapshots: Snapshot[];
-        try {
-          snapshots = await Promise.all(uris.map(snapshotOf));
-        } catch (err) {
-          fail(id, codeOf(err), messageOf(err));
-          return;
-        }
-        for (const uri of uris) connection.subscriptions.add(uri);
-        respond(id, { type: "snapshot", snapshots });
-      };
+          respond(id, { type: "snapshot", snapshots });
+        });
 
       const handle = (frame: string | Uint8Array): void => {
         if (connection.closed) return;

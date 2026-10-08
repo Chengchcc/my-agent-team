@@ -32,7 +32,13 @@ interface McpCallResult {
 type ToolArguments = Record<string, unknown>;
 
 interface McpClientLike {
-  callTool(params: { name: string; arguments?: ToolArguments }): Promise<McpCallResult>;
+  callTool(params: {
+    name: string;
+    arguments?: ToolArguments;
+    /** MCP implementation metadata; the product dispatcher reads
+     *  _meta.identity.callId as the write idempotency key (#26). */
+    _meta?: Record<string, unknown>;
+  }): Promise<McpCallResult>;
   listTools(): Promise<{
     tools: Array<{ name: string; description?: string; inputSchema?: unknown }>;
   }>;
@@ -450,9 +456,16 @@ export async function mountWorkspaceMcpServers(
         description: t.description ?? `MCP tool ${t.name} (server ${name})`,
         inputSchema: (t.inputSchema ?? { type: "object" }) as PluginTool["inputSchema"],
         timeoutMs: serverCallTimeoutMs,
-        async execute(args, signal) {
+        async execute(args, signal, options?: { callId?: string }) {
+          // The model's tool-use id rides the same metadata the ACP rail
+          // carries: a write-type product tool must replay under one
+          // identity, or a retry executes as a NEW call (#26 review P1-4).
           const res = await withCallTimeout(
-            client.callTool({ name: t.name, arguments: args }),
+            client.callTool({
+              name: t.name,
+              arguments: args,
+              ...(options?.callId ? { _meta: { identity: { callId: options.callId } } } : {}),
+            }),
             `mcp tool ${t.name}`,
             serverCallTimeoutMs,
             signal,
