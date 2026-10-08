@@ -246,16 +246,12 @@ export function createChatActionTranslator(): ChatActionTranslator {
         case "thinking_delta":
           return event.text === "" ? [] : appendDelta(runId, "reasoning", event.text);
         case "native_tool_started":
-        case "product_tool_started":
           return startTool(runId, {
             toolName: event.toolName,
             callId: event.callId,
-            ...(event.type === "native_tool_started" && event.activity !== undefined
-              ? { activity: event.activity }
-              : {}),
+            ...(event.activity !== undefined ? { activity: event.activity } : {}),
           });
         case "native_tool_completed":
-        case "product_tool_completed":
           return completeTool(runId, {
             toolName: event.toolName,
             callId: event.callId,
