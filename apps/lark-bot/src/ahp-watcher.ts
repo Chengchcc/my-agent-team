@@ -86,6 +86,18 @@ export function watchConversationOverAhp(
       if (!envelope.action.type.startsWith("chat/")) continue;
       state = chatReducer(state, envelope.action as ChatAction);
       await deliverChatState(state, target, deps);
+      // The same DB-only gap the web surface closes (#52): the card's plan strip reads
+      // `state._meta.todos`, which only a snapshot can set, so a completed tool re-reads the
+      // channel instead of leaving the card on its first snapshot forever.
+      if (envelope.action.type === "chat/toolCallComplete") {
+        const reply = await client.subscribe(uri);
+        const fresh = reply.result?.snapshot?.state as ChatState | undefined;
+        if (fresh) {
+          state = fresh;
+          await deliverChatState(state, target, deps);
+        }
+        await reply.subscription.close();
+      }
     }
   };
 
