@@ -94,9 +94,17 @@ export function seedTranscript(
  *  through this rule (TUI/json/print via seedTranscript, ACP after its own
  *  schema validation and parked-turn handling), so no mode ever guesses a
  *  fresh prompt is "already in history". */
-export function answeredPrefixLength(messages: readonly { role?: unknown }[]): number {
+export function answeredPrefixLength(
+  messages: readonly { role?: unknown; synthetic?: unknown }[],
+): number {
   let end = messages.length;
-  while (end > 0 && messages[end - 1]?.role === "user") end--;
+  while (end > 0) {
+    const message = messages[end - 1]!;
+    if (message.role !== "user") break;
+    // The compaction fold is context, not a pending prompt: keep it.
+    if (message.synthetic === "session-summary") break;
+    end--;
+  }
   return end;
 }
 

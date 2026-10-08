@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -7,7 +7,7 @@ import { createModelRuntime } from "@chengchenccc/ai";
 import type { Message } from "@chengchenccc/message";
 import { fakeProvider } from "../../core/runtime/fake-provider.js";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
-import { appendSessionMessages } from "../../core/session/session-file.js";
+import { appendParkedTurnMarker, appendSessionMessages } from "../../core/session/session-file.js";
 import { runAcpMode, withoutAcpDeclaredServers } from "./acp-mode.js";
 
 /** Crossed NDJSON stream pairs: our test CLIENT on one side, the oma ACP
@@ -289,6 +289,138 @@ test("a resumed run's re-delivered prompt is not duplicated by the restored hist
     else process.env.OMA_SESSION_DIR = prevSessionDir;
   }
 }, 30_000);
+
+test("a fully compacted session keeps its summary through the seeding trim", async () => {
+  // The compaction fold loads as ONE synthetic user message. The seeding trim
+  // drops trailing user runs (unanswered prompts), and without the loader's
+  // synthetic marker the summary itself was dropped — a compacted session
+  // came back with its entire past erased.
+  const dir = mkdtempSync(join(tmpdir(), "acp-compacted-"));
+  const sessionDir = join(dir, "sessions");
+  mkdirSync(sessionDir, { recursive: true });
+  const prevSessionDir = process.env.OMA_SESSION_DIR;
+  process.env.OMA_SESSION_DIR = sessionDir;
+  const modelCalls: Array<readonly Message[]> = [];
+  const runtime = recordingRuntime(modelCalls);
+  const connect = () => {
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: runtime,
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    return startClient(mode, c2a, a2c).then((client) => ({ mode, client }));
+  };
+  try {
+    let sessionId = "";
+    {
+      const { mode, client } = await connect();
+      sessionId = await client.newSession(dir);
+      expect((await client.prompt("a long conversation happens here")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    // Full compaction: everything answered so far folds into the summary.
+    appendFileSync(
+      join(sessionDir, `${sessionId}.jsonl`),
+      `${JSON.stringify({
+        type: "compaction",
+        summary: "the user explored the architecture and got answers",
+        replacesEarlierMessages: true,
+      })}\n`,
+    );
+    {
+      const { mode, client } = await connect();
+      await client.loadSession(sessionId, dir);
+      expect((await client.prompt("what did we talk about?")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    const promptCall = modelCalls.find(
+      (call) => call.at(-1)?.role === "user" && call.at(-1)?.text === "what did we talk about?",
+    );
+    expect(promptCall).toBeDefined();
+    expect(promptCall!.some((m) => (m.text ?? "").includes("<previous_session_summary>"))).toBe(
+      true,
+    );
+  } finally {
+    if (prevSessionDir === undefined) delete process.env.OMA_SESSION_DIR;
+    else process.env.OMA_SESSION_DIR = prevSessionDir;
+  }
+}, 30_000);
+
+test("resume decisions settle the parked tool call instead of re-asking the model", async () => {
+  // ADR 0038: the child died parked on HITL; the fresh child re-delivers the
+  // same input and the already-submitted decisions must settle the parked
+  // tool call BEFORE the model runs (the model sees tool results, not a
+  // dangling tool_use). Without `resume` on the run input the runtime never
+  // enters its resume branch and the decisions silently never apply.
+  const dir = mkdtempSync(join(tmpdir(), "acp-resume-decisions-"));
+  const sessionDir = join(dir, "sessions");
+  mkdirSync(sessionDir, { recursive: true });
+  const prevSessionDir = process.env.OMA_SESSION_DIR;
+  process.env.OMA_SESSION_DIR = sessionDir;
+  const modelCalls: Array<readonly Message[]> = [];
+  const runtime = recordingRuntime(modelCalls);
+  const connect = () => {
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: runtime,
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: (line: string) => console.error("[acp-log]", line),
+    });
+    return startClient(mode, c2a, a2c).then((client) => ({ mode, client }));
+  };
+  try {
+    let sessionId = "";
+    {
+      const { mode, client } = await connect();
+      sessionId = await client.newSession(dir);
+      expect((await client.prompt("first question")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    // The dead child: it persisted the re-delivered input and parked on a
+    // tool call that never settled.
+    appendSessionMessages(sessionId, dir, [{ role: "user", text: "run the probe" }]);
+    appendParkedTurnMarker(
+      sessionId,
+      {
+        role: "assistant",
+        blocks: [{ type: "tool_use", id: "call-parked-1", name: "probe", input: { x: 1 } }],
+      } as never,
+      sessionDir,
+    );
+    {
+      const { mode, client } = await connect();
+      await client.loadSession(sessionId, dir, {
+        // ADR 0038 resume rides the product's _meta namespace; an ask
+        // decision settles the parked call with its response as the result.
+        "my-agent-team/resume": {
+          decisions: [{ callId: "call-parked-1", kind: "ask", response: { answer: "42" } }],
+        },
+      });
+      expect((await client.prompt("run the probe")).stopReason).toBe("end_turn");
+      mode.stop();
+    }
+    // The resume branch's documented order is [history, prompt, tool_results,
+    // meta]: the settled results land AFTER the re-delivered prompt, so the
+    // prompt is no longer the call's last message.
+    const promptCall = modelCalls.find((call) =>
+      call.some((m) => m.role === "user" && m.text === "run the probe"),
+    );
+    expect(promptCall).toBeDefined();
+    expect(promptCall!.some((m) => JSON.stringify(m.blocks ?? []).includes("call-parked-1"))).toBe(
+      true,
+    );
+    // The ask decision's response IS the tool result: the parked call settled
+    // from the submitted decision, not from an error or a re-ask.
+    expect(promptCall!.some((m) => (m.text ?? "").includes("42"))).toBe(true);
+  } finally {
+    if (prevSessionDir === undefined) delete process.env.OMA_SESSION_DIR;
+    else process.env.OMA_SESSION_DIR = prevSessionDir;
+  }
+}, 30_000);
+
 describe("oma ACP server (in-process, fake provider)", () => {
   test("initialize advertises loadSession and the steering convention", async () => {
     const c2a = streamPair();
