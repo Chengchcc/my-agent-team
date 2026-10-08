@@ -1815,6 +1815,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // gaps, retry commit_failed commits, terminalize restart orphans — old
     // state is settled BEFORE workflow recovery re-drives executions that
     // will dispatch fresh Runs onto those same branches.
+    // ORDER (#43): agent-run recovery settles every orphan/parked run to a
+    // stable status FIRST; workflow re-drive consumes only stable states, so
+    // it must never observe a run mid-recovery and misjudge it as timed out.
     await agentRunExecution.recover();
     await workflowExecutionService.recover();
     // Boot-time bot pull-up: a lark-enabled agent's bot used to start only
