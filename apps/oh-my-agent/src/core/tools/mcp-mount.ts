@@ -1,5 +1,6 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { sanitizeServerName } from "@chengchenccc/adapter-mcp";
 import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "@chengchenccc/message";
 import type { PluginTool } from "../index.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
@@ -394,7 +395,7 @@ export async function mountWorkspaceMcpServers(
   const reports: McpMountReport[] = [];
   const clients: McpClientLike[] = [];
   for (const [name, server] of Object.entries(servers)) {
-    if (excludeServerNames?.has(name)) continue;
+    if (excludeServerNames?.has(sanitizeServerName(name))) continue;
     // P1: a broken command fails ITS server with the reason, never a
     // half-mounted run.
     if (server.command && !server.url) {

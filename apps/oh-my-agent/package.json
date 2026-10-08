@@ -17,7 +17,7 @@
     "build": "tsc -p tsconfig.json && mkdir -p dist/prompts && cp -r src/prompts/. dist/prompts/ && chmod +x dist/cli.js",
     "dev": "bun src/cli.ts",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
-    "test": "bun test",
+    "test": "bun run --cwd ../../packages/adapter-mcp build >/dev/null && bun test",
     "lint": "biome check . && eslint ."
   },
   "dependencies": {

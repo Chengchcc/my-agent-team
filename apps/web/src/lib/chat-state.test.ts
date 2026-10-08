@@ -388,5 +388,27 @@ describe("#30: continuation is a control event, not a text notice", () => {
     });
     // A state without the continuation has no control.
     expect(continuationControl(state([]))).toBeUndefined();
+    // A→B→C: the LAST control is the current successor.
+    const b = {
+      ...continuityTurn,
+      id: "continuity:10",
+      responseParts: [
+        {
+          ...continuityTurn.responseParts[0],
+          _meta: { newConversationId: "conv-b", requestedByRunId: "run-b" },
+        },
+      ],
+    };
+    const c = {
+      ...continuityTurn,
+      id: "continuity:11",
+      responseParts: [
+        {
+          ...continuityTurn.responseParts[0],
+          _meta: { newConversationId: "conv-c", requestedByRunId: "run-c" },
+        },
+      ],
+    };
+    expect(continuationControl(state([continuityTurn, b, c]))?.conversationId).toBe("conv-c");
   });
 });

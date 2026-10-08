@@ -60,9 +60,16 @@ export function ConversationCanvas({
   // #30: the backend moved this conversation — follow it. The subscription
   // effect re-runs when the route lands on the new conversationId.
   const { continuation } = state;
+  // #48: a LIVE ownership transfer auto-follows; a historical continuation
+  // (already in the snapshot) only offers a link, so a user can stay and
+  // read the old conversation.
   useEffect(() => {
-    if (continuation && continuation.conversationId !== conversationId) {
-      router.replace(`/chat/${continuation.conversationId}`);
+    if (
+      continuation &&
+      continuation.live &&
+      continuation.control.conversationId !== conversationId
+    ) {
+      router.replace(`/chat/${continuation.control.conversationId}`);
     }
   }, [continuation, conversationId, router]);
   const { data: artifactsData } = useArtifacts();
@@ -458,6 +465,15 @@ export function ConversationCanvas({
               </div>
             ) : (
               <div className="py-4">
+                {continuation && !continuation.live ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/chat/${continuation.control.conversationId}`)}
+                    className="mb-3 rounded-md border border-(--hairline) px-3 py-2 text-xs text-(--mute) hover:text-(--fg) hover:border-(--fg)"
+                  >
+                    This conversation continued in a new one — open it →
+                  </button>
+                ) : null}
                 <Timeline
                   messages={items}
                   conversationId={conversationId}
