@@ -73,6 +73,11 @@ export interface AhpServer {
   /** Product side: apply an action and broadcast it to the connections subscribed to its channel.
    *  `origin` echoes the result of a client command back to that client. Returns the envelope. */
   dispatch(uri: URI, action: StateAction, origin?: ActionOrigin): Promise<ActionEnvelope>;
+  /** Product side: drop this channel's cached projection after a DB write that
+   *  has no action to carry it (todo snapshot, commit_failed, undo, retry).
+   *  The next read re-derives from the source, so a surface that re-subscribes
+   *  paints the fresh truth (#52). */
+  invalidate(uri: URI): void;
 }
 
 interface ConnectionState {
@@ -189,11 +194,19 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
   const dispatch = (uri: URI, action: StateAction, origin?: ActionOrigin) =>
     serialized(() => dispatchWith(uri, action, origin));
 
+  const invalidate = (uri: URI): void => {
+    // The reducers advance a cached projection; a DB-only write touches none of
+    // them, so the cache diverges until the entry is dropped. Deleting (not
+    // re-reading) keeps this callable from any write site without I/O (#52).
+    states.delete(uri);
+  };
+
   const server: AhpServer = {
     get serverSeq() {
       return serverSeq;
     },
     dispatch,
+    invalidate,
     createConnection(send) {
       const connection: ConnectionState = {
         send,

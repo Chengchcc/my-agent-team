@@ -1,7 +1,12 @@
 /** Interop vectors: the official TS client against our server core (the upgrade gate of
  *  ADR 0040 decision 2). The transport is upstream's in-memory pair, so no port is needed. */
 import { describe, expect, test } from "bun:test";
-import type { SessionLifecycle, SessionStatus, URI } from "@microsoft/agent-host-protocol";
+import type {
+  ChatState,
+  SessionLifecycle,
+  SessionStatus,
+  URI,
+} from "@microsoft/agent-host-protocol";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@microsoft/agent-host-protocol";
 import {
   AhpClient,
@@ -202,6 +207,47 @@ describe("AHP server core against the official client", () => {
     expect(fallback.snapshots).toHaveLength(1);
     await client.shutdown();
   });
+});
+
+// #52 (the AHP revision model). The case: a DB-only write (todo snapshot,
+// commit_failed, undo) has no StateAction to carry it, and `seed()` caches the
+// projection — so the cache diverges from the DB for the life of the process.
+// Two live surfaces read it (web TodoPanel via useConversation.setRunTodos,
+// Lark's run card via parseTodoItems), and the run-event feed that used to
+// carry todos live is being retired. `invalidate` is the write site's hook.
+test("invalidate drops the cached projection so the next read sees the DB truth", async () => {
+  let todos: unknown[] = [{ id: "t1", text: "first", status: "in_progress" }];
+  const base = fakeSource();
+  const source: AhpStateSource = {
+    ...base,
+    chat: async (uri: URI): Promise<ChatState | undefined> => {
+      const baseState = await base.chat(uri);
+      return baseState ? { ...baseState, _meta: { todos } } : undefined;
+    },
+  };
+  const server = createAhpServer({ source });
+  const { client } = await handshake(server);
+  const todosOf = (snapshot: { state?: unknown } | undefined) =>
+    (snapshot?.state as { _meta?: { todos?: unknown[] } } | undefined)?._meta?.todos;
+
+  const first = await client.subscribe(CHAT_URI);
+  expect(todosOf(first.result.snapshot)).toHaveLength(1);
+
+  // A DB-only change: nothing dispatches, so nothing tells the surface.
+  todos = [
+    { id: "t1", text: "first" },
+    { id: "t2", text: "second" },
+  ];
+
+  // Without invalidation the cache answers — this is the divergence.
+  const stale = await client.subscribe(CHAT_URI);
+  expect(todosOf(stale.result.snapshot)).toHaveLength(1);
+
+  server.invalidate(CHAT_URI);
+  const fresh = await client.subscribe(CHAT_URI);
+  expect(todosOf(fresh.result.snapshot)).toHaveLength(2);
+
+  await client.shutdown();
 });
 
 describe("#28: the subscription handshake is atomic with dispatches", () => {
