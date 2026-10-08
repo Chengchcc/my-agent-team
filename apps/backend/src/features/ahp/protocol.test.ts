@@ -204,6 +204,13 @@ describe("AHP server core against the official client", () => {
   });
 });
 
+// #52 (the AHP revision model): a DB-only change has NO action to carry it —
+// today an already-subscribed chat stays stale until a resubscribe. The trigger
+// API (server.notifyChatChanged) does not exist yet; this todo is the upgrade
+// evidence: it becomes a compiling red test the moment that seam lands, then
+// green when the server pushes a replace-snapshot carrying the fresh todos.
+test.todo("a DB-only todo write reaches an already-subscribed chat as a replace snapshot");
+
 describe("#28: the subscription handshake is atomic with dispatches", () => {
   /** A source whose chat read hangs until the test releases it: the dispatch
    *  below then lands exactly in the gap the race lives in. */
