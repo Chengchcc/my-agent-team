@@ -499,6 +499,45 @@ describe("oma ACP server (in-process, fake provider)", () => {
     mode.stop();
   }, 30_000);
 
+  test("#26: the model's tool-call id rides the MCP call as identity", async () => {
+    // The product tool dispatcher keys idempotency on the model's tool_use id
+    // (meta.identity.callId). It was minted server-side as a random UUID
+    // because the ACP envelope's protocol metadata REPLACED the caller's
+    // _meta, and the adapter dropped the loop's call id before that.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-identity-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mcp: McpOverAcpHarness = {
+      requests: [],
+      declare: [{ name: "acp-tools", serverId: "acp-tools:1" }],
+      tool: {
+        name: "echo",
+        description: "echo back",
+        inputSchema: { type: "object", properties: { message: { type: "string" } } },
+      },
+      callResult: { content: [{ type: "text", text: "pong" }] },
+    };
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([{ name: "mcp__acp-tools__echo", input: { message: "hi" } }]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "allow-once", mcp);
+    await client.newSession(cwd);
+    await client.prompt("use the echo tool");
+
+    // The model's side of the same call, from the session updates.
+    const toolCall = client.updates.find(
+      (u) => (u as { sessionUpdate?: string }).sessionUpdate === "tool_call",
+    ) as { toolCallId?: string } | undefined;
+    expect(toolCall?.toolCallId).toBeTruthy();
+
+    const call = mcp.requests.find((r) => r.method === "tools/call");
+    const meta = (call?.params as { _meta?: { identity?: { callId?: string } } })?._meta;
+    expect(meta?.identity?.callId).toBe(toolCall?.toolCallId);
+    mode.stop();
+  }, 30_000);
+
   test("mcp-over-acp: client-declared tools are listed and called over the connection", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "acp-mode-mcp-"));
     const c2a = streamPair();

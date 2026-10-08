@@ -7,7 +7,14 @@ export interface McpToolDefinition {
 }
 
 export interface McpToolCaller {
-  callTool(params: { name: string; arguments?: unknown }): Promise<{ content: unknown }>;
+  /** `_meta` is the MCP implementation-metadata bag: the caller-supplied
+   *  identity rides it to the server (product tools read
+   *  `_meta.identity.callId` as the idempotency identity). */
+  callTool(params: {
+    name: string;
+    arguments?: unknown;
+    _meta?: Record<string, unknown>;
+  }): Promise<{ content: unknown }>;
 }
 
 /** lowercase + replace non-[a-z0-9] with `-`, trim leading/trailing `-`, fallback to "server". */
@@ -39,9 +46,20 @@ export function adaptMcpTool(
     description,
     inputSchema,
     // ponytail: signal not forwarded - MCP SDK callTool doesn't accept AbortSignal yet
-    async execute(input: unknown): Promise<ToolExecuteResult> {
+    async execute(
+      input: unknown,
+      _signal?: AbortSignal,
+      options?: { callId?: string },
+    ): Promise<ToolExecuteResult> {
       try {
-        const result = await caller.callTool({ name: mcpTool.name, arguments: input });
+        // The loop's call id IS the model's tool_use id: a product tool that
+        // writes (todo_write, ask_question) must be replayable under the same
+        // identity after a crash instead of being re-minted server-side.
+        const result = await caller.callTool({
+          name: mcpTool.name,
+          arguments: input,
+          ...(options?.callId ? { _meta: { identity: { callId: options.callId } } } : {}),
+        });
         return {
           content:
             typeof result.content === "string" ? result.content : JSON.stringify(result.content),
