@@ -374,11 +374,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const agentRunPort = sqliteAgentRunAdapter(db, { contextPort, ledgerResolver, idGen: { ulid } });
   // #25: the ACP adapter reports every session bind here, so a run that dies
   // parked still owns the native session it was executing in.
-  onSessionBound.fn = (runId, nativeRef) => {
-    void agentRunPort.setRunNativeSessionRef(runId, nativeRef).catch((err: Error) => {
-      console.error(`[bootstrap] native session ref not persisted for ${runId}:`, err.message);
-    });
-  };
+  // #25: awaited by the ACP adapter BEFORE the prompt — a session whose
+  // identity cannot be durably recorded must not execute.
+  onSessionBound.fn = (runId, nativeRef) => agentRunPort.setRunNativeSessionRef(runId, nativeRef);
   busyGuard.check = (agentId: string) => {
     const row = db
       .query(

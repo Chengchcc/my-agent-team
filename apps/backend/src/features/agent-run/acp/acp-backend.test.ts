@@ -123,7 +123,7 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       }))
       .onRequest(
         "_session/steering",
-        (raw: unknown) => raw as { sessionId: string; text: string },
+        (raw: unknown) => raw as { sessionId: string; prompt: string },
         async (ctx) => {
           obs.steerCalls ??= [];
           obs.steerCalls.push(ctx.params);
@@ -506,7 +506,9 @@ describe("AcpBackend against an in-memory fake agent", () => {
     const bound: Array<{ runId: string; ref: string }> = [];
     const backend = new AcpBackend({
       spawnImpl: startFakeAgent({}, obs),
-      onSessionBound: (runId, ref) => bound.push({ runId, ref }),
+      onSessionBound: (runId, ref) => {
+        bound.push({ runId, ref });
+      },
     });
     const { outcome } = await collect(await backend.execute(makeInput()));
     expect(outcome.status).toBe("completed");
@@ -524,7 +526,9 @@ describe("AcpBackend against an in-memory fake agent", () => {
     const bound: Array<{ runId: string; ref: string }> = [];
     const backend = new AcpBackend({
       spawnImpl: startFakeAgent({}, obs),
-      onSessionBound: (runId, ref) => bound.push({ runId, ref }),
+      onSessionBound: (runId, ref) => {
+        bound.push({ runId, ref });
+      },
     });
     await collect(await backend.execute(makeInput({ cliSessionRef: "sess-fake-1" })));
     expect(obs.loadedSessionIds).toEqual(["sess-fake-1"]);
@@ -1063,7 +1067,7 @@ describe("#27: steering is negotiated at handshake, not assumed", () => {
     await waitUntil(segment, (e) => e.type === "approval_requested", []);
 
     await backend.steer("run-1", steerInput("change of plan"));
-    expect(obs.steerCalls).toEqual([{ sessionId: "sess-fake-1", text: "change of plan" }]);
+    expect(obs.steerCalls).toEqual([{ sessionId: "sess-fake-1", prompt: "change of plan" }]);
     await backend.dispose();
   });
 
