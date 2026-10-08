@@ -24,6 +24,14 @@ const baseConfig: BackendConfig = {
 };
 
 describe("resolveOmaCommand", () => {
+  test("the product's spawn switches the child's own title generator off", () => {
+    // Titles are a product fact (conversation/title.ts). The child's generator
+    // only ever wrote to its own session file, so a product run would pay a
+    // model call per completed turn for something nothing can read.
+    const result = resolveOmaCommand(baseConfig);
+    expect(result.env?.OMA_TITLE_ENABLED).toBe("0");
+  });
+
   test("uses Bun + monorepo source CLI when OMA_BIN is absent", () => {
     const result = resolveOmaCommand(baseConfig);
 
