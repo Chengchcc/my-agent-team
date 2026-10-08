@@ -20,8 +20,9 @@ describe("product-owned conversation titles", () => {
     const body = title!.slice(0, -1);
     expect(body.length).toBeLessThanOrEqual(60);
     expect(
-      "Please investigate why the workflow execution keeps failing after the second node"
-        .startsWith(body),
+      "Please investigate why the workflow execution keeps failing after the second node".startsWith(
+        body,
+      ),
     ).toBe(true);
   });
 

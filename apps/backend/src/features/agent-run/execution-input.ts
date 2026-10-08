@@ -96,8 +96,6 @@ function renderTodoSection(todoSnapshot: string | null): string {
  *  The Product Context (identity + current task list) rides the same
  *  prompt so CLI backends carry their run identity into product tools. */
 export function buildRunInput(
-  deps: {
-  },
   run: AgentRun,
   history: readonly ProjectedHistoryItem[],
   input: BranchInput,
