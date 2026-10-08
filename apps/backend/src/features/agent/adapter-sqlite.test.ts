@@ -245,6 +245,30 @@ describe("agent config allowed_senders (H7)", () => {
     expect(parsed.runtime_config.model).toBe("claude-sonnet-4-6");
   });
 
+  test("the harness-side model wins when a legacy row set both", () => {
+    // The old form had two pickers: `model` (product-side provider/model, stored
+    // as model_id) and `harnessModel` (what the harness actually ran). Today's
+    // single `model` is the second one — agentModelRef hands it to the child as
+    // `harnessModel` — so a row with both must resolve to the harness's value.
+    const current = cfg("a-legacy-both", "Legacy both");
+    const { harness: _h, model: _m, ...restRuntime } = current.runtime_config;
+    const parsed = agentConfigSchema.parse(
+      JSON.parse(
+        JSON.stringify({
+          ...current,
+          runtime_config: {
+            ...restRuntime,
+            runtime: "claude_code",
+            model_id: "anthropic/claude-sonnet-4-6",
+            harness_model: "claude-sonnet-4-6",
+          },
+        }),
+      ),
+    );
+    expect(parsed.runtime_config.harness).toBe("claude");
+    expect(parsed.runtime_config.model).toBe("claude-sonnet-4-6");
+  });
+
   test("a config with neither shape still fails loudly", () => {
     const current = cfg("a-legacy3", "Legacy3");
     const { harness: _h, model: _m, ...restRuntime } = current.runtime_config;
