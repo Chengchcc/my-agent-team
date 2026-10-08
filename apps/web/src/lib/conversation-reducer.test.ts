@@ -541,11 +541,11 @@ describe("#30: the continuation control lives on the conversation state", () => 
     let state = reducer(initialState(), {
       type: "continuation",
       control: { type: "rebind_conversation", conversationId: "next", requestedByRunId: "r1" },
+      live: true,
     });
     expect(state.continuation).toEqual({
-      type: "rebind_conversation",
-      conversationId: "next",
-      requestedByRunId: "r1",
+      control: { type: "rebind_conversation", conversationId: "next", requestedByRunId: "r1" },
+      live: true,
     });
     state = reducer(state, { type: "bootstrap", agent: { memberId: "ag", kind: "agent" } });
     expect(state.continuation).toBeNull();

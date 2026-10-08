@@ -54,8 +54,10 @@ export interface ConvState {
   overlay: UiItem[];
   /** Rendered = canonical ∪ overlay. Derived — never written directly. */
   items: UiItem[];
-  /** Pending control from the AHP state (#30); null = nothing to do. */
-  continuation: SurfaceControl | null;
+  /** Pending control from the AHP state (#30). `live` means it arrived as a
+   *  live action — only those auto-rebind; a control already in the initial
+   *  snapshot is a historical hint, rendered as a "continue to" link (#48). */
+  continuation: { control: SurfaceControl; live: boolean } | null;
   streamConn: StreamConn;
   error: string | null;
   /** Number of sends that have been dispatched locally but not yet settled
@@ -73,7 +75,7 @@ export type Action =
   /** POST settled (success OR error): decrement the in-flight counter. */
   | { type: "send/settled" }
   | { type: "conn"; status: StreamConn }
-  | { type: "continuation"; control: SurfaceControl }
+  | { type: "continuation"; control: SurfaceControl; live: boolean }
   | { type: "send/error"; message: string }
   | { type: "member"; seq: number; kind: string; payload: unknown }
   | {
@@ -302,7 +304,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
       return { ...s, agent: a.agent, continuation: null };
     }
     case "continuation":
-      return { ...s, continuation: a.control };
+      return { ...s, continuation: { control: a.control, live: a.live } };
     case "message": {
       const revision = a.message;
       // System authorship renders as a notice, not a chat bubble.

@@ -195,6 +195,11 @@ export class AcpBackend implements AgentBackend<"acp"> {
       steering: boolean;
       /** The live client context: mid-run requests (steering) go through it. */
       ctx?: { request: (method: string, params: unknown) => Promise<unknown> };
+      /** Settles once initialize + session bind complete (or the drive died);
+       *  steering waits on it instead of misreading "not negotiated yet" as
+       *  "unsupported" (#49). */
+      ready: Promise<void>;
+      resolveReady: () => void;
     }
   >();
   private disposed = false;
@@ -288,8 +293,14 @@ export class AcpBackend implements AgentBackend<"acp"> {
     }
 
     const run = createActiveRun(runId);
-    this.active.set(runId, { run, transport, steering: false });
-    void this.drive(input, run, transport);
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      resolveReady = resolve;
+    });
+    this.active.set(runId, { run, transport, steering: false, ready, resolveReady });
+    void this.drive(input, run, transport).finally(() => {
+      this.active.get(runId)?.resolveReady();
+    });
     return {
       events: run.events,
       outcome: run.outcome,
@@ -305,6 +316,9 @@ export class AcpBackend implements AgentBackend<"acp"> {
     if (!live) {
       throw new AcpBackendError("not_found", `no live acp run ${runId}`);
     }
+    // The capability and session id are only known after the handshake: wait
+    // for it instead of misreporting "unsupported" for a run still opening.
+    await live.ready;
     const sessionId = live.run.sessionId;
     if (!live.steering || live.ctx === undefined || sessionId === undefined) {
       throw new AcpBackendError(
@@ -410,6 +424,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
               if (live) {
                 live.ctx = ctx as never;
                 live.steering = declaresSteering(init);
+                live.resolveReady();
               }
             }
             const mcpProvider = this.acpMcpProvider;

@@ -15,7 +15,7 @@
 import { Readable, Writable } from "node:stream";
 import type { RequestPermissionResponse, Usage as SdkUsage } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
-import { adaptMcpTool } from "@chengchenccc/adapter-mcp";
+import { adaptMcpTool, sanitizeServerName } from "@chengchenccc/adapter-mcp";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { type Message, MessageSchema } from "@chengchenccc/message";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
@@ -315,7 +315,13 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     // plugin configs and the workspace .mcp.json it mounts itself — a
     // file-based duplicate won the tool table and silently dropped the call
     // identity (#26, traced live).
-    const acpDeclared = new Set(session.acpMcpServers.map((server) => server.name));
+    // Canonical keys on BOTH sides: the mount loop compares sanitized names,
+    // so the exclusion set must use the same normalization or a workspace key
+    // with different case/spacing bypasses it and the duplicate wins by
+    // mount order, silently dropping the call identity (#49).
+    const acpDeclared = new Set(
+      session.acpMcpServers.map((server) => sanitizeServerName(server.name)),
+    );
     const preSupplied = resumeApprovals(resume);
     const pendingApprovals = new Map<string, (d: ApprovalDecision) => void>();
     const catalog = await modelRuntime.getCatalog();

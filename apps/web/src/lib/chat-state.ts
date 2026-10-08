@@ -201,6 +201,9 @@ function todosOf(state: ChatState, transients: TransientMap): Record<string, Tod
  *  new conversation instead of rendering "This conversation continued…" and
  *  keeping its subscription on the old live owner. */
 export function continuationControl(state: ChatState): SurfaceControl | undefined {
+  // A conversation may have continued more than once: the LAST control is
+  // the current successor (A→B→C opening A must point at C, not B).
+  let control: SurfaceControl | undefined;
   for (const turn of [...state.turns, ...(state.activeTurn ? [state.activeTurn] : [])]) {
     for (const part of turn.responseParts) {
       if ((part as { kind?: string }).kind !== "systemNotification") continue;
@@ -208,11 +211,11 @@ export function continuationControl(state: ChatState): SurfaceControl | undefine
       const conversationId = meta?.newConversationId;
       const requestedByRunId = meta?.requestedByRunId;
       if (typeof conversationId === "string" && typeof requestedByRunId === "string") {
-        return { type: "rebind_conversation", conversationId, requestedByRunId };
+        control = { type: "rebind_conversation", conversationId, requestedByRunId };
       }
     }
   }
-  return undefined;
+  return control;
 }
 
 export function itemsFromChatState(

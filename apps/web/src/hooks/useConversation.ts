@@ -32,6 +32,7 @@ export function useConversation(
    *  final Message (`run:<runId>:assistant:0`) or dropped on failure. */
   const [transients, setTransients] = useState<TransientMap>({});
   const transientsRef = useRef(transients);
+  const seenFirstState = useRef(false);
 
   /** Live tool steps per run (`<runId>:<callId>` key). Run-local, transient:
    *  never written to History, cleared at run terminal. */
@@ -103,8 +104,12 @@ export function useConversation(
         setActiveRunId(state.activeTurn?.id ?? null);
         // The history comes from the same subscription: a snapshot carries all of it, and every
         // later action keeps it current.
+        // The first state is the snapshot: a continuation already in it is
+        // history, not a live ownership transfer (#48). Later states are
+        // live actions and may auto-rebind.
         const control = continuationControl(state);
-        if (control) dispatch({ type: "continuation", control });
+        if (control) dispatch({ type: "continuation", control, live: seenFirstState.current });
+        seenFirstState.current = true;
         dispatch({
           type: "items",
           items: itemsFromChatState(
