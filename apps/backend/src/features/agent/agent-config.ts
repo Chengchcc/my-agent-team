@@ -23,8 +23,13 @@ const LEGACY_UNCONFIGURED_MODEL = "unconfigured/none";
  *  The rename changed the axes with no data migration, and boot lists agents
  *  early (its name map) — so a single row written before it made the whole
  *  backend fail to start with an opaque ZodError on `runtime_config.harness`.
- *  The mapping is the rename's own (model_id → model); `harness_model` only
- *  survives as the fallback for rows that never left the placeholder.
+ *
+ *  The model mapping follows what the two old fields MEANT: `harness_model` was
+ *  the value the harness itself ran (today's `model`, which agentModelRef still
+ *  hands to the child as `harnessModel`), while `model_id` was the product-side
+ *  provider/model pair that the new shape replaced with a constant. So
+ *  harness_model wins when it is set; model_id is the fallback for the rows
+ *  that never had one (an oma-era row carried its model there).
  *
  *  Unknown shapes are passed through untouched: the parse then fails loudly on
  *  the field it cannot read, which is the point. */
@@ -37,10 +42,12 @@ function upgradeLegacyRuntimeConfig(value: unknown): unknown {
   const { runtime: _runtime, model_id, harness_model, ...rest } = rc;
   const modelId = typeof model_id === "string" ? model_id : "";
   const harnessModel = typeof harness_model === "string" ? harness_model : "";
+  // The old placeholder meant "nothing chosen"; the new shape spells that "".
+  const fallbackModel = modelId === LEGACY_UNCONFIGURED_MODEL ? "" : modelId;
   return {
     ...rest,
     harness: LEGACY_BACKEND_KIND[runtime] ?? runtime,
-    model: modelId === "" || modelId === LEGACY_UNCONFIGURED_MODEL ? harnessModel : modelId,
+    model: harnessModel !== "" ? harnessModel : fallbackModel,
   };
 }
 
