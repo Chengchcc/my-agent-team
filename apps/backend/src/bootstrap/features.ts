@@ -1633,11 +1633,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const ahpHost = createAhpHost({
     wsBase: browserWsBase,
     source: ahpSource,
-    commands: {
-      submit: () => {
-        throw new Error("the AHP command path is not wired yet");
-      },
-    },
   });
 
   onContinuityRecorded.fn = (input) => {

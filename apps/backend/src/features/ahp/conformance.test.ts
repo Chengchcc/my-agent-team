@@ -103,7 +103,6 @@ describe("upstream conformance vectors", () => {
       const uri = channelOf(vector.reducer);
       const server = createAhpServer({
         source: sourceOf(vector.initial),
-        commands: { submit: () => undefined },
       });
       try {
         for (const action of vector.actions) {

@@ -13,21 +13,6 @@ import { AHP_ROOT, type AhpServer, type AhpStateSource, createAhpServer } from "
 const SESSION_URI = "ahp-session:/s1";
 const CHAT_URI = "ahp-chat:/c1";
 
-/** The command port: records client commands and optionally applies them to channel state,
- *  standing in for the product side. */
-function createPort(onSubmit?: (command: { channel: string; action: unknown }) => void) {
-  const calls: Array<{ channel: string; action: unknown; origin: unknown }> = [];
-  const port = {
-    submit: (command: { channel: string; action: unknown; origin: unknown }) => {
-      calls.push(command);
-      onSubmit?.(command);
-    },
-  };
-  return { calls, port };
-}
-
-const noopPort = { submit: () => undefined };
-
 function fakeSource(): AhpStateSource {
   return {
     root: async () => ({ agents: [{ id: "agent-1", name: "oma", title: "oma" } as never] }),
@@ -89,7 +74,7 @@ async function handshake(server: AhpServer) {
 
 describe("AHP server core against the official client", () => {
   test("handshake negotiates a version and ships the root snapshot", async () => {
-    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
+    const server = createAhpServer({ source: fakeSource() });
     const { client, init } = await handshake(server);
     expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(init.protocolVersion as never);
     expect(init.snapshots.map((s) => s.resource)).toEqual([AHP_ROOT]);
@@ -100,7 +85,7 @@ describe("AHP server core against the official client", () => {
   });
 
   test("an unserved channel is refused instead of fabricating empty state", async () => {
-    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
+    const server = createAhpServer({ source: fakeSource() });
     const { connection, received } = connect(server);
     connection.handle(
       JSON.stringify({
@@ -128,7 +113,6 @@ describe("AHP server core against the official client", () => {
         session: async () => undefined,
         chat: async () => undefined,
       },
-      commands: noopPort,
     });
     const { connection, received } = connect(server);
     connection.handle(
@@ -148,7 +132,7 @@ describe("AHP server core against the official client", () => {
   });
 
   test("an unsupported version offer is refused with the supported list", async () => {
-    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
+    const server = createAhpServer({ source: fakeSource() });
     const { connection, received } = connect(server);
     connection.handle(
       JSON.stringify({
@@ -167,7 +151,7 @@ describe("AHP server core against the official client", () => {
   });
 
   test("subscribing a session channel returns its snapshot", async () => {
-    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
+    const server = createAhpServer({ source: fakeSource() });
     const { client } = await handshake(server);
     const { result, subscription } = await client.subscribe(SESSION_URI);
     expect(result.snapshot?.resource).toBe(SESSION_URI);
@@ -177,7 +161,7 @@ describe("AHP server core against the official client", () => {
   });
 
   test("a chat channel snapshot is served (the HITL channel)", async () => {
-    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
+    const server = createAhpServer({ source: fakeSource() });
     const { client } = await handshake(server);
     const { result, subscription } = await client.subscribe(CHAT_URI);
     expect(result.snapshot?.resource).toBe(CHAT_URI);
@@ -186,114 +170,10 @@ describe("AHP server core against the official client", () => {
     await client.shutdown();
   });
 
-  test("a client-dispatched action reaches the port instead of moving state here", async () => {
-    const { port, calls } = createPort();
-    const server = createAhpServer({ source: fakeSource(), commands: port });
-    const { client } = await handshake(server);
-    const { result, subscription } = await client.subscribe(SESSION_URI);
-    const mirror = new AhpStateMirror();
-    mirror.applySnapshot(result.snapshot!);
-    const consume = (async () => {
-      for await (const event of subscription) {
-        if (event.type === "action") mirror.apply(event.params);
-      }
-    })();
-
-    client.dispatch(SESSION_URI, {
-      type: "session/titleChanged",
-      title: "renamed",
-    } as never);
-    await Bun.sleep(10);
-
-    // The command reaches the product side with its origin; the protocol module does not touch
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.channel).toBe(SESSION_URI);
-    expect(calls[0]?.action).toMatchObject({ type: "session/titleChanged", title: "renamed" });
-    expect(calls[0]?.origin).toMatchObject({ clientId: "test-client" });
-    expect(mirror.sessions.get(SESSION_URI)?.title).toBe("session");
-    const stillOld = await client.subscribe(SESSION_URI);
-    expect((stillOld.result.snapshot?.state as { title?: string }).title).toBe("session");
-
-    // this channel's state itself. It dispatches the result, and both ends converge.
-    await server.dispatch(SESSION_URI, { type: "session/titleChanged", title: "renamed" } as never);
-    await Bun.sleep(10);
-    expect(mirror.sessions.get(SESSION_URI)?.title).toBe("renamed");
-
-    await stillOld.subscription.close();
-    await subscription.close();
-    void consume.catch(() => undefined);
-    await client.shutdown();
-  });
-
-  test("a port that refuses the command is echoed as a rejection", async () => {
-    const server = createAhpServer({
-      source: fakeSource(),
-      commands: {
-        submit: () => {
-          throw new Error("run is not accepting inputs");
-        },
-      },
-    });
-    const { client } = await handshake(server);
-    const { subscription } = await client.subscribe(SESSION_URI);
-    const seen: Array<{ channel: URI; rejectionReason?: string }> = [];
-    const consume = (async () => {
-      for await (const event of subscription) {
-        if (event.type === "action") {
-          seen.push(event.params as { channel: URI; rejectionReason?: string });
-        }
-      }
-    })();
-
-    client.dispatch(SESSION_URI, { type: "session/titleChanged", title: "x" } as never);
-    await Bun.sleep(10);
-    expect(seen[0]?.rejectionReason).toContain("not accepting inputs");
-
-    await subscription.close();
-    void consume.catch(() => undefined);
-    await client.shutdown();
-  });
-
-  test("an action a client may not dispatch is echoed with a reason", async () => {
-    const server = createAhpServer({ source: fakeSource(), commands: noopPort });
-    const { connection, received } = connect(server);
-    connection.handle(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          channel: AHP_ROOT,
-          clientId: "x",
-          protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
-        },
-      }),
-    );
-    await Bun.sleep(5);
-    connection.handle(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "dispatchAction",
-        params: {
-          channel: SESSION_URI,
-          clientSeq: 1,
-          action: { type: "session/ready" },
-        },
-      }),
-    );
-    await Bun.sleep(5);
-    const echo = JSON.parse(received.at(-1)!) as {
-      method?: string;
-      params?: { rejectionReason?: string };
-    };
-    expect(echo.method).toBe("action");
-    expect(echo.params?.rejectionReason).toContain("not client-dispatchable");
-  });
-
   test("reconnect replays inside the buffer and falls back to a snapshot outside it", async () => {
     const server = createAhpServer({
       source: fakeSource(),
-      commands: noopPort,
+
       replayBufferSize: 2,
     });
     const { client } = await handshake(server);
@@ -345,7 +225,7 @@ describe("#28: the subscription handshake is atomic with dispatches", () => {
 
   test("an action dispatched during the initialize snapshot still reaches the client", async () => {
     const { src, release } = gatedSource();
-    const server = createAhpServer({ source: src, commands: noopPort });
+    const server = createAhpServer({ source: src });
     const { connection, received } = connect(server);
     // initialize subscribes to the chat channel; its snapshot read now hangs.
     const pending = new Promise<void>((resolve) => {

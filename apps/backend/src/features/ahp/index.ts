@@ -15,7 +15,6 @@ export { createAhpChatWriter, type RunTurnContext } from "./chat-writer.js";
 export type { AhpHost, AhpHostOptions } from "./http.js";
 export { createAhpHost } from "./http.js";
 export type {
-  AhpCommandPort,
   AhpConnection,
   AhpServer,
   AhpServerOptions,

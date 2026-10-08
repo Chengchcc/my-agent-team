@@ -14,7 +14,6 @@ import {
   type ActionOrigin,
   type ChatState,
   chatReducer,
-  isClientDispatchable,
   type RootState,
   rootReducer,
   type SessionState,
@@ -53,17 +52,9 @@ export interface AhpStateSource {
  *  not a local state edit, so it cannot be applied in place by a reducer here. The product side
  *  takes the command, does what it takes, and dispatches the result back - which is how both ends
  *  stay converged on the same reducer. */
-export interface AhpCommandPort {
-  submit(command: {
-    readonly channel: URI;
-    readonly action: StateAction;
-    readonly origin: ActionOrigin;
-  }): void | Promise<void>;
-}
 
 export interface AhpServerOptions {
   readonly source: AhpStateSource;
-  readonly commands: AhpCommandPort;
   readonly serverInfo?: { readonly name: string; readonly version: string };
   /** How many action envelopes the replay buffer holds; a bigger gap falls back to a snapshot. */
   readonly replayBufferSize?: number;
@@ -326,54 +317,6 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         respond(id, { type: "snapshot", snapshots });
       };
 
-      const onDispatchAction = (params: Record<string, unknown>): void => {
-        const uri = params.channel;
-        const action = params.action as StateAction | undefined;
-        if (typeof uri !== "string" || action === undefined) return;
-        const origin: ActionOrigin = {
-          clientId: connection.clientId ?? "",
-          clientSeq: typeof params.clientSeq === "number" ? params.clientSeq : 0,
-        };
-        if (!isClientDispatchable(action as never)) {
-          // An overreach must be reflected back with a reason so the client can roll back.
-          connection.send(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              method: "action",
-              params: {
-                channel: uri,
-                action,
-                serverSeq,
-                origin,
-                rejectionReason: "action is not client-dispatchable",
-              },
-            }),
-          );
-          return;
-        }
-        // Hand it to the product side: that side makes the fact happen and dispatches the result
-        // back. This module never edits the channel's state itself, or a client's optimistic write
-        // would become a server fact. Wrap before calling too: a port that throws synchronously
-        // must take the same rejection path instead of blowing up frame handling.
-        void Promise.resolve()
-          .then(() => opts.commands.submit({ channel: uri, action, origin }))
-          .catch((err: unknown) => {
-            connection.send(
-              JSON.stringify({
-                jsonrpc: "2.0",
-                method: "action",
-                params: {
-                  channel: uri,
-                  action,
-                  serverSeq,
-                  origin,
-                  rejectionReason: err instanceof Error ? err.message : String(err),
-                },
-              }),
-            );
-          });
-      };
-
       const handle = (frame: string | Uint8Array): void => {
         if (connection.closed) return;
         const text = typeof frame === "string" ? frame : new TextDecoder().decode(frame);
@@ -389,10 +332,6 @@ export function createAhpServer(opts: AhpServerOptions): AhpServer {
         const id = message.id;
         const isRequest = typeof id === "number" || typeof id === "string";
 
-        if (method === "dispatchAction") {
-          onDispatchAction(params);
-          return;
-        }
         if (method === "unsubscribe") {
           if (typeof params.channel === "string") connection.subscriptions.delete(params.channel);
           return;
