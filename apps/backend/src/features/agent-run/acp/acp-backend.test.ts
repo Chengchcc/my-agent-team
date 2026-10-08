@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
   BackendEvent,
+  BackendInputMessage,
   BackendRunInput,
   BackendRunOutcome,
   BackendRunSegment,
@@ -1038,7 +1039,10 @@ describe("which harness a run launches", () => {
 });
 
 describe("#27: steering is negotiated at handshake, not assumed", () => {
-  const steerInput = (text: string) => ({ inputId: "steer-1", message: { role: "user", text } });
+  const steerInput = (text: string): BackendInputMessage => ({
+    inputId: "steer-1",
+    message: { role: "user", text },
+  });
   const blockedObs = (): FakeAgentObservations => ({
     loadedSessionIds: [],
     newSessionCalls: 0,
