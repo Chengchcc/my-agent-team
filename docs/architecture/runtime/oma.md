@@ -6,7 +6,7 @@ tags: [oma, runtime, models, runs]
 
 # Oma Runtime
 
-一句话：本页是 oma 运行时的权威描述。oma 是仓库自研的 CLI 执行引擎，有 print / json / rpc / tui 四种模式；产品侧只 spawn 它的 rpc 模式，每个 Run 在子进程内由 `createOmaRuntime()` 组一个 per-Run Runtime（模型与工具循环、内存 SessionStore、工具表、插件、审批），Run 结束即销毁，上下文续接靠 CLI 自己的 session 文件。
+一句话：本页是 oma 运行时的权威描述。oma 是仓库自研的 CLI 执行引擎，有 print / json / tui / acp 四种模式；产品侧只 spawn 它的 acp 模式（ADR 0040 后 ACP 是唯一子进程轨道），每个 Run 在子进程内由 `createOmaRuntime()` 组一个 per-Run Runtime（模型与工具循环、内存 SessionStore、工具表、插件、审批），Run 结束即销毁，上下文续接靠 CLI 自己的 session 文件。续接的播种规则**四个模式同一**（`modes/shared.ts` 的 `answeredPrefixLength`）：恢复的历史只取「已应答前缀」（末尾连续未应答的 user 轮不算历史——新一轮输入，或 resume 重投的同一输入，顶替它的位置），历史条目拿显式 `session:<index>` 身份；**新输入永远不带 productEntryId**，任何模式都不靠「猜新输入是否已在历史里」去重（ACP 曾按可选 `Message.id` 猜过，两个 undefined 相等把新输入误判成历史、被 store 去重丢弃——已删）。
 
 ## 范围
 

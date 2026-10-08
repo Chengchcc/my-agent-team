@@ -44,6 +44,7 @@ import {
   scanWorkspaceSkillRoots,
 } from "../../core/settings/workspace-context.js";
 import type { RunEventEnvelope } from "../../protocol/index.js";
+import { answeredPrefixLength } from "../shared.js";
 
 export interface AcpModeOptions {
   /** The assembled model runtime (main.ts registers built-in providers,
@@ -289,19 +290,16 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         log("[acp] malformed parked-turn marker: ignoring");
       }
     }
+    // The shared seeding rule (answeredPrefixLength, same as seedTranscript on
+    // the TUI side): a trailing unanswered user run is not history. ADR 0038
+    // re-delivers a resumed run's input, and a dead child may have persisted
+    // it already — the live prompt takes the dropped turn's place instead of
+    // guessing (by message.id) whether the prompt is already in the file.
+    transcript.length = answeredPrefixLength(transcript.map((t) => t.message));
     const persistedIds = new Set(
       transcript.map((t) => t.message.id).filter((id): id is string => id != null),
     );
     const promptMessage: Message = { role: "user", text };
-    // Seed only on an explicit, comparable id: restored transcript messages
-    // usually carry none, and `undefined === undefined` matched index 0 —
-    // stamping the brand-new prompt with the first restored entry's
-    // productEntryId, which the session store then deduped away, so the model
-    // answered the system-reminder and the question never reached it.
-    const seedIndex =
-      promptMessage.id == null
-        ? -1
-        : transcript.findIndex((item) => item.message.id === promptMessage.id);
 
     const cwdSkills = scanWorkspaceSkillRoots(session.cwd);
     const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
@@ -393,7 +391,6 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const input = {
       input: {
         inputId: `acp-in-${session.sessionId}-${Date.now()}`,
-        ...(seedIndex >= 0 ? { productEntryId: `session:${seedIndex}` } : {}),
         message: promptMessage,
       },
       run: {
