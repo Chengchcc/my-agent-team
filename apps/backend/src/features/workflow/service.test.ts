@@ -476,3 +476,51 @@ describe("agent node ↔ AgentRun lifecycle (#workflow-acp)", () => {
     expect(stopped).toEqual(["r1"]);
   });
 });
+
+describe("#44: restart recovery reuses the persisted run, never re-posts", () => {
+  test("an existing nodeRun.runId is polled, not re-triggered", async () => {
+    const { port, nodeRuns } = ramPort();
+    // Simulate a restart: the node already persisted its runId.
+    nodeRuns.push({
+      executionId: "e1",
+      nodeId: "a",
+      runId: "r-existing",
+      status: "running",
+      output: null,
+    } as never);
+    let posted = 0;
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentRunService: {
+        getRun: async (runId: string) => ({
+          status: "completed",
+          terminalResult: {
+            status: "completed",
+            messages: [{ role: "assistant", text: '{"val": 1}' }],
+          },
+          runId,
+        }),
+      } as never,
+      agentRunExecution: { dispatch: async () => {}, stop: async () => {} } as never,
+      convPort: { getConversation: () => null, createConversation: () => {} } as never,
+      conversationService: {
+        postMessage: async () => {
+          posted += 1;
+          return { triggeredRuns: [{ runId: "r-new", queued: true }] };
+        },
+      } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+    });
+    const result = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeAgentDef(),
+      input: {},
+    });
+    expect(result.status).toBe("success");
+    expect(posted).toBe(0); // recovery never re-sends the node prompt
+    expect(nodeRuns.find((r) => r.nodeId === "a")!.runId).toBe("r-existing");
+    expect(nodeRuns.find((r) => r.nodeId === "a")!.output).toEqual({ val: 1 });
+  });
+});
