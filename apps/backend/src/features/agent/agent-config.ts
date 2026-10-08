@@ -11,6 +11,39 @@ export const DEFAULT_HARNESS = "oma";
 /** Stored when an agent names no model: the harness then runs its own default. */
 export const UNCONFIGURED_MODEL = "";
 
+/** Keys the config carried before the harness+model rename (18fa47fb):
+ *  `runtime` held a BackendKind, `model_id` the provider/model pair, and
+ *  `harness_model` the ACP-side model for the ACP kinds. */
+const LEGACY_BACKEND_KIND: Record<string, string> = { claude_code: "claude" };
+/** The old spelling of "no model chosen yet"; the current shape uses "". */
+const LEGACY_UNCONFIGURED_MODEL = "unconfigured/none";
+
+/** Upgrade a runtime_config written before the rename.
+ *
+ *  The rename changed the axes with no data migration, and boot lists agents
+ *  early (its name map) — so a single row written before it made the whole
+ *  backend fail to start with an opaque ZodError on `runtime_config.harness`.
+ *  The mapping is the rename's own (model_id → model); `harness_model` only
+ *  survives as the fallback for rows that never left the placeholder.
+ *
+ *  Unknown shapes are passed through untouched: the parse then fails loudly on
+ *  the field it cannot read, which is the point. */
+function upgradeLegacyRuntimeConfig(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const rc = value as Record<string, unknown>;
+  if (typeof rc.harness === "string") return value; // already current
+  const runtime = typeof rc.runtime === "string" ? rc.runtime : undefined;
+  if (runtime === undefined) return value;
+  const { runtime: _runtime, model_id, harness_model, ...rest } = rc;
+  const modelId = typeof model_id === "string" ? model_id : "";
+  const harnessModel = typeof harness_model === "string" ? harness_model : "";
+  return {
+    ...rest,
+    harness: LEGACY_BACKEND_KIND[runtime] ?? runtime,
+    model: modelId === "" || modelId === LEGACY_UNCONFIGURED_MODEL ? harnessModel : modelId,
+  };
+}
+
 export const agentConfigSchema = z.object({
   schema_version: z.literal("1"),
   enabled: z.boolean(),
@@ -18,25 +51,28 @@ export const agentConfigSchema = z.object({
   name: z.string().min(1),
   title: z.string(),
   description: z.string(),
-  runtime_config: z.object({
-    /** Which harness runs this agent: a key of the ACP registry
-     *  (oma | omp | claude | pi). The adapter is no longer named here - one
-     *  adapter drives every harness (ADR 0040 decision 7). */
-    harness: z.string().min(1),
-    /** The model that harness runs, in the harness's own vocabulary.
-     *  "" = the harness's own default. */
-    model: z.string().default(""),
-    reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
-    permission_mode: z.enum(["ask", "auto", "deny"]),
-    max_steps: z.number().int().nonnegative(),
-    /** Per-agent resource switches (ADR 0022, file-first). */
-    mcp_servers: z
-      .array(z.object({ server_id: z.string().min(1), enabled: z.boolean() }))
-      .default([]),
-    knowledge_packs: z.array(z.string()).default([]),
-    /** Attached projects (ADR 0023): each materializes a worktree. */
-    projects: z.array(z.string().min(1)).default([]),
-  }),
+  runtime_config: z.preprocess(
+    upgradeLegacyRuntimeConfig,
+    z.object({
+      /** Which harness runs this agent: a key of the ACP registry
+       *  (oma | omp | claude | pi). The adapter is no longer named here - one
+       *  adapter drives every harness (ADR 0040 decision 7). */
+      harness: z.string().min(1),
+      /** The model that harness runs, in the harness's own vocabulary.
+       *  "" = the harness's own default. */
+      model: z.string().default(""),
+      reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
+      permission_mode: z.enum(["ask", "auto", "deny"]),
+      max_steps: z.number().int().nonnegative(),
+      /** Per-agent resource switches (ADR 0022, file-first). */
+      mcp_servers: z
+        .array(z.object({ server_id: z.string().min(1), enabled: z.boolean() }))
+        .default([]),
+      knowledge_packs: z.array(z.string()).default([]),
+      /** Attached projects (ADR 0023): each materializes a worktree. */
+      projects: z.array(z.string().min(1)).default([]),
+    }),
+  ),
   lark: z
     .object({
       enabled: z.boolean(),
