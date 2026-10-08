@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatState } from "@microsoft/agent-host-protocol";
-import { activeTurnFromState, itemsFromChatState } from "./chat-state";
+import { activeTurnFromState, continuationControl, itemsFromChatState } from "./chat-state";
 
 const state = (turns: unknown[], extra: Record<string, unknown> = {}): ChatState =>
   ({
@@ -352,5 +352,41 @@ describe("an answered question", () => {
       response: "accept",
       answer: { q1: { state: "submitted", value: { kind: "text", value: "because" } } },
     });
+  });
+});
+
+describe("#30: continuation is a control event, not a text notice", () => {
+  const continuityTurn = {
+    id: "continuity:9",
+    state: "complete",
+    startedAt: new Date(0).toISOString(),
+    message: { text: "", origin: { kind: "systemNotification" } },
+    responseParts: [
+      {
+        kind: "systemNotification",
+        content: "This conversation continued in a new one.",
+        _meta: { newConversationId: "conv-next", requestedByRunId: "run-2" },
+      },
+    ],
+    usage: undefined,
+  };
+
+  test("the notice is not rendered as a chat line", () => {
+    const items = itemsFromChatState(
+      state([continuityTurn]),
+      { memberId: "user", kind: "human" },
+      { memberId: "ag", kind: "agent", agentId: "ag" },
+    );
+    expect(items.filter((i) => i.kind === "notice")).toHaveLength(0);
+  });
+
+  test("the control carries the target conversation and the requesting run", () => {
+    expect(continuationControl(state([continuityTurn]))).toEqual({
+      type: "rebind_conversation",
+      conversationId: "conv-next",
+      requestedByRunId: "run-2",
+    });
+    // A state without the continuation has no control.
+    expect(continuationControl(state([]))).toBeUndefined();
   });
 });

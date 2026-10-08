@@ -15,7 +15,7 @@ import type {
   ResponsePart,
   ToolCallState,
 } from "@microsoft/agent-host-protocol";
-import type { SenderRef, UiItem } from "./conversation-reducer";
+import type { SenderRef, SurfaceControl, UiItem } from "./conversation-reducer";
 import {
   type LiveToolCall,
   type LiveToolMap,
@@ -196,6 +196,25 @@ function todosOf(state: ChatState, transients: TransientMap): Record<string, Tod
  *  conversation's history, and the coordinate in `_meta.seq` is what fork and undo address. The
  *  ids are the ledger's, so the viewer's optimistic echo of their own message collapses onto the
  *  same item instead of appearing twice. */
+/** The continuation fact rides a systemNotification part's _meta (#30).
+ *  It is a CONTROL event, not a text notice: the surface must rebind to the
+ *  new conversation instead of rendering "This conversation continued…" and
+ *  keeping its subscription on the old live owner. */
+export function continuationControl(state: ChatState): SurfaceControl | undefined {
+  for (const turn of [...state.turns, ...(state.activeTurn ? [state.activeTurn] : [])]) {
+    for (const part of turn.responseParts) {
+      if ((part as { kind?: string }).kind !== "systemNotification") continue;
+      const meta = (part as { _meta?: Record<string, unknown> })._meta;
+      const conversationId = meta?.newConversationId;
+      const requestedByRunId = meta?.requestedByRunId;
+      if (typeof conversationId === "string" && typeof requestedByRunId === "string") {
+        return { type: "rebind_conversation", conversationId, requestedByRunId };
+      }
+    }
+  }
+  return undefined;
+}
+
 export function itemsFromChatState(
   state: ChatState,
   viewer: SenderRef,
@@ -217,6 +236,9 @@ export function itemsFromChatState(
     turn.responseParts.forEach((part, index) => {
       const kind = part.kind as string;
       if (kind === "systemNotification") {
+        // The continuation notice is a control event, never a chat line.
+        const rawMeta = (part as { _meta?: Record<string, unknown> })._meta;
+        if (typeof rawMeta?.newConversationId === "string") return;
         const noticeText = contentOf(part) ?? "";
         if (noticeText === "") return;
         const meta = metaOfRequest(part);

@@ -12,7 +12,7 @@ import { parseMentions } from "@/features/conversations/mentions";
 import { connectAhpChat } from "@/lib/ahp";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
-import { activeTurnFromState, itemsFromChatState } from "@/lib/chat-state";
+import { activeTurnFromState, continuationControl, itemsFromChatState } from "@/lib/chat-state";
 import { initialState, isBusy, reducer } from "@/lib/conversation-reducer";
 import {
   clearTransientApproval,
@@ -103,6 +103,8 @@ export function useConversation(
         setActiveRunId(state.activeTurn?.id ?? null);
         // The history comes from the same subscription: a snapshot carries all of it, and every
         // later action keeps it current.
+        const control = continuationControl(state);
+        if (control) dispatch({ type: "continuation", control });
         dispatch({
           type: "items",
           items: itemsFromChatState(
