@@ -30,6 +30,7 @@ export function parseRun(row: typeof schema.agentRun.$inferSelect): AgentRun {
     skillRoots: row.skillRoots ? (JSON.parse(row.skillRoots) as string[]) : null,
     permissionMode: row.permissionMode,
     todoSnapshot: row.todoSnapshot,
+    nativeSessionRef: row.nativeSessionRef,
     workflowBudgetTokens: row.workflowBudgetTokens,
     workflow: row.workflow ? (JSON.parse(row.workflow) as AgentRun["workflow"]) : null,
     createdAt: row.createdAt,

@@ -402,6 +402,12 @@ export const agentRun = sqliteTable(
     /** JSON: oma workflow-mode input ({ script, args? }); the child executes
      *  the script directly instead of an interactive loop. Loop items only. */
     workflow: text("workflow"),
+    /** The native (ACP) session THIS run actually executed in, written the
+     *  moment session/new or session/load succeeds — not at terminal commit.
+     *  A run that dies parked (HITL) or mid-crash still knows its own
+     *  continuation identity, so recovery never scans for "the newest
+     *  interrupted session" (#25). Null = no session bound yet. */
+    nativeSessionRef: text("native_session_ref"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     terminalAt: integer("terminal_at", { mode: "number" }),
   },

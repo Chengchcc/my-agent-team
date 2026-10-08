@@ -393,6 +393,13 @@
       "when": 1791157554965,
       "tag": "0055_ledger_saved",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1791444222107,
+      "tag": "0056_agent_run_native_session_ref",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `agent_run` ADD `native_session_ref` text;

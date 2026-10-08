@@ -28,6 +28,7 @@ type RunMethods = Pick<
   | "commitCompletedRun"
   | "failCommit"
   | "setRunProductTools"
+  | "setRunNativeSessionRef"
   | "setRunTodoSnapshot"
   | "getLatestRunTodo"
   | "listCommitFailedRuns"
@@ -473,6 +474,16 @@ export function createRunMethods(
           `Product Tool manifest for run ${runId} is frozen; a different manifest is a conflict`,
         );
       }
+    },
+
+    async setRunNativeSessionRef(runId, ref) {
+      const updated = d
+        .update(schema.agentRun)
+        .set({ nativeSessionRef: ref })
+        .where(eq(schema.agentRun.runId, runId))
+        .returning({ runId: schema.agentRun.runId })
+        .get();
+      if (!updated) throw new Error(`Agent Run not found: ${runId}`);
     },
 
     async setRunTodoSnapshot(runId, snapshot) {

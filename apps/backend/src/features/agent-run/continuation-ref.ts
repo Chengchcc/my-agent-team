@@ -1,0 +1,33 @@
+/** Which native session a dispatch should continue in (#25).
+ *
+ *  Two identities must not be confused:
+ *  - `run.nativeSessionRef` — the session THIS run bound, written by the ACP
+ *    adapter when session/new or session/load succeeded. A re-dispatched run
+ *    (HITL resume, crash recovery) continues in exactly this one.
+ *  - `branch.cliSessionRef` — the NEXT fresh run's continuation pointer,
+ *    kind-scoped (`<kind>:<ref>`), and only written at a terminal commit.
+ *
+ *  Before this existed, a run that died parked had no ref of its own, so
+ *  recovery read the branch pointer (still the PREVIOUS turn's session) or
+ *  fell through to the adapter's "adopt the newest interrupted session in
+ *  this cwd" scan — both guesses. */
+
+export interface ContinuationRefInput {
+  /** The run's own bound session, raw (no kind prefix). */
+  readonly runNativeRef: string | null;
+  /** The branch's pointer, kind-scoped. */
+  readonly branchRef: string | null | undefined;
+  /** The run's backend kind, for the branch pointer's scope check. */
+  readonly kindPrefix: string;
+}
+
+export function resolveContinuationRef(input: ContinuationRefInput): string | undefined {
+  if (input.runNativeRef) return input.runNativeRef;
+  // A branch pointer written by another backend is junk to this CLI (pi exits
+  // empty on a foreign --session id): forward it only under our own scope.
+  const branchRef = input.branchRef;
+  if (branchRef === undefined || branchRef === null) return undefined;
+  return branchRef.startsWith(input.kindPrefix)
+    ? branchRef.slice(input.kindPrefix.length)
+    : undefined;
+}
