@@ -496,7 +496,10 @@ describe("#44: restart recovery reuses the persisted run, never re-posts", () =>
       agentRunService: {
         getRun: async (runId: string) => ({
           status: "completed",
-          terminalResult: { status: "completed", messages: [{ role: "assistant", text: '{"val": 1}' }] },
+          terminalResult: {
+            status: "completed",
+            messages: [{ role: "assistant", text: '{"val": 1}' }],
+          },
           runId,
         }),
       } as never,
