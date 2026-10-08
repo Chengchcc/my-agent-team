@@ -54,6 +54,8 @@ interface FakeAgentObservations {
   setConfigOptions?: Array<{ configId: string; value: unknown }>;
   /** How many prompts reached the agent. */
   promptCalls?: number;
+  /** Every _session/steering request the agent received, in order. */
+  steerCalls?: unknown[];
 }
 
 interface FakeAgentScript {
@@ -71,6 +73,8 @@ interface FakeAgentScript {
   spawnEnv?: (Readonly<Record<string, string | undefined>> | undefined)[];
   /** Advertise `agentCapabilities.mcpCapabilities.acp` on initialize. */
   acpMcp?: boolean;
+  /** Advertise `_meta.steering.supported` on initialize. */
+  steering?: boolean;
   /** Send these `mcp/message` requests during the prompt. */
   mcpProbes?: Array<{ serverId: string; method: string; params?: unknown }>;
   /** The configOptions session/new (and load) answers with. */
@@ -114,7 +118,17 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
         protocolVersion: acp.PROTOCOL_VERSION,
         agentCapabilities: script.acpMcp ? { mcpCapabilities: { acp: true } } : {},
         authMethods: [],
+        ...(script.steering ? { _meta: { steering: { supported: true } } } : {}),
       }))
+      .onRequest(
+        "_session/steering",
+        (raw: unknown) => raw as { sessionId: string; text: string },
+        async (ctx) => {
+          obs.steerCalls ??= [];
+          obs.steerCalls.push(ctx.params);
+          return { accepted: true } as never;
+        },
+      )
       .onRequest(acp.methods.agent.session.new, async (ctx) => {
         obs.newSessionCalls += 1;
         script.newSessionParams?.push(ctx.params);
@@ -1020,5 +1034,51 @@ describe("which harness a run launches", () => {
     );
 
     expect(captured.argv().join(" ")).toContain("omp");
+  });
+});
+
+describe("#27: steering is negotiated at handshake, not assumed", () => {
+  const steerInput = (text: string) => ({ inputId: "steer-1", message: { role: "user", text } });
+  const blockedObs = (): FakeAgentObservations => ({
+    loadedSessionIds: [],
+    newSessionCalls: 0,
+    permissionOutcomes: [],
+    elicitationOutcome: undefined,
+  });
+  // The agent blocks on a permission request, which is what keeps the run
+  // live long enough to steer it.
+  const blockedScript = (steering: boolean): FakeAgentScript => ({
+    steering,
+    permissionOptions: [{ optionId: "allow-once", name: "Allow", kind: "allow_once" }],
+  });
+
+  test("an agent that declares it receives the input on the live turn", async () => {
+    const obs = blockedObs();
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent(blockedScript(true), obs) });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+
+    await backend.steer("run-1", steerInput("change of plan"));
+    expect(obs.steerCalls).toEqual([{ sessionId: "sess-fake-1", text: "change of plan" }]);
+    await backend.dispose();
+  });
+
+  test("an agent that declares nothing is told so, explicitly", async () => {
+    const obs = blockedObs();
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent(blockedScript(false), obs) });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+
+    await expect(backend.steer("run-1", steerInput("nope"))).rejects.toThrow(
+      /declares no steering/,
+    );
+    expect(obs.steerCalls ?? []).toEqual([]);
+    await backend.dispose();
+  });
+
+  test("a run that is not live is a not_found", async () => {
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, blockedObs()) });
+    await expect(backend.steer("run-missing", steerInput("x"))).rejects.toThrow(/no live acp run/);
+    await backend.dispose();
   });
 });
