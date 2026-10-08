@@ -84,6 +84,10 @@ export interface CreateOmaRuntimeOptions {
     plugins: readonly Plugin[];
     mcpServers?: readonly PluginMcpConfig[];
   };
+  /** MCP server names this run serves over MCP-over-ACP: the runtime's own
+   *  workspace/plugin mounts skip them (one name, one rail, the one with the
+   *  call identity). */
+  excludeMcpServerNames?: ReadonlySet<string>;
   /** Frozen Run permissionMode; "deny" drops plugin code components.
    *  "yolo" = ungated at the gate + OS bash sandbox forced when available. */
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
@@ -233,6 +237,13 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     ...(options.approvalHandler ? { approvalHandler: options.approvalHandler } : {}),
     ...(options.pluginComponents?.mcpServers?.length
       ? { pluginMcpServers: options.pluginComponents.mcpServers }
+      : {}),
+    // Never nested under the plugin-mcp branch: an agent with no plugin
+    // configs still has a workspace .mcp.json the runtime mounts itself, and
+    // THAT is exactly the duplicate the exclusion exists to prevent (#26 —
+    // traced live: the branch above was empty, so the set never arrived).
+    ...(options.excludeMcpServerNames
+      ? { excludeMcpServerNames: options.excludeMcpServerNames }
       : {}),
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),

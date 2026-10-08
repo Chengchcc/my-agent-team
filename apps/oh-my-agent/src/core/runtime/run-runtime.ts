@@ -213,6 +213,10 @@ export interface RunRuntimeDeps
   codePlugins?: readonly Plugin[];
   /** Plugin .mcp.json configs (already trust-approved by the mode layer). */
   pluginMcpServers?: readonly PluginMcpConfig[];
+  /** MCP server names this run serves over MCP-over-ACP instead: the
+   *  file/plugin mounts skip them so the identity-carrying rail is the only
+   *  one under that name. */
+  excludeMcpServerNames?: ReadonlySet<string>;
 }
 
 export interface RunRuntime {
@@ -442,6 +446,7 @@ async function buildNativeToolStage(
       ...(knobs.mcpTimeoutMs !== undefined ? { mcpTimeoutMs: knobs.mcpTimeoutMs } : {}),
       ...(knobs.maxToolTimeoutMs !== undefined ? { maxToolTimeoutMs: knobs.maxToolTimeoutMs } : {}),
     },
+    deps.excludeMcpServerNames,
   );
   // Web tools default ON via the std ports (DDG search + guarded fetch);
   // NOTE: mounted MCP tools intentionally do NOT join agentTools — they are

@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -241,5 +241,43 @@ describe("the mount phase has its own budget", () => {
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+});
+
+describe("#26: servers served over MCP-over-ACP are never mounted from files", () => {
+  const writeWorkspace = (dir: string) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          excluded: { transport: "stdio", command: "invalid-excluded-cmd" },
+          kept: { transport: "stdio", command: "invalid-kept-cmd" },
+        },
+      }),
+    );
+  };
+
+  test("an excluded name is not even attempted; the rest still mount", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcp-exclude-"));
+    writeWorkspace(dir);
+    const mounted = await mountWorkspaceMcpServers(
+      dir,
+      new Set(),
+      [],
+      true,
+      undefined,
+      new Set(["excluded"]),
+    );
+    const names = mounted.reports.map((r) => r.server);
+    expect(names).toContain("kept");
+    expect(names).not.toContain("excluded");
+  });
+
+  test("without the exclusion both are attempted (the duplicate the trace caught)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcp-exclude-2"));
+    writeWorkspace(dir);
+    const mounted = await mountWorkspaceMcpServers(dir, new Set(), [], true);
+    expect(mounted.reports.map((r) => r.server).sort()).toEqual(["excluded", "kept"]);
   });
 });

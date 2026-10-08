@@ -373,6 +373,11 @@ export async function mountWorkspaceMcpServers(
   pluginServers: readonly PluginMcpConfig[] = [],
   includeWorkspace = true,
   timeouts?: { mcpTimeoutMs?: number; maxToolTimeoutMs?: number; mountTimeoutMs?: number },
+  /** Server names this run already serves over another rail (MCP-over-ACP).
+   *  Mounting them here too would create same-named tools and the file-based
+   *  one can win the tool table — shadowing the mount that carries the call
+   *  identity. Excluded servers are never even attempted. */
+  excludeServerNames?: ReadonlySet<string>,
 ): Promise<MountedMcpServers> {
   const callTimeoutMs = mcpCallTimeoutMs(timeouts);
   const mountTimeoutMs = mcpMountTimeoutMs(timeouts);
@@ -383,6 +388,7 @@ export async function mountWorkspaceMcpServers(
   const reports: McpMountReport[] = [];
   const clients: McpClientLike[] = [];
   for (const [name, server] of Object.entries(servers)) {
+    if (excludeServerNames?.has(name)) continue;
     // P1: a broken command fails ITS server with the reason, never a
     // half-mounted run.
     if (server.command && !server.url) {

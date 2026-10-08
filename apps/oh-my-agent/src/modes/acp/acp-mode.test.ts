@@ -8,7 +8,7 @@ import type { Message } from "@chengchenccc/message";
 import { fakeProvider } from "../../core/runtime/fake-provider.js";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
 import { appendParkedTurnMarker, appendSessionMessages } from "../../core/session/session-file.js";
-import { runAcpMode, withoutAcpDeclaredServers } from "./acp-mode.js";
+import { runAcpMode } from "./acp-mode.js";
 
 /** Crossed NDJSON stream pairs: our test CLIENT on one side, the oma ACP
  *  server on the other. No processes; the model is the fake provider and
@@ -627,34 +627,6 @@ describe("oma ACP server (in-process, fake provider)", () => {
   }, 20_000);
 });
 
-describe("workspace MCP config vs the ACP declaration", () => {
-  const configs = [
-    {
-      pluginName: "workspace",
-      pluginRoot: "/tmp/ws",
-      scope: "project" as const,
-      servers: {
-        "product-tools": { transport: "sse", url: "http://127.0.0.1:3996/sse" },
-        other: { transport: "stdio", command: "other" },
-      },
-    },
-  ];
-
-  test("a server the client declared is not mounted from the workspace config", () => {
-    expect(withoutAcpDeclaredServers(configs, new Set(["product-tools"]))).toEqual([
-      {
-        pluginName: "workspace",
-        pluginRoot: "/tmp/ws",
-        scope: "project",
-        servers: { other: { transport: "stdio", command: "other" } },
-      },
-    ]);
-  });
-
-  test("nothing declared leaves the workspace config alone", () => {
-    expect(withoutAcpDeclaredServers(configs, new Set())).toEqual(configs);
-  });
-});
 interface SessionConfigOptionShape {
   id?: string;
   category?: string;
