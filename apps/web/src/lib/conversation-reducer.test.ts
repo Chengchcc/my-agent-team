@@ -464,3 +464,74 @@ describe("anchored comments survive the reducer (raft absorption)", () => {
     });
   });
 });
+
+describe("#29: canonical AHP state replaces, ghosts do not survive", () => {
+  const viewer: SenderRef = { memberId: "user", kind: "human" };
+
+  test("an item the projection no longer contains is GONE, not upserted", () => {
+    const a: Extract<UiItem, { kind: "message" }> = {
+      kind: "message",
+      id: "m-1",
+      sender: viewer,
+      content: { id: "m-1", role: "user", text: "hello" },
+      seq: 1,
+    };
+    let state = reducer(initialState(), {
+      type: "items",
+      items: [a, { kind: "notice", id: "n-1", text: "joined" }],
+    });
+    expect(state.items.map((i) => i.id)).toEqual(["m-1", "n-1"]);
+    // The next state omits both (undo/continuity/reconnect rebuild).
+    state = reducer(state, { type: "items", items: [] });
+    expect(state.items).toEqual([]);
+  });
+
+  test("the optimistic send survives until its echo lands in canonical", () => {
+    let state = reducer(initialState(), { type: "send", text: "hi", viewer });
+    expect(state.items.some((i) => i.id.startsWith("opt-"))).toBe(true);
+    // A state without a committed user turn keeps the optimistic bubble.
+    state = reducer(state, {
+      type: "items",
+      items: [
+        {
+          kind: "message",
+          id: "m-agent",
+          sender: { memberId: "ag", kind: "agent", agentId: "ag" },
+          content: { id: "m-agent", role: "assistant", text: "thinking" },
+          seq: 2,
+        },
+      ],
+    });
+    expect(state.items.some((i) => i.id.startsWith("opt-"))).toBe(true);
+    // The echo (a committed user turn) collapses it — no duplicate bubble.
+    state = reducer(state, {
+      type: "items",
+      items: [
+        {
+          kind: "message",
+          id: "msg-ledger-1",
+          sender: viewer,
+          content: { id: "msg-ledger-1", role: "user", text: "hi" },
+          seq: 3,
+        },
+      ],
+    });
+    expect(state.items.filter((i) => i.id.startsWith("opt-"))).toHaveLength(0);
+    expect(state.items.map((i) => i.id)).toEqual(["msg-ledger-1"]);
+  });
+
+  test("undo still greys the canonical copy", () => {
+    const a: Extract<UiItem, { kind: "message" }> = {
+      kind: "message",
+      id: "m-1",
+      sender: viewer,
+      content: { id: "m-1", role: "user", text: "hello" },
+      seq: 7,
+    };
+    const state = reducer(reducer(initialState(), { type: "items", items: [a] }), {
+      type: "undo",
+      undoneSeqs: [7],
+    });
+    expect(state.items[0]).toMatchObject({ id: "m-1", undone: true });
+  });
+});

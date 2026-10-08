@@ -36,6 +36,14 @@ export type StreamConn = "connecting" | "open" | "reconnecting" | "closed";
 export interface ConvState {
   /** The conversation's agent (1:1 collapse; the human is the viewer). */
   agent: SenderRef | null;
+  /** The AHP projection's items — REPLACED wholesale on every state (#29).
+   *  An item the projection no longer contains is gone: upserting here kept
+   *  ghosts alive after undo/continuity/reconnect. */
+  canonical: UiItem[];
+  /** Local-only items (optimistic sends, pre-projection echoes); an entry
+   *  collapses the moment canonical carries its id. */
+  overlay: UiItem[];
+  /** Rendered = canonical ∪ overlay. Derived — never written directly. */
   items: UiItem[];
   streamConn: StreamConn;
   error: string | null;
@@ -79,6 +87,8 @@ export type Action =
 export function initialState(): ConvState {
   return {
     agent: null,
+    canonical: [],
+    overlay: [],
     items: [],
     streamConn: "connecting",
     error: null,
@@ -233,6 +243,45 @@ function segmentSenderOf(seg: TurnSegment): SenderRef {
 
 // ─── Reducer ───────────────────────────────────────────────
 
+/** Derive the rendered list: canonical wholesale, plus overlay entries the
+ *  projection has not echoed yet (same id = the echo won, overlay goes). */
+function reconcile(state: ConvState): ConvState {
+  const canonicalIds = new Set(state.canonical.map((item) => item.id));
+  // The optimistic send's id (opt-…) never equals its echo's (the ledger's
+  // messageId), so id-collision alone cannot collapse it: a committed user
+  // turn in canonical IS the echo. Bursts collapse together on the first
+  // echo — the same one-beat imprecision the old latest-opt rule had.
+  const echoed = state.canonical.some(
+    (item) => item.kind === "message" && item.sender.kind === "human",
+  );
+  const overlay = state.overlay.filter((item) => {
+    if (
+      item.kind === "message" &&
+      item.id.startsWith("opt-") &&
+      item.sender.kind === "human" &&
+      echoed
+    ) {
+      return false;
+    }
+    return !canonicalIds.has(item.id);
+  });
+  // Render order: an un-echoed send precedes the reply it provoked (the
+  // canvas showed [opt, agent] before; canonical-first would flip it), while
+  // notices and anything else append.
+  const items = [...state.canonical];
+  const firstAgentIdx = items.findIndex(
+    (item) => item.kind === "message" && item.sender.kind === "agent",
+  );
+  for (const item of overlay) {
+    if (item.kind === "message" && item.sender.kind === "human" && firstAgentIdx >= 0) {
+      items.splice(firstAgentIdx, 0, item);
+    } else {
+      items.push(item);
+    }
+  }
+  return { ...state, overlay, items };
+}
+
 export function reducer(s: ConvState, a: Action): ConvState {
   switch (a.type) {
     case "bootstrap": {
@@ -243,19 +292,22 @@ export function reducer(s: ConvState, a: Action): ConvState {
       // System authorship renders as a notice, not a chat bubble.
       if (revision.role === "system") {
         const text = extractText({ text: revision.text, blocks: revision.blocks });
-        return {
+        return reconcile({
           ...s,
-          items: [...s.items, { kind: "notice", id: revision.messageId, text: text || "[system]" }],
-        };
+          overlay: [
+            ...s.overlay,
+            { kind: "notice", id: revision.messageId, text: text || "[system]" },
+          ],
+        });
       }
-      const existing = s.items.find(
+      const existing = s.overlay.find(
         (it): it is Extract<UiItem, { kind: "message" }> =>
           it.kind === "message" && it.id === revision.messageId,
       );
       const message = mergeMessageRevision(existing?.content ?? null, revision);
       const id = message.id ?? revision.messageId;
       const sender = senderForRole(revision.role, s);
-      const items = upsertAuthoritative(s.items, {
+      const overlay = upsertAuthoritative(s.overlay, {
         kind: "message",
         id,
         sender,
@@ -265,44 +317,41 @@ export function reducer(s: ConvState, a: Action): ConvState {
         ...(a.undone ? { undone: true } : {}),
       });
       // pendingSendCount tracks ONLY the HTTP POST in flight (see
-      // send/settled); an agent reply must not fake-clear it.
-      return { ...s, items };
+      // send/settled); an agent reply must not fake-clear it. The echo rides
+      // the overlay; reconcile drops it once canonical carries the id.
+      return reconcile({ ...s, overlay });
     }
 
     case "undo": {
       // Soft-delete: mark messages with seq in undoneSeqs as undone (greyed out).
       const undoSet = new Set(a.undoneSeqs);
-      const items = s.items.map((item) =>
-        item.kind === "message" && undoSet.has(item.seq) ? { ...item, undone: true } : item,
-      );
-      return { ...s, items };
+      const mark = (item: UiItem) =>
+        item.kind === "message" && undoSet.has(item.seq) ? { ...item, undone: true } : item;
+      return reconcile({
+        ...s,
+        canonical: s.canonical.map(mark),
+        overlay: s.overlay.map(mark),
+      });
     }
     case "items": {
       // AHP owns the history and re-derives all of it on every change. Each item goes through the
       // same upsert the event path used: one that matches an existing item is updated in place,
       // and the ledger's echo of the viewer's own message replaces the optimistic item rather than
       // appearing beside it.
-      let list = s.items;
-      for (const item of a.items) {
-        if (item.kind === "notice") {
-          const idx = list.findIndex((existing) => existing.id === item.id);
-          list =
-            idx >= 0 ? list.map((existing, i) => (i === idx ? item : existing)) : [...list, item];
-          continue;
-        }
-        list = upsertAuthoritative(list, item);
-      }
-      return { ...s, items: list };
+      // Wholesale replace (#29): the projection is authoritative for what
+      // exists. The optimistic send survives in the overlay until its echo
+      // lands here with the ledger's id.
+      return reconcile({ ...s, canonical: [...a.items] });
     }
     case "send": {
       // W7: use stable UUID instead of opt- prefix — enables precise matching
       // when backend echoes the message back (future: clientMsgId in API).
       const id = `opt-${crypto.randomUUID()}`;
-      return {
+      return reconcile({
         ...s,
         pendingSendCount: s.pendingSendCount + 1,
-        items: [
-          ...s.items,
+        overlay: [
+          ...s.overlay,
           {
             kind: "message" as const,
             id,
@@ -311,7 +360,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
             seq: -1, // ponytail: sentinel - replaced when backend echoes authoritative seq
           },
         ],
-      };
+      });
     }
 
     case "conn":
