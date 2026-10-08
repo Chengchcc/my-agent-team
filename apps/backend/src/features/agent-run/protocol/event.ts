@@ -64,13 +64,6 @@ export interface ToolPresentation {
 export type CoreBackendEvent =
   | { readonly type: "text_delta"; readonly text: string }
   | { readonly type: "thinking_delta"; readonly text: string }
-  | { readonly type: "product_tool_started"; readonly toolName: string; readonly callId: string }
-  | {
-      readonly type: "product_tool_completed";
-      readonly toolName: string;
-      readonly callId: string;
-      readonly result?: Readonly<Record<string, unknown>>;
-    }
   | {
       readonly type: "native_tool_started";
       readonly toolName: string;
@@ -92,7 +85,6 @@ export type CoreBackendEvent =
       /** Result-side display metadata (resultSummary / errorSummary). */
       readonly presentation?: ToolPresentation;
     }
-  | { readonly type: "pending_action"; readonly actionId: string }
   // The two HITL requests carry their payload as one object instead of flat
   // fields: that object IS the durable `pending_action` row, so broadcast,
   // storage and replay stay the same shape (see the payload interfaces).
