@@ -187,6 +187,10 @@ export function loadSessionMessages(
     {
       role: "user",
       text: `<previous_session_summary>\n${foldSummary}\n</previous_session_summary>`,
+      // Marks this as the compaction fold, not a user turn: the seeding trim
+      // (answeredPrefixLength) must keep it — a fully compacted session has
+      // nothing else, and dropping it would erase the run's entire past.
+      synthetic: "session-summary",
     },
     ...messages.slice(foldFrom),
   ];

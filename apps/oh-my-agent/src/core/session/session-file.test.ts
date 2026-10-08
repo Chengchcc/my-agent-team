@@ -86,6 +86,7 @@ describe("session-file compaction round-trip", () => {
     expect(loaded[0]).toEqual({
       role: "user",
       text: "<previous_session_summary>\nsummarized prior context\n</previous_session_summary>",
+      synthetic: "session-summary",
     });
     expect(loaded[1]).toEqual({ role: "user", text: "after compaction" });
   });
@@ -130,6 +131,7 @@ describe("session-file compaction round-trip", () => {
       {
         role: "user",
         text: "<previous_session_summary>\nq1/a1 summarized\n</previous_session_summary>",
+        synthetic: "session-summary",
       },
       { role: "user", text: "q2" },
     ]);
@@ -151,6 +153,7 @@ describe("session-file compaction round-trip", () => {
       {
         role: "user",
         text: "<previous_session_summary>\neverything so far\n</previous_session_summary>",
+        synthetic: "session-summary",
       },
       { role: "assistant", text: "a1" },
       { role: "user", text: "q2" },
@@ -179,6 +182,7 @@ describe("session-file compaction round-trip", () => {
       {
         role: "user",
         text: "<previous_session_summary>\nsummary of the old turns\n</previous_session_summary>",
+        synthetic: "session-summary",
       },
       { role: "user", text: "new q" },
       { role: "assistant", text: "new a" },
@@ -195,6 +199,7 @@ describe("session-file compaction round-trip", () => {
       {
         role: "user",
         text: "<previous_session_summary>\neverything\n</previous_session_summary>",
+        synthetic: "session-summary",
       },
     ]);
   });
@@ -253,6 +258,7 @@ describe("persistSessionTurn wires runtime compactions into the file", () => {
       {
         role: "user",
         text: "<previous_session_summary>\nall of it\n</previous_session_summary>",
+        synthetic: "session-summary",
       },
     ]);
   });

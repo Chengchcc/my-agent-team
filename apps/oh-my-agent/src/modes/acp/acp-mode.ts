@@ -259,8 +259,15 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const resume = session.resumeDecisions;
     session.resumeDecisions = null;
     const loaded = withoutOrphanToolResults(loadSessionMessages(session.sessionId, sessionDir));
+    // The shared seeding rule (answeredPrefixLength, same as seedTranscript on
+    // the TUI side): a trailing unanswered user run is not history. ADR 0038
+    // re-delivers a resumed run's input, and a dead child may have persisted
+    // it already — the live prompt takes the dropped turn's place. The trim
+    // runs on the RAW records (before MessageSchema.parse) so the loader's
+    // synthetic marker on the compaction fold is still visible to it.
+    const seeded = loaded.slice(0, answeredPrefixLength(loaded));
     const transcript: { productEntryId: string; message: Message }[] = [];
-    for (const [i, message] of loaded.entries()) {
+    for (const [i, message] of seeded.entries()) {
       try {
         transcript.push({
           productEntryId: `session:${i}`,
@@ -290,12 +297,6 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         log("[acp] malformed parked-turn marker: ignoring");
       }
     }
-    // The shared seeding rule (answeredPrefixLength, same as seedTranscript on
-    // the TUI side): a trailing unanswered user run is not history. ADR 0038
-    // re-delivers a resumed run's input, and a dead child may have persisted
-    // it already — the live prompt takes the dropped turn's place instead of
-    // guessing (by message.id) whether the prompt is already in the file.
-    transcript.length = answeredPrefixLength(transcript.map((t) => t.message));
     const persistedIds = new Set(
       transcript.map((t) => t.message.id).filter((id): id is string => id != null),
     );
@@ -404,6 +405,10 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         }),
       },
       workspace: { root: session.cwd, access: "read_write" },
+      // ADR 0038: without this the runtime never enters its resume branch, so
+      // the parked tool calls stay unpaired and the already-submitted HITL
+      // decisions silently never apply.
+      ...(resume ? { resume: { decisions: resume } } : {}),
     } as never;
     const segment = await runtime.run(input);
     let outcome: BackendRunOutcome;
