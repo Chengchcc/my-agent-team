@@ -249,6 +249,7 @@ describe("createWorkflowExecutionService", () => {
   test("agent node retries with schema error feedback in prompt", async () => {
     const { port, nodeRuns } = ramPort();
     const posted: string[] = [];
+    const postedRuns: string[] = [];
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: {} as never,
@@ -272,7 +273,9 @@ describe("createWorkflowExecutionService", () => {
       conversationService: {
         postMessage: async ({ content }: { content: unknown }) => {
           posted.push(String(content));
-          return { triggeredRuns: [{ runId: posted.length === 1 ? "r1" : "r2", queued: true }] };
+          const runId = posted.length === 1 ? "r1" : "r2";
+          postedRuns.push(runId);
+          return { triggeredRuns: [{ runId, queued: true }] };
         },
       } as never,
       resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
@@ -308,6 +311,11 @@ describe("createWorkflowExecutionService", () => {
     expect(result.status).toBe("success");
     expect(posted.length).toBe(2);
     expect(posted[1]).toContain("previous attempt failed");
+    // #42: the correction is a NEW input identity — a distinct run, and the
+    // node's persisted runId follows it. Nothing may reuse r1 or treat the
+    // retry as a replay of the failed attempt.
+    expect(postedRuns).toEqual(["r1", "r2"]);
+    expect(nodeRuns.find((r) => r.nodeId === "a")!.runId).toBe("r2");
     expect(nodeRuns.find((r) => r.nodeId === "a")!.output).toEqual({ val: 1 });
   });
 
