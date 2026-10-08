@@ -72,7 +72,6 @@ export interface AgentRunExecutionDeps {
     outcome: "allow" | "deny" | "timeout";
   }) => void;
   /** Conversation title lookup for the auto-title retry flag. */
-  readonly conversationTitleOf?: (conversationId: string) => string | null | undefined;
   /** Called after a failed/aborted/timeout run settles, so the surface can
    *  persist an assistant error message (T3-2: failures survive refresh).
    *  Fired once per terminal settle; consumers must be idempotent per runId. */

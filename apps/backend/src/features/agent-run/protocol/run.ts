@@ -44,9 +44,6 @@ export interface BackendRunInput<K extends string = string> {
    *  the child's permission classifier — the product's own read
    *  surfaces. Absent = every mounted MCP tool is gated. */
   readonly consentedMcpTools?: readonly string[];
-  /** True when the conversation already has a title — the child skips
-   *  auto-title generation (checked again server-side on commit). */
-  readonly convTitled?: boolean;
   /** Oma-only execution mode: run the workflow SCRIPT directly (vm sandbox,
    *  agent() subagents) instead of an interactive loop. The script's return
    *  value becomes `outcome.workflow.value`. Other backends ignore it. */

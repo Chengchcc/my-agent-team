@@ -1,9 +1,10 @@
 export { sqliteReminderAdapter } from "./adapter-sqlite.js";
-export type {
-  CreateReminderInput,
-  ReminderDeliver,
-  ReminderRow,
-  ReminderValidationError,
+export {
+  type CreateReminderInput,
+  REMINDER_BANNER_PREFIX,
+  type ReminderDeliver,
+  type ReminderRow,
+  type ReminderValidationError,
 } from "./domain.js";
 export { reminderRoutes } from "./http.js";
 export type { ReminderPort } from "./ports.js";

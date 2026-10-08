@@ -21,7 +21,8 @@ Conversation History 是一场对话里共同发生的事实，存在账本 `con
 - `apps/backend/src/features/conversation/ledger-codec.ts` — 存储层 kind 枚举
 - `apps/backend/src/features/conversation/http.ts` — REST 与 SSE 编码器
 - `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 绕过 service 直接写账本的终态提交
-- `apps/backend/src/bootstrap/features.ts` — `onRunCommitted` 把提交的 seq 推给 SSE 并落自动标题；`onRunFailed` 落失败气泡
+- `apps/backend/src/bootstrap/features.ts` — `onRunCommitted` 把提交的 seq 推给 chat 通道并落标题（标题由产品自己从**首个用户轮**推导，见下）；`onRunFailed` 落失败气泡
+- `apps/backend/src/features/conversation/title.ts` — 标题推导：剥掉产品前缀（锚定评论的 `[file L1-2]`、提醒横幅）、压平空白、按词边界截断
 
 ## 存什么
 
@@ -36,6 +37,12 @@ Conversation History 是一场对话里共同发生的事实，存在账本 `con
 - **`undo` 标记**。
 
 canonical 序列里包含工具消息（`run:<runId>:tool:<index>`），所以 tool_use 与 tool_result 真的躺在 History 里。
+
+## 标题
+
+标题是**产品事实**，由 backend 产出，与 harness 无关：首个完成的 Run 提交时，`onRunCommitted` 从会话的**首个用户轮**推导标题（`conversation/title.ts`：剥掉产品前缀、压平空白、按词边界截到 60 字），`!conversation.title` 的守卫让后续轮继续重试直到有标题。改名接口与 Lark 的「开新对话」都直接写这一列。
+
+历史（为什么是产品自己算）：标题曾经由 oma 生成，经 oma RPC 轨的终态结果回到产品，反向再用 `convTitled` 告诉它「已有标题就别再算」。`f1dd744e` 删掉那条轨后，ACP 的 prompt 响应里没有任何标题字段，而 claude/omp/pi 三个 harness 根本不产标题——于是标题静默消失，同时 oma 每一轮仍在算一次（纯浪费的模型调用）。现在产品自己算，并在产品侧 spawn 上设 `OMA_TITLE_ENABLED=0` 关掉子进程那次计算；独立跑 oma（人的 TUI）不受影响。
 
 ## 顺序与恢复
 
