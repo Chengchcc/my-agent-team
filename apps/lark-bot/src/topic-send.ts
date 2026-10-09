@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { ensureTopicRoot, getConversationBinding, rememberTopicKeys } from "./bindings-sqlite.js";
+import { type ImageReplyResult, replyImageToMessage, uploadLarkImage } from "./image-upload.js";
+import type { TokenProvider } from "./lark-api.js";
 import { type LarkSendResult, sendViaLarkCli } from "./lark-send.js";
 import { replyInThreadFor } from "./topic-routing.js";
 
@@ -31,6 +33,44 @@ export async function sendIntoTopic(input: {
     text: input.text,
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     replyTo: ensureTopicRoot(input.db, input.chatId, input.conversationId),
+    replyInThread: replyInThreadFor(binding?.chatMode ?? null),
+  });
+  if (result.ok && result.messageId) {
+    const keys = result.threadId ? [result.messageId, result.threadId] : [result.messageId];
+    rememberTopicKeys(input.db, input.chatId, input.conversationId, keys, Date.now());
+  }
+  return result;
+}
+
+/** Send one PRODUCED IMAGE into its conversation's topic (#65 output direction).
+ *
+ *  Same discipline as the text sender above, and for the same reason: a
+ *  top-level image in a topic chat opens a new topic. Upload-then-reply is
+ *  Feishu's two-step shape, so the upload lives here rather than being
+ *  sprinkled over callers. */
+export async function sendImageIntoTopic(input: {
+  db: Database;
+  provider: TokenProvider;
+  chatId: string;
+  conversationId: string;
+  bytes: Buffer;
+  filename: string;
+  mediaType: string;
+}): Promise<ImageReplyResult> {
+  const imageKey = await uploadLarkImage(input.provider, {
+    bytes: input.bytes,
+    mediaType: input.mediaType,
+    filename: input.filename,
+  });
+  if (!imageKey) return { ok: false, error: "image upload failed" };
+  const rootMessageId = ensureTopicRoot(input.db, input.chatId, input.conversationId);
+  // No root, no send: a top-level image in a topic chat OPENS A NEW TOPIC
+  // (invariant 12), so failing loudly beats scattering the conversation.
+  if (!rootMessageId) return { ok: false, error: "no topic root for image reply" };
+  const binding = getConversationBinding(input.db, input.conversationId);
+  const result = await replyImageToMessage(input.provider, {
+    rootMessageId,
+    imageKey,
     replyInThread: replyInThreadFor(binding?.chatMode ?? null),
   });
   if (result.ok && result.messageId) {

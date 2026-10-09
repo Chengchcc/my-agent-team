@@ -30,6 +30,10 @@ export interface AhpDeliveryDeps {
   readonly onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
   readonly onRebind?: (oldConversationId: string, newConversationId: string) => void;
   readonly sendTextOnly?: (chatId: string, text: string) => Promise<void>;
+  /** A produced artifact (#65 output direction), carried to the chat by the
+   *  transport owner: bytes are fetched, uploaded and replied into the topic
+   *  there, so this layer stays ignorant of the wire. */
+  readonly onSendImage?: (chatId: string, uri: string, filename: string) => Promise<void>;
   /** The state itself, for whatever else watches this conversation. The run card reads its own
    *  run out of it (ADR 0040 decision 4), so it is fed the same snapshot the delivery is. */
   readonly onChatState?: (state: ChatState, target: AhpDeliveryTarget) => void | Promise<void>;
@@ -63,6 +67,9 @@ async function deliverParts(
         break;
       case "systemNotification":
         handleContinuity(part, target, deps);
+        break;
+      case "contentRef":
+        await deliverContentRef(part, target, deps);
         break;
       default:
         break;
@@ -152,6 +159,47 @@ function metaOf(part: ResponsePart): Record<string, unknown> | undefined {
 function messageIdOf(part: ResponsePart): string | undefined {
   const messageId = metaOf(part)?.messageId;
   return typeof messageId === "string" ? messageId : undefined;
+}
+
+function uriOf(part: ResponsePart): string | undefined {
+  if (!("uri" in part)) return undefined;
+  return typeof part.uri === "string" ? part.uri : undefined;
+}
+
+function contentTypeOf(part: ResponsePart): string | undefined {
+  if (!("contentType" in part)) return undefined;
+  return typeof part.contentType === "string" ? part.contentType : undefined;
+}
+
+/** A tool's produced image (#65): the bytes live in the artifact store, and the
+ *  part only carries a reference. Only images travel this way; other content
+ *  types have no delivery here yet and are skipped rather than guessed at.
+ *
+ *  The URI is the identity: every responsePart is re-delivered on reconnect, so
+ *  the same artifact must land once — the delivery row answers that, exactly as
+ *  it does for text. */
+async function deliverContentRef(
+  part: ResponsePart,
+  target: AhpDeliveryTarget,
+  deps: AhpDeliveryDeps,
+): Promise<void> {
+  const uri = uriOf(part);
+  const contentType = contentTypeOf(part);
+  if (uri === undefined || contentType === undefined) return;
+  if (!contentType.startsWith("image/")) return;
+  if (!deps.onSendImage) return;
+  const existing = getMessageDelivery(deps.db, target.conversationId, uri, target.larkChatId);
+  if (existing && isSucceededMessageState(MessageStateSchema.parse(existing.lastState))) return;
+  const filename = uri.split("/").pop() ?? "image";
+  record(deps, target, uri, "streaming");
+  try {
+    await deps.onSendImage(target.larkChatId, uri, filename);
+    record(deps, target, uri, "done");
+  } catch (err) {
+    record(deps, target, uri, "error");
+    console.error(`[ahp-delivery] image send failed for ${uri}:`, err);
+    throw err;
+  }
 }
 
 function textOf(part: ResponsePart): string | undefined {

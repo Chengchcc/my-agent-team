@@ -20,6 +20,7 @@ import { createClient } from "./client.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
 import { parseEvent } from "./event-parser.js";
 import { fetchLarkImage } from "./image-fetch.js";
+import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
 import { createTokenProvider } from "./lark-api.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
@@ -36,7 +37,7 @@ import { safeAgentId } from "./safe-agent-id.js";
 import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
 import { replyInThreadFor } from "./topic-routing.js";
-import { sendIntoTopic } from "./topic-send.js";
+import { sendImageIntoTopic, sendIntoTopic } from "./topic-send.js";
 
 const args = parseArgs(process.argv.slice(2));
 const state = await bootstrap(args);
@@ -106,6 +107,36 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
       if (!result.ok) {
         console.error(`[lark-bot] sendTextOnly failed for ${chatId}: ${result.error}`);
       }
+    },
+    // #65 output direction: the part carries a reference, so the bytes come out
+    // of OUR store (privileged token) and Feishu gets its own copy under its
+    // own key. Throwing on failure is load-bearing: the delivery records the
+    // failure and the watcher's reconnect re-runs it from the same state.
+    onSendImage: async (chatId, uri, filename) => {
+      const res = await fetch(
+        `${args.backendUrl}/api/artifacts/download?url=${encodeURIComponent(uri)}`,
+        args.backendAuthToken ? { headers: { "x-auth-token": args.backendAuthToken } } : {},
+      );
+      if (!res.ok) throw new Error(`artifact fetch failed: http ${res.status}`);
+      // The download route answers the store's honest shape: bytes as base64 in
+      // a JSON envelope, not a raw byte stream. Assuming raw bytes is exactly
+      // how this path once handed Feishu a JSON document to render as an image.
+      const image = imageBytesFromArtifact(await res.json());
+      if (!image) throw new Error("artifact is not a decodable image");
+      console.log(
+        `[lark-bot] artifact for delivery: ${image.mediaType} ${image.bytes.byteLength}B`,
+      );
+      const result = await sendImageIntoTopic({
+        db: state.db,
+        provider: cardTokens,
+        chatId,
+        conversationId,
+        bytes: image.bytes,
+        filename,
+        mediaType: image.mediaType,
+      });
+      if (!result.ok) throw new Error(result.error ?? "unknown lark image send error");
+      console.log(`[lark-bot] image delivered into topic: ${filename} → ${result.messageId}`);
     },
   });
   watchers.set(conversationId, handle);
