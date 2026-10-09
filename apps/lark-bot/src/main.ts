@@ -7,6 +7,7 @@ import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
   ensureTopicRoot,
+  findConversationByTopicKey,
   getConversationBinding,
   getInputCard,
   listBoundChats,
@@ -23,7 +24,7 @@ import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
 import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
 import { createTokenProvider } from "./lark-api.js";
-import { MessageBatcher, renderMergedMessages } from "./merge-batch.js";
+import { MergeHold, renderMergedMessages } from "./merge-hold.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
 import {
@@ -259,19 +260,6 @@ const child = spawn(
 
 let ready = false;
 
-/** #83: how long one person's burst stays open. A message opens the window,
- *  anything from the same sender in the same topic joins it, and the batch is
- *  delivered once the window closes with nothing new. */
-const MERGE_WINDOW_MS = 600;
-
-/** The identity a batch is keyed by: same topic, same sender. Topic ids come
- *  from the same helper the conversation binding uses, so "which topic" cannot
- *  drift between the two. */
-function mergeKeyOf(event: LarkMessageEvent): string {
-  const topic = topicLookupKeys(event)[0] ?? "root";
-  return `${event.chat_id}|${topic}|${event.sender_id ?? "unknown"}`;
-}
-
 /** A message carrying an image never merges and never waits: its body (text +
  *  image blocks) is assembled downstream, and a merged version of that is not
  *  this layer's job. It goes straight through, exactly as before #83. */
@@ -304,6 +292,9 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
     // queued state; when the backend promotes it into a run, the SAME card
     // takes that run over (`adopt`), so nothing new appears in the topic.
     onQueuedInput: (inputId, conversationId, sourceMessageId) => {
+      // #83's trigger: this conversation's newest input is queued, so messages
+      // arriving until it is picked up belong together.
+      merger.hold(conversationId);
       const binding = getConversationBinding(state.db, conversationId);
       startQueuedCard(inputId, conversationId, event.chat_id, {
         db: state.db,
@@ -313,6 +304,9 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
         replyTo: binding?.topicRootMessageId ?? null,
         replyInThread: replyInThreadFor(binding?.chatMode ?? null),
         onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
+          // The queued input is now a run: whatever accumulated behind it ships
+          // as its own input (queued, as it should be, behind this run).
+          void merger.release(conversationId);
           if (!cardKitId || !larkMessageId) return;
           console.log(`[lark-bot] queued card promoted: ${promotedInput} → run ${runId}`);
           void startRunCard(runId, conversationId, event.chat_id, sourceMessageId, {
@@ -356,11 +350,14 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
   }
 }
 
-// #83: one person's burst is one thought. The batch is delivered as a single
-// message whose text says how many originals it carries, so the question a
-// given answer belongs to stays readable instead of being inferred from timing.
-const batcher = new MessageBatcher<LarkMessageEvent>({
-  windowMs: MERGE_WINDOW_MS,
+// #83: while this conversation's previous input is still queued, added messages
+// accumulate and ship as ONE input (with the count in its text) instead of each
+// becoming its own run. Idle conversations hold nothing — see merge-hold.ts for
+// why the first shape (a 600ms window) was wrong.
+const merger = new MergeHold<LarkMessageEvent>({
+  // A hold that is never released (its input got cancelled, its watcher went
+  // away) must not swallow messages: this cap delivers them late instead.
+  maxHoldMs: 30_000,
   onFlush: async (batch) => {
     const [first, ...rest] = batch;
     if (!first) return;
@@ -378,6 +375,23 @@ const batcher = new MessageBatcher<LarkMessageEvent>({
   },
 });
 
+/** The key holds are tracked under: the conversation this message belongs to.
+ *  Topic keys first (ADR 0037), then the chat's newest conversation for a DM or
+ *  a chat without topics. The `new:` fallback is for a topic's first message,
+ *  which has no binding yet — nothing can be queued for it, so it is inert. */
+function mergeKeyOf(event: LarkMessageEvent): string {
+  const keys = topicLookupKeys(event);
+  for (const key of keys) {
+    const conversationId = findConversationByTopicKey(state.db, event.chat_id, key);
+    if (conversationId) return conversationId;
+  }
+  if (keys.length === 0) {
+    const newest = newestConversationForChat(state.db, event.chat_id);
+    if (newest) return newest;
+  }
+  return `new:${event.chat_id}:${keys.join(",")}`;
+}
+
 async function handleLine(line: string): Promise<void> {
   const trimmed = line.trim();
   if (!trimmed) return;
@@ -393,11 +407,17 @@ async function handleLine(line: string): Promise<void> {
     ready = true;
   }
 
-  if (!isMergeable(event)) {
-    await runIngest(event);
-    return;
+  const key = mergeKeyOf(event);
+  if (merger.isHolding(key)) {
+    if (isMergeable(event)) {
+      merger.add(key, event);
+      return;
+    }
+    // An image cannot join a batch: deliver what accumulated first, so the
+    // conversation keeps its order.
+    await merger.release(key);
   }
-  batcher.push(mergeKeyOf(event), event);
+  await runIngest(event);
 }
 
 const rl = createInterface({ input: child.stdout! });
@@ -527,7 +547,7 @@ process.on("SIGTERM", () => {
   console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
   // A batch still inside its quiet window is a message someone sent: deliver it
   // before we go (the backend may still be up when only the bot restarts).
-  void batcher.flushAll();
+  void merger.flushAll();
   cleanup();
   // Every consumer gets the signal: leaving the card/reaction streams to die
   // with the parent skipped lark-cli's own unsubscribe (it warns about it).
