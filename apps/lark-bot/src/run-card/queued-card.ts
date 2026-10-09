@@ -51,7 +51,7 @@ export interface QueuedCardHandle {
 }
 
 /** The queued frame: a title, one line of truth, and the way out. */
-function queuedCardJson(inputId: string, text: string): Record<string, unknown> {
+export function queuedCardJson(inputId: string, text: string): Record<string, unknown> {
   return {
     schema: "2.0",
     config: { update_multi: true, summary: { content: "排队中" } },
@@ -239,8 +239,9 @@ export function startQueuedCard(
 }
 
 /** The frame of an injected message: no way out left, because there is none —
- *  the message is already part of the running turn. */
-function steeredCardJson(text: string): Record<string, unknown> {
+ *  the message is already part of the running turn. Exported for the card
+ *  probe: renderer changes must pass the line-level build check. */
+export function steeredCardJson(text: string): Record<string, unknown> {
   return {
     schema: "2.0",
     config: { update_multi: true, summary: { content: "已注入本轮" } },

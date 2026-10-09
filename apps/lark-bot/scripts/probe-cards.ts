@@ -22,6 +22,7 @@
  */
 import { createTokenProvider } from "../src/lark-api.js";
 import { renderCard } from "../src/run-card/card-renderer.js";
+import { queuedCardJson, steeredCardJson } from "../src/run-card/queued-card.js";
 import { cardStateFromChatTurn, type RunCardState } from "../src/run-card/card-state.js";
 
 const profile = process.argv[2];
@@ -133,6 +134,18 @@ const running = card(
   { todos: plan },
 );
 
+/** The queue frames are a different renderer (#64): raw JSON, no run state. */
+const rawCases: Array<{ label: string; card: Record<string, unknown> }> = [
+  {
+    label: "queued card (steer + cancel)",
+    card: queuedCardJson("probe-input", "上一轮还在跑，这条消息在排队。到它时会用这张卡片回答。"),
+  },
+  {
+    label: "steered card (terminal, no buttons)",
+    card: steeredCardJson("已作为追加指示注入正在跑的那一轮，不再单独成轮。"),
+  },
+];
+
 const cases: Array<{ label: string; state: RunCardState }> = [
   { label: "run card (todos + tool)", state: running },
   {
@@ -157,6 +170,21 @@ const base = tokenProvider.getBaseUrl();
 const meta = { runId, startedAt: Date.now(), webUrl: "http://web/runs/probe" };
 
 let failed = 0;
+for (const { label, card } of rawCases) {
+  const res = await fetch(`${base}/open-apis/cardkit/v1/cards`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ type: "card_json", data: JSON.stringify(card) }),
+  });
+  const body = await res.text();
+  const code = readCode(body);
+  if (code === 0) {
+    console.log(`OK    ${label}`);
+  } else {
+    failed += 1;
+    console.log(`FAIL  ${label} -> http ${res.status} ${body.slice(0, 220)}`);
+  }
+}
 for (const { label, state } of cases) {
   const res = await fetch(`${base}/open-apis/cardkit/v1/cards`, {
     method: "POST",
@@ -180,4 +208,4 @@ if (failed > 0) {
   console.error(`\n${failed} card shape(s) rejected by Feishu - fix before shipping.`);
   process.exit(1);
 }
-console.log(`\n${cases.length} card shapes accepted.`);
+console.log(`\n${rawCases.length + cases.length} card shapes accepted.`);
