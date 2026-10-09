@@ -58,6 +58,13 @@ export function useConversation(
   /** HITL approval (spec): POST the decision; clear the card ONLY on a
    *  successful response. A failed POST means the child never saw the
    *  decision — dropping the card would silently lose a live approval. */
+  /** The undo mutation's response, applied to the local view: the AHP stream cannot carry a
+   *  per-message flag (the projection keeps undone messages), so the clicking tab paints the
+   *  grey-out itself instead of waiting for a reload (#57). */
+  const markUndone = useCallback((undoneSeqs: readonly number[]) => {
+    dispatch({ type: "undo", undoneSeqs: [...undoneSeqs] });
+  }, []);
+
   const resolveApproval = useCallback(
     async (runId: string, callId: string, decision: "allow" | "deny") => {
       try {
@@ -202,5 +209,6 @@ export function useConversation(
     transientTools,
     runTodos,
     resolveApproval,
+    markUndone,
   };
 }

@@ -7,7 +7,7 @@ import { createAhpChatWriter } from "./chat-writer.js";
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-function fixture(over: { projected?: unknown; lastTurnId?: string } = {}) {
+function fixture(over: { projected?: unknown } = {}) {
   const sent: Array<{ uri: string; action: Record<string, unknown> }> = [];
   const invalidated: string[] = [];
   let reads = 0;
@@ -18,7 +18,6 @@ function fixture(over: { projected?: unknown; lastTurnId?: string } = {}) {
     invalidate: (uri) => {
       invalidated.push(uri);
     },
-    lastTurnId: async () => over.lastTurnId,
     projectedTurn: async () => (over.projected ?? null) as never,
     readRunTurnContext: async () => {
       reads++;
@@ -52,21 +51,13 @@ describe("the chat channel writer", () => {
     expect(f.invalidated).toEqual(["ahp-chat:/c1"]);
   });
 
-  test("an undo truncates the channel to the last surviving turn", async () => {
-    const f = fixture({ lastTurnId: "run-2" });
+  test("an undo drops the cached projection and dispatches nothing (#57)", async () => {
+    const f = fixture();
     await f.writer.announceMessagesUndone("c1");
-    // The target is the source's last turn: the undone rows are already gone from the projection.
-    expect(f.sent).toEqual([
-      { uri: "ahp-chat:/c1", action: { type: "chat/truncated", turnId: "run-2" } },
-    ]);
-    // The host's own copy still holds the removed turns, so the cache goes too.
+    // The projection KEEPS undone messages (flagged), so no action can state the change — a
+    // truncation would remove turns the source still states. The flags ride the next snapshot.
     expect(f.invalidated).toEqual(["ahp-chat:/c1"]);
-  });
-
-  test("an undo that removes every turn clears the list (no turnId)", async () => {
-    const f = fixture({ lastTurnId: undefined });
-    await f.writer.announceMessagesUndone("c1");
-    expect(f.sent).toEqual([{ uri: "ahp-chat:/c1", action: { type: "chat/truncated" } }]);
+    expect(f.sent).toEqual([]);
   });
 
   test("opens the turn before streaming into it, and reads the context once", async () => {
