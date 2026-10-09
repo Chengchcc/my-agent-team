@@ -55,6 +55,8 @@ interface FakeAgentObservations {
   setConfigOptions?: Array<{ configId: string; value: unknown }>;
   /** How many prompts reached the agent. */
   promptCalls?: number;
+  /** The prompt payloads that reached the agent (#65's multimodal bridge). */
+  prompts?: unknown[];
   /** Every _session/steering request the agent received, in order. */
   steerCalls?: unknown[];
 }
@@ -155,6 +157,7 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       })
       .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
         obs.promptCalls = (obs.promptCalls ?? 0) + 1;
+        obs.prompts = [...(obs.prompts ?? []), ctx.params.prompt];
         const sessionId = ctx.params.sessionId;
         for (const probe of script.mcpProbes ?? []) {
           try {
@@ -285,6 +288,51 @@ async function waitUntil(
 }
 
 describe("AcpBackend against an in-memory fake agent", () => {
+  test("a text-only message prompts as one text block (unchanged shape)", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
+    await collect(await backend.execute(makeInput()));
+    expect(obs.prompts).toEqual([[{ type: "text", text: "go" }]]);
+  });
+
+  test("attachment-bearing messages reach the harness as blocks, not an empty prompt (#65)", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, obs) });
+    // The web builds exactly this for a message with attachments: the caption
+    // rides a block and `text` stays undefined — which used to send "".
+    const input = makeInput();
+    const segment = await backend.execute({
+      ...input,
+      input: {
+        inputId: "in-img",
+        message: {
+          role: "user",
+          blocks: [
+            { type: "text", text: "what is in this picture?" },
+            { type: "image", mediaType: "image/png", base64: "aWNn" },
+          ],
+        },
+      },
+    });
+    await collect(segment);
+    expect(obs.prompts).toEqual([
+      [
+        { type: "text", text: "what is in this picture?" },
+        { type: "image", data: "aWNn", mimeType: "image/png" },
+      ],
+    ]);
+  });
+
   test("happy path: stream events, completed outcome, sessionId as cliSessionRef", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],
