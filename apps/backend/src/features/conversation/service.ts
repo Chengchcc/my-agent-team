@@ -29,7 +29,13 @@ export interface ConversationServiceDeps {
   dispatchRun: (runId: string) => Promise<void>;
   /** Best-effort steer injection into the branch's LIVE run (used when the
    *  enqueue queued behind an active run with mode=steer). */
-  injectSteer: (branchId: string, input: { inputId: string; message: Message }) => Promise<void>;
+  injectSteer: (
+    branchId: string,
+    input: { inputId: string; message: Message },
+    /** #64: a queued input steered from its card. On an idle branch keep the
+     *  input queued (the next turn takes it) instead of cancelling it. */
+    opts?: { keepIfIdle?: boolean },
+  ) => Promise<void>;
   /** Live-child probe: true when the run has an in-process child. DB-active
    *  alone is NOT enough (restart / pre-acceptance failure leaves a zombie
    *  active run with no live child). */
@@ -144,7 +150,7 @@ export interface ConversationService {
   getInputState(
     inputId: string,
   ): Promise<{ inputId: string; status: string; runId: string | null } | null>;
-  steerInput(inputId: string): Promise<void>;
+  steerInput(inputId: string, opts?: { keepIfIdle?: boolean }): Promise<void>;
   /** CAS a pending input's message; false when no longer pending. */
   updateInput(inputId: string, text: string): Promise<boolean>;
   /** CAS a pending/delivering input to cancelled (idempotent). */
@@ -581,11 +587,11 @@ class ConversationServiceImpl implements ConversationService {
     return { inputId: input.inputId, status: input.status, runId: input.runId ?? null };
   }
 
-  async steerInput(inputId: string): Promise<void> {
+  async steerInput(inputId: string, opts?: { keepIfIdle?: boolean }): Promise<void> {
     const input = await this.#agentRuns.getInput(inputId);
     if (!input) throw new Error("Input not found");
     if (input.status !== "pending") throw new Error("Input is no longer pending");
-    await this.#injectSteer(input.branchId, { inputId, message: input.message });
+    await this.#injectSteer(input.branchId, { inputId, message: input.message }, opts);
   }
 
   async updateInput(inputId: string, text: string): Promise<boolean> {

@@ -108,6 +108,9 @@ export type RunCardAction =
   /** ADR 0037: drop a message that is still waiting. Cancels THAT input — the
    *  turn already running is untouched. */
   | { action: "cancel_input"; inputId: string }
+  /** #64: fold this waiting message into the running turn as a steering
+   *  addition — Claude Tag's "reply in the thread to steer", as a button. */
+  | { action: "steer_input"; inputId: string }
   | { action: "approve" | "reject"; runId: string; callId: string }
   | {
       action: "answer_ask";
@@ -135,6 +138,9 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   const inputId = "inputId" in parsed ? parsed.inputId : undefined;
   if (action === "cancel_input" && typeof inputId === "string" && inputId.length > 0) {
     return { action: "cancel_input", inputId };
+  }
+  if (action === "steer_input" && typeof inputId === "string" && inputId.length > 0) {
+    return { action: "steer_input", inputId };
   }
   const runIdValid = typeof runId === "string" && runId.length > 0;
   const callIdValid = typeof callId === "string" && callId.length > 0;
@@ -186,6 +192,10 @@ export interface CardActionDeps {
   }) => Promise<{ error?: unknown }>;
   /** Cancel a queued input (the message only, never the running turn). */
   cancelQueuedInput: (inputId: string) => Promise<{ error?: unknown }>;
+  /** Steer a queued input into the running turn (#64). keepIfIdle: if the turn
+   *  already ended, the input stays queued for the next turn instead of being
+   *  cancelled — the caller's redraw reflects whichever way it went. */
+  steerQueuedInput: (inputId: string) => Promise<{ error?: unknown }>;
   log: (message: string) => void;
 }
 
@@ -235,6 +245,27 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
       return "cancel-failed";
     }
     return "input-cancelled";
+  }
+  if (action.action === "steer_input") {
+    // Same validation as the cancel control: a waiting message has no run
+    // card, so the callback's message must be the one carrying its card.
+    const queued = getInputCardByLarkMessage(deps.db, event.messageId);
+    if (!queued || queued.larkChatId !== event.chatId || queued.inputId !== action.inputId) {
+      deps.log(
+        `card action rejected: operator=${event.operatorId} msg=${event.messageId} input=${action.inputId} (no queued card)`,
+      );
+      return "rejected";
+    }
+    const { error } = await deps.steerQueuedInput(action.inputId);
+    if (error) {
+      // Not injected — most often the turn ended first; with keepIfIdle the
+      // message is still queued, and the card says so wherever it was redrawn.
+      deps.log(
+        `card action input-steer failed: input=${action.inputId} ${JSON.stringify(error).slice(0, 120)}`,
+      );
+      return "steer-failed";
+    }
+    return "input-steered";
   }
   const card = getActiveRunCardByLarkMessage(deps.db, event.messageId);
   const chatMatches = card?.larkChatId === event.chatId;

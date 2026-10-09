@@ -210,6 +210,28 @@ async function enqueueOn(cid: string, key: string) {
 }
 
 describe("agent run execution (Run-centric)", () => {
+  test("injectSteer keepIfIdle leaves the input queued when the branch is idle (#64)", async () => {
+    const execution = makeExecution(createFakeAcpDaemon({ dataDir }));
+    const cancels: string[] = [];
+    const original = runPort.cancelInput.bind(runPort);
+    (runPort as { cancelInput: (id: string) => Promise<void> }).cancelInput = async (id) => {
+      cancels.push(id);
+      await original(id).catch(() => {});
+    };
+    const input = { inputId: "in-keep", message: { role: "user", text: "fold me in" } as never };
+
+    // The direct path keeps its cancel-on-idle semantics.
+    await expect(execution.injectSteer("branch-idle", input)).rejects.toThrow(/no active run/);
+    expect(cancels).toEqual(["in-keep"]);
+
+    // keepIfIdle: the same explicit rejection, but the message survives — the
+    // next turn takes it as its own instead of the click eating it.
+    await expect(execution.injectSteer("branch-idle", input, { keepIfIdle: true })).rejects.toThrow(
+      /no active run/,
+    );
+    expect(cancels).toEqual(["in-keep"]);
+  });
+
   test("a parked run does not block the agent's other conversations (#59: agent workspace)", async () => {
     convPort.createConversation({ conversationId: "conv-2", agentId, createdAt: Date.now() });
     const tree2 = await contextPort.getOrCreateTree("conv-2");

@@ -104,6 +104,7 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 一条消息如果落在**正在跑的那一轮**之后，它不会并进当前轮（端侧 POST 消息固定带 `mode: "normal"`，后端在有活跃 run 时一律排队），而是**自己得到一张卡**：卡片头写「排队中」，正文说明「上一轮还在跑，这条消息在排队」，并带一个**取消这条**按钮。
 
 - 取消只取消这条消息（`POST /api/conversations/:id/inputs/:inputId/cancel`），正在跑的那一轮不受影响——就是「取消 steer」的语义。
+- **作为追加指示发送**（#64）：把这条排队消息 steer 进正在跑的那一轮（`POST /…/inputs/:inputId/steer {keepIfIdle:true}`）——Claude Tag「话题内回复即折进」的按钮化。`keepIfIdle` 处理竞态：点击时本轮已结束则**保留排队**（下一轮自然消费，绝不弄丢消息），默认直连 steer 路径维持「空闲即取消」旧语义。注入成功后卡片重绘为「已注入本轮」（无按钮、青色头），`input_card` 状态机多一个终态 `steered`——steered 的输入不会再有自己的 run，提升轮询必须停。
 - 轮询 `GET /api/conversations/:id/inputs`：该输入被提升成新 run（后端会把 `run_id` 回写到排队行）时，**同一张卡片**接管那一轮（`watchRunCard` 的 `adopt`：复用既有 CardKit 实体与消息 id，首次 flush 整卡替换成运行中的卡），所以一个消息永远只有一张卡。
 - 卡片自己的消息 id 与它拿到的话题 id 也登记进 `topic_binding`（用户可能在它排队时回复它）。
 - 排队卡片的记录在 `input_card` 表（`queued → promoted | cancelled`），取消回调按「回调的 message_id 必须就是承载该输入卡片的那条、且 chat 一致」校验。

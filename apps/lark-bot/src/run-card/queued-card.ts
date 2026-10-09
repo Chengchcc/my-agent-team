@@ -67,6 +67,16 @@ function queuedCardJson(inputId: string, text: string): Record<string, unknown> 
       elements: [
         { tag: "markdown", element_id: "queued_note", content: text },
         {
+          // #64: fold THIS message into the running turn instead of waiting
+          // for its own — the queue card's whole point is that the choice is
+          // the user's, made when they can see the queue exists.
+          tag: "button",
+          element_id: "steer_queued_input",
+          text: { tag: "plain_text", content: "作为追加指示发送" },
+          type: "primary",
+          behaviors: [{ type: "callback", value: { action: "steer_input", inputId } }],
+        },
+        {
           tag: "button",
           element_id: "cancel_queued_input",
           text: { tag: "plain_text", content: "取消这条" },
@@ -226,6 +236,34 @@ export function startQueuedCard(
       timer = undefined;
     },
   };
+}
+
+/** The frame of an injected message: no way out left, because there is none —
+ *  the message is already part of the running turn. */
+function steeredCardJson(text: string): Record<string, unknown> {
+  return {
+    schema: "2.0",
+    config: { update_multi: true, summary: { content: "已注入本轮" } },
+    header: { title: { tag: "plain_text", content: "已注入本轮" }, template: "turquoise" },
+    body: { elements: [{ tag: "markdown", element_id: "queued_note", content: text }] },
+  };
+}
+
+/** Redraw a queued card as steered into the running turn (#64, called by the
+ *  steer callback). Terminal for the card: a steered input never gets a run of
+ *  its own, so the promotion poller must not keep waiting for one. */
+export async function markQueuedCardSteered(
+  deps: Pick<QueuedCardDeps, "db" | "cardClient">,
+  inputId: string,
+): Promise<void> {
+  const record = getInputCard(deps.db, inputId);
+  if (!record?.cardKitId || record.status !== "queued") return;
+  await deps.cardClient.updateCard(
+    record.cardKitId,
+    steeredCardJson("已作为追加指示注入正在跑的那一轮，不再单独成轮。"),
+    1,
+  );
+  updateInputCard(deps.db, inputId, { status: "steered" });
 }
 
 /** Redraw a queued card as cancelled (called by the cancel callback). */

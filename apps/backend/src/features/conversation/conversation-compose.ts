@@ -25,7 +25,13 @@ export function createConversationFeature(input: {
    *  AgentRunExecutionService.dispatch once that service exists. */
   dispatchRun: (runId: string) => Promise<void>;
   /** Steer injection into the live run (features.ts wires it the same way). */
-  injectSteer: (branchId: string, input: { inputId: string; message: Message }) => Promise<void>;
+  injectSteer: (
+    branchId: string,
+    input: { inputId: string; message: Message },
+    /** #64: a queued input steered from its card. On an idle branch keep the
+     *  input queued (the next turn takes it) instead of cancelling it. */
+    opts?: { keepIfIdle?: boolean },
+  ) => Promise<void>;
   /** Live-child probe for the auto-routing fallback (features.ts wires it
    *  to AgentRunExecutionService.isLive). */
   isLive: (runId: string) => boolean;

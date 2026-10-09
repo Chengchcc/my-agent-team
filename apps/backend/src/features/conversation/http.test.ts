@@ -127,6 +127,12 @@ describe("conversation routes", () => {
 
     const steer = await api(harness, "POST", `${BASE}/c-inputs/inputs/nope/steer`);
     expect(steer.status).toBe(404);
+    // #64: the option rides the body; its absence must stay valid (the direct
+    // steer path posts with no body at all).
+    const keepIdle = await api(harness, "POST", `${BASE}/c-inputs/inputs/nope/steer`, {
+      keepIfIdle: true,
+    });
+    expect(keepIdle.status).toBe(404);
 
     const patch = await api(harness, "PATCH", `${BASE}/c-inputs/inputs/nope`, { text: "edited" });
     expect(patch.status).toBe(409);

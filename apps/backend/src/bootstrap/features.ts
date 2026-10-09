@@ -431,7 +431,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   const dispatchRun: { fn: (runId: string) => Promise<void> } = { fn: async () => {} };
   const injectSteer: {
-    fn: (branchId: string, input: { inputId: string; message: Message }) => Promise<void>;
+    fn: (
+      branchId: string,
+      input: { inputId: string; message: Message },
+      opts?: { keepIfIdle?: boolean },
+    ) => Promise<void>;
   } = { fn: async () => {} };
   const isLive: { fn: (runId: string) => boolean } = { fn: () => false };
   const isInflight: { fn: (runId: string) => boolean } = { fn: () => false };
@@ -450,7 +454,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     agentSvc,
     agentRunService,
     dispatchRun: (runId: string) => dispatchRun.fn(runId),
-    injectSteer: (branchId, input) => injectSteer.fn(branchId, input),
+    injectSteer: (branchId, input, opts) => injectSteer.fn(branchId, input, opts),
     isLive: (runId: string) => isLive.fn(runId),
     isInflight: (runId: string) => isInflight.fn(runId),
     abortStaleRun: (runId: string) => abortStaleRun.fn(runId),

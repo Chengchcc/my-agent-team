@@ -352,6 +352,10 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
           calls.push(`cancelInput:${inputId}`);
           return {};
         },
+        steerQueuedInput: async (inputId: string) => {
+          calls.push(`steerInput:${inputId}`);
+          return {};
+        },
         resolveApproval: async (runId: string, callId: string, decision: string) => {
           calls.push(`approval:${runId}:${callId}:${decision}`);
           return {};
@@ -487,6 +491,53 @@ describe("handleCardActionLine (ADR 0031 callback trust model)", () => {
     );
     expect(forged).toBe("rejected");
     expect(h.calls).toEqual(["cancelInput:in_q"]);
+  });
+
+  test("steer_input folds the waiting message into the running turn (#64)", async () => {
+    // Same trust model as the cancel control: the callback's message must be
+    // the one carrying the input's queued card.
+    insertInputCard(db, {
+      inputId: "in_s",
+      conversationId: "conv-s",
+      larkChatId: "oc_actions",
+      now: Date.now(),
+    });
+    updateInputCard(db, "in_s", { larkMessageId: "om_queued_card_s", cardKitId: "card_s" });
+    const h = deps();
+    const steered = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-steer-input",
+        operator_id: "ou_user",
+        chat_id: "oc_actions",
+        message_id: "om_queued_card_s",
+        action_tag: "button",
+        action_value: JSON.stringify({ action: "steer_input", inputId: "in_s" }),
+      }),
+      h.deps,
+    );
+    expect(steered).toBe("input-steered");
+    expect(h.calls).toEqual(["steerInput:in_s"]);
+
+    // The turn ended first (a 409 from the backend, keepIfIdle kept it
+    // queued): the action reports failure, nothing else is touched.
+    const late = deps();
+    late.deps.steerQueuedInput = async (inputId: string) => {
+      late.calls.push(`steerInput:${inputId}`);
+      return { error: { status: 409 } };
+    };
+    const failed = await handleCardActionLine(
+      callbackLine({
+        event_id: "ev-steer-late",
+        operator_id: "ou_user",
+        chat_id: "oc_actions",
+        message_id: "om_queued_card_s",
+        action_tag: "button",
+        action_value: JSON.stringify({ action: "steer_input", inputId: "in_s" }),
+      }),
+      late.deps,
+    );
+    expect(failed).toBe("steer-failed");
+    expect(late.calls).toEqual(["steerInput:in_s"]);
   });
 });
 
@@ -634,6 +685,7 @@ describe("free-text ask form", () => {
         db,
         cancelRun: async () => ({}),
         cancelQueuedInput: async () => ({}),
+        steerQueuedInput: async () => ({}),
         resolveApproval: async () => ({}),
         resolveAsk: async (input: {
           runId: string;

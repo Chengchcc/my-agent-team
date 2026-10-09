@@ -26,6 +26,7 @@ import { createCardKitClient } from "./run-card/card-kit.js";
 import {
   liveQueuedInputCards,
   markQueuedCardCancelled,
+  markQueuedCardSteered,
   startQueuedCard,
 } from "./run-card/queued-card.js";
 import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
@@ -353,6 +354,20 @@ createInterface({ input: actionChild.stdout! }).on("line", (line) => {
         .cancel.post();
       if (!error) {
         await markQueuedCardCancelled({ db: state.db, cardClient }, inputId);
+      }
+      return { error: error ?? undefined };
+    },
+    steerQueuedInput: async (inputId) => {
+      const record = getInputCard(state.db, inputId);
+      if (!record) return { error: "unknown input" };
+      // keepIfIdle: the turn ending between render and click is not the user's
+      // mistake — the message stays queued and the next turn takes it (#64).
+      const { error } = await actionBackendClient.api
+        .conversations({ id: record.conversationId })
+        .inputs({ inputId })
+        .steer.post({ keepIfIdle: true });
+      if (!error) {
+        await markQueuedCardSteered({ db: state.db, cardClient }, inputId);
       }
       return { error: error ?? undefined };
     },

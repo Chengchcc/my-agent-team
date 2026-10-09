@@ -175,7 +175,11 @@ function makeRunService(): AgentRunService {
 }
 
 const runSvc = makeRunService();
-const injectSteerCalls: Array<{ branchId: string; inputId: string }> = [];
+const injectSteerCalls: Array<{
+  branchId: string;
+  inputId: string;
+  opts?: { keepIfIdle?: boolean };
+}> = [];
 const abortStaleCalls: string[] = [];
 /** Every continuity record the service announced, in order. */
 const continuityAnnouncements: Array<{ conversationId: string; controlSeq: number }> = [];
@@ -191,8 +195,8 @@ const svc = createConversationService({
   dispatchRun: async (runId) => {
     dispatchCalls.push(runId);
   },
-  injectSteer: async (branchId, input) => {
-    injectSteerCalls.push({ branchId, inputId: input.inputId });
+  injectSteer: async (branchId, input, opts) => {
+    injectSteerCalls.push({ branchId, inputId: input.inputId, opts });
   },
   isLive: (runId) => liveRunIds.has(runId),
   isInflight: (runId) => inflightRunIds.has(runId),
@@ -528,6 +532,11 @@ describe("conversation service (Agent Run cutover)", () => {
     await svc.steerInput(inputId);
     expect(injectSteerCalls).toHaveLength(1);
     expect(injectSteerCalls[0]!.inputId).toBe(inputId);
+
+    // #64: the queue-card flow steers with keepIfIdle — if the turn already
+    // ended, the input stays queued for the next turn instead of dying.
+    await svc.steerInput(pending[1]!.inputId, { keepIfIdle: true });
+    expect(injectSteerCalls[1]!.opts).toEqual({ keepIfIdle: true });
   });
 
   test("updateInput edits pending text; cancelInput removes it from the queue", async () => {
