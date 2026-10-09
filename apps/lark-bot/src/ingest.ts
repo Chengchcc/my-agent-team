@@ -15,6 +15,7 @@ import {
 import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned, isMentionAll } from "./event-parser.js";
+import { larkImageKeyOf } from "./image-fetch.js";
 import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
 import { resolveMentionTargets } from "./mention-targets.js";
 import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
@@ -34,6 +35,9 @@ export interface IngestContext {
    *  dynamic SSE subscription. The chat id travels with it so the caller does
    *  not have to look the binding up again. */
   onNewBinding?: (conversationId: string, larkChatId: string) => void;
+  /** Fetch a Feishu image by key (#65). Absent or failed = the image message
+   *  is skipped with a log — a run is never triggered on nothing. */
+  fetchImage?: (imageKey: string) => Promise<{ base64: string; mediaType: string } | null>;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
   onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
   /** ADR 0037: called for a message that has to WAIT — it became a queued
@@ -105,6 +109,25 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   const addressed = decision.outcome === "answer";
   if (!addressed) {
     console.log(`[ingest] observing (${decision.reason}) chat=${event.chat_id}`);
+  }
+
+  // ─── Image messages: the key becomes bytes, the bytes become a block ───
+  // (#65). Text messages stay exactly as they were; an image that cannot be
+  // resolved is skipped HERE, before any state — the same "never trigger a run
+  // on nothing" rule as the auth gate.
+  let postContent: string | Array<{ type: "image"; mediaType: string; base64: string }>;
+  if (event.message_type === "image") {
+    const imageKey = larkImageKeyOf(event.content);
+    const image = imageKey && ctx.fetchImage ? await ctx.fetchImage(imageKey) : null;
+    if (!image) {
+      console.log(
+        `[ingest] skipped (image unavailable) chat=${event.chat_id} key=${imageKey ?? "?"}`,
+      );
+      return { action: "skipped", triggered: false, triggeredRuns: [] };
+    }
+    postContent = [{ type: "image", mediaType: image.mediaType, base64: image.base64 }];
+  } else {
+    postContent = event.content;
   }
 
   // ─── Control command: /stop cancels this chat's live Run cards ───
@@ -307,7 +330,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         // inbound_message table, and the card keeps its own message id. If a
         // surface label is ever needed, it belongs on the ledger entry, not
         // smuggled inside the content the agent reads.
-        content: event.content,
+        content: postContent,
         // Each Lark message is its OWN turn (ADR 0037): "normal" keeps the
         // backend from folding this message into the running turn as a steer,
         // so a busy branch queues it and it becomes its own run later — which

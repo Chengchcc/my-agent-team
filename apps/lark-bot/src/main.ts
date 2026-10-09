@@ -19,6 +19,7 @@ import { bootstrap } from "./bootstrap.js";
 import { createClient } from "./client.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
 import { parseEvent } from "./event-parser.js";
+import { fetchLarkImage } from "./image-fetch.js";
 import { ingest } from "./ingest.js";
 import { createTokenProvider } from "./lark-api.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
@@ -249,6 +250,8 @@ async function handleLine(line: string): Promise<void> {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     profile,
+    // #65: image messages download with the same tenant token CardKit uses.
+    fetchImage: (imageKey) => fetchLarkImage(cardTokens, imageKey),
     onNewBinding: (conversationId, larkChatId) => {
       // A new topic opened: watch its conversation (each topic is its own
       // conversation now, so this is the only place watchers are created at

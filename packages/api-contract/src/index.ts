@@ -1,5 +1,5 @@
 export type { LarkContent, LarkMessageEvent } from "./lark.js";
-export { larkContentSchema, larkMessageEventSchema } from "./lark.js";
+export { larkContentSchema, larkImageContentSchema, larkMessageEventSchema } from "./lark.js";
 export type {
   AgentMember,
   HumanMember,
