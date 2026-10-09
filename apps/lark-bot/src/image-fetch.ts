@@ -5,6 +5,7 @@
  *  media type (the protocol carries four) and size (base64 inflates by a third
  *  and vision payloads have ceilings): anything else reads as "no image", which
  *  the caller turns into a logged skip — never a run triggered on nothing. */
+import { larkImageContentSchema } from "@chengchenccc/api-contract";
 import type { TokenProvider } from "./lark-api.js";
 
 export interface LarkImage {
@@ -48,14 +49,16 @@ export async function fetchLarkImage(
  *  `{"image_key": "img_v2_..."}` (lark-cli may or may not pre-render it), so
  *  accept the JSON field or a bare key. */
 export function larkImageKeyOf(content: string): string | null {
+  // The shared schema is the wire's single source of truth (the contracts
+  // audit rejects bare casts at cross-process boundaries). Non-JSON content
+  // falls through to the bare-key shape, never throws.
+  let raw: unknown;
   try {
-    const parsed: unknown = JSON.parse(content);
-    if (typeof parsed === "object" && parsed !== null) {
-      const key = (parsed as { image_key?: unknown }).image_key;
-      if (typeof key === "string" && key.length > 0) return key;
-    }
+    raw = JSON.parse(content);
   } catch {
-    /* not JSON — fall through to the bare-key shape */
+    raw = undefined;
   }
+  const parsed = raw === undefined ? null : larkImageContentSchema.safeParse(raw);
+  if (parsed?.success) return parsed.data.image_key;
   return /^img_[A-Za-z0-9_-]+$/.test(content.trim()) ? content.trim() : null;
 }

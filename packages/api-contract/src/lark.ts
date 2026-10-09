@@ -62,3 +62,6 @@ export const larkMessageEventSchema = z.object({
 });
 
 export type LarkMessageEvent = z.infer<typeof larkMessageEventSchema>;
+
+/** Image-message content (#65): the platform sends the key, nothing else. */
+export const larkImageContentSchema = z.object({ image_key: z.string().min(1) });
