@@ -17,7 +17,7 @@ import type { RequestPermissionResponse, Usage as SdkUsage } from "@agentclientp
 import * as acp from "@agentclientprotocol/sdk";
 import { adaptMcpTool, sanitizeServerName } from "@chengchenccc/adapter-mcp";
 import type { ModelRuntime } from "@chengchenccc/ai";
-import { type Message, MessageSchema } from "@chengchenccc/message";
+import { type ContentBlock, type Message, MessageSchema } from "@chengchenccc/message";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import {
   type ApprovalDecision,
@@ -207,7 +207,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       if (live) {
         throw acp.RequestError.invalidParams(undefined, "a prompt is already running");
       }
-      return runPrompt(session, promptText(ctx.params.prompt), ctx.client);
+      return runPrompt(session, promptMessageOf(ctx.params.prompt), ctx.client);
     })
     .onRequest(STEER_METHOD, parseSteerParams, async (ctx) => {
       if (!live || live.sessionId !== ctx.params.sessionId) {
@@ -252,7 +252,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
    *  ready (streamed updates ride notifications meanwhile). */
   async function runPrompt(
     session: AcpSession,
-    text: string,
+    prompt: Message,
     client: acp.AgentContext,
   ): Promise<{ stopReason: "end_turn" | "cancelled"; usage?: SdkUsage }> {
     const sessionDir = process.env.OMA_SESSION_DIR ?? sessionDirFor(session.cwd);
@@ -300,7 +300,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const persistedIds = new Set(
       transcript.map((t) => t.message.id).filter((id): id is string => id != null),
     );
-    const promptMessage: Message = { role: "user", text };
+    const promptMessage: Message = prompt;
 
     const cwdSkills = scanWorkspaceSkillRoots(session.cwd);
     const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
@@ -596,12 +596,8 @@ async function fetchAcpMcpTools(
 function parseSteerParams(raw: unknown): { sessionId: string; text: string } {
   const params = raw as { sessionId?: unknown; prompt?: unknown };
   const sessionId = typeof params?.sessionId === "string" ? params.sessionId : "";
-  const text =
-    typeof params?.prompt === "string"
-      ? params.prompt
-      : Array.isArray(params?.prompt)
-        ? promptText(params.prompt as never)
-        : "";
+  // Steering stays flat text by design; the shared extractor drops images.
+  const text = promptMessageOf(params?.prompt).text ?? "";
   if (!sessionId || !text) {
     throw acp.RequestError.invalidParams(
       undefined,
@@ -611,13 +607,40 @@ function parseSteerParams(raw: unknown): { sessionId: string; text: string } {
   return { sessionId, text };
 }
 
-function promptText(prompt: unknown): string {
-  if (typeof prompt === "string") return prompt;
-  if (!Array.isArray(prompt)) return "";
-  return (prompt as { type: string; text?: string }[])
-    .filter((block) => block.type === "text" && typeof block.text === "string")
-    .map((block) => block.text)
-    .join("");
+/** ACP prompt blocks → a user Message (#65, break 2). Text blocks join into
+ *  `text` (the transcript's flat form); image blocks ride `blocks` — both
+ *  providers serialize them (anthropic-messages, openai-completions). An ACP
+ *  image's mimeType is validated against the four the protocol carries. */
+function promptMessageOf(prompt: unknown): Message {
+  const texts: string[] = [];
+  const blocks: ContentBlock[] = [];
+  const push = (block: unknown): void => {
+    if (typeof block !== "object" || block === null) return;
+    const { type } = block as { type?: string };
+    if (type === "text") {
+      const text = (block as { text?: unknown }).text;
+      if (typeof text === "string") texts.push(text);
+    } else if (type === "image") {
+      const { data, mimeType } = block as { data?: unknown; mimeType?: unknown };
+      if (
+        typeof data === "string" &&
+        (mimeType === "image/png" ||
+          mimeType === "image/jpeg" ||
+          mimeType === "image/gif" ||
+          mimeType === "image/webp")
+      ) {
+        blocks.push({ type: "image", mediaType: mimeType, base64: data });
+      }
+    }
+  };
+  if (typeof prompt === "string") {
+    texts.push(prompt);
+  } else if (Array.isArray(prompt)) {
+    for (const block of prompt) push(block);
+  }
+  const message: Message = { role: "user", text: texts.join("") };
+  if (blocks.length > 0) message.blocks = blocks;
+  return message;
 }
 
 /** The namespaced resume envelope: an optional `adopt` declaration and the

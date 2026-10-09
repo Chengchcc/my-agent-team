@@ -73,6 +73,8 @@ interface ClientHarness {
   newSession: (cwd: string) => Promise<string>;
   loadSession: (sessionId: string, cwd: string, _meta?: Record<string, unknown>) => Promise<void>;
   prompt: (text: string) => Promise<acp.PromptResponse>;
+  /** Raw prompt blocks on the wire (#65). */
+  promptBlocks: (blocks: unknown) => Promise<acp.PromptResponse>;
 }
 
 /** Connect a test client to the mode's server over crossed in-memory
@@ -178,8 +180,46 @@ async function startClient(
         sessionId,
         prompt: [{ type: "text", text }],
       }),
+    /** Raw blocks on the wire (#65): the multimodal prompt, unbundled. */
+    promptBlocks: (blocks: unknown) =>
+      ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks } as never),
   };
 }
+
+test("a prompt with image blocks reaches the model as vision content (#65)", async () => {
+  // Break 2 of the multimodal chain: the ACP wire carries image blocks and the
+  // providers serialize them, but promptText used to filter to text — the
+  // image never crossed the child's own boundary. The caption stays the flat
+  // text; the image rides blocks.
+  const dir = mkdtempSync(join(tmpdir(), "acp-image-prompt-"));
+  const modelCalls: Array<readonly Message[]> = [];
+  const runtime = recordingRuntime(modelCalls);
+  const c2a = streamPair();
+  const a2c = streamPair();
+  const mode = runAcpMode({
+    modelRuntime: runtime,
+    stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+    log: () => {},
+  });
+  const client = await startClient(mode, c2a, a2c);
+  try {
+    await client.newSession(dir);
+    const reply = await client.promptBlocks([
+      { type: "text", text: "what is in this picture?" },
+      { type: "image", data: "aWNn", mimeType: "image/png" },
+    ]);
+    expect(reply.stopReason).toBe("end_turn");
+    // The title generator runs as its own model call afterwards, so search
+    // the calls for the one that carried the vision block.
+    const user = modelCalls
+      .flatMap((messages) => messages.filter((m) => m.role === "user" && m.blocks?.length))
+      .at(-1)!;
+    expect(user.text).toBe("what is in this picture?");
+    expect(user.blocks).toEqual([{ type: "image", mediaType: "image/png", base64: "aWNn" }]);
+  } finally {
+    mode.stop();
+  }
+});
 
 test("session/load keeps a new prompt when restored messages have no inner message id", async () => {
   // The product spawns one oma child per run, so every turn after the first
