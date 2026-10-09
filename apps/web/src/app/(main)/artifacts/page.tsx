@@ -2,7 +2,8 @@
 
 import { FileText, FolderOpen, HardDrive, Search, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArtifactPreview } from "@/components/ArtifactPreview";
 import { CopyButton } from "@/components/ops/CopyButton";
@@ -32,6 +33,17 @@ function fmtSize(n: number): string {
 }
 
 export default function ArtifactsPage() {
+  // `useSearchParams` needs a Suspense boundary above it or `next build`
+  // refuses to prerender the route (#65: a chat's Artifacts link preselects
+  // the produced-files folder).
+  return (
+    <Suspense fallback={null}>
+      <ArtifactsView />
+    </Suspense>
+  );
+}
+
+function ArtifactsView() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [preview, setPreview] = useState<{
     url: string;
@@ -51,11 +63,22 @@ export default function ArtifactsPage() {
   const uploading = uploadArtifact.isPending;
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState<"date" | "size" | "name">("date");
-  const [folderFilter, setFolderFilter] = useState("all");
+  // A chat's "Artifacts" link carries the produced-files folder (#65 option C:
+  // tool images live here, tied to their conversation, no ledger change).
+  const requestedFolder = useSearchParams().get("folder");
+  const [folderFilter, setFolderFilter] = useState(requestedFolder ?? "all");
 
   const folders = useMemo(
-    () => [...new Set(artifacts.map((a) => a.url.split("/")[1] ?? "").filter(Boolean))].sort(),
-    [artifacts],
+    () =>
+      [
+        ...new Set([
+          ...artifacts.map((a) => a.url.split("/")[1] ?? ""),
+          ...(requestedFolder ? [requestedFolder] : []),
+        ]),
+      ]
+        .filter(Boolean)
+        .sort(),
+    [artifacts, requestedFolder],
   );
   const totalBytes = artifacts.reduce((sum, a) => sum + a.size, 0);
   const visible = artifacts
