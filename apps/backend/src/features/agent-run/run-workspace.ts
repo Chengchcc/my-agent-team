@@ -21,6 +21,11 @@ import { join } from "node:path";
 export interface RunWorkspace {
   root: string;
   access: "read_write";
+  /** True when this root is a project worktree — a shared checkout, which
+   *  ADR 0023 §5 serializes for a run's whole life. False when it is the
+   *  agent's own directory (the common case). Absent (a caller-pinned or
+   *  stored workspace) reads as shared: conservative, never looser. */
+  shared?: boolean;
 }
 
 export interface RunWorkspaceInput {
@@ -44,7 +49,8 @@ export function resolveRunWorkspace(input: RunWorkspaceInput): RunWorkspace {
     return {
       root: join(agentWorkspacePath, "projects", conversationProjectId),
       access: "read_write",
+      shared: true,
     };
   }
-  return { root: agentWorkspacePath ?? fallbackRoot, access: "read_write" };
+  return { root: agentWorkspacePath ?? fallbackRoot, access: "read_write", shared: false };
 }

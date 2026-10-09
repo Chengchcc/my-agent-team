@@ -11,7 +11,11 @@ const base = {
 
 describe("resolveRunWorkspace", () => {
   test("a plain conversation runs in the agent workspace", () => {
-    expect(resolveRunWorkspace(base)).toEqual({ root: "/ws/agent-1", access: "read_write" });
+    expect(resolveRunWorkspace(base)).toEqual({
+      root: "/ws/agent-1",
+      access: "read_write",
+      shared: false,
+    });
   });
 
   test("an agent without a workspace falls back to the configured root", () => {
@@ -22,6 +26,9 @@ describe("resolveRunWorkspace", () => {
   test("a project-bound conversation runs in that project's worktree", () => {
     const ws = resolveRunWorkspace({ ...base, conversationProjectId: "proj-1" });
     expect(ws.root).toBe("/ws/agent-1/projects/proj-1");
+    // A shared checkout (#59): the dispatch holds the workspace lock for the
+    // run's whole life, parked human asks included.
+    expect(ws.shared).toBe(true);
   });
 
   test("an unattached project is an explicit failure, not a fallback", () => {

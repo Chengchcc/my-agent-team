@@ -20,10 +20,12 @@ function lockKey(root: string): string {
   }
 }
 
-/** Per-worktree mutex shared by run dispatch, loop clean-start/reset and
- *  agent detach removal (ADR 0023 §5). One promise-chain tail per root;
- *  the chain entry is removed when the last waiter settles, so the map
- *  cannot grow across runs. */
+/** Per-workspace mutex for run dispatch (ADR 0023 §5): one caller today — the
+ *  same-workspace spawns serialize — with a hold scoped by workspace kind
+ *  (#59: a shared checkout holds for the run's whole life, an agent's own
+ *  directory only through delivery). One promise-chain tail per root; the
+ *  chain entry is removed when the last waiter settles, so the map cannot
+ *  grow across runs. */
 export function createWorkspaceLockRegistry(
   opts: { waitWarnMs?: number } = {},
 ): WorkspaceLockRegistry {
