@@ -58,7 +58,16 @@ decision to make *before* the surface leaves localhost:
 - **Multi-operator action surfaces need a signed action token.** ADR 0031
   already forbids shipping approval buttons to more than one operator without
   one; their ladder (talk / operate / administer) is a usable shape for the
-  authorisation model that token must carry.
+  authorisation model that token must carry. A worked example exists —
+  zarazhangrui/lark-coding-agent-bridge, src/card/callback-auth.ts — and the
+  shape is worth copying as-is: an HMAC over a compact payload binding run id,
+  scope, chat id, **operator open id**, action and a **policy fingerprint**,
+  plus an expiry and a one-shot nonce; verification separates malformed /
+  unknown-key / bad-signature / expired / context-mismatch / nonce-replay /
+  nonce-revoked, and signing keys rotate by version (sign with the newest,
+  verify by the version carried in the payload). The policy fingerprint is the
+  detail that earns its keep: changing *who may act* invalidates the buttons
+  already sitting in a chat.
 
 ## Consequences
 
