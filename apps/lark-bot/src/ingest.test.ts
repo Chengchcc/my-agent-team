@@ -99,6 +99,68 @@ const baseEvent: LarkMessageEvent = {
 };
 
 describe("ingest", () => {
+  test("an image message posts as an image block, its key resolved to bytes (#65)", async () => {
+    const db = makeDb();
+    const seen = mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_img" } },
+      { body: { seq: 1 } },
+    ]);
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_img",
+        message_id: "om_img",
+        message_type: "image",
+        content: '{"image_key":"img_v2_abc123"}',
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        fetchImage: async (key) =>
+          key === "img_v2_abc123" ? { base64: "aWNn", mediaType: "image/png" } : null,
+      },
+    );
+    expect(result.action).toBe("consumed");
+    const post = seen.find((r) => r.url.includes("/messages"));
+    expect(JSON.parse(String(post?.body)).content).toEqual([
+      { type: "image", mediaType: "image/png", base64: "aWNn" },
+    ]);
+    db.close();
+  });
+
+  test("an image that cannot be fetched is skipped before any state (#65)", async () => {
+    const db = makeDb();
+    const seen = mockFetch([AGENT_CONFIG]);
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_img_dead",
+        message_id: "om_img_dead",
+        message_type: "image",
+        content: '{"image_key":"img_v2_gone"}',
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        fetchImage: async () => null,
+      },
+    );
+    // Skipped like the auth gate: no conversation, no POST — a run is never
+    // triggered on nothing.
+    expect(result.action).toBe("skipped");
+    expect(seen.filter((r) => r.url.includes("/messages"))).toEqual([]);
+    db.close();
+  });
+
   test("p2p message — creates conversation, posts message, addresses agent", async () => {
     const db = makeDb();
 
