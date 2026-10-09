@@ -20,9 +20,9 @@ afterAll(() => {
 const markdown = (content: string) => ({ kind: "markdown", id: "t0", content });
 
 /** A chat state whose turn is either active (streaming) or folded (settled). */
-function chatOf(parts: unknown[], settled: boolean): unknown {
+function chatOf(parts: unknown[], settled: boolean, id: string = runId): unknown {
   const turn = {
-    id: runId,
+    id,
     startedAt: new Date(0).toISOString(),
     message: { text: "go", origin: { kind: "user" } },
     responseParts: parts,
@@ -89,6 +89,86 @@ describe("the run card watches the chat channel", () => {
     expect(getRunCard(db, runId)?.accumulated).toBe(text);
     handle.close();
   }, 15_000);
+
+  test("a rate-limited seal waits for the card instead of sending a second message", async () => {
+    // #87: congestion (230020) used to be read as "this card cannot be
+    // replaced", so the answer went out as a plain message while the card kept
+    // occupying the topic — the user read the same answer twice.
+    const calls: string[] = [];
+    let updateAttempts = 0;
+    const congested = {
+      createCard: async () => ({ ok: true, cardId: "card-rl" }),
+      sendCard: async () => ({ ok: true, messageId: "om_rl" }),
+      updateCard: async () => {
+        updateAttempts += 1;
+        if (updateAttempts <= 3) {
+          return { ok: false, error: "code 230020: chat rate limit", retryable: true };
+        }
+        calls.push("updateCard");
+        return { ok: true };
+      },
+      streamElement: async () => ({ ok: true }),
+      closeStreaming: async () => {
+        calls.push("closeStreaming");
+        return { ok: true };
+      },
+    } as never;
+    const handle = await watchRunCard("run-rl", "conv-watch-1", "oc_watch", {
+      db,
+      backendUrl: "http://127.0.0.1:1",
+      backendAuthToken: null,
+      cardClient: congested,
+      webUrl: null,
+      sourceMessageId: null,
+      replyTo: null,
+      replyInThread: false,
+      // Outlives the first replace call's own retries (3 attempts, 500ms
+      // doubling) so the seal is seen waiting rather than giving up.
+      sealCongestionBudgetMs: 10_000,
+      sendText: async () => {
+        calls.push("sendText");
+      },
+    });
+
+    await handle.update(chatOf([markdown("y".repeat(200))], false, "run-rl") as never);
+    await handle.update(chatOf([markdown("y".repeat(200))], true, "run-rl") as never);
+    expect(calls).not.toContain("sendText");
+    expect(getRunCard(db, "run-rl")?.status).toBe("completed");
+    handle.close();
+  }, 20_000);
+
+  test("a card that cannot be replaced at all still falls back to text", async () => {
+    // The fallback is for a broken card, and it must survive the congestion fix.
+    const calls: string[] = [];
+    const broken = {
+      createCard: async () => ({ ok: true, cardId: "card-broken" }),
+      sendCard: async () => ({ ok: true, messageId: "om_broken" }),
+      updateCard: async () => {
+        return { ok: false, error: "code 300313: element not found", retryable: false };
+      },
+      streamElement: async () => ({ ok: true }),
+      closeStreaming: async () => ({ ok: true }),
+    } as never;
+    const handle = await watchRunCard("run-broken", "conv-watch-1", "oc_watch", {
+      db,
+      backendUrl: "http://127.0.0.1:1",
+      backendAuthToken: null,
+      cardClient: broken,
+      webUrl: null,
+      sourceMessageId: null,
+      replyTo: null,
+      replyInThread: false,
+      sendText: async () => {
+        calls.push("sendText");
+      },
+    });
+
+    await handle.update(chatOf([markdown("y".repeat(200))], false, "run-broken") as never);
+    await handle.update(chatOf([markdown("y".repeat(200))], true, "run-broken") as never);
+    expect(calls).toContain("sendText");
+    expect(getRunCard(db, "run-broken")?.status).toBe("fallback_text");
+    handle.close();
+  }, 20_000);
 
   test("a state that does not carry this run is a no-op", async () => {
     const calls: string[] = [];
