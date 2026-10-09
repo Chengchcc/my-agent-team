@@ -133,6 +133,8 @@ harness 由 `ACP_AGENTS` 声明：CLI 可执行、spawn 参数、catalog 探针�
 
 session 续接经 ACP 的 session 机制：`cliSessionRef` 由各 harness 桥翻译成自己的续接方式，产品只存和回传这个不透明字符串。
 
+harness 的**能力**同样是它自己配置的属性，不是注册表的：模型、provider、视觉都由 harness CLI 自己的配置决定（Claude Code 读 `~/.claude/settings.json`，oma 读 `~/.oma/models.yml`），catalog 只是把那份配置列举成模型目录。所以"某个 harness 能不能看图"取决于给它配的模型有没有 image 输入——纯文本模型下，Anthropic 兼容网关会把 image block 文本化成 `[Unsupported Image]` 占位符（2026-10-09 实测：本机 `claude` harness 走 DeepSeek 的 Anthropic 兼容网关 + `deepseek-v4-pro`；同一网关换 `deepseek-v4-flash-vision-exp` 就能正确读图）。客户端侧无处可修：Claude Code 自家的 `Read` 工具在同一个模型下也一样交不进图（tool_result 里确实是 image block，模型仍只看到占位符，遂改用脚本解像素）。要改就改 harness 自己的模型配置，改完新模型会自动出现在 catalog 里。
+
 ## 首轮桥与 session 续接
 
 - 分支还没有 `cliSessionRef` 且投影非空时，产品侧把投影拍成 `## Conversation so far` 文本，前置到本次 `input.message` 上；有 session 引用之后不再拍。
@@ -164,6 +166,7 @@ harness 发 ACP permission request（callId / toolName / reason / input）
 
 - steer 缺失是 ACP v1 的协议限制（`_meta.steering` 未被注册表 agent 声明），不是实现偷懒；协议升级后 `AcpBackend.steer` 的显式报错点是唯一要改的地方。
 - catalog 探针要求 harness CLI 真实可执行；CLI 缺席时该 harness 的模型目录为空，run 会在 preflight 报 unknown model。
+- 产品侧不做多模态能力探测：给纯文本模型发图会**静默降级**成占位符文本（不报错），harness 的选择是它自己配置的事（见「harness 注册表」）。
 - 两份扩展事件映射（child 的 `protocol/mapping.ts` 与 backend 的 `event-mapping.ts`）靠 `mapping.test.ts` 守一致性；新增 `backend.<K>.*` 事件时两边要同步加。
 
 ## 相关页
