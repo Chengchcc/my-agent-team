@@ -762,12 +762,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;
     },
     readRunTurnContext: readRunTurn,
-    // The truncation target after an undo: read the source, not the undone seqs, because the
-    // undone rows are already gone from what it states.
-    lastTurnId: async (conversationId) => {
-      const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
-      return chat?.turns.at(-1)?.id;
-    },
   });
 
   /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
