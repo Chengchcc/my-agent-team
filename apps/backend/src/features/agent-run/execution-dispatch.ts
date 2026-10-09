@@ -353,8 +353,10 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
             conversationId: run.conversationId,
             agentId: run.agentId,
           }));
-        const deliverResult = await deps.workspaceLocks.withLock(workspace0.root, () =>
-          deliverInput(run, claimed, stage),
+        const deliverResult = await deps.workspaceLocks.withLock(
+          workspace0.root,
+          () => deliverInput(run, claimed, stage),
+          `runId=${runId}`,
         );
         const { outcome, segment, drain } = deliverResult;
         if (outcome) {

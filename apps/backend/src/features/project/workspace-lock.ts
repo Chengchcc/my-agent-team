@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 export interface WorkspaceLockRegistry {
   /** Serialize fn against every other withLock caller on the same root
    *  (after path normalization). Rejections in fn propagate; the lock is
-   *  always released. */
-  withLock<T>(root: string, fn: () => Promise<T>): Promise<T>;
+   *  always released. `note` names the caller in the long-wait warning. */
+  withLock<T>(root: string, fn: () => Promise<T>, note?: string): Promise<T>;
   /** True while a withLock fn is executing on this root. */
   isLocked(root: string): boolean;
 }
@@ -24,7 +24,10 @@ function lockKey(root: string): string {
  *  agent detach removal (ADR 0023 §5). One promise-chain tail per root;
  *  the chain entry is removed when the last waiter settles, so the map
  *  cannot grow across runs. */
-export function createWorkspaceLockRegistry(): WorkspaceLockRegistry {
+export function createWorkspaceLockRegistry(
+  opts: { waitWarnMs?: number } = {},
+): WorkspaceLockRegistry {
+  const waitWarnMs = opts.waitWarnMs ?? 30_000;
   /** root key → completion tail of the newest waiter (chained). */
   const tails = new Map<string, Promise<void>>();
   /** root keys whose fn is currently executing. */
@@ -35,12 +38,26 @@ export function createWorkspaceLockRegistry(): WorkspaceLockRegistry {
       return live.has(lockKey(root));
     },
 
-    async withLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
+    async withLock<T>(root: string, fn: () => Promise<T>, note?: string): Promise<T> {
       const key = lockKey(root);
       const prev = tails.get(key) ?? Promise.resolve();
       const { promise: gate, resolve: open } = Promise.withResolvers<void>();
       const tail = prev.then(() => gate);
+      // The chain entry is the queue: whoever queues behind one waits on it. (`live` alone
+      // cannot say this — the holder marks itself one microtask later.)
+      const queued = tails.has(key);
       tails.set(key, tail);
+      // A holder parked on a HITL ask keeps this key for as long as the human
+      // takes (#59): waiting is then correct but invisible, so a long wait is
+      // said out loud instead of leaving a silently-"running" run.
+      const startedAt = Date.now();
+      const warn = queued
+        ? setTimeout(() => {
+            console.warn(
+              `[workspace-lock] ${note ?? "a caller"} waited ${Date.now() - startedAt}ms on ${key}: another run holds this workspace (a run parked on a human ask holds it until answered).`,
+            );
+          }, waitWarnMs)
+        : undefined;
       await prev.catch(() => {
         /* a failed predecessor must not fail this waiter */
       });
@@ -48,6 +65,7 @@ export function createWorkspaceLockRegistry(): WorkspaceLockRegistry {
       try {
         return await fn();
       } finally {
+        if (warn) clearTimeout(warn);
         live.delete(key);
         // Only drop the chain entry when no newer waiter replaced it.
         if (tails.get(key) === tail) tails.delete(key);
