@@ -5,12 +5,7 @@
  *  returns the chat snapshot and the subscription returns the action stream, which upstream's
  *  chat reducer applies. No cursor is kept: a reconnect only has to re-subscribe. */
 
-import {
-  AHP_ROOT_URI,
-  type AhpClientLike,
-  chatUri,
-  createWebSocketTransport,
-} from "@chengchenccc/ahp-client";
+import { type AhpClientLike, chatUri, createWebSocketTransport } from "@chengchenccc/ahp-client";
 import {
   type ChatAction,
   type ChatState,
@@ -53,7 +48,11 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
     const init = await client.initialize({
       clientId: deps.clientId ?? "web",
       protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
-      initialSubscriptions: [AHP_ROOT_URI, uri],
+      // Chat only. Root used to ride along, but nothing here reads its
+      // snapshot and nothing dispatches root actions (#56): the agent UI is
+      // React-Query-backed and invalidated on every agent mutation, so a root
+      // subscription was dead weight on every conversation connection.
+      initialSubscriptions: [uri],
     });
     let state = init.snapshots.find((snapshot) => snapshot.resource === uri)?.state as
       | ChatState
