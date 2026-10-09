@@ -27,6 +27,7 @@ import type {
   RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
+import type { Message } from "@chengchenccc/message";
 import type {
   AgentBackend,
   BackendEvent,
@@ -58,6 +59,39 @@ export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found" | "u
 interface DeclaredConfigOption {
   readonly category?: string;
   readonly currentValue?: string;
+}
+
+/** The prompt blocks for one input message (#65: the multimodal bridge).
+ *
+ *  ADR 0003 D6 kept the first-turn bridge flat text, but both sides grew past
+ *  it: the input message carries ContentBlocks (a web message with attachments
+ *  puts its caption in a block and leaves `text` undefined), and the ACP wire
+ *  takes image blocks first-class. Collapsing to `message.text` therefore sent
+ *  an EMPTY prompt for any attachment-bearing message. Text-first, then the
+ *  message's own blocks; an empty message still sends one empty text block. */
+function promptBlocksOf(message: Message): Array<
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      data: string;
+      mimeType: string;
+    }
+> {
+  const out: Array<
+    { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+  > = [];
+  if (typeof message.text === "string" && message.text.length > 0) {
+    out.push({ type: "text", text: message.text });
+  }
+  for (const block of message.blocks ?? []) {
+    if (block.type === "text" && typeof block.text === "string") {
+      out.push({ type: "text", text: block.text });
+    } else if (block.type === "image") {
+      out.push({ type: "image", data: block.base64, mimeType: block.mediaType });
+    }
+  }
+  if (out.length === 0) out.push({ type: "text", text: "" });
+  return out;
 }
 
 export class AcpBackendError extends Error {
@@ -520,7 +554,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
             }
             response = await ctx.request(acp.methods.agent.session.prompt, {
               sessionId: run.sessionId!,
-              prompt: [{ type: "text", text: input.input.message.text ?? "" }],
+              prompt: promptBlocksOf(input.input.message),
             });
           }),
       (message) => {
