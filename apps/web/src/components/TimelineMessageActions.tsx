@@ -32,6 +32,8 @@ interface TimelineMessageActionsProps {
   conversationId: string;
   item: MessageItem;
   canAct: boolean;
+  /** The undo response painted locally: the AHP stream cannot carry the flag (#57). */
+  onMarkUndone?: (undoneSeqs: readonly number[]) => void;
   /** Regen context for the latest assistant message: the preceding user
    *  text to resend after undoing the assistant turn. */
   regen?: { prevUserText: string } | null;
@@ -45,6 +47,7 @@ export function TimelineMessageActions({
   item,
   canAct,
   regen,
+  onMarkUndone,
   children,
 }: TimelineMessageActionsProps) {
   const router = useRouter();
@@ -58,14 +61,17 @@ export function TimelineMessageActions({
     undoMut.mutate(
       { id: conversationId, count: 1 },
       {
-        onSuccess: () => postMut.mutate({ text: regen.prevUserText }),
+        onSuccess: (data) => {
+          onMarkUndone?.(data.undoneSeqs);
+          postMut.mutate({ text: regen.prevUserText });
+        },
         onError: (err) =>
           toast.error("Regenerate failed", {
             description: err instanceof Error ? err.message : "Unknown error",
           }),
       },
     );
-  }, [regen, undoMut, postMut, conversationId]);
+  }, [regen, undoMut, postMut, conversationId, onMarkUndone]);
   const [editing, setEditing] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const [draft, setDraft] = useState("");
@@ -183,7 +189,10 @@ export function TimelineMessageActions({
                   undoMut.mutate(
                     { id: conversationId, count: 1 },
                     {
-                      onSuccess: () => toast.success("Undone"),
+                      onSuccess: (data) => {
+                        onMarkUndone?.(data.undoneSeqs);
+                        toast.success("Undone");
+                      },
                       onError: (err) =>
                         toast.error("Undo failed", {
                           description: err instanceof Error ? err.message : "Unknown error",

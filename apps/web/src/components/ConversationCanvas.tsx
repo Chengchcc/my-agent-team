@@ -45,8 +45,17 @@ export function ConversationCanvas({
   anchorSeq,
 }: ConversationCanvasProps) {
   const router = useRouter();
-  const { state, busy, send, transients, transientTools, runTodos, activeRunId, resolveApproval } =
-    useConversation(conversationId, snapshot);
+  const {
+    state,
+    busy,
+    send,
+    transients,
+    transientTools,
+    runTodos,
+    activeRunId,
+    resolveApproval,
+    markUndone,
+  } = useConversation(conversationId, snapshot);
   const { agent, items, error, streamConn } = state;
   // Seeing the conversation marks it read: covers deep links and messages
   // that arrive while the canvas is open (the sidebar dot clears too).
@@ -64,11 +73,7 @@ export function ConversationCanvas({
   // (already in the snapshot) only offers a link, so a user can stay and
   // read the old conversation.
   useEffect(() => {
-    if (
-      continuation &&
-      continuation.live &&
-      continuation.control.conversationId !== conversationId
-    ) {
+    if (continuation?.live && continuation.control.conversationId !== conversationId) {
       router.replace(`/chat/${continuation.control.conversationId}`);
     }
   }, [continuation, conversationId, router]);
@@ -480,6 +485,7 @@ export function ConversationCanvas({
                   scrollContainerRef={scrollRef}
                   transients={transientBubbles}
                   onResolveApproval={resolveApproval}
+                  onMarkUndone={markUndone}
                   onResolveAsk={(runId, callId, answer) => {
                     void api.resolveProductAsk({
                       runId,
