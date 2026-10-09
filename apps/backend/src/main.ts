@@ -2,6 +2,7 @@ import { createApp } from "./app.js";
 import { installFeatures } from "./bootstrap/features.js";
 import { createBackendServices } from "./bootstrap/services.js";
 import { loadConfig } from "./config.js";
+import { setBackendShuttingDown } from "./features/agent-run/acp/shutdown.js";
 import { createServer } from "./server.js";
 
 // ─── Bootstrap ─────────────────────────────────────────────────
@@ -39,6 +40,8 @@ let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  // Before anything else: the same signal reached the children, so their
+  // deaths are ours, not the agent's (see acp/shutdown.ts, #80).
 
   console.log(`[backend] ${signal} received, shutting down...`);
 
@@ -52,5 +55,11 @@ async function shutdown(signal: string) {
   process.exit(0);
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => {
+  setBackendShuttingDown(true);
+  void shutdown("SIGTERM");
+});
+process.on("SIGINT", () => {
+  setBackendShuttingDown(true);
+  void shutdown("SIGINT");
+});

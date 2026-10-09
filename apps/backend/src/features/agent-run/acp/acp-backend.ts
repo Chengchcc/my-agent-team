@@ -50,6 +50,7 @@ import {
   mapAcpUsage,
 } from "./event-mapping.js";
 import { harnessOf, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
+import { isBackendShuttingDown } from "./shutdown.js";
 import { type AcpSpawn, type AcpTransport, createNodeSpawn } from "./transport.js";
 
 export type AcpBackendErrorCode = "spawn_failed" | "conflict" | "not_found" | "unsupported";
@@ -558,6 +559,24 @@ export class AcpBackend implements AgentBackend<"acp"> {
             });
           }),
       (message) => {
+        // A death we caused is not the agent's failure. stop()/dispose() own
+        // their runs and always settle them (they snapshot the entries before
+        // killing), so deferring to them is safe there.
+        if (run.stopRequested) return;
+        // A child killed by the shutdown signal is the same story, but nobody
+        // owns it: the signal reaches the process tree, so the pipe closes
+        // before the parent disposes its runs, and drive() deletes the run from
+        // `active` as it finishes — deferring here can find nothing left to
+        // settle. Settle in place, as an abort (#80: a restart used to write
+        // "acp session failed: ACP connection closed" for a run nobody failed
+        // at).
+        if (isBackendShuttingDown()) {
+          run.settle({
+            status: "aborted",
+            error: "stopped while the backend was shutting down",
+          });
+          return;
+        }
         run.settle({
           status: "failed",
           error: `acp session failed: ${message}`,
