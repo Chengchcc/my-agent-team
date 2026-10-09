@@ -56,7 +56,8 @@ export const inputCard = sqliteTable("input_card", {
   cardKitId: text(),
   /** The IM message carrying it (the handover needs it for reaction cleanup). */
   larkMessageId: text(),
-  /** queued → promoted (a run took it over) | cancelled (the user dropped it). */
+  /** queued → promoted (a run took it over) | steered (folded into the running
+   *  turn, #64) | cancelled (the user dropped it). */
   status: text().notNull().default("queued"),
   lastError: text(),
   createdAt: integer({ mode: "number" }).notNull(),

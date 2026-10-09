@@ -113,7 +113,11 @@ export interface AgentRunExecutionService {
   dispatch(runId: string): Promise<void>;
   /** Steer injection into the live run of a branch. Explicit failure (input
    *  cancelled) when no live run exists - never a silent conversion. */
-  injectSteer(branchId: string, input: { inputId: string; message: Message }): Promise<void>;
+  injectSteer(
+    branchId: string,
+    input: { inputId: string; message: Message },
+    opts?: { keepIfIdle?: boolean },
+  ): Promise<void>;
   /** True when the run has a live in-process child (steer/abort routable).
    *  DB-active is NOT sufficient: after a restart or a pre-acceptance
    *  failure the Run row can be active with no live child (a zombie). */

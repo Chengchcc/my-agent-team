@@ -12,6 +12,7 @@ import type { CardKitClient } from "./card-kit.js";
 import {
   liveQueuedInputCards,
   markQueuedCardCancelled,
+  markQueuedCardSteered,
   planQueuedCardStep,
   startQueuedCard,
 } from "./queued-card.js";
@@ -89,6 +90,9 @@ async function withDb(fn: (db: ReturnType<typeof openBindings>) => Promise<void>
 describe("queued card step (pure)", () => {
   test("wait / promote / cancelled / stop", () => {
     expect(planQueuedCardStep("queued", { status: "pending", runId: null })).toBe("wait");
+    // Steered is terminal for the card (#64): a steered input never gets a run
+    // of its own, so the promotion poller must stop waiting for one.
+    expect(planQueuedCardStep("steered", { status: "delivering", runId: null })).toBe("stop");
     expect(planQueuedCardStep("queued", { status: "delivering", runId: "run-1" })).toBe("promote");
     // A run may already own the input (status delivered) before the poll sees
     // it — a promoted input is promoted however far along it is.
@@ -200,6 +204,30 @@ describe("queued card (ADR 0037: one turn = one card)", () => {
       expect(JSON.stringify(fake.updates.at(-1)?.card)).toContain("已取消");
       // A second cancel is a no-op: the row is already terminal.
       await markQueuedCardCancelled({ db, cardClient: fake.client }, "in_1");
+      expect(fake.updates).toHaveLength(1);
+    });
+  });
+
+  test("steering redraws as injected and leaves no way out (#64)", async () => {
+    await withDb(async (db) => {
+      const fake = fakeCardClient();
+      insertInputCard(db, {
+        inputId: "in_2",
+        conversationId: "conv_1",
+        larkChatId: "oc_1",
+        now: Date.now(),
+      });
+      updateInputCard(db, "in_2", { larkMessageId: "om_c2", cardKitId: "card_2" });
+
+      await markQueuedCardSteered({ db, cardClient: fake.client }, "in_2");
+      expect(getInputCard(db, "in_2")?.status).toBe("steered");
+      const redrawn = JSON.stringify(fake.updates.at(-1)?.card);
+      expect(redrawn).toContain("已注入本轮");
+      // No way out left on the frame: a steered message is already part of the
+      // running turn, so neither button exists.
+      expect(redrawn).not.toContain("callback");
+      // Terminal: a second steer is a no-op.
+      await markQueuedCardSteered({ db, cardClient: fake.client }, "in_2");
       expect(fake.updates).toHaveLength(1);
     });
   });

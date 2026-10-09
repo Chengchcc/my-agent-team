@@ -74,19 +74,27 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
     async injectSteer(
       branchId: string,
       input: { inputId: string; message: Message },
+      opts?: { keepIfIdle?: boolean },
     ): Promise<void> {
       const active = await runPort.getActiveRun(branchId);
       if (!active) {
         // No active run: the steer cannot be delivered. Explicit conflict -
-        // never silently dropped, never converted to a normal input.
-        await runPort.cancelInput(input.inputId).catch(() => {});
+        // never silently dropped, never converted to a normal input. The one
+        // exception is a QUEUED input steered from its card (#64): the turn
+        // ending is not the user's mistake, so the input stays queued and the
+        // next turn takes it as its own.
+        if (!opts?.keepIfIdle) {
+          await runPort.cancelInput(input.inputId).catch(() => {});
+        }
         throw new Error(`steer rejected: no active run on branch ${branchId}`);
       }
       const live = liveRuns.get(active.runId);
       if (!live) {
         // The run is active in the DB but this process lost its live handle
-        // (restart). Live steer cannot cross processes - cancel and report.
-        await runPort.cancelInput(input.inputId).catch(() => {});
+        // (restart). Live steer cannot cross processes - same #64 exception.
+        if (!opts?.keepIfIdle) {
+          await runPort.cancelInput(input.inputId).catch(() => {});
+        }
         throw new Error(`steer rejected: run ${active.runId} has no live loop on this process`);
       }
       const claimed = await runPort.deliverSteerInput(input.inputId, active.runId);

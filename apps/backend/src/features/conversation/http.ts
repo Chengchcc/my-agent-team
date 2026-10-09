@@ -245,16 +245,25 @@ export function conversationRoutes(
         if (!input) return Response.json({ error: "Input not found" }, { status: 404 });
         return input;
       })
-      .post("/api/conversations/:id/inputs/:inputId/steer", async ({ params: { inputId } }) => {
-        try {
-          await svc.steerInput(inputId);
-          return { ok: true };
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg === "Input not found") return Response.json({ error: msg }, { status: 404 });
-          return Response.json({ error: msg }, { status: 409 });
-        }
-      })
+      .post(
+        "/api/conversations/:id/inputs/:inputId/steer",
+        async ({ params: { inputId }, body }) => {
+          try {
+            await svc.steerInput(inputId, body?.keepIfIdle ? { keepIfIdle: true } : undefined);
+            return { ok: true };
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg === "Input not found") return Response.json({ error: msg }, { status: 404 });
+            return Response.json({ error: msg }, { status: 409 });
+          }
+        },
+        {
+          // #64: a queued input steered from its Lark card. keepIfIdle=true means
+          // "if the turn already ended, leave it queued for the next turn" — the
+          // direct steer path (default) keeps its cancel-on-idle semantics.
+          body: t.Optional(t.Object({ keepIfIdle: t.Optional(t.Boolean()) })),
+        },
+      )
       .patch(
         "/api/conversations/:id/inputs/:inputId",
         async ({ params: { inputId }, body }) => {
