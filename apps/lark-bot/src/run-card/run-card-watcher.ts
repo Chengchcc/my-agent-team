@@ -35,6 +35,10 @@ import { createCardUpdater } from "./card-updater.js";
 const FLUSH_INTERVAL_MS = 150;
 const MAX_BUFFER_CHARS_BEFORE_FLUSH = 120;
 const SEAL_RETRY_DELAYS_MS = [200, 500, 1000];
+/** How long the terminal seal waits out chat congestion (rate limits are
+ *  transient; the card owns the answer, so a text fallback here means the user
+ *  reads the same answer twice — #87). */
+const DEFAULT_SEAL_CONGESTION_BUDGET_MS = 45_000;
 /** "OnIt" = the ack while the run is live; the terminal swap to "DONE" lives
  *  in ack-reaction.ts. Verified against the live API: `Hold` is rejected
  *  (231001), `OnIt` and `DONE` are accepted. */
@@ -61,6 +65,9 @@ export interface RunCardWatcherOptions {
    *  the chat is a topic chat (only those accept `reply_in_thread`). */
   replyTo?: string | null;
   replyInThread?: boolean;
+  /** Test knob: how long the seal waits out congestion before falling back to
+   *  a plain-text answer (default 45s). */
+  sealCongestionBudgetMs?: number;
   /** Adopt an EXISTING card instead of creating one: the message waited behind
    *  a running turn, its queued card is already in the topic, and that same
    *  card must now stream this run (ADR 0037 decision 2 — one message, one
@@ -352,9 +359,24 @@ export async function watchRunCard(
 
     let sealed = false;
     if (cardKitId) {
-      for (let attempt = 0; attempt < 3 && !sealed; attempt++) {
-        sealed = await updater.replaceNow(state);
-        if (!sealed) await new Promise((r2) => setTimeout(r2, 500 * 2 ** attempt));
+      // A rate limit is not a broken card. Wait it out (bounded), because the
+      // fallback below sends the answer as a SECOND message while the card
+      // still occupies the topic — which is exactly the duplicate a burst of
+      // runs produced under the chat rate limit (#87). Only a non-retryable
+      // failure, or congestion that outlasts the budget, falls back.
+      const deadline =
+        Date.now() + (opts.sealCongestionBudgetMs ?? DEFAULT_SEAL_CONGESTION_BUDGET_MS);
+      let attempt = 0;
+      for (;;) {
+        const outcome = await updater.replaceNow(state);
+        if (outcome.ok) {
+          sealed = true;
+          break;
+        }
+        if (!outcome.retryable) break;
+        if (Date.now() >= deadline) break;
+        await new Promise((r2) => setTimeout(r2, Math.min(1_000 * 2 ** attempt, 8_000)));
+        attempt += 1;
       }
     }
     if (sealed) {

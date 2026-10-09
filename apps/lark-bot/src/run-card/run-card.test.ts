@@ -999,7 +999,7 @@ describe("card updater degradation", () => {
         }),
       };
       const afterDegrade = calls;
-      expect(await updater.replaceNow(state)).toBe(false);
+      expect((await updater.replaceNow(state)).ok).toBe(false);
       expect(calls).toBeGreaterThan(afterDegrade);
       expect(getRunCard(askDb, "run-ask-deg")?.degraded).toBe(true);
       const afterAsk = calls;
@@ -1021,7 +1021,7 @@ describe("card updater degradation", () => {
           ],
         },
       });
-      expect(await updater.replaceNow(nextQuestion)).toBe(true);
+      expect((await updater.replaceNow(nextQuestion)).ok).toBe(true);
       expect(getRunCard(askDb, "run-ask-deg")?.degraded).toBe(false);
     } finally {
       askDb.close();

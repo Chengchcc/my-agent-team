@@ -34,9 +34,19 @@ const INTERACTIVE_FRAMES = new Set([
  *  calls cannot flood CardKit. */
 const TODO_REPLACE_MIN_MS = 800;
 
+/** A full replace's outcome. `retryable` means congestion — a chat rate limit
+ *  (230020) or a 5xx — not a broken card: the caller decides how patient to be,
+ *  and congestion must never be read as "this card cannot show the answer"
+ *  (that reading is what sent the same answer twice, #87). */
+export interface ReplaceOutcome {
+  ok: boolean;
+  retryable: boolean;
+  error?: string;
+}
+
 export interface CardUpdater extends CardFlushController {
   /** Full replace with retries (terminal seal / card creation paths). */
-  replaceNow(state: RunCardState): Promise<boolean>;
+  replaceNow(state: RunCardState): Promise<ReplaceOutcome>;
   /** Forget cached element contents after an external replace. */
   invalidate(state: RunCardState): void;
 }
@@ -108,7 +118,14 @@ export function createCardUpdater(deps: {
     lastTodoReplaceAt = Date.now();
   };
 
-  const replaceNow = async (state: RunCardState): Promise<boolean> => {
+  /** Congestion is recorded (the row should still say why) but must not count
+   *  toward the degrade threshold: a card that is merely rate-limited is not a
+   *  card that cannot paint. */
+  const noteCongestion = (error: string): void => {
+    updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: error });
+  };
+
+  const replaceNow = async (state: RunCardState): Promise<ReplaceOutcome> => {
     // Degraded means "stop painting": the seal then falls through to the
     // reliable text delivery the conversation watcher owns. The exception
     // is a question frame the human must answer - one attempt, once.
@@ -118,13 +135,14 @@ export function createCardUpdater(deps: {
       // "waiting_input" frame and each deserves its own attempt.
       const askKey = state.pendingAction?.callId ?? frameKey;
       const worthRetry = INTERACTIVE_FRAMES.has(frameKey) && attemptedWhileDegraded !== askKey;
-      if (!worthRetry) return false;
+      if (!worthRetry) return { ok: false, retryable: false };
       attemptedWhileDegraded = askKey;
       consecutiveFailures = 0;
     }
     const cardId = deps.getCardId();
-    if (!cardId) return false;
+    if (!cardId) return { ok: false, retryable: false };
     let lastError = "card replace failed";
+    let lastRetryable = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await cardClient.updateCard(cardId, renderCard(state, meta), deps.nextSeq());
       if (r.ok) {
@@ -137,15 +155,20 @@ export function createCardUpdater(deps: {
           attemptedWhileDegraded = null;
           updateRunCard(db, runId, { degraded: false });
         }
-        return true;
+        return { ok: true, retryable: false };
       }
       lastError = r.error;
+      lastRetryable = r.retryable;
+      if (r.retryable) noteCongestion(r.error);
       await new Promise((r2) => setTimeout(r2, retryBackoffMs * 2 ** attempt));
     }
-    // Exhausted retries: this counts toward the degrade threshold too, so a
-    // card that cannot be sealed stops being retried forever.
+    // Congestion says nothing about the card: hand it back so the caller can be
+    // patient instead of degrading. A real failure still counts toward the
+    // degrade threshold, so a card that cannot be sealed stops being retried
+    // forever.
+    if (lastRetryable) return { ok: false, retryable: true, error: lastError };
     fail(lastError);
-    return false;
+    return { ok: false, retryable: false, error: lastError };
   };
 
   const flushController = createCardFlushController(async () => {
@@ -157,7 +180,7 @@ export function createCardUpdater(deps: {
       // answer; replaceNow allows exactly one attempt per question.
       if (!state.pendingAction) return;
       const painted = await replaceNow(state);
-      if (painted) deps.onPersist();
+      if (painted.ok) deps.onPersist();
       return;
     }
     const frameKey = cardStatusKey(state);
@@ -176,7 +199,7 @@ export function createCardUpdater(deps: {
 
     if (frameChanged || streamingClosed || (todoChanged && todoDue)) {
       const painted = await replaceNow(state);
-      if (painted) deps.onPersist();
+      if (painted.ok) deps.onPersist();
       return;
     }
 
