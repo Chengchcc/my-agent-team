@@ -35,9 +35,13 @@ export interface IngestContext {
    *  dynamic SSE subscription. The chat id travels with it so the caller does
    *  not have to look the binding up again. */
   onNewBinding?: (conversationId: string, larkChatId: string) => void;
-  /** Fetch a Feishu image by key (#65). Absent or failed = the image message
-   *  is skipped with a log — a run is never triggered on nothing. */
-  fetchImage?: (imageKey: string) => Promise<{ base64: string; mediaType: string } | null>;
+  /** Fetch a Feishu image (#65): a message's image is a resource of that
+   *  message, so the id is part of the call. Absent or failed = logged; a
+   *  message that is nothing but an unresolvable image is skipped. */
+  fetchImage?: (
+    messageId: string,
+    fileKey: string,
+  ) => Promise<{ base64: string; mediaType: string } | null>;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
   onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
   /** ADR 0037: called for a message that has to WAIT — it became a queued
@@ -135,7 +139,17 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   {
     const keys = ctx.fetchImage ? larkImageKeysOf(event.content) : [];
     const caption = keys.length > 0 ? stripImageMarkers(event.content) : event.content;
-    const images = keys.length > 0 ? await resolveImages(keys, ctx.fetchImage!) : [];
+    const images =
+      keys.length > 0 && ctx.fetchImage
+        ? await resolveImages(keys, (key) => ctx.fetchImage!(event.message_id, key))
+        : [];
+    if (keys.length > 0 && images.length < keys.length) {
+      // Not silent: a caption-only post after an image is indistinguishable
+      // from a delivery failure unless the failure says so.
+      console.log(
+        `[ingest] image fetch incomplete chat=${event.chat_id} keys=${keys.length} resolved=${images.length}`,
+      );
+    }
     if (images.length > 0) {
       postContent = [...(caption.length > 0 ? [{ type: "text", text: caption }] : []), ...images];
     } else if (caption.length > 0) {

@@ -251,7 +251,7 @@ async function handleLine(line: string): Promise<void> {
     backendAuthToken: args.backendAuthToken,
     profile,
     // #65: image messages download with the same tenant token CardKit uses.
-    fetchImage: (imageKey) => fetchLarkImage(cardTokens, imageKey),
+    fetchImage: (messageId, fileKey) => fetchLarkImage(cardTokens, messageId, fileKey),
     onNewBinding: (conversationId, larkChatId) => {
       // A new topic opened: watch its conversation (each topic is its own
       // conversation now, so this is the only place watchers are created at

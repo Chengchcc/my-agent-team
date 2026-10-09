@@ -1,10 +1,13 @@
 /** Fetch a Feishu image as a vision block payload (#65: the lark input path).
  *
- *  Feishu image messages carry only an `image_key`; the bytes come from
- *  `GET /im/v1/images/:key` with the same tenant token CardKit uses. Strict on
- *  media type (the protocol carries four) and size (base64 inflates by a third
- *  and vision payloads have ceilings): anything else reads as "no image", which
- *  the caller turns into a logged skip — never a run triggered on nothing. */
+ *  A message's image is a RESOURCE OF THAT MESSAGE: the bytes come from
+ *  `GET /im/v1/messages/:message_id/resources/:file_key?type=image` with the
+ *  same tenant token CardKit uses. (`/im/v1/images/:key` answers 400/234001 —
+ *  verified live 2026-10-09 — so the message id is part of the call, not
+ *  optional context.) Strict on media type (the protocol carries four) and
+ *  size (base64 inflates by a third and vision payloads have ceilings):
+ *  anything else reads as "no image", which the caller turns into a logged
+ *  skip — never a run triggered on nothing. */
 import { larkImageContentSchema } from "@chengchenccc/api-contract";
 import type { TokenProvider } from "./lark-api.js";
 
@@ -25,15 +28,17 @@ const MAX_BYTES = 6 * 1024 * 1024;
 
 export async function fetchLarkImage(
   provider: TokenProvider,
-  imageKey: string,
+  messageId: string,
+  fileKey: string,
 ): Promise<LarkImage | null> {
   let res: Response;
   try {
     const token = await provider.getToken();
     const base = provider.getBaseUrl();
-    res = await fetch(`${base}/open-apis/im/v1/images/${encodeURIComponent(imageKey)}`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
+    const path =
+      `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}` +
+      `/resources/${encodeURIComponent(fileKey)}?type=image`;
+    res = await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${token}` } });
   } catch {
     return null;
   }

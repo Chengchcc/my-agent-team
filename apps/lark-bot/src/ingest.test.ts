@@ -121,7 +121,7 @@ describe("ingest", () => {
         botDisplayName: "TestBot",
         backendUrl: "http://localhost",
         profile: "test-profile",
-        fetchImage: async (key) =>
+        fetchImage: async (_mid, key) =>
           key === "img_v2_abc123" ? { base64: "aWNn", mediaType: "image/png" } : null,
       },
     );
@@ -168,6 +168,7 @@ describe("ingest", () => {
       { body: { conversationId: "conv_post_img" } },
       { body: { seq: 1 } },
     ]);
+    const fetched: Array<{ mid: string; key: string }> = [];
     const result = await ingest(
       {
         ...baseEvent,
@@ -183,10 +184,16 @@ describe("ingest", () => {
         botDisplayName: "TestBot",
         backendUrl: "http://localhost",
         profile: "test-profile",
-        fetchImage: async (key) =>
-          key === "img_v3_0216a_live" ? { base64: "aWNn", mediaType: "image/png" } : null,
+        fetchImage: async (mid, key) => {
+          fetched.push({ mid, key });
+          return key === "img_v3_0216a_live" ? { base64: "aWNn", mediaType: "image/png" } : null;
+        },
       },
     );
+    // A message's image is a RESOURCE OF THAT MESSAGE: the download needs the
+    // message id, and forgetting it is a live 400 (234001) that only shows up
+    // as a caption-only post.
+    expect(fetched).toEqual([{ mid: "om_post_img", key: "img_v3_0216a_live" }]);
     expect(result.action).toBe("consumed");
     const post = seen.find((r) => r.url.includes("/messages"));
     expect(JSON.parse(String(post?.body)).content).toEqual([
