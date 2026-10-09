@@ -8,6 +8,7 @@ import type {
   BackendRunSegment,
 } from "../protocol/index.js";
 import { AcpBackend, AcpBackendError, type AcpMcpProvider } from "./acp-backend.js";
+import { setBackendShuttingDown } from "./shutdown.js";
 import { type AcpSpawn, createNodeSpawn } from "./transport.js";
 
 /** ─── In-memory transport: crossed NDJSON stream pairs ────────────────
@@ -542,6 +543,82 @@ describe("AcpBackend against an in-memory fake agent", () => {
     // as the oma adapter, where the deny races the child's death. What
     // matters is OUR side never leaves the promise dangling.
     await backend.dispose();
+  }, 10_000);
+
+  test("a run we killed on purpose is aborted, never a false agent failure", async () => {
+    // #80: a real child's pipe closes BEFORE its exit is reported (SIGKILL →
+    // EOF now, waitpid later), so the dying connection reaches the failure path
+    // while a stop is still waiting for the exit — and the failure used to win
+    // the exactly-once settle. Live consequence: every in-flight run became
+    // "acp session failed: ACP connection closed" the moment the backend
+    // restarted. The fixture reproduces that ordering by delaying the exit one
+    // macrotask, so the pipe always wins the race the way it does in production.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const inner = startFakeAgent(
+      {
+        permissionOptions: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
+        hangOnExit: true,
+      },
+      obs,
+    );
+    const spawnMoreLikeRealChild: AcpSpawn = (command) => {
+      const child = inner(command);
+      const exit = child.exit.then(
+        () => new Promise<number | null>((resolve) => setTimeout(() => resolve(null), 0)),
+      );
+      return { stream: child.stream, exit, kill: () => child.kill() };
+    };
+    const backend = new AcpBackend({ spawnImpl: spawnMoreLikeRealChild });
+    const segment = await backend.execute(makeInput());
+    const seen: BackendEvent<"acp">[] = [];
+    await waitUntil(segment, (e) => e.type === "approval_requested", seen);
+
+    await backend.dispose();
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("aborted");
+    // Narrow for TS after the expect above (toBe is not a type guard).
+    if (outcome.status !== "aborted") return;
+    expect(outcome.error).toContain("backend disposed");
+  }, 10_000);
+
+  test("a child that dies from the shutdown signal converges aborted, not failed", async () => {
+    // The signal reaches the whole process tree, so the child's pipe closes
+    // before the parent gets as far as disposing its runs — the failure then
+    // arrives with no stop requested. Without the shutdown flag that death is
+    // reported as the agent's fault: "acp session failed: ACP connection
+    // closed", which is exactly what a backend restart used to write for a run
+    // nobody failed at (#80).
+    setBackendShuttingDown(true);
+    try {
+      const obs: FakeAgentObservations = {
+        loadedSessionIds: [],
+        newSessionCalls: 0,
+        permissionOutcomes: [],
+        elicitationOutcome: undefined,
+      };
+      const backend = new AcpBackend({
+        spawnImpl: startFakeAgent({ dieAfterPermission: true }, obs),
+      });
+      const segment = await backend.execute(makeInput());
+      const seen: BackendEvent<"acp">[] = [];
+      // The turn starts (its chunks reach us), then the child dies mid-turn.
+      await waitUntil(segment, (e) => e.type === "text_delta", seen);
+      const { outcome } = await collect(segment);
+      // Settled in place: drive() may already have forgotten the run by the
+      // time dispose() takes its snapshot, so nothing else would have.
+      expect(outcome.status).toBe("aborted");
+      // Narrow for TS after the expect above (toBe is not a type guard).
+      if (outcome.status !== "aborted") return;
+      expect(outcome.error).toContain("shutting down");
+      await backend.dispose();
+    } finally {
+      setBackendShuttingDown(false);
+    }
   }, 10_000);
 
   test("#25: the bound session is reported for a NEW session, before the prompt", async () => {
