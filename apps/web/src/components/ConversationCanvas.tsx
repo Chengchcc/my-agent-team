@@ -317,6 +317,13 @@ export function ConversationCanvas({
             <ConversationMembers conversationId={conversationId} />
           </div>
           <div className="flex items-center gap-3 shrink-0 ml-4">
+            <Link
+              href={`/artifacts?folder=${encodeURIComponent(`tool-images/${conversationId}`)}`}
+              className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
+              title="Files this conversation produced (screenshots and other tool output)"
+            >
+              Artifacts
+            </Link>
             {label && (
               <>
                 <span
