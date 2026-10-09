@@ -45,13 +45,20 @@ export async function fetchLarkImage(
   return { base64: bytes.toString("base64"), mediaType: mediaType as LarkImage["mediaType"] };
 }
 
-/** The image_key out of a receive event's content: the platform sends
- *  `{"image_key": "img_v2_..."}` (lark-cli may or may not pre-render it), so
- *  accept the JSON field or a bare key. */
-export function larkImageKeyOf(content: string): string | null {
-  // The shared schema is the wire's single source of truth (the contracts
-  // audit rejects bare casts at cross-process boundaries). Non-JSON content
-  // falls through to the bare-key shape, never throws.
+/** The image keys inside a receive event's content, in order, deduped.
+ *
+ *  Two real shapes reach this code: the platform's JSON
+ *  `{"image_key": "img_v3_..."}` for a bare image message, and lark-cli's
+ *  PRE-RENDERED markdown — `![Image](img_v3_...)` inline in the text of a
+ *  rich-text (post) message, caption and all (verified live 2026-10-09: a
+ *  captioned image arrives as one post message, not an image message). The
+ *  scanner covers both plus a bare key; the JSON shape is parsed by the
+ *  shared wire schema (the contracts audit rejects bare casts). */
+export function larkImageKeysOf(content: string): string[] {
+  const keys: string[] = [];
+  const push = (key: string): void => {
+    if (!keys.includes(key)) keys.push(key);
+  };
   let raw: unknown;
   try {
     raw = JSON.parse(content);
@@ -59,6 +66,26 @@ export function larkImageKeyOf(content: string): string | null {
     raw = undefined;
   }
   const parsed = raw === undefined ? null : larkImageContentSchema.safeParse(raw);
-  if (parsed?.success) return parsed.data.image_key;
-  return /^img_[A-Za-z0-9_-]+$/.test(content.trim()) ? content.trim() : null;
+  if (parsed?.success) {
+    push(parsed.data.image_key);
+    return keys;
+  }
+  for (const match of content.matchAll(/img_[A-Za-z0-9_-]+/g)) push(match[0]);
+  return keys;
+}
+
+/** The text with the rendered image markers stripped: the model should read
+ *  the caption, not a dead link to a key it cannot fetch. A payload that is
+ *  nothing but the image (the JSON shape, or markdown with no other words)
+ *  has no caption at all. */
+export function stripImageMarkers(content: string): string {
+  const stripped = content.replace(/!\[[^\]]*\]\(img_[A-Za-z0-9_-]+\)/g, "").trim();
+  if (stripped.length === 0) return "";
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stripped);
+  } catch {
+    return stripped;
+  }
+  return larkImageContentSchema.safeParse(raw).success ? "" : stripped;
 }

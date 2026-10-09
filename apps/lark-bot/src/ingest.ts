@@ -15,7 +15,7 @@ import {
 import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned, isMentionAll } from "./event-parser.js";
-import { larkImageKeyOf } from "./image-fetch.js";
+import { larkImageKeysOf, stripImageMarkers } from "./image-fetch.js";
 import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
 import { resolveMentionTargets } from "./mention-targets.js";
 import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
@@ -56,6 +56,19 @@ export interface IngestResult {
  * Process one Lark message event through the reserve→POST→confirm pipeline.
  * See spec §4.3 for the full pseudocode and rationale.
  */
+/** Download each key, keeping order; failures drop out (a caption with a
+ *  dead image still posts its text). Capped at four: a picture flood is not a
+ *  conversation. */
+async function resolveImages(
+  keys: readonly string[],
+  fetchImage: (imageKey: string) => Promise<{ base64: string; mediaType: string } | null>,
+): Promise<Array<{ type: "image"; mediaType: string; base64: string }>> {
+  const settled = await Promise.all(keys.slice(0, 4).map((key) => fetchImage(key)));
+  return settled.flatMap((image) =>
+    image ? [{ type: "image" as const, mediaType: image.mediaType, base64: image.base64 }] : [],
+  );
+}
+
 export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promise<IngestResult> {
   const { db, selfAgentId, botDisplayName, backendUrl, backendAuthToken, onNewBinding } = ctx;
   const client = createClient(backendUrl, backendAuthToken);
@@ -111,23 +124,30 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     console.log(`[ingest] observing (${decision.reason}) chat=${event.chat_id}`);
   }
 
-  // ─── Image messages: the key becomes bytes, the bytes become a block ───
-  // (#65). Text messages stay exactly as they were; an image that cannot be
-  // resolved is skipped HERE, before any state — the same "never trigger a run
-  // on nothing" rule as the auth gate.
-  let postContent: string | Array<{ type: "image"; mediaType: string; base64: string }>;
-  if (event.message_type === "image") {
-    const imageKey = larkImageKeyOf(event.content);
-    const image = imageKey && ctx.fetchImage ? await ctx.fetchImage(imageKey) : null;
-    if (!image) {
+  // ─── Images: keys in the content become bytes, bytes become blocks ───
+  // (#65). The key arrives either as the platform's JSON (a bare image
+  // message) or INLINE in lark-cli's rendered markdown (a captioned post —
+  // the shape a user actually sends, verified live), so the scan runs on every
+  // message regardless of type. Captioned text survives; a message that is
+  // ONLY an unresolvable image is skipped here, before any state — the same
+  // "never trigger a run on nothing" rule as the auth gate.
+  let postContent: string | Array<Record<string, unknown>>;
+  {
+    const keys = ctx.fetchImage ? larkImageKeysOf(event.content) : [];
+    const caption = keys.length > 0 ? stripImageMarkers(event.content) : event.content;
+    const images = keys.length > 0 ? await resolveImages(keys, ctx.fetchImage!) : [];
+    if (images.length > 0) {
+      postContent = [...(caption.length > 0 ? [{ type: "text", text: caption }] : []), ...images];
+    } else if (caption.length > 0) {
+      postContent = caption;
+    } else if (keys.length > 0) {
       console.log(
-        `[ingest] skipped (image unavailable) chat=${event.chat_id} key=${imageKey ?? "?"}`,
+        `[ingest] skipped (image unavailable) chat=${event.chat_id} keys=${keys.join(",")}`,
       );
       return { action: "skipped", triggered: false, triggeredRuns: [] };
+    } else {
+      postContent = event.content;
     }
-    postContent = [{ type: "image", mediaType: image.mediaType, base64: image.base64 }];
-  } else {
-    postContent = event.content;
   }
 
   // ─── Control command: /stop cancels this chat's live Run cards ───

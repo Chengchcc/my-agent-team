@@ -161,6 +161,72 @@ describe("ingest", () => {
     db.close();
   });
 
+  test("a captioned post message (markdown image inline) posts caption + image blocks (#65 live shape)", async () => {
+    const db = makeDb();
+    const seen = mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_post_img" } },
+      { body: { seq: 1 } },
+    ]);
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_post_img",
+        message_id: "om_post_img",
+        message_type: "post",
+        content: "![Image](img_v3_0216a_live)\n理解这个图片",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        fetchImage: async (key) =>
+          key === "img_v3_0216a_live" ? { base64: "aWNn", mediaType: "image/png" } : null,
+      },
+    );
+    expect(result.action).toBe("consumed");
+    const post = seen.find((r) => r.url.includes("/messages"));
+    expect(JSON.parse(String(post?.body)).content).toEqual([
+      { type: "text", text: "理解这个图片" },
+      { type: "image", mediaType: "image/png", base64: "aWNn" },
+    ]);
+    db.close();
+  });
+
+  test("a caption with a dead image still posts its caption", async () => {
+    const db = makeDb();
+    const seen = mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_dead_img" } },
+      { body: { seq: 1 } },
+    ]);
+    await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_dead_img",
+        message_id: "om_dead_img",
+        message_type: "post",
+        content: "![Image](img_v3_gone)\n看这个",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        fetchImage: async () => null,
+      },
+    );
+    const post = seen.find((r) => r.url.includes("/messages"));
+    // The caption survives as plain text; the dead link is gone.
+    expect(JSON.parse(String(post?.body)).content).toBe("看这个");
+    db.close();
+  });
+
   test("p2p message — creates conversation, posts message, addresses agent", async () => {
     const db = makeDb();
 
