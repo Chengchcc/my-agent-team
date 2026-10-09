@@ -90,7 +90,9 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     claimed: ClaimedBranchInput,
     stage: { name: string },
   ): Promise<{
-    outcome: BackendRunOutcome | null;
+    /** The run's terminal outcome; for an agent-scoped workspace this is the
+     *  pending promise (the caller settles outside the workspace lock, #59). */
+    outcome: Promise<BackendRunOutcome> | BackendRunOutcome | null;
     segment: BackendRunSegment | null;
     /** Resolves when the segment's event stream has been fully drained. */
     drain: Promise<void>;
@@ -246,12 +248,21 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       );
     }
 
-    try {
-      return { outcome: await segment.outcome, segment, drain };
-    } finally {
+    const outcome = segment.outcome.finally(() => {
       if (watchdog) clearTimeout(watchdog);
       if (silenceTimer) clearInterval(silenceTimer);
+    });
+    // ADR 0023 §5 serializes SHARED checkouts for a run's whole life, and a
+    // parked human ask can hold one for as long as the human takes. An
+    // agent-scoped workspace is not a shared checkout (#59): the child reads
+    // the workspace config once at assembly and sessions are per-id files, so
+    // holding past delivery only wedges the agent's other conversations behind
+    // a parked sibling. Only an explicit shared:false releases early — a
+    // pinned or stored workspace keeps today's hold.
+    if (workspace.shared === false) {
+      return { outcome, segment, drain };
     }
+    return { outcome: await outcome, segment, drain };
   }
 
   /** Terminal handling for one outcome: completed -> atomic Product commit;
@@ -361,8 +372,9 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         const { outcome, segment, drain } = deliverResult;
         if (outcome) {
           stage.name = "settle_outcome";
-          debugLog("agent-run", `outcome runId=${runId} status=${outcome.status}`);
-          await settleOutcome(run, outcome);
+          const settled = await outcome;
+          debugLog("agent-run", `outcome runId=${runId} status=${settled.status}`);
+          await settleOutcome(run, settled);
         }
         // Drain the transient event stream (bounded) so subscribers observe
         // the final events before the run's subscriber set closes.

@@ -47,7 +47,12 @@ export interface AgentRun {
   readonly configRevision: number;
   /** Run-level workspace snapshot (set by callers that bind a specific
    *  workspace, e.g. Loop's cloned repo); null = agent-record default. */
-  readonly workspace: { root: string; access: "read_only" | "read_write" } | null;
+  readonly workspace: {
+    root: string;
+    access: "read_only" | "read_write";
+    /** See RunWorkspace.shared: absent reads as shared (conservative hold). */
+    shared?: boolean;
+  } | null;
   /** Product Tool manifest (ProductToolDescriptor[]), persisted at first
    *  dispatch; Product Tools MCP validates calls against it. */
   readonly productTools:
@@ -99,7 +104,12 @@ export interface BranchInput {
   readonly configSnapshot: {
     readonly modelRef: { backendKind: string; modelId: string };
     readonly configRevision: number;
-    readonly workspace: { root: string; access: "read_only" | "read_write" } | null;
+    readonly workspace: {
+      root: string;
+      access: "read_only" | "read_write";
+      /** See RunWorkspace.shared: absent reads as shared (conservative hold). */
+      shared?: boolean;
+    } | null;
     readonly systemPrompt: string | null;
     readonly skillRoots: readonly string[] | null;
     readonly permissionMode: string | null;

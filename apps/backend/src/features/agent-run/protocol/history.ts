@@ -14,6 +14,8 @@ export interface ProjectedHistoryItem {
 export interface WorkspaceBinding {
   readonly root: string;
   readonly access: "read_only" | "read_write";
+  /** See RunWorkspace.shared: absent reads as shared (conservative hold). */
+  readonly shared?: boolean;
 }
 
 /** Frozen per-Run configuration. Fixed at Agent Run start; every `execute()`

@@ -170,7 +170,127 @@ function recordingBackend(seen: Array<{ backendKind: string; modelId: string }>)
   };
 }
 
+/** A backend whose runs park until released: the shape of a run sitting on a
+ *  human ask, which by design has no deadline (#59). */
+function parkingBackend() {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started: string[] = [];
+  return {
+    started,
+    release,
+    backend: {
+      async execute(input: { run: { runId: string } }) {
+        started.push(input.run.runId);
+        return {
+          events: (async function* () {})(),
+          outcome: gate.then(() => ({ status: "completed", messages: [] })) as never,
+          stop: async () => {
+            release();
+          },
+        } as never;
+      },
+    },
+  };
+}
+
+async function enqueueOn(cid: string, key: string) {
+  return backend.enqueueAndAcquire({
+    conversationId: cid,
+    agentId,
+    backendKind: "acp",
+    mode: "normal",
+    message: { role: "user", text: "go" },
+    defaultModel: { backendKind: "acp", modelId: "acp/oma" },
+    configRevision: 1,
+    idempotencyKey: key,
+  });
+}
+
 describe("agent run execution (Run-centric)", () => {
+  test("a parked run does not block the agent's other conversations (#59: agent workspace)", async () => {
+    convPort.createConversation({ conversationId: "conv-2", agentId, createdAt: Date.now() });
+    const tree2 = await contextPort.getOrCreateTree("conv-2");
+    await contextPort.getOrCreateDefaultBranch(tree2.treeId, "acp");
+    const park = parkingBackend();
+    const execution = makeExecution(
+      createFakeAcpDaemon({ dataDir }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        backends: {
+          acp: {
+            backend: park.backend as never,
+            catalog: { list: async () => ({ models: [{ id: "acp/oma", available: true }] }) },
+          },
+        },
+        resolveWorkspace: async () => ({ root: "/ws/agent", access: "read_write", shared: false }),
+      },
+    );
+    const a = await enqueueOn(conversationId, "lock-a");
+    const dispatchA = execution.dispatch(a.run!.runId).catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+    expect(park.started).toHaveLength(1);
+
+    // A second conversation of the SAME agent dispatches while the first parks.
+    const b = await enqueueOn("conv-2", "lock-b");
+    const dispatchB = execution.dispatch(b.run!.runId).catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+    expect(park.started).toHaveLength(2);
+
+    park.release();
+    await Promise.all([dispatchA, dispatchB]);
+    expect((await waitForTerminal(b.run!.runId)).status).toBe("completed");
+  }, 15_000);
+
+  test("a parked run still serializes a shared checkout (#59: project worktree)", async () => {
+    convPort.createConversation({ conversationId: "conv-2", agentId, createdAt: Date.now() });
+    const tree2 = await contextPort.getOrCreateTree("conv-2");
+    await contextPort.getOrCreateDefaultBranch(tree2.treeId, "acp");
+    const park = parkingBackend();
+    const execution = makeExecution(
+      createFakeAcpDaemon({ dataDir }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        backends: {
+          acp: {
+            backend: park.backend as never,
+            catalog: { list: async () => ({ models: [{ id: "acp/oma", available: true }] }) },
+          },
+        },
+        resolveWorkspace: async () => ({
+          root: "/ws/agent/projects/p1",
+          access: "read_write",
+          shared: true,
+        }),
+      },
+    );
+    const a = await enqueueOn(conversationId, "share-a");
+    const dispatchA = execution.dispatch(a.run!.runId).catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+    expect(park.started).toHaveLength(1);
+
+    // ADR 0023 §5: a shared checkout never hosts two concurrent children, so the
+    // second run waits for as long as the parked first one takes.
+    const b = await enqueueOn("conv-2", "share-b");
+    const dispatchB = execution.dispatch(b.run!.runId).catch(() => {});
+    await new Promise((r) => setTimeout(r, 150));
+    expect(park.started).toHaveLength(1);
+
+    park.release();
+    await Promise.all([dispatchA, dispatchB]);
+    expect((await waitForTerminal(b.run!.runId)).status).toBe("completed");
+  }, 15_000);
+
   test("a retired kind is refused at preflight, never silently aliased", async () => {
     // The alias retired with the native adapters (ADR 0040 R3 complete): a
     // stored kind from before the cut can only be a misconfiguration now,
