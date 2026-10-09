@@ -22,8 +22,8 @@
  */
 import { createTokenProvider } from "../src/lark-api.js";
 import { renderCard } from "../src/run-card/card-renderer.js";
-import { queuedCardJson, steeredCardJson } from "../src/run-card/queued-card.js";
 import { cardStateFromChatTurn, type RunCardState } from "../src/run-card/card-state.js";
+import { queuedCardJson, steeredCardJson } from "../src/run-card/queued-card.js";
 
 const profile = process.argv[2];
 if (!profile) {
