@@ -46,6 +46,10 @@ export interface ConversationServiceDeps {
    *  when one is written. Optional: without it the record is still in the ledger and in the next
    *  projection, a connected surface just learns about it later. */
   onContinuityRecorded?: (input: { conversationId: string; controlSeq: number }) => void;
+  /** The rows an undo removed are gone from the next projection and nothing else states that, so
+   *  the surface layer is told to truncate. Optional: without it a connected surface keeps
+   *  painting the undone messages until it re-subscribes (#57). */
+  onMessagesUndone?: (input: { conversationId: string }) => void | Promise<void>;
   /** Product Context branch resolution (mode decisions; scope IS the
    *  Conversation/Branch pair since the 1:1 collapse). */
   contextService: AgentContextService;
@@ -161,6 +165,7 @@ class ConversationServiceImpl implements ConversationService {
   #abortStaleRun: ConversationServiceDeps["abortStaleRun"];
   #answerPendingTextAsk: ConversationServiceDeps["answerPendingTextAsk"];
   #onContinuityRecorded: ConversationServiceDeps["onContinuityRecorded"];
+  #onMessagesUndone: ConversationServiceDeps["onMessagesUndone"];
   #contextService: AgentContextService;
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
 
@@ -176,6 +181,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#abortStaleRun = deps.abortStaleRun;
     this.#answerPendingTextAsk = deps.answerPendingTextAsk;
     this.#onContinuityRecorded = deps.onContinuityRecorded;
+    this.#onMessagesUndone = deps.onMessagesUndone;
     this.#contextService = deps.contextService;
     this.#resolveDefaultModel = deps.resolveDefaultModel;
     this.#idGen = deps.idGen;
@@ -517,6 +523,10 @@ class ConversationServiceImpl implements ConversationService {
         kind: "undo",
         content: { undoneSeqs },
       });
+      // Nothing in the projection stream states a removal, so the surface layer has to be told
+      // (#57). A failure here must not fail the undo: the rows are already gone, and the next
+      // re-subscribe states them correctly anyway.
+      await this.#onMessagesUndone?.({ conversationId: input.conversationId });
     }
     return { undoneSeqs };
   }

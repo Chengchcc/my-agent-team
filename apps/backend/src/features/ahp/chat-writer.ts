@@ -7,8 +7,8 @@
  *  the same shape `run-events.ts` uses for the translation half; the driver used to be left
  *  behind in `features.ts`, which also had to reach into the host's dispatch to make it work. */
 
-import { chatUri } from "@chengchenccc/ahp-client";
-import type { StateAction, Turn } from "@microsoft/agent-host-protocol";
+import { chatUri, enumValue } from "@chengchenccc/ahp-client";
+import type { ChatTruncatedAction, StateAction, Turn } from "@microsoft/agent-host-protocol";
 import type { BackendEvent } from "../../features/agent-run/protocol/index.js";
 import { pendingActionId } from "../agent-run/index.js";
 import { type ChatActionTranslator, createChatActionTranslator } from "./run-events.js";
@@ -48,6 +48,9 @@ export interface AhpChatWriterDeps {
    *  plan strip rides `state._meta.todos`, which only a snapshot can set -- so the surface's
    *  next read has to be served from the DB instead (#52). */
   readonly invalidate: (uri: string) => void;
+  /** The id of the conversation's last surviving turn, read from the projection after an undo.
+   *  `undefined` means no turn survives, which is what a clear-the-list truncation is for. */
+  readonly lastTurnId: (conversationId: string) => Promise<string | undefined>;
   /** Injectable so a test can drive the writer without a protocol. */
   readonly translate?: ChatActionTranslator;
 }
@@ -66,6 +69,9 @@ export interface AhpChatWriter {
    *  `answered` is an ask answered with content - the *outcome* reaches a live surface here, the
    *  answer's content comes with the projection (mapping the product's answer onto upstream's
    *  `ChatInputAnswer` kinds is a decision of its own). */
+  /** An undo removed ledger rows: the turns they built are gone from the next projection, and no
+   *  other action states that, so the channel is truncated to whatever survives (#57). */
+  announceMessagesUndone(conversationId: string): Promise<void>;
   announceHumanInput(input: {
     runId: string;
     callId: string;
@@ -136,6 +142,21 @@ export function createAhpChatWriter(deps: AhpChatWriterDeps): AhpChatWriter {
         });
         await send(context.conversationId, [...opening, ...translated]);
       });
+    },
+
+    async announceMessagesUndone(conversationId) {
+      // Read the projection, not the undone seqs: the source already states the survivors, so the
+      // last turn's id IS the truncation target. Dropping the cache first keeps the host's own copy
+      // from carrying the removed turns into the next reader -- the same stale-cache gap the plan
+      // strip had (#52).
+      const lastTurnId = await deps.lastTurnId(conversationId).catch(() => undefined);
+      deps.invalidate(chatUri(conversationId));
+      await send(conversationId, [
+        {
+          type: enumValue<ChatTruncatedAction["type"]>("chat/truncated"),
+          ...(lastTurnId === undefined ? {} : { turnId: lastTurnId }),
+        },
+      ]);
     },
 
     async foldCommittedTurn(runId, durationMs) {
