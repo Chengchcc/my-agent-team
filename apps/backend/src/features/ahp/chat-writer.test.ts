@@ -7,7 +7,7 @@ import { createAhpChatWriter } from "./chat-writer.js";
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-function fixture(over: { projected?: unknown } = {}) {
+function fixture(over: { projected?: unknown; lastTurnId?: string } = {}) {
   const sent: Array<{ uri: string; action: Record<string, unknown> }> = [];
   const invalidated: string[] = [];
   let reads = 0;
@@ -18,6 +18,7 @@ function fixture(over: { projected?: unknown } = {}) {
     invalidate: (uri) => {
       invalidated.push(uri);
     },
+    lastTurnId: async () => over.lastTurnId,
     projectedTurn: async () => (over.projected ?? null) as never,
     readRunTurnContext: async () => {
       reads++;
@@ -49,6 +50,23 @@ describe("the chat channel writer", () => {
     // The field lives in `state._meta`, which only a snapshot can set, so the surface only sees
     // it after the cache is dropped (#52 step 1: AhpServer.invalidate).
     expect(f.invalidated).toEqual(["ahp-chat:/c1"]);
+  });
+
+  test("an undo truncates the channel to the last surviving turn", async () => {
+    const f = fixture({ lastTurnId: "run-2" });
+    await f.writer.announceMessagesUndone("c1");
+    // The target is the source's last turn: the undone rows are already gone from the projection.
+    expect(f.sent).toEqual([
+      { uri: "ahp-chat:/c1", action: { type: "chat/truncated", turnId: "run-2" } },
+    ]);
+    // The host's own copy still holds the removed turns, so the cache goes too.
+    expect(f.invalidated).toEqual(["ahp-chat:/c1"]);
+  });
+
+  test("an undo that removes every turn clears the list (no turnId)", async () => {
+    const f = fixture({ lastTurnId: undefined });
+    await f.writer.announceMessagesUndone("c1");
+    expect(f.sent).toEqual([{ uri: "ahp-chat:/c1", action: { type: "chat/truncated" } }]);
   });
 
   test("opens the turn before streaming into it, and reads the context once", async () => {

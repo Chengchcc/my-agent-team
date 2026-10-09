@@ -179,6 +179,8 @@ const injectSteerCalls: Array<{ branchId: string; inputId: string }> = [];
 const abortStaleCalls: string[] = [];
 /** Every continuity record the service announced, in order. */
 const continuityAnnouncements: Array<{ conversationId: string; controlSeq: number }> = [];
+/** Every conversation whose undo was announced to the surface layer, in order. */
+const undoAnnouncements: string[] = [];
 /** RunIds considered "live" (in-process child). DB-active alone is not live. */
 let liveRunIds = new Set<string>();
 /** RunIds with a dispatch in flight (pre-acceptance) on this process. */
@@ -199,6 +201,9 @@ const svc = createConversationService({
   },
   contextService: contextSvc,
   onContinuityRecorded: (input) => continuityAnnouncements.push(input),
+  onMessagesUndone: (input) => {
+    undoAnnouncements.push(input.conversationId);
+  },
   resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
   idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
 });
@@ -456,9 +461,21 @@ describe("conversation service (Agent Run cutover)", () => {
     nextAcquired = true;
     activeRunId = null;
     await svc.postMessage({ conversationId: id, content: "to undo" });
+    undoAnnouncements.length = 0;
     const result = await svc.undoMessages({ conversationId: id, count: 1 });
     expect(result.undoneSeqs).toHaveLength(1);
     expect(port.getLedgerEntries(id).some((e) => e.kind === "undo")).toBe(true);
+    // Nothing in the projection stream states a removal, so the surface layer is told (#57).
+    expect(undoAnnouncements).toEqual([id]);
+  });
+
+  test("an undo with nothing to remove announces nothing", async () => {
+    const id = "cid-undo-empty";
+    setupConv(id);
+    undoAnnouncements.length = 0;
+    const result = await svc.undoMessages({ conversationId: id, count: 1 });
+    expect(result.undoneSeqs).toHaveLength(0);
+    expect(undoAnnouncements).toEqual([]);
   });
 
   // ─── Pending input queue (Composer queue area) ───

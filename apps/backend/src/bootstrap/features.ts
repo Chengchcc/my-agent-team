@@ -441,6 +441,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const onContinuityRecorded: {
     fn: (input: { conversationId: string; controlSeq: number }) => void;
   } = { fn: () => {} };
+  // An undo removes rows the action stream cannot state (nothing dispatches "a message is gone"),
+  // so the chat channels are told to truncate. Filled in once the AHP host exists.
+  const onMessagesUndone: { fn: (input: { conversationId: string }) => void } = { fn: () => {} };
   const conv = createConversationFeature({
     convPort,
 
@@ -452,6 +455,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     isInflight: (runId: string) => isInflight.fn(runId),
     abortStaleRun: (runId: string) => abortStaleRun.fn(runId),
     onContinuityRecorded: (input) => onContinuityRecorded.fn(input),
+    onMessagesUndone: (input) => onMessagesUndone.fn(input),
     contextService: contextSvc,
     // Roadmap (自由文本追问): the productTools binding is declared below —
     // the closure dereferences it at request time, long after boot wiring.
@@ -758,6 +762,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;
     },
     readRunTurnContext: readRunTurn,
+    // The truncation target after an undo: read the source, not the undone seqs, because the
+    // undone rows are already gone from what it states.
+    lastTurnId: async (conversationId) => {
+      const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
+      return chat?.turns.at(-1)?.id;
+    },
   });
 
   /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
@@ -830,6 +840,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     });
   };
   // Late-bound for the same reason: the plan strip rides the run's live stream.
+  onMessagesUndone.fn = ({ conversationId }) => {
+    void chatWriter.announceMessagesUndone(conversationId).catch((err) => {
+      console.error(`[ahp] undo announce failed for ${conversationId}:`, err);
+    });
+  };
   broadcastTodoEvent = ({ runId, items }) => {
     agentRunExecution.broadcastRunEvent(runId, {
       type: "backend.oma.todo_update",
