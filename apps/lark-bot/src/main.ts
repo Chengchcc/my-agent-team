@@ -18,11 +18,12 @@ import {
 import { bootstrap } from "./bootstrap.js";
 import { createClient } from "./client.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
-import { parseEvent } from "./event-parser.js";
-import { fetchLarkImage } from "./image-fetch.js";
+import { type LarkMessageEvent, parseEvent } from "./event-parser.js";
+import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
 import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
 import { createTokenProvider } from "./lark-api.js";
+import { MessageBatcher, renderMergedMessages } from "./merge-batch.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
 import {
@@ -36,7 +37,7 @@ import { watchRunCard } from "./run-card/run-card-watcher.js";
 import { safeAgentId } from "./safe-agent-id.js";
 import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
-import { replyInThreadFor } from "./topic-routing.js";
+import { replyInThreadFor, topicLookupKeys } from "./topic-routing.js";
 import { sendImageIntoTopic, sendIntoTopic } from "./topic-send.js";
 
 const args = parseArgs(process.argv.slice(2));
@@ -258,21 +259,30 @@ const child = spawn(
 
 let ready = false;
 
-async function handleLine(line: string): Promise<void> {
-  const trimmed = line.trim();
-  if (!trimmed) return;
+/** #83: how long one person's burst stays open. A message opens the window,
+ *  anything from the same sender in the same topic joins it, and the batch is
+ *  delivered once the window closes with nothing new. */
+const MERGE_WINDOW_MS = 600;
 
-  const event = parseEvent(trimmed);
-  if (!event) {
-    console.warn(`[lark-bot] unparseable line: ${trimmed.slice(0, 100)}`);
-    return;
-  }
+/** The identity a batch is keyed by: same topic, same sender. Topic ids come
+ *  from the same helper the conversation binding uses, so "which topic" cannot
+ *  drift between the two. */
+function mergeKeyOf(event: LarkMessageEvent): string {
+  const topic = topicLookupKeys(event)[0] ?? "root";
+  return `${event.chat_id}|${topic}|${event.sender_id ?? "unknown"}`;
+}
 
-  if (!ready) {
-    console.log(`[lark-bot] first event received — marking ready (event_id=${event.event_id})`);
-    ready = true;
-  }
+/** A message carrying an image never merges and never waits: its body (text +
+ *  image blocks) is assembled downstream, and a merged version of that is not
+ *  this layer's job. It goes straight through, exactly as before #83. */
+function isMergeable(event: LarkMessageEvent): boolean {
+  return larkImageKeysOf(event.content).length === 0;
+}
 
+/** One ingest. `event` may be a merged batch (merge-batch.ts): the ids it
+ *  carries are the first original's, which is what the ack reaction and the
+ *  run card attach to. */
+async function runIngest(event: LarkMessageEvent): Promise<void> {
   const result = await ingest(event, {
     db: state.db,
     selfAgentId: args.agentId,
@@ -344,6 +354,50 @@ async function handleLine(line: string): Promise<void> {
       `[lark-bot] ingested: ${event.chat_type} seq=${result.ledgerSeq} triggered=${result.triggered} chat=${event.chat_id} thread=${event.thread_id ?? "-"} root=${event.root_id ?? "-"} reply_to=${event.reply_to ?? "-"}`,
     );
   }
+}
+
+// #83: one person's burst is one thought. The batch is delivered as a single
+// message whose text says how many originals it carries, so the question a
+// given answer belongs to stays readable instead of being inferred from timing.
+const batcher = new MessageBatcher<LarkMessageEvent>({
+  windowMs: MERGE_WINDOW_MS,
+  onFlush: async (batch) => {
+    const [first, ...rest] = batch;
+    if (!first) return;
+    if (rest.length === 0) {
+      await runIngest(first);
+      return;
+    }
+    console.log(
+      `[lark-bot] merged ${batch.length} messages from ${first.sender_id} in ${first.chat_id}`,
+    );
+    await runIngest({
+      ...first,
+      content: renderMergedMessages(batch.map((event) => event.content)),
+    });
+  },
+});
+
+async function handleLine(line: string): Promise<void> {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+
+  const event = parseEvent(trimmed);
+  if (!event) {
+    console.warn(`[lark-bot] unparseable line: ${trimmed.slice(0, 100)}`);
+    return;
+  }
+
+  if (!ready) {
+    console.log(`[lark-bot] first event received — marking ready (event_id=${event.event_id})`);
+    ready = true;
+  }
+
+  if (!isMergeable(event)) {
+    await runIngest(event);
+    return;
+  }
+  batcher.push(mergeKeyOf(event), event);
 }
 
 const rl = createInterface({ input: child.stdout! });
@@ -471,6 +525,9 @@ const cleanup = () => {
 };
 process.on("SIGTERM", () => {
   console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
+  // A batch still inside its quiet window is a message someone sent: deliver it
+  // before we go (the backend may still be up when only the bot restarts).
+  void batcher.flushAll();
   cleanup();
   // Every consumer gets the signal: leaving the card/reaction streams to die
   // with the parent skipped lark-cli's own unsubscribe (it warns about it).
