@@ -7,8 +7,13 @@
  *  the same shape `run-events.ts` uses for the translation half; the driver used to be left
  *  behind in `features.ts`, which also had to reach into the host's dispatch to make it work. */
 
-import { chatUri } from "@chengchenccc/ahp-client";
-import type { StateAction, Turn } from "@microsoft/agent-host-protocol";
+import { chatUri, enumValue } from "@chengchenccc/ahp-client";
+import type {
+  ChatResponsePartAction,
+  ResponsePartKind,
+  StateAction,
+  Turn,
+} from "@microsoft/agent-host-protocol";
 import type { BackendEvent } from "../../features/agent-run/protocol/index.js";
 import { pendingActionId } from "../agent-run/index.js";
 import { type ChatActionTranslator, createChatActionTranslator } from "./run-events.js";
@@ -16,6 +21,30 @@ import { type ChatActionTranslator, createChatActionTranslator } from "./run-eve
 /** Statuses after which a run stops stepping. `commit_failed` is in this set and not in the
  *  product's own terminal list on purpose: the branch stays occupied for the retry, while for a
  *  surface it means the preview it already has is all it will get until it re-reads. */
+/** The images inside a tool's raw result: oma's tools report them as
+ *  `{ images: [{ type: "image", mediaType, base64 }] }` (browser screenshots,
+ *  read_image). Capped at four, and only the four media types the protocol
+ *  carries. */
+function toolResultImages(event: BackendEvent): Array<{ mediaType: string; base64: string }> {
+  const result = (event as { result?: unknown }).result;
+  if (typeof result !== "object" || result === null) return [];
+  const images = (result as { images?: unknown }).images;
+  if (!Array.isArray(images)) return [];
+  const out: Array<{ mediaType: string; base64: string }> = [];
+  for (const entry of images.slice(0, 4)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { type, mediaType, base64 } = entry as {
+      type?: unknown;
+      mediaType?: unknown;
+      base64?: unknown;
+    };
+    if (type !== "image" || typeof mediaType !== "string" || typeof base64 !== "string") continue;
+    if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(mediaType)) continue;
+    out.push({ mediaType, base64 });
+  }
+  return out;
+}
+
 const STOPPED_STEPPING: ReadonlySet<string> = new Set([
   "completed",
   "failed",
@@ -48,6 +77,14 @@ export interface AhpChatWriterDeps {
    *  plan strip rides `state._meta.todos`, which only a snapshot can set -- so the surface's
    *  next read has to be served from the DB instead (#52). */
   readonly invalidate: (uri: string) => void;
+  /** Persist a tool-produced image and return where it lives (#65 output side): the bytes go
+   *  to the artifact store, and the part that reaches surfaces is only a reference. */
+  readonly saveImage?: (input: {
+    runId: string;
+    conversationId: string;
+    mediaType: string;
+    base64: string;
+  }) => Promise<{ uri: string; contentType: string; size: number }>;
   /** Injectable so a test can drive the writer without a protocol. */
   readonly translate?: ChatActionTranslator;
 }
@@ -121,6 +158,42 @@ export function createAhpChatWriter(deps: AhpChatWriterDeps): AhpChatWriter {
           const context = await contextFor(runId);
           if (context) deps.invalidate(chatUri(context.conversationId));
         });
+      }
+      // A tool that produced images (screenshots, read_image): the bytes exist only on this
+      // event, so they are written somewhere durable NOW and the surfaces get a reference part.
+      // The AHP vocabulary already carries this -- ResourceResponsePart + `chat/responsePart` --
+      // so no new action, and the surfaces can render whatever they render for a resource.
+      if (event.type === "native_tool_completed") {
+        const images = toolResultImages(event);
+        if (images.length > 0 && deps.saveImage) {
+          queue(runId, async () => {
+            const context = await contextFor(runId);
+            if (!context) return;
+            for (const image of images) {
+              const saved = await deps
+                .saveImage?.({
+                  runId,
+                  conversationId: context.conversationId,
+                  mediaType: image.mediaType,
+                  base64: image.base64,
+                })
+                .catch(() => undefined);
+              if (!saved) continue;
+              await send(context.conversationId, [
+                {
+                  type: enumValue<ChatResponsePartAction["type"]>("chat/responsePart"),
+                  turnId: runId,
+                  part: {
+                    kind: enumValue<ResponsePartKind>("contentRef"),
+                    uri: saved.uri as never,
+                    contentType: saved.contentType,
+                    sizeHint: saved.size,
+                  },
+                } as never,
+              ]);
+            }
+          });
+        }
       }
       // The terminal status only means the run stopped stepping: its preview stays live until the
       // commit hook replaces it with the projection (which is the authority on the turn).

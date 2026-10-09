@@ -10,6 +10,7 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 function fixture(over: { projected?: unknown } = {}) {
   const sent: Array<{ uri: string; action: Record<string, unknown> }> = [];
   const invalidated: string[] = [];
+  const savedImages: Array<{ mediaType: string; bytes: string }> = [];
   let reads = 0;
   const writer = createAhpChatWriter({
     dispatch: async (uri, action: StateAction) => {
@@ -17,6 +18,14 @@ function fixture(over: { projected?: unknown } = {}) {
     },
     invalidate: (uri) => {
       invalidated.push(uri);
+    },
+    saveImage: async ({ mediaType, base64 }: { mediaType: string; base64: string }) => {
+      savedImages.push({ mediaType, bytes: base64 });
+      return {
+        uri: `artifacts://tool-images/c1/shot.${mediaType.split("/")[1]}`,
+        contentType: mediaType,
+        size: 3,
+      };
     },
     projectedTurn: async () => (over.projected ?? null) as never,
     readRunTurnContext: async () => {
@@ -33,12 +42,43 @@ function fixture(over: { projected?: unknown } = {}) {
     writer,
     sent,
     invalidated,
+    savedImages,
     types: () => sent.map((entry) => String(entry.action.type)),
     reads: () => reads,
   };
 }
 
 describe("the chat channel writer", () => {
+  test("a tool's images are saved and reach the channel as references (#65)", async () => {
+    const f = fixture();
+    f.writer.onLiveEvent("run-1", {
+      type: "native_tool_completed",
+      toolName: "browser",
+      callId: "call-1",
+      result: { images: [{ type: "image", mediaType: "image/png", base64: "aWNn" }] },
+    } as never);
+    f.writer.onLiveEvent("run-1", {
+      type: "native_tool_completed",
+      toolName: "bash",
+      callId: "call-2",
+      result: { stdout: "no images here" },
+    } as never);
+    await settle();
+    // The bytes were persisted, and the part that travels is only a reference.
+    expect(f.savedImages).toEqual([{ mediaType: "image/png", bytes: "aWNn" }]);
+    const withPart = f.sent.filter((entry) => entry.action.type === "chat/responsePart");
+    expect(withPart).toHaveLength(1);
+    expect(withPart[0]!.action).toMatchObject({
+      turnId: "run-1",
+      part: {
+        kind: "contentRef",
+        uri: "artifacts://tool-images/c1/shot.png",
+        contentType: "image/png",
+        sizeHint: 3,
+      },
+    });
+  });
+
   test("a todo update drops the cached projection (no action can carry the plan strip)", async () => {
     const f = fixture();
     f.writer.onLiveEvent("run-1", {
