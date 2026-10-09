@@ -761,6 +761,26 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const chatWriter = createAhpChatWriter({
     dispatch: (uri, action) => ahpHost.server.dispatch(uri, action),
     invalidate: (uri) => ahpHost.server.invalidate(uri),
+    // #65 output side: a tool-produced image's bytes exist only on the event,
+    // so they land in the artifact store and the surfaces get a reference.
+    saveImage: async ({ runId, conversationId, mediaType, base64 }) => {
+      const ext =
+        mediaType === "image/png"
+          ? "png"
+          : mediaType === "image/jpeg"
+            ? "jpg"
+            : mediaType === "image/gif"
+              ? "gif"
+              : "webp";
+      const meta = await artifactService.upload({
+        folder: `tool-images/${conversationId}`,
+        filename: `${runId}-${Date.now()}.${ext}`,
+        content: base64,
+        encoding: "base64",
+        source: { runId, conversationId },
+      });
+      return { uri: meta.url, contentType: meta.mimeType, size: meta.size };
+    },
     projectedTurn: async (conversationId, turnId) => {
       const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
       return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;
