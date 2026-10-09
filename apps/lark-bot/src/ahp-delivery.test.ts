@@ -127,3 +127,71 @@ describe("a failed send", () => {
     expect(sent).toEqual(["hello", "hello"]);
   });
 });
+
+describe("AHP delivery of produced images (#65 output direction)", () => {
+  const imagePart = (uri: string, contentType = "image/png") => ({
+    kind: "contentRef",
+    id: "run-1:image:0",
+    uri,
+    contentType,
+    sizeHint: 2048,
+    _meta: { messageId: "run:run-1:assistant:0" },
+  });
+  const uri = "artifacts://tool-images/c1/run-1-shot.png";
+
+  test("an image part goes to the transport owner, keyed by its artifact uri", async () => {
+    const sent: [string, string, string][] = [];
+    const deps = {
+      db,
+      onSend: async () => {},
+      onSendImage: async (chatId: string, u: string, filename: string) => {
+        sent.push([chatId, u, filename]);
+      },
+    };
+    const state = stateWith([imagePart(uri)]);
+    await deliverChatState(state, target, deps);
+    expect(sent).toEqual([["chat-1", uri, "run-1-shot.png"]]);
+    // Every responsePart is re-delivered on reconnect; the row makes that a no-op.
+    await deliverChatState(state, target, deps);
+    expect(sent.length).toBe(1);
+  });
+
+  test("a failed image send is recorded and replayed, not swallowed", async () => {
+    let attempts = 0;
+    const deps = {
+      db,
+      onSend: async () => {},
+      onSendImage: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("feishu down");
+      },
+    };
+    const state = stateWith([imagePart(uri)]);
+    await expect(deliverChatState(state, target, deps)).rejects.toThrow("feishu down");
+    expect(getMessageDelivery(db, "c1", uri, "chat-1")?.lastState).toBe("error");
+    await deliverChatState(state, target, deps);
+    expect(attempts).toBe(2);
+  });
+
+  test("only images travel this way", async () => {
+    let calls = 0;
+    const deps = {
+      db,
+      onSend: async () => {},
+      onSendImage: async () => {
+        calls += 1;
+      },
+    };
+    await deliverChatState(
+      stateWith([imagePart("artifacts://reports/c1/nightly.pdf", "application/pdf")]),
+      target,
+      deps,
+    );
+    expect(calls).toBe(0);
+  });
+
+  test("a text-only channel skips image parts without recording them", async () => {
+    await deliverChatState(stateWith([imagePart(uri)]), target, { db, onSend: async () => {} });
+    expect(getMessageDelivery(db, "c1", uri, "chat-1")).toBeNull();
+  });
+});

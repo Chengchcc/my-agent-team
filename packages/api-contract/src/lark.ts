@@ -65,3 +65,19 @@ export type LarkMessageEvent = z.infer<typeof larkMessageEventSchema>;
 
 /** Image-message content (#65): the platform sends the key, nothing else. */
 export const larkImageContentSchema = z.object({ image_key: z.string().min(1) });
+
+/** Image upload answer (#65 output direction): `POST /im/v1/images` returns the
+ *  key a message then carries, wrapped in the usual `{code, data}` envelope. */
+export const larkImageUploadSchema = z.object({
+  code: z.number(),
+  msg: z.string().optional(),
+  data: z.object({ image_key: z.string().min(1) }).optional(),
+});
+
+/** Message-send answer: only the ids the outbound path records as topic keys.
+ *  A reply carries `thread_id` when it landed inside a thread. */
+export const larkMessageSendSchema = z.object({
+  code: z.number(),
+  msg: z.string().optional(),
+  data: z.object({ message_id: z.string().min(1), thread_id: z.string().optional() }).optional(),
+});

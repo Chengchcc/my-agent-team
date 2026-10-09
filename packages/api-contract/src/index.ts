@@ -1,5 +1,12 @@
+export { artifactContentSchema } from "./artifact.js";
 export type { LarkContent, LarkMessageEvent } from "./lark.js";
-export { larkContentSchema, larkImageContentSchema, larkMessageEventSchema } from "./lark.js";
+export {
+  larkContentSchema,
+  larkImageContentSchema,
+  larkImageUploadSchema,
+  larkMessageEventSchema,
+  larkMessageSendSchema,
+} from "./lark.js";
 export type {
   AgentMember,
   HumanMember,
