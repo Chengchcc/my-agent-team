@@ -194,14 +194,6 @@ function recordOf(value: unknown): Record<string, unknown> | undefined {
 
 const PlainRecord = z.record(z.string(), z.unknown());
 
-/** The protocol lets an invocation message be a plain string or markdown; the card wants the
- *  line, so both forms fold to one. */
-function invocationLine(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  const markdown = recordOf(value)?.markdown;
-  return typeof markdown === "string" ? markdown : undefined;
-}
-
 /** Parse todo items with the shared wire schema — the same definition the
  *  Web reducer relies on, so the two surfaces cannot drift apart. An item
  *  that fails validation is dropped rather than guessed at. */
@@ -284,11 +276,13 @@ export function cardStateFromChatTurn(
     if (kind === "toolCall" && "toolCall" in part) {
       const call = part.toolCall;
       if (hasDedicatedEvent(call.toolName)) continue;
-      // The authored line first (the child's own `activity`), then what the protocol set on the
-      // call itself; `toolActivity` synthesizes only when neither exists.
-      const authored =
-        call.intention ??
-        invocationLine("invocationMessage" in call ? call.invocationMessage : undefined);
+      // The authored line (the child's own `activity`); `toolActivity`
+      // synthesizes from the tool name when there is none. The protocol's
+      // invocationMessage is deliberately NOT a label source: on the snapshot
+      // path it is the raw JSON input (often "{}"), which rendered literally
+      // as "✓ {}" on the card — and a raw argument dump is not a summary
+      // (ADR 0031 decision 7).
+      const authored = call.intention;
       const label = toolActivity(authored, call.toolName);
       const status = call.status as string;
       if (status === "running" || status === "pending-confirmation") {

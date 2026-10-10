@@ -47,7 +47,7 @@ describe("the card state from a chat turn", () => {
               displayName: "bash",
               status: "completed",
               success: true,
-              invocationMessage: "reading the log",
+              intention: "reading the log",
               pastTenseMessage: "bash finished",
             },
           },
@@ -58,7 +58,7 @@ describe("the card state from a chat turn", () => {
               toolName: "glob",
               displayName: "glob",
               status: "running",
-              invocationMessage: "looking for config",
+              intention: "looking for config",
             },
           },
         ]),
@@ -84,7 +84,7 @@ describe("the card state from a chat turn", () => {
               displayName: "bash",
               status: "completed",
               success: false,
-              invocationMessage: "reading the log",
+              intention: "reading the log",
             },
           },
         ]),
@@ -92,6 +92,31 @@ describe("the card state from a chat turn", () => {
       "run-1",
     );
     expect(card?.completedTools).toEqual([{ label: "reading the log", outcome: "error" }]);
+  });
+
+  test("the raw JSON input is never the label", () => {
+    // The snapshot path sets invocationMessage to the raw input (often "{}"),
+    // which used to render literally as "✓ {}". It is not a summary: the
+    // label must fall back to the tool name instead.
+    const card = cardStateFromChatTurn(
+      state({
+        activeTurn: active([
+          {
+            kind: "toolCall",
+            toolCall: {
+              toolCallId: "c1",
+              toolName: "ls",
+              displayName: "ls",
+              status: "completed",
+              success: true,
+              invocationMessage: "{}",
+            },
+          },
+        ]),
+      }),
+      "run-1",
+    );
+    expect(card?.completedTools).toEqual([{ label: "正在调用 ls", outcome: "success" }]);
   });
 
   test("an open request puts buttons on the card; an answered one does not", () => {
