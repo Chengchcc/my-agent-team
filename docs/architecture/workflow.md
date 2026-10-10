@@ -47,6 +47,8 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 `parseWorkflow` 会拒绝这些：重复 id、start 不是恰好一个、边的端点不存在、从 start 不可达的节点、`when` 里出现白名单外的 JSON-Logic 算子、`node.output.<field>` 引用了不存在的输出字段、以及拓扑环。
 
+边除 `{ from, to, when? }` 外还有 `kind?: "forward" | "rework"` 与 `budget?: { maxAttempts, onExhausted }`（ADR 0042）。返工边**指向上游**（目标是源的祖先），必须带预算；`forwardEdges()` 是唯一的前向遍历入口，`topoSort`／路由／可达性／编辑器布局都只走它，因此返工边不会把 DAG 变成环，也不会自己「路由」出去。
+
 ## JSON-Logic 子集
 
 白名单 13 个算子：`var`、`==`、`!=`、`>`、`>=`、`<`、`<=`、`in`、`and`、`or`、`not`、`if`、`!!`（`json-logic.ts:9-23`）。
@@ -70,6 +72,15 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 **合并顺序**：`mergeInputs` 依次合并 trigger、store、以及所有已完成节点的 output，按完成顺序、晚完成者胜出，返回每个 key 的来源；`nextNode` 与 `__proto__` / `constructor` / `prototype` 被排除在数据面之外（`graph.ts:116-143`）。human 答案走 HTTP 进来时同样过滤这四个 key（`service.ts:689-699`）。
 
 **没有 ready 也没有终态**就是 `idle`，壳层抛 `stuck: no ready nodes and no terminal`（`engine.ts:53`、`service.ts:582`）。
+
+## 返工：新的尝试
+
+「跑 → 验收 → 不过则打回重跑，最多 N 轮」由返工边表达，执行侧不引入环，被重新进入的是**执行**而不是图（ADR 0042）：
+
+- 一次执行里同一个 `nodeId` **一行一次尝试**：`workflow_node_run` 主键是自增 `seq`，`build` 的第二次尝试是新行；补丁（`updateNodeRun`）永远只落在该节点的**最新一行**上，否则第二次尝试会改写第一次的结果。
+- 源节点完成且返工边的 `when` 成立时，**目标连同其全部下游**被标成 `superseded`——旧行留作历史，重新执行时追加新行。`superseded` 也是唯一的返工状态：驱动循环每轮从行历史里推导「谁欠一次重跑」，所以进程在判定与重跑之间重启也能自己续上，没有内存态。
+- 下一次尝试的输入带 `attempt` 与 `rework: { from, reason }`（reason 取源节点输出的 `reason`/`feedback`/`error`/`message`/`summary`，否则取整段输出并截断）；被替换掉的旧输出不进合并输入，重试读不到自己正在替换的那个判定。
+- 预算按目标的**已有行数**判：`attempt > maxAttempts`（加上人类放行的次数）即耗尽。`onExhausted: "fail"` 让执行以明确错误结束（错误里带轮数与最后一次判定）；`"human"` 落一个预算门——它有自己的行与 pending 任务，id 是 `<node>#budget`（既不与 human 节点自己的 pending 撞主键，也不计入目标的尝试数），答案 `{ decision: "grant" }` 追加一轮、`"reject"` 结束执行。
 
 ## 执行路径
 
@@ -156,11 +167,13 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 5. 节点失败逐节点记录并广播，execution 以 failure 终态；不伪造 output。
 6. human 的完成是原子 claim，条件 UPDATE 决定唯一赢家，输家 409。
 7. 定义落盘前必须过 `parseWorkflow`——PUT 与 MCP write 在同一条信任边界上。
+8. 返工必须有预算，且返工边只指向上游；引擎只从前向边算路由、join、拓扑序与布局。
 
 ## 已知缺口
 
 - human 节点的 `timeoutMs` 被解析但从未实施，pending human 永不过期。
 - 并行 fan-out 没有实现，ready 列表串行 await。
+- dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
 - agent 节点的 `repo` 字段进了 `NodeContext`、依赖也接好了，但没有调用方，agent 节点不会切到该 repo 的 worktree。
 - `workflowRef.repo` 被忽略，定义只从本地目录读，没有 git loader。
 

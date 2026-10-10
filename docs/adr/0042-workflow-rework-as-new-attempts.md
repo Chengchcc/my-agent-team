@@ -4,7 +4,7 @@
 
 ## 状态
 
-Proposed（2026-10-09 初稿；实现未开始）
+Accepted（2026-10-10 落地：P1–P5 已实现并各自带测试）
 
 ## 上下文
 
@@ -65,15 +65,19 @@ Workflow DSL 表达不出最常见的返工：**「跑 → 验收 → 不过就�
 - 代价：`waiting_human` 多了一类语义（grant 预算而不是填表单），human task 的 DTO 需要区分；
 - 与 [ADR 0025](0025-loop-workflow-first-execution.md) 无关（Loop 已删）；本 ADR 只动 Workflow DSL 与引擎。
 
-## 落地相位（供实现排期，未开工）
+## 落地相位（已全部完成）
 
 ```
-P1 DSL：边类型 + budget 校验（parse/graph 纯函数 + 测试，无后端改动）
-P2 引擎：尝试序号、下游失效集合、rework 上下文注入（纯域 + 测试）
-P3 服务：追加行、预算耗尽两条出口（fail / waiting_human grant）、事件与 DTO
-P4 呈现：时间线按尝试分组、grant 卡与端点
-P5 文档：DSL 手册（skills/agentic-workflow-dsl/SKILL.md）与架构页同步
+P1 DSL：边类型 + budget 校验（parse/graph 纯函数 + 测试，无后端改动）        ✓
+P2 引擎：尝试序号、下游失效集合、rework 上下文注入（纯域 + 测试）            ✓
+P3 服务：追加行、预算耗尽两条出口（fail / waiting_human grant）、事件与 DTO   ✓
+P4 呈现：时间线按尝试分组、grant 卡与端点                                    ✓
+P5 文档：DSL 手册（skills/agentic-workflow-dsl/SKILL.md）与架构页同步        ✓
 ```
+
+实现笔记：返工状态不额外持久化——「源行与目标行的最新一行都是 `superseded`」即
+「欠一次重跑」，驱动循环每轮从行历史推导，因此重启可续、不需要新列；预算门用
+`<node>#budget` 作为自己的行/pending id。
 
 ## 关联
 
