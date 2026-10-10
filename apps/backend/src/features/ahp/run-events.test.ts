@@ -3,7 +3,7 @@
  *  version of this suite built its own `{type, payload}` events, so it certified a translator that
  *  matched nothing at runtime. */
 import { describe, expect, test } from "bun:test";
-import type { Turn } from "@microsoft/agent-host-protocol";
+import { type ChatState, chatReducer, type Turn } from "@microsoft/agent-host-protocol";
 import { createChatActionTranslator } from "./run-events.js";
 
 const types = (actions: readonly { type: unknown }[]) => actions.map((a) => String(a.type));
@@ -52,13 +52,23 @@ describe("run events to chat actions", () => {
       callId: "call-1",
       activity: "Listing the workspace",
     });
-    expect(types(start)).toEqual(["chat/toolCallStart"]);
+    // Start alone leaves the part `streaming`, and the upstream reducer DROPS a
+    // completion that arrives while it is streaming — the card then rendered every
+    // finished tool as "（失败）" (live 2026-10-10). Ready carries the `confirmed`
+    // that moves the part to `running`, which is what makes the completion land.
+    expect(types(start)).toEqual(["chat/toolCallStart", "chat/toolCallReady"]);
     // `activity` is what the tool wanted the user to see; upstream keeps it as the intention.
     expect(start[0]).toMatchObject({
       toolCallId: "call-1",
       toolName: "glob",
       displayName: "glob",
       intention: "Listing the workspace",
+    });
+    expect(start[1]).toMatchObject({
+      toolCallId: "call-1",
+      intention: "Listing the workspace",
+      invocationMessage: "Listing the workspace",
+      confirmed: "not-needed",
     });
     const after = translator.translate("run-3", { type: "text_delta", text: "after" });
     // The tool call occupies a position among the turn's parts, and the projection numbers by
@@ -244,4 +254,40 @@ describe("run events to chat actions", () => {
     const again = translator.translate("run-9", { type: "text_delta", text: "b" });
     expect(types(again)).toEqual(["chat/responsePart", "chat/delta"]);
   });
+});
+
+test("our action sequence reaches `completed` in the upstream reducer", () => {
+  // The contract that matters is with upstream's reducer, not with ourselves: a
+  // completion it ignores leaves the part `streaming`, and the card's step list
+  // renders that as "（失败）". The state here is the minimum the chat channel
+  // needs (turns/queue/status are what the reducer reads around the turn).
+  const translator = createChatActionTranslator();
+  const empty = {
+    turns: [],
+    queue: [],
+    status: "idle",
+    _meta: {},
+  } as unknown as ChatState;
+  const actions = [
+    ...translator.openTurn("run-red", { startedAt: new Date().toISOString(), text: "go" }),
+    ...translator.translate("run-red", {
+      type: "native_tool_started",
+      toolName: "bash",
+      callId: "c1",
+      activity: "运行命令：echo hi",
+    }),
+    ...translator.translate("run-red", {
+      type: "native_tool_completed",
+      toolName: "bash",
+      callId: "c1",
+      result: { content: "hi", isError: false },
+    }),
+  ];
+  let state = empty;
+  for (const action of actions) state = chatReducer(state, action as never);
+  const part = (state.activeTurn?.responseParts ?? []).find((p) => p.kind === "toolCall") as
+    | { toolCall: { status?: string; success?: boolean } }
+    | undefined;
+  expect(part?.toolCall.status).toBe("completed");
+  expect(part?.toolCall.success).toBe(true);
 });

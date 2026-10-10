@@ -26,6 +26,7 @@ import type {
   ChatReasoningAction,
   ChatResponsePartAction,
   ChatToolCallCompleteAction,
+  ChatToolCallReadyAction,
   ChatToolCallStartAction,
   ChatTurnCompleteAction,
   ChatTurnStartedAction,
@@ -197,6 +198,25 @@ export function createChatActionTranslator(): ChatActionTranslator {
         toolCallId: tool.callId,
         toolName: tool.toolName,
         displayName: tool.toolName,
+        ...(tool.activity !== undefined ? { intention: tool.activity } : {}),
+      },
+      {
+        // The protocol walks a tool call Streaming → Ready → Complete, and the
+        // reducer ignores a completion while the part is still Streaming (its
+        // guard accepts running / pending-confirmation / auth-required). Without
+        // this Ready the completion was dropped, the part stayed Streaming, and
+        // the card's step list fell through to its error branch: every finished
+        // tool rendered "（失败）" live and then looked fine after the snapshot
+        // rebuild replaced the parts (user report, 2026-10-10).
+        //
+        // `confirmed` is the honest value for this rail: an ACP permission
+        // request is answered BEFORE the tool runs, so a tool that reaches
+        // "started" has already cleared its confirmation.
+        type: enumValue<ChatToolCallReadyAction["type"]>("chat/toolCallReady"),
+        turnId: runId,
+        toolCallId: tool.callId,
+        invocationMessage: tool.activity ?? tool.toolName,
+        confirmed: enumValue<NonNullable<ChatToolCallReadyAction["confirmed"]>>("not-needed"),
         ...(tool.activity !== undefined ? { intention: tool.activity } : {}),
       },
     ];
