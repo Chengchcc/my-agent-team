@@ -765,11 +765,12 @@ function createRunPermissionGates(
    *  subagent share one policy (critical guard, classifier, one
    *  escalatedActions set per Run) but judge against their own intent —
    *  a subagent's "user request" is the task it was assigned. */
-  // "Allow always" covers this tool for the rest of the RUN. The gate is built
-  // once per run and shared with the run's subagents, which is exactly the
-  // lifetime the decision owns — and it is consulted only AFTER the deny
-  // branch, so permissionMode=deny still wins.
+  // "Allow always" / "Deny always" cover this tool for the rest of the RUN. The
+  // gate is built once per run and shared with the run's subagents, which is
+  // exactly the lifetime the decisions own — and they are consulted only AFTER
+  // the deny branch, so permissionMode=deny still wins.
   const alwaysAllowed = new Set<string>();
+  const alwaysDenied = new Set<string>();
   const makeSessionPermissionGate =
     (intentTexts: readonly string[]) =>
     async (
@@ -810,6 +811,11 @@ function createRunPermissionGates(
       if (!isAskGatedName(toolName) || isConsentedProductTool(toolName)) return undefined;
       if (deps.permissionMode === "deny") {
         return { block: true, reason: `${toolName}: blocked by permissionMode=deny` };
+      }
+      // A previous "deny always" for this tool: a refusal remembered, so it
+      // fails closed here without asking again.
+      if (alwaysDenied.has(toolName)) {
+        return { block: true, reason: `${toolName}: denied for this run by the user` };
       }
       // A previous "allow always" for this tool: the human answered this
       // question once, this run.
@@ -863,6 +869,13 @@ function createRunPermissionGates(
         };
       }
       if (verdict.decision === "allow_always") alwaysAllowed.add(toolName);
+      if (verdict.decision === "deny_always") {
+        alwaysDenied.add(toolName);
+        return {
+          block: true,
+          reason: `${toolName}: denied for this run by the user`,
+        };
+      }
       return undefined;
     };
   const permissionGate =

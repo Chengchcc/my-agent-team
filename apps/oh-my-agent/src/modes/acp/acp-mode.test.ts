@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -97,7 +97,7 @@ async function startClient(
   mode: ReturnType<typeof runAcpMode>,
   c2a: ReturnType<typeof streamPair>,
   a2c: ReturnType<typeof streamPair>,
-  answer: "allow-once" | "allow-always" | "reject-once" = "allow-once",
+  answer: "allow-once" | "allow-always" | "reject-once" | "reject-always" = "allow-once",
   mcp?: McpOverAcpHarness,
 ): Promise<ClientHarness> {
   void mode;
@@ -529,6 +529,7 @@ describe("oma ACP server (in-process, fake provider)", () => {
       "allow_once",
       "allow_always",
       "reject_once",
+      "reject_always",
     ]);
     const kinds = (client.updates as { sessionUpdate: string }[]).map((u) => u.sessionUpdate);
     expect(kinds).toContain("tool_call");
@@ -561,6 +562,55 @@ describe("oma ACP server (in-process, fake provider)", () => {
     // Both calls executed; only the first asked.
     expect(calls).toHaveLength(2);
     expect(client.permissions).toHaveLength(1);
+    mode.stop();
+  }, 30_000);
+
+  test("reject-always refuses the same tool for the rest of the run", async () => {
+    // The refusal is remembered like the allowance is: asked once, and the rest
+    // of the run is refused WITHOUT asking. `write` makes the refusal observable
+    // — a bash echo has no side effect to check.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-reject-always-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([
+        { name: "write", input: { path: "never-one.txt", content: "x" } },
+        { name: "write", input: { path: "never-two.txt", content: "x" } },
+      ]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "reject-always");
+    await client.newSession(cwd);
+    const response = await client.prompt("write two files");
+    expect(response.stopReason).toBe("end_turn");
+    // One question, two refusals: neither file was created.
+    expect(client.permissions).toHaveLength(1);
+    expect(existsSync(join(cwd, "never-one.txt"))).toBe(false);
+    expect(existsSync(join(cwd, "never-two.txt"))).toBe(false);
+    mode.stop();
+  }, 30_000);
+
+  test("reject-once asks again for the next call — the contrast that makes the above real", async () => {
+    // Without this, the reject-always test could pass because the second call
+    // never happened at all. With reject-once the same script asks twice.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-reject-once-twice-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([
+        { name: "write", input: { path: "never-one.txt", content: "x" } },
+        { name: "write", input: { path: "never-two.txt", content: "x" } },
+      ]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "reject-once");
+    await client.newSession(cwd);
+    await client.prompt("write two files");
+    expect(client.permissions).toHaveLength(2);
+    expect(existsSync(join(cwd, "never-one.txt"))).toBe(false);
+    expect(existsSync(join(cwd, "never-two.txt"))).toBe(false);
     mode.stop();
   }, 30_000);
 

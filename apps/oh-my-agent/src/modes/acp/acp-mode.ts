@@ -882,6 +882,11 @@ function acpApproval(
             kind: "allow_always",
           },
           { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          {
+            optionId: "reject-always",
+            name: "Reject this tool for the rest of the run",
+            kind: "reject_always",
+          },
         ],
       } as never)
       .then(
@@ -893,6 +898,10 @@ function acpApproval(
           const chosen = response.outcome.optionId;
           if (chosen === "allow-always") {
             settle({ decision: "allow_always" });
+            return;
+          }
+          if (chosen === "reject-always") {
+            settle({ decision: "deny_always", reason: "denied for this run by the user" });
             return;
           }
           const allowed = chosen === "allow-once";
