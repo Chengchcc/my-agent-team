@@ -286,6 +286,7 @@ function pendingActionButtons(
       // answers the rest of them for this run (never beyond it).
       // 20-char element-id ceiling (Feishu 300301): `approve_always_button` is one too long.
       decideButton("approve_always_btn", "本轮都允许", "default", "approve_always"),
+      decideButton("reject_always_btn", "本轮都拒绝", "default", "reject_always"),
       decideButton("reject_button", "拒绝", "danger", "reject"),
     ];
   }
