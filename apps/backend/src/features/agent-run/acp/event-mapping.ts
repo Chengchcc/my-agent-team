@@ -137,15 +137,21 @@ export function mapAcpUpdate(
           },
         ];
       }
+      // The live card judges a step by `result.isError` (run-events' completeTool),
+      // so the event's result must carry the status-derived truth: an agent that
+      // sends a bare failure, or none at all, would otherwise read as success.
+      const failed = status === "failed";
+      const output =
+        update.rawOutput && typeof update.rawOutput === "object" && !Array.isArray(update.rawOutput)
+          ? (update.rawOutput as Readonly<Record<string, unknown>>)
+          : undefined;
       return [
         {
           type: "native_tool_completed",
           toolName,
           callId,
-          ...(update.rawOutput &&
-          typeof update.rawOutput === "object" &&
-          !Array.isArray(update.rawOutput)
-            ? { result: update.rawOutput as Readonly<Record<string, unknown>> }
+          ...(output !== undefined || failed
+            ? { result: { ...(output ?? {}), isError: failed || output?.isError === true } }
             : {}),
         },
       ];

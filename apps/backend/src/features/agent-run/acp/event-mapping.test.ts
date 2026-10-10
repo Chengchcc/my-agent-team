@@ -60,7 +60,46 @@ describe("mapAcpUpdate", () => {
       rawOutput: { ok: true },
     } as Update);
     expect(completed).toEqual([
-      { type: "native_tool_completed", toolName: "bash", callId: "call-1", result: { ok: true } },
+      {
+        type: "native_tool_completed",
+        toolName: "bash",
+        callId: "call-1",
+        result: { ok: true, isError: false },
+      },
+    ]);
+  });
+
+  test("a failed call says so on the event, whatever the agent sent as output", () => {
+    // The live card judges the step by `result.isError`; a refusal's output is
+    // `{error: "..."}` — plausible-looking data — and an agent that sends no
+    // output at all would leave nothing to judge. The status is the truth.
+    const acc = createAcpAccumulator();
+    const withOutput = mapAcpUpdate(acc, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c-failed",
+      status: "failed",
+      rawOutput: { error: "denied for this run by the user" },
+    } as Update);
+    expect(withOutput).toEqual([
+      {
+        type: "native_tool_completed",
+        toolName: "unknown",
+        callId: "c-failed",
+        result: { error: "denied for this run by the user", isError: true },
+      },
+    ]);
+    const bare = mapAcpUpdate(acc, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c-bare",
+      status: "failed",
+    } as Update);
+    expect(bare).toEqual([
+      {
+        type: "native_tool_completed",
+        toolName: "unknown",
+        callId: "c-bare",
+        result: { isError: true },
+      },
     ]);
   });
 
