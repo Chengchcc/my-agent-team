@@ -903,6 +903,11 @@ export function createWorkflowExecutionService(
         routedTo,
         terminalAt: Date.now(),
       });
+      // A human's verdict is a verdict like any other: it must be able to send
+      // work back. This path does not pass through the drive loop's completion
+      // block, so the rework is planned here too (found live: a "redo" answer
+      // recorded, routed to the next node, and never reworked).
+      await applyRework(row, nodeId, answerData);
       arr.push({ nodeId, output: answerData, order: arr.length, routedTo });
       completions.set(executionId, arr);
       const fresh = await deps.port.getExecution(executionId);

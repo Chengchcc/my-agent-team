@@ -672,6 +672,85 @@ describe("rework in the execution service", () => {
     expect(seen.filter((r) => r.nodeId === "build")[1]?.input.attempt).toBe(2);
   });
 
+  test("a human verdict sends work back too", async () => {
+    // The review is a human gate here: its answer arrives over HTTP, not from
+    // the drive loop's completion block, and it still has to rework. (Found
+    // live: the answer was recorded, routing continued, no retry happened.)
+    const definition = parseWorkflow({
+      version: 1,
+      id: "wf",
+      nodes: [
+        { id: "start", type: "start" },
+        { id: "build", type: "script", code: "x", output: [{ key: "artifact", type: "string" }] },
+        {
+          id: "review",
+          type: "human",
+          question: "ship?",
+          form: { verdict: { type: "enum", options: ["ship", "redo"] } },
+        },
+        { id: "done", type: "end", status: "success" },
+      ],
+      edges: [
+        { from: "start", to: "build" },
+        { from: "build", to: "review" },
+        { from: "review", to: "done" },
+        {
+          from: "review",
+          to: "build",
+          kind: "rework",
+          budget: { maxAttempts: 2, onExhausted: "fail" },
+          when: { "==": [{ var: "review.output.verdict" }, "redo"] },
+        },
+      ],
+    });
+    const fake = ramPort();
+    const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+    const svc = createWorkflowExecutionService({
+      port: fake.port,
+      nodeRunners: {
+        script: {
+          run: async (node: { id: string }, ctx: { input: Record<string, unknown> }) => {
+            seen.push({ nodeId: node.id, input: ctx.input });
+            return { output: { artifact: `v${(ctx.input.attempt as number | undefined) ?? 1}` } };
+          },
+        },
+        human: { run: async () => ({ output: {} }) },
+      } as never,
+      idGen: () => "e-human-rework",
+    });
+    await svc.runToCompletion("e-human-rework", {
+      workflowId: "wf",
+      definition,
+      input: {},
+    });
+    await svc.resolveHumanTask("e-human-rework", "review", {
+      answers: [{ id: "verdict", selectedValues: ["redo"] }],
+    });
+    const retried = await waitFor(() => seen.filter((r) => r.nodeId === "build").length >= 2);
+    expect(retried).toBe(true);
+    expect(seen.filter((r) => r.nodeId === "build")[1]?.input.attempt).toBe(2);
+    const rows = fake.nodeRuns as Array<{ nodeId: string; status: string }>;
+    expect(rows.filter((r) => r.nodeId === "build").map((r) => r.status)).toEqual([
+      "superseded",
+      "completed",
+    ]);
+    const events = fake.events as Array<{ event: string }>;
+    expect(events.some((e) => e.event === "rework_requested")).toBe(true);
+
+    // The reworked review gates AGAIN: the same node parks twice in one
+    // execution, and the second gate must not collide with the first's row.
+    await waitFor(async () => (await svc.getPendingHuman("e-human-rework", "review")) !== null);
+    const second = await svc.getPendingHuman("e-human-rework", "review");
+    expect(second?.status).toBe("pending");
+    await svc.resolveHumanTask("e-human-rework", "review", {
+      answers: [{ id: "verdict", selectedValues: ["ship"] }],
+    });
+    const settled = await waitFor(
+      async () => (await svc.getExecution("e-human-rework"))?.status === "success",
+    );
+    expect(settled).toBe(true);
+  });
+
   test("a process that never saw the verdict still owes the retry", async () => {
     // The rows are the only rework state there is: a fresh service over the same
     // port must resume from what the previous process left behind. This is the

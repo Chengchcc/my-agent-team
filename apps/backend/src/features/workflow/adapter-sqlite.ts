@@ -163,6 +163,20 @@ export function sqliteWorkflowExecutionAdapter(db: Database): WorkflowExecutionP
       return rows.map(toNodeRun);
     },
     async createPendingHuman(row) {
+      // A node can gate more than once in one execution — a rework re-runs it
+      // (ADR 0042) — and this table is state, not history: one gate at a time
+      // per (execution, node), which is what "pending" means. A new gate
+      // therefore replaces the resolved row instead of colliding with its
+      // primary key (found live: the second round of a reworked human node
+      // died on a UNIQUE constraint).
+      await d
+        .delete(workflowPendingHuman)
+        .where(
+          and(
+            eq(workflowPendingHuman.executionId, row.executionId),
+            eq(workflowPendingHuman.nodeId, row.nodeId),
+          ),
+        );
       const [r] = await d
         .insert(workflowPendingHuman)
         .values({
