@@ -796,8 +796,11 @@ describe("rework in the execution service", () => {
     );
     const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
     const svc = createWorkflowExecutionService({
+      // The double casts to `never` for the port shape, so spread it as a
+      // record first: spreading `never` is a type error nothing else catches
+      // (the suite runs without typechecking, so it slipped through once).
       port: {
-        ...fake.port,
+        ...(fake.port as unknown as Record<string, unknown>),
         listRunningExecutions: async () => [fake.executions.get("e-restart")],
       } as never,
       nodeRunners: { script: runner(seen) } as never,
