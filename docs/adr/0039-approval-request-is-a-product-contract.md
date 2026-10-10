@@ -149,7 +149,7 @@ session/request_permission {
 开关：`--approval-mode always-ask`；默认配置会静默放行，根本不发权限请求。
 续跑：新进程 `session/load {sessionId, cwd, mcpServers}` 能恢复旧会话。
 
-**落地进度（2026-10-10）**：四个选项里 `allow_once` 与 `allow_always` 已落地（`allow_always` 即「本轮都允许」：决策为 run 级、按工具名记住，记忆在 `createRunPermissionGate` 的闭包里，因此子进程重启即失效，绝不跨 run）。`reject_always` 仍未接；后端按 kind 挑 optionId，agent 不提供 always 选项时退化为 allow-once。飞书审批卡给了第三个按钮，Web 侧无审批 UI（`ToolApprovalCard` 目前没有渲染点）。
+**落地进度（2026-10-10）**：四个选项全部落地 ✓。`allow_always` 与 `reject_always` 各对应「本轮都允许」「本轮都拒绝」：决策是 **run 级、按工具名**记住的，记忆挂在 `createRunPermissionGate` 每次 run 建一次的闭包里 ⇒ 子进程重启即失效、绝不跨 run（拒绝与允许同构，拒绝在没有 memory 命中时 fail-closed）。后端按 kind 挑 optionId，agent **没声明**那个 always 选项时退化为对应的一次性选项（allow-once / reject-once），绝不回一个它没提供过的 optionId ⇒ 那种 agent 下次仍会问，这是诚实的等价物。三个出口都给了：**飞书审批卡**四个按钮（批准执行 / 本轮都允许 / 本轮都拒绝 / 拒绝；元素 id 必须 ≤20 字符），**Web** 的 `TimelineApprovalCard`（由 `Timeline.tsx` 渲染）加 Always allow / Always deny，`today` 页的 HITL 快查列表沿用 Allow / Deny。曾经那个没有渲染点的 `ToolApprovalCard` 已删除。
 
 **pi 扩展的 `on("tool_call")`**
 pi 核心没有工具审批策略（`approvalMode` 一类配置不存在）。扩展收到 `{ type:"tool_call", toolCallId, input }`，返回 `{ block?: boolean, reason?: string }` 即可拦住。`pi-acp` 桥的 `request_permission` 只覆盖扩展 UI 确认，不覆盖工具审批，也不接 MCP 服务器。
