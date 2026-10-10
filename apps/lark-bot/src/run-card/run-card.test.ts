@@ -15,7 +15,14 @@ import {
 } from "../bindings-sqlite.js";
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
-import { renderCard, renderRunCard } from "./card-renderer.js";
+import {
+  renderActivityContent,
+  renderCard,
+  renderOutputContent,
+  renderRunCard,
+  renderStatusContent,
+  renderToolsContent,
+} from "./card-renderer.js";
 import {
   cardStateFromChatTurn,
   initialRunCardState,
@@ -1159,6 +1166,29 @@ describe("element id legality (Feishu 300301)", () => {
       for (const id of ids) {
         expect(id).toMatch(legal);
       }
+    }
+  });
+
+  test("no always-present element ever renders empty", () => {
+    // Feishu's client shows an EMPTY markdown element as a literal "{}" —
+    // observed live on a completed card ("执行了 N 个操作" beside an empty
+    // activity line). The elements must exist (300313), so they must never be
+    // empty either: a zero-width placeholder reads as blank, not as garbage.
+    const meta = { runId: "run-empty", startedAt: Date.now(), webUrl: null };
+    const states: RunCardState[] = [
+      initialRunCardState(),
+      { ...initialRunCardState(), terminal: { status: "completed", error: null } },
+      {
+        ...initialRunCardState(),
+        pendingAction: pendingActionFromBackend("ask", { callId: "c" }),
+        waiting: "ask",
+      },
+    ];
+    for (const state of states) {
+      expect(renderActivityContent(state).length).toBeGreaterThan(0);
+      expect(renderOutputContent(state).length).toBeGreaterThan(0);
+      expect(renderToolsContent(state).length).toBeGreaterThan(0);
+      expect(renderStatusContent(state, meta).length).toBeGreaterThan(0);
     }
   });
 

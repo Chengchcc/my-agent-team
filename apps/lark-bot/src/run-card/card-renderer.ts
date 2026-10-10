@@ -22,6 +22,13 @@ const TERMINAL_STEPS = 5;
 
 /** Stable element ids (CardKit element updates address these; the renderer
  *  must not depend on element order). */
+/** Feishu's client renders an EMPTY markdown element as a literal `{}` — and a
+ *  zero-width space counts as empty to it too (tried live: the `{}` came back
+ *  with U+200B in the content). The placeholder must be VISIBLE. The elements
+ *  are always present (300313: an element update needs its target to exist),
+ *  so "nothing to say" is said with an em dash. */
+const EMPTY_ELEMENT_PLACEHOLDER = "—";
+
 export const OUTPUT_ELEMENT_ID = "agent_output";
 export const ACTIVITY_ELEMENT_ID = "activity_md";
 export const TOOLS_ELEMENT_ID = "tool_summary";
@@ -80,7 +87,7 @@ export function renderOutputContent(state: RunCardState): string {
  *  light line (raw thinking is never shown), the current tool its label, and
  *  a parked ask its prompt — the ask is the one thing the user must act on. */
 export function renderActivityContent(state: RunCardState): string {
-  if (state.terminal) return "";
+  if (state.terminal) return EMPTY_ELEMENT_PLACEHOLDER;
   if (state.pendingAction) {
     const lines: string[] = [];
     if (state.pendingAction.prompt) lines.push(`❓ ${state.pendingAction.prompt}`);
@@ -89,7 +96,7 @@ export function renderActivityContent(state: RunCardState): string {
       // intercept) — the hint names the action that actually works.
       lines.push("（直接在本话题回复即可作答）");
     }
-    return lines.join("\n");
+    return lines.length > 0 ? lines.join("\n") : EMPTY_ELEMENT_PLACEHOLDER;
   }
   if (state.activeTool) return `🧪 ${state.activeTool.label}`;
   return "🧠 正在分析问题";
@@ -99,7 +106,9 @@ export function renderActivityContent(state: RunCardState): string {
  *  appear here — the labels come from the tool's own describeStart. */
 export function renderToolsContent(state: RunCardState): string {
   // Nothing to say while live with no steps yet.
-  if (!state.terminal && state.completedTools.length === 0) return "";
+  if (!state.terminal && state.completedTools.length === 0) {
+    return EMPTY_ELEMENT_PLACEHOLDER;
+  }
   const recent = state.completedTools.slice(-(state.terminal ? TERMINAL_STEPS : LIVE_STEPS));
   const lines: string[] = [];
   // Terminal headline (the plan: "执行了 N 个操作"); a run with no tools at
@@ -111,7 +120,7 @@ export function renderToolsContent(state: RunCardState): string {
     lines.push(step.outcome === "error" ? `⚠️ ${step.label}（失败）` : `✓ ${step.label}`);
   }
   if (state.terminal?.error) lines.push(`⚠️ 失败：${state.terminal.error.slice(0, 200)}`);
-  if (lines.length === 0) return "";
+  if (lines.length === 0) return EMPTY_ELEMENT_PLACEHOLDER;
   return lines.join("\n");
 }
 
