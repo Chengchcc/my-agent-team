@@ -12,6 +12,7 @@ import {
 import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { swapAckReaction } from "./ack-reaction.js";
 import type { CardKitClient } from "./card-kit.js";
+import { type PaceClock, pacedCardClient } from "./card-pacer.js";
 import { renderCard } from "./card-renderer.js";
 import {
   cardStateFromChatTurn,
@@ -68,6 +69,9 @@ export interface RunCardWatcherOptions {
   /** Test knob: how long the seal waits out congestion before falling back to
    *  a plain-text answer (default 45s). */
   sealCongestionBudgetMs?: number;
+  /** Test knob: the write lane's clock (tests use an instant one so they do
+   *  not pay the real per-chat spacing). */
+  cardPaceClock?: PaceClock;
   /** Adopt an EXISTING card instead of creating one: the message waited behind
    *  a running turn, its queued card is already in the topic, and that same
    *  card must now stream this run (ADR 0037 decision 2 — one message, one
@@ -175,7 +179,11 @@ export async function watchRunCard(
   larkChatId: string,
   opts: RunCardWatcherOptions,
 ): Promise<RunCardWatcherHandle> {
-  const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText, sourceMessageId } = opts;
+  const { db, backendUrl, backendAuthToken, webUrl, sendText, sourceMessageId } = opts;
+  // Every CardKit WRITE for this run shares its chat's lane: the platform's
+  // card rate limit is per chat, and concurrent cards in one chat trip it
+  // (card-pacer.ts, #87). Reads stay direct.
+  const cardClient = pacedCardClient(opts.cardClient, larkChatId, opts.cardPaceClock);
   const replyTo = opts.replyTo ?? null;
   const replyInThread = opts.replyInThread === true;
   let aborted = false;
@@ -345,6 +353,13 @@ export async function watchRunCard(
   /** Terminal seal (ADR 0031 §3): full-card replace with canonical text. */
   async function seal(): Promise<void> {
     stopTicker();
+    // Drain the painter first. The seal's replace runs outside the flush
+    // controller, so an in-flight element update could otherwise reach the
+    // platform after it and carry a LOWER sequence — which the platform
+    // rejects as 300317, degrading the card and falling back to a plain-text
+    // answer (#87). finish() closes the controller, which is what we want here:
+    // nothing else paints this card after the terminal state.
+    await updater.finish();
     // The terminal status event can beat the ledger commit by a beat —
     // retry the run detail briefly before giving up on the canonical text.
     let finalText: string | null = null;
@@ -448,6 +463,12 @@ export async function watchRunCard(
       // for a chain, `thread_id` once a thread exists).
       const keys = sent.threadId ? [sent.messageId, sent.threadId] : [sent.messageId];
       rememberTopicKeys(db, larkChatId, conversationId, keys, Date.now());
+      // The first content flush can run while the card does not exist yet (it
+      // races this creation), and a flush that finds no card is consumed, not
+      // retried. Re-request here so the first frame is painted the moment the
+      // card is real. Always true in principle; visible since the write lane
+      // made creation slower (#87).
+      updater.request();
       // Fallback for a send with no reply target at all (a run nobody typed,
       // or a legacy conversation with no recorded root): the card we just
       // posted is then the thing a reply will hang off.

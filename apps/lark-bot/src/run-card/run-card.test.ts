@@ -1161,4 +1161,72 @@ describe("element id legality (Feishu 300301)", () => {
       }
     }
   });
+
+  test("congestion while streaming never degrades the card (#87)", async () => {
+    // A degraded card cannot be replaced by the terminal seal, so the answer
+    // goes out as a plain message instead — which is how congestion produced a
+    // duplicate. Three rate-limited STREAM pushes are enough to trip the
+    // threshold, and the first fix only taught replaceNow the difference;
+    // observed live right after it shipped.
+    const dir = `/tmp/test-lark-run-card-congestion-${Date.now()}`;
+    const cdb = openBindings("test-congestion", dir);
+    try {
+      const makeUpdater = (retryable: boolean) => {
+        const runId = `run-cong-${retryable}`;
+        insertRunCard(cdb, {
+          runId,
+          conversationId: "conv-cong",
+          larkChatId: "oc_cong",
+          sourceMessageId: "om_cong",
+        });
+        const client = {
+          updateCard: async () => ({ ok: true }),
+          streamElement: async () => ({
+            ok: false,
+            error: "code 230020: chat rate limit",
+            retryable,
+          }),
+          closeStreaming: async () => ({ ok: true }),
+        } as never;
+        let state = initialRunCardState();
+        const updater = createCardUpdater({
+          cardClient: client,
+          db: cdb,
+          runId,
+          meta: { runId, startedAt: Date.now(), webUrl: null },
+          getState: () => state,
+          getCardId: () => "card-cong",
+          nextSeq: () => 1,
+          onPersist: () => {},
+          retryBackoffMs: 1,
+        });
+        // Drive flushes without `finish()`: that closes the controller, so a
+        // second request would be ignored. The long body forces each PATCH
+        // past the pacing rule instead of being coalesced away.
+        const push = async (text: string): Promise<void> => {
+          state = { ...state, output: `${text}${"x".repeat(400)}` };
+          updater.request();
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        };
+        return { push };
+      };
+
+      // Congestion: the card must keep painting (and never degrade).
+      const congested = makeUpdater(true);
+      for (let i = 0; i < 4; i++) await congested.push(`delta ${i}`);
+      expect(getRunCard(cdb, "run-cong-true")?.degraded).toBe(false);
+      // The reason is still recorded — congestion is not silence.
+      expect(getRunCard(cdb, "run-cong-true")?.cardUpdateFailed).toBe(1);
+
+      // A genuinely broken call still degrades: the threshold is class-aware,
+      // not removed.
+      // Four pushes: the first takes the replace branch, the rest stream, and
+      // three consecutive failures are what the threshold means.
+      const broken = makeUpdater(false);
+      for (let i = 0; i < 4; i++) await broken.push(`delta ${i}`);
+      expect(getRunCard(cdb, "run-cong-false")?.degraded).toBe(true);
+    } finally {
+      cdb.close();
+    }
+  }, 15_000);
 });

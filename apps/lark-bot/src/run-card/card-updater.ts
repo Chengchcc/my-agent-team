@@ -125,6 +125,19 @@ export function createCardUpdater(deps: {
     updateRunCard(db, runId, { cardUpdateFailed: 1, lastError: error });
   };
 
+  /** Count a CardKit failure toward degradation only when the failure says the
+   *  card (or this call) is broken. Congestion is transient, and degrading on it
+   *  is what made the terminal seal refuse to replace the card and send the
+   *  answer as a second, plain message (#87). */
+  const failUnlessCongested = (
+    failure: { error: string; retryable: boolean },
+    prefix?: string,
+  ): void => {
+    const message = prefix ? `${prefix}: ${failure.error}` : failure.error;
+    if (failure.retryable) noteCongestion(message);
+    else fail(message);
+  };
+
   const replaceNow = async (state: RunCardState): Promise<ReplaceOutcome> => {
     // Degraded means "stop painting": the seal then falls through to the
     // reliable text delivery the conversation watcher owns. The exception
@@ -191,7 +204,7 @@ export function createCardUpdater(deps: {
     if (INTERACTIVE_FRAMES.has(frameKey) && !streamingClosed) {
       // An interactive card must not sit in the streaming view (plan §ask).
       const closed = await cardClient.closeStreaming(cardId, deps.nextSeq());
-      if (!closed.ok) fail(`closeStreaming: ${closed.error}`);
+      if (!closed.ok) failUnlessCongested(closed, "closeStreaming");
       else consecutiveFailures = 0;
       streamingClosed = true;
       updateRunCard(db, runId, { streamingEnabled: false });
@@ -214,7 +227,7 @@ export function createCardUpdater(deps: {
         uuid: `${runId}-act-${seqNo}`,
       });
       if (!r.ok) {
-        fail(r.error);
+        failUnlessCongested(r);
         return;
       }
       pushedActivity = activityContent;
@@ -231,7 +244,7 @@ export function createCardUpdater(deps: {
       });
       if (!r.ok) {
         // Non-fatal (ADR 0031 §2): the next delta re-flushes.
-        fail(r.error);
+        failUnlessCongested(r);
         return;
       }
       pushedOutput = outputContent;
@@ -247,7 +260,7 @@ export function createCardUpdater(deps: {
         uuid: `${runId}-tl-${seqNo}`,
       });
       if (!r.ok) {
-        fail(r.error);
+        failUnlessCongested(r);
         return;
       }
       pushedTools = toolsContent;
@@ -263,7 +276,7 @@ export function createCardUpdater(deps: {
         uuid: `${runId}-st-${seqNo}`,
       });
       if (!r.ok) {
-        fail(r.error);
+        failUnlessCongested(r);
         return;
       }
       pushedStatus = statusContent;

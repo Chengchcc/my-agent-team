@@ -120,7 +120,11 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
         result: {
           ok: false,
           error: `code ${envelope.code}: ${envelope.msg ?? ""}`.trim(),
-          retryable: envelope.code === 230020,
+          // 230020: chat rate limit. 300317: "sequence number compare failed"
+          // — the platform saw a lower sequence than one already applied, which
+          // a retry with a fresh (higher) sequence resolves; it is not a broken
+          // card, so it must not degrade one (#87).
+          retryable: envelope.code === 230020 || envelope.code === 300317,
         },
       };
     }

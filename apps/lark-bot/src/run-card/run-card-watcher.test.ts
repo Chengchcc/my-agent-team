@@ -3,6 +3,7 @@
  *  own tests; this is the path only a real bot could otherwise check. */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { getRunCard, openBindings } from "../bindings-sqlite.js";
+import { instantCardPaceClock } from "./card-pacer.js";
 import { watchRunCard } from "./run-card-watcher.js";
 
 const testDir = `/tmp/test-lark-run-watcher-${Date.now()}`;
@@ -66,6 +67,7 @@ describe("the run card watches the chat channel", () => {
       db,
       // Nothing here should reach the backend: the seal's canonical-text retry fails fast on a
       // closed port and the card falls back to what the state carried.
+      cardPaceClock: instantCardPaceClock,
       backendUrl: "http://127.0.0.1:1",
       backendAuthToken: null,
       cardClient: fakeCardClient(calls),
@@ -80,6 +82,8 @@ describe("the run card watches the chat channel", () => {
 
     // A long body flushes on the buffer rule rather than waiting for the 150ms pacing.
     await handle.update(chatOf([markdown(text)], false) as never);
+    // The lane adds async hops before the first replace lands.
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toContain("updateCard");
     expect(getRunCard(db, runId)?.accumulated).toBe(text);
 
@@ -115,6 +119,7 @@ describe("the run card watches the chat channel", () => {
     } as never;
     const handle = await watchRunCard("run-rl", "conv-watch-1", "oc_watch", {
       db,
+      cardPaceClock: instantCardPaceClock,
       backendUrl: "http://127.0.0.1:1",
       backendAuthToken: null,
       cardClient: congested,
@@ -151,6 +156,7 @@ describe("the run card watches the chat channel", () => {
     } as never;
     const handle = await watchRunCard("run-broken", "conv-watch-1", "oc_watch", {
       db,
+      cardPaceClock: instantCardPaceClock,
       backendUrl: "http://127.0.0.1:1",
       backendAuthToken: null,
       cardClient: broken,
@@ -170,10 +176,82 @@ describe("the run card watches the chat channel", () => {
     handle.close();
   }, 20_000);
 
+  test("the seal waits for an in-flight stream push, so sequences arrive in order", async () => {
+    // #87: the seal's full-card replace runs outside the flush controller. If it
+    // raced an in-flight element update, the platform could see a LOWER
+    // sequence after a higher one and reject it (300317), degrading the card
+    // and sending the answer as a second, plain message.
+    const calls: string[] = [];
+    let releaseStream: (() => void) | null = null;
+    const ordered = {
+      createCard: async () => ({ ok: true, cardId: "card-order" }),
+      sendCard: async () => ({ ok: true, messageId: "om_order" }),
+      updateCard: async () => {
+        calls.push("updateCard");
+        return { ok: true };
+      },
+      streamElement: async () => {
+        calls.push("stream:start");
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+        calls.push("stream:end");
+        return { ok: true };
+      },
+      closeStreaming: async () => ({ ok: true }),
+    } as never;
+    const handle = await watchRunCard("run-order", "conv-order", "oc_order", {
+      db,
+      cardPaceClock: instantCardPaceClock,
+      backendUrl: "http://127.0.0.1:1",
+      backendAuthToken: null,
+      cardClient: ordered,
+      webUrl: null,
+      sourceMessageId: null,
+      replyTo: null,
+      replyInThread: false,
+      sendText: async () => {
+        calls.push("sendText");
+      },
+    });
+
+    // Flush 1 (frame change) takes the full-replace path and completes. A beat
+    // past the flush interval: update() does not await the flush it requests
+    // (single-flight), so an immediate second update would just coalesce into
+    // this replace instead of taking the element path.
+    await handle.update(chatOf([markdown("a".repeat(400))], false, "run-order") as never);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls.filter((c) => c === "updateCard").length).toBe(1);
+
+    // Flush 2 (same frame, new output) takes the element path and HANGS there.
+    const streaming = handle.update(
+      chatOf([markdown("b".repeat(400))], false, "run-order") as never,
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toContain("stream:start");
+    expect(calls).not.toContain("stream:end");
+
+    // While the push is still in flight, the run settles: the seal must drain
+    // it before sending its own replace, or the platform sees a LOWER sequence
+    // after a higher one (300317).
+    const settling = handle.update(chatOf([markdown("b".repeat(400))], true, "run-order") as never);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c === "updateCard").length).toBe(1);
+    expect(calls).not.toContain("stream:end");
+
+    releaseStream?.();
+    await Promise.all([streaming, settling]);
+    expect(calls.filter((c) => c === "updateCard").length).toBe(2);
+    expect(calls.lastIndexOf("updateCard")).toBeGreaterThan(calls.indexOf("stream:end"));
+    expect(getRunCard(db, "run-order")?.status).toBe("completed");
+    handle.close();
+  }, 20_000);
+
   test("a state that does not carry this run is a no-op", async () => {
     const calls: string[] = [];
     const handle = await watchRunCard(`${runId}-other`, "conv-watch-1", "oc_watch", {
       db,
+      cardPaceClock: instantCardPaceClock,
       backendUrl: "http://127.0.0.1:1",
       backendAuthToken: null,
       cardClient: fakeCardClient(calls),
