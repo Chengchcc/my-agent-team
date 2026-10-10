@@ -482,8 +482,21 @@ export class AcpBackend implements AgentBackend<"acp"> {
                 sessionId: resumeRef,
                 cwd,
                 mcpServers,
-                ...(decisions && decisions.length > 0
-                  ? { _meta: { "my-agent-team/resume": { decisions } } }
+                // Same declaration as session/new: a continuation run carries
+                // the agent's mode too, or every resumed run degrades back to
+                // per-action "ask" (a continuation is the COMMON case — every
+                // message after the first in a conversation).
+                ...(input.run.permissionMode || (decisions && decisions.length > 0)
+                  ? {
+                      _meta: {
+                        ...(input.run.permissionMode
+                          ? { "my-agent-team/permissionMode": input.run.permissionMode }
+                          : {}),
+                        ...(decisions && decisions.length > 0
+                          ? { "my-agent-team/resume": { decisions } }
+                          : {}),
+                      },
+                    }
                   : {}),
               } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1])) as {
                 configOptions?: readonly DeclaredConfigOption[];

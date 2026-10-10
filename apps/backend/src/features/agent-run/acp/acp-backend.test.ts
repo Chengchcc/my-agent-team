@@ -73,6 +73,8 @@ interface FakeAgentScript {
   dieAfterPermission?: boolean;
   /** Capture every session/new params object (adopt-declaration tests). */
   newSessionParams?: unknown[];
+  /** Capture every session/load params object (continuation tests). */
+  loadParams?: unknown[];
   /** Capture the spawn env (allowlist passthrough tests). */
   spawnEnv?: (Readonly<Record<string, string | undefined>> | undefined)[];
   /** Advertise `agentCapabilities.mcpCapabilities.acp` on initialize. */
@@ -140,6 +142,7 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       })
       .onRequest(acp.methods.agent.session.load, async (ctx) => {
         obs.loadedSessionIds.push(ctx.params.sessionId);
+        script.loadParams?.push(ctx.params);
         return {
           sessionId: ctx.params.sessionId,
           configOptions: script.configOptions ?? [],
@@ -395,6 +398,29 @@ describe("AcpBackend against an in-memory fake agent", () => {
     const segment = await backend.execute(makeInput({ permissionMode: "auto" }));
     await collect(segment);
     expect(newSessionParams[0]).toMatchObject({
+      _meta: { "my-agent-team/permissionMode": "auto" },
+    });
+    await backend.dispose();
+  }, 10_000);
+
+  test("a continuation run's permission mode rides session/load _meta too", async () => {
+    // session/new alone is not enough: every message after the first in a
+    // conversation is a continuation, and without the declaration on load each
+    // of them degrades back to per-action "ask" (live: round four asked for
+    // every bash while a fresh conversation ran auto).
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const loadParams: unknown[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ loadParams }, obs) });
+    const segment = await backend.execute(
+      makeInput({ permissionMode: "auto", cliSessionRef: "sess-fake-1" }),
+    );
+    await collect(segment);
+    expect(loadParams[0]).toMatchObject({
       _meta: { "my-agent-team/permissionMode": "auto" },
     });
     await backend.dispose();
