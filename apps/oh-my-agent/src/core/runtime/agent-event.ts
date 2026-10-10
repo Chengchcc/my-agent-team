@@ -41,6 +41,11 @@ export type OmaLoopEvent =
       kind?: "native" | "product";
       callId: string;
       result?: Readonly<Record<string, unknown>>;
+      /** Whether the call FAILED — the loop's own judgement (a blocked tool, a
+       *  thrown error, or a result that marks itself `isError`). Surfaces must
+       *  not re-derive this from the result's shape: the result object of a
+       *  refusal is `{error: "..."}`, which looks like data. */
+      isError?: boolean;
       /** Result-side display metadata (resultSummary / errorSummary). */
       presentation?: ToolPresentation;
     }

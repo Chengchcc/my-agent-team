@@ -588,6 +588,12 @@ describe("oma ACP server (in-process, fake provider)", () => {
     expect(client.permissions).toHaveLength(1);
     expect(existsSync(join(cwd, "never-one.txt"))).toBe(false);
     expect(existsSync(join(cwd, "never-two.txt"))).toBe(false);
+    // And both are recorded as FAILED, not completed: the status is what the
+    // ledger stores as is_error and what every surface renders as the outcome.
+    const failed = (client.updates as { sessionUpdate: string; status?: string }[]).filter(
+      (u) => u.sessionUpdate === "tool_call_update" && u.status === "failed",
+    );
+    expect(failed).toHaveLength(2);
     mode.stop();
   }, 30_000);
 

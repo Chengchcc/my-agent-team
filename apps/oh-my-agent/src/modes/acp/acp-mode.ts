@@ -777,12 +777,16 @@ function mapWireEvent(envelope: RunEventEnvelope): MappedWireEvent[] {
       const callId = typeof data.callId === "string" ? data.callId : "";
       if (!callId) return [];
       const result = data.result;
+      // A blocked or failed call is NOT a completion: the status is what the
+      // client records as `is_error`, and what every surface renders as the
+      // step's outcome.
+      const failed = data.isError === true;
       return [
         {
           update: {
             sessionUpdate: "tool_call_update",
             toolCallId: callId,
-            status: "completed",
+            status: failed ? "failed" : "completed",
             ...(result !== undefined && result !== null && typeof result === "object"
               ? { rawOutput: result }
               : {}),
