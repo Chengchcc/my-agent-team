@@ -704,6 +704,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   const acpBackend = new AcpBackend({
     onSessionBound: (runId, nativeRef) => onSessionBound.fn(runId, nativeRef),
+    // The child's permission classifier defaults to THE RUN'S model, and a
+    // flash-tier model classifying permissions escalates almost everything to
+    // a human — observed live: every bash in one turn asked, one card after
+    // another. These deployment knobs pin the classifier to a stronger model
+    // without touching the chat model. Explicit passthrough only: the child
+    // env is otherwise constructed, never inherited wholesale.
+    env: {
+      ...(process.env.OMA_PERMISSION_CLASSIFIER_MODEL
+        ? { OMA_PERMISSION_CLASSIFIER_MODEL: process.env.OMA_PERMISSION_CLASSIFIER_MODEL }
+        : {}),
+      ...(process.env.OMA_CLASSIFIER_TIMEOUT_MS
+        ? { OMA_CLASSIFIER_TIMEOUT_MS: process.env.OMA_CLASSIFIER_TIMEOUT_MS }
+        : {}),
+    },
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
     commands: { oma: omaAcpArgv },

@@ -380,6 +380,26 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   });
 
+  test("the run's frozen permission mode rides session/new _meta", async () => {
+    // Without this the child defaults to "ask" and every backend-driven run
+    // degrades to per-action human approval, whatever the agent configured
+    // (observed live 2026-10-10: one approval card per bash call).
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const newSessionParams: unknown[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ newSessionParams }, obs) });
+    const segment = await backend.execute(makeInput({ permissionMode: "auto" }));
+    await collect(segment);
+    expect(newSessionParams[0]).toMatchObject({
+      _meta: { "my-agent-team/permissionMode": "auto" },
+    });
+    await backend.dispose();
+  }, 10_000);
+
   test("permission allow: resolveApproval picks the agent's allow_once optionId", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],

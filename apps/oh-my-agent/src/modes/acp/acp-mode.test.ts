@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readPermissionMode } from "./acp-mode.js";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -185,6 +186,16 @@ async function startClient(
       ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks } as never),
   };
 }
+
+test("an undeclared or bogus permission mode stays on ask; a declared one is honoured", () => {
+  // The ACP default is ask (the client is the human surface); only an explicit
+  // declaration from a client that owns a policy — our backend — can lower it.
+  expect(readPermissionMode(undefined)).toBe("ask");
+  expect(readPermissionMode({})).toBe("ask");
+  expect(readPermissionMode({ "my-agent-team/permissionMode": "yolo" })).toBe("yolo");
+  expect(readPermissionMode({ "my-agent-team/permissionMode": "auto" })).toBe("auto");
+  expect(readPermissionMode({ "my-agent-team/permissionMode": "sudo" })).toBe("ask");
+});
 
 test("a prompt with image blocks reaches the model as vision content (#65)", async () => {
   // Break 2 of the multimodal chain: the ACP wire carries image blocks and the

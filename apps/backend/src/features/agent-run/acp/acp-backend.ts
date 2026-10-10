@@ -507,13 +507,24 @@ export class AcpBackend implements AgentBackend<"acp"> {
               const created = (await ctx.request(acp.methods.agent.session.new, {
                 cwd,
                 mcpServers,
-                ...(input.resume
+                ...(input.resume || input.run.permissionMode
                   ? {
                       _meta: {
-                        "my-agent-team/resume": {
-                          adopt: "last-interrupted",
-                          ...(decisions && decisions.length > 0 ? { decisions } : {}),
-                        },
+                        // The agent's frozen permission mode (ADR 0020
+                        // decision 7: mapped per backend at dispatch). Without
+                        // it the child defaults to "ask" and every backend-
+                        // driven run degrades to per-action human approval.
+                        ...(input.run.permissionMode
+                          ? { "my-agent-team/permissionMode": input.run.permissionMode }
+                          : {}),
+                        ...(input.resume
+                          ? {
+                              "my-agent-team/resume": {
+                                adopt: "last-interrupted",
+                                ...(decisions && decisions.length > 0 ? { decisions } : {}),
+                              },
+                            }
+                          : {}),
                       },
                     }
                   : {}),

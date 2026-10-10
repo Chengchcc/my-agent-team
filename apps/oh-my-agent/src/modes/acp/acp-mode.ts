@@ -74,9 +74,27 @@ interface AcpMcpServerDeclaration {
   readonly serverId: string;
 }
 
+/** The client declares its permission policy over the extension vehicle
+ *  (`_meta["my-agent-team/permissionMode"]`, the same convention as resume).
+ *  Unknown clients and absent declarations stay on "ask" — the ACP model of
+ *  permissions is that the CLIENT is the human surface, so a client that does
+ *  not declare a policy gets asked. Our own backend declares the agent's
+ *  configured mode (auto runs its classifier; hardcoding "ask" here silently
+ *  downgraded every backend-driven run to per-action human approval —
+ *  observed live 2026-10-10, one approval card per bash call). */
+type DeclaredPermissionMode = "ask" | "auto" | "deny" | "yolo";
+
+export function readPermissionMode(
+  meta: Record<string, unknown> | null | undefined,
+): DeclaredPermissionMode {
+  const raw = meta?.["my-agent-team/permissionMode"];
+  return raw === "auto" || raw === "deny" || raw === "yolo" || raw === "ask" ? raw : "ask";
+}
+
 interface AcpSession {
   readonly sessionId: string;
   readonly cwd: string;
+  readonly permissionMode: DeclaredPermissionMode;
   readonly acpMcpServers: readonly AcpMcpServerDeclaration[];
   /** Decisions read off a session/load's `_meta` (ADR 0039
    *  extension-vehicle rule 2): the NEXT prompt completes the parked turn
@@ -148,6 +166,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         cwd,
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: resumeMeta?.decisions ?? null,
+        permissionMode: readPermissionMode(meta),
         model: null,
       });
       return {
@@ -162,6 +181,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         cwd: ctx.params.cwd ?? process.cwd(),
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: readResumeDecisions(meta),
+        permissionMode: readPermissionMode(meta),
         model: null,
       });
       return {
@@ -352,10 +372,10 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       workspaceAccess: "read_write",
       modelRuntime,
       skillRoots: cwdSkills,
-      // The ACP model of permissions: the client is the human surface, so
-      // high-risk tools ask (via request_permission) instead of running an
-      // auto classifier against nobody.
-      permissionMode: "ask",
+      // The client-declared policy (see readPermissionMode): a client that
+      // declared "auto" runs its own classifier; one that declared nothing is
+      // asked, because it IS the human surface.
+      permissionMode: session.permissionMode,
       todoScope: session.sessionId,
       excludeMcpServerNames: acpDeclared,
       ...(pluginRt.plugins.length || pluginRt.mcpServers.length || acpMcpTools.length
