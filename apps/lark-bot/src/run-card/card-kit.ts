@@ -76,6 +76,10 @@ export interface CardKitClient {
   removeReaction(messageId: string, reactionId: string): Promise<CardKitResult>;
 }
 
+/** One card write's ceiling. Long enough for a slow replace of a large card,
+ *  short enough that a hung connection frees the write lane quickly. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export function createCardKitClient(tokens: TokenProvider): CardKitClient {
   async function rawCall(
     base: string,
@@ -91,10 +95,17 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      // Bounded: a hung card write must fail, not park the chat's lane.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   }
 
-  /** One authorized call; retries once with a fresh token on rejection. */
+  /** One authorized call; retries once with a fresh token on rejection.
+   *
+   *  Every call carries a timeout: a HUNG request would otherwise hold the
+   *  chat's write lane forever (all paced writes queue behind it), freezing
+   *  every card in that chat — observed live as an elapsed-time line stuck at
+   *  "1s" while card_seq never moved. */
   async function call(method: string, path: string, body: unknown): Promise<Response> {
     const token = await tokens.getToken();
     const first = await rawCall(tokens.getBaseUrl(), token, method, path, body);
