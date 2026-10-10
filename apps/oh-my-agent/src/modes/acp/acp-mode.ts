@@ -763,6 +763,12 @@ function mapWireEvent(envelope: RunEventEnvelope): MappedWireEvent[] {
             title: activity ?? toolName,
             kind: toolKindFor(toolName),
             status: "pending",
+            // The call's arguments. The canonical ledger's tool_use needs them
+            // (ADR 0017): without them every durable call reads {}, which is
+            // what the run card then rendered as its label (live 2026-10-10).
+            // ADR 0020 decision 6 withheld them from the retired RPC rail;
+            // ACP has the slot, and surfaces label calls from `activity`.
+            ...(data.input !== undefined ? { rawInput: data.input } : {}),
           },
         },
       ];

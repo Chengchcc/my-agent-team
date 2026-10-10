@@ -21,8 +21,9 @@ export type OmaLoopEvent =
       kind?: "native" | "product";
       callId: string;
       /** The tool's resolved input (model call args), for transcript display.
-       *  oma-internal: this NEVER crosses the RPC boundary — surfaces get
-       *  `activity` instead. */
+       *  The retired RPC rail withheld it; over ACP it leaves as the tool
+       *  call's `rawInput` (the ledger's tool_use keeps the arguments) while
+       *  live surfaces label the call from `activity`. */
       input?: Readonly<Record<string, unknown>>;
       /** User-visible one-line description of what the call is doing,
        *  produced by the tool's describeStart and sanitized by

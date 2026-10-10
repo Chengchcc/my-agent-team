@@ -579,8 +579,12 @@ describe("oma ACP server (in-process, fake provider)", () => {
     // The model's side of the same call, from the session updates.
     const toolCall = client.updates.find(
       (u) => (u as { sessionUpdate?: string }).sessionUpdate === "tool_call",
-    ) as { toolCallId?: string } | undefined;
+    ) as { toolCallId?: string; rawInput?: unknown } | undefined;
     expect(toolCall?.toolCallId).toBeTruthy();
+    // The arguments the model sent must leave the child: the canonical
+    // ledger records them on the tool_use, and an empty input there is the
+    // "{}" the run card used to render as its label.
+    expect(toolCall?.rawInput).toEqual({ message: "hi" });
 
     const call = mcp.requests.find((r) => r.method === "tools/call");
     const meta = (call?.params as { _meta?: { identity?: { callId?: string } } })?._meta;
