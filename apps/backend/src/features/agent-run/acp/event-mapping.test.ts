@@ -240,6 +240,40 @@ describe("durable tool facts", () => {
     expect(use[0]).toMatchObject({ id: "a", input: { command: "ls -la" } });
   });
 
+  test("rawInput arriving AFTER the first report still reaches the durable use", () => {
+    // The live 2026-10-10 defect: ACP's first tool_call carried no rawInput,
+    // so the tool_use was recorded with {} and the later update's arguments
+    // were dropped — the ledger showed every call as {}, and the card
+    // rendered the label "{}".
+    const acc = createAcpAccumulator();
+    mapAcpUpdate(
+      acc,
+      update({ sessionUpdate: "tool_call", toolCallId: "a", name: "bash", status: "pending" }),
+    );
+    mapAcpUpdate(
+      acc,
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "a",
+        status: "in_progress",
+        rawInput: { command: "ls -la" },
+      }),
+    );
+    mapAcpUpdate(
+      acc,
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "a",
+        status: "completed",
+        rawOutput: "ok",
+      }),
+    );
+    const use = buildOutcomeMessages(acc.parts).flatMap(
+      (m) => (m.blocks ?? []).find((b) => b.type === "tool_use") ?? [],
+    );
+    expect(use[0]).toMatchObject({ id: "a", input: { command: "ls -la" } });
+  });
+
   test("a settled call is recorded once, however many updates repeat it", () => {
     const acc = createAcpAccumulator();
     mapAcpUpdate(

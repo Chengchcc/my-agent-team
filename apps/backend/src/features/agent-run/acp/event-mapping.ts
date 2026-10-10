@@ -85,7 +85,22 @@ export function mapAcpUpdate(
       const callId = update.toolCallId;
       const reported = update.name ?? update.title;
       if (reported) acc.toolNames.set(callId, reported);
-      if (update.rawInput !== undefined) acc.toolInputs.set(callId, update.rawInput);
+      if (update.rawInput !== undefined) {
+        acc.toolInputs.set(callId, update.rawInput);
+        // The FIRST report often carries no rawInput yet (status "pending"),
+        // so the durable tool_use was already pushed with an empty input and
+        // the later arguments never reached it — the ledger then showed {}
+        // for every call, and the card rendered the label "{}" (live
+        // 2026-10-10). Patch the recorded part: the durable facts keep what
+        // the model actually sent.
+        const at = acc.parts.findIndex(
+          (part) => part.kind === "tool_call" && part.toolCallId === callId,
+        );
+        const recorded = at < 0 ? undefined : acc.parts[at];
+        if (recorded?.kind === "tool_call") {
+          acc.parts[at] = { ...recorded, input: update.rawInput };
+        }
+      }
       const toolName = acc.toolNames.get(callId) ?? "unknown";
       const status = update.status ?? "pending";
       // Durable facts first (ADR 0017): one tool_use when the call is first
