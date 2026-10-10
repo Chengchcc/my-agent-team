@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { computeNext } from "./engine.js";
 import { parseWorkflow } from "./parse.js";
+import { planRework } from "./rework.js";
 
 function branchDef() {
   return parseWorkflow({
@@ -184,5 +185,64 @@ describe("computeNext", () => {
     });
     if (step.kind !== "run") throw new Error("expected run");
     expect(step.ready.map((r) => r.node.id)).toContain("join");
+  });
+});
+
+/** ADR 0042 P2: a rework invalidates what it replaces, and the next attempt is
+ *  told which round it is and why it was sent back. */
+describe("rework in the execution core", () => {
+  const def = parseWorkflow({
+    version: 1,
+    id: "wf",
+    nodes: [
+      { id: "start", type: "start" },
+      { id: "build", type: "script", code: "x", output: [{ key: "artifact", type: "string" }] },
+      { id: "review", type: "script", code: "x", output: [{ key: "feedback", type: "string" }] },
+      { id: "done", type: "end", status: "success" },
+    ],
+    edges: [
+      { from: "start", to: "build" },
+      { from: "build", to: "review" },
+      { from: "review", to: "done" },
+      {
+        from: "review",
+        to: "build",
+        kind: "rework",
+        budget: { maxAttempts: 2, onExhausted: "fail" },
+      },
+    ],
+  });
+  const completions = [
+    { nodeId: "start", order: 0, routedTo: ["build"] },
+    { nodeId: "build", order: 1, routedTo: ["review"], output: { artifact: "v1" } },
+    { nodeId: "review", order: 2, routedTo: ["done"], output: { feedback: "stale verdict" } },
+  ];
+
+  test("without the rework the run is done", () => {
+    expect(computeNext(def, { completions, store: {}, trigger: {} }).kind).toBe("terminal");
+  });
+
+  test("an invalidated target runs again, without the stale downstream output", () => {
+    const [grant] = planRework({
+      def,
+      from: "review",
+      sourceOutput: { feedback: "redo" },
+      attempts: { build: 1 },
+      store: {},
+    });
+    const step = computeNext(def, {
+      completions,
+      store: {},
+      trigger: {},
+      invalidated: new Set(grant!.invalidated),
+      rework: [grant!],
+    });
+    expect(step.kind).toBe("run");
+    const ready = step.kind === "run" ? step.ready : [];
+    expect(ready.map((r) => r.node.id)).toEqual(["build"]);
+    expect(ready[0]?.input.attempt).toBe(2);
+    expect(ready[0]?.input.rework).toEqual({ from: "review", reason: "redo" });
+    // The invalidated review's own output must not feed the retry.
+    expect("feedback" in (ready[0]?.input ?? {})).toBe(false);
   });
 });

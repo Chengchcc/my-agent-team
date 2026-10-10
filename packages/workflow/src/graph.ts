@@ -103,7 +103,10 @@ function normalizeNodeOutput(
   return merged;
 }
 
-function evalData(
+/** The data plane a `when` rule sees: the store plus the source node's own
+ *  output under its id. Shared by forward routing and the rework planner, so a
+ *  rework condition reads exactly like a forward one. */
+export function evalData(
   nodeId: string,
   output: Record<string, unknown> | undefined,
   store: Record<string, unknown>,
