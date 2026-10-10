@@ -97,7 +97,7 @@ async function startClient(
   mode: ReturnType<typeof runAcpMode>,
   c2a: ReturnType<typeof streamPair>,
   a2c: ReturnType<typeof streamPair>,
-  answer: "allow-once" | "reject-once" = "allow-once",
+  answer: "allow-once" | "allow-always" | "reject-once" = "allow-once",
   mcp?: McpOverAcpHarness,
 ): Promise<ClientHarness> {
   void mode;
@@ -525,10 +525,42 @@ describe("oma ACP server (in-process, fake provider)", () => {
     expect(client.permissions).toHaveLength(1);
     const permission = client.permissions[0]!;
     expect(permission.toolCall.toolCallId).toBeTruthy();
-    expect(permission.options.map((o) => o.kind)).toEqual(["allow_once", "reject_once"]);
+    expect(permission.options.map((o) => o.kind)).toEqual([
+      "allow_once",
+      "allow_always",
+      "reject_once",
+    ]);
     const kinds = (client.updates as { sessionUpdate: string }[]).map((u) => u.sessionUpdate);
     expect(kinds).toContain("tool_call");
     expect(kinds).toContain("tool_call_update");
+    mode.stop();
+  }, 30_000);
+
+  test("allow-always covers the same tool for the rest of the run", async () => {
+    // The ask gate used to question every call: two bash commands were two
+    // cards. One "allow always" answers the question for this run -- for this
+    // tool, not for every tool, and not beyond the run.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-allow-always-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([
+        { name: "bash", input: { command: "echo acp-always-one" } },
+        { name: "bash", input: { command: "echo acp-always-two" } },
+      ]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "allow-always");
+    await client.newSession(cwd);
+    const response = await client.prompt("run two echos");
+    expect(response.stopReason).toBe("end_turn");
+    const calls = (client.updates as { sessionUpdate: string }[]).filter(
+      (update) => update.sessionUpdate === "tool_call",
+    );
+    // Both calls executed; only the first asked.
+    expect(calls).toHaveLength(2);
+    expect(client.permissions).toHaveLength(1);
     mode.stop();
   }, 30_000);
 

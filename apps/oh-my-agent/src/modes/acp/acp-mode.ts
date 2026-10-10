@@ -876,6 +876,11 @@ function acpApproval(
         },
         options: [
           { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+          {
+            optionId: "allow-always",
+            name: "Allow this tool for the rest of the run",
+            kind: "allow_always",
+          },
           { optionId: "reject-once", name: "Reject", kind: "reject_once" },
         ],
       } as never)
@@ -885,7 +890,12 @@ function acpApproval(
             settle({ decision: "deny", reason: "client cancelled the request" });
             return;
           }
-          const allowed = response.outcome.optionId === "allow-once";
+          const chosen = response.outcome.optionId;
+          if (chosen === "allow-always") {
+            settle({ decision: "allow_always" });
+            return;
+          }
+          const allowed = chosen === "allow-once";
           settle({
             decision: allowed ? "allow" : "deny",
             ...(allowed ? {} : { reason: "denied by the client" }),

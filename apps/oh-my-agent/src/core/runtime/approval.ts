@@ -21,7 +21,11 @@ export interface ApprovalRequest {
 }
 
 export interface ApprovalDecision {
-  readonly decision: "allow" | "deny";
+  /** `allow_always` allows every later call of the SAME tool for the rest of
+   *  the run (the ACP option of the same name; ADR 0039 decision 5 leaves the
+   *  agent its own authorization policy). It never outlives the run: the gate
+   *  that remembers it is built once per run. */
+  readonly decision: "allow" | "allow_always" | "deny";
   readonly reason?: string;
 }
 

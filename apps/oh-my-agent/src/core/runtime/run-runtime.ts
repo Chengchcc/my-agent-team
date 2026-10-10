@@ -765,6 +765,11 @@ function createRunPermissionGates(
    *  subagent share one policy (critical guard, classifier, one
    *  escalatedActions set per Run) but judge against their own intent —
    *  a subagent's "user request" is the task it was assigned. */
+  // "Allow always" covers this tool for the rest of the RUN. The gate is built
+  // once per run and shared with the run's subagents, which is exactly the
+  // lifetime the decision owns — and it is consulted only AFTER the deny
+  // branch, so permissionMode=deny still wins.
+  const alwaysAllowed = new Set<string>();
   const makeSessionPermissionGate =
     (intentTexts: readonly string[]) =>
     async (
@@ -806,6 +811,9 @@ function createRunPermissionGates(
       if (deps.permissionMode === "deny") {
         return { block: true, reason: `${toolName}: blocked by permissionMode=deny` };
       }
+      // A previous "allow always" for this tool: the human answered this
+      // question once, this run.
+      if (alwaysAllowed.has(toolName)) return undefined;
       // ask
       if (!deps.approvalHandler) {
         return {
@@ -854,6 +862,7 @@ function createRunPermissionGates(
           reason: `${toolName}: denied — ${verdict.reason ?? "user denied"}`,
         };
       }
+      if (verdict.decision === "allow_always") alwaysAllowed.add(toolName);
       return undefined;
     };
   const permissionGate =
