@@ -193,7 +193,7 @@ function declaresAcpMcp(init: unknown): boolean {
  *  The response picks the agent-offered optionId by KIND (the product only
  *  knows allow/deny); a missing option settles cancelled, never a guess. */
 interface HeldPermission {
-  decide(decision: "allow" | "allow_always" | "deny"): void;
+  decide(decision: "allow" | "allow_always" | "deny" | "deny_always"): void;
   cancel(): void;
 }
 
@@ -372,7 +372,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
   async resolveApproval(
     runId: string,
     callId: string,
-    decision: "allow" | "allow_always" | "deny",
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
   ): Promise<void> {
     const entry = this.active.get(runId);
     const held = entry?.run.held.get(callId);
@@ -673,8 +673,9 @@ export class AcpBackend implements AgentBackend<"acp"> {
     });
     // The response must echo one of the agent's OWN optionIds — pick by
     // kind, never by a guessed string (optionIds vary per agent).
-    const optionIdFor = (kind: "allow_once" | "allow_always" | "reject_once"): string | undefined =>
-      params.options.find((option) => option.kind === kind)?.optionId;
+    const optionIdFor = (
+      kind: "allow_once" | "allow_always" | "reject_once" | "reject_always",
+    ): string | undefined => params.options.find((option) => option.kind === kind)?.optionId;
     return new Promise((resolve) => {
       const settleSelected = (optionId: string | undefined) => {
         clearTimeout(timer);
@@ -693,16 +694,26 @@ export class AcpBackend implements AgentBackend<"acp"> {
       run.held.set(callId, {
         decide: (decision) => {
           run.held.delete(callId);
-          // "Allow always" is the agent's own option; an agent that does not
-          // offer one (other harnesses) gets allow-once, which is the honest
-          // equivalent of what we can promise it.
-          const kind =
-            decision === "deny"
-              ? "reject_once"
-              : decision === "allow_always" && optionIdFor("allow_always") !== undefined
-                ? "allow_always"
-                : "allow_once";
-          settleSelected(optionIdFor(kind));
+          // The decision is the human's, the optionId must be the agent's: an
+          // "always" decision uses the agent's own always-option when it declares
+          // one, and degrades to the one-shot equivalent when it does not — that
+          // agent then asks again next time, which is the honest equivalent of a
+          // promise it cannot keep.
+          const wanted =
+            decision === "allow_always"
+              ? ("allow_always" as const)
+              : decision === "deny_always"
+                ? ("reject_always" as const)
+                : decision === "allow"
+                  ? ("allow_once" as const)
+                  : ("reject_once" as const);
+          const fallback =
+            wanted === "allow_always"
+              ? ("allow_once" as const)
+              : wanted === "reject_always"
+                ? ("reject_once" as const)
+                : wanted;
+          settleSelected(optionIdFor(optionIdFor(wanted) === undefined ? fallback : wanted));
         },
         cancel: () => {
           clearTimeout(timer);

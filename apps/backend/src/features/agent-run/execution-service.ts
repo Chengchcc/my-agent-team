@@ -250,7 +250,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           .catch((err) => {
             console.error(`[agent-run] approval replay repair failed for ${actionId}:`, err);
           });
-        announce(decision === "deny" ? "deny" : "allow");
+        announce(decision === "deny" || decision === "deny_always" ? "deny" : "allow");
         return;
       }
       const live = liveRuns.get(runId);
@@ -271,7 +271,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
             .catch((err) => {
               console.error(`[agent-run] parked approval consume failed for ${actionId}:`, err);
             });
-          announce(decision === "deny" ? "deny" : "allow");
+          announce(decision === "deny" || decision === "deny_always" ? "deny" : "allow");
           await resumeParkedRun(runId);
           return;
         }
@@ -334,7 +334,7 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
         .catch((err) => {
           console.error(`[agent-run] approval consume failed for ${actionId}:`, err);
         });
-      announce(decision === "deny" ? "deny" : "allow");
+      announce(decision === "deny" || decision === "deny_always" ? "deny" : "allow");
     },
     resumeParkedRun,
 

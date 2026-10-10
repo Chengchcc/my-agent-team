@@ -554,6 +554,61 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   });
 
+  test("permission deny_always picks the agent's reject_always optionId", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-always", name: "Never", kind: "reject_always" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "deny_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "reject-always" }]);
+    await backend.dispose();
+  });
+
+  test("deny_always degrades to reject_once when the agent offers no never-option", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "deny_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "reject-once" }]);
+    await backend.dispose();
+  });
+
   test("permission deny maps to reject_once", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],

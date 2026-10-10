@@ -45,7 +45,7 @@ export interface AgentBackend<K extends string = string> {
   resolveApproval?(
     runId: string,
     callId: string,
-    decision: "allow" | "allow_always" | "deny",
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
   ): Promise<void>;
 
   /** Request cancellation of the live Run `runId`. The segment's outcome
