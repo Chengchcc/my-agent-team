@@ -1674,6 +1674,22 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const run = await agentRunPort.getRun(runId);
       return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
     },
+    // The activity lines a run wrote while it worked (its own describeStart output). They
+    // live in the run telemetry, which is where "how the run behaved" belongs; the ledger
+    // stays the canonical outcome. A rebuilt card therefore labels a call the way the live
+    // stream did, and a rail that records no activity simply keeps the tool name.
+    toolActivities: async (runId) => {
+      const activities = new Map<string, string>();
+      for (const event of services.opsStore.listRunEvents(runId, 2000)) {
+        if (event.type !== "native_tool_started") continue;
+        const callId = event.data.callId;
+        const activity = event.data.activity;
+        if (typeof callId === "string" && typeof activity === "string") {
+          activities.set(callId, activity);
+        }
+      }
+      return activities;
+    },
   });
 
   const ahpHost = createAhpHost({

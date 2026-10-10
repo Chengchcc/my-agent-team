@@ -349,6 +349,53 @@ describe("tool call projection", () => {
     expect(part?.toolCall.toolInput).toBe(JSON.stringify({ command: "ls" }));
     expect(typeof part?.toolCall.pastTenseMessage).toBe("string");
     expect(part?.toolCall.error).toBeUndefined();
+    // No telemetry read wired: the label stays the tool name rather than a guess.
+    expect("intention" in (part?.toolCall ?? {})).toBe(false);
+  });
+
+  test("the child's own activity line rides the snapshot as the call's intention", async () => {
+    // The live stream carries it as `intention`; a card rebuilt from the snapshot used
+    // to lose it and fall back to a synthesis (or, worse, the raw JSON input).
+    const fake = fixture();
+    fake.setRun("r1", "completed");
+    const source = createAhpStateSource({
+      ...fake.deps,
+      getLedgerEntries: () => [
+        withBlocks(
+          [{ type: "tool_use", id: "tc-1", name: "bash", input: { command: "ls" } }],
+          "assistant",
+          0,
+          "m1",
+        ),
+      ],
+      toolActivities: async (runId) =>
+        runId === "r1" ? new Map([["tc-1", "运行命令：ls"]]) : new Map(),
+    });
+    const chat = await source.chat(chatUri("c1"));
+    const part = chat?.turns[0]?.responseParts.find((candidate) => candidate.kind === "toolCall");
+    expect((part?.toolCall as { intention?: string } | undefined)?.intention).toBe("运行命令：ls");
+  });
+
+  test("a failing telemetry read is not an error, it is no label", async () => {
+    const fake = fixture();
+    fake.setRun("r1", "completed");
+    const source = createAhpStateSource({
+      ...fake.deps,
+      getLedgerEntries: () => [
+        withBlocks(
+          [{ type: "tool_use", id: "tc-1", name: "bash", input: { command: "ls" } }],
+          "assistant",
+          0,
+          "m1",
+        ),
+      ],
+      toolActivities: async () => {
+        throw new Error("telemetry unavailable");
+      },
+    });
+    const chat = await source.chat(chatUri("c1"));
+    const part = chat?.turns[0]?.responseParts.find((candidate) => candidate.kind === "toolCall");
+    expect((part?.toolCall as { intention?: string } | undefined)?.intention).toBeUndefined();
   });
 
   test("a failed call keeps success false and names the failure", async () => {
