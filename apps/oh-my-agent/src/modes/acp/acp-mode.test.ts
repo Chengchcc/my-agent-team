@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readPermissionMode } from "./acp-mode.js";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +8,7 @@ import type { Message } from "@chengchenccc/message";
 import { fakeProvider } from "../../core/runtime/fake-provider.js";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
 import { appendParkedTurnMarker, appendSessionMessages } from "../../core/session/session-file.js";
-import { runAcpMode } from "./acp-mode.js";
+import { readPermissionMode, runAcpMode } from "./acp-mode.js";
 
 /** Crossed NDJSON stream pairs: our test CLIENT on one side, the oma ACP
  *  server on the other. No processes; the model is the fake provider and
