@@ -38,8 +38,11 @@ const MAX_BUFFER_CHARS_BEFORE_FLUSH = 120;
 const SEAL_RETRY_DELAYS_MS = [200, 500, 1000];
 /** How long the terminal seal waits out chat congestion (rate limits are
  *  transient; the card owns the answer, so a text fallback here means the user
- *  reads the same answer twice — #87). */
-const DEFAULT_SEAL_CONGESTION_BUDGET_MS = 45_000;
+ *  reads the same answer twice — #87). Generous on purpose: the answer is
+ *  already visible in the streaming card, so a late seal costs nothing, while
+ *  a premature one costs a duplicate — and with the write lane pacing every
+ *  call, wall-clock patience must cover queue waits, not just retries. */
+const DEFAULT_SEAL_CONGESTION_BUDGET_MS = 180_000;
 /** "OnIt" = the ack while the run is live; the terminal swap to "DONE" lives
  *  in ack-reaction.ts. Verified against the live API: `Hold` is rejected
  *  (231001), `OnIt` and `DONE` are accepted. */
@@ -373,6 +376,9 @@ export async function watchRunCard(
     state = { ...state, output: content };
 
     let sealed = false;
+    // Why the seal gave up (budget exhausted vs card truly broken) — recorded
+    // on the fallback so an empty last_error never hides the class again.
+    let sealLastFailure: string | undefined;
     if (cardKitId) {
       // A rate limit is not a broken card. Wait it out (bounded), because the
       // fallback below sends the answer as a SECOND message while the card
@@ -388,6 +394,7 @@ export async function watchRunCard(
           sealed = true;
           break;
         }
+        sealLastFailure = outcome.error;
         if (!outcome.retryable) break;
         if (Date.now() >= deadline) break;
         await new Promise((r2) => setTimeout(r2, Math.min(1_000 * 2 ** attempt, 8_000)));
@@ -410,13 +417,16 @@ export async function watchRunCard(
       });
       return;
     }
-    // Card unreplaceable: the final answer must still reach the user.
+    // Card unreplaceable: the final answer must still reach the user. The
+    // reason is recorded on the success path too — an empty last_error here
+    // once hid whether the budget expired or the card was truly broken.
     try {
       await sendFinalText(content);
       updateRunCard(db, runId, {
         status: "fallback_text",
         accumulated: content,
         cardUpdateFailed: 1,
+        ...(sealLastFailure ? { lastError: `seal fallback: ${sealLastFailure}` } : {}),
       });
     } catch (err) {
       updateRunCard(db, runId, {
