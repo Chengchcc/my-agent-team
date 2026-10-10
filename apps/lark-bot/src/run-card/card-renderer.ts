@@ -282,6 +282,10 @@ function pendingActionButtons(
     });
     return [
       decideButton("approve_button", "批准执行", "primary", "approve"),
+      // The ask gate questions every call of the same tool: one "always" here
+      // answers the rest of them for this run (never beyond it).
+      // 20-char element-id ceiling (Feishu 300301): `approve_always_button` is one too long.
+      decideButton("approve_always_btn", "本轮都允许", "default", "approve_always"),
       decideButton("reject_button", "拒绝", "danger", "reject"),
     ];
   }
