@@ -272,7 +272,11 @@ export const api = {
     ),
   getAgentRun: (runId: string) => unwrap(client.api["agent-runs"]({ runId }).get()),
   cancelAgentRun: (runId: string) => unwrap(client.api["agent-runs"]({ runId }).cancel.post()),
-  resolveApproval: (runId: string, callId: string, decision: "allow" | "deny") =>
+  resolveApproval: (
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ) =>
     unwrap(
       client.api["agent-runs"]({ runId }).approval.post({
         callId,

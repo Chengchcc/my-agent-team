@@ -31,7 +31,11 @@ interface TimelineProps {
   /** Transient streaming outputs — one temporary assistant bubble per
    *  active run at the end of the timeline, replaced by canonical Messages. */
   transients?: readonly TransientBubble[] | undefined;
-  onResolveApproval?: (runId: string, callId: string, decision: "allow" | "deny") => void;
+  onResolveApproval?: (
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ) => void;
   /** The undo response painted locally: the AHP stream cannot carry the flag (#57). */
   onMarkUndone?: (undoneSeqs: readonly number[]) => void;
   onResolveAsk?: (runId: string, callId: string, answer: unknown) => void;
