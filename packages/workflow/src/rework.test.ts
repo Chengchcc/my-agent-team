@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseWorkflow } from "./parse.js";
-import { planRework, reworkInputOf } from "./rework.js";
+import { budgetGateNodeId, deriveRework, planRework, reworkInputOf } from "./rework.js";
 
 /** start → build → review → done, with review able to send build back. */
 const def = parseWorkflow({
@@ -119,5 +119,96 @@ describe("planRework", () => {
       attempt: 2,
       rework: { from: "review", reason: "redo" },
     });
+  });
+});
+
+describe("deriveRework (the rows are the state)", () => {
+  const gate = (nodeId: string, decision?: string) => ({
+    nodeId: budgetGateNodeId(nodeId),
+    status: "superseded",
+    output: {
+      budgetGate: {
+        nodeId,
+        from: "review",
+        attempt: 3,
+        maxAttempts: 2,
+        reason: "redo",
+      },
+      ...(decision === undefined ? {} : { decision }),
+    },
+  });
+
+  test("a used verdict owes the target a retry", () => {
+    const derived = deriveRework(def, [
+      { nodeId: "start", status: "completed" },
+      { nodeId: "build", status: "superseded", output: { artifact: "v1" } },
+      { nodeId: "review", status: "superseded", output: { feedback: "redo" } },
+    ]);
+    expect([...derived.invalidated].sort()).toEqual(["build", "review"]);
+    expect(derived.grants).toHaveLength(1);
+    expect(derived.grants[0]).toMatchObject({ to: "build", attempt: 2, exhausted: false, reason: "redo" });
+    expect(derived.exhausted).toEqual([]);
+  });
+
+  test("nothing is owed until the verdict has been applied", () => {
+    const derived = deriveRework(def, [
+      { nodeId: "start", status: "completed" },
+      { nodeId: "build", status: "completed" },
+      { nodeId: "review", status: "completed", output: { feedback: "redo" } },
+    ]);
+    expect(derived.grants).toEqual([]);
+    expect(derived.invalidated.size).toBe(0);
+  });
+
+  test("a target that already re-ran owes nothing", () => {
+    const derived = deriveRework(def, [
+      { nodeId: "start", status: "completed" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "build", status: "completed", output: { artifact: "v2" } },
+      { nodeId: "review", status: "superseded", output: { feedback: "redo" } },
+    ]);
+    expect(derived.grants).toEqual([]);
+    // Not owed at all: the mutated check (source superseded alone) would put
+    // this verdict in `exhausted` instead, which is the whole distinction.
+    expect(derived.exhausted).toEqual([]);
+    // The review is still superseded: the retry has not been re-reviewed yet,
+    // so it keeps its old verdict out of the engine's "done" set.
+    expect([...derived.invalidated]).toEqual(["review"]);
+  });
+
+  test("a spent budget is reported, not granted", () => {
+    const derived = deriveRework(def, [
+      { nodeId: "start", status: "completed" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "review", status: "superseded", output: { feedback: "still redo" } },
+    ]);
+    expect(derived.grants).toEqual([]);
+    expect(derived.exhausted).toHaveLength(1);
+    expect(derived.exhausted[0]).toMatchObject({ to: "build", attempt: 3, exhausted: true });
+  });
+
+  test("a human grant buys the next attempt", () => {
+    const derived = deriveRework(def, [
+      { nodeId: "start", status: "completed" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "review", status: "superseded", output: { feedback: "still redo" } },
+      gate("build", "grant"),
+    ]);
+    expect(derived.exhausted).toEqual([]);
+    expect(derived.grants[0]).toMatchObject({ to: "build", attempt: 3, exhausted: false });
+  });
+
+  test("a rejected gate grants nothing", () => {
+    const derived = deriveRework(def, [
+      { nodeId: "start", status: "completed" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "build", status: "superseded" },
+      { nodeId: "review", status: "superseded", output: { feedback: "still redo" } },
+      gate("build", "reject"),
+    ]);
+    expect(derived.grants).toEqual([]);
+    expect(derived.exhausted).toHaveLength(1);
   });
 });

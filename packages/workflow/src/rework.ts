@@ -90,3 +90,114 @@ export function planRework(input: ReworkInput): readonly ReworkGrant[] {
 export function reworkInputOf(grant: ReworkGrant): ReworkContext {
   return { attempt: grant.attempt, rework: { from: grant.from, reason: grant.reason } };
 }
+
+/** The bits of a recorded node run the derivation needs. */
+export interface ReworkRow {
+  readonly nodeId: string;
+  /** `running` | `waiting_human` | `completed` | `failed` | `superseded`. */
+  readonly status: string;
+  readonly output?: Record<string, unknown> | null;
+}
+
+/** The marker a budget gate leaves in a row's output, both while it waits
+ *  (`decision` absent) and after a human decided it. */
+export interface BudgetGateRecord {
+  /** The node whose budget ran out. */
+  readonly nodeId: string;
+  /** Whose verdict exhausted it. */
+  readonly from: string;
+  readonly attempt: number;
+  readonly maxAttempts: number;
+  readonly reason: string;
+}
+
+/** A budget gate is not the reworked node's own run: it is a separate waiting
+ *  row, so it gets a separate id (the pending-human store keys on
+ *  execution+node, and the target's attempt count must not see the gate). */
+export function budgetGateNodeId(nodeId: string): string {
+  return `${nodeId}#budget`;
+}
+
+export function budgetGateOf(output: Record<string, unknown> | null | undefined): BudgetGateRecord | undefined {
+  const gate = output?.budgetGate;
+  if (typeof gate !== "object" || gate === null) return undefined;
+  const record = gate as Record<string, unknown>;
+  if (
+    typeof record.nodeId !== "string" ||
+    typeof record.from !== "string" ||
+    typeof record.attempt !== "number" ||
+    typeof record.maxAttempts !== "number" ||
+    typeof record.reason !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    nodeId: record.nodeId,
+    from: record.from,
+    attempt: record.attempt,
+    maxAttempts: record.maxAttempts,
+    reason: record.reason,
+  };
+}
+
+export interface DerivedRework {
+  /** Nodes whose latest row a rework invalidated: the retry replaces them. */
+  readonly invalidated: ReadonlySet<string>;
+  /** Verdicts the execution may still act on. */
+  readonly grants: readonly ReworkGrant[];
+  /** Verdicts whose budget is spent: the caller applies `onExhausted`. */
+  readonly exhausted: readonly ReworkGrant[];
+}
+
+/** A rework, derived from the recorded rows instead of remembered in memory.
+ *
+ *  A verdict was used exactly when its source row is `superseded` — that is
+ *  what applying a rework does to the rows it replaces. So "the source is
+ *  superseded and so is the target's latest row" means a retry is owed, and it
+ *  stays true across a restart, a crash or a second process: the rows are the
+ *  only state there is. A row that never existed (the target never ran) owes
+ *  nothing, and a target that already re-ran has a fresh non-superseded row. */
+export function deriveRework(def: WorkflowDefinition, rows: readonly ReworkRow[]): DerivedRework {
+  const latest = new Map<string, ReworkRow>();
+  const count = new Map<string, number>();
+  for (const row of rows) {
+    count.set(row.nodeId, (count.get(row.nodeId) ?? 0) + 1);
+    latest.set(row.nodeId, row);
+  }
+  const invalidated = new Set<string>();
+  for (const [nodeId, row] of latest) {
+    if (row.status === "superseded") invalidated.add(nodeId);
+  }
+  // A human may grant an attempt the budget did not: each granted gate row is
+  // one more attempt the target is allowed (ADR 0042 §2.4).
+  const grantedByHuman = new Map<string, number>();
+  for (const row of rows) {
+    const gate = budgetGateOf(row.output);
+    if (gate && row.output?.decision === "grant") {
+      grantedByHuman.set(gate.nodeId, (grantedByHuman.get(gate.nodeId) ?? 0) + 1);
+    }
+  }
+  const grants: ReworkGrant[] = [];
+  const exhausted: ReworkGrant[] = [];
+  for (const edge of def.edges) {
+    if (edge.kind !== "rework" || edge.budget === undefined) continue;
+    const from = latest.get(edge.from);
+    const to = latest.get(edge.to);
+    if (from?.status !== "superseded" || to?.status !== "superseded" || edge.to === edge.from) {
+      continue;
+    }
+    const granted = grantedByHuman.get(edge.to) ?? 0;
+    const attempt = (count.get(edge.to) ?? 0) + 1;
+    const grant: ReworkGrant = {
+      from: edge.from,
+      to: edge.to,
+      attempt,
+      budget: edge.budget,
+      exhausted: attempt > edge.budget.maxAttempts + granted,
+      invalidated: [edge.to, ...descendantsOf(def, edge.to)],
+      reason: reasonOf(from.output ?? undefined),
+    };
+    (grant.exhausted ? exhausted : grants).push(grant);
+  }
+  return { invalidated, grants, exhausted };
+}

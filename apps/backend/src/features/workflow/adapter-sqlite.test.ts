@@ -55,6 +55,39 @@ describe("sqliteWorkflowExecutionAdapter", () => {
     expect((await adapter.getPendingHuman("e1", "h1"))?.status).toBe("resolved");
   });
 
+  test("a patch updates the node's latest attempt, never the earlier ones", async () => {
+    await adapter.createExecution({
+      executionId: "e-attempts",
+      workflowId: "wf",
+      definition: def,
+      input: {},
+      store: {},
+    });
+    // Attempt 1 (completed, then invalidated by a rework) and attempt 2 (running).
+    await adapter.appendNodeRun({
+      executionId: "e-attempts",
+      nodeId: "start",
+      status: "superseded",
+      order: 0,
+      output: { round: 1 },
+    });
+    await adapter.appendNodeRun({
+      executionId: "e-attempts",
+      nodeId: "start",
+      status: "running",
+      order: 1,
+    });
+    await adapter.updateNodeRun("e-attempts", "start", {
+      status: "completed",
+      output: { round: 2 },
+      terminalAt: Date.now(),
+    });
+    const runs = await adapter.listNodeRuns("e-attempts");
+    expect(runs.map((r) => r.status)).toEqual(["superseded", "completed"]);
+    expect(runs[0]!.output).toEqual({ round: 1 });
+    expect(runs[1]!.output).toEqual({ round: 2 });
+  });
+
   test("list running and waiting-human executions", async () => {
     await adapter.createExecution({
       executionId: "e2",

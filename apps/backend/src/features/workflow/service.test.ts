@@ -83,10 +83,12 @@ function ramPort() {
   const executions = new Map<string, Record<string, unknown>>();
   const nodeRuns: Array<Record<string, unknown>> = [];
   const pendingHuman = new Map<string, Record<string, unknown>>();
+  const events: Array<Record<string, unknown>> = [];
   return {
     executions,
     nodeRuns,
     pendingHuman,
+    events,
     port: {
       createExecution: async (i: Record<string, unknown>) => {
         const r = { ...i, status: "running" };
@@ -104,15 +106,19 @@ function ramPort() {
         nodeRuns.push(r);
         return r;
       },
+      // Same rule as the sqlite adapter: a patch means the node's latest row,
+      // because a node holds one row per attempt (ADR 0042).
       updateNodeRun: async (_e: string, nodeId: string, patch: Record<string, unknown>) => {
-        const r = nodeRuns.find((x) => x.nodeId === nodeId);
+        const r = nodeRuns.filter((x) => x.nodeId === nodeId).at(-1);
         if (r) Object.assign(r, patch);
-        return r;
+        return r ?? null;
       },
       listNodeRuns: async (executionId: string) =>
         nodeRuns.filter((r) => r.executionId === executionId),
-      appendExecutionEvent: async () => {},
-      listExecutionEvents: async () => [],
+      appendExecutionEvent: async (e: Record<string, unknown>) => {
+        events.push(e);
+      },
+      listExecutionEvents: async () => events,
       createPendingHuman: async (r: Record<string, unknown>) => {
         pendingHuman.set(`${r.executionId as string}:${r.nodeId as string}`, r);
         return r;
@@ -522,5 +528,230 @@ describe("#44: restart recovery reuses the persisted run, never re-posts", () =>
     expect(posted).toBe(0); // recovery never re-sends the node prompt
     expect(nodeRuns.find((r) => r.nodeId === "a")!.runId).toBe("r-existing");
     expect(nodeRuns.find((r) => r.nodeId === "a")!.output).toEqual({ val: 1 });
+  });
+});
+
+/** ADR 0042 P3: rework as new attempts — rows, the budget exits and the two
+ *  human decisions, through the real drive loop. */
+describe("rework in the execution service", () => {
+  const reworkDef = (onExhausted: "fail" | "human", maxAttempts = 2) =>
+    parseWorkflow({
+      version: 1,
+      id: "wf",
+      nodes: [
+        { id: "start", type: "start" },
+        { id: "build", type: "script", code: "x", output: [{ key: "artifact", type: "string" }] },
+        { id: "review", type: "script", code: "x", output: [{ key: "feedback", type: "string" }] },
+        { id: "done", type: "end", status: "success" },
+      ],
+      edges: [
+        { from: "start", to: "build" },
+        { from: "build", to: "review" },
+        { from: "review", to: "done" },
+        {
+          from: "review",
+          to: "build",
+          kind: "rework",
+          budget: { maxAttempts, onExhausted },
+          when: { "==": [{ var: "review.output.feedback" }, "redo"] },
+        },
+      ],
+    });
+
+  /** A build that produces vN and a review that rejects v1 only: the second
+   *  round is what the rework has to produce. Records what each node saw. */
+  function runner(seen: Array<{ nodeId: string; input: Record<string, unknown> }>) {
+    return {
+      run: async (
+        node: { id: string },
+        ctx: { input: Record<string, unknown> },
+      ): Promise<{ output: Record<string, unknown> }> => {
+        seen.push({ nodeId: node.id, input: ctx.input });
+        if (node.id === "build") {
+          return { output: { artifact: `v${(ctx.input.attempt as number | undefined) ?? 1}` } };
+        }
+        if (node.id === "review") {
+          return { output: { feedback: ctx.input.artifact === "v1" ? "redo" : "ship" } };
+        }
+        return { output: {} };
+      },
+    };
+  }
+
+  /** The drive loop after a human decision is fire-and-forget; give it a moment
+   *  to reach a terminal status instead of asserting mid-flight. */
+  const waitFor = async (
+    predicate: () => boolean | Promise<boolean>,
+    ms = 4000,
+  ): Promise<boolean> => {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      if (await predicate()) return true;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return await predicate();
+  };
+
+  test("a rejected verdict runs the target again, as a new attempt", async () => {
+    const fake = ramPort();
+    const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+    const svc = createWorkflowExecutionService({
+      port: fake.port,
+      nodeRunners: { script: runner(seen) } as never,
+      idGen: () => "e-rework",
+    });
+    const result = await svc.runToCompletion("e-rework", {
+      workflowId: "wf",
+      definition: reworkDef("fail"),
+      input: {},
+    });
+    expect(result.status).toBe("success");
+    // Two attempts of build and of review, each a row of its own.
+    const rows = fake.nodeRuns as Array<{ nodeId: string; status: string }>;
+    const build = rows.filter((r) => r.nodeId === "build").map((r) => r.status);
+    expect(build).toEqual(["superseded", "completed"]);
+    expect(rows.filter((r) => r.nodeId === "review").map((r) => r.status)).toEqual([
+      "superseded",
+      "completed",
+    ]);
+    // The retry was told which round it is and why.
+    const secondBuild = seen.filter((r) => r.nodeId === "build")[1];
+    expect(secondBuild?.input.attempt).toBe(2);
+    expect(secondBuild?.input.rework).toEqual({ from: "review", reason: "redo" });
+    // And it produced the round the review could accept.
+    expect(seen.filter((r) => r.nodeId === "review")[1]?.input.artifact).toBe("v2");
+    const events = fake.events as Array<{ event: string; data: Record<string, unknown> }>;
+    expect(events.some((e) => e.event === "rework_requested")).toBe(true);
+  });
+
+  test("a spent budget ends the execution with the round and the last reason", async () => {
+    const fake = ramPort();
+    const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+    const svc = createWorkflowExecutionService({
+      port: fake.port,
+      nodeRunners: { script: runner(seen) } as never,
+      idGen: () => "e-fail",
+    });
+    const result = await svc.runToCompletion("e-fail", {
+      workflowId: "wf",
+      definition: reworkDef("fail", 1),
+      input: {},
+    });
+    expect(result.status).toBe("failure");
+    expect(result.error).toContain("rework budget");
+    expect(result.error).toContain("redo");
+  });
+
+  test("a human may grant the attempt the budget refused", async () => {
+    const fake = ramPort();
+    const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+    const svc = createWorkflowExecutionService({
+      port: fake.port,
+      nodeRunners: { script: runner(seen) } as never,
+      idGen: () => "e-grant",
+    });
+    const parked = await svc.runToCompletion("e-grant", {
+      workflowId: "wf",
+      definition: reworkDef("human", 1),
+      input: {},
+    });
+    expect(parked.status).toBe("waiting_human");
+    const gate = await svc.getPendingHuman("e-grant", "build#budget");
+    expect(gate?.status).toBe("pending");
+    expect((gate?.form as { budgetGate?: { maxAttempts?: number } })?.budgetGate?.maxAttempts).toBe(
+      1,
+    );
+
+    await svc.resolveHumanTask("e-grant", "build#budget", { decision: "grant" });
+    const settled = await waitFor(
+      async () => (await svc.getExecution("e-grant"))?.status === "success",
+    );
+    expect(settled).toBe(true);
+    // The granted attempt is the one the budget refused, and it carries the
+    // verdict that caused it.
+    expect(seen.filter((r) => r.nodeId === "build")[1]?.input.attempt).toBe(2);
+  });
+
+  test("a process that never saw the verdict still owes the retry", async () => {
+    // The rows are the only rework state there is: a fresh service over the same
+    // port must resume from what the previous process left behind. This is the
+    // restart half of "no in-memory state", and it is why nothing is cached.
+    const fake = ramPort();
+    const definition = reworkDef("fail");
+    (fake.executions as Map<string, Record<string, unknown>>).set("e-restart", {
+      executionId: "e-restart",
+      workflowId: "wf",
+      definition,
+      input: {},
+      store: {},
+      status: "running",
+      triggeredBy: "manual",
+      createdAt: Date.now(),
+    });
+    const runs = fake.nodeRuns as Array<Record<string, unknown>>;
+    runs.push(
+      {
+        seq: 1,
+        executionId: "e-restart",
+        nodeId: "start",
+        status: "completed",
+        order: 0,
+        routedTo: ["build"],
+      },
+      {
+        seq: 2,
+        executionId: "e-restart",
+        nodeId: "build",
+        status: "superseded",
+        order: 1,
+        output: { artifact: "v1" },
+      },
+      {
+        seq: 3,
+        executionId: "e-restart",
+        nodeId: "review",
+        status: "superseded",
+        order: 2,
+        output: { feedback: "redo" },
+      },
+    );
+    const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+    const svc = createWorkflowExecutionService({
+      port: {
+        ...fake.port,
+        listRunningExecutions: async () => [fake.executions.get("e-restart")],
+      } as never,
+      nodeRunners: { script: runner(seen) } as never,
+      idGen: () => "e-restart",
+    });
+    await svc.recover();
+    const settled = await waitFor(
+      async () => (await svc.getExecution("e-restart"))?.status === "success",
+    );
+    expect(settled).toBe(true);
+    // The retry is attempt 2 and it was told why, from the row history alone.
+    expect(seen.filter((r) => r.nodeId === "build")[0]?.input.attempt).toBe(2);
+    expect(seen.filter((r) => r.nodeId === "build")[0]?.input.rework).toEqual({
+      from: "review",
+      reason: "redo",
+    });
+  });
+
+  test("a rejected gate ends the execution", async () => {
+    const fake = ramPort();
+    const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];
+    const svc = createWorkflowExecutionService({
+      port: fake.port,
+      nodeRunners: { script: runner(seen) } as never,
+      idGen: () => "e-reject",
+    });
+    await svc.runToCompletion("e-reject", {
+      workflowId: "wf",
+      definition: reworkDef("human", 1),
+      input: {},
+    });
+    const row = await svc.resolveHumanTask("e-reject", "build#budget", { decision: "reject" });
+    expect(row.status).toBe("failure");
+    expect(row.error).toContain("rejected");
   });
 });

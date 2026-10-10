@@ -115,7 +115,7 @@ export const workflowNodeRun = sqliteTable(
       .references(() => workflowExecution.executionId, { onDelete: "cascade" }),
     nodeId: text("node_id").notNull(),
     runId: text("run_id"), // agent run id for reconnect
-    status: text().notNull().default("running"), // running | waiting_human | completed | failed
+    status: text().notNull().default("running"), // running | waiting_human | completed | failed | superseded
     order: integer().notNull(),
     output: text(), // JSON
     routedTo: text(), // JSON string[]
@@ -133,7 +133,7 @@ export const workflowExecutionEvent = sqliteTable(
     executionId: text("execution_id")
       .notNull()
       .references(() => workflowExecution.executionId, { onDelete: "cascade" }),
-    event: text().notNull(), // node_started | node_completed | node_failed | store_write | human_task_requested | execution_terminal
+    event: text().notNull(), // node_started | node_completed | node_failed | store_write | human_task_requested | rework_requested | budget_exhausted | execution_terminal
     data: text().notNull(), // JSON payload
     ts: integer({ mode: "number" }).notNull(),
   },

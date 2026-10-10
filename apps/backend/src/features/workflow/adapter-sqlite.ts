@@ -123,6 +123,19 @@ export function sqliteWorkflowExecutionAdapter(db: Database): WorkflowExecutionP
       return toNodeRun(row!);
     },
     async updateNodeRun(executionId, nodeId, patch) {
+      // A node may hold several rows in one execution — one per attempt (ADR
+      // 0042) — and a patch always means the attempt in play, i.e. the LATEST
+      // row. Updating by (execution, node) would rewrite every earlier attempt
+      // with this attempt's outcome.
+      const [latest] = await d
+        .select({ seq: workflowNodeRun.seq })
+        .from(workflowNodeRun)
+        .where(
+          and(eq(workflowNodeRun.executionId, executionId), eq(workflowNodeRun.nodeId, nodeId)),
+        )
+        .orderBy(desc(workflowNodeRun.seq))
+        .limit(1);
+      if (!latest) return null;
       const values: Record<string, unknown> = {};
       if (patch.status !== undefined) values.status = patch.status;
       if (patch.output !== undefined)
@@ -133,21 +146,13 @@ export function sqliteWorkflowExecutionAdapter(db: Database): WorkflowExecutionP
       if (patch.runId !== undefined) values.runId = patch.runId;
       if (patch.terminalAt !== undefined) values.terminalAt = patch.terminalAt;
       if (Object.keys(values).length > 0) {
-        await d
-          .update(workflowNodeRun)
-          .set(values)
-          .where(
-            and(eq(workflowNodeRun.executionId, executionId), eq(workflowNodeRun.nodeId, nodeId)),
-          );
+        await d.update(workflowNodeRun).set(values).where(eq(workflowNodeRun.seq, latest.seq));
       }
-      const rows = await d
+      const [row] = await d
         .select()
         .from(workflowNodeRun)
-        .where(
-          and(eq(workflowNodeRun.executionId, executionId), eq(workflowNodeRun.nodeId, nodeId)),
-        );
-      const r = rows[0];
-      return r ? toNodeRun(r) : null;
+        .where(eq(workflowNodeRun.seq, latest.seq));
+      return row ? toNodeRun(row) : null;
     },
     async listNodeRuns(executionId) {
       const rows = await d
