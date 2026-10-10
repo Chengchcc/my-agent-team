@@ -493,6 +493,67 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   });
 
+  test("permission allow_always picks the agent's allow_always optionId", async () => {
+    // The human's "allow always" is only a promise the agent can keep: it is
+    // answered with the agent's own always-option, and the run-scoped memory
+    // that makes it true lives in the child's ask gate.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "allow-always", name: "Always", kind: "allow_always" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "allow_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "allow-always" }]);
+    await backend.dispose();
+  });
+
+  test("allow_always degrades to allow-once when the agent offers no always-option", async () => {
+    // Other harnesses declare only allow_once. Answering with a string they
+    // never offered would be a protocol lie; allowing this one call and
+    // letting the next ask again is the honest equivalent.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "allow_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "allow-once" }]);
+    await backend.dispose();
+  });
+
   test("permission deny maps to reject_once", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],

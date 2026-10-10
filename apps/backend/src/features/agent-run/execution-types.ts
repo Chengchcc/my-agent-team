@@ -139,7 +139,14 @@ export interface AgentRunExecutionService {
   stop(runId: string): Promise<void>;
   /** Resolve a pending HITL approval in the live run (spec: approval
    *  pipeline Phase B). Explicit failure when no live child exists. */
-  resolveApproval(runId: string, callId: string, decision: "allow" | "deny"): Promise<void>;
+  /** `allow_always` allows every later call of the same tool for the rest of
+   *  the run (the agent's own always-option); a backend that has no such
+   *  option degrades to allow-once, never to a promise it cannot keep. */
+  resolveApproval(
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny",
+  ): Promise<void>;
   /** ADR 0038: stash a parked run's decided actions and re-dispatch it
    * (answer arrived with no live child after a restart). No-op when the
    * run still waits on siblings or has a live loop. Also the wake hook for

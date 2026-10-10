@@ -406,7 +406,7 @@ export function agentRunRoutes(input: {
       }
       const payload = body as { callId?: unknown; decision?: unknown } | undefined;
       const isTerminal = TERMINAL_STATUSES.includes(run.status);
-      const isAllow = payload?.decision === "allow";
+      const isAllow = payload?.decision === "allow" || payload?.decision === "allow_always";
       const isDeny = payload?.decision === "deny";
       const hasValidDecision = typeof payload?.callId === "string" && (isAllow || isDeny);
       if (isTerminal) {
@@ -415,13 +415,15 @@ export function agentRunRoutes(input: {
       }
       if (!hasValidDecision) {
         set.status = 400;
-        return { error: "body must be { callId: string, decision: 'allow' | 'deny' }" };
+        return {
+          error: "body must be { callId: string, decision: 'allow' | 'allow_always' | 'deny' }",
+        };
       }
       try {
         await agentRunExecution.resolveApproval(
           runId,
           payload.callId as string,
-          payload.decision as "allow" | "deny",
+          payload.decision as "allow" | "allow_always" | "deny",
         );
       } catch (err) {
         if (err instanceof ApprovalNotApplicableError) {

@@ -193,7 +193,7 @@ function declaresAcpMcp(init: unknown): boolean {
  *  The response picks the agent-offered optionId by KIND (the product only
  *  knows allow/deny); a missing option settles cancelled, never a guess. */
 interface HeldPermission {
-  decide(decision: "allow" | "deny"): void;
+  decide(decision: "allow" | "allow_always" | "deny"): void;
   cancel(): void;
 }
 
@@ -369,7 +369,11 @@ export class AcpBackend implements AgentBackend<"acp"> {
   }
 
   /** Unblock a held permission request with the human's decision. */
-  async resolveApproval(runId: string, callId: string, decision: "allow" | "deny"): Promise<void> {
+  async resolveApproval(
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny",
+  ): Promise<void> {
     const entry = this.active.get(runId);
     const held = entry?.run.held.get(callId);
     if (!entry || !held) {
@@ -669,7 +673,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     });
     // The response must echo one of the agent's OWN optionIds — pick by
     // kind, never by a guessed string (optionIds vary per agent).
-    const optionIdFor = (kind: "allow_once" | "reject_once"): string | undefined =>
+    const optionIdFor = (kind: "allow_once" | "allow_always" | "reject_once"): string | undefined =>
       params.options.find((option) => option.kind === kind)?.optionId;
     return new Promise((resolve) => {
       const settleSelected = (optionId: string | undefined) => {
@@ -689,7 +693,16 @@ export class AcpBackend implements AgentBackend<"acp"> {
       run.held.set(callId, {
         decide: (decision) => {
           run.held.delete(callId);
-          settleSelected(optionIdFor(decision === "allow" ? "allow_once" : "reject_once"));
+          // "Allow always" is the agent's own option; an agent that does not
+          // offer one (other harnesses) gets allow-once, which is the honest
+          // equivalent of what we can promise it.
+          const kind =
+            decision === "deny"
+              ? "reject_once"
+              : decision === "allow_always" && optionIdFor("allow_always") !== undefined
+                ? "allow_always"
+                : "allow_once";
+          settleSelected(optionIdFor(kind));
         },
         cancel: () => {
           clearTimeout(timer);
