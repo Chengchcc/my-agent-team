@@ -707,15 +707,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // The child's permission classifier defaults to THE RUN'S model, and a
     // flash-tier model classifying permissions escalates almost everything to
     // a human — observed live: every bash in one turn asked, one card after
-    // another. These deployment knobs pin the classifier to a stronger model
+    // another. This deployment knob pins the classifier to a stronger model
     // without touching the chat model. Explicit passthrough only: the child
     // env is otherwise constructed, never inherited wholesale.
+    // ponytail: only the model is forwarded — the child's classifier timeout
+    // default is fine and no deployment declares one; add it to
+    // packages/config when one does.
     env: {
-      ...(process.env.OMA_PERMISSION_CLASSIFIER_MODEL
-        ? { OMA_PERMISSION_CLASSIFIER_MODEL: process.env.OMA_PERMISSION_CLASSIFIER_MODEL }
-        : {}),
-      ...(process.env.OMA_CLASSIFIER_TIMEOUT_MS
-        ? { OMA_CLASSIFIER_TIMEOUT_MS: process.env.OMA_CLASSIFIER_TIMEOUT_MS }
+      ...(config.omaPermissionClassifierModel
+        ? { OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel }
         : {}),
     },
     // Registry-key launch overrides, the omaBin/ompBin convention: a
