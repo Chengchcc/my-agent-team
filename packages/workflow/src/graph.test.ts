@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeInputs, routeOutgoing, topoSort } from "./graph.js";
+import { descendantsOf, forwardEdges, mergeInputs, routeOutgoing, topoSort } from "./graph.js";
 import { parseWorkflow } from "./parse.js";
 
 const def = parseWorkflow({
@@ -169,5 +169,49 @@ describe("graph", () => {
       },
     ];
     expect(routeOutgoing("approve", gateDef, no, {})).toEqual(["dismissed"]);
+  });
+});
+
+/** ADR 0042 P1: a rework edge is not part of the forward graph. */
+describe("forward graph with rework edges", () => {
+  const withRework = parseWorkflow({
+    version: 1,
+    id: "wf",
+    nodes: [
+      { id: "start", type: "start" },
+      { id: "build", type: "script", code: "x" },
+      { id: "review", type: "script", code: "x" },
+      { id: "done", type: "end", status: "success" },
+    ],
+    edges: [
+      { from: "start", to: "build" },
+      { from: "build", to: "review" },
+      { from: "review", to: "done" },
+      {
+        from: "review",
+        to: "build",
+        kind: "rework",
+        budget: { maxAttempts: 2, onExhausted: "fail" },
+      },
+    ],
+  });
+
+  test("forwardEdges drops the rework edge", () => {
+    expect(forwardEdges(withRework)).toHaveLength(3);
+    expect(forwardEdges(withRework).some((e) => e.kind === "rework")).toBe(false);
+  });
+
+  test("descendantsOf follows forward edges only", () => {
+    expect([...descendantsOf(withRework, "build")].sort()).toEqual(["done", "review"]);
+    expect([...descendantsOf(withRework, "review")].sort()).toEqual(["done"]);
+    expect([...descendantsOf(withRework, "done")]).toEqual([]);
+  });
+
+  test("a completed review does not route back along the rework edge", () => {
+    // The engine owns rework explicitly (P2/P3): until then the declared edge is
+    // inert, never a half-executed route.
+    expect(
+      routeOutgoing("review", withRework, [{ nodeId: "review", order: 0, routedTo: [] }], {}),
+    ).toEqual(["done"]);
   });
 });

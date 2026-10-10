@@ -1,5 +1,5 @@
 import { evalJsonLogic } from "./json-logic.js";
-import type { JsonLogicRule, WorkflowDefinition } from "./types.js";
+import type { EdgeDef, JsonLogicRule, WorkflowDefinition } from "./types.js";
 
 export interface CompletionRecord {
   nodeId: string;
@@ -24,12 +24,41 @@ export class WorkflowRouteError extends Error {
   }
 }
 
+/** The edges that make up the forward graph. A rework edge (ADR 0042) points
+ *  upstream — the source sends an earlier node back — so it is never part of
+ *  the walk that orders, routes or lays out the graph; including it would turn
+ *  the DAG into a cycle. */
+export function forwardEdges(def: Pick<WorkflowDefinition, "edges">): readonly EdgeDef[] {
+  return def.edges.filter((e) => e.kind !== "rework");
+}
+
+/** Every node reachable from `nodeId` by forward edges (excluding `nodeId`).
+ *  The rework bookkeeping asks this: a rework edge may only point upstream, so
+ *  the target must be an ancestor of the source. */
+export function descendantsOf(def: Pick<WorkflowDefinition, "edges">, nodeId: string): Set<string> {
+  const out = new Map<string, string[]>();
+  for (const e of forwardEdges(def)) {
+    const list = out.get(e.from) ?? [];
+    list.push(e.to);
+    out.set(e.from, list);
+  }
+  const seen = new Set<string>();
+  const stack = [...(out.get(nodeId) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    stack.push(...(out.get(id) ?? []));
+  }
+  return seen;
+}
+
 /** Kahn topological sort; throws GraphCycleError on cycle. */
 export function topoSort(def: WorkflowDefinition): string[] {
   const indeg = new Map<string, number>();
   const out = new Map<string, string[]>();
   for (const n of def.nodes) indeg.set(n.id, 0);
-  for (const e of def.edges) {
+  for (const e of forwardEdges(def)) {
     indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
     const list = out.get(e.from) ?? [];
     list.push(e.to);
@@ -96,7 +125,10 @@ export function routeOutgoing(
 ): string[] {
   const out = sourceOutput ?? completions.find((c) => c.nodeId === nodeId)?.output;
   const override = typeof out?.nextNode === "string" ? (out.nextNode as string) : undefined;
-  const edges = def.edges.filter((e) => e.from === nodeId);
+  // Forward routing only: a rework edge is not a route, it is a rework, and the
+  // engine owns it explicitly (ADR 0042 §2) rather than letting it fall out of
+  // the ordinary outgoing-edge walk.
+  const edges = forwardEdges(def).filter((e) => e.from === nodeId);
   if (override !== undefined) {
     if (!edges.some((e) => e.to === override)) throw new WorkflowRouteError(nodeId, override);
     return [override];

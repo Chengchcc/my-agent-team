@@ -92,11 +92,30 @@ export interface WorkflowMeta {
   updatedBy?: string;
 }
 
+/** A rework edge's budget (ADR 0042). A rework edge MUST declare one: the
+ *  same rule that forbids an unbudgeted cycle forbids an unbudgeted rework. */
+export interface ReworkBudget {
+  /** Attempts the target node may take in one execution. 1 means the first run
+   *  only, i.e. a rework can never be granted. */
+  maxAttempts: number;
+  /** When the budget is spent: end the execution with an error, or open a
+   *  human gate that may grant one more attempt. */
+  onExhausted: "fail" | "human";
+}
+
 export interface EdgeDef {
   from: NodeId;
   to: NodeId;
-  /** JSONLogic condition evaluated against the from-node's output + store. */
+  /** JSONLogic condition evaluated against the from-node's output + store. On a
+   *  rework edge this is the condition that sends the target back. */
   when?: JsonLogicRule;
+  /** `rework` means the source judged the target's (and its downstream's)
+   *  output unusable and sends it back to be redone. The edge points upstream,
+   *  so the graph itself stays acyclic: rework edges are never part of the
+   *  forward walk. Default `forward`. */
+  kind?: "forward" | "rework";
+  /** Required on a rework edge; meaningless (and rejected) on a forward one. */
+  budget?: ReworkBudget;
 }
 
 export interface CronTrigger {

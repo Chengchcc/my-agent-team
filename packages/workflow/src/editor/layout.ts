@@ -1,4 +1,4 @@
-import { topoSort } from "../graph.js";
+import { forwardEdges, topoSort } from "../graph.js";
 import type { WorkflowDefinition } from "../types.js";
 
 export interface PositionedNode {
@@ -21,7 +21,7 @@ export function layeredLayout(def: WorkflowDefinition): PositionedNode[] {
   for (const id of order) layer.set(id, 0);
   for (const id of order) {
     const cur = layer.get(id) ?? 0;
-    for (const e of def.edges) {
+    for (const e of forwardEdges(def)) {
       if (e.from === id) layer.set(e.to, Math.max(layer.get(e.to) ?? 0, cur + 1));
     }
   }

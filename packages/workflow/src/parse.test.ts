@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { topoSort } from "./graph.js";
 import { parseWorkflow, WorkflowParseError } from "./parse.js";
 
 const base = {
@@ -155,5 +156,87 @@ describe("parseWorkflow", () => {
       ],
     });
     expect(def.edges).toHaveLength(2);
+  });
+});
+
+/** ADR 0042 P1: rework is a declared, budgeted edge — never a cycle. */
+describe("rework edges", () => {
+  const rework = (edge: Record<string, unknown>) => ({
+    version: 1,
+    id: "wf",
+    nodes: [
+      { id: "start", type: "start" },
+      { id: "build", type: "script", code: "return {}" },
+      { id: "review", type: "script", code: "return {}" },
+      { id: "done", type: "end", status: "success" },
+    ],
+    edges: [
+      { from: "start", to: "build" },
+      { from: "build", to: "review" },
+      { from: "review", to: "done" },
+      edge,
+    ],
+  });
+  const budgeted = {
+    from: "review",
+    to: "build",
+    kind: "rework",
+    budget: { maxAttempts: 3, onExhausted: "human" },
+  };
+
+  test("a budgeted rework edge parses, and the backward edge is not a cycle", () => {
+    const def = parseWorkflow(rework(budgeted));
+    expect(def.edges.at(-1)).toMatchObject({
+      kind: "rework",
+      budget: { maxAttempts: 3, onExhausted: "human" },
+    });
+    // Four nodes, one start: the forward walk orders them without tripping
+    // GraphCycleError, which the same edge would do without its kind.
+    expect(topoSort(def)).toHaveLength(4);
+  });
+
+  test("rejects a rework edge without a budget", () => {
+    expect(() => parseWorkflow(rework({ from: "review", to: "build", kind: "rework" }))).toThrow(
+      /must declare budget/,
+    );
+  });
+
+  test("rejects a budget on a forward edge", () => {
+    expect(() =>
+      parseWorkflow(
+        rework({ from: "review", to: "done", budget: { maxAttempts: 2, onExhausted: "fail" } }),
+      ),
+    ).toThrow(/only meaningful on a rework edge/);
+  });
+
+  test("rejects a rework edge that points downstream", () => {
+    expect(() =>
+      parseWorkflow(
+        rework({
+          from: "build",
+          to: "review",
+          kind: "rework",
+          budget: { maxAttempts: 2, onExhausted: "fail" },
+        }),
+      ),
+    ).toThrow(/must point upstream/);
+  });
+
+  test("rejects an unknown kind", () => {
+    expect(() => parseWorkflow(rework({ ...budgeted, kind: "sideways" }))).toThrow(
+      /kind must be "forward" or "rework"/,
+    );
+  });
+
+  test("rejects a budget that cannot grant an attempt", () => {
+    expect(() =>
+      parseWorkflow(rework({ ...budgeted, budget: { maxAttempts: 0, onExhausted: "fail" } })),
+    ).toThrow(/maxAttempts must be a positive integer/);
+  });
+
+  test("rejects an unknown exhaustion policy", () => {
+    expect(() =>
+      parseWorkflow(rework({ ...budgeted, budget: { maxAttempts: 2, onExhausted: "wait" } })),
+    ).toThrow(/"fail" or "human"/);
   });
 });

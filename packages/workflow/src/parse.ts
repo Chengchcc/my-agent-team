@@ -1,4 +1,4 @@
-import { topoSort } from "./graph.js";
+import { descendantsOf, forwardEdges, topoSort } from "./graph.js";
 import { OPS } from "./json-logic.js";
 import type {
   FormField,
@@ -6,6 +6,7 @@ import type {
   JsonLogicRule,
   JsonSchema,
   NodeRetry,
+  ReworkBudget,
   WorkflowDefinition,
   WorkflowMeta,
   WorkflowNode,
@@ -210,6 +211,26 @@ function nodeOutputFields(node: WorkflowNode): Set<string> {
   return new Set();
 }
 
+/** A rework edge's budget: both fields are required, and a number that cannot
+ *  grant the first attempt is not a budget. */
+function parseReworkBudget(raw: unknown, edge: string, issues: string[]): ReworkBudget | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    issues.push(`edge "${edge}": budget must be an object`);
+    return undefined;
+  }
+  const maxAttempts = raw.maxAttempts;
+  const onExhausted = raw.onExhausted;
+  if (typeof maxAttempts !== "number" || !Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    issues.push(`edge "${edge}": budget.maxAttempts must be a positive integer`);
+  } else if (onExhausted !== "fail" && onExhausted !== "human") {
+    issues.push(`edge "${edge}": budget.onExhausted must be "fail" or "human"`);
+  } else {
+    return { maxAttempts, onExhausted };
+  }
+  return undefined;
+}
+
 /** Nodes reachable from a single start via the edge graph. A dangling node
  *  (no in-edge, no path from start) never runs — surface it at parse time. */
 function reachableNodes(nodes: WorkflowNode[], edges: WorkflowDefinition["edges"]): Set<string> {
@@ -220,7 +241,7 @@ function reachableNodes(nodes: WorkflowNode[], edges: WorkflowDefinition["edges"
   reachable.add(start.id);
   while (queue.length > 0) {
     const cur = queue.pop()!;
-    for (const e of edges) {
+    for (const e of forwardEdges({ edges })) {
       if (e.from === cur && !reachable.has(e.to)) {
         reachable.add(e.to);
         queue.push(e.to);
@@ -318,11 +339,20 @@ export function parseWorkflow(raw: unknown): WorkflowDefinition {
       }
       const from = nonEmptyString(e.from, "edge.from", issues);
       const to = nonEmptyString(e.to, "edge.to", issues);
+      const label = `${from ?? "?"}->${to ?? "?"}`;
+      const kind = e.kind === undefined ? "forward" : e.kind;
+      if (kind !== "forward" && kind !== "rework") {
+        issues.push(`edge "${label}": kind must be "forward" or "rework"`);
+        continue;
+      }
+      const budget = parseReworkBudget(e.budget, label, issues);
       if (from && to)
         edges.push({
           from,
           to,
           when: e.when === null ? undefined : (e.when as JsonLogicRule | undefined),
+          ...(kind === "rework" ? { kind } : {}),
+          ...(budget === undefined ? {} : { budget }),
         });
     }
   } else {
@@ -331,6 +361,27 @@ export function parseWorkflow(raw: unknown): WorkflowDefinition {
   for (const e of edges) {
     if (!seen.has(e.from)) issues.push(`edge.from "${e.from}" is not a node id`);
     if (!seen.has(e.to)) issues.push(`edge.to "${e.to}" is not a node id`);
+  }
+  // Rework edges are declared, never discovered (ADR 0042 §3), and they are
+  // what keeps the graph a DAG while still expressing "send it back": the edge
+  // points upstream and carries the budget that limits the attempts.
+  for (const e of edges) {
+    if (e.kind !== "rework") {
+      if (e.budget !== undefined) {
+        issues.push(`edge "${e.from}->${e.to}": budget is only meaningful on a rework edge`);
+      }
+      continue;
+    }
+    if (e.budget === undefined) {
+      issues.push(
+        `edge "${e.from}->${e.to}": a rework edge must declare budget {maxAttempts, onExhausted}`,
+      );
+    }
+    if (!descendantsOf({ edges }, e.to).has(e.from)) {
+      issues.push(
+        `edge "${e.from}->${e.to}": a rework edge must point upstream (target "${e.to}" is not upstream of "${e.from}")`,
+      );
+    }
   }
   // A node with no path from start never runs (its edges still exist but no
   // completion will ever reach it) — flag dangling nodes so the author fixes
