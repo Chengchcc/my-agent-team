@@ -116,7 +116,40 @@ describe("the card state from a chat turn", () => {
       }),
       "run-1",
     );
-    expect(card?.completedTools).toEqual([{ label: "正在调用 ls", outcome: "success" }]);
+    expect(card?.completedTools).toEqual([{ label: "ls", outcome: "success" }]);
+  });
+
+  test("only the running call is worded as running", () => {
+    // Ten completed calls read as "正在调用 read" beside their ticks (live
+    // 2026-10-10): the present-tense synthesis belongs to the active row only.
+    const card = cardStateFromChatTurn(
+      state({
+        activeTurn: active([
+          {
+            kind: "toolCall",
+            toolCall: {
+              toolCallId: "c1",
+              toolName: "read",
+              displayName: "read",
+              status: "running",
+            },
+          },
+          {
+            kind: "toolCall",
+            toolCall: {
+              toolCallId: "c2",
+              toolName: "mcp__acp-tools__echo",
+              displayName: "echo",
+              status: "completed",
+              success: true,
+            },
+          },
+        ]),
+      }),
+      "run-1",
+    );
+    expect(card?.activeTool?.label).toBe("正在调用 read");
+    expect(card?.completedTools).toEqual([{ label: "acp-tools · echo", outcome: "success" }]);
   });
 
   test("an open request puts buttons on the card; an answered one does not", () => {
