@@ -1,5 +1,6 @@
 "use client";
 
+import { budgetGateSchema } from "@chengchenccc/api-contract";
 import type { AskQuestionInput } from "@chengchenccc/message";
 import { toEditorGraph, type WorkflowDefinition } from "@chengchenccc/workflow";
 import Link from "next/link";
@@ -145,6 +146,12 @@ export function ExecutionTraceView({
       clearInterval(timer);
     };
   }, [execution.executionId, execution.status, pendingHuman, terminal, router]);
+  // A budget gate (ADR 0042 §2.4) is not a form: its `form` carries the rework
+  // verdict instead of questions, and its answer is one of two decisions.
+  const budgetGate = useMemo(() => {
+    const parsed = budgetGateSchema.safeParse(pendingHuman?.form?.budgetGate);
+    return parsed.success ? parsed.data : undefined;
+  }, [pendingHuman]);
   const [upstreamArtifacts, setUpstreamArtifacts] = useState<
     Array<{ url: string; from: string; content?: string }>
   >([]);
@@ -306,7 +313,11 @@ export function ExecutionTraceView({
               graph={graph}
               nodeStatus={nodeStatus}
               litEdges={litEdges}
-              pendingHuman={pendingHuman ?? null}
+              pendingHuman={
+                budgetGate
+                  ? { ...pendingHuman!, nodeId: budgetGate.nodeId }
+                  : (pendingHuman ?? null)
+              }
               upstreamArtifacts={upstreamArtifacts}
               onReady={(api) => setZoomApi(api)}
               onSubmitHuman={async (nodeId, answer) => {
@@ -342,24 +353,77 @@ export function ExecutionTraceView({
             </div>
             {pendingHuman && execution.status === "waiting_human" && (
               <div ref={askCardRef} className="border-b border-(--hairline)/60 px-4 py-3">
-                <AskQuestionCard
-                  title={pendingHuman.question ?? "A few questions"}
-                  input={{
-                    questions:
-                      (
-                        pendingHuman.form as
-                          | { questions?: AskQuestionInput["questions"] }
-                          | undefined
-                      )?.questions ?? [],
-                  }}
-                  onSubmit={async (result) => {
-                    await api.resolveWorkflowHumanTask(execution.executionId, {
-                      nodeId: pendingHuman!.nodeId,
-                      answer: { answers: result.answers } as Record<string, unknown>,
-                    });
-                    router.refresh();
-                  }}
-                />
+                {budgetGate ? (
+                  <div className="space-y-2">
+                    <div className="text-xs">
+                      <span className="font-semibold">
+                        Node “{budgetGate.nodeId}” used up its rework budget
+                      </span>{" "}
+                      <span className="text-(--mute)">
+                        ({Math.max(0, budgetGate.attempt - 1)} of {budgetGate.maxAttempts}{" "}
+                        attempt(s) used; sent back by “{budgetGate.from}”)
+                      </span>
+                    </div>
+                    {budgetGate.reason && (
+                      <div className="rounded bg-(--canvas)/60 p-2 text-[11px] text-(--mute)">
+                        Last verdict: {budgetGate.reason}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          await api.resolveWorkflowHumanTask(execution.executionId, {
+                            nodeId: pendingHuman.nodeId,
+                            answer: { decision: "grant" },
+                          });
+                          router.refresh();
+                        }}
+                      >
+                        Grant one more attempt
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: "Reject the extra attempt?",
+                            description: "The execution ends as a failure.",
+                            confirmText: "Reject",
+                            destructive: true,
+                          });
+                          if (!ok) return;
+                          await api.resolveWorkflowHumanTask(execution.executionId, {
+                            nodeId: pendingHuman.nodeId,
+                            answer: { decision: "reject" },
+                          });
+                          router.refresh();
+                        }}
+                      >
+                        Reject and fail the run
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <AskQuestionCard
+                    title={pendingHuman.question ?? "A few questions"}
+                    input={{
+                      questions:
+                        (
+                          pendingHuman.form as
+                            | { questions?: AskQuestionInput["questions"] }
+                            | undefined
+                        )?.questions ?? [],
+                    }}
+                    onSubmit={async (result) => {
+                      await api.resolveWorkflowHumanTask(execution.executionId, {
+                        nodeId: pendingHuman!.nodeId,
+                        answer: { answers: result.answers } as Record<string, unknown>,
+                      });
+                      router.refresh();
+                    }}
+                  />
+                )}
               </div>
             )}
             <RunConsole events={liveEvents.slice(0, index + 1)} />
@@ -434,12 +498,30 @@ export function ExecutionTraceView({
                 </div>
                 <div>
                   <div className="mb-1 font-semibold">Node runs</div>
-                  {nodeRuns.map((r) => (
-                    <div key={r.seq} className="flex justify-between border-b py-0.5">
-                      <span>{r.nodeId}</span>
-                      <span>{r.status}</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    // One row per attempt (ADR 0042): number them, or a rework
+                    // reads as the same node listed twice.
+                    const seen = new Map<string, number>();
+                    return nodeRuns.map((r) => {
+                      const attempt = (seen.get(r.nodeId) ?? 0) + 1;
+                      seen.set(r.nodeId, attempt);
+                      return (
+                        <div key={r.seq} className="flex justify-between border-b py-0.5">
+                          <span>
+                            {r.nodeId}
+                            {attempt > 1 && (
+                              <span className="text-(--faint)"> · attempt {attempt}</span>
+                            )}
+                          </span>
+                          <span
+                            className={r.status === "superseded" ? "text-(--faint)" : undefined}
+                          >
+                            {r.status}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </CollapsibleContent>
             </Collapsible>
