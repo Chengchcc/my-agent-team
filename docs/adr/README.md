@@ -67,4 +67,4 @@
 | 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 首刀已落地：ACP 轨的工具事实进账本，验收向量绿；规范模型其余部分与 S1 至 S3、R1 至 R3 待做。工作分支 feat/ahp2acp） |
 | 0041 | conversation-membership-and-response-routing(会话成员 1..N、响应路由由成员数派生；部分取代 0021) | **Proposed**（初稿 2026-10-03；实现未开始——迁移/路由/Web/Lark 四步待排） |
 | 0042 | workflow-rework-as-new-attempts(返工 = 新的尝试，不是环：rework 边 + 预算，图仍无环) | **Implemented**（2026-10-10 落地：P1 至 P5 全部实现并各带测试；rework 与预算门的 grant/reject 已真机验证，见 #79） |
-| 0043 | embedding-engine-shared-package(把本地向量引擎抽成包：引擎共享、策略各自拥有；后端在本决策内不引入 embedding) | **部分实现**（2026-10-13：第一步纯搬迁 + 决策 2 的两条入口均已落地——`packages/embedding` 核心零原生依赖、`/fastembed` 子路径才带 ONNX 且由打包级测试钉住；顺带补上 `RetainInput.validUntil`。第二步后端接入未开工，受决策 5 约束） |
+| 0043 | embedding-engine-shared-package(把本地向量引擎抽成包：引擎共享、策略各自拥有；后端语义检索走 provider-API，不走按平台打包) | **部分实现**（2026-10-13：第一步纯搬迁 + 决策 2 的两条入口均已落地——`packages/embedding` 核心零原生依赖、`/fastembed` 子路径才带 ONNX 且由打包级测试钉住；顺带补上 `RetainInput.validUntil`。**决策 7 已拍定**：后端要语义检索时走 provider-API embedding——反向选项的代价实测过（208 MB×平台 + 129 MB 模型，会换掉单文件与平台无关两条打包性质）；后端语义检索本体未开工） |
