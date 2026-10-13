@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { needleSegments } from "@chengchenccc/embedding";
 import { deserializeLedgerContent, extractText } from "@chengchenccc/message";
 import { and, asc, desc, eq, gt, inArray, isNotNull, like, notInArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -381,6 +382,19 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       } as LedgerEntry;
     },
     searchLedger(keyword: string, limit = 20) {
+      // Every needle must appear, not the query verbatim: the old
+      // LIKE %query% missed any row where the words sat apart, so searching
+      // "husky pathspec" returned nothing even with both present.
+      // Needles come from the embedding package's segmenter (maximal CJK runs
+      // and ASCII terms) — the same segmentation the memory recall uses, and it
+      // only ever emits letters/digits/_/-, so a needle cannot smuggle a LIKE
+      // wildcard. FTS5 would add token-boundary matching, but at ~1.9k rows a
+      // two-needle scan costs ~7ms: the index would buy a migration, triggers
+      // and snapshot bookkeeping for nothing. Revisit at ~10x that corpus.
+      const needles = needleSegments(keyword);
+      const clauses = (needles.length > 0 ? needles : [keyword]).map((needle) =>
+        like(schema.conversationLedger.content, `%${needle}%`),
+      );
       const rows = d
         .select({
           conversationId: schema.conversationLedger.conversationId,
@@ -394,7 +408,8 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           schema.conversation,
           eq(schema.conversationLedger.conversationId, schema.conversation.conversationId),
         )
-        .where(like(schema.conversationLedger.content, `%${keyword}%`))
+        .where(and(...clauses))
+        .orderBy(desc(schema.conversationLedger.ts))
         .limit(limit)
         .all();
       return rows.map((r) => ({

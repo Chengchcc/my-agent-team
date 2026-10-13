@@ -38,6 +38,7 @@
         "@chengchenccc/ai": "workspace:*",
         "@chengchenccc/api-contract": "workspace:*",
         "@chengchenccc/config": "workspace:*",
+        "@chengchenccc/embedding": "workspace:*",
         "@chengchenccc/message": "workspace:*",
         "@chengchenccc/sandbox": "workspace:*",
         "@chengchenccc/source-fetch": "workspace:*",
