@@ -438,12 +438,14 @@ describe("conversation service (Agent Run cutover)", () => {
     expect(port.getConversation(result.newConversationId)!.title).toBe("New chat");
   });
 
-  test("clear and compact are no-ops (no runtime sessions remain)", async () => {
+  test("clear stays a no-op; compact refuses while no summarizer is wired", async () => {
     const id = "cid-k";
     setupConv(id);
     await svc.clearConversation(id);
-    await svc.compactConversation(id);
     expect(port.getConversation(id)).toBeTruthy();
+    // A silent no-op used to stand here, so a caller believed the context had
+    // been compacted. Until the summarizer lands, say so instead.
+    await expect(svc.compactConversation(id)).rejects.toThrow(/not configured/);
   });
 
   test("fork copies the agent binding and history up to fromSeq", async () => {

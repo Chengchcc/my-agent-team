@@ -109,6 +109,9 @@ export interface ConversationService {
     requestedByRunId: string;
   }): Promise<{ oldConversationId: string; newConversationId: string; controlSeq: number }>;
   clearConversation(conversationId: string): Promise<void>;
+  /** Fold the older entries into a `summary` entry (the projection honours such
+   *  an entry; nothing produced one — roadmap: 产品摘要没有生产者). Refuses 501
+   *  while no summarizer model is wired, instead of the old silent no-op. */
   compactConversation(conversationId: string): Promise<void>;
   /** Fork a conversation from a ledger seq into a new conversation.
    *  Copies the agent binding + live (non-undone) ledger entries with seq <= fromSeq. */
@@ -464,10 +467,16 @@ class ConversationServiceImpl implements ConversationService {
     return;
   }
 
-  /** /compact: no canonical Product summary policy exists; Coding Session
-   *  compaction is gone. Explicitly unsupported (no-op). */
   async compactConversation(_conversationId: string): Promise<void> {
-    return;
+    // The `summary` entry type exists and the projection honours it
+    // (agent-context/projection.ts), and `appendSummary` is ready to receive
+    // one — but nothing produced it. The old silent `return;` let a caller
+    // believe the context had been compacted, which is the worse failure: say
+    // plainly that no summarizer is wired until one is.
+    throw new DomainError(
+      "conversation compaction is not configured: no summarizer model is wired",
+      501,
+    );
   }
 
   // ─── Fork / Undo / Replay ───────────────────────
