@@ -1582,6 +1582,31 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     });
   }, 30_000);
 
+  // Artifact retention (opt-in, ARTIFACT_RETENTION_DAYS): 0/unset keeps every
+  // artifact forever — they are the user's own files and age alone is never a
+  // reason to delete. A daily tick, plus one sweep at boot so configuring a
+  // window takes effect on the next restart rather than a day later.
+  const artifactRetentionDays = config.artifactRetentionDays ?? 0;
+  const sweepArtifacts = () => {
+    void artifactService
+      .purgeOlderThan(artifactRetentionDays)
+      .then((removed) => {
+        if (removed > 0) {
+          console.log(
+            `[artifacts] retention removed ${removed} artifact(s) older than ${artifactRetentionDays}d`,
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        console.error(
+          "[artifacts] retention sweep failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+  };
+  if (artifactRetentionDays > 0) sweepArtifacts();
+  const artifactRetentionInterval = setInterval(sweepArtifacts, 24 * 60 * 60 * 1000);
+
   const workflowApp = workflowRoutes({
     workflowExecutionService,
     loadWorkflow: async (ref) => {
@@ -1942,6 +1967,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     smokeCron?.stop();
     clearInterval(reminderInterval);
     clearInterval(humanTimeoutInterval);
+    clearInterval(artifactRetentionInterval);
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import {
@@ -67,35 +68,58 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
     };
   }
 
+  /** The sidecar is the ledger for one artifact. A missing or torn sidecar is
+   *  normal (artifacts predate it): callers treat `{}` as "nothing recorded". */
+  type Sidecar = {
+    encoding?: "utf8" | "base64";
+    source?: ArtifactUploadInput["source"];
+    sha256?: string;
+  };
+  function readSidecar(p: string): Sidecar {
+    try {
+      return JSON.parse(readFileSync(`${p}.meta.json`, "utf8")) as Sidecar;
+    } catch {
+      return {};
+    }
+  }
+
   return {
     async put(input) {
       const [folder, filename] = splitPath(`${input.folder}/${input.filename}`);
       const p = safePath(folder, filename);
       mkdirSync(join(rootResolved, folder), { recursive: true });
       const enc = input.encoding === "base64" ? "base64" : "utf8";
-      // Validate base64 before writing.
-      if (enc === "base64") Buffer.from(input.content, "base64");
-      writeFileSync(p, input.content, enc === "base64" ? "base64" : "utf8");
+      // Decode once: the ledger must cover exactly the bytes that land on disk
+      // (for base64 that is the decoded payload, never the base64 text).
+      const buf = Buffer.from(input.content, enc);
+      writeFileSync(p, buf);
+      const updatedAt = Date.now();
+      const sha256 = createHash("sha256").update(buf).digest("hex");
       writeFileSync(
         `${p}.meta.json`,
-        JSON.stringify({ encoding: enc, source: input.source ?? null, updatedAt: Date.now() }),
+        JSON.stringify({
+          encoding: enc,
+          source: input.source ?? null,
+          updatedAt,
+          sha256,
+        }),
       );
-      const stat = statSync(p);
-      return toMeta({ folder, filename }, stat.size, enc, Date.now(), input.source);
+      return { ...toMeta({ folder, filename }, buf.length, enc, updatedAt, input.source), sha256 };
     },
     async get(ref) {
       const p = safePath(ref.folder, ref.filename);
       try {
         const buf = readFileSync(p);
-        let encoding: "utf8" | "base64" = "utf8";
-        try {
-          const meta = JSON.parse(readFileSync(`${p}.meta.json`, "utf8")) as { encoding?: string };
-          if (meta.encoding === "base64") encoding = "base64";
-        } catch {
-          encoding = isTextBuf(buf) ? "utf8" : "base64";
-        }
+        const sidecar = readSidecar(p);
+        const encoding: "utf8" | "base64" =
+          sidecar.encoding === "base64"
+            ? "base64"
+            : sidecar.encoding === undefined && !isTextBuf(buf)
+              ? "base64"
+              : "utf8";
         return {
           ...toMeta(ref, buf.length, encoding, statSync(p).mtimeMs, undefined),
+          ...(sidecar.sha256 ? { sha256: sidecar.sha256 } : {}),
           content: encoding === "utf8" ? buf.toString("utf8") : buf.toString("base64"),
         };
       } catch {
@@ -121,18 +145,20 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
           else {
             const st = statSync(full);
             const [f, fn] = splitPath(rel);
-            // Surface the recorded upload source (run/conversation/agent)
-            // so consumers can filter by provenance.
-            let source: ArtifactUploadInput["source"];
-            try {
-              const meta = JSON.parse(readFileSync(`${full}.meta.json`, "utf8")) as {
-                source?: ArtifactUploadInput["source"];
-              };
-              source = meta.source ?? undefined;
-            } catch {
-              /* no sidecar — uploaded before provenance existed */
-            }
-            out.push(toMeta({ folder: f, filename: fn }, st.size, "utf8", st.mtimeMs, source));
+            // One sidecar read feeds provenance, encoding and the ledger.
+            // Reporting a hard-coded "utf8" described binary artifacts wrong,
+            // and the recorded hash is what a consumer verifies against.
+            const sidecar = readSidecar(full);
+            out.push({
+              ...toMeta(
+                { folder: f, filename: fn },
+                st.size,
+                sidecar.encoding === "base64" ? "base64" : "utf8",
+                st.mtimeMs,
+                sidecar.source ?? undefined,
+              ),
+              ...(sidecar.sha256 ? { sha256: sidecar.sha256 } : {}),
+            });
           }
         }
       };
@@ -144,6 +170,10 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
       const p = safePath(ref.folder, ref.filename);
       try {
         rmSync(p, { force: true });
+        // The sidecar belongs to the artifact: leaving it behind piles up
+        // invisible junk (the listing skips *.meta.json) and a re-upload of
+        // the same name would inherit a stale ledger entry.
+        rmSync(`${p}.meta.json`, { force: true });
         return true;
       } catch {
         return false;
@@ -153,6 +183,15 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
       const ref = parseArtifactUrl(url);
       const p = safePath(ref.folder, ref.filename);
       return existsSyncSafe(p);
+    },
+    async verify(url) {
+      const ref = parseArtifactUrl(url);
+      const p = safePath(ref.folder, ref.filename);
+      if (!existsSyncSafe(p)) return null;
+      const actual = createHash("sha256").update(readFileSync(p)).digest("hex");
+      const expected = readSidecar(p).sha256;
+      // No ledger entry ⇒ not a pass: "unrecorded" must not read as "intact".
+      return { ok: expected === actual, expected, actual };
     },
   };
 }

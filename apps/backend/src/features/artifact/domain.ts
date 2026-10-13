@@ -25,7 +25,20 @@ export interface ArtifactMeta {
   mimeType: string;
   encoding: "utf8" | "base64";
   updatedAt: number;
+  /** Content ledger: sha256 of the bytes on disk. Absent for artifacts
+   *  uploaded before the ledger existed — "nothing recorded" is a different
+   *  fact from "mismatch", so it stays optional. */
+  sha256?: string;
   source?: ArtifactUploadInput["source"];
+}
+
+/** Re-reading an artifact and comparing it with its ledger entry. `expected`
+ *  is undefined when nothing was recorded; `ok` is then false, never a
+ *  silent pass. */
+export interface ArtifactVerification {
+  ok: boolean;
+  expected?: string;
+  actual: string;
 }
 
 export interface ArtifactContent {

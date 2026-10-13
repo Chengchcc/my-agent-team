@@ -52,6 +52,8 @@ export interface BackendConfig {
   claudeBin?: string;
   claudePermissionMode?: string;
   productToolsMcpUrl?: string;
+  /** Artifacts older than this are swept; undefined/0 keeps them forever. */
+  artifactRetentionDays?: number;
   smokeCron?: string;
   /** Comma-separated built-in MCP servers to inject into agent workspaces
    *  (product-tools, workflow). Absent = product-tools only. */
@@ -110,6 +112,7 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     claudeBin: env.CLAUDE_BIN,
     claudePermissionMode: env.CLAUDE_PERMISSION_MODE,
     productToolsMcpUrl: env.PRODUCT_TOOLS_MCP_URL,
+    artifactRetentionDays: env.ARTIFACT_RETENTION_DAYS,
     smokeCron: env.SMOKE_CRON,
     enabledMcpServers: env.ENABLED_MCP_SERVERS,
     bootstrapPassword: env.MOCK_PASSWORD,

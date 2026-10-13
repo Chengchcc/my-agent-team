@@ -98,6 +98,12 @@ export const envSchema = z.object({
     .string()
     .optional()
     .describe("Public URL of the Product Backend Product Tools MCP endpoint"),
+  ARTIFACT_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe("Delete artifacts older than this many days (opt-in; unset or 0 keeps them forever)"),
   // Per-server enable/disable for the built-in MCP servers injected into an
   // agent's workspace .mcp.json (comma-separated names: product-tools,
   // agent, workflow). Absent = product-tools,agent,workflow (all three).

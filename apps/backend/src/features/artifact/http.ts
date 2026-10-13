@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import { HttpError } from "../../infra/errors.js";
 import type { ArtifactService } from "./service.js";
 
 export function artifactRoutes(service: ArtifactService) {
@@ -17,6 +18,18 @@ export function artifactRoutes(service: ArtifactService) {
       "/download",
       async ({ query }) => {
         return service.download(query.url);
+      },
+      {
+        query: t.Object({ url: t.String({ minLength: 1 }) }),
+      },
+    )
+    .get(
+      // Must precede "/:url" — that route would swallow "verify" as an id.
+      "/verify",
+      async ({ query }) => {
+        const result = await service.verify(query.url);
+        if (!result) throw new HttpError(`artifact not found: ${query.url}`, 404);
+        return result;
       },
       {
         query: t.Object({ url: t.String({ minLength: 1 }) }),

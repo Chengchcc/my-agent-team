@@ -140,9 +140,13 @@ fire 时每次都重新读定义并按 id 查找，所以改文件不需要重�
 
 路径安全是两层的：`parseArtifactUrl` 只接受 `^artifacts://([^?]+)$`，`splitPath` 拒绝绝对路径、盘符、`..`、`.` 和通配符；fs 适配器再做 `resolve()` 加分隔符的前缀校验（挡掉 `../artifacts-evil` 这种同名前缀绕过），`list(folder)` 在**任何 fs 访问之前**先拒越界目录。
 
-落盘时写一个 `<file>.meta.json` 记录 encoding、来源与更新时间，读的时候优先用它决定按 utf8 还是 base64 解。
+落盘时写一个 `<file>.meta.json`，记录 encoding、来源、更新时间与 **sha256 内容账本**。哈希的是**真正落盘的字节**（base64 上传哈希解码后的内容，不是 base64 文本本身）。读与列表都优先用它：encoding 按记录走（此前列表硬编码 `utf8`，二进制产物会被描述错），hash 随列表带出，因此「这份文件还是当初那一份吗」有据可查。
 
-REST 是 `GET /api/artifacts`（可按 folder 过滤）、`GET /download?url=`、`GET /:url`、`POST /`、`DELETE /remove?url=`、`DELETE /:url`（删除幂等，恒返回 `{ok:true}`）。
+REST 是 `GET /api/artifacts`（可按 folder 过滤）、`GET /download?url=`、`GET /verify?url=`、`GET /:url`、`POST /`、`DELETE /remove?url=`、`DELETE /:url`（删除幂等，恒返回 `{ok:true}`；内容文件与 sidecar 一起删，否则会留下看不见的垃圾并让同名重传继承旧账本）。
+
+`/verify` 重读文件并与账本比对，返回 `{ok, expected, actual}`；文件不存在是 404，而**没有账本不等于通过**——那时 `expected` 缺失、`ok` 为 false，不会被读成「完好」。这条路由必须排在 `/:url` 之前，否则 `verify` 会被当成一个 artifact id 吞掉。
+
+**保留期是 opt-in**：`ARTIFACT_RETENTION_DAYS`（缺省或 0 = 永久保留）大于 0 时，启动扫一次、之后每 24 小时扫一次，删掉 `updatedAt` 早于窗口的产物（内容 + sidecar 一起）。产物是用户自己的文件，仅凭时间删除永远不该是默认行为。
 
 MCP 侧由 product-tools server 暴露 `artifact_upload` 与 `artifact_download`。`artifact_download` 在预授权清单里，`artifact_upload` 故意不在——它能写后端存储，要过权限门。
 
