@@ -10,9 +10,11 @@ export interface ApprovalRequest {
    *  "classifier" (auto-mode block escalated to the human). */
   readonly source: "permission" | "tool" | "classifier";
   readonly reason?: string;
-  /** Execution context: true when the action runs inside the OS bash sandbox
-   * (BashSandbox design, P4) — surfaces let the human distinguish "sandboxed,
-   * auto-allowable" from "unsandboxed fallback". */
+  /** Execution context for bash: whether this command actually runs inside the
+   *  OS bash sandbox (BashSandbox design, P4), stated truthfully so a surface
+   *  can show "contained" next to "unconstrained". Display-only by design: it
+   *  is the child's claim about its own execution, and a sandboxed command is
+   *  contained, not harmless — so no gate may authorize on it. */
   readonly sandboxed?: boolean;
   /** Wall-clock ms after which this request fails closed. Absent = no
    *  deadline (surfaces then claim nothing). Stamped by requestApproval() so

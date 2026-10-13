@@ -76,6 +76,12 @@ TUI 的设置里有 `bashSandbox` 一行（布尔）。
 
 loop 的 continue-condition 复用同一个沙箱实例；没有沙箱时才退回裸 spawn。
 
+## 审批卡上的沙箱信号
+
+装配时算出的 `bashSandboxed`（`bashSandbox !== undefined`，在 `run-runtime.ts` 的 `assembleRunRuntime` 里由 `.oma/settings.json` 的 `bashSandbox` 决定）随 bash 的审批请求一起出去：子进程把它放在 ACP 请求的 `toolCall._meta["my-agent-team/sandboxed"]` 上（与 permissionMode / resume 同一命名约定，见 `modes/acp/acp-mode.ts`），后端在 `acp/acp-backend.ts` 读回来写进 `approval_requested.payload.sandboxed`，卡片据此区分「在沙箱内执行」与「不受沙箱约束的回退」。非 bash 工具不带这个键；别的 harness 不说时，载荷里就没有这个字段——**不知道就说不知道**，不假装是 false。
+
+这个信号**只用于显示**。它是子进程对自己执行的声明，而且「被约束」不等于「无害」（读是开放的，见上一节），所以任何一道门都不能拿它做授权依据——包括「已沙箱化就自动放行」这条更省事的设计，明确不做。
+
 ## 与 bash 工具的交互
 
 launcher 缺省是 Null，保持向后兼容。
@@ -87,7 +93,6 @@ pty 覆盖层在沙箱激活时**被跳过**：它自己 spawn 裸 `bash -c`，�
 ## 还没做的
 
 - **网络白名单没有实现**。Seatbelt 只有 `(deny network*)`，bwrap 只有 `--unshare-net`：要么全断网，要么全开，没有「只放行 npm registry 和 github」这条中间档。
-- **审批里的 `sandboxed` 信号没接线**。字段存在，但在装配点被硬编码为 false（那里的注释说「因为只有 Null」，而 Bwrap 与 Seatbelt 早已存在）。所以「已沙箱化的命令自动放行、未沙箱化的走审批」这条对齐 Claude Code 的设计没有落地。
 - **默认值仍是 Null**。所谓「网络化部署时默认开启」属于目标状态。
 - 沙箱内仍可经 `/proc/<ppid>/environ` 读到父进程的环境：bwrap 只 unshare 了网络，没 unshare pid。
 

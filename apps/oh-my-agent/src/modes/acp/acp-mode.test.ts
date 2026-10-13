@@ -531,9 +531,41 @@ describe("oma ACP server (in-process, fake provider)", () => {
       "reject_once",
       "reject_always",
     ]);
+    // Bash is never silent: the child says `false` here, which is the honest
+    // "this command is NOT inside the OS sandbox" — the value the card needs to
+    // tell a contained command from an unconstrained one. (Other harnesses say
+    // nothing at all; the backend payload then carries no field rather than an
+    // invented `false`.)
+    const toolCall = permission.toolCall as { _meta?: Record<string, unknown> };
+    expect(toolCall._meta?.["my-agent-team/sandboxed"]).toBe(false);
     const kinds = (client.updates as { sessionUpdate: string }[]).map((u) => u.sessionUpdate);
     expect(kinds).toContain("tool_call");
     expect(kinds).toContain("tool_call_update");
+    mode.stop();
+  }, 30_000);
+
+  test("a sandboxed bash approval declares the OS sandbox to the client", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-sandboxed-"));
+    mkdirSync(join(cwd, ".oma"), { recursive: true });
+    // The workspace may only ever ENABLE the sandbox (fail-safe direction).
+    appendFileSync(join(cwd, ".oma", "settings.json"), JSON.stringify({ bashSandbox: true }));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([{ name: "bash", input: { command: "echo sandboxed-ok" } }]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "allow-once");
+    await client.newSession(cwd);
+    await client.prompt("run the echo");
+    expect(client.permissions).toHaveLength(1);
+    // The flag is the child's truthful statement about its own execution, and
+    // it rides the request's `_meta` (the permissionMode/resume convention).
+    // Only the flag is asserted: whether the sandboxed command itself succeeds
+    // is bwrap's business, not this contract's.
+    const toolCall = client.permissions[0]!.toolCall as { _meta?: Record<string, unknown> };
+    expect(toolCall._meta?.["my-agent-team/sandboxed"]).toBe(true);
     mode.stop();
   }, 30_000);
 

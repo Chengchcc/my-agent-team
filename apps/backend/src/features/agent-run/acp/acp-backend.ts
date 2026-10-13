@@ -210,6 +210,20 @@ interface ActiveRun {
   sessionId: string | undefined;
 }
 
+/** The child declares the truthful bash-sandbox state of an approval under our
+ *  namespaced `_meta` key (same convention as permissionMode/resume). Only a
+ *  real boolean becomes a payload field: an agent that says nothing must never
+ *  read as "sandboxed". Display-only for surfaces — it is a subprocess's
+ *  claim on its own execution, so it is never an authorization basis. */
+const SANDBOXED_META_KEY = "my-agent-team/sandboxed";
+
+function sandboxedField(toolCall: { _meta?: Record<string, unknown> | null }): {
+  sandboxed?: boolean;
+} {
+  const value = toolCall._meta?.[SANDBOXED_META_KEY];
+  return typeof value === "boolean" ? { sandboxed: value } : {};
+}
+
 const DEFAULT_APPROVAL_TIMEOUT_MS = 24 * 60 * 60_000;
 
 export class AcpBackend implements AgentBackend<"acp"> {
@@ -668,6 +682,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
         toolName: params.toolCall.name ?? params.toolCall.kind ?? "tool",
         ...(params.toolCall.title ? { reason: params.toolCall.title } : {}),
         ...(params.toolCall.rawInput !== undefined ? { input: params.toolCall.rawInput } : {}),
+        ...sandboxedField(params.toolCall),
         deadlineAt,
       },
     });

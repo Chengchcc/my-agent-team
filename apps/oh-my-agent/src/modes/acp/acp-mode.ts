@@ -850,6 +850,13 @@ function processStream(): ReturnType<typeof acp.ndJsonStream> {
   );
 }
 
+/** `_meta` key for the child's truthful bash-sandbox state on an approval
+ *  request (the backend reads the same key in acp-backend.ts; the
+ *  `my-agent-team/` namespace is this repo's convention for ACP extensions,
+ *  same as permissionMode and resume). Display-only by design: the card prints
+ *  it so the human can tell a contained command from an unconstrained one. */
+const SANDBOXED_META_KEY = "my-agent-team/sandboxed";
+
 /** The approval gate as an ACP permission request: park the resolver, fail
  *  closed at the deadline, map the client's chosen optionId back to
  *  allow/deny. Cancelled or errored requests deny — never a hang. */
@@ -877,6 +884,11 @@ function acpApproval(
           kind: toolKindFor(req.toolName),
           status: "pending",
           ...(req.input !== undefined ? { rawInput: req.input } : {}),
+          // Bash approvals only (the child sets it only there), and only when
+          // it is actually known: absent stays absent rather than "false".
+          ...(req.sandboxed !== undefined
+            ? { _meta: { [SANDBOXED_META_KEY]: req.sandboxed } }
+            : {}),
         },
         options: [
           { optionId: "allow-once", name: "Allow once", kind: "allow_once" },

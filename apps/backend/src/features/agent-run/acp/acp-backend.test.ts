@@ -65,6 +65,9 @@ interface FakeAgentObservations {
 interface FakeAgentScript {
   /** Ask for permission mid-prompt with these options. */
   permissionOptions?: Array<{ optionId: string; name: string; kind: string }>;
+  /** Send the child's bash-sandbox flag on that permission request (the
+   *  `my-agent-team/sandboxed` `_meta` key the real child uses). */
+  permissionSandboxed?: boolean;
   /** Send an elicitation mid-prompt. */
   elicit?: boolean;
   stopReason?: string;
@@ -212,6 +215,9 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
               kind: "execute",
               status: "pending",
               rawInput: { command: "echo hi" },
+              ...(script.permissionSandboxed !== undefined
+                ? { _meta: { "my-agent-team/sandboxed": script.permissionSandboxed } }
+                : {}),
             },
             options: script.permissionOptions as never,
           });
@@ -426,6 +432,38 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   }, 10_000);
 
+  test("a sandboxed approval carries the child's flag into the payload", async () => {
+    // The live stack runs oma over ACP: the child computes the truthful
+    // bash-sandbox state, and this is the only place it can cross the boundary.
+    // Before this, the card showed the command with no way to tell a contained
+    // one from an unconstrained one.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionSandboxed: true,
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    const seen: BackendEvent<"acp">[] = [];
+    await waitUntil(segment, (e) => e.type === "approval_requested", seen);
+    const approval = seen.find((e) => e.type === "approval_requested");
+    expect(approval?.type === "approval_requested" && approval.payload.sandboxed).toBe(true);
+    await backend.resolveApproval("run-1", "call-perm-1", "allow");
+    await collect(segment);
+  });
+
   test("permission allow: resolveApproval picks the agent's allow_once optionId", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],
@@ -458,6 +496,9 @@ describe("AcpBackend against an in-memory fake agent", () => {
       },
     });
     if (approval?.type === "approval_requested") {
+      // This agent never mentioned a sandbox, so the payload must stay silent
+      // rather than inventing `false`.
+      expect(approval.payload.sandboxed).toBeUndefined();
       expect(approval.payload.deadlineAt).toBeGreaterThan(Date.now());
     }
     await backend.resolveApproval("run-1", "call-perm-1", "allow");
