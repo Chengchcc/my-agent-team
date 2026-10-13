@@ -51,6 +51,15 @@
 
 **Lark 卡片缺 artifact / diff / 完整日志的深链（2026-09-25 记录）。** 页脚目前只链到 Web 的 Run 页——方案里的「查看 Diff / 产物 / worktree」直达按钮，需要先把 artifact/diff 标识随 Run 事件（或 run 详情）传给 lark-bot；在那之前不给卡片加假的按钮。
 
+**飞书云文档评论这个面没有**（2026-10-13 实测复核，issue #82 的结论落到这里）。想要的形态：文档里被 @ 到就起一个 run，回答**回复进同一条评论线**（与聊天面「回复同一个话题、绝不另开一条」是同一条不变量）。三件事分别核实过：
+
+- **读/写评论的命令有了** ✓ —— `lark-cli` 1.0.96 的 `drive +list-comments` / `+list-replies` / `+add-reply`（含 `--dry-run`、`--as user|bot`、wiki 链接解包）与 `docs +fetch/+update/+search`。但全仓 `lark-cli` 的调用点**全在 provision**（`features/lark-bot/{profile,provisioner,setup-manager}.ts` 等 15 个文件），**没有包成 agent 的工具面** ⇒ 产品里够不着（agent 自己撞 PATH 不算产品能力）。
+- **触发这条路实测封死** ✗ —— `lark-cli event list --json` = 25 个键、9 个域（im:11 vc:7 approval:2 application/board/card/minutes/task 各 1），**没有 drive**；`event schema` 与 `event consume drive.notice.comment_add_v1` 都当场返回 `unknown EventKey`（是拒绝，不是静默失败）。注意包里确实有这个字符串，**grep 到字符串不等于可订阅**。
+- **平台上是有这个事件的** ✓ —— 官方 `@larksuite/channel`（依赖 `@larksuiteoapi/node-sdk`）给出 `on('comment')` → `CommentEvent{fileToken,fileType,commentId,replyId?,operator,mentionedBot,timestamp}` 与只读的 `comments.{resolveTarget,fetch,reply,addReaction}`。
+- **但不能在现有总线上再加一条事件源** ✗ —— `@larksuiteoapi/node-sdk` 明写 cluster 模式**不广播**：「if multiple clients are deployed for the same application, only one random client will receive the message」⇒ 再开一条 WS 会**随机吃掉**总线上现有的 im/卡片事件，症状是「消息时丢时不丢」，最难查的那类。
+
+两条路（未选）：**甲**＝只做工具，agent 能读文档与评论当上下文，触发靠「在聊天里贴文档链接」，零事件层风险；**丙**＝整体把 bot 的事件层换成官方 channel SDK（全有或全无：评论、卡片、媒体、归一化都由官方维护，`lark-cli` 退回给 agent 当工具），落地前要 ADR。参考实现 [lark-channel-bridge](https://github.com/zarazhangrui/lark-coding-agent-bridge) 就是丙的形态，可抄的纪律：只认 `mentionedBot`、跳过自己发的回复（bot-loop guard）、**一条评论线 = 一个 session 作用域**、给触发那条加 reaction 当已读标记。丙的验证必须**另建测试 app**（在生产 app 上做这个实验会真的丢消息）。
+
 **知识库只有文件级。** 没有 chunk 级检索、也没有重建索引与试查询端点；统计里的 token 与 chunk 数是估算。**2026-10-13 更新（ADR 0043 决定 7）**：语义检索**已实现但默认关闭** ✓ —— embedding 缝、向量索引（全有或全无 ✓、内容签名判失效 ✓、段落切块 1500 字符 × 每文件上限 200 ✓）、查询降级（无索引或建不起来时退回词法**并说明原因** ✓）、播种与索引解耦（安装不依赖 embedding ✓）都已落地并带测试。默认关闭的原因是实测：本机知识包 39 页 = **1547 块**，每块 11～20 秒 ⇒ 全量构建 **5～7 小时** ✗；唯一质量合格的多语言模型就是这个速度，快一点的小模型中文排序是错的 ✗。因此默认不配 `BACKEND_EMBEDDING_*`（行为与旧版逐字一致 ✓），换到便宜的机器（GPU／更小语料／可用云 key）配两行即生效。
 
 **技能包的调用计数没有。** 设计里有「今日调用」这类统计，需要工具调用事件带上来源包 id。
