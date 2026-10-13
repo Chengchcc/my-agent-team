@@ -1,9 +1,8 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelRuntime } from "@chengchenccc/ai";
+import type { EmbeddingProvider, VectorMemoryStore } from "@chengchenccc/embedding";
 import { extractText, type Message } from "@chengchenccc/message";
-import type { EmbeddingProvider } from "./embeddings.js";
-import type { VectorMemoryStore } from "./vector-store.js";
 
 /**
  * Autonomous memory pipeline (v1, OMP AutoLearn-style but per-Run).
@@ -135,7 +134,7 @@ export async function extractAutonomousMemory(
     // Vector index double-write: best-effort per fact (an embedding failure
     // must never fail the memory pass); the file layer stays the truth.
     if (input.vector) {
-      const { retainMemory } = await import("./vector-recall.js");
+      const { retainMemory } = await import("@chengchenccc/embedding");
       for (const fact of fresh) {
         try {
           await retainMemory(input.vector.store, input.vector.provider, {

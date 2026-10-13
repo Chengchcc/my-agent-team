@@ -4,7 +4,7 @@
 
 ## 状态
 
-Proposed（2026-10-13）。决策已由维护者拍定（抽包复用），落地分两步且**未开工**：第一步是纯搬迁，第二步才谈后端接入。
+Proposed（2026-10-13）。决策已由维护者拍定（抽包复用）。**第一步（纯搬迁）已落地**：`packages/embedding` 已建（`private: true`，已在 AGENTS.md 依赖图点名、根 tsconfig 已引用），oma 改为从它取引擎，模型缓存根按决策 1 注入到 oma 侧（`vector-memory.ts` 的 `embeddingCacheDir()`）；搬过去的两个测试文件里混着的「oma 门面」用例已拆回 oma（`vector-memory.test.ts`）。搬迁过程中编译器抓出一处真缺陷：`RetainInput` 少了 `validUntil`（存储持久化它、`vector-recall` 也按它过滤，唯独类型没声明），已补上。**第二步（后端接入）未开工**，且仍受决策 5 约束。
 
 ## 上下文
 

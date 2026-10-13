@@ -79,6 +79,7 @@
         "@chengchenccc/adapter-mcp": "workspace:*",
         "@chengchenccc/ai": "workspace:*",
         "@chengchenccc/config": "workspace:*",
+        "@chengchenccc/embedding": "workspace:*",
         "@chengchenccc/message": "workspace:*",
         "@chengchenccc/sandbox": "workspace:*",
         "@chengchenccc/source-fetch": "workspace:*",
@@ -91,10 +92,6 @@
         "@chengchenccc/test-helpers": "workspace:*",
         "bun-types": "latest",
         "typescript": "^5.7.0",
-      },
-      "optionalDependencies": {
-        "fastembed": "2.1.0",
-        "onnxruntime-node": "1.21.0",
       },
     },
     "apps/web": {
@@ -191,6 +188,14 @@
       "version": "0.1.0",
       "dependencies": {
         "zod": "^3.23.0",
+      },
+    },
+    "packages/embedding": {
+      "name": "@chengchenccc/embedding",
+      "version": "0.1.0",
+      "optionalDependencies": {
+        "fastembed": "2.1.0",
+        "onnxruntime-node": "1.21.0",
       },
     },
     "packages/message": {
@@ -337,6 +342,8 @@
     "@chengchenccc/backend": ["@chengchenccc/backend@workspace:apps/backend"],
 
     "@chengchenccc/config": ["@chengchenccc/config@workspace:packages/config"],
+
+    "@chengchenccc/embedding": ["@chengchenccc/embedding@workspace:packages/embedding"],
 
     "@chengchenccc/lark-bot": ["@chengchenccc/lark-bot@workspace:apps/lark-bot"],
 
@@ -932,7 +939,7 @@
 
     "bun-pty": ["bun-pty@0.4.10", "", {}, "sha512-7WFtCw9MwG9gMMvkX+pwUOavNbgmfL+masMWmO9d/HdFCz8VdR+5G4Q3UCLhy2OJ/ImbWuJ1FHFmm0KdgW102w=="],
 
-    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
     "bundle-name": ["bundle-name@4.1.0", "https://registry.npmmirror.com/bundle-name/-/bundle-name-4.1.0.tgz", { "dependencies": { "run-applescript": "^7.0.0" } }, "sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q=="],
 

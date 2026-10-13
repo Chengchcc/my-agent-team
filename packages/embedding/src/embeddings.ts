@@ -10,7 +10,6 @@ import {
 } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
-import { agentDir } from "../session/session-file.js";
 
 /** Embedding seam for the vector memory layer (mnemopi-style, ponytail cut).
  *
@@ -103,10 +102,6 @@ const PARTIAL_SUFFIX = ".partial";
  * would block a working retry for a day). */
 const UNAVAILABLE_MARKER = ".unavailable";
 const UNAVAILABLE_TTL_MS = 24 * 60 * 60 * 1000;
-
-export function embeddingCacheDir(): string {
-  return process.env.OMA_EMBEDDING_CACHE ?? join(agentDir(), "models");
-}
 
 /** Fetch outcome: ok, a durable HTTP status (negative-cacheable), or a
  *  transient failure — timeout / DNS / refused / incomplete body. Transients
@@ -255,7 +250,7 @@ function sweepLegacyPartials(modelDir: string, dest: string): void {
  *  rather than restarted. Serialized by a per-model lock. */
 export async function ensureEmbeddingModel(
   model: string,
-  cacheDir = embeddingCacheDir(),
+  cacheDir: string,
   opts?: { hosts?: readonly string[] },
 ): Promise<{ ok: boolean; missing?: string }> {
   const spec = MODELS[model];
@@ -363,9 +358,11 @@ export function createHashingEmbeddingProvider(dim = 64): EmbeddingProvider {
 /** The default provider: fastembed with a lazily-initialized local model.
  *  Init failure is terminal for the instance (cached) — callers degrade to
  *  the FTS-only voice instead of retrying the ONNX load every recall. */
-export function createFastembedProvider(opts?: {
+export function createFastembedProvider(opts: {
+  /** Where model files live. The consumer owns this path (oma: its agent dir);
+   *  the engine never guesses a home directory. */
+  cacheDir: string;
   model?: string;
-  cacheDir?: string;
 }): EmbeddingProvider {
   // Offline kill-switch (mnemopi's MNEMOPI_NO_EMBEDDINGS analog): skip the
   // model fetch entirely — recalls degrade to the FTS voice immediately
@@ -373,8 +370,8 @@ export function createFastembedProvider(opts?: {
   if (process.env.OMA_EMBEDDINGS === "off") {
     const reason = "embeddings disabled (OMA_EMBEDDINGS=off) — FTS voice only";
     return {
-      model: opts?.model ?? DEFAULT_EMBEDDING_MODEL,
-      dim: MODELS[opts?.model ?? DEFAULT_EMBEDDING_MODEL]?.dim ?? 384,
+      model: opts.model ?? DEFAULT_EMBEDDING_MODEL,
+      dim: MODELS[opts.model ?? DEFAULT_EMBEDDING_MODEL]?.dim ?? 384,
       unavailableReason: reason,
       async embedDocuments() {
         throw new Error(reason);
@@ -384,9 +381,9 @@ export function createFastembedProvider(opts?: {
       },
     };
   }
-  const model = opts?.model ?? DEFAULT_EMBEDDING_MODEL;
+  const model = opts.model ?? DEFAULT_EMBEDDING_MODEL;
   const dim = MODELS[model]?.dim ?? 384;
-  const cacheDir = opts?.cacheDir ?? embeddingCacheDir();
+  const cacheDir = opts.cacheDir;
   let initing: Promise<
     | {
         passage: (texts: readonly string[], batch: number) => AsyncIterable<number[][]>;

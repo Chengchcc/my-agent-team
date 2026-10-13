@@ -35,6 +35,9 @@ export interface RetainInput {
   readonly veracity?: string;
   readonly embedding?: readonly number[];
   readonly embeddingModel?: string;
+  /** ISO timestamp after which recall ignores the row (the store persists it
+   *  and `vector-recall` filters on it). */
+  readonly validUntil?: string;
 }
 
 export interface VectorMemoryStore {
