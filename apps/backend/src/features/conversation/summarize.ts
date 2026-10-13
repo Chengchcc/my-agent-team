@@ -14,7 +14,7 @@ import {
   createProvider,
   type ModelRuntime,
 } from "@chengchenccc/ai";
-import type { AIMessageChunk, Message } from "@chengchenccc/message";
+import { type AIMessageChunk, extractText, type Message } from "@chengchenccc/message";
 
 export type SummarizerCredentials = (providerId: string) => {
   apiKey?: string;
@@ -69,6 +69,41 @@ export function summarizerInput(texts: readonly string[]): string {
     .map((t) => t.trim())
     .filter((t) => t.length >= MIN_TEXT_CHARS)
     .join("\n\n");
+}
+
+/**
+ * One ledger message as the summarizer reads it. `extractText` alone is not
+ * enough: it only sees text blocks, so a tool call and its result — the part
+ * that says what the run actually DID — never reached the summary (found live
+ * on 2026-10-13: a covered region contained a `read` and the summary had no
+ * trace of it).
+ *
+ * ponytail: a small local renderer rather than reusing oma's
+ * serializeConversation, which lives in apps/oh-my-agent and is shaped for the
+ * child's `<conversation>` request. If a third consumer appears, lift both into
+ * @chengchenccc/message instead of adding a third copy.
+ */
+export function renderMessageForSummary(message: Message): string {
+  const lines: string[] = [];
+  const text = extractText(message).trim();
+  if (text) lines.push(text);
+  for (const block of message.blocks ?? []) {
+    if (block.type === "tool_use") {
+      lines.push(`[tool_use ${block.name}] ${safeJson(block.input)}`);
+    } else if (block.type === "tool_result") {
+      const error = block.is_error ? " (error)" : "";
+      lines.push(`[tool_result${error}] ${block.content.trim()}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function safeJson(input: unknown): string {
+  try {
+    return JSON.stringify(input) ?? String(input);
+  } catch {
+    return "[unserializable input]";
+  }
 }
 
 export function createSummarizer(

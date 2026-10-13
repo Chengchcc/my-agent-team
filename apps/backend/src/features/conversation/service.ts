@@ -15,6 +15,7 @@ import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
 import type { ConversationPort, LedgerKind } from "./ports.js";
 import { resolveTrigger } from "./routing.js";
+import { renderMessageForSummary } from "./summarize.js";
 
 /** The projection carries this many recent entries verbatim; /compact replaces
  *  only what precedes them, so a summary never costs the live tail. */
@@ -520,7 +521,7 @@ class ConversationServiceImpl implements ConversationService {
     for (const entry of covered) {
       const message = await resolveLedgerMessage(conversationId, entry.ledgerSeq);
       if (!message) continue;
-      texts.push(extractText(message));
+      texts.push(renderMessageForSummary(message));
     }
     const summary = await summarize({ texts });
     if (!summary) return;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Message } from "@chengchenccc/message";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import type { AgentRunService } from "../agent-run/service.js";
@@ -650,7 +651,10 @@ describe("conversation compaction", () => {
     return state;
   }
 
-  function makeCompactable(summarize: (input: { texts: readonly string[] }) => Promise<string>) {
+  function makeCompactable(
+    summarize: (input: { texts: readonly string[] }) => Promise<string>,
+    resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>,
+  ) {
     return createConversationService({
       port,
       agentRunService: runSvc,
@@ -663,11 +667,14 @@ describe("conversation compaction", () => {
       resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
       idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
       summarize,
-      // The projection's own resolver, faked: text per ledger seq.
-      resolveLedgerMessage: async (_conversationId, ledgerSeq) => ({
-        role: "user",
-        text: `m-${ledgerSeq}`,
-      }),
+      // The projection's own resolver, faked: text per ledger seq, unless the
+      // test injects its own (needed to exercise tool blocks).
+      resolveLedgerMessage:
+        resolveLedgerMessage ??
+        (async (_conversationId, ledgerSeq) => ({
+          role: "user",
+          text: `m-${ledgerSeq}`,
+        })),
     });
   }
 
@@ -726,5 +733,33 @@ describe("conversation compaction", () => {
     await local.compactConversation(id);
 
     expect(calls).toBe(0);
+  });
+
+  test("the summarizer sees tool calls and results, not just text", async () => {
+    const id = "cid-compact-tools";
+    setupConv(id);
+    await seed(id, 25);
+    const seen: string[] = [];
+    const local = makeCompactable(
+      async ({ texts }) => {
+        seen.push(...texts);
+        return "S";
+      },
+      async (_conversationId, ledgerSeq) =>
+        ledgerSeq === 3
+          ? {
+              role: "assistant",
+              blocks: [{ type: "tool_use", id: "c1", name: "read", input: { path: "src/a.ts" } }],
+            }
+          : { role: "user", text: `m-${ledgerSeq}` },
+    );
+
+    await local.compactConversation(id);
+
+    // The covered region is m-1..m-5. Row 3 is a tool call with no text, so
+    // without rendering blocks the summary would have no trace of what ran.
+    const transcript = seen.join("\n");
+    expect(transcript).toContain("[tool_use read]");
+    expect(transcript).toContain("src/a.ts");
   });
 });
