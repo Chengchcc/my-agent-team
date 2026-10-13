@@ -9,11 +9,16 @@ import {
 import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
 import { debugLog } from "../../features/agent-run/protocol/index.js";
 import { DomainError } from "../../infra/domain-errors.js";
+import type { LedgerMessageEntry, ProductSummaryEntry } from "../agent-context/domain.js";
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
 import type { ConversationPort, LedgerKind } from "./ports.js";
 import { resolveTrigger } from "./routing.js";
+
+/** The projection carries this many recent entries verbatim; /compact replaces
+ *  only what precedes them, so a summary never costs the live tail. */
+export const KEEP_RECENT_ENTRIES = 20;
 
 export interface ConversationServiceDeps {
   port: ConversationPort;
@@ -61,6 +66,13 @@ export interface ConversationServiceDeps {
   contextService: AgentContextService;
   /** Effective model for the conversation's Agent record. */
   resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
+  /** Folds older entries into one `summary` entry for /compact. Absent =
+   *  compaction answers 501 (no summary model configured) instead of pretending
+   *  to have compacted. Bootstrap wires it from BACKEND_SUMMARY_MODEL. */
+  summarize?: (input: { texts: readonly string[] }) => Promise<string>;
+  /** Resolves a ledger message for compaction — the projection's own resolver,
+   *  so there is exactly one decode path. Required for compaction to work. */
+  resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
 
   idGen: () => string;
 }
@@ -177,6 +189,8 @@ class ConversationServiceImpl implements ConversationService {
   #onMessagesUndone: ConversationServiceDeps["onMessagesUndone"];
   #contextService: AgentContextService;
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
+  #summarize?: (input: { texts: readonly string[] }) => Promise<string>;
+  #resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
 
   #idGen: () => string;
 
@@ -193,6 +207,8 @@ class ConversationServiceImpl implements ConversationService {
     this.#onMessagesUndone = deps.onMessagesUndone;
     this.#contextService = deps.contextService;
     this.#resolveDefaultModel = deps.resolveDefaultModel;
+    this.#summarize = deps.summarize;
+    this.#resolveLedgerMessage = deps.resolveLedgerMessage;
     this.#idGen = deps.idGen;
   }
 
@@ -467,15 +483,52 @@ class ConversationServiceImpl implements ConversationService {
     return;
   }
 
-  async compactConversation(_conversationId: string): Promise<void> {
-    // The `summary` entry type exists and the projection honours it
-    // (agent-context/projection.ts), and `appendSummary` is ready to receive
-    // one — but nothing produced it. The old silent `return;` let a caller
-    // believe the context had been compacted, which is the worse failure: say
-    // plainly that no summarizer is wired until one is.
-    throw new DomainError(
-      "conversation compaction is not configured: no summarizer model is wired",
-      501,
+  async compactConversation(conversationId: string): Promise<void> {
+    const summarize = this.#summarize;
+    const resolveLedgerMessage = this.#resolveLedgerMessage;
+    if (!summarize || !resolveLedgerMessage) {
+      throw new DomainError(
+        "conversation compaction is not configured: no summarizer model is wired",
+        501,
+      );
+    }
+    const row = this.port.getConversation(conversationId);
+    if (!row) throw new DomainError(`conversation not found: ${conversationId}`, 404);
+    const model = await this.#resolveDefaultModel(row.agentId ?? "default");
+    const branch = await this.#contextService.getOrCreateDefaultBranch(
+      conversationId,
+      model.backendKind,
+      row.agentId ?? undefined,
+    );
+    const entries = await this.#contextService.listEntriesToLeaf(branch.branchId);
+    const messages = entries.filter((e): e is LedgerMessageEntry => e.type === "ledger_message");
+    // Fold a previous summary in rather than dropping it, and start after the
+    // point it already covers: a second /compact must never re-summarise (and
+    // thus re-bill) the region the first one replaced.
+    const previous = entries.find((e): e is ProductSummaryEntry => e.type === "summary");
+    const firstUncovered = previous
+      ? messages.findIndex((e) => e.entryId === previous.coversThroughEntryId) + 1
+      : 0;
+    // The projection already carries the newest slice of the transcript
+    // verbatim; compaction only replaces what precedes it.
+    const covered = messages.slice(
+      firstUncovered,
+      Math.max(firstUncovered, messages.length - KEEP_RECENT_ENTRIES),
+    );
+    if (covered.length === 0) return; // nothing worth a model call
+    const texts: string[] = previous ? [previous.summary] : [];
+    for (const entry of covered) {
+      const message = await resolveLedgerMessage(conversationId, entry.ledgerSeq);
+      if (!message) continue;
+      texts.push(extractText(message));
+    }
+    const summary = await summarize({ texts });
+    if (!summary) return;
+    await this.#contextService.appendSummary(
+      branch.branchId,
+      branch.revision,
+      summary,
+      covered[covered.length - 1]!.entryId,
     );
   }
 

@@ -104,6 +104,12 @@ export const envSchema = z.object({
     .nonnegative()
     .optional()
     .describe("Delete artifacts older than this many days (opt-in; unset or 0 keeps them forever)"),
+  BACKEND_SUMMARY_MODEL: z
+    .string()
+    .optional()
+    .describe(
+      "Provider/model (e.g. deepseek/deepseek-v4-pro) for /compact conversation summaries; unset = compaction answers 501",
+    ),
   // Per-server enable/disable for the built-in MCP servers injected into an
   // agent's workspace .mcp.json (comma-separated names: product-tools,
   // agent, workflow). Absent = product-tools,agent,workflow (all three).

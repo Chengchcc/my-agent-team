@@ -67,6 +67,7 @@ import {
   firstUserText,
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
+import { createConfiguredSummarizer } from "../features/conversation/summarize.js";
 import {
   createKnowledgeService,
   knowledgeRoutes,
@@ -448,11 +449,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // An undo removes rows the action stream cannot state (nothing dispatches "a message is gone"),
   // so the chat channels are told to truncate. Filled in once the AHP host exists.
   const onMessagesUndone: { fn: (input: { conversationId: string }) => void } = { fn: () => {} };
+  // The backend's only model call: /compact folds the older entries into one
+  // summary. Not configured => compaction keeps answering 501 (never a silent
+  // no-op); malformed => the boot fails here, loudly.
+  const summarizeFromConfig = createConfiguredSummarizer(config.summaryModel, (id) =>
+    providerSvc.credentialFor(id),
+  );
   const conv = createConversationFeature({
     convPort,
 
     agentSvc,
     agentRunService,
+    summarize: summarizeFromConfig,
+    resolveLedgerMessage: (conversationId, ledgerSeq) =>
+      ledgerResolver.resolveMessage(conversationId, ledgerSeq),
     dispatchRun: (runId: string) => dispatchRun.fn(runId),
     injectSteer: (branchId, input, opts) => injectSteer.fn(branchId, input, opts),
     isLive: (runId: string) => isLive.fn(runId),
