@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  createFastembedProvider,
   type EmbeddingProvider,
   openVectorMemoryStore,
   retainMemory,
   type VectorMemoryStore,
 } from "@chengchenccc/embedding";
+import { createFastembedProvider } from "@chengchenccc/embedding/fastembed";
 import { agentDir } from "../session/session-file.js";
 import { loadProjectSettings } from "../settings/project-settings.js";
 

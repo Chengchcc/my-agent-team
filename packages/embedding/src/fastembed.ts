@@ -10,8 +10,11 @@ import {
 } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_EMBEDDING_MODEL, type EmbeddingProvider } from "./provider.js";
 
-/** Embedding seam for the vector memory layer (mnemopi-style, ponytail cut).
+/** The fastembed (local ONNX) implementation of the embedding contract — the
+ *  native entry. Consumers that never import this file never pay for
+ *  fastembed/onnxruntime (ADR 0043 decision 2).
  *
  *  The default provider runs fastembed (local ONNX, no API key). fastembed's
  *  bundled model CDN (storage.googleapis.com/qdrant-fastembed) is DEAD — every
@@ -25,19 +28,6 @@ import { join } from "node:path";
  *  - yielded items are BATCHES (number[][]), one per batch
  *  - e5 models need "query: "/"passage: " prefixes — passageEmbed/queryEmbed
  *    add them; use those, never raw embed(), for e5 */
-
-export interface EmbeddingProvider {
-  /** Canonical model id (also the fastembed model dir name). */
-  readonly model: string;
-  readonly dim: number;
-  /** Why the vector voice is unavailable, when it is (cached init failure).
-   *  Undefined = healthy or not yet initialized. */
-  readonly unavailableReason?: string;
-  /** Embed stored content (passage side). */
-  embedDocuments(texts: readonly string[]): Promise<number[][]>;
-  /** Embed a recall query (query side). */
-  embedQuery(text: string): Promise<number[]>;
-}
 
 /** Model registry: where each family's files live on HF and what fastembed
  *  expects on disk. tokenizerRepo files land at <model>/<name>; onnxPath is
@@ -64,8 +54,6 @@ const MODELS: Readonly<Record<string, ModelSpec>> = {
     quantized: true,
   },
 };
-
-export const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
 const TOKENIZER_FILES = [
   "config.json",
@@ -326,33 +314,6 @@ export async function ensureEmbeddingModel(
   // Complete model: clear any stale negative marker.
   if (existsSync(markerPath)) rmSync(markerPath, { force: true });
   return { ok: true };
-}
-
-/** Test double: deterministic bag-of-character hashing vectors. Same
- *  characters → similar directions, so recall tests get meaningful cosine
- *  signal without any ONNX. */
-export function createHashingEmbeddingProvider(dim = 64): EmbeddingProvider {
-  const embedOne = (text: string): number[] => {
-    const vec = new Array<number>(dim).fill(0);
-    for (const ch of text) {
-      let h = 0;
-      for (let i = 0; i < ch.length; i++) h = (h * 31 + ch.charCodeAt(i)) | 0;
-      const idx = Math.abs(h) % dim;
-      vec[idx] = (vec[idx] ?? 0) + 1;
-    }
-    const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
-    return vec.map((v) => v / norm);
-  };
-  return {
-    model: "hashing/test",
-    dim,
-    async embedDocuments(texts) {
-      return texts.map(embedOne);
-    },
-    async embedQuery(text) {
-      return embedOne(text);
-    },
-  };
 }
 
 /** The default provider: fastembed with a lazily-initialized local model.
