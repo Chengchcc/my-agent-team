@@ -66,7 +66,7 @@ registered but paused.
 | end | `status` | success/failure/custom; multi-exit allowed |
 | agent | `agentId` OR (`model`+`prompt`) | may return `nextNode` to override edges |
 | script | `code` | Bun TS default export; optional `timeoutMs` |
-| human | optional `question`/`form` | ask-user; answers = output |
+| human | optional `question`/`form` | ask-user; answers = output; optional `timeoutMs` fails the node if nobody answers |
 
 Optional per-node `inputSchema`/`outputSchema` (JSON Schema subset), `retry`,
 and `input`/`output` hints — both are arrays of `{ "key": …, "type": … }` with

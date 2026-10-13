@@ -74,7 +74,7 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 | 文件 jail 是校验后使用，不是 fd 校验 | TOCTOU 与硬链接未处理 |
 | `cliSessionRef` 没有形状校验就拼进 session 文件路径 | 值来自数据库，可达性薄，但边界两侧都没强制 |
 | human 答案绕过 outputSchema 与表单元数据校验 | 其他节点类型都有这一步 |
-| `pathGet` 走原型链；human 的 `timeoutMs` 解析了但从未实施 | 前者是 JSON-Logic 的取路径函数，后者字段一直没用 |
+| `pathGet` 走原型链 | JSON-Logic 的取路径函数，未隔离原型链 |
 | 执行列表没有分页，批量 resolve 没有条数上限 | 一次大请求能驱动全量 |
 | 输入队列路由忽略路径里的会话参数 | 跨会话可改别人的待投递输入 |
 | workflow / agent-config 的本地 MCP server 无鉴权 | 只绑 127.0.0.1；同机进程可枚举定义、往编辑器推提案 |

@@ -37,6 +37,7 @@ const fakeService: WorkflowExecutionService = {
     createdAt: 1,
   }),
   resolveHumanTasks: async () => [],
+  expireHumanTimeouts: async () => [],
   resolveHumanTask: async (executionId, _nodeId, _answer) => ({
     executionId,
     workflowId: "wf",

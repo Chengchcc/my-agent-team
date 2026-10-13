@@ -1570,6 +1570,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     });
   }, 30_000);
 
+  // Human-node timeouts (DSL `timeoutMs`): a parked execution has no live loop,
+  // so this scan is its only clock. DB rows are the truth → a task that expired
+  // while the process was down settles on the first tick after boot.
+  const humanTimeoutInterval = setInterval(() => {
+    void workflowExecutionService.expireHumanTimeouts().catch((err: unknown) => {
+      console.error(
+        "[workflow] human timeout tick failed:",
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }, 30_000);
+
   const workflowApp = workflowRoutes({
     workflowExecutionService,
     loadWorkflow: async (ref) => {
@@ -1929,6 +1941,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // (Product Tools MCP) and finally Lark/setup.
     smokeCron?.stop();
     clearInterval(reminderInterval);
+    clearInterval(humanTimeoutInterval);
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();

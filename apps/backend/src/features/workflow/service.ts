@@ -114,6 +114,9 @@ export interface WorkflowExecutionService {
     form?: Record<string, unknown>;
     status: string;
   } | null>;
+  /** Terminalizes parked human tasks whose DSL `timeoutMs` has passed.
+   *  Returns the execution ids it settled (the caller only logs them). */
+  expireHumanTimeouts(now?: number): Promise<string[]>;
   recover(): Promise<void>;
 }
 
@@ -953,6 +956,49 @@ export function createWorkflowExecutionService(
     },
     async getPendingHuman(executionId, nodeId) {
       return deps.port.getPendingHuman(executionId, nodeId);
+    },
+    /** A parked human task has no live loop, so `timeoutMs` used to be a
+     *  promise the DSL made and nothing kept. The pending row's `createdAt` is
+     *  the clock (no new column) and the same atomic claim as an answer decides
+     *  the race: whoever loses `markPendingHumanResolved` does nothing. */
+    async expireHumanTimeouts(now = Date.now()) {
+      const expired: string[] = [];
+      for (const execution of await deps.port.listWaitingHumanExecutions()) {
+        if (execution.status !== "waiting_human") continue;
+        const waiting = (await deps.port.listNodeRuns(execution.executionId))
+          .filter((r) => r.status === "waiting_human")
+          .at(-1);
+        if (!waiting) continue;
+        // A rework budget gate parks under a synthetic id (`<node>#budget`)
+        // that no DSL node answers to — it declares no timeout, so it is
+        // skipped rather than treated as an unknown node.
+        const node = execution.definition.nodes.find((n) => n.id === waiting.nodeId);
+        if (node?.type !== "human" || !node.timeoutMs) continue;
+        const pending = await deps.port.getPendingHuman(execution.executionId, waiting.nodeId);
+        if (!pending) continue;
+        if (pending.status !== "pending") continue;
+        if (now - pending.createdAt < node.timeoutMs) continue;
+
+        if (!(await deps.port.markPendingHumanResolved(execution.executionId, waiting.nodeId))) {
+          continue; // an answer claimed it first; that path owns the outcome
+        }
+        const error = `human task "${waiting.nodeId}" timed out after ${node.timeoutMs}ms`;
+        await deps.port.updateNodeRun(execution.executionId, waiting.nodeId, {
+          status: "failed",
+          error,
+          terminalAt: now,
+        });
+        await deps.port.updateExecution(execution.executionId, {
+          status: "failure",
+          exit: "failure",
+          error,
+          terminalAt: now,
+        });
+        emit(execution.executionId, "node_failed", { nodeId: waiting.nodeId, error });
+        emit(execution.executionId, "execution_terminal", { exit: "failure", error });
+        expired.push(execution.executionId);
+      }
+      return expired;
     },
     async recover() {
       for (const e of await deps.port.listRunningExecutions()) {

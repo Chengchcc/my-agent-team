@@ -37,8 +37,6 @@
 
 ## Workflow
 
-**human 节点的 `timeoutMs` 没实现。** 字段能解析，但从没被消费，pending human 会一直等到人来。
-
 **没有并行 fan-out。** ready 列表是串行 await 的，一条边分多路时不是并发执行。join 语义是 any-of，DSL 里也没有表达 AND 的标记。
 
 **agent 节点的 `repo` 是死接线。** 字段进了 `NodeContext`，依赖也在组装点接好了，但没有调用方，agent 节点不会切到那个仓库的 worktree。

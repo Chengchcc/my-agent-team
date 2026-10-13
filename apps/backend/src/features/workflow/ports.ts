@@ -42,5 +42,4 @@ export interface WorkflowExecutionPort {
   listExecutions(workflowId?: string): Promise<WorkflowExecutionRow[]>;
   deleteExecution(executionId: string): Promise<boolean>;
   listWaitingHumanExecutions(): Promise<WorkflowExecutionRow[]>;
-  listWaitingHumanExecutions(): Promise<WorkflowExecutionRow[]>;
 }

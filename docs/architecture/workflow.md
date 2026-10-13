@@ -104,6 +104,8 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 **human 恢复**：`resolveHumanTask` 要求 execution 处于 `waiting_human`、pending 存在且未 resolved，过滤控制面 key 后重新路由，再用条件 UPDATE（`status='pending'`）原子 claim；claim 失败说明另一路已经抢到，返回 409。胜者写 node_run completed、execution 回到 `running`、异步续 drive。批量接口逐条返回 ok/error，不整体失败。
 
+**human 超时**：节点声明了 `timeoutMs` 时，后台 30 秒扫描一次（`bootstrap/features.ts` 的 `humanTimeoutInterval`，停机期间过期的任务在启动后第一个 tick 结算）——超过时限的 pending human 被**同一个原子 claim**拿下，node_run 落 `failed`（错误带毫秒数）、execution 落 `failure`（exit `failure`），并广播 `node_failed` 与 `execution_terminal`；迟到的回答因为 claim 已被取走而拿到 409。时钟是 pending 行的 `createdAt`（没有新列）。预算门的 id 是 `<node>#budget`，不对应任何 DSL 节点、也没有 `timeoutMs`，因此不会被扫到。
+
 **取消**只对 `running` 与 `waiting_human` 生效，而且两条路径的 exit 不一样：`waiting_human` 取消立即终态化，exit 是 `aborted`；`running` 取消只置内存标记，由 drive 或轮询循环观察到后抛 `WorkflowCancelledError`，最终 exit 是 `failure`。
 
 **失败**：节点异常先写 node_run failed 加 error、发 `node_failed`，再往外抛；`runWithCatch` 把 execution 落 failure。节点失败不参与图路由，没有 per-node 的失败边。
@@ -171,7 +173,6 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 
 ## 已知缺口
 
-- human 节点的 `timeoutMs` 被解析但从未实施，pending human 永不过期。
 - 并行 fan-out 没有实现，ready 列表串行 await。
 - dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
 - agent 节点的 `repo` 字段进了 `NodeContext`、依赖也接好了，但没有调用方，agent 节点不会切到该 repo 的 worktree。

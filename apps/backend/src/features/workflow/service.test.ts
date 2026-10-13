@@ -45,6 +45,22 @@ function makeHumanDef(): WorkflowDefinition {
   };
 }
 
+function makeHumanTimeoutDef(timeoutMs: number): WorkflowDefinition {
+  return {
+    version: 1,
+    id: "wf",
+    nodes: [
+      { id: "start", type: "start" },
+      { id: "h", type: "human", question: "ok?", timeoutMs },
+      { id: "done", type: "end", status: "success" },
+    ],
+    edges: [
+      { from: "start", to: "h" },
+      { from: "h", to: "done" },
+    ],
+  };
+}
+
 function makeHumanBranchDef(): WorkflowDefinition {
   return {
     version: 1,
@@ -132,7 +148,8 @@ function ramPort() {
         return true;
       },
       listRunningExecutions: async () => [],
-      listWaitingHumanExecutions: async () => [],
+      listWaitingHumanExecutions: async () =>
+        [...executions.values()].filter((r) => r.status === "waiting_human"),
     } as never,
   };
 }
@@ -213,6 +230,69 @@ describe("createWorkflowExecutionService", () => {
       nextNode: "rejected",
     });
     expect(resumed.status).toBe("success");
+  });
+
+  test("a human node with timeoutMs expires, and a late answer loses the race", async () => {
+    const { port, nodeRuns } = ramPort();
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+    });
+    const parked = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeHumanTimeoutDef(1000),
+      input: {},
+    });
+    expect(parked.status).toBe("waiting_human");
+
+    // The sweep terminalizes it and the node run carries the reason.
+    expect(await svc.expireHumanTimeouts(Date.now() + 100_000)).toEqual(["e1"]);
+    const settled = await svc.getExecution("e1");
+    expect(settled?.status).toBe("failure");
+    expect(settled?.exit).toBe("failure");
+    expect(settled?.error).toContain('human task "h" timed out after 1000ms');
+    expect(nodeRuns.find((r) => r.nodeId === "h")?.status).toBe("failed");
+
+    // The claim was taken by the timeout: the answer arrives too late.
+    await expect(svc.resolveHumanTask("e1", "h", { approved: true })).rejects.toThrow();
+    expect((await svc.getExecution("e1"))?.status).toBe("failure");
+    // A second sweep sees nothing waiting (no double terminalization).
+    expect(await svc.expireHumanTimeouts(Date.now() + 200_000)).toEqual([]);
+  });
+
+  test("a human timeout is time-based, not immediate", async () => {
+    const { port } = ramPort();
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+    });
+    await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeHumanTimeoutDef(60_000),
+      input: {},
+    });
+    expect(await svc.expireHumanTimeouts()).toEqual([]);
+    expect((await svc.getExecution("e1"))?.status).toBe("waiting_human");
+    expect(await svc.expireHumanTimeouts(Date.now() + 60_001)).toEqual(["e1"]);
+    expect((await svc.getExecution("e1"))?.status).toBe("failure");
+  });
+
+  test("a human node without timeoutMs still waits forever", async () => {
+    const { port } = ramPort();
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+    });
+    await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeHumanDef(),
+      input: {},
+    });
+    expect(await svc.expireHumanTimeouts(Date.now() + 10 ** 9)).toEqual([]);
+    expect((await svc.getExecution("e1"))?.status).toBe("waiting_human");
   });
 
   test("agent node runs a child run and parses JSON output", async () => {
@@ -661,6 +741,10 @@ describe("rework in the execution service", () => {
     expect((gate?.form as { budgetGate?: { maxAttempts?: number } })?.budgetGate?.maxAttempts).toBe(
       1,
     );
+    // A gate parks under a synthetic id (`<node>#budget`) no DSL node answers
+    // to, so it declares no timeout: the sweep must leave it alone, not crash.
+    expect(await svc.expireHumanTimeouts(Date.now() + 10 ** 9)).toEqual([]);
+    expect((await svc.getExecution("e-grant"))?.status).toBe("waiting_human");
 
     await svc.resolveHumanTask("e-grant", "build#budget", { decision: "grant" });
     const settled = await waitFor(
