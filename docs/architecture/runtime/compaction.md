@@ -94,7 +94,7 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 
 ## 已知缺口
 
-- 触发线由储备量推出、且可按工作区/环境覆盖；但**估算器仍未用 provider 的 `usage` 校准**（`usageAnchor` 只用于给「当前上下文」定标，不反馈修正每条消息的估算），所以储备只能靠保守取值兜底。
+- 估算器**已 CJK 感知**（`estimateTextTokens`：CJK 按 1.5 chars/token ✓，注释里写明为什么），且每次调用完成后用 provider 的 `usage` 给**当前上下文**定标（`usageAnchor` ✓）⇒ 偏差只落在「自锚点以来的增量」上。**残余偏差仍是 UNKNOWN，不是「已确认没有」** ✗：2026-10-13 两次真机测量（deepseek）都读错了用量字段（`actual=92`/`8`，明显是输出侧 ✓）⇒ 没拿到 prompt 大小 ✓。要定案只需先打印一次该 chunk 的 usage 形状（一次探针 ✓），再决定要不要按实测比率缩放每条消息的估算。
 - 摘要**只能用本次 Run 自己的模型与凭证**：没有更便宜的专用摘要模型，也没有多候选重试（omp 两者都有），并共用模型调用同款的死线（默认 300s）。
 - 序列化**不做长度截断**：一条超大 tool_result 会整条进摘要输入（omp 对 tool_result 做 head+tail 截断、对 tool_use 参数设单个与单次上限；等真实大工件把摘要撑爆再加，加的位置就是 `serializeConversation`）。
 - `<files>` 只认 `read`/`write`/`edit` 三个工具（omp 同样只认这三个）：MCP 工具改的文件，或在 `bash` 里改的文件，都不会出现在清单里。
