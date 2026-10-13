@@ -69,6 +69,7 @@ import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
+import { buildSummarizationRequest } from "./compaction-prompt.js";
 import { estimateMessageTokens } from "./context-estimate.js";
 import type { AgentRunSnapshot, ProjectedHistoryItem } from "./contract/index.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
@@ -533,18 +534,13 @@ function buildModelPlumbing(
   const modelTimeoutMs = knobs.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
   const approvalDeadlineMs = knobs.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
 
-  // Summarizer: call the RUN's model through ModelRuntime with full Message[]
-  // input and AbortSignal support. Same provider/credentials as the run -
-  // no surprise provider switch, no catalog-first cost surprises. No
-  // summaryModel config until real cost data demands one.
+  // Summarizer: call the RUN's model through ModelRuntime. Same provider/
+  // credentials as the run - no surprise provider switch, no catalog-first cost
+  // surprises. No summaryModel config until real cost data demands one. The
+  // request shape (system prompt + `<conversation>` wrapper) lives in
+  // compaction-prompt.ts so it is testable without a store or a model.
   const summarize: ContextSummarizer = async (messages, signal) => {
-    const summaryMessages: Message[] = [
-      {
-        role: "system",
-        text: "Summarize the following conversation messages, preserving tool calls, results, decisions and next steps.",
-      },
-      ...messages,
-    ];
+    const summaryMessages = buildSummarizationRequest(messages);
     const timeoutSignal = AbortSignal.timeout(modelTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     const stream = deps.modelRuntime.stream(

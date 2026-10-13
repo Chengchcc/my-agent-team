@@ -17,6 +17,7 @@ tags: [oma, runtime, context, models]
 ## 实现文件
 
 - `apps/oh-my-agent/src/core/runtime/compaction.ts` — `findCut`、`adjustCutForToolPairs`、`latestCompaction`、`compactSession`
+- `apps/oh-my-agent/src/core/runtime/compaction-prompt.ts` — 摘要请求的形状：`SUMMARIZATION_SYSTEM_PROMPT`、`serializeConversation`、`buildSummarizationRequest`
 - `apps/oh-my-agent/src/core/runtime/agent-loop-runner.ts` — 三个自动触发点与 `runCompactionRecovery`
 - `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — 摘要闭包与 `contextBudget`
 - `apps/oh-my-agent/src/core/runtime/agent-loop-run.ts` — `readBranchMessages`，上下文重建
@@ -55,6 +56,8 @@ tags: [oma, runtime, context, models]
 { type: "compaction", summary, coversEntryIds, tokensBefore?, retainedEntryIds?, createdAt }
 ```
 
+摘要请求的形状固定在 `compaction-prompt.ts`（可脱离 store 与模型单测）：一条 system 提示（保留决策与理由、当前状态、确切标识符；用会话自己的语言写）+ 一条 user 消息，把转录包在 `<conversation>…</conversation>` 里。转录由 `serializeConversation` 渲染成角色标记的文本：`[user]` / `[assistant]` / `[tool]`，tool_use 渲染成 `[tool_use <name>] <input json>`，tool_result 渲染成 `[tool_result (error)] <content>`。**thinking 不渲染**（`ThinkingBlock` 自己的契约：reasoning 永不当会话文本 ✓）、**图片只留 `[image <mediaType>]` 标记**（不外泄 base64）。包一层 `<conversation>` 是为了让模型知道「这是要读的文档，不是要接着聊的对话」。
+
 原始 message 条目**不删**。摘要的生成用的是本次 Run 自己的模型与凭证，带一个模型调用同款的死线（默认 300s）；这里没有"把上一版摘要再喂进去迭代更新"的协议，每份摘要都是独立生成的。
 
 两处守卫：
@@ -87,7 +90,7 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 ## 已知缺口
 
 - `triggerRatio` 与 `limit × 0.7` 的关系是硬编码的，不能按工作区调。
-- summarizer 的提示词是一句固定的 system 文本，没有分节模板，摘要的结构完全靠模型自由发挥。
+- 提示词**只有一套**：首次压缩与「带着上一版摘要的增量压缩」不分（那需要先把摘要输入缩到未覆盖区间，见下一步）。因此也没有 `<previous-summary>` 通道。
 - 摘要失败只写调试日志，终端上没有任何可见信号。
 
 ## 相关页
