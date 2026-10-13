@@ -98,7 +98,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 **schema 重试**在 workflow service 里，不在 run harness：`runNodeWithRetry` 按 `retry` 算次数与间隔，失败时把上一次的错误塞回 prompt 再发一轮（`service.ts:307-328,502-517`）。重试耗尽即节点 failed，execution 落 failure。
 
-**script 节点**走 `deps.nodeRunners.script.run`，runner 先查 `WORKFLOW_SCRIPTS_ENABLED`——没开的话每个 script 节点必失败。执行本身在 `runInSandbox` 里：默认超时 60 秒（不是 spec 里写的 30 秒），隔离参数 `noNetwork` 加 `denyReadDirs`（默认拒 `dataDir` 与 cwd 下的 `.env`）。脚本拿到的 ctx 就是合并后的 input 本身，没有 store、没有 log、没有宿主对象——`packages/workflow/src/node-runtime.ts` 里那个带 store/log 的 `ScriptContext` 是死契约，照它写脚本会崩。
+**script 节点**走 `deps.nodeRunners.script.run`，runner 先查 `WORKFLOW_SCRIPTS_ENABLED`——没开的话每个 script 节点必失败。执行本身在 `runInSandbox` 里：默认超时 60 秒（不是 spec 里写的 30 秒），隔离参数 `noNetwork` 加 `denyReadDirs`（默认拒 `dataDir` 与 cwd 下的 `.env`）。脚本拿到的 ctx 就是合并后的 input 本身，没有 store、没有 log、没有宿主对象——契约里那个带 store/log 的 `ScriptContext` 已删除（它从来没有运行时对应物，照它写脚本会崩）。
 
 **human 节点**：读 ready input 里的 `question`/`form` 覆盖 DSL 的静态声明，把表单映射成 ask_question 的形状，写 pending_human、把 execution 置 `waiting_human`、发 `human_task_requested`，然后 drive 暂停（节点不完成）。
 

@@ -65,7 +65,7 @@ registered but paused.
 | start | — | entry; output = trigger vars; exactly one |
 | end | `status` | success/failure/custom; multi-exit allowed |
 | agent | `agentId` OR (`model`+`prompt`) | may return `nextNode` to override edges |
-| script | `code` | Bun TS default export; optional `timeoutMs` |
+| script | `code` | Bun TS default export; receives the merged input record (no store/log/host objects); optional `timeoutMs` |
 | human | optional `question`/`form` | ask-user; answers = output; optional `timeoutMs` fails the node if nobody answers |
 
 Optional per-node `inputSchema`/`outputSchema` (JSON Schema subset), `retry`,

@@ -31,8 +31,6 @@
 
 **Context 的条目类型大半没人写。** `private_message`、`product_tool_exchange`、`model_change` 三种条目没有写入方，实际只有 `ledger_message` 在写。账本侧同理：`member.joined` / `member.left` 随成员表删除失去写入方，`todo` 从来没有过。
 
-**契约里有三个事件没人发。** `product_tool_started`、`product_tool_completed`、`pending_action` 在 `agent-contract` 里声明着，全仓没有发送点。要么实现，要么从契约里删掉。
-
 **Context 的裁剪是硬编码的。** 取 Run 时同步最近 20 条消息，没有可配置的预算，也没有按 token 估计的策略。做成可配之前得先决定预算归谁管。
 
 ## Workflow
@@ -42,8 +40,6 @@
 **agent 节点的 `repo` 是死接线。** 字段进了 `NodeContext`，依赖也在组装点接好了，但没有调用方，agent 节点不会切到那个仓库的 worktree。
 
 **`workflowRef.repo` 被忽略。** 定义只从本地目录读，没有 git loader。
-
-**script 节点的契约与实现不符。** `packages/workflow/src/node-runtime.ts` 里的 `ScriptContext` 声明了 store、context、log，但后端只把裸 input 传进去，宿主对象刻意不进沙箱。结果这个契约是死的，照它写脚本会崩；`store_write` 事件因此永远不会触发。
 
 ## 模型与 provider
 
