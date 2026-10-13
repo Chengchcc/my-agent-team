@@ -39,10 +39,12 @@ export const INDEX_FILE = "index.json";
 export const CHUNK_CHARS = 1_500;
 /** Per-file chunk cap; bounds the cost of one oversized page. */
 export const MAX_CHUNKS_PER_FILE = 200;
-/** Chunks per embedding request. Measured 2026-10-13: one request carrying all
- *  1547 chunks of the shipped knowledge pack timed out after 30s, and the whole
- *  build is a one-off per pack revision, so it is batched rather than huge. */
-export const EMBED_BATCH = 32;
+/** Chunks per embedding request. Measured 2026-10-13 on this 2-core box: one
+ *  request carrying all 1547 chunks of the shipped pack timed out; 16 chunks of
+ *  1400 chars timed out at 120s as well; single chunks and small batches pass.
+ *  4 is the value that actually makes progress here. The whole build is a
+ *  one-off per pack revision, so a small batch costs patience, not correctness. */
+export const EMBED_BATCH = 4;
 
 export interface IndexChunk {
   /** `<pack-relative path>#<chunk index>` */
