@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@chengchenccc/message";
-import { buildSummarizationRequest, serializeConversation } from "./compaction-prompt.js";
+import {
+  buildSummarizationRequest,
+  collectFileOperations,
+  type FileMarker,
+  renderFileOperations,
+  serializeConversation,
+  upsertFileOperations,
+} from "./compaction-prompt.js";
 
 function msg(role: Message["role"], parts: Partial<Message>): Message {
   return { role, ...parts } as Message;
@@ -92,6 +99,67 @@ describe("buildSummarizationRequest", () => {
   test("an empty transcript still produces a well-formed request", () => {
     const request = buildSummarizationRequest([]);
     expect(request[1]?.text).toContain("<conversation>\n\n</conversation>");
+  });
+});
+
+describe("file operations in summaries", () => {
+  test("marks reads, writes, and files both touched", () => {
+    const files = collectFileOperations([
+      msg("assistant", {
+        blocks: [{ type: "tool_use", id: "1", name: "read", input: { path: "a.ts" } }],
+      }),
+      msg("assistant", {
+        blocks: [{ type: "tool_use", id: "2", name: "write", input: { path: "b.ts" } }],
+      }),
+      msg("assistant", {
+        blocks: [
+          { type: "tool_use", id: "3", name: "read", input: { path: "c.ts" } },
+          { type: "tool_use", id: "4", name: "edit", input: { path: "c.ts" } },
+        ],
+      }),
+    ]);
+
+    expect([...files]).toEqual([
+      ["a.ts", "read"],
+      ["b.ts", "write"],
+      ["c.ts", "rw"],
+    ]);
+  });
+
+  test("ignores non-file tools and inputs without a usable path", () => {
+    const files = collectFileOperations([
+      msg("assistant", {
+        blocks: [
+          { type: "tool_use", id: "1", name: "bash", input: { command: "ls" } },
+          { type: "tool_use", id: "2", name: "read", input: { path: "   " } },
+        ],
+      }),
+    ]);
+
+    expect(files.size).toBe(0);
+    expect(renderFileOperations(files)).toBe("");
+  });
+
+  test("renders a sorted block, capped with an elision line", () => {
+    const files = new Map<string, FileMarker>();
+    for (let i = 0; i < 23; i++) files.set(`f${String(i).padStart(2, "0")}.ts`, "read");
+
+    const block = renderFileOperations(files);
+
+    expect(block.startsWith("<files>\nf00.ts (Read)")).toBe(true);
+    expect(block).toContain("f19.ts (Read)");
+    expect(block).not.toContain("f20.ts");
+    expect(block).toContain("[…3 files elided…]");
+  });
+
+  test("upsert replaces a model-written block instead of stacking two", () => {
+    const once = upsertFileOperations(
+      "did the thing\n\n<files>\nstale.ts (Read)\n</files>",
+      "<files>\nfresh.ts (Write)\n</files>",
+    );
+
+    expect(once).toBe("did the thing\n\n<files>\nfresh.ts (Write)\n</files>");
+    expect(upsertFileOperations(once, "")).toBe("did the thing");
   });
 });
 

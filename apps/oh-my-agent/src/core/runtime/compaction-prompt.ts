@@ -101,3 +101,69 @@ function safeJson(input: unknown): string {
     return "[unserializable input]";
   }
 }
+
+/** Which file tool touched what, as the summary reports it: a path written but
+ *  never read is `(Write)`, read and written is `(RW)`, read only is `(Read)`. */
+export type FileMarker = "read" | "write" | "rw";
+
+const FILE_TOOLS: Record<string, "read" | "write"> = {
+  read: "read",
+  write: "write",
+  edit: "write",
+};
+
+/** Files the messages touched, keyed by path. Mirrors omp's file-operation
+ *  tracking, but derived from the covered entries themselves instead of being
+ *  carried in entry details: compaction already holds the whole covered prefix,
+ *  so a scan costs nothing and needs no new field on CompactionEntry. */
+export function collectFileOperations(messages: readonly Message[]): Map<string, FileMarker> {
+  const files = new Map<string, FileMarker>();
+  for (const message of messages) {
+    for (const block of message.blocks ?? []) {
+      if (block.type !== "tool_use") continue;
+      const touched = FILE_TOOLS[block.name];
+      if (!touched) continue;
+      const path = pathOf(block.input);
+      if (!path) continue;
+      const seen = files.get(path);
+      files.set(path, seen && seen !== touched ? "rw" : (seen ?? touched));
+    }
+  }
+  return files;
+}
+
+export const MAX_SUMMARY_FILES = 20;
+
+const MARKER_TEXT: Record<FileMarker, string> = {
+  read: "(Read)",
+  write: "(Write)",
+  rw: "(RW)",
+};
+
+/** The `<files>` block, or "" when the covered region touched no files. Flat and
+ *  sorted rather than omp's folded tree: at 20 entries the tree only saves
+ *  width, and the paths are what the next turn needs. */
+export function renderFileOperations(files: ReadonlyMap<string, FileMarker>): string {
+  if (files.size === 0) return "";
+  const paths = [...files.keys()].sort();
+  const shown = paths.slice(0, MAX_SUMMARY_FILES);
+  const lines = shown.map((path) => `${path} ${MARKER_TEXT[files.get(path) ?? "read"]}`);
+  const elided = paths.length - shown.length;
+  if (elided > 0) lines.push(`[…${elided} files elided…]`);
+  return `<files>\n${lines.join("\n")}\n</files>`;
+}
+
+/** Attach the block to a summary, dropping any `<files>` the model wrote
+ *  itself: the appended list is derived from real tool calls, so a model-made
+ *  one can only be stale (omp's upsertFileOperations behaviour). */
+export function upsertFileOperations(summary: string, block: string): string {
+  const stripped = summary.replace(/<files>[\s\S]*?<\/files>\s*/g, "").trimEnd();
+  if (!block) return stripped;
+  return stripped ? `${stripped}\n\n${block}` : block;
+}
+
+function pathOf(input: unknown): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const path = (input as { path?: unknown }).path;
+  return typeof path === "string" && path.trim().length > 0 ? path : null;
+}

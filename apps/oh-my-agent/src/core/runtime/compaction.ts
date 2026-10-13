@@ -2,6 +2,11 @@ import type { Message } from "@chengchenccc/message";
 import type { SessionStore } from "../store/session-store.js";
 import type { CodingSessionEntry } from "../store/session-tree.js";
 import type { ContextSummarizer } from "./agent-loop-types.js";
+import {
+  collectFileOperations,
+  renderFileOperations,
+  upsertFileOperations,
+} from "./compaction-prompt.js";
 
 export interface CompactionResult {
   readonly entryId: string;
@@ -157,11 +162,22 @@ export async function compactSession(
   // If aborted during summarization, do not write a CompactionEntry.
   if (signal?.aborted) return { entryId: "", coveredIds: [] };
 
+  // The file list is appended here rather than asked of the model: it must be
+  // exact, and it is scanned over the WHOLE covered prefix (not just the new
+  // interval) so it stays cumulative without carrying details between entries —
+  // the entries are already in hand, so the scan is free.
+  const summaryWithFiles = upsertFileOperations(
+    summary,
+    renderFileOperations(
+      collectFileOperations(coveredEntries.map((m) => (m as { message: Message }).message)),
+    ),
+  );
+
   const result = await store.appendBatch(sessionId, {
     entries: [
       {
         type: "compaction",
-        summary,
+        summary: summaryWithFiles,
         coversEntryIds: coveredIds,
         ...(budget ? { tokensBefore, retainedEntryIds: retainedIds } : {}),
         createdAt: Date.now(),

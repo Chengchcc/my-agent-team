@@ -472,3 +472,65 @@ describe("compaction input budget", () => {
     expect(sent.slice(1).map((m) => m.text)).toEqual(["m9", "m10", "m11", "m12", "m13", "m14"]);
   });
 });
+
+describe("file operations in the appended summary", () => {
+  test("the covered region's files are listed, derived from its tool calls", async () => {
+    const { store, sid } = await setup([
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m1" },
+        createdAt: 1,
+      },
+      {
+        type: "message",
+        role: "assistant",
+        source: "assistant",
+        message: {
+          role: "assistant",
+          blocks: [{ type: "tool_use", id: "c1", name: "read", input: { path: "src/a.ts" } }],
+        },
+        createdAt: 2,
+      },
+      {
+        type: "message",
+        role: "tool",
+        source: "tool_result",
+        message: {
+          role: "tool",
+          blocks: [{ type: "tool_result", tool_use_id: "c1", content: "x" }],
+        },
+        createdAt: 3,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m4" },
+        createdAt: 4,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m5" },
+        createdAt: 5,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m6" },
+        createdAt: 6,
+      },
+    ]);
+
+    // 6 entries => a cut at 3, so the read call sits inside the covered prefix.
+    await compactSession(store, sid, async () => "SUMMARY");
+
+    expect(latestCompaction(await store.readBranch(sid))?.summary).toBe(
+      "SUMMARY\n\n<files>\nsrc/a.ts (Read)\n</files>",
+    );
+  });
+});
