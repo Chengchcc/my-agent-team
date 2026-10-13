@@ -1160,6 +1160,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
                   p.installedRef ? ["--allowed-pack", p.installedRef] : [],
                 ),
               ],
+              // Semantic search needs the embedding endpoint, and this server is
+              // its own process: it reads these two from its env. Both values are
+              // non-secret (a model id and a local URL), so writing them into the
+              // workspace file keeps that file's secret-free rule intact.
+              ...(config.embeddingModel
+                ? {
+                    env: {
+                      KNOWLEDGE_EMBEDDING_MODEL: config.embeddingModel,
+                      ...(config.embeddingBaseUrl
+                        ? { KNOWLEDGE_EMBEDDING_BASE_URL: config.embeddingBaseUrl }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
           ]
         : []),
