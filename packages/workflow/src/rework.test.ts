@@ -146,7 +146,12 @@ describe("deriveRework (the rows are the state)", () => {
     ]);
     expect([...derived.invalidated].sort()).toEqual(["build", "review"]);
     expect(derived.grants).toHaveLength(1);
-    expect(derived.grants[0]).toMatchObject({ to: "build", attempt: 2, exhausted: false, reason: "redo" });
+    expect(derived.grants[0]).toMatchObject({
+      to: "build",
+      attempt: 2,
+      exhausted: false,
+      reason: "redo",
+    });
     expect(derived.exhausted).toEqual([]);
   });
 

@@ -118,7 +118,9 @@ export function budgetGateNodeId(nodeId: string): string {
   return `${nodeId}#budget`;
 }
 
-export function budgetGateOf(output: Record<string, unknown> | null | undefined): BudgetGateRecord | undefined {
+export function budgetGateOf(
+  output: Record<string, unknown> | null | undefined,
+): BudgetGateRecord | undefined {
   const gate = output?.budgetGate;
   if (typeof gate !== "object" || gate === null) return undefined;
   const record = gate as Record<string, unknown>;
