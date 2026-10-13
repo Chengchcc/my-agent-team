@@ -36,6 +36,17 @@ export const SUMMARIZATION_SYSTEM_PROMPT = [
 
 const FIRST_TASK = "Summarize the conversation inside <conversation>.";
 
+/** Used from the second compaction on. The previous summary is the only thing a
+ *  later turn will see of the region that precedes the new interval, so the
+ *  update must cover BOTH — and must not describe itself as an update, because
+ *  the reader never sees the split. */
+const UPDATE_TASK = [
+  "The conversation inside <conversation> continues the work described by <previous-summary>.",
+  "Write ONE summary covering BOTH: keep everything from the previous summary that is still",
+  "true, fold in the new work, and drop whatever the new work supersedes. Write it as a single",
+  "standalone summary — never mention that it updates an earlier one.",
+].join("\n");
+
 /** Render the transcript the summarizer reads. Role-tagged and line-oriented:
  *  the summarizer needs to see WHO said what and which tool produced which
  *  result, but nothing here is replayed to a provider, so it does not have to
@@ -68,13 +79,18 @@ export function serializeConversation(messages: readonly Message[]): string {
 }
 
 /** The messages handed to the summarizer model. */
-export function buildSummarizationRequest(messages: readonly Message[]): Message[] {
+export function buildSummarizationRequest(
+  messages: readonly Message[],
+  opts?: { previousSummary?: string },
+): Message[] {
+  const previous = opts?.previousSummary?.trim();
+  const transcript = `<conversation>\n${serializeConversation(messages)}\n</conversation>`;
+  const body = previous
+    ? `${UPDATE_TASK}\n\n<previous-summary>\n${previous}\n</previous-summary>\n\n${transcript}`
+    : `${FIRST_TASK}\n\n${transcript}`;
   return [
     { role: "system", text: SUMMARIZATION_SYSTEM_PROMPT },
-    {
-      role: "user",
-      text: `${FIRST_TASK}\n\n<conversation>\n${serializeConversation(messages)}\n</conversation>`,
-    },
+    { role: "user", text: body },
   ];
 }
 

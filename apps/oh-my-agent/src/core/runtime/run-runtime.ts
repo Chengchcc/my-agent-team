@@ -539,8 +539,10 @@ function buildModelPlumbing(
   // surprises. No summaryModel config until real cost data demands one. The
   // request shape (system prompt + `<conversation>` wrapper) lives in
   // compaction-prompt.ts so it is testable without a store or a model.
-  const summarize: ContextSummarizer = async (messages, signal) => {
-    const summaryMessages = buildSummarizationRequest(messages);
+  const summarize: ContextSummarizer = async (messages, signal, opts) => {
+    const summaryMessages = buildSummarizationRequest(messages, {
+      previousSummary: opts?.previousSummary,
+    });
     const timeoutSignal = AbortSignal.timeout(modelTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     const stream = deps.modelRuntime.stream(

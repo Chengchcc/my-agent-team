@@ -94,3 +94,26 @@ describe("buildSummarizationRequest", () => {
     expect(request[1]?.text).toContain("<conversation>\n\n</conversation>");
   });
 });
+
+describe("buildSummarizationRequest from the second compaction on", () => {
+  test("carries the previous summary and asks for one summary covering both", () => {
+    const request = buildSummarizationRequest([msg("user", { text: "new work" })], {
+      previousSummary: "OLD SUMMARY",
+    });
+
+    const user = request[1]?.text ?? "";
+    expect(user).toContain("<previous-summary>\nOLD SUMMARY\n</previous-summary>");
+    expect(user).toContain("<conversation>\n[user]\nnew work\n</conversation>");
+    // The reader never sees the split, so the update must not mention itself.
+    expect(user).toContain("covering BOTH");
+    expect(user).toContain("never mention that it updates an earlier one");
+  });
+
+  test("a blank previous summary falls back to the first-compaction shape", () => {
+    const user =
+      buildSummarizationRequest([msg("user", { text: "x" })], { previousSummary: "   " })[1]
+        ?.text ?? "";
+
+    expect(user).not.toContain("<previous-summary>");
+  });
+});

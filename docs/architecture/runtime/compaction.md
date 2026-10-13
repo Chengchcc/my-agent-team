@@ -58,7 +58,9 @@ tags: [oma, runtime, context, models]
 
 摘要请求的形状固定在 `compaction-prompt.ts`（可脱离 store 与模型单测）：一条 system 提示（保留决策与理由、当前状态、确切标识符；用会话自己的语言写）+ 一条 user 消息，把转录包在 `<conversation>…</conversation>` 里。转录由 `serializeConversation` 渲染成角色标记的文本：`[user]` / `[assistant]` / `[tool]`，tool_use 渲染成 `[tool_use <name>] <input json>`，tool_result 渲染成 `[tool_result (error)] <content>`。**thinking 不渲染**（`ThinkingBlock` 自己的契约：reasoning 永不当会话文本 ✓）、**图片只留 `[image <mediaType>]` 标记**（不外泄 base64）。包一层 `<conversation>` 是为了让模型知道「这是要读的文档，不是要接着聊的对话」。
 
-原始 message 条目**不删**。摘要的生成用的是本次 Run 自己的模型与凭证，带一个模型调用同款的死线（默认 300s）；这里没有"把上一版摘要再喂进去迭代更新"的协议，每份摘要都是独立生成的。
+原始 message 条目**不删**；`coversEntryIds` 是**累积**的（重建只认最新一条 compaction，所以覆盖一旦出现缺口，那些条目就会以原文回到模型面前）。
+
+**从第二次起是「增量 + 更新」，不是重摘全前缀**：只把**上次覆盖点之后**的条目交给摘要（`coveredEntries` 减去上一版 `coveredIds`），上一版摘要的正文经 `opts.previousSummary` 单独送达，请求改用 `UPDATE_TASK`，并要求「写一份同时覆盖两者、但不提自己在更新的独立摘要」（对齐 omp 的 `compaction-update-summary.md` 形状）。于是摘要输入与成本随**新增工作量**增长，而不再随会话总长线性增长；被替换掉的旧区域由上一版摘要的正文继续承载。
 
 两处守卫：
 
@@ -90,7 +92,10 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 ## 已知缺口
 
 - `triggerRatio` 与 `limit × 0.7` 的关系是硬编码的，不能按工作区调。
-- 提示词**只有一套**：首次压缩与「带着上一版摘要的增量压缩」不分（那需要先把摘要输入缩到未覆盖区间，见下一步）。因此也没有 `<previous-summary>` 通道。
+- 摘要**只能用本次 Run 自己的模型与凭证**：没有更便宜的专用摘要模型，也没有多候选重试（omp 两者都有），并共用模型调用同款的死线（默认 300s）。
+- 序列化**不做长度截断**：一条超大 tool_result 会整条进摘要输入（omp 对 tool_result 做 head+tail 截断、对 tool_use 参数设单个与单次上限；等真实大工件把摘要撑爆再加，加的位置就是 `serializeConversation`）。
+- 摘要里没有**文件操作段**：omp 把 read/write/edit 累积成 `<files>` 折叠目录树（`(Read)/(RW)/(Write)`，上限 20 行带省略行）贴在摘要末尾；我们没做，切点一旦盖掉「改过哪些文件」就只能指望模型自己记得。
+- 切点若落在**一轮对话中间**，我们没有 omp 的 split-turn 处理（历史摘要 + 轮前缀摘要，用 `**Turn Context (split turn):**` 合并）；现在只把切点前移到 assistant 之前以保证 tool 配对完整。
 - 摘要失败只写调试日志，终端上没有任何可见信号。
 
 ## 相关页
