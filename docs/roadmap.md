@@ -90,6 +90,6 @@
 ## 明确不做的
 
 - `workflowRef.repo` 的 git loader：定义只从本地目录（`config.dataDir/workflows`）读，请求里的 `repo` 现在可选且被忽略。按请求去 clone 任意仓库是个安全面，要用时把 loader 与这个字段一起带回来。
-- omp `CustomTool` 的模块形状兼容（ArkType 三栖 schema 加 `CustomToolAPI` 工厂，等于移植半个 pi 运行时）。
+- **上下文降级（context promotion / 中途换大窗模型）。** omp 在溢出时**优先**换成更大窗口的模型重试、不压缩；本仓库**不做**：run 的模型由后端冻结在快照里（`AgentRunSnapshot.model` + `configRevision`），中途换模型要么改子进程协议（快照、终态、表面三处都得带上模型变更），要么退化成「后端拿同一个输入重派一个新 run」（那才是适配本仓库的形态：每次 run 本来就新起子进程）。当前已有三条防线——按**储备量**推出的触发线（大窗不再白留 60k）、一次性溢出恢复、以及**截断当步就压缩**——溢出已属罕见，所以先只把路留在这里。真要做，就先做「按 agent 配一个更大窗口的兜底模型」+「换模型必须在表面可见」（否则是费用惊喜），并只在实测反复出现溢出恢复时才启动。
 - Claude 的 hooks.json 协议、commands、agents、LSP。
 - jiti 之类的运行时转译：插件加载一律用 Bun 原生 `import()`。
