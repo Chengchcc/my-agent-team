@@ -101,7 +101,7 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 - split-turn 只是**提示词级**的：切点落在轮中间时，由同一份摘要自行收尾一个 `**Turn Context (split turn):**` 段。omp 则为轮前缀额外跑**第二次摘要**再合并 —— 两者覆盖同一批消息，差别只在呈现，所以这里省掉那次调用。代价是：提示词只是「要求」模型这么做，它可以不照做；omp 的两段是结构化保证的。
 - 摘要**与主模型共用同一个模型与输出上限**（`maxTokens`）：2026-10-13 真机（deepseek）实测——把**模型自己的**输出上限压到 64 时，摘要调用被 thinking token 吃光预算、**返回空文本**。**代码救不了这一半**：逐调用的上限不可能越过模型声明的上限（`summaryMaxTokens` 只保证「够写摘要、且永不超过模型」）。已修的是**沉默那一半**：空摘要现在写成 `[empty summary: the model returned no text — check this model's output cap]`，让产物自己说明原因（运行仍然报成功，因为压缩本就是尽力而为）。
 - 摘要转录有**两份实现**：后端的 `renderMessageForSummary`（已在 2026-10-13 修好工具块 ✓）与 oma 的 `serializeConversation`。出现第三个消费者时把两者提到 `@chengchenccc/message` 共用（那时再动包，现在只是一处小重复）。
-- **thinking + 压缩的组合会 400（真机发现，2026-10-13，deepseek `deepseek-v4-pro`）**：deepseek 在 thinking 模式下要求把上一条 assistant 的 `reasoning_content` 回传，而压缩会把带 reasoning 的消息换掉 ⇒ 实测 `status=400 The reasoning_content in the thinking mode must be passed back to the API`，三次里两次，**都发生在压缩之后**（未做隔离实验，因果未定）。把 `reasoning: false` + `thinking.defaultLevel: off` 都配上**也没能规避**。omp 对这类问题的解法是 **provider-native replay**（`providerReplayThroughEntryId` 等），我们没有。
+- **（2026-10-13 已修，留作教训）** 压缩会改变**哪些 assistant 回合被重发**，而 deepseek 在 thinking 模式下硬性要求带上该回合的 `reasoning_content` —— 真机三次里两次 400。根因**不在压缩**，在**编码器**：`convertMessages` 静默丢弃了 `thinking` 块，请求方向从不发 `reasoning_content`（响应方向却会解析它）。已在编码器按 deepseek 方言补上并加测试。留这一条，是因为**是压缩把它暴露出来的**：任何「重放历史」的机制都会踩到同一类 provider 契约。
 
 ## 相关页
 

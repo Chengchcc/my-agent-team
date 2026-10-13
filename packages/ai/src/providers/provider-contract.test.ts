@@ -404,6 +404,64 @@ describe("Provider contract — wire serialization", () => {
     expect(capture.getBody()?.max_tokens).toBe(512);
   });
 
+  test("deepseek re-sends an assistant turn's reasoning_content", async () => {
+    // Live 2026-10-13: deepseek 400s with "The reasoning_content in the
+    // thinking mode must be passed back to the API" whenever a thinking
+    // assistant turn (typically a tool-call turn) is replayed without it.
+    const model: Model = {
+      ...openaiModel,
+      compat: { thinkingFormat: "deepseek" as const, maxTokensField: "max_tokens" as const },
+    };
+    const provider = makeProvider(model);
+    const capture = mockFetchCapture(sseRes([DONE]));
+
+    await collectChunks(
+      provider.stream(
+        model,
+        [
+          { role: "user", text: "read x" },
+          {
+            role: "assistant",
+            blocks: [
+              { type: "thinking", text: "I should read x." },
+              { type: "tool_use", id: "c1", name: "read", input: { path: "x" } },
+            ],
+          },
+          { role: "tool", blocks: [{ type: "tool_result", tool_use_id: "c1", content: "ok" }] },
+        ],
+        {},
+      ),
+    );
+    capture.restore();
+
+    const messages = (capture.getBody()?.messages ?? []) as Array<Record<string, unknown>>;
+    const assistant = messages.find((m) => m.tool_calls);
+    expect(assistant?.reasoning_content).toBe("I should read x.");
+  });
+
+  test("a non-deepseek dialect does not grow a reasoning_content field", async () => {
+    const model: Model = { ...openaiModel, compat: { thinkingFormat: "qwen" as const } };
+    const provider = makeProvider(model);
+    const capture = mockFetchCapture(sseRes([DONE]));
+
+    await collectChunks(
+      provider.stream(
+        model,
+        [
+          {
+            role: "assistant",
+            blocks: [{ type: "thinking", text: "nope" }],
+          },
+        ],
+        {},
+      ),
+    );
+    capture.restore();
+
+    const messages = (capture.getBody()?.messages ?? []) as Array<Record<string, unknown>>;
+    expect(messages[0]?.reasoning_content).toBeUndefined();
+  });
+
   test("openai-responses serializes responseFormat as text.format (F5)", async () => {
     const responsesModel: Model = { ...openaiModel, api: "openai-responses" };
     const provider = makeProvider(responsesModel);
