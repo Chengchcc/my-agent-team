@@ -36,6 +36,21 @@ export const SUMMARIZATION_SYSTEM_PROMPT = [
 
 const FIRST_TASK = "Summarize the conversation inside <conversation>.";
 
+/** A compaction cut can land mid-turn, and it usually does: the trigger fires
+ *  the moment the context crosses the line, wherever that happens to be. The
+ *  retained tail then starts inside a turn whose opening message the summary
+ *  replaced, so the summary has to carry that turn's state or the continuation
+ *  silently loses its own request.
+ *
+ *  omp answers this with a SECOND summarization pass over the turn prefix and
+ *  merges the two under this heading. One pass is enough here: the transcript
+ *  already shows which user message opened the unfinished turn, so the model can
+ *  label it itself — and it does not cost a whole extra model call. */
+const SPLIT_TURN_HINT =
+  "If the transcript ends in the middle of a turn — its last messages belong to a user turn that has\n" +
+  "not finished, typically ending on a tool result — close with a short section headed\n" +
+  "`**Turn Context (split turn):**` describing that turn's state and what it still has to do.";
+
 /** Used from the second compaction on. The previous summary is the only thing a
  *  later turn will see of the region that precedes the new interval, so the
  *  update must cover BOTH — and must not describe itself as an update, because
@@ -85,9 +100,10 @@ export function buildSummarizationRequest(
 ): Message[] {
   const previous = opts?.previousSummary?.trim();
   const transcript = `<conversation>\n${serializeConversation(messages)}\n</conversation>`;
+  const task = `${previous ? UPDATE_TASK : FIRST_TASK}\n${SPLIT_TURN_HINT}`;
   const body = previous
-    ? `${UPDATE_TASK}\n\n<previous-summary>\n${previous}\n</previous-summary>\n\n${transcript}`
-    : `${FIRST_TASK}\n\n${transcript}`;
+    ? `${task}\n\n<previous-summary>\n${previous}\n</previous-summary>\n\n${transcript}`
+    : `${task}\n\n${transcript}`;
   return [
     { role: "system", text: SUMMARIZATION_SYSTEM_PROMPT },
     { role: "user", text: body },

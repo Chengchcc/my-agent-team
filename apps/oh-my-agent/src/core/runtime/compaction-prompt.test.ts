@@ -163,6 +163,20 @@ describe("file operations in summaries", () => {
   });
 });
 
+describe("split-turn guidance", () => {
+  test("both request shapes ask for the turn-context section", () => {
+    const first = buildSummarizationRequest([msg("user", { text: "x" })])[1]?.text ?? "";
+    const update =
+      buildSummarizationRequest([msg("user", { text: "x" })], { previousSummary: "OLD" })[1]
+        ?.text ?? "";
+
+    for (const text of [first, update]) {
+      expect(text).toContain("**Turn Context (split turn):**");
+      expect(text).toContain("has\nnot finished");
+    }
+  });
+});
+
 describe("buildSummarizationRequest from the second compaction on", () => {
   test("carries the previous summary and asks for one summary covering both", () => {
     const request = buildSummarizationRequest([msg("user", { text: "new work" })], {
