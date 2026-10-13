@@ -505,6 +505,18 @@ function mountedProvidesLeaf(
   return false;
 }
 
+/** Output cap for one summarization call: enough to write a summary, never more
+ *  than the model itself allows. NOTE what this can and cannot fix — the run's
+ *  model and the summarizer are the same entry, so lowering a model's cap
+ *  lowers the summary's ceiling too, and NO per-call value can raise it above
+ *  the model's own (live 2026-10-13: a 64-token model cap starved summaries to
+ *  empty text by construction; the fixable part was the silence, not this). */
+export const SUMMARY_MAX_TOKENS = 4_096;
+
+export function summaryMaxTokens(modelMaxOutputTokens: number): number {
+  return Math.min(SUMMARY_MAX_TOKENS, modelMaxOutputTokens);
+}
+
 /** Model plumbing stage: everything bound to the RUN's model — display
  *  identity, the compaction summarizer (same provider/credentials, no
  *  catalog-first surprises), the context budget from the run model's
@@ -549,7 +561,10 @@ function buildModelPlumbing(
       currentModel.providerId,
       currentModel.modelId,
       summaryMessages,
-      { signal: combined },
+      {
+        signal: combined,
+        maxTokens: summaryMaxTokens(currentModel.maxOutputTokens),
+      },
     );
     const iter = stream[Symbol.asyncIterator]();
     let text = "";
@@ -562,7 +577,11 @@ function buildModelPlumbing(
     } finally {
       if (!combined.aborted) await iter.return?.().catch(() => {});
     }
-    return text || "[empty summary]";
+    // An empty answer is a configuration symptom more often than a model one (a
+    // tiny output cap on this very model, a prompt the model refused), and the
+    // stored summary is the only place anyone would ever see it: the run
+    // reports success either way. Say what happened where it will be read.
+    return text || "[empty summary: the model returned no text — check this model's output cap]";
   };
 
   // ContextBudget from the RUN model's context window: compaction triggers

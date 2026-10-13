@@ -111,7 +111,7 @@ function buildRequest(
   const body: Record<string, unknown> = {
     model: model.id,
     messages: convertMessages(messages, compat),
-    [compat.maxTokensField]: Math.min(model.maxTokens, MAX_OUTPUT_TOKENS),
+    [compat.maxTokensField]: Math.min(opts?.maxTokens ?? model.maxTokens, MAX_OUTPUT_TOKENS),
     stream: true,
     stream_options: { include_usage: true },
   };

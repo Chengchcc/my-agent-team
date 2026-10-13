@@ -394,6 +394,16 @@ describe("Provider contract — wire serialization", () => {
     expect(body!.response_format).toEqual({ type: "json_object" });
   });
 
+  test("a per-call maxTokens lowers the wire cap", async () => {
+    const provider = makeProvider(openaiModel);
+    const capture = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      provider.stream(openaiModel, [{ role: "user", text: "hi" }], { maxTokens: 512 }),
+    );
+    capture.restore();
+    expect(capture.getBody()?.max_tokens).toBe(512);
+  });
+
   test("openai-responses serializes responseFormat as text.format (F5)", async () => {
     const responsesModel: Model = { ...openaiModel, api: "openai-responses" };
     const provider = makeProvider(responsesModel);
