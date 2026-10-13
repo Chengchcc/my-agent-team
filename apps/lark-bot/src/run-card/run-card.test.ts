@@ -38,7 +38,7 @@ function cardStateOf(spec: {
   output?: string;
   tools?: ReadonlyArray<{ toolName: string; activity?: string; status?: string }>;
   ask?: { callId: string; questions: readonly unknown[] };
-  approval?: { callId: string; toolName?: string; input?: unknown };
+  approval?: { callId: string; toolName?: string; input?: unknown; sandboxed?: boolean };
   todos?: readonly unknown[];
   settled?: "complete" | "error" | "cancelled";
   error?: string;
@@ -609,6 +609,29 @@ describe("tool activity (surfaces display, never invent)", () => {
 
 describe("dedicated ask / approval card", () => {
   const meta = { runId: "r1", startedAt: Date.now(), webUrl: "http://web/runs/r1" };
+
+  test("the card states the sandbox truth, and stays silent when it is unknown", () => {
+    const card = (sandboxed?: boolean): string =>
+      JSON.stringify(
+        renderCard(
+          cardStateOf({
+            approval: {
+              callId: "c1",
+              toolName: "bash",
+              input: { command: "echo hi" },
+              ...(sandboxed === undefined ? {} : { sandboxed }),
+            },
+          }),
+          meta,
+        ),
+      );
+    // Two different decisions: the human must know the blast radius.
+    expect(card(true)).toContain("将在 OS 沙箱内执行");
+    expect(card(false)).toContain("无 OS 沙箱");
+    // An agent that never said (omp, any future harness) gets no claim at all —
+    // the card must not invent "unsandboxed" either.
+    expect(card()).not.toContain("OS 沙箱");
+  });
 
   test("a parked ask replaces the run card with an orange form card", () => {
     const s = cardStateOf({

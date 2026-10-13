@@ -174,6 +174,9 @@ describe("the card state from a chat turn", () => {
       callId: "call-9",
       kind: "approval",
       toolName: "bash",
+      // The security context has to survive payload → state: a card that drops
+      // it asks the human to guess the blast radius of the command.
+      sandboxed: false,
     });
     expect(open?.pendingAction?.prompt).toContain("rm -rf x");
 
