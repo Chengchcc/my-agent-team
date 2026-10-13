@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -97,6 +97,30 @@ describe("buildVectorIndex / readVectorIndex", () => {
 
       writeFileSync(indexFilePath(dir), "not json");
       expect(readVectorIndex(dir, { model: "ollama/old", sourceRev: "rev-1" }).state).toBe("stale");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a content change invalidates the index even when no sourceRev is known", async () => {
+    const dir = packDir();
+    try {
+      await buildVectorIndex({
+        packDir: dir,
+        model: "ollama/m",
+        sourceRev: null,
+        pages: [{ path: "a.md", text: "first" }],
+        embed: fakeEmbed,
+      });
+      // No caller-supplied revision: the signature is the only staleness signal.
+      expect(readVectorIndex(dir, { model: "ollama/m" }).state).toBe("ready");
+
+      writeFileSync(join(dir, "a.md"), "second, longer content");
+      expect(readVectorIndex(dir, { model: "ollama/m" }).state).toBe("stale");
+
+      mkdirSync(join(dir, "sub"), { recursive: true });
+      writeFileSync(join(dir, "sub/b.md"), "another file");
+      expect(readVectorIndex(dir, { model: "ollama/m" }).reason).toContain("content changed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

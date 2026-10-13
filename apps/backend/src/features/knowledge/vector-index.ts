@@ -19,7 +19,16 @@
  * persisted: a crash leaves only a temp file, and a failure is reported to the
  * caller with its reason so the caller can say why it fell back to lexical.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  type Dirent,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 export const INDEX_DIR = ".embedding";
@@ -44,8 +53,13 @@ export interface VectorIndexFile {
    *  a different vector space, and the vectors are not comparable. */
   model: string;
   dim: number;
-  /** The pack revision the content came from (KnowledgePackRow.sourceRev). */
+  /** The pack revision the content came from (KnowledgePackRow.sourceRev),
+   *  null when the caller has no database row (the MCP tool process). */
   sourceRev: string | null;
+  /** Cheap content signature of the pack directory at build time. This is the
+   *  staleness signal both callers can compute locally, so a changed pack is
+   *  never ranked with stale vectors even where sourceRev is unknown. */
+  signature: string;
   builtAt: number;
   chunks: IndexChunk[];
 }
@@ -57,6 +71,41 @@ export interface IndexLookup {
   index?: VectorIndexFile;
   /** Why it is not ready, for the caller to report. */
   reason?: string;
+}
+
+/** files:bytes:newest-mtime over the pack, skipping what listPages skips.
+ *  A heuristic (a same-size, same-mtime edit slips through) but one both the
+ *  backend and the MCP tool process can compute without a database row. */
+export function contentSignature(root: string): string {
+  let files = 0;
+  let bytes = 0;
+  let newest = 0;
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        try {
+          const st = statSync(full);
+          files += 1;
+          bytes += st.size;
+          newest = Math.max(newest, st.mtimeMs);
+        } catch {
+          /* unreadable: not part of the signature */
+        }
+      }
+    }
+  };
+  walk(root);
+  return `${files}:${bytes}:${Math.round(newest)}`;
 }
 
 export function indexFilePath(packDir: string): string {
@@ -86,7 +135,10 @@ export function chunkText(
 
 export function readVectorIndex(
   packDir: string,
-  expected: { model: string; sourceRev: string | null },
+  expected: {
+    model: string /** undefined = caller cannot know it (MCP process) */;
+    sourceRev?: string | null;
+  },
 ): IndexLookup {
   let raw: string;
   try {
@@ -106,7 +158,11 @@ export function readVectorIndex(
       reason: `index was built with ${parsed.model}, now configured ${expected.model}`,
     };
   }
-  if (parsed.sourceRev !== expected.sourceRev) {
+  const signature = contentSignature(packDir);
+  if (parsed.signature !== signature) {
+    return { state: "stale", reason: "pack content changed since the index was built" };
+  }
+  if (expected.sourceRev !== undefined && parsed.sourceRev !== expected.sourceRev) {
     return {
       state: "stale",
       reason: `index was built from revision ${parsed.sourceRev ?? "(none)"}, content is now ${expected.sourceRev ?? "(none)"}`,
@@ -149,6 +205,7 @@ export async function buildVectorIndex(opts: {
     model: opts.model,
     dim,
     sourceRev: opts.sourceRev,
+    signature: contentSignature(opts.packDir),
     builtAt: Date.now(),
     chunks: wanted.map((chunk, i) => ({ ...chunk, vector: vectors[i] ?? [] })),
   };

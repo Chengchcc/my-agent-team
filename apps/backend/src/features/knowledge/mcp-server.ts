@@ -99,6 +99,8 @@ function* walkFiles(dir: string): Generator<string> {
 /** The same frontmatter contract the bridge reads when it builds index.md —
  *  one parser, so the injected index and this server can never disagree about
  *  a file's title, description or tags. */
+import { semanticSearch, semanticSearchConfigFromEnv } from "./semantic-search.js";
+
 const server = new McpServer({ name: "knowledge", version: "0.1.0" });
 
 server.registerTool(
@@ -118,6 +120,41 @@ server.registerTool(
     const kw = keywords.filter((k) => k.trim() !== "");
     if (kw.length === 0) return { content: [{ type: "text", text: "keywords required" }] };
     const tagSet = new Set((tags ?? []).map((t) => t.toLowerCase()));
+
+    // Semantic first when an embedding endpoint is configured AND no tag filter
+    // is in play — the tag contract is a filter this path does not implement, so
+    // a tagged query keeps the keyword search below rather than silently
+    // ignoring the filter.
+    let fallbackNote = "";
+    const semanticConfig = tagSet.size === 0 ? semanticSearchConfigFromEnv(process.env) : null;
+    if (tagSet.size === 0) {
+      const semantic = await semanticSearch({
+        root,
+        config: semanticConfig,
+        // No database row in this process; the index signature covers content.
+        sourceRev: null,
+        query: kw.join(" "),
+        limit: MAX_RESULTS,
+      });
+      if (semantic.mode === "semantic") {
+        if (semantic.hits.length === 0) {
+          return { content: [{ type: "text", text: "No knowledge matches found." }] };
+        }
+        const body = semantic.hits
+          .map(
+            (hit) =>
+              `### ${hit.path} (score ${hit.score.toFixed(3)})\n${hit.text.slice(0, MAX_LINE * 3)}`,
+          )
+          .join("\n\n");
+        return { content: [{ type: "text", text: body }] };
+      }
+      // Say which path ran when the operator DID configure an endpoint and it
+      // could not be used: "no matches" and "embeddings are down" are different
+      // answers. An unconfigured install stays silent — that is the documented
+      // degradation, and a note on every call would be pure noise.
+      fallbackNote = semanticConfig ? `[keyword search: ${semantic.reason}]\n` : "";
+    }
+
     const results: string[] = [];
     outer: for (const file of walkFiles(root)) {
       const realFile = realpathSafe(file);
@@ -146,8 +183,8 @@ server.registerTool(
       if (results.length >= MAX_RESULTS) break;
     }
     if (results.length === 0)
-      return { content: [{ type: "text", text: "No knowledge matches found." }] };
-    return { content: [{ type: "text", text: results.join("\n\n") }] };
+      return { content: [{ type: "text", text: `${fallbackNote}No knowledge matches found.` }] };
+    return { content: [{ type: "text", text: fallbackNote + results.join("\n\n") }] };
   },
 );
 
