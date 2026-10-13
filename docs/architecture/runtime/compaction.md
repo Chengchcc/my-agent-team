@@ -18,6 +18,7 @@ tags: [oma, runtime, context, models]
 
 - `apps/oh-my-agent/src/core/runtime/compaction.ts` — `findCut`、`adjustCutForToolPairs`、`latestCompaction`、`compactSession`
 - `apps/oh-my-agent/src/core/runtime/compaction-prompt.ts` — 摘要请求的形状：`SUMMARIZATION_SYSTEM_PROMPT`、`serializeConversation`、`buildSummarizationRequest`
+- `apps/oh-my-agent/src/core/runtime/context-estimate.ts` — token 估算、usage 锚定、静默溢出判据、以及触发储备量 `compactReserveTokens` / `triggerRatioFor`
 - `apps/oh-my-agent/src/core/runtime/agent-loop-runner.ts` — 三个自动触发点与 `runCompactionRecovery`
 - `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — 摘要闭包与 `contextBudget`
 - `apps/oh-my-agent/src/core/runtime/agent-loop-run.ts` — `readBranchMessages`，上下文重建
@@ -31,14 +32,14 @@ tags: [oma, runtime, context, models]
 
 | 触发 | 条件 | 说明 |
 |---|---|---|
-| 阈值 | 活跃上下文估算超过 `limit × 0.7` | 估算只算**还活着**的条目（已被上次 compaction 覆盖的前缀不算），摘要本身也计 token |
+| 阈值 | 活跃上下文估算超过 `limit × triggerRatio` | 估算只算**还活着**的条目（已被上次 compaction 覆盖的前缀不算），摘要本身也计 token |
 | 静默溢出 | provider 收下了超长请求，靠 `usage` 与 `stopReason` 判定 | 同一个 turn 内压缩后重试该次模型调用 |
 | provider 溢出错误 | `ProviderError.kind === "overflow"` | 同一个 turn 内压缩后重试一次 |
 | 手动 | TUI 的 `/compact` | 直接调 Run 的 `compact()` |
 
 静默溢出与 provider 溢出错误共用一个一次性守卫 `overflowCompacted`：一个 Run 只消费一次。阈值触发的没有守卫，因为它随时可以再触发，安全性由下面的"无进展守卫"保证。
 
-`limit` 是本次 Run 模型的 `contextWindow`，`triggerRatio` 硬编码 0.7。恢复时压缩的目标是 `limit × min(1, triggerRatio)`——压到触发线而不是压到上限，否则刚压完就还在阈值之上，下一轮会再压一次、把上一轮刚保留的尾巴也吃掉。
+`limit` 是本次 Run 模型的 `contextWindow`。`triggerRatio` **不再硬编码**，而是由一个**储备量**推出来（`context-estimate.ts` 的 `triggerRatioFor`）：触发线 = `window − reserve`，`reserve = clamp(0.15 × window, 下限 16384, 上限 window/2)` —— 大窗按 15% 留、中窗按 16384 留、小到装不下下限的窗**最多让出一半**（这一条是相对 omp 的**有意偏离**：omp 在小窗退回 15% 比例，而它的窗口现实中都很大；oma 还要驱动小窗口的本地模型，而储备要覆盖「下一轮输出 + 它触发的工具结果」，这两样都不随窗口缩小；想回到比例语义就显式配 `compactReserveTokens`）。旋钮：工作区设置 `compactReserveTokens` 或环境变量 `OMA_COMPACT_RESERVE_TOKENS`（显式值被尊重，只要还给窗口留出空间）。恢复时压缩的目标是 `limit × min(1, triggerRatio)`——压到触发线而不是压到上限，否则刚压完就还在阈值之上，下一轮会再压一次、把上一轮刚保留的尾巴也吃掉。
 
 ## 切点算法
 
@@ -91,7 +92,7 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 
 ## 已知缺口
 
-- `triggerRatio` 与 `limit × 0.7` 的关系是硬编码的，不能按工作区调。
+- 触发线由储备量推出、且可按工作区/环境覆盖；但**估算器仍未用 provider 的 `usage` 校准**（`usageAnchor` 只用于给「当前上下文」定标，不反馈修正每条消息的估算），所以储备只能靠保守取值兜底。
 - 摘要**只能用本次 Run 自己的模型与凭证**：没有更便宜的专用摘要模型，也没有多候选重试（omp 两者都有），并共用模型调用同款的死线（默认 300s）。
 - 序列化**不做长度截断**：一条超大 tool_result 会整条进摘要输入（omp 对 tool_result 做 head+tail 截断、对 tool_use 参数设单个与单次上限；等真实大工件把摘要撑爆再加，加的位置就是 `serializeConversation`）。
 - 摘要里没有**文件操作段**：omp 把 read/write/edit 累积成 `<files>` 折叠目录树（`(Read)/(RW)/(Write)`，上限 20 行带省略行）贴在摘要末尾；我们没做，切点一旦盖掉「改过哪些文件」就只能指望模型自己记得。

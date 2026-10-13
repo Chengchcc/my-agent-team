@@ -86,6 +86,10 @@ export interface ProjectSettings {
    *  session first, "ralph" runs the build loop (one work-queue item per fresh
    *  session). Absent = "prompt". */
   loopAction?: "prompt" | "compact" | "reset" | "ralph";
+  /** Tokens held back for the next model call, which is what the compaction
+   *  trigger keys off (env OMA_COMPACT_RESERVE_TOKENS). Absent = the derived
+   *  default: 16384 or 15% of the window, whichever the window can spare. */
+  compactReserveTokens?: number;
   /** Read-side tool-result pruning: old tool output outside the protect
    *  window is replaced by a short summary before each model call (a lighter
    *  touch than compaction). Absent = pruning OFF — the loop only prunes when
@@ -146,6 +150,13 @@ export function loadProjectSettings(root: string): ProjectSettings {
       result.maxSteps = parsed.maxSteps;
     if ("modelTimeoutMs" in parsed && typeof parsed.modelTimeoutMs === "number") {
       result.modelTimeoutMs = parsed.modelTimeoutMs;
+    }
+    if (
+      "compactReserveTokens" in parsed &&
+      typeof parsed.compactReserveTokens === "number" &&
+      parsed.compactReserveTokens > 0
+    ) {
+      result.compactReserveTokens = parsed.compactReserveTokens;
     }
     if ("mcpTimeoutMs" in parsed && typeof parsed.mcpTimeoutMs === "number") {
       result.mcpTimeoutMs = parsed.mcpTimeoutMs;
@@ -290,6 +301,9 @@ export function hasProjectSettings(root: string): boolean {
 export interface RuntimeKnobs {
   maxSteps?: number;
   modelTimeoutMs?: number;
+  /** Tokens held back for the next model call: the compaction trigger reserve
+   *  (see context-estimate.ts). Undefined = derive it from the window. */
+  compactReserveTokens?: number;
   mcpTimeoutMs?: number;
   askTimeoutMs?: number;
   maxToolTimeoutMs?: number;
@@ -345,6 +359,9 @@ export function resolveRuntimeKnobs(
   if (maxSteps !== undefined) knobs.maxSteps = maxSteps;
   const modelTimeoutMs = s.modelTimeoutMs ?? envPositive(env, "OMA_MODEL_TIMEOUT_MS");
   if (modelTimeoutMs !== undefined) knobs.modelTimeoutMs = modelTimeoutMs;
+  const compactReserveTokens =
+    s.compactReserveTokens ?? envPositive(env, "OMA_COMPACT_RESERVE_TOKENS");
+  if (compactReserveTokens !== undefined) knobs.compactReserveTokens = compactReserveTokens;
   const mcpTimeoutMs = s.mcpTimeoutMs ?? envNumber(env, "OMA_MCP_TIMEOUT_MS");
   if (mcpTimeoutMs !== undefined) knobs.mcpTimeoutMs = mcpTimeoutMs;
   const maxToolTimeoutMs = s.maxToolTimeoutMs ?? envNumber(env, "OMA_MAX_TOOL_TIMEOUT_MS");

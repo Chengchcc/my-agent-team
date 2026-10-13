@@ -70,7 +70,7 @@ import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
 import { buildSummarizationRequest } from "./compaction-prompt.js";
-import { estimateMessageTokens } from "./context-estimate.js";
+import { estimateMessageTokens, triggerRatioFor } from "./context-estimate.js";
 import type { AgentRunSnapshot, ProjectedHistoryItem } from "./contract/index.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
 import { fakeProvider } from "./fake-provider.js";
@@ -566,12 +566,13 @@ function buildModelPlumbing(
   };
 
   // ContextBudget from the RUN model's context window: compaction triggers
-  // at the same threshold the real model would overflow, neither premature
-  // nor too late.
+  // when the LIVE context leaves less than the reserve for the next model call,
+  // neither premature nor too late. The reserve (not a fixed ratio) is what
+  // scales, so a large window is not charged for headroom it never needs.
   const contextBudget: ContextBudget = {
     estimate: (m) => estimateMessageTokens(m),
     limit: currentModel.contextWindow,
-    triggerRatio: 0.7,
+    triggerRatio: triggerRatioFor(currentModel.contextWindow, knobs.compactReserveTokens),
   };
   return { resolveModel, summarize, contextBudget, modelTimeoutMs, approvalDeadlineMs };
 }
