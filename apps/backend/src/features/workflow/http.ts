@@ -7,7 +7,11 @@ import { dryRunWorkflow } from "./dry-run.js";
 import type { WorkflowExecutionService } from "./service.js";
 
 export interface WorkflowRef {
-  repo: string;
+  /** Historically required and ignored — definitions load from the local
+   *  workflows dir (`config.dataDir/workflows`). Still accepted so existing
+   *  callers keep working; the git loader that would give it meaning is not
+   *  implemented, and it would come back together with that loader. */
+  repo?: string;
   path: string;
 }
 
@@ -168,7 +172,7 @@ export function workflowRoutes(deps: {
       {
         body: t.Object({
           workflowRef: t.Object({
-            repo: t.String({ minLength: 1 }),
+            repo: t.Optional(t.String()),
             path: t.String({ minLength: 1 }),
           }),
           input: t.Optional(t.Record(t.String(), t.Unknown())),

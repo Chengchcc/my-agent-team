@@ -37,7 +37,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 节点 id 限 `^[a-zA-Z0-9_-]+$`，类型只认 `start` / `end` / `agent` / `script` / `human`（`parse.ts:24-31`）。各类型的必填项：
 
 - `end` 必须给 `status`。
-- `agent` 必须有 `agentId`，或者 `model` 与 `prompt` 都给（`parse.ts:121-122`）；可选 `repo`。
+- `agent` 必须有 `agentId`，或者 `model` 与 `prompt` 都给（`parse.ts:121-122`）；可选 `repo`（必须是该 agent 已挂载的 project id，装配时校验，未挂载就带明确错误让节点失败）。
 - `script` 必须有 `code`；`runtime` 只被解析，沙箱实际恒为 bun；`timeoutMs` 可选。
 - `human` 有 `question` / `form` / `timeoutMs`。
 
@@ -93,6 +93,8 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 `drive` 从数据库里已有的 node_run 重建 completions 起步，循环「`computeNext` → 顺序执行 ready → 记录完成」，最后回读 execution 的 store（`service.ts:561-610`）。ready 列表是**串行 await** 的，同一批多个 ready 不是并发 fan-out。
 
 **agent 节点**：conversation id 是 `workflow:<executionId>:<nodeId>`（origin 为 workflow），内联 agent 走 `default` 成员加 `modelOverride`。node_run 里已经存了 `runId` 就重连轮询而不重复触发；重试时先清 runId 再起新 run。轮询上限 600 秒，每秒一次，终态判据是 status 落在 `completed|failed|aborted|commit_failed|timeout`，或者 terminalResult 已存在（`service.ts:429-446`）。
+
+**repo 感知**：节点写了 `repo` 时，会话以 `projectId: node.repo` 创建——绑定的就是这一步，dispatch 据会话的项目把 run 解析到该 agent 在那个项目里的 worktree（`run-workspace.ts`），服务里不固定任何 workspace。校验在装配前：`repo` 必须是该 agent 已挂载的 project id（`runtime_config.projects`），不匹配就带项目名与挂载方式的错误让节点失败；内联 agent（没有 `agentId`）不允许带 `repo`，因为默认成员并不拥有那个项目。
 
 **输出抽取**：取最后一条 assistant 文本，剥掉代码围栏后取第一个 JSON 对象；解析不出而节点又声明了 output 提示就报错。prompt 里会注入 outputSchema 与「只回 JSON」的约束。
 

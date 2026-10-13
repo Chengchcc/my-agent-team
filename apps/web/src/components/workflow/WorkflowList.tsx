@@ -173,7 +173,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
     }
     try {
       await api.startWorkflowExecution({
-        workflowRef: { repo: "local", path: `${runId}.workflow.json` },
+        workflowRef: { path: `${runId}.workflow.json` },
         input,
       });
       router.push(`/workflows/${runId}/executions`);

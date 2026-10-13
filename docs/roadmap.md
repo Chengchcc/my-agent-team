@@ -37,10 +37,6 @@
 
 **没有并行 fan-out。** ready 列表是串行 await 的，一条边分多路时不是并发执行。join 语义是 any-of，DSL 里也没有表达 AND 的标记。
 
-**agent 节点的 `repo` 是死接线。** 字段进了 `NodeContext`，依赖也在组装点接好了，但没有调用方，agent 节点不会切到那个仓库的 worktree。
-
-**`workflowRef.repo` 被忽略。** 定义只从本地目录读，没有 git loader。
-
 ## 模型与 provider
 
 **自定义 provider 在产品里只读 `$OMA_HOME/models.yml`。** 这是刻意的（工作区文件是 agent 能写的地方，读它等于允许一次 Run 劫持下一次的 provider 地址），但用起来要有心理准备：要在产品里加 provider，得把 `OMA_HOME` 指到放 `models.yml` 的目录。
@@ -95,6 +91,7 @@
 
 ## 明确不做的
 
+- `workflowRef.repo` 的 git loader：定义只从本地目录（`config.dataDir/workflows`）读，请求里的 `repo` 现在可选且被忽略。按请求去 clone 任意仓库是个安全面，要用时把 loader 与这个字段一起带回来。
 - omp `CustomTool` 的模块形状兼容（ArkType 三栖 schema 加 `CustomToolAPI` 工厂，等于移植半个 pi 运行时）。
 - Claude 的 hooks.json 协议、commands、agents、LSP。
 - jiti 之类的运行时转译：插件加载一律用 Bun 原生 `import()`。

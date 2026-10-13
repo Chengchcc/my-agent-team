@@ -106,6 +106,22 @@ describe("workflow http", () => {
     expect(body.executionId).toBe("e1");
   });
 
+  test("POST /api/workflow-executions no longer demands the legacy repo field", async () => {
+    // Definitions load from the local workflows dir; `repo` was required and
+    // ignored, so every caller wrote a magic string. It stays accepted.
+    const resp = await app.handle(
+      new Request("http://localhost/api/workflow-executions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workflowRef: { path: "oncall.workflow.json" },
+          input: { issueUrl: "u" },
+        }),
+      }),
+    );
+    expect(resp.status).toBe(201);
+  });
+
   test("GET /api/workflow-executions returns a list", async () => {
     const resp = await app.handle(new Request("http://localhost/api/workflow-executions"));
     expect(resp.status).toBe(200);

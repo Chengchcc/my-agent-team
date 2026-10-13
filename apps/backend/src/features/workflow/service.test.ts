@@ -95,6 +95,22 @@ function makeAgentDef(): WorkflowDefinition {
   };
 }
 
+function makeRepoAgentDef(repo: string): WorkflowDefinition {
+  return {
+    version: 1,
+    id: "wf",
+    nodes: [
+      { id: "start", type: "start" },
+      { id: "a", type: "agent", agentId: "ag-1", repo, output: [{ key: "val", type: "number" }] },
+      { id: "done", type: "end", status: "success" },
+    ],
+    edges: [
+      { from: "start", to: "a" },
+      { from: "a", to: "done" },
+    ],
+  };
+}
+
 function ramPort() {
   const executions = new Map<string, Record<string, unknown>>();
   const nodeRuns: Array<Record<string, unknown>> = [];
@@ -293,6 +309,80 @@ describe("createWorkflowExecutionService", () => {
     });
     expect(await svc.expireHumanTimeouts(Date.now() + 10 ** 9)).toEqual([]);
     expect((await svc.getExecution("e1"))?.status).toBe("waiting_human");
+  });
+
+  test("an agent node with repo binds the conversation to that project", async () => {
+    const { port } = ramPort();
+    const created: Array<Record<string, unknown>> = [];
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentRunService: {
+        getRun: async () => ({
+          status: "completed",
+          terminalResult: {
+            status: "completed",
+            messages: [{ role: "assistant", text: '{"val": 1}' }],
+          },
+        }),
+      } as never,
+      agentRunExecution: {
+        dispatch: async () => {},
+        subscribe: async function* () {
+          yield { type: "status", status: "completed" };
+        },
+      } as never,
+      convPort: {
+        getConversation: () => null,
+        createConversation: (input: Record<string, unknown>) => {
+          created.push(input);
+        },
+      } as never,
+      conversationService: {
+        postMessage: async () => ({ triggeredRuns: [{ runId: "r1", queued: true }] }),
+      } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+      agentProjects: async () => ["proj-1"],
+    });
+    const result = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeRepoAgentDef("proj-1"),
+      input: {},
+    });
+    expect(result.status).toBe("success");
+    // The project id on the conversation IS the feature: dispatch resolves the
+    // agent's worktree for that project from it (resolveWorkspace), so a node
+    // whose repo never reaches the conversation runs in the wrong place.
+    expect(created[0]?.projectId).toBe("proj-1");
+    expect(created[0]?.conversationId).toBe("workflow:e1:a");
+  });
+
+  test("an agent node with an unattached repo fails with a usable error", async () => {
+    const { port } = ramPort();
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentRunService: { getRun: async () => ({ status: "completed" }) } as never,
+      agentRunExecution: {
+        dispatch: async () => {},
+        subscribe: async function* () {},
+      } as never,
+      convPort: { getConversation: () => null, createConversation: () => {} } as never,
+      conversationService: { postMessage: async () => ({ triggeredRuns: [] }) } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+      agentProjects: async () => ["some-other-project"],
+    });
+    const result = await svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeRepoAgentDef("proj-1"),
+      input: {},
+    });
+    // Never silently run in the default workspace: the node names the project
+    // and how to attach it.
+    expect(result.status).toBe("failure");
+    expect(result.error).toContain("has not attached project proj-1");
   });
 
   test("agent node runs a child run and parses JSON output", async () => {

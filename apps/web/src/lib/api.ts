@@ -663,7 +663,7 @@ export const api = {
       client.api["workflow-executions"].get({ query: workflowId ? { workflowId } : undefined }),
     ),
   startWorkflowExecution: (body: {
-    workflowRef: { repo: string; path: string };
+    workflowRef: { repo?: string; path: string };
     input?: Record<string, unknown>;
     artifacts?: string[];
   }) => unwrap(client.api["workflow-executions"].post(body)),
