@@ -17,12 +17,7 @@
 import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createEmbeddingClient } from "./embedding.js";
-import {
-  buildVectorIndex,
-  rankByCosine,
-  readVectorIndex,
-  type VectorIndexFile,
-} from "./vector-index.js";
+import { buildVectorIndex, rankByCosine, readVectorIndex } from "./vector-index.js";
 
 /** Files larger than this are skipped, matching the lexical search's rule. */
 const MAX_FILE_BYTES = 512_000;
@@ -52,6 +47,11 @@ export type SemanticOutcome =
 /** Remembered failures, keyed by pack root + model. */
 const failures = new Map<string, { until: number; reason: string }>();
 
+/** Builds in flight, keyed like the failures. A first query on a real pack is
+ *  not a 30-second wait: it starts the build, answers from the keyword path, and
+ *  the next query gets vectors. */
+const building = new Set<string>();
+
 function rememberFailure(key: string, reason: string): void {
   failures.set(key, { until: Date.now() + FAILURE_TTL_MS, reason });
 }
@@ -59,6 +59,11 @@ function rememberFailure(key: string, reason: string): void {
 /** Test hook: forget cached failures. */
 export function clearFailureCache(): void {
   failures.clear();
+}
+
+/** Test hook: is a build in flight for this pack + model? */
+export function isBuilding(root: string, model: string): boolean {
+  return building.has(`${root}::${model}`);
 }
 
 /** Every text page under the pack root, in stable order. Dot-directories are
@@ -130,13 +135,19 @@ export async function semanticSearch(opts: {
     return { mode: "lexical", reason: failed.reason };
   }
 
-  let lookup = readVectorIndex(root, { model: config.model, sourceRev });
+  const lookup = readVectorIndex(root, { model: config.model, sourceRev });
   if (lookup.state !== "ready") {
+    if (building.has(cacheKey)) {
+      return { mode: "lexical", reason: "index is still being built; retry shortly" };
+    }
     const pages = listPages(root);
     if (pages.length === 0) {
       return { mode: "lexical", reason: "pack has no pages to index" };
     }
-    const built = await buildVectorIndex({
+    // Start the build and answer from the keyword path. A failed build records
+    // its reason, so the NEXT query reports it instead of retrying immediately.
+    building.add(cacheKey);
+    void buildVectorIndex({
       packDir: root,
       model: config.model,
       sourceRev,
@@ -150,13 +161,17 @@ export async function semanticSearch(opts: {
         });
         return client.embed(texts);
       },
-    });
-    if (!built.ok) {
-      // Nothing was written; the next query retries after the failure window.
-      rememberFailure(cacheKey, built.reason);
-      return { mode: "lexical", reason: built.reason };
-    }
-    lookup = { state: "ready", index: built.index as VectorIndexFile };
+    })
+      .then((built) => {
+        if (!built.ok) rememberFailure(cacheKey, built.reason);
+      })
+      .catch((err: unknown) => {
+        rememberFailure(cacheKey, err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        building.delete(cacheKey);
+      });
+    return { mode: "lexical", reason: "index is being built; retry shortly" };
   }
 
   const index = lookup.index;

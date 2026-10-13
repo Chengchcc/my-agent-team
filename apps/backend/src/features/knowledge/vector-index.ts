@@ -39,6 +39,10 @@ export const INDEX_FILE = "index.json";
 export const CHUNK_CHARS = 1_500;
 /** Per-file chunk cap; bounds the cost of one oversized page. */
 export const MAX_CHUNKS_PER_FILE = 200;
+/** Chunks per embedding request. Measured 2026-10-13: one request carrying all
+ *  1547 chunks of the shipped knowledge pack timed out after 30s, and the whole
+ *  build is a one-off per pack revision, so it is batched rather than huge. */
+export const EMBED_BATCH = 32;
 
 export interface IndexChunk {
   /** `<pack-relative path>#<chunk index>` */
@@ -187,14 +191,21 @@ export async function buildVectorIndex(opts: {
   if (wanted.length === 0) {
     return { ok: false, reason: "pack has no readable text to embed" };
   }
-  let vectors: number[][];
+  const vectors: number[][] = [];
   try {
-    vectors = await opts.embed(wanted.map((chunk) => chunk.text));
+    for (let i = 0; i < wanted.length; i += EMBED_BATCH) {
+      const batch = wanted.slice(i, i + EMBED_BATCH).map((chunk) => chunk.text);
+      const got = await opts.embed(batch);
+      if (got.length !== batch.length) {
+        return {
+          ok: false,
+          reason: `got ${got.length} vectors for ${batch.length} chunks in one batch`,
+        };
+      }
+      vectors.push(...got);
+    }
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
-  }
-  if (vectors.length !== wanted.length) {
-    return { ok: false, reason: `got ${vectors.length} vectors for ${wanted.length} chunks` };
   }
   const dim = vectors[0]?.length ?? 0;
   if (dim === 0 || vectors.some((v) => v.length !== dim)) {

@@ -43,7 +43,11 @@ export interface EmbeddingClientDeps {
   timeoutMs?: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+/** Measured on this box (2026-10-13, 2 cores, CPU-only Ollama): a single
+ *  1400-char chunk embeds fine, while a 16-chunk batch of the same text exceeds
+ *  120s. 30s was the original value and it made every real build die on its
+ *  first batch — the index stayed absent and each query paid the failure again. */
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export function createEmbeddingClient(deps: EmbeddingClientDeps): EmbeddingClient {
   const slash = deps.model.indexOf("/");

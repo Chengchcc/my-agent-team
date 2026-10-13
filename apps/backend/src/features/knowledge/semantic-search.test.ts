@@ -4,18 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   clearFailureCache,
+  isBuilding,
   listPages,
+  type SemanticSearchConfig,
   semanticSearch,
   semanticSearchConfigFromEnv,
 } from "./semantic-search.js";
 import { indexFilePath, readVectorIndex } from "./vector-index.js";
 
 /** A deterministic 2-dim embedder: dim 0 counts 密码/口令, dim 1 counts 流程/步骤. */
-function fakeFetch(textsByCall: string[][] = []) {
+function fakeFetch(seen: string[][] = []) {
   return (async (_url: string | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as { input?: string[] };
     const input = body.input ?? [];
-    textsByCall.push(input);
+    seen.push(input);
     return new Response(
       JSON.stringify({
         data: input.map((t) => ({
@@ -38,6 +40,20 @@ function pack(files: Record<string, string>): string {
   return dir;
 }
 
+/** The build runs in the background by design, so a test that wants the warm
+ *  path waits for it rather than blocking the first query. */
+async function settle(root: string, model: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (!isBuilding(root, model)) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("build never settled");
+}
+
+function configured(fetchImpl: typeof fetch): SemanticSearchConfig {
+  return { model: "ollama/m", baseUrl: "http://x/v1", fetchImpl };
+}
+
 beforeEach(() => {
   clearFailureCache();
 });
@@ -54,70 +70,80 @@ describe("semanticSearch", () => {
         limit: 5,
       });
       expect(out).toEqual({ mode: "lexical", reason: "no embedding model configured" });
-      // Nothing was built just because it was asked.
       expect(readVectorIndex(dir, { model: "m", sourceRev: null }).state).toBe("absent");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("builds on demand, then answers semantically with the relevant page first", async () => {
+  test("the first query starts the build instead of blocking, then the next is semantic", async () => {
     const dir = pack({
       "guide/reset.md": "口令找回流程：登录页点忘记密码",
       "ops/retry.md": "工作流节点的重试策略",
     });
+    const config = configured(fakeFetch());
     try {
-      const out = await semanticSearch({
+      const cold = await semanticSearch({
         root: dir,
-        config: { model: "ollama/m", baseUrl: "http://x/v1", fetchImpl: fakeFetch() },
+        config,
         sourceRev: "rev-1",
         query: "密码怎么重置",
         limit: 5,
       });
+      expect(cold).toEqual({ mode: "lexical", reason: "index is being built; retry shortly" });
 
-      expect(out.mode).toBe("semantic");
-      if (out.mode !== "semantic") throw new Error("unreachable");
-      expect(out.hits.map((h) => h.path)).toEqual(["guide/reset.md", "ops/retry.md"]);
-      expect(out.hits[0]?.text).toContain("口令找回流程");
-      // Nested directories are walked, the index directory is not indexed.
-      expect(readVectorIndex(dir, { model: "ollama/m", sourceRev: "rev-1" }).state).toBe("ready");
+      await settle(dir, config.model);
+      const warm = await semanticSearch({
+        root: dir,
+        config,
+        sourceRev: "rev-1",
+        query: "密码怎么重置",
+        limit: 5,
+      });
+      expect(warm.mode).toBe("semantic");
+      if (warm.mode !== "semantic") throw new Error("unreachable");
+      expect(warm.hits.map((h) => h.path)).toEqual(["guide/reset.md", "ops/retry.md"]);
+      expect(warm.hits[0]?.text).toContain("口令找回流程");
+      expect(readVectorIndex(dir, { model: config.model, sourceRev: "rev-1" }).state).toBe("ready");
+      // Nested directories are walked; the index directory is not indexed.
       expect(listPages(dir).map((p) => p.path)).toEqual(["guide/reset.md", "ops/retry.md"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("a failing endpoint falls back, writes nothing, and reports why once", async () => {
+  test("a failing endpoint writes nothing and its reason reaches the next query", async () => {
     const dir = pack({ "a.md": "内容" });
-    const calls: string[][] = [];
+    const seen: string[][] = [];
     const failing = (async (_url: string | URL, init?: RequestInit) => {
-      calls.push(JSON.parse(String(init?.body ?? "{}")).input ?? []);
+      seen.push(JSON.parse(String(init?.body ?? "{}")).input ?? []);
       return new Response('{"error":{"code":"1113"}}', { status: 429 });
     }) as unknown as typeof fetch;
+    const config: SemanticSearchConfig = {
+      model: "ollama/m",
+      baseUrl: "http://x/v1",
+      fetchImpl: failing,
+    };
     try {
-      const first = await semanticSearch({
-        root: dir,
-        config: { model: "ollama/m", baseUrl: "http://x/v1", fetchImpl: failing },
-        sourceRev: null,
-        query: "密码",
-        limit: 5,
-      });
-      expect(first.mode).toBe("lexical");
-      if (first.mode !== "lexical") throw new Error("unreachable");
-      expect(first.reason).toContain("429");
-      expect(readVectorIndex(dir, { model: "ollama/m", sourceRev: null }).state).toBe("absent");
+      await semanticSearch({ root: dir, config, sourceRev: null, query: "密码", limit: 5 });
+      await settle(dir, config.model);
 
-      // The failure is remembered: a second query costs no request.
-      const before = calls.length;
-      const second = await semanticSearch({
+      const after = await semanticSearch({
         root: dir,
-        config: { model: "ollama/m", baseUrl: "http://x/v1", fetchImpl: failing },
+        config,
         sourceRev: null,
         query: "密码",
         limit: 5,
       });
-      expect(second).toEqual(first);
-      expect(calls.length).toBe(before);
+      expect(after.mode).toBe("lexical");
+      if (after.mode !== "lexical") throw new Error("unreachable");
+      expect(after.reason).toContain("429");
+      // Nothing was published, so nothing can look indexed.
+      expect(readVectorIndex(dir, { model: config.model }).state).toBe("absent");
+
+      const before = seen.length;
+      await semanticSearch({ root: dir, config, sourceRev: null, query: "密码", limit: 5 });
+      expect(seen.length).toBe(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -126,23 +152,26 @@ describe("semanticSearch", () => {
   test("a changed model id invalidates the index and rebuilds for the new space", async () => {
     const dir = pack({ "a.md": "口令找回流程" });
     try {
+      const first = configured(fakeFetch());
       await semanticSearch({
         root: dir,
-        config: { model: "ollama/old", baseUrl: "http://x/v1", fetchImpl: fakeFetch() },
+        config: first,
         sourceRev: "rev-1",
         query: "密码",
         limit: 5,
       });
-      expect(readVectorIndex(dir, { model: "ollama/old", sourceRev: "rev-1" }).state).toBe("ready");
+      await settle(dir, first.model);
+      expect(readVectorIndex(dir, { model: first.model, sourceRev: "rev-1" }).state).toBe("ready");
 
-      const out = await semanticSearch({
+      const second = { ...configured(fakeFetch()), model: "ollama/new" };
+      await semanticSearch({
         root: dir,
-        config: { model: "ollama/new", baseUrl: "http://x/v1", fetchImpl: fakeFetch() },
+        config: second,
         sourceRev: "rev-1",
         query: "密码",
         limit: 5,
       });
-      expect(out.mode).toBe("semantic");
+      await settle(dir, second.model);
       expect(readVectorIndex(dir, { model: "ollama/new", sourceRev: "rev-1" }).state).toBe("ready");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -151,18 +180,18 @@ describe("semanticSearch", () => {
 
   test("a revision change rebuilds instead of ranking stale vectors", async () => {
     const dir = pack({ "a.md": "口令" });
+    const config = configured(fakeFetch());
     try {
-      await semanticSearch({
-        root: dir,
-        config: { model: "p/m", baseUrl: "http://x/v1", fetchImpl: fakeFetch() },
-        sourceRev: "rev-1",
-        query: "密码",
-        limit: 5,
-      });
+      await semanticSearch({ root: dir, config, sourceRev: "rev-1", query: "密码", limit: 5 });
+      await settle(dir, config.model);
+
       writeFileSync(join(dir, "a.md"), "密码重置的新内容");
+      await semanticSearch({ root: dir, config, sourceRev: "rev-2", query: "密码", limit: 5 });
+      await settle(dir, config.model);
+
       const out = await semanticSearch({
         root: dir,
-        config: { model: "p/m", baseUrl: "http://x/v1", fetchImpl: fakeFetch() },
+        config,
         sourceRev: "rev-2",
         query: "密码",
         limit: 5,
@@ -177,7 +206,7 @@ describe("semanticSearch", () => {
   test("an empty query and an empty pack stay lexical rather than pretend", async () => {
     const dir = pack({});
     try {
-      const config = { model: "m", baseUrl: "http://x/v1", fetchImpl: fakeFetch() };
+      const config = configured(fakeFetch());
       expect(
         await semanticSearch({ root: dir, config, sourceRev: null, query: "   ", limit: 5 }),
       ).toEqual({ mode: "lexical", reason: "empty query" });
