@@ -99,7 +99,8 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 - 序列化**不做长度截断**：一条超大 tool_result 会整条进摘要输入（omp 对 tool_result 做 head+tail 截断、对 tool_use 参数设单个与单次上限；等真实大工件把摘要撑爆再加，加的位置就是 `serializeConversation`）。
 - `<files>` 只认 `read`/`write`/`edit` 三个工具（omp 同样只认这三个）：MCP 工具改的文件，或在 `bash` 里改的文件，都不会出现在清单里。
 - split-turn 只是**提示词级**的：切点落在轮中间时，由同一份摘要自行收尾一个 `**Turn Context (split turn):**` 段。omp 则为轮前缀额外跑**第二次摘要**再合并 —— 两者覆盖同一批消息，差别只在呈现，所以这里省掉那次调用。代价是：提示词只是「要求」模型这么做，它可以不照做；omp 的两段是结构化保证的。
-- 摘要失败只写调试日志，终端上没有任何可见信号。
+- 摘要**与主模型共用同一个模型与输出上限**（`maxTokens`）：2026-10-13 真机（deepseek）实测——把 run 的输出上限压到 64 时，摘要调用被 thinking token 吃光预算、**返回空文本**，落盘成 `[empty summary]`（`run-runtime` 的 `text || "[empty summary]"` 静默兜底），运行照样「成功」。摘要失败也只写调试日志：**质量的退化没有任何可见信号**，终端上一样看不出来。
+- **thinking + 压缩的组合会 400（真机发现，2026-10-13，deepseek `deepseek-v4-pro`）**：deepseek 在 thinking 模式下要求把上一条 assistant 的 `reasoning_content` 回传，而压缩会把带 reasoning 的消息换掉 ⇒ 实测 `status=400 The reasoning_content in the thinking mode must be passed back to the API`，三次里两次，**都发生在压缩之后**（未做隔离实验，因果未定）。把 `reasoning: false` + `thinking.defaultLevel: off` 都配上**也没能规避**。omp 对这类问题的解法是 **provider-native replay**（`providerReplayThroughEntryId` 等），我们没有。
 
 ## 相关页
 
