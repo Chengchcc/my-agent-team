@@ -27,6 +27,7 @@ import { createTokenProvider } from "./lark-api.js";
 import { MergeHold, renderMergedMessages } from "./merge-hold.js";
 import { handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
+import { runPageUrl } from "./run-card/card-renderer.js";
 import {
   liveQueuedInputCards,
   markQueuedCardCancelled,
@@ -190,7 +191,7 @@ async function startRunCard(
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     cardClient,
-    webUrl: args.webUrl,
+    webUrl: runPageUrl(args.webUrl, runId),
     sourceMessageId,
     replyTo,
     replyInThread,

@@ -15,7 +15,7 @@ import {
 } from "../bindings-sqlite.js";
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
-import { renderCard, renderRunCard } from "./card-renderer.js";
+import { renderCard, renderRunCard, runPageUrl } from "./card-renderer.js";
 import {
   cardStateFromChatTurn,
   initialRunCardState,
@@ -202,6 +202,23 @@ describe("renderRunCard", () => {
     expect(config.streaming_mode).toBeUndefined();
     expect(JSON.stringify(card)).not.toContain("/stop");
     expect(JSON.stringify(card)).toContain("在 Web 查看");
+  });
+
+  test("the console link lands on the run, not the console base", () => {
+    expect(runPageUrl("http://box:3001", "r1")).toBe("http://box:3001/system/runs/r1");
+    expect(runPageUrl("http://box:3001/", "r1")).toBe("http://box:3001/system/runs/r1");
+    expect(runPageUrl(null, "r1")).toBeNull();
+  });
+
+  test("the terminal card renders the run deep link", () => {
+    const card = renderRunCard(cardStateOf({ settled: "complete" }), {
+      runId: "r1",
+      startedAt: Date.now(),
+      webUrl: runPageUrl("http://box:3001", "r1"),
+    });
+    const json = JSON.stringify(card);
+    expect(json).toContain("在 Web 查看");
+    expect(json).toContain("http://box:3001/system/runs/r1");
   });
 
   test("window: output beyond 10k chars keeps the tail only", () => {

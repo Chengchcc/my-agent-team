@@ -94,7 +94,7 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 - **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，`ahp-delivery` 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
 - **控制（决策 6，已实现）**：活卡带红色「停止」按钮（`behaviors:[{type:"callback",value:{runId,action:"stop"}}]`）；`waiting` 帧把按钮换成「批准/拒绝」（`action:"approve" | "reject"` + callId）或问答题的选项按钮（`action:"answer_ask"` + callId、questionId、selectedValue）。点击经 lark-cli ≥1.0.9x 的 `card.action.trigger` 长连接回调 → `run-card/card-actions.ts` 校验（event_id 去重、message↔run_card 映射、chat/run 匹配，action_value 永不单独被信任）→ 停止走 `POST /api/agent-runs/:runId/cancel`，审批走 `.../approval`，追问走 `POST /api/product-tools/ask/resolve`（**与 Web 同一条 resolve 路径，两端各渲染一次而已**）→ Run SSE 的对应事件清掉 `pendingAction`，终态封版。`/stop` 入站命令为等价通道，成功即沉默（卡片即反馈）。
 - **回调载荷形状**：lark-cli 把事件摊平成顶层 snake_case 键（`event_id`/`operator_id`/`chat_id`/`message_id`/`action_tag`/`action_value`），不是 Lark 原始 schema 的 `action.value`——`card-actions.ts` 按这个形状取值，测试 fixture 也照此构造。
-- **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态）。
+- **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态；落点是 `<基地址>/system/runs/<runId>`，由 `runPageUrl()` 合成——只给基地址会链到控制台首页，不给就整条链接不渲染）。
 - **幂等键**：飞书 `--idempotency-key` 有 **50 字符上限**（99992402），自然键天然超限，统一 `larkIdempotencyKey()` 哈希成 40 位十六进制。
 - **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；AHP 重连后先收到快照，折进 `turns` 的轮次一到就封版，所以迟到的卡片也能拿到终态。
 - **配额警示**：每应用**卡片实体绑定数有配额**（错误 200780，实测约 18 张触发）；高频部署需关注，或为超配额场景保留 IM-patch 降级路径。
