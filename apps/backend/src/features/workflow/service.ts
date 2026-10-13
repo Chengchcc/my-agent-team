@@ -346,7 +346,6 @@ export function createWorkflowExecutionService(
           executionId: execution.executionId,
           nodeId: n.id,
           workflowId: execution.workflowId,
-          repo: "repo" in n ? n.repo : undefined,
         },
       }),
     );

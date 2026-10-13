@@ -5,7 +5,6 @@ export interface NodeContext {
   executionId: string;
   nodeId: string;
   workflowId: string;
-  repo?: string;
 }
 
 /** Execution-scoped store, injected into the backend's node runners. It is NOT

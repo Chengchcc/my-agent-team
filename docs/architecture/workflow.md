@@ -132,6 +132,8 @@ fire 时每次都重新读定义并按 id 查找，所以改文件不需要重�
 
 启动时若 workflows 目录为空，会从 `<resources>/workflow-showcase` 拷入示例定义。
 
+定义只从这一个目录读：`POST /api/workflow-executions` 的 `workflowRef.repo` 是历史遗留的必填字段，现在可选且被忽略（要按 ref 去 clone 仓库，得先有 git loader —— 那是明确不做的，见 [`../roadmap.md`](../roadmap.md)）。定义文件不存在时接口返回 404 并带上路径，不再是读文件失败冒出的 500。
+
 ## Artifact
 
 地址形如 `artifacts://<folder>/<filename>`，存在 backend dataDir 下的文件系统里，元数据带 size、mimeType、encoding、updatedAt 与来源（runId / conversationId / agentId）。
@@ -177,7 +179,5 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 
 - 并行 fan-out 没有实现，ready 列表串行 await。
 - dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
-- agent 节点的 `repo` 字段进了 `NodeContext`、依赖也接好了，但没有调用方，agent 节点不会切到该 repo 的 worktree。
-- `workflowRef.repo` 被忽略，定义只从本地目录读，没有 git loader。
 
 详细清单见 [`../roadmap.md`](../roadmap.md)。
