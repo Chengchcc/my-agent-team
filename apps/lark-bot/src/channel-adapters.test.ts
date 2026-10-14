@@ -38,7 +38,10 @@ const rawCardEvent = (over: Partial<CardActionEvent> = {}): CardActionEvent =>
     messageId: "om_x100b63db4b21dc80b051289cfc4c6bd",
     chatId: "oc_0fcfb9f5401af46945f9ecb20d6e0669",
     operator: { openId: "ou_0a7dd0893c0d537a23f8dca52175b83b" },
-    action: { value: { action: "stop", probe: { nested: true }, runId: "spike-run" }, tag: "button" },
+    action: {
+      value: { action: "stop", probe: { nested: true }, runId: "spike-run" },
+      tag: "button",
+    },
     raw: RAW_CARD,
     ...over,
   }) as CardActionEvent;
@@ -89,7 +92,10 @@ describe("card actions survive the transport swap", () => {
     expect(parsed?.operatorId).toBe("ou_0a7dd0893c0d537a23f8dca52175b83b");
     expect(parsed?.actionTag).toBe("button");
     // The decoded identity is what the run controls act on, extra fields and all.
-    expect(decodeActionValue(parsed?.actionValue ?? "")).toEqual({ action: "stop", runId: "spike-run" });
+    expect(decodeActionValue(parsed?.actionValue ?? "")).toEqual({
+      action: "stop",
+      runId: "spike-run",
+    });
     // A plain button carries neither a form value nor a name.
     expect(parsed?.actionName).toBeUndefined();
     expect(parsed?.formValue).toBeUndefined();
@@ -102,14 +108,24 @@ describe("card actions survive the transport swap", () => {
           action: {
             tag: "form_submit",
             name: "ask_submit",
-            value: { runId: "run-form", callId: "call-form", questionId: "q-form", action: "answer_ask" },
+            value: {
+              runId: "run-form",
+              callId: "call-form",
+              questionId: "q-form",
+              action: "answer_ask",
+            },
             formValue: { answer: "用 release 分支", pick: "a", nums: 2, multi: ["x", "y"] },
           } as CardActionEvent["action"],
         }),
       ),
     );
     expect(parsed?.actionName).toBe("ask_submit");
-    expect(parsed?.formValue).toEqual({ answer: "用 release 分支", pick: "a", nums: "2", multi: "x,y" });
+    expect(parsed?.formValue).toEqual({
+      answer: "用 release 分支",
+      pick: "a",
+      nums: "2",
+      multi: "x,y",
+    });
     expect(decodeActionValue(parsed?.actionValue ?? "")).toEqual({
       action: "answer_ask",
       runId: "run-form",
@@ -122,7 +138,8 @@ describe("card actions survive the transport swap", () => {
   test("without raw.event_id the dedup key is deterministic, never empty", () => {
     const line = toCardActionLine(rawCardEvent({ raw: undefined }));
     const first = parseCardActionLine(line)?.eventId ?? "";
-    const second = parseCardActionLine(toCardActionLine(rawCardEvent({ raw: undefined })))?.eventId ?? "";
+    const second =
+      parseCardActionLine(toCardActionLine(rawCardEvent({ raw: undefined })))?.eventId ?? "";
     expect(first.length).toBeGreaterThan(0);
     expect(second).toBe(first);
   });
@@ -185,7 +202,9 @@ describe("messages keep the shared contract's shape", () => {
   });
 
   test("a message without raw still satisfies the contract", () => {
-    const event = toLarkMessageEvent(normalized({ raw: undefined, threadId: undefined, rootId: undefined }));
+    const event = toLarkMessageEvent(
+      normalized({ raw: undefined, threadId: undefined, rootId: undefined }),
+    );
     expect(event?.event_id).toBe("om_x100b63daf2195ca50cad751bd94e261");
     expect(event?.thread_id).toBeUndefined();
     expect(topicLookupKeys(event!)).toEqual([]);
