@@ -4,7 +4,7 @@
 
 ## 状态
 
-Proposed（2026-10-14）。两个前提已实测：**云文档评论事件确实经长连接到达** ✓（收到的事件载荷含 `event_type: drive.notice.comment_add_v1` / `comment_id` / `reply_id` / `is_mentioned:false` / `notice_meta.from_user_type:"user"` / `is_from_agent:false`），**卡片回调的载荷形状够用** ✓（`messageId` / `chatId` / `operator.openId` / `action.tag` 直接对应，去重键在 `raw.event_id`）。**决策 1 至 6 与 8、9 已实现**（传输层 + 评论面，`apps/lark-bot` 240 个测试、lint/typecheck 全绿；生产 bot 已真机重启并连上官方 SDK，`lark-cli` 总线与两个消费者已消失）。**决策 7 实现了后端那一半**：`larkSetupGuidance` 给出三类事件名、scope 清单与 `scope-apply` 链接，并已进入 Lark surface 视图；Web 面板的渲染待做。**决策 10（隔离 app 上的端到端验收）待做**——需要生产 app 补齐事件订阅与 scope 后才能跑评论那条。
+**Accepted（2026-10-14，随实现落地）**。两个前提已实测：**云文档评论事件确实经长连接到达** ✓（收到的事件载荷含 `event_type: drive.notice.comment_add_v1` / `comment_id` / `reply_id` / `is_mentioned:false` / `notice_meta.from_user_type:"user"` / `is_from_agent:false`），**卡片回调的载荷形状够用** ✓（`messageId` / `chatId` / `operator.openId` / `action.tag` 直接对应，去重键在 `raw.event_id`）。**决策 1 至 6 与 8、9 已实现**（传输层 + 评论面，`apps/lark-bot` 240 个测试、lint/typecheck 全绿；生产 bot 已真机重启并连上官方 SDK，`lark-cli` 总线与两个消费者已消失）。**决策 7 实现了后端那一半**：`larkSetupGuidance` 给出三类事件名、scope 清单与 `scope-apply` 链接，并已进入 Lark surface 视图与 Web 面板（「本机需要控制台配置」一节渲染控制台事件名与 scope 申请链接）✓。**决策 10（隔离 app 上的端到端验收）已完成** ✓（2026-10-14，生产 bot 真机）：消息 → run → 回复 ✓；卡片按钮 → 回调被处理并回响应 ✓；**真人评论 @ 机器人 → run → 回答回复进同一条评论线** ✓（投递账本 `message_delivery` 里那条 `run:…:assistant:0` 状态为 `done` ✓，日志 `channel: comment replied, { mode: "in-thread" }` ✓）。验收顺带暴露并已补上两个缺口（v2 ✓）：**评论线的提问/审批出口**（把待批贴进评论线 ✓，回复「允许/拒绝」即答案 ✓，在 @ 闸之前判定 ✓）与**评论触发时带上文档正文当上下文**（否则「总结这篇文档」必然去动工具 ✓）。**一处已知的小瑕疵** ✗：终态表情（`DONE`）的替换用触发那条的 `replyId` 调反应接口会得到 `131005 not found` ✗（被吞掉 ✓，不影响回答 ✓）—— 待换成从 `comments.fetch` 拿到的回复 id ✓。
 
 ## 上下文
 
