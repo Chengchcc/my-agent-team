@@ -1,9 +1,11 @@
 import { unlinkSync } from "node:fs";
+import type { CommentFileType } from "@larksuite/channel";
 import {
   type CardActionResponse,
   createLarkChannel,
   type CardActionEvent as SdkCardActionEvent,
 } from "@larksuite/channel";
+import { z } from "zod";
 import type { WatcherHandle } from "./ahp-watcher.js";
 import { watchConversationOverAhp } from "./ahp-watcher.js";
 import { parseArgs } from "./args.js";
@@ -11,22 +13,34 @@ import {
   countPendingDeliveries,
   ensureTopicRoot,
   findConversationByTopicKey,
+  getCommentBinding,
+  getCommentSubscription,
   getConversationBinding,
   getInputCard,
   listBoundChats,
   listConversationBindings,
   listNonTerminalRunCards,
   newestConversationForChat,
+  putCommentSubscription,
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
-import { toCardActionLine, toLarkMessageEvent } from "./channel-adapters.js";
+import {
+  type CommentTrigger,
+  toCardActionLine,
+  toCommentTrigger,
+  toLarkMessageEvent,
+} from "./channel-adapters.js";
 import { createClient } from "./client.js";
+import { commentBodyOf } from "./comment-body.js";
+import { isCommentChatId } from "./comment-scope.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
+import { subscribeDocEvents } from "./doc-subscription.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
 import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
+import { ingestComment } from "./ingest-comment.js";
 import { createTokenProvider, resolveProfileCredentials } from "./lark-api.js";
 import { MergeHold, renderMergedMessages } from "./merge-hold.js";
 import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actions.js";
@@ -51,6 +65,115 @@ const state = await bootstrap(args);
 
 const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
+// ─── The channel (ADR 0044) ───
+// Created before the watchers below: a restored comment conversation can be
+// delivered to as soon as its watcher starts, and that path needs the channel
+// to already exist.
+const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
+const channel = createLarkChannel({
+  appId,
+  appSecret,
+  // `raw` carries event_id (the dedup key) and the fields the normal form drops.
+  includeRawEvent: true,
+  keepalive: { enabled: true },
+  // Access control stays ours (inbound-policy.ts) — never pre-filter here.
+  policy: { requireMention: false, dmMode: "open" },
+  source: "my-agent-team/lark-bot",
+  ...(baseUrl.includes("larksuite") ? { domain: baseUrl } : {}),
+});
+
+const COMMENT_FILE_TYPES = new Set<CommentFileType>(["doc", "docx", "sheet", "file"]);
+/** The comment API accepts four file types; a stored string is checked, not
+ *  asserted (bare casts are banned in this app). */
+function isCommentFileType(value: string): value is CommentFileType {
+  return COMMENT_FILE_TYPES.has(value as CommentFileType);
+}
+
+/** ADR 0044 decision 6: cloud-doc events are per FILE — without this call the
+ *  platform never notifies us about this document at all. Idempotent on its
+ *  side (measured: `get_subscribe` → `is_subscribe: true`), and remembered
+ *  locally so a restart does not re-post it blindly. */
+async function ensureDocSubscribed(fileToken: string, fileType: string): Promise<void> {
+  if (getCommentSubscription(state.db, fileToken)) return;
+  if (!isCommentFileType(fileType)) {
+    console.warn(`[lark-bot] comment file type '${fileType}' is not subscribable`);
+    return;
+  }
+  const result = await subscribeDocEvents(cardTokens, fileToken, fileType);
+  if (!result.ok) {
+    console.error(
+      `[lark-bot] subscribe failed for ${fileToken}: ${result.status} ${result.detail}`,
+    );
+    return;
+  }
+  putCommentSubscription(state.db, { fileToken, fileType, subscribedAt: Date.now() });
+  console.log(`[lark-bot] subscribed document ${fileToken} (${fileType})`);
+}
+
+/** Answers a comment line: the reply lands in the SAME thread, which is the
+ *  comment-world twin of "answer inside the topic" (ADR 0037). */
+async function sendIntoComment(conversationId: string, text: string): Promise<void> {
+  const binding = getCommentBinding(state.db, conversationId);
+  if (!binding) throw new Error(`no comment binding for conversation ${conversationId}`);
+  if (!isCommentFileType(binding.fileType)) {
+    throw new Error(`comment file type '${binding.fileType}' cannot be replied to`);
+  }
+  const target = await channel.comments.resolveTarget(binding.fileToken, binding.fileType);
+  if (!target) throw new Error(`comment target unresolved for ${binding.fileToken}`);
+  // The comment API has no idempotency token: the delivery ledger is what keeps
+  // a replay from posting twice (a done row short-circuits before reaching us).
+  await channel.comments.reply(target, binding.commentId, text);
+}
+
+const ConversationCreated = z.object({ conversationId: z.string().min(1) });
+
+/** One comment notice: subscribe the document, read the body, start a turn. */
+async function handleComment(trigger: CommentTrigger): Promise<void> {
+  await ensureDocSubscribed(trigger.fileToken, trigger.fileType);
+  if (!isCommentFileType(trigger.fileType)) return;
+
+  const fetched = await channel.comments
+    .fetch({ fileToken: trigger.fileToken, fileType: trigger.fileType }, trigger.commentId)
+    .catch((err) => {
+      console.error(
+        `[lark-bot] comment fetch failed for ${trigger.commentId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    });
+  if (!fetched) return;
+
+  const text = commentBodyOf(fetched, trigger.replyId);
+  if (text === "") {
+    console.log(`[lark-bot] comment ${trigger.commentId} has no readable body; skipping`);
+    return;
+  }
+
+  const result = await ingestComment(trigger, text, {
+    db: state.db,
+    createConversation: async () => {
+      const { data, error } = await actionBackendClient.api.conversations.post({
+        agentId: args.agentId,
+      });
+      const parsed = ConversationCreated.safeParse(data);
+      if (error || !parsed.success) {
+        console.error(`[lark-bot] comment conversation create failed: ${JSON.stringify(error)}`);
+        return null;
+      }
+      return parsed.data.conversationId;
+    },
+    postMessage: async ({ conversationId, senderMemberId, text: body }) => {
+      const { error } = await actionBackendClient.api
+        .conversations({ id: conversationId })
+        .messages.post({ senderMemberId, content: body });
+      return { error: error ? JSON.stringify(error) : undefined };
+    },
+    // The watcher is what delivers the answer; the synthetic chat id routes it
+    // back into the comment thread (see sendIntoComment).
+    onNewBinding: (conversationId, chatId) => ensureWatcher(conversationId, chatId),
+  });
+  console.log(`[lark-bot] comment ${trigger.commentId} → ${result.action}`);
+}
+
 // ─── AHP watchers: one per bound conversation (ADR 0040 surface contract) ───
 const watchers = new Map<string, WatcherHandle>();
 
@@ -66,6 +189,12 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     onSend: async (chatId, text, idempotencyKey) => {
+      // A comment lane answers into its own thread (ADR 0044): the synthetic
+      // chat id is where that identity travels.
+      if (isCommentChatId(chatId)) {
+        await sendIntoComment(conversationId, text);
+        return;
+      }
       // The bridge's text delivery must land in the conversation's TOPIC too: a
       // top-level post is a NEW topic in a topic chat, so a path that forgets
       // its reply target scatters one conversation across many topics
@@ -104,6 +233,10 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // Still inside the topic (ADR 0037): the watcher knows the conversation,
     // whose binding carries the chat mode and the topic root it was created by.
     sendTextOnly: async (chatId, text) => {
+      if (isCommentChatId(chatId)) {
+        await sendIntoComment(conversationId, text);
+        return;
+      }
       const result = await sendIntoTopic({
         db: state.db,
         profile,
@@ -120,6 +253,16 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // own key. Throwing on failure is load-bearing: the delivery records the
     // failure and the watcher's reconnect re-runs it from the same state.
     onSendImage: async (chatId, uri, filename) => {
+      // A comment reply carries text elements only, so there is nowhere to put
+      // bytes. Saying so beats delivering a comment that mentions an image the
+      // reader cannot find.
+      if (isCommentChatId(chatId)) {
+        await sendIntoComment(
+          conversationId,
+          `（产物 ${filename} 无法投递到这个 surface：评论回复暂不支持附件）`,
+        );
+        return;
+      }
       const res = await fetch(
         `${args.backendUrl}/api/artifacts/download?url=${encodeURIComponent(uri)}`,
         args.backendAuthToken ? { headers: { "x-auth-token": args.backendAuthToken } } : {},
@@ -476,20 +619,7 @@ const cardActionDeps: CardActionDeps = {
   log: (message) => console.log(`[lark-bot] ${message}`),
 };
 
-// ─── The channel: one connection carrying every inbound kind ───
-const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
-const channel = createLarkChannel({
-  appId,
-  appSecret,
-  // `raw` carries event_id (the dedup key) and the fields the normal form drops.
-  includeRawEvent: true,
-  keepalive: { enabled: true },
-  // Access control stays ours (inbound-policy.ts) — never pre-filter here.
-  policy: { requireMention: false, dmMode: "open" },
-  source: "my-agent-team/lark-bot",
-  ...(baseUrl.includes("larksuite") ? { domain: baseUrl } : {}),
-});
-
+// ─── Handlers on the channel created above ───
 /** A click must come back with an answer: the platform shows the user whatever
  *  the handler returns (ADR 0044 decision 3), and a handler that returns
  *  nothing reads as "the target service did not respond". */
@@ -513,6 +643,25 @@ function cardActionToast(outcome: string): CardActionResponse {
 }
 
 channel.on({
+  comment: (evt) => {
+    const trigger = toCommentTrigger(evt);
+    if (!trigger) {
+      console.warn("[lark-bot] dropped an unusable comment event");
+      return;
+    }
+    // ADR 0044 decision 5: only an @-mention of the bot starts a turn. (The
+    // measured reason the first spikes saw nothing at all: a bot commenting on
+    // its own document produces no notice, so there was never an event to gate.)
+    if (!trigger.mentionedBot) {
+      console.log(`[lark-bot] comment ignored (bot not mentioned): ${trigger.commentId}`);
+      return;
+    }
+    return handleComment(trigger).catch((err) => {
+      console.error(
+        `[lark-bot] comment handling failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  },
   message: (msg) => {
     const event = toLarkMessageEvent(msg);
     if (!event) {
