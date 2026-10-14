@@ -51,6 +51,8 @@
 
 **Lark 卡片缺 artifact / diff / 完整日志的深链（2026-09-25 记录）。** 页脚目前只链到 Web 的 Run 页——方案里的「查看 Diff / 产物 / worktree」直达按钮，需要先把 artifact/diff 标识随 Run 事件（或 run 详情）传给 lark-bot；在那之前不给卡片加假的按钮。
 
+**飞书云文档评论这个面已实现（ADR 0044，2026-10-14）** —— 下面的实测链保留作证据 ✓；决策、实现形状与代码位置见 [ADR 0044](./adr/0044-lark-inbound-events-official-channel-sdk.md)，运行时的不变量见 [lark.md](./architecture/surfaces/lark.md)。**剩余两项**：① Web 面板渲染 `console` 引导（三类事件 + scope 申请链接，`larkSetupGuidance` 已进 surface 视图，缺的只是渲染）；② 生产 app 补齐事件订阅与 scope 后的端到端验收（消息 / 卡片 / 评论三条路）。
+
 **飞书云文档评论这个面没有**（2026-10-13 实测复核，issue #82 的结论落到这里）。想要的形态：文档里被 @ 到就起一个 run，回答**回复进同一条评论线**（与聊天面「回复同一个话题、绝不另开一条」是同一条不变量）。三件事分别核实过：
 
 - **读/写评论的命令有了** ✓ —— `lark-cli` 1.0.96 的 `drive +list-comments` / `+list-replies` / `+add-reply`（含 `--dry-run`、`--as user|bot`、wiki 链接解包）与 `docs +fetch/+update/+search`。但全仓 `lark-cli` 的调用点**全在 provision**（`features/lark-bot/{profile,provisioner,setup-manager}.ts` 等 15 个文件），**没有包成 agent 的工具面** ⇒ 产品里够不着（agent 自己撞 PATH 不算产品能力）。

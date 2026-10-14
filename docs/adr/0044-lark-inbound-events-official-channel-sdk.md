@@ -4,7 +4,7 @@
 
 ## 状态
 
-Proposed（2026-10-14）。两个前提已实测：**云文档评论事件确实经长连接到达** ✓（收到的事件载荷含 `event_type: drive.notice.comment_add_v1` / `comment_id` / `reply_id` / `is_mentioned:false` / `notice_meta.from_user_type:"user"` / `is_from_agent:false`），**卡片回调的载荷形状够用** ✓（`messageId` / `chatId` / `operator.openId` / `action.tag` 直接对应，去重键在 `raw.event_id`）。**实现未开始。**
+Proposed（2026-10-14）。两个前提已实测：**云文档评论事件确实经长连接到达** ✓（收到的事件载荷含 `event_type: drive.notice.comment_add_v1` / `comment_id` / `reply_id` / `is_mentioned:false` / `notice_meta.from_user_type:"user"` / `is_from_agent:false`），**卡片回调的载荷形状够用** ✓（`messageId` / `chatId` / `operator.openId` / `action.tag` 直接对应，去重键在 `raw.event_id`）。**决策 1 至 6 与 8、9 已实现**（传输层 + 评论面，`apps/lark-bot` 240 个测试、lint/typecheck 全绿；生产 bot 已真机重启并连上官方 SDK，`lark-cli` 总线与两个消费者已消失）。**决策 7 实现了后端那一半**：`larkSetupGuidance` 给出三类事件名、scope 清单与 `scope-apply` 链接，并已进入 Lark surface 视图；Web 面板的渲染待做。**决策 10（隔离 app 上的端到端验收）待做**——需要生产 app 补齐事件订阅与 scope 后才能跑评论那条。
 
 ## 上下文
 

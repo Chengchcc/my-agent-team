@@ -16,9 +16,11 @@ tags: [lark, surfaces, backend]
 
 ## 实现文件
 
-- `apps/lark-bot/src/main.ts` — 起 `lark-cli event consume`、按行解析、watcher 表、重绑、心跳、退出处理
+- `apps/lark-bot/src/main.ts` — 起官方 channel SDK 的长连接、注册 message / cardAction / comment 三个处理器、watcher 表、重绑、心跳、退出处理
+- `apps/lark-bot/src/channel-adapters.ts` — 边界适配：`NormalizedMessage → LarkMessageEvent`、`CardActionEvent → 卡片行`、`CommentEvent → CommentTrigger`
+- `apps/lark-bot/src/{comment-scope,comment-body,doc-subscription,ingest-comment}.ts` — 评论线的合成身份、正文抽取、按文档订阅、评论侧 ingest
 - `apps/lark-bot/src/ingest.ts` — 入站主管线与 `/stop` 控制命令
-- `apps/lark-bot/src/bindings-sqlite.ts` — 五张表的读写与 `rebindChatConversation`
+- `apps/lark-bot/src/bindings-sqlite.ts` — 七张表的读写与 `rebindChatConversation`
 - `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（从 chat 状态读出卡片状态的纯函数）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
 - `apps/lark-bot/scripts/probe-cards.ts` — 把真实渲染出的每种卡片 POST 给建卡接口，做线级校验（不给任何聊天发消息）
 - `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
@@ -32,7 +34,7 @@ tags: [lark, surfaces, backend]
 
 ## 入站
 
-进程用 `spawn("lark-cli", ["--profile", profile, "event", "consume", "im.message.receive_v1", "--as", "bot"])` 起事件消费，profile 默认 `agent:<safeAgentId>`。stdout 按行交给 `parseEvent`，解析失败的行只打日志。每条事件的流水线是 reserve → POST → confirm：
+进程用官方 `@larksuite/channel` 的长连接收事件（ADR 0044）：`createLarkChannel({appId, appSecret})` 的凭据来自 lark-cli 的本地密钥库（`lark-cli` 仍是建 app 与凭据的权威源），`channel.on({message, cardAction, comment})` 三个处理器各自把 SDK 的归一化对象交给 `channel-adapters.ts` 的适配器，之后完全沿用既有的管线。**同一个 app 只能有一条连接**（cluster 模式不广播，多开会随机丢事件），所以 `lark-cli` 的 `event consume` 已彻底下线。每条事件的流水线是 reserve → POST → confirm：
 
 1. **鉴权**（`ingest.ts`）：`sender_type` 存在且不是 `"user"` 直接 skip，防机器人互相触发；再按 `agent.lark.allowedSenders`（open_id 白名单）过滤。**空白名单是拒绝，不是放行**（`matchesAllowlist` 对空数组返回 false，DM 里落 `dm_denied`）；只有显式写 `"*"` 才放行所有人。Web 的读模型按同一语义显示为 `allowlist`（0 人）与 `everyone`。
 2. **幂等占位**：`inboundExists` 按 `event_id` 或 `message_id` 命中即 skip，否则 `reserveInbound` 在同一事务里落一行 `status = "processing"`。占位先于 POST，取舍是宁可丢一条入站也不重复触发 run。
@@ -42,7 +44,19 @@ tags: [lark, surfaces, backend]
 6. **POST 消息**：`content` 就是**消息文本本身**（字符串）。曾经包成 `{ text, source, larkEventId, larkMessageId }` 信封——后端写入方只认字符串或 ContentBlock 数组，于是文本被静默丢弃、每条飞书消息都变成空轮次，模型只能拿旧上下文编；那三个额外字段也没有任何读取方。接口返回 202 与 `{ seq, triggeredRuns }`。
 7. **确认**：`confirmInbound` 回填 `conversationId` 与 `ledgerSeq`。POST 之前进程崩掉的话，这条入站不会再被处理。
 
-## 本地五张表
+### 评论线（ADR 0044）
+
+云文档评论是第二个「会话边界」，与话题同构：**一条评论线（文档 + 一个评论串）= 一个会话**，回答**回复进同一条评论线**（绝不新开顶层评论）。它与上面那条管线的差别：
+
+- **触发**：官方 SDK 的 `comment` 事件（`drive.notice.comment_add_v1`，`lark-cli` 的总线订阅不到它）。通知**只带 id 不带正文** ⇒ 用 `comments.fetch` 取，取哪一条由通知的 `replyId` 决定（`comment-body.ts` 是这一步的纯函数）。
+- **两重闸门**：只认 `mentionedBot`；`notice_meta.is_from_agent === true` 一律不答。实测 bot 给自己文档评论**不产生通知**，所以第二道是给「agent 互相评论」准备的，不是当初收不到的原因。
+- **按文件订阅**：云文档事件是**按文件**的，第一次见到某文档时调 `POST /files/:file_token/subscribe?file_type=<type>`（`file_type` 在**查询串**，放 body 报 `field validation failed`），订阅状态落 `comment_subscription`。
+- **合成身份**：评论会话在 `conversation_binding` 里的 chat id 是 `comment:<file_token>:<comment_id>`（`comment-scope.ts`）⇒ 游标、投递台账、幂等键、AHP watcher 全部照旧，只有发送那一步认得它（走 `comments.reply`）。
+- **去重身份是「通知」而不是「评论」**：同一条评论线里的后续回复各有自己的 `event_id` / `reply_id`，用 `(fileToken, commentId)` 去重会把它们吞掉。
+- **产物**：评论回复只能带文本元素，图片在 v1 **明确回一句「无法投递」**，不假装送达。
+- **控制台三个前提**（缺任何一个都是**静默**）：`im.message.receive_v1`、`card.action.trigger`、`drive.notice.comment_add_v1`，外加文档相关 scope。`larkSetupGuidance`（`features/lark-bot/setup-guidance.ts`）给出清单与 `scope-apply` 链接，已挂在 surface 视图的 `console` 字段上（Web 渲染待做）。
+
+## 本地七张表
 
 `apps/lark-bot/src/db/schema.ts` 里的表都是这个端私有的投递状态，不进后端：
 
@@ -55,6 +69,8 @@ tags: [lark, surfaces, backend]
 | `message_delivery` | `(conversation_id, message_id, lark_chat_id)` | 文本桥出站投递意图与最后状态 |
 | `input_card` | `input_id` | 排队消息的卡片状态（`queued / promoted / cancelled`，ADR 0037） |
 | `run_card` | `run_id` | Run 卡片投递状态：lark 消息 id、状态机、累计输出、失败计数（ADR 0031） |
+| `comment_binding` | `conversation_id` | 评论线 → 会话（ADR 0044）：文档 token、类型与评论 id，`(file_token, comment_id)` 上唯一；会话在 `conversation_binding` 里的 chat id 是合成的 `comment:<file_token>:<comment_id>` |
+| `comment_subscription` | `file_token` | 已向平台订阅事件（`drive.notice.comment_add_v1`）的文档：云文档事件是**按文件**的，重启后既不能盲订也不能忘 |
 
 ## 出站
 
