@@ -36,6 +36,7 @@ import { ackCommentProcessing, markCommentDone } from "./comment-ack.js";
 import { commentBodyOf } from "./comment-body.js";
 import { commentChatId, isCommentChatId } from "./comment-scope.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
+import { composeCommentRunText, fetchDocText } from "./doc-context.js";
 import { subscribeDocEvents } from "./doc-subscription.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
@@ -152,11 +153,17 @@ async function handleComment(trigger: CommentTrigger): Promise<void> {
     });
   if (!fetched) return;
 
-  const text = commentBodyOf(fetched, trigger.replyId);
-  if (text === "") {
+  const body = commentBodyOf(fetched, trigger.replyId);
+  if (body === "") {
     console.log(`[lark-bot] comment ${trigger.commentId} has no readable body; skipping`);
     return;
   }
+
+  // The comment is the REQUEST; the document is the CONTEXT. Without the text,
+  // an ask about the document can only be attempted with tools - and a comment
+  // lane has no place to ask for approval (live, 2026-10-14).
+  const docText = await fetchDocText({ profile, fileToken: trigger.fileToken });
+  const text = composeCommentRunText({ body, fileToken: trigger.fileToken, docText });
 
   const result = await ingestComment(trigger, text, {
     db: state.db,
