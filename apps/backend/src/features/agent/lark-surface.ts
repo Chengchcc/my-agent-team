@@ -11,6 +11,8 @@
  * Pure on purpose: the caller gathers the inputs (I/O), this decides.
  */
 
+import { type LarkSetupGuidance, larkSetupGuidance } from "../lark-bot/setup-guidance.js";
+
 /** What the USER understands. The internal vocabulary (`not_configured`,
  *  `profile_ref`, `registry`, setup sessions) stays behind this. */
 export type LarkSurfaceStatus =
@@ -73,6 +75,10 @@ export interface LarkSurfaceView {
     canDisable: boolean;
     canReplaceApp: boolean;
   };
+  /** ADR 0044: what the developer console still needs — three event
+   *  subscriptions and the scopes. Missing any one of them is indistinguishable
+   *  from a silent bot, so the surface says it out loud. */
+  console: LarkSetupGuidance;
 }
 
 /** Config half — read from the agent row by the route. */
@@ -164,6 +170,7 @@ export function buildLarkSurfaceView(input: BuildLarkSurfaceInput): LarkSurfaceV
 
   return {
     status,
+    console: larkSetupGuidance(config.appId, "feishu"),
     // No brand is persisted per agent yet: the provisioner authorizes new
     // sessions against feishu, and a session that knows its brand is the only
     // honest source. Hardcoding "feishu" regardless was a guess.
