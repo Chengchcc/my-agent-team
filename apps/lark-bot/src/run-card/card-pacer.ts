@@ -33,8 +33,12 @@ interface Lane {
 const lanes = new Map<string, Lane>();
 
 /** Minimum spacing between write starts on one chat. Calibration knob: a test
- *  drives the lane without real delays. */
-export const CARD_WRITE_MIN_SPACING_MS = 250;
+ * drives the lane without real delays. 1s, not less: two cards streaming into
+ * one chat at 250ms each saturated the chat's write budget live, and the SECOND
+ * card's terminal frame then waited out rate-limit retries for ~25s after its
+ * run had already finished. A slower stream is invisible; a late terminal is
+ * not. */
+export const CARD_WRITE_MIN_SPACING_MS = 1000;
 
 export function paceCardWrite<T>(
   chatId: string,
