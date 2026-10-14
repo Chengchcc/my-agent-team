@@ -190,6 +190,9 @@ export async function watchRunCard(
   const replyTo = opts.replyTo ?? null;
   const replyInThread = opts.replyInThread === true;
   let aborted = false;
+  /** Reported once: a state that never carries this run is the difference between a card that
+   *  streams and one that only paints when the fold arrives, and silence here hid exactly that. */
+  let loggedMissingTurn = false;
 
   const meta = { runId, startedAt: Date.now(), webUrl };
 
@@ -499,7 +502,15 @@ export async function watchRunCard(
     // Every run appears as a turn (the projection builds one per run row, and a failed run's
     // error row folds into its tail), so a state that does not carry this run is simply a state
     // from before it existed - the next one will have it.
-    if (next === undefined) return;
+    if (next === undefined) {
+      if (!loggedMissingTurn) {
+        loggedMissingTurn = true;
+        console.log(
+          `[lark-bot] card ${runId}: the state carries no turn for this run; not painting until it does`,
+        );
+      }
+      return;
+    }
     const before = state;
     state = next;
     if (state.terminal) {
