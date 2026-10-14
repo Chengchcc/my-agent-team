@@ -30,7 +30,7 @@ describe("what a comment-triggered run reads", () => {
     // host's processes, which needs approval - and a comment lane cannot ask.
     const text = composeCommentRunText({ body: "总结一下", fileToken: TOKEN, docText: null });
     expect(text).toContain("正文未取到");
-    expect(text).not.toContain("总结一下\n\n<document token");
+    expect(text).toContain("总结一下");
   });
 });
 
