@@ -412,7 +412,10 @@ export async function watchRunCard(
         updateRunCard(db, runId, { lastError: `closeStreaming: ${closed.error}` });
       }
       updateRunCard(db, runId, {
-        status: state.terminal?.status ?? "completed",
+        // Only a real terminal is a terminal. Writing "completed" for a missing one lies about how
+        // the run ended AND settles the row, which turns the next watcher into a permanent no-op
+        // (the restart-recovery guard above): a card stuck on a wrong state could never recover.
+        ...(state.terminal ? { status: state.terminal.status } : {}),
         accumulated: content,
       });
       return;
