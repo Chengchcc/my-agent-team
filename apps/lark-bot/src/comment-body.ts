@@ -19,9 +19,13 @@ export function commentBodyOf(fetched: FetchedComment, replyId?: string): string
     .map((element) => {
       if (element.type === "text_run") return element.text_run?.text ?? "";
       if (element.type === "docs_link") return element.docs_link?.url ?? "";
-      // A `person` element is a mention. The notice already tells us who wrote
-      // it, so the placeholder is enough — inventing a name would be worse.
-      return "（提及某人）";
+      // A `person` element is a mention, and it carries nothing but a user id.
+      // Rendering it as a placeholder ("someone was mentioned") put a sentence
+      // about a mention into the middle of the user's text and the model went
+      // off investigating instead of answering (live, 2026-10-14). The notice
+      // already says who wrote the comment and whether the bot was mentioned,
+      // so a bare id here is noise with a misleading shape: dropped.
+      return "";
     })
     .join("")
     .trim();

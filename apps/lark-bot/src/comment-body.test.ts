@@ -29,7 +29,7 @@ describe("the text a comment run reads", () => {
     expect(commentBodyOf(fetched())).toBe("那我改成这样");
   });
 
-  test("keeps links and marks mentions", () => {
+  test("keeps links and drops mention markers", () => {
     const body = commentBodyOf(
       fetched({
         replies: [
@@ -48,7 +48,9 @@ describe("the text a comment run reads", () => {
       }),
       "r1",
     );
-    expect(body).toBe("看 https://example.com/a 和 （提及某人）");
+    // A mention is the trigger itself and carries only a user id: a placeholder
+    // in its place read as "someone was mentioned" and derailed the run.
+    expect(body).toBe("看 https://example.com/a 和");
   });
 
   test("an inline comment carries what it is about", () => {

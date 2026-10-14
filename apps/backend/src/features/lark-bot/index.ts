@@ -7,12 +7,12 @@ export type {
 export { CliSetupProvisioner, probeCliSetupCapability } from "./provisioner.js";
 export type { LarkBotRegistry, LarkBotStatus } from "./registry.js";
 export { DevLarkBotRegistry, ProdLarkBotRegistry } from "./registry.js";
-export type { LarkProfileSetupSession } from "./setup-manager.js";
 export {
   LARK_REQUIRED_EVENTS,
   LARK_REQUIRED_SCOPES,
   type LarkSetupGuidance,
   larkSetupGuidance,
 } from "./setup-guidance.js";
+export type { LarkProfileSetupSession } from "./setup-manager.js";
 export { LarkSetupManager } from "./setup-manager.js";
 export { createLarkSetupStore, type LarkSetupStore } from "./setup-store.js";
