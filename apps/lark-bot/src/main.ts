@@ -32,8 +32,9 @@ import {
   toLarkMessageEvent,
 } from "./channel-adapters.js";
 import { createClient } from "./client.js";
+import { ackCommentProcessing, markCommentDone } from "./comment-ack.js";
 import { commentBodyOf } from "./comment-body.js";
-import { isCommentChatId } from "./comment-scope.js";
+import { commentChatId, isCommentChatId } from "./comment-scope.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
 import { subscribeDocEvents } from "./doc-subscription.js";
 import type { LarkMessageEvent } from "./event-parser.js";
@@ -123,9 +124,18 @@ async function sendIntoComment(conversationId: string, text: string): Promise<vo
   // The comment API has no idempotency token: the delivery ledger is what keeps
   // a replay from posting twice (a done row short-circuits before reaching us).
   await channel.comments.reply(target, binding.commentId, text);
+  // A comment line has no card to paint, so the reaction is its only signal:
+  // swap the acknowledgement for the terminal mark now that the answer is in.
+  const ackedReplyId = commentAckReplyIds.get(conversationId);
+  if (ackedReplyId) await markCommentDone(channel.comments, target, ackedReplyId);
 }
 
 const ConversationCreated = z.object({ conversationId: z.string().min(1) });
+
+/** The reply that carries a comment line's acknowledgement, per conversation.
+ *  Memory-only on purpose: after a restart an in-flight run keeps its
+ *  processing reaction instead of risking a mark on the wrong reply. */
+const commentAckReplyIds = new Map<string, string>();
 
 /** One comment notice: subscribe the document, read the body, start a turn. */
 async function handleComment(trigger: CommentTrigger): Promise<void> {
@@ -643,7 +653,7 @@ function cardActionToast(outcome: string): CardActionResponse {
 }
 
 channel.on({
-  comment: (evt) => {
+  comment: async (evt) => {
     const trigger = toCommentTrigger(evt);
     if (!trigger) {
       console.warn("[lark-bot] dropped an unusable comment event");
@@ -660,6 +670,21 @@ channel.on({
     if (!trigger.mentionedBot) {
       console.log(`[lark-bot] comment ignored (bot not mentioned): ${trigger.commentId}`);
       return;
+    }
+    // A comment line has no card to paint, so the reaction IS the "I am on it"
+    // signal: without it the thread sits in silence for the length of the run.
+    if (trigger.replyId && isCommentFileType(trigger.fileType)) {
+      const acked = await ackCommentProcessing(
+        channel.comments,
+        { fileToken: trigger.fileToken, fileType: trigger.fileType },
+        trigger.replyId,
+      );
+      if (acked) {
+        commentAckReplyIds.set(
+          commentChatId(trigger.fileToken, trigger.commentId),
+          trigger.replyId,
+        );
+      }
     }
     return handleComment(trigger).catch((err) => {
       console.error(
