@@ -138,3 +138,27 @@ export const runCard = sqliteTable("run_card", {
   createdAt: integer({ mode: "number" }).notNull(),
   updatedAt: integer({ mode: "number" }).notNull(),
 });
+
+/** ADR 0044: one comment LINE (a document + one comment thread) is one
+ *  conversation, exactly as a topic is (ADR 0037). The conversation's
+ *  `conversation_binding` row carries a SYNTHETIC chat id —
+ *  `comment:<file_token>:<comment_id>` — so the delivery cursor, the
+ *  message-delivery ledger, the AHP watcher and the idempotency keys all work
+ *  unchanged; only the send step knows how to answer a comment line. */
+export const commentBinding = sqliteTable("comment_binding", {
+  conversationId: text("conversation_id").primaryKey(),
+  fileToken: text("file_token").notNull(),
+  fileType: text("file_type").notNull(),
+  commentId: text("comment_id").notNull(),
+  createdAt: integer({ mode: "number" }).notNull(),
+});
+
+/** ADR 0044 decision 6: cloud-doc events are per-FILE — nothing arrives until
+ *  the app subscribes the document itself, so every document the bot is asked
+ *  about gets one POST. Kept on disk so a restart neither re-subscribes blindly
+ *  nor forgets what it already registered. */
+export const commentSubscription = sqliteTable("comment_subscription", {
+  fileToken: text("file_token").primaryKey(),
+  fileType: text("file_type").notNull(),
+  subscribedAt: integer({ mode: "number" }).notNull(),
+});
