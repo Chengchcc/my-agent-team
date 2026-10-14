@@ -649,9 +649,14 @@ channel.on({
       console.warn("[lark-bot] dropped an unusable comment event");
       return;
     }
-    // ADR 0044 decision 5: only an @-mention of the bot starts a turn. (The
-    // measured reason the first spikes saw nothing at all: a bot commenting on
-    // its own document produces no notice, so there was never an event to gate.)
+    // ADR 0044 decision 5: never answer our own kind. The platform does not
+    // notify us about a bot's own comment today (measured), so this is the
+    // guard for the future rather than the reason the early spikes saw nothing.
+    if (trigger.fromAgent) {
+      console.log(`[lark-bot] comment ignored (agent-originated): ${trigger.commentId}`);
+      return;
+    }
+    // Only an @-mention of the bot starts a turn.
     if (!trigger.mentionedBot) {
       console.log(`[lark-bot] comment ignored (bot not mentioned): ${trigger.commentId}`);
       return;

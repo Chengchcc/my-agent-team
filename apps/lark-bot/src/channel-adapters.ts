@@ -142,12 +142,19 @@ export interface CommentTrigger {
   replyId?: string;
   operatorOpenId: string;
   mentionedBot: boolean;
+  /** The platform's own verdict on who caused this notice
+   *  (`notice_meta.is_from_agent`). Measured: a bot commenting on its own
+   *  document produces no notice at all, so this is a guard for the future
+   *  (agents commenting on each other), not the reason the first spikes saw
+   *  nothing. */
+  fromAgent: boolean;
   /** Event identity for dedup, from the raw body when present. */
   eventId: string;
 }
 
 export function toCommentTrigger(evt: CommentEvent): CommentTrigger | null {
   const raw = recordOf(evt.raw) ?? {};
+  const notice = recordOf(raw.notice_meta) ?? {};
   const fileToken = str(evt.fileToken);
   const commentId = str(evt.commentId);
   if (!fileToken || !commentId) return null;
@@ -158,6 +165,7 @@ export function toCommentTrigger(evt: CommentEvent): CommentTrigger | null {
     ...(str(evt.replyId) ? { replyId: evt.replyId } : {}),
     operatorOpenId: evt.operator?.openId ?? "",
     mentionedBot: evt.mentionedBot === true,
+    fromAgent: notice.is_from_agent === true,
     eventId: str(raw.event_id) ?? `${fileToken}:${commentId}`,
   };
 }

@@ -227,8 +227,19 @@ describe("comment events become triggers", () => {
       replyId: "7696351432374521914",
       operatorOpenId: "ou_0a7dd0893c0d537a23f8dca52175b83b",
       mentionedBot: false,
+      fromAgent: false,
       eventId: "c0bd64c73ade4e419dc28525cf8ccbfa",
     });
+  });
+
+  test("a notice the platform marks agent-originated says so", () => {
+    const trigger = toCommentTrigger(
+      commentEvent({
+        raw: { ...RAW_COMMENT, notice_meta: { ...RAW_COMMENT.notice_meta, is_from_agent: true } },
+      }),
+    );
+    expect(trigger?.fromAgent).toBe(true);
+    expect(toCommentTrigger(commentEvent())?.fromAgent).toBe(false);
   });
 
   test("without a file token there is no thread to bind", () => {
