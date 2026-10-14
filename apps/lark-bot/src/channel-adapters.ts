@@ -1,9 +1,9 @@
+import { type LarkMessageEvent, larkMessageEventSchema } from "@chengchenccc/api-contract";
 import type {
-  CardActionEvent as SdkCardActionEvent,
   CommentEvent,
   NormalizedMessage,
+  CardActionEvent as SdkCardActionEvent,
 } from "@larksuite/channel";
-import { type LarkMessageEvent, larkMessageEventSchema } from "@chengchenccc/api-contract";
 import { z } from "zod";
 
 /**

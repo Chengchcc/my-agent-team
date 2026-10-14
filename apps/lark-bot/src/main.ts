@@ -1,6 +1,9 @@
-import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
-import { createInterface } from "node:readline";
+import {
+  type CardActionResponse,
+  createLarkChannel,
+  type CardActionEvent as SdkCardActionEvent,
+} from "@larksuite/channel";
 import type { WatcherHandle } from "./ahp-watcher.js";
 import { watchConversationOverAhp } from "./ahp-watcher.js";
 import { parseArgs } from "./args.js";
@@ -17,15 +20,16 @@ import {
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
+import { toCardActionLine, toLarkMessageEvent } from "./channel-adapters.js";
 import { createClient } from "./client.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
-import { type LarkMessageEvent, parseEvent } from "./event-parser.js";
+import type { LarkMessageEvent } from "./event-parser.js";
 import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
 import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
-import { createTokenProvider } from "./lark-api.js";
+import { createTokenProvider, resolveProfileCredentials } from "./lark-api.js";
 import { MergeHold, renderMergedMessages } from "./merge-hold.js";
-import { handleCardActionLine } from "./run-card/card-actions.js";
+import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
 import { runPageUrl } from "./run-card/card-renderer.js";
 import {
@@ -250,15 +254,10 @@ const heartbeatTimer = setInterval(() => {
   void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
 }, 30_000);
 
-// ─── lark-cli event consume (inbound) ───
-const child = spawn(
-  "lark-cli",
-  ["--profile", profile, "event", "consume", "im.message.receive_v1", "--as", "bot"],
-  {
-    stdio: ["pipe", "pipe", "pipe"],
-  },
-);
-
+// ─── Inbound events (ADR 0044) ───
+// The official channel SDK owns the long connection; lark-cli's event bus is
+// gone on purpose — the platform routes each event to ONE random client per
+// app, so running both would silently drop roughly half of them.
 let ready = false;
 
 /** A message carrying an image never merges and never waits: its body (text +
@@ -393,16 +392,9 @@ function mergeKeyOf(event: LarkMessageEvent): string {
   return `new:${event.chat_id}:${keys.join(",")}`;
 }
 
-async function handleLine(line: string): Promise<void> {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-
-  const event = parseEvent(trimmed);
-  if (!event) {
-    console.warn(`[lark-bot] unparseable line: ${trimmed.slice(0, 100)}`);
-    return;
-  }
-
+/** One inbound message, already adapted to the shared contract by
+ *  `toLarkMessageEvent` (ADR 0044). Everything below is unchanged. */
+async function handleEvent(event: LarkMessageEvent): Promise<void> {
   if (!ready) {
     console.log(`[lark-bot] first event received — marking ready (event_id=${event.event_id})`);
     ready = true;
@@ -421,116 +413,139 @@ async function handleLine(line: string): Promise<void> {
   await runIngest(event);
 }
 
-const rl = createInterface({ input: child.stdout! });
-rl.on("line", (line: string) => {
-  void handleLine(line).catch((err) => {
-    console.error(
-      `[lark-bot] event handling failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  });
+// ─── Card action callbacks (ADR 0031 §6; ADR 0044) ───
+// Clicks arrive on the same channel connection — no public ingress. The adapter
+// rebuilds the NDJSON line this pipeline parses, so the trust model (validate
+// against the local run_card row) is unchanged.
+const actionBackendClient = createClient(args.backendUrl, args.backendAuthToken);
+const cardActionDeps: CardActionDeps = {
+  db: state.db,
+  cancelRun: async (runId) => {
+    const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
+    return { error: error ?? undefined };
+  },
+  resolveApproval: async (runId, callId, decision) => {
+    const { error } = await actionBackendClient.api["agent-runs"]({ runId }).approval.post({
+      callId,
+      decision,
+    });
+    return { error: error ?? undefined };
+  },
+  cancelQueuedInput: async (inputId) => {
+    const record = getInputCard(state.db, inputId);
+    if (!record) return { error: "unknown input" };
+    const { error } = await actionBackendClient.api
+      .conversations({ id: record.conversationId })
+      .inputs({ inputId })
+      .cancel.post();
+    if (!error) {
+      await markQueuedCardCancelled({ db: state.db, cardClient }, inputId);
+    }
+    return { error: error ?? undefined };
+  },
+  steerQueuedInput: async (inputId) => {
+    const record = getInputCard(state.db, inputId);
+    if (!record) return { error: "unknown input" };
+    // keepIfIdle: the turn ending between render and click is not the user's
+    // mistake — the message stays queued and the next turn takes it (#64).
+    const { error } = await actionBackendClient.api
+      .conversations({ id: record.conversationId })
+      .inputs({ inputId })
+      .steer.post({ keepIfIdle: true });
+    if (!error) {
+      await markQueuedCardSteered({ db: state.db, cardClient }, inputId);
+    }
+    return { error: error ?? undefined };
+  },
+  resolveAsk: async ({ runId, callId, questionId, selectedValue, freeText }) => {
+    const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
+      runId,
+      callId,
+      answer: {
+        answers: [
+          {
+            id: questionId,
+            selectedValues: selectedValue ? [selectedValue] : [],
+            freeText: freeText ?? "",
+          },
+        ],
+      },
+    });
+    return { error: error ?? undefined };
+  },
+  log: (message) => console.log(`[lark-bot] ${message}`),
+};
+
+// ─── The channel: one connection carrying every inbound kind ───
+const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
+const channel = createLarkChannel({
+  appId,
+  appSecret,
+  // `raw` carries event_id (the dedup key) and the fields the normal form drops.
+  includeRawEvent: true,
+  keepalive: { enabled: true },
+  // Access control stays ours (inbound-policy.ts) — never pre-filter here.
+  policy: { requireMention: false, dmMode: "open" },
+  source: "my-agent-team/lark-bot",
+  ...(baseUrl.includes("larksuite") ? { domain: baseUrl } : {}),
 });
 
-// ─── Card action callbacks (ADR 0031 §6; lark-cli ≥1.0.9x) ───
-// Button clicks arrive as card.action.trigger over the same outbound
-// websocket — no public ingress. lark-bot validates the callback against
-// its local run_card row and calls the Run control API.
-const actionChild = spawn(
-  "lark-cli",
-  ["--profile", profile, "event", "consume", "card.action.trigger", "--as", "bot"],
-  { stdio: ["pipe", "pipe", "pipe"] },
-);
-const actionBackendClient = createClient(args.backendUrl, args.backendAuthToken);
-createInterface({ input: actionChild.stdout! }).on("line", (line) => {
-  void handleCardActionLine(line, {
-    db: state.db,
-    cancelRun: async (runId) => {
-      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
-      return { error: error ?? undefined };
-    },
-    resolveApproval: async (runId, callId, decision) => {
-      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).approval.post({
-        callId,
-        decision,
-      });
-      return { error: error ?? undefined };
-    },
-    cancelQueuedInput: async (inputId) => {
-      const record = getInputCard(state.db, inputId);
-      if (!record) return { error: "unknown input" };
-      const { error } = await actionBackendClient.api
-        .conversations({ id: record.conversationId })
-        .inputs({ inputId })
-        .cancel.post();
-      if (!error) {
-        await markQueuedCardCancelled({ db: state.db, cardClient }, inputId);
-      }
-      return { error: error ?? undefined };
-    },
-    steerQueuedInput: async (inputId) => {
-      const record = getInputCard(state.db, inputId);
-      if (!record) return { error: "unknown input" };
-      // keepIfIdle: the turn ending between render and click is not the user's
-      // mistake — the message stays queued and the next turn takes it (#64).
-      const { error } = await actionBackendClient.api
-        .conversations({ id: record.conversationId })
-        .inputs({ inputId })
-        .steer.post({ keepIfIdle: true });
-      if (!error) {
-        await markQueuedCardSteered({ db: state.db, cardClient }, inputId);
-      }
-      return { error: error ?? undefined };
-    },
-    resolveAsk: async ({ runId, callId, questionId, selectedValue, freeText }) => {
-      const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
-        runId,
-        callId,
-        answer: {
-          answers: [
-            {
-              id: questionId,
-              selectedValues: selectedValue ? [selectedValue] : [],
-              freeText: freeText ?? "",
-            },
-          ],
-        },
-      });
-      return { error: error ?? undefined };
-    },
-    log: (message) => console.log(`[lark-bot] ${message}`),
-  })
-    .then((outcome) => console.log(`[lark-bot] card action: ${outcome}`))
-    .catch((err) => {
+/** A click must come back with an answer: the platform shows the user whatever
+ *  the handler returns (ADR 0044 decision 3), and a handler that returns
+ *  nothing reads as "the target service did not respond". */
+function cardActionToast(outcome: string): CardActionResponse {
+  const text: Record<string, string> = {
+    stopped: "已停止这个 run",
+    answered: "已提交",
+    "input-cancelled": "已取消这条排队消息",
+    "input-steered": "已作为追加指示发送",
+    rejected: "这张卡片已失效或不属于这个会话",
+    duplicate: "这条操作已经处理过了",
+  };
+  const ok =
+    outcome === "stopped" ||
+    outcome === "answered" ||
+    outcome === "input-cancelled" ||
+    outcome === "input-steered";
+  return {
+    toast: { type: ok ? "success" : "error", content: text[outcome] ?? `未处理：${outcome}` },
+  };
+}
+
+channel.on({
+  message: (msg) => {
+    const event = toLarkMessageEvent(msg);
+    if (!event) {
+      console.warn(`[lark-bot] dropped an unusable message event: ${msg.messageId}`);
+      return;
+    }
+    return handleEvent(event).catch((err) => {
       console.error(
-        `[lark-bot] card action failed: ${err instanceof Error ? err.message : String(err)}`,
+        `[lark-bot] event handling failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
-});
-actionChild.stderr?.on("data", (d: Buffer) => {
-  if (d.toString().includes("[event] ready")) {
-    console.log("[lark-bot] lark-cli card-action consume ready");
-  }
-});
-actionChild.on("exit", (code, signal) => {
-  console.error(`[lark-bot] card-action consumer exited code=${code} signal=${signal}`);
+  },
+  cardAction: async (action: SdkCardActionEvent) => {
+    const outcome = await handleCardActionLine(toCardActionLine(action), cardActionDeps).catch(
+      (err) => {
+        console.error(
+          `[lark-bot] card action failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return "error";
+      },
+    );
+    console.log(`[lark-bot] card action: ${outcome}`);
+    return cardActionToast(outcome);
+  },
+  error: (err) => console.error(`[lark-bot] channel error: ${err.code} ${err.message}`),
+  reconnecting: () => console.warn("[lark-bot] channel reconnecting"),
+  reconnected: () => console.log("[lark-bot] channel reconnected"),
 });
 
-// stderr ready marker
-child.stderr?.on("data", (d: Buffer) => {
-  const text = d.toString();
-  process.stderr.write(`[lark-cli] ${text}`);
-  if (text.includes("[event] ready")) {
-    console.log("[lark-bot] lark-cli event consume ready");
-  }
-});
-
-// Exit handler — SIGTERM only (not SIGKILL: skips lark-cli unsubscribe)
-child.on("exit", (code, signal) => {
-  console.error(`[lark-bot] lark-cli exited code=${code} signal=${signal}`);
-  if (code !== 0 && signal !== "SIGTERM") {
-    process.exit(1); // abnormal — registry will restart
-  }
-  process.exit(0);
-});
+await channel.connect();
+console.log(
+  `[lark-bot] channel connected app=${appId} status=${JSON.stringify(channel.getConnectionStatus())}`,
+);
 
 // Forward SIGTERM gracefully
 const cleanup = () => {
@@ -545,21 +560,18 @@ const cleanup = () => {
   for (const [, c] of cardWatchers) c.close();
 };
 process.on("SIGTERM", () => {
-  console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
+  console.log("[lark-bot] SIGTERM — draining, disconnecting the channel");
   // A batch still inside its quiet window is a message someone sent: deliver it
   // before we go (the backend may still be up when only the bot restarts).
   void merger.flushAll();
   cleanup();
-  // Every consumer gets the signal: leaving the card/reaction streams to die
-  // with the parent skipped lark-cli's own unsubscribe (it warns about it).
-  child.kill("SIGTERM");
-  actionChild.kill("SIGTERM");
+  // Leave cleanly: an abandoned socket keeps the platform routing events at a
+  // connection nobody is reading.
+  void channel.disconnect().finally(() => process.exit(0));
 });
 process.on("SIGINT", () => {
   cleanup();
-  child.kill("SIGTERM");
-  actionChild.kill("SIGTERM");
-  process.exit(0);
+  void channel.disconnect().finally(() => process.exit(0));
 });
 
 console.log(
