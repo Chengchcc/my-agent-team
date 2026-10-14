@@ -144,6 +144,27 @@ export function listCommentBindings(db: Database): CommentBinding[] {
   return d(db).select().from(schema.commentBinding).all().map(toCommentBinding);
 }
 
+/** The conversation a comment line already owns. Looked up by the comment's own
+ *  identity, because that is what an inbound notice carries — the conversation
+ *  id is only known after the first notice. */
+export function findConversationByComment(
+  db: Database,
+  fileToken: string,
+  commentId: string,
+): string | null {
+  const row = d(db)
+    .select({ conversationId: schema.commentBinding.conversationId })
+    .from(schema.commentBinding)
+    .where(
+      and(
+        eq(schema.commentBinding.fileToken, fileToken),
+        eq(schema.commentBinding.commentId, commentId),
+      ),
+    )
+    .get();
+  return row?.conversationId ?? null;
+}
+
 /** Bind a comment line to its conversation. Conflict = already bound: the
  *  stored conversation keeps it, so a restart or a repeated delivery can never
  *  fork a second conversation for the same thread. */

@@ -145,13 +145,17 @@ export const runCard = sqliteTable("run_card", {
  *  `comment:<file_token>:<comment_id>` — so the delivery cursor, the
  *  message-delivery ledger, the AHP watcher and the idempotency keys all work
  *  unchanged; only the send step knows how to answer a comment line. */
-export const commentBinding = sqliteTable("comment_binding", {
-  conversationId: text("conversation_id").primaryKey(),
-  fileToken: text("file_token").notNull(),
-  fileType: text("file_type").notNull(),
-  commentId: text("comment_id").notNull(),
-  createdAt: integer({ mode: "number" }).notNull(),
-});
+export const commentBinding = sqliteTable(
+  "comment_binding",
+  {
+    conversationId: text("conversation_id").primaryKey(),
+    fileToken: text("file_token").notNull(),
+    fileType: text("file_type").notNull(),
+    commentId: text("comment_id").notNull(),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [unique("uq_comment_binding_line").on(table.fileToken, table.commentId)],
+);
 
 /** ADR 0044 decision 6: cloud-doc events are per-FILE — nothing arrives until
  *  the app subscribes the document itself, so every document the bot is asked
