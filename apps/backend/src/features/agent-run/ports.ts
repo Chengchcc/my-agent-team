@@ -145,6 +145,13 @@ export interface AgentRunPort {
   /** Active Runs across the given conversations (Loop Doctor uses it to
    *  find zombie runs that lost their live child). */
   listActiveRunsForConversations(conversationIds: readonly string[]): Promise<AgentRun[]>;
+  /** Runs a surface may still be showing: active, or ended within the window. A run that never
+   *  streamed anything has no ledger rows, no queue row and no fold actions, so once it stops
+   *  being active it would otherwise vanish from the chat state with its terminal unpainted. */
+  listRecentRunsForConversations(
+    conversationIds: readonly string[],
+    withinMs: number,
+  ): Promise<AgentRun[]>;
   listInputs(branchId: string): Promise<BranchInput[]>;
 
   /** Get a single queued input by id (queue management UI). */
