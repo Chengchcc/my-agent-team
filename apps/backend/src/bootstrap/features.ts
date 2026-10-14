@@ -1723,6 +1723,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         response: action.response === null ? null : JSON.stringify(action.response),
       })),
     getRun: (runId) => agentRunPort.getRun(runId),
+    listActiveRuns: (conversationId) =>
+      agentRunPort.listActiveRunsForConversations([conversationId]).catch(() => []),
     // Todos are stored per branch; the chat state keys them by run.
     workspaceRootOf: async (conversationId) => {
       const row = conv.convPort.getConversation(conversationId);

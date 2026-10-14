@@ -43,6 +43,20 @@ function fixture(): Fake {
 }
 
 describe("AHP state source", () => {
+  test("a run parked on an approval is still in the chat state", async () => {
+    // Neither the ledger nor the queue mentions it, and its action stream never opened a turn -
+    // before active runs were merged into the id set both state paths were blind to it, and a
+    // surface could not even paint "waiting for you": a live card froze on its first frame and
+    // stayed there even after the run was stopped.
+    const fake = fixture();
+    fake.setRun("r-wait", "waiting");
+    const withActive = { ...fake.deps, listActiveRuns: async () => [{ runId: "r-wait" }] };
+    const chat = await createAhpStateSource(withActive).chat(chatUri("c1"));
+    expect(chat?.activeTurn?.id).toBe("r-wait");
+    // The same fixture without the dep shows the hole this closes.
+    const bare = await createAhpStateSource(fake.deps).chat(chatUri("c1"));
+    expect(bare?.activeTurn?.id).toBeUndefined();
+  });
   test("root declares the agent catalogue", async () => {
     const root = await createAhpStateSource(fixture().deps).root();
     expect(root.agents).toHaveLength(1);

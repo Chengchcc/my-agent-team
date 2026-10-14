@@ -108,6 +108,11 @@ export interface AhpStateSourceDeps {
     }[]
   >;
   readonly getRun: (runId: string) => Promise<AhpRunRow | null>;
+  /** The conversation's runs that are still going (running / waiting). A run parked on an
+   *  approval has no committed message and no pending input row, and its action stream never
+   *  opened a turn - both other id sources are blind to it, so a surface could not even paint
+   *  "waiting for you". Active runs close that hole. */
+  readonly listActiveRuns?: (conversationId: string) => Promise<readonly { runId: string }[]>;
   /** The run's latest todo snapshot (product tool output), or null when it never wrote one. */
   readonly latestRunTodo?: (runId: string) => Promise<string | null>;
   /** toolCallId → the child's own activity line for one run, from the run telemetry the
@@ -247,9 +252,13 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   const conversationId = row.conversationId;
   const ledger = deps.getLedgerEntries(conversationId);
   const queue = await deps.listPendingInputs(conversationId);
-  const runs = await Promise.all(
-    canonicalRunIds({ ledger, queue }).map((runId) => deps.getRun(runId)),
-  );
+  const canonicalIds = canonicalRunIds({ ledger, queue });
+  // See listActiveRuns: a waiting run is invisible to both the ledger and the queue, and the
+  // writer folds nothing for a turn it never opened, so the id set has to include it explicitly.
+  const active =
+    (await deps.listActiveRuns?.(conversationId).catch(() => [] as { runId: string }[])) ?? [];
+  const ids = [...new Set([...canonicalIds, ...active.map((run) => run.runId)])];
+  const runs = await Promise.all(ids.map((runId) => deps.getRun(runId)));
   const known = runs.filter((run): run is AhpRunRow => run !== null);
 
   // Actions are fetched per run, so their attribution is not guessed.
