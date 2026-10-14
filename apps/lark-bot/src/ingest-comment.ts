@@ -35,12 +35,14 @@ export interface CommentIngestDeps {
    *  Null means the backend refused; the inbound stays reserved. */
   createConversation: () => Promise<string | null>;
   /** Posts one human message; an error string means the conversation exists but
-   *  the turn did not start. */
+   *  the turn did not start. `runId` is what the backend answered with, and the
+   *  comment lane needs it to read the run's pending action out of the chat
+   *  state (the card lane gets the same id from its own callback). */
   postMessage: (input: {
     conversationId: string;
     senderMemberId: string;
     text: string;
-  }) => Promise<{ error?: string }>;
+  }) => Promise<{ error?: string; runId?: string }>;
   /** Fired when a NEW comment line is bound, so its AHP watcher can start. */
   onNewBinding?: (conversationId: string, chatId: string) => void;
 }
@@ -48,6 +50,8 @@ export interface CommentIngestDeps {
 export interface CommentIngestResult {
   action: "triggered" | "skipped" | "error";
   conversationId?: string;
+  /** The run this notice started, when the backend answered with one. */
+  runId?: string;
 }
 
 export async function ingestComment(
@@ -120,5 +124,5 @@ export async function ingestComment(
   }
 
   confirmInbound(db, trigger.eventId, conversationId, null);
-  return { action: "triggered", conversationId };
+  return { action: "triggered", conversationId, ...(posted.runId ? { runId: posted.runId } : {}) };
 }

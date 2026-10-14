@@ -5,6 +5,7 @@ import {
   createLarkChannel,
   type CardActionEvent as SdkCardActionEvent,
 } from "@larksuite/channel";
+import type { ChatState } from "@microsoft/agent-host-protocol";
 import { z } from "zod";
 import type { WatcherHandle } from "./ahp-watcher.js";
 import { watchConversationOverAhp } from "./ahp-watcher.js";
@@ -12,6 +13,7 @@ import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
   ensureTopicRoot,
+  findConversationByComment,
   findConversationByTopicKey,
   getCommentBinding,
   getCommentSubscription,
@@ -33,6 +35,7 @@ import {
 } from "./channel-adapters.js";
 import { createClient } from "./client.js";
 import { ackCommentProcessing, markCommentDone } from "./comment-ack.js";
+import { formatPendingQuestion, parseApprovalAnswer } from "./comment-approval.js";
 import { commentBodyOf } from "./comment-body.js";
 import { commentChatId, isCommentChatId } from "./comment-scope.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
@@ -48,6 +51,7 @@ import { MergeHold, renderMergedMessages } from "./merge-hold.js";
 import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
 import { runPageUrl } from "./run-card/card-renderer.js";
+import { cardStateFromChatTurn } from "./run-card/card-state.js";
 import {
   liveQueuedInputCards,
   markQueuedCardCancelled,
@@ -112,9 +116,8 @@ async function ensureDocSubscribed(fileToken: string, fileType: string): Promise
   console.log(`[lark-bot] subscribed document ${fileToken} (${fileType})`);
 }
 
-/** Answers a comment line: the reply lands in the SAME thread, which is the
- *  comment-world twin of "answer inside the topic" (ADR 0037). */
-async function sendIntoComment(conversationId: string, text: string): Promise<void> {
+/** One reply into a comment line, no bookkeeping. */
+async function replyIntoComment(conversationId: string, text: string): Promise<void> {
   const binding = getCommentBinding(state.db, conversationId);
   if (!binding) throw new Error(`no comment binding for conversation ${conversationId}`);
   if (!isCommentFileType(binding.fileType)) {
@@ -125,18 +128,104 @@ async function sendIntoComment(conversationId: string, text: string): Promise<vo
   // The comment API has no idempotency token: the delivery ledger is what keeps
   // a replay from posting twice (a done row short-circuits before reaching us).
   await channel.comments.reply(target, binding.commentId, text);
+}
+
+/** A comment in a parked thread answers the pending action instead of starting
+ *  a run (ADR 0037's rule - a reply in the thread IS the answer). Deliberately
+ *  checked BEFORE the mention gate: "允许" is not an @-mention. Returns true when
+ *  the comment was consumed as an answer. */
+async function maybeResolveCommentPending(trigger: CommentTrigger): Promise<boolean> {
+  if (!isCommentFileType(trigger.fileType)) return false;
+  const conversationId = findConversationByComment(state.db, trigger.fileToken, trigger.commentId);
+  if (!conversationId) return false;
+  const pending = commentPending.get(conversationId);
+  if (!pending) return false;
+
+  const fetched = await channel.comments
+    .fetch({ fileToken: trigger.fileToken, fileType: trigger.fileType }, trigger.commentId)
+    .catch(() => null);
+  if (!fetched) return false;
+  const decision = parseApprovalAnswer(commentBodyOf(fetched, trigger.replyId));
+  if (!decision) return false;
+
+  const { error } = await actionBackendClient.api["agent-runs"]({
+    runId: pending.runId,
+  }).approval.post({ callId: pending.callId, decision });
+  if (error) {
+    console.error(
+      `[lark-bot] comment answer failed for ${pending.callId}: ${JSON.stringify(error)}`,
+    );
+    await replyIntoComment(
+      conversationId,
+      "没能把你的答复送进那条 run（可能已经过期），请再说一次。",
+    ).catch(() => {});
+    return true;
+  }
+  commentPending.delete(conversationId);
+  console.log(`[lark-bot] comment answered ${pending.callId} with ${decision}`);
+  await replyIntoComment(
+    conversationId,
+    decision === "allow" ? "已允许，继续执行。" : "已拒绝，跳过这一步。",
+  ).catch(() => {});
+  return true;
+}
+
+/** A parked run's question, posted into its comment line once per action. */
+async function surfaceCommentPending(conversationId: string, chat: ChatState): Promise<void> {
+  const runId = commentRunIds.get(conversationId);
+  if (!runId) return;
+  const pending = cardStateFromChatTurn(chat, runId)?.pendingAction;
+  if (!pending) return;
+  if (commentPending.get(conversationId)?.callId === pending.callId) return;
+
+  const text = formatPendingQuestion({
+    kind: pending.kind,
+    detail: pending.prompt,
+    ...(pending.toolName ? { toolName: pending.toolName } : {}),
+  });
+  try {
+    await replyIntoComment(conversationId, text);
+    commentPending.set(conversationId, { runId, callId: pending.callId, askedIn: "" });
+    console.log(`[lark-bot] comment asked for ${pending.kind} ${pending.callId}`);
+  } catch (err) {
+    console.error(
+      `[lark-bot] comment question failed for ${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** The run's ANSWER into its thread, plus the terminal reaction (ADR 0037's
+ *  "answer inside the topic", comment edition). */
+async function sendIntoComment(conversationId: string, text: string): Promise<void> {
+  await replyIntoComment(conversationId, text);
   // A comment line has no card to paint, so the reaction is its only signal:
   // swap the acknowledgement for the terminal mark now that the answer is in.
+  const binding = getCommentBinding(state.db, conversationId);
+  if (!binding || !isCommentFileType(binding.fileType)) return;
+  const target = await channel.comments.resolveTarget(binding.fileToken, binding.fileType);
   const ackedReplyId = commentAckReplyIds.get(conversationId);
-  if (ackedReplyId) await markCommentDone(channel.comments, target, ackedReplyId);
+  if (target && ackedReplyId) await markCommentDone(channel.comments, target, ackedReplyId);
 }
 
 const ConversationCreated = z.object({ conversationId: z.string().min(1) });
+/** The message POST's answer: `{seq, triggeredRuns:[{runId, inputId}]}`. */
+const TriggeredRuns = z.object({
+  triggeredRuns: z.array(z.object({ runId: z.string().min(1) })).optional(),
+});
 
 /** The reply that carries a comment line's acknowledgement, per conversation.
  *  Memory-only on purpose: after a restart an in-flight run keeps its
  *  processing reaction instead of risking a mark on the wrong reply. */
 const commentAckReplyIds = new Map<string, string>();
+
+/** The run each comment line started, so its chat state can be read for a
+ *  pending action (the card lane gets the same id from its own callback). */
+const commentRunIds = new Map<string, string>();
+
+/** The question a parked comment line is waiting on, and the reply it was asked
+ *  in. Memory-only, like the acknowledgement: a restart forgets it, and the
+ *  worst case is a parked run the thread does not ask about. */
+const commentPending = new Map<string, { runId: string; callId: string; askedIn: string }>();
 
 /** One comment notice: subscribe the document, read the body, start a turn. */
 async function handleComment(trigger: CommentTrigger): Promise<void> {
@@ -179,15 +268,28 @@ async function handleComment(trigger: CommentTrigger): Promise<void> {
       return parsed.data.conversationId;
     },
     postMessage: async ({ conversationId, senderMemberId, text: body }) => {
-      const { error } = await actionBackendClient.api
+      const { data, error } = await actionBackendClient.api
         .conversations({ id: conversationId })
         .messages.post({ senderMemberId, content: body });
-      return { error: error ? JSON.stringify(error) : undefined };
+      // The run id is what lets the comment lane read this run's pending action
+      // out of the chat state (the card lane gets it from its own callback).
+      const triggered = TriggeredRuns.safeParse(data);
+      const runId = triggered.success ? triggered.data.triggeredRuns?.[0]?.runId : undefined;
+      return {
+        ...(error ? { error: JSON.stringify(error) } : {}),
+        ...(runId ? { runId } : {}),
+      };
     },
     // The watcher is what delivers the answer; the synthetic chat id routes it
     // back into the comment thread (see sendIntoComment).
     onNewBinding: (conversationId, chatId) => ensureWatcher(conversationId, chatId),
   });
+  // Remembered so a parked action can be surfaced into this thread later; the
+  // chat state does not name its run, and the card lane gets the id from its
+  // own callback instead.
+  if (result.conversationId && result.runId) {
+    commentRunIds.set(result.conversationId, result.runId);
+  }
   console.log(`[lark-bot] comment ${trigger.commentId} → ${result.action}`);
 }
 
@@ -236,6 +338,10 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // there, so broadcasting costs a map walk and keeps the seam free of routing tables.
     onChatState: (chat) => {
       for (const handle of cardWatchers.values()) void handle.update(chat);
+      // A comment line has no card to paint, so a parked run's question has to
+      // go into the thread itself. The state is read through the SAME
+      // projection the card uses, so the two cannot disagree about the ask.
+      if (isCommentChatId(larkChatId)) void surfaceCommentPending(conversationId, chat);
     },
     // M15.1: Handle conversation rebind from surface.control
     onRebind: (oldConvId, newConvId) => {
@@ -673,6 +779,10 @@ channel.on({
       console.log(`[lark-bot] comment ignored (agent-originated): ${trigger.commentId}`);
       return;
     }
+    // A reply in a parked thread answers the question instead of starting a run
+    // (ADR 0037's rule) - checked BEFORE the mention gate, because "允许" is not
+    // an @-mention and the mention gate would drop it.
+    if (await maybeResolveCommentPending(trigger)) return;
     // Only an @-mention of the bot starts a turn.
     if (!trigger.mentionedBot) {
       console.log(`[lark-bot] comment ignored (bot not mentioned): ${trigger.commentId}`);
