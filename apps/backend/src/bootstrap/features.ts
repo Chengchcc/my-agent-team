@@ -776,6 +776,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       inputText: input?.message.text ?? "",
       ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
       startedAt: new Date(run.createdAt).toISOString(),
+      status: run.status,
     };
   };
 

@@ -34,6 +34,7 @@ function fixture(over: { projected?: unknown } = {}) {
         conversationId: "c1",
         inputText: "go",
         messageId: "msg:c1:user:1",
+        status: "completed",
         startedAt: "2026-09-29T00:00:00.000Z",
       };
     },

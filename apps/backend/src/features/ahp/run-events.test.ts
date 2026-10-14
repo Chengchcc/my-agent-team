@@ -140,12 +140,17 @@ describe("run events to chat actions", () => {
         },
       ],
     } as unknown as Pick<Turn, "message" | "responseParts">;
-    const actions = translator.commitTurn("run-7", committed, 1200);
+    const actions = translator.commitTurn("run-7", committed, 1200, "completed");
     expect(types(actions)).toEqual(["chat/turnStarted", "chat/responsePart", "chat/turnComplete"]);
     // The message goes back with the ledger's coordinates, so the list keys it by row id.
     expect(actions[0]).toMatchObject({ message: { _meta: { messageId: "m-1", seq: 4 } } });
     expect(actions[1]).toMatchObject({ part: { id: "run-7:text:0", _meta: { seq: 5 } } });
     expect(actions[2]).toMatchObject({ duration: 1200 });
+    // A stopped run folds as CANCELLED: `chat/turnComplete` carries no status, so a surface reading
+    // the reduced state could not tell a stop from a success (a live card said 已完成 while the
+    // canonical model said cancelled).
+    const stopped = translator.commitTurn("run-7", committed, 1200, "aborted");
+    expect(types(stopped)).toEqual(["chat/turnStarted", "chat/responsePart", "chat/turnCancelled"]);
   });
 
   test("a run nobody streamed is not re-stated at commit", () => {
@@ -158,6 +163,7 @@ describe("run events to chat actions", () => {
           responseParts: [],
         } as unknown as Pick<Turn, "message" | "responseParts">,
         1200,
+        "completed",
       ),
     ).toEqual([]);
   });
