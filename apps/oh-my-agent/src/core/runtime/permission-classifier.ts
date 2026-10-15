@@ -68,13 +68,17 @@ export function buildClassifierMessages(
   ];
 }
 
+/** The one reason that means "the model answered nothing parseable" rather than "it judged".
+ *  classifyPermissionAction retries this case once before failing closed. */
+export const NO_VERDICT_REASON = "classifier returned no verdict";
+
 /** Defensive verdict parse: fenced JSON tolerated, anything else fails closed. */
 export function parseVerdict(text: string): PermissionVerdict {
   const stripped = text.replace(/```(?:json)?/g, "").trim();
   const start = stripped.indexOf("{");
   const end = stripped.lastIndexOf("}");
   if (start === -1 || end <= start) {
-    return { verdict: "block", reason: "classifier returned no verdict" };
+    return { verdict: "block", reason: NO_VERDICT_REASON };
   }
   try {
     const parsed = JSON.parse(stripped.slice(start, end + 1)) as {
@@ -91,9 +95,9 @@ export function parseVerdict(text: string): PermissionVerdict {
             : "blocked by classifier",
       };
     }
-    return { verdict: "block", reason: "classifier returned no verdict" };
+    return { verdict: "block", reason: NO_VERDICT_REASON };
   } catch {
-    return { verdict: "block", reason: "classifier returned no verdict" };
+    return { verdict: "block", reason: NO_VERDICT_REASON };
   }
 }
 
@@ -118,12 +122,26 @@ export async function classifyPermissionAction(opts: {
   try {
     const messages = buildClassifierMessages(opts.toolName, opts.input, opts.userTexts);
     const timeoutMs = opts.timeoutMs ?? classifierTimeoutMs();
-    const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
-    let text = "";
-    for await (const chunk of opts.stream(messages, signal, opts.modelId ?? classifierModelId())) {
-      if (chunk.delta?.type === "text") text += chunk.delta.text;
-    }
-    return parseVerdict(text);
+    const call = async (): Promise<string> => {
+      // A fresh budget per call: the retry must not inherit the first call's
+      // half-spent timeout, or it aborts before the model can answer.
+      const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+      let text = "";
+      for await (const chunk of opts.stream(
+        messages,
+        signal,
+        opts.modelId ?? classifierModelId(),
+      )) {
+        if (chunk.delta?.type === "text") text += chunk.delta.text;
+      }
+      return text;
+    };
+    const verdict = parseVerdict(await call());
+    if (verdict.reason !== NO_VERDICT_REASON) return verdict;
+    // An unparseable answer is usually transient (timeout-shaped emptiness, a truncated JSON
+    // tail): one fresh call before failing closed. A spurious ask parks the run on a human for
+    // nothing, and a deliberate block survives the second call.
+    return parseVerdict(await call());
   } catch (err) {
     return {
       verdict: "block",

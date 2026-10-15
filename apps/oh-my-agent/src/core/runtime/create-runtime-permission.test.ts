@@ -175,10 +175,11 @@ describe("permissionMode auto classifier gate (CC alignment)", () => {
         runId: "r-auto-escalate",
         // Three identical calls; the classifier consumes script slots, so:
         // call1 pops bash#1, its classifier pops bash#2 (tool_use stream →
-        // no verdict → block) → escalates → human allows → executes;
-        // call2 pops bash#3, its classifier reads the text verdict → block
-        // → dedupe: silent deny, no second card; call3 ends the turn.
-        script: [bash, bash, bash],
+        // no verdict → the retry pops bash#3, still no verdict → block)
+        // → escalates → human allows → executes; call2 pops bash#4, its
+        // classifier reads the text verdict → block → dedupe: silent deny,
+        // no second card; call3 ends the turn.
+        script: [bash, bash, bash, bash],
         text: '{"verdict":"block","reason":"looks destructive"}',
         permissionMode: "auto",
         approvalHandler: async (req) => {
