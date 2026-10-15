@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canSandbox } from "@chengchenccc/sandbox";
 import type { BackendRunInput } from "./contract/index.js";
 import {
   createModelRuntime,
@@ -305,7 +306,7 @@ describe("plan mode reaches the assembled tool table", () => {
  *  makes skip-permissions defensible). On a box WITH bwrap, a yolo run's
  *  bash cannot touch the read-only system tree — without the forcing, bash
  *  runs under NullBashSandbox and the write would succeed. */
-(Bun.which("bwrap") !== null ? describe : describe.skip)("yolo forces the OS bash sandbox", () => {
+(canSandbox() ? describe : describe.skip)("yolo forces the OS bash sandbox", () => {
   test("a yolo run's bash cannot write /etc", async () => {
     const savedProvider = process.env.OMA_FAKE_PROVIDER;
     const savedTool = process.env.OMA_FAKE_TOOL;
