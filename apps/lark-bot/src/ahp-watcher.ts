@@ -95,12 +95,14 @@ export function watchConversationOverAhp(
       // whose local state lost the turn: without it the run streams into the void and the card
       // only paints at the fold. The snapshot is adopted only when it carries the turn, so a
       // channel that cannot help does not trade one-action-behind for nothing-at-all.
-      const addressedTurn = (envelope.action as { turnId?: unknown }).turnId;
-      const carriesTurn = (candidate: unknown): boolean =>
+      const addressed = envelope.action;
+      const addressedTurn =
+        "turnId" in addressed && typeof addressed.turnId === "string"
+          ? addressed.turnId
+          : undefined;
+      const carriesTurn = (candidate: ChatState): boolean =>
         typeof addressedTurn !== "string" ||
-        ((candidate as { turns?: Array<{ id?: string }> }).turns ?? []).some(
-          (turn) => turn.id === addressedTurn,
-        );
+        candidate.turns.some((turn) => turn.id === addressedTurn);
       const resyncForMissingTurn =
         envelope.action.type !== "chat/toolCallComplete" && !carriesTurn(state);
       if (envelope.action.type === "chat/toolCallComplete" || resyncForMissingTurn) {
