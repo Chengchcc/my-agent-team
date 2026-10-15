@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canSandbox } from "@chengchenccc/sandbox";
+import { createNodeRunners } from "./node-runners.js";
 
 const store = { get: () => undefined, set: async () => {}, delete: async () => {} };
 
