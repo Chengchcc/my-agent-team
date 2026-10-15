@@ -73,7 +73,7 @@ jobs:
               "packages/tui",
               "packages/source-fetch",
               "packages/sandbox",
-              "packages/agent-contract",
+              "packages/api-contract",
               "packages/adapter-mcp",
               "apps/oh-my-agent",
             ];
@@ -99,7 +99,7 @@ jobs:
       - name: Audit tarball contents (fail closed on stray files)
         run: |
           for p in packages/message packages/config packages/ai packages/tui \
-                   packages/source-fetch packages/sandbox packages/agent-contract \
+                   packages/source-fetch packages/sandbox packages/api-contract \
                    packages/adapter-mcp apps/oh-my-agent; do
             echo "=== $p ==="
             (cd "$p" && npm pack --dry-run 2>&1 | grep -Ev "npm notice [0-9]+ package?" || true)
@@ -124,7 +124,7 @@ jobs:
             *-alpha.*) DIST_TAG=alpha ;;
           esac
           for p in packages/message packages/config packages/ai packages/tui \
-                   packages/source-fetch packages/sandbox packages/agent-contract \
+                   packages/source-fetch packages/sandbox packages/api-contract \
                    packages/adapter-mcp apps/oh-my-agent; do
             echo ">>> publishing $p"
             (cd "$p" && npm publish --access public --tag "$DIST_TAG")

@@ -67,6 +67,7 @@ import {
   firstUserText,
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
+import { createConfiguredSummarizer } from "../features/conversation/summarize.js";
 import {
   createKnowledgeService,
   knowledgeRoutes,
@@ -448,11 +449,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // An undo removes rows the action stream cannot state (nothing dispatches "a message is gone"),
   // so the chat channels are told to truncate. Filled in once the AHP host exists.
   const onMessagesUndone: { fn: (input: { conversationId: string }) => void } = { fn: () => {} };
+  // The backend's only model call: /compact folds the older entries into one
+  // summary. Not configured => compaction keeps answering 501 (never a silent
+  // no-op); malformed => the boot fails here, loudly.
+  const summarizeFromConfig = createConfiguredSummarizer(config.summaryModel, (id) =>
+    providerSvc.credentialFor(id),
+  );
   const conv = createConversationFeature({
     convPort,
 
     agentSvc,
     agentRunService,
+    summarize: summarizeFromConfig,
+    resolveLedgerMessage: (conversationId, ledgerSeq) =>
+      ledgerResolver.resolveMessage(conversationId, ledgerSeq),
     dispatchRun: (runId: string) => dispatchRun.fn(runId),
     injectSteer: (branchId, input, opts) => injectSteer.fn(branchId, input, opts),
     isLive: (runId: string) => isLive.fn(runId),
@@ -704,6 +714,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   const acpBackend = new AcpBackend({
     onSessionBound: (runId, nativeRef) => onSessionBound.fn(runId, nativeRef),
+    // The child's permission classifier defaults to THE RUN'S model, and a
+    // flash-tier model classifying permissions escalates almost everything to
+    // a human — observed live: every bash in one turn asked, one card after
+    // another. This deployment knob pins the classifier to a stronger model
+    // without touching the chat model. Explicit passthrough only: the child
+    // env is otherwise constructed, never inherited wholesale.
+    // ponytail: only the model is forwarded — the child's classifier timeout
+    // default is fine and no deployment declares one; add it to
+    // packages/config when one does.
+    env: {
+      ...(config.omaPermissionClassifierModel
+        ? { OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel }
+        : {}),
+    },
     // Registry-key launch overrides, the omaBin/ompBin convention: a
     // deployment where the agent CLI lives outside PATH names it here.
     commands: { oma: omaAcpArgv },
@@ -752,6 +776,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       inputText: input?.message.text ?? "",
       ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
       startedAt: new Date(run.createdAt).toISOString(),
+      status: run.status,
     };
   };
 
@@ -1136,6 +1161,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
                   p.installedRef ? ["--allowed-pack", p.installedRef] : [],
                 ),
               ],
+              // Semantic search needs the embedding endpoint, and this server is
+              // its own process: it reads these two from its env. Both values are
+              // non-secret (a model id and a local URL), so writing them into the
+              // workspace file keeps that file's secret-free rule intact.
+              ...(config.embeddingModel
+                ? {
+                    env: {
+                      KNOWLEDGE_EMBEDDING_MODEL: config.embeddingModel,
+                      ...(config.embeddingBaseUrl
+                        ? { KNOWLEDGE_EMBEDDING_BASE_URL: config.embeddingBaseUrl }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
           ]
         : []),
@@ -1556,6 +1595,43 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     });
   }, 30_000);
 
+  // Human-node timeouts (DSL `timeoutMs`): a parked execution has no live loop,
+  // so this scan is its only clock. DB rows are the truth → a task that expired
+  // while the process was down settles on the first tick after boot.
+  const humanTimeoutInterval = setInterval(() => {
+    void workflowExecutionService.expireHumanTimeouts().catch((err: unknown) => {
+      console.error(
+        "[workflow] human timeout tick failed:",
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }, 30_000);
+
+  // Artifact retention (opt-in, ARTIFACT_RETENTION_DAYS): 0/unset keeps every
+  // artifact forever — they are the user's own files and age alone is never a
+  // reason to delete. A daily tick, plus one sweep at boot so configuring a
+  // window takes effect on the next restart rather than a day later.
+  const artifactRetentionDays = config.artifactRetentionDays ?? 0;
+  const sweepArtifacts = () => {
+    void artifactService
+      .purgeOlderThan(artifactRetentionDays)
+      .then((removed) => {
+        if (removed > 0) {
+          console.log(
+            `[artifacts] retention removed ${removed} artifact(s) older than ${artifactRetentionDays}d`,
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        console.error(
+          "[artifacts] retention sweep failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+  };
+  if (artifactRetentionDays > 0) sweepArtifacts();
+  const artifactRetentionInterval = setInterval(sweepArtifacts, 24 * 60 * 60 * 1000);
+
   const workflowApp = workflowRoutes({
     workflowExecutionService,
     loadWorkflow: async (ref) => {
@@ -1647,6 +1723,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         response: action.response === null ? null : JSON.stringify(action.response),
       })),
     getRun: (runId) => agentRunPort.getRun(runId),
+    listActiveRuns: (conversationId) =>
+      agentRunPort.listRecentRunsForConversations([conversationId], 10 * 60_000).catch(() => []),
     // Todos are stored per branch; the chat state keys them by run.
     workspaceRootOf: async (conversationId) => {
       const row = conv.convPort.getConversation(conversationId);
@@ -1659,6 +1737,22 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     latestRunTodo: async (runId) => {
       const run = await agentRunPort.getRun(runId);
       return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
+    },
+    // The activity lines a run wrote while it worked (its own describeStart output). They
+    // live in the run telemetry, which is where "how the run behaved" belongs; the ledger
+    // stays the canonical outcome. A rebuilt card therefore labels a call the way the live
+    // stream did, and a rail that records no activity simply keeps the tool name.
+    toolActivities: async (runId) => {
+      const activities = new Map<string, string>();
+      for (const event of services.opsStore.listRunEvents(runId, 2000)) {
+        if (event.type !== "native_tool_started") continue;
+        const callId = event.data.callId;
+        const activity = event.data.activity;
+        if (typeof callId === "string" && typeof activity === "string") {
+          activities.set(callId, activity);
+        }
+      }
+      return activities;
     },
   });
 
@@ -1899,6 +1993,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // (Product Tools MCP) and finally Lark/setup.
     smokeCron?.stop();
     clearInterval(reminderInterval);
+    clearInterval(humanTimeoutInterval);
+    clearInterval(artifactRetentionInterval);
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await workflowTriggerScheduler.dispose();

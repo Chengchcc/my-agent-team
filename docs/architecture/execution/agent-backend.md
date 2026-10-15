@@ -98,8 +98,7 @@ type BackendRunOutcome =
 |---|---|
 | `text_delta` / `thinking_delta` | `text` |
 | `native_tool_started` / `native_tool_completed` | `toolName`、`callId`，完成时可选 `result` |
-| `product_tool_started` / `product_tool_completed` | 同上，区分产品工具与后端原生工具 |
-| `pending_action` | `actionId` |
+| `approval_requested` / `ask_requested` | `payload`：就是落库的那条 `pending_action` 行的对象（`ask_requested` 另带 `questions`） |
 | `status` | `status`、可选 `error` |
 | `delegation_batch_started` / `delegation_agent_started` / `delegation_agent_completed` / `delegation_batch_completed` | 批次与子代理身份、计数、用量 |
 

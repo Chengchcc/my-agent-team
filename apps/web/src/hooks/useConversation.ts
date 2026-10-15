@@ -66,7 +66,11 @@ export function useConversation(
   }, []);
 
   const resolveApproval = useCallback(
-    async (runId: string, callId: string, decision: "allow" | "deny") => {
+    async (
+      runId: string,
+      callId: string,
+      decision: "allow" | "allow_always" | "deny" | "deny_always",
+    ) => {
       try {
         await api.resolveApproval(runId, callId, decision);
       } catch (err) {

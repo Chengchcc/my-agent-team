@@ -2,7 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_EMBEDDING_MODEL, ensureEmbeddingModel } from "./embeddings.js";
+import { ensureEmbeddingModel } from "./fastembed.js";
+import { DEFAULT_EMBEDDING_MODEL } from "./provider.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "oma-embed-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));

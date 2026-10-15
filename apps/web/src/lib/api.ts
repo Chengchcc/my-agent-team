@@ -272,7 +272,11 @@ export const api = {
     ),
   getAgentRun: (runId: string) => unwrap(client.api["agent-runs"]({ runId }).get()),
   cancelAgentRun: (runId: string) => unwrap(client.api["agent-runs"]({ runId }).cancel.post()),
-  resolveApproval: (runId: string, callId: string, decision: "allow" | "deny") =>
+  resolveApproval: (
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ) =>
     unwrap(
       client.api["agent-runs"]({ runId }).approval.post({
         callId,
@@ -659,7 +663,7 @@ export const api = {
       client.api["workflow-executions"].get({ query: workflowId ? { workflowId } : undefined }),
     ),
   startWorkflowExecution: (body: {
-    workflowRef: { repo: string; path: string };
+    workflowRef: { repo?: string; path: string };
     input?: Record<string, unknown>;
     artifacts?: string[];
   }) => unwrap(client.api["workflow-executions"].post(body)),

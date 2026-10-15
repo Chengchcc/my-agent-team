@@ -34,10 +34,11 @@ bun run src/main.ts \
   --bot-display-name="Mira" \
   --agent-name="Mira" \
   --lark-profile=agent:agent-42 \
+  --web-url=http://localhost:3001 \
   --backend-auth-token=dev
 ```
 
-参数解析见 `src/args.ts`：`--agent-id` 必填；`--backend-url`(默认 `http://localhost:3000`，可由 `BACKEND_URL` 兜底)、`--state-root`(默认 `./.data`，可由 `BACKEND_DATA_DIR` 兜底)、`--bot-display-name`、`--agent-name`、`--lark-profile`(缺省回退为 `agent:<safeAgentId>`)、`--backend-auth-token`(可由 `BACKEND_AUTH_TOKEN` 兜底)、`--web-url`(卡片页脚「在 Web 查看」链接，可由 `LARK_WEB_URL` 兜底，缺省不渲染链接)。
+参数解析见 `src/args.ts`：`--agent-id` 必填；`--backend-url`(默认 `http://localhost:3000`，可由 `BACKEND_URL` 兜底)、`--state-root`(默认 `./.data`，可由 `BACKEND_DATA_DIR` 兜底)、`--bot-display-name`、`--agent-name`、`--lark-profile`(缺省回退为 `agent:<safeAgentId>`)、`--backend-auth-token`(可由 `BACKEND_AUTH_TOKEN` 兜底)、`--web-url`(控制台**基地址**：卡片页脚的链接由 `runPageUrl()` 拼成 `<基地址>/system/runs/<runId>`，可由 `LARK_WEB_URL` 兜底，缺省不渲染链接)。
 
 ## 已知残留
 

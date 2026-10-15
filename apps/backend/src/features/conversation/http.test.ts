@@ -177,12 +177,13 @@ describe("conversation routes", () => {
     expect(again.status).toBe(404);
   });
 
-  test("clear and compact answer ok", async () => {
+  test("clear answers ok; compact reports that no summarizer is wired", async () => {
     await createConversation("c-clear");
     const clear = await api(harness, "POST", `${BASE}/c-clear/clear`);
     expect(await clear.json()).toEqual({ ok: true });
     const compact = await api(harness, "POST", `${BASE}/c-clear/compact`);
-    expect(await compact.json()).toEqual({ ok: true });
+    expect(compact.status).toBe(501);
+    expect(((await compact.json()) as { error: string }).error).toContain("not configured");
   });
 });
 

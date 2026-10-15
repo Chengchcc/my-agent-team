@@ -108,8 +108,19 @@ export interface AhpStateSourceDeps {
     }[]
   >;
   readonly getRun: (runId: string) => Promise<AhpRunRow | null>;
+  /** The conversation's runs that are still going (running / waiting). A run parked on an
+   *  approval has no committed message and no pending input row, and its action stream never
+   *  opened a turn - both other id sources are blind to it, so a surface could not even paint
+   *  "waiting for you". Active runs close that hole. */
+  readonly listActiveRuns?: (conversationId: string) => Promise<readonly { runId: string }[]>;
   /** The run's latest todo snapshot (product tool output), or null when it never wrote one. */
   readonly latestRunTodo?: (runId: string) => Promise<string | null>;
+  /** toolCallId → the child's own activity line for one run, from the run telemetry the
+   *  adapter already records. It is how a run described its own calls, not a durable
+   *  conversation fact, so it stays out of the ledger; absent or failing means a surface
+   *  labels the call by its name instead (which is also what a run from another rail
+   *  gets until its telemetry says otherwise). */
+  readonly toolActivities?: (runId: string) => Promise<ReadonlyMap<string, string>>;
   /** Where the conversation's runs work. Missing or failing means "nothing to show": a session
    *  whose project is not attached still has a state, it just has no directory. */
   readonly workspaceRootOf?: (conversationId: string) => Promise<string | null>;
@@ -241,9 +252,13 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   const conversationId = row.conversationId;
   const ledger = deps.getLedgerEntries(conversationId);
   const queue = await deps.listPendingInputs(conversationId);
-  const runs = await Promise.all(
-    canonicalRunIds({ ledger, queue }).map((runId) => deps.getRun(runId)),
-  );
+  const canonicalIds = canonicalRunIds({ ledger, queue });
+  // See listActiveRuns: a waiting run is invisible to both the ledger and the queue, and the
+  // writer folds nothing for a turn it never opened, so the id set has to include it explicitly.
+  const active =
+    (await deps.listActiveRuns?.(conversationId).catch(() => [] as { runId: string }[])) ?? [];
+  const ids = [...new Set([...canonicalIds, ...active.map((run) => run.runId)])];
+  const runs = await Promise.all(ids.map((runId) => deps.getRun(runId)));
   const known = runs.filter((run): run is AhpRunRow => run !== null);
 
   // Actions are fetched per run, so their attribution is not guessed.
@@ -292,6 +307,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
   let activeTurn: ChatState["activeTurn"];
   let waiting = false;
   for (const turn of canonical) {
+    const activities = await activitiesOf(deps, turn.turnId, turn.parts);
     if (turn.status === "running" || turn.status === "waiting") {
       if (turn.status === "waiting") waiting = true;
       // Upstream allows one running turn; the product guarantees one running Run per conversation.
@@ -299,7 +315,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
         id: turn.turnId,
         startedAt: isoOf(startedAtOf(turn.turnId)),
         message: toAhpMessage(turn.input, turn.seq, turn.undone),
-        responseParts: toResponseParts(turn.turnId, turn.parts),
+        responseParts: toResponseParts(turn.turnId, turn.parts, activities),
         usage: undefined,
       };
       continue;
@@ -310,7 +326,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
       // History carries the initiating message's own coordinates too: a surface forks or replays
       // from the message it points at, and an undone message has to read as undone.
       message: toAhpMessage(turn.input, turn.seq, turn.undone),
-      responseParts: toResponseParts(turn.turnId, turn.parts),
+      responseParts: toResponseParts(turn.turnId, turn.parts, activities),
       usage: undefined,
       state: turnStateOf(turn.status),
     });
@@ -447,17 +463,43 @@ function toAhpMessage(
   };
 }
 
-function toResponseParts(turnId: string, parts: readonly CanonicalPart[]): ResponsePart[] {
+/** One run's activity lines, when the run has tool calls at all. A rail that never
+ *  recorded them (or a telemetry read that fails) yields an empty map: labels then fall
+ *  back to the tool name, never to a made-up summary. */
+async function activitiesOf(
+  deps: AhpStateSourceDeps,
+  runId: string,
+  parts: readonly CanonicalPart[],
+): Promise<ReadonlyMap<string, string>> {
+  if (!deps.toolActivities) return new Map();
+  if (!parts.some((part) => part.kind === "toolCall")) return new Map();
+  try {
+    return await deps.toolActivities(runId);
+  } catch {
+    return new Map();
+  }
+}
+
+function toResponseParts(
+  turnId: string,
+  parts: readonly CanonicalPart[],
+  activities?: ReadonlyMap<string, string>,
+): ResponsePart[] {
   return (
     parts
       // A tool row's text is the tool's raw output, which the tool call part already carries as its
       // own result: projecting it as well would read as if the agent had said it.
       .filter((part) => !(part.kind === "text" && part.role === "tool"))
-      .map((part, index) => toResponsePart(turnId, part, index))
+      .map((part, index) => toResponsePart(turnId, part, index, activities))
   );
 }
 
-function toResponsePart(turnId: string, part: CanonicalPart, index: number): ResponsePart {
+function toResponsePart(
+  turnId: string,
+  part: CanonicalPart,
+  index: number,
+  activities?: ReadonlyMap<string, string>,
+): ResponsePart {
   switch (part.kind) {
     case "text": {
       // A system row is not a chat bubble. Upstream has a part for harness-authored lines,
@@ -500,7 +542,7 @@ function toResponsePart(turnId: string, part: CanonicalPart, index: number): Res
     case "toolCall": {
       const call: ToolCallResponsePart = {
         kind: enumValue<ToolCallResponsePart["kind"]>("toolCall"),
-        toolCall: toToolCall(part.toolCall),
+        toolCall: toToolCall(part.toolCall, activities?.get(part.toolCall.toolCallId)),
         ...metaOf(part.messageId, part.seq, part.undone),
       };
       return call;
@@ -675,13 +717,16 @@ type ToolCallRunning = Extract<ToolCallState, { status: "running" }>;
 type ToolCallCancelled = Extract<ToolCallState, { status: "cancelled" }>;
 type ToolCallCompleted = Extract<ToolCallState, { status: "completed" }>;
 
-function toToolCall(call: CanonicalToolCall): ToolCallState {
+function toToolCall(call: CanonicalToolCall, activity?: string): ToolCallState {
   const input =
     typeof call.input === "string" ? call.input : (JSON.stringify(call.input ?? null) ?? "null");
   const base = {
     toolCallId: call.toolCallId,
     toolName: call.name,
     displayName: call.name,
+    // The child's own line, exactly as the live stream carried it. A surface that
+    // rebuilds from the snapshot shows the same label the live subscriber saw.
+    ...(activity === undefined ? {} : { intention: activity }),
   };
   const params = {
     invocationMessage: input.length > 200 ? `${input.slice(0, 200)}…` : input,

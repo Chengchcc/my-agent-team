@@ -25,27 +25,17 @@
 
 ## 上下文与历史
 
-**产品摘要没有生产者。** Context 的 `summary` 条目类型与投影逻辑都在（投影遇到它会用它覆盖被覆盖的那段），但 `appendSummary` 只有测试在调；对话的 `/compact` 与 `/clear` 是显式空操作。要么做一个产品侧的压缩策略，要么把这条路径删掉——留着最容易被误读成「已经有产品级压缩」。
+**~~产品摘要没有生产者~~（2026-10-13 已实现）。** `/compact` 现在真的压缩。后端按 `BACKEND_SUMMARY_MODEL=<provider>/<model>` 取模型——这是后端**第一条模型调用通路**（`createSummaryRuntime()` 从 `BUILTIN_CATALOG` 注册 provider，密钥每次调用时从 provider 设置解析，因此以后加密钥不必重启）。它把「保留尾部 20 条之外」的条目折成一条 `summary` 条目（`appendSummary` 记下覆盖点），并把上一次摘要的正文一起折进去；第二次压缩只覆盖上次覆盖点**之后**的新内容（已覆盖区域不重复计费）。未配置该变量时仍是 501 并说明原因，配置值畸形则在启动时直接失败。`/clear` 仍是真 no-op（没有运行时残留可清）。
 
 **分叉与回滚没有产品入口。** `forkBranch` 唯一的非测试调用方是后端种类切换，`moveBranchLeaf` 只有测试在调，也没有任何 `/api/...branch|context` 路由。库里写了能力，产品上够不着。
 
 **Context 的条目类型大半没人写。** `private_message`、`product_tool_exchange`、`model_change` 三种条目没有写入方，实际只有 `ledger_message` 在写。账本侧同理：`member.joined` / `member.left` 随成员表删除失去写入方，`todo` 从来没有过。
 
-**契约里有三个事件没人发。** `product_tool_started`、`product_tool_completed`、`pending_action` 在 `agent-contract` 里声明着，全仓没有发送点。要么实现，要么从契约里删掉。
-
 **Context 的裁剪是硬编码的。** 取 Run 时同步最近 20 条消息，没有可配置的预算，也没有按 token 估计的策略。做成可配之前得先决定预算归谁管。
 
 ## Workflow
 
-**human 节点的 `timeoutMs` 没实现。** 字段能解析，但从没被消费，pending human 会一直等到人来。
-
 **没有并行 fan-out。** ready 列表是串行 await 的，一条边分多路时不是并发执行。join 语义是 any-of，DSL 里也没有表达 AND 的标记。
-
-**agent 节点的 `repo` 是死接线。** 字段进了 `NodeContext`，依赖也在组装点接好了，但没有调用方，agent 节点不会切到那个仓库的 worktree。
-
-**`workflowRef.repo` 被忽略。** 定义只从本地目录读，没有 git loader。
-
-**script 节点的契约与实现不符。** `packages/workflow/src/node-runtime.ts` 里的 `ScriptContext` 声明了 store、context、log，但后端只把裸 input 传进去，宿主对象刻意不进沙箱。结果这个契约是死的，照它写脚本会崩；`store_write` 事件因此永远不会触发。
 
 ## 模型与 provider
 
@@ -59,11 +49,22 @@
 
 **Lark Run 卡片第一期已落地**（ADR 0031：CardKit 直连流式投影、终态 canonical 封版、卡片「停止」按钮 + `/stop` 命令、重启恢复；终态可靠投递见 ADR 0032）。2026-09-24 追加：按钮回调经 lark-cli ≥1.0.9x 的 `card.action.trigger`，审批（批准/拒绝）与追问的选项按钮都已接（`answer_ask` 走 `/api/product-tools/ask/resolve`，与 Web 同一条路径）；卡片有过程视图（当前动作 + 已完成步骤 + todo 计划条）。同日第二批：**追问挂起时话题回复即答案**（`postMessage` 拦截，见「执行的可靠性」条）；**重启回读**（恢复卡在首帧前从 run 详情的 `pendingActions` 重建按钮，映射与活事件归约逐字段等价）；**回调去重与校验在位**（`reserveEventId` LRU 去重 + 全部 run 控制校验「卡片存在/chat 匹配/run 匹配」，测试钉住；operator 记录留痕）。仍欠：追问的**多选**提交（reaction 触发实测做不了、已删除，见 [lark.md](./architecture/surfaces/lark.md)：飞书没有可用于「停止」的负向表情）；签名 action token 维持 ADR 0031/0026 的延期决定（单用户部署，多操作者时再做）；**注意每应用卡片实体绑定配额**（200780，测试约 18 张触发）——高频使用需关注配额或提供 IM-patch 降级路径。
 
-**产物缺内容账本与保留策略。** 来源信息有了（meta 文件加列表接口），缺 sha256 内容账本与校验端点、保留期的定时清理、以及主动清除接口。
-
 **Lark 卡片缺 artifact / diff / 完整日志的深链（2026-09-25 记录）。** 页脚目前只链到 Web 的 Run 页——方案里的「查看 Diff / 产物 / worktree」直达按钮，需要先把 artifact/diff 标识随 Run 事件（或 run 详情）传给 lark-bot；在那之前不给卡片加假的按钮。
 
-**知识库只有文件级。** 没有 embedding 流水线、向量存储、chunk 级检索；统计里的 token 与 chunk 数是估算，没有重建索引和试查询端点。
+**飞书云文档评论这个面已实现（ADR 0044，2026-10-14）** —— 下面的实测链保留作证据 ✓；决策、实现形状与代码位置见 [ADR 0044](./adr/0044-lark-inbound-events-official-channel-sdk.md)，运行时的不变量见 [lark.md](./architecture/surfaces/lark.md)。**剩余两项**：① Web 面板渲染 `console` 引导（三类事件 + scope 申请链接，`larkSetupGuidance` 已进 surface 视图，缺的只是渲染）；② 生产 app 补齐事件订阅与 scope 后的端到端验收（消息 / 卡片 / 评论三条路）。
+
+**飞书云文档评论这个面没有**（2026-10-13 实测复核，issue #82 的结论落到这里）。想要的形态：文档里被 @ 到就起一个 run，回答**回复进同一条评论线**（与聊天面「回复同一个话题、绝不另开一条」是同一条不变量）。三件事分别核实过：
+
+- **读/写评论的命令有了** ✓ —— `lark-cli` 1.0.96 的 `drive +list-comments` / `+list-replies` / `+add-reply`（含 `--dry-run`、`--as user|bot`、wiki 链接解包）与 `docs +fetch/+update/+search`。但全仓 `lark-cli` 的调用点**全在 provision**（`features/lark-bot/{profile,provisioner,setup-manager}.ts` 等 15 个文件），**没有包成 agent 的工具面** ⇒ 产品里够不着（agent 自己撞 PATH 不算产品能力）。
+- **触发这条路实测封死** ✗ —— `lark-cli event list --json` = 25 个键、9 个域（im:11 vc:7 approval:2 application/board/card/minutes/task 各 1），**没有 drive**；`event schema` 与 `event consume drive.notice.comment_add_v1` 都当场返回 `unknown EventKey`（是拒绝，不是静默失败）。**2026-10-14 追到上游核对了出处**：上游仓库 `events/` 的子目录正是这 9 个域，**没有 drive**（`events/internal/` 只有通用的 `subscribe` / `prep`）；CLI 二进制里那个字符串只出现在**内嵌的 OpenAPI schema** 里 —— 它是云文档文件事件订阅 API（`/open-apis/drive/v1/files/:file_token/subscribe`，同族还有 `get_subscribe` / `delete_subscribe` / `subscriptions/:id` / `new_comments`；scope `docs:document.comment:read`，accessTokens user+tenant）的 `event_type` 参数，可选值就这一个 ⇒ **CLI 的接口目录认识这个事件名，但既没有命令暴露订阅、也没有可订阅的 EventKey**（`drive --help` 的 40 多条命令全列过，只有评论的读写，没有订阅）。另外：二进制里那个 `/open-apis/drive/v1/lark_cli_file_event/report` 是 CLI 专用端点，来历是 CHANGELOG 的「- report upload file events (#2093)」—— **上传**事件的上报，与接收评论事件无关。结论：**「支持但没暴露」只对了一半** —— 平台侧、SDK 侧、CLI 的接口目录都有原料，缺的是 CLI 的暴露面与接收通路。而且上游源码证实这是**有意为之**：`events/all.go` 的 `All()` 只聚合 7 个域（application/approval/im/minutes/task/vc/whiteboard），注释原话「Mail is intentionally omitted in this phase」—— **「整个域按阶段略过」是项目自己写明的工作方式**，drive 大概率同类。加一个域的形态也很清楚：一个 `events/<域>/` 包，里面几个 Go 文件声明 `catalog.KeyDefinition` + handler + 测试（im 域是 `message_receive.go` / `card_action.go` / `native.go` / `register.go`），`All()` 只是把它们 append 起来 ⇒ 「向上游提 issue/PR」是一条**范围清晰**的路。另外 `event consume` 带 `-p/--param Key=value` ⇒ 将来的 drive 域键很可能是带 `file_token` 参数的。
+- **平台上是有这个事件的** ✓ —— 官方 `@larksuite/channel`（依赖 `@larksuiteoapi/node-sdk`）给出 `on('comment')` → `CommentEvent{fileToken,fileType,commentId,replyId?,operator,mentionedBot,timestamp}` 与只读的 `comments.{resolveTarget,fetch,reply,addReaction}`。SDK 把 `drive.notice.comment_add_v1` 挂在**同一个 dispatcher** 的 `builtinHandlers` 上（与 `im.message.receive_v1`、卡片回调同一条路），并会按需注册事件类型；但它**不**替调用方去调 `/files/:token/subscribe`（整个包里 `drive/v1/files` 只出现一次，是回评论的 URL）⇒ **评论事件是否经长连接到达，取决于 app 侧的事件订阅配置，这一点尚未验证** ✗。若平台只按 webhook（事件回调地址）投递，SDK 的 `transport: 'webhook'` 是备选，但那需要公网入口，与 bot 目前「no public ingress」的设计直接冲突。**权限模型证实了「先订阅文件」这一步** ✓ —— CLI 内嵌 schema 里的 scope 名字直接写着 `docs:document.subscription` / `docs:document.subscription:read` / `docs:event:subscribe` / `docs:document.comment:read` / `docs:document.comment:create` / `docs:document:import` ⇒ 云文档事件是**按文件订阅**的机制 ✓（`POST /open-apis/drive/v1/files/:file_token/subscribe {event_type:"drive.notice.comment_add_v1"}` ✓），不是「装了 app 就自动收」✗。这给丙添了一条设计问题：订阅哪些文档（聊天里贴过的？被拉成协作者的？全部？）、订阅状态存哪。**2026-10-14 实测（新建 app `spike-doc` = `cli_aa4459351974dd2c`，与生产 app 完全隔离 ✓；生产 app 上做这个实验会真的丢消息 ✗）**：官方 SDK 长连接连得上 ✓（`{"state":"connected","reconnectAttempts":0}` ✓）；按文件订阅用 tenant token 调通 ✓ —— `POST /open-apis/drive/v1/files/:file_token/subscribe?file_type=docx  body {event_type:"drive.notice.comment_add_v1"}` → `200 {"code":0}` ✓，而 **`file_type` 必须放查询串** ✓（放 body 报 `field validation failed: file_type is required` ✗）；回读 `GET .../get_subscribe?file_type=docx` → `{"is_subscribe":true}` ✓；同族**没有**游标拉取的新评论接口 ✗（`POST .../new_comments` 要 `reply_elements` ✓，它其实是建评论的 ✓）。在**订阅成功 + 同文件上真的建出评论**（`+add-comment` ✓ 返回 comment_id ✓）之后，**长连接上 90 秒内没有任何 `comment` 事件** ✗ ⇒ 剩两种解释、尚未区分：**(a)** app 级别没订阅 `drive.notice.comment_add_v1` ✗（开发者后台「事件与回调」里加 ✓）；**(b)** 云文档事件只走 webhook ✗（那丙需要公网入口 ✓）。分辨办法：在控制台看**有没有这个可选项** ✓，并顺手加 `im.message.receive_v1` 作对照 ✓（消息收得到 ⇒ 长连通道本身没问题 ✓，问题就锁死在云文档事件那一侧 ✓）。**结论（同日隔离实测）** ✓：云文档评论事件**确实经长连接投递** ✓ —— 收到的事件原样载荷为 `{"event_type":"drive.notice.comment_add_v1","event_id":"c0bd64c7…","comment_id":"7696351432357728318","reply_id":"7696351432374521914","is_mentioned":false,"notice_meta":{"file_token":"EWvsdo…","file_type":"docx","from_user_type":"user","is_from_agent":false,"notice_type":"add_comment","to_user_id":{"open_id":"ou_20683aeb…"}}}` ✓；控制台对同一 eventId 显示 `hookType:4 / address:""` ✓，同时**同一 eventId 也有一条 `fail: app not online` 的日志** ✗ —— 而我们**确实收到了它** ✓ ⇒ **控制台投递日志不能当判据** ✗，以自己是否收到为准 ✓。四个前提缺一不可：① app 侧订阅该事件 ✓；② **对该文档调一次** `POST /files/:file_token/subscribe?file_type=<type>`，body `{event_type:"drive.notice.comment_add_v1"}` ✓；③ **触发者必须是人** ✗ —— `is_from_agent:false` / `from_user_type:"user"` ✓，bot 给**自己**的文档评论**不产生通知** ✓（这正是前面几轮全零的原因 ✓）；④ **app 得是那篇文档的参与者** ✓（事件里的 `to_user_id` 就是 app 自己 ✓，即所有者或协作者 ✓）。载荷里 `comment_id` 与 `reply_id` 齐全 ✓ ⇒ 回评所需的 id 有了 ✓；`is_mentioned:false` 与归一化后的 `mentionedBot:false` 一致 ✓ ⇒ 提及过滤可用 ✓。<br>**另一个前提的答案（同日）**：拿到 `comment_id`/`reply_id` 之后回评只需 `channel.comments.reply(target, commentId, text)` ✓；且 `im.message.receive_v1` 在**没配 webhook、只有长连接**的情况下收到了 ✓（对照实验 ✓），所以「云文档事件只走 webhook」的担心作废 ✓ —— 平台在有在线长连接时投递而**没有**在线连接时报 `app not online` ✓（`retryCnt:1` 用完即弃 ✓，不补发 ✓）。另：`lark-cli config init --new` 建出的 app **初始没有任何 scope** ✓，第一次调用即 99991672，授权链接藏在错误的 `hint`/`console_url` 里 ✓（本仓库对此零处理 ✗）。
+- **卡片回调在 SDK 下的形状已实测** ✓（2026-10-14，真实点击，同隔离 app）：`CardActionEvent{messageId, chatId, operator:{openId, userId?, name?}, action:{value:unknown, tag, name?, option?, formValue?}, raw}` ✓ —— 与 `apps/lark-bot/src/run-card/card-actions.ts` 需要的字段逐项对齐的结果：`message_id`/`chat_id`/`operator_id`/`action_tag` 全部直接对应 ✓；**`action.value` 回来是解析好的对象** ✓（我们现有的 `decodeActionValue(raw: string)` 收的是**字符串** ✗ ⇒ 适配层要 `JSON.stringify` 一次 ✓，或把它改成收 `unknown` ✓）；表单提交才有 `action.name` 与 `action.formValue`（`Record<string,unknown>` ✓，需一次扁平化 ✓，我们已有那段逻辑 ✓），普通按钮两者都**没有** ✓；去重键 **`event_id` 在 `raw.event_id`** ✓（`includeRawEvent:true` 必开 ✓），`raw.context.{open_message_id,open_chat_id}` ✓ 与顶层字段一致（互相印证 ✓）。另外一条**实现要求**：SDK 的 `cardAction` 处理器**必须返回 `CardActionResponse`**（如 toast ✓）✗ —— 探针收到就退出、没回包，点卡片的用户端直接看到「目标服务超时未响应」✓；我们今天是靠 lark-cli 的行协议回包 ✗，换 SDK 后要显式 return ✓。**未实测** ✗：表单提交（`card.action.trigger` 的 form submit 形状 ✓，与我们的 ask 卡同形 ✓）与话题群里 `threadId/rootId` 的填充（p2p 已见 ✓）—— 都留到迁移时的验收里验 ✓。
+
+- **但不能在现有总线上再加一条事件源** ✗ —— `@larksuiteoapi/node-sdk` 明写 cluster 模式**不广播**：「if multiple clients are deployed for the same application, only one random client will receive the message」⇒ 再开一条 WS 会**随机吃掉**总线上现有的 im/卡片事件，症状是「消息时丢时不丢」，最难查的那类。
+
+三条路（未选）：**甲**＝只做工具，agent 能读文档与评论当上下文，触发靠「在聊天里贴文档链接」，零事件层风险；**丙**＝整体把 bot 的事件层换成官方 channel SDK（全有或全无：评论、卡片、媒体、归一化都由官方维护，`lark-cli` 退回给 agent 当工具），落地前要 ADR；**两个前提都已实测通过** ✓（2026-10-14：评论事件确实经长连接到达 ✓；卡片回调载荷与我们所需字段逐项对得上 ✓）。剩下的未知只有：表单提交的回调形状 ✓、话题群里 `threadId/rootId` 的填充 ✗、以及 app 侧三类事件（消息 ✓ 卡片回传交互 ✓ 云文档评论 ✓）都得在控制台订阅 ✓ —— 少一个都是静默无事件 ✗。丙的验证必须**另建测试 app**（在生产 app 上做这个实验会真的丢消息）。参考实现 [lark-channel-bridge](https://github.com/zarazhangrui/lark-coding-agent-bridge) 就是丙的形态（它持有该 app 唯一的长连接 ✓，产品层自己写 ✓），可抄的纪律：只认 `mentionedBot`、跳过自己发的回复（bot-loop guard）、**一条评论线 = 一个 session 作用域**、给触发那条加 reaction 当已读标记、回复进同一条评论线；**丁**＝给上游提 issue/PR 加 `events/drive` 域（官方仓、MIT，`events/all.go` 自己写明按阶段略过整域），范围清晰但要等合并，不阻塞前两条。
+
+**知识库只有文件级。** 没有 chunk 级检索、也没有重建索引与试查询端点；统计里的 token 与 chunk 数是估算。**2026-10-13 更新（ADR 0043 决定 7）**：语义检索**已实现但默认关闭** ✓ —— embedding 缝、向量索引（全有或全无 ✓、内容签名判失效 ✓、段落切块 1500 字符 × 每文件上限 200 ✓）、查询降级（无索引或建不起来时退回词法**并说明原因** ✓）、播种与索引解耦（安装不依赖 embedding ✓）都已落地并带测试。默认关闭的原因是实测：本机知识包 39 页 = **1547 块**，每块 11～20 秒 ⇒ 全量构建 **5～7 小时** ✗；唯一质量合格的多语言模型就是这个速度，快一点的小模型中文排序是错的 ✗。因此默认不配 `BACKEND_EMBEDDING_*`（行为与旧版逐字一致 ✓），换到便宜的机器（GPU／更小语料／可用云 key）配两行即生效。
 
 **技能包的调用计数没有。** 设计里有「今日调用」这类统计，需要工具调用事件带上来源包 id。
 
@@ -74,8 +75,6 @@
 完整清单在 [安全与债务清单](./architecture/security/debt.md)，这里只列需要设计决策的那几条：
 
 **bash 的网络白名单。** 现在只有「全断网」和「全开」两种，没有中间档；要放行特定的 registry 就得写策略。
-
-**审批里的 `sandboxed` 信号没接线。** 字段存在但恒为 false，所以「已沙箱化的命令自动放行、未沙箱化的走审批」这条设计没有落地，bash 沙箱目前只能靠设置手动开。
 
 **MCP 面的三件事。** stdio 的 CRUD 允许任意命令（等于 token 持有者就是宿主机 shell）、读取单个 server 时明文返回凭据、url server 挂载前没有 SSRF 检查。
 
@@ -103,6 +102,7 @@
 
 ## 明确不做的
 
-- omp `CustomTool` 的模块形状兼容（ArkType 三栖 schema 加 `CustomToolAPI` 工厂，等于移植半个 pi 运行时）。
+- `workflowRef.repo` 的 git loader：定义只从本地目录（`config.dataDir/workflows`）读，请求里的 `repo` 现在可选且被忽略。按请求去 clone 任意仓库是个安全面，要用时把 loader 与这个字段一起带回来。
+- **上下文降级（context promotion / 中途换大窗模型）。** omp 在溢出时**优先**换成更大窗口的模型重试、不压缩；本仓库**不做**：run 的模型由后端冻结在快照里（`AgentRunSnapshot.model` + `configRevision`），中途换模型要么改子进程协议（快照、终态、表面三处都得带上模型变更），要么退化成「后端拿同一个输入重派一个新 run」（那才是适配本仓库的形态：每次 run 本来就新起子进程）。当前已有三条防线——按**储备量**推出的触发线（大窗不再白留 60k）、一次性溢出恢复、以及**截断当步就压缩**——溢出已属罕见，所以先只把路留在这里。真要做，就先做「按 agent 配一个更大窗口的兜底模型」+「换模型必须在表面可见」（否则是费用惊喜），并只在实测反复出现溢出恢复时才启动。
 - Claude 的 hooks.json 协议、commands、agents、LSP。
 - jiti 之类的运行时转译：插件加载一律用 Bun 原生 `import()`。

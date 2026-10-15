@@ -21,8 +21,9 @@ export type OmaLoopEvent =
       kind?: "native" | "product";
       callId: string;
       /** The tool's resolved input (model call args), for transcript display.
-       *  oma-internal: this NEVER crosses the RPC boundary — surfaces get
-       *  `activity` instead. */
+       *  The retired RPC rail withheld it; over ACP it leaves as the tool
+       *  call's `rawInput` (the ledger's tool_use keeps the arguments) while
+       *  live surfaces label the call from `activity`. */
       input?: Readonly<Record<string, unknown>>;
       /** User-visible one-line description of what the call is doing,
        *  produced by the tool's describeStart and sanitized by
@@ -40,6 +41,11 @@ export type OmaLoopEvent =
       kind?: "native" | "product";
       callId: string;
       result?: Readonly<Record<string, unknown>>;
+      /** Whether the call FAILED — the loop's own judgement (a blocked tool, a
+       *  thrown error, or a result that marks itself `isError`). Surfaces must
+       *  not re-derive this from the result's shape: the result object of a
+       *  refusal is `{error: "..."}`, which looks like data. */
+      isError?: boolean;
       /** Result-side display metadata (resultSummary / errorSummary). */
       presentation?: ToolPresentation;
     }

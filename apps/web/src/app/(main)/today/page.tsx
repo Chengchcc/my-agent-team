@@ -547,12 +547,18 @@ export default function TodayPage() {
                       const summary = hitlSummary(a);
                       const agentName = agents?.find((ag) => ag.id === a.agentId)?.name;
                       const callId = typeof a.payload.callId === "string" ? a.payload.callId : null;
-                      const answerApproval = (decision: "allow" | "deny") => {
+                      const answerApproval = (
+                        decision: "allow" | "allow_always" | "deny" | "deny_always",
+                      ) => {
                         if (!callId) return;
                         void (async () => {
                           try {
                             await api.resolveApproval(a.runId, callId, decision);
-                            toast.success(decision === "allow" ? "Approved" : "Denied");
+                            toast.success(
+                              decision === "allow" || decision === "allow_always"
+                                ? "Approved"
+                                : "Denied",
+                            );
                             await qc.invalidateQueries({ queryKey: ["pending-actions"] });
                           } catch {
                             toast.error("Resolve failed — open the conversation to retry");

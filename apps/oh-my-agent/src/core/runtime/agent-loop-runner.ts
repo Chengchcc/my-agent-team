@@ -434,7 +434,7 @@ async function runModelTurnLoop(
     // protect window are truncated to a summary; protected tools are
     // never pruned. May reduce context enough to avoid compaction
     // entirely (omp docs/compaction.md).
-    const modelMessages0 = opts.pruneConfig
+    let modelMessages0 = opts.pruneConfig
       ? pruneOldToolResults(stepState.messages, opts.pruneConfig).messages
       : stepState.messages;
 
@@ -481,7 +481,17 @@ async function runModelTurnLoop(
       }
     }
 
-    // beforeModel hook.
+    // beforeModel hook. The snapshot above predates the threshold check, which
+    // may have compacted and rebuilt the branch: a call built from that snapshot
+    // would send the very context the compaction just replaced, making the
+    // compaction land one model call late — the truncated-turn continuation hits
+    // exactly that (it is the next call). Re-snapshot only when it changed, so
+    // testing/pruning costs nothing on the common path.
+    if (modelMessages0 !== stepState.messages) {
+      modelMessages0 = opts.pruneConfig
+        ? pruneOldToolResults(stepState.messages, opts.pruneConfig).messages
+        : stepState.messages;
+    }
     const transformed = [...modelMessages0];
     for (const p of opts.plugins) {
       if (p.hooks?.beforeModel) {

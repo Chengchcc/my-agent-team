@@ -4,6 +4,7 @@ import {
   type ArtifactMeta,
   type ArtifactRef,
   type ArtifactUploadInput,
+  type ArtifactVerification,
   artifactUrl,
   parseArtifactUrl,
   splitPath,
@@ -16,6 +17,10 @@ export interface ArtifactService {
   list(folder?: string): Promise<ArtifactMeta[]>;
   delete(url: string): Promise<boolean>;
   exists(url: string): Promise<boolean>;
+  verify(url: string): Promise<ArtifactVerification | null>;
+  /** Delete artifacts older than `days`, sidecars included. 0 (or less) keeps
+   *  everything: these are the user's own files, so age alone never deletes. */
+  purgeOlderThan(days: number): Promise<number>;
 }
 
 export function createArtifactService(port: ArtifactPort): ArtifactService {
@@ -44,6 +49,19 @@ export function createArtifactService(port: ArtifactPort): ArtifactService {
     },
     async exists(url) {
       return port.exists(url);
+    },
+    async verify(url) {
+      return port.verify(url);
+    },
+    async purgeOlderThan(days) {
+      if (!(days > 0)) return 0;
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+      let removed = 0;
+      for (const meta of await port.list()) {
+        if (meta.updatedAt >= cutoff) continue;
+        if (await port.delete(meta.url)) removed += 1;
+      }
+      return removed;
     },
   };
 }

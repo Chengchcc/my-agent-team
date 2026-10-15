@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -8,7 +8,7 @@ import type { Message } from "@chengchenccc/message";
 import { fakeProvider } from "../../core/runtime/fake-provider.js";
 import { registerBuiltinProviders } from "../../core/runtime/run-runtime.js";
 import { appendParkedTurnMarker, appendSessionMessages } from "../../core/session/session-file.js";
-import { runAcpMode } from "./acp-mode.js";
+import { readPermissionMode, runAcpMode } from "./acp-mode.js";
 
 /** Crossed NDJSON stream pairs: our test CLIENT on one side, the oma ACP
  *  server on the other. No processes; the model is the fake provider and
@@ -97,7 +97,7 @@ async function startClient(
   mode: ReturnType<typeof runAcpMode>,
   c2a: ReturnType<typeof streamPair>,
   a2c: ReturnType<typeof streamPair>,
-  answer: "allow-once" | "reject-once" = "allow-once",
+  answer: "allow-once" | "allow-always" | "reject-once" | "reject-always" = "allow-once",
   mcp?: McpOverAcpHarness,
 ): Promise<ClientHarness> {
   void mode;
@@ -185,6 +185,16 @@ async function startClient(
       ctx.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks } as never),
   };
 }
+
+test("an undeclared or bogus permission mode stays on ask; a declared one is honoured", () => {
+  // The ACP default is ask (the client is the human surface); only an explicit
+  // declaration from a client that owns a policy — our backend — can lower it.
+  expect(readPermissionMode(undefined)).toBe("ask");
+  expect(readPermissionMode({})).toBe("ask");
+  expect(readPermissionMode({ "my-agent-team/permissionMode": "yolo" })).toBe("yolo");
+  expect(readPermissionMode({ "my-agent-team/permissionMode": "auto" })).toBe("auto");
+  expect(readPermissionMode({ "my-agent-team/permissionMode": "sudo" })).toBe("ask");
+});
 
 test("a prompt with image blocks reaches the model as vision content (#65)", async () => {
   // Break 2 of the multimodal chain: the ACP wire carries image blocks and the
@@ -515,10 +525,130 @@ describe("oma ACP server (in-process, fake provider)", () => {
     expect(client.permissions).toHaveLength(1);
     const permission = client.permissions[0]!;
     expect(permission.toolCall.toolCallId).toBeTruthy();
-    expect(permission.options.map((o) => o.kind)).toEqual(["allow_once", "reject_once"]);
+    expect(permission.options.map((o) => o.kind)).toEqual([
+      "allow_once",
+      "allow_always",
+      "reject_once",
+      "reject_always",
+    ]);
+    // Bash is never silent: the child says `false` here, which is the honest
+    // "this command is NOT inside the OS sandbox" — the value the card needs to
+    // tell a contained command from an unconstrained one. (Other harnesses say
+    // nothing at all; the backend payload then carries no field rather than an
+    // invented `false`.)
+    const toolCall = permission.toolCall as { _meta?: Record<string, unknown> };
+    expect(toolCall._meta?.["my-agent-team/sandboxed"]).toBe(false);
     const kinds = (client.updates as { sessionUpdate: string }[]).map((u) => u.sessionUpdate);
     expect(kinds).toContain("tool_call");
     expect(kinds).toContain("tool_call_update");
+    mode.stop();
+  }, 30_000);
+
+  test("a sandboxed bash approval declares the OS sandbox to the client", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-sandboxed-"));
+    mkdirSync(join(cwd, ".oma"), { recursive: true });
+    // The workspace may only ever ENABLE the sandbox (fail-safe direction).
+    appendFileSync(join(cwd, ".oma", "settings.json"), JSON.stringify({ bashSandbox: true }));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([{ name: "bash", input: { command: "echo sandboxed-ok" } }]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "allow-once");
+    await client.newSession(cwd);
+    await client.prompt("run the echo");
+    expect(client.permissions).toHaveLength(1);
+    // The flag is the child's truthful statement about its own execution, and
+    // it rides the request's `_meta` (the permissionMode/resume convention).
+    // Only the flag is asserted: whether the sandboxed command itself succeeds
+    // is bwrap's business, not this contract's.
+    const toolCall = client.permissions[0]!.toolCall as { _meta?: Record<string, unknown> };
+    expect(toolCall._meta?.["my-agent-team/sandboxed"]).toBe(true);
+    mode.stop();
+  }, 30_000);
+
+  test("allow-always covers the same tool for the rest of the run", async () => {
+    // The ask gate used to question every call: two bash commands were two
+    // cards. One "allow always" answers the question for this run -- for this
+    // tool, not for every tool, and not beyond the run.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-allow-always-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([
+        { name: "bash", input: { command: "echo acp-always-one" } },
+        { name: "bash", input: { command: "echo acp-always-two" } },
+      ]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "allow-always");
+    await client.newSession(cwd);
+    const response = await client.prompt("run two echos");
+    expect(response.stopReason).toBe("end_turn");
+    const calls = (client.updates as { sessionUpdate: string }[]).filter(
+      (update) => update.sessionUpdate === "tool_call",
+    );
+    // Both calls executed; only the first asked.
+    expect(calls).toHaveLength(2);
+    expect(client.permissions).toHaveLength(1);
+    mode.stop();
+  }, 30_000);
+
+  test("reject-always refuses the same tool for the rest of the run", async () => {
+    // The refusal is remembered like the allowance is: asked once, and the rest
+    // of the run is refused WITHOUT asking. `write` makes the refusal observable
+    // — a bash echo has no side effect to check.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-reject-always-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([
+        { name: "write", input: { path: "never-one.txt", content: "x" } },
+        { name: "write", input: { path: "never-two.txt", content: "x" } },
+      ]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "reject-always");
+    await client.newSession(cwd);
+    const response = await client.prompt("write two files");
+    expect(response.stopReason).toBe("end_turn");
+    // One question, two refusals: neither file was created.
+    expect(client.permissions).toHaveLength(1);
+    expect(existsSync(join(cwd, "never-one.txt"))).toBe(false);
+    expect(existsSync(join(cwd, "never-two.txt"))).toBe(false);
+    // And both are recorded as FAILED, not completed: the status is what the
+    // ledger stores as is_error and what every surface renders as the outcome.
+    const failed = (client.updates as { sessionUpdate: string; status?: string }[]).filter(
+      (u) => u.sessionUpdate === "tool_call_update" && u.status === "failed",
+    );
+    expect(failed).toHaveLength(2);
+    mode.stop();
+  }, 30_000);
+
+  test("reject-once asks again for the next call — the contrast that makes the above real", async () => {
+    // Without this, the reject-always test could pass because the second call
+    // never happened at all. With reject-once the same script asks twice.
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-reject-once-twice-"));
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: makeRuntime([
+        { name: "write", input: { path: "never-one.txt", content: "x" } },
+        { name: "write", input: { path: "never-two.txt", content: "x" } },
+      ]),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    const client = await startClient(mode, c2a, a2c, "reject-once");
+    await client.newSession(cwd);
+    await client.prompt("write two files");
+    expect(client.permissions).toHaveLength(2);
+    expect(existsSync(join(cwd, "never-one.txt"))).toBe(false);
+    expect(existsSync(join(cwd, "never-two.txt"))).toBe(false);
     mode.stop();
   }, 30_000);
 
@@ -569,8 +699,12 @@ describe("oma ACP server (in-process, fake provider)", () => {
     // The model's side of the same call, from the session updates.
     const toolCall = client.updates.find(
       (u) => (u as { sessionUpdate?: string }).sessionUpdate === "tool_call",
-    ) as { toolCallId?: string } | undefined;
+    ) as { toolCallId?: string; rawInput?: unknown } | undefined;
     expect(toolCall?.toolCallId).toBeTruthy();
+    // The arguments the model sent must leave the child: the canonical
+    // ledger records them on the tool_use, and an empty input there is the
+    // "{}" the run card used to render as its label.
+    expect(toolCall?.rawInput).toEqual({ message: "hi" });
 
     const call = mcp.requests.find((r) => r.method === "tools/call");
     const meta = (call?.params as { _meta?: { identity?: { callId?: string } } })?._meta;

@@ -48,7 +48,7 @@ browser 工具用同一个 guard，另外单独拒绝 metadata 端点。
 
 ## 审批管线
 
-`ApprovalRequest` 的来源有三种：权限、工具、分类器；另外留着 `sandboxed` 字段，当前恒为 false。
+`ApprovalRequest` 的来源有三种：权限、工具、分类器。`sandboxed` 是 bash 的沙箱状态，由子进程经 ACP 的 `_meta` 送进来（见 [bash 沙箱](./bash-sandbox.md)），只用于卡片显示，不作授权依据；不问就不带。
 
 超时默认 24 小时（聊天面的人可能隔天才回；2026-09-25 从 2 分钟改掉），可用 `OMA_APPROVAL_TIMEOUT_MS` 覆盖（0 = 一直等），静默超时按拒绝处理，且超时后 resolver 即刻失效——迟到的 resolve_approval 显式失败，不会假成功。无界面模式（print / json）一律拒绝。
 

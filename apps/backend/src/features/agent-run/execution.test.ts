@@ -559,7 +559,9 @@ describe("agent run execution (Run-centric)", () => {
         type: "native_tool_completed",
         toolName: "ls",
         callId: "call-1",
-        result: { empty: true },
+        // `isError` rides the result now: the live card judges the step by it,
+        // and a call's own output is not a reliable judge of its success.
+        result: { empty: true, isError: false },
       }),
     );
     expect(seen).toContainEqual(

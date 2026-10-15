@@ -129,7 +129,15 @@ describe("watching a conversation over AHP", () => {
       },
       fetchTicket: async () => ({ ticket: "t-2", wsBase: "ws://localhost" }),
       transportFactory: () => ({}) as AhpTransport,
-      clientFactory: () => fakeClient(stateWith([part("first", "run:run-1:assistant:0")]), events),
+      // The channel already carries run-2's (empty) turn, so the live part applies through the
+      // reducer. The recovery case - a channel that does NOT carry the turn - is the next test.
+      clientFactory: () => {
+        const base = stateWith([part("first", "run:run-1:assistant:0")]);
+        return fakeClient(
+          { ...base, turns: [...base.turns, { ...base.turns[0], id: "run-2", responseParts: [] }] },
+          events,
+        );
+      },
     });
     await Bun.sleep(50);
     handle.close();
@@ -139,6 +147,72 @@ describe("watching a conversation over AHP", () => {
     // as it arrives, through upstream's reducer. Both actions here are real protocol actions, so a
     // dropped or invented frame shows up as a missing send instead of passing silently.
     expect(sent).toEqual(["first", "live"]);
+  });
+
+  test("a part for a turn the state never saw re-reads the channel and recovers", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lark-ahp-w-"));
+    const db: Database = openBindings("test-agent", dir);
+    const sent: string[] = [];
+    // The watcher's first snapshot has only run-1, the stream carries a part for run-3, and the
+    // channel's own state carries run-3. Without the re-read the part is a no-op forever (the
+    // protocol addresses every part by a turn the state knows) and the card only paints at the
+    // fold - the "sat on thinking while tools ran" report.
+    const base = stateWith([part("first", "run:run-1:assistant:0")]);
+    const recovered = {
+      ...base,
+      turns: [
+        ...base.turns,
+        {
+          ...base.turns[0],
+          id: "run-3",
+          responseParts: [
+            {
+              kind: "markdown",
+              id: "run-3:text:0",
+              content: "recovered",
+              _meta: { messageId: "run:run-3:assistant:0" },
+            },
+          ],
+        },
+      ],
+    };
+    const events: SubscriptionEvent[] = [
+      {
+        type: "action",
+        params: {
+          channel: uri,
+          action: {
+            type: "chat/responsePart",
+            turnId: "run-3",
+            part: {
+              kind: "markdown",
+              id: "run-3:text:0",
+              content: "recovered",
+              _meta: { messageId: "run:run-3:assistant:0" },
+            },
+          },
+          serverSeq: 1,
+          origin: undefined,
+        },
+      } as never,
+    ];
+    const handle = watchConversationOverAhp("c1", "chat-1", {
+      db,
+      backendUrl: "http://localhost",
+      backendAuthToken: "token",
+      onSend: async (_chatId, text) => {
+        sent.push(text);
+      },
+      fetchTicket: async () => ({ ticket: "t-3", wsBase: "ws://localhost" }),
+      transportFactory: () => ({}) as AhpTransport,
+      clientFactory: () =>
+        fakeClient(stateWith([part("first", "run:run-1:assistant:0")]), events, [recovered]),
+    });
+    await Bun.sleep(50);
+    handle.close();
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+    expect(sent).toEqual(["first", "recovered"]);
   });
 
   test("a completed tool re-reads the channel, so the card's plan strip is not stale (#52)", async () => {

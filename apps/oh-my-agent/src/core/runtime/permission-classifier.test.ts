@@ -223,6 +223,38 @@ describe("classifyPermissionAction", () => {
     expect(seen).toEqual([classifierModelId()]);
   });
 
+  test("an unparseable answer is retried once before failing closed", async () => {
+    const answers = ["", '{"verdict":"allow"}'];
+    let calls = 0;
+    const stream = async function* (): AsyncGenerator<AIMessageChunk> {
+      yield { delta: { type: "text", text: answers[calls++] ?? "" } };
+    };
+    const verdict = await classifyPermissionAction({
+      toolName: "bash",
+      input: { command: "cat README.md" },
+      userTexts: ["read the readme"],
+      stream,
+    });
+    expect(verdict).toEqual({ verdict: "allow" });
+    expect(calls).toBe(2);
+  });
+
+  test("two unparseable answers still fail closed, with exactly two calls", async () => {
+    let calls = 0;
+    const stream = async function* (): AsyncGenerator<AIMessageChunk> {
+      calls += 1;
+      yield { delta: { type: "text", text: "not json" } };
+    };
+    const verdict = await classifyPermissionAction({
+      toolName: "bash",
+      input: { command: "ls" },
+      userTexts: [],
+      stream,
+    });
+    expect(verdict).toEqual({ verdict: "block", reason: "classifier returned no verdict" });
+    expect(calls).toBe(2);
+  });
+
   test("a throwing stream is a fail-closed block, never an exception", async () => {
     // Mid-stream failure: one chunk, then the provider dies.
     const stream = async function* (): AsyncGenerator<AIMessageChunk> {

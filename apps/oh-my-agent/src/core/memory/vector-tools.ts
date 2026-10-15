@@ -1,6 +1,6 @@
+import { recallMemories, retainMemory } from "@chengchenccc/embedding";
 import type { PluginTool } from "../index.js";
 import type { VectorMemory } from "./vector-memory.js";
-import { recallMemories, retainMemory } from "./vector-recall.js";
 
 /** Model-facing vector-memory tools: `recall` (hybrid retrieval over the
  *  workspace memory DB) and `retain` (explicit durable store). Mounted in

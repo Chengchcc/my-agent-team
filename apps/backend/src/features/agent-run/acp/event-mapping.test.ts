@@ -60,7 +60,46 @@ describe("mapAcpUpdate", () => {
       rawOutput: { ok: true },
     } as Update);
     expect(completed).toEqual([
-      { type: "native_tool_completed", toolName: "bash", callId: "call-1", result: { ok: true } },
+      {
+        type: "native_tool_completed",
+        toolName: "bash",
+        callId: "call-1",
+        result: { ok: true, isError: false },
+      },
+    ]);
+  });
+
+  test("a failed call says so on the event, whatever the agent sent as output", () => {
+    // The live card judges the step by `result.isError`; a refusal's output is
+    // `{error: "..."}` — plausible-looking data — and an agent that sends no
+    // output at all would leave nothing to judge. The status is the truth.
+    const acc = createAcpAccumulator();
+    const withOutput = mapAcpUpdate(acc, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c-failed",
+      status: "failed",
+      rawOutput: { error: "denied for this run by the user" },
+    } as Update);
+    expect(withOutput).toEqual([
+      {
+        type: "native_tool_completed",
+        toolName: "unknown",
+        callId: "c-failed",
+        result: { error: "denied for this run by the user", isError: true },
+      },
+    ]);
+    const bare = mapAcpUpdate(acc, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c-bare",
+      status: "failed",
+    } as Update);
+    expect(bare).toEqual([
+      {
+        type: "native_tool_completed",
+        toolName: "unknown",
+        callId: "c-bare",
+        result: { isError: true },
+      },
     ]);
   });
 
@@ -222,6 +261,40 @@ describe("durable tool facts", () => {
         toolCallId: "a",
         name: "bash",
         status: "pending",
+        rawInput: { command: "ls -la" },
+      }),
+    );
+    mapAcpUpdate(
+      acc,
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "a",
+        status: "completed",
+        rawOutput: "ok",
+      }),
+    );
+    const use = buildOutcomeMessages(acc.parts).flatMap(
+      (m) => (m.blocks ?? []).find((b) => b.type === "tool_use") ?? [],
+    );
+    expect(use[0]).toMatchObject({ id: "a", input: { command: "ls -la" } });
+  });
+
+  test("rawInput arriving AFTER the first report still reaches the durable use", () => {
+    // The live 2026-10-10 defect: ACP's first tool_call carried no rawInput,
+    // so the tool_use was recorded with {} and the later update's arguments
+    // were dropped — the ledger showed every call as {}, and the card
+    // rendered the label "{}".
+    const acc = createAcpAccumulator();
+    mapAcpUpdate(
+      acc,
+      update({ sessionUpdate: "tool_call", toolCallId: "a", name: "bash", status: "pending" }),
+    );
+    mapAcpUpdate(
+      acc,
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "a",
+        status: "in_progress",
         rawInput: { command: "ls -la" },
       }),
     );

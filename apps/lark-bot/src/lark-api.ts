@@ -49,39 +49,45 @@ export interface TokenProvider {
   getBaseUrl(): string;
 }
 
+/** The app credentials of one lark-cli profile, for callers that need them
+ *  directly (ADR 0044: the channel SDK connects with appId + appSecret, while
+ *  the REST hot path only needs a token). Same store, same rules. */
+export function resolveProfileCredentials(profile: string): {
+  appId: string;
+  appSecret: string;
+  baseUrl: string;
+} {
+  const cfgPath = cliConfigPath();
+  if (!existsSync(cfgPath)) {
+    throw new Error(`lark-cli config not found at ${cfgPath}`);
+  }
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as LarkCliConfig;
+  const app = (cfg.apps ?? []).find((a) => a.name === profile);
+  if (!app) throw new Error(`profile "${profile}" not found in lark-cli config`);
+
+  const dir = secretStoreDir();
+  const keyPath = join(dir, "master.key");
+  const encPath = join(dir, `appsecret_${app.appId}.enc`);
+  if (!existsSync(keyPath) || !existsSync(encPath)) {
+    throw new Error(`lark-cli secret store incomplete for ${app.appId} (looked in ${dir})`);
+  }
+  return {
+    appId: app.appId,
+    appSecret: decryptAppSecret(readFileSync(encPath), readFileSync(keyPath)),
+    baseUrl: app.brand === "lark" ? LARK_BASE : FEISHU_BASE,
+  };
+}
+
 export function createTokenProvider(profile: string): TokenProvider {
   let cached: { token: string; expiresAt: number } | null = null;
   let inflight: Promise<string> | null = null;
 
-  function resolveApp(): { appId: string; baseUrl: string } {
-    const cfgPath = cliConfigPath();
-    if (!existsSync(cfgPath)) {
-      throw new Error(`lark-cli config not found at ${cfgPath}`);
-    }
-    const cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as LarkCliConfig;
-    const app = (cfg.apps ?? []).find((a) => a.name === profile);
-    if (!app) throw new Error(`profile "${profile}" not found in lark-cli config`);
-    return { appId: app.appId, baseUrl: app.brand === "lark" ? LARK_BASE : FEISHU_BASE };
-  }
-
-  function readSecret(appId: string): string {
-    const dir = secretStoreDir();
-    const keyPath = join(dir, "master.key");
-    const encPath = join(dir, `appsecret_${appId}.enc`);
-    const keyPresent = existsSync(keyPath);
-    const encPresent = existsSync(encPath);
-    const storeIncomplete = !keyPresent || !encPresent;
-    if (storeIncomplete) {
-      throw new Error(`lark-cli secret store incomplete for ${appId} (looked in ${dir})`);
-    }
-    return decryptAppSecret(readFileSync(encPath), readFileSync(keyPath));
-  }
   async function mint(): Promise<string> {
-    const { appId, baseUrl } = resolveApp();
+    const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
     const resp = await fetch(`${baseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: appId, app_secret: readSecret(appId) }),
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
     });
     if (!resp.ok) throw new Error(`tenant token endpoint HTTP ${resp.status}`);
     const body: { code?: number; msg?: string; tenant_access_token?: string; expire?: number } =
@@ -107,7 +113,7 @@ export function createTokenProvider(profile: string): TokenProvider {
       cached = null;
     },
     getBaseUrl(): string {
-      return resolveApp().baseUrl;
+      return resolveProfileCredentials(profile).baseUrl;
     },
   };
 }

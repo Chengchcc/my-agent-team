@@ -1,4 +1,4 @@
-import type { EmbeddingProvider } from "./embeddings.js";
+import type { EmbeddingProvider } from "./provider.js";
 import {
   ftsMatchExpression,
   type MemoryRow,

@@ -26,7 +26,9 @@ import type {
   ChatReasoningAction,
   ChatResponsePartAction,
   ChatToolCallCompleteAction,
+  ChatToolCallReadyAction,
   ChatToolCallStartAction,
+  ChatTurnCancelledAction,
   ChatTurnCompleteAction,
   ChatTurnStartedAction,
   InputRequestResponsePart,
@@ -65,6 +67,7 @@ export interface ChatActionTranslator {
     runId: string,
     turn: Pick<Turn, "message" | "responseParts">,
     durationMs: number,
+    runStatus: string,
   ): StateAction[];
   /** A turn the host just appended to the ledger, with nothing streamed for it: the projection is
    *  the only source (the continuity record works this way). Announcing it in full is what a
@@ -162,12 +165,18 @@ export function createChatActionTranslator(): ChatActionTranslator {
   };
 
   /** State a turn exactly as the projection has it: `chat/turnStarted` replaces the active turn
-   *  wholesale, parts included, which is what puts projected parts in place of a preview. */
+   *  wholesale, parts included, which is what puts projected parts in place of a preview.
+   *
+   *  The last action carries the run's OUTCOME, not just "it ended": the protocol has a dedicated
+   *  `chat/turnCancelled`, and `chat/turnComplete` carries no status at all, so a stopped run sent
+   *  as complete is indistinguishable from a successful one on every surface that reads the
+   *  reduced state (a card showed it as done while the canonical model said cancelled). */
   const turnActions = (
     turnId: string,
     startedAt: string,
     turn: Pick<Turn, "message" | "responseParts">,
     durationMs: number,
+    runStatus: string,
   ): StateAction[] => [
     {
       type: enumValue<ChatTurnStartedAction["type"]>("chat/turnStarted"),
@@ -176,11 +185,21 @@ export function createChatActionTranslator(): ChatActionTranslator {
       message: turn.message,
     },
     ...turn.responseParts.map((part) => partAction(turnId, part)),
-    {
-      type: enumValue<ChatTurnCompleteAction["type"]>("chat/turnComplete"),
-      turnId,
-      duration: durationMs,
-    },
+    ...(runStatus === "aborted"
+      ? [
+          {
+            type: enumValue<ChatTurnCancelledAction["type"]>("chat/turnCancelled"),
+            turnId,
+            duration: durationMs,
+          },
+        ]
+      : [
+          {
+            type: enumValue<ChatTurnCompleteAction["type"]>("chat/turnComplete"),
+            turnId,
+            duration: durationMs,
+          },
+        ]),
   ];
 
   /** A tool call is one part of the turn: it takes a slot, and it ends the current text run. */
@@ -197,6 +216,25 @@ export function createChatActionTranslator(): ChatActionTranslator {
         toolCallId: tool.callId,
         toolName: tool.toolName,
         displayName: tool.toolName,
+        ...(tool.activity !== undefined ? { intention: tool.activity } : {}),
+      },
+      {
+        // The protocol walks a tool call Streaming → Ready → Complete, and the
+        // reducer ignores a completion while the part is still Streaming (its
+        // guard accepts running / pending-confirmation / auth-required). Without
+        // this Ready the completion was dropped, the part stayed Streaming, and
+        // the card's step list fell through to its error branch: every finished
+        // tool rendered "（失败）" live and then looked fine after the snapshot
+        // rebuild replaced the parts (user report, 2026-10-10).
+        //
+        // `confirmed` is the honest value for this rail: an ACP permission
+        // request is answered BEFORE the tool runs, so a tool that reaches
+        // "started" has already cleared its confirmation.
+        type: enumValue<ChatToolCallReadyAction["type"]>("chat/toolCallReady"),
+        turnId: runId,
+        toolCallId: tool.callId,
+        invocationMessage: tool.activity ?? tool.toolName,
+        confirmed: enumValue<NonNullable<ChatToolCallReadyAction["confirmed"]>>("not-needed"),
         ...(tool.activity !== undefined ? { intention: tool.activity } : {}),
       },
     ];
@@ -290,15 +328,15 @@ export function createChatActionTranslator(): ChatActionTranslator {
       }
     },
 
-    commitTurn(runId, turn, durationMs) {
+    commitTurn(runId, turn, durationMs, runStatus) {
       const opened = openTurns.get(runId);
       if (!opened) return [];
-      return turnActions(runId, opened.startedAt, turn, durationMs);
+      return turnActions(runId, opened.startedAt, turn, durationMs, runStatus);
     },
 
     announceContinuity(turnId, turn) {
       // No duration: a notice is not a turn that ran. The rest is the projection's own statement.
-      return turnActions(turnId, turn.startedAt ?? new Date(0).toISOString(), turn, 0);
+      return turnActions(turnId, turn.startedAt ?? new Date(0).toISOString(), turn, 0, "completed");
     },
 
     inputCompleted(requestId, response) {

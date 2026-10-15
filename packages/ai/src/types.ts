@@ -110,6 +110,9 @@ export interface ProviderStreamOptions {
     budgetTokens?: number;
   };
   effort?: Exclude<ThinkingLevel, "off">;
+  /** Per-call output cap for this request only. The wire value is
+   *  min(this, the model's own cap) — callers lower it; they do not raise it. */
+  maxTokens?: number;
   cacheControl?: boolean;
   maxRetries?: number;
   maxRetryDelayMs?: number;

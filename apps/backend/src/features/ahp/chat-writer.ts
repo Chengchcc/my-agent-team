@@ -60,6 +60,8 @@ export interface RunTurnContext {
   /** The ledger row of that input, so a surface's optimistic item collapses onto it. */
   readonly messageId?: string;
   readonly startedAt: string;
+  /** How the run ended. The fold needs it: `aborted` is a cancellation, not a completion. */
+  readonly status: string;
 }
 
 /** The turn as the projection has it. */
@@ -230,7 +232,10 @@ export function createAhpChatWriter(deps: AhpChatWriterDeps): AhpChatWriter {
       if (!context) return;
       const turn = await deps.projectedTurn(context.conversationId, runId);
       if (!turn) return;
-      await send(context.conversationId, actions.commitTurn(runId, turn, durationMs));
+      await send(
+        context.conversationId,
+        actions.commitTurn(runId, turn, durationMs, context.status),
+      );
       actions.drop(runId);
       contexts.delete(runId);
       order.delete(runId);

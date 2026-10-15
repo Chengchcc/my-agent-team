@@ -110,6 +110,100 @@ export function putConversationBinding(db: Database, binding: ConversationBindin
     .run();
 }
 
+// ─── comment_binding / comment_subscription (ADR 0044) ─────────────
+
+/** One comment line (document + comment thread) and the conversation it owns. */
+export interface CommentBinding {
+  conversationId: string;
+  fileToken: string;
+  fileType: string;
+  commentId: string;
+  createdAt: number;
+}
+
+function toCommentBinding(row: typeof schema.commentBinding.$inferSelect): CommentBinding {
+  return {
+    conversationId: row.conversationId,
+    fileToken: row.fileToken,
+    fileType: row.fileType,
+    commentId: row.commentId,
+    createdAt: row.createdAt,
+  };
+}
+
+export function getCommentBinding(db: Database, conversationId: string): CommentBinding | null {
+  const row = d(db)
+    .select()
+    .from(schema.commentBinding)
+    .where(eq(schema.commentBinding.conversationId, conversationId))
+    .get();
+  return row ? toCommentBinding(row) : null;
+}
+
+export function listCommentBindings(db: Database): CommentBinding[] {
+  return d(db).select().from(schema.commentBinding).all().map(toCommentBinding);
+}
+
+/** The conversation a comment line already owns. Looked up by the comment's own
+ *  identity, because that is what an inbound notice carries — the conversation
+ *  id is only known after the first notice. */
+export function findConversationByComment(
+  db: Database,
+  fileToken: string,
+  commentId: string,
+): string | null {
+  const row = d(db)
+    .select({ conversationId: schema.commentBinding.conversationId })
+    .from(schema.commentBinding)
+    .where(
+      and(
+        eq(schema.commentBinding.fileToken, fileToken),
+        eq(schema.commentBinding.commentId, commentId),
+      ),
+    )
+    .get();
+  return row?.conversationId ?? null;
+}
+
+/** Bind a comment line to its conversation. Conflict = already bound: the
+ *  stored conversation keeps it, so a restart or a repeated delivery can never
+ *  fork a second conversation for the same thread. */
+export function putCommentBinding(db: Database, binding: CommentBinding): void {
+  d(db)
+    .insert(schema.commentBinding)
+    .values({
+      conversationId: binding.conversationId,
+      fileToken: binding.fileToken,
+      fileType: binding.fileType,
+      commentId: binding.commentId,
+      createdAt: binding.createdAt,
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+/** Whether this document's events are already registered on the platform.
+ *  Cloud-doc events are per-file (ADR 0044 decision 6), so this is what keeps
+ *  a restart from re-subscribing blindly. */
+export function getCommentSubscription(
+  db: Database,
+  fileToken: string,
+): { fileToken: string; fileType: string; subscribedAt: number } | null {
+  const row = d(db)
+    .select()
+    .from(schema.commentSubscription)
+    .where(eq(schema.commentSubscription.fileToken, fileToken))
+    .get();
+  return row ?? null;
+}
+
+export function putCommentSubscription(
+  db: Database,
+  rec: { fileToken: string; fileType: string; subscribedAt: number },
+): void {
+  d(db).insert(schema.commentSubscription).values(rec).onConflictDoNothing().run();
+}
+
 /** Record the message that roots this conversation's topic, once. A
  *  conversation that already has a root keeps it: the first answer created it,
  *  and later answers must reply to that same message rather than to

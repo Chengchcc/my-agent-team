@@ -1,9 +1,15 @@
 import {
+  type BudgetGateRecord,
+  budgetGateNodeId,
+  budgetGateOf,
   type CompletionRecord,
   computeNext,
+  deriveRework,
   type EngineState,
   type NodeRunner,
   type NodeRunResult,
+  planRework,
+  type ReworkGrant,
   routeOutgoing,
   type StoreApi,
   validateBySchema,
@@ -108,6 +114,9 @@ export interface WorkflowExecutionService {
     form?: Record<string, unknown>;
     status: string;
   } | null>;
+  /** Terminalizes parked human tasks whose DSL `timeoutMs` has passed.
+   *  Returns the execution ids it settled (the caller only logs them). */
+  expireHumanTimeouts(now?: number): Promise<string[]>;
   recover(): Promise<void>;
 }
 
@@ -337,7 +346,6 @@ export function createWorkflowExecutionService(
           executionId: execution.executionId,
           nodeId: n.id,
           workflowId: execution.workflowId,
-          repo: "repo" in n ? n.repo : undefined,
         },
       }),
     );
@@ -416,9 +424,11 @@ export function createWorkflowExecutionService(
     if (lastError) {
       await deps.port.updateNodeRun(execution.executionId, node.id, { runId: null });
     }
-    const nodeRun = (await deps.port.listNodeRuns(execution.executionId)).find(
-      (r) => r.nodeId === node.id,
-    );
+    // The attempt in play is the node's latest row: an earlier attempt's runId
+    // would reconnect this retry to a Run that already answered.
+    const nodeRun = (await deps.port.listNodeRuns(execution.executionId))
+      .filter((r) => r.nodeId === node.id)
+      .at(-1);
     let runId: string | undefined | null = nodeRun?.runId;
 
     if (!runId) {
@@ -478,10 +488,13 @@ export function createWorkflowExecutionService(
     order: number,
   ): Promise<{ output: Record<string, unknown> } | null> {
     emit(execution.executionId, "node_started", { nodeId: node.id, order });
-    const existing = (await deps.port.listNodeRuns(execution.executionId)).find(
-      (r) => r.nodeId === node.id,
-    );
-    if (!existing) {
+    // One row per attempt (ADR 0042): a node whose latest row is terminal is
+    // starting a NEW attempt and appends its own row; one that is running, or
+    // parked on a gate, resumes the attempt it already has.
+    const held = (await deps.port.listNodeRuns(execution.executionId))
+      .filter((r) => r.nodeId === node.id)
+      .at(-1);
+    if (held === undefined || (held.status !== "running" && held.status !== "waiting_human")) {
       await deps.port.appendNodeRun({
         executionId: execution.executionId,
         nodeId: node.id,
@@ -573,6 +586,108 @@ export function createWorkflowExecutionService(
     return record;
   }
 
+  /** Apply a completed node's verdicts: every rework it asked for marks what it
+   *  replaces as `superseded` — the rows stay as history, and because the retry
+   *  is then owed to rows rather than to memory, a restart between the verdict
+   *  and the retry owes nothing to luck (ADR 0042 §2.2). */
+  async function applyRework(
+    execution: WorkflowExecutionRow,
+    from: string,
+    output: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    const nodeRuns = await deps.port.listNodeRuns(execution.executionId);
+    const attempts: Record<string, number> = {};
+    for (const run of nodeRuns) {
+      // Gate rows are not attempts of the node they guard.
+      if (budgetGateOf(run.output) !== undefined) continue;
+      attempts[run.nodeId] = (attempts[run.nodeId] ?? 0) + 1;
+    }
+    const grants = planRework({
+      def: execution.definition,
+      from,
+      sourceOutput: output,
+      attempts,
+      store: execution.store,
+    });
+    for (const grant of grants) {
+      for (const nodeId of grant.invalidated) {
+        // Nothing to invalidate where nothing was recorded (a node that never
+        // ran); updateNodeRun returns null and that is not an error.
+        await deps.port.updateNodeRun(execution.executionId, nodeId, { status: "superseded" });
+      }
+      emit(execution.executionId, "rework_requested", {
+        from: grant.from,
+        to: grant.to,
+        attempt: grant.attempt,
+        maxAttempts: grant.budget.maxAttempts,
+        reason: grant.reason,
+        invalidated: grant.invalidated,
+      });
+    }
+  }
+
+  /** A verdict the budget cannot pay for: end the execution, or park a gate
+   *  that a human may resolve with `grant`. Idempotent — the drive loop runs
+   *  this every iteration while the execution is not terminal. */
+  async function applyExhausted(
+    execution: WorkflowExecutionRow,
+    grant: ReworkGrant,
+    order: number,
+  ): Promise<void> {
+    const { budget, to } = grant;
+    const detail = `rework budget for "${to}" is spent after ${budget.maxAttempts} attempt(s); last verdict: ${grant.reason}`;
+    if (budget.onExhausted === "fail") {
+      emit(execution.executionId, "budget_exhausted", { ...grantContext(grant), action: "fail" });
+      throw new Error(detail);
+    }
+    const gateNodeId = budgetGateNodeId(to);
+    const pending = await deps.port.getPendingHuman(execution.executionId, gateNodeId);
+    if (pending?.status === "pending") return; // already parked
+    const gate: BudgetGateRecord = {
+      nodeId: to,
+      from: grant.from,
+      attempt: grant.attempt,
+      maxAttempts: budget.maxAttempts,
+      reason: grant.reason,
+    };
+    await deps.port.appendNodeRun({
+      executionId: execution.executionId,
+      nodeId: gateNodeId,
+      status: "waiting_human",
+      order,
+      output: { budgetGate: gate },
+    });
+    await deps.port.createPendingHuman({
+      executionId: execution.executionId,
+      nodeId: gateNodeId,
+      question: `Node "${to}" used up its rework budget (${budget.maxAttempts} attempt(s)). Grant one more attempt? Last verdict: ${grant.reason}`,
+      form: { budgetGate: gate },
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    await deps.port.updateExecution(execution.executionId, { status: "waiting_human" });
+    emit(execution.executionId, "budget_exhausted", {
+      ...grantContext(grant),
+      action: "human",
+      gateNodeId,
+    });
+    emit(execution.executionId, "human_task_requested", {
+      nodeId: gateNodeId,
+      question: `grant another attempt to "${to}"?`,
+      budgetGate: gate,
+    });
+  }
+
+  function grantContext(grant: ReworkGrant): Record<string, unknown> {
+    return {
+      from: grant.from,
+      to: grant.to,
+      attempt: grant.attempt,
+      maxAttempts: grant.budget.maxAttempts,
+      reason: grant.reason,
+    };
+  }
+
   function rebuildCompletions(nodeRuns: WorkflowNodeRunRow[]): CompletionRecord[] {
     return nodeRuns
       .filter((r) => r.status === "completed")
@@ -592,10 +707,24 @@ export function createWorkflowExecutionService(
     let order = completions.get(execution.executionId)!.length;
     for (;;) {
       throwIfCancelled(execution.executionId);
+      // The rework state is derived from the rows, so it survives a restart,
+      // a crash or a second process: what is superseded owes a retry, and a
+      // verdict the budget cannot pay for is the one thing left to apply.
+      const derived = deriveRework(
+        execution.definition,
+        await deps.port.listNodeRuns(execution.executionId),
+      );
+      const exhausted = derived.exhausted[0];
+      if (exhausted) {
+        await applyExhausted(execution, exhausted, order);
+        if (exhausted.budget.onExhausted === "human") return; // parked
+      }
       const state: EngineState = {
         completions: completions.get(execution.executionId) ?? [],
         store: execution.store,
         trigger: execution.input,
+        invalidated: derived.invalidated,
+        rework: derived.grants,
       };
       const step = computeNext(execution.definition, state);
       if (step.kind === "terminal") {
@@ -628,6 +757,9 @@ export function createWorkflowExecutionService(
           output: record.output,
           routedTo: record.routedTo,
         });
+        // The verdict this completion carries (ADR 0042 §2): a rework edge whose
+        // condition holds now invalidates what it replaces.
+        await applyRework(execution, node.id, record.output);
         const fresh = await deps.port.getExecution(execution.executionId);
         if (fresh) execution.store = fresh.store;
       }
@@ -712,6 +844,38 @@ export function createWorkflowExecutionService(
       if (!pending) throw new HttpError("Pending human task not found", 404);
       if (pending.status === "resolved") throw new HttpError("Human task already resolved", 409);
 
+      // A budget gate is not a form: its answer is `{decision: "grant"|"reject"}`
+      // (ADR 0042 §2.4) — grant buys the attempt the budget refused, reject ends
+      // the execution.
+      const gate = budgetGateOf(pending.form);
+      if (gate) {
+        const decision = answer.decision;
+        if (decision !== "grant" && decision !== "reject") {
+          throw new HttpError('budget gate answer must be {decision:"grant"|"reject"}', 400);
+        }
+        const gateClaimed = await deps.port.markPendingHumanResolved(executionId, nodeId);
+        if (!gateClaimed) throw new HttpError("Human task already resolved", 409);
+        await deps.port.updateNodeRun(executionId, nodeId, {
+          status: "superseded",
+          output: { budgetGate: gate, decision },
+          terminalAt: Date.now(),
+        });
+        if (decision === "reject") {
+          const error = `rework budget for "${gate.nodeId}" was rejected: ${gate.reason}`;
+          await deps.port.updateExecution(executionId, {
+            status: "failure",
+            exit: "failure",
+            error,
+            terminalAt: Date.now(),
+          });
+          emit(executionId, "execution_terminal", { exit: "failure", error });
+          return (await deps.port.getExecution(executionId))!;
+        }
+        await deps.port.updateExecution(executionId, { status: "running" });
+        void runWithCatch(executionId, () => drive(row));
+        return row;
+      }
+
       // The answer arrives over HTTP and must stay DATA (M1): `nextNode`
       // would override every `when` condition downstream, and the
       // prototype-pollution keys are control plane. Same filter as
@@ -741,6 +905,11 @@ export function createWorkflowExecutionService(
         routedTo,
         terminalAt: Date.now(),
       });
+      // A human's verdict is a verdict like any other: it must be able to send
+      // work back. This path does not pass through the drive loop's completion
+      // block, so the rework is planned here too (found live: a "redo" answer
+      // recorded, routed to the next node, and never reworked).
+      await applyRework(row, nodeId, answerData);
       arr.push({ nodeId, output: answerData, order: arr.length, routedTo });
       completions.set(executionId, arr);
       const fresh = await deps.port.getExecution(executionId);
@@ -786,6 +955,49 @@ export function createWorkflowExecutionService(
     },
     async getPendingHuman(executionId, nodeId) {
       return deps.port.getPendingHuman(executionId, nodeId);
+    },
+    /** A parked human task has no live loop, so `timeoutMs` used to be a
+     *  promise the DSL made and nothing kept. The pending row's `createdAt` is
+     *  the clock (no new column) and the same atomic claim as an answer decides
+     *  the race: whoever loses `markPendingHumanResolved` does nothing. */
+    async expireHumanTimeouts(now = Date.now()) {
+      const expired: string[] = [];
+      for (const execution of await deps.port.listWaitingHumanExecutions()) {
+        if (execution.status !== "waiting_human") continue;
+        const waiting = (await deps.port.listNodeRuns(execution.executionId))
+          .filter((r) => r.status === "waiting_human")
+          .at(-1);
+        if (!waiting) continue;
+        // A rework budget gate parks under a synthetic id (`<node>#budget`)
+        // that no DSL node answers to — it declares no timeout, so it is
+        // skipped rather than treated as an unknown node.
+        const node = execution.definition.nodes.find((n) => n.id === waiting.nodeId);
+        if (node?.type !== "human" || !node.timeoutMs) continue;
+        const pending = await deps.port.getPendingHuman(execution.executionId, waiting.nodeId);
+        if (!pending) continue;
+        if (pending.status !== "pending") continue;
+        if (now - pending.createdAt < node.timeoutMs) continue;
+
+        if (!(await deps.port.markPendingHumanResolved(execution.executionId, waiting.nodeId))) {
+          continue; // an answer claimed it first; that path owns the outcome
+        }
+        const error = `human task "${waiting.nodeId}" timed out after ${node.timeoutMs}ms`;
+        await deps.port.updateNodeRun(execution.executionId, waiting.nodeId, {
+          status: "failed",
+          error,
+          terminalAt: now,
+        });
+        await deps.port.updateExecution(execution.executionId, {
+          status: "failure",
+          exit: "failure",
+          error,
+          terminalAt: now,
+        });
+        emit(execution.executionId, "node_failed", { nodeId: waiting.nodeId, error });
+        emit(execution.executionId, "execution_terminal", { exit: "failure", error });
+        expired.push(execution.executionId);
+      }
+      return expired;
     },
     async recover() {
       for (const e of await deps.port.listRunningExecutions()) {

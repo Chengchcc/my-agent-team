@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { retainMemory } from "@chengchenccc/embedding";
 import type { PluginTool } from "../index.js";
 import {
   authoredCollisionMessage,
@@ -8,7 +9,6 @@ import {
   writeManagedSkill,
 } from "./managed-skills.js";
 import type { VectorMemory } from "./vector-memory.js";
-import { retainMemory } from "./vector-recall.js";
 
 /** Explicit durable-lesson capture (omp learn tool, local backend): newest
  *  first in `.oma/memory/learned.md`, deduplicated by normalized content,

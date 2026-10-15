@@ -89,10 +89,29 @@ export function watchConversationOverAhp(
       // The same DB-only gap the web surface closes (#52): the card's plan strip reads
       // `state._meta.todos`, which only a snapshot can set, so a completed tool re-reads the
       // channel instead of leaving the card on its first snapshot forever.
-      if (envelope.action.type === "chat/toolCallComplete") {
+      //
+      // A turn's parts are no-ops in a state that never saw its turnStarted (the protocol
+      // addresses every part by the active turn), so the same re-read also covers a watcher
+      // whose local state lost the turn: without it the run streams into the void and the card
+      // only paints at the fold. The snapshot is adopted only when it carries the turn, so a
+      // channel that cannot help does not trade one-action-behind for nothing-at-all.
+      const addressed = envelope.action;
+      const addressedTurn =
+        "turnId" in addressed && typeof addressed.turnId === "string"
+          ? addressed.turnId
+          : undefined;
+      const carriesTurn = (candidate: ChatState): boolean =>
+        typeof addressedTurn !== "string" ||
+        candidate.turns.some((turn) => turn.id === addressedTurn);
+      const resyncForMissingTurn =
+        envelope.action.type !== "chat/toolCallComplete" && !carriesTurn(state);
+      if (envelope.action.type === "chat/toolCallComplete" || resyncForMissingTurn) {
         const reply = await client.subscribe(uri);
         const fresh = reply.result?.snapshot?.state as ChatState | undefined;
-        if (fresh) {
+        // For a missing turn the snapshot must carry it, else the re-read trades
+        // one-action-behind for nothing-at-all. The #52 re-read has no such precondition: it
+        // exists for `_meta.todos`, which only a snapshot can set.
+        if (fresh && (!resyncForMissingTurn || carriesTurn(fresh))) {
           state = fresh;
           await deliverChatState(state, target, deps);
         }

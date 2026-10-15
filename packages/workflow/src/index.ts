@@ -5,5 +5,6 @@ export * from "./graph.js";
 export * from "./json-logic.js";
 export * from "./node-runtime.js";
 export * from "./parse.js";
+export * from "./rework.js";
 export * from "./schema.js";
 export * from "./types.js";

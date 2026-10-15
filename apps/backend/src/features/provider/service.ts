@@ -37,6 +37,10 @@ export interface ProviderService {
   setCustomKey(name: string, value: string): void;
   clearCustomKey(name: string): void;
   getProviderEnv(): Record<string, string | undefined>;
+  /** The credential a provider call should use: the stored key first, then the
+   *  provider's env var — the same order `configured()` reports. Used by the
+   *  conversation summarizer, the backend's only model call. */
+  credentialFor(id: string): { apiKey?: string; baseUrl?: string };
 }
 
 const storageKey = (id: string) => `provider.${id}`;
@@ -77,6 +81,15 @@ export function createProviderService(settingsSvc: SettingsService): ProviderSer
   }
 
   return {
+    credentialFor(id) {
+      const s = stored(id);
+      const def = KNOWN_PROVIDERS.find((d) => d.id === id);
+      const apiKey = s.apiKey ?? (def ? process.env[def.apiKeyEnv] : undefined);
+      return {
+        ...(apiKey ? { apiKey } : {}),
+        ...(s.baseUrl ? { baseUrl: s.baseUrl } : {}),
+      };
+    },
     list() {
       return KNOWN_PROVIDERS.map((d) => ({
         id: d.id,

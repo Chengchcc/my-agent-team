@@ -1,8 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkflowDefinition } from "@chengchenccc/workflow";
+import { Elysia } from "elysia";
+import { HttpError } from "../../infra/errors.js";
 import { workflowRoutes } from "./http.js";
 import type { WorkflowExecutionService } from "./service.js";
 
@@ -37,6 +39,7 @@ const fakeService: WorkflowExecutionService = {
     createdAt: 1,
   }),
   resolveHumanTasks: async () => [],
+  expireHumanTimeouts: async () => [],
   resolveHumanTask: async (executionId, _nodeId, _answer) => ({
     executionId,
     workflowId: "wf",
@@ -77,6 +80,9 @@ const fakeService: WorkflowExecutionService = {
 };
 
 const dir = mkdtempSync(join(tmpdir(), "wf-http-"));
+// Starting an execution reads a real file now (a typo is a 404, not a 500), so
+// the fixture has to exist the same way it does in a deployment.
+writeFileSync(join(dir, "oncall.workflow.json"), JSON.stringify(def));
 
 const app = workflowRoutes({
   workflowExecutionService: fakeService,
@@ -105,6 +111,75 @@ describe("workflow http", () => {
     expect(body.executionId).toBe("e1");
   });
 
+  test("POST /api/workflow-executions no longer demands the legacy repo field", async () => {
+    // Definitions load from the local workflows dir; `repo` was required and
+    // ignored, so every caller wrote a magic string. It stays accepted.
+    const resp = await app.handle(
+      new Request("http://localhost/api/workflow-executions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workflowRef: { path: "oncall.workflow.json" },
+          input: { issueUrl: "u" },
+        }),
+      }),
+    );
+    expect(resp.status).toBe(201);
+  });
+
+  test("a definition that does not exist is a 404, not a 500", async () => {
+    // The status mapping lives in app.ts's global onError; a bare router has
+    // none, so this mounts the same three lines. The claim under test is the
+    // router's own: a missing file is a client error naming the definition,
+    // never an ENOENT surfacing as "Internal server error".
+    const withMapping = new Elysia()
+      .onError({ as: "global" }, ({ error, set }) => {
+        if (error instanceof HttpError) {
+          set.status = error.status;
+          return { error: error.message };
+        }
+        set.status = 500;
+        return { error: "unmapped" };
+      })
+      .use(
+        workflowRoutes({
+          workflowExecutionService: fakeService,
+          loadWorkflow: async () => JSON.stringify(def),
+          workflowDir: dir,
+        }),
+      );
+    const json = { "content-type": "application/json" };
+    const start = await withMapping.handle(
+      new Request("http://localhost/api/workflow-executions", {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ workflowRef: { path: "nope.workflow.json" } }),
+      }),
+    );
+    expect(start.status).toBe(404);
+    expect(((await start.json()) as { error: string }).error).toContain("nope.workflow.json");
+
+    const one = await withMapping.handle(
+      new Request("http://localhost/api/workflow-definitions/nope"),
+    );
+    expect(one.status).toBe(404);
+
+    const dry = await withMapping.handle(
+      new Request("http://localhost/api/workflow-definitions/nope/dry-run", {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(dry.status).toBe(404);
+
+    // A definition that DOES exist still reads.
+    const present = await withMapping.handle(
+      new Request("http://localhost/api/workflow-definitions/oncall"),
+    );
+    expect(present.status).toBe(200);
+  });
+
   test("GET /api/workflow-executions returns a list", async () => {
     const resp = await app.handle(new Request("http://localhost/api/workflow-executions"));
     expect(resp.status).toBe(200);
@@ -126,7 +201,9 @@ describe("workflow http", () => {
     expect(getBody.definition.id).toBe("wf");
     const list = await app.handle(new Request("http://localhost/api/workflow-definitions"));
     const listBody = (await list.json()) as { definitions: Array<{ workflowId: string }> };
-    expect(listBody.definitions[0]!.workflowId).toBe("wf");
+    // Contains, not index 0: the list is a directory read, and asserting a
+    // position makes the test depend on readdir order.
+    expect(listBody.definitions.map((d) => d.workflowId)).toContain("wf");
     const del = await app.handle(
       new Request("http://localhost/api/workflow-definitions/wf", { method: "DELETE" }),
     );

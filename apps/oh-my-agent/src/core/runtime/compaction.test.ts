@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createInMemorySessionStore } from "../store/in-memory-session-store.js";
 import { readBranchMessages } from "./agent-loop-run.js";
-import { compactSession } from "./compaction.js";
+import type { ContextSummarizer } from "./agent-loop-types.js";
+import { compactSession, latestCompaction } from "./compaction.js";
 
 async function setup(messages: Array<Record<string, unknown>>) {
   const store = createInMemorySessionStore();
@@ -411,5 +412,125 @@ describe("compactSession", () => {
     expect(calls).toBe(1); // the summarizer was not called a second time
     const branch = await store.readBranch(sid);
     expect(branch.filter((e) => e.type === "compaction")).toHaveLength(1);
+  });
+});
+
+describe("compaction input budget", () => {
+  /** n plain user messages, m1..mn (no tool pairs, so the cut is untouched). */
+  function chat(n: number): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({
+      type: "message",
+      role: "user",
+      source: "prompt",
+      message: { role: "user", text: `m${i + 1}` },
+      createdAt: i + 1,
+    }));
+  }
+
+  function recorder(): {
+    calls: Array<{ texts: string[]; previous?: string }>;
+    summarize: ContextSummarizer;
+  } {
+    const calls: Array<{ texts: string[]; previous?: string }> = [];
+    const summarize: ContextSummarizer = async (messages, _signal, opts) => {
+      calls.push({
+        texts: messages.map((m) => m.text ?? ""),
+        ...(opts?.previousSummary ? { previous: opts.previousSummary } : {}),
+      });
+      return `sum-${calls.length}`;
+    };
+    return { calls, summarize };
+  }
+
+  test("a later compaction reads only the new interval, not the whole prefix", async () => {
+    const { store, sid } = await setup(chat(10));
+    const rec = recorder();
+
+    // No budget: the cut is floor(len * 0.6) => 6 of 10 messages.
+    const first = await compactSession(store, sid, rec.summarize);
+    expect(first.coveredIds).toHaveLength(6);
+    expect(rec.calls[0]?.texts).toEqual(["m1", "m2", "m3", "m4", "m5", "m6"]);
+    expect(rec.calls[0]?.previous).toBeUndefined();
+
+    await store.appendBatch(sid, { entries: chat(14).slice(10) });
+
+    const second = await compactSession(store, sid, rec.summarize);
+    // 8 of 14 covered — but only the 2 the first pass had not covered are read,
+    // so the summarizer input grows with the NEW work, never with the
+    // conversation length.
+    expect(second.coveredIds).toHaveLength(8);
+    expect(rec.calls[1]?.texts).toEqual(["m7", "m8"]);
+    expect(rec.calls[1]?.previous).toBe("sum-1");
+
+    // Coverage stays cumulative: the rebuild filters by the LATEST compaction
+    // alone, so ids missing here would come back to the model as raw messages.
+    expect(latestCompaction(await store.readBranch(sid))?.coveredIds.size).toBe(8);
+
+    const sent = await readBranchMessages(store, sid);
+    expect(sent).toHaveLength(7); // the summary plus m9..m14
+    expect(sent[0]?.text).toBe("[Context summary: sum-2]");
+    expect(sent.slice(1).map((m) => m.text)).toEqual(["m9", "m10", "m11", "m12", "m13", "m14"]);
+  });
+});
+
+describe("file operations in the appended summary", () => {
+  test("the covered region's files are listed, derived from its tool calls", async () => {
+    const { store, sid } = await setup([
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m1" },
+        createdAt: 1,
+      },
+      {
+        type: "message",
+        role: "assistant",
+        source: "assistant",
+        message: {
+          role: "assistant",
+          blocks: [{ type: "tool_use", id: "c1", name: "read", input: { path: "src/a.ts" } }],
+        },
+        createdAt: 2,
+      },
+      {
+        type: "message",
+        role: "tool",
+        source: "tool_result",
+        message: {
+          role: "tool",
+          blocks: [{ type: "tool_result", tool_use_id: "c1", content: "x" }],
+        },
+        createdAt: 3,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m4" },
+        createdAt: 4,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m5" },
+        createdAt: 5,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m6" },
+        createdAt: 6,
+      },
+    ]);
+
+    // 6 entries => a cut at 3, so the read call sits inside the covered prefix.
+    await compactSession(store, sid, async () => "SUMMARY");
+
+    expect(latestCompaction(await store.readBranch(sid))?.summary).toBe(
+      "SUMMARY\n\n<files>\nsrc/a.ts (Read)\n</files>",
+    );
   });
 });

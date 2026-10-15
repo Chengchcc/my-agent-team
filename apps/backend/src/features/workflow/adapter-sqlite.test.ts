@@ -53,6 +53,55 @@ describe("sqliteWorkflowExecutionAdapter", () => {
     expect(ph?.status).toBe("pending");
     await adapter.markPendingHumanResolved("e1", "h1");
     expect((await adapter.getPendingHuman("e1", "h1"))?.status).toBe("resolved");
+
+    // The same node gates again in the same execution (a rework re-runs it,
+    // ADR 0042). The table keys on (execution, node), so the new gate must
+    // replace the resolved row — inserting beside it is a UNIQUE violation.
+    const again = await adapter.createPendingHuman({
+      executionId: "e1",
+      nodeId: "h1",
+      question: "round two?",
+      form: {},
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    expect(again.question).toBe("round two?");
+    const latest = await adapter.getPendingHuman("e1", "h1");
+    expect(latest?.status).toBe("pending");
+    expect(latest?.question).toBe("round two?");
+  });
+
+  test("a patch updates the node's latest attempt, never the earlier ones", async () => {
+    await adapter.createExecution({
+      executionId: "e-attempts",
+      workflowId: "wf",
+      definition: def,
+      input: {},
+      store: {},
+    });
+    // Attempt 1 (completed, then invalidated by a rework) and attempt 2 (running).
+    await adapter.appendNodeRun({
+      executionId: "e-attempts",
+      nodeId: "start",
+      status: "superseded",
+      order: 0,
+      output: { round: 1 },
+    });
+    await adapter.appendNodeRun({
+      executionId: "e-attempts",
+      nodeId: "start",
+      status: "running",
+      order: 1,
+    });
+    await adapter.updateNodeRun("e-attempts", "start", {
+      status: "completed",
+      output: { round: 2 },
+      terminalAt: Date.now(),
+    });
+    const runs = await adapter.listNodeRuns("e-attempts");
+    expect(runs.map((r) => r.status)).toEqual(["superseded", "completed"]);
+    expect(runs[0]!.output).toEqual({ round: 1 });
+    expect(runs[1]!.output).toEqual({ round: 2 });
   });
 
   test("list running and waiting-human executions", async () => {

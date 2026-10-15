@@ -6,7 +6,11 @@ import { formatDeadline, type TransientApproval } from "@/lib/transient-reducer"
 interface TimelineApprovalCardProps {
   runId: string;
   approval: TransientApproval;
-  onResolveApproval?: (runId: string, callId: string, decision: "allow" | "deny") => void;
+  onResolveApproval?: (
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ) => void;
 }
 
 export function TimelineApprovalCard({
@@ -63,6 +67,28 @@ export function TimelineApprovalCard({
               onClick={() => onResolveApproval?.(runId, approval.callId, "allow")}
             >
               Allow
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              data-testid="approval-allow-always"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              title="Allow every later call of this tool for the rest of the run"
+              onClick={() => onResolveApproval?.(runId, approval.callId, "allow_always")}
+            >
+              Always allow
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              data-testid="approval-deny-always"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              title="Refuse every later call of this tool for the rest of the run"
+              onClick={() => onResolveApproval?.(runId, approval.callId, "deny_always")}
+            >
+              Always deny
             </Button>
             <Button
               type="button"

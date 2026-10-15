@@ -65,6 +65,9 @@ interface FakeAgentObservations {
 interface FakeAgentScript {
   /** Ask for permission mid-prompt with these options. */
   permissionOptions?: Array<{ optionId: string; name: string; kind: string }>;
+  /** Send the child's bash-sandbox flag on that permission request (the
+   *  `my-agent-team/sandboxed` `_meta` key the real child uses). */
+  permissionSandboxed?: boolean;
   /** Send an elicitation mid-prompt. */
   elicit?: boolean;
   stopReason?: string;
@@ -73,6 +76,8 @@ interface FakeAgentScript {
   dieAfterPermission?: boolean;
   /** Capture every session/new params object (adopt-declaration tests). */
   newSessionParams?: unknown[];
+  /** Capture every session/load params object (continuation tests). */
+  loadParams?: unknown[];
   /** Capture the spawn env (allowlist passthrough tests). */
   spawnEnv?: (Readonly<Record<string, string | undefined>> | undefined)[];
   /** Advertise `agentCapabilities.mcpCapabilities.acp` on initialize. */
@@ -140,6 +145,7 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
       })
       .onRequest(acp.methods.agent.session.load, async (ctx) => {
         obs.loadedSessionIds.push(ctx.params.sessionId);
+        script.loadParams?.push(ctx.params);
         return {
           sessionId: ctx.params.sessionId,
           configOptions: script.configOptions ?? [],
@@ -209,6 +215,9 @@ function startFakeAgent(script: FakeAgentScript, obs: FakeAgentObservations): Ac
               kind: "execute",
               status: "pending",
               rawInput: { command: "echo hi" },
+              ...(script.permissionSandboxed !== undefined
+                ? { _meta: { "my-agent-team/sandboxed": script.permissionSandboxed } }
+                : {}),
             },
             options: script.permissionOptions as never,
           });
@@ -380,6 +389,81 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   });
 
+  test("the run's frozen permission mode rides session/new _meta", async () => {
+    // Without this the child defaults to "ask" and every backend-driven run
+    // degrades to per-action human approval, whatever the agent configured
+    // (observed live 2026-10-10: one approval card per bash call).
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const newSessionParams: unknown[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ newSessionParams }, obs) });
+    const segment = await backend.execute(makeInput({ permissionMode: "auto" }));
+    await collect(segment);
+    expect(newSessionParams[0]).toMatchObject({
+      _meta: { "my-agent-team/permissionMode": "auto" },
+    });
+    await backend.dispose();
+  }, 10_000);
+
+  test("a continuation run's permission mode rides session/load _meta too", async () => {
+    // session/new alone is not enough: every message after the first in a
+    // conversation is a continuation, and without the declaration on load each
+    // of them degrades back to per-action "ask" (live: round four asked for
+    // every bash while a fresh conversation ran auto).
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const loadParams: unknown[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ loadParams }, obs) });
+    const segment = await backend.execute(
+      makeInput({ permissionMode: "auto", cliSessionRef: "sess-fake-1" }),
+    );
+    await collect(segment);
+    expect(loadParams[0]).toMatchObject({
+      _meta: { "my-agent-team/permissionMode": "auto" },
+    });
+    await backend.dispose();
+  }, 10_000);
+
+  test("a sandboxed approval carries the child's flag into the payload", async () => {
+    // The live stack runs oma over ACP: the child computes the truthful
+    // bash-sandbox state, and this is the only place it can cross the boundary.
+    // Before this, the card showed the command with no way to tell a contained
+    // one from an unconstrained one.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionSandboxed: true,
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    const seen: BackendEvent<"acp">[] = [];
+    await waitUntil(segment, (e) => e.type === "approval_requested", seen);
+    const approval = seen.find((e) => e.type === "approval_requested");
+    expect(approval?.type === "approval_requested" && approval.payload.sandboxed).toBe(true);
+    await backend.resolveApproval("run-1", "call-perm-1", "allow");
+    await collect(segment);
+  });
+
   test("permission allow: resolveApproval picks the agent's allow_once optionId", async () => {
     const obs: FakeAgentObservations = {
       loadedSessionIds: [],
@@ -412,6 +496,9 @@ describe("AcpBackend against an in-memory fake agent", () => {
       },
     });
     if (approval?.type === "approval_requested") {
+      // This agent never mentioned a sandbox, so the payload must stay silent
+      // rather than inventing `false`.
+      expect(approval.payload.sandboxed).toBeUndefined();
       expect(approval.payload.deadlineAt).toBeGreaterThan(Date.now());
     }
     await backend.resolveApproval("run-1", "call-perm-1", "allow");
@@ -444,6 +531,122 @@ describe("AcpBackend against an in-memory fake agent", () => {
     }
     // The response echoed the AGENT's optionId, picked by kind.
     expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "allow-once" }]);
+    await backend.dispose();
+  });
+
+  test("permission allow_always picks the agent's allow_always optionId", async () => {
+    // The human's "allow always" is only a promise the agent can keep: it is
+    // answered with the agent's own always-option, and the run-scoped memory
+    // that makes it true lives in the child's ask gate.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "allow-always", name: "Always", kind: "allow_always" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "allow_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "allow-always" }]);
+    await backend.dispose();
+  });
+
+  test("allow_always degrades to allow-once when the agent offers no always-option", async () => {
+    // Other harnesses declare only allow_once. Answering with a string they
+    // never offered would be a protocol lie; allowing this one call and
+    // letting the next ask again is the honest equivalent.
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "allow_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "allow-once" }]);
+    await backend.dispose();
+  });
+
+  test("permission deny_always picks the agent's reject_always optionId", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-always", name: "Never", kind: "reject_always" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "deny_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "reject-always" }]);
+    await backend.dispose();
+  });
+
+  test("deny_always degrades to reject_once when the agent offers no never-option", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent(
+        {
+          permissionOptions: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+        obs,
+      ),
+    });
+    const segment = await backend.execute(makeInput());
+    await waitUntil(segment, (e) => e.type === "approval_requested", []);
+    await backend.resolveApproval("run-1", "call-perm-1", "deny_always");
+    const { outcome } = await collect(segment);
+    expect(outcome.status).toBe("completed");
+    expect(obs.permissionOutcomes).toEqual([{ outcome: "selected", optionId: "reject-once" }]);
     await backend.dispose();
   });
 

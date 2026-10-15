@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { canSandbox } from "@chengchenccc/sandbox";
 import { createNodeRunners } from "./node-runners.js";
 
 const store = { get: () => undefined, set: async () => {}, delete: async () => {} };
@@ -17,34 +18,44 @@ describe("createNodeRunners", () => {
     ).rejects.toThrow(/WORKFLOW_SCRIPTS_ENABLED/);
   });
 
-  test("script node executes TS default export under sandbox isolation", async () => {
-    const runners = createNodeRunners({
-      dataDir: ".backend-data/workflow-scripts",
-      scriptsEnabled: true,
-      denyReadDirs: [".backend-data"],
-    });
-    const out = await runners.script.run(
-      { id: "s", type: "script", code: "export default async (ctx) => ({ sent: ctx.x })" },
-      { input: { x: 1 }, store, context: { executionId: "e", nodeId: "s", workflowId: "wf" } },
-    );
-    expect(out.output).toEqual({ sent: 1 });
-  }, 30_000);
+  // Both executing tests need a sandbox that can actually run; a runner whose
+  // container refuses the namespaces skips rather than fails (see canSandbox).
+  test.skipIf(!canSandbox())(
+    "script node executes TS default export under sandbox isolation",
+    async () => {
+      const runners = createNodeRunners({
+        dataDir: ".backend-data/workflow-scripts",
+        scriptsEnabled: true,
+        denyReadDirs: [".backend-data"],
+      });
+      const out = await runners.script.run(
+        { id: "s", type: "script", code: "export default async (ctx) => ({ sent: ctx.x })" },
+        { input: { x: 1 }, store, context: { executionId: "e", nodeId: "s", workflowId: "wf" } },
+      );
+      expect(out.output).toEqual({ sent: 1 });
+    },
+    30_000,
+  );
 
-  test("script node times out", async () => {
-    const runners = createNodeRunners({
-      dataDir: ".backend-data/workflow-scripts",
-      scriptsEnabled: true,
-    });
-    await expect(
-      runners.script.run(
-        {
-          id: "s",
-          type: "script",
-          code: "export default async () => new Promise(() => {})",
-          timeoutMs: 50,
-        },
-        { input: {}, store, context: { executionId: "e", nodeId: "s", workflowId: "wf" } },
-      ),
-    ).rejects.toThrow(/timed out/);
-  }, 30_000);
+  test.skipIf(!canSandbox())(
+    "script node times out",
+    async () => {
+      const runners = createNodeRunners({
+        dataDir: ".backend-data/workflow-scripts",
+        scriptsEnabled: true,
+      });
+      await expect(
+        runners.script.run(
+          {
+            id: "s",
+            type: "script",
+            code: "export default async () => new Promise(() => {})",
+            timeoutMs: 50,
+          },
+          { input: {}, store, context: { executionId: "e", nodeId: "s", workflowId: "wf" } },
+        ),
+      ).rejects.toThrow(/timed out/);
+    },
+    30_000,
+  );
 });

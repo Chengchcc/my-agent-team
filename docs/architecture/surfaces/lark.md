@@ -16,9 +16,11 @@ tags: [lark, surfaces, backend]
 
 ## 实现文件
 
-- `apps/lark-bot/src/main.ts` — 起 `lark-cli event consume`、按行解析、watcher 表、重绑、心跳、退出处理
+- `apps/lark-bot/src/main.ts` — 起官方 channel SDK 的长连接、注册 message / cardAction / comment 三个处理器、watcher 表、重绑、心跳、退出处理
+- `apps/lark-bot/src/channel-adapters.ts` — 边界适配：`NormalizedMessage → LarkMessageEvent`、`CardActionEvent → 卡片行`、`CommentEvent → CommentTrigger`
+- `apps/lark-bot/src/{comment-scope,comment-body,doc-subscription,ingest-comment}.ts` — 评论线的合成身份、正文抽取、按文档订阅、评论侧 ingest
 - `apps/lark-bot/src/ingest.ts` — 入站主管线与 `/stop` 控制命令
-- `apps/lark-bot/src/bindings-sqlite.ts` — 五张表的读写与 `rebindChatConversation`
+- `apps/lark-bot/src/bindings-sqlite.ts` — 七张表的读写与 `rebindChatConversation`
 - `apps/lark-bot/src/run-card/` — Run 卡片：`card-kit.ts`（直连 CardKit 的 fetch 客户端）、`card-state.ts`（从 chat 状态读出卡片状态的纯函数）、`card-renderer.ts`（Card JSON 2.0 + streaming_mode）、`card-flush.ts`（单飞 flush 控制器）、`card-actions.ts`（`card.action.trigger` 回调的解析、校验与执行）、`run-card-watcher.ts`（生命周期与终态封版）
 - `apps/lark-bot/scripts/probe-cards.ts` — 把真实渲染出的每种卡片 POST 给建卡接口，做线级校验（不给任何聊天发消息）
 - `apps/lark-bot/src/lark-api.ts` — tenant token：从 lark-cli 本地密钥库解出 appSecret 自行铸造并缓存
@@ -32,7 +34,7 @@ tags: [lark, surfaces, backend]
 
 ## 入站
 
-进程用 `spawn("lark-cli", ["--profile", profile, "event", "consume", "im.message.receive_v1", "--as", "bot"])` 起事件消费，profile 默认 `agent:<safeAgentId>`。stdout 按行交给 `parseEvent`，解析失败的行只打日志。每条事件的流水线是 reserve → POST → confirm：
+进程用官方 `@larksuite/channel` 的长连接收事件（ADR 0044）：`createLarkChannel({appId, appSecret})` 的凭据来自 lark-cli 的本地密钥库（`lark-cli` 仍是建 app 与凭据的权威源），`channel.on({message, cardAction, comment})` 三个处理器各自把 SDK 的归一化对象交给 `channel-adapters.ts` 的适配器，之后完全沿用既有的管线。**同一个 app 只能有一条连接**（cluster 模式不广播，多开会随机丢事件），所以 `lark-cli` 的 `event consume` 已彻底下线。每条事件的流水线是 reserve → POST → confirm：
 
 1. **鉴权**（`ingest.ts`）：`sender_type` 存在且不是 `"user"` 直接 skip，防机器人互相触发；再按 `agent.lark.allowedSenders`（open_id 白名单）过滤。**空白名单是拒绝，不是放行**（`matchesAllowlist` 对空数组返回 false，DM 里落 `dm_denied`）；只有显式写 `"*"` 才放行所有人。Web 的读模型按同一语义显示为 `allowlist`（0 人）与 `everyone`。
 2. **幂等占位**：`inboundExists` 按 `event_id` 或 `message_id` 命中即 skip，否则 `reserveInbound` 在同一事务里落一行 `status = "processing"`。占位先于 POST，取舍是宁可丢一条入站也不重复触发 run。
@@ -42,7 +44,19 @@ tags: [lark, surfaces, backend]
 6. **POST 消息**：`content` 就是**消息文本本身**（字符串）。曾经包成 `{ text, source, larkEventId, larkMessageId }` 信封——后端写入方只认字符串或 ContentBlock 数组，于是文本被静默丢弃、每条飞书消息都变成空轮次，模型只能拿旧上下文编；那三个额外字段也没有任何读取方。接口返回 202 与 `{ seq, triggeredRuns }`。
 7. **确认**：`confirmInbound` 回填 `conversationId` 与 `ledgerSeq`。POST 之前进程崩掉的话，这条入站不会再被处理。
 
-## 本地五张表
+### 评论线（ADR 0044）
+
+云文档评论是第二个「会话边界」，与话题同构：**一条评论线（文档 + 一个评论串）= 一个会话**，回答**回复进同一条评论线**（绝不新开顶层评论）。它与上面那条管线的差别：
+
+- **触发**：官方 SDK 的 `comment` 事件（`drive.notice.comment_add_v1`，`lark-cli` 的总线订阅不到它）。通知**只带 id 不带正文** ⇒ 用 `comments.fetch` 取，取哪一条由通知的 `replyId` 决定（`comment-body.ts` 是这一步的纯函数）。
+- **两重闸门**：只认 `mentionedBot`；`notice_meta.is_from_agent === true` 一律不答。实测 bot 给自己文档评论**不产生通知**，所以第二道是给「agent 互相评论」准备的，不是当初收不到的原因。
+- **按文件订阅**：云文档事件是**按文件**的，第一次见到某文档时调 `POST /files/:file_token/subscribe?file_type=<type>`（`file_type` 在**查询串**，放 body 报 `field validation failed`），订阅状态落 `comment_subscription`。
+- **合成身份**：评论会话在 `conversation_binding` 里的 chat id 是 `comment:<file_token>:<comment_id>`（`comment-scope.ts`）⇒ 游标、投递台账、幂等键、AHP watcher 全部照旧，只有发送那一步认得它（走 `comments.reply`）。
+- **去重身份是「通知」而不是「评论」**：同一条评论线里的后续回复各有自己的 `event_id` / `reply_id`，用 `(fileToken, commentId)` 去重会把它们吞掉。
+- **产物**：评论回复只能带文本元素，图片在 v1 **明确回一句「无法投递」**，不假装送达。
+- **控制台三个前提**（缺任何一个都是**静默**）：`im.message.receive_v1`、`card.action.trigger`、`drive.notice.comment_add_v1`，外加文档相关 scope。`larkSetupGuidance`（`features/lark-bot/setup-guidance.ts`）给出清单与 `scope-apply` 链接，已挂在 surface 视图的 `console` 字段上（Web 渲染待做）。
+
+## 本地七张表
 
 `apps/lark-bot/src/db/schema.ts` 里的表都是这个端私有的投递状态，不进后端：
 
@@ -55,6 +69,8 @@ tags: [lark, surfaces, backend]
 | `message_delivery` | `(conversation_id, message_id, lark_chat_id)` | 文本桥出站投递意图与最后状态 |
 | `input_card` | `input_id` | 排队消息的卡片状态（`queued / promoted / cancelled`，ADR 0037） |
 | `run_card` | `run_id` | Run 卡片投递状态：lark 消息 id、状态机、累计输出、失败计数（ADR 0031） |
+| `comment_binding` | `conversation_id` | 评论线 → 会话（ADR 0044）：文档 token、类型与评论 id，`(file_token, comment_id)` 上唯一；会话在 `conversation_binding` 里的 chat id 是合成的 `comment:<file_token>:<comment_id>` |
+| `comment_subscription` | `file_token` | 已向平台订阅事件（`drive.notice.comment_add_v1`）的文档：云文档事件是**按文件**的，重启后既不能盲订也不能忘 |
 
 ## 出站
 
@@ -94,7 +110,7 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 - **与文本桥的去重缝（决策 8）**：assistant 行的 messageId 形如 `run:<runId>:assistant:<n>`，`ahp-delivery` 投递前解析它——该 (runId, chat) 的卡片存在且不是 `fallback_text` 就跳过文本发送；卡片从创建起拥有投递权，失败即 `fallback_text` 交还文本桥。
 - **控制（决策 6，已实现）**：活卡带红色「停止」按钮（`behaviors:[{type:"callback",value:{runId,action:"stop"}}]`）；`waiting` 帧把按钮换成「批准/拒绝」（`action:"approve" | "reject"` + callId）或问答题的选项按钮（`action:"answer_ask"` + callId、questionId、selectedValue）。点击经 lark-cli ≥1.0.9x 的 `card.action.trigger` 长连接回调 → `run-card/card-actions.ts` 校验（event_id 去重、message↔run_card 映射、chat/run 匹配，action_value 永不单独被信任）→ 停止走 `POST /api/agent-runs/:runId/cancel`，审批走 `.../approval`，追问走 `POST /api/product-tools/ask/resolve`（**与 Web 同一条 resolve 路径，两端各渲染一次而已**）→ Run SSE 的对应事件清掉 `pendingAction`，终态封版。`/stop` 入站命令为等价通道，成功即沉默（卡片即反馈）。
 - **回调载荷形状**：lark-cli 把事件摊平成顶层 snake_case 键（`event_id`/`operator_id`/`chat_id`/`message_id`/`action_tag`/`action_value`），不是 Lark 原始 schema 的 `action.value`——`card-actions.ts` 按这个形状取值，测试 fixture 也照此构造。
-- **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态）。
+- **正文窗口**：最近约 10k 字符，头部折叠提示去 Web（`--web-url`/`LARK_WEB_URL`，Markdown 链接形态；落点是 `<基地址>/system/runs/<runId>`，由 `runPageUrl()` 合成——只给基地址会链到控制台首页，不给就整条链接不渲染）。
 - **幂等键**：飞书 `--idempotency-key` 有 **50 字符上限**（99992402），自然键天然超限，统一 `larkIdempotencyKey()` 哈希成 40 位十六进制。
 - **重启恢复**：启动读回非终态 `run_card` 行（含 `card_kit_id` 与 `card_seq`）继续驱动；AHP 重连后先收到快照，折进 `turns` 的轮次一到就封版，所以迟到的卡片也能拿到终态。
 - **配额警示**：每应用**卡片实体绑定数有配额**（错误 200780，实测约 18 张触发）；高频部署需关注，或为超配额场景保留 IM-patch 降级路径。
@@ -142,6 +158,9 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 11. 卡片连败三次进降级（停止绘制），但**待回答的问题仍重试一次**（按问题 callId 记一次），成功后恢复绘制——降级不能让一个提问变成没人能回答的僵尸。
 12. **任何**出站消息（含一次性运维卡）都必须经话题回复发进既有话题，绝不用裸的 `POST /im/v1/messages` 顶层发送：在话题群里顶层消息会**开出一个新话题**，用户在那个新话题里的任何回复都会被当成新任务跑起来（2026-09-25 实测：一张权限申请卡开了新话题，用户回复「授权了」直接触发了一条 run）。回复用 `POST /im/v1/messages/:root_id/reply` + `reply_in_thread`。
 13. 带交互元素的卡（追问/批准）不要混排**容器**（`collapsible_panel`）、也不要给按钮加 `width: "fill"`：建卡接口都放行，但真机点击会被客户端拒绝（2026-09-25：同一张卡的停止按钮能点、选项按钮报错）。进度在这种情况下用扁平 markdown，选项对齐靠参考实现的 `column_set`（左列文字 + 右列固定文案按钮，等宽自然对齐）。
+
+14. 会话状态对「等着的 run」不许有盲区（2026-10-14 真机三连测出）：卡只画状态里有的 turn，而一条停在审批上的 run **三路皆空**——账本没有它的消息（没流过内容）、队列没有它的输入（早已投递）、动作流没有它的收尾（writer 对没开过的 turn 一律空返回）⇒ 它从状态里消失，卡连「等待你的确认」都画不出来，结束后终态也画不上（实测建卡后 `seq=1` 定格，取消后仍显示思考中）。因此状态源的 run 集合取「**活跃 + 结束未超过窗口**」（`listRecentRunsForConversations`，窗口 10 分钟），而不是账本与队列的并集。
+15. 「这段结束了」不等于「成功」：`chat/turnComplete` **不带状态字段**，归约器一律当 `complete`，所以被停的 run 必须发 `chat/turnCancelled`（`turnActions` 按 run 终态选动作）；同理，卡片侧**没有终态绝不编造**——`?? "completed"` 这类兜底会把行落定，而重启恢复对已落定的卡是**永久空操作**，错状态永远改不回来（2026-10-14：被停的 run 在卡上显示「已完成」且冻结）。排障口诀：卡不动时先问「状态里有没有这条 turn、它带没带结局」，别先猜限流或防抖——本次三层都是这么被否证的。
 
 ## 已知缺口
 

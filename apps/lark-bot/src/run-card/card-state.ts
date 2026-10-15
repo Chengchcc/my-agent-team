@@ -178,10 +178,18 @@ export function toolActivity(
     return detail ? `${presentation.title}：${detail}` : presentation.title;
   }
   if (activity) return activity;
+  return `正在调用 ${toolLabel(name)}`;
+}
+
+/** A tool's name as a label: an MCP-qualified `mcp__server__tool` folds to
+ *  `server · tool`. Tensed phrasing is the caller's business — a finished call
+ *  is not being invoked any more, and the card showed "正在调用 read" beside a
+ *  tick for ten completed calls (live 2026-10-10). */
+export function toolLabel(name: string | undefined): string {
   const raw = name ?? "";
   const mcp = /^mcp__(.+?)__(.+)$/.exec(raw);
-  if (mcp) return `正在调用 ${mcp[1]} · ${mcp[2]}`;
-  return `正在调用 ${raw || "工具"}`;
+  if (mcp) return `${mcp[1]} · ${mcp[2]}`;
+  return raw || "工具";
 }
 
 /** A plain object, or undefined. The contract audit bans bare casts in this app, so the shape is
@@ -193,14 +201,6 @@ function recordOf(value: unknown): Record<string, unknown> | undefined {
 }
 
 const PlainRecord = z.record(z.string(), z.unknown());
-
-/** The protocol lets an invocation message be a plain string or markdown; the card wants the
- *  line, so both forms fold to one. */
-function invocationLine(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  const markdown = recordOf(value)?.markdown;
-  return typeof markdown === "string" ? markdown : undefined;
-}
 
 /** Parse todo items with the shared wire schema — the same definition the
  *  Web reducer relies on, so the two surfaces cannot drift apart. An item
@@ -284,20 +284,23 @@ export function cardStateFromChatTurn(
     if (kind === "toolCall" && "toolCall" in part) {
       const call = part.toolCall;
       if (hasDedicatedEvent(call.toolName)) continue;
-      // The authored line first (the child's own `activity`), then what the protocol set on the
-      // call itself; `toolActivity` synthesizes only when neither exists.
-      const authored =
-        call.intention ??
-        invocationLine("invocationMessage" in call ? call.invocationMessage : undefined);
-      const label = toolActivity(authored, call.toolName);
+      // The authored line (the child's own `activity`); `toolActivity`
+      // synthesizes from the tool name when there is none. The protocol's
+      // invocationMessage is deliberately NOT a label source: on the snapshot
+      // path it is the raw JSON input (often "{}"), which rendered literally
+      // as "✓ {}" on the card — and a raw argument dump is not a summary
+      // (ADR 0031 decision 7).
+      const authored = call.intention;
       const status = call.status as string;
       if (status === "running" || status === "pending-confirmation") {
-        activeTool = { label, startedAt: now };
+        activeTool = { label: toolActivity(authored, call.toolName), startedAt: now };
         continue;
       }
       const failed = "success" in call && call.success === false;
       const outcome = status === "completed" && !failed ? ("success" as const) : ("error" as const);
-      completedTools.push({ label, outcome });
+      // Finished: the tick already says so, and "正在调用" would claim it is
+      // still running. Without an authored line the name stands alone.
+      completedTools.push({ label: authored ?? toolLabel(call.toolName), outcome });
       continue;
     }
     if (kind === "inputRequest" && "request" in part) {

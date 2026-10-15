@@ -98,6 +98,30 @@ export const envSchema = z.object({
     .string()
     .optional()
     .describe("Public URL of the Product Backend Product Tools MCP endpoint"),
+  ARTIFACT_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe("Delete artifacts older than this many days (opt-in; unset or 0 keeps them forever)"),
+  BACKEND_SUMMARY_MODEL: z
+    .string()
+    .optional()
+    .describe(
+      "Provider/model (e.g. deepseek/deepseek-v4-pro) for /compact conversation summaries; unset = compaction answers 501",
+    ),
+  BACKEND_EMBEDDING_MODEL: z
+    .string()
+    .optional()
+    .describe(
+      "Provider/model (e.g. ollama/paraphrase-multilingual:latest) for the knowledge index; unset = lexical search only",
+    ),
+  BACKEND_EMBEDDING_BASE_URL: z
+    .string()
+    .optional()
+    .describe(
+      "OpenAI-compatible embeddings base URL (e.g. http://127.0.0.1:11434/v1 for a local Ollama); unset = resolve from the catalogue",
+    ),
   // Per-server enable/disable for the built-in MCP servers injected into an
   // agent's workspace .mcp.json (comma-separated names: product-tools,
   // agent, workflow). Absent = product-tools,agent,workflow (all three).

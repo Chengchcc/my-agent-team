@@ -1,9 +1,21 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  type EmbeddingProvider,
+  openVectorMemoryStore,
+  retainMemory,
+  type VectorMemoryStore,
+} from "@chengchenccc/embedding";
+import { createFastembedProvider } from "@chengchenccc/embedding/fastembed";
+import { agentDir } from "../session/session-file.js";
 import { loadProjectSettings } from "../settings/project-settings.js";
-import { createFastembedProvider, type EmbeddingProvider } from "./embeddings.js";
-import { retainMemory } from "./vector-recall.js";
-import { openVectorMemoryStore, type VectorMemoryStore } from "./vector-store.js";
+
+/** Where this product keeps model files: its own policy (env override, then the
+ *  oma agent dir). The engine takes the path and never guesses a home —
+ *  ADR 0043 keeps policy on the consumer's side. */
+function embeddingCacheDir(): string {
+  return process.env.OMA_EMBEDDING_CACHE ?? join(agentDir(), "models");
+}
 
 /** Wiring seam between the standalone modes and the vector memory layer.
  *
@@ -39,7 +51,10 @@ export function getVectorMemory(workspaceRoot: string): VectorMemory | null {
     // The workspace setting pins the model; absent = the default. (This is
     // the standalone layer only — never the product RPC path.)
     const model = loadProjectSettings(workspaceRoot).memoryVector?.model;
-    const provider = createFastembedProvider(model ? { model } : undefined);
+    const provider = createFastembedProvider({
+      cacheDir: embeddingCacheDir(),
+      ...(model ? { model } : {}),
+    });
     instance = { store, provider };
   } catch {
     instance = null;

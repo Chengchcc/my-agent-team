@@ -173,6 +173,17 @@ function killDescendants(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
   }
 }
 
+/** Whether the OS sandbox can actually run HERE. Installed is not usable: a
+ *  hosted runner's job container can carry the bwrap binary while refusing
+ *  the user/network namespaces isolation needs, so every sandboxed run then
+ *  exits 1. Probe with the same unshare the sandbox itself uses. */
+export function canSandbox(): boolean {
+  if (Bun.which("bwrap") === null) return false;
+  return (
+    Bun.spawnSync(["bwrap", "--ro-bind", "/", "/", "--unshare-net", "/bin/true"]).exitCode === 0
+  );
+}
+
 /** Compose the spawn argv for one sandboxed process: platform wrapper
  *  (setsid/bwrap/sandbox-exec) around the base command. Shared by the
  *  one-shot runner and persistent sessions. */

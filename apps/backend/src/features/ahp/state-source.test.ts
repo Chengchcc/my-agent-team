@@ -43,6 +43,20 @@ function fixture(): Fake {
 }
 
 describe("AHP state source", () => {
+  test("a run parked on an approval is still in the chat state", async () => {
+    // Neither the ledger nor the queue mentions it, and its action stream never opened a turn -
+    // before active runs were merged into the id set both state paths were blind to it, and a
+    // surface could not even paint "waiting for you": a live card froze on its first frame and
+    // stayed there even after the run was stopped.
+    const fake = fixture();
+    fake.setRun("r-wait", "waiting");
+    const withActive = { ...fake.deps, listActiveRuns: async () => [{ runId: "r-wait" }] };
+    const chat = await createAhpStateSource(withActive).chat(chatUri("c1"));
+    expect(chat?.activeTurn?.id).toBe("r-wait");
+    // The same fixture without the dep shows the hole this closes.
+    const bare = await createAhpStateSource(fake.deps).chat(chatUri("c1"));
+    expect(bare?.activeTurn?.id).toBeUndefined();
+  });
   test("root declares the agent catalogue", async () => {
     const root = await createAhpStateSource(fixture().deps).root();
     expect(root.agents).toHaveLength(1);
@@ -349,6 +363,53 @@ describe("tool call projection", () => {
     expect(part?.toolCall.toolInput).toBe(JSON.stringify({ command: "ls" }));
     expect(typeof part?.toolCall.pastTenseMessage).toBe("string");
     expect(part?.toolCall.error).toBeUndefined();
+    // No telemetry read wired: the label stays the tool name rather than a guess.
+    expect("intention" in (part?.toolCall ?? {})).toBe(false);
+  });
+
+  test("the child's own activity line rides the snapshot as the call's intention", async () => {
+    // The live stream carries it as `intention`; a card rebuilt from the snapshot used
+    // to lose it and fall back to a synthesis (or, worse, the raw JSON input).
+    const fake = fixture();
+    fake.setRun("r1", "completed");
+    const source = createAhpStateSource({
+      ...fake.deps,
+      getLedgerEntries: () => [
+        withBlocks(
+          [{ type: "tool_use", id: "tc-1", name: "bash", input: { command: "ls" } }],
+          "assistant",
+          0,
+          "m1",
+        ),
+      ],
+      toolActivities: async (runId) =>
+        runId === "r1" ? new Map([["tc-1", "运行命令：ls"]]) : new Map(),
+    });
+    const chat = await source.chat(chatUri("c1"));
+    const part = chat?.turns[0]?.responseParts.find((candidate) => candidate.kind === "toolCall");
+    expect((part?.toolCall as { intention?: string } | undefined)?.intention).toBe("运行命令：ls");
+  });
+
+  test("a failing telemetry read is not an error, it is no label", async () => {
+    const fake = fixture();
+    fake.setRun("r1", "completed");
+    const source = createAhpStateSource({
+      ...fake.deps,
+      getLedgerEntries: () => [
+        withBlocks(
+          [{ type: "tool_use", id: "tc-1", name: "bash", input: { command: "ls" } }],
+          "assistant",
+          0,
+          "m1",
+        ),
+      ],
+      toolActivities: async () => {
+        throw new Error("telemetry unavailable");
+      },
+    });
+    const chat = await source.chat(chatUri("c1"));
+    const part = chat?.turns[0]?.responseParts.find((candidate) => candidate.kind === "toolCall");
+    expect((part?.toolCall as { intention?: string } | undefined)?.intention).toBeUndefined();
   });
 
   test("a failed call keeps success false and names the failure", async () => {

@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canSandbox } from "@chengchenccc/sandbox";
 import {
   createModelRuntime,
   createOmaRuntime,
@@ -12,7 +13,7 @@ import {
 const { runInput, cleanup } = createRuntimeTestContext();
 afterAll(cleanup);
 describe("bash sandbox via .oma/settings.json (BashSandbox design P4)", () => {
-  const HAS_BWRAP = Bun.which("bwrap") !== null;
+  const HAS_BWRAP = canSandbox();
   const ws = mkdtempSync(join(tmpdir(), "oma-sbx-ws-"));
   afterAll(() => rmSync(ws, { recursive: true, force: true }));
   afterEach(() => {

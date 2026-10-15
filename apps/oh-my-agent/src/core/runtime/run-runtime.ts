@@ -69,7 +69,8 @@ import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
-import { estimateMessageTokens } from "./context-estimate.js";
+import { buildSummarizationRequest } from "./compaction-prompt.js";
+import { estimateMessageTokens, triggerRatioFor } from "./context-estimate.js";
 import type { AgentRunSnapshot, ProjectedHistoryItem } from "./contract/index.js";
 import type { CreateOmaRuntimeOptions } from "./create-runtime.js";
 import { fakeProvider } from "./fake-provider.js";
@@ -504,6 +505,18 @@ function mountedProvidesLeaf(
   return false;
 }
 
+/** Output cap for one summarization call: enough to write a summary, never more
+ *  than the model itself allows. NOTE what this can and cannot fix — the run's
+ *  model and the summarizer are the same entry, so lowering a model's cap
+ *  lowers the summary's ceiling too, and NO per-call value can raise it above
+ *  the model's own (live 2026-10-13: a 64-token model cap starved summaries to
+ *  empty text by construction; the fixable part was the silence, not this). */
+export const SUMMARY_MAX_TOKENS = 4_096;
+
+export function summaryMaxTokens(modelMaxOutputTokens: number): number {
+  return Math.min(SUMMARY_MAX_TOKENS, modelMaxOutputTokens);
+}
+
 /** Model plumbing stage: everything bound to the RUN's model — display
  *  identity, the compaction summarizer (same provider/credentials, no
  *  catalog-first surprises), the context budget from the run model's
@@ -533,25 +546,25 @@ function buildModelPlumbing(
   const modelTimeoutMs = knobs.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
   const approvalDeadlineMs = knobs.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
 
-  // Summarizer: call the RUN's model through ModelRuntime with full Message[]
-  // input and AbortSignal support. Same provider/credentials as the run -
-  // no surprise provider switch, no catalog-first cost surprises. No
-  // summaryModel config until real cost data demands one.
-  const summarize: ContextSummarizer = async (messages, signal) => {
-    const summaryMessages: Message[] = [
-      {
-        role: "system",
-        text: "Summarize the following conversation messages, preserving tool calls, results, decisions and next steps.",
-      },
-      ...messages,
-    ];
+  // Summarizer: call the RUN's model through ModelRuntime. Same provider/
+  // credentials as the run - no surprise provider switch, no catalog-first cost
+  // surprises. No summaryModel config until real cost data demands one. The
+  // request shape (system prompt + `<conversation>` wrapper) lives in
+  // compaction-prompt.ts so it is testable without a store or a model.
+  const summarize: ContextSummarizer = async (messages, signal, opts) => {
+    const summaryMessages = buildSummarizationRequest(messages, {
+      previousSummary: opts?.previousSummary,
+    });
     const timeoutSignal = AbortSignal.timeout(modelTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     const stream = deps.modelRuntime.stream(
       currentModel.providerId,
       currentModel.modelId,
       summaryMessages,
-      { signal: combined },
+      {
+        signal: combined,
+        maxTokens: summaryMaxTokens(currentModel.maxOutputTokens),
+      },
     );
     const iter = stream[Symbol.asyncIterator]();
     let text = "";
@@ -564,16 +577,21 @@ function buildModelPlumbing(
     } finally {
       if (!combined.aborted) await iter.return?.().catch(() => {});
     }
-    return text || "[empty summary]";
+    // An empty answer is a configuration symptom more often than a model one (a
+    // tiny output cap on this very model, a prompt the model refused), and the
+    // stored summary is the only place anyone would ever see it: the run
+    // reports success either way. Say what happened where it will be read.
+    return text || "[empty summary: the model returned no text — check this model's output cap]";
   };
 
   // ContextBudget from the RUN model's context window: compaction triggers
-  // at the same threshold the real model would overflow, neither premature
-  // nor too late.
+  // when the LIVE context leaves less than the reserve for the next model call,
+  // neither premature nor too late. The reserve (not a fixed ratio) is what
+  // scales, so a large window is not charged for headroom it never needs.
   const contextBudget: ContextBudget = {
     estimate: (m) => estimateMessageTokens(m),
     limit: currentModel.contextWindow,
-    triggerRatio: 0.7,
+    triggerRatio: triggerRatioFor(currentModel.contextWindow, knobs.compactReserveTokens),
   };
   return { resolveModel, summarize, contextBudget, modelTimeoutMs, approvalDeadlineMs };
 }
@@ -765,6 +783,12 @@ function createRunPermissionGates(
    *  subagent share one policy (critical guard, classifier, one
    *  escalatedActions set per Run) but judge against their own intent —
    *  a subagent's "user request" is the task it was assigned. */
+  // "Allow always" / "Deny always" cover this tool for the rest of the RUN. The
+  // gate is built once per run and shared with the run's subagents, which is
+  // exactly the lifetime the decisions own — and they are consulted only AFTER
+  // the deny branch, so permissionMode=deny still wins.
+  const alwaysAllowed = new Set<string>();
+  const alwaysDenied = new Set<string>();
   const makeSessionPermissionGate =
     (intentTexts: readonly string[]) =>
     async (
@@ -806,6 +830,14 @@ function createRunPermissionGates(
       if (deps.permissionMode === "deny") {
         return { block: true, reason: `${toolName}: blocked by permissionMode=deny` };
       }
+      // A previous "deny always" for this tool: a refusal remembered, so it
+      // fails closed here without asking again.
+      if (alwaysDenied.has(toolName)) {
+        return { block: true, reason: `${toolName}: denied for this run by the user` };
+      }
+      // A previous "allow always" for this tool: the human answered this
+      // question once, this run.
+      if (alwaysAllowed.has(toolName)) return undefined;
       // ask
       if (!deps.approvalHandler) {
         return {
@@ -852,6 +884,14 @@ function createRunPermissionGates(
         return {
           block: true,
           reason: `${toolName}: denied — ${verdict.reason ?? "user denied"}`,
+        };
+      }
+      if (verdict.decision === "allow_always") alwaysAllowed.add(toolName);
+      if (verdict.decision === "deny_always") {
+        alwaysDenied.add(toolName);
+        return {
+          block: true,
+          reason: `${toolName}: denied for this run by the user`,
         };
       }
       return undefined;

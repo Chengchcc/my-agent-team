@@ -66,4 +66,6 @@
 - `docs/architecture/execution/backend-kinds-gate0.md` — 多 backend 协议实测记录(决策见 §7)
 | 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 首刀已落地：ACP 轨的工具事实进账本，验收向量绿；规范模型其余部分与 S1 至 S3、R1 至 R3 待做。工作分支 feat/ahp2acp） |
 | 0041 | conversation-membership-and-response-routing(会话成员 1..N、响应路由由成员数派生；部分取代 0021) | **Proposed**（初稿 2026-10-03；实现未开始——迁移/路由/Web/Lark 四步待排） |
-| 0042 | workflow-rework-as-new-attempts(返工 = 新的尝试，不是环：rework 边 + 预算，图仍无环) | **Proposed**（2026-10-09 初稿；P1 至 P5 未开工，见 #79） |
+| 0042 | workflow-rework-as-new-attempts(返工 = 新的尝试，不是环：rework 边 + 预算，图仍无环) | **Implemented**（2026-10-10 落地：P1 至 P5 全部实现并各带测试；rework 与预算门的 grant/reject 已真机验证，见 #79） |
+| 0043 | embedding-engine-shared-package(把本地向量引擎抽成包：引擎共享、策略各自拥有；后端语义检索走 provider-API，不走按平台打包) | **部分实现**（2026-10-13：第一步纯搬迁 + 决策 2 的两条入口均已落地——`packages/embedding` 核心零原生依赖、`/fastembed` 子路径才带 ONNX 且由打包级测试钉住；顺带补上 `RetainInput.validUntil`。**决策 7 已实现但默认关闭**：embedding 缝、向量索引（全有或全无 + 内容签名判失效 + 段落切块）、查询降级（无索引/建不起来时退回词法并说明原因）、播种与索引解耦都已落地并测试；本机实测 39 页 = 1547 块、每块 11～20 秒 ⇒ 全量构建 5～7 小时 ⇒ 默认不配 `BACKEND_EMBEDDING_*`，行为与今天逐字一致，换到便宜的机器即可打开） |
+| 0044 | lark-inbound-events-official-channel-sdk(入站事件层换官方 channel SDK；评论线＝会话作用域，边界用两个适配器收住) | **部分实现**（2026-10-14：决策 1 至 6、8、9 已落地——官方 SDK 接管长连接、两个边界适配器、评论线＝会话（合成 chatId）、按文档订阅、@ 与 agent 来源双闸、回答回进同一条评论线；生产 bot 已重启并连上，`lark-cli` 总线与消费者消失。决策 7 的后端一半（`larkSetupGuidance`）已进 surface 视图，Web 渲染待做；决策 10 的隔离 app 端到端验收待做） |

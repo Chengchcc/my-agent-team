@@ -1,4 +1,12 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { parseWorkflow } from "@chengchenccc/workflow";
 import { Elysia, t } from "elysia";
@@ -7,7 +15,11 @@ import { dryRunWorkflow } from "./dry-run.js";
 import type { WorkflowExecutionService } from "./service.js";
 
 export interface WorkflowRef {
-  repo: string;
+  /** Historically required and ignored — definitions load from the local
+   *  workflows dir (`config.dataDir/workflows`). Still accepted so existing
+   *  callers keep working; the git loader that would give it meaning is not
+   *  implemented, and it would come back together with that loader. */
+  repo?: string;
   path: string;
 }
 
@@ -39,6 +51,15 @@ export function workflowRoutes(deps: {
   // Elysia decodes %2F inside path params, so "../" survives routing —
   // validate the id, never join raw params.
   const WORKFLOW_ID_RE = /^[A-Za-z0-9._-]+$/;
+  /** A definition that is not on disk is a client error that names it, not an
+   *  ENOENT from the read surfacing as "Internal server error". The id check
+   *  above is what keeps the path inside `dir`; callers pass the file they
+   *  already resolved. */
+  function requireDefinition(file: string, label: string): void {
+    if (!existsSync(file)) {
+      throw new HttpError(`workflow definition not found: ${label}`, 404);
+    }
+  }
   function workflowFile(workflowId: string): string {
     if (!WORKFLOW_ID_RE.test(workflowId)) {
       throw new HttpError(`invalid workflow id: ${workflowId}`, 400);
@@ -86,6 +107,7 @@ export function workflowRoutes(deps: {
     })
     .get("/api/workflow-definitions/:workflowId", async ({ params }) => {
       const file = workflowFile(params.workflowId);
+      requireDefinition(file, params.workflowId);
       const raw = await Bun.file(file).text();
       return { definition: JSON.parse(raw) };
     })
@@ -119,7 +141,9 @@ export function workflowRoutes(deps: {
     .post(
       "/api/workflow-definitions/:workflowId/dry-run",
       async ({ params, body }) => {
-        const raw = await Bun.file(workflowFile(params.workflowId)).text();
+        const file = workflowFile(params.workflowId);
+        requireDefinition(file, params.workflowId);
+        const raw = await Bun.file(file).text();
         const definition = JSON.parse(raw);
         return dryRunWorkflow(
           definition,
@@ -153,6 +177,9 @@ export function workflowRoutes(deps: {
           throw new HttpError(`invalid workflowRef.path: ${body.workflowRef.path}`, 400);
         }
         const ref: WorkflowRef = { repo: body.workflowRef.repo, path: body.workflowRef.path };
+        // The loader reads from disk; check the file here so a typo in the
+        // path is a 404 naming it instead of an ENOENT turned into a 500.
+        requireDefinition(workflowFile(stem), ref.path);
         const raw = await deps.loadWorkflow(ref);
         const definition = JSON.parse(raw);
         set.status = 201;
@@ -168,7 +195,7 @@ export function workflowRoutes(deps: {
       {
         body: t.Object({
           workflowRef: t.Object({
-            repo: t.String({ minLength: 1 }),
+            repo: t.Optional(t.String()),
             path: t.String({ minLength: 1 }),
           }),
           input: t.Optional(t.Record(t.String(), t.Unknown())),

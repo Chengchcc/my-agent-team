@@ -52,6 +52,17 @@ export interface BackendConfig {
   claudeBin?: string;
   claudePermissionMode?: string;
   productToolsMcpUrl?: string;
+  /** Artifacts older than this are swept; undefined/0 keeps them forever. */
+  artifactRetentionDays?: number;
+  /** `<provider>/<model>` for backend-side conversation summaries; undefined =
+   *  /compact answers 501 (the backend's only model call). */
+  summaryModel?: string;
+  /** `<provider>/<model>` for the knowledge index vectors; undefined = the
+   *  knowledge base stays lexical-only (today's behavior). */
+  embeddingModel?: string;
+  /** OpenAI-compatible embeddings endpoint root; undefined = resolve the
+   *  provider from the catalogue (a local Ollama needs this set). */
+  embeddingBaseUrl?: string;
   smokeCron?: string;
   /** Comma-separated built-in MCP servers to inject into agent workspaces
    *  (product-tools, workflow). Absent = product-tools only. */
@@ -110,6 +121,10 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     claudeBin: env.CLAUDE_BIN,
     claudePermissionMode: env.CLAUDE_PERMISSION_MODE,
     productToolsMcpUrl: env.PRODUCT_TOOLS_MCP_URL,
+    artifactRetentionDays: env.ARTIFACT_RETENTION_DAYS,
+    summaryModel: env.BACKEND_SUMMARY_MODEL,
+    embeddingModel: env.BACKEND_EMBEDDING_MODEL,
+    embeddingBaseUrl: env.BACKEND_EMBEDDING_BASE_URL,
     smokeCron: env.SMOKE_CRON,
     enabledMcpServers: env.ENABLED_MCP_SERVERS,
     bootstrapPassword: env.MOCK_PASSWORD,

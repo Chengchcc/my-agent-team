@@ -26,6 +26,9 @@
       "path": "./packages/config"
     },
     {
+      "path": "./packages/embedding"
+    },
+    {
       "path": "./packages/ahp-client"
     },
     {

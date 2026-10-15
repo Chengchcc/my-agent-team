@@ -6,7 +6,7 @@ import {
   normalizeCanonicalMessages,
   serializeMessageRevision,
 } from "@chengchenccc/message";
-import { and, desc, eq, inArray, isNull, not, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, not, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { IdGenerator } from "../agent-context/ports.js";
@@ -35,6 +35,7 @@ type RunMethods = Pick<
   | "listActiveRunsWithDeliveredInputs"
   | "hasActiveRunForConversations"
   | "listActiveRunsForConversations"
+  | "listRecentRunsForConversations"
   | "getActiveRun"
 >;
 
@@ -566,6 +567,25 @@ export function createRunMethods(
           and(
             inArray(schema.agentRun.conversationId, [...conversationIds]),
             inArray(schema.agentRun.status, [...ACTIVE_RUN_STATUSES]),
+          ),
+        )
+        .all();
+      return rows.map(parseRun);
+    },
+
+    async listRecentRunsForConversations(conversationIds, withinMs) {
+      if (conversationIds.length === 0) return [];
+      const cutoff = Date.now() - withinMs;
+      const rows = d
+        .select()
+        .from(schema.agentRun)
+        .where(
+          and(
+            inArray(schema.agentRun.conversationId, [...conversationIds]),
+            or(
+              inArray(schema.agentRun.status, [...ACTIVE_RUN_STATUSES]),
+              gte(schema.agentRun.terminalAt, cutoff),
+            ),
           ),
         )
         .all();

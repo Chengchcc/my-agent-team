@@ -324,6 +324,10 @@ export async function executeTools(
       toolName: call.name,
       callId: call.id,
       result: (result ?? {}) as Readonly<Record<string, unknown>>,
+      // The loop's own judgement travels with the result: without it every rail
+      // downstream had to guess from the result's shape, and a refusal
+      // (`{error: "…"}`) read as a success (live 2026-10-10).
+      isError,
     };
     // Result-side summary: the tool decides what about its result is safe and
     // useful to show ("命中 6 处，涉及 3 个文件"); the raw result stays inside.

@@ -74,9 +74,27 @@ interface AcpMcpServerDeclaration {
   readonly serverId: string;
 }
 
+/** The client declares its permission policy over the extension vehicle
+ *  (`_meta["my-agent-team/permissionMode"]`, the same convention as resume).
+ *  Unknown clients and absent declarations stay on "ask" — the ACP model of
+ *  permissions is that the CLIENT is the human surface, so a client that does
+ *  not declare a policy gets asked. Our own backend declares the agent's
+ *  configured mode (auto runs its classifier; hardcoding "ask" here silently
+ *  downgraded every backend-driven run to per-action human approval —
+ *  observed live 2026-10-10, one approval card per bash call). */
+type DeclaredPermissionMode = "ask" | "auto" | "deny" | "yolo";
+
+export function readPermissionMode(
+  meta: Record<string, unknown> | null | undefined,
+): DeclaredPermissionMode {
+  const raw = meta?.["my-agent-team/permissionMode"];
+  return raw === "auto" || raw === "deny" || raw === "yolo" || raw === "ask" ? raw : "ask";
+}
+
 interface AcpSession {
   readonly sessionId: string;
   readonly cwd: string;
+  readonly permissionMode: DeclaredPermissionMode;
   readonly acpMcpServers: readonly AcpMcpServerDeclaration[];
   /** Decisions read off a session/load's `_meta` (ADR 0039
    *  extension-vehicle rule 2): the NEXT prompt completes the parked turn
@@ -148,6 +166,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         cwd,
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: resumeMeta?.decisions ?? null,
+        permissionMode: readPermissionMode(meta),
         model: null,
       });
       return {
@@ -162,6 +181,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         cwd: ctx.params.cwd ?? process.cwd(),
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
         resumeDecisions: readResumeDecisions(meta),
+        permissionMode: readPermissionMode(meta),
         model: null,
       });
       return {
@@ -352,10 +372,10 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       workspaceAccess: "read_write",
       modelRuntime,
       skillRoots: cwdSkills,
-      // The ACP model of permissions: the client is the human surface, so
-      // high-risk tools ask (via request_permission) instead of running an
-      // auto classifier against nobody.
-      permissionMode: "ask",
+      // The client-declared policy (see readPermissionMode): a client that
+      // declared "auto" runs its own classifier; one that declared nothing is
+      // asked, because it IS the human surface.
+      permissionMode: session.permissionMode,
       todoScope: session.sessionId,
       excludeMcpServerNames: acpDeclared,
       ...(pluginRt.plugins.length || pluginRt.mcpServers.length || acpMcpTools.length
@@ -743,6 +763,12 @@ function mapWireEvent(envelope: RunEventEnvelope): MappedWireEvent[] {
             title: activity ?? toolName,
             kind: toolKindFor(toolName),
             status: "pending",
+            // The call's arguments. The canonical ledger's tool_use needs them
+            // (ADR 0017): without them every durable call reads {}, which is
+            // what the run card then rendered as its label (live 2026-10-10).
+            // ADR 0020 decision 6 withheld them from the retired RPC rail;
+            // ACP has the slot, and surfaces label calls from `activity`.
+            ...(data.input !== undefined ? { rawInput: data.input } : {}),
           },
         },
       ];
@@ -751,12 +777,16 @@ function mapWireEvent(envelope: RunEventEnvelope): MappedWireEvent[] {
       const callId = typeof data.callId === "string" ? data.callId : "";
       if (!callId) return [];
       const result = data.result;
+      // A blocked or failed call is NOT a completion: the status is what the
+      // client records as `is_error`, and what every surface renders as the
+      // step's outcome.
+      const failed = data.isError === true;
       return [
         {
           update: {
             sessionUpdate: "tool_call_update",
             toolCallId: callId,
-            status: "completed",
+            status: failed ? "failed" : "completed",
             ...(result !== undefined && result !== null && typeof result === "object"
               ? { rawOutput: result }
               : {}),
@@ -820,6 +850,13 @@ function processStream(): ReturnType<typeof acp.ndJsonStream> {
   );
 }
 
+/** `_meta` key for the child's truthful bash-sandbox state on an approval
+ *  request (the backend reads the same key in acp-backend.ts; the
+ *  `my-agent-team/` namespace is this repo's convention for ACP extensions,
+ *  same as permissionMode and resume). Display-only by design: the card prints
+ *  it so the human can tell a contained command from an unconstrained one. */
+const SANDBOXED_META_KEY = "my-agent-team/sandboxed";
+
 /** The approval gate as an ACP permission request: park the resolver, fail
  *  closed at the deadline, map the client's chosen optionId back to
  *  allow/deny. Cancelled or errored requests deny — never a hang. */
@@ -847,10 +884,25 @@ function acpApproval(
           kind: toolKindFor(req.toolName),
           status: "pending",
           ...(req.input !== undefined ? { rawInput: req.input } : {}),
+          // Bash approvals only (the child sets it only there), and only when
+          // it is actually known: absent stays absent rather than "false".
+          ...(req.sandboxed !== undefined
+            ? { _meta: { [SANDBOXED_META_KEY]: req.sandboxed } }
+            : {}),
         },
         options: [
           { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+          {
+            optionId: "allow-always",
+            name: "Allow this tool for the rest of the run",
+            kind: "allow_always",
+          },
           { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          {
+            optionId: "reject-always",
+            name: "Reject this tool for the rest of the run",
+            kind: "reject_always",
+          },
         ],
       } as never)
       .then(
@@ -859,7 +911,16 @@ function acpApproval(
             settle({ decision: "deny", reason: "client cancelled the request" });
             return;
           }
-          const allowed = response.outcome.optionId === "allow-once";
+          const chosen = response.outcome.optionId;
+          if (chosen === "allow-always") {
+            settle({ decision: "allow_always" });
+            return;
+          }
+          if (chosen === "reject-always") {
+            settle({ decision: "deny_always", reason: "denied for this run by the user" });
+            return;
+          }
+          const allowed = chosen === "allow-once";
           settle({
             decision: allowed ? "allow" : "deny",
             ...(allowed ? {} : { reason: "denied by the client" }),

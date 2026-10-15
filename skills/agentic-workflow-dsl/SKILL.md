@@ -64,9 +64,9 @@ registered but paused.
 |---|---|---|
 | start | — | entry; output = trigger vars; exactly one |
 | end | `status` | success/failure/custom; multi-exit allowed |
-| agent | `agentId` OR (`model`+`prompt`) | may return `nextNode` to override edges |
-| script | `code` | Bun TS default export; optional `timeoutMs` |
-| human | optional `question`/`form` | ask-user; answers = output |
+| agent | `agentId` OR (`model`+`prompt`) | may return `nextNode` to override edges; optional `repo` = an attached project id, which binds the run to that project's worktree |
+| script | `code` | Bun TS default export; receives the merged input record (no store/log/host objects); optional `timeoutMs` |
+| human | optional `question`/`form` | ask-user; answers = output; optional `timeoutMs` fails the node if nobody answers |
 
 Optional per-node `inputSchema`/`outputSchema` (JSON Schema subset), `retry`,
 and `input`/`output` hints — both are arrays of `{ "key": …, "type": … }` with
@@ -85,11 +85,45 @@ artifact fields must exist after it runs (the node must upload them via the
 
 ## Edges
 
-- `{ from, to, when? }`; `when` is JSONLogic **subset**: `var`/`==`/`!=`/`>`/
-  `>=`/`<`/`<=`/`in`/`and`/`or`/`not`/`if`/`!!`; paths are `nodeId.output.field`.
+- `{ from, to, when?, kind?, budget? }`; `when` is JSONLogic **subset**:
+  `var`/`==`/`!=`/`>`/`>=`/`<`/`<=`/`in`/`and`/`or`/`not`/`if`/`!!`; paths are
+  `nodeId.output.field`.
 - Multi-true edges = parallel fan-out — keep branch conditions mutually
   exclusive unless parallel is intended.
 - `nextNode` override must target a node an existing edge already reaches.
+
+### Rework: send work back, as a new attempt
+
+`kind: "rework"` means "the source judged the target's work unusable and sends
+it back". The target — and everything downstream of it — runs again as a new
+attempt, told which round it is and why. The graph stays acyclic: a rework edge
+points UPSTREAM (the target must be an ancestor of the source) and is never part
+of the forward walk, so it neither routes nor joins.
+
+A rework edge MUST declare its budget; there is no unbudgeted rework:
+
+```json
+{
+  "from": "review", "to": "build", "kind": "rework",
+  "when": { "==": [{ "var": "review.output.verdict" }, "redo"] },
+  "budget": { "maxAttempts": 3, "onExhausted": "human" }
+}
+```
+
+- `when` reads the SOURCE's output (a rework edge with no `when` always fires).
+- `budget.maxAttempts` counts the TARGET's attempts in one execution, the first
+  run included: `1` means the target can never be sent back.
+- `budget.onExhausted`: `"fail"` ends the execution naming the rounds and the
+  last verdict; `"human"` parks a gate whose decision is `{ "decision":
+  "grant" }` (one more attempt) or `{ "decision": "reject" }` (end it).
+- The next attempt receives `attempt` and `rework: { from, reason }` as input;
+  `reason` is the source's verdict — its `reason`/`feedback`/`error`/`message`/
+  `summary` field, else its whole output.
+- A retry does NOT see the stale outputs it replaces.
+
+Author the loop as: produce → judge → rework edge with a budget. Do not reach
+for cycles (rejected outright) or for one node retrying itself (`retry` is only
+for transient failure of the same attempt).
 
 ## Validate — what `parseWorkflow` refuses
 
@@ -103,7 +137,12 @@ artifact fields must exist after it runs (the node must upload them via the
 5. `edges` reference existing node ids (both ends).
 6. Every non-start node is reachable from start — a dangling node is a parse
    error, not a warning.
-7. Graph acyclic (`parseWorkflow` ends in `topoSort`, which throws on a cycle).
+7. Graph acyclic (`parseWorkflow` ends in `topoSort`, which throws on a cycle;
+   rework edges are excluded from that walk, so a rework is not a cycle).
+7b. Rework edges: `kind` is `"forward"` or `"rework"`; a rework edge needs a
+   `budget` whose `maxAttempts` is a positive integer and `onExhausted` is
+   `"fail"` or `"human"`; its target must be upstream of its source; a `budget`
+   on a forward edge is refused.
 8. `when` uses only the JSONLogic subset above; a `nodeId.output.field` var path
    must name an existing node, and — for a node that declares output fields
    (human gates: form field names; script/agent: their `output` hint keys) — a

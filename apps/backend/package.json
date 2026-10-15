@@ -24,6 +24,7 @@
     "@chengchenccc/ahp-client": "workspace:*",
     "@chengchenccc/ai": "workspace:*",
     "@chengchenccc/api-contract": "workspace:*",
+    "@chengchenccc/embedding": "workspace:*",
     "@chengchenccc/config": "workspace:*",
     "@chengchenccc/message": "workspace:*",
     "@chengchenccc/sandbox": "workspace:*",

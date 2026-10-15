@@ -6,7 +6,14 @@ export type WorkflowExecutionStatus =
   | "success"
   | "failure"
   | "custom";
-export type WorkflowNodeRunStatus = "running" | "waiting_human" | "completed" | "failed";
+/** `superseded` is history, not state: a rework invalidated this attempt's
+ *  result (ADR 0042 §2.2), and the node's next attempt gets its own row. */
+export type WorkflowNodeRunStatus =
+  | "running"
+  | "waiting_human"
+  | "completed"
+  | "failed"
+  | "superseded";
 export type WorkflowPendingHumanStatus = "pending" | "resolved";
 
 export interface WorkflowExecutionRow {

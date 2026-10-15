@@ -120,6 +120,44 @@ export function estimateContextTokens<T extends { entryId: string }>(
   return anchor.tokens + entries.slice(idx + 1).reduce((sum, e) => sum + estimateEntry(e), 0);
 }
 
+/** Tokens held back for the next model call: its output plus the tool results
+ *  that output triggers. Mirrors omp's default reserve (a 16384-token floor
+ *  with at least 15% of the window), read as: `clamp(0.15 * window, floor)` —
+ *  except on a window small enough that the floor would swallow it, where the
+ *  proportional reserve is used instead. */
+export const DEFAULT_COMPACT_RESERVE_TOKENS = 16_384;
+
+/** The reserve itself, in tokens. An explicit override wins (omp: "an explicit
+ *  configured reserve is honored") as long as it leaves something to work in. */
+export function compactReserveTokens(contextWindow: number, override?: number): number {
+  if (override !== undefined && override > 0) {
+    return Math.min(override, Math.max(1, contextWindow - 1));
+  }
+  const proportional = Math.round(contextWindow * 0.15);
+  const reserved = Math.max(proportional, DEFAULT_COMPACT_RESERVE_TOKENS);
+  // A window small enough for the floor to swallow it still gives up as much as
+  // it can spare. Deliberate divergence from omp, which falls back to the 15%
+  // proportion there: omp's windows are large in practice, while this runtime
+  // also drives small local models, and the reserve must cover the next output
+  // plus the tool results it triggers — neither shrinks with the window. The
+  // override above covers anyone who prefers the proportion.
+  return Math.min(reserved, Math.round(contextWindow / 2));
+}
+
+/** The compaction trigger as a ratio of the context window.
+ *
+ *  The loop triggers at `limit * triggerRatio`, so this is where the reserve
+ *  becomes one. A FIXED ratio (the old 0.7) scales the headroom WITH the
+ *  window: 60k of a 200k window it will never need, while an 8k window holds
+ *  back barely one tool result. What the headroom has to cover — the next
+ *  output plus its tool results — is an addition, not a proportion.
+ *
+ *  A window we cannot know keeps the old default. */
+export function triggerRatioFor(contextWindow: number, reserveOverride?: number): number {
+  if (!(contextWindow > 0)) return 0.7;
+  return 1 - compactReserveTokens(contextWindow, reserveOverride) / contextWindow;
+}
+
 /** Silent context overflow (oh-my-pi isContextOverflow): some providers
  * accept an oversized request instead of erroring.
  * - zai-style: the input side exceeds the model window — never legitimate.

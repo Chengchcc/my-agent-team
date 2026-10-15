@@ -47,7 +47,7 @@ The current-state description of each layer lives in the wiki: start at
 
 **Package dependency graph** (`audit:workspace` fails if a workspace member is
 missing from this list; `@chengchenccc/` is the scope of every name below):
-- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`, `@chengchenccc/api-contract`
+- Leaves (no workspace deps): `@chengchenccc/message`, `@chengchenccc/config`, `@chengchenccc/tui`, `@chengchenccc/sandbox`, `@chengchenccc/source-fetch`, `@chengchenccc/workflow`, `@chengchenccc/api-contract`, `@chengchenccc/embedding`
 - ACP client (child-process boundary): a backend-local module (`apps/backend/src/features/agent-run/acp/`) — spawn, stdio ACP, one client drives every harness (ADR 0039/0040). `@chengchenccc/adapter-mcp` is the MCP client mount (not an execution rail).
 - Surfaces (client side): `@chengchenccc/ahp-client` (WebSocket transport for the AHP surface contract; the upstream client brings the protocol rules and the state mirror)
 - Runtime support: `@chengchenccc/ai` (provider + model registry; `createProvider` over the three protocol implementations), `@chengchenccc/test-helpers` (`echoModel()`)

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Message } from "@chengchenccc/message";
 import { openDb } from "../../infra/sqlite/db.js";
 import { createAgentContextService, sqliteAgentContextAdapter } from "../agent-context/index.js";
 import type { AgentRunService } from "../agent-run/service.js";
@@ -438,12 +439,14 @@ describe("conversation service (Agent Run cutover)", () => {
     expect(port.getConversation(result.newConversationId)!.title).toBe("New chat");
   });
 
-  test("clear and compact are no-ops (no runtime sessions remain)", async () => {
+  test("clear stays a no-op; compact refuses while no summarizer is wired", async () => {
     const id = "cid-k";
     setupConv(id);
     await svc.clearConversation(id);
-    await svc.compactConversation(id);
     expect(port.getConversation(id)).toBeTruthy();
+    // A silent no-op used to stand here, so a caller believed the context had
+    // been compacted. Until the summarizer lands, say so instead.
+    await expect(svc.compactConversation(id)).rejects.toThrow(/not configured/);
   });
 
   test("fork copies the agent binding and history up to fromSeq", async () => {
@@ -609,5 +612,154 @@ describe("free-text ask interception", () => {
       mode: "normal",
     });
     expect(res.triggeredRuns.length).toBe(1);
+  });
+});
+
+describe("conversation compaction", () => {
+  interface Seeded {
+    branchId: string;
+    revision: number;
+    parentId: string | null;
+    seq: number;
+  }
+
+  /** Append `count` ledger_message entries, continuing from `from` when given. */
+  async function seed(id: string, count: number, from?: Seeded): Promise<Seeded> {
+    const branch = await contextSvc.getOrCreateDefaultBranch(id, "oma", "a-1");
+    // Compaction appends a summary between passes, so the revision and the tip
+    // must be read fresh rather than carried from the previous seed.
+    const existing = await contextSvc.listEntriesToLeaf(branch.branchId);
+    const tip = existing[existing.length - 1];
+    let state: Seeded = {
+      branchId: branch.branchId,
+      revision: branch.revision,
+      parentId: from ? (tip?.entryId ?? null) : null,
+      seq: from?.seq ?? 0,
+    };
+    for (let i = 0; i < count; i++) {
+      state = { ...state, seq: state.seq + 1 };
+      const appended = await contextPort.appendEntry({
+        branchId: state.branchId,
+        expectedRevision: state.revision,
+        type: "ledger_message",
+        parentId: state.parentId,
+        payload: {},
+        ledgerSeq: state.seq,
+      });
+      state = { ...state, revision: state.revision + 1, parentId: appended.entryId };
+    }
+    return state;
+  }
+
+  function makeCompactable(
+    summarize: (input: { texts: readonly string[] }) => Promise<string>,
+    resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>,
+  ) {
+    return createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async () => {},
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      summarize,
+      // The projection's own resolver, faked: text per ledger seq, unless the
+      // test injects its own (needed to exercise tool blocks).
+      resolveLedgerMessage:
+        resolveLedgerMessage ??
+        (async (_conversationId, ledgerSeq) => ({
+          role: "user",
+          text: `m-${ledgerSeq}`,
+        })),
+    });
+  }
+
+  test("folds everything older than the kept tail into one summary", async () => {
+    const id = "cid-compact";
+    setupConv(id);
+    const branch = await seed(id, 25);
+    const seen: string[][] = [];
+    const local = makeCompactable(async ({ texts }) => {
+      seen.push([...texts]);
+      return "SUMMARY";
+    });
+
+    await local.compactConversation(id);
+
+    // 25 messages, the newest 20 stay verbatim => 5 are folded in.
+    expect(seen).toEqual([["m-1", "m-2", "m-3", "m-4", "m-5"]]);
+    const entries = await contextSvc.listEntriesToLeaf(branch.branchId);
+    const summary = entries.find((e) => e.type === "summary");
+    expect(summary?.summary).toBe("SUMMARY");
+    // Coverage points at the last folded message: exactly the kept tail follows.
+    expect(entries.findIndex((e) => e.entryId === summary?.coversThroughEntryId)).toBe(4);
+    expect(entries.filter((e) => e.type === "ledger_message")).toHaveLength(25);
+  });
+
+  test("a second pass folds the previous summary in and only covers new ground", async () => {
+    const id = "cid-compact-2";
+    setupConv(id);
+    const seeded = await seed(id, 45);
+    const seen: string[][] = [];
+    const local = makeCompactable(async ({ texts }) => {
+      seen.push([...texts]);
+      return `SUMMARY-${seen.length}`;
+    });
+
+    await local.compactConversation(id);
+    // New turns land; the previously replaced region must not be re-summarised.
+    await seed(id, 5, seeded);
+    await local.compactConversation(id);
+
+    expect(seen[0]).toHaveLength(25);
+    // The 5 messages that age out of the kept tail are the only new ground.
+    expect(seen[1]).toEqual(["SUMMARY-1", "m-26", "m-27", "m-28", "m-29", "m-30"]);
+  });
+
+  test("a branch with nothing older than the tail makes no model call", async () => {
+    const id = "cid-compact-3";
+    setupConv(id);
+    await seed(id, 5);
+    let calls = 0;
+    const local = makeCompactable(async () => {
+      calls += 1;
+      return "nope";
+    });
+
+    await local.compactConversation(id);
+
+    expect(calls).toBe(0);
+  });
+
+  test("the summarizer sees tool calls and results, not just text", async () => {
+    const id = "cid-compact-tools";
+    setupConv(id);
+    await seed(id, 25);
+    const seen: string[] = [];
+    const local = makeCompactable(
+      async ({ texts }) => {
+        seen.push(...texts);
+        return "S";
+      },
+      async (_conversationId, ledgerSeq) =>
+        ledgerSeq === 3
+          ? {
+              role: "assistant",
+              blocks: [{ type: "tool_use", id: "c1", name: "read", input: { path: "src/a.ts" } }],
+            }
+          : { role: "user", text: `m-${ledgerSeq}` },
+    );
+
+    await local.compactConversation(id);
+
+    // The covered region is m-1..m-5. Row 3 is a tool call with no text, so
+    // without rendering blocks the summary would have no trace of what ran.
+    const transcript = seen.join("\n");
+    expect(transcript).toContain("[tool_use read]");
+    expect(transcript).toContain("src/a.ts");
   });
 });

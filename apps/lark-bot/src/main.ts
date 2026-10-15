@@ -1,32 +1,57 @@
-import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
-import { createInterface } from "node:readline";
+import type { CommentFileType } from "@larksuite/channel";
+import {
+  type CardActionResponse,
+  createLarkChannel,
+  type CardActionEvent as SdkCardActionEvent,
+} from "@larksuite/channel";
+import type { ChatState } from "@microsoft/agent-host-protocol";
+import { z } from "zod";
 import type { WatcherHandle } from "./ahp-watcher.js";
 import { watchConversationOverAhp } from "./ahp-watcher.js";
 import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
   ensureTopicRoot,
+  findConversationByComment,
   findConversationByTopicKey,
+  getCommentBinding,
+  getCommentSubscription,
   getConversationBinding,
   getInputCard,
   listBoundChats,
   listConversationBindings,
   listNonTerminalRunCards,
   newestConversationForChat,
+  putCommentSubscription,
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
+import {
+  type CommentTrigger,
+  toCardActionLine,
+  toCommentTrigger,
+  toLarkMessageEvent,
+} from "./channel-adapters.js";
 import { createClient } from "./client.js";
+import { ackCommentProcessing, markCommentDone } from "./comment-ack.js";
+import { formatPendingQuestion, parseApprovalAnswer } from "./comment-approval.js";
+import { commentBodyOf } from "./comment-body.js";
+import { commentChatId, isCommentChatId } from "./comment-scope.js";
 import { collectHealth, postHeartbeat } from "./diagnostics.js";
-import { type LarkMessageEvent, parseEvent } from "./event-parser.js";
+import { composeCommentRunText, fetchDocText } from "./doc-context.js";
+import { subscribeDocEvents } from "./doc-subscription.js";
+import type { LarkMessageEvent } from "./event-parser.js";
 import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
 import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
-import { createTokenProvider } from "./lark-api.js";
+import { ingestComment } from "./ingest-comment.js";
+import { createTokenProvider, resolveProfileCredentials } from "./lark-api.js";
 import { MergeHold, renderMergedMessages } from "./merge-hold.js";
-import { handleCardActionLine } from "./run-card/card-actions.js";
+import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
+import { runPageUrl } from "./run-card/card-renderer.js";
+import { cardStateFromChatTurn } from "./run-card/card-state.js";
 import {
   liveQueuedInputCards,
   markQueuedCardCancelled,
@@ -46,6 +71,228 @@ const state = await bootstrap(args);
 
 const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 
+// ─── The channel (ADR 0044) ───
+// Created before the watchers below: a restored comment conversation can be
+// delivered to as soon as its watcher starts, and that path needs the channel
+// to already exist.
+const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
+const channel = createLarkChannel({
+  appId,
+  appSecret,
+  // `raw` carries event_id (the dedup key) and the fields the normal form drops.
+  includeRawEvent: true,
+  keepalive: { enabled: true },
+  // Access control stays ours (inbound-policy.ts) — never pre-filter here.
+  policy: { requireMention: false, dmMode: "open" },
+  source: "my-agent-team/lark-bot",
+  ...(baseUrl.includes("larksuite") ? { domain: baseUrl } : {}),
+});
+
+const COMMENT_FILE_TYPES = new Set<CommentFileType>(["doc", "docx", "sheet", "file"]);
+/** The comment API accepts four file types; a stored string is checked, not
+ *  asserted (bare casts are banned in this app). */
+function isCommentFileType(value: string): value is CommentFileType {
+  return COMMENT_FILE_TYPES.has(value as CommentFileType);
+}
+
+/** ADR 0044 decision 6: cloud-doc events are per FILE — without this call the
+ *  platform never notifies us about this document at all. Idempotent on its
+ *  side (measured: `get_subscribe` → `is_subscribe: true`), and remembered
+ *  locally so a restart does not re-post it blindly. */
+async function ensureDocSubscribed(fileToken: string, fileType: string): Promise<void> {
+  if (getCommentSubscription(state.db, fileToken)) return;
+  if (!isCommentFileType(fileType)) {
+    console.warn(`[lark-bot] comment file type '${fileType}' is not subscribable`);
+    return;
+  }
+  const result = await subscribeDocEvents(cardTokens, fileToken, fileType);
+  if (!result.ok) {
+    console.error(
+      `[lark-bot] subscribe failed for ${fileToken}: ${result.status} ${result.detail}`,
+    );
+    return;
+  }
+  putCommentSubscription(state.db, { fileToken, fileType, subscribedAt: Date.now() });
+  console.log(`[lark-bot] subscribed document ${fileToken} (${fileType})`);
+}
+
+/** One reply into a comment line, no bookkeeping. */
+async function replyIntoComment(conversationId: string, text: string): Promise<void> {
+  const binding = getCommentBinding(state.db, conversationId);
+  if (!binding) throw new Error(`no comment binding for conversation ${conversationId}`);
+  if (!isCommentFileType(binding.fileType)) {
+    throw new Error(`comment file type '${binding.fileType}' cannot be replied to`);
+  }
+  const target = await channel.comments.resolveTarget(binding.fileToken, binding.fileType);
+  if (!target) throw new Error(`comment target unresolved for ${binding.fileToken}`);
+  // The comment API has no idempotency token: the delivery ledger is what keeps
+  // a replay from posting twice (a done row short-circuits before reaching us).
+  await channel.comments.reply(target, binding.commentId, text);
+}
+
+/** A comment in a parked thread answers the pending action instead of starting
+ *  a run (ADR 0037's rule - a reply in the thread IS the answer). Deliberately
+ *  checked BEFORE the mention gate: "允许" is not an @-mention. Returns true when
+ *  the comment was consumed as an answer. */
+async function maybeResolveCommentPending(trigger: CommentTrigger): Promise<boolean> {
+  if (!isCommentFileType(trigger.fileType)) return false;
+  const conversationId = findConversationByComment(state.db, trigger.fileToken, trigger.commentId);
+  if (!conversationId) return false;
+  const pending = commentPending.get(conversationId);
+  if (!pending) return false;
+
+  const fetched = await channel.comments
+    .fetch({ fileToken: trigger.fileToken, fileType: trigger.fileType }, trigger.commentId)
+    .catch(() => null);
+  if (!fetched) return false;
+  const decision = parseApprovalAnswer(commentBodyOf(fetched, trigger.replyId));
+  if (!decision) return false;
+
+  const { error } = await actionBackendClient.api["agent-runs"]({
+    runId: pending.runId,
+  }).approval.post({ callId: pending.callId, decision });
+  if (error) {
+    console.error(
+      `[lark-bot] comment answer failed for ${pending.callId}: ${JSON.stringify(error)}`,
+    );
+    await replyIntoComment(
+      conversationId,
+      "没能把你的答复送进那条 run（可能已经过期），请再说一次。",
+    ).catch(() => {});
+    return true;
+  }
+  commentPending.delete(conversationId);
+  console.log(`[lark-bot] comment answered ${pending.callId} with ${decision}`);
+  await replyIntoComment(
+    conversationId,
+    decision === "allow" ? "已允许，继续执行。" : "已拒绝，跳过这一步。",
+  ).catch(() => {});
+  return true;
+}
+
+/** A parked run's question, posted into its comment line once per action. */
+async function surfaceCommentPending(conversationId: string, chat: ChatState): Promise<void> {
+  const runId = commentRunIds.get(conversationId);
+  if (!runId) return;
+  const pending = cardStateFromChatTurn(chat, runId)?.pendingAction;
+  if (!pending) return;
+  if (commentPending.get(conversationId)?.callId === pending.callId) return;
+
+  const text = formatPendingQuestion({
+    kind: pending.kind,
+    detail: pending.prompt,
+    ...(pending.toolName ? { toolName: pending.toolName } : {}),
+  });
+  try {
+    await replyIntoComment(conversationId, text);
+    commentPending.set(conversationId, { runId, callId: pending.callId, askedIn: "" });
+    console.log(`[lark-bot] comment asked for ${pending.kind} ${pending.callId}`);
+  } catch (err) {
+    console.error(
+      `[lark-bot] comment question failed for ${conversationId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** The run's ANSWER into its thread, plus the terminal reaction (ADR 0037's
+ *  "answer inside the topic", comment edition). */
+async function sendIntoComment(conversationId: string, text: string): Promise<void> {
+  await replyIntoComment(conversationId, text);
+  // A comment line has no card to paint, so the reaction is its only signal:
+  // swap the acknowledgement for the terminal mark now that the answer is in.
+  const binding = getCommentBinding(state.db, conversationId);
+  if (!binding || !isCommentFileType(binding.fileType)) return;
+  const target = await channel.comments.resolveTarget(binding.fileToken, binding.fileType);
+  const ackedReplyId = commentAckReplyIds.get(conversationId);
+  if (target && ackedReplyId) await markCommentDone(channel.comments, target, ackedReplyId);
+}
+
+const ConversationCreated = z.object({ conversationId: z.string().min(1) });
+/** The message POST's answer: `{seq, triggeredRuns:[{runId, inputId}]}`. */
+const TriggeredRuns = z.object({
+  triggeredRuns: z.array(z.object({ runId: z.string().min(1) })).optional(),
+});
+
+/** The reply that carries a comment line's acknowledgement, per conversation.
+ *  Memory-only on purpose: after a restart an in-flight run keeps its
+ *  processing reaction instead of risking a mark on the wrong reply. */
+const commentAckReplyIds = new Map<string, string>();
+
+/** The run each comment line started, so its chat state can be read for a
+ *  pending action (the card lane gets the same id from its own callback). */
+const commentRunIds = new Map<string, string>();
+
+/** The question a parked comment line is waiting on, and the reply it was asked
+ *  in. Memory-only, like the acknowledgement: a restart forgets it, and the
+ *  worst case is a parked run the thread does not ask about. */
+const commentPending = new Map<string, { runId: string; callId: string; askedIn: string }>();
+
+/** One comment notice: subscribe the document, read the body, start a turn. */
+async function handleComment(trigger: CommentTrigger): Promise<void> {
+  await ensureDocSubscribed(trigger.fileToken, trigger.fileType);
+  if (!isCommentFileType(trigger.fileType)) return;
+
+  const fetched = await channel.comments
+    .fetch({ fileToken: trigger.fileToken, fileType: trigger.fileType }, trigger.commentId)
+    .catch((err) => {
+      console.error(
+        `[lark-bot] comment fetch failed for ${trigger.commentId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    });
+  if (!fetched) return;
+
+  const body = commentBodyOf(fetched, trigger.replyId);
+  if (body === "") {
+    console.log(`[lark-bot] comment ${trigger.commentId} has no readable body; skipping`);
+    return;
+  }
+
+  // The comment is the REQUEST; the document is the CONTEXT. Without the text,
+  // an ask about the document can only be attempted with tools - and a comment
+  // lane has no place to ask for approval (live, 2026-10-14).
+  const docText = await fetchDocText({ profile, fileToken: trigger.fileToken });
+  const text = composeCommentRunText({ body, fileToken: trigger.fileToken, docText });
+
+  const result = await ingestComment(trigger, text, {
+    db: state.db,
+    createConversation: async () => {
+      const { data, error } = await actionBackendClient.api.conversations.post({
+        agentId: args.agentId,
+      });
+      const parsed = ConversationCreated.safeParse(data);
+      if (error || !parsed.success) {
+        console.error(`[lark-bot] comment conversation create failed: ${JSON.stringify(error)}`);
+        return null;
+      }
+      return parsed.data.conversationId;
+    },
+    postMessage: async ({ conversationId, senderMemberId, text: body }) => {
+      const { data, error } = await actionBackendClient.api
+        .conversations({ id: conversationId })
+        .messages.post({ senderMemberId, content: body });
+      // The run id is what lets the comment lane read this run's pending action
+      // out of the chat state (the card lane gets it from its own callback).
+      const triggered = TriggeredRuns.safeParse(data);
+      const runId = triggered.success ? triggered.data.triggeredRuns?.[0]?.runId : undefined;
+      return {
+        ...(error ? { error: JSON.stringify(error) } : {}),
+        ...(runId ? { runId } : {}),
+      };
+    },
+    // The watcher is what delivers the answer; the synthetic chat id routes it
+    // back into the comment thread (see sendIntoComment).
+    onNewBinding: (conversationId, chatId) => ensureWatcher(conversationId, chatId),
+  });
+  // Remembered so a parked action can be surfaced into this thread later; the
+  // chat state does not name its run, and the card lane gets the id from its
+  // own callback instead.
+  if (result.conversationId && result.runId) {
+    commentRunIds.set(result.conversationId, result.runId);
+  }
+  console.log(`[lark-bot] comment ${trigger.commentId} → ${result.action}`);
+}
+
 // ─── AHP watchers: one per bound conversation (ADR 0040 surface contract) ───
 const watchers = new Map<string, WatcherHandle>();
 
@@ -61,6 +308,12 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     onSend: async (chatId, text, idempotencyKey) => {
+      // A comment lane answers into its own thread (ADR 0044): the synthetic
+      // chat id is where that identity travels.
+      if (isCommentChatId(chatId)) {
+        await sendIntoComment(conversationId, text);
+        return;
+      }
       // The bridge's text delivery must land in the conversation's TOPIC too: a
       // top-level post is a NEW topic in a topic chat, so a path that forgets
       // its reply target scatters one conversation across many topics
@@ -85,6 +338,10 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // there, so broadcasting costs a map walk and keeps the seam free of routing tables.
     onChatState: (chat) => {
       for (const handle of cardWatchers.values()) void handle.update(chat);
+      // A comment line has no card to paint, so a parked run's question has to
+      // go into the thread itself. The state is read through the SAME
+      // projection the card uses, so the two cannot disagree about the ask.
+      if (isCommentChatId(larkChatId)) void surfaceCommentPending(conversationId, chat);
     },
     // M15.1: Handle conversation rebind from surface.control
     onRebind: (oldConvId, newConvId) => {
@@ -99,6 +356,10 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // Still inside the topic (ADR 0037): the watcher knows the conversation,
     // whose binding carries the chat mode and the topic root it was created by.
     sendTextOnly: async (chatId, text) => {
+      if (isCommentChatId(chatId)) {
+        await sendIntoComment(conversationId, text);
+        return;
+      }
       const result = await sendIntoTopic({
         db: state.db,
         profile,
@@ -115,6 +376,16 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // own key. Throwing on failure is load-bearing: the delivery records the
     // failure and the watcher's reconnect re-runs it from the same state.
     onSendImage: async (chatId, uri, filename) => {
+      // A comment reply carries text elements only, so there is nowhere to put
+      // bytes. Saying so beats delivering a comment that mentions an image the
+      // reader cannot find.
+      if (isCommentChatId(chatId)) {
+        await sendIntoComment(
+          conversationId,
+          `（产物 ${filename} 无法投递到这个 surface：评论回复暂不支持附件）`,
+        );
+        return;
+      }
       const res = await fetch(
         `${args.backendUrl}/api/artifacts/download?url=${encodeURIComponent(uri)}`,
         args.backendAuthToken ? { headers: { "x-auth-token": args.backendAuthToken } } : {},
@@ -190,7 +461,7 @@ async function startRunCard(
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     cardClient,
-    webUrl: args.webUrl,
+    webUrl: runPageUrl(args.webUrl, runId),
     sourceMessageId,
     replyTo,
     replyInThread,
@@ -249,15 +520,10 @@ const heartbeatTimer = setInterval(() => {
   void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
 }, 30_000);
 
-// ─── lark-cli event consume (inbound) ───
-const child = spawn(
-  "lark-cli",
-  ["--profile", profile, "event", "consume", "im.message.receive_v1", "--as", "bot"],
-  {
-    stdio: ["pipe", "pipe", "pipe"],
-  },
-);
-
+// ─── Inbound events (ADR 0044) ───
+// The official channel SDK owns the long connection; lark-cli's event bus is
+// gone on purpose — the platform routes each event to ONE random client per
+// app, so running both would silently drop roughly half of them.
 let ready = false;
 
 /** A message carrying an image never merges and never waits: its body (text +
@@ -392,16 +658,9 @@ function mergeKeyOf(event: LarkMessageEvent): string {
   return `new:${event.chat_id}:${keys.join(",")}`;
 }
 
-async function handleLine(line: string): Promise<void> {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-
-  const event = parseEvent(trimmed);
-  if (!event) {
-    console.warn(`[lark-bot] unparseable line: ${trimmed.slice(0, 100)}`);
-    return;
-  }
-
+/** One inbound message, already adapted to the shared contract by
+ *  `toLarkMessageEvent` (ADR 0044). Everything below is unchanged. */
+async function handleEvent(event: LarkMessageEvent): Promise<void> {
   if (!ready) {
     console.log(`[lark-bot] first event received — marking ready (event_id=${event.event_id})`);
     ready = true;
@@ -420,116 +679,169 @@ async function handleLine(line: string): Promise<void> {
   await runIngest(event);
 }
 
-const rl = createInterface({ input: child.stdout! });
-rl.on("line", (line: string) => {
-  void handleLine(line).catch((err) => {
-    console.error(
-      `[lark-bot] event handling failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  });
-});
-
-// ─── Card action callbacks (ADR 0031 §6; lark-cli ≥1.0.9x) ───
-// Button clicks arrive as card.action.trigger over the same outbound
-// websocket — no public ingress. lark-bot validates the callback against
-// its local run_card row and calls the Run control API.
-const actionChild = spawn(
-  "lark-cli",
-  ["--profile", profile, "event", "consume", "card.action.trigger", "--as", "bot"],
-  { stdio: ["pipe", "pipe", "pipe"] },
-);
+// ─── Card action callbacks (ADR 0031 §6; ADR 0044) ───
+// Clicks arrive on the same channel connection — no public ingress. The adapter
+// rebuilds the NDJSON line this pipeline parses, so the trust model (validate
+// against the local run_card row) is unchanged.
 const actionBackendClient = createClient(args.backendUrl, args.backendAuthToken);
-createInterface({ input: actionChild.stdout! }).on("line", (line) => {
-  void handleCardActionLine(line, {
-    db: state.db,
-    cancelRun: async (runId) => {
-      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
-      return { error: error ?? undefined };
-    },
-    resolveApproval: async (runId, callId, decision) => {
-      const { error } = await actionBackendClient.api["agent-runs"]({ runId }).approval.post({
-        callId,
-        decision,
-      });
-      return { error: error ?? undefined };
-    },
-    cancelQueuedInput: async (inputId) => {
-      const record = getInputCard(state.db, inputId);
-      if (!record) return { error: "unknown input" };
-      const { error } = await actionBackendClient.api
-        .conversations({ id: record.conversationId })
-        .inputs({ inputId })
-        .cancel.post();
-      if (!error) {
-        await markQueuedCardCancelled({ db: state.db, cardClient }, inputId);
+const cardActionDeps: CardActionDeps = {
+  db: state.db,
+  cancelRun: async (runId) => {
+    const { error } = await actionBackendClient.api["agent-runs"]({ runId }).cancel.post();
+    return { error: error ?? undefined };
+  },
+  resolveApproval: async (runId, callId, decision) => {
+    const { error } = await actionBackendClient.api["agent-runs"]({ runId }).approval.post({
+      callId,
+      decision,
+    });
+    return { error: error ?? undefined };
+  },
+  cancelQueuedInput: async (inputId) => {
+    const record = getInputCard(state.db, inputId);
+    if (!record) return { error: "unknown input" };
+    const { error } = await actionBackendClient.api
+      .conversations({ id: record.conversationId })
+      .inputs({ inputId })
+      .cancel.post();
+    if (!error) {
+      await markQueuedCardCancelled({ db: state.db, cardClient }, inputId);
+    }
+    return { error: error ?? undefined };
+  },
+  steerQueuedInput: async (inputId) => {
+    const record = getInputCard(state.db, inputId);
+    if (!record) return { error: "unknown input" };
+    // keepIfIdle: the turn ending between render and click is not the user's
+    // mistake — the message stays queued and the next turn takes it (#64).
+    const { error } = await actionBackendClient.api
+      .conversations({ id: record.conversationId })
+      .inputs({ inputId })
+      .steer.post({ keepIfIdle: true });
+    if (!error) {
+      await markQueuedCardSteered({ db: state.db, cardClient }, inputId);
+    }
+    return { error: error ?? undefined };
+  },
+  resolveAsk: async ({ runId, callId, questionId, selectedValue, freeText }) => {
+    const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
+      runId,
+      callId,
+      answer: {
+        answers: [
+          {
+            id: questionId,
+            selectedValues: selectedValue ? [selectedValue] : [],
+            freeText: freeText ?? "",
+          },
+        ],
+      },
+    });
+    return { error: error ?? undefined };
+  },
+  log: (message) => console.log(`[lark-bot] ${message}`),
+};
+
+// ─── Handlers on the channel created above ───
+/** A click must come back with an answer: the platform shows the user whatever
+ *  the handler returns (ADR 0044 decision 3), and a handler that returns
+ *  nothing reads as "the target service did not respond". */
+function cardActionToast(outcome: string): CardActionResponse {
+  const text: Record<string, string> = {
+    stopped: "已停止这个 run",
+    answered: "已提交",
+    "input-cancelled": "已取消这条排队消息",
+    "input-steered": "已作为追加指示发送",
+    rejected: "这张卡片已失效或不属于这个会话",
+    duplicate: "这条操作已经处理过了",
+  };
+  const ok =
+    outcome === "stopped" ||
+    outcome === "answered" ||
+    outcome === "input-cancelled" ||
+    outcome === "input-steered";
+  return {
+    toast: { type: ok ? "success" : "error", content: text[outcome] ?? `未处理：${outcome}` },
+  };
+}
+
+channel.on({
+  comment: async (evt) => {
+    const trigger = toCommentTrigger(evt);
+    if (!trigger) {
+      console.warn("[lark-bot] dropped an unusable comment event");
+      return;
+    }
+    // ADR 0044 decision 5: never answer our own kind. The platform does not
+    // notify us about a bot's own comment today (measured), so this is the
+    // guard for the future rather than the reason the early spikes saw nothing.
+    if (trigger.fromAgent) {
+      console.log(`[lark-bot] comment ignored (agent-originated): ${trigger.commentId}`);
+      return;
+    }
+    // A reply in a parked thread answers the question instead of starting a run
+    // (ADR 0037's rule) - checked BEFORE the mention gate, because "允许" is not
+    // an @-mention and the mention gate would drop it.
+    if (await maybeResolveCommentPending(trigger)) return;
+    // Only an @-mention of the bot starts a turn.
+    if (!trigger.mentionedBot) {
+      console.log(`[lark-bot] comment ignored (bot not mentioned): ${trigger.commentId}`);
+      return;
+    }
+    // A comment line has no card to paint, so the reaction IS the "I am on it"
+    // signal: without it the thread sits in silence for the length of the run.
+    if (trigger.replyId && isCommentFileType(trigger.fileType)) {
+      const acked = await ackCommentProcessing(
+        channel.comments,
+        { fileToken: trigger.fileToken, fileType: trigger.fileType },
+        trigger.replyId,
+      );
+      if (acked) {
+        commentAckReplyIds.set(
+          commentChatId(trigger.fileToken, trigger.commentId),
+          trigger.replyId,
+        );
       }
-      return { error: error ?? undefined };
-    },
-    steerQueuedInput: async (inputId) => {
-      const record = getInputCard(state.db, inputId);
-      if (!record) return { error: "unknown input" };
-      // keepIfIdle: the turn ending between render and click is not the user's
-      // mistake — the message stays queued and the next turn takes it (#64).
-      const { error } = await actionBackendClient.api
-        .conversations({ id: record.conversationId })
-        .inputs({ inputId })
-        .steer.post({ keepIfIdle: true });
-      if (!error) {
-        await markQueuedCardSteered({ db: state.db, cardClient }, inputId);
-      }
-      return { error: error ?? undefined };
-    },
-    resolveAsk: async ({ runId, callId, questionId, selectedValue, freeText }) => {
-      const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
-        runId,
-        callId,
-        answer: {
-          answers: [
-            {
-              id: questionId,
-              selectedValues: selectedValue ? [selectedValue] : [],
-              freeText: freeText ?? "",
-            },
-          ],
-        },
-      });
-      return { error: error ?? undefined };
-    },
-    log: (message) => console.log(`[lark-bot] ${message}`),
-  })
-    .then((outcome) => console.log(`[lark-bot] card action: ${outcome}`))
-    .catch((err) => {
+    }
+    return handleComment(trigger).catch((err) => {
       console.error(
-        `[lark-bot] card action failed: ${err instanceof Error ? err.message : String(err)}`,
+        `[lark-bot] comment handling failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
-});
-actionChild.stderr?.on("data", (d: Buffer) => {
-  if (d.toString().includes("[event] ready")) {
-    console.log("[lark-bot] lark-cli card-action consume ready");
-  }
-});
-actionChild.on("exit", (code, signal) => {
-  console.error(`[lark-bot] card-action consumer exited code=${code} signal=${signal}`);
+  },
+  message: (msg) => {
+    const event = toLarkMessageEvent(msg);
+    if (!event) {
+      console.warn(`[lark-bot] dropped an unusable message event: ${msg.messageId}`);
+      return;
+    }
+    return handleEvent(event).catch((err) => {
+      console.error(
+        `[lark-bot] event handling failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  },
+  cardAction: async (action: SdkCardActionEvent) => {
+    const outcome = await handleCardActionLine(toCardActionLine(action), cardActionDeps).catch(
+      (err) => {
+        console.error(
+          `[lark-bot] card action failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return "error";
+      },
+    );
+    console.log(`[lark-bot] card action: ${outcome}`);
+    return cardActionToast(outcome);
+  },
+  error: (err) => console.error(`[lark-bot] channel error: ${err.code} ${err.message}`),
+  reconnecting: () => console.warn("[lark-bot] channel reconnecting"),
+  reconnected: () => console.log("[lark-bot] channel reconnected"),
 });
 
-// stderr ready marker
-child.stderr?.on("data", (d: Buffer) => {
-  const text = d.toString();
-  process.stderr.write(`[lark-cli] ${text}`);
-  if (text.includes("[event] ready")) {
-    console.log("[lark-bot] lark-cli event consume ready");
-  }
-});
-
-// Exit handler — SIGTERM only (not SIGKILL: skips lark-cli unsubscribe)
-child.on("exit", (code, signal) => {
-  console.error(`[lark-bot] lark-cli exited code=${code} signal=${signal}`);
-  if (code !== 0 && signal !== "SIGTERM") {
-    process.exit(1); // abnormal — registry will restart
-  }
-  process.exit(0);
-});
+await channel.connect();
+console.log(
+  `[lark-bot] channel connected app=${appId} status=${JSON.stringify(channel.getConnectionStatus())}`,
+);
 
 // Forward SIGTERM gracefully
 const cleanup = () => {
@@ -544,21 +856,18 @@ const cleanup = () => {
   for (const [, c] of cardWatchers) c.close();
 };
 process.on("SIGTERM", () => {
-  console.log("[lark-bot] SIGTERM — forwarding to lark-cli, closing watchers");
+  console.log("[lark-bot] SIGTERM — draining, disconnecting the channel");
   // A batch still inside its quiet window is a message someone sent: deliver it
   // before we go (the backend may still be up when only the bot restarts).
   void merger.flushAll();
   cleanup();
-  // Every consumer gets the signal: leaving the card/reaction streams to die
-  // with the parent skipped lark-cli's own unsubscribe (it warns about it).
-  child.kill("SIGTERM");
-  actionChild.kill("SIGTERM");
+  // Leave cleanly: an abandoned socket keeps the platform routing events at a
+  // connection nobody is reading.
+  void channel.disconnect().finally(() => process.exit(0));
 });
 process.on("SIGINT", () => {
   cleanup();
-  child.kill("SIGTERM");
-  actionChild.kill("SIGTERM");
-  process.exit(0);
+  void channel.disconnect().finally(() => process.exit(0));
 });
 
 console.log(

@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canSandbox } from "@chengchenccc/sandbox";
 import { createBashTool } from "./bash.js";
 import type { BashSpawn } from "./bash-sandbox.js";
 import {
@@ -19,7 +20,10 @@ import {
   SeatbeltBashSandbox,
 } from "./bash-sandbox.js";
 
-const HAS_BWRAP = Bun.which("bwrap") !== null;
+const HAS_BWRAP = canSandbox();
+/** The factory's contract is INSTALLATION routing; whether bwrap can then
+ *  run in THIS environment is a different question (see canSandbox). */
+const BWRAP_INSTALLED = Bun.which("bwrap") !== null;
 const IS_DARWIN = process.platform === "darwin";
 
 /** P1 acceptance (BashSandbox design): the injected launch strategy replaces
@@ -251,7 +255,7 @@ describe("resolveBashSandbox factory", () => {
 
   test("linux + bwrap → Bwrap; linux without bwrap → explicit error (no silent unconstrained run)", () => {
     const ws = "/ws";
-    if (HAS_BWRAP) {
+    if (BWRAP_INSTALLED) {
       expect(
         resolveBashSandbox({ workspaceRoot: ws, enabled: true, platform: "linux" }),
       ).toBeInstanceOf(BwrapBashSandbox);

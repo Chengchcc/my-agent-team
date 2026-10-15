@@ -22,13 +22,20 @@ export interface PendingToolCall {
   input: Record<string, unknown>;
 }
 
-/** Summarizes covered messages into a compact context summary. Receives full
- *  Message objects (including tool_use/tool_result blocks) so tool semantics
- *  survive compaction. Injected by the caller (Phase 3 Worker uses
- *  ModelRuntime; tests inject a fake). */
+/** Summarizes the entries a compaction is about to cover. Receives full Message
+ *  objects (including tool_use/tool_result blocks) so tool semantics survive
+ *  compaction. `opts.previousSummary` carries the summary this compaction
+ *  supersedes, when there is one: the summarizer then writes an UPDATE that
+ *  keeps the old text and folds the new messages in, so it only ever reads the
+ *  uncovered interval instead of re-reading the whole prefix. Injected by the
+ *  caller (Phase 3 Worker uses ModelRuntime; tests inject a fake). */
 export type ContextSummarizer = (
   messages: readonly Message[],
   signal?: AbortSignal,
+  opts?: {
+    /** The summary this compaction supersedes; absent on the first compaction. */
+    previousSummary?: string;
+  },
 ) => Promise<string>;
 
 /** Token-aware context budget for proactive compaction. Extends the compaction

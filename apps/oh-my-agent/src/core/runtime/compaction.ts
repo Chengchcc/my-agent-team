@@ -1,6 +1,12 @@
 import type { Message } from "@chengchenccc/message";
 import type { SessionStore } from "../store/session-store.js";
 import type { CodingSessionEntry } from "../store/session-tree.js";
+import type { ContextSummarizer } from "./agent-loop-types.js";
+import {
+  collectFileOperations,
+  renderFileOperations,
+  upsertFileOperations,
+} from "./compaction-prompt.js";
 
 export interface CompactionResult {
   readonly entryId: string;
@@ -95,8 +101,9 @@ function findCut(messages: readonly CodingSessionEntry[], budget?: CompactionBud
   return { cutIdx, tokensBefore };
 }
 
-/** Compact a session branch: summarize oldest entries, append CompactionEntry,
- *  leave tail entries intact. Shared by threshold/manual/overflow triggers.
+/** Compact a session branch: summarize the entries the previous compaction did
+ *  not cover, append a CompactionEntry that covers the whole prefix, leave tail
+ *  entries intact. Shared by threshold/manual/overflow triggers.
  *
  *  The summarizer receives full Message objects (including tool_use/tool_result
  *  blocks) so tool semantics survive compaction. The AbortSignal lets stop()
@@ -106,7 +113,7 @@ function findCut(messages: readonly CodingSessionEntry[], budget?: CompactionBud
 export async function compactSession(
   store: SessionStore,
   sessionId: string,
-  summarizer: (messages: readonly Message[], signal?: AbortSignal) => Promise<string>,
+  summarizer: ContextSummarizer,
   signal?: AbortSignal,
   budget?: CompactionBudget,
 ): Promise<CompactionResult> {
@@ -124,9 +131,9 @@ export async function compactSession(
   const coveredEntries = messages.slice(0, cutIdx);
   const coveredIds = coveredEntries.map((m) => m.entryId);
   const retainedIds = messages.slice(cutIdx).map((m) => m.entryId);
-  const coveredMessages = coveredEntries.map((m) => (m as { message: Message }).message);
 
-  const alreadyCovered = latestCompaction(branch)?.coveredIds;
+  const previous = latestCompaction(branch);
+  const alreadyCovered = previous?.coveredIds;
   if (alreadyCovered && coveredIds.every((id) => alreadyCovered.has(id))) {
     return { entryId: "", coveredIds: [] };
   }
@@ -137,16 +144,40 @@ export async function compactSession(
   // "already compacted" flag to get stuck in, because compaction itself is the
   // thing that decides whether it can still do useful work.
 
-  const summary = await summarizer(coveredMessages, signal);
+  // Only NEW ground goes to the summarizer. The appended entry still covers the
+  // whole prefix: coversEntryIds stays cumulative, because the rebuild filters
+  // by the LATEST compaction alone — anything dropped from the coverage would
+  // come back as raw messages. What a previous compaction already replaced
+  // travels as that summary's text instead of being re-summarized; otherwise the
+  // summarizer input, and its cost, would grow with the conversation.
+  const uncovered = alreadyCovered
+    ? coveredEntries.filter((m) => !alreadyCovered.has(m.entryId))
+    : coveredEntries;
+  const summary = await summarizer(
+    uncovered.map((m) => (m as { message: Message }).message),
+    signal,
+    previous?.summary ? { previousSummary: previous.summary } : undefined,
+  );
 
   // If aborted during summarization, do not write a CompactionEntry.
   if (signal?.aborted) return { entryId: "", coveredIds: [] };
+
+  // The file list is appended here rather than asked of the model: it must be
+  // exact, and it is scanned over the WHOLE covered prefix (not just the new
+  // interval) so it stays cumulative without carrying details between entries —
+  // the entries are already in hand, so the scan is free.
+  const summaryWithFiles = upsertFileOperations(
+    summary,
+    renderFileOperations(
+      collectFileOperations(coveredEntries.map((m) => (m as { message: Message }).message)),
+    ),
+  );
 
   const result = await store.appendBatch(sessionId, {
     entries: [
       {
         type: "compaction",
-        summary,
+        summary: summaryWithFiles,
         coversEntryIds: coveredIds,
         ...(budget ? { tokensBefore, retainedEntryIds: retainedIds } : {}),
         createdAt: Date.now(),

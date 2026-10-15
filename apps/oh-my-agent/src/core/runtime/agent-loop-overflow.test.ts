@@ -504,4 +504,85 @@ describe("agent loop context handling (oh-my-pi absorption)", () => {
     });
     expect(assistant?.stopReason).toBe("end_turn");
   });
+
+  /** The truncation path: a turn runs out of output budget while the live
+   *  context has crossed the trigger. The continuation must not re-send the
+   *  same oversized input, so the step loop's own threshold check has to compact
+   *  first. Asserted by looking at what each model call actually received. */
+  test("a truncated turn is compacted before the continuation, not after", async () => {
+    const history: ProjectedHistoryItem[] = Array.from({ length: 4 }, (_, i) => ({
+      productEntryId: `h${i}`,
+      message: { role: i % 2 ? "assistant" : "user", text: "x".repeat(1000) },
+    }));
+    const store = await freshStore("ovf-trunc");
+    /** Exact token control — one token per character — so the margins below are
+     *  arithmetic instead of a guess about the estimator. */
+    const perChar = (m: { text?: string }): number => (m.text ?? "").length;
+    const sawSummary: boolean[] = [];
+    let calls = 0;
+    let summarizeCalls = 0;
+    let compactionAtCall = -1;
+    let summaryTextAtCall3: string | undefined;
+    const session = createOmaSession({
+      sessionId: "ovf-trunc",
+      store,
+      plugins: [bigToolPlugin],
+      maxSteps: 5,
+      maxForceContinues: 1,
+      summarize: async () => {
+        summarizeCalls++;
+        return "[summary]";
+      },
+      contextBudget: {
+        estimate: perChar,
+        // Trigger at 9000: the history (4000) plus the tool result (4000) stays
+        // under it, so the first two calls run uncompacted; the truncated
+        // answer (2000) then pushes the next check over the line.
+        limit: 10_000,
+        triggerRatio: 0.9,
+      } satisfies ContextBudget,
+      modelStream: async function* (messages): AsyncIterable<AIMessageChunk> {
+        calls++;
+        sawSummary.push(
+          messages.some(
+            (m) => typeof m.text === "string" && m.text.startsWith("[Context summary:"),
+          ),
+        );
+        if (calls === 3) {
+          summaryTextAtCall3 = messages.find((m) => m.text?.startsWith("[Context summary:"))?.text;
+        }
+        if (calls === 1) {
+          yield { delta: { type: "tool_use", id: "t1", name: "big" } };
+          return;
+        }
+        if (calls === 2) {
+          // Output budget exhausted mid-answer, after the tool result landed.
+          yield { delta: { type: "text", text: "z".repeat(2000) } };
+          yield { stopReason: "max_tokens" };
+          return;
+        }
+        yield { delta: { type: "text", text: "finished" } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+
+    session.onEvent((e) => {
+      if (e.type === "compaction_start") compactionAtCall = calls;
+    });
+
+    const result = await session.startLoop(loopInput("hi", history));
+
+    expect(result.status).toBe("completed");
+    expect(calls).toBe(3);
+    expect(summarizeCalls).toBe(1);
+    // The pin: neither of the first two calls saw a summary, the continuation did.
+    expect({ sawSummary, compactionAtCall, summaryTextAtCall3 }).toEqual({
+      // Neither of the first two calls saw a summary; the continuation did.
+      sawSummary: [false, false, true],
+      // The compaction fired after call 2 — i.e. before the continuation, not
+      // one model call late (the ordering bug this test was written for).
+      compactionAtCall: 2,
+      summaryTextAtCall3: "[Context summary: [summary]]",
+    });
+  });
 });

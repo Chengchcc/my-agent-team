@@ -1,0 +1,30 @@
+{
+  "name": "@chengchenccc/embedding",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local embedding engine: fastembed ONNX provider, SQLite vector+FTS store, hybrid recall. Shared by oma's memory and (per ADR 0043) any other consumer that opts into the ONNX entry point.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fastembed": {
+      "types": "./dist/fastembed.d.ts",
+      "default": "./dist/fastembed.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check . && eslint .",
+    "test": "bun test src --pass-with-no-tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "optionalDependencies": {
+    "fastembed": "2.1.0",
+    "onnxruntime-node": "1.21.0"
+  },
+  "devDependencies": {}
+}

@@ -155,6 +155,52 @@ describe("searchLedger", () => {
     expect(results).toEqual([]);
   });
 
+  test("every term must match, not the whole string verbatim", () => {
+    // The old LIKE %query% required the terms to appear adjacent: two words that
+    // are both present but apart returned nothing at all.
+    adapter.appendLedgerEntry({
+      conversationId: "conv-1",
+      kind: "message",
+      content: "husky pre-commit swallows pathspec commits",
+      ts: Date.now(),
+    });
+    const results = adapter.searchLedger("husky pathspec");
+    expect(results.map((r) => r.snippet).join(" ")).toContain("swallows pathspec");
+  });
+
+  test("CJK terms still match without word boundaries", () => {
+    adapter.appendLedgerEntry({
+      conversationId: "conv-1",
+      kind: "message",
+      content: "husky 钩子会吞 pathspec",
+      ts: Date.now(),
+    });
+    // FTS5's unicode61 sees a whole CJK run as one token, so the ASCII-only FTS
+    // voice cannot carry this — the needle pass has to, or this regresses.
+    const results = adapter.searchLedger("钩子会吞");
+    expect(results.some((r) => r.snippet.includes("钩子会吞"))).toBe(true);
+  });
+
+  test("newest match first", () => {
+    adapter.appendLedgerEntry({
+      conversationId: "conv-1",
+      kind: "message",
+      content: "recency probe alpha",
+      ts: Date.now() - 60_000,
+    });
+    adapter.appendLedgerEntry({
+      conversationId: "conv-1",
+      kind: "message",
+      content: "recency probe alpha",
+      ts: Date.now(),
+    });
+    const results = adapter.searchLedger("recency probe");
+    expect(results.length).toBeGreaterThan(1);
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1]!.ts).toBeGreaterThanOrEqual(results[i]!.ts);
+    }
+  });
+
   test("respects limit parameter", () => {
     const results = adapter.searchLedger("e", 1);
     expect(results.length).toBe(1);

@@ -266,7 +266,7 @@ export class RuntimeOpsStore {
                 COALESCE(SUM((
                   SELECT COUNT(*) FROM agent_run_event e
                    WHERE e.run_id = ar.run_id
-                     AND e.type IN ('native_tool_started','product_tool_started')
+                     AND e.type IN ('native_tool_started')
                 )), 0) AS toolCalls,
                 AVG(CASE WHEN ar.terminal_at IS NOT NULL THEN ar.terminal_at - ar.created_at END) AS avgDurationMs
            FROM agent_run ar
@@ -452,7 +452,7 @@ export class RuntimeOpsStore {
                 ar.model_ref AS modelRef,
                 ar.created_at AS createdAt,
                 ar.terminal_at AS terminalAt,
-                COUNT(CASE WHEN e.type IN ('native_tool_started','product_tool_started') THEN 1 END) AS toolCalls,
+                COUNT(CASE WHEN e.type IN ('native_tool_started') THEN 1 END) AS toolCalls,
                 COALESCE(CAST(json_extract(ar.terminal_result, '$.usage.inputTokens') AS REAL), 0) AS inputTokens,
                 COALESCE(CAST(json_extract(ar.terminal_result, '$.usage.outputTokens') AS REAL), 0) AS outputTokens
            FROM agent_run ar

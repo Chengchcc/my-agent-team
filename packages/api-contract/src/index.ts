@@ -19,3 +19,7 @@ export {
   OmaTodoItem,
   OmaTodoStatus,
 } from "./sse.js";
+export {
+  budgetGateDecisionSchema,
+  budgetGateSchema,
+} from "./workflow.js";

@@ -35,6 +35,17 @@ export interface RunCardMeta {
   webUrl: string | null;
 }
 
+/**
+ * `--web-url` is the console's base — the only thing a deployment knows — while
+ * the card is about ONE run, so the footer link is composed here. Left as the
+ * base it pointed at the console's front door; unset (the live stack) it
+ * rendered nothing at all.
+ */
+export function runPageUrl(webUrl: string | null, runId: string): string | null {
+  if (!webUrl) return null;
+  return `${webUrl.replace(/\/+$/, "")}/system/runs/${runId}`;
+}
+
 const HEADER_BY_STATUS: Record<string, { title: string; template: string; footer: string }> = {
   queued: { title: "任务已排队", template: "grey", footer: "排队中" },
   thinking: { title: "思考中", template: "blue", footer: "思考中" },
@@ -282,6 +293,11 @@ function pendingActionButtons(
     });
     return [
       decideButton("approve_button", "批准执行", "primary", "approve"),
+      // The ask gate questions every call of the same tool: one "always" here
+      // answers the rest of them for this run (never beyond it).
+      // 20-char element-id ceiling (Feishu 300301): `approve_always_button` is one too long.
+      decideButton("approve_always_btn", "本轮都允许", "default", "approve_always"),
+      decideButton("reject_always_btn", "本轮都拒绝", "default", "reject_always"),
       decideButton("reject_button", "拒绝", "danger", "reject"),
     ];
   }

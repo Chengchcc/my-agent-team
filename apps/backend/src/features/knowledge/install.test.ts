@@ -65,6 +65,43 @@ z.close()
     expect(row.sourceRev).toBeTruthy();
     rmSync(dataDir, { recursive: true, force: true });
   });
+
+  test("seeding succeeds even though embeddings are unavailable", async () => {
+    // The index is built for QUERIES, never for seeding. A knowledge pack has to
+    // install and go ready on a box with no working embedding endpoint — this
+    // one, measured 2026-10-13: deepseek has no embeddings endpoint, the z.ai
+    // key is out of quota, Ollama is the only channel. Whoever later wires the
+    // index into install/refresh breaks this, and should think again first.
+    const dataDir = mkdtempSync(join(tmpdir(), "kp-seed-"));
+    const zipPath = join(dataDir, "pack.zip");
+    const { exitCode } = await Bun.$`python3 -c "
+import zipfile, sys
+z = zipfile.ZipFile(sys.argv[1], 'w')
+z.writestr('docs/a.md', '---\ntitle: A\ntags: [runs]\n---\n\n口令找回流程')
+z.close()
+" ${zipPath}`
+      .quiet()
+      .nothrow();
+    expect(exitCode).toBe(0);
+
+    const port = memoryPort();
+    const row = await installKnowledgePack(
+      { dataDir, port, zipBuffer: Buffer.from(await Bun.file(zipPath).arrayBuffer()) },
+      {
+        id: "kp-seed",
+        name: "Seed",
+        description: "d",
+        sourceKind: "zip",
+        sourceUrl: null,
+        versionRef: null,
+      },
+    );
+
+    expect(row.status).toBe("ready");
+    // Content only: no index directory, so no vector work was attempted.
+    expect(existsSync(join(dataDir, "knowledge", "kp-seed", ".embedding"))).toBe(false);
+    rmSync(dataDir, { recursive: true, force: true });
+  });
   test("git install records resolved HEAD as sourceRev", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "kp-git-"));
     const repo = join(dataDir, "repo");

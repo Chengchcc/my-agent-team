@@ -7,6 +7,7 @@ import {
   updateInputCard,
 } from "../bindings-sqlite.js";
 import type { CardKitClient } from "./card-kit.js";
+import { pacedCardClient } from "./card-pacer.js";
 
 /** The card of a message that has to WAIT (ADR 0037 decision 2).
  *
@@ -143,7 +144,10 @@ export function startQueuedCard(
   larkChatId: string,
   deps: QueuedCardDeps,
 ): QueuedCardHandle {
-  const { db, cardClient } = deps;
+  const { db } = deps;
+  // Same chat, same write lane as the run cards (#87): the queued card and the
+  // run card that adopts it share the platform's per-chat card budget.
+  const cardClient = pacedCardClient(deps.cardClient, larkChatId);
   let cardKitId: string | null = null;
   let larkMessageId: string | null = null;
   let closed = false;

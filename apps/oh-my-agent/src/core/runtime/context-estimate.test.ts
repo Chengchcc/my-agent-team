@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@chengchenccc/message";
 import {
+  compactReserveTokens,
   estimateContextTokens,
   estimateMessageTokens,
   estimateTextTokens,
   isSilentContextOverflow,
+  triggerRatioFor,
   type UsageAnchor,
   usageTotalTokens,
 } from "./context-estimate.js";
@@ -160,6 +162,39 @@ describe("estimateMessageTokens (wire-accurate)", () => {
     expect(cjk).toBe(Math.ceil((100 * 2) / 3) + 4);
     // Mixed runs are prorated, not max-ed.
     expect(estimateTextTokens("检查x")).toBeCloseTo((2 * 2) / 3 + 1 / 4, 5);
+  });
+});
+
+describe("compaction trigger reserve (omp-shaped)", () => {
+  test("a large window holds back 15% — not a fixed share of it", () => {
+    // 200k: 30k reserved => the trigger sits at 85%, where the old 0.7 held
+    // back 60k that a 200k window never needs.
+    expect(compactReserveTokens(200_000)).toBe(30_000);
+    expect(triggerRatioFor(200_000)).toBeCloseTo(0.85, 5);
+  });
+
+  test("a mid window gets the 16384 floor, not a fraction of a huge window", () => {
+    expect(compactReserveTokens(60_000)).toBe(16_384);
+    expect(triggerRatioFor(60_000)).toBeCloseTo(1 - 16_384 / 60_000, 5);
+  });
+
+  test("a window too small for the floor gives up at most half of itself", () => {
+    expect(compactReserveTokens(8_000)).toBe(4_000);
+    expect(triggerRatioFor(8_000)).toBeCloseTo(0.5, 5);
+    // Never more than the window can spare, and never a negative trigger.
+    expect(compactReserveTokens(1_000)).toBe(500);
+  });
+
+  test("an explicit reserve is honoured, but cannot eat the whole window", () => {
+    expect(compactReserveTokens(200_000, 40_000)).toBe(40_000);
+    expect(triggerRatioFor(200_000, 40_000)).toBeCloseTo(0.8, 5);
+    expect(compactReserveTokens(1_000, 5_000)).toBe(999);
+    expect(triggerRatioFor(1_000, 5_000)).toBeCloseTo(0.001, 5);
+  });
+
+  test("an unknown window keeps the old fixed default", () => {
+    expect(triggerRatioFor(0)).toBe(0.7);
+    expect(triggerRatioFor(-1)).toBe(0.7);
   });
 });
 

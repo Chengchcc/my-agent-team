@@ -15,7 +15,7 @@ import {
 } from "../bindings-sqlite.js";
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
-import { renderCard, renderRunCard } from "./card-renderer.js";
+import { renderCard, renderRunCard, runPageUrl } from "./card-renderer.js";
 import {
   cardStateFromChatTurn,
   initialRunCardState,
@@ -38,7 +38,7 @@ function cardStateOf(spec: {
   output?: string;
   tools?: ReadonlyArray<{ toolName: string; activity?: string; status?: string }>;
   ask?: { callId: string; questions: readonly unknown[] };
-  approval?: { callId: string; toolName?: string; input?: unknown };
+  approval?: { callId: string; toolName?: string; input?: unknown; sandboxed?: boolean };
   todos?: readonly unknown[];
   settled?: "complete" | "error" | "cancelled";
   error?: string;
@@ -202,6 +202,23 @@ describe("renderRunCard", () => {
     expect(config.streaming_mode).toBeUndefined();
     expect(JSON.stringify(card)).not.toContain("/stop");
     expect(JSON.stringify(card)).toContain("在 Web 查看");
+  });
+
+  test("the console link lands on the run, not the console base", () => {
+    expect(runPageUrl("http://box:3001", "r1")).toBe("http://box:3001/system/runs/r1");
+    expect(runPageUrl("http://box:3001/", "r1")).toBe("http://box:3001/system/runs/r1");
+    expect(runPageUrl(null, "r1")).toBeNull();
+  });
+
+  test("the terminal card renders the run deep link", () => {
+    const card = renderRunCard(cardStateOf({ settled: "complete" }), {
+      runId: "r1",
+      startedAt: Date.now(),
+      webUrl: runPageUrl("http://box:3001", "r1"),
+    });
+    const json = JSON.stringify(card);
+    expect(json).toContain("在 Web 查看");
+    expect(json).toContain("http://box:3001/system/runs/r1");
   });
 
   test("window: output beyond 10k chars keeps the tail only", () => {
@@ -592,6 +609,29 @@ describe("tool activity (surfaces display, never invent)", () => {
 
 describe("dedicated ask / approval card", () => {
   const meta = { runId: "r1", startedAt: Date.now(), webUrl: "http://web/runs/r1" };
+
+  test("the card states the sandbox truth, and stays silent when it is unknown", () => {
+    const card = (sandboxed?: boolean): string =>
+      JSON.stringify(
+        renderCard(
+          cardStateOf({
+            approval: {
+              callId: "c1",
+              toolName: "bash",
+              input: { command: "echo hi" },
+              ...(sandboxed === undefined ? {} : { sandboxed }),
+            },
+          }),
+          meta,
+        ),
+      );
+    // Two different decisions: the human must know the blast radius.
+    expect(card(true)).toContain("将在 OS 沙箱内执行");
+    expect(card(false)).toContain("无 OS 沙箱");
+    // An agent that never said (omp, any future harness) gets no claim at all —
+    // the card must not invent "unsandboxed" either.
+    expect(card()).not.toContain("OS 沙箱");
+  });
 
   test("a parked ask replaces the run card with an orange form card", () => {
     const s = cardStateOf({
@@ -1161,4 +1201,72 @@ describe("element id legality (Feishu 300301)", () => {
       }
     }
   });
+
+  test("congestion while streaming never degrades the card (#87)", async () => {
+    // A degraded card cannot be replaced by the terminal seal, so the answer
+    // goes out as a plain message instead — which is how congestion produced a
+    // duplicate. Three rate-limited STREAM pushes are enough to trip the
+    // threshold, and the first fix only taught replaceNow the difference;
+    // observed live right after it shipped.
+    const dir = `/tmp/test-lark-run-card-congestion-${Date.now()}`;
+    const cdb = openBindings("test-congestion", dir);
+    try {
+      const makeUpdater = (retryable: boolean) => {
+        const runId = `run-cong-${retryable}`;
+        insertRunCard(cdb, {
+          runId,
+          conversationId: "conv-cong",
+          larkChatId: "oc_cong",
+          sourceMessageId: "om_cong",
+        });
+        const client = {
+          updateCard: async () => ({ ok: true }),
+          streamElement: async () => ({
+            ok: false,
+            error: "code 230020: chat rate limit",
+            retryable,
+          }),
+          closeStreaming: async () => ({ ok: true }),
+        } as never;
+        let state = initialRunCardState();
+        const updater = createCardUpdater({
+          cardClient: client,
+          db: cdb,
+          runId,
+          meta: { runId, startedAt: Date.now(), webUrl: null },
+          getState: () => state,
+          getCardId: () => "card-cong",
+          nextSeq: () => 1,
+          onPersist: () => {},
+          retryBackoffMs: 1,
+        });
+        // Drive flushes without `finish()`: that closes the controller, so a
+        // second request would be ignored. The long body forces each PATCH
+        // past the pacing rule instead of being coalesced away.
+        const push = async (text: string): Promise<void> => {
+          state = { ...state, output: `${text}${"x".repeat(400)}` };
+          updater.request();
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        };
+        return { push };
+      };
+
+      // Congestion: the card must keep painting (and never degrade).
+      const congested = makeUpdater(true);
+      for (let i = 0; i < 4; i++) await congested.push(`delta ${i}`);
+      expect(getRunCard(cdb, "run-cong-true")?.degraded).toBe(false);
+      // The reason is still recorded — congestion is not silence.
+      expect(getRunCard(cdb, "run-cong-true")?.cardUpdateFailed).toBe(1);
+
+      // A genuinely broken call still degrades: the threshold is class-aware,
+      // not removed.
+      // Four pushes: the first takes the replace branch, the rest stream, and
+      // three consecutive failures are what the threshold means.
+      const broken = makeUpdater(false);
+      for (let i = 0; i < 4; i++) await broken.push(`delta ${i}`);
+      expect(getRunCard(cdb, "run-cong-false")?.degraded).toBe(true);
+    } finally {
+      cdb.close();
+    }
+  }, 15_000);
 });

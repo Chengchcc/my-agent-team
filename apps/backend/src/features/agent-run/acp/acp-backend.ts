@@ -193,7 +193,7 @@ function declaresAcpMcp(init: unknown): boolean {
  *  The response picks the agent-offered optionId by KIND (the product only
  *  knows allow/deny); a missing option settles cancelled, never a guess. */
 interface HeldPermission {
-  decide(decision: "allow" | "deny"): void;
+  decide(decision: "allow" | "allow_always" | "deny" | "deny_always"): void;
   cancel(): void;
 }
 
@@ -208,6 +208,20 @@ interface ActiveRun {
   readonly acc: AcpAccumulator;
   readonly held: Map<string, HeldPermission>;
   sessionId: string | undefined;
+}
+
+/** The child declares the truthful bash-sandbox state of an approval under our
+ *  namespaced `_meta` key (same convention as permissionMode/resume). Only a
+ *  real boolean becomes a payload field: an agent that says nothing must never
+ *  read as "sandboxed". Display-only for surfaces — it is a subprocess's
+ *  claim on its own execution, so it is never an authorization basis. */
+const SANDBOXED_META_KEY = "my-agent-team/sandboxed";
+
+function sandboxedField(toolCall: { _meta?: Record<string, unknown> | null }): {
+  sandboxed?: boolean;
+} {
+  const value = toolCall._meta?.[SANDBOXED_META_KEY];
+  return typeof value === "boolean" ? { sandboxed: value } : {};
 }
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 24 * 60 * 60_000;
@@ -369,7 +383,11 @@ export class AcpBackend implements AgentBackend<"acp"> {
   }
 
   /** Unblock a held permission request with the human's decision. */
-  async resolveApproval(runId: string, callId: string, decision: "allow" | "deny"): Promise<void> {
+  async resolveApproval(
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ): Promise<void> {
     const entry = this.active.get(runId);
     const held = entry?.run.held.get(callId);
     if (!entry || !held) {
@@ -482,8 +500,21 @@ export class AcpBackend implements AgentBackend<"acp"> {
                 sessionId: resumeRef,
                 cwd,
                 mcpServers,
-                ...(decisions && decisions.length > 0
-                  ? { _meta: { "my-agent-team/resume": { decisions } } }
+                // Same declaration as session/new: a continuation run carries
+                // the agent's mode too, or every resumed run degrades back to
+                // per-action "ask" (a continuation is the COMMON case — every
+                // message after the first in a conversation).
+                ...(input.run.permissionMode || (decisions && decisions.length > 0)
+                  ? {
+                      _meta: {
+                        ...(input.run.permissionMode
+                          ? { "my-agent-team/permissionMode": input.run.permissionMode }
+                          : {}),
+                        ...(decisions && decisions.length > 0
+                          ? { "my-agent-team/resume": { decisions } }
+                          : {}),
+                      },
+                    }
                   : {}),
               } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1])) as {
                 configOptions?: readonly DeclaredConfigOption[];
@@ -507,13 +538,24 @@ export class AcpBackend implements AgentBackend<"acp"> {
               const created = (await ctx.request(acp.methods.agent.session.new, {
                 cwd,
                 mcpServers,
-                ...(input.resume
+                ...(input.resume || input.run.permissionMode
                   ? {
                       _meta: {
-                        "my-agent-team/resume": {
-                          adopt: "last-interrupted",
-                          ...(decisions && decisions.length > 0 ? { decisions } : {}),
-                        },
+                        // The agent's frozen permission mode (ADR 0020
+                        // decision 7: mapped per backend at dispatch). Without
+                        // it the child defaults to "ask" and every backend-
+                        // driven run degrades to per-action human approval.
+                        ...(input.run.permissionMode
+                          ? { "my-agent-team/permissionMode": input.run.permissionMode }
+                          : {}),
+                        ...(input.resume
+                          ? {
+                              "my-agent-team/resume": {
+                                adopt: "last-interrupted",
+                                ...(decisions && decisions.length > 0 ? { decisions } : {}),
+                              },
+                            }
+                          : {}),
                       },
                     }
                   : {}),
@@ -640,13 +682,15 @@ export class AcpBackend implements AgentBackend<"acp"> {
         toolName: params.toolCall.name ?? params.toolCall.kind ?? "tool",
         ...(params.toolCall.title ? { reason: params.toolCall.title } : {}),
         ...(params.toolCall.rawInput !== undefined ? { input: params.toolCall.rawInput } : {}),
+        ...sandboxedField(params.toolCall),
         deadlineAt,
       },
     });
     // The response must echo one of the agent's OWN optionIds — pick by
     // kind, never by a guessed string (optionIds vary per agent).
-    const optionIdFor = (kind: "allow_once" | "reject_once"): string | undefined =>
-      params.options.find((option) => option.kind === kind)?.optionId;
+    const optionIdFor = (
+      kind: "allow_once" | "allow_always" | "reject_once" | "reject_always",
+    ): string | undefined => params.options.find((option) => option.kind === kind)?.optionId;
     return new Promise((resolve) => {
       const settleSelected = (optionId: string | undefined) => {
         clearTimeout(timer);
@@ -665,7 +709,26 @@ export class AcpBackend implements AgentBackend<"acp"> {
       run.held.set(callId, {
         decide: (decision) => {
           run.held.delete(callId);
-          settleSelected(optionIdFor(decision === "allow" ? "allow_once" : "reject_once"));
+          // The decision is the human's, the optionId must be the agent's: an
+          // "always" decision uses the agent's own always-option when it declares
+          // one, and degrades to the one-shot equivalent when it does not — that
+          // agent then asks again next time, which is the honest equivalent of a
+          // promise it cannot keep.
+          const wanted =
+            decision === "allow_always"
+              ? ("allow_always" as const)
+              : decision === "deny_always"
+                ? ("reject_always" as const)
+                : decision === "allow"
+                  ? ("allow_once" as const)
+                  : ("reject_once" as const);
+          const fallback =
+            wanted === "allow_always"
+              ? ("allow_once" as const)
+              : wanted === "reject_always"
+                ? ("reject_once" as const)
+                : wanted;
+          settleSelected(optionIdFor(optionIdFor(wanted) === undefined ? fallback : wanted));
         },
         cancel: () => {
           clearTimeout(timer);

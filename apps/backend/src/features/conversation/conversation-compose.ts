@@ -2,6 +2,7 @@ import type { Message } from "@chengchenccc/message";
 import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
 import { ulid } from "../../infra/ids.js";
 import { type AgentService, agentModelRef } from "../agent/index.js";
+import type { LedgerMessageResolver } from "../agent-context/ports.js";
 import type { AgentContextService } from "../agent-context/service.js";
 
 import type { AgentRunService } from "../agent-run/service.js";
@@ -50,6 +51,12 @@ export function createConversationFeature(input: {
   /** Roadmap (自由文本追问): mirrors ProductToolsService.pendingTextAskFor
    *  Conversation + resolveAsk into one call. Optional pass-through. */
   answerPendingTextAsk?: (conversationId: string, text: string) => Promise<boolean>;
+  /** Folds older entries into one `summary` entry for /compact. Absent (no
+   *  BACKEND_SUMMARY_MODEL) = compaction answers 501. */
+  summarize?: (input: { texts: readonly string[] }) => Promise<string>;
+  /** Resolves a ledger message for compaction — the same resolver the context
+   *  projection uses, so there is exactly one decode path. */
+  resolveLedgerMessage?: LedgerMessageResolver["resolveMessage"];
 }): ConversationFeature {
   const {
     convPort,
@@ -65,6 +72,8 @@ export function createConversationFeature(input: {
     onContinuityRecorded,
     onMessagesUndone,
     answerPendingTextAsk,
+    summarize,
+    resolveLedgerMessage,
   } = input;
 
   const convSvc = createConversationService({
@@ -79,6 +88,8 @@ export function createConversationFeature(input: {
     onContinuityRecorded,
     onMessagesUndone,
     answerPendingTextAsk,
+    summarize,
+    resolveLedgerMessage,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));

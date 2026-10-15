@@ -427,6 +427,23 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
           {surface?.health.lastError && (
             <div className="text-destructive">Last error: {surface.health.lastError}</div>
           )}
+          {/* ADR 0044: the event layer lives on the app's long connection, and a
+              missing console event is indistinguishable from a silent bot. */}
+          {(surface?.console?.events?.length ?? 0) > 0 && (
+            <div className="space-y-1 pt-2">
+              <div>Console events: {(surface?.console.events ?? []).join(", ")}</div>
+              {surface?.console.scopeApplyUrl && (
+                <a
+                  className="underline"
+                  href={surface.console.scopeApplyUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Apply the scopes this bot needs
+                </a>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 pt-1">
             {surface?.actions.canRestart && (
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => void retryStart()}>

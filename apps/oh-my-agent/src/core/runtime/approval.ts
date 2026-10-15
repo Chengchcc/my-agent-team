@@ -10,9 +10,11 @@ export interface ApprovalRequest {
    *  "classifier" (auto-mode block escalated to the human). */
   readonly source: "permission" | "tool" | "classifier";
   readonly reason?: string;
-  /** Execution context: true when the action runs inside the OS bash sandbox
-   * (BashSandbox design, P4) — surfaces let the human distinguish "sandboxed,
-   * auto-allowable" from "unsandboxed fallback". */
+  /** Execution context for bash: whether this command actually runs inside the
+   *  OS bash sandbox (BashSandbox design, P4), stated truthfully so a surface
+   *  can show "contained" next to "unconstrained". Display-only by design: it
+   *  is the child's claim about its own execution, and a sandboxed command is
+   *  contained, not harmless — so no gate may authorize on it. */
   readonly sandboxed?: boolean;
   /** Wall-clock ms after which this request fails closed. Absent = no
    *  deadline (surfaces then claim nothing). Stamped by requestApproval() so
@@ -21,7 +23,15 @@ export interface ApprovalRequest {
 }
 
 export interface ApprovalDecision {
-  readonly decision: "allow" | "deny";
+  /** `allow_always` allows every later call of the SAME tool for the rest of
+   *  the run (the ACP option of the same name; ADR 0039 decision 5 leaves the
+   *  agent its own authorization policy). It never outlives the run: the gate
+   *  that remembers it is built once per run. */
+  /** `allow_always` / `deny_always` apply to every later call of the SAME tool
+   *  for the rest of the run (the ACP options of the same name; ADR 0039
+   *  decision 5 leaves the agent its own authorization policy). They never
+   *  outlive the run: the gate that remembers them is built once per run. */
+  readonly decision: "allow" | "allow_always" | "deny" | "deny_always";
   readonly reason?: string;
 }
 

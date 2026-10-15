@@ -50,7 +50,7 @@ export function ExecutionList({
     }
     try {
       await api.startWorkflowExecution({
-        workflowRef: { repo: "local", path: `${workflowId}.workflow.json` },
+        workflowRef: { path: `${workflowId}.workflow.json` },
         input,
         artifacts,
       });

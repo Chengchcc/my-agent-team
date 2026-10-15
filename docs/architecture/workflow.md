@@ -37,7 +37,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 节点 id 限 `^[a-zA-Z0-9_-]+$`，类型只认 `start` / `end` / `agent` / `script` / `human`（`parse.ts:24-31`）。各类型的必填项：
 
 - `end` 必须给 `status`。
-- `agent` 必须有 `agentId`，或者 `model` 与 `prompt` 都给（`parse.ts:121-122`）；可选 `repo`。
+- `agent` 必须有 `agentId`，或者 `model` 与 `prompt` 都给（`parse.ts:121-122`）；可选 `repo`（必须是该 agent 已挂载的 project id，装配时校验，未挂载就带明确错误让节点失败）。
 - `script` 必须有 `code`；`runtime` 只被解析，沙箱实际恒为 bun；`timeoutMs` 可选。
 - `human` 有 `question` / `form` / `timeoutMs`。
 
@@ -46,6 +46,8 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 `retry` 可以是数字，也可以是 `{maxAttempts, intervalMs, backoff}`。`triggers` 目前只有一种：`{type: "cron", cron: <五段表达式>, enabled?}`，DSL 是触发器的唯一真相源。
 
 `parseWorkflow` 会拒绝这些：重复 id、start 不是恰好一个、边的端点不存在、从 start 不可达的节点、`when` 里出现白名单外的 JSON-Logic 算子、`node.output.<field>` 引用了不存在的输出字段、以及拓扑环。
+
+边除 `{ from, to, when? }` 外还有 `kind?: "forward" | "rework"` 与 `budget?: { maxAttempts, onExhausted }`（ADR 0042）。返工边**指向上游**（目标是源的祖先），必须带预算；`forwardEdges()` 是唯一的前向遍历入口，`topoSort`／路由／可达性／编辑器布局都只走它，因此返工边不会把 DAG 变成环，也不会自己「路由」出去。
 
 ## JSON-Logic 子集
 
@@ -71,6 +73,15 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 **没有 ready 也没有终态**就是 `idle`，壳层抛 `stuck: no ready nodes and no terminal`（`engine.ts:53`、`service.ts:582`）。
 
+## 返工：新的尝试
+
+「跑 → 验收 → 不过则打回重跑，最多 N 轮」由返工边表达，执行侧不引入环，被重新进入的是**执行**而不是图（ADR 0042）：
+
+- 一次执行里同一个 `nodeId` **一行一次尝试**：`workflow_node_run` 主键是自增 `seq`，`build` 的第二次尝试是新行；补丁（`updateNodeRun`）永远只落在该节点的**最新一行**上，否则第二次尝试会改写第一次的结果。
+- 源节点完成且返工边的 `when` 成立时，**目标连同其全部下游**被标成 `superseded`——旧行留作历史，重新执行时追加新行。`superseded` 也是唯一的返工状态：驱动循环每轮从行历史里推导「谁欠一次重跑」，所以进程在判定与重跑之间重启也能自己续上，没有内存态。
+- 下一次尝试的输入带 `attempt` 与 `rework: { from, reason }`（reason 取源节点输出的 `reason`/`feedback`/`error`/`message`/`summary`，否则取整段输出并截断）；被替换掉的旧输出不进合并输入，重试读不到自己正在替换的那个判定。
+- 预算按目标的**已有行数**判：`attempt > maxAttempts`（加上人类放行的次数）即耗尽。`onExhausted: "fail"` 让执行以明确错误结束（错误里带轮数与最后一次判定）；`"human"` 落一个预算门——它有自己的行与 pending 任务，id 是 `<node>#budget`（既不与 human 节点自己的 pending 撞主键，也不计入目标的尝试数），答案 `{ decision: "grant" }` 追加一轮、`"reject"` 结束执行。
+
 ## 执行路径
 
 四张表：`workflow_execution`、`workflow_node_run`、`workflow_pending_human`、`workflow_execution_event`。
@@ -83,15 +94,19 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 **agent 节点**：conversation id 是 `workflow:<executionId>:<nodeId>`（origin 为 workflow），内联 agent 走 `default` 成员加 `modelOverride`。node_run 里已经存了 `runId` 就重连轮询而不重复触发；重试时先清 runId 再起新 run。轮询上限 600 秒，每秒一次，终态判据是 status 落在 `completed|failed|aborted|commit_failed|timeout`，或者 terminalResult 已存在（`service.ts:429-446`）。
 
+**repo 感知**：节点写了 `repo` 时，会话以 `projectId: node.repo` 创建——绑定的就是这一步，dispatch 据会话的项目把 run 解析到该 agent 在那个项目里的 worktree（`run-workspace.ts`），服务里不固定任何 workspace。校验在装配前：`repo` 必须是该 agent 已挂载的 project id（`runtime_config.projects`），不匹配就带项目名与挂载方式的错误让节点失败；内联 agent（没有 `agentId`）不允许带 `repo`，因为默认成员并不拥有那个项目。
+
 **输出抽取**：取最后一条 assistant 文本，剥掉代码围栏后取第一个 JSON 对象；解析不出而节点又声明了 output 提示就报错。prompt 里会注入 outputSchema 与「只回 JSON」的约束。
 
 **schema 重试**在 workflow service 里，不在 run harness：`runNodeWithRetry` 按 `retry` 算次数与间隔，失败时把上一次的错误塞回 prompt 再发一轮（`service.ts:307-328,502-517`）。重试耗尽即节点 failed，execution 落 failure。
 
-**script 节点**走 `deps.nodeRunners.script.run`，runner 先查 `WORKFLOW_SCRIPTS_ENABLED`——没开的话每个 script 节点必失败。执行本身在 `runInSandbox` 里：默认超时 60 秒（不是 spec 里写的 30 秒），隔离参数 `noNetwork` 加 `denyReadDirs`（默认拒 `dataDir` 与 cwd 下的 `.env`）。脚本拿到的 ctx 就是合并后的 input 本身，没有 store、没有 log、没有宿主对象——`packages/workflow/src/node-runtime.ts` 里那个带 store/log 的 `ScriptContext` 是死契约，照它写脚本会崩。
+**script 节点**走 `deps.nodeRunners.script.run`，runner 先查 `WORKFLOW_SCRIPTS_ENABLED`——没开的话每个 script 节点必失败。执行本身在 `runInSandbox` 里：默认超时 60 秒（不是 spec 里写的 30 秒），隔离参数 `noNetwork` 加 `denyReadDirs`（默认拒 `dataDir` 与 cwd 下的 `.env`）。脚本拿到的 ctx 就是合并后的 input 本身，没有 store、没有 log、没有宿主对象——契约里那个带 store/log 的 `ScriptContext` 已删除（它从来没有运行时对应物，照它写脚本会崩）。
 
 **human 节点**：读 ready input 里的 `question`/`form` 覆盖 DSL 的静态声明，把表单映射成 ask_question 的形状，写 pending_human、把 execution 置 `waiting_human`、发 `human_task_requested`，然后 drive 暂停（节点不完成）。
 
 **human 恢复**：`resolveHumanTask` 要求 execution 处于 `waiting_human`、pending 存在且未 resolved，过滤控制面 key 后重新路由，再用条件 UPDATE（`status='pending'`）原子 claim；claim 失败说明另一路已经抢到，返回 409。胜者写 node_run completed、execution 回到 `running`、异步续 drive。批量接口逐条返回 ok/error，不整体失败。
+
+**human 超时**：节点声明了 `timeoutMs` 时，后台 30 秒扫描一次（`bootstrap/features.ts` 的 `humanTimeoutInterval`，停机期间过期的任务在启动后第一个 tick 结算）——超过时限的 pending human 被**同一个原子 claim**拿下，node_run 落 `failed`（错误带毫秒数）、execution 落 `failure`（exit `failure`），并广播 `node_failed` 与 `execution_terminal`；迟到的回答因为 claim 已被取走而拿到 409。时钟是 pending 行的 `createdAt`（没有新列）。预算门的 id 是 `<node>#budget`，不对应任何 DSL 节点、也没有 `timeoutMs`，因此不会被扫到。
 
 **取消**只对 `running` 与 `waiting_human` 生效，而且两条路径的 exit 不一样：`waiting_human` 取消立即终态化，exit 是 `aborted`；`running` 取消只置内存标记，由 drive 或轮询循环观察到后抛 `WorkflowCancelledError`，最终 exit 是 `failure`。
 
@@ -117,15 +132,21 @@ fire 时每次都重新读定义并按 id 查找，所以改文件不需要重�
 
 启动时若 workflows 目录为空，会从 `<resources>/workflow-showcase` 拷入示例定义。
 
+定义只从这一个目录读：`POST /api/workflow-executions` 的 `workflowRef.repo` 是历史遗留的必填字段，现在可选且被忽略（要按 ref 去 clone 仓库，得先有 git loader —— 那是明确不做的，见 [`../roadmap.md`](../roadmap.md)）。定义文件不存在时接口返回 404 并带上路径，不再是读文件失败冒出的 500。
+
 ## Artifact
 
 地址形如 `artifacts://<folder>/<filename>`，存在 backend dataDir 下的文件系统里，元数据带 size、mimeType、encoding、updatedAt 与来源（runId / conversationId / agentId）。
 
 路径安全是两层的：`parseArtifactUrl` 只接受 `^artifacts://([^?]+)$`，`splitPath` 拒绝绝对路径、盘符、`..`、`.` 和通配符；fs 适配器再做 `resolve()` 加分隔符的前缀校验（挡掉 `../artifacts-evil` 这种同名前缀绕过），`list(folder)` 在**任何 fs 访问之前**先拒越界目录。
 
-落盘时写一个 `<file>.meta.json` 记录 encoding、来源与更新时间，读的时候优先用它决定按 utf8 还是 base64 解。
+落盘时写一个 `<file>.meta.json`，记录 encoding、来源、更新时间与 **sha256 内容账本**。哈希的是**真正落盘的字节**（base64 上传哈希解码后的内容，不是 base64 文本本身）。读与列表都优先用它：encoding 按记录走（此前列表硬编码 `utf8`，二进制产物会被描述错），hash 随列表带出，因此「这份文件还是当初那一份吗」有据可查。
 
-REST 是 `GET /api/artifacts`（可按 folder 过滤）、`GET /download?url=`、`GET /:url`、`POST /`、`DELETE /remove?url=`、`DELETE /:url`（删除幂等，恒返回 `{ok:true}`）。
+REST 是 `GET /api/artifacts`（可按 folder 过滤）、`GET /download?url=`、`GET /verify?url=`、`GET /:url`、`POST /`、`DELETE /remove?url=`、`DELETE /:url`（删除幂等，恒返回 `{ok:true}`；内容文件与 sidecar 一起删，否则会留下看不见的垃圾并让同名重传继承旧账本）。
+
+`/verify` 重读文件并与账本比对，返回 `{ok, expected, actual}`；文件不存在是 404，而**没有账本不等于通过**——那时 `expected` 缺失、`ok` 为 false，不会被读成「完好」。这条路由必须排在 `/:url` 之前，否则 `verify` 会被当成一个 artifact id 吞掉。
+
+**保留期是 opt-in**：`ARTIFACT_RETENTION_DAYS`（缺省或 0 = 永久保留）大于 0 时，启动扫一次、之后每 24 小时扫一次，删掉 `updatedAt` 早于窗口的产物（内容 + sidecar 一起）。产物是用户自己的文件，仅凭时间删除永远不该是默认行为。
 
 MCP 侧由 product-tools server 暴露 `artifact_upload` 与 `artifact_download`。`artifact_download` 在预授权清单里，`artifact_upload` 故意不在——它能写后端存储，要过权限门。
 
@@ -156,12 +177,11 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 5. 节点失败逐节点记录并广播，execution 以 failure 终态；不伪造 output。
 6. human 的完成是原子 claim，条件 UPDATE 决定唯一赢家，输家 409。
 7. 定义落盘前必须过 `parseWorkflow`——PUT 与 MCP write 在同一条信任边界上。
+8. 返工必须有预算，且返工边只指向上游；引擎只从前向边算路由、join、拓扑序与布局。
 
 ## 已知缺口
 
-- human 节点的 `timeoutMs` 被解析但从未实施，pending human 永不过期。
 - 并行 fan-out 没有实现，ready 列表串行 await。
-- agent 节点的 `repo` 字段进了 `NodeContext`、依赖也接好了，但没有调用方，agent 节点不会切到该 repo 的 worktree。
-- `workflowRef.repo` 被忽略，定义只从本地目录读，没有 git loader。
+- dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
 
 详细清单见 [`../roadmap.md`](../roadmap.md)。

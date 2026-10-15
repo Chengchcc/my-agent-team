@@ -3,6 +3,7 @@ import type {
   ImageBlock,
   Message,
   TextBlock,
+  ThinkingBlock,
   ToolResultBlock,
   ToolUseBlock,
 } from "@chengchenccc/message";
@@ -65,19 +66,40 @@ function convertMessages(
         .map((b) => b.text)
         .join("");
       const images = m.blocks.filter((b): b is ImageBlock => b.type === "image");
+      // DeepSeek's thinking mode requires the previous assistant turn's
+      // reasoning back on the wire, and drops of it are a hard 400 ("The
+      // reasoning_content in the thinking mode must be passed back to the
+      // API"). The block was previously dropped here, so every re-send of a
+      // thinking assistant turn failed once compaction or a resume replayed it.
+      // Gated on the dialect: other encoders carry reasoning their own way.
+      const reasoning =
+        compat.thinkingFormat === "deepseek"
+          ? m.blocks
+              .filter((b): b is ThinkingBlock => b.type === "thinking" && !b.redacted)
+              .map((b) => b.text)
+              .join("")
+          : "";
+      const reasoningField = reasoning ? { reasoning_content: reasoning } : {};
       if (toolCalls.length > 0) {
         return [
           {
             role: role(m.role),
             content: images.length > 0 ? contentParts(text, images) : text || null,
             tool_calls: toolCalls,
+            ...reasoningField,
           },
         ];
       }
       if (images.length > 0) {
-        return [{ role: role(m.role), content: contentParts(text || m.text || "", images) }];
+        return [
+          {
+            role: role(m.role),
+            content: contentParts(text || m.text || "", images),
+            ...reasoningField,
+          },
+        ];
       }
-      return [{ role: role(m.role), content: (text || m.text) ?? "" }];
+      return [{ role: role(m.role), content: (text || m.text) ?? "", ...reasoningField }];
     }
     return [{ role: role(m.role), content: m.text ?? "" }];
   });
@@ -111,7 +133,7 @@ function buildRequest(
   const body: Record<string, unknown> = {
     model: model.id,
     messages: convertMessages(messages, compat),
-    [compat.maxTokensField]: Math.min(model.maxTokens, MAX_OUTPUT_TOKENS),
+    [compat.maxTokensField]: Math.min(opts?.maxTokens ?? model.maxTokens, MAX_OUTPUT_TOKENS),
     stream: true,
     stream_options: { include_usage: true },
   };

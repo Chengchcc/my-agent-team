@@ -1,4 +1,5 @@
 import { type CompletionRecord, mergeInputs } from "./graph.js";
+import { type ReworkGrant, reworkInputOf } from "./rework.js";
 import type { WorkflowDefinition, WorkflowNode } from "./types.js";
 
 export interface EngineState {
@@ -6,6 +7,13 @@ export interface EngineState {
   completions: CompletionRecord[];
   store: Record<string, unknown>;
   trigger: Record<string, unknown>;
+  /** Nodes whose recorded completions a rework invalidated (ADR 0042 §2.2).
+   *  Their rows stay as history; the engine no longer counts them as done, and
+   *  their outputs no longer feed the merged input. */
+  invalidated?: ReadonlySet<string>;
+  /** Rework grants whose target has not run yet: that node's next attempt
+   *  carries the context (which round, and why it was sent back). */
+  rework?: readonly ReworkGrant[];
 }
 
 export interface ReadyRun {
@@ -23,13 +31,17 @@ export type EngineStep =
  *  Routing comes from CompletionRecord.routedTo (frozen at completion time) — never recomputed. */
 export function computeNext(def: WorkflowDefinition, state: EngineState): EngineStep {
   const nodeOf = new Map(def.nodes.map((n) => [n.id, n]));
-  const completedIds = new Set(state.completions.map((c) => c.nodeId));
+  // Invalidated records are history: they describe work a rework replaces, so
+  // they stop counting as "done" and stop feeding the merged input.
+  const invalidated = state.invalidated ?? new Set<string>();
+  const live = state.completions.filter((c) => !invalidated.has(c.nodeId));
+  const completedIds = new Set(live.map((c) => c.nodeId));
 
   const routed = new Map<string, Set<string>>();
-  for (const c of state.completions) routed.set(c.nodeId, new Set(c.routedTo));
+  for (const c of live) routed.set(c.nodeId, new Set(c.routedTo));
 
   const readyIds: string[] = [];
-  if (state.completions.length === 0) {
+  if (live.length === 0) {
     const start = def.nodes.find((n) => n.type === "start");
     if (!start) throw new Error("workflow has no start node");
     readyIds.push(start.id);
@@ -52,10 +64,16 @@ export function computeNext(def: WorkflowDefinition, state: EngineState): Engine
   }
   if (readyIds.length === 0) return { kind: "idle" };
 
+  const grantOf = new Map((state.rework ?? []).map((grant) => [grant.to, grant]));
   const ready: ReadyRun[] = readyIds.map((id) => {
     const node = nodeOf.get(id)!;
-    const { input, provenance } = mergeInputs(state.completions, state.store, state.trigger);
-    return { node, input: { ...input }, provenance };
+    const { input, provenance } = mergeInputs(live, state.store, state.trigger);
+    const grant = grantOf.get(id);
+    // The rework context is an explicit segment of the input (ADR 0042 §2.3),
+    // and it wins over a node output that happens to share the name: it is
+    // control data for this attempt, not a value from the previous one.
+    const merged = grant === undefined ? input : { ...input, ...reworkInputOf(grant) };
+    return { node, input: { ...merged }, provenance };
   });
   return { kind: "run", ready };
 }

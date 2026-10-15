@@ -42,7 +42,11 @@ export interface AgentBackend<K extends string = string> {
    *  pipeline). Optional: backends without an approval pipeline never create
    *  approval requests, so the Product can gate the endpoint on its
    *  presence. Fails explicitly when the Run is not live. */
-  resolveApproval?(runId: string, callId: string, decision: "allow" | "deny"): Promise<void>;
+  resolveApproval?(
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ): Promise<void>;
 
   /** Request cancellation of the live Run `runId`. The segment's outcome
    *  still resolves (aborted). */

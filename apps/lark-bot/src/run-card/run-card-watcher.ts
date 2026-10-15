@@ -12,6 +12,7 @@ import {
 import { larkIdempotencyKey } from "../lark-idempotency.js";
 import { swapAckReaction } from "./ack-reaction.js";
 import type { CardKitClient } from "./card-kit.js";
+import { type PaceClock, pacedCardClient } from "./card-pacer.js";
 import { renderCard } from "./card-renderer.js";
 import {
   cardStateFromChatTurn,
@@ -37,8 +38,11 @@ const MAX_BUFFER_CHARS_BEFORE_FLUSH = 120;
 const SEAL_RETRY_DELAYS_MS = [200, 500, 1000];
 /** How long the terminal seal waits out chat congestion (rate limits are
  *  transient; the card owns the answer, so a text fallback here means the user
- *  reads the same answer twice — #87). */
-const DEFAULT_SEAL_CONGESTION_BUDGET_MS = 45_000;
+ *  reads the same answer twice — #87). Generous on purpose: the answer is
+ *  already visible in the streaming card, so a late seal costs nothing, while
+ *  a premature one costs a duplicate — and with the write lane pacing every
+ *  call, wall-clock patience must cover queue waits, not just retries. */
+const DEFAULT_SEAL_CONGESTION_BUDGET_MS = 180_000;
 /** "OnIt" = the ack while the run is live; the terminal swap to "DONE" lives
  *  in ack-reaction.ts. Verified against the live API: `Hold` is rejected
  *  (231001), `OnIt` and `DONE` are accepted. */
@@ -68,6 +72,9 @@ export interface RunCardWatcherOptions {
   /** Test knob: how long the seal waits out congestion before falling back to
    *  a plain-text answer (default 45s). */
   sealCongestionBudgetMs?: number;
+  /** Test knob: the write lane's clock (tests use an instant one so they do
+   *  not pay the real per-chat spacing). */
+  cardPaceClock?: PaceClock;
   /** Adopt an EXISTING card instead of creating one: the message waited behind
    *  a running turn, its queued card is already in the topic, and that same
    *  card must now stream this run (ADR 0037 decision 2 — one message, one
@@ -175,10 +182,17 @@ export async function watchRunCard(
   larkChatId: string,
   opts: RunCardWatcherOptions,
 ): Promise<RunCardWatcherHandle> {
-  const { db, backendUrl, backendAuthToken, cardClient, webUrl, sendText, sourceMessageId } = opts;
+  const { db, backendUrl, backendAuthToken, webUrl, sendText, sourceMessageId } = opts;
+  // Every CardKit WRITE for this run shares its chat's lane: the platform's
+  // card rate limit is per chat, and concurrent cards in one chat trip it
+  // (card-pacer.ts, #87). Reads stay direct.
+  const cardClient = pacedCardClient(opts.cardClient, larkChatId, opts.cardPaceClock);
   const replyTo = opts.replyTo ?? null;
   const replyInThread = opts.replyInThread === true;
   let aborted = false;
+  /** Reported once: a state that never carries this run is the difference between a card that
+   *  streams and one that only paints when the fold arrives, and silence here hid exactly that. */
+  let loggedMissingTurn = false;
 
   const meta = { runId, startedAt: Date.now(), webUrl };
 
@@ -345,6 +359,13 @@ export async function watchRunCard(
   /** Terminal seal (ADR 0031 §3): full-card replace with canonical text. */
   async function seal(): Promise<void> {
     stopTicker();
+    // Drain the painter first. The seal's replace runs outside the flush
+    // controller, so an in-flight element update could otherwise reach the
+    // platform after it and carry a LOWER sequence — which the platform
+    // rejects as 300317, degrading the card and falling back to a plain-text
+    // answer (#87). finish() closes the controller, which is what we want here:
+    // nothing else paints this card after the terminal state.
+    await updater.finish();
     // The terminal status event can beat the ledger commit by a beat —
     // retry the run detail briefly before giving up on the canonical text.
     let finalText: string | null = null;
@@ -358,6 +379,9 @@ export async function watchRunCard(
     state = { ...state, output: content };
 
     let sealed = false;
+    // Why the seal gave up (budget exhausted vs card truly broken) — recorded
+    // on the fallback so an empty last_error never hides the class again.
+    let sealLastFailure: string | undefined;
     if (cardKitId) {
       // A rate limit is not a broken card. Wait it out (bounded), because the
       // fallback below sends the answer as a SECOND message while the card
@@ -373,6 +397,7 @@ export async function watchRunCard(
           sealed = true;
           break;
         }
+        sealLastFailure = outcome.error;
         if (!outcome.retryable) break;
         if (Date.now() >= deadline) break;
         await new Promise((r2) => setTimeout(r2, Math.min(1_000 * 2 ** attempt, 8_000)));
@@ -390,18 +415,24 @@ export async function watchRunCard(
         updateRunCard(db, runId, { lastError: `closeStreaming: ${closed.error}` });
       }
       updateRunCard(db, runId, {
-        status: state.terminal?.status ?? "completed",
+        // Only a real terminal is a terminal. Writing "completed" for a missing one lies about how
+        // the run ended AND settles the row, which turns the next watcher into a permanent no-op
+        // (the restart-recovery guard above): a card stuck on a wrong state could never recover.
+        ...(state.terminal ? { status: state.terminal.status } : {}),
         accumulated: content,
       });
       return;
     }
-    // Card unreplaceable: the final answer must still reach the user.
+    // Card unreplaceable: the final answer must still reach the user. The
+    // reason is recorded on the success path too — an empty last_error here
+    // once hid whether the budget expired or the card was truly broken.
     try {
       await sendFinalText(content);
       updateRunCard(db, runId, {
         status: "fallback_text",
         accumulated: content,
         cardUpdateFailed: 1,
+        ...(sealLastFailure ? { lastError: `seal fallback: ${sealLastFailure}` } : {}),
       });
     } catch (err) {
       updateRunCard(db, runId, {
@@ -448,6 +479,12 @@ export async function watchRunCard(
       // for a chain, `thread_id` once a thread exists).
       const keys = sent.threadId ? [sent.messageId, sent.threadId] : [sent.messageId];
       rememberTopicKeys(db, larkChatId, conversationId, keys, Date.now());
+      // The first content flush can run while the card does not exist yet (it
+      // races this creation), and a flush that finds no card is consumed, not
+      // retried. Re-request here so the first frame is painted the moment the
+      // card is real. Always true in principle; visible since the write lane
+      // made creation slower (#87).
+      updater.request();
       // Fallback for a send with no reply target at all (a run nobody typed,
       // or a legacy conversation with no recorded root): the card we just
       // posted is then the thing a reply will hang off.
@@ -465,7 +502,15 @@ export async function watchRunCard(
     // Every run appears as a turn (the projection builds one per run row, and a failed run's
     // error row folds into its tail), so a state that does not carry this run is simply a state
     // from before it existed - the next one will have it.
-    if (next === undefined) return;
+    if (next === undefined) {
+      if (!loggedMissingTurn) {
+        loggedMissingTurn = true;
+        console.log(
+          `[lark-bot] card ${runId}: the state carries no turn for this run; not painting until it does`,
+        );
+      }
+      return;
+    }
     const before = state;
     state = next;
     if (state.terminal) {

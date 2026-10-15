@@ -111,7 +111,14 @@ export type RunCardAction =
   /** #64: fold this waiting message into the running turn as a steering
    *  addition — Claude Tag's "reply in the thread to steer", as a button. */
   | { action: "steer_input"; inputId: string }
-  | { action: "approve" | "reject"; runId: string; callId: string }
+  /** The `*_always` answers use the agent's own always-options: every later call
+   *  of the same tool in this run is allowed (`approve_always`) or refused
+   *  (`reject_always`) without asking again. */
+  | {
+      action: "approve" | "approve_always" | "reject" | "reject_always";
+      runId: string;
+      callId: string;
+    }
   | {
       action: "answer_ask";
       runId: string;
@@ -145,7 +152,11 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   const runIdValid = typeof runId === "string" && runId.length > 0;
   const callIdValid = typeof callId === "string" && callId.length > 0;
   if (action === "stop" && runIdValid) return { action: "stop", runId };
-  const isApproval = action === "approve" || action === "reject";
+  const isApproval =
+    action === "approve" ||
+    action === "approve_always" ||
+    action === "reject" ||
+    action === "reject_always";
   if (isApproval && runIdValid && callIdValid) {
     return { action, runId, callId };
   }
@@ -180,7 +191,7 @@ export interface CardActionDeps {
   resolveApproval: (
     runId: string,
     callId: string,
-    decision: "allow" | "deny",
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
   ) => Promise<{ error?: unknown }>;
   resolveAsk: (input: {
     runId: string;
@@ -306,7 +317,14 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
     }
     return "answered";
   }
-  const decision = action.action === "approve" ? "allow" : "deny";
+  const decision =
+    action.action === "approve"
+      ? "allow"
+      : action.action === "approve_always"
+        ? "allow_always"
+        : action.action === "reject_always"
+          ? "deny_always"
+          : "deny";
   const { error } = await deps.resolveApproval(action.runId, action.callId, decision);
   if (error) {
     deps.log(
@@ -314,5 +332,11 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
     );
     return "approval-failed";
   }
-  return action.action === "approve" ? "approved" : "rejected";
+  return action.action === "approve"
+    ? "approved"
+    : action.action === "approve_always"
+      ? "approved-always"
+      : action.action === "reject_always"
+        ? "rejected-always"
+        : "rejected";
 }

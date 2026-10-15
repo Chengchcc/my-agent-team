@@ -113,7 +113,7 @@ Tool.describeStart(input)          ← 工具自己挑有意义的字段
 
 - `SOUL.md` 与 `USER.md`（cwd），平文在前。
 - `<repo-rules>`：`AGENTS.md` 链，从包含 `.git` 的仓库根（含）到 cwd，远的在前、cwd 最显著；没有仓库根时到 home 为止；最后追加用户级 `~/.oma/AGENTS.md`；内容逐字相同的副本折叠，保留更显著的那份。只认 `AGENTS.md`。
-- `<available_knowledge>`：`knowledge/index.md`——每个知识包一段，每个文件一行（路径 + 该文件 frontmatter 的 title/description/tags）。正文不进提示，要读内容调 `knowledge_search` / `knowledge_read`（契约见 [Agent 工作区与多后端](../agents/workspace-and-backends.md)）。
+- `<available_knowledge>`：`knowledge/index.md`——每个知识包一段，每个文件一行（路径 + 该文件 frontmatter 的 title/description/tags）。正文不进提示，要读内容调 `knowledge_search` / `knowledge_read`（契约见 [Agent 工作区与多后端](../agents/workspace-and-backends.md)）。`knowledge_search` 在**配置了 embedding 端点**时先走**语义检索**（按意思找，不需要字面重合），否则走关键词（每个词都必须命中）；两条路径都会在返回文本里说明自己走的是哪条、以及退回词法的原因（**未配置时保持沉默**，与旧行为逐字一致）。带 `tags` 过滤的查询一律走关键词路径，因为语义路径不实现标签过滤。
 - `<dir-context>`：cwd 下一层里**没有**加载的 `AGENTS.md`，只给指针，改那个目录前先读。
 
 ## 记忆

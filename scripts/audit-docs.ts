@@ -130,7 +130,8 @@ const STALE_NARRATIVES = [
   "Generator → Evaluator",
   "generator/evaluator 两段",
   // Deleted/renamed modules that text phrases catch better than path tokens.
-  // Trailing slashes keep "packages/agent" from matching "packages/agent-contract".
+  // Entries end with "/" so a directory prefix (packages/agent/) cannot match
+  // a package name that merely starts with it (packages/agent-contract).
   "createAgentSession(",
   "ContextPipeline",
   "InterruptSignal",
@@ -138,6 +139,7 @@ const STALE_NARRATIVES = [
   "loopStep(",
   "loopReducer",
   "packages/agent/",
+  "packages/agent-contract",
   "packages/core/",
   "packages/loop/",
   "packages/tools-common/",
