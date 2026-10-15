@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canSandbox } from "@chengchenccc/sandbox";
 import { createBashTool } from "./bash.js";
 import type { BashSpawn } from "./bash-sandbox.js";
 import {
@@ -19,7 +20,7 @@ import {
   SeatbeltBashSandbox,
 } from "./bash-sandbox.js";
 
-const HAS_BWRAP = Bun.which("bwrap") !== null;
+const HAS_BWRAP = canSandbox();
 const IS_DARWIN = process.platform === "darwin";
 
 /** P1 acceptance (BashSandbox design): the injected launch strategy replaces

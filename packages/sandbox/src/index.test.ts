@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runInSandbox } from "./index.js";
+import { canSandbox, runInSandbox } from "./index.js";
 
 test("runs a script and returns its output", async () => {
   const r = await runInSandbox({
@@ -81,14 +81,9 @@ test("minimal env — no host env leakage by default", async () => {
   expect(r.output).toEqual({ hasSecret: false });
 });
 
-/** Installed is not usable: the H2 isolation needs a network namespace too,
- *  and a hosted runner's job container can allow plain bwrap while refusing
- *  that (the first mirror CI run: the ACP sandboxed-flag test passed while
- *  both isolation tests exited 1). Probe with the same unshare the tests use;
- *  an environment that cannot sandbox skips instead of failing. */
-const HAS_BWRAP =
-  Bun.which("bwrap") !== null &&
-  Bun.spawnSync(["bwrap", "--ro-bind", "/", "/", "--unshare-net", "/bin/true"]).exitCode === 0;
+// See canSandbox(): hosted runners can install bwrap while refusing the
+// namespaces isolation needs, so presence is not capability.
+const HAS_BWRAP = canSandbox();
 
 test("isolation cuts network and hides denied dirs (H2)", async () => {
   if (!HAS_BWRAP) return;
