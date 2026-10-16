@@ -271,3 +271,4 @@ bun run audit:coverage  # oma 运行时语义文件的覆盖率底线
 ## 📄 License
 
 MIT
+> dogfood ok
