@@ -109,6 +109,10 @@ export interface ConversationService {
     /** Anchored comment (raft absorption): structured anchor stored on the
      *  ledger row for the UI jump chip; readable form baked into content. */
     anchor?: { url: string; anchor: unknown };
+    /** Unattended dispatch pins the mode here. A workflow node has no surface
+     *  a human could answer an approval prompt from, so it must not inherit
+     *  the agent's ask/auto and park forever. */
+    permissionMode?: "ask" | "auto" | "deny" | "yolo";
     /** Optional mode override; default: normal when the branch is idle,
      *  steer when a run is active (the caller wants to influence it). */
     mode?: BranchInputMode;
@@ -249,6 +253,7 @@ class ConversationServiceImpl implements ConversationService {
     /** Per-input model override; honored only when its backendKind matches
      *  the agent's default kind (foreign-kind refs would break the branch). */
     modelOverride?: BackendModelRef;
+    permissionMode?: "ask" | "auto" | "deny" | "yolo";
   }): Promise<TriggeredRun> {
     const resolved = await this.#resolveDefaultModel(input.agentId);
     const defaultModel =
@@ -293,6 +298,7 @@ class ConversationServiceImpl implements ConversationService {
       mode,
       message: input.message,
       defaultModel,
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       configRevision: 1,
       idempotencyKey: input.idempotencyKey,
     });
@@ -330,6 +336,7 @@ class ConversationServiceImpl implements ConversationService {
      *  ledger row for the UI's jump chip. The caller bakes the readable
      *  form into `content` — the agent reads text, the UI reads anchor. */
     anchor?: { url: string; anchor: unknown };
+    permissionMode?: "ask" | "auto" | "deny" | "yolo";
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
@@ -378,6 +385,7 @@ class ConversationServiceImpl implements ConversationService {
       try {
         triggeredRuns.push(
           await this.#triggerForAgent({
+            ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
             conversationId: input.conversationId,
             agentId: target,
             message,
