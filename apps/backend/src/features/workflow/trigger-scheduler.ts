@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { type FSWatcher, readdirSync, readFileSync, watch } from "node:fs";
 import { join } from "node:path";
 import { parseWorkflow, type WorkflowDefinition } from "@chengchenccc/workflow";
 
@@ -15,15 +15,28 @@ export interface WorkflowTriggerSchedulerDeps {
     input: Record<string, unknown>;
     triggeredBy?: string;
   }): Promise<unknown>;
+  /** Recent executions of one workflow, newest first (DB truth). Optional:
+   *  without it the circuit breaker is simply absent (tests without a port). */
+  listExecutions?: (workflowId: string) => Promise<Array<{ status: string }>>;
   /** Scheduler registry (Bun.cron wrapper). */
   schedule(cronExpr: string, fn: () => void): { stop(): void };
 }
+
+/** A cron workflow whose last N executions all failed stops firing until an
+ *  execution succeeds: measured live, a failing nightly workflow retried
+ *  forever and nobody knew (the failures were only in the logs). */
+export const TRIGGER_CONSECUTIVE_FAILURE_LIMIT = 3;
 
 export function createWorkflowTriggerScheduler(
   deps: WorkflowTriggerSchedulerDeps,
 ): WorkflowTriggerScheduler {
   const handles = new Map<string, { stop(): void }[]>();
   const single = new Set<string>(); // per-workflow single-flight
+  // Hot reload: a definition file dropped into the dir used to wait for the
+  // next boot (or a PUT) before its cron registered — measured as two backend
+  // restarts to register one new workflow. Debounced dir watch instead.
+  let watcher: FSWatcher | undefined;
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
   function loadDefinitions(): WorkflowDefinition[] {
     // Per-file isolation: one malformed/unparsable definition must not kill
@@ -47,6 +60,24 @@ export function createWorkflowTriggerScheduler(
     if (single.has(workflowId)) return;
     single.add(workflowId);
     try {
+      // Circuit breaker: the last N executions all failed, so firing again
+      // would just burn another one. It self-heals — one success (usually a
+      // manual run after a fix) reopens the circuit.
+      if (deps.listExecutions) {
+        const recent = (await deps.listExecutions(workflowId)).slice(
+          0,
+          TRIGGER_CONSECUTIVE_FAILURE_LIMIT,
+        );
+        const allFailed =
+          recent.length === TRIGGER_CONSECUTIVE_FAILURE_LIMIT &&
+          recent.every((e) => e.status === "failure");
+        if (allFailed) {
+          console.error(
+            `[trigger-scheduler] circuit open for ${workflowId}: ${TRIGGER_CONSECUTIVE_FAILURE_LIMIT} consecutive failures, cron fire skipped (a manual success reopens it)`,
+          );
+          return;
+        }
+      }
       const defs = loadDefinitions();
       const def = defs.find((d) => d.id === workflowId);
       if (!def) return;
@@ -69,10 +100,14 @@ export function createWorkflowTriggerScheduler(
     }
   }
 
-  return {
+  const api = {
     async sync() {
       for (const hs of handles.values()) for (const h of hs) h.stop();
       handles.clear();
+      watcher ??= watch(deps.workflowDir, () => {
+        clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(() => void api.sync(), 300);
+      });
       // M5: handles are keyed by definition id — a second file with the
       // same id would overwrite the first handle list and orphan its
       // Bun.cron timers forever (one more leaked set on every sync).
@@ -105,8 +140,12 @@ export function createWorkflowTriggerScheduler(
       }
     },
     async dispose() {
+      clearTimeout(reloadTimer);
+      watcher?.close();
+      watcher = undefined;
       for (const hs of handles.values()) for (const h of hs) h.stop();
       handles.clear();
     },
   };
+  return api;
 }
