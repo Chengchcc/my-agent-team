@@ -15,9 +15,17 @@ export interface WorkflowTriggerSchedulerDeps {
     input: Record<string, unknown>;
     triggeredBy?: string;
   }): Promise<unknown>;
+  /** Recent executions of one workflow, newest first (DB truth). Optional:
+   *  without it the circuit breaker is simply absent (tests without a port). */
+  listExecutions?: (workflowId: string) => Promise<Array<{ status: string }>>;
   /** Scheduler registry (Bun.cron wrapper). */
   schedule(cronExpr: string, fn: () => void): { stop(): void };
 }
+
+/** A cron workflow whose last N executions all failed stops firing until an
+ *  execution succeeds: measured live, a failing nightly workflow retried
+ *  forever and nobody knew (the failures were only in the logs). */
+export const TRIGGER_CONSECUTIVE_FAILURE_LIMIT = 3;
 
 export function createWorkflowTriggerScheduler(
   deps: WorkflowTriggerSchedulerDeps,
@@ -47,6 +55,24 @@ export function createWorkflowTriggerScheduler(
     if (single.has(workflowId)) return;
     single.add(workflowId);
     try {
+      // Circuit breaker: the last N executions all failed, so firing again
+      // would just burn another one. It self-heals — one success (usually a
+      // manual run after a fix) reopens the circuit.
+      if (deps.listExecutions) {
+        const recent = (await deps.listExecutions(workflowId)).slice(
+          0,
+          TRIGGER_CONSECUTIVE_FAILURE_LIMIT,
+        );
+        const allFailed =
+          recent.length === TRIGGER_CONSECUTIVE_FAILURE_LIMIT &&
+          recent.every((e) => e.status === "failure");
+        if (allFailed) {
+          console.error(
+            `[trigger-scheduler] circuit open for ${workflowId}: ${TRIGGER_CONSECUTIVE_FAILURE_LIMIT} consecutive failures, cron fire skipped (a manual success reopens it)`,
+          );
+          return;
+        }
+      }
       const defs = loadDefinitions();
       const def = defs.find((d) => d.id === workflowId);
       if (!def) return;

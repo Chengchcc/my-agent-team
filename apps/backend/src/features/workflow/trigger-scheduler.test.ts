@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkflowTriggerScheduler } from "./trigger-scheduler.js";
@@ -141,6 +141,53 @@ describe("workflow trigger scheduler", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(calls).toBe(1);
+    await sched.dispose();
+  });
+});
+
+describe("trigger circuit breaker", () => {
+  let dir: string;
+  let started: string[];
+  const outcomesStack: Array<Array<{ status: string }>> = [];
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "wf-breaker-"));
+    started = [];
+    outcomesStack.length = 0;
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const makeScheduler = () =>
+    createWorkflowTriggerScheduler({
+      workflowDir: dir,
+      startExecution: async (input) => {
+        started.push(input.workflowId);
+      },
+      listExecutions: async () => outcomesStack.shift() ?? [],
+      schedule: (_cron, fn) => {
+        fn();
+        return { stop: () => {} };
+      },
+    });
+
+  test("three consecutive failures open the circuit and skip the fire", async () => {
+    writeFileSync(join(dir, "a.workflow.json"), JSON.stringify(cronDef("a", "* * * * *")));
+    outcomesStack.push([{ status: "failure" }, { status: "failure" }, { status: "failure" }]);
+    const sched = makeScheduler();
+    await sched.sync();
+    expect(started).toEqual([]); // the fire was skipped
+    await sched.dispose();
+  });
+
+  test("a success among the last three keeps the circuit closed", async () => {
+    writeFileSync(join(dir, "a.workflow.json"), JSON.stringify(cronDef("a", "* * * * *")));
+    outcomesStack.push([{ status: "failure" }, { status: "success" }, { status: "failure" }]);
+    const sched = makeScheduler();
+    await sched.sync();
+    expect(started).toEqual(["a"]);
     await sched.dispose();
   });
 });

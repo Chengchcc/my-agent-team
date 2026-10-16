@@ -798,6 +798,19 @@ export function createWorkflowExecutionService(
       return (await deps.port.getExecution(executionId))!;
     },
     async startExecution(input) {
+      // Single-flight by DB truth, not memory: a manual trigger must not open a
+      // second concurrent execution of the same workflow (measured live: two
+      // solvers raced the same issue because the manual path bypassed the
+      // scheduler's in-memory set). Cron fires get the same answer here.
+      const active = (await deps.port.listExecutions(input.workflowId)).find(
+        (e) => e.status === "running",
+      );
+      if (active) {
+        throw new HttpError(
+          `workflow ${input.workflowId} already has a running execution (${active.executionId}); wait, or cancel it first`,
+          409,
+        );
+      }
       const executionId = deps.idGen();
       const row = await deps.port.createExecution({
         executionId,

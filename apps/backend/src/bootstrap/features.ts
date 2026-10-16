@@ -1585,6 +1585,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       definition: WorkflowDefinition;
       input: Record<string, unknown>;
     }) => workflowExecutionService.startExecution(input),
+    listExecutions: (workflowId: string) => workflowExecutionService.listExecutions(workflowId),
   });
 
   // Reminder tick (raft step 2): DB rows are the truth, so a 30s scan is
