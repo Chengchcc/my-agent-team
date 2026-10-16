@@ -101,6 +101,11 @@ export function agentRunRoutes(input: {
   modelCosts: Promise<
     Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>
   >;
+  /** Same gate dispatch refuses runs with, so the summary and the refusal
+   *  can never disagree about what was spent. */
+  budgetGate?: {
+    dailyStatus(): Promise<{ spentUsd: number; capUsd: number | null }>;
+  };
 }) {
   const { db, agentRunService, agentRunExecution, modelCosts } = input;
 
@@ -337,6 +342,8 @@ export function agentRunRoutes(input: {
             : null,
           agent: query.agentId ? await usageTotals("AND ar.agent_id = ?", [query.agentId]) : null,
           today: await usageTotals("AND ar.created_at >= ?", [startOfDay.getTime()]),
+          // The brake, in the open: capUsd null means no cap is configured.
+          budget: input.budgetGate ? await input.budgetGate.dailyStatus() : null,
         };
       },
       {

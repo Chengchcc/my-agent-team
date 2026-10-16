@@ -10,7 +10,7 @@ export const agentFormSchema = z.object({
    *  "" = the harness's own default. */
   model: z.string().trim().default(""),
   reasoningEffort: z.enum(["", "none", "low", "high", "max"]).default(""),
-  permissionMode: z.enum(["ask", "auto", "deny"]).default("ask"),
+  permissionMode: z.enum(["ask", "auto", "deny", "yolo"]).default("ask"),
   maxSteps: z.string().trim().default(""),
   workspacePath: z.string().trim().default(""),
   enableLark: z.boolean().default(false),
@@ -27,7 +27,7 @@ export interface AgentDraft {
   harness?: string;
   model?: string;
   reasoningEffort?: "none" | "low" | "high" | "max";
-  permissionMode?: "ask" | "auto" | "deny";
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   maxSteps?: number | null;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];

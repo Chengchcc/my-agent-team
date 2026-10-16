@@ -31,7 +31,7 @@ export interface AgentProxyCreateInput {
   /** The model that harness runs; omitted = its own default. */
   model?: string;
   reasoningEffort?: "none" | "low" | "high" | "max";
-  permissionMode?: "ask" | "auto" | "deny";
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
 }
 
 export interface AgentCreateBudget {
@@ -118,7 +118,7 @@ export function readAgentCreateInput(args: Record<string, unknown>): AgentProxyC
   if (str(args.reasoningEffort) && !reasoningEffort) {
     throw new Error(`reasoningEffort must be one of ${EFFORTS.join(", ")}`);
   }
-  const MODES = ["ask", "auto", "deny"] as const;
+  const MODES = ["ask", "auto", "deny", "yolo"] as const;
   const permissionMode = MODES.find((m) => m === str(args.permissionMode));
   if (str(args.permissionMode) && !permissionMode) {
     throw new Error(`permissionMode must be one of ${MODES.join(", ")}`);
@@ -223,7 +223,7 @@ export async function createAgentConfigMcpServer(
               reasoningEffort: { type: "string", enum: ["none", "low", "high", "max"] },
               permissionMode: {
                 type: "string",
-                enum: ["ask", "auto", "deny"],
+                enum: ["ask", "auto", "deny", "yolo"],
                 description: "Tool-approval posture (default ask; auto = classifier-gated).",
               },
             },

@@ -172,7 +172,7 @@ export function agentRoutes(
             ]),
           ),
           permissionMode: t.Optional(
-            t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny")]),
+            t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny"), t.Literal("yolo")]),
           ),
           mcpServers: t.Optional(
             t.Array(t.Object({ serverId: t.String({ minLength: 1 }), enabled: t.Boolean() })),
@@ -277,7 +277,7 @@ export function agentRoutes(
             ]),
           ),
           permissionMode: t.Optional(
-            t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny")]),
+            t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny"), t.Literal("yolo")]),
           ),
           maxSteps: t.Optional(t.Integer({ minimum: 1 })),
           mcpServers: t.Optional(

@@ -1,6 +1,11 @@
 export { buildHistoryTools } from "../product-tools/manifest.js";
 export type { AgentRunAdapterDeps } from "./adapter-sqlite.js";
 export { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
+export {
+  createBudgetGate,
+  DAILY_BUDGET_SETTING_KEY,
+  DailyBudgetExhaustedError,
+} from "./budget-gate.js";
 export type {
   AcquireAgentRunCommand,
   AcquireAgentRunResult,

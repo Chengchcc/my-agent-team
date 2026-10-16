@@ -410,6 +410,7 @@ export function AgentForm({
                             <SelectItem value="ask">Ask (approval)</SelectItem>
                             <SelectItem value="auto">Auto</SelectItem>
                             <SelectItem value="deny">Deny</SelectItem>
+                            <SelectItem value="yolo">Yolo (ungated, OS sandbox on)</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

@@ -35,6 +35,12 @@ export interface AgentRunExecutionDeps {
    *  (live 2026-09-25: two runs sat mute until a human cancelled them, as
    *  nothing but the 30-minute wall clock would have ended them). */
   readonly silenceWindowMs?: number;
+  /** Daily spend brake, checked once per dispatch before the model preflight:
+   *  an unattended cron that keeps spawning runs must not be able to spend
+   *  without a ceiling. Absent means no cap (the product default). */
+  readonly budgetGate?: {
+    assertWithinDailyBudget(): Promise<void>;
+  };
   readonly resolveWorkspace: (input: {
     conversationId: string;
     agentId: string;

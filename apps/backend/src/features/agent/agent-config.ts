@@ -69,7 +69,7 @@ export const agentConfigSchema = z.object({
        *  "" = the harness's own default. */
       model: z.string().default(""),
       reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
-      permission_mode: z.enum(["ask", "auto", "deny"]),
+      permission_mode: z.enum(["ask", "auto", "deny", "yolo"]),
       max_steps: z.number().int().nonnegative(),
       /** Per-agent resource switches (ADR 0022, file-first). */
       mcp_servers: z
@@ -151,7 +151,7 @@ export function buildAgentConfig(input: {
   model?: string;
   enabled?: boolean;
   reasoningEffort?: string | null;
-  permissionMode?: "ask" | "auto" | "deny";
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   maxSteps?: number;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];

@@ -12,6 +12,7 @@ import {
 import { createWorkspaceLockRegistry } from "../project/workspace-lock.js";
 import { AcpBackend } from "./acp/acp-backend.js";
 import { sqliteAgentRunAdapter } from "./adapter-sqlite.js";
+import { DailyBudgetExhaustedError } from "./budget-gate.js";
 import type { AgentRun } from "./domain.js";
 import { createAgentRunExecutionService } from "./execution.js";
 import { createAgentRunService } from "./service.js";
@@ -43,6 +44,7 @@ function makeExecution(
     agentId: string;
     error: string;
   }) => void,
+  budgetGate?: { assertWithinDailyBudget(): Promise<void> },
 ) {
   const activeRunPort = runPortOverride ?? runPort;
   const ledgerResolver = {
@@ -80,6 +82,7 @@ function makeExecution(
     workspaceLocks: createWorkspaceLockRegistry(),
     productToolsTokenRegistry: tokenRegistry ?? createRunTokenRegistry(),
     ...(onRunFailed ? { onRunFailed } : {}),
+    ...(budgetGate ? { budgetGate } : {}),
   });
 }
 
@@ -173,6 +176,30 @@ describe("agent run execution failure & subscription", () => {
     expect(run.status).toBe("failed");
     if (run.terminalResult?.status === "failed") {
       expect(run.terminalResult.error).toContain("catalog down");
+    }
+  }, 15_000);
+
+  test("the daily budget refuses a run before anything is spawned", async () => {
+    const fake = createFakeAcpDaemon({ dataDir });
+    // Positional harness: (fake, runPort, modelCatalog, contextPort,
+    // tokenRegistry, onRunFailed, budgetGate).
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      assertWithinDailyBudget: async () => {
+        throw new DailyBudgetExhaustedError(3.5, 2);
+      },
+    });
+
+    const acquired = await enqueue("normal", "close-budget", "hello");
+    const runId = acquired.run!.runId;
+    // However dispatch reports it (this path settles the run rather than
+    // rejecting), what matters is the durable fact below.
+    await execution.dispatch(runId).catch(() => {});
+
+    // The refusal is durable and names the cap, not just a live error.
+    const run = await waitForTerminal(runId);
+    expect(run.status).toBe("failed");
+    if (run.terminalResult?.status === "failed") {
+      expect(run.terminalResult.error).toContain("daily budget exhausted");
     }
   }, 15_000);
 

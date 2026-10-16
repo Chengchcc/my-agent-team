@@ -7,7 +7,7 @@ import type { AgentRow } from "@/lib/api";
 import { api } from "@/lib/api";
 
 // Must stay in sync with AgentRow["permissionMode"] (backend permission_mode).
-const PERMISSION_MODES = ["ask", "auto", "deny"] as const;
+const PERMISSION_MODES = ["ask", "auto", "deny", "yolo"] as const;
 /** Map an agent.yml-shaped config (what the agent-config MCP agent_write
  *  proposes / the backend PATCH emits) to the AgentRow shape that AgentForm's
  *  form.reset() consumes. The proposed config doesn't carry workspacePath or
