@@ -268,6 +268,8 @@ bun run audit:coverage  # oma 运行时语义文件的覆盖率底线
 > 启动异常，直接删掉 `apps/backend/.backend-data/` 重启即可（开发数据，非持久
 > 事实）：不存在 in-place 升级路径，旧库兼容问题不修。
 
+> 提交指引见 CONTRIBUTING.md
+
 ## 📄 License
 
 MIT
