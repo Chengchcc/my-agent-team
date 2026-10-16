@@ -52,6 +52,7 @@ export interface AgentRunnerDeps {
       conversationId: string;
       content: unknown;
       modelOverride?: unknown;
+      permissionMode?: "ask" | "auto" | "deny" | "yolo";
     }): Promise<{ triggeredRuns: Array<{ runId: string; queued: boolean }> }>;
   };
   artifactService?: {
@@ -436,6 +437,11 @@ export function createWorkflowExecutionService(
         conversationId,
         content: prompt,
         modelOverride: defaultModel,
+        // A node conversation (workflow:<executionId>:<nodeId>) never appears
+        // in the conversation list, so nothing can answer an approval prompt
+        // raised here: asking would park the node forever. yolo is ungated and
+        // still runs bash inside the OS sandbox.
+        permissionMode: "yolo",
       });
       runId = posted.triggeredRuns[0]?.runId;
       if (!runId) throw new Error("agent run not triggered");

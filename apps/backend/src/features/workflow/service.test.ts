@@ -387,6 +387,7 @@ describe("createWorkflowExecutionService", () => {
 
   test("agent node runs a child run and parses JSON output", async () => {
     const { port, nodeRuns } = ramPort();
+    const posted: Array<{ permissionMode?: string }> = [];
     const svc = createWorkflowExecutionService({
       port,
       nodeRunners: {} as never,
@@ -409,7 +410,10 @@ describe("createWorkflowExecutionService", () => {
       } as never,
       convPort: { getConversation: () => null, createConversation: () => {} } as never,
       conversationService: {
-        postMessage: async () => ({ triggeredRuns: [{ runId: "r1", queued: true }] }),
+        postMessage: async (input: { permissionMode?: string }) => {
+          posted.push(input);
+          return { triggeredRuns: [{ runId: "r1", queued: true }] };
+        },
       } as never,
       resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
     });
@@ -418,6 +422,12 @@ describe("createWorkflowExecutionService", () => {
       definition: makeAgentDef(),
       input: {},
     });
+
+    // A node conversation never shows up in the conversation list, so nothing
+    // can answer an approval prompt raised there: the dispatch pins yolo
+    // instead of inheriting the agent's ask/auto (measured: a nightly node sat
+    // waiting on "classifier unavailable" until the workflow was cancelled).
+    expect(posted[0]?.permissionMode).toBe("yolo");
     expect(result.status).toBe("success");
     expect(nodeRuns.find((r) => r.nodeId === "a")!.output).toEqual({ val: 1 });
   });
