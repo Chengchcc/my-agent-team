@@ -38,6 +38,20 @@ const nextConfig: NextConfig = {
   // Next's built-in ESLint run has no eslint-config-next installed, so it
   // only emits a plugin-not-detected warning and double-runs lint for free.
   eslint: { ignoreDuringBuilds: true },
+  // Workspace packages resolve their src (entrypoints point at index.ts), and
+  // NodeNext sources import siblings as ./x.js — tsc and Bun map that back to
+  // .ts, webpack does not, so the bundle cannot resolve them without this
+  // alias. Web is the only webpack consumer in the repo, so the mapping lives
+  // here instead of in every package.
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ...(config.resolve.extensionAlias ?? {}),
+      ".js": [".ts", ".tsx", ".js"],
+      ".mjs": [".mts", ".mjs"],
+      ".cjs": [".cts", ".cjs"],
+    };
+    return config;
+  },
 };
 
 export default nextConfig;
