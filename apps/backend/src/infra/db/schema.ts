@@ -390,7 +390,7 @@ export const agentRun = sqliteTable(
     systemPrompt: text("system_prompt"),
     /** JSON: frozen skill pack roots (absolute dirs scanned for SKILL.md). */
     skillRoots: text("skill_roots"),
-    /** Frozen permission_mode (ask/auto/deny), mapped per backend at
+    /** Frozen permission_mode (ask/auto/deny/yolo), mapped per backend at
      *  dispatch (ADR 0020 decision 7; claude --permission-mode). */
     permissionMode: text("permission_mode"),
     /** JSON: the run's latest task list snapshot (todo_write product tool).

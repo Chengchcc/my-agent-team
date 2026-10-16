@@ -33,7 +33,7 @@ export interface CreateAgentInput {
    *  Defaults to the managed <dataDir>/agents/<id>. */
   workspacePath?: string;
   reasoningEffort?: "none" | "low" | "high" | "max" | null;
-  permissionMode?: "ask" | "auto" | "deny";
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];
   lark?: {
@@ -65,7 +65,7 @@ export interface UpdateAgentInput {
   enabled?: boolean;
   workspacePath?: string;
   reasoningEffort?: "none" | "low" | "high" | "max" | null;
-  permissionMode?: "ask" | "auto" | "deny";
+  permissionMode?: "ask" | "auto" | "deny" | "yolo";
   maxSteps?: number;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];

@@ -114,6 +114,19 @@ describe("agent-config MCP tools", () => {
     expect(text).toContain("/team/ag-new/edit");
   });
 
+  test("yolo survives the create path: an unattended agent must never park", async () => {
+    // The run layer has always understood yolo (it force-enables the OS bash
+    // sandbox); only this validation list lacked it, so a yolo agent silently
+    // became an asking one - and a workflow node has no surface to answer from.
+    const { d, created } = deps();
+    await callAgentConfigTool(d, "agent_create", {
+      name: "Unattended",
+      harness: "oma",
+      permissionMode: "yolo",
+    });
+    expect(created[0]?.permissionMode).toBe("yolo");
+  });
+
   test("agent_create rejects a missing model before creating anything", async () => {
     const { d, created } = deps();
     await expect(callAgentConfigTool(d, "agent_create", { name: "Nameless" })).rejects.toThrow(

@@ -178,7 +178,7 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 6. human 的完成是原子 claim，条件 UPDATE 决定唯一赢家，输家 409。
 7. 定义落盘前必须过 `parseWorkflow`——PUT 与 MCP write 在同一条信任边界上。
 8. 返工必须有预算，且返工边只指向上游；引擎只从前向边算路由、join、拓扑序与布局。
-9. 无人值守的 agent 节点必须指向 yolo 的 agent（工作区里 `.oma/settings.json` 写 `{"permissionMode":"yolo"}`）。节点会话叫 `workflow:<executionId>:<nodeId>`，它不出现在会话列表里——没有哪个 surface 能看到它，所以节点上一旦触发审批闸门，就是一次没有出口的等待。
+9. 无人值守的 agent 节点必须指向 `permissionMode: yolo` 的 agent（agent 配置里的那个字段，不是工作区的 `.oma/settings.json`——后者管的是 bash 沙箱，不是权限闸门）。节点会话叫 `workflow:<executionId>:<nodeId>`，它不出现在会话列表里：没有哪个 surface 能看到它。于是「问人」这个兜底在这里等于死锁——分类器一旦不可用（`classifier unavailable: model call aborted` 实测过），`auto` 会退化成问人，而没有人会来答。
 
 ## 已知缺口
 
