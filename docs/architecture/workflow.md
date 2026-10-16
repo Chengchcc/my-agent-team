@@ -178,10 +178,12 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 6. human 的完成是原子 claim，条件 UPDATE 决定唯一赢家，输家 409。
 7. 定义落盘前必须过 `parseWorkflow`——PUT 与 MCP write 在同一条信任边界上。
 8. 返工必须有预算，且返工边只指向上游；引擎只从前向边算路由、join、拓扑序与布局。
+9. 无人值守的 agent 节点必须指向 yolo 的 agent（工作区里 `.oma/settings.json` 写 `{"permissionMode":"yolo"}`）。节点会话叫 `workflow:<executionId>:<nodeId>`，它不出现在会话列表里——没有哪个 surface 能看到它，所以节点上一旦触发审批闸门，就是一次没有出口的等待。
 
 ## 已知缺口
 
 - 并行 fan-out 没有实现，ready 列表串行 await。
 - dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
+- agent 节点轮询到 `waiting` 会把节点时钟暂停（原意是留给 HITL），但节点会话没有 surface 可答，于是退化成无限期停摆。修法未定：要么在派发时就强制一个不会停车的不停车策略，要么给节点一个停摆上限。夜里那条报告工作流就是这样连挂多日的。
 
 详细清单见 [`../roadmap.md`](../roadmap.md)。
