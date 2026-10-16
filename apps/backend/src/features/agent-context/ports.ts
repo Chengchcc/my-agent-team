@@ -58,12 +58,6 @@ export interface AgentContextPort {
   /** Record the branch's CLI session reference (ADR 0019) after a
    *  CLI-backed run settles. No revision bump — informational state. */
   updateBranchCliSessionRef(branchId: string, cliSessionRef: string): Promise<ContextBranch | null>;
-
-  moveBranchLeaf(
-    branchId: string,
-    expectedRevision: number,
-    newLeafEntryId: string,
-  ): Promise<ContextBranch>;
 }
 
 /** ID generator port; implementations use ulid. */

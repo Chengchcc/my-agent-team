@@ -176,7 +176,7 @@ describe("Agent Context: ledger_message stores ref only", () => {
   });
 });
 
-describe("Agent Context: fork and move leaf", () => {
+describe("Agent Context: fork", () => {
   test("fork creates new branch with inherited backend kind, preserves entries", async () => {
     const { conversationId } = freshFixture("fork1");
     const tree = await ctx.getOrCreateTree(conversationId);
@@ -227,40 +227,5 @@ describe("Agent Context: fork and move leaf", () => {
       backendKind: "claude_code",
     });
     expect(forked.backendKind).toBe("claude_code");
-  });
-
-  test("move leaf does not delete entries", async () => {
-    const { conversationId } = freshFixture("move");
-    const tree = await ctx.getOrCreateTree(conversationId);
-    const branch = await ctx.getOrCreateDefaultBranch(tree.treeId, "oma");
-    const r1 = await ctx.appendEntry({
-      branchId: branch.branchId,
-      expectedRevision: 1,
-      type: "private_message",
-      parentId: null,
-      payload: { message: { role: "user", text: "first" } },
-    });
-    await ctx.appendEntry({
-      branchId: branch.branchId,
-      expectedRevision: 2,
-      type: "private_message",
-      parentId: r1.entryId,
-      payload: { message: { role: "user", text: "second" } },
-    });
-
-    // Move leaf back to r1 (rollback)
-    const moved = await ctx.moveBranchLeaf(branch.branchId, 3, r1.entryId);
-    expect(moved.leafEntryId).toBe(r1.entryId);
-
-    // Entries are not deleted
-    const count = db
-      .query("SELECT COUNT(*) as c FROM agent_context_entry WHERE tree_id = ?")
-      .get(tree.treeId) as { c: number };
-    expect(count.c).toBe(2);
-
-    // listEntriesToLeaf now returns only up to r1
-    const entries = await ctx.listEntriesToLeaf(branch.branchId);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.entryId).toBe(r1.entryId);
   });
 });

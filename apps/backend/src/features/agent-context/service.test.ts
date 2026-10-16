@@ -109,25 +109,4 @@ describe("Agent Context service", () => {
     );
     expect(forked.backendKind).toBe("claude_code");
   });
-
-  test("rollback preserves all entries", async () => {
-    const { conversationId } = freshFixture("svc6");
-    const branch = await ctx.getOrCreateDefaultBranch(conversationId, "oma");
-    const r1 = await ctx.appendPrivateMessage(branch.branchId, 1, {
-      role: "user",
-      text: "first",
-    });
-    await ctx.appendPrivateMessage(branch.branchId, 2, {
-      role: "user",
-      text: "second",
-    });
-
-    // Rollback to r1
-    await ctx.moveBranchLeaf(branch.branchId, 3, r1.entryId);
-
-    // Both entries still exist in the tree
-    const entries = await ctx.listEntriesToLeaf(branch.branchId);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.entryId).toBe(r1.entryId);
-  });
 });

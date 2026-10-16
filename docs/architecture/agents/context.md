@@ -18,7 +18,7 @@ Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对�
 
 - `apps/backend/src/features/agent-context/domain.ts` — 条目联合类型、`ContextBranch`、`validateEntry`、revision 冲突错误
 - `apps/backend/src/features/agent-context/service.ts` — 服务面
-- `apps/backend/src/features/agent-context/adapter-sqlite.ts` — 树/分支的创建、`listEntriesToLeaf`、`appendEntry`（CAS）、`forkBranch`、`moveBranchLeaf`、`updateBranchCliSessionRef`
+- `apps/backend/src/features/agent-context/adapter-sqlite.ts` — 树/分支的创建、`listEntriesToLeaf`、`appendEntry`（CAS）、`forkBranch`、`updateBranchCliSessionRef`
 - `apps/backend/src/features/agent-context/projection.ts` — `projectAgentContext`，唯一在生产路径上被调用的部分
 - `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 真正的「把 History 同步进 Context」那一步
 - `apps/backend/src/features/agent-run/execution-dispatch.ts` — 投影调用与 `cliSessionRef` 处理
@@ -66,13 +66,14 @@ Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对�
 
 ## 并发
 
-`appendEntry`、`forkBranch`、`moveBranchLeaf` 都带 `expectedRevision`，不匹配抛 `ContextRevisionConflictError`；取 Run 时也会 CAS 一次分支 revision。
+`appendEntry`、`forkBranch` 都带 `expectedRevision`，不匹配抛 `ContextRevisionConflictError`；取 Run 时也会 CAS 一次分支 revision。
 
 ## 写好了但没有调用方
 
 下面这些能力在代码里存在、有测试，但没有任何产品路径能到达：
 
-- **分叉与回滚**：`forkBranch` 唯一的非测试调用方是后端种类切换；`moveBranchLeaf` 只有测试在调。仓库里没有任何 `/api/...branch|context` 路由，也没有对应 UI。
+- **`forkBranch`**：唯一的非测试调用方是后端种类切换（agent 换 kind 时把新分支钉成默认）。它不需要产品入口。
+- ~~**硬回退**~~（2026-10-16 删除）：`moveBranchLeaf` 是零调用方的原语（只有测试在调）。产品侧的问法已经由另外两条路回答了——`/api/conversations/:id/undo` 是墓碑式软撤销（账本项标 `undone` + 追加一条 `undo` 项），`/fork` 与 `/replay` 是新建会话。留一条没人调的硬回退等于投机性灵活，故连端口、服务、适配器与测试一起删掉；将来真要「原地回到某点」（比如 replay 不再新建会话）再写回来很便宜。
 - **summary**：`appendSummary` 没有调用方，投影里的 summary 分支在生产不可达；对话的 `/compact` 与 `/clear` 都是显式空操作。
 - **`private_message` 与 `product_tool_exchange` 条目**：没有写入方。
 - **`model_change` 条目**：没有写入方（生效模型是另算的）。
