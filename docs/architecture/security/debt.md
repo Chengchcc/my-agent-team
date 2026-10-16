@@ -97,6 +97,10 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 - **后端不校验 Host 与 Origin**。鉴权修好之后 DNS rebinding 拿不到 token，风险大幅降级；可以加 Host 白名单作为纵深防御。
 - **workflow 脚本节点是完整进程**，不是文件系统或网络 jail。现在是 opt-in，且在有 bwrap / sandbox-exec 的机器上会加网络与读限制；工具缺失时降级为纯进程隔离并只打印警告。
 
+## 已加固：agent 不能给自己提权
+
+`permissionMode: yolo` 是唯一完全解除闸门的姿态（OS bash 沙箱仍在）。它只能由人设：HTTP 路由、zod 配置解析、DB 列与运行时全都接受它，但**agent 面向的 MCP 配置路径刻意不收**——`apps/backend/src/features/agent/agent-config-mcp.ts` 的 `MODES` 与 create 工具的 schema enum 只列 `ask / auto / deny`。否则一次提示注入（例如一个正在读外部 issue 正文的 agent）就够让 agent 给自己或同伴铸一张无闸门通行证。行为由 `agent-config-mcp.test.ts` 钉住：`agent_create` 传 `permissionMode: "yolo"` 必须被拒。
+
 ## 网络化部署的准入门槛
 
 一旦要离开回环地址，下面这些是准入门槛而不是事后补丁：
