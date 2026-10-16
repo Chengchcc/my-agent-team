@@ -118,7 +118,12 @@ export function readAgentCreateInput(args: Record<string, unknown>): AgentProxyC
   if (str(args.reasoningEffort) && !reasoningEffort) {
     throw new Error(`reasoningEffort must be one of ${EFFORTS.join(", ")}`);
   }
-  const MODES = ["ask", "auto", "deny", "yolo"] as const;
+  // Admin-only: yolo is deliberately absent from the agent-facing path. It is
+  // the one posture that lifts the gate entirely (the OS sandbox stays), so an
+  // agent must not be able to hand itself - or a sibling it creates - an
+  // ungated run. A human can still set it: the HTTP route, the zod config
+  // parse, the DB column and the runtime all accept it.
+  const MODES = ["ask", "auto", "deny"] as const;
   const permissionMode = MODES.find((m) => m === str(args.permissionMode));
   if (str(args.permissionMode) && !permissionMode) {
     throw new Error(`permissionMode must be one of ${MODES.join(", ")}`);
@@ -223,7 +228,7 @@ export async function createAgentConfigMcpServer(
               reasoningEffort: { type: "string", enum: ["none", "low", "high", "max"] },
               permissionMode: {
                 type: "string",
-                enum: ["ask", "auto", "deny", "yolo"],
+                enum: ["ask", "auto", "deny"],
                 description: "Tool-approval posture (default ask; auto = classifier-gated).",
               },
             },
