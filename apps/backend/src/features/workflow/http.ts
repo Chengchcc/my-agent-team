@@ -35,6 +35,12 @@ export interface WorkflowDefinitionRow {
   /** Parsed trigger declarations (cron); the list uses it for the
    *  scheduled-label badge. API/manual triggers are implicit and absent. */
   triggers?: { type: "cron"; cron: string; enabled?: boolean }[];
+  /** False when the file does not parse: the definition is invisible to the
+   *  scheduler and only lived in boot logs before this flag existed (four
+   *  definition mistakes were found that way, one per backend restart). */
+  valid?: boolean;
+  /** The parse failure, verbatim, when valid is false. */
+  error?: string;
 }
 
 export function workflowRoutes(deps: {
@@ -83,15 +89,20 @@ export function workflowRoutes(deps: {
         }
         const mtime = statSync(join(dir, f)).mtimeMs;
         let triggers: WorkflowDefinitionRow["triggers"];
+        let valid: boolean;
+        let error: string | undefined;
         try {
-          const parsed = JSON.parse(readFileSync(join(dir, f), "utf-8")) as {
-            triggers?: { type: "cron"; cron: string; enabled?: boolean }[];
-          };
-          triggers = Array.isArray(parsed.triggers) ? parsed.triggers : undefined;
-        } catch {
+          const parsed = parseWorkflow(JSON.parse(readFileSync(join(dir, f), "utf-8")));
+          valid = true;
+          triggers = parsed.triggers as { type: "cron"; cron: string; enabled?: boolean }[];
+        } catch (err) {
+          valid = false;
+          error = err instanceof Error ? err.message : String(err);
           triggers = undefined;
         }
         return {
+          valid,
+          ...(error ? { error } : {}),
           workflowId,
           name: typeof meta.name === "string" ? meta.name : undefined,
           description: typeof meta.description === "string" ? meta.description : undefined,

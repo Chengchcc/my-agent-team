@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { type FSWatcher, readdirSync, readFileSync, watch } from "node:fs";
 import { join } from "node:path";
 import { parseWorkflow, type WorkflowDefinition } from "@chengchenccc/workflow";
 
@@ -32,6 +32,11 @@ export function createWorkflowTriggerScheduler(
 ): WorkflowTriggerScheduler {
   const handles = new Map<string, { stop(): void }[]>();
   const single = new Set<string>(); // per-workflow single-flight
+  // Hot reload: a definition file dropped into the dir used to wait for the
+  // next boot (or a PUT) before its cron registered — measured as two backend
+  // restarts to register one new workflow. Debounced dir watch instead.
+  let watcher: FSWatcher | undefined;
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
   function loadDefinitions(): WorkflowDefinition[] {
     // Per-file isolation: one malformed/unparsable definition must not kill
@@ -95,10 +100,14 @@ export function createWorkflowTriggerScheduler(
     }
   }
 
-  return {
+  const api = {
     async sync() {
       for (const hs of handles.values()) for (const h of hs) h.stop();
       handles.clear();
+      watcher ??= watch(deps.workflowDir, () => {
+        clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(() => void api.sync(), 300);
+      });
       // M5: handles are keyed by definition id — a second file with the
       // same id would overwrite the first handle list and orphan its
       // Bun.cron timers forever (one more leaked set on every sync).
@@ -131,8 +140,12 @@ export function createWorkflowTriggerScheduler(
       }
     },
     async dispose() {
+      clearTimeout(reloadTimer);
+      watcher?.close();
+      watcher = undefined;
       for (const hs of handles.values()) for (const h of hs) h.stop();
       handles.clear();
     },
   };
+  return api;
 }
