@@ -5,11 +5,12 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
   },
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "files": [
     "dist"
   ],
@@ -27,5 +28,6 @@
     "type": "git",
     "url": "git+https://github.com/Chengchcc/my-agent-team.git",
     "directory": "packages/ai"
-  }
+  },
+  "main": "./src/index.ts"
 }

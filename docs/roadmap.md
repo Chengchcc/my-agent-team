@@ -98,7 +98,7 @@
 
 ## 开发流程
 
-**测试吃的是 workspace 的 dist，不是源码。** 2026-09-26 实测：`packages/api-contract` 的源码已导出 `hasDedicatedEvent` 而 dist 没有，`run-card.test.ts` 直接因此起不来，先 `bun run --filter @chengchenccc/api-contract build` 才恢复。也就是说：改了 `packages/{api-contract,message,ai,agent-contract}` 这类被 app 依赖的包之后，本地测试结果可能反映的是**旧产物**——绿灯可能是假的。两条修法（未选）：①workspace 内部解析一律指向 `src`（`exports` 加 development 条件或 tsconfig paths），dist 只服务外部消费者；②保持现状，但把「先按拓扑构建依赖」写进开发指南并在 CI 显式排序。倾向 ①：它消灭这一类问题，而不是提醒人绕开。
+**~~测试吃的是 workspace 的 dist，不是源码~~（2026-10-16 已修）。** 包入口一律指向 `src/index.ts`，本地测试与 dev 永远吃到刚写的源码；发布时 release stamp 步骤把每个 src 入口改写回 dist 的孪生文件后再 pack（npm 消费者不变）。唯一例外 `tui`（vendored mermaid 的 `.ts` 后缀导入 × 会产出的 tsc 无法开 `allowImportingTsExtensions`，其唯一消费方 oma 正是会产出的 tsc 构建），留在 dist 并在包里以 `x-why-dist` 记录。
 
 ## 明确不做的
 
