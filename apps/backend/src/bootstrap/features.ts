@@ -1703,13 +1703,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     );
   }
 
-  /** No catalog prices (see the modelCosts comment): every model falls back
-   *  to the usage.costUsd the backend itself reported. */
-  const bootModelCostsNone: Map<
-    string,
-    { input: number; output: number; cacheRead: number; cacheWrite: number }
-  > = new Map();
-
   // A wildcard bind is not a host a browser can reach: hand the client a loopback address.
   const browserWsBase = `ws://${
     config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
