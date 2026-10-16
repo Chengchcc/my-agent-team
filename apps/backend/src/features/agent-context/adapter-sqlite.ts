@@ -417,49 +417,6 @@ export function sqliteAgentContextAdapter(
       return txn();
     },
 
-    async moveBranchLeaf(branchId, expectedRevision, newLeafEntryId) {
-      return db.transaction(() => {
-        const branch = d
-          .select()
-          .from(schema.agentContextBranch)
-          .where(eq(schema.agentContextBranch.branchId, branchId))
-          .get();
-        if (!branch) throw new ContextBranchNotFoundError(branchId);
-
-        // Validate newLeafEntryId exists and belongs to same tree
-        const entry = d
-          .select()
-          .from(schema.agentContextEntry)
-          .where(eq(schema.agentContextEntry.entryId, newLeafEntryId))
-          .get();
-        if (!entry) throw new Error(`newLeafEntryId ${newLeafEntryId} not found`);
-        if (entry.treeId !== branch.treeId) {
-          throw new Error(`newLeafEntryId ${newLeafEntryId} does not belong to branch tree`);
-        }
-
-        const result = d
-          .update(schema.agentContextBranch)
-          .set({
-            leafEntryId: newLeafEntryId,
-            revision: expectedRevision + 1,
-          })
-          .where(
-            and(
-              eq(schema.agentContextBranch.branchId, branchId),
-              eq(schema.agentContextBranch.revision, expectedRevision),
-            ),
-          )
-          .returning()
-          .get();
-
-        if (!result) {
-          throw new ContextRevisionConflictError(branchId, expectedRevision);
-        }
-
-        return parseBranch(result);
-      })();
-    },
-
     async setDefaultBranchKind(treeId, branchId, backendKind) {
       return db.transaction(() => {
         const target = d

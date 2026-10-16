@@ -27,7 +27,7 @@
 
 **~~产品摘要没有生产者~~（2026-10-13 已实现）。** `/compact` 现在真的压缩。后端按 `BACKEND_SUMMARY_MODEL=<provider>/<model>` 取模型——这是后端**第一条模型调用通路**（`createSummaryRuntime()` 从 `BUILTIN_CATALOG` 注册 provider，密钥每次调用时从 provider 设置解析，因此以后加密钥不必重启）。它把「保留尾部 20 条之外」的条目折成一条 `summary` 条目（`appendSummary` 记下覆盖点），并把上一次摘要的正文一起折进去；第二次压缩只覆盖上次覆盖点**之后**的新内容（已覆盖区域不重复计费）。未配置该变量时仍是 501 并说明原因，配置值畸形则在启动时直接失败。`/clear` 仍是真 no-op（没有运行时残留可清）。
 
-**分叉与回滚没有产品入口。** `forkBranch` 唯一的非测试调用方是后端种类切换，`moveBranchLeaf` 只有测试在调，也没有任何 `/api/...branch|context` 路由。库里写了能力，产品上够不着。
+**~~分叉与回滚没有产品入口~~（2026-10-16 核对：入口已有，原判断过时）。** 三条路都在产品上：`POST /api/conversations/:id/fork`（从某条消息起新建会话）、`/undo`（墓碑式软撤销，账本项标 `undone`）、`/replay`（改一条再新建），web 侧在 `TimelineMessageActions` 的悬停动作里。库里唯一够不着的是 `forkBranch`，而它只被后端种类切换用，本来就不需要产品入口；另一条零调用方的硬回退原语（`moveBranchLeaf`）同日删除。
 
 **Context 的条目类型大半没人写。** `private_message`、`product_tool_exchange`、`model_change` 三种条目没有写入方，实际只有 `ledger_message` 在写。账本侧同理：`member.joined` / `member.left` 随成员表删除失去写入方，`todo` 从来没有过。
 
