@@ -4,16 +4,17 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test"
   },
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "files": [
     "dist"
   ],
@@ -22,5 +23,6 @@
     "type": "git",
     "url": "git+https://github.com/Chengchcc/my-agent-team.git",
     "directory": "packages/source-fetch"
-  }
+  },
+  "main": "./src/index.ts"
 }

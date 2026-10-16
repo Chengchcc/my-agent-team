@@ -88,6 +88,28 @@ jobs:
                   }
                 }
               }
+              // Workspace-internal resolution points at src (tests and dev
+              // always see fresh source, never a stale dist). What ships to
+              // npm must point at the built files, so rewrite every src
+              // entrypoint back to its dist twin here. tui already points at
+              // dist (vendored .ts imports) and is rewritten to itself.
+              const toDist = (s) =>
+                typeof s === "string" && s.startsWith("./src/") && s.endsWith(".ts")
+                  ? `./dist/${s.slice("./src/".length, -".ts".length)}.js`
+                  : s;
+              const toDistTypes = (s) =>
+                typeof s === "string" && s.startsWith("./src/") && s.endsWith(".ts")
+                  ? `./dist/${s.slice("./src/".length, -".ts".length)}.d.ts`
+                  : s;
+              if (j.main) j.main = toDist(j.main);
+              if (j.types) j.types = toDistTypes(j.types);
+              for (const [key, entry] of Object.entries(j.exports ?? {})) {
+                if (typeof entry === "object" && entry !== null) {
+                  if (entry.default) entry.default = toDist(entry.default);
+                  if (entry.types) entry.types = toDistTypes(entry.types);
+                }
+              }
+              delete j["x-why-dist"];
               fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
             }
             console.log(`stamped ${tag} into ${pkgs.length} packages`);

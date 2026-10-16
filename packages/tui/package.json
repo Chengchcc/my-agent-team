@@ -8,6 +8,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./package.json": "./package.json",
     "./testing": {
       "types": "./dist/virtual-terminal.d.ts",
       "default": "./dist/virtual-terminal.js"
@@ -33,5 +34,7 @@
     "type": "git",
     "url": "git+https://github.com/Chengchcc/my-agent-team.git",
     "directory": "packages/tui"
-  }
+  },
+  "main": "./dist/index.js",
+  "x-why-dist": "tui's source imports with .ts extensions (vendored mermaid); tsc cannot enable allowImportingTsExtensions while emitting, and the only consumer (oh-my-agent) builds with emitting tsc. Stays on dist; everything else in the workspace resolves src."
 }

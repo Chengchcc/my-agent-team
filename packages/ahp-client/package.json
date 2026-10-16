@@ -5,11 +5,12 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
   },
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "files": [
     "dist"
   ],
@@ -22,5 +23,6 @@
   "dependencies": {
     "@microsoft/agent-host-protocol": "^0.9.0"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "main": "./src/index.ts"
 }
