@@ -595,6 +595,56 @@ describe("agent node ↔ AgentRun lifecycle (#workflow-acp)", () => {
     expect(polls).toBeGreaterThanOrEqual(3); // it really polled through commit_failed
   });
 
+  test("a cancelled execution stops its node's run instead of leaving it parked", async () => {
+    const { port, postMessage } = baseDeps();
+    const stopped: string[] = [];
+    let polls = 0;
+    const svc = createWorkflowExecutionService({
+      port,
+      nodeRunners: {} as never,
+      idGen: () => "e1",
+      agentNodeTimeoutMs: 60_000,
+      agentRunService: {
+        // The run never leaves `waiting`: this is the parked shape a node can
+        // land in when its gate asks and no surface can answer.
+        getRun: async () => {
+          polls += 1;
+          return { status: "waiting", terminalResult: undefined };
+        },
+      } as never,
+      agentRunExecution: {
+        dispatch: async () => {},
+        stop: async (runId: string) => {
+          stopped.push(runId);
+        },
+      } as never,
+      convPort: { getConversation: () => null, createConversation: () => {} } as never,
+      conversationService: { postMessage } as never,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "x" }),
+    });
+
+    const running = svc.runToCompletion("e1", {
+      workflowId: "wf",
+      definition: makeAgentDef(),
+      input: {},
+    });
+    // Cancel while the node is still polling.
+    const cancelAfterFirstPoll = (async () => {
+      while (polls === 0) await new Promise((r) => setTimeout(r, 20));
+      await svc.cancelExecution("e1");
+    })();
+    // The drive loop catches the cancel and terminalizes as failure; what this
+    // test owns is whether the node's run was stopped on the way out.
+    const result = await running;
+    await cancelAfterFirstPoll;
+    expect(result.status).toBe("failure");
+
+    // Without this stop the run stays `waiting` forever: its child keeps
+    // idling (measured: over an hour) and the silence watchdog exempts it
+    // because "someone is being asked".
+    expect(stopped).toEqual(["r1"]);
+  }, 15_000);
+
   test("a waiting run pauses the workflow clock instead of timing out", async () => {
     const { port, postMessage } = baseDeps();
     let polls = 0;

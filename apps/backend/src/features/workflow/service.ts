@@ -248,6 +248,21 @@ export function createWorkflowExecutionService(
     if (cancelled.has(executionId)) throw new WorkflowCancelledError();
   }
 
+  /** Stop a node's run and wait (bounded) for it to settle. The timeout path
+   *  and the cancel path both own a run they must not leave alive: a parked
+   *  run keeps its child idling (measured: a cancelled node's child idled for
+   *  over an hour), and the silence watchdog exempts it because a `waiting`
+   *  run looks like it is waiting for a human to answer. */
+  async function stopNodeRun(runId: string): Promise<void> {
+    await deps.agentRunExecution?.stop?.(runId).catch(() => {});
+    for (let i = 0; i < 10; i++) {
+      const settled = await deps.agentRunService?.getRun(runId);
+      if (settled && ["completed", "failed", "aborted", "timeout"].includes(settled.status ?? ""))
+        break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
   /** The durable trace is the only record now: a failure to write it must not block the drive. */
   function emit(executionId: string, event: string, data: unknown) {
     deps.port.appendExecutionEvent({ executionId, event, data, ts: Date.now() }).catch(() => {});
@@ -459,6 +474,7 @@ export function createWorkflowExecutionService(
     const TIMEOUT_MS = deps.agentNodeTimeoutMs ?? 600_000;
     let deadline = Date.now() + TIMEOUT_MS;
     while (Date.now() < deadline) {
+      if (cancelled.has(execution.executionId)) await stopNodeRun(runId);
       throwIfCancelled(execution.executionId);
       const run = await deps.agentRunService.getRun(runId);
       if (run?.status === "completed") {
@@ -477,13 +493,7 @@ export function createWorkflowExecutionService(
     // the node — workflow must never keep a different answer than AgentRun
     // about whether this execution is alive (a bare throw could let a retry
     // start a second run beside a live child).
-    await deps.agentRunExecution?.stop?.(runId).catch(() => {});
-    for (let i = 0; i < 10; i++) {
-      const settled = await deps.agentRunService.getRun(runId);
-      if (settled && ["completed", "failed", "aborted", "timeout"].includes(settled.status ?? ""))
-        break;
-      await new Promise((r) => setTimeout(r, 300));
-    }
+    await stopNodeRun(runId);
     throw new Error(`agent run ${runId} timed out after ${TIMEOUT_MS}ms`);
   }
 
