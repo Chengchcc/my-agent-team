@@ -332,6 +332,11 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     try {
       const run = await runPort.getRun(runId);
       if (!run || !isActiveStatus(run.status)) return;
+      stage.name = "budget_gate";
+      // Before anything is claimed or spawned: a run that cannot be afforded
+      // must fail as a business error naming the cap, not burn a child and
+      // fail later with something opaque.
+      await deps.budgetGate?.assertWithinDailyBudget();
       stage.name = "model_preflight";
       await assertModelAvailable(run.modelRef);
       for (let i = 0; i < 8; i++) {

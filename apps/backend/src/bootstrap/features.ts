@@ -35,6 +35,7 @@ import {
   buildHistoryTools,
   createAgentRunExecutionService,
   createAgentRunService,
+  createBudgetGate,
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
@@ -831,7 +832,34 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     });
   };
 
+  // Catalog prices for usage and for the daily brake. Born at wiring time,
+  // awaited by a request — the catch keeps a failed catalog call from taking
+  // the process down (see the same pattern at the agent-run routes).
+  const modelCostsSnapshot = (async () => {
+    const map = new Map<
+      string,
+      { input: number; output: number; cacheRead: number; cacheWrite: number }
+    >();
+    for (const m of (await codingAgentCatalog.list()).models) {
+      map.set(`oma/${resolveModelAlias(m.id)}`, m.cost);
+    }
+    return map;
+  })().catch((err) => {
+    console.warn("[bootstrap] model cost catalog failed:", err);
+    return new Map<
+      string,
+      { input: number; output: number; cacheRead: number; cacheWrite: number }
+    >();
+  });
+
+  const budgetGate = createBudgetGate({
+    db,
+    modelCosts: modelCostsSnapshot,
+    getSetting: (key) => settingsSvc.get(key),
+  });
+
   const agentRunExecution = createAgentRunExecutionService({
+    budgetGate,
     workspaceLocks,
     productToolsTokenRegistry,
     runTimeoutMs: config.runTimeoutMs,
@@ -1821,22 +1849,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // unhandled and takes the whole process down right after it listened.
       // Pricing is optional — unpriced models use the backend-reported
       // usage.costUsd — so degrade to "no catalog" and keep booting.
-      modelCosts: (async () => {
-        const map = new Map<
-          string,
-          { input: number; output: number; cacheRead: number; cacheWrite: number }
-        >();
-        for (const m of (await codingAgentCatalog.list()).models) {
-          map.set(`oma/${resolveModelAlias(m.id)}`, m.cost);
-        }
-        return map;
-      })().catch((err) => {
-        console.warn(
-          "[bootstrap] model cost catalog failed:",
-          err instanceof Error ? err.message : String(err),
-        );
-        return bootModelCostsNone;
-      }),
+      modelCosts: modelCostsSnapshot,
+      budgetGate,
     }),
     coding: codingRoutes({
       registry: codingRegistry,
