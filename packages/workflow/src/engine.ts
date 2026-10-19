@@ -50,10 +50,17 @@ export function computeNext(def: WorkflowDefinition, state: EngineState): Engine
       if (completedIds.has(n.id)) continue;
       const inEdges = def.edges.filter((e) => e.to === n.id);
       if (inEdges.length === 0) continue; // start already handled
-      // Join semantics: a node runs when ANY upstream routed to it. Mutually
-      // exclusive branches converging on one node must not deadlock waiting
-      // for the untaken branch (AND-joins would need an explicit DSL marker).
-      if (inEdges.some((e) => routed.get(e.from)?.has(n.id))) readyIds.push(n.id);
+      // Join semantics. Default "any": a node runs when ANY upstream routed to
+      // it, so mutually exclusive branches converging on one node do not
+      // deadlock waiting for the untaken branch. "all" additionally requires
+      // every upstream to be completed - the engine only looks at a wave
+      // boundary, so an upstream that is not completed here never will be
+      // (its branch was not taken), and an all-join under an exclusive branch
+      // correctly never fires.
+      if (inEdges.some((e) => routed.get(e.from)?.has(n.id))) {
+        const allSettled = n.join !== "all" || inEdges.every((e) => completedIds.has(e.from));
+        if (allSettled) readyIds.push(n.id);
+      }
     }
   }
 

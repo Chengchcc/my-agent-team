@@ -753,15 +753,40 @@ export function createWorkflowExecutionService(
         return;
       }
       if (step.kind === "idle") throw new Error("stuck: no ready nodes and no terminal");
+      // One wave = everything the engine says is ready right now. The nodes in
+      // it run CONCURRENTLY (independent branches do not queue behind each
+      // other); their results are then applied one by one in ready order, so
+      // the durable writes, the frozen routes and the rework verdicts stay
+      // deterministic.
+      //
+      // ponytail: a wave barrier, not a completion-driven scheduler - a fast
+      // branch still waits for the slowest sibling before its successors start.
+      // Upgrade path: start a successor the moment its upstreams settle (that
+      // needs a completion queue and per-node readiness instead of a barrier).
+      const wave = step.ready;
+      const baseOrder = order;
+      order += wave.length;
+      const settled = await Promise.allSettled(
+        wave.map((ready, i) => executeNode(execution, ready.node, ready, baseOrder + i)),
+      );
       let paused = false;
-      for (const ready of step.ready) {
+      let firstError: unknown;
+      for (let i = 0; i < wave.length; i += 1) {
+        const ready = wave[i]!;
         const node = ready.node;
-        const res = await executeNode(execution, node, ready, order++);
-        if (res === null) {
-          paused = true;
-          break;
+        const outcome = settled[i]!;
+        if (outcome.status === "rejected") {
+          // Keep the siblings' results: their node rows are the truth about
+          // what actually ran. The wave still fails.
+          firstError ??= outcome.reason;
+          continue;
         }
-        const record = recordCompletion(execution, node, res.output, order - 1);
+        // null = the node parked (a human gate); the execution is waiting_human.
+        if (outcome.value === null) {
+          paused = true;
+          continue;
+        }
+        const record = recordCompletion(execution, node, outcome.value.output, baseOrder + i);
         await deps.port.updateNodeRun(execution.executionId, node.id, {
           status: "completed",
           output: record.output,
@@ -779,6 +804,7 @@ export function createWorkflowExecutionService(
         const fresh = await deps.port.getExecution(execution.executionId);
         if (fresh) execution.store = fresh.store;
       }
+      if (firstError !== undefined) throw firstError;
       if (paused) return;
     }
   }

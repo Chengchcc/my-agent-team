@@ -63,6 +63,12 @@ interface NodeCommon {
   /** Retry policy: number = max retries after first failure, or a config
    *  with attempts/interval/backoff. */
   retry?: number | NodeRetry;
+  /** How several inbound routes combine. Default "any": the node runs as soon
+   *  as ONE upstream routed to it, so mutually exclusive branches converge
+   *  without waiting for the branch that was not taken. "all" waits until every
+   *  upstream has completed — which means an all-join under an exclusive
+   *  branch never fires by design (one side never completes). */
+  join?: "any" | "all";
 }
 
 export interface NodeRetry {

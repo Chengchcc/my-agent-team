@@ -822,6 +822,55 @@ describe("rework in the execution service", () => {
     return await predicate();
   };
 
+  test("independent branches in one wave run concurrently", async () => {
+    const fake = ramPort();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const svc = createWorkflowExecutionService({
+      port: fake.port,
+      nodeRunners: {
+        script: {
+          run: async () => {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            // Long enough that a serial loop could never overlap.
+            await new Promise((r) => setTimeout(r, 40));
+            inFlight -= 1;
+            return { output: {} };
+          },
+        },
+      } as never,
+      idGen: () => "e-wave",
+    });
+    const definition = parseWorkflow({
+      version: 1,
+      id: "wf",
+      nodes: [
+        { id: "start", type: "start" },
+        { id: "a", type: "script", code: "x" },
+        { id: "b", type: "script", code: "x" },
+        // The all-join is what proves both branches really completed before the
+        // drive moved on; any-of would have fired the end after the first.
+        { id: "join", type: "script", code: "x", join: "all" },
+        { id: "done", type: "end", status: "success" },
+      ],
+      edges: [
+        { from: "start", to: "a" },
+        { from: "start", to: "b" },
+        { from: "a", to: "join" },
+        { from: "b", to: "join" },
+        { from: "join", to: "done" },
+      ],
+    });
+    const result = await svc.runToCompletion("e-wave", {
+      workflowId: "wf",
+      definition,
+      input: {},
+    });
+    expect(result.status).toBe("success");
+    expect(maxInFlight).toBe(2);
+  }, 15_000);
+
   test("a rejected verdict runs the target again, as a new attempt", async () => {
     const fake = ramPort();
     const seen: Array<{ nodeId: string; input: Record<string, unknown> }> = [];

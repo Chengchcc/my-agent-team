@@ -59,7 +59,7 @@ describe("computeNext", () => {
     expect(step).toEqual({ kind: "terminal", exit: "failure" });
   });
 
-  test("AND-join waits for both branches", () => {
+  test("an any-of join fires as soon as one branch routes to it", () => {
     const def = parseWorkflow({
       version: 1,
       id: "wf",
@@ -101,6 +101,81 @@ describe("computeNext", () => {
     });
     if (afterBoth.kind !== "run") throw new Error("expected run");
     expect(afterBoth.ready.map((r) => r.node.id)).toEqual(["join"]);
+  });
+
+  test('join: "all" waits until every upstream has completed', () => {
+    const def = parseWorkflow({
+      version: 1,
+      id: "wf",
+      nodes: [
+        { id: "start", type: "start" },
+        { id: "a", type: "script", code: "x" },
+        { id: "b", type: "script", code: "x" },
+        { id: "join", type: "script", code: "x", join: "all" },
+        { id: "done", type: "end", status: "success" },
+      ],
+      edges: [
+        { from: "start", to: "a" },
+        { from: "start", to: "b" },
+        { from: "a", to: "join" },
+        { from: "b", to: "join" },
+        { from: "join", to: "done" },
+      ],
+    });
+    // a routed to join, but b has not completed: an all-join is not ready, and
+    // b is the only other runnable node.
+    const afterA = computeNext(def, {
+      completions: [
+        { nodeId: "start", order: 0, output: {}, routedTo: ["a", "b"] },
+        { nodeId: "a", order: 1, output: {}, routedTo: ["join"] },
+      ],
+      store: {},
+      trigger: {},
+    });
+    if (afterA.kind !== "run") throw new Error("expected run");
+    expect(afterA.ready.map((r) => r.node.id)).toEqual(["b"]);
+
+    const afterBoth = computeNext(def, {
+      completions: [
+        { nodeId: "start", order: 0, output: {}, routedTo: ["a", "b"] },
+        { nodeId: "a", order: 1, output: {}, routedTo: ["join"] },
+        { nodeId: "b", order: 2, output: {}, routedTo: ["join"] },
+      ],
+      store: {},
+      trigger: {},
+    });
+    if (afterBoth.kind !== "run") throw new Error("expected run");
+    expect(afterBoth.ready.map((r) => r.node.id)).toEqual(["join"]);
+  });
+
+  test('join: "all" under an exclusive branch never fires (the other side never runs)', () => {
+    const def = parseWorkflow({
+      version: 1,
+      id: "wf",
+      nodes: [
+        { id: "start", type: "start" },
+        { id: "a", type: "script", code: "x" },
+        { id: "b", type: "script", code: "x" },
+        { id: "join", type: "script", code: "x", join: "all" },
+      ],
+      edges: [
+        { from: "start", to: "a" },
+        { from: "start", to: "b" },
+        { from: "a", to: "join" },
+        { from: "b", to: "join" },
+      ],
+    });
+    // start routed ONLY to a: b will never complete, so the all-join stays shut
+    // and the drive ends idle rather than pretending the join happened.
+    const step = computeNext(def, {
+      completions: [
+        { nodeId: "start", order: 0, output: {}, routedTo: ["a"] },
+        { nodeId: "a", order: 1, output: {}, routedTo: ["join"] },
+      ],
+      store: {},
+      trigger: {},
+    });
+    expect(step).toEqual({ kind: "idle" });
   });
 
   test("idle when no outgoing condition matched", () => {
