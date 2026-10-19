@@ -55,7 +55,8 @@ tags: [surfaces, ahp, protocol]
 | `seq` | 同上 | 账本坐标，寻址用 |
 | `undone` | 同上 | 该行已撤销，端置灰 |
 | `productRequest` | inputRequest 片段 | 审批或询问的原始载荷，卡片要显示批的是什么 |
-| `productResponse` | inputRequest 片段 | 人的答复 |
+
+答复不借 `_meta`：它走协议自己的 `answers`（按问题 id 的 `ChatInputAnswer`），投影把它填在 request 上。
 | `todos` | chat 状态 | 活跃轮次的 todo 快照 |
 | `newConversationId`、`requestedByRunId` | 续接提示轮次 | 续到了哪条会话，由哪个 Run 请求 |
 
@@ -77,11 +78,11 @@ tags: [surfaces, ahp, protocol]
 ## 已知缺口
 
 - 人工输入两侧现在都走动作：请求到达时发 `inputRequest` 片段（id 与投影一致，一问一次），人答复或被期限拒绝时发 `chat/inputCompleted`，卡片当场从「待答复」变掉。
-- 询问的**答复内容**分成两半到端上：动作那条边只带结果（`accept`），内容随投影走。投影现在填两处：上游的 `answers`（按问题 id 的 `ChatInputAnswer`，形状已对着协议 0.9.0 的类型核实：`{state, value: {kind: text | selected | selected-many}}`，选择的与手输入的各是一种 kind，两者都有时用 selected-many 并把自由文本放进 `freeformValues`）以及产品自己的 `{id, selectedValues, freeText}` 行（挂在 `_meta.productResponse`）。**端的收尾还没做**：网页与飞书卡片仍只读 `productResponse`，两处改读 `answers` 之后才能把它从投影里删掉；在那之前两处并存，第三方端已经能只按上游读到答复。
+- 询问的**答复内容**分成两半到端上：动作那条边只带结果（`accept`），内容随投影走，填在上游的 `answers`（按问题 id 的 `ChatInputAnswer`，形状已对着协议 0.9.0 的类型核实：`{state, value: {kind: text | selected | selected-many}}`，选择的与手输入的各是一种 kind，两者都有时用 selected-many 并把自由文本放进 `freeformValues`）。**端的收尾已经做完**：网页从 `request.answers` 映射答复（`apps/web/src/lib/chat-state.ts`）并按 kind 渲染（`Timeline.tsx` 的 `summarizeAskAnswer`），飞书侧全仓已无 `productResponse` 引用；投影因此不再产 `productResponse`，只产 `productRequest`。
 - todo 只在 chat 状态的 `_meta.todos` 里，也就是只在快照里。协议没有任何动作能改 chat 的 `_meta`，所以「直播刷新 todo」要么等上游给出动作，要么由我们自定义一个动作、两端各自解释，要么退回重订阅。这条是待决策项。
 - 续接提示写完就派发（`announceContinuity`）。代价：端如果在记录写入与派发之间订阅，它会从快照拿到这一轮、又收到这次派发，客户端状态里于是有同一轮的第二份副本；两端的渲染与投递都按 id 合并，所以看不出来。要消掉它，得让派发只发给「订阅早于这次写入」的连接。
 - `apps/web/src/lib/chat-state.ts` 在坐标缺失时用 `seq: 0` 兜底，等于编一个坐标，要按上面那条改成关掉那个动作。
-- Web 与飞书都还订着 Run 流（流规则提示、工作流进度、飞书的跑动卡）。旧事件词汇与 SSE 端点的删除还没做，清单在 [ADR 0040](../../adr/0040-run-contract-acp-surface-contract-ahp.md)。
+- Web 与飞书**都只订 AHP**：run 流（含旧事件词汇与 SSE 端点）已经删净，卡片的跑动状态也由 chat 状态驱动。清单见 [ADR 0040](../../adr/0040-run-contract-acp-surface-contract-ahp.md)。
 
 ## 相关页
 

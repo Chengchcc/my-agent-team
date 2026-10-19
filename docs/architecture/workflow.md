@@ -32,7 +32,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 ## DSL
 
-`WorkflowDefinition = { version: 1, id, meta?, input?, triggers?, nodes, edges }`，`version !== 1` 直接拒绝（`types.ts:110-119`）。
+`WorkflowDefinition = { version: 1, id, meta?, input?, triggers?, nodes, edges }`，`version !== 1` 直接拒绝（`parse.ts`）。
 
 节点 id 限 `^[a-zA-Z0-9_-]+$`，类型只认 `start` / `end` / `agent` / `script` / `human`（`parse.ts:24-31`）。各类型的必填项：
 
@@ -65,7 +65,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 **`nextNode` 覆盖条件路由**：source 节点的 output 里带 `nextNode: string` 时，该值必须是这个节点某条出边的目标，否则抛 `WorkflowRouteError`（`graph.ts:20-24,97-104`）。实现上任何节点类型都能用它。
 
-**join 是 any-of**：任一上游 routed 到本节点，本节点即可运行，互斥分支汇合时互不等待（`engine.ts:39-45`）。AND-join 没有实现——DSL 里也没有表达它的标记（`packages/workflow/README.md` 仍写着 AND-join，那是错的）。
+**join 是 any-of**：任一上游 routed 到本节点，本节点即可运行，互斥分支汇合时互不等待（`engine.ts:39-45`）。AND-join 没有实现——DSL 里也没有表达它的标记（`packages/workflow/README.md` 也写明是 any-of）。
 
 **首个 end 即终态**：ready 集合里出现 end 就立即返回终态，取定义序的第一个（`engine.ts:48-52`）。
 
@@ -88,11 +88,11 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 状态机：execution 是 `running | waiting_human | success | failure | custom`；node_run 是 `running | waiting_human | completed | failed`；pending_human 是 `pending | resolved`。终态映射 `exitStatus()`：`failure → failure`，`success → success`，其余落 `custom`（`service.ts:118-122`）。
 
-`startExecution` 起一个异步 drive 后立刻返回行；`runToCompletion` 是给它 await 的同步版本，主要给测试用。`triggeredBy` 默认 `manual`，cron 触发时是 `cron:<expr>`。
+`startExecution` 先按数据库做单飞（同一个 workflow 已有 `running` 的 execution 就抛 409），再起一个异步 drive 并立刻返回行；`runToCompletion` 是给它 await 的同步版本，主要给测试用。`triggeredBy` 默认 `manual`，cron 触发时是 `cron:<expr>`。
 
 `drive` 从数据库里已有的 node_run 重建 completions 起步，循环「`computeNext` → 顺序执行 ready → 记录完成」，最后回读 execution 的 store（`service.ts:561-610`）。ready 列表是**串行 await** 的，同一批多个 ready 不是并发 fan-out。
 
-**agent 节点**：conversation id 是 `workflow:<executionId>:<nodeId>`（origin 为 workflow），内联 agent 走 `default` 成员加 `modelOverride`。node_run 里已经存了 `runId` 就重连轮询而不重复触发；重试时先清 runId 再起新 run。轮询上限 600 秒，每秒一次，终态判据是 status 落在 `completed|failed|aborted|commit_failed|timeout`，或者 terminalResult 已存在（`service.ts:429-446`）。
+**agent 节点**：conversation id 是 `workflow:<executionId>:<nodeId>`（origin 为 workflow），内联 agent 走 `default` 成员加 `modelOverride`。node_run 里已经存了 `runId` 就重连轮询而不重复触发；重试时先清 runId 再起新 run。轮询上限 600 秒，每秒一次。判据只有 status：`completed` 才算成功并取输出，`failed|aborted|timeout` 直接让节点失败，`commit_failed` 与 `waiting` 继续轮询（前者等终态提交结算，后者按 HITL 暂停节点时钟）。
 
 **repo 感知**：节点写了 `repo` 时，会话以 `projectId: node.repo` 创建——绑定的就是这一步，dispatch 据会话的项目把 run 解析到该 agent 在那个项目里的 worktree（`run-workspace.ts`），服务里不固定任何 workspace。校验在装配前：`repo` 必须是该 agent 已挂载的 project id（`runtime_config.projects`），不匹配就带项目名与挂载方式的错误让节点失败；内联 agent（没有 `agentId`）不允许带 `repo`，因为默认成员并不拥有那个项目。
 
@@ -116,9 +116,9 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 ## 事件
 
-事件类型：`execution_started`、`node_started`、`node_agent_started`、`node_agent_completed`、`script_log`、`node_completed`、`node_failed`、`human_task_requested`、`store_write`、`execution_terminal`。每次 emit 同时进内存总线并 fire-and-forget 落库，落库失败不阻塞 drive。
+事件类型：`execution_started`、`node_started`、`node_agent_started`、`node_agent_completed`、`script_log`、`node_completed`、`node_failed`、`human_task_requested`、`store_write`、`rework_requested`、`budget_exhausted`、`execution_terminal`。每次 emit 同时进内存总线并 fire-and-forget 落库，落库失败不阻塞 drive。
 
-`store_write` 虽然在代码里，但生产路径永远不会触发：写 store 的 `storeApiOf` 没有任何调用方，store 恒为空对象。
+`store_write` 有调用方（`service.ts` 的节点执行路径），但 store 在实践里恒为空：脚本沙箱只把 `ctx.input` 传进去，`ctx.store` 收下不使用，所以没有东西可写。
 
 执行页的实时尾随走轮询：`GET /api/workflow-executions/:id/trace` 一次给出 execution、事件、节点运行与正在等的人工门，运行期间页面按 1.5 秒拉一次，事件列表与拖动回看读的是同一份。原先那条 SSE 端点（先订阅、再重放持久历史、最后直播）连同内存里的事件总线一起删掉了；脚本日志现在走落库那条路，所以不再依赖总线。
 
@@ -128,7 +128,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 `sync()` 先停掉所有旧句柄再重建，同一 `definition.id` 的第二个文件会被跳过（否则旧句柄泄漏）；坏 cron 表达式只跳过那一条 trigger。
 
-fire 时每次都重新读定义并按 id 查找，所以改文件不需要重新注册即可生效。`enabled: false` 不注册。同一个 workflow 的并发 tick 直接丢弃（per-workflow single-flight）。fire 内部任何异常都被吞掉并记日志——未捕获的 rejection 会杀掉整个 backend 进程。
+fire 时每次都重新读定义并按 id 查找，所以改文件不需要重新注册即可生效。`enabled: false` 不注册。同一个 workflow 的并发 tick 直接丢弃（per-workflow single-flight）；**熔断**：最近 3 次 execution 全是 failure 时跳过本次 fire，一次成功即自愈。fire 内部任何异常都被吞掉并记日志——未捕获的 rejection 会杀掉整个 backend 进程。
 
 启动时若 workflows 目录为空，会从 `<resources>/workflow-showcase` 拷入示例定义。
 
@@ -184,6 +184,6 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 
 - 并行 fan-out 没有实现，ready 列表串行 await。
 - dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
-- agent 节点轮询到 `waiting` 会把节点时钟暂停（原意是留给 HITL），但节点会话没有 surface 可答，于是退化成无限期停摆。修法未定：要么在派发时就强制一个不会停车的不停车策略，要么给节点一个停摆上限。夜里那条报告工作流就是这样连挂多日的。
+- ~~agent 节点停摆~~（2026-10-16 已修）：原先节点轮询到 `waiting` 会把节点时钟暂停，而节点会话没有 surface 可答，于是退化成无限期停摆（夜里那条报告工作流连挂多日）。现在派发就把 run 的权限模式钉成 `yolo`（不禁用闸门，bash 仍走 OS 沙箱），取消 execution 时也会 `stop` 掉节点在飞的 run 并等它结算——见上面的不变量 9。
 
 详细清单见 [`../roadmap.md`](../roadmap.md)。

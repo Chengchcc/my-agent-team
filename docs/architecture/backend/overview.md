@@ -31,7 +31,7 @@ Product Backend 拥有全部产品事实和执行控制面。执行链只有一�
 
 子进程拥有的：它自己的 transcript、工具循环、重试、compaction、todo、技能加载。产品只依赖 `AgentBackend` 协议，不依赖这些内部机制。
 
-后端种类的注册表是 `oma` / `claude_code` / `pi` / `omp`。注册表是部分的，未知种类在预检阶段就返回 422，不会走到 spawn。
+后端种类只剩一个：`BACKEND_KINDS = ["acp"]`（ADR 0039/0040）。oma / claude_code / pi / omp 现在是 `ACP_AGENTS` 里的 **harness**，同一个 ACP 客户端驱动它们。未知 harness 在预检阶段就返回 422，不会走到 spawn。
 
 ## 取 Run 是一个事务
 
@@ -106,6 +106,5 @@ Run 自己 pin 的工作区优先，否则由 `resolveWorkspace` 决定（见 [P
 ## 已知缺口
 
 - `commit_failed` 只有启动时 `recover()` 的重试入口，没有运行期 HTTP；重启之前该分支一直被占。
-- Context 的 `summary` 条目没有生产者，投影里的 summary 分支在生产路径上不可达。
 
 详细清单见 [`../../roadmap.md`](../../roadmap.md)。

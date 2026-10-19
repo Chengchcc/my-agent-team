@@ -55,7 +55,7 @@ token 比较是常量时间的（长度不等直接拒，否则 `timingSafeEqual
 
 ## 对话层
 
-对话是 1:1 的：participant 就是 `conversation.agent_id`，成员表已经删掉。
+对话可以有多个成员 agent（ADR 0041）：`conversation_member` 表是一等公民，每个成员各自拥有一棵 Agent Context 树（`(conversation, agent)` 唯一）。`conversation.agent_id` 只在没有成员行的兼容路径里兜底。`addressedTo` 决定**谁会**被唤起，可见性仍由消息自己的 `visibility` 决定。
 
 账本上的 `addressedTo` 参与的是**触发路由**，不是可见性：判断这个 Agent 该不该被这条消息唤起时看它，渲染时不看。消息本身带 `visibility` 标记（`conversation` 或 `internal`），`internal` 的不进 Agent Context，也不出现在产品工具读到的历史里。
 

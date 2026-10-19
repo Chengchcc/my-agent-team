@@ -6,11 +6,11 @@ tags: [lark, surfaces, backend]
 
 # 飞书端
 
-一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API（`/stop` 控制命令除外，它直接调 Run 取消接口）。出站有两条：Run 流式卡片（ADR 0031，消费 Run SSE 的 transient 投影，终态以 canonical 文本封版）与 AHP watcher 的会话文本（订阅 chat 频道，卡片不拥有投递时的兜底通道）。工具行不投递，卡片上只显示工具摘要。
+一句话：本页是飞书端的权威描述。飞书端是 lark-bot 进程。入站把飞书群与单聊的消息 POST 给 backend 的 conversation API（`/stop` 控制命令除外，它直接调 Run 取消接口）。出站有两条：Run 流式卡片（ADR 0031，由 AHP chat 状态驱动的 transient 投影，终态以 canonical 文本封版）与 AHP watcher 的会话文本（订阅 chat 频道，卡片不拥有投递时的兜底通道）。两条读的是同一份事实：每份 chat 状态投递完再转给跑动卡（`onChatState`）。工具行不投递，卡片上只显示工具摘要。
 
 ## 范围
 
-覆盖：入站管线的每一步（鉴权、幂等占位、绑定、路由、POST、/stop），本地五张表，Run 卡片生命周期，出站的过滤链、卡片去重缝、去重模型、重试与推送游标，内容渲染与截断，surface.control 重绑，进程生命周期与 backend 侧的接线。
+覆盖：入站管线的每一步（鉴权、幂等占位、绑定、路由、POST、/stop），本地九张表，Run 卡片生命周期，出站的过滤链、卡片去重缝、去重模型、重试与推送游标，内容渲染与截断，surface.control 重绑，进程生命周期与 backend 侧的接线。
 
 不覆盖：backend 侧的触发与执行（见 [飞书消息端到端](../flows/e2e-lark-message.md)）、Web 端（见 [Web 端](./web.md)）、lark-cli 与飞书开放平台的协议细节（本页只讲到进程怎么起）。
 
@@ -54,9 +54,9 @@ tags: [lark, surfaces, backend]
 - **合成身份**：评论会话在 `conversation_binding` 里的 chat id 是 `comment:<file_token>:<comment_id>`（`comment-scope.ts`）⇒ 游标、投递台账、幂等键、AHP watcher 全部照旧，只有发送那一步认得它（走 `comments.reply`）。
 - **去重身份是「通知」而不是「评论」**：同一条评论线里的后续回复各有自己的 `event_id` / `reply_id`，用 `(fileToken, commentId)` 去重会把它们吞掉。
 - **产物**：评论回复只能带文本元素，图片在 v1 **明确回一句「无法投递」**，不假装送达。
-- **控制台三个前提**（缺任何一个都是**静默**）：`im.message.receive_v1`、`card.action.trigger`、`drive.notice.comment_add_v1`，外加文档相关 scope。`larkSetupGuidance`（`features/lark-bot/setup-guidance.ts`）给出清单与 `scope-apply` 链接，已挂在 surface 视图的 `console` 字段上（Web 渲染待做）。
+- **控制台三个前提**（缺任何一个都是**静默**）：`im.message.receive_v1`、`card.action.trigger`、`drive.notice.comment_add_v1`，外加文档相关 scope。`larkSetupGuidance`（`features/lark-bot/setup-guidance.ts`）给出清单与 `scope-apply` 链接，挂在 surface 视图的 `console` 字段上，Web 面板已经在渲染（`apps/web/src/features/lark/LarkSurfacePanel.tsx`）。
 
-## 本地七张表
+## 本地九张表
 
 `apps/lark-bot/src/db/schema.ts` 里的表都是这个端私有的投递状态，不进后端：
 
@@ -127,13 +127,13 @@ oma 产品工具（todo、ask、approval）在飞书端**不重新解释**：bac
 
 ## 内容渲染
 
-`renderRevision` 先取 `text`，没有就拼所有 `type === "text"` 的 block，再没有就返回字面量 `[Unsupported content]`。文本随后过 `normalizeForLarkMarkdown`，做换行与 code fence 收尾；被截断时追加一行 `[消息过长已截断]`。工具行到不了渲染：它们在过滤链第 3 步就被跳过。
+投递按 AHP 片段走（`ahp-delivery.ts` 只处理 `markdown` / `systemNotification` / `contentRef`），文本由片段的 `textOf(part)` 取，再过 `normalizeForLarkMarkdown` 做换行与 code fence 收尾；被截断时追加一行 `[消息过长已截断]`。旧的 `renderRevision`（拼 `MessageRevision` 的 text block、`[Unsupported content]` 兜底）已经不存在。工具行到不了渲染：它们在过滤链第 3 步就被跳过。
 
 ## surface.control 重绑
 
 backend 只在「开新对话」时写这个 kind，payload 是 `{ type: "lark.start_new_conversation", oldConversationId, newConversationId, reason, requestedByRunId, idempotencyKey }`，同一 idempotencyKey 重复调用返回既有结果（`apps/backend/src/features/conversation/service.ts`）。HTTP 入口是 `POST /api/conversations/:id/start-new`。
 
-watcher 收到续接提示（`systemNotification` 片段，`_meta` 带 `newConversationId` 与 `requestedByRunId`）后调 `rebindConversation`，通过 `onRebind` 关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。这条提示现在只在快照里出现，见已知缺口。
+watcher 收到续接提示（`systemNotification` 片段，`_meta` 带 `newConversationId` 与 `requestedByRunId`）后调 `rebindConversation`，通过 `onRebind` 关掉旧 watcher、开新 watcher，并发一句「已开启新的对话。」。这条提示是**动作**：`chat-writer.ts` 写完续接记录就 `dispatch(announceContinuity)`，已经连着 watcher 的连接当场收到，不用等重新订阅。
 
 ## 进程生命周期与 backend 接线
 
@@ -149,7 +149,7 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 2. 出站有两个入口：Run 卡片（Run 的 UX 生命周期，含终态）与 AHP watcher（assistant 文本兜底）；对同一条 assistant 行，只有 `fallback_text` 的卡片会让位给文本桥。
 3. 卡片是 Run 的 transient 投影：token delta 不持久化到后端，PATCH 失败不影响 Run，终态必须以 canonical 文本封版或降级纯文本送达（ADR 0031/0032）。
 4. 文本桥投递意图以非终态标记先落库，发送成功才确认终态；发送失败经重连重放，靠幂等键去重（at-least-once）。
-5. 每次文本投递带 lark-cli 的 idempotency key，形如 `<conversationId>:<messageId>:<seq>`；卡片幂等键是 `<conversationId>:<runId>:card`，封版降级是 `<conversationId>:<runId>:seal`。
+5. 每次文本投递带飞书的 idempotency key，由 `larkIdempotencyKey(...)` 把 `(conversationId, messageId, larkChatId)` 哈希成 **40 位十六进制**（平台上限 50 字符，实测超长报 99992402）——不是冒号拼接，也不含 `seq`。封版降级用 `(conversationId, runId, "seal")` 的哈希；卡片消息本身不带 key（建卡接口不收）。
 6. 投递状态只认 `message_delivery`：先记意图后发送，成功才确认终态；重放的同一行被终态判断挡下，所以重订阅安全。
 7. 同一个 agent 同时只有一个 lark-bot 进程（PID 锁）。
 8. 一个飞书话题 ↔ 一个会话，且一个聊天内可以有多个会话；投递状态按 `(conversation_id, message_id, lark_chat_id)` 记账（ADR 0037）。**群里**的话题内仍然要求 @ 机器人（话题下可能有其他人交流）；**私聊不要求**——私聊本身就是点名，用户「在话题里回复」是续问的唯一动作，再要求 @ 就等于把这条动作废掉。
@@ -163,9 +163,6 @@ backend 侧：`allowed_senders`、`bot_display_name`、`profile_ref` 落在 agen
 15. 「这段结束了」不等于「成功」：`chat/turnComplete` **不带状态字段**，归约器一律当 `complete`，所以被停的 run 必须发 `chat/turnCancelled`（`turnActions` 按 run 终态选动作）；同理，卡片侧**没有终态绝不编造**——`?? "completed"` 这类兜底会把行落定，而重启恢复对已落定的卡是**永久空操作**，错状态永远改不回来（2026-10-14：被停的 run 在卡上显示「已完成」且冻结）。排障口诀：卡不动时先问「状态里有没有这条 turn、它带没带结局」，别先猜限流或防抖——本次三层都是这么被否证的。
 
 ## 已知缺口
-
-- 续接提示只在快照里到达：`startNewConversationForSurface` 写了账本行，但宿主没有派发对应动作，已经连着 watcher 要等一次重新订阅才会改绑。
-
 
 - `surface.control` 的重绑路径没有生产触发入口：`POST /api/conversations/:id/start-new` 目前只有测试调用，旧的触发工具已不存在。路由与端侧消费都已具备。
 - `diagnostics.ts` 里的 `runStreams` 字段是 API 兼容空桩，统计恒为 0，对应的表已经从本地 schema 删除。
