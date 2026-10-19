@@ -26,7 +26,7 @@ Conversation History 是一场对话里共同发生的事实，存在账本 `con
 
 ## 存什么
 
-存储层比线上多几种 kind：`message | member.joined | member.left | todo | surface.control | undo`。线上事件只认三种：`message | undo | surface.control`，`todo` 至今没有写入方。
+存储层的 `LedgerKind` 与线上枚举现在是同一组：`message | surface.control | undo`（`apps/backend/src/features/conversation/ledger-codec.ts`）。`member.joined` / `member.left` / `todo` 三种历史残留已删——只保留有写入方的值，免得它们继续冒充账本契约的一部分。
 
 实际存在的写入方只有五个：
 
@@ -90,5 +90,5 @@ Context 引用的去重**不是**靠唯一键，而是提交事务里先按 `(tr
 
 ## 已知缺口
 
-- `kind: "todo"` 没有写入方，`member.joined` / `member.left` 同理（成员表已删）。它们在存储枚举里是历史残留。
+- `kind: "todo"` 没有写入方，`member.joined` / `member.left` 同理（成员表已删）。三者已从存储枚举里删除，不再是「留着但没人写」的残留。
 - `commit_failed` 的 Run 在账本里**什么都不写**：既没有最终消息，也没有失败气泡。
