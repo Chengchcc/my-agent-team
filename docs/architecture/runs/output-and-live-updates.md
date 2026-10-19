@@ -40,15 +40,13 @@ stdout 上是三类帧：`{id, type:"event", runId, event}`、`{type:"outcome", 
 | `tool_execution_start` / `_end` | `native_tool_started` / `native_tool_completed`（**不看 `kind`**，产品工具的 MCP 调用也走这里）。`_start` 只把工具自述的 `activity` 带过界，**原始 `input` 不过界**（见 [Oma Tools](../runtime/oma-tools.md#活动描述工具自己声明)） |
 | `agent_start` / `turn_start` / `turn_end` | `status` |
 | `agent_end` | `status: completed \| failed \| aborted` |
-| `delegation_*` | 对应的核心委派事件 |
+| `delegation_*` | **不映射**：ACP 轨道上它们经 `_oma/update` 上来，后端没有对应处理器（要成为核心委派事件，得先补这条映射） |
 | `approval_request` | `approval_requested`（核心事件，ADR 0039 把审批提升为产品契约，映射在 oma 适配器内） |
 | 其余（`todo_update`、`mcp_mount_result`、`stream_rule_triggered`、`tool_output` 等） | `backend.oma.<事件名>` |
 
 扩展事件这条路很关键：todo 更新、MCP 挂载结果、流规则触发都是这么到达产品的。审批与问答不在其中，它们在 ADR 0039 之后是核心事件，由适配器与后端分别产出。
 
-线上事件的 `type` 就是 `ev.type` 原文，`id` 是 runId。`packages/api-contract/src/sse.ts` 的 `runEvents` 登记了 13 个事件名：`status`、`text_delta`、`thinking_delta`、`native_tool_started`、`native_tool_completed`、`backend.oma.todo_update`、`approval_requested`、`ask_requested`，以及五个 `delegation_*`（batch started / agent started / agent completed / batch completed / batch failed）。登记表之外的事件照样会流过去。对话侧的 SSE 只有三种：`message`、`undo`、`surface.control`。
-
-Web 侧实际消费的是：`status`、`text_delta`、`thinking_delta`、`native_tool_started/completed`、`backend.oma.todo_update`、`backend.oma.stream_rule_triggered`、`approval_requested`、`ask_requested`、以及 `delegation_*`。`status` 落在 `completed|failed|aborted|timeout` 时关闭或标红当前气泡。
+这条事件流没有对外端点，也没有 wire 登记表：`packages/api-contract` 里不再有 `sseEndpoints` / `runEvents`，后端没有任何 `text/event-stream` 路由。**Web 与飞书都不订阅逐 run 的事件流**——两端的实时面都是 AHP chat 状态（轮次 + 片段），终态由 chat 状态里的 turn 反映。
 
 ## 什么落库，什么不落
 
@@ -70,12 +68,9 @@ Web 侧实际消费的是：`status`、`text_delta`、`thinking_delta`、`native
 
 ## 断线重连
 
-`GET /api/agent-runs/:runId/events` 对晚到的订阅者按状态分派：
+没有 run 级订阅端点可重连。重连的是 AHP 连接：重新 `initialize` 拿一份重建出来的状态快照，之后的动作继续叠上去；持久部分（终态 `terminalResult`、`pendingActions`）从 `GET /api/agent-runs/:runId` 读。
 
-- 已 settled：发一个终态 `status` 后关闭；
-- `commit_failed`：发 `status: failed`，不动 Run；
-- 活跃且有活句柄或正在派单：正常订阅；
-- 活跃但两者都不在（僵尸）：先 `abortStaleRun`，再发 `aborted`。
+僵尸与 `commit_failed` 的处置不发生在订阅时，而在这两处：取消接口（僵尸先 `abortStaleRun` 再终态化）与启动恢复 `recover()`（孤儿终结、`commit_failed` 重试一次）。
 
 ## steer 与 follow-up
 

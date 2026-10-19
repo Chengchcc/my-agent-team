@@ -65,10 +65,10 @@ tags: [backend, runtime, surfaces]
 
 ## BFF
 
-Web 的 REST 与 SSE 都经 Next 的代理转发（`apps/web/src/lib/bff.ts`），排障时注意两点：
+Web 的 REST 与 WebSocket 都经 Next 的代理转发（`apps/web/src/lib/bff.ts`），排障时注意两点：
 
 - 路径首段是 `api` 会被去掉，所以 `/api/bff/api/conversations/...` 与 `/api/bff/conversations/...` 都到同一个后端路由。
-- SSE 请求不带 `req.signal`，因为 Next 开发模式的 abort 会掐掉上游流。浏览器 Network 里应同时看到 `/api/bff/conversations/:id/events?afterSeq=0` 与 `/api/bff/agent-runs/:runId/events` 两类请求。
+- 实时面只有一条 WebSocket（`/ws/ahp`，先经 `/api/bff` 取票再直连）。旧的 `/events`（对话 SSE、run SSE）已经删除，浏览器 Network 里**不应该**再出现它们；出现了就说明页面上还挂着一段没更新到 AHP 的代码。
 
 BFF 只做 cookie 换 `x-auth-token` 与 `x-user-id`，不解析业务载荷；鉴权失败时先确认这两个头是否发出。
 
@@ -85,7 +85,6 @@ BFF 只做 cookie 换 `x-auth-token` 与 `x-user-id`，不解析业务载荷；�
 | 提交失败后无法继续 | `commit_failed` 的 Run 是否被 `retryTerminalCommit` 重试过 | `execution-service.ts` |
 | backend 重启后 Run 凭空结束 | 启动恢复把**无停靠**的孤儿 run 终结为 `aborted`（停靠 run 见下一行），这是预期行为 | `execution-service.ts` 的 `recover` |
 | 重启后 Run 仍停在 waiting | 这是停靠 run 被 ADR 0038 宽免的预期行为：回答（或显式取消）是唯一出口，回答触发 resume-dispatch | `execution-service.ts` 的 `recover` 与 `resumeParkedRun`；诊断日志 `recover_parked` / `resume_parked` |
-| SSE 流自己断开并出现 error 帧 | 账本里是否出现了没有对应 wire schema 的 kind | `apps/backend/src/features/conversation/http.ts`、`packages/api-contract/src/sse.ts` |
 
 ## adapter
 
@@ -152,7 +151,7 @@ adapter 是 oma 子进程的进程管理与 JSONL 控制器（`apps/backend/src/
 [agent-run] terminal_commit runId=... messages=N
 ```
 
-失败会带阶段名，stage 取值来自 dispatch 内的阶段标记（`load_run`、`model_preflight`、`claim_input`、`resolve_workspace`、`set_product_tools`、`context_projection`、`backend_execute`、`settle_outcome`、`acquire_next`）：
+失败会带阶段名，stage 取值来自 dispatch 内的阶段标记（`load_run`、`budget_gate`、`model_preflight`、`claim_input`、`resolve_workspace`、`set_product_tools`、`context_projection`、`backend_execute`、`settle_outcome`、`acquire_next`）：
 
 ```text
 [agent-run] dispatch_failed runId=... stage=context_projection Error: ...
@@ -176,12 +175,10 @@ tag 的含义：`conversation` 是触发与入队，`agent-run` 是执行生命�
 4. 账本是唯一的对话事实来源。任何端与账本不一致时，错的是端的投影。
 5. 子进程无状态：崩溃等于当前 Run 失败，下一个输入是新 Run，从 Agent Context 全量投影重建。
 6. per-run 事件流不落库，只落 telemetry 类型的事件到 `agent_run_event`。
-7. run SSE 不发 `done` 事件，靠心跳与连接中止表达生命周期。
 8. 产物必须自证能启动：`scripts/pack-gateway.sh` 打完包会从干净工作目录启动一次 backend 并要求 `/health` 应答，过不了就不产出 tar。凡是「打包成功但用户起不来」，都是这条自检没覆盖到的东西。
 
 ## 已知缺口
 
-- 存储层的 kind 枚举里还留着 `member.joined`、`member.left`、`todo`，但没有写入方。一旦有行以这些 kind 落库，SSE 编码器找不到对应 schema 会抛错，表现为该条流断开并出现一帧 `event: error`。
 - `role: "tool"` 的账本行不被飞书端过滤，会原样投递；Web 侧则按 `isConclusionMessage` 排除在气泡之外。
 - 失败气泡只覆盖 `onRunFailed` 的调用路径：停在 `commit_failed` 的 run 与启动恢复时被终结为 `aborted` 的孤儿 run 在账本里什么都不写。
 

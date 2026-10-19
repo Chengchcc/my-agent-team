@@ -27,7 +27,7 @@ tags: [conventions, runs]
 
 `ulid()` 实际上是 `crypto.randomUUID()` 去掉横线后截前 26 个字符。**它不是时间可排序的 ULID**，只是长得像；所以这些 id 没有顺序含义，也没有重置规则，全局随机。
 
-全仓唯一用真正 `crypto.randomUUID()` 的地方是人类消息的 messageId。
+真正调用 `crypto.randomUUID()` 的地方不止一处：`infra/ids.ts` 的 `ulid()` 本身就是它，此外 agent-config / workflow 的 MCP 提案回执、lark-bot 的 setup id、产品工具 dispatch 的兜底 callId 也都用它。人类消息的 messageId 混进了 conversationId 与 uuid，形如 `msg:<conversationId>:<sender>:<uuid>`。
 
 id 生成是注入的：每个 service 收一个 `idGen`，测试里可以换成可预测的实现。
 
@@ -42,7 +42,7 @@ id 生成是注入的：每个 service 收一个 `idGen`，测试里可以换成
 | `branchId` | 建默认分支或分叉时 |
 | `conversationId` | 对话服务 |
 | `agentId` | 创建 Agent 时；调用方可以显式指定（种子 Agent 就是这么来的），但必须满足路径安全字符集 |
-| `actionId` | 需要等待用户响应时（当前无生产调用方） |
+| `actionId` | 需要等待用户响应时：审批、询问与预算门都会落一条 pending action |
 | `callId` | 子进程发起产品工具调用时 |
 
 ## 两类 id

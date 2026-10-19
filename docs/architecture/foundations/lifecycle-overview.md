@@ -49,7 +49,7 @@ tags: [runs, backend]
 | 状态 | 什么时候 | 谁能把它推进 |
 |---|---|---|
 | `running` | 接受输入之后 | 子进程给 outcome，或 watchdog、取消 |
-| `waiting` | 枚举里有，**当前没有生产者** | — |
+| `waiting` | `pending_action` 落行时从 `running` CAS 过来；最后一个 action 被消费时修回 `running` | 审批/询问、期限到期 |
 | `completed` | 子进程给出成功终态 | 终态提交事务 |
 | `failed` | 预检/投影/spawn 失败，子进程崩溃，协议损坏 | 终态提交 |
 | `aborted` | 用户取消、超时、僵尸清理 | 终态提交 |
@@ -83,7 +83,7 @@ completed 走一次事务：账本行、Context 引用、分支 CAS、Run CAS。
 
 ## 事件流
 
-`GET /api/agent-runs/:runId/events` 对终态 Run 只发一个状态事件；`commit_failed` 报 failed 但不动 Run；正在派单的 Run 不会被 abort；真僵尸先终态化再报 aborted。细节见 [Run 输出与实时更新](./../runs/output-and-live-updates.md)。
+Run 没有自己的 SSE 端点（那条线已删）。实时面是 AHP chat 状态；`agent_run_event` 只持久化遥测类事件，text/thinking 增量不落库。诊断时读 `GET /api/agent-runs/:runId`（含 `terminalResult` 与 `pendingActions`）。细节见 [Run 输出与实时更新](./../runs/output-and-live-updates.md)。
 
 ## 不变量
 

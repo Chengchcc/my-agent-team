@@ -67,7 +67,7 @@ tags: [context, history, runs]
 
 两者不是一回事。
 
-**产品摘要**（Context 里的 `summary` 条目）本来是设计给「产品级压缩」的：投影时遇到 summary 就用它覆盖它声明覆盖的那段历史。但**当前没有任何生产者**——`appendSummary` 只有测试在调，投影里的 summary 分支在生产路径上不可达。对话的 `/compact` 与 `/clear` 都是显式空操作。
+**产品摘要**（Context 里的 `summary` 条目）是「产品级压缩」：投影时遇到 summary 就用它覆盖它声明覆盖的那段历史。生产者是对话的 `/compact`（`compactConversation` → `appendSummary`），前提是配了 `BACKEND_SUMMARY_MODEL`——没配时 501 并说明原因。`/clear` 仍是显式空操作。
 
 **运行时 compaction** 完全发生在子进程内部：它自己的 session 里做切点与摘要，通过 `compaction_start` / `compaction_end` 事件把进展透出来，产品侧不读它的结果、也不据此改 Context。
 

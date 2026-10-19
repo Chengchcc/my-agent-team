@@ -18,7 +18,7 @@ tags: [oma, runtime, models, runs]
 
 - `apps/oh-my-agent/src/cli/args.ts` — `CliMode`、usage、`--tools/--session/--model/--permission/--read-only`
 - `apps/oh-my-agent/src/main.ts` — 四模式分发
-- `apps/oh-my-agent/src/modes/{print-mode,json-mode}.ts`、`modes/rpc/rpc-mode.ts`、`modes/tui/tui-mode.ts`
+- `apps/oh-my-agent/src/modes/{print-mode,json-mode,shared}.ts`、`modes/acp/`、`modes/tui/`
 - `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — `createOmaRuntime` facade
 - `apps/oh-my-agent/src/core/runtime/run-runtime.ts` — `assembleRunRuntime`（工具表 / 模型接线 / 权限门 / 委派栈）
 - `apps/oh-my-agent/src/core/runtime/{loop-input,prompt,prompts}.ts` — seed、Meta 渲染、系统提示
@@ -34,10 +34,10 @@ tags: [oma, runtime, models, runs]
 |---|---|
 | `print` | 一次 Run，stdout 只有最终文本 |
 | `json` | 一次 Run，stdout 是全部事件的 JSONL，加恰好一行 outcome |
-| `rpc` | 每 Run 一次 execute，之后可接 steer / abort / resolve_approval；stdout 是 response / event / outcome |
+| `acp` | 每 Run 一个子进程，stdio 上跑 ACP（JSON-RPC/NDJSON）：prompt 之后可接 steer / abort / 审批答复。产品轨道只 spawn 这个模式 |
 | TUI | 交互式终端，独立启动，不是 backend 的执行路径 |
 
-产品走 rpc：严格 LF JSONL，stdout 只承载协议。print 与 json 的审批管道是"全拒"（`denyAllApprovals`）且没有 `askHandler`——它们无人可问。
+产品走 `acp`：stdio 上是 ACP 的 NDJSON，stdout 只承载协议。`rpc` 模式已经从 CLI 里删掉了（`CliMode` 只剩 print / json / tui / acp），steer 与审批答复现在走 ACP，不叫 rpc。print 与 json 的审批管道是"全拒"（`denyAllApprovals`）且没有 `askHandler`——它们无人可问。
 
 ## per-Run 状态
 

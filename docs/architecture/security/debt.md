@@ -60,14 +60,14 @@ P0 与 P1 全清。下面按主题记，每条都附实现位置，改坏了门�
 
 MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 spawn，`/tools/invoke` 连 body schema 都没有。这是 token 持有者等于宿主机 RCE 的那类问题。单管理员本地工具是既定设计，一旦引入第二个用户立刻不可辩护。
 
-同一条路还有两个问题：`GET /api/mcp-servers/:id` 明文返回 env 与 headers 里的凭据（读侧从不脱敏）；MCP 的 url server 挂载前**没有**过 SSRF guard。
+同一条路还有两个问题：`GET /api/mcp-servers/:id` 明文返回 env 与 headers 里的凭据（列表/创建/更新都脱敏了，只有单条读取漏）；MCP 的 url server 挂载前**没有**过 SSRF guard。
 
 ### 其他开放项
 
 | 问题 | 说明 |
 |---|---|
 | 沙箱超时与重试参数没有上限 | `timeoutMs` 收任意正数，retry 三个参数无界，长任务实际不可取消 |
-| provider 密钥明文落盘，文件权限 0644 | `dataDir`、`backend.db`、`backend/.env` 都没有收权限；全仓没有 chmod |
+| provider 密钥明文落盘 | 密钥仍是明文（这一条没变）。文件权限已经收了：`sqlite/db.ts` 每次开库都把 db 与 `-wal`/`-shm` 收到 `0600`（顺带修掉历史的 0644），新建的 dataDir 是 `0700`；但**已存在的目录不动**，所以旧 dataDir 自身的权限要人工确认一次。`.env` 与 gateway 的 secrets 文件是 `0600`。 |
 | grep 子进程继承全量父环境 | bash 有凭据剥离，rg 没有，凭据可经 `RIPGREP_CONFIG_PATH` 或 `--pre` 外溢 |
 | bash 可经 `/proc/<ppid>/environ` 读父进程环境 | bwrap 只 unshare 网络，没 unshare pid |
 | Seatbelt profile 写在 agent 可写的 `.oma/` 下 | 存在「写 profile → exec」的窗口 |
@@ -79,7 +79,6 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 | 输入队列路由忽略路径里的会话参数 | 跨会话可改别人的待投递输入 |
 | workflow / agent-config 的本地 MCP server 无鉴权 | 只绑 127.0.0.1；同机进程可枚举定义、往编辑器推提案 |
 | `/entries` 对 symlink 目录不做 realpath | `/file` 有，列表没有 |
-| SSE 没有连接上限，`idleTimeout: 0` | 每订阅还有 5 秒轮询，等于自我 DoS |
 | `infra/workspace.ts` 的模板目录无校验 | 当前是死代码 |
 | lark-bot 有几处遗留 | `--backend-auth-token` 走 argv（进程列表可见）、PID 复用判定、401 无退避重连、错误串未脱敏 |
 | 登录限流在全局桶上，且第 17 条已修但 XFF 未处理 | — |
@@ -91,7 +90,7 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 
 这些不是漏掉的，是当前威胁模型（单用户本地，[ADR 0026](../../adr/0026-agent-threat-model.md)）下接受的：
 
-- **无多租户**。21 张表没有租户列，鉴权是单进程共享 token。带 token 就能读全部数据、代答别人的审批。坚持单操作员模型的话，文档与启动提示要写清楚；一旦要多用户，得加 principal 列并逐 feature 过滤。
+- **无多租户**。25 张表没有租户列，鉴权是单进程共享 token。带 token 就能读全部数据、代答别人的审批。坚持单操作员模型的话，文档与启动提示要写清楚；一旦要多用户，得加 principal 列并逐 feature 过滤。
 - **MCP catalog 的 command 不校验就 spawn**。等价于已经接受的 bash 任意执行，增量是持久化并绕过了 oma 的权限门。
 - **MCP 凭据明文存在工作区文件里**。完整修复要后端侧的密钥注入链路。
 - **后端不校验 Host 与 Origin**。鉴权修好之后 DNS rebinding 拿不到 token，风险大幅降级；可以加 Host 白名单作为纵深防御。

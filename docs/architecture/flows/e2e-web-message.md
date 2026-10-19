@@ -6,36 +6,36 @@ tags: [runs, web, backend]
 
 # Web 消息端到端
 
-一句话：本页是 Web 端一条消息的权威端到端链路，从浏览器 POST 到 Web 收到 canonical 消息。人类行先落账本，随后一个事务完成入队、Context 引用同步与 run 创建，adapter 为这个 run spawn 一次性 oma 子进程，期间 Web 只看到 transient 事件流，终态 outcome 触发原子提交把 assistant 消息写回账本。
+一句话：本页是 Web 端一条消息的权威端到端链路，从浏览器 POST 到 Web 收到 canonical 消息。人类行先落账本，随后一个事务完成入队、Context 引用同步与 run 创建，dispatch 为这个 run spawn 一次性 harness 子进程（ACP），期间 Web 的实时面只有 AHP chat 状态，终态 outcome 触发原子提交把 assistant 消息写回账本。
 
 ## 范围
 
-覆盖：一次发送经过的每个边界（BFF、Conversation 服务、入队事务、dispatch、adapter spawn、run 事件流、终态提交、SSE 回推），以及失败矩阵与不变量。
+覆盖：一次发送经过的每个边界（BFF、Conversation 服务、入队事务、dispatch、ACP spawn、run 事件、终态提交、AHP 回推），以及失败矩阵与不变量。
 
 不覆盖：oma 子进程内部的 model 与 tool 循环（见 [oma 运行时](../runtime/oma.md)）、账本与 Agent Context 的完整语义（见 [Conversation History](../conversation/history.md)、[Agent Context](../agents/context.md)）、飞书侧差异（见 [飞书消息端到端](./e2e-lark-message.md)）。
 
 ## 实现文件
 
-- `apps/backend/src/features/conversation/http.ts` — `POST /api/conversations/:id/messages` 与 SSE 路由
-- `apps/backend/src/features/conversation/service.ts` — `postMessage`、`#triggerForAgent`、订阅与心跳
+- `apps/backend/src/features/conversation/http.ts` — `POST /api/conversations/:id/messages`
+- `apps/backend/src/features/conversation/service.ts` — `postMessage` 与 `#triggerForAgent`
 - `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 入队与取得 run 的唯一事务
 - `apps/backend/src/features/agent-run/execution-dispatch.ts` — 投影、`backend.execute`、终态结算
 - `apps/backend/src/features/agent-run/acp/acp-backend.ts` 与 `process.ts` — spawn 与 JSONL 命令
 - `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 终态提交事务
 - `apps/backend/src/bootstrap/features.ts` — `onRunCommitted` 的即时推送与 `onRunFailed` 的失败气泡
-- `apps/web/src/hooks/useConversation.ts` — 两条 SSE 的消费
+- `apps/web/src/hooks/useConversation.ts` — AHP 连接的消费（只有这一条实时源）
 
 ## 端到端步骤
 
 1. **发送**（`apps/web/src/features/conversations/hooks.ts` → `apps/web/src/lib/api.ts`）：`usePostConversationMessage` 组装 `{ content, mode, model }` 调 `api.postConversationMessage`，打到 BFF 的 `/api/bff/conversations/:id/messages`。`useConversation` 的 `send` 先派发乐观消息（id 为 `opt-<uuid>`，`seq = -1`）并把 `pendingSendCount` 加一；此时若有 run 在跑，请求带 `mode: "follow_up"`。
 2. **BFF**（`apps/web/src/lib/bff.ts`）：去掉路径首段的 `api`，拼成 `<backend>/api/conversations/:id/messages`，把 cookie 换成 `x-auth-token` 与 `x-user-id` 后转发。
-3. **写入人类行**（`apps/backend/src/features/conversation/service.ts` 的 `postMessage`）：先写账本再触发。人类 revision 的 `state` 固定为 `done`，`role` 为 `user`，messageId 由 `humanMessageId` 派生，`visibility` 写死 `conversation`。写入走 `#appendAndBroadcast`，它在同一处落库并通知该会话的 SSE 订阅者。
-4. **触发判定**：`trigger = agentId !== null && (addressedTo ?? [agentId]).includes(agentId)`。HTTP 层返回 202 加 `{ seq, triggeredRuns }`，未触发时 `triggeredRuns` 为空数组。
+3. **写入人类行**（`apps/backend/src/features/conversation/service.ts` 的 `postMessage`）：先写账本再触发。人类 revision 的 `state` 固定为 `done`，`role` 为 `user`，messageId 由 `humanMessageId` 派生，`visibility` 写死 `conversation`。写入走 `#appendEntry`，它只落库；推送是读侧的事——`onRunCommitted` 把结果交给 AHP chat writer，由它折进 chat 状态并对该频道发动��。
+4. **触发判定**：`resolveTrigger({ members, addressedTo })`（ADR 0041 的成员模型；单成员会话默认触发，多成员里没被 @ 到的只落账本）。HTTP 层返回 202 加 `{ seq, triggeredRuns }`，未触发时 `triggeredRuns` 为空数组。
 5. **取 run**（`#triggerForAgent`）：取该会话的默认分支，查分支上是否已有 active run，据此定 mode（有 live 子进程是 `steer`，dispatch 在途是 `follow_up`，只剩 DB 记录是僵尸则 abort 后走 `normal`）；CLI 后端的 steer 一律降级为 `normal`。随后调 `AgentRunService.enqueueAndAcquire`，它派生 `<key>:delivery` 与 `<key>:run` 两个幂等键。
 6. **入队与创建 run**（`apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts`，单个事务）：插一条 `branch_input_queue` 行（幂等键冲突时按 payload 判断是重放还是冲突），查分支上是否已有 active run，接着 CAS 分支 revision，读 `ledgerCursor` 之后且未 undone 的账本行，过滤掉 `visibility === "internal"` 与非 `message` 行，取最后 20 条，逐条插 `agent_context_entry(type = "ledger_message")`，推进 `ledgerCursor` 与 `leafEntryId`，创建 `status = "running"` 的 `agent_run`，把队列行标 `delivering`。
-7. **派发**（`#dispatchRun` → `execution-dispatch.ts`）：`assertModelAvailable` 先校验模型在 catalog 里可用，`claimInputForRun` 认领输入，`projectHistory` 做全量投影（没有增量 resume），按分支与 workspace 取锁，然后调 `backend.execute`。
+7. **派发**（`#dispatchRun` → `execution-dispatch.ts`）：先过 `budget_gate`（日预算封顶，超了直接以业务错误失败），再 `assertModelAvailable` 校验模型在 catalog 里可用，`claimInputForRun` 认领输入，`projectHistory` 做全量投影（没有增量 resume），按分支与 workspace 取锁，然后调 `backend.execute`。
 8. **spawn 子进程**（`apps/backend/src/features/agent-run/acp/acp-backend.ts`）：经 ACP SDK 的 stdio transport 起 harness CLI（cwd = workspace 根，白名单 env 加本次 run 的 product tools token），`initialize` → `session/new` → `set_config(model)` 后发 `prompt`。run handle 在 prompt 之前注册，steer 与 stop 才能立刻路由。
-9. **子进程期间**（agent-run 的事件流）：`event-mapping.ts` 把 ACP session update 映射成 `BackendEvent`，`execution-live.ts` 的 `forwardEvents` 广播给当前进程的订阅者。这条流不落库（只有 telemetry 类型会落 `agent_run_event`）。Web 的 per-run EventSource 打的是 `/api/bff/agent-runs/:runId/events`，事件名单见 [Web 端](../surfaces/web.md)。
+9. **子进程期间**（agent-run 的事件流）：`event-mapping.ts` 把 ACP session update 映射成 `BackendEvent`，`execution-live.ts` 的 `forwardEvents` 广播给当前进程的订阅者。这条流本身不落库（只有 telemetry 类型会落 `agent_run_event`）。Web 不订这条流：它读 AHP chat 状态（见 [Web 端](../surfaces/web.md)）。
 10. **终态**（`acp-backend.ts` settle 的 outcome 到 `execution-dispatch.ts` 的 `settleOutcome`）：prompt 返回即 harness 侧终态，backend 映射出 `BackendRunOutcome`。`status === "completed"` 进提交事务，其它终态广播一条 `status` 事件、调 `onRunFailed`、走 `finalizeRun`；`drive()` 收尾会 kill 活得比 Run 久的 harness 子进程。
 11. **原子提交**（`apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` 的 `commitCompletedRun`，单个事务）：只接受 `completed`，already-completed 直接返回（重放幂等），校验分支归属，用 `normalizeCanonicalMessages` 归一化后按 `(agent_run_id, message_index)` 一行一条写账本，assistant 的 messageId 由 `assistantMessageId(runId, n)` 生成且 `state` 固定 `done`，工具消息 id 形如 `run:<runId>:tool:<index>`，同时追加 `ledger_message` 引用、推进分支 leaf 与 revision、把 run 标 `completed`。
 12. **即时回推**（`apps/backend/src/bootstrap/features.ts` 的 `onRunCommitted`）：提交事务绕过 Conversation 服务直接写库，所以这里对每个提交的 seq 调 `notifySeq`，向在线订阅者立刻推一帧。没有这一步，canonical 消息要等 `subscribeConversation` 的 5 秒轮询兜底，表现为 run 流关闭后的一段空白帧。
