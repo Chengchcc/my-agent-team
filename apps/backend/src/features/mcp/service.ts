@@ -191,7 +191,11 @@ export function createMcpService(deps: {
     },
 
     getServer(serverId: string): McpServerRow {
-      return requireServer(serverId);
+      // The single-server HTTP read is the last place that handed raw env and
+      // headers back; list/create/update already mask, and the UI treats these
+      // as write-only (it never renders a stored value). Internal callers that
+      // need the real secrets go through requireServer / the mount path.
+      return maskRow(requireServer(serverId));
     },
 
     async getToolCatalog(serverId: string): Promise<{
