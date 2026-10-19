@@ -16,10 +16,10 @@ Conversation History 是一场对话里共同发生的事实，存在账本 `con
 
 ## 实现文件
 
-- `apps/backend/src/features/conversation/service.ts` — 除终态提交外的所有写入方，以及 SSE 流
+- `apps/backend/src/features/conversation/service.ts` — 除终态提交外的所有写入方
 - `apps/backend/src/features/conversation/adapter-sqlite.ts` — 账本读写、`undone`、搜索、预览
 - `apps/backend/src/features/conversation/ledger-codec.ts` — 存储层 kind 枚举
-- `apps/backend/src/features/conversation/http.ts` — REST 与 SSE 编码器
+- `apps/backend/src/features/conversation/http.ts` — REST 路由（没有 SSE：实时面是 AHP，见 [AHP host](../surfaces/ahp.md)）
 - `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 绕过 service 直接写账本的终态提交
 - `apps/backend/src/bootstrap/features.ts` — `onRunCommitted` 把提交的 seq 推给 chat 通道并落标题（标题由产品自己从**首个用户轮**推导，见下）；`onRunFailed` 落失败气泡
 - `apps/backend/src/features/conversation/title.ts` — 标题推导：剥掉产品前缀（锚定评论的 `[file L1-2]`、提醒横幅）、压平空白、按词边界截断
@@ -46,7 +46,7 @@ canonical 序列里包含工具消息（`run:<runId>:tool:<index>`），所以 t
 
 ## 顺序与恢复
 
-全局自增的 `seq` 就是共享顺序，所有读取都按 `seq` 升序。续读游标是 `afterSeq`，或者 SSE 的 `Last-Event-ID`。
+全局自增的 `seq` 就是共享顺序，所有读取都按 `seq` 升序。客户端不持有续读游标：实时面是 AHP 的 chat 频道，重连拿的是一份**快照**（状态）+ 其后的**动作**流，不是增量补发。
 
 ## 幂等
 
@@ -62,9 +62,9 @@ Context 引用的去重**不是**靠唯一键，而是提交事务里先按 `(tr
 
 ## 实时更新
 
-推送式：写入后通知订阅者，另有 5 秒的轮询兜底；连续三次静默轮询就发一次心跳，带 `seq: 0` 与 `_heartbeat`。终态提交是通过「回读那一行再通知」进入 SSE 的。
+账本本身不推动任何连接。写入之后由 **AHP 的 chat 频道**把变化送给订阅者：终态提交在 `onRunCommitted` 里把提交的 seq 交给 chat writer（`features/ahp/chat-writer.ts`），它把这些片段折进 chat 状态并对该频道发动作；客户端重连时拿到的是重建出的状态快照。
 
-通过 SSE 出去的事件只有三种 kind。`message` 行按 `MessageRevision` 解，其余 kind 作为 payload 走。
+曾经有过一条 SSE 线路（三种 kind、5 秒轮询兜底、`seq: 0` 心跳、`afterSeq` / `Last-Event-ID` 续读）——那条路线已经整体删掉了，仓库里没有 `text/event-stream` 路由，也没有 `EventSource` 消费者。`message` 行仍按 `MessageRevision` 解析，这一步没有变。
 
 ## 可见性
 

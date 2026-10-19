@@ -62,8 +62,8 @@ export interface ConvState {
   error: string | null;
   /** Number of sends that have been dispatched locally but not yet settled
    *  by the backend (HTTP POST in-flight). Decremented on mutation
-   *  onSettled (success OR error) - never tied to an agent reply; Run
-   *  activity is tracked separately in the hook's activeRuns set. */
+   *  onSettled (success OR error) - never tied to an agent reply; run
+   *  activity is tracked separately in the hook (a single activeRunId). */
   pendingSendCount: number;
   /** W7: Monotonic sequence number for client-generated message IDs. */
   optimisticSeq: number;

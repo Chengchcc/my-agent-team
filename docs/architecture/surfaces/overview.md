@@ -16,7 +16,7 @@ tags: [surfaces, web, lark, terminal]
 
 ## 实现文件
 
-- `apps/web/src/hooks/useConversation.ts` — Web 对话页的 AHP 连接、run 流（流规则提示与工作流进度）与 busy 推导
+- `apps/web/src/hooks/useConversation.ts` — Web 对话页的 AHP 连接、在飞轮次与 busy 推导（没有第二条流）
 - `apps/web/src/lib/chat-state.ts` — AHP chat 状态到列表与在飞轮次的映射
 - `apps/web/src/lib/conversation-reducer.ts` — Web 渲染状态机
 - `apps/web/src/features/coding/components/coding-page.tsx` — 终端页
@@ -27,7 +27,7 @@ tags: [surfaces, web, lark, terminal]
 
 ## 端拥有什么
 
-输入采集。Web 发送走 `usePostConversationMessage` → `api.postConversationMessage` → `POST /api/conversations/:id/messages`。飞书走 `spawn("lark-cli", … "event", "consume", …)` 的 stdout 行循环。
+输入采集。Web 发送走 `usePostConversationMessage` → `api.postConversationMessage` → `POST /api/conversations/:id/messages`。飞书走官方 `@larksuite/channel` 的长连接（`apps/lark-bot/src/main.ts` 的 `createLarkChannel`），不再有 `lark-cli event consume` 的行循环。
 
 渲染。Web 是 `conversation-reducer.ts` 加 `components/Timeline.tsx`。飞书是 `apps/lark-bot/src/ahp-delivery.ts` 的 `deliverText`，只出纯文本。
 
@@ -39,11 +39,11 @@ UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps
 
 ## 端不拥有什么
 
-账本真相。`conversation_ledger` 只有三个写入方：Conversation 服务的 `#appendAndBroadcast` 写人类消息、`undo` 与 `surface.control`，Agent Run 的 `commitCompletedRun` 写 assistant 与 tool 消息，`bootstrap/features.ts` 的 `onRunFailed` 写失败气泡。
+账本真相。`conversation_ledger` 只有三个写入方：Conversation 服务的 `#appendEntry` 写人类消息、`undo` 与 `surface.control`（它只 append，不做广播），Agent Run 的 `commitCompletedRun` 写 assistant 与 tool 消息，`bootstrap/features.ts` 的 `onRunFailed` 写失败气泡。广播是读侧的事：`onRunCommitted` 把提交结果交给 AHP chat writer。
 
-执行事实流真相在 `apps/backend/src/features/agent-run/execution-live.ts`：per-run 事件只广播给当前进程的订阅者，不落库，重连之后不保证重现。
+执行事实流真相在 `apps/backend/src/features/agent-run/execution-live.ts`：per-run 事件里**遥测类**（`status`、`native_tool_*`、`delegation_*` 等）会落进 `agent_run_event`，重连可回放；只有 text/thinking 的流式增量不入库。
 
-触发语义。`postMessage` 里 `trigger = (addressedTo ?? [agentId]).includes(agentId)`，mode 的三态推断也在同一处，端只能提诉求，不能决定。
+触发语义。`postMessage` 调 `resolveTrigger({ members, addressedTo })`（ADR 0041 的成员模型）：单成员会话是「默认就是它」，多成员会话里没被 @ 到的只落账本、不起 Run。mode 的三态推断也在同一处，端只能提诉求，不能决定。
 
 ## Web 与飞书的差异
 
@@ -51,11 +51,11 @@ UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps
 |---|---|---|
 | 身份 | 无映射，viewer 恒为 `"user"` | open_id → 本地 memberId 标签 |
 | 实时产出 | 订阅 AHP chat 频道，动作流驱动在飞轮次 | 订阅 AHP chat 频道，只发已成文的片段 |
-| 消耗的流 | AHP chat 频道，加每个 run 一条 run SSE（提示与 workflow 进度） | 每个绑定会话一条 AHP 连接 |
+| 消耗的流 | 只有 AHP chat 频道 | 每个绑定会话一条 AHP 连接 |
 | 最终产出 | 账本的 canonical 消息 | 账本终态行渲染成纯文本 |
 | 主要风险 | 乐观消息残留、临时气泡不替换 | 重连重放导致重复投递 |
 
-两端消费同一份契约：AHP 的 chat 频道，见 [AHP host](./ahp.md)。自研事件词汇与 SSE 端点正在退场，Web 还留着 run 流的两样（流规则提示、workflow 进度），飞书还留着跑动卡，这三处是 ADR 0040 的 S3 收尾项。
+两端消费同一份契约：AHP 的 chat 频道，见 [AHP host](./ahp.md)。自研事件词汇与 SSE 端点已经删净——两个端都只读 AHP（卡片由 chat 状态驱动，见 [飞书](./lark.md)）。
 
 ## 终端端
 

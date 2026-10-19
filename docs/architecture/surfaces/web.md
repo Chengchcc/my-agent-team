@@ -27,18 +27,21 @@ tags: [web, surfaces, terminal]
 
 ## 对话页的渲染模型
 
-`ConvState` 只有六个字段（`apps/web/src/lib/conversation-reducer.ts`）：
+`ConvState` 有九个字段（`apps/web/src/lib/conversation-reducer.ts`）：
 
 | 字段 | 含义 |
 |---|---|
 | `agent` | 本会话的 agent，`bootstrap` 时从 `ConversationSnapshot.agentId` 写入 |
-| `items` | 渲染列表，`UiItem` 是 `{kind:"message", id, sender, content, seq, undone?}` 或 `{kind:"notice", id, text}` |
+| `canonical` | AHP 投影给的条目，**每次状态都整体替换**（投影里没有的条目就此消失） |
+| `overlay` | 只在本地的条目（乐观发送、投影前的回声），canonical 出现同 id 时坍缩 |
+| `items` | 渲染列表 = canonical ∪ overlay，派生字段，从不直接写 |
+| `continuation` | 待处理的 AHP 控制（`SurfaceControl`）；`live` 表示来自实时动作，只有它会自动改绑，快照里带的只画「继续到…」链接 |
 | `streamConn` | `connecting` / `open` / `reconnecting` / `closed` |
 | `error` | 发送失败的文案 |
 | `pendingSendCount` | 已本地派发但还没 settled 的 POST 数 |
 | `optimisticSeq` | 客户端消息 id 的序号字段，目前只有声明与初值 `0` |
 
-reducer 的 action 名单是 `bootstrap`、`send`、`send/settled`、`conn`、`send/error`、`member`、`message`、`undo`。其中 `member` 只有类型没有分支，落进 `default` 被静默丢弃。
+reducer 的 action 名单是 `bootstrap`、`send`、`send/settled`、`conn`、`continuation`、`send/error`、`member`、`message`、`undo`、`items`。其中 `member` 只有类型没有分支，落进 `default` 被静默丢弃。
 
 三个纯函数决定渲染分组：
 
@@ -52,19 +55,7 @@ reducer 的 action 名单是 `bootstrap`、`send`、`send/settled`、`conn`、`s
 
 对话的实时状态来自 AHP：`apps/web/src/lib/ahp.ts` 经 BFF 取票、用共享传输连上 `/ws/ahp`，`initialize` 拿 chat 快照、订阅拿动作流，上游 `chatReducer` 折出状态，`useConversation.ts` 把它映射成列表与在飞轮次（`apps/web/src/lib/chat-state.ts`）。历史也在这条线上，刷新即得，没有游标要续；`_meta.seq`、`_meta.undone`、`_meta.messageId` 供撤销、分叉与去重使用（见 [AHP host](./ahp.md)）。
 
-run 流还剩两样用途，路径是 `/api/bff/agent-runs/:runId/events`（来自 `sseEndpoints.agentRunEvents`），每个 run 一条 EventSource：
-
-| 事件名 | 用途 |
-|---|---|
-| `status` | 终态判定：`completed` 收尾，`failed` / `aborted` / `timeout` 挂错误 pill |
-| `backend.oma.stream_rule_triggered` | 推一条「规则命中，输出丢弃重试」的提示 |
-| `delegation_batch_started` / `delegation_agent_started` / `delegation_agent_completed` / `delegation_batch_completed` | workflow 进度面板 |
-
-流规则提示与 workflow 进度还没有投进 AHP，所以这两样仍走 run 流，属于 ADR 0040 的 S3 收尾项。
-
-注册表里还有 `delegation_batch_failed`，Web 不订阅（`packages/api-contract/src/sse.ts`）。
-
-本地发送之外的 run 靠追踪补上：每 2 秒轮询 `api.listAgentRuns({ conversationId })`，对 `running`、`waiting`、`commit_failed` 且还没开流的 run 调 `watchRun`。
+**没有第二条流可走**：run 级的 SSE 端点（`/api/bff/agent-runs/:runId/events`）、它的消费端（`EventSource` / `watchRun` / 2 秒轮询）以及 `packages/api-contract` 的 `sseEndpoints` 已经整体删掉。终态、审批（AHP 的 `inputRequest` 片段）与排队输入都从 chat 状态读，见上一节。
 
 ## busy 的推导
 
@@ -76,7 +67,7 @@ export function isBusy(s: ConvState): boolean {
 }
 ```
 
-hook 层再并上在跑的 run 集合：`busy = isBusy(state) || activeRuns.size > 0`。`activeRuns` 里的 runId 在终态事件到达、流被关闭或用户切换会话时清空。发送时若 `isBusy(state) || activeRuns.size > 0`，请求带 `mode: "follow_up"`，进入排队而不是当作 steer 注入。
+hook 层再并上「有没有在飞的轮次」：`busy = isBusy(state) || activeRunId !== null`，`activeRunId` 来自 AHP 的 `activeTurn`（切换会话即重算）。发送时若 busy，请求带 `mode: "follow_up"`，进入排队而不是当作 steer 注入。
 
 头部标签（`apps/web/src/components/ConversationCanvas.tsx`）按优先级取：有 `state === "waiting"` 的 agent 消息显示 "Awaiting approval"；最近一条 agent 消息带 `runStatus` 时显示 "Retrying…" 或 "Compacting context…"；否则 busy 时显示 "Running"。
 
@@ -86,7 +77,7 @@ hook 层再并上在跑的 run 集合：`busy = isBusy(state) || activeRuns.size
 
 ## 错误与断线展示
 
-`streamConn` 为 `reconnecting` 或 `closed` 时顶部出现一条提示条，`closed` 时附一个 Reconnect 按钮（整页重载）。`state.error` 非空时出现错误条，带 Retry 按钮，重发上一条人类消息。busy 且有活跃 run 时头部出现 stop 与 abort，它们调 `api.cancelAgentRun(currentRunId)`；`currentRunId` 取自 `activeRuns` 集合，不从消息状态推断。
+`streamConn` 为 `reconnecting` 或 `closed` 时顶部出现一条提示条，`closed` 时附一个 Reconnect 按钮（整页重载）。`state.error` 非空时出现错误条，带 Retry 按钮，重发上一条人类消息。busy 且有活跃 run 时头部出现 stop 与 abort，它们调 `api.cancelAgentRun(currentRunId)`；`currentRunId` 就是 hook 从 AHP `activeTurn` 拿到的 `activeRunId`，不从消息状态推断。
 
 ## Coding 页（worktree 终端）
 
@@ -125,12 +116,11 @@ worktree 双轴：主 worktree 是 `(agent × project)` 的 attach 产物，缺�
 
 ## 已知缺口
 
-- "Awaiting approval" 标签等不到输入：后端只写 `state` 为 `done` 与 `error` 的账本消息，`waiting` 分支事实上是死代码；真正的审批入口是 run 流的 `approval_requested` 卡片。
+- "Awaiting approval" 标签等不到输入：后端只写 `state` 为 `done` 与 `error` 的账本消息，`waiting` 分支事实上是死代码；真正的审批入口是 AHP chat 状态里的 `inputRequest` 片段（`chat-state.ts` 映射成 approval/ask，进 hook 的 transients）。
 - reducer 的 `member` action 没有分支，任何 `member` 派发都会被静默丢弃。
 - notice 只能由 `role: "system"` 的账本消息产生，而当前没有这样的写入方。
 - `apps/web/src/lib/revision-render.ts` 仍然导出 `isOpenMessageState`，全仓没有消费者。
 - `optimisticSeq` 没有读写方：`send` 用的是 `crypto.randomUUID()` 生成的 `opt-<uuid>`。
-- 发送后只有在 `triggeredRuns` 里 `queued === false` 的 run 才会被追踪；排队的输入要等轮询或下一次终态才有流。
 
 ## 相关页
 
