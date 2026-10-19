@@ -5,17 +5,12 @@ export type {
   AgentContextTree,
   ContextBranch,
   LedgerMessageEntry,
-  ModelChangeEntry,
-  PrivateMessageEntry,
   ProductSummaryEntry,
-  ProductToolExchangeEntry,
 } from "./domain.js";
 export {
   AgentContextNotFoundError,
   ContextBranchNotFoundError,
   ContextRevisionConflictError,
-  InvalidContextEntryError,
-  validateEntry,
 } from "./domain.js";
 export type {
   AgentContextPort,

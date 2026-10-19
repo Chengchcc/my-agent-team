@@ -29,7 +29,7 @@ Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对�
 
 树由 `idx_context_tree_conversation` 保证每个对话一棵，没有按成员的维度。
 
-条目类型声明了五种：`ledger_message | private_message | product_tool_exchange | summary | model_change`。
+条目类型只有两种：`ledger_message | summary`。（另外三种——`private_message`、`product_tool_exchange`、`model_change`——从来没有写入方，2026-10-19 连同端口、服务、适配器与测试一起删掉了。换模型的产品入口是会话输入框上的 `ModelPicker`，它是可见的；分支级隐形 pin 与「换模型必须可见」的规矩冲突。）
 
 **生产里只写 `ledger_message` 一种。** 写入方分别是取 Run 时的同步、终态提交、`history_retain`，以及通用的 `appendEntry`（只有测试在调）。
 
@@ -43,14 +43,13 @@ Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对�
 
 - 遇到 summary 条目就替代它覆盖的那些条目；
 - 账本引用要经 resolver 解析，引用缺失即抛错；
-- summary 与 product_tool_exchange 生成 `visibility: "internal"` 的消息；
-- `model_change` 不产生历史条目。
+- summary 生成 `visibility: "internal"` 的消息。
 
 每次派单调用一次。这条路径的前提就是「每次 Run 都从完整投影重建」，不做增量续接。
 
 ## 生效模型
 
-生效模型在取 Run 的事务里算出来：从叶子往根找最后一条 `model_change`。`resolveEffectiveModel` 这个方法只有测试在用。
+生效模型就是调用方解析出来的那个：agent 配置，或者会话输入框里显式选的覆盖（`model` 字段）。取 Run 不再沿分支向上找任何东西——分支上没有模型状态。
 
 ## 分支与后端种类
 
@@ -75,8 +74,6 @@ Agent Context 是某个 Agent 实际消费和保留的语义历史。每个对�
 - **`forkBranch`**：唯一的非测试调用方是后端种类切换（agent 换 kind 时把新分支钉成默认）。它不需要产品入口。
 - ~~**硬回退**~~（2026-10-16 删除）：`moveBranchLeaf` 是零调用方的原语（只有测试在调）。产品侧的问法已经由另外两条路回答了——`/api/conversations/:id/undo` 是墓碑式软撤销（账本项标 `undone` + 追加一条 `undo` 项），`/fork` 与 `/replay` 是新建会话。留一条没人调的硬回退等于投机性灵活，故连端口、服务、适配器与测试一起删掉；将来真要「原地回到某点」（比如 replay 不再新建会话）再写回来很便宜。
 - **summary**：`appendSummary` 没有调用方，投影里的 summary 分支在生产不可达；对话的 `/compact` 与 `/clear` 都是显式空操作。
-- **`private_message` 与 `product_tool_exchange` 条目**：没有写入方。
-- **`model_change` 条目**：没有写入方（生效模型是另算的）。
 - **`resolveEffectiveModel`**：只有测试调用。
 
 ## 不变量

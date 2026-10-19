@@ -172,7 +172,7 @@ describe("Agent Run service", () => {
     expect(result2.queued).toBe(true);
   });
 
-  test("model change affects next run snapshot", async () => {
+  test("the run uses the model the caller resolved", async () => {
     const { conversationId, agentId } = freshFixture("s3");
     // First run
     const r1 = await runService.enqueueAndAcquire({
@@ -190,21 +190,15 @@ describe("Agent Run service", () => {
     // Terminal the first run
     await runService.finalizeRun(r1.run!.runId, { status: "completed" });
 
-    // Change model on the branch
-    const branch = await ctxService.getOrCreateDefaultBranch(conversationId, "oma");
-    await ctxService.changeModel(branch.branchId, branch.revision, {
-      backendKind: "oma",
-      modelId: "model-b",
-    });
-
-    // Second run should use the new model
+    // The next run uses whatever the caller resolved (agent config or the
+    // composer's per-message override) - there is no branch-pinned model.
     const r2 = await runService.enqueueAndAcquire({
       conversationId,
       agentId,
       backendKind: "oma",
       mode: "normal",
       message: { role: "user", text: "second" },
-      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      defaultModel: { backendKind: "oma", modelId: "model-b" },
       configRevision: 1,
       idempotencyKey: `key-s3-2`,
     });

@@ -76,16 +76,17 @@ describe("Agent Context: entry append and CAS", () => {
     const result = await ctx.appendEntry({
       branchId: branch.branchId,
       expectedRevision: 1,
-      type: "private_message",
+      type: "ledger_message",
       parentId: null,
-      payload: { message: { role: "user", text: "private note" } },
+      payload: {},
+      ledgerSeq: 1,
     });
     expect(result.branch.revision).toBe(2);
     expect(result.branch.leafEntryId).toBe(result.entryId);
 
     const entries = await ctx.listEntriesToLeaf(branch.branchId);
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.type).toBe("private_message");
+    expect(entries[0]?.type).toBe("ledger_message");
   });
 
   test("appendEntry CAS conflict throws", async () => {
@@ -96,9 +97,10 @@ describe("Agent Context: entry append and CAS", () => {
     await ctx.appendEntry({
       branchId: branch.branchId,
       expectedRevision: 1,
-      type: "private_message",
+      type: "ledger_message",
       parentId: null,
-      payload: { message: { role: "user", text: "first" } },
+      payload: {},
+      ledgerSeq: 2,
     });
 
     // Try to append with stale revision
@@ -106,9 +108,10 @@ describe("Agent Context: entry append and CAS", () => {
       ctx.appendEntry({
         branchId: branch.branchId,
         expectedRevision: 1,
-        type: "private_message",
+        type: "ledger_message",
         parentId: null,
-        payload: { message: { role: "user", text: "second" } },
+        payload: {},
+        ledgerSeq: 3,
       }),
     ).rejects.toThrow(ContextRevisionConflictError);
   });
@@ -184,9 +187,10 @@ describe("Agent Context: fork", () => {
     const r1 = await ctx.appendEntry({
       branchId: branch.branchId,
       expectedRevision: 1,
-      type: "private_message",
+      type: "ledger_message",
       parentId: null,
-      payload: { message: { role: "user", text: "orig" } },
+      payload: {},
+      ledgerSeq: 4,
     });
 
     const { branch: forked } = await ctx.forkBranch({
@@ -215,9 +219,10 @@ describe("Agent Context: fork", () => {
     const r1 = await ctx.appendEntry({
       branchId: branch.branchId,
       expectedRevision: 1,
-      type: "private_message",
+      type: "ledger_message",
       parentId: null,
-      payload: { message: { role: "user", text: "orig" } },
+      payload: {},
+      ledgerSeq: 5,
     });
 
     const { branch: forked } = await ctx.forkBranch({

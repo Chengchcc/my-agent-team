@@ -324,7 +324,7 @@ export const agentContextEntry = sqliteTable(
       .references(() => agentContextTree.treeId, { onDelete: "cascade" }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- self-referencing FK requires any
     parentId: text("parent_id").references((): any => agentContextEntry.entryId),
-    type: text().notNull(), // ledger_message | private_message | product_tool_exchange | summary | model_change
+    type: text().notNull(), // ledger_message | summary
     payload: text().notNull(), // JSON: type-specific payload
     ledgerSeq: integer("ledger_seq"), // only for ledger_message
     createdAt: integer("created_at", { mode: "number" }).notNull(),

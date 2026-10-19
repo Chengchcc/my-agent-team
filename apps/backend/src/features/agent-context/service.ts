@@ -1,11 +1,4 @@
-import type { Message } from "@chengchenccc/message";
-import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
-import {
-  type AgentContextEntry,
-  type ContextBranch,
-  type ModelChangeEntry,
-  validateEntry,
-} from "./domain.js";
+import type { AgentContextEntry, ContextBranch } from "./domain.js";
 import type { AgentContextPort, IdGenerator, LedgerMessageResolver } from "./ports.js";
 
 export interface AgentContextServiceDeps {
@@ -24,30 +17,11 @@ export interface AgentContextService {
     agentId?: string,
   ): Promise<ContextBranch>;
 
-  appendPrivateMessage(
-    branchId: string,
-    expectedRevision: number,
-    message: Message,
-  ): Promise<{ branch: ContextBranch; entryId: string }>;
-
-  appendProductToolExchange(
-    branchId: string,
-    expectedRevision: number,
-    toolName: string,
-    callResult: Readonly<Record<string, unknown>>,
-  ): Promise<{ branch: ContextBranch; entryId: string }>;
-
   appendSummary(
     branchId: string,
     expectedRevision: number,
     summary: string,
     coversThroughEntryId: string,
-  ): Promise<{ branch: ContextBranch; entryId: string }>;
-
-  changeModel(
-    branchId: string,
-    expectedRevision: number,
-    model: BackendModelRef,
   ): Promise<{ branch: ContextBranch; entryId: string }>;
 
   forkBranch(
@@ -67,8 +41,6 @@ export interface AgentContextService {
   /** Record the branch's CLI session reference (ADR 0019). */
   updateBranchCliSessionRef(branchId: string, cliSessionRef: string): Promise<ContextBranch | null>;
 
-  resolveEffectiveModel(branchId: string, defaultModel: BackendModelRef): Promise<BackendModelRef>;
-
   listEntriesToLeaf(branchId: string): Promise<AgentContextEntry[]>;
 }
 
@@ -79,31 +51,6 @@ export function createAgentContextService(deps: AgentContextServiceDeps): AgentC
     async getOrCreateDefaultBranch(conversationId, backendKind, agentId) {
       const tree = await port.getOrCreateTree(conversationId, agentId);
       return port.getOrCreateDefaultBranch(tree.treeId, backendKind);
-    },
-
-    async appendPrivateMessage(branchId, expectedRevision, message) {
-      const branch = await port.getBranch(branchId);
-      if (!branch) throw new Error(`Branch not found: ${branchId}`);
-      const result = await port.appendEntry({
-        branchId,
-        expectedRevision,
-        type: "private_message",
-        parentId: branch.leafEntryId,
-        payload: { message },
-      });
-      return result;
-    },
-
-    async appendProductToolExchange(branchId, expectedRevision, toolName, callResult) {
-      const branch = await port.getBranch(branchId);
-      if (!branch) throw new Error(`Branch not found: ${branchId}`);
-      return port.appendEntry({
-        branchId,
-        expectedRevision,
-        type: "product_tool_exchange",
-        parentId: branch.leafEntryId,
-        payload: { toolName, callResult },
-      });
     },
 
     async appendSummary(branchId, expectedRevision, summary, coversThroughEntryId) {
@@ -126,28 +73,6 @@ export function createAgentContextService(deps: AgentContextServiceDeps): AgentC
       });
     },
 
-    async changeModel(branchId, expectedRevision, model) {
-      const branch = await port.getBranch(branchId);
-      if (!branch) throw new Error(`Branch not found: ${branchId}`);
-      validateEntry(
-        {
-          type: "model_change",
-          entryId: "pending",
-          parentId: branch.leafEntryId,
-          model,
-          createdAt: Date.now(),
-        },
-        branch.backendKind,
-      );
-      return port.appendEntry({
-        branchId,
-        expectedRevision,
-        type: "model_change",
-        parentId: branch.leafEntryId,
-        payload: { model },
-      });
-    },
-
     async forkBranch(branchId, expectedRevision, fromEntryId, backendKind) {
       return port.forkBranch({
         sourceBranchId: branchId,
@@ -163,18 +88,6 @@ export function createAgentContextService(deps: AgentContextServiceDeps): AgentC
 
     async updateBranchCliSessionRef(branchId, cliSessionRef) {
       return port.updateBranchCliSessionRef(branchId, cliSessionRef);
-    },
-
-    async resolveEffectiveModel(branchId, defaultModel) {
-      const entries = await port.listEntriesToLeaf(branchId);
-      // Find the last model_change entry
-      for (let i = entries.length - 1; i >= 0; i--) {
-        const entry = entries[i];
-        if (entry?.type === "model_change") {
-          return (entry as ModelChangeEntry).model;
-        }
-      }
-      return defaultModel;
     },
 
     async listEntriesToLeaf(branchId) {

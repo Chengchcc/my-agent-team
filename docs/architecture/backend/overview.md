@@ -47,7 +47,7 @@ Product Backend 拥有全部产品事实和执行控制面。执行链只有一�
 8. 过滤可见性（`kind = 'message'` 且 `visibility != 'internal'`）；
 9. 取**最后 20 条**，按顺序追加 Context 引用；
 10. 推进 `ledgerCursor` 与 `leafEntryId`；
-11. 从叶子往根找最后的 `model_change`，定出本次生效的模型；
+11. 生效模型取调用方解析好的那个（agent 配置，或会话输入框显式选的覆盖）——分支上没有模型状态；
 12. 插 `agent_run` 行，输入转 `delivering` 并绑上 runId。
 
 第 9 步的「最后 20 条」是硬编码，不是可配置的预算。
