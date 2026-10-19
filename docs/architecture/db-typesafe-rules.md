@@ -38,10 +38,10 @@ drizzle 表定义一旦和 service 层各写一份，编译器就看不见两边
 
 迁移由 `bash scripts/gen-drizzle.sh` 生成（`predev.sh` 在 journal 缺失时会调用它），**迁移文件提交进版本库**：CI 跑同一个脚本核对 schema 与迁移是否同步，不同步即红。
 
-手写迁移时必须用带箭头的断点：
+手写迁移时必须用带箭头的断点（drizzle 只认这个形状）：
 
 ```sql
--- statement-breakpoint
+--> statement-breakpoint
 ```
 
 drizzle 的 `readMigrationFiles` 按这个带箭头的标记切分语句；写成不带箭头的 `-- statement-breakpoint` 时它**不会切分**，而 `bun:sqlite` 的 prepare 只执行第一条，后续语句被静默丢弃，`migrate()` 既不报错也照常记录 hash。历史上就是这样丢过两条语句和一个索引，最后靠 `0039_repair_plain_breakpoint_drops.sql` 幂等补齐。

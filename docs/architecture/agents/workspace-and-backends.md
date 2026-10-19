@@ -6,7 +6,7 @@ tags: [backend, mcp, skills, project]
 
 # Agent 工作区与多后端
 
-一句话：本页是 Agent 工作区的权威描述。Agent 的配置、技能、身份与记忆都是工作区文件（`agent.yml` / `AGENTS.md` / `SOUL.md` / `USER.md` / `.<kind>/skills` / `.mcp.json` / `.oma/product-tools.json` / `knowledge/index.md`），Product Backend 用 Workspace Bridge 幂等桥接它们；运行时四个后端可切换，各自用自己的原生 session 续接，产品只存一个不透明引用。
+一句话：本页是 Agent 工作区的权威描述。Agent 的配置、技能、身份与记忆都是工作区文件（`agent.yml` / `AGENTS.md` / `SOUL.md` / `USER.md` / `.<kind>/skills` / `.mcp.json` / `.oma/product-tools.json` / `knowledge/index.md`），Product Backend 用 Workspace Bridge 幂等桥接它们；运行时只有一个后端 kind（`acp`），但可以切四个 **harness**（oma / claude / omp / pi），各自用自己的原生 session 续接，产品只存一个不透明引用。
 
 ## 范围
 
@@ -108,14 +108,14 @@ hide: true        # 仍然可读可搜，只是不进注入的索引
 
 每个 Run 一个一次性子进程，kind 决定用什么参数、怎么续上下文（参数细节见 [Agent Backend](../execution/agent-backend.md)）：
 
-| kind | 原生配置读取 | session 续接 |
+| harness | 原生配置读取 | session 续接 |
 |---|---|---|
 | `oma` | cwd 的 `AGENTS.md` / `SOUL.md` / `USER.md` 与 `.oma/skills` | 自己的 session 文件，引用经 `cliSessionRef` 传入传出 |
 | `claude_code` | cwd 项目配置，MCP 经 `--mcp-config` | `--resume <sessionId>` |
 | `pi` | cwd 项目配置，MCP 经 `pi-mcp-adapter` 扩展 | `--session <ref>` |
 | `omp` | cwd 的 `.mcp.json` | `-r <ref>` |
 
-- session 不按 kind 分目录、不共享。产品只存一个不透明引用（context branch 上的 `cli_session_ref`），输入时透传、outcome 回写；切 kind 等于换一个新 session。
+- session 不按 harness 分目录、不共享。产品只存一个不透明引用（context branch 上的 `cli_session_ref`），输入时透传、outcome 回写；**换 harness 等于换一个新会话**。注意 `cli_session_ref` 的种类前缀现在恒为 `acp`，所以「切 kind 必换 session」那层保护对换 harness 已经失效——换 harness 时必须显式当作新会话处理。
 - 分支还没有 session 引用时，首轮上下文由产品侧拍成 flat text 塞进输入消息（见 [Agent Backend](../execution/agent-backend.md)）。
 - 只有 READY 状态的 pack 与恒有的 builtin 技能目录会进 Run 的 `skillRoots`，在 Run 创建时冻结。
 

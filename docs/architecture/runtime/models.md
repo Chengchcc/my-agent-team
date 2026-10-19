@@ -44,7 +44,7 @@ API 实现按 `api` 字段分派，三个内置实现分别在模块加载时自
 
 ## 内置 catalog
 
-`BUILTIN_CATALOG` 内联在代码里，六个 provider，每个带自己的 `api`、`baseUrl`、`apiKeyEnv`：
+`BUILTIN_CATALOG` 内联在代码里，七个 provider（含 `zai`，走 GLM Coding Plan 的 base），每个带自己的 `api`、`baseUrl`、`apiKeyEnv`：
 
 | provider | api | apiKeyEnv |
 |---|---|---|
@@ -103,11 +103,11 @@ provider 注册时就要求有凭证：`registerProvidersFromCatalog` 逐个解�
 
 `baseUrl` 也有一个特例：`ANTHROPIC_BASE_URL` 覆盖 spec 里的值；解析出来的 URL 末尾如果不是 `/v1` 会自动补上。
 
-产品侧的 provider 键管理（`features/provider/`）只做一件事：把用户填的密钥和 baseUrl 存进 settings，然后以 env 的形式交给 spawn 的子进程。内置五个键（anthropic / openai / deepseek / groq / openrouter）可以按 id 设置；此外还有一组"按名字添加"的自定义键，供 `models.yml` 里声明了 `apiKeyEnv` 的 provider 使用，键名形状约束为 `^[A-Z][A-Z0-9_]*_API_KEY$`。显式添加的键压过同名的内置键。值不回浏览器。
+产品侧的 provider 键管理（`features/provider/`）只做一件事：把用户填的密钥和 baseUrl 存进 settings，然后以 env 的形式交给 spawn 的子进程。内置六个键（anthropic / openai / deepseek / zai / groq / openrouter）可以按 id 设置——`KNOWN_PROVIDERS` 与目录由 `provider-drift.test.ts` 钉住，两边不一致就红；此外还有一组"按名字添加"的自定义键，供 `models.yml` 里声明了 `apiKeyEnv` 的 provider 使用，键名形状约束为 `^[A-Z][A-Z0-9_]*_API_KEY$`。显式添加的键压过同名的内置键。值不回浏览器。
 
 凭证进入模型层后只经 `ProviderAuth` 传给 provider，`CredentialStore`（可选）在每次请求时解析，provider 不缓存。
 
-## 模型目录的四个来源
+## 模型目录的两个来源
 
 | kind | 来源 |
 |---|---|
@@ -158,7 +158,7 @@ oma 交给产品的目录只含 id、显示名、reasoning、输入模态、上�
 ## 已知缺口
 
 - `BackendModel.available` 在 oma 侧恒定是 `true`（目录里能出现就说明 provider 已注册），所以这个字段目前不携带信息。
-- `claude_code` / `pi` / `omp` 的目录是静态表，与 CLI 实际支持的模型可能脱节。
+- `claude_code` / `pi` / `omp` 的模型清单来自各自的 ACP 会话声明（`/api/harnesses` 单列），不再是包内静态表；它们与 CLI 实际能力仍可能脱节。
 - `models.yml` 的解析器是极简实现（只支持本文件用到的形状），写复杂 YAML 会静默读不到字段。
 - 产品侧只能管密钥与 baseUrl；`api` / `headers` / 模型定义仍然只能写 `models.yml`。
 
