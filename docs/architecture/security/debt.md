@@ -105,10 +105,12 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 一旦要离开回环地址，下面这些是准入门槛而不是事后补丁：
 
 1. bash 的网络白名单（当前只有全断或全开）；
-2. MCP 的 env 与 headers 加密存储，以及 url server 挂载前过 SSRF guard；
+2. MCP 的 env 与 headers 加密存储（**url server 的 SSRF guard 已完成**，见下）；
 3. native 工具的细粒度 allow-rules 权限系统。
 
-两条已经从门槛里划掉（2026-10-19 逐行核过代码）：
+**MCP url server 的 SSRF guard 已完成（2026-10-19）。** 挂载前在 `@chengchenccc/adapter-mcp` 的 `assertSafeMcpUrl` 里校验：只收 `http(s)`；**metadata 地址永远拒绝**（`169.254.169.254`、`100.100.100.200`、`metadata.google.internal`，以及 **DNS 解析到它们**的主机名）；**私网/回环按部署位置决定**——后端监听回环时允许（产品自己的 MCP server 就是 `127.0.0.1`），监听非回环时拒绝。检查放在连接处而不是保存处，因为主机名可以在保存之后开始解析到内网。**仍然待做的是加密存储**，而且它得先回答「密钥放哪」：把密钥和密文放在同一个 SQLite、同一台机器上，等于只是换了层编码。
+
+其余已从门槛里划掉的两条（2026-10-19 逐行核过代码）：
 
 - **「URL guard 校验解析后的 IP」**：已交付，`web_fetch` 的首跳与每次 3xx 都重跑 deep guard。
 - **「移除 mock 登录表面」**：**没有免密登录路径**了。`apps/web/src/lib/auth.ts` 的 `login()` 永远要密码——后端存过密码就验 argon2id verifier，没存过（或后端不可达）才用部署期 bootstrap 密码，且未配置时是 **fail-closed** + 只给本机打印一次随机逃生口令；`getSession()` 只做 HMAC 校验。剩下的两个 `MOCK_*` 只是**命名**在骗人：`MOCK_USER_ID` 实际是单用户模型的固定身份（`user-001`），`MOCK_PASSWORD` 实际是部署期 bootstrap 密码（首次启动被采纳成 argon2id，之后不再生效）。**刻意不改名**：改了会让现有部署的 `.env` 失配、触发 fail-closed 直接锁死，风险大于收益。真正留给网络化部署的是它背后的模型——一个共享密码、一个身份，这一点已经写在下面「无多租户」那条里。

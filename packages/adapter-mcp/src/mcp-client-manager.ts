@@ -6,6 +6,7 @@ import type {
   McpServerConfig,
   McpToolCatalogEntry,
 } from "./types.js";
+import { assertSafeMcpUrl } from "./url-guard.js";
 
 export type { McpToolCatalogEntry } from "./types.js";
 
@@ -27,7 +28,15 @@ export interface McpClientManager {
   restart(serverId: string): Promise<void>;
 }
 
-export function createMcpClientManager(): McpClientManager {
+export interface McpClientManagerOptions {
+  /** Whether a url server may point at loopback/private space. Local,
+   *  single-operator deployments say yes (the product's own MCP servers are
+   *  127.0.0.1); a backend reachable off-host must say no - there a private
+   *  target is an SSRF. Metadata endpoints are refused either way. */
+  readonly allowPrivateHosts?: boolean;
+}
+
+export function createMcpClientManager(opts: McpClientManagerOptions = {}): McpClientManager {
   const connections = new Map<string, McpConnectionEntry>();
   const agentServers = new Map<string, Set<string>>();
   return {
@@ -60,7 +69,12 @@ export function createMcpClientManager(): McpClientManager {
           });
         } else {
           const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
-          clientTransport = new SSEClientTransport(new URL(config.url!));
+          // The url is fetched by this process: vet it where DNS is fresh, not
+          // only when it was saved (a hostname can start resolving inward).
+          const serverUrl = await assertSafeMcpUrl(config.url!, {
+            allowPrivate: opts.allowPrivateHosts ?? true,
+          });
+          clientTransport = new SSEClientTransport(serverUrl);
         }
 
         const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
