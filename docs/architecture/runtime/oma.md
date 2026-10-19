@@ -136,13 +136,13 @@ interface AutocompleteProvider {
 1. provider 拿的是行数组加光标坐标，返回候选集加**正在匹配的前缀串**。`prefix` 决定接受补全时替换哪一段，所以补全可以发生在行中间而不破坏前后文。
 2. `CombinedAutocompleteProvider` 按优先级分流：行首或行中的 `/token` 走 slash 命令（命中后交给该命令自己的 `getArgumentCompletions`）；`@` 前缀走文件引用；其余走路径前缀补全。`signal` 让昂贵 provider 在光标移开后立刻中止。
 
-同一文件里另有 2 秒 TTL 的缓存，那是**状态栏的 git 状态**（分支名加脏文件数）用的，不是目录列表缓存——`setBusy()` 每次回车都会读它，同步跑 `git status` 会卡住渲染。
+那个 2 秒 TTL 的 git 状态缓存（分支名加脏文件数）不在补全文件里，在 `apps/oh-my-agent/src/modes/tui/tui-format.ts`（`GIT_TTL_MS = 2_000`）：`setBusy()` 每次回车都会读它，同步跑 `git status` 会卡住渲染。
 
 TUI 的路径显示统一走 `formatWorkspace(root, maxLen = 48)`：`$HOME` 先折成 `~`，超预算则**中间省略**（从中间向外丢整段，保留头锚点与尾部段名，单段太长时退化为 `head…tail`）。项目 worktree 的 `<projectId>.<slug>` 尾巴很容易把行撑爆，省略是默认行为。
 
 ## 事件与终态
 
-子进程把 Runtime 事件包成 `RunEventEnvelope` 发到 stdout；adapter 用自己的映射（`apps/backend/src/features/agent-run/acp/event-mapping.ts`）转成 `BackendEvent` 与 `BackendRunOutcome`，child 侧的 `protocol/mapping.ts` 是另一份独立实现——两份不是同源，见 [Agent Backend](../execution/agent-backend.md)。`agent_end.status` 映射为 completed / failed，stopped 映射为 aborted。outcome 是唯一终态权威。
+子进程把 Runtime 事件包成 `RunEventEnvelope` 发到 stdout；adapter 用自己的映射（`apps/backend/src/features/agent-run/acp/event-mapping.ts`）转成 `BackendEvent` 与 `BackendRunOutcome`，child 侧的对偶映射是 `apps/oh-my-agent/src/modes/acp/acp-mode.ts` 的 `mapWireEvent`（ACP 轨），`protocol/mapping.ts` 只服务 `createOmaRuntime` 的进程内 segment——两份不是同源，见 [Agent Backend](../execution/agent-backend.md)。`agent_end.status` 映射为 completed / failed，stopped 映射为 aborted。outcome 是唯一终态权威。
 
 ## 不变量
 

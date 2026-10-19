@@ -6,7 +6,7 @@ tags: [backend, runs, runtime]
 
 # Agent Backend
 
-一句话：本页是 Agent Backend 的权威描述。它是 Product Backend 与执行引擎之间唯一的 Run 级协议边界，产品侧只依赖 `execute / steer / resolveApproval? / stop / dispose` 五个方法；唯一 kind `acp` 经 ACP SDK spawn harness 子进程，harness 轴（claude / omp / pi）由 model ref 的 `harness` 字段决定，`BackendRunOutcome` 是唯一终态权威。
+一句话：本页是 Agent Backend 的权威描述。它是 Product Backend 与执行引擎之间唯一的 Run 级协议边界，产品侧只依赖 `execute / steer / resolveApproval? / stop / dispose` 五个方法；唯一 kind `acp` 经 ACP SDK spawn harness 子进程，harness 轴（oma / claude / omp / pi，四个）由 model ref 的 `harness` 字段决定，`BackendRunOutcome` 是唯一终态权威。
 
 ## 范围
 
@@ -38,7 +38,7 @@ tags: [backend, runs, runtime]
 |---|---|
 | `kind` | 该后端的 kind 字面量（`"acp"`），扩展事件命名空间 `backend.<K>.*` 锁在同一个 K；harness 轴在 model ref 里（`harness` 字段，缺省回退 `modelId`） |
 | `execute(input)` | 起一个全新 Run，返回 segment；同 runId 同 payload 幂等（重放已接受的结果），同 runId 不同 payload 冲突 |
-| `steer(runId, input)` | 往**当前活着的** Run 注入一条输入；Run 不活时显式失败，绝不悄悄降级成普通输入。ACP v1 对注册表里的 agent 没有 steering，`AcpBackend.steer` 一律显式报错——产品侧入队层把 steer 转成排队的 follow-up |
+| `steer(runId, input)` | 往**当前活着的** Run 注入一条输入；Run 不活时显式失败，绝不悄悄降级成普通输入。steering 经 ACP 的 `_session/steering` 实现，并**声明式协商**：harness 没声明该能力时才退回排队 follow-up |
 | `resolveApproval?(runId, callId, decision)` | 可选方法。解决活 Run 里挂起的 HITL 审批；没有审批管道的后端不实现它，产品侧就以它的存在与否决定审批端点是否可用 |
 | `stop(runId)` | 请求取消；segment 的 outcome 仍然会解析为 `aborted` |
 | `dispose()` | 确定性关停全部 child：拒绝新 execute、取消排队中的 spawn、先 SIGTERM 后 SIGKILL、等每个 child 退出 |
@@ -128,7 +128,7 @@ spawn harness CLI → initialize → session/new → set_config(model)
 
 ## harness 注册表
 
-harness 由 `ACP_AGENTS` 声明：CLI 可执行、spawn 参数、catalog 探针。本仓库当前注册 claude / omp / pi 三个 harness；每个 harness 的 CLI 参数差异封装在各自的 ACP 桥里，Product Backend 看不到 argv——它只看到 `execute(input)`。
+harness 由 `ACP_AGENTS` 声明：CLI 可执行、spawn 参数、catalog 探针。本仓库当前注册 oma / claude / omp / pi 四个 harness；每个 harness 的 CLI 参数差异封装在各自的 ACP 桥里，Product Backend 看不到 argv——它只看到 `execute(input)`。
 
 session 续接经 ACP 的 session 机制：`cliSessionRef` 由各 harness 桥翻译成自己的续接方式，产品只存和回传这个不透明字符串。
 
@@ -163,7 +163,7 @@ harness 发 ACP permission request（callId / toolName / reason / input）
 
 ## 已知缺口
 
-- steer 缺失是 ACP v1 的协议限制（`_meta.steering` 未被注册表 agent 声明），不是实现偷懒；协议升级后 `AcpBackend.steer` 的显式报错点是唯一要改的地方。
+- steering 走 `_session/steering`，能力按 harness 的声明协商；没声明的 harness 才能看到「steer 变成排队 follow-up」这条回退。
 - catalog 探针要求 harness CLI 真实可执行；CLI 缺席时该 harness 的模型目录为空，run 会在 preflight 报 unknown model。
 - 产品侧不做多模态能力探测：给纯文本模型发图会**静默降级**成占位符文本（不报错），harness 的选择是它自己配置的事（见「harness 注册表」）。
 - 两份扩展事件映射（child 的 `protocol/mapping.ts` 与 backend 的 `event-mapping.ts`）靠 `mapping.test.ts` 守一致性；新增 `backend.<K>.*` 事件时两边要同步加。

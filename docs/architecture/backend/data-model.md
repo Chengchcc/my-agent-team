@@ -16,14 +16,14 @@ tags: [backend, data]
 
 ## 实现文件
 
-- `apps/backend/src/infra/db/schema.ts` — 唯一真相源，21 张 `sqliteTable`
-- `apps/backend/drizzle/backend/*.sql` 与 `meta/_journal.json` — 迁移，`0000` 到 `0048`
+- `apps/backend/src/infra/db/schema.ts` — 唯一真相源，25 张 `sqliteTable`
+- `apps/backend/drizzle/backend/*.sql` 与 `meta/_journal.json` — 迁移，`0000` 到 `0056`
 - `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 取 Run 的那个大事务
 - `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 终态提交、失败提交、下一 Run 的晋升
 - `apps/backend/src/features/{conversation,agent-context,product-tools}/adapter-sqlite.ts`
 - `apps/backend/src/infra/sqlite/db.test.ts` — 迁移与约束的断言（表清单、被删的表、active run 索引）
 
-lark-bot 有自己独立的库与 schema（四张表），与 `backend.db` 无关。
+lark-bot 有自己独立的库与 schema（九张表），与 `backend.db` 无关。
 
 ## 表清单
 

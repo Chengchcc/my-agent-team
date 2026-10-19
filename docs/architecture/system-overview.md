@@ -81,7 +81,7 @@ Web 不直连后端数据，走 BFF 代理并带上服务端 token（见 [Web �
 
 **入队。** 人类消息先落账本，随后创建 Run。两者不在同一个事务里，所以「消息在、Run 没建起来」是一种真实存在的中断。
 
-**取 Run** 是一个 immediate transaction，里面有：插队列行、活跃 Run 守卫、无活 Run 的 steer 取消、作用域校验、分支 revision CAS、读游标之后未 undone 的账本行、可见性过滤、取最后 20 条、追加 Context 引用、推进游标与叶子、回溯生效模型、建 `agent_run` 行、把输入置为 `delivering`。
+**取 Run** 是一个 immediate transaction，里面有：插队列行、活跃 Run 守卫、无活 Run 的 steer 取消、作用域校验、分支 revision CAS、读游标之后未 undone 的账本行、可见性过滤、取最后 20 条、追加 Context 引用、推进游标与叶子、建 `agent_run` 行、把输入置为 `delivering`。
 
 **执行。** 预检按 `model_ref.backendKind` 查注册表；spawn 之前用数据库真相源重写工作区桥接文件；同一个 worktree 上的 Run 经 workspace lock 串行；spawn 槽位按 `maxConcurrent` FIFO。输入只有被适配器接收后才 CAS 成 `delivered`。
 

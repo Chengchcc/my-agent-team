@@ -102,7 +102,7 @@ tags: [conventions, rules]
 | 词 | 定义 |
 |---|---|
 | Agent | 一个可被指派工作的成员：身份、记忆、技能、默认模型都在它的工作区文件里 |
-| Conversation | 人与一个 Agent 的 1:1 对话（[ADR 0021](../adr/0021-one-conversation-one-agent-member.md)） |
+| Conversation | 一段对话，可以有一个或多个成员 agent（[ADR 0041](../adr/0041-conversation-membership-and-response-routing.md)）；`conversation.agent_id` 只是无成员行时的兼容兜底 |
 | Message | 对话轮次的领域对象，人和 Agent 都产生 Message |
 | Conversation History | 一场对话里共同发生的事实，存在账本里 |
 | Agent Context | 某个 Agent 实际消费和保留的语义历史 |
@@ -113,7 +113,7 @@ tags: [conventions, rules]
 | Product Tool | 由 Product Backend 执行的产品能力（History 读写、todo、审批等），以 MCP server + 每次 Run 独立 token 的形式提供 |
 | Workflow | 声明式节点图编排：agent / script / human 节点加 JSON-Logic 边，可被 cron 触发 |
 | Artifact | 带类型的产物，用 `artifacts://` 引用，能在节点之间和对话里传递 |
-| Oma | 本仓库自研的 CLI 执行引擎，有 print / json / rpc 三种一次性模式和 TUI 交互终端 |
+| Oma | 本仓库自研的 CLI 执行引擎，有 print / json / acp 三种一次性模式和 TUI 交互终端 |
 | Coding | Web 里的 worktree 终端页：每个 Project 下若干终端面板，面板可以跑 shell，也可以把 oma 拉起来交互 |
 
 ## 稳定约束
@@ -139,6 +139,6 @@ Agent 的配置、技能、记忆都在工作区文件里，不在数据库里�
 
 只写代码此刻的样子。迁移过程、旧包名、临时兼容路径不进正文，它们属于 ADR 和 git。
 
-已删除的概念不留页面，也不在正文里当反例反复提。`span`、`attempt`、`session 持久化`、`daemon`、`checkpointer`、`Pet`、`Recap`、多成员对话、`Loop`、`CronJob` 这些在代码里已经没有了，页面一并删掉；要知道它们为什么消失，去 [`../adr/`](../adr/README.md) 查。
+已删除的概念不留页面，也不在正文里当反例反复提。`span`、`attempt`、`session 持久化`、`daemon`、`checkpointer`、`Pet`、`Recap`、`Loop`、`CronJob` 这些在代码里已经没有了（多成员对话曾经删掉又回来了，见 ADR 0041，所以不在这一列），页面一并删掉；要知道它们为什么消失，去 [`../adr/`](../adr/README.md) 查。
 
 同一条事实只写一遍。别的地方需要，链接过来。

@@ -24,8 +24,7 @@ tags: [conventions, rules]
 |---|---|---|
 | 在 web 用一个后端返回的字段 | 改 backend 的返回类型，让它经 `App` 流过来 | 在 web 手写或扩一个 interface 接住它 |
 | 调一个后端接口 | `client.api.*`（treaty，类型来自 `@chengchenccc/api-contract`） | `apiFetch<T>`、裸 `fetch` 加断言 |
-| 消费一个 SSE 事件 | 在 `SSEEventMap` 里加或取 zod schema，用 `typedSource(url, map)` | `new EventSource` 加各自的 `JSON.parse` 与断言 |
-| 拼一个 SSE 端点 URL | `sseEndpoints` 注册表加 `openSSE(name, params)` | 组件里手写 `/.../events` 模板串 |
+| 消费一条实时更新 | 走 AHP：`/api/ahp/ws-ticket` 取票 → `/ws/ahp`，协议类型来自 `@microsoft/agent-host-protocol` | 自己开一条 SSE/WebSocket，或在组件里手写端点模板串（旧的 `SSEEventMap` / `typedSource` / `openSSE` / `sseEndpoints` 已随 SSE 线路删除） |
 | 加一个 `useQuery` / `useMutation` | `features/<x>/queries.ts` 里写 `queryOptions(params)`，组件只调 hook | 组件内联 `queryKey:` / `queryFn:` |
 | 读一个环境变量 | 共享 `envSchema` 加 `parseEnv()` | 各进程裸读 `process.env` |
 | 跨进程传一个结构 | 提一个共享 zod schema，两端 import 后 parse | 一端写 interface，另一端 `as {...}` |
@@ -38,8 +37,7 @@ tags: [conventions, rules]
 | 契约 | 真源 | 消费方式 |
 |---|---|---|
 | HTTP 请求与响应 | 后端 Elysia 的 `App` 类型，从 `apps/backend/src/app.ts` 导出、经 `@chengchenccc/api-contract` re-export | treaty 推导 |
-| SSE 事件载荷 | `SSEEventMap`，值为 zod schema（`packages/api-contract/src/sse.ts`） | 后端 `sseEncoder<M>`，前端 `typedSource<M>` |
-| SSE 端点 URL | `sseEndpoints` 注册表（路径模板绑定事件 map） | `openSSE(name, params)` |
+| 实时更新载荷 | AHP 协议类型（`@microsoft/agent-host-protocol` 的 chat 状态与动作） | 自造一套事件 map（旧的 `sse.ts` 注册表已删） |
 | react-query 的 key 与参数 | `queryOptions(params)`，`params` 是唯一来源 | 组件调 hook |
 | 环境变量 | `packages/config/src/env.ts` 的 `envSchema` | `parseEnv()`，一处解析 |
 | 跨进程消息 | 共享 zod schema | 两端 import 并 parse |
@@ -82,7 +80,7 @@ grep -rn "as {\|as Record<" apps/lark-bot/src
 ## 不变量
 
 1. HTTP 的类型真源是后端的 `App` 类型，前端不手抄。
-2. 全仓只有一处 `new EventSource`，URL 只从端点注册表来。
+2. 全仓已经没有 `new EventSource`（那条线路已删）；实时更新只走 AHP。
 3. 组件的查询钩子是唯一入口，组件内不内联 `queryFn`。
 4. 环境变量一处解析，桥接位置在门禁里白名单登记。
 5. 跨进程结构两端共享一个 zod schema。

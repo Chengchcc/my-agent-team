@@ -35,7 +35,7 @@ tags: [oma, runtime, context, models]
 | 阈值 | 活跃上下文估算超过 `limit × triggerRatio` | 估算只算**还活着**的条目（已被上次 compaction 覆盖的前缀不算），摘要本身也计 token |
 | 静默溢出 | provider 收下了超长请求，靠 `usage` 与 `stopReason` 判定 | 同一个 turn 内压缩后重试该次模型调用 |
 | provider 溢出错误 | `ProviderError.kind === "overflow"` | 同一个 turn 内压缩后重试一次 |
-| 手动 | TUI 的 `/compact` | 直接调 Run 的 `compact()` |
+| 手动 | TUI 的 `/compact` | 另一份独立实现：TUI 自己发一段压缩提示词，不走 Run 的 `compact()` |
 
 静默溢出与 provider 溢出错误共用一个一次性守卫 `overflowCompacted`：一个 Run 只消费一次。阈值触发的没有守卫，因为它随时可以再触发，安全性由下面的"无进展守卫"保证。
 
