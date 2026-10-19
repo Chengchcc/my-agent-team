@@ -106,9 +106,11 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 
 1. bash 的网络白名单（当前只有全断或全开）；
 2. MCP 的 env 与 headers 加密存储，以及 url server 挂载前过 SSRF guard；
-3. 移除 mock 登录表面；
-4. native 工具的细粒度 allow-rules 权限系统。
+3. native 工具的细粒度 allow-rules 权限系统。
 
-（原先列的「URL guard 校验解析后的 IP」已经交付，不再算门槛。）
+两条已经从门槛里划掉（2026-10-19 逐行核过代码）：
+
+- **「URL guard 校验解析后的 IP」**：已交付，`web_fetch` 的首跳与每次 3xx 都重跑 deep guard。
+- **「移除 mock 登录表面」**：**没有免密登录路径**了。`apps/web/src/lib/auth.ts` 的 `login()` 永远要密码——后端存过密码就验 argon2id verifier，没存过（或后端不可达）才用部署期 bootstrap 密码，且未配置时是 **fail-closed** + 只给本机打印一次随机逃生口令；`getSession()` 只做 HMAC 校验。剩下的两个 `MOCK_*` 只是**命名**在骗人：`MOCK_USER_ID` 实际是单用户模型的固定身份（`user-001`），`MOCK_PASSWORD` 实际是部署期 bootstrap 密码（首次启动被采纳成 argon2id，之后不再生效）。**刻意不改名**：改了会让现有部署的 `.env` 失配、触发 fail-closed 直接锁死，风险大于收益。真正留给网络化部署的是它背后的模型——一个共享密码、一个身份，这一点已经写在下面「无多租户」那条里。
 
 完整清单与优先级见 [`../../roadmap.md`](../../roadmap.md)。
