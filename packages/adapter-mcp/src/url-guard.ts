@@ -83,7 +83,7 @@ export async function assertSafeMcpUrl(rawUrl: string, opts: SafeMcpUrlOptions):
     }
     return parsed;
   }
-  let answers: string[] = [];
+  let answers: string[];
   try {
     answers = (await lookup(hostname, { all: true, verbatim: true })).map((a) => a.address);
   } catch {
