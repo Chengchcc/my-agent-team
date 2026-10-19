@@ -71,7 +71,7 @@ UX 级去重。Web 用乐观消息替换最近一条 `opt-` 前缀消息（`apps
 ## 已知缺口
 
 - Web 的 notice 通道没有输入：只有 `role: "system"` 的账本消息会渲染成 notice，而后端只写 `role: "user"` 与 `role: "assistant"` 两种。
-- 存储层 kind 枚举里仍留着 `member.joined`、`member.left`、`todo`（`apps/backend/src/features/conversation/ledger-codec.ts`），但没有任何写入方，线上事件枚举已经把它们剔除。
+- 存储层 kind 枚举曾经留着 `member.joined`、`member.left`、`todo`，但它们从来没有（或不再有）写入方，已从 `apps/backend/src/features/conversation/ledger-codec.ts` 的 `LedgerKind` 里删掉，存储与线上现在是同一组。
 
 ## 相关页
 
