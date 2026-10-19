@@ -90,7 +90,7 @@ Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点�
 
 `startExecution` 先按数据库做单飞（同一个 workflow 已有 `running` 的 execution 就抛 409），再起一个异步 drive 并立刻返回行；`runToCompletion` 是给它 await 的同步版本，主要给测试用。`triggeredBy` 默认 `manual`，cron 触发时是 `cron:<expr>`。
 
-`drive` 从数据库里已有的 node_run 重建 completions 起步，循环「`computeNext` → 顺序执行 ready → 记录完成」，最后回读 execution 的 store（`service.ts:561-610`）。ready 列表是**串行 await** 的，同一批多个 ready 不是并发 fan-out。
+`drive` 从数据库里已有的 node_run 重建 completions 起步，循环「`computeNext` → 顺序执行 ready → 记录完成」，最后回读 execution 的 store（`service.ts:561-610`）。同一批 ready 里的节点**并发执行**（波次并行），结果按 ready 顺序串行落库；下一波要等这一波全部结束（屏障，见 ADR 0045 的边界一节）。
 
 **agent 节点**：conversation id 是 `workflow:<executionId>:<nodeId>`（origin 为 workflow），内联 agent 走 `default` 成员加 `modelOverride`。node_run 里已经存了 `runId` 就重连轮询而不重复触发；重试时先清 runId 再起新 run。轮询上限 600 秒，每秒一次。判据只有 status：`completed` 才算成功并取输出，`failed|aborted|timeout` 直接让节点失败，`commit_failed` 与 `waiting` 继续轮询（前者等终态提交结算，后者按 HITL 暂停节点时钟）。
 
@@ -171,7 +171,7 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 ## 不变量
 
 1. 引擎是纯函数，不做 I/O、不看时钟。路由在节点完成瞬间冻结，之后任何 store 写入都翻不动它。
-2. join 是 any-of。当前 DSL 没有表达 AND 的标记。
+2. join 默认 any-of（一条上游路由到就开跑）；节点声明 `join: "all"` 时要求上游**全部 completed**。all-join 放在互斥分支上永不触发——未走的分支永不完成，这是语义不是缺陷（[ADR 0045](../adr/0045-parallel-waves-and-all-join.md)）。
 3. script 节点只经进程沙箱执行，而且是 opt-in（`WORKFLOW_SCRIPTS_ENABLED`）；沙箱是进程边界不是 fs jail，宿主对象刻意不进沙箱。
 4. agent 节点的输出必须过 `outputSchema`，失败时带着错误反馈重试，重试耗尽即节点失败、execution 落 failure。
 5. 节点失败逐节点记录并广播，execution 以 failure 终态；不伪造 output。
@@ -182,7 +182,6 @@ oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/o
 
 ## 已知缺口
 
-- 并行 fan-out 没有实现，ready 列表串行 await。
 - dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
 - ~~agent 节点停摆~~（2026-10-16 已修）：原先节点轮询到 `waiting` 会把节点时钟暂停，而节点会话没有 surface 可答，于是退化成无限期停摆（夜里那条报告工作流连挂多日）。现在派发就把 run 的权限模式钉成 `yolo`（不禁用闸门，bash 仍走 OS 沙箱），取消 execution 时也会 `stop` 掉节点在飞的 run 并等它结算——见上面的不变量 9。
 
