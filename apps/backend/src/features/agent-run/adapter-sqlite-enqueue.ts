@@ -8,7 +8,6 @@ import {
   ACTIVE_RUN_STATUSES,
   type AcquireAgentRunCommand,
   type AcquireAgentRunResult,
-  type AgentRun,
 } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
 
@@ -238,24 +237,11 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
 
         // 8a. (removed) - no Backend Session Binding exists anymore
 
-        // 9. Resolve effective model: walk from leaf to root, find last model_change.
-        //    Synchronous DB query inside the transaction (no async port call).
-        let effectiveModel = command.defaultModel;
-        let walkId: string | null = parentId;
-        while (walkId) {
-          const entryRow = d
-            .select()
-            .from(schema.agentContextEntry)
-            .where(eq(schema.agentContextEntry.entryId, walkId))
-            .get();
-          if (!entryRow) break;
-          if (entryRow.type === "model_change") {
-            const payload = JSON.parse(entryRow.payload) as { model: AgentRun["modelRef"] };
-            effectiveModel = payload.model;
-            break;
-          }
-          walkId = entryRow.parentId;
-        }
+        // 9. The run's model is the one the caller resolved: the agent's
+        //    config, or an explicit per-message override. Branch-pinned model
+        //    changes are gone - nothing ever wrote them, and the visible
+        //    composer picker is the surface that decides.
+        const effectiveModel = command.defaultModel;
 
         // 10. Create the active Agent Run
         const runId = deps.idGen.ulid();

@@ -29,7 +29,7 @@
 
 **~~分叉与回滚没有产品入口~~（2026-10-16 核对：入口已有，原判断过时）。** 三条路都在产品上：`POST /api/conversations/:id/fork`（从某条消息起新建会话）、`/undo`（墓碑式软撤销，账本项标 `undone`）、`/replay`（改一条再新建），web 侧在 `TimelineMessageActions` 的悬停动作里。库里唯一够不着的是 `forkBranch`，而它只被后端种类切换用，本来就不需要产品入口；另一条零调用方的硬回退原语（`moveBranchLeaf`）同日删除。
 
-**Context 的条目类型大半没人写。** `private_message`、`product_tool_exchange`、`model_change` 三种条目没有写入方，实际只有 `ledger_message` 在写。账本侧同理：`member.joined` / `member.left` 随成员表删除失去写入方，`todo` 从来没有过。
+**~~Context 的条目类型大半没人写~~（2026-10-19 已收窄）。** `private_message`、`product_tool_exchange`、`model_change` 三种条目从来没有写入方，连同端口、服务、适配器、投影分支与测试一起删掉了，条目联合只剩 `ledger_message | summary`。换模型的产品入口是会话输入框上的 `ModelPicker`（按会话持久化、随每条消息下发），所以分支级的隐形 pin 不是缺口而是重复。账本侧同理仍在：`member.joined` / `member.left` 随成员表删除失去写入方，`todo` 从来没有过。
 
 **Context 的裁剪是硬编码的。** 取 Run 时同步最近 20 条消息，没有可配置的预算，也没有按 token 估计的策略。做成可配之前得先决定预算归谁管。
 

@@ -33,15 +33,6 @@ function parseEntry(row: EntryRow): AgentContextEntry {
   switch (row.type) {
     case "ledger_message":
       return { ...base, type: "ledger_message", ledgerSeq: row.ledgerSeq ?? 0 };
-    case "private_message":
-      return { ...base, type: "private_message", message: payload.message as never };
-    case "product_tool_exchange":
-      return {
-        ...base,
-        type: "product_tool_exchange",
-        toolName: payload.toolName as string,
-        callResult: (payload.callResult as Record<string, unknown>) ?? {},
-      };
     case "summary":
       return {
         ...base,
@@ -49,8 +40,6 @@ function parseEntry(row: EntryRow): AgentContextEntry {
         summary: payload.summary as string,
         coversThroughEntryId: payload.coversThroughEntryId as string,
       };
-    case "model_change":
-      return { ...base, type: "model_change", model: payload.model as never };
     default:
       throw new Error(`Unknown entry type: ${row.type}`);
   }

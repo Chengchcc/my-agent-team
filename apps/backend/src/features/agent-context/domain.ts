@@ -1,6 +1,3 @@
-import type { Message } from "@chengchenccc/message";
-import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
-
 // ─── Errors ──────────────────────────────────────────────────────
 
 export class AgentContextNotFoundError extends Error {
@@ -27,13 +24,6 @@ export class ContextRevisionConflictError extends Error {
   }
 }
 
-export class InvalidContextEntryError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidContextEntryError";
-  }
-}
-
 // ─── Tree ────────────────────────────────────────────────────────
 
 export interface AgentContextTree {
@@ -47,35 +37,13 @@ export interface AgentContextTree {
 
 // ─── Entry types ─────────────────────────────────────────────────
 
-export type AgentContextEntryType =
-  | "ledger_message"
-  | "private_message"
-  | "product_tool_exchange"
-  | "summary"
-  | "model_change";
+export type AgentContextEntryType = "ledger_message" | "summary";
 
 export interface LedgerMessageEntry {
   readonly type: "ledger_message";
   readonly entryId: string;
   readonly parentId: string | null;
   readonly ledgerSeq: number;
-  readonly createdAt: number;
-}
-
-export interface PrivateMessageEntry {
-  readonly type: "private_message";
-  readonly entryId: string;
-  readonly parentId: string | null;
-  readonly message: Message;
-  readonly createdAt: number;
-}
-
-export interface ProductToolExchangeEntry {
-  readonly type: "product_tool_exchange";
-  readonly entryId: string;
-  readonly parentId: string | null;
-  readonly toolName: string;
-  readonly callResult: Readonly<Record<string, unknown>>;
   readonly createdAt: number;
 }
 
@@ -88,20 +56,7 @@ export interface ProductSummaryEntry {
   readonly createdAt: number;
 }
 
-export interface ModelChangeEntry {
-  readonly type: "model_change";
-  readonly entryId: string;
-  readonly parentId: string | null;
-  readonly model: BackendModelRef;
-  readonly createdAt: number;
-}
-
-export type AgentContextEntry =
-  | LedgerMessageEntry
-  | PrivateMessageEntry
-  | ProductToolExchangeEntry
-  | ProductSummaryEntry
-  | ModelChangeEntry;
+export type AgentContextEntry = LedgerMessageEntry | ProductSummaryEntry;
 
 // ─── Branch ──────────────────────────────────────────────────────
 
@@ -118,33 +73,4 @@ export interface ContextBranch {
   readonly isDefault: boolean;
   readonly revision: number;
   readonly createdAt: number;
-}
-
-// ─── Validation helpers ──────────────────────────────────────────
-
-/** Validate that only ledger_message has ledgerSeq, summary has
- *  coversThroughEntryId, and model_change matches the branch backend kind. */
-export function validateEntry(entry: AgentContextEntry, branchBackendKind: string): void {
-  if (entry.type === "ledger_message") {
-    if (entry.ledgerSeq === undefined || entry.ledgerSeq === null) {
-      throw new InvalidContextEntryError("ledger_message requires ledgerSeq");
-    }
-  } else {
-    // Non-ledger entries must not carry ledgerSeq
-    if ("ledgerSeq" in entry) {
-      throw new InvalidContextEntryError(`${entry.type} must not have ledgerSeq`);
-    }
-  }
-
-  if (entry.type === "summary" && !entry.coversThroughEntryId) {
-    throw new InvalidContextEntryError("summary requires coversThroughEntryId");
-  }
-
-  if (entry.type === "model_change") {
-    if (entry.model.backendKind !== branchBackendKind) {
-      throw new InvalidContextEntryError(
-        `model_change backendKind "${entry.model.backendKind}" does not match branch backendKind "${branchBackendKind}"`,
-      );
-    }
-  }
 }

@@ -1,10 +1,5 @@
 import type { ProjectedHistoryItem } from "../../features/agent-run/protocol/index.js";
-import type {
-  AgentContextEntry,
-  LedgerMessageEntry,
-  PrivateMessageEntry,
-  ProductSummaryEntry,
-} from "./domain.js";
+import type { AgentContextEntry, LedgerMessageEntry, ProductSummaryEntry } from "./domain.js";
 import type { AgentContextPort, LedgerMessageResolver } from "./ports.js";
 
 export interface ProjectionDeps {
@@ -73,9 +68,6 @@ export async function projectAgentContext(
         throw new Error(`Ledger ref not found: ledgerSeq=${ledgerEntry.ledgerSeq}`);
       }
       items.push({ productEntryId: entry.entryId, message });
-    } else if (entry.type === "private_message") {
-      const privateEntry = entry as PrivateMessageEntry;
-      items.push({ productEntryId: entry.entryId, message: privateEntry.message });
     } else if (entry.type === "summary") {
       // Summary replaces covered entries in the projection but itself produces
       // a context message so the model receives the condensed information.
@@ -88,20 +80,7 @@ export async function projectAgentContext(
           visibility: "internal" as const,
         },
       });
-    } else if (entry.type === "product_tool_exchange") {
-      // Semantic tool exchanges are kept in projection as tool-call/result
-      // messages so the model can see the interaction.
-      const toolEntry = entry as { toolName: string; callResult: Record<string, unknown> };
-      items.push({
-        productEntryId: entry.entryId,
-        message: {
-          role: "tool" as const,
-          text: JSON.stringify({ toolName: toolEntry.toolName, result: toolEntry.callResult }),
-          visibility: "internal" as const,
-        },
-      });
     }
-    // model_change entries don't produce projected history items.
   }
 
   return items;

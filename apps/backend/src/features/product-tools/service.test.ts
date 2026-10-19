@@ -298,7 +298,8 @@ describe("product tools service", () => {
     ).length;
     expect(refsBefore).toBe(2);
     const after = await contextPort.listEntriesToLeaf(branchId);
-    expect(after.filter((e) => e.type === "product_tool_exchange")).toHaveLength(0);
+    // Nothing at all: the branch holds exactly the refs it had before.
+    expect(after).toHaveLength(refsBefore);
     expect(after.filter((e) => e.type === "ledger_message")).toHaveLength(refsBefore);
     const call = await sqliteProductToolCallAdapter(db).getCall(runId, "toolu-1");
     expect(call).toBeNull();

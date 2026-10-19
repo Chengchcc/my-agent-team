@@ -117,27 +117,6 @@ describe("Agent Context projection", () => {
     expect(count.c).toBe(2);
   });
 
-  test("private messages are projected with stable productEntryId", async () => {
-    const { conversationId } = freshFixture("4");
-    const tree = await port.getOrCreateTree(conversationId);
-    const branch = await port.getOrCreateDefaultBranch(tree.treeId, "oma");
-    const r1 = await port.appendEntry({
-      branchId: branch.branchId,
-      expectedRevision: 1,
-      type: "private_message",
-      parentId: null,
-      payload: { message: { role: "user", text: "private" } },
-    });
-
-    const items = await projectAgentContext(
-      { port, ledgerResolver },
-      { branchId: branch.branchId },
-    );
-    expect(items).toHaveLength(1);
-    expect(items[0]?.productEntryId).toBe(r1.entryId);
-    expect(items[0]?.message.text).toBe("private");
-  });
-
   test("summary retains uncovered tail entries after coverage point", async () => {
     const { conversationId } = freshFixture("tail");
     const seqCovered = conv.appendLedgerEntry({

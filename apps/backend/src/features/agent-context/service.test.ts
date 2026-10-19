@@ -43,43 +43,16 @@ describe("Agent Context service", () => {
     expect(branch2.branchId).toBe(branch.branchId);
   });
 
-  test("model change affects next run, not current snapshot", async () => {
-    const { conversationId } = freshFixture("svc2");
-    const branch = await ctx.getOrCreateDefaultBranch(conversationId, "oma");
-    const defaultModel = { backendKind: "oma", modelId: "model-a" } as const;
-
-    // Before change: effective model is default
-    const before = await ctx.resolveEffectiveModel(branch.branchId, defaultModel);
-    expect(before.modelId).toBe("model-a");
-
-    // Change model
-    await ctx.changeModel(branch.branchId, 1, {
-      backendKind: "oma",
-      modelId: "model-b",
-    });
-
-    // After change: effective model is the new one
-    const after = await ctx.resolveEffectiveModel(branch.branchId, defaultModel);
-    expect(after.modelId).toBe("model-b");
-  });
-
-  test("model change rejects mismatched backend kind", async () => {
-    const { conversationId } = freshFixture("svc3");
-    const branch = await ctx.getOrCreateDefaultBranch(conversationId, "oma");
-    expect(
-      ctx.changeModel(branch.branchId, 1, {
-        backendKind: "claude_code",
-        modelId: "model-x",
-      }),
-    ).rejects.toThrow();
-  });
-
   test("fork inherits backend kind and preserves entries", async () => {
     const { conversationId } = freshFixture("svc4");
     const branch = await ctx.getOrCreateDefaultBranch(conversationId, "oma");
-    const appended = await ctx.appendPrivateMessage(branch.branchId, 1, {
-      role: "user",
-      text: "original",
+    const appended = await ctxPort.appendEntry({
+      branchId: branch.branchId,
+      expectedRevision: 1,
+      type: "ledger_message",
+      parentId: null,
+      payload: {},
+      ledgerSeq: 1,
     });
 
     const { branch: forked } = await ctx.forkBranch(
@@ -96,9 +69,13 @@ describe("Agent Context service", () => {
   test("fork can override backend kind", async () => {
     const { conversationId } = freshFixture("svc5");
     const branch = await ctx.getOrCreateDefaultBranch(conversationId, "oma");
-    const appended = await ctx.appendPrivateMessage(branch.branchId, 1, {
-      role: "user",
-      text: "x",
+    const appended = await ctxPort.appendEntry({
+      branchId: branch.branchId,
+      expectedRevision: 1,
+      type: "ledger_message",
+      parentId: null,
+      payload: {},
+      ledgerSeq: 1,
     });
 
     const { branch: forked } = await ctx.forkBranch(
