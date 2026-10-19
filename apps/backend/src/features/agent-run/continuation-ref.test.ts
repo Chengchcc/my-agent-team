@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveContinuationRef } from "./continuation-ref.js";
+import { continuationPrefix, resolveContinuationRef } from "./continuation-ref.js";
 
 describe("#25: which native session a dispatch continues in", () => {
   test("the run's own ref wins over the branch pointer", () => {
@@ -22,6 +22,38 @@ describe("#25: which native session a dispatch continues in", () => {
         kindPrefix: "oma:",
       }),
     ).toBe("sess-branch");
+  });
+
+  test("a pointer from another harness is not forwarded (every harness is acp now)", () => {
+    // Kind used to separate sessions because switching kind was the only way
+    // to switch CLI. Now all four harnesses ride `acp`, so the kind prefix
+    // matched across harnesses and claude's session id reached oma.
+    expect(continuationPrefix("acp", "claude")).toBe("acp/claude:");
+    expect(
+      resolveContinuationRef({
+        runNativeRef: null,
+        branchRef: "acp/claude:sess-1",
+        kindPrefix: "acp/oma:",
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveContinuationRef({
+        runNativeRef: null,
+        branchRef: "acp/claude:sess-1",
+        kindPrefix: continuationPrefix("acp", "claude"),
+      }),
+    ).toBe("sess-1");
+  });
+
+  test("a config with no harness keeps the kind-only scope", () => {
+    expect(continuationPrefix("acp", undefined)).toBe("acp:");
+    expect(
+      resolveContinuationRef({
+        runNativeRef: null,
+        branchRef: "acp:sess-legacy",
+        kindPrefix: continuationPrefix("acp", undefined),
+      }),
+    ).toBe("sess-legacy");
   });
 
   test("a foreign backend's branch pointer is never forwarded", () => {

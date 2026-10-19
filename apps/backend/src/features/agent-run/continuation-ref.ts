@@ -5,12 +5,25 @@
  *    adapter when session/new or session/load succeeded. A re-dispatched run
  *    (HITL resume, crash recovery) continues in exactly this one.
  *  - `branch.cliSessionRef` — the NEXT fresh run's continuation pointer,
- *    kind-scoped (`<kind>:<ref>`), and only written at a terminal commit.
+ *    scoped to `<kind>[/<harness>]:<ref>`, and only written at a terminal
+ *    commit. The harness is part of the scope because every harness now rides
+ *    the `acp` kind: with the kind alone, a session written by claude was
+ *    handed to oma (and vice versa) after a harness switch.
  *
  *  Before this existed, a run that died parked had no ref of its own, so
  *  recovery read the branch pointer (still the PREVIOUS turn's session) or
  *  fell through to the adapter's "adopt the newest interrupted session in
  *  this cwd" scan — both guesses. */
+
+/** The scope a branch pointer must carry to be reusable. Writing and reading
+ *  both go through here so the two can never drift apart.
+ *
+ *  `harness` absent keeps the legacy kind-only scope: a config that never
+ *  names a harness has no harness identity to key on, so demanding one would
+ *  drop continuity for no gain. */
+export function continuationPrefix(kind: string, harness: string | undefined): string {
+  return harness ? `${kind}/${harness}:` : `${kind}:`;
+}
 
 export interface ContinuationRefInput {
   /** The run's own bound session, raw (no kind prefix). */
