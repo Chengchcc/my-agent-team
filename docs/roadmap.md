@@ -51,7 +51,7 @@
 
 **Lark 卡片缺 artifact / diff / 完整日志的深链（2026-09-25 记录）。** 页脚目前只链到 Web 的 Run 页——方案里的「查看 Diff / 产物 / worktree」直达按钮，需要先把 artifact/diff 标识随 Run 事件（或 run 详情）传给 lark-bot；在那之前不给卡片加假的按钮。
 
-**飞书云文档评论这个面已实现（ADR 0044，2026-10-14）** —— 原先那段实测链已随「条目做完即删」的规矩移除，证据留在 ADR 里；决策、实现形状与代码位置见 [ADR 0044](./adr/0044-lark-inbound-events-official-channel-sdk.md)，运行时的不变量见 [lark.md](./architecture/surfaces/lark.md)。**剩余三项**：① Web 面板渲染 `console` 引导（三类事件 + scope 申请链接；`apps/backend/src/features/agent/lark-surface.ts` 已把它放进 surface 视图的 `console` 字段，`apps/web` 里没有任何 `larkSetupGuidance` 引用，缺的只是渲染）；② 生产 app 补齐事件订阅与 scope 后的端到端验收（消息 / 卡片 / 评论三条路）；③ ADR 0044 里记下的待验项：话题群里 `threadId/rootId` 的填充。
+**飞书云文档评论这个面已实现（ADR 0044，2026-10-14）** —— 原先那段实测链已随「条目做完即删」的规矩移除，证据留在 ADR 里；决策、实现形状与代码位置见 [ADR 0044](./adr/0044-lark-inbound-events-official-channel-sdk.md)，运行时的不变量见 [lark.md](./architecture/surfaces/lark.md)。**只剩一项**：生产 app 补齐事件订阅与 scope 后的端到端验收（消息 / 卡片 / 评论三条路）——这是运维动作，不是代码。原列表里另外两项（2026-10-19 复核为已完成）：① Web 面板**已经在渲染** console 引导（`apps/web/src/features/lark/LarkSurfacePanel.tsx` 输出 `Console events: …` 与 scope 申请链接，链接只在 `scopeApplyUrl` 非空时给，从不发明 URL）；② 适配器把 `threadId` / `rootId` 原样传下去（`apps/lark-bot/src/channel-adapters.ts`，缺失就不填）。（这次复核的教训：查「谁渲染」要看**数据字段**而不是函数名——`larkSetupGuidance` 在 web 里确实零引用，但渲染用的是 surface 视图的 `console` 字段。）
 
 **知识库只有文件级。** 没有 chunk 级检索、也没有重建索引与试查询端点；统计里的 token 与 chunk 数是估算。**2026-10-13 更新（ADR 0043 决定 7）**：语义检索**已实现但默认关闭** ✓ —— embedding 缝、向量索引（全有或全无 ✓、内容签名判失效 ✓、段落切块 1500 字符 × 每文件上限 200 ✓）、查询降级（无索引或建不起来时退回词法**并说明原因** ✓）、播种与索引解耦（安装不依赖 embedding ✓）都已落地并带测试。默认关闭的原因是实测：本机知识包 39 页 = **1547 块**，每块 11～20 秒 ⇒ 全量构建 **5～7 小时** ✗；唯一质量合格的多语言模型就是这个速度，快一点的小模型中文排序是错的 ✗。因此默认不配 `BACKEND_EMBEDDING_*`（行为与旧版逐字一致 ✓），换到便宜的机器（GPU／更小语料／可用云 key）配两行即生效。
 
