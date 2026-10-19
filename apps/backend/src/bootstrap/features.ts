@@ -153,6 +153,7 @@ import {
   sqliteWorkflowExecutionAdapter,
   workflowRoutes,
 } from "../features/workflow/index.js";
+import { startAllowlistProxy } from "../infra/allowlist-proxy.js";
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
 import { ulid } from "../infra/ids.js";
 import { resolveKnowledgeMcpServerEntry } from "../infra/knowledge-mcp-command.js";
@@ -713,6 +714,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // catalog does not care where it runs, so use the dir the backend owns.
       probeHarnessCatalog({ key, cwd: config.dataDir, commands: { oma: omaAcpArgv } }),
   });
+  // Network allowlist (security-debt gate 1: network deployment). An
+  // unprivileged bwrap can only cut the network outright or leave it open, so
+  // this is the MIDDLE TIER and it is COOPERATIVE: children get HTTP(S)_PROXY,
+  // which npm/pip/curl/git honour, and a script that ignores the env still
+  // reaches the network. Hard per-host limits need a privileged deployment
+  // (nftables per uid/cgroup) - do not describe this as a whitelist.
+  const configuredAllowlist = settingsSvc.get("sandbox.networkAllowlist");
+  const allowlistHosts = Array.isArray(configuredAllowlist)
+    ? configuredAllowlist.filter(
+        (host): host is string => typeof host === "string" && host.trim() !== "",
+      )
+    : [];
+  const sandboxProxy = allowlistHosts.length > 0 ? await startAllowlistProxy(allowlistHosts) : null;
+
   const acpBackend = new AcpBackend({
     onSessionBound: (runId, nativeRef) => onSessionBound.fn(runId, nativeRef),
     // The child's permission classifier defaults to THE RUN'S model, and a
@@ -727,6 +742,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     env: {
       ...(config.omaPermissionClassifierModel
         ? { OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel }
+        : {}),
+      ...(sandboxProxy
+        ? {
+            HTTP_PROXY: sandboxProxy.url,
+            HTTPS_PROXY: sandboxProxy.url,
+            http_proxy: sandboxProxy.url,
+            https_proxy: sandboxProxy.url,
+            NO_PROXY: "127.0.0.1,localhost,::1",
+            no_proxy: "127.0.0.1,localhost,::1",
+          }
         : {}),
     },
     // Registry-key launch overrides, the omaBin/ompBin convention: a

@@ -71,7 +71,7 @@
 
 **文件权限。** provider 密钥明文存在 SQLite 里，`dataDir`、`backend.db`、backend 的 `.env` 权限都是 0644。
 
-**网络化部署的准入门槛**（离开回环地址之前必须做掉）：bash 网络白名单、MCP 凭据加密存储、原生工具 allow-rules。（**MCP url server 的 SSRF guard 已完成**，2026-10-19：metadata 地址永远拒绝、私网目标在后端监听非回环时拒绝、检查在连接处做；剩下的加密存储要先回答「密钥放哪」。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
+**网络化部署的准入门槛**（离开回环地址之前必须做掉）：MCP 凭据加密存储、原生工具 allow-rules。（**bash 网络放行已完成，但它是协作式的**：`sandbox.networkAllowlist` ⇒ 回环 CONNECT 代理 + `HTTP(S)_PROXY`，registry 类安装受控；忽略代理的脚本仍直连，**硬**白名单要特权部署（nftables），届时代理退役。**MCP url server 的 SSRF guard 已完成**；加密存储要先回答「密钥放哪」。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
 
 ## 内容分发
 

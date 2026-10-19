@@ -104,9 +104,10 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 
 一旦要离开回环地址，下面这些是准入门槛而不是事后补丁：
 
-1. bash 的网络白名单（当前只有全断或全开）；
-2. MCP 的 env 与 headers 加密存储（**url server 的 SSRF guard 已完成**，见下）；
-3. native 工具的细粒度 allow-rules 权限系统。
+1. MCP 的 env 与 headers 加密存储（**url server 的 SSRF guard 已完成**，见下）；
+2. native 工具的细粒度 allow-rules 权限系统。
+
+**bash 的网络放行（协作式）已完成（2026-10-19），但它不是白名单。** 设置 `sandbox.networkAllowlist`（主机名数组）后，后端起一个只监听回环的 CONNECT 代理，并把 `HTTP(S)_PROXY` 注入子进程：`npm` / `pip` / `curl` / `git` 都会遵守，所以「只放行某个 registry」这个需求成立了。天花板说清楚：**忽略代理环境变量的脚本仍然直连**——OS 沙箱只有「全断」（`--unshare-net`）与「全开」两档，非特权 bwrap 建不出 per-host 规则。真正的**硬**白名单需要按 uid/cgroup 配 nftables，属于**特权部署**，到那时这个代理可以退役。匹配规则是「精确名或标签边界上的子域」，`evilnpmjs.org` 不会命中 `npmjs.org`。
 
 **MCP url server 的 SSRF guard 已完成（2026-10-19）。** 挂载前在 `@chengchenccc/adapter-mcp` 的 `assertSafeMcpUrl` 里校验：只收 `http(s)`；**metadata 地址永远拒绝**（`169.254.169.254`、`100.100.100.200`、`metadata.google.internal`，以及 **DNS 解析到它们**的主机名）；**私网/回环按部署位置决定**——后端监听回环时允许（产品自己的 MCP server 就是 `127.0.0.1`），监听非回环时拒绝。检查放在连接处而不是保存处，因为主机名可以在保存之后开始解析到内网。**仍然待做的是加密存储**，而且它得先回答「密钥放哪」：把密钥和密文放在同一个 SQLite、同一台机器上，等于只是换了层编码。
 
