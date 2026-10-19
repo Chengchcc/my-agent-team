@@ -106,6 +106,11 @@ function parseNode(raw: unknown, issues: string[]): WorkflowNode | undefined {
       cfg.backoff = raw.retry.backoff;
     if (Object.keys(cfg).length > 0) node.retry = cfg as NodeRetry;
   }
+  // "any" is the default, so only "all" is stored; anything else is a typo
+  // that would silently get any-of semantics.
+  if (raw.join === "all") node.join = "all";
+  else if (raw.join !== undefined && raw.join !== "any")
+    issues.push(`node "${id}" join must be "any" or "all"`);
   switch (raw.type) {
     case "end": {
       const status = nonEmptyString(raw.status, `node "${id}" status`, issues);
