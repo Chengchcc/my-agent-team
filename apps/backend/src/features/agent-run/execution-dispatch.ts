@@ -2,7 +2,7 @@ import { resolveModelAlias } from "@chengchenccc/ai";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
 import { buildHistoryTools } from "../product-tools/manifest.js";
-import { resolveContinuationRef } from "./continuation-ref.js";
+import { continuationPrefix, resolveContinuationRef } from "./continuation-ref.js";
 import type { AgentRun, ClaimedBranchInput } from "./domain.js";
 import { isActiveStatus } from "./domain.js";
 import { buildRunInput, finalAnswerMessage } from "./execution-input.js";
@@ -159,7 +159,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // The branch's CLI session ref is kind-scoped (`<kind>:<ref>`, ADR 0020
     // decision 6): a ref written by another backend is junk to this CLI and
     // must never be forwarded (pi exits empty on a foreign --session id).
-    const kindPrefix = `${run.modelRef.backendKind}:`;
+    const kindPrefix = continuationPrefix(run.modelRef.backendKind, run.modelRef.harness);
     // #25: a re-dispatched run (HITL resume, crash recovery) continues in the
     // session IT bound — persisted at session/new|load. The branch pointer is
     // only the NEXT fresh run's continuation, and it lags until a terminal
@@ -271,7 +271,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // CLI session reference (ADR 0020 decision 6): kind-scoped on the
     // branch so a backend switch never hands a foreign id to the next CLI.
     if (outcome.cliSessionRef) {
-      const scoped = `${run.modelRef.backendKind}:${outcome.cliSessionRef}`;
+      const scoped = `${continuationPrefix(run.modelRef.backendKind, run.modelRef.harness)}${outcome.cliSessionRef}`;
       await deps.contextPort.updateBranchCliSessionRef(run.branchId, scoped).catch(() => {});
     }
     if (outcome.status === "completed") {
