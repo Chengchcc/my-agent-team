@@ -8,3 +8,5 @@ export type {
   McpToolCatalogEntry,
   McpTransport,
 } from "./types.js";
+export type { SafeMcpUrlOptions } from "./url-guard.js";
+export { assertSafeMcpUrl, isMetadataHost, UnsafeMcpUrlError } from "./url-guard.js";

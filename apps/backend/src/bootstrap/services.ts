@@ -31,7 +31,13 @@ export function createBackendServices(
     config: cfg,
   });
 
-  const mcpClientManager = createMcpClientManager();
+  // A url MCP server is fetched with THIS process's network position, so the
+  // guard's strictness follows the bind address: on loopback a private target
+  // is the normal case (the product's own MCP servers are 127.0.0.1), while a
+  // backend reachable off-host must treat it as SSRF (security debt, network
+  // deployment). Metadata endpoints are refused either way, inside the guard.
+  const loopbackBind = cfg.host === "127.0.0.1" || cfg.host === "::1" || cfg.host === "localhost";
+  const mcpClientManager = createMcpClientManager({ allowPrivateHosts: loopbackBind });
   const opsStore = new RuntimeOpsStore(db);
 
   const larkBotRegistry = createLarkBotRegistry(cfg, opts?.larkBotRegistry);
