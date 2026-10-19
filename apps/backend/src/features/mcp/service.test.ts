@@ -1,3 +1,37 @@
+describe("credentials never leave through the HTTP surface", () => {
+  test("a single-server read masks env and headers; the mount path keeps them", async () => {
+    // Own adapter + own service: the module-level fixture is shared by the rest
+    // of this file and a second catalog row breaks their length assertions.
+    const isolated = mkdtempSync(join(tmpdir(), "mcp-mask-"));
+    const switches = new Map<string, Array<{ serverId: string; enabled: boolean }>>();
+    const maskedSvc = createMcpService({
+      port: fileMcpServerAdapter(isolated),
+      mcpClientManager: mockManager,
+      runtimeStatus: createMcpRuntimeStatusStore(),
+      agentExists: async () => true,
+      getAgentMcpServers: async (agentId) => switches.get(agentId) ?? [],
+      setAgentMcpServers: async (agentId, entries) => {
+        switches.set(agentId, [...entries]);
+      },
+      idGen: testIdGen,
+    });
+    const created = await maskedSvc.create({
+      name: "guarded",
+      transport: "stdio",
+      command: "node",
+      env: { API_TOKEN: "super-secret" },
+    });
+    // list/create/update already masked; the single read used to be the hole.
+    expect(JSON.stringify(maskedSvc.getServer(created.serverId))).not.toContain("super-secret");
+
+    // The mount path DOES need the real values: masking it would break every
+    // MCP server that carries credentials.
+    switches.set("ag-guarded", [{ serverId: created.serverId, enabled: true }]);
+    const forAgent = await maskedSvc.listForAgent("ag-guarded");
+    expect(JSON.stringify(forAgent)).toContain("super-secret");
+  });
+});
+
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
