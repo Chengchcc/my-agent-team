@@ -70,6 +70,8 @@ export const agentConfigSchema = z.object({
       model: z.string().default(""),
       reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
       permission_mode: z.enum(["ask", "auto", "deny", "yolo"]),
+      deny_write_paths: z.array(z.string()).default([]),
+      allow_write_paths: z.array(z.string()).default([]),
       max_steps: z.number().int().nonnegative(),
       /** Per-agent resource switches (ADR 0022, file-first). */
       mcp_servers: z
@@ -152,6 +154,9 @@ export function buildAgentConfig(input: {
   enabled?: boolean;
   reasoningEffort?: string | null;
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Write-path policy: a boundary, so it is enforced even in yolo. */
+  denyWritePaths?: string[];
+  allowWritePaths?: string[];
   maxSteps?: number;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];
@@ -192,6 +197,8 @@ export function buildAgentConfig(input: {
           ? (input.reasoningEffort ?? "")
           : (prev?.runtime_config.reasoning_effort ?? ""),
       permission_mode: input.permissionMode ?? prev?.runtime_config.permission_mode ?? "ask",
+      deny_write_paths: input.denyWritePaths ?? prev?.runtime_config.deny_write_paths ?? [],
+      allow_write_paths: input.allowWritePaths ?? prev?.runtime_config.allow_write_paths ?? [],
       max_steps: input.maxSteps ?? prev?.runtime_config.max_steps ?? 0,
       mcp_servers:
         input.mcpServers?.map((s) => ({ server_id: s.serverId, enabled: s.enabled })) ??
@@ -250,6 +257,10 @@ export function serializeAgentYaml(config: AgentConfig): string {
     `  model: ${q(rc.model)}`,
     `  reasoning_effort: ${q(rc.reasoning_effort)}`,
     `  permission_mode: ${q(rc.permission_mode)}`,
+    "  deny_write_paths:",
+    ...rc.deny_write_paths.map((p) => `    - ${q(p)}`),
+    "  allow_write_paths:",
+    ...rc.allow_write_paths.map((p) => `    - ${q(p)}`),
     `  max_steps: ${rc.max_steps}`,
     "  mcp_servers:",
     ...rc.mcp_servers.map((s) => `    - server_id: ${q(s.server_id)}\n      enabled: ${s.enabled}`),

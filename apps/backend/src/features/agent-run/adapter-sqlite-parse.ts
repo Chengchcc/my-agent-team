@@ -29,6 +29,9 @@ export function parseRun(row: typeof schema.agentRun.$inferSelect): AgentRun {
     systemPrompt: row.systemPrompt,
     skillRoots: row.skillRoots ? (JSON.parse(row.skillRoots) as string[]) : null,
     permissionMode: row.permissionMode,
+    writePathPolicy: row.writePathPolicy
+      ? (JSON.parse(row.writePathPolicy) as AgentRun["writePathPolicy"])
+      : null,
     todoSnapshot: row.todoSnapshot,
     nativeSessionRef: row.nativeSessionRef,
     workflowBudgetTokens: row.workflowBudgetTokens,

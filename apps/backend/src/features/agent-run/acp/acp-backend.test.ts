@@ -1038,6 +1038,33 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await backend.dispose();
   });
 
+  test("the run's frozen write-path policy reaches the child env", async () => {
+    const obs: FakeAgentObservations = {
+      loadedSessionIds: [],
+      newSessionCalls: 0,
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const spawnEnv: (Readonly<Record<string, string | undefined>> | undefined)[] = [];
+    const backend = new AcpBackend({ spawnImpl: startFakeAgent({ spawnEnv }, obs) });
+    const input = makeInput();
+    const segment = await backend.execute({
+      ...input,
+      run: {
+        ...input.run,
+        writePathPolicy: { deny: ["/home/me/.ssh/"], allow: ["/tmp/ws/notes/"] },
+      },
+    });
+    await collect(segment);
+    // The tool layer enforces these even under yolo, so the chain has to end
+    // in the child's env or the policy is inert.
+    expect(spawnEnv[0]).toMatchObject({
+      OMA_DENY_WRITE_PATHS: "/home/me/.ssh/",
+      OMA_ALLOW_WRITE_PATHS: "/tmp/ws/notes/",
+    });
+    await backend.dispose();
+  });
+
   test("a missing agent binary fails the run, not the process", async () => {
     // Regression (live 2026-09-29): Bun reports spawn ENOENT through the
     // child's `error` event; with no listener it became an uncaught

@@ -419,11 +419,21 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         systemPrompt?: string;
         skillRoots?: readonly string[];
         permissionMode?: string;
+        writePathPolicy?: { deny: string[]; allow: string[] };
       } = {};
       if (systemPrompt) result.systemPrompt = systemPrompt;
       if (skillRoots.length > 0) result.skillRoots = skillRoots;
       const agent = await agentSvc.getById(agentId).catch(() => null);
       if (agent) result.permissionMode = agent.config.runtime_config.permission_mode;
+      if (agent) {
+        const rc = agent.config.runtime_config;
+        if (rc.deny_write_paths.length > 0 || rc.allow_write_paths.length > 0) {
+          result.writePathPolicy = {
+            deny: [...rc.deny_write_paths],
+            allow: [...rc.allow_write_paths],
+          };
+        }
+      }
       return result;
     },
     resolveAgentEnabled: async ({ agentId }) => {
