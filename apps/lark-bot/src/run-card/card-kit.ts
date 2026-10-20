@@ -52,6 +52,9 @@ export interface CardKitClient {
   ): Promise<{ ok: true; messageId: string; threadId?: string } | CardKitErr>;
   /** The chat's `chat_mode` ("group" | "topic"), for reply targeting. */
   getChatMode(chatId: string): Promise<string | null>;
+  /** `name` and `chat_mode` come from ONE chat-info call; the name is what
+   *  makes the console's chat list readable. */
+  getChatInfo(chatId: string): Promise<{ name: string | null; chatMode: string | null } | null>;
   streamElement(input: {
     cardId: string;
     elementId: string;
@@ -179,7 +182,7 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       return { ok: true, cardId };
     },
 
-    async getChatMode(chatId) {
+    async getChatInfo(chatId) {
       const resp = await call(
         "GET",
         `/open-apis/im/v1/chats/${encodeURIComponent(chatId)}`,
@@ -190,8 +193,14 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       const data = envelope.data;
       if (typeof data !== "object" || data === null) return null;
       // No cast: `in` narrows the unknown envelope to a shape with the field.
-      if (!("chat_mode" in data)) return null;
-      return typeof data.chat_mode === "string" ? data.chat_mode : null;
+      const name = "name" in data && typeof data.name === "string" ? data.name : null;
+      const chatMode =
+        "chat_mode" in data && typeof data.chat_mode === "string" ? data.chat_mode : null;
+      return { name: name !== null && name !== "" ? name : null, chatMode };
+    },
+
+    async getChatMode(chatId) {
+      return (await this.getChatInfo(chatId))?.chatMode ?? null;
     },
 
     async sendCard(chatId, cardId, opts) {

@@ -6,6 +6,9 @@ import { api } from "@/lib/api";
  *  the backend only mirrors it). */
 export type BoundChat = {
   chatId: string;
+  /** Resolved by the bot from the OpenAPI; null until the lookup lands, and
+   *  the UI then falls back to the id. */
+  chatName?: string | null;
   chatType: string | null;
   chatMode: string | null;
   conversations: number;

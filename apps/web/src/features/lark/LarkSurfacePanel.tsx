@@ -377,7 +377,10 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
             const chat = boundChats.find((c) => c.chatId === chatId);
             return (
               <li key={chatId} className="flex flex-wrap items-center gap-2">
-                <code className="text-xs">{chatId}</code>
+                {chat?.chatName ? (
+                  <span className="text-xs text-foreground">{chat.chatName}</span>
+                ) : null}
+                <code className="text-xs text-muted-foreground">{chatId}</code>
                 <span className="text-xs text-muted-foreground">
                   {chat
                     ? `${chat.chatType ?? "chat"} - ${chat.conversations} conversation(s)`

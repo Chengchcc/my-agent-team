@@ -793,9 +793,15 @@ export interface BoundChatSummary {
   chatMode: string | null;
   conversations: number;
   topicRootMessageId: string | null;
+  /** Display name resolved from the OpenAPI (`chat-names.ts`); null until the
+   *  background lookup lands, or when the app cannot read that chat. */
+  chatName: string | null;
 }
 
-export function listBoundChats(db: Database): BoundChatSummary[] {
+export function listBoundChats(
+  db: Database,
+  nameOf: (chatId: string) => string | null = () => null,
+): BoundChatSummary[] {
   const rows = d(db).select().from(schema.conversationBinding).all().map(toConversationBinding);
   const byChat = new Map<string, BoundChatSummary>();
   for (const row of rows) {
@@ -813,6 +819,7 @@ export function listBoundChats(db: Database): BoundChatSummary[] {
       chatMode: row.chatMode ?? null,
       conversations: 1,
       topicRootMessageId: row.topicRootMessageId ?? null,
+      chatName: nameOf(row.larkChatId),
     });
   }
   return [...byChat.values()].sort((a, b) => (a.chatId < b.chatId ? -1 : 1));
