@@ -16,7 +16,7 @@ import { createClient } from "./client.js";
 import type { LarkMessageEvent } from "./event-parser.js";
 import { isBotMentioned, isMentionAll } from "./event-parser.js";
 import { larkImageKeysOf, stripImageMarkers } from "./image-fetch.js";
-import { decideInbound, type LarkAccessConfig } from "./inbound-policy.js";
+import { decideInbound, type LarkAccessConfig, normalizeGroups } from "./inbound-policy.js";
 import { resolveMentionTargets } from "./mention-targets.js";
 import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
 
@@ -98,7 +98,10 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // The agent's lark config comes back as JSON with the DTO's field names
   // (agent/http.ts). Single-step cast at a wire boundary the contract test
   // tracks; the policy module validates every field it reads.
-  const larkCfg = agentData.lark as LarkAccessConfig;
+  // The DTO's `groups` is an array; normalizeGroups accepts both shapes so the
+  // per-chat rules key the way decideInbound expects (they were inert before).
+  const wireLark = agentData.lark as LarkAccessConfig & { groups?: unknown };
+  const larkCfg: LarkAccessConfig = { ...wireLark, groups: normalizeGroups(wireLark.groups) };
   const mentionedBot = isBotMentioned(event, botDisplayName);
   const mentionAll = isMentionAll(event);
   // Reading the binding is the only way to know whether this chat is already
