@@ -1,5 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  decryptSecret,
+  encryptSecret,
+  isEncrypted,
+  loadOrCreateMcpKey,
+} from "../../infra/mcp-secrets.js";
 import type { McpServerRow } from "./domain.js";
 import type { CreateMcpServerRecord, McpServerPort, UpdateMcpServerRecord } from "./ports.js";
 
@@ -26,19 +32,66 @@ export function mcpCatalogPath(dataDir: string): string {
   return join(dataDir, "mcp-servers.json");
 }
 
+/** One key per process; the file is the launcher's (0600, outside dataDir). */
+let cachedKey: Buffer | null = null;
+function encryptionKey(): Buffer {
+  cachedKey ??= loadOrCreateMcpKey();
+  return cachedKey;
+}
+
+function mapValues(
+  record: Record<string, string>,
+  fn: (value: string) => string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(record)) out[name] = fn(value);
+  return out;
+}
+
 export function readMcpCatalog(dataDir: string): FileEntry[] {
   const path = mcpCatalogPath(dataDir);
   if (!existsSync(path)) return [];
+  let servers: FileEntry[];
   try {
     const parsed = JSON.parse(readFileSync(path, "utf-8")) as { servers?: FileEntry[] };
-    return parsed.servers ?? [];
+    servers = parsed.servers ?? [];
   } catch {
     return [];
   }
+  const key = encryptionKey();
+  let sawPlaintext = false;
+  const decrypted = servers.map((entry) => {
+    for (const value of [
+      ...Object.values(entry.env ?? {}),
+      ...Object.values(entry.headers ?? {}),
+    ]) {
+      if (!isEncrypted(value)) sawPlaintext = true;
+    }
+    return {
+      ...entry,
+      env: mapValues(entry.env ?? {}, (value) => decryptSecret(value, key)),
+      headers: mapValues(entry.headers ?? {}, (value) => decryptSecret(value, key)),
+    };
+  });
+  // Legacy catalogs (and hand edits) are plaintext: re-encrypt the file the
+  // first time it is read, so a copied dataDir stops carrying live secrets
+  // immediately rather than at the next edit.
+  if (sawPlaintext) writeMcpCatalog(dataDir, decrypted);
+  return decrypted;
 }
 
+/** At rest, every env/header value is ciphertext. The catalog stays
+ *  human-editable - a plaintext value written by hand is simply re-encrypted on
+ *  the next read. The key lives in the launcher's gateway-secrets.json, so a
+ *  copied dataDir (or backend.db) contains nothing usable. */
 function writeMcpCatalog(dataDir: string, servers: FileEntry[]): void {
-  writeFileSync(mcpCatalogPath(dataDir), `${JSON.stringify({ servers }, null, 2)}\n`);
+  const key = encryptionKey();
+  const sealed = servers.map((entry) => ({
+    ...entry,
+    env: mapValues(entry.env ?? {}, (value) => encryptSecret(value, key)),
+    headers: mapValues(entry.headers ?? {}, (value) => encryptSecret(value, key)),
+  }));
+  writeFileSync(mcpCatalogPath(dataDir), `${JSON.stringify({ servers: sealed }, null, 2)}\n`);
 }
 
 function parseJson<T>(raw: string | null, fallback: T): T {
