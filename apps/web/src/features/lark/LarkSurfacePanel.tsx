@@ -83,6 +83,11 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const [chatPolicy, setChatPolicy] = useState<
     Record<string, "open" | "allowlist" | "disabled" | "inherit">
   >({});
+  // Per-chat @mention rule: "inherit" follows the agent setting, then the
+  // policy default (an open chat does not need a mention).
+  const [chatMention, setChatMention] = useState<
+    Record<string, "inherit" | "required" | "optional">
+  >({});
   const [savingChats, setSavingChats] = useState(false);
   const [chatsSaved, setChatsSaved] = useState(false);
   const [chatsError, setChatsError] = useState("");
@@ -113,10 +118,14 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
     setRequireMention(agent.lark?.requireMention ?? true);
     setRespondAll(agent.lark?.respondToMentionAll ?? false);
     const overrides: Record<string, "open" | "allowlist" | "disabled" | "inherit"> = {};
+    const mentions: Record<string, "inherit" | "required" | "optional"> = {};
     for (const group of agent.lark?.groups ?? []) {
       overrides[group.chatId] = group.policy ?? "inherit";
+      if (group.requireMention === true) mentions[group.chatId] = "required";
+      else if (group.requireMention === false) mentions[group.chatId] = "optional";
     }
     setChatPolicy(overrides);
+    setChatMention(mentions);
   }, [agent]);
 
   // The link, the countdown and the outcome all come from the surface view,
@@ -227,14 +236,27 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
       );
       const groups: Record<
         string,
-        { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] }
+        {
+          policy?: "open" | "allowlist" | "disabled";
+          allowedSenders?: string[];
+          requireMention?: boolean;
+        }
       > = {};
       for (const [chatId, policy] of Object.entries(chatPolicy)) {
         const senders = allowed.get(chatId) ?? null;
-        const entry: { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] } = {};
+        const entry: {
+          policy?: "open" | "allowlist" | "disabled";
+          allowedSenders?: string[];
+          requireMention?: boolean;
+        } = {};
         if (policy !== "inherit") entry.policy = policy;
         if (senders && senders.length > 0) entry.allowedSenders = senders;
-        if (entry.policy || entry.allowedSenders) groups[chatId] = entry;
+        const mention = chatMention[chatId] ?? "inherit";
+        if (mention === "required") entry.requireMention = true;
+        if (mention === "optional") entry.requireMention = false;
+        if (entry.policy || entry.allowedSenders || entry.requireMention !== undefined) {
+          groups[chatId] = entry;
+        }
       }
       await api.updateAgent(agentId, { lark: { groups } });
       await qc.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
@@ -403,6 +425,24 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
                     <SelectItem value="open">Open</SelectItem>
                     <SelectItem value="allowlist">Allowlist</SelectItem>
                     <SelectItem value="disabled">Disabled</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={chatMention[chatId] ?? "inherit"}
+                  onValueChange={(v) =>
+                    setChatMention((prev) => ({
+                      ...prev,
+                      [chatId]: v as "inherit" | "required" | "optional",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inherit">Inherit @ rule</SelectItem>
+                    <SelectItem value="required">Require @</SelectItem>
+                    <SelectItem value="optional">No @ needed</SelectItem>
                   </SelectContent>
                 </Select>
               </li>

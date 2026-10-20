@@ -63,6 +63,7 @@ function toAgentResponse(row: AgentRow, status: string) {
         chatId,
         policy: g.policy ?? null,
         allowedSenders: g.allowed_senders ?? null,
+        requireMention: g.require_mention ?? null,
       })),
       requireMention: lk.require_mention,
       respondToMentionAll: lk.respond_to_mention_all,
