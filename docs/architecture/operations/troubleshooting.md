@@ -108,6 +108,7 @@ adapter 是 oma 子进程的进程管理与 JSONL 控制器（`apps/backend/src/
 |---|---|---|
 | 所有 Run 都在 preflight 失败 | 模型列表接口是否可用，模型 id 是否在 catalog 里 | `execution-dispatch.ts` 的 `assertModelAvailable` |
 | Run 跑满时限被中止 | 看门狗按 `runTimeoutMs` 调 `stop` | `execution-dispatch.ts` 的 `watchdog` |
+| Run 在 ~90 秒被中止，终态 `stopped by product backend` | 子进程连续 90 秒没有任何事件。**有工具调用在飞时不判静默**——ACP 传输只带工具的起止、不带心跳（子进程的 `heartbeat` 只映射在 oma 协议上，见 `protocol/mapping.ts`），所以一个安静跑 150 秒的 `sleep` 曾被当成「子进程停止上报」（2026-10-20 实测：健康 run 在 93 秒被杀）。真卡死的工具由 30 分钟上限兜 | `execution-dispatch.ts` 的静默定时器 + `execution-live.ts` 的 `hasOpenToolCall` |
 | coding 面板里的 oma 用不了 product tools | 该 oma 由按钮注入，没有 Run Token | `apps/backend/src/features/coding/http.ts` 的 `launch-oma` |
 | 面板状态点不变 | `.oma/agent-status.json` 是否在写、心跳是否超过 3 分钟 | `apps/backend/src/features/coding/agent-status.ts` |
 

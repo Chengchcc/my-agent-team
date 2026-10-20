@@ -232,6 +232,9 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       const forwardingSince = Date.now();
       silenceTimer = setInterval(
         () => {
+          // An in-flight tool call is progress the event stream cannot show:
+          // the ACP transport carries tool starts/turns but no liveness tick.
+          if (liveEvents.hasOpenToolCall(runId)) return;
           const last = liveEvents.lastEventAt(runId) ?? forwardingSince;
           if (Date.now() - last < silenceWindowMs) return;
           void (async () => {
