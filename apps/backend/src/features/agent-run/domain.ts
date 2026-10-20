@@ -66,6 +66,8 @@ export interface AgentRun {
   /** Frozen permission_mode (ADR 0020 decision 7), mapped per backend at
    *  dispatch. */
   readonly permissionMode: string | null;
+  /** Frozen write-path policy injected into the child (allow-rules). */
+  readonly writePathPolicy: { deny: string[]; allow: string[] } | null;
   /** JSON: latest task list snapshot (todo_write product tool). */
   readonly todoSnapshot: string | null;
   /** Optional workflow budget (tokens), frozen at Run creation. */
@@ -113,6 +115,9 @@ export interface BranchInput {
     readonly systemPrompt: string | null;
     readonly skillRoots: readonly string[] | null;
     readonly permissionMode: string | null;
+    /** Optional here: the queue row predates the column; a run's own row
+     *  always carries it. */
+    readonly writePathPolicy?: { deny: string[]; allow: string[] } | null;
     readonly workflowBudgetTokens: number | null;
   };
   readonly createdAt: number;
@@ -160,6 +165,7 @@ export interface AcquireAgentRunCommand {
   readonly skillRoots?: readonly string[];
   /** Frozen permission_mode (ADR 0020 decision 7). */
   readonly permissionMode?: string;
+  readonly writePathPolicy?: string;
   /** Optional workflow budget (tokens) for this Run; null = no gate. */
   readonly workflowBudgetTokens?: number;
   /** Oma workflow-mode input: execute this script instead of a loop. */

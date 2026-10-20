@@ -393,6 +393,10 @@ export const agentRun = sqliteTable(
     /** Frozen permission_mode (ask/auto/deny/yolo), mapped per backend at
      *  dispatch (ADR 0020 decision 7; claude --permission-mode). */
     permissionMode: text("permission_mode"),
+    /** JSON {deny,allow}: frozen write-path policy injected into the child as
+     *  OMA_DENY_WRITE_PATHS / OMA_ALLOW_WRITE_PATHS (allow-rules, first slice).
+     *  Stored on the run so it is frozen with the rest of the config. */
+    writePathPolicy: text("write_path_policy"),
     /** JSON: the run's latest task list snapshot (todo_write product tool).
      *  Re-injected into the next run's prompt as the Current Tasks section. */
     todoSnapshot: text("todo_snapshot"),

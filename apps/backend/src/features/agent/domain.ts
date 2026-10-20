@@ -34,6 +34,10 @@ export interface CreateAgentInput {
   workspacePath?: string;
   reasoningEffort?: "none" | "low" | "high" | "max" | null;
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Write-path policy injected into the child (allow-rules, first slice).
+   *  Never read from the workspace: the agent could lift its own rules. */
+  denyWritePaths?: string[];
+  allowWritePaths?: string[];
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];
   lark?: {

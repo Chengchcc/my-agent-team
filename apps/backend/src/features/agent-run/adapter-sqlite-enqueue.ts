@@ -260,6 +260,7 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
             systemPrompt: command.systemPrompt ?? null,
             skillRoots: command.skillRoots ? JSON.stringify(command.skillRoots) : null,
             permissionMode: command.permissionMode ?? null,
+            writePathPolicy: command.writePathPolicy ?? null,
             workflow: command.workflow ? JSON.stringify(command.workflow) : null,
             createdAt: now,
           })

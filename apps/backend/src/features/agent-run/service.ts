@@ -27,10 +27,12 @@ export interface AgentRunServiceDeps {
   /** Resolve the frozen Run config (systemPrompt + skillRoots +
    *  permissionMode) from the target Agent. Called when the caller did not
    *  pass explicit values - Loop scopes pass their own LOOP.md config. */
-  readonly resolveRunConfig?: (input: {
-    conversationId: string;
-    agentId: string;
-  }) => Promise<{ systemPrompt?: string; skillRoots?: readonly string[]; permissionMode?: string }>;
+  readonly resolveRunConfig?: (input: { conversationId: string; agentId: string }) => Promise<{
+    systemPrompt?: string;
+    skillRoots?: readonly string[];
+    permissionMode?: string;
+    writePathPolicy?: { deny: string[]; allow: string[] };
+  }>;
   /** Kill-switch gate: false → AgentDisabledError before any queue/branch
    *  mutation. Chat, cron and loop all funnel through this service. */
   readonly resolveAgentEnabled?: (input: {
@@ -163,6 +165,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
       let systemPrompt = input.systemPrompt;
       let skillRoots = input.skillRoots;
       let permissionMode = input.permissionMode;
+      let writePathPolicy: { deny: string[]; allow: string[] } | undefined;
       if (
         (systemPrompt === undefined || skillRoots === undefined || permissionMode === undefined) &&
         deps.resolveRunConfig
@@ -174,6 +177,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         systemPrompt ??= resolved.systemPrompt;
         skillRoots ??= resolved.skillRoots;
         permissionMode ??= resolved.permissionMode;
+        writePathPolicy ??= resolved.writePathPolicy;
       }
 
       return port.enqueueAndAcquire({
@@ -192,6 +196,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         systemPrompt,
         skillRoots,
         permissionMode,
+        ...(writePathPolicy ? { writePathPolicy: JSON.stringify(writePathPolicy) } : {}),
         workflowBudgetTokens: input.workflowBudgetTokens,
         workflow: input.workflow,
       });

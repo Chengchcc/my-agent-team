@@ -330,6 +330,14 @@ export class AcpBackend implements AgentBackend<"acp"> {
       ...(input.consentedMcpTools?.length
         ? { [CONSENTED_MCP_TOOLS_ENV]: encodeEnvList(input.consentedMcpTools) }
         : {}),
+      // Allow-rules, first slice: the path policy is a boundary, so it is
+      // enforced by the tool layer even under yolo.
+      ...(input.run.writePathPolicy?.deny.length
+        ? { OMA_DENY_WRITE_PATHS: input.run.writePathPolicy.deny.join(",") }
+        : {}),
+      ...(input.run.writePathPolicy?.allow.length
+        ? { OMA_ALLOW_WRITE_PATHS: input.run.writePathPolicy.allow.join(",") }
+        : {}),
     };
     let transport: AcpTransport;
     try {

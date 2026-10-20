@@ -1,0 +1,1 @@
+ALTER TABLE `agent_run` ADD `write_path_policy` text;

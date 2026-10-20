@@ -39,6 +39,10 @@ export interface AgentRunSnapshot<K extends string = string> {
   /** Frozen permission_mode (ask/auto/deny/yolo), mapped per backend at
    *  dispatch (ADR 0020 decision 7). "yolo" = ungated run. */
   readonly permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Frozen write-path policy: the ACP child exposes it as
+   *  OMA_DENY_WRITE_PATHS / OMA_ALLOW_WRITE_PATHS, and the tool layer honours
+   *  it even under yolo (it is a boundary, not a judgment). */
+  readonly writePathPolicy?: { deny: string[]; allow: string[] };
   /** Optional workflow budget (tokens) frozen at Run creation. */
   readonly workflowBudgetTokens?: number;
   readonly configRevision: number;
