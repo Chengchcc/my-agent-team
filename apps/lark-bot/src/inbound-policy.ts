@@ -40,6 +40,45 @@ export interface LarkAccessConfig {
 
 const WILDCARD = "*";
 
+/** The agent DTO carries `groups` as an ARRAY (one row per chat, which is what
+ *  the web lists) while this module keys by chat id. Accept both and normalize
+ *  here, at the wire boundary: reading the wrong shape makes every per-chat
+ *  rule look absent, which is how the chat policy and the per-chat mention rule
+ *  were both silently inert before this existed (live 2026-10-20). */
+export function normalizeGroups(wire: unknown): Record<string, LarkGroupEntry> {
+  const out: Record<string, LarkGroupEntry> = {};
+  const rows: readonly unknown[] = Array.isArray(wire) ? wire : [];
+  if (Array.isArray(wire)) {
+    for (const row of rows) {
+      if (typeof row !== "object" || row === null) continue;
+      if (!("chatId" in row) || typeof row.chatId !== "string" || row.chatId.length === 0) continue;
+      out[row.chatId] = readEntry(row);
+    }
+    return out;
+  }
+  if (typeof wire !== "object" || wire === null) return out;
+  for (const [chatId, row] of Object.entries(wire)) {
+    if (chatId.length === 0 || typeof row !== "object" || row === null) continue;
+    out[chatId] = readEntry(row);
+  }
+  return out;
+}
+
+/** One entry, read without asserting a shape: `in` narrows, and anything of
+ *  the wrong type is dropped rather than trusted. */
+function readEntry(row: object): LarkGroupEntry {
+  const entry: LarkGroupEntry = {};
+  const policy = "policy" in row ? row.policy : undefined;
+  if (policy === "open" || policy === "allowlist" || policy === "disabled") entry.policy = policy;
+  const senders = "allowedSenders" in row ? row.allowedSenders : undefined;
+  if (Array.isArray(senders)) {
+    entry.allowedSenders = senders.filter((v): v is string => typeof v === "string");
+  }
+  const requireMention = "requireMention" in row ? row.requireMention : undefined;
+  if (typeof requireMention === "boolean") entry.requireMention = requireMention;
+  return entry;
+}
+
 /** Whether a sender is on an allowlist. Empty denies; `"*"` grants;
  *  comparison is case-insensitive (Lark ids are lower-case, but a
  *  hand-edited config is not guaranteed to be). */

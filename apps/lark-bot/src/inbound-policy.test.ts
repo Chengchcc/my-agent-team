@@ -3,6 +3,7 @@ import {
   decideInbound,
   type LarkAccessConfig,
   matchesAllowlist,
+  normalizeGroups,
   resolveGroupPolicy,
 } from "./inbound-policy.js";
 
@@ -137,6 +138,42 @@ describe("decideInbound — groups (L2 sender)", () => {
       mentionedBot: false,
     });
     expect(d.reason).toBe("no_mention");
+  });
+});
+
+describe("normalizeGroups — the DTO's array shape", () => {
+  test("an array of chat rows keys by chatId", () => {
+    const groups = normalizeGroups([
+      { chatId: "oc_1", policy: "disabled", allowedSenders: null, requireMention: null },
+      { chatId: "oc_2", policy: null, allowedSenders: ["ou_a", 7], requireMention: false },
+      { chatId: "", policy: "open" },
+      "junk",
+    ]);
+    expect(Object.keys(groups)).toEqual(["oc_1", "oc_2"]);
+    expect(groups.oc_1?.policy).toBe("disabled");
+    expect(groups.oc_2?.allowedSenders).toEqual(["ou_a"]);
+    expect(groups.oc_2?.requireMention).toBe(false);
+  });
+
+  test("a record passes through, and junk is empty rather than undefined", () => {
+    expect(normalizeGroups({ oc_1: { policy: "open" } }).oc_1?.policy).toBe("open");
+    expect(normalizeGroups(undefined)).toEqual({});
+    expect(normalizeGroups("nope")).toEqual({});
+  });
+
+  test("the array form actually drives the decision", () => {
+    // The regression this pins: with an array upstream, cfg.groups[chatId]
+    // was undefined for every chat, so both per-chat rules silently vanished.
+    const d = group({
+      cfg: cfg({
+        groupPolicy: "open",
+        groups: normalizeGroups([{ chatId: "oc_1", policy: "disabled" }]),
+      }),
+      mentionedBot: true,
+      chatInUse: true,
+    });
+    expect(d.outcome).toBe("skip");
+    expect(d.reason).toBe("group_not_admitted");
   });
 });
 
