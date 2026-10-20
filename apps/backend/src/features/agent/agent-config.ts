@@ -107,6 +107,9 @@ export const agentConfigSchema = z.object({
           z.object({
             policy: z.enum(["open", "allowlist", "disabled"]).optional(),
             allowed_senders: z.array(z.string().min(1)).optional(),
+            /** Per-chat mention requirement. Absent = the agent's setting,
+             *  then the policy default (an `open` chat does not need an @). */
+            require_mention: z.boolean().optional(),
           }),
         )
         .default({}),

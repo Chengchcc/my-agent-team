@@ -25,6 +25,8 @@ export interface LarkGroupEntry {
   /** Only meaningful with `policy: "allowlist"`; falls back to the agent's
    *  top-level allowlist when absent. */
   allowedSenders?: readonly string[];
+  /** Per-chat override of the agent's `requireMention`. */
+  requireMention?: boolean;
 }
 
 /** The part of the agent's lark config this module needs. */
@@ -140,7 +142,12 @@ export function decideInbound(input: InboundPolicyInput): InboundDecision {
   }
 
   // ── L3: was the bot addressed? ──
-  const mentionRequired = cfg.requireMention ?? true;
+  // Precedence (openclaw's Feishu access-control doc): the chat's own entry,
+  // then the agent's setting, then the policy's default. Under `open` the
+  // default is "no mention needed" - a message that cannot carry a mention
+  // (an image, a file) would otherwise never reach the agent in a group that
+  // was explicitly opened to it.
+  const mentionRequired = explicit?.requireMention ?? cfg.requireMention ?? policy !== "open";
   if (mentionRequired && !input.mentionedBot) {
     // `@everyone` is not a request to this agent unless it is explicitly
     // opted in (openclaw's respondToMentionAll, also off by default).

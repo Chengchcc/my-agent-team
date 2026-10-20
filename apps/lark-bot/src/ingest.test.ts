@@ -76,7 +76,9 @@ function mockFetch(responses: MockResponse[]): SeenRequest[] {
  *  an empty list denies everyone, and `groupPolicy: "open"` admits the test
  *  groups without needing a pre-existing binding. */
 const AGENT_CONFIG: MockResponse = {
-  body: { lark: { allowedSenders: ["*"], groupPolicy: "open" } },
+  // explicit: an `open` policy no longer requires an @mention on its own, and
+  // these tests are about "not addressed" behaviour under a mention rule.
+  body: { lark: { allowedSenders: ["*"], groupPolicy: "open", requireMention: true } },
 };
 
 afterAll(() => {
