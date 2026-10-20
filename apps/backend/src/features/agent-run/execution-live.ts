@@ -16,6 +16,9 @@ export interface LiveEventBus {
    *  The dispatch's silence watchdog reads it: the loop heartbeats every few
    *  seconds, so a stale value means the child is mute, not "thinking". */
   lastEventAt(runId: string): number | undefined;
+  /** True while a tool call has started and not finished: the child is
+   *  working, not mute, so the silence watchdog must stand down. */
+  hasOpenToolCall(runId: string): boolean;
 }
 
 export function createLiveEventBus(deps: {
@@ -38,6 +41,7 @@ export function createLiveEventBus(deps: {
   onLiveEvent?: (runId: string, event: BackendEvent) => void;
 }): LiveEventBus {
   const lastEventByRun = new Map<string, number>();
+  const openCallsByRun = new Map<string, number>();
 
   /** Extract a runtime MCP mount observation from the oma extension event.
    *  Returns undefined for every other event shape. */
@@ -81,6 +85,20 @@ export function createLiveEventBus(deps: {
 
   async function broadcast(runId: string, event: BackendEvent): Promise<void> {
     lastEventByRun.set(runId, Date.now());
+    // ACP reports tool lifecycle as events (event-mapping's tool_call /
+    // tool_result), and the ACP transport has no liveness channel of its own
+    // (the child's heartbeat is mapped for the oma protocol only). So a tool
+    // that runs quietly for longer than the silence window - `sleep 150`, a
+    // hub wait, a slow build - used to be killed as "mute" (live 2026-10-20:
+    // a healthy run aborted at 93s). An open call is the evidence of life; a
+    // genuinely stuck tool is the wall-clock cap's job, not the silence one's.
+    if (event.type === "native_tool_started") {
+      openCallsByRun.set(runId, (openCallsByRun.get(runId) ?? 0) + 1);
+    } else if (event.type === "native_tool_completed") {
+      const open = (openCallsByRun.get(runId) ?? 0) - 1;
+      if (open > 0) openCallsByRun.set(runId, open);
+      else openCallsByRun.delete(runId);
+    }
     // Durable telemetry: persist the normalized event log (tool calls,
     // status, workflow steps). Transient text/thinking deltas are skipped, and
     // so are liveness heartbeats: they exist for the parent's silence
@@ -128,6 +146,7 @@ export function createLiveEventBus(deps: {
 
   function forgetRun(runId: string): void {
     lastEventByRun.delete(runId);
+    openCallsByRun.delete(runId);
   }
 
   /** Drain the segment's live events through `broadcast`. A closing event stream is not a run
@@ -147,5 +166,6 @@ export function createLiveEventBus(deps: {
     forgetRun,
     forwardEvents,
     lastEventAt: (runId: string) => lastEventByRun.get(runId),
+    hasOpenToolCall: (runId: string) => (openCallsByRun.get(runId) ?? 0) > 0,
   };
 }

@@ -474,6 +474,41 @@ describe("agent run execution (Run-centric)", () => {
     expect(["aborted", "failed"]).toContain(settled.status);
   }, 15_000);
 
+  test("an open tool call keeps the silence watchdog standing down", async () => {
+    // ACP carries tool starts/finishes but no liveness tick of its own (the
+    // child's heartbeat is mapped for the oma protocol only), so a tool that
+    // runs quieter than the window looked like a mute child: live 2026-10-20 a
+    // healthy run was stopped at 93s while sitting inside `sleep 150`.
+    const fake = createFakeAcpDaemon({
+      dataDir,
+      script: [
+        { tool_call_update: { toolCallId: "t-open", status: "in_progress" } },
+        { delay_ms: 5_000 },
+      ],
+    });
+    const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
+      silenceWindowMs: 300,
+    });
+    const run = await enqueue("normal", "silent-3", "go");
+    const runId = run.run!.runId;
+    const dispatched = execution.dispatch(runId);
+    for (let i = 0; i < 60; i++) {
+      if ((await runPort.getRun(runId))?.status === "running") break;
+      await Bun.sleep(25);
+    }
+    // Past two watchdog ticks (the interval is max(500, window/3)): without
+    // the stand-down the run is long settled by here, and with it the open
+    // call still holds the run.
+    await Bun.sleep(1_500);
+    expect((await runPort.getRun(runId))?.status).toBe("running");
+    // The scripted stall then ends on its own.
+    await dispatched;
+    // The stall ends on its own well before the 30-minute cap, so the run
+    // completes: an open call kept it alive, nothing else had to.
+    const settled = await waitForTerminal(runId);
+    expect(settled.status).toBe("completed");
+  }, 20_000);
+
   test("the silence watchdog stands down while a human owes an answer", async () => {
     const fake = createFakeAcpDaemon({ dataDir, script: [{ delay_ms: 10_000 }] });
     const execution = makeExecution(fake, undefined, undefined, undefined, undefined, undefined, {
