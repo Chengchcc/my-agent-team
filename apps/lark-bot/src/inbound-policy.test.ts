@@ -141,7 +141,50 @@ describe("decideInbound — groups (L2 sender)", () => {
 });
 
 describe("decideInbound — groups (L3 mention)", () => {
-  const admitted = cfg({ groupPolicy: "open" });
+  // An allowlist policy, so the agent-level mention rule applies. (Under
+  // `open` a mention is not required at all - see the first test.)
+  const admitted = cfg({
+    groupPolicy: "allowlist",
+    allowedSenders: ["ou_alice"],
+    groups: { oc_1: { policy: "allowlist" } },
+  });
+
+  test("under an open policy a mention is not required", () => {
+    // openclaw's rule, for a concrete reason: an image or a file cannot carry
+    // an @mention, so requiring one in a group the operator explicitly opened
+    // meant those messages never reached the agent at all.
+    const d = group({ cfg: cfg({ groupPolicy: "open" }), mentionedBot: false });
+    expect(d.outcome).toBe("answer");
+    expect(d.reason).toBe("allowed");
+  });
+
+  test("open does not override an explicit requireMention: true", () => {
+    const d = group({
+      cfg: cfg({ groupPolicy: "open", requireMention: true }),
+      mentionedBot: false,
+    });
+    expect(d.outcome).toBe("observe");
+  });
+
+  test("a chat can turn the mention requirement off on its own", () => {
+    const d = group({
+      cfg: cfg({
+        groupPolicy: "allowlist",
+        allowedSenders: ["ou_alice"],
+        groups: { oc_1: { policy: "allowlist", requireMention: false } },
+      }),
+      mentionedBot: false,
+    });
+    expect(d.outcome).toBe("answer");
+  });
+
+  test("a chat can require a mention even under open", () => {
+    const d = group({
+      cfg: cfg({ groupPolicy: "open", groups: { oc_1: { policy: "open", requireMention: true } } }),
+      mentionedBot: false,
+    });
+    expect(d.outcome).toBe("observe");
+  });
 
   test("a message that did not address the bot is observed, not dropped", () => {
     // Recorded into the conversation so the agent has context, but not

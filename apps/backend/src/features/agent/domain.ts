@@ -54,7 +54,11 @@ export interface CreateAgentInput {
     /** Per-chat overrides keyed by Lark chat id (`oc_…`). */
     groups?: Record<
       string,
-      { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] }
+      {
+        policy?: "open" | "allowlist" | "disabled";
+        allowedSenders?: string[];
+        requireMention?: boolean;
+      }
     >;
     /** Groups require a real @mention. */
     requireMention?: boolean;
@@ -88,7 +92,11 @@ export interface UpdateAgentInput {
     /** Per-chat overrides keyed by Lark chat id (`oc_…`). */
     groups?: Record<
       string,
-      { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] }
+      {
+        policy?: "open" | "allowlist" | "disabled";
+        allowedSenders?: string[];
+        requireMention?: boolean;
+      }
     >;
     /** Groups require a real @mention. */
     requireMention?: boolean;
