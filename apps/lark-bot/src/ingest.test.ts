@@ -639,6 +639,49 @@ describe("ingest", () => {
     db.close();
   });
 
+  test("per-chat policy from the DTO's ARRAY groups actually applies", async () => {
+    // The regression this pins: the DTO carries `groups` as an array while the
+    // policy keys by id, so every per-chat row read as absent and an `open`
+    // default answered a chat that had been switched off. Deleting the
+    // normalizeGroups call in ingest.ts must fail THIS test.
+    const db = makeDb();
+    mockFetch([
+      {
+        body: {
+          lark: {
+            allowedSenders: ["*"],
+            groupPolicy: "open",
+            groups: [{ chatId: "oc_grp", policy: "disabled" }],
+          },
+        },
+      },
+      { body: { conversationId: "conv_grp" } },
+      { body: { members: [] } },
+      { body: { seq: 2 } },
+    ]);
+
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_arr",
+        message_id: "om_arr",
+        chat_id: "oc_grp",
+        chat_type: "group",
+        content: "hi there",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+      },
+    );
+
+    expect(result.triggered).toBe(false);
+  });
+
   test("group message that merely TYPES the bot name does not trigger", async () => {
     // lark-cli renders `.content` with mentions resolved to display names, so
     // this text is identical to the real mention above. The structured
