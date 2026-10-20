@@ -67,7 +67,7 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 | 问题 | 说明 |
 |---|---|
 | 沙箱超时与重试参数没有上限 | `timeoutMs` 收任意正数，retry 三个参数无界，长任务实际不可取消 |
-| provider 密钥明文落盘 | 密钥仍是明文（这一条没变）。文件权限已经收了：`sqlite/db.ts` 每次开库都把 db 与 `-wal`/`-shm` 收到 `0600`（顺带修掉历史的 0644），新建的 dataDir 是 `0700`；但**已存在的目录不动**，所以旧 dataDir 自身的权限要人工确认一次。`.env` 与 gateway 的 secrets 文件是 `0600`。 |
+| provider 密钥落盘 | **已封存（2026-10-20）**：`provider.<id>.apiKey` 这类 secret-shaped 字符串在 `settings` 服务落库前就用 AES-256-GCM 封成 `enc:v1:<iv>:<tag>:<ct>`（与 MCP 目录**同一把密钥**，密钥在 `gateway-secrets.json`、与 dataDir 分离），读出时解密、`getAll` 解密后再按 H5 脱敏；历史明文在**第一次读**时立刻封存。仍然成立的部分是「拷走 dataDir 拿到的是密文，拷走 gateway-secrets.json 就全解」——所以那个文件是 0600 且不与数据同目录。文件权限已经收了：`sqlite/db.ts` 每次开库都把 db 与 `-wal`/`-shm` 收到 `0600`（顺带修掉历史的 0644），新建的 dataDir 是 `0700`；但**已存在的目录不动**，所以旧 dataDir 自身的权限要人工确认一次。`.env` 与 gateway 的 secrets 文件是 `0600`。 |
 | grep 子进程继承全量父环境 | bash 有凭据剥离，rg 没有，凭据可经 `RIPGREP_CONFIG_PATH` 或 `--pre` 外溢 |
 | bash 可经 `/proc/<ppid>/environ` 读父进程环境 | bwrap 只 unshare 网络，没 unshare pid |
 | Seatbelt profile 写在 agent 可写的 `.oma/` 下 | 存在「写 profile → exec」的窗口 |

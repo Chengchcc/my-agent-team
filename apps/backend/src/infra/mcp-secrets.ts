@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /** Where the deployment's secrets live. The launcher's `oma gateway` writes it
  *  (login password hash lives here too), so this module must PRESERVE the other
@@ -32,6 +32,11 @@ function readSecrets(path: string): SecretsFile {
 }
 
 function writeSecrets(path: string, value: SecretsFile): void {
+  // First run on a fresh machine: ~/.oma may not exist yet (the launcher only
+  // creates it when the gateway runs). Without this the very first secret write
+  // fails with ENOENT - which is how CI caught it (a clean $HOME), not the dev
+  // box where ~/.oma already existed.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   // The mode argument only applies on creation; a pre-existing file keeps its
   // old bits, so set them explicitly.

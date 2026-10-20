@@ -1,4 +1,10 @@
 import type { BackendConfig } from "../../config.js";
+import {
+  decryptSecret,
+  encryptSecret,
+  isEncrypted,
+  loadOrCreateMcpKey,
+} from "../../infra/mcp-secrets.js";
 import type { SettingsRow } from "./domain.js";
 import type { SettingsPort } from "./ports.js";
 
@@ -34,25 +40,77 @@ function maskDeep(k: string, v: unknown): unknown {
   return v;
 }
 
+/** Seal secret-shaped strings before they reach the database (H5's other
+ *  half): masking keeps them out of a response, this keeps them out of a
+ *  copied backend.db. Same AES-256-GCM key the MCP catalog uses - the key
+ *  lives outside the data directory, so ciphertext alone buys nothing. */
+function sealDeep(secretKey: Buffer, k: string, v: unknown): unknown {
+  if (typeof v === "string" && v.length > 0 && isSecretKey(k) && !isEncrypted(v)) {
+    return encryptSecret(v, secretKey);
+  }
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    return Object.fromEntries(
+      Object.entries(v).map(([k2, v2]) => [k2, sealDeep(secretKey, k2, v2)]),
+    );
+  }
+  return v;
+}
+
+/** Open the sealed strings on the way out. `needsSeal` reports a legacy
+ *  plaintext secret so `get` can re-seal it on the same read - the same
+ *  one-way migration the MCP catalog does. */
+function openDeep(
+  secretKey: Buffer,
+  k: string,
+  v: unknown,
+): { value: unknown; needsSeal: boolean } {
+  if (typeof v === "string" && isSecretKey(k) && v.length > 0) {
+    if (isEncrypted(v)) return { value: decryptSecret(v, secretKey), needsSeal: false };
+    return { value: v, needsSeal: true };
+  }
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    const opened = Object.entries(v).map(([k2, v2]) => [k2, openDeep(secretKey, k2, v2)] as const);
+    return {
+      value: Object.fromEntries(opened.map(([k2, o]) => [k2, o.value])),
+      needsSeal: opened.some(([, o]) => o.needsSeal),
+    };
+  }
+  return { value: v, needsSeal: false };
+}
+
 export function createSettingsService(deps: {
   port: SettingsPort;
   config: BackendConfig;
+  /** Tests inject a fixed key; production resolves the deployment's one from
+   *  gateway-secrets.json on first use (never in the data dir). */
+  secretKey?: Buffer;
 }): SettingsService {
   const { port, config } = deps;
+  let cachedKey: Buffer | undefined = deps.secretKey;
+  const secretKey = (): Buffer => (cachedKey ??= loadOrCreateMcpKey());
 
   return {
     get<T>(key: string): T | undefined {
       const row = port.get(key);
       if (!row) return undefined;
+      // Parse failures are "not configured"; decrypt failures are NOT - a key
+      // mismatch must look broken, not empty, or a provider silently loses
+      // its credentials and the next run fails with "no api key".
+      let parsed: unknown;
       try {
-        return JSON.parse(row.value) as T;
+        parsed = JSON.parse(row.value);
       } catch {
         return undefined;
       }
+      const opened = openDeep(secretKey(), key, parsed);
+      if (opened.needsSeal) {
+        port.set(key, JSON.stringify(sealDeep(secretKey(), key, opened.value)));
+      }
+      return opened.value as T;
     },
 
     set<T>(key: string, value: T): void {
-      port.set(key, JSON.stringify(value));
+      port.set(key, JSON.stringify(sealDeep(secretKey(), key, value)));
     },
 
     delete(key: string): void {
@@ -63,11 +121,16 @@ export function createSettingsService(deps: {
       const rows: SettingsRow[] = port.getAll();
       const result: Record<string, unknown> = {};
       for (const row of rows) {
+        let parsed: unknown;
         try {
-          result[row.key] = maskDeep(row.key, JSON.parse(row.value));
+          parsed = JSON.parse(row.value);
         } catch {
-          // skip unparseable
+          continue;
         }
+        // Decrypt failures propagate on purpose: an unreadable secret means a
+        // wrong key, and showing an empty settings page would hide that.
+        const opened = openDeep(secretKey(), row.key, parsed);
+        result[row.key] = maskDeep(row.key, opened.value);
       }
       return result;
     },

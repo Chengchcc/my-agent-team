@@ -13,7 +13,10 @@ const mockConfig = {
   builtinSkillsDir: "/test-skills",
 } as BackendConfig;
 
-const svc = createSettingsService({ port, config: mockConfig });
+// Fixed key: the service must never reach for the deployment's real
+// gateway-secrets.json while a test runs.
+const TEST_KEY = Buffer.alloc(32, 7);
+const svc = createSettingsService({ port, config: mockConfig, secretKey: TEST_KEY });
 
 describe("SettingsService", () => {
   test("get missing key returns undefined", () => {
@@ -96,5 +99,38 @@ describe("SettingsService", () => {
       const info = svc.getSystemInfo();
       expect(info.env[KEY]).toBeUndefined();
     });
+  });
+
+  test("secret-shaped values are sealed at rest and still readable", () => {
+    svc.set("provider.openai", { apiKey: "sk-live-abc123", baseUrl: "https://api.openai.com" });
+    const raw = port.get("provider.openai")?.value ?? "";
+    // H5's other half: masking keeps it out of a response, sealing keeps it
+    // out of a copied backend.db.
+    expect(raw).toContain("enc:v1:");
+    expect(raw).not.toContain("sk-live-abc123");
+    const back = svc.get<{ apiKey: string; baseUrl: string }>("provider.openai");
+    expect(back?.apiKey).toBe("sk-live-abc123");
+    // Non-secret siblings stay readable as plain JSON.
+    expect(back?.baseUrl).toBe("https://api.openai.com");
+  });
+
+  test("a secret that will not decrypt fails loudly instead of reading as absent", () => {
+    svc.set("provider.rotated", { apiKey: "sk-rotates-321" });
+    // A different key over the same row: pretending the provider is simply
+    // unconfigured would send the next run out without credentials.
+    const rotated = createSettingsService({
+      port,
+      config: mockConfig,
+      secretKey: Buffer.alloc(32, 9),
+    });
+    expect(() => rotated.get("provider.rotated")).toThrow();
+  });
+
+  test("a legacy plaintext secret is re-sealed on its first read", () => {
+    port.set("provider.legacy", JSON.stringify({ apiKey: "sk-legacy-777" }));
+    expect(svc.get<{ apiKey: string }>("provider.legacy")?.apiKey).toBe("sk-legacy-777");
+    const raw = port.get("provider.legacy")?.value ?? "";
+    expect(raw).toContain("enc:v1:");
+    expect(raw).not.toContain("sk-legacy-777");
   });
 });

@@ -19,7 +19,7 @@
 
 **`commit_failed` 的残余：只在启动时重试一次。** 它算活跃状态（分支不接新 Run），而重试入口只有启动时的 `recover()`（会调 `retryTerminalCommit`）——所以「提交失败之后再提交还是失败」这种情况，运维要么重启后端，要么等下一次启动才重试；没有运行期的显式重试入口（`retryTerminalCommit` 在 service 上，但没暴露 HTTP）。真遇到再补一条 `POST /api/agent-runs/:id/retry-commit`，目前不投机加。
 
-**HITL 状态机与重启恢复均已实现（ADR 0038，2026-09-28）。** 多槽语义（`waiting` ⇔ 至少一个 pending action，最后一个消费才唤醒，旧 action 重放不误唤醒）、审批重放幂等（同 decision 200 / 反 decision 409 / child 已不认识则 timeout 消费 + 409）、全局读模型 `GET /api/pending-actions`（Web 铃铛与 Today「Needs you」）都在。重启恢复：oma 对话消息实时落 session 文件、工具执行前写 **parked_turn 标记**；backend `recover()` 宽免停靠 run；回答以原 runId/原输入 + `resume.decisions` 重派，child 从标记补完中断轮（ask 答案注入、allow 审批真执行且人不重问、其余诚实落 interrupted）。剩余小项：**durable 行没有 deadline 列**（重启后停靠审批失去 child 侧 24h 超时，等答案或手动 stop，无自动过期）；Web/Lark 卡片对同一 run 的多个并发 action 仍一次渲染一张（全局列表兜底）；三个 CLI 后端的 ask 恢复是重派 + 重新问（内容匹配自动应答是增强，见 ADR 0038 决策 7）。
+**HITL 状态机与重启恢复均已实现（ADR 0038，2026-09-28）。** 多槽语义（`waiting` ⇔ 至少一个 pending action，最后一个消费才唤醒，旧 action 重放不误唤醒）、审批重放幂等（同 decision 200 / 反 decision 409 / child 已不认识则 timeout 消费 + 409）、全局读模型 `GET /api/pending-actions`（Web 铃铛与 Today「Needs you」）都在。重启恢复：oma 对话消息实时落 session 文件、工具执行前写 **parked_turn 标记**；backend `recover()` 宽免停靠 run；回答以原 runId/原输入 + `resume.decisions` 重派，child 从标记补完中断轮（ask 答案注入、allow 审批真执行且人不重问、其余诚实落 interrupted）。剩余小项：~~durable 行没有 deadline 列~~（2026-10-20 复核：`pending_action.expires_at` 已存在且 `notNull`，重启后的停靠审批仍有截止时间）；Web/Lark 卡片对同一 run 的多个并发 action 仍一次渲染一张（全局列表兜底）；三个 CLI 后端的 ask 恢复是重派 + 重新问（内容匹配自动应答是增强，见 ADR 0038 决策 7）。
 
 **子进程活着但沉默，run 与卡片都不知道。**（2026-09-25，两次真实 run。）适配器的读取器会在子进程退出后 5 秒内收尾（Bun `child.exited` + 孤儿管道宽限），所以「子进程死了不结算」并不成立。两条 run 的成因查清后是**两种**：其一的输入停在 `delivering`，即 `backend.execute` 从未返回——oma 适配器等子进程的 **acceptance 握手**没有超时，子进程 bootstrap 卡住（MCP 挂载、机器吃紧）就永久占住这一轮；**已修**（`acceptanceTimeoutMs`，默认 180 秒，超时 reap 子进程并以 `spawn_failed` 失败，测试用 `silent` 夹具钉住 + 变异验证）。另一个子问题是子进程**活着但数分钟零事件**（另一条 run 停在子代理委派之后），卡片只有计时器在走，唯一兜底是 30 分钟墙钟看门狗。**两条都做了（2026-09-25，`8c86284e`）**：②子进程每 15 秒发一个无副作用的 `heartbeat`（wire 上是 `{type:"status",status:"heartbeat"}`，事件总线刻意不持久化它），卡片与父侧据此区分「安静但活着」与「卡死」；①dispatch 侧的静默窗口默认 90 秒，但**有 pending action（正在等人）时豁免**——正是这条豁免关掉了「误杀一条跑十分钟的 bash」的风险。另外这次暴露的两个次要缺口：acceptance 的 180 秒上限会被 MCP 挂载的 120 秒调用上限撑满（挂载阶段该有自己的、更短的截止时间），以及 ~~取消后仍有子进程存活~~（**2026-10-16 修复**）。成因查清了：取消只把 execution 标成 cancelled、让节点轮询抛出，从不 `stop` 掉节点在飞的 run ⇒ 那条 run 永远停在 `waiting`（而带 pending action 的 run 被静默看门狗豁免，因为它看起来像「正在等人」），子进程就一直空转——实测一条已完成 run 的 ACP 子进程活了 **65 分钟**，按完整 run id 取消它 30 秒后进程归零，绑定关系由此坐实。现在取消/失败一条 execution 会先 `stopNodeRun`（stop + 有界等结算）再抛出，超时路径共用同一段收尾，测试钉住（拿掉那行即红）。
 
@@ -35,8 +35,6 @@
 
 ## Workflow
 
-**没有并行 fan-out。** ready 列表是串行 await 的，一条边分多路时不是并发执行。join 语义是 any-of，DSL 里也没有表达 AND 的标记。
-
 ## 模型与 provider
 
 **自定义 provider 在产品里只读 `$OMA_HOME/models.yml`。** 这是刻意的（工作区文件是 agent 能写的地方，读它等于允许一次 Run 劫持下一次的 provider 地址），但用起来要有心理准备：要在产品里加 provider，得把 `OMA_HOME` 指到放 `models.yml` 的目录。
@@ -45,7 +43,7 @@
 
 ## 端
 
-**飞书的会话绑定状态已同步到后端（2026-09-24）。** bot 的 30 秒心跳现在携带绑定聊天清单（chat、chat_mode、会话数、话题根），`getAgentRuntime` 原样透出（`surfaces.lark.chats`）——Web 的「飞书已绑定」与每 chat 策略 UI 的数据面已就绪，映射的权威源仍是 bot 自己的 SQLite（ADR 0037）。
+**飞书的会话绑定状态已同步到后端（2026-09-24），每 chat 策略 UI 已接（2026-10-20）。** bot 的 30 秒心跳携带绑定聊天清单（chat、chat_mode、会话数、话题根），`getAgentRuntime` 原样透出（`surfaces.lark.chats`）；`LarkSurfacePanel` 的 **Chats 卡**读它，并把每 chat 的 `policy` 写回 agent 配置的 `lark.groups`（写的是**整表**——接口是替换语义，`allowedSenders` 由前端原样带回）。映射的权威源仍是 bot 自己的 SQLite（ADR 0037）：Web 改的是**该 agent 是否回答这个 chat**，不是 bot 记不记得它。
 
 **Lark Run 卡片第一期已落地**（ADR 0031：CardKit 直连流式投影、终态 canonical 封版、卡片「停止」按钮 + `/stop` 命令、重启恢复；终态可靠投递见 ADR 0032）。2026-09-24 追加：按钮回调经 lark-cli ≥1.0.9x 的 `card.action.trigger`，审批（批准/拒绝）与追问的选项按钮都已接（`answer_ask` 走 `/api/product-tools/ask/resolve`，与 Web 同一条路径）；卡片有过程视图（当前动作 + 已完成步骤 + todo 计划条）。同日第二批：**追问挂起时话题回复即答案**（`postMessage` 拦截，见「执行的可靠性」条）；**重启回读**（恢复卡在首帧前从 run 详情的 `pendingActions` 重建按钮，映射与活事件归约逐字段等价）；**回调去重与校验在位**（`reserveEventId` LRU 去重 + 全部 run 控制校验「卡片存在/chat 匹配/run 匹配」，测试钉住；operator 记录留痕）。仍欠：追问的**多选**提交（reaction 触发实测做不了、已删除，见 [lark.md](./architecture/surfaces/lark.md)：飞书没有可用于「停止」的负向表情）；签名 action token 维持 ADR 0031/0026 的延期决定（单用户部署，多操作者时再做）；**注意每应用卡片实体绑定配额**（200780，测试约 18 张触发）——高频使用需关注配额或提供 IM-patch 降级路径。
 
@@ -62,14 +60,6 @@
 ## 安全
 
 完整清单在 [安全与债务清单](./architecture/security/debt.md)，这里只列需要设计决策的那几条：
-
-**bash 的网络白名单。** 现在只有「全断网」和「全开」两种，没有中间档；要放行特定的 registry 就得写策略。
-
-**MCP 面的三件事。** stdio 的 CRUD 允许任意命令（等于 token 持有者就是宿主机 shell）、读取单个 server 时明文返回凭据、url server 挂载前没有 SSRF 检查。
-
-**原生工具的细粒度权限。** 现在只有按工具名的高危清单与 auto 分类器，没有 allow-rules 那种按参数放行的机制。
-
-**文件权限。** provider 密钥明文存在 SQLite 里，`dataDir`、`backend.db`、backend 的 `.env` 权限都是 0644。
 
 **网络化部署的准入门槛**（离开回环地址之前必须做掉）：**已清空（2026-10-20）** —— MCP 凭据面、写入路径边界、bash 命令绊线、协作式网络放行均已落地，细节见 `architecture/security/debt.md`。清单重新开张的条件是**多用户/托管**。（写入路径那一刀已闭环：`agent.yml` 的 `deny_write_paths` / `allow_write_paths` → 冻结进 run（迁移 0057）→ 子进程 env → tool 层强制，yolo 绕不过；冻结语义与 `permission_mode` 同路，空列表表示「没有规则」而不是「禁止一切」。）（顺序记录：**MCP 凭据面已完成** —— url server SSRF guard、读取侧脱敏、env/headers 静态加密且密钥在 `gateway-secrets.json`（与 dataDir 分离）；**bash 网络放行已完成但它是协作式的** —— `sandbox.networkAllowlist` ⇒ 回环 CONNECT 代理 + `HTTP(S)_PROXY`，忽略代理的脚本仍直连，**硬**白名单要特权部署（nftables），届时代理退役。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
 

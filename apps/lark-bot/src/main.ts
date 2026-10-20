@@ -33,6 +33,7 @@ import {
   toCommentTrigger,
   toLarkMessageEvent,
 } from "./channel-adapters.js";
+import { chatNameOf, chatsNeedingName, rememberChatName } from "./chat-names.js";
 import { createClient } from "./client.js";
 import { ackCommentProcessing, markCommentDone } from "./comment-ack.js";
 import { formatPendingQuestion, parseApprovalAnswer } from "./comment-approval.js";
@@ -508,6 +509,16 @@ for (const inputId of liveQueuedInputCards(state.db)) {
 }
 
 // M16: Surface health heartbeat (every 30s)
+/** Resolve display names for newly bound chats, off the beat's critical path.
+ *  One API call per chat, once an hour at most (chat-names.ts). */
+async function refreshChatNames(): Promise<void> {
+  const bound = listBoundChats(state.db).map((chat) => chat.chatId);
+  for (const chatId of chatsNeedingName(bound)) {
+    const info = await cardClient.getChatInfo(chatId).catch(() => null);
+    rememberChatName(chatId, info?.name ?? null);
+  }
+}
+
 const heartbeatTimer = setInterval(() => {
   const health = collectHealth(
     args.agentId,
@@ -515,9 +526,10 @@ const heartbeatTimer = setInterval(() => {
     { conversation: watchers.size, runDelta: 0 },
     null,
     countPendingDeliveries(state.db),
-    listBoundChats(state.db),
+    listBoundChats(state.db, chatNameOf),
   );
   void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
+  void refreshChatNames();
 }, 30_000);
 
 // ─── Inbound events (ADR 0044) ───
