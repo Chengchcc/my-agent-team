@@ -71,7 +71,7 @@
 
 **文件权限。** provider 密钥明文存在 SQLite 里，`dataDir`、`backend.db`、backend 的 `.env` 权限都是 0644。
 
-**网络化部署的准入门槛**（离开回环地址之前必须做掉）：**只剩原生工具 allow-rules**。（顺序记录：**MCP 凭据面已完成** —— url server SSRF guard、读取侧脱敏、env/headers 静态加密且密钥在 `gateway-secrets.json`（与 dataDir 分离）；**bash 网络放行已完成但它是协作式的** —— `sandbox.networkAllowlist` ⇒ 回环 CONNECT 代理 + `HTTP(S)_PROXY`，忽略代理的脚本仍直连，**硬**白名单要特权部署（nftables），届时代理退役。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
+**网络化部署的准入门槛**（离开回环地址之前必须做掉）：**只剩原生工具 allow-rules 的注入链路**：oma 侧的写入路径规则已实现（`OMA_DENY_WRITE_PATHS` / `OMA_ALLOW_WRITE_PATHS`，与 yolo 无关的 tool 层边界 ✓），但还没有后端把它从 agent 配置注入进子进程 env —— 在那之前规则是惰性的。（顺序记录：**MCP 凭据面已完成** —— url server SSRF guard、读取侧脱敏、env/headers 静态加密且密钥在 `gateway-secrets.json`（与 dataDir 分离）；**bash 网络放行已完成但它是协作式的** —— `sandbox.networkAllowlist` ⇒ 回环 CONNECT 代理 + `HTTP(S)_PROXY`，忽略代理的脚本仍直连，**硬**白名单要特权部署（nftables），届时代理退役。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
 
 ## 内容分发
 

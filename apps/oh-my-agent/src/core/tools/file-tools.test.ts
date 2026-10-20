@@ -24,6 +24,47 @@ describe("write/edit protect product config files (H1)", () => {
     expect(String(res.content)).toMatch(/product-managed/);
   });
 
+  test("an injected path policy denies writes (env, never the workspace file)", async () => {
+    // The rule arrives by env because the workspace is agent-writable: a rule
+    // stored in .oma/settings.json could lift itself.
+    process.env.OMA_DENY_WRITE_PATHS = `${join(cwd, "secrets")}/`;
+    try {
+      const blocked = await createWriteTool({ cwd }).execute({
+        path: "secrets/token.txt",
+        content: "x",
+      });
+      expect(blocked.isError).toBe(true);
+      expect(String(blocked.content)).toMatch(/OMA_DENY_WRITE_PATHS/);
+
+      const allowed = await createWriteTool({ cwd }).execute({
+        path: "notes/ok.md",
+        content: "hi",
+      });
+      expect(allowed.isError).toBeUndefined();
+    } finally {
+      delete process.env.OMA_DENY_WRITE_PATHS;
+    }
+  });
+
+  test("an allow list confines writes to its prefixes", async () => {
+    process.env.OMA_ALLOW_WRITE_PATHS = `${join(cwd, "notes")}/`;
+    try {
+      const inside = await createWriteTool({ cwd }).execute({
+        path: "notes/ok.md",
+        content: "hi",
+      });
+      expect(inside.isError).toBeUndefined();
+      const outside = await createWriteTool({ cwd }).execute({
+        path: "other/ok.md",
+        content: "hi",
+      });
+      expect(outside.isError).toBe(true);
+      expect(String(outside.content)).toMatch(/OMA_ALLOW_WRITE_PATHS/);
+    } finally {
+      delete process.env.OMA_ALLOW_WRITE_PATHS;
+    }
+  });
+
   test("write refuses nested .oma/product-tools.json", async () => {
     const res = await createWriteTool({ cwd }).execute({
       path: ".oma/product-tools.json",
