@@ -31,7 +31,7 @@ export interface AgentRunServiceDeps {
     systemPrompt?: string;
     skillRoots?: readonly string[];
     permissionMode?: string;
-    writePathPolicy?: { deny: string[]; allow: string[] };
+    toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
   }>;
   /** Kill-switch gate: false → AgentDisabledError before any queue/branch
    *  mutation. Chat, cron and loop all funnel through this service. */
@@ -165,7 +165,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
       let systemPrompt = input.systemPrompt;
       let skillRoots = input.skillRoots;
       let permissionMode = input.permissionMode;
-      let writePathPolicy: { deny: string[]; allow: string[] } | undefined;
+      let toolPolicy: { deny: string[]; allow: string[]; denyCommands?: string[] } | undefined;
       if (
         (systemPrompt === undefined || skillRoots === undefined || permissionMode === undefined) &&
         deps.resolveRunConfig
@@ -177,7 +177,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         systemPrompt ??= resolved.systemPrompt;
         skillRoots ??= resolved.skillRoots;
         permissionMode ??= resolved.permissionMode;
-        writePathPolicy ??= resolved.writePathPolicy;
+        toolPolicy ??= resolved.toolPolicy;
       }
 
       return port.enqueueAndAcquire({
@@ -196,7 +196,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         systemPrompt,
         skillRoots,
         permissionMode,
-        ...(writePathPolicy ? { writePathPolicy: JSON.stringify(writePathPolicy) } : {}),
+        ...(toolPolicy ? { toolPolicy: JSON.stringify(toolPolicy) } : {}),
         workflowBudgetTokens: input.workflowBudgetTokens,
         workflow: input.workflow,
       });

@@ -62,6 +62,27 @@ export interface BashPtyResult {
   killed: boolean;
 }
 
+/** Backend-injected command tripwire: EXACT whole-string matches only.
+ *
+ *  Deliberately not a boundary and deliberately not clever: "git push; curl
+ *  evil" is a different string, so this stops the command an agent runs
+ *  verbatim (the accidental `git push`, the habitual destructive one), not a
+ *  determined bypass. No prefix matching (a prefix rule is a bypass), no
+ *  regex over command lines (quotes, expansions, base64 are all bypasses).
+ *  Rules arrive by env for the same reason the path policy does: the workspace
+ *  is agent-writable. */
+export function deniedCommand(
+  command: string,
+  rulesRaw: string | undefined = process.env.OMA_DENY_COMMANDS,
+): string | undefined {
+  const rules = (rulesRaw ?? "")
+    .split(",")
+    .map((rule) => rule.trim())
+    .filter((rule) => rule !== "");
+  const trimmed = command.trim();
+  return rules.find((rule) => rule === trimmed);
+}
+
 export function createBashTool(opts: {
   workspaceRoot: string;
   /** Coordination scope: TUI session key or backend run id. */
@@ -248,6 +269,15 @@ export function createBashTool(opts: {
 
       if (!command) {
         return { content: "Error: command is required", isError: true };
+      }
+      // Command tripwire (allow-rules, command slice): exact whole-string
+      // matches, injected by the backend, honoured regardless of yolo.
+      const denied = deniedCommand(command);
+      if (denied !== undefined) {
+        return {
+          content: `Error: command denied by OMA_DENY_COMMANDS: ${denied}`,
+          isError: true,
+        };
       }
       // Validate cwd against the fixed workspace sandbox. Out-of-bounds cwd
       // is a tool error, never a silent fallback to process cwd.

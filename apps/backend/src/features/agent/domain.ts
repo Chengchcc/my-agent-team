@@ -37,6 +37,8 @@ export interface CreateAgentInput {
   /** Write-path policy injected into the child (allow-rules, first slice).
    *  Never read from the workspace: the agent could lift its own rules. */
   denyWritePaths?: string[];
+  /** Exact whole-string commands the bash tool refuses (a tripwire). */
+  denyCommands?: string[];
   allowWritePaths?: string[];
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];

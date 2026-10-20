@@ -419,7 +419,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         systemPrompt?: string;
         skillRoots?: readonly string[];
         permissionMode?: string;
-        writePathPolicy?: { deny: string[]; allow: string[] };
+        toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
       } = {};
       if (systemPrompt) result.systemPrompt = systemPrompt;
       if (skillRoots.length > 0) result.skillRoots = skillRoots;
@@ -427,10 +427,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       if (agent) result.permissionMode = agent.config.runtime_config.permission_mode;
       if (agent) {
         const rc = agent.config.runtime_config;
-        if (rc.deny_write_paths.length > 0 || rc.allow_write_paths.length > 0) {
-          result.writePathPolicy = {
+        if (
+          rc.deny_write_paths.length > 0 ||
+          rc.allow_write_paths.length > 0 ||
+          rc.deny_commands.length > 0
+        ) {
+          result.toolPolicy = {
             deny: [...rc.deny_write_paths],
             allow: [...rc.allow_write_paths],
+            denyCommands: [...rc.deny_commands],
           };
         }
       }
