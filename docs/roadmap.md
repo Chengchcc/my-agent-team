@@ -71,7 +71,7 @@
 
 **文件权限。** provider 密钥明文存在 SQLite 里，`dataDir`、`backend.db`、backend 的 `.env` 权限都是 0644。
 
-**网络化部署的准入门槛**（离开回环地址之前必须做掉）：**只剩 bash 命令级的 allow-rules**。（写入路径那一刀已闭环：`agent.yml` 的 `deny_write_paths` / `allow_write_paths` → 冻结进 run（迁移 0057）→ 子进程 env → tool 层强制，yolo 绕不过；冻结语义与 `permission_mode` 同路，空列表表示「没有规则」而不是「禁止一切」。）（顺序记录：**MCP 凭据面已完成** —— url server SSRF guard、读取侧脱敏、env/headers 静态加密且密钥在 `gateway-secrets.json`（与 dataDir 分离）；**bash 网络放行已完成但它是协作式的** —— `sandbox.networkAllowlist` ⇒ 回环 CONNECT 代理 + `HTTP(S)_PROXY`，忽略代理的脚本仍直连，**硬**白名单要特权部署（nftables），届时代理退役。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
+**网络化部署的准入门槛**（离开回环地址之前必须做掉）：**已清空（2026-10-20）** —— MCP 凭据面、写入路径边界、bash 命令绊线、协作式网络放行均已落地，细节见 `architecture/security/debt.md`。清单重新开张的条件是**多用户/托管**。（写入路径那一刀已闭环：`agent.yml` 的 `deny_write_paths` / `allow_write_paths` → 冻结进 run（迁移 0057）→ 子进程 env → tool 层强制，yolo 绕不过；冻结语义与 `permission_mode` 同路，空列表表示「没有规则」而不是「禁止一切」。）（顺序记录：**MCP 凭据面已完成** —— url server SSRF guard、读取侧脱敏、env/headers 静态加密且密钥在 `gateway-secrets.json`（与 dataDir 分离）；**bash 网络放行已完成但它是协作式的** —— `sandbox.networkAllowlist` ⇒ 回环 CONNECT 代理 + `HTTP(S)_PROXY`，忽略代理的脚本仍直连，**硬**白名单要特权部署（nftables），届时代理退役。）（**「移除 mock 登录表面」已核销**，2026-10-19：登录永远要密码，未配置时 fail-closed；`MOCK_USER_ID` / `MOCK_PASSWORD` 只是命名遗留，见[安全与债务清单](./architecture/security/debt.md)的网络化部署一节。）
 
 ## 内容分发
 

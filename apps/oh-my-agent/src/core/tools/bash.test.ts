@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultRegistry } from "../coordination/registry.js";
-import { createBashTool } from "./bash.js";
+import { createBashTool, deniedCommand } from "./bash.js";
 
 const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
 
@@ -266,4 +266,30 @@ describe("bash child env hygiene + timeout caps", () => {
     expect(Date.now() - started).toBeLessThan(2000);
     expect(out.isError).toBe(true);
   }, 15_000);
+});
+
+describe("command tripwire (OMA_DENY_COMMANDS)", () => {
+  test("matches whole strings exactly", () => {
+    expect(deniedCommand("git push", "git push,gcloud deploy")).toBe("git push");
+    expect(deniedCommand("  git push  ", "git push")).toBe("git push");
+    // Not a prefix rule: a prefix match would be a bypass, so the longer
+    // command is simply a different string.
+    expect(deniedCommand("git push origin main", "git push")).toBeUndefined();
+    expect(deniedCommand("git push", "")).toBeUndefined();
+    expect(deniedCommand("git push", undefined)).toBeUndefined();
+  });
+
+  test("the tool refuses an exact match before spawning", async () => {
+    const prev = process.env.OMA_DENY_COMMANDS;
+    process.env.OMA_DENY_COMMANDS = "echo omdeny-7f3a1c";
+    try {
+      const tool = createBashTool({ workspaceRoot: process.cwd(), scope: "deny" });
+      const result = await tool.execute({ command: "echo omdeny-7f3a1c" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("OMA_DENY_COMMANDS");
+    } finally {
+      if (prev === undefined) delete process.env.OMA_DENY_COMMANDS;
+      else process.env.OMA_DENY_COMMANDS = prev;
+    }
+  });
 });

@@ -1052,7 +1052,11 @@ describe("AcpBackend against an in-memory fake agent", () => {
       ...input,
       run: {
         ...input.run,
-        writePathPolicy: { deny: ["/home/me/.ssh/"], allow: ["/tmp/ws/notes/"] },
+        toolPolicy: {
+          deny: ["/home/me/.ssh/"],
+          allow: ["/tmp/ws/notes/"],
+          denyCommands: ["git push"],
+        },
       },
     });
     await collect(segment);
@@ -1061,6 +1065,7 @@ describe("AcpBackend against an in-memory fake agent", () => {
     expect(spawnEnv[0]).toMatchObject({
       OMA_DENY_WRITE_PATHS: "/home/me/.ssh/",
       OMA_ALLOW_WRITE_PATHS: "/tmp/ws/notes/",
+      OMA_DENY_COMMANDS: "git push",
     });
     await backend.dispose();
   });

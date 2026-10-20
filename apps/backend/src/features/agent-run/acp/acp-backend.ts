@@ -332,11 +332,16 @@ export class AcpBackend implements AgentBackend<"acp"> {
         : {}),
       // Allow-rules, first slice: the path policy is a boundary, so it is
       // enforced by the tool layer even under yolo.
-      ...(input.run.writePathPolicy?.deny.length
-        ? { OMA_DENY_WRITE_PATHS: input.run.writePathPolicy.deny.join(",") }
+      ...(input.run.toolPolicy?.deny.length
+        ? { OMA_DENY_WRITE_PATHS: input.run.toolPolicy.deny.join(",") }
         : {}),
-      ...(input.run.writePathPolicy?.allow.length
-        ? { OMA_ALLOW_WRITE_PATHS: input.run.writePathPolicy.allow.join(",") }
+      ...(input.run.toolPolicy?.allow.length
+        ? { OMA_ALLOW_WRITE_PATHS: input.run.toolPolicy.allow.join(",") }
+        : {}),
+      // The command slice is a tripwire, not a boundary (exact whole-string
+      // matches only), but it travels the same frozen channel.
+      ...(input.run.toolPolicy?.denyCommands?.length
+        ? { OMA_DENY_COMMANDS: input.run.toolPolicy.denyCommands.join(",") }
         : {}),
     };
     let transport: AcpTransport;

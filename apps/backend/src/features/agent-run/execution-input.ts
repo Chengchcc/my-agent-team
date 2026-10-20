@@ -116,7 +116,7 @@ export function buildRunInput(
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
     /** Frozen write-path policy (allow-rules); the ACP child turns it into
      *  OMA_DENY_WRITE_PATHS / OMA_ALLOW_WRITE_PATHS. */
-    writePathPolicy?: { deny: string[]; allow: string[] };
+    toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
     systemPrompt?: string;
     skillRoots?: readonly string[];
     cliSessionRef?: string;
@@ -152,7 +152,7 @@ export function buildRunInput(
     runSnapshot.systemPrompt = productContext;
   }
   if (run.skillRoots && run.skillRoots.length > 0) runSnapshot.skillRoots = run.skillRoots;
-  if (run.writePathPolicy) runSnapshot.writePathPolicy = run.writePathPolicy;
+  if (run.toolPolicy) runSnapshot.toolPolicy = run.toolPolicy;
   if (cliSessionRef) runSnapshot.cliSessionRef = cliSessionRef;
   if (run.permissionMode) {
     runSnapshot.permissionMode = run.permissionMode as "ask" | "auto" | "deny" | "yolo";

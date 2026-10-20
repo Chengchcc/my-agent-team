@@ -175,6 +175,7 @@ export function agentRoutes(
             t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny"), t.Literal("yolo")]),
           ),
           denyWritePaths: t.Optional(t.Array(t.String())),
+          denyCommands: t.Optional(t.Array(t.String())),
           allowWritePaths: t.Optional(t.Array(t.String())),
           mcpServers: t.Optional(
             t.Array(t.Object({ serverId: t.String({ minLength: 1 }), enabled: t.Boolean() })),
@@ -282,6 +283,7 @@ export function agentRoutes(
             t.Union([t.Literal("ask"), t.Literal("auto"), t.Literal("deny"), t.Literal("yolo")]),
           ),
           denyWritePaths: t.Optional(t.Array(t.String())),
+          denyCommands: t.Optional(t.Array(t.String())),
           allowWritePaths: t.Optional(t.Array(t.String())),
           maxSteps: t.Optional(t.Integer({ minimum: 1 })),
           mcpServers: t.Optional(
