@@ -10,7 +10,7 @@ tags: [lark, surfaces, backend]
 
 ## 范围
 
-覆盖：入站管线的每一步（鉴权、幂等占位、绑定、路由、POST、/stop），本地九张表，Run 卡片生命周期，出站的过滤链、卡片去重缝、去重模型、重试与推送游标，内容渲染与截断，surface.control 重绑，进程生命周期与 backend 侧的接线。
+覆盖：入站管线的每一步（鉴权、幂等占位、绑定、路由、POST、/stop），本地九张表，Run 卡片生命周期，出站的过滤链、卡片去重缝、去重模型、重试与推送游标，内容渲染与截断，surface.control 重绑，进程生命周期与 backend 侧的接线，以及 Web 侧的每 chat 策略编辑。
 
 不覆盖：backend 侧的触发与执行（见 [飞书消息端到端](../flows/e2e-lark-message.md)）、Web 端（见 [Web 端](./web.md)）、lark-cli 与飞书开放平台的协议细节（本页只讲到进程怎么起）。
 

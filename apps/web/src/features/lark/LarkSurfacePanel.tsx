@@ -20,7 +20,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentDetail } from "@/features/agents/hooks";
 import { agentKeys } from "@/features/agents/query-keys";
-import { larkKeys, larkSurfaceQuery } from "@/features/lark/queries";
+import { boundChatsOf, larkKeys, larkSurfaceQuery } from "@/features/lark/queries";
 import { type AgentRow, api } from "@/lib/api";
 
 /** The agent's Lark surface, driven by ONE read model
@@ -57,6 +57,15 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
    *  the button was pressed. */
   const refreshSurface = () => qc.invalidateQueries({ queryKey: larkKeys.surface(agentId) });
 
+  // Bound chats live on the runtime view (`surfaces.lark.chats`), which the
+  // bot fills from its heartbeat - not on the surface view above. Poll while
+  // the tab is open so a newly messaged chat shows up without a reload.
+  const { data: runtime } = useQuery({
+    queryKey: ["agent-runtime", agentId],
+    queryFn: () => api.getAgentRuntime(agentId),
+    refetchInterval: 30_000,
+  });
+
   // Settings (ported from the panel this replaced, including the rule that
   // `enabled` is never sent: the backend reads `enabled: true` as "turn it
   // on", which demands appId+appSecret whenever no profile exists yet).
@@ -69,6 +78,14 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  // Per-chat admission overrides, keyed by chat id. "inherit" is the absence
+  // of an entry: a chat with no override follows the group default above.
+  const [chatPolicy, setChatPolicy] = useState<
+    Record<string, "open" | "allowlist" | "disabled" | "inherit">
+  >({});
+  const [savingChats, setSavingChats] = useState(false);
+  const [chatsSaved, setChatsSaved] = useState(false);
+  const [chatsError, setChatsError] = useState("");
 
   const [busy, setBusy] = useState(false);
   /** The create flow links here as `?setup=lark`: the user asked for Lark
@@ -95,6 +112,11 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
     setGroupPolicy(agent.lark?.groupPolicy ?? "disabled");
     setRequireMention(agent.lark?.requireMention ?? true);
     setRespondAll(agent.lark?.respondToMentionAll ?? false);
+    const overrides: Record<string, "open" | "allowlist" | "disabled" | "inherit"> = {};
+    for (const group of agent.lark?.groups ?? []) {
+      overrides[group.chatId] = group.policy ?? "inherit";
+    }
+    setChatPolicy(overrides);
   }, [agent]);
 
   // The link, the countdown and the outcome all come from the surface view,
@@ -190,6 +212,37 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
       setError(err instanceof Error ? err.message : "Failed to save Lark settings");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveChatPolicies = async () => {
+    setSavingChats(true);
+    setChatsError("");
+    setChatsSaved(false);
+    try {
+      // The API replaces the whole map, so carry allowedSenders through
+      // untouched: dropping them here would silently widen a chat's admission.
+      const allowed = new Map(
+        (agent?.lark?.groups ?? []).map((group) => [group.chatId, group.allowedSenders]),
+      );
+      const groups: Record<
+        string,
+        { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] }
+      > = {};
+      for (const [chatId, policy] of Object.entries(chatPolicy)) {
+        const senders = allowed.get(chatId) ?? null;
+        const entry: { policy?: "open" | "allowlist" | "disabled"; allowedSenders?: string[] } = {};
+        if (policy !== "inherit") entry.policy = policy;
+        if (senders && senders.length > 0) entry.allowedSenders = senders;
+        if (entry.policy || entry.allowedSenders) groups[chatId] = entry;
+      }
+      await api.updateAgent(agentId, { lark: { groups } });
+      await qc.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+      setChatsSaved(true);
+    } catch (err) {
+      setChatsError(err instanceof Error ? err.message : "Failed to save chat policies");
+    } finally {
+      setSavingChats(false);
     }
   };
 
@@ -289,6 +342,77 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
           {saving ? "Saving..." : "Save settings"}
         </Button>
         {saved && <span className="text-xs text-muted-foreground">Saved</span>}
+      </div>
+    </div>
+  );
+
+  // Bound chats x per-chat admission. The bot owns the binding (ADR 0037);
+  // this page owns the agent's policy for that chat. A chat can appear here
+  // before it has a `groups` entry - the bot knows it, the agent still admits
+  // by the group default - so both sources are listed, deduped.
+  const boundChats = boundChatsOf(runtime);
+  const chatIds = [
+    ...new Set([
+      ...boundChats.map((chat) => chat.chatId),
+      ...(agent?.lark?.groups ?? []).map((group) => group.chatId),
+    ]),
+  ];
+  const chatsCard = (
+    <div className="space-y-2 rounded-md border border-(--hairline) p-3">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-medium text-foreground">Chats</p>
+        <Badge variant="secondary" className="text-xs">
+          {chatIds.length}
+        </Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        The bot decides admission; this edits the agent's per-chat policy. A chat with no override
+        follows the group default above.
+      </p>
+      {chatIds.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No chats yet - message the bot to bind one.</p>
+      ) : (
+        <ul className="space-y-2">
+          {chatIds.map((chatId) => {
+            const chat = boundChats.find((c) => c.chatId === chatId);
+            return (
+              <li key={chatId} className="flex flex-wrap items-center gap-2">
+                <code className="text-xs">{chatId}</code>
+                <span className="text-xs text-muted-foreground">
+                  {chat
+                    ? `${chat.chatType ?? "chat"} - ${chat.conversations} conversation(s)`
+                    : "admitted, not seen yet"}
+                </span>
+                <Select
+                  value={chatPolicy[chatId] ?? "inherit"}
+                  onValueChange={(v) =>
+                    setChatPolicy((prev) => ({
+                      ...prev,
+                      [chatId]: v as "open" | "allowlist" | "disabled" | "inherit",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inherit">Inherit default</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="allowlist">Allowlist</SelectItem>
+                    <SelectItem value="disabled">Disabled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" disabled={savingChats} onClick={() => void saveChatPolicies()}>
+          {savingChats ? "Saving..." : "Save chat policies"}
+        </Button>
+        {chatsSaved && <span className="text-xs text-muted-foreground">Saved</span>}
+        {chatsError && <span className="text-xs text-destructive">{chatsError}</span>}
       </div>
     </div>
   );
@@ -410,6 +534,8 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
 
       {(status === "authorizing" || status === "starting" || status === "online" || issue) &&
         settingsCard}
+
+      {status === "online" && chatsCard}
 
       <details className="space-y-2">
         <summary className="cursor-pointer text-xs text-muted-foreground">Advanced</summary>
