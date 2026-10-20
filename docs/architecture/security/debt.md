@@ -104,7 +104,9 @@ MCP 的 stdio CRUD 允许任意 `command` / `args` / `env`，`/test` 会立刻 s
 
 一旦要离开回环地址，下面这些是准入门槛而不是事后补丁：
 
-1. native 工具的细粒度 allow-rules 权限系统。
+1. native 工具的细粒度 allow-rules 权限系统（**oma 侧已实现第一刀：写入路径**，见下；**注入链路待接**）。
+
+**写入路径规则（2026-10-20，oma 侧）。** `write` / `edit` 现在除了硬编码的 `PROTECTED_FILES` 与工作区 containment，还看两条**由后端注入**的规则：`OMA_DENY_WRITE_PATHS` 与 `OMA_ALLOW_WRITE_PATHS`（逗号分隔；以 `/` 结尾表示目录前缀，否则精确路径；比较发生在解析之后，所以 `..` 逃不出已匹配的规则）。它们在**与 yolo 无关**的 tool 层生效（那是边界，不是判断）；`ALLOW` 非空时写入必须落在其中之一。**为什么走 env 而不是 `.oma/settings.json`**：工作区是 agent 可写的，规则存在那里就能被自己改掉——这与 H1 的 `.mcp.json` 是同一类绕过。**待做的注入链路**：agent 配置 → run 快照 → `acp-backend` 的 per-run env（`input.*` 那条既有通道）→ 子进程；在那之前这两条规则是惰性的（没注入就完全不变）。下一步按同样形状加 **bash 的整串精确匹配**（不做命令行 regex：引号、变量展开、base64 都是绕过面）。
 
 **MCP 的凭据面已完成（2026-10-19/20）。** url server 挂载前过 SSRF guard；单条读取不再返回原文（列表/创建/更新早就脱敏）；**env 与 headers 现在静态加密**：`<dataDir>/mcp-servers.json` 里的值写成 `enc:v1:<iv>:<tag>:<ciphertext>`（AES-256-GCM），密钥在启动器的 `<OMA_HOME>/gateway-secrets.json` 的 `mcpEncryptionKey` 字段里（0600、**与 dataDir 分离**，首次使用时生成，写回时保留该文件其它字段如登录密码哈希）。这样「拷走 dataDir 或 backend.db」只拿到密文。目录仍然手可编辑：手写的明文能照读，并在**读到的那一刻**被封存回去（不是等到下次编辑）；看着像密文却解不开时**直接抛错**（多半是密钥换了），不会把乱码交给子进程。
 

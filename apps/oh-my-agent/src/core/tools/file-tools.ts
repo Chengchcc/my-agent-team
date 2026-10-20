@@ -119,6 +119,45 @@ const PROTECTED_FILES: Record<string, true> = {
   ".claude/settings.json": true,
 };
 
+/** Backend-injected write policy (network-deployment gate: native tool
+ *  allow-rules, first slice = paths).
+ *
+ *  It arrives as ENV, never from `.oma/settings.json`: the workspace is
+ *  agent-writable, so a rule stored there could lift itself. Like the rest of
+ *  the tool layer this applies even in yolo (it is a boundary, not a judgment).
+ *
+ *  Matching is deliberately simple - no glob engine: a rule ending in "/" is a
+ *  directory prefix, anything else is an exact path. Both are compared after
+ *  resolution, so ".." cannot escape a matching rule (it was already resolved
+ *  by the sandbox before we see the path). */
+function policyPaths(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+}
+
+function matchesPolicyPath(full: string, rule: string): boolean {
+  const resolved = resolve(rule);
+  if (rule.endsWith("/")) return full === resolved || full.startsWith(`${resolved}${sep}`);
+  return full === resolved;
+}
+
+function pathPolicyRefusal(full: string): string | undefined {
+  const deny = policyPaths(process.env.OMA_DENY_WRITE_PATHS);
+  for (const rule of deny) {
+    if (matchesPolicyPath(full, rule)) {
+      return `path denied by OMA_DENY_WRITE_PATHS: ${rule}`;
+    }
+  }
+  const allow = policyPaths(process.env.OMA_ALLOW_WRITE_PATHS);
+  if (allow.length > 0 && !allow.some((rule) => matchesPolicyPath(full, rule))) {
+    return "path outside OMA_ALLOW_WRITE_PATHS";
+  }
+  return undefined;
+}
+
 function isProtectedPath(cwd: string, full: string): boolean {
   // `full` comes from WorkspaceSandbox, which resolves the root's realpath;
   // canonicalize `cwd` the same way or a symlinked workspace root (macOS
@@ -316,6 +355,9 @@ export function createWriteTool(opts: {
           isError: true,
         };
       }
+      // Backend-injected path policy: a boundary, so yolo does not skip it.
+      const policyRefusal = pathPolicyRefusal(full);
+      if (policyRefusal) return { content: `Error: ${policyRefusal}`, isError: true };
       if (freshness === "require") {
         const refusal = checkFreshness(full, rec.fingerprint);
         if (refusal) return refusal;
@@ -395,6 +437,9 @@ export function createEditTool(opts: {
           isError: true,
         };
       }
+      // Backend-injected path policy: a boundary, so yolo does not skip it.
+      const policyRefusal = pathPolicyRefusal(full);
+      if (policyRefusal) return { content: `Error: ${policyRefusal}`, isError: true };
       if (freshness === "require" && existsSync(full)) {
         const refusal = checkFreshness(full, rec.fingerprint);
         if (refusal) return refusal;
