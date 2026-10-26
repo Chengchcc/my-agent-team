@@ -116,6 +116,11 @@ export function createApp(token: string, features: FeatureSet) {
       // API limitation) — /ws/* routes carry their own one-time-ticket auth
       // (minted through this authenticated REST chain). Exempt ≠ open.
       if (path.startsWith("/ws/")) return undefined;
+      // Same shape as /ws: the trigger route is exempt from the APP token but
+      // carries its own per-workflow token (x-trigger-token, checked in the
+      // route) — external callers hold exactly one workflow's key, nothing
+      // else. Exempt ≠ open.
+      if (path.startsWith("/api/workflow-triggers/")) return undefined;
       if (!checkAuthToken(headers["x-auth-token"] ?? "", token)) {
         set.status = 401;
         return { error: "Unauthorized" };

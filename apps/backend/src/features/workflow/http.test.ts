@@ -257,3 +257,67 @@ describe("workflow http", () => {
     expect(Array.isArray(body.nodeRuns)).toBe(true);
   });
 });
+
+describe("workflow webhook trigger", () => {
+  const tokens = new Map<string, string>();
+  const calls: Array<{ triggeredBy?: string; input?: Record<string, unknown> }> = [];
+  const trigApp = workflowRoutes({
+    workflowExecutionService: {
+      ...fakeService,
+      startExecution: async (input: Parameters<typeof fakeService.startExecution>[0]) => {
+        calls.push(input);
+        return { executionId: "e_trig", status: "running" };
+      },
+    } as typeof fakeService,
+    loadWorkflow: async () => JSON.stringify(def),
+    workflowDir: dir,
+    getTriggerToken: async (id) => tokens.get(id),
+    setTriggerToken: async (id, token) => {
+      tokens.set(id, token);
+    },
+  });
+
+  test("rotate returns a token, wrong token is 401, right token starts with the payload", async () => {
+    const rot = await trigApp.handle(
+      new Request("http://localhost/api/workflow-definitions/wf-x/trigger-token", {
+        method: "POST",
+      }),
+    );
+    expect(rot.status).toBe(200);
+    const { token } = (await rot.json()) as { token: string };
+    expect(typeof token).toBe("string");
+    expect((token as string).length).toBe(48);
+
+    const wrong = await trigApp.handle(
+      new Request("http://localhost/api/workflow-triggers/wf-x", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-trigger-token": "nope" },
+        body: JSON.stringify({ issue: 7 }),
+      }),
+    );
+    expect(wrong.status).toBe(401);
+    expect(calls).toHaveLength(0);
+
+    // No token ever issued for this one: same 401, indistinguishable.
+    const none = await trigApp.handle(
+      new Request("http://localhost/api/workflow-triggers/wf-other", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-trigger-token": token },
+        body: "{}",
+      }),
+    );
+    expect(none.status).toBe(401);
+
+    const okResp = await trigApp.handle(
+      new Request("http://localhost/api/workflow-triggers/wf-x", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-trigger-token": token },
+        body: JSON.stringify({ issue: 7, title: "bug" }),
+      }),
+    );
+    expect(okResp.status).toBe(201);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.triggeredBy).toBe("webhook");
+    expect(calls[0]?.input).toEqual({ issue: 7, title: "bug" });
+  });
+});

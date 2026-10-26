@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -48,6 +49,11 @@ export function workflowRoutes(deps: {
   loadWorkflow: (ref: WorkflowRef) => Promise<string>;
   workflowDir: string;
   resyncTriggers?: () => Promise<void>;
+  /** Per-workflow webhook trigger token, stored OUTSIDE the agent-writable
+   *  workflows dir (bootstrap wires this to the sealed settings KV). Absent
+   *  deps = the token routes are off (tests without a store). */
+  getTriggerToken?: (workflowId: string) => Promise<string | undefined>;
+  setTriggerToken?: (workflowId: string, token: string) => Promise<void>;
   /** Emits a "changed" event on workflow writes (SSE live refresh). */
 }) {
   const svc = deps.workflowExecutionService;
@@ -170,6 +176,58 @@ export function workflowRoutes(deps: {
           startNodeId: t.Optional(t.String()),
         }),
       },
+    )
+    .post("/api/workflow-definitions/:workflowId/trigger-token", async ({ params }) => {
+      // Rotate: each call replaces the token, so a leak is one call away from
+      // being fixed. Returns the new token exactly once, here.
+      workflowFile(params.workflowId);
+      if (!deps.setTriggerToken || !deps.getTriggerToken) {
+        throw new HttpError("trigger tokens are not configured on this backend", 501);
+      }
+      const token = randomBytes(24).toString("hex");
+      await deps.setTriggerToken(params.workflowId, token);
+      return { token };
+    })
+    .post(
+      "/api/workflow-triggers/:workflowId",
+      async ({ params, body, headers, set }) => {
+        // Public entry (exempted from the app token in app.ts): the caller only
+        // holds this workflow's trigger token, not the backend token. GitHub,
+        // n8n, curl - anything that can set one header.
+        workflowFile(params.workflowId);
+        if (!deps.getTriggerToken) {
+          throw new HttpError("trigger tokens are not configured on this backend", 501);
+        }
+        const stored = await deps.getTriggerToken(params.workflowId);
+        const given =
+          typeof headers["x-trigger-token"] === "string" ? headers["x-trigger-token"] : "";
+        // Same length + constant-time compare: no early exit on the first
+        // differing byte, and an absent token is indistinguishable from a wrong
+        // one so the response cannot be used to probe which ids have tokens.
+        const ok =
+          stored !== undefined &&
+          given.length === stored.length &&
+          timingSafeEqual(Buffer.from(given), Buffer.from(stored));
+        if (!ok) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+        let raw: string;
+        try {
+          raw = await deps.loadWorkflow({ path: `${params.workflowId}.workflow.json` });
+        } catch {
+          set.status = 404;
+          return { error: `workflow definition not found: ${params.workflowId}` };
+        }
+        set.status = 201;
+        return await svc.startExecution({
+          workflowId: params.workflowId,
+          definition: JSON.parse(raw),
+          input: body,
+          triggeredBy: "webhook",
+        });
+      },
+      { body: t.Record(t.String(), t.Unknown()) },
     )
     .delete("/api/workflow-definitions/:workflowId", async ({ params }) => {
       const file = workflowFile(params.workflowId);

@@ -1714,6 +1714,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       return await Bun.file(file).text();
     },
     workflowDir: join(config.dataDir, "workflows"),
+    // Trigger tokens live in the sealed settings KV, NOT in the workflows dir
+    // (definitions are agent-writable; a token the agent can read is a token
+    // anything on the box can read — same boundary as the path policy).
+    getTriggerToken: async (workflowId) =>
+      settingsSvc.get<string>(`workflow.trigger.${workflowId}`),
+    setTriggerToken: async (workflowId, token) => {
+      settingsSvc.set(`workflow.trigger.${workflowId}`, token);
+    },
     resyncTriggers: () => workflowTriggerScheduler.sync(),
   });
 
