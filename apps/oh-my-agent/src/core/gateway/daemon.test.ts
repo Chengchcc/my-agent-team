@@ -142,25 +142,41 @@ describe("startDetachedGateway", () => {
   test("writes a pidfile and a log, and the child keeps running", async () => {
     const home = tempHome();
     try {
+      // A real script whose FILENAME is the marker. bash -c + exec -a raced
+      // twice: bash's own cmdline briefly carries the marker before the exec,
+      // and under load the exec itself can fail, leaving a zombie that
+      // kill(pid,0) still reports as alive while its empty /proc cmdline makes
+      // the stop path rightly refuse it. This script never execs anything, so
+      // its cmdline is the marker from the first scheduler tick to SIGTERM.
+      const fake = join(home, "oma gateway up");
+      writeFileSync(fake, "#!/bin/sh\nsleep 60\n", { mode: 0o755 });
       const daemon = await startDetachedGateway({
         home,
         version: "9.9.9",
-        // argv[0] carries the marker the stop path looks for. No nested bash:
-        // its exec optimization replaces argv[0] and drops the marker.
-        command: ["bash", "-c", 'exec -a "oma gateway up" sleep 60'],
+        command: [fake],
       });
-      expect(isProcessAlive(daemon.pid)).toBe(true);
       expect(readDaemon(home)?.pid).toBe(daemon.pid);
 
-      // /proc/<pid>/cmdline is briefly EMPTY during execve, and the stop path
-      // refuses what it cannot confirm — wait for the marker, as a real
-      // `up -d` does by waiting for health before it returns.
-      for (let i = 0; i < 50 && !looksLikeOurGateway(daemon.pid); i++) {
-        await new Promise((res) => {
-          setTimeout(res, 20);
-        });
+      // Two startup races collapse into one wait. Right after fork the child
+      // may not be observable via kill(0) yet — under CPU contention on the
+      // 2-core CI runner that one-shot check failed in 3.95ms, which is what
+      // made this test flake. And /proc/<pid>/cmdline is briefly EMPTY during
+      // execve, which the stop path refuses to act on. A real `up -d` waits
+      // for health before returning; we wait for liveness AND the marker,
+      // with a CI-generous window.
+      let alive = false;
+      let looksOurs = false;
+      for (let i = 0; i < 150 && !(alive && looksOurs); i++) {
+        alive = isProcessAlive(daemon.pid);
+        looksOurs = looksLikeOurGateway(daemon.pid);
+        if (!(alive && looksOurs)) {
+          await new Promise((res) => {
+            setTimeout(res, 20);
+          });
+        }
       }
-      expect(looksLikeOurGateway(daemon.pid)).toBe(true);
+      expect(alive).toBe(true);
+      expect(looksOurs).toBe(true);
 
       appendFileSync(daemon.logPath, "booted\n");
       const result = await stopDetachedGateway(home, 5000);
