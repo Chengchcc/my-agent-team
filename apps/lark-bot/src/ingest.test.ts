@@ -639,6 +639,38 @@ describe("ingest", () => {
     db.close();
   });
 
+  test("/run <id> starts a workflow from chat and replies in-channel", async () => {
+    const db = makeDb();
+    const replies: string[] = [];
+    mockFetch([AGENT_CONFIG, { body: { executionId: "e_run_1", status: "running" } }]);
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_run",
+        message_id: "om_run",
+        chat_id: "oc_grp",
+        chat_type: "group",
+        content: "/run wf-x fix the login bug",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onCommandReply: async (chatId, text) => {
+          expect(chatId).toBe("oc_grp");
+          replies.push(text);
+        },
+      },
+    );
+    expect(result.action).toBe("consumed");
+    expect(result.triggered).toBe(false);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("e_run_1");
+  });
+
   test("per-chat policy from the DTO's ARRAY groups actually applies", async () => {
     // The regression this pins: the DTO carries `groups` as an array while the
     // policy keys by id, so every per-chat row read as absent and an `open`
