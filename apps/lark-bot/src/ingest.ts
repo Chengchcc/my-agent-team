@@ -199,6 +199,28 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     await ctx.onCommandReply?.(event.chat_id, reply);
     return { action: "consumed", triggered: false, triggeredRuns: [] };
   }
+  // ─── Control command: /run <workflow-id> [prompt] starts a workflow ───
+  // The chat-side weld for the webhook trigger: a topic turns into a durable
+  // execution with the topic as context. Results live in the Web console for
+  // now (honest ceiling); the run card flow-back is the next slice.
+  const runMatch = /^\/run ([A-Za-z0-9._-]+)(?:\s+([\s\S]+))?$/.exec(event.content.trim());
+  if (runMatch) {
+    if (inboundExists(db, event.event_id, event.message_id)) {
+      return { action: "skipped", triggered: false, triggeredRuns: [] };
+    }
+    reserveInbound(db, event.event_id, event.message_id, event.chat_id);
+    const workflowId = runMatch[1]!;
+    const { data, error } = await client.api["workflow-executions"].post({
+      workflowRef: { path: `${workflowId}.workflow.json` },
+      input: { source: "lark", chatId: event.chat_id, prompt: runMatch[2] ?? "" },
+    });
+    confirmInbound(db, event.event_id, null, null);
+    const reply = error
+      ? `没有启动成：workflow ${workflowId} 不存在或不可用。`
+      : `已启动 workflow ${workflowId}（执行 ${(data as { executionId?: string }).executionId ?? "?"}），进度与结果在 Web 控制台。`;
+    await ctx.onCommandReply?.(event.chat_id, reply);
+    return { action: "consumed", triggered: false, triggeredRuns: [] };
+  }
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
   // Reserve before POST: if POST succeeds but confirm fails, the event won't re-POST.
   // Trade-off: "lose an inbound rather than duplicate a run trigger" (spec §5.3).
