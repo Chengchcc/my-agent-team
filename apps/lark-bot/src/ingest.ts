@@ -18,6 +18,7 @@ import { isBotMentioned, isMentionAll } from "./event-parser.js";
 import { larkImageKeysOf, stripImageMarkers } from "./image-fetch.js";
 import { decideInbound, type LarkAccessConfig, normalizeGroups } from "./inbound-policy.js";
 import { resolveMentionTargets } from "./mention-targets.js";
+import type { WorkflowCardState } from "./run-card/workflow-card.js";
 import { topicKeysToRemember, topicLookupKeys, topicRootMessageId } from "./topic-routing.js";
 
 export interface IngestContext {
@@ -31,6 +32,13 @@ export interface IngestContext {
   /** Reply to a control command (/stop) — direct text send, not a
    * conversation message. */
   onCommandReply?: (chatId: string, text: string) => Promise<void>;
+  /** Create + send the workflow progress card for this chat; null = no card
+   *  (not configured or the platform refused) and the watcher falls back to
+   *  plain text lines. */
+  onWorkflowCard?: (
+    chatId: string,
+    workflowId: string,
+  ) => Promise<{ update: (state: WorkflowCardState) => Promise<boolean> } | null>;
   /** Called when a new conversation is bound (one per topic) — allows
    *  dynamic SSE subscription. The chat id travels with it so the caller does
    *  not have to look the binding up again. */
@@ -111,7 +119,9 @@ async function watchExecutionAndReport(opts: {
   backendUrl: string;
   token: string;
   reply: (chatId: string, text: string) => Promise<void>;
+  card?: { update: (state: WorkflowCardState) => Promise<boolean> } | null;
 }): Promise<void> {
+  let cardOk = opts.card !== null && opts.card !== undefined;
   const deadline = Date.now() + 30 * 60_000;
   let failures = 0;
   let saidWaiting = false;
@@ -152,10 +162,23 @@ async function watchExecutionAndReport(opts: {
       const fresh = newlyCompleted(seenNodes, trace.nodeRuns ?? []);
       if (fresh.length > 0) {
         for (const id of fresh) seenNodes.add(id);
-        await opts.reply(
-          opts.chatId,
-          `workflow ${opts.workflowId} 进度：${fresh.join("、")} 完成（累计 ${seenNodes.size} 个节点）。`,
-        );
+        const nodes = (trace.nodeRuns ?? []).map((r) => ({
+          nodeId: typeof r.nodeId === "string" ? r.nodeId : "?",
+          status: typeof r.status === "string" ? r.status : "unknown",
+        }));
+        if (cardOk && opts.card) {
+          cardOk = await opts.card.update({
+            workflowId: opts.workflowId,
+            status: "running",
+            nodes,
+          });
+        }
+        if (!cardOk) {
+          await opts.reply(
+            opts.chatId,
+            `workflow ${opts.workflowId} 进度：${fresh.join("、")} 完成（累计 ${seenNodes.size} 个节点）。`,
+          );
+        }
       }
     } catch {
       /* progress is best-effort; the terminal verdict is the contract */
@@ -166,6 +189,18 @@ async function watchExecutionAndReport(opts: {
       continue;
     }
     if (exec.status === "success" || exec.status === "failure") {
+      if (cardOk && opts.card) {
+        // No assignment: the card is frozen after this; nobody reads it again.
+        await opts.card.update({
+          workflowId: opts.workflowId,
+          status: exec.status,
+          nodes: [],
+          outputSummary:
+            exec.output && Object.keys(exec.output).length > 0
+              ? JSON.stringify(exec.output).slice(0, 300)
+              : undefined,
+        });
+      }
       const summary =
         exec.output && Object.keys(exec.output).length > 0
           ? ` 输出：${JSON.stringify(exec.output).slice(0, 300)}`
