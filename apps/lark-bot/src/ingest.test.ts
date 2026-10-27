@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { rememberTopicKeys, reserveInbound } from "./bindings-sqlite.js";
 import type { LarkMessageEvent } from "./event-parser.js";
-import { ingest } from "./ingest.js";
+import { ingest, newlyCompleted } from "./ingest.js";
 
 let dbCounter = 0;
 function testDbPath() {
@@ -637,6 +637,20 @@ describe("ingest", () => {
     expect(result.triggered).toBe(true);
 
     db.close();
+  });
+
+  test("newlyCompleted diffs only unseen completed nodes", () => {
+    const seen = new Set(["scan"]);
+    const runs = [
+      { nodeId: "scan", status: "completed" },
+      { nodeId: "report", status: "completed" },
+      { nodeId: "ask", status: "waiting_human" },
+      { nodeId: 7, status: "completed" },
+      { nodeId: "x", status: "running" },
+    ];
+    expect(newlyCompleted(seen, runs)).toEqual(["report"]);
+    seen.add("report");
+    expect(newlyCompleted(seen, runs)).toEqual([]);
   });
 
   test("bare /run lists the available workflows in-channel", async () => {
