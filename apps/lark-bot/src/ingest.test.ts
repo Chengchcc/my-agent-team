@@ -639,6 +639,50 @@ describe("ingest", () => {
     db.close();
   });
 
+  test("bare /run lists the available workflows in-channel", async () => {
+    const db = makeDb();
+    const replies: string[] = [];
+    mockFetch([
+      AGENT_CONFIG,
+      {
+        body: {
+          definitions: [
+            { workflowId: "wf-a", valid: true, name: "Alpha", description: "处理 issue" },
+            { workflowId: "wf-broken", valid: false },
+          ],
+        },
+      },
+    ]);
+    const result = await ingest(
+      {
+        ...baseEvent,
+        event_id: "evt_ls",
+        message_id: "om_ls",
+        chat_id: "oc_grp",
+        chat_type: "group",
+        content: "/run",
+      },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onCommandReply: async (_c, text) => {
+          replies.push(text);
+        },
+      },
+    );
+    expect(result.action).toBe("consumed");
+    expect(replies).toHaveLength(1);
+    // Valid ones only, with name and description, plus the usage line.
+    expect(replies[0]).toContain("wf-a");
+    expect(replies[0]).toContain("Alpha");
+    expect(replies[0]).not.toContain("wf-broken");
+    expect(replies[0]).toContain("用法");
+  });
+
   test("/run <id> starts a workflow from chat and replies in-channel", async () => {
     const db = makeDb();
     const replies: string[] = [];
