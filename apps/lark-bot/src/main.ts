@@ -61,6 +61,7 @@ import {
 } from "./run-card/queued-card.js";
 import type { RunCardWatcherHandle } from "./run-card/run-card-watcher.js";
 import { watchRunCard } from "./run-card/run-card-watcher.js";
+import { renderWorkflowCard } from "./run-card/workflow-card.js";
 import { safeAgentId } from "./safe-agent-id.js";
 import { sendTextOnly } from "./send-text-only.js";
 import { sendMessage } from "./sender.js";
@@ -600,6 +601,39 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
       // it must reply to (`root_id` when this message is already inside a
       // topic, otherwise the message itself opens one).
       void startRunCard(runId, conversationId, event.chat_id, event.message_id);
+    },
+    onWorkflowCard: async (chatId, workflowId) => {
+      // Card first, text always as the fallback: if the platform refuses the
+      // card (quota, schema), the watcher degrades to plain lines, never to
+      // silence.
+      try {
+        const created = await cardClient.createCard(
+          renderWorkflowCard({ workflowId, status: "running", nodes: [] }),
+        );
+        if (!created.ok) return null;
+        const sent = await cardClient.sendCard(chatId, created.cardId, {});
+        if (!sent.ok) return null;
+        let sequence = 1;
+        return {
+          update: async (state) => {
+            sequence += 1;
+            const res = await cardClient.updateCard(
+              created.cardId,
+              renderWorkflowCard(state),
+              sequence,
+            );
+            if (!res.ok) return false;
+            if (state.status === "success" || state.status === "failure") {
+              // Freeze the card client-side; best-effort - a refusal here
+              // does not un-do the verdict already rendered.
+              await cardClient.closeStreaming(created.cardId, sequence + 1).catch(() => null);
+            }
+            return true;
+          },
+        };
+      } catch {
+        return null;
+      }
     },
     onCommandReply: async (chatId, text) => {
       // Chat-wide notice ("nothing to stop"), but it must not open a topic of
