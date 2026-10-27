@@ -85,6 +85,21 @@ async function listHint(client: ReturnType<typeof createClient>): Promise<string
   }
 }
 
+/** Node-level progress diff: which node ids completed since last look.
+ *  Pure so the diff itself is testable without waiting on poll intervals. */
+export function newlyCompleted(
+  seen: ReadonlySet<string>,
+  nodeRuns: ReadonlyArray<{ nodeId?: unknown; status?: unknown }>,
+): string[] {
+  return nodeRuns
+    .filter(
+      (r): r is { nodeId: string; status: string } =>
+        typeof r.nodeId === "string" && r.status === "completed",
+    )
+    .map((r) => r.nodeId)
+    .filter((id) => !seen.has(id));
+}
+
 /** Flow-back, terminal slice: a workflow started from chat reports its
  *  outcome back to the same chat. Polls the execution detail every 5s (cap
  *  30min, 5 consecutive failures = lost); live card updates are the next
@@ -100,6 +115,7 @@ async function watchExecutionAndReport(opts: {
   const deadline = Date.now() + 30 * 60_000;
   let failures = 0;
   let saidWaiting = false;
+  const seenNodes = new Set<string>();
   while (Date.now() < deadline) {
     await new Promise((res) => {
       setTimeout(res, 5_000);
@@ -123,6 +139,27 @@ async function watchExecutionAndReport(opts: {
       continue;
     }
     const exec = (body ?? {}) as { status?: string; output?: Record<string, unknown> };
+    // Node-level progress, one line per newly completed node: the chat sees
+    // the workflow advance instead of one long silence then a verdict.
+    try {
+      const traceRes = await fetch(
+        `${opts.backendUrl}/api/workflow-executions/${opts.executionId}/trace`,
+        { headers: { "x-auth-token": opts.token } },
+      );
+      const trace = (await traceRes.json()) as {
+        nodeRuns?: ReadonlyArray<{ nodeId?: unknown; status?: unknown }>;
+      };
+      const fresh = newlyCompleted(seenNodes, trace.nodeRuns ?? []);
+      if (fresh.length > 0) {
+        for (const id of fresh) seenNodes.add(id);
+        await opts.reply(
+          opts.chatId,
+          `workflow ${opts.workflowId} 进度：${fresh.join("、")} 完成（累计 ${seenNodes.size} 个节点）。`,
+        );
+      }
+    } catch {
+      /* progress is best-effort; the terminal verdict is the contract */
+    }
     if (exec.status === "waiting_human" && !saidWaiting) {
       saidWaiting = true;
       await opts.reply(opts.chatId, `workflow ${opts.workflowId} 在等人工确认，请到 Web 处理。`);
