@@ -85,6 +85,63 @@ async function listHint(client: ReturnType<typeof createClient>): Promise<string
   }
 }
 
+/** Flow-back, terminal slice: a workflow started from chat reports its
+ *  outcome back to the same chat. Polls the execution detail every 5s (cap
+ *  30min, 5 consecutive failures = lost); live card updates are the next
+ *  slice - this closes the loop so /run is never fire-and-forget. */
+async function watchExecutionAndReport(opts: {
+  executionId: string;
+  workflowId: string;
+  chatId: string;
+  backendUrl: string;
+  token: string;
+  reply: (chatId: string, text: string) => Promise<void>;
+}): Promise<void> {
+  const deadline = Date.now() + 30 * 60_000;
+  let failures = 0;
+  let saidWaiting = false;
+  while (Date.now() < deadline) {
+    await new Promise((res) => {
+      setTimeout(res, 5_000);
+    });
+    let body: unknown;
+    try {
+      const res = await fetch(`${opts.backendUrl}/api/workflow-executions/${opts.executionId}`, {
+        headers: { "x-auth-token": opts.token },
+      });
+      body = await res.json();
+      failures = 0;
+    } catch {
+      failures++;
+      if (failures >= 5) {
+        await opts.reply(
+          opts.chatId,
+          `workflow ${opts.workflowId} 的进度跟丢了，请到 Web 控制台查看。`,
+        );
+        return;
+      }
+      continue;
+    }
+    const exec = (body ?? {}) as { status?: string; output?: Record<string, unknown> };
+    if (exec.status === "waiting_human" && !saidWaiting) {
+      saidWaiting = true;
+      await opts.reply(opts.chatId, `workflow ${opts.workflowId} 在等人工确认，请到 Web 处理。`);
+      continue;
+    }
+    if (exec.status === "success" || exec.status === "failure") {
+      const summary =
+        exec.output && Object.keys(exec.output).length > 0
+          ? ` 输出：${JSON.stringify(exec.output).slice(0, 300)}`
+          : "";
+      await opts.reply(
+        opts.chatId,
+        `workflow ${opts.workflowId} ${exec.status === "success" ? "跑完了" : "失败了"}。${summary}`,
+      );
+      return;
+    }
+  }
+}
+
 export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promise<IngestResult> {
   const { db, selfAgentId, botDisplayName, backendUrl, backendAuthToken, onNewBinding } = ctx;
   const client = createClient(backendUrl, backendAuthToken);
@@ -246,8 +303,20 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     confirmInbound(db, event.event_id, null, null);
     const reply = error
       ? `没有启动成：workflow ${workflowId} 不存在。${await listHint(client)}`
-      : `已启动 workflow ${workflowId}（执行 ${(data as { executionId?: string }).executionId ?? "?"}），进度与结果在 Web 控制台。`;
+      : `已启动 workflow ${workflowId}（执行 ${(data as { executionId?: string }).executionId ?? "?"}），跑完我会回来报结果。`;
     await ctx.onCommandReply?.(event.chat_id, reply);
+    if (!error && backendAuthToken && (data as { executionId?: string }).executionId) {
+      void watchExecutionAndReport({
+        executionId: (data as { executionId: string }).executionId,
+        workflowId,
+        chatId: event.chat_id,
+        backendUrl,
+        token: backendAuthToken,
+        reply: async (chatId, text) => {
+          await ctx.onCommandReply?.(chatId, text);
+        },
+      });
+    }
     return { action: "consumed", triggered: false, triggeredRuns: [] };
   }
   // ─── Step 0: Idempotent reserve (local sqlite transaction) ───
