@@ -73,6 +73,18 @@ async function resolveImages(
   );
 }
 
+/** One shared "what exists" line for both the bare /run listing and a typo:
+ *  the list is fetched from the same endpoint the web console uses. */
+async function listHint(client: ReturnType<typeof createClient>): Promise<string> {
+  try {
+    const { data } = await client.api["workflow-definitions"].get();
+    const ids = (data?.definitions ?? []).filter((d) => d.valid).map((d) => d.workflowId);
+    return ids.length > 0 ? `可用的是：${ids.join("、")}。` : "当前没有任何可用的 workflow。";
+  } catch {
+    return "";
+  }
+}
+
 export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promise<IngestResult> {
   const { db, selfAgentId, botDisplayName, backendUrl, backendAuthToken, onNewBinding } = ctx;
   const client = createClient(backendUrl, backendAuthToken);
@@ -203,6 +215,23 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // The chat-side weld for the webhook trigger: a topic turns into a durable
   // execution with the topic as context. Results live in the Web console for
   // now (honest ceiling); the run card flow-back is the next slice.
+  if (event.content.trim() === "/run") {
+    const { data } = await client.api["workflow-definitions"].get();
+    const defs = (data?.definitions ?? []).filter((d) => d.valid);
+    const reply =
+      defs.length === 0
+        ? "当前没有任何可用的 workflow。"
+        : `可用的 workflow（${defs.length} 个）：\n` +
+          defs
+            .map(
+              (d) =>
+                `- ${d.workflowId}${d.name ? `（${d.name}）` : ""}${d.description ? ` — ${d.description}` : ""}`,
+            )
+            .join("\n") +
+          "\n用法：/run <名字> <要说的话>";
+    await ctx.onCommandReply?.(event.chat_id, reply);
+    return { action: "consumed", triggered: false, triggeredRuns: [] };
+  }
   const runMatch = /^\/run ([A-Za-z0-9._-]+)(?:\s+([\s\S]+))?$/.exec(event.content.trim());
   if (runMatch) {
     if (inboundExists(db, event.event_id, event.message_id)) {
@@ -216,7 +245,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     });
     confirmInbound(db, event.event_id, null, null);
     const reply = error
-      ? `没有启动成：workflow ${workflowId} 不存在或不可用。`
+      ? `没有启动成：workflow ${workflowId} 不存在。${await listHint(client)}`
       : `已启动 workflow ${workflowId}（执行 ${(data as { executionId?: string }).executionId ?? "?"}），进度与结果在 Web 控制台。`;
     await ctx.onCommandReply?.(event.chat_id, reply);
     return { action: "consumed", triggered: false, triggeredRuns: [] };
