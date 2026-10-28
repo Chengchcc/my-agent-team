@@ -126,6 +126,7 @@ async function watchExecutionAndReport(opts: {
   let failures = 0;
   let saidWaiting = false;
   const seenNodes = new Set<string>();
+  let lastNodes: Array<{ nodeId: string; status: string }> = [];
   while (Date.now() < deadline) {
     await new Promise((res) => {
       setTimeout(res, 5_000);
@@ -166,10 +167,12 @@ async function watchExecutionAndReport(opts: {
           nodeId: typeof r.nodeId === "string" ? r.nodeId : "?",
           status: typeof r.status === "string" ? r.status : "unknown",
         }));
+        lastNodes = nodes;
         if (cardOk && opts.card) {
           cardOk = await opts.card.update({
             workflowId: opts.workflowId,
             status: "running",
+            executionId: opts.executionId,
             nodes,
           });
         }
@@ -185,7 +188,24 @@ async function watchExecutionAndReport(opts: {
     }
     if (exec.status === "waiting_human" && !saidWaiting) {
       saidWaiting = true;
-      await opts.reply(opts.chatId, `workflow ${opts.workflowId} 在等人工确认，请到 Web 处理。`);
+      const waitingNodeId = lastNodes.find((n) => n.status === "waiting_human")?.nodeId;
+      if (cardOk && opts.card && waitingNodeId) {
+        // The card itself asks the question now: approve/deny buttons in
+        // place, no detour through the web console.
+        cardOk = await opts.card.update({
+          workflowId: opts.workflowId,
+          status: "waiting_human",
+          executionId: opts.executionId,
+          waitingNodeId,
+          nodes: lastNodes,
+        });
+      }
+      await opts.reply(
+        opts.chatId,
+        waitingNodeId && cardOk
+          ? `workflow ${opts.workflowId} 在等确认，可直接点卡片上的按钮。`
+          : `workflow ${opts.workflowId} 在等人工确认，请到 Web 处理。`,
+      );
       continue;
     }
     if (exec.status === "success" || exec.status === "failure") {
