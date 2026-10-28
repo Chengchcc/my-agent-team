@@ -47,3 +47,24 @@ describe("workflow card model", () => {
     expect(JSON.stringify(term)).toContain("输出：{}");
   });
 });
+
+describe("workflow card human buttons", () => {
+  test("a waiting card carries approve/deny wired to the execution", () => {
+    const card = renderWorkflowCard({
+      workflowId: "wf-a",
+      status: "waiting_human",
+      nodes: [{ nodeId: "ask", status: "waiting_human" }],
+      executionId: "e_1",
+      waitingNodeId: "ask",
+    });
+    const elements = JSON.stringify(card);
+    expect(elements).toContain("wf_approve");
+    expect(elements).toContain("wf_deny");
+    expect(elements).toContain("workflow_human");
+    expect(elements).toContain("e_1");
+    // Running cards never carry the buttons.
+    expect(
+      JSON.stringify(renderWorkflowCard({ workflowId: "wf-a", status: "running", nodes: [] })),
+    ).not.toContain("wf_approve");
+  });
+});

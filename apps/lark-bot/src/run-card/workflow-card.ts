@@ -13,6 +13,10 @@ export interface WorkflowCardState {
   status: string;
   nodes: ReadonlyArray<WorkflowCardNode>;
   outputSummary?: string;
+  /** Set while a human node parks the execution: the card then carries
+   *  approve/deny buttons that resolve it in place. */
+  executionId?: string;
+  waitingNodeId?: string;
 }
 
 const TEMPLATE_BY_STATUS: Record<string, string> = {
@@ -57,7 +61,17 @@ export function workflowCardModel(state: WorkflowCardState): {
 export function renderWorkflowCard(state: WorkflowCardState): Record<string, unknown> {
   const model = workflowCardModel(state);
   const live = state.status === "running" || state.status === "waiting_human";
-  return {
+  const card: {
+    schema: string;
+    config: Record<string, unknown>;
+    header: Record<string, unknown>;
+    body: {
+      direction: string;
+      padding: string;
+      vertical_spacing: string;
+      elements: Array<Record<string, unknown>>;
+    };
+  } = {
     schema: "2.0",
     config: {
       ...(live ? { streaming_mode: true } : {}),
@@ -79,4 +93,28 @@ export function renderWorkflowCard(state: WorkflowCardState): Record<string, unk
       ],
     },
   };
+  if (state.status === "waiting_human" && state.executionId && state.waitingNodeId) {
+    const base = {
+      action: "workflow_human",
+      executionId: state.executionId,
+      nodeId: state.waitingNodeId,
+    };
+    card.body.elements.push(
+      {
+        tag: "button",
+        element_id: "wf_approve",
+        text: { tag: "plain_text", content: "批准" },
+        type: "primary",
+        behaviors: [{ type: "callback", value: { ...base, approved: true } }],
+      },
+      {
+        tag: "button",
+        element_id: "wf_deny",
+        text: { tag: "plain_text", content: "拒绝" },
+        type: "danger",
+        behaviors: [{ type: "callback", value: { ...base, approved: false } }],
+      },
+    );
+  }
+  return card;
 }

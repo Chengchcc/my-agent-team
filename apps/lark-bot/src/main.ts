@@ -769,6 +769,25 @@ const cardActionDeps: CardActionDeps = {
     }
     return { error: error ?? undefined };
   },
+  resolveWorkflowHuman: async (executionId, nodeId, approved) => {
+    try {
+      const res = await fetch(
+        `${args.backendUrl}/api/workflow-executions/human-tasks/batch-resolve`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-auth-token": args.backendAuthToken ?? "",
+          },
+          body: JSON.stringify({ decisions: [{ executionId, nodeId, answer: { approved } }] }),
+        },
+      );
+      if (!res.ok) return { error: { status: res.status } };
+      return {};
+    } catch (err) {
+      return { error: { message: err instanceof Error ? err.message : "fetch failed" } };
+    }
+  },
   resolveAsk: async ({ runId, callId, questionId, selectedValue, freeText }) => {
     const { error } = await actionBackendClient.api["product-tools"].ask.resolve.post({
       runId,

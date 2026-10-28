@@ -105,6 +105,7 @@ function collectFields(node: unknown, depth: number, found: FoundFields): void {
 
 export type RunCardAction =
   | { action: "stop"; runId: string }
+  | { action: "workflow_human"; executionId: string; nodeId: string; approved: boolean }
   /** ADR 0037: drop a message that is still waiting. Cancels THAT input — the
    *  turn already running is untouched. */
   | { action: "cancel_input"; inputId: string }
@@ -143,6 +144,8 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   const questionId = "questionId" in parsed ? parsed.questionId : undefined;
   const selectedValue = "selectedValue" in parsed ? parsed.selectedValue : undefined;
   const inputId = "inputId" in parsed ? parsed.inputId : undefined;
+  const executionId = "executionId" in parsed ? parsed.executionId : undefined;
+  const wfNodeId = "nodeId" in parsed ? parsed.nodeId : undefined;
   if (action === "cancel_input" && typeof inputId === "string" && inputId.length > 0) {
     return { action: "cancel_input", inputId };
   }
@@ -151,6 +154,17 @@ export function decodeActionValue(raw: string): RunCardAction | null {
   }
   const runIdValid = typeof runId === "string" && runId.length > 0;
   const callIdValid = typeof callId === "string" && callId.length > 0;
+  const approved = "approved" in parsed ? parsed.approved : undefined;
+  if (
+    action === "workflow_human" &&
+    typeof executionId === "string" &&
+    executionId.length > 0 &&
+    typeof wfNodeId === "string" &&
+    wfNodeId.length > 0 &&
+    typeof approved === "boolean"
+  ) {
+    return { action: "workflow_human", executionId, nodeId: wfNodeId, approved };
+  }
   if (action === "stop" && runIdValid) return { action: "stop", runId };
   const isApproval =
     action === "approve" ||
@@ -201,6 +215,12 @@ export interface CardActionDeps {
     /** Free-text answer from a form submit (Card JSON 2.0 input element). */
     freeText?: string;
   }) => Promise<{ error?: unknown }>;
+  /** Approve/deny a workflow's human node from its own card. */
+  resolveWorkflowHuman: (
+    executionId: string,
+    nodeId: string,
+    approved: boolean,
+  ) => Promise<{ error?: unknown }>;
   /** Cancel a queued input (the message only, never the running turn). */
   cancelQueuedInput: (inputId: string) => Promise<{ error?: unknown }>;
   /** Steer a queued input into the running turn (#64). keepIfIdle: if the turn
@@ -240,6 +260,23 @@ export async function handleCardActionLine(line: string, deps: CardActionDeps): 
   // carrying that input's card, in the chat the card lives in. Same trust
   // model as the run controls (operator logged, not enforced: single-user
   // deployment, ADR 0026).
+  if (action.action === "workflow_human") {
+    // Same trust model as the run controls (ADR 0026): operator logged, not
+    // enforced — single-user deployment.
+    deps.log(
+      `card workflow-human: operator=${event.operatorId} exec=${action.executionId} node=${action.nodeId} approved=${action.approved}`,
+    );
+    const { error } = await deps.resolveWorkflowHuman(
+      action.executionId,
+      action.nodeId,
+      action.approved,
+    );
+    if (error) {
+      deps.log(`card workflow-human failed: ${JSON.stringify(error).slice(0, 120)}`);
+      return "workflow-human-failed";
+    }
+    return "workflow-human-resolved";
+  }
   if (action.action === "cancel_input") {
     const queued = getInputCardByLarkMessage(deps.db, event.messageId);
     if (!queued || queued.larkChatId !== event.chatId || queued.inputId !== action.inputId) {
