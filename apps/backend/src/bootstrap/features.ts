@@ -1717,6 +1717,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Trigger tokens live in the sealed settings KV, NOT in the workflows dir
     // (definitions are agent-writable; a token the agent can read is a token
     // anything on the box can read — same boundary as the path policy).
+    scriptsEnabled: config.workflowScriptsEnabled,
     getTriggerToken: async (workflowId) =>
       settingsSvc.get<string>(`workflow.trigger.${workflowId}`),
     setTriggerToken: async (workflowId, token) => {
