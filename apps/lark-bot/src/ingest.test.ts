@@ -663,6 +663,7 @@ describe("ingest", () => {
           definitions: [
             { workflowId: "wf-a", valid: true, name: "Alpha", description: "处理 issue" },
             { workflowId: "wf-broken", valid: false },
+            { workflowId: "wf-script", valid: true, scriptNodesBlocked: true },
           ],
         },
       },
@@ -694,7 +695,9 @@ describe("ingest", () => {
     expect(replies[0]).toContain("wf-a");
     expect(replies[0]).toContain("Alpha");
     expect(replies[0]).not.toContain("wf-broken");
+    expect(replies[0]).not.toContain("wf-script");
     expect(replies[0]).toContain("用法");
+    // Script-blocked workflows are filtered from the guide (runnable only).
   });
 
   test("/run <id> starts a workflow from chat and replies in-channel", async () => {

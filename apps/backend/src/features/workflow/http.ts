@@ -42,12 +42,18 @@ export interface WorkflowDefinitionRow {
   valid?: boolean;
   /** The parse failure, verbatim, when valid is false. */
   error?: string;
+  /** True when the definition has script nodes and this deployment has
+   *  WORKFLOW_SCRIPTS_ENABLED unset: listed, but never runnable here. */
+  scriptNodesBlocked?: boolean;
 }
 
 export function workflowRoutes(deps: {
   workflowExecutionService: WorkflowExecutionService;
   loadWorkflow: (ref: WorkflowRef) => Promise<string>;
   workflowDir: string;
+  /** Script nodes may execute only when the deployment opted in; the env
+   *  read belongs to the composition root, not the route. */
+  scriptsEnabled?: boolean;
   resyncTriggers?: () => Promise<void>;
   /** Per-workflow webhook trigger token, stored OUTSIDE the agent-writable
    *  workflows dir (bootstrap wires this to the sealed settings KV). Absent
@@ -95,12 +101,15 @@ export function workflowRoutes(deps: {
         }
         const mtime = statSync(join(dir, f)).mtimeMs;
         let triggers: WorkflowDefinitionRow["triggers"];
+        let scriptNodesBlocked = false;
         let valid: boolean;
         let error: string | undefined;
         try {
           const parsed = parseWorkflow(JSON.parse(readFileSync(join(dir, f), "utf-8")));
           valid = true;
           triggers = parsed.triggers as { type: "cron"; cron: string; enabled?: boolean }[];
+          scriptNodesBlocked =
+            parsed.nodes.some((n) => n.type === "script") && deps.scriptsEnabled !== true;
         } catch (err) {
           valid = false;
           error = err instanceof Error ? err.message : String(err);
@@ -118,6 +127,7 @@ export function workflowRoutes(deps: {
           updatedBy: typeof meta.updatedBy === "string" ? meta.updatedBy : undefined,
           updatedAt: Math.round(mtime),
           triggers,
+          scriptNodesBlocked,
         };
       });
       return { definitions };

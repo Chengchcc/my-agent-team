@@ -86,7 +86,9 @@ async function resolveImages(
 async function listHint(client: ReturnType<typeof createClient>): Promise<string> {
   try {
     const { data } = await client.api["workflow-definitions"].get();
-    const ids = (data?.definitions ?? []).filter((d) => d.valid).map((d) => d.workflowId);
+    const ids = (data?.definitions ?? [])
+      .filter((d) => d.valid && !d.scriptNodesBlocked)
+      .map((d) => d.workflowId);
     return ids.length > 0 ? `可用的是：${ids.join("、")}。` : "当前没有任何可用的 workflow。";
   } catch {
     return "";
@@ -127,6 +129,7 @@ async function watchExecutionAndReport(opts: {
   let saidWaiting = false;
   const seenNodes = new Set<string>();
   let lastNodes: Array<{ nodeId: string; status: string }> = [];
+  let lastFailureReason: string | null = null;
   while (Date.now() < deadline) {
     await new Promise((res) => {
       setTimeout(res, 5_000);
@@ -158,7 +161,7 @@ async function watchExecutionAndReport(opts: {
         { headers: { "x-auth-token": opts.token } },
       );
       const trace = (await traceRes.json()) as {
-        nodeRuns?: ReadonlyArray<{ nodeId?: unknown; status?: unknown }>;
+        nodeRuns?: ReadonlyArray<{ nodeId?: unknown; status?: unknown; error?: unknown }>;
       };
       const fresh = newlyCompleted(seenNodes, trace.nodeRuns ?? []);
       if (fresh.length > 0) {
@@ -168,6 +171,10 @@ async function watchExecutionAndReport(opts: {
           status: typeof r.status === "string" ? r.status : "unknown",
         }));
         lastNodes = nodes;
+        const failedNode = (trace.nodeRuns ?? []).find((r) => r.status === "failed");
+        if (failedNode && typeof failedNode.error === "string" && failedNode.error.length > 0) {
+          lastFailureReason = failedNode.error.slice(0, 200);
+        }
         if (cardOk && opts.card) {
           cardOk = await opts.card.update({
             workflowId: opts.workflowId,
@@ -227,7 +234,7 @@ async function watchExecutionAndReport(opts: {
           : "";
       await opts.reply(
         opts.chatId,
-        `workflow ${opts.workflowId} ${exec.status === "success" ? "跑完了" : "失败了"}。${summary}`,
+        `workflow ${opts.workflowId} ${exec.status === "success" ? "跑完了" : "失败了"}。${exec.status === "failure" && lastFailureReason ? ` 原因：${lastFailureReason}` : ""}${summary}`,
       );
       return;
     }
@@ -366,7 +373,7 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // now (honest ceiling); the run card flow-back is the next slice.
   if (event.content.trim() === "/run") {
     const { data } = await client.api["workflow-definitions"].get();
-    const defs = (data?.definitions ?? []).filter((d) => d.valid);
+    const defs = (data?.definitions ?? []).filter((d) => d.valid && !d.scriptNodesBlocked);
     const reply =
       defs.length === 0
         ? "当前没有任何可用的 workflow。"
