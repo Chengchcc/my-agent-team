@@ -65,7 +65,7 @@ Web 不直连后端数据，走 BFF 代理并带上服务端 token（见 [Web �
 ```text
 输入（人 / Workflow 节点 / cron 触发的 Workflow）
 → Conversation History 落账
-→ 触发判定与模式路由
+→ 触发判定与模式路由（未点名的观察消息可被环境规则升格，见 [环境规则](./backend/ambient-rules.md)）
 → 取 Run（一个事务：入队、活跃 Run 守卫、分支 CAS、Context 引用、建 Run）
 → 派单（预检模型 → 认领输入 → 解析工作区 → 写产品工具清单 → 投影历史）
 → Agent Backend spawn 一个子进程

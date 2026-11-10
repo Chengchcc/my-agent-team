@@ -190,6 +190,7 @@ export function conversationRoutes(
             content: body.content,
             mode: body.mode,
             modelOverride: body.model,
+            source: body.source,
           });
           set.status = 202;
           return result;
@@ -231,6 +232,12 @@ export function conversationRoutes(
                   ]),
                 ),
               }),
+            ),
+            // ADR 0046: provenance for ambient rules. Only surfaces that can
+            // observe unaddressed messages (lark-bot) send this; the shape is
+            // the wire contract for chat scoping.
+            source: t.Optional(
+              t.Object({ kind: t.Literal("lark"), chatId: t.String({ minLength: 1 }) }),
             ),
           }),
         },

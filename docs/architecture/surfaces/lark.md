@@ -41,7 +41,7 @@ tags: [lark, surfaces, backend]
 3. **绑定解析（话题 = 会话，ADR 0037）**：会话的边界是飞书**话题**，不是聊天。从事件取 `thread_id`／`root_id`（两者都由平台给出，实测见 ADR 0037）依次查 `topic_binding`：命中就续接该会话；都没命中说明这条消息**开了新话题**，返回 `needCreateConv`。`member_binding` 缺失时现写一条 `human:lark:<open_id>`。
 4. **建会话**：只有 `needCreateConv` 时调 `POST /api/conversations {agentId}`。随后写 `conversation_binding`（会话 → 聊天，带自己的推送游标与聊天模式）与 `topic_binding`（本话题的所有键 → 该会话），没有成员相关的 HTTP 调用，后端也没有成员表。
 5. **路由**：单聊不传 `senderMemberId` 与 `addressedTo`，由服务端派生成 sender 与 target；群聊传 `senderMemberId`，`addressedTo` 在 `botDisplayName` 存在且 `isBotMentioned` 命中时为 `[selfAgentId]`，否则为 `[]`。缺 `botDisplayName` 时群聊 fail-closed，只能单聊。
-6. **POST 消息**：`content` 就是**消息文本本身**（字符串）。曾经包成 `{ text, source, larkEventId, larkMessageId }` 信封——后端写入方只认字符串或 ContentBlock 数组，于是文本被静默丢弃、每条飞书消息都变成空轮次，模型只能拿旧上下文编；那三个额外字段也没有任何读取方。接口返回 202 与 `{ seq, triggeredRuns }`。
+6. **POST 消息**：`content` 就是**消息文本本身**（字符串）。曾经包成 `{ text, source, larkEventId, larkMessageId }` 信封——后端写入方只认字符串或 ContentBlock 数组，于是文本被静默丢弃、每条飞书消息都变成空轮次，模型只能拿旧上下文编；那三个额外字段也没有任何读取方。接口返回 202 与 `{ seq, triggeredRuns }`。每条消息都带 `source: { kind: "lark", chatId }`（ADR 0046）：后端的环境规则靠它做 chat 级 scoping——observe 消息（`addressedTo: []`）命中 act 规则时会被升格为任务并在返回的 `triggeredRuns` 里出现，bot 的卡片路径对此不需要任何特判。
 7. **确认**：`confirmInbound` 回填 `conversationId` 与 `ledgerSeq`。POST 之前进程崩掉的话，这条入站不会再被处理。
 
 ### 评论线（ADR 0044）

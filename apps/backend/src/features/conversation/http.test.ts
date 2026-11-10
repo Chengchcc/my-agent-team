@@ -90,6 +90,26 @@ describe("conversation routes", () => {
     expect(text.status).toBe(202);
   });
 
+  test("a message carries its lark source for ambient scoping (ADR 0046)", async () => {
+    await createConversation("c-src");
+    const ok = await api(harness, "POST", `${BASE}/c-src/messages`, {
+      content: "observe me",
+      addressedTo: [],
+      senderMemberId: "human:lark:ou_x",
+      source: { kind: "lark", chatId: "oc_src" },
+    });
+    expect(ok.status).toBe(202);
+
+    // Only lark exists as a source kind today: an unknown kind is a 422 at
+    // the wire, not a silent fall-through the evaluator has to defend.
+    const foreign = await api(harness, "POST", `${BASE}/c-src/messages`, {
+      content: "observe me",
+      addressedTo: [],
+      source: { kind: "github", chatId: "repo" },
+    });
+    expect(foreign.status).toBe(422);
+  });
+
   test("messages append to the ledger and search/export see them", async () => {
     await createConversation("c-msg");
     const posted = await api(harness, "POST", `${BASE}/c-msg/messages`, {

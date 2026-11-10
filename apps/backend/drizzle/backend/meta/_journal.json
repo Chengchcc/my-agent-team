@@ -407,6 +407,13 @@
       "when": 1792464972016,
       "tag": "0057_nifty_juggernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1794317532956,
+      "tag": "0058_chubby_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

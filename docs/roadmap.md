@@ -33,6 +33,14 @@
 
 **Context 的裁剪是硬编码的。** 取 Run 时同步最近 20 条消息，没有可配置的预算，也没有按 token 估计的策略。做成可配之前得先决定预算归谁管。
 
+## 主动与环境规则
+
+**第一刀已落（ADR 0046，2026-11-10）**：lark observe 缝上的环境规则（record/act、`proactive_event` 台账、`GET /api/proactive/events`、配置在 `lark.ambient.rules`）已实现并带变异验证。剩下的：
+
+- **Web 面板**：环境规则的编辑 UI（现在只能走 `PATCH /api/agents`）与事件流页面（API 已有）。
+- **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
+- **模型辅助匹配**：语义判断"这是不是给我的活"，失败语义必须继承 ADR 0046——分类器不可用退回 record，不得死锁或放行（workflow 节点钉 yolo 的同款教训）。
+
 ## Workflow
 
 ## 模型与 provider

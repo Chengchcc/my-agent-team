@@ -16,6 +16,15 @@ export interface AgentRow {
   archivedAt: number | null;
 }
 
+export interface AmbientRuleInput {
+  id: string;
+  chats?: string[];
+  senders?: string[];
+  keyword: string;
+  mode: "record" | "act";
+  instruction?: string;
+}
+
 export interface CreateAgentInput {
   /** Optional explicit id; used by the bootstrap seed to create a stable "default" agent.
    *  Not accepted from HTTP clients — the POST /api/agents body schema omits this field. */
@@ -64,6 +73,8 @@ export interface CreateAgentInput {
     requireMention?: boolean;
     /** Whether an `@everyone` addresses the bot. */
     respondToMentionAll?: boolean;
+    /** ADR 0046 ambient rules; replace-semantics like `groups`. */
+    ambientRules?: AmbientRuleInput[];
   };
 }
 
@@ -102,6 +113,8 @@ export interface UpdateAgentInput {
     requireMention?: boolean;
     /** Whether an `@everyone` addresses the bot. */
     respondToMentionAll?: boolean;
+    /** ADR 0046 ambient rules; replace-semantics like `groups`. */
+    ambientRules?: AmbientRuleInput[];
     /** profileRef is server-generated — never accepted from clients (§4.5). */
   };
 }

@@ -447,10 +447,10 @@ describe("ingest", () => {
     db.close();
   });
 
-  test("group message without @bot — posts but doesn't trigger", async () => {
+  test("group message without @bot — posts with source, doesn't trigger", async () => {
     const db = makeDb();
 
-    mockFetch([
+    const seen = mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_grp" } },
       { body: { members: [] } },
@@ -478,6 +478,17 @@ describe("ingest", () => {
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(false); // no @mention
+
+    // ADR 0046: the observation carries its chat so the backend's ambient
+    // rules can scope by it. Without this field every observe post is
+    // anonymous and chat-scoped rules are dead on arrival.
+    const post = seen.find((r) => r.url.includes("/messages"));
+    const body = JSON.parse(String(post?.body)) as {
+      source?: { kind: string; chatId: string };
+      addressedTo?: string[];
+    };
+    expect(body.source).toEqual({ kind: "lark", chatId: "oc_grp" });
+    expect(body.addressedTo).toEqual([]);
 
     db.close();
   });

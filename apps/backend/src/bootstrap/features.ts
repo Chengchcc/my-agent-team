@@ -98,6 +98,11 @@ import {
   providerOfModelId,
 } from "../features/models/index.js";
 import {
+  createProactiveService,
+  proactiveRoutes,
+  sqliteProactiveAdapter,
+} from "../features/proactive/index.js";
+import {
   createProductToolsDispatch,
   createProductToolsMcpServer,
   createProductToolsService,
@@ -472,11 +477,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const summarizeFromConfig = createConfiguredSummarizer(config.summaryModel, (id) =>
     providerSvc.credentialFor(id),
   );
+  // ADR 0046: ambient rules evaluate at the conversation observe seam. The
+  // service owns the event ledger; rules themselves live in agent config.
+  const proactiveSvc = createProactiveService({
+    port: sqliteProactiveAdapter(db),
+    agentSvc,
+  });
   const conv = createConversationFeature({
     convPort,
 
     agentSvc,
     agentRunService,
+    evaluateAmbient: (input) => proactiveSvc.evaluate(input),
     summarize: summarizeFromConfig,
     resolveLedgerMessage: (conversationId, ledgerSeq) =>
       ledgerResolver.resolveMessage(conversationId, ledgerSeq),
@@ -1909,6 +1921,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     knowledge: knowledgeRoutes(knowledgeSvc),
     workflowExecutions: workflowApp,
     artifacts: artifactRoutes(artifactService),
+    proactive: proactiveRoutes(proactiveSvc),
     productTools,
     settings: settingsRoutes(settingsSvc),
     proposal: proposalRoutes(proposalSvc),
