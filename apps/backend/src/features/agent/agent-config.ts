@@ -18,6 +18,35 @@ const LEGACY_BACKEND_KIND: Record<string, string> = { claude_code: "claude" };
 /** The old spelling of "no model chosen yet"; the current shape uses "". */
 const LEGACY_UNCONFIGURED_MODEL = "unconfigured/none";
 
+/** ADR 0046 ambient rule: what an OBSERVED (unaddressed) group message may
+ *  be promoted into. `record` only logs the would-do; `act` also frames the
+ *  message as a task and triggers the agent. Substring match on purpose —
+ *  a mistyped regex silently matches nothing (or everything). */
+const ambientRuleSchema = z
+  .object({
+    id: z.string().min(1),
+    /** Scope: chats this rule fires in (Lark chat ids). Empty = every chat
+     *  the bot already observes (admitted + unaddressed). */
+    chats: z.array(z.string().min(1)).default([]),
+    /** Scope: senders this rule fires for (open_id, same vocabulary as
+     *  allowed_senders). Empty = any admitted sender. */
+    senders: z.array(z.string().min(1)).default([]),
+    /** Case-insensitive substring the message text must contain. */
+    keyword: z.string().min(1),
+    mode: z.enum(["record", "act"]),
+    /** The task framing the agent gets. Required for `act` — an act rule
+     *  without an instruction fires a run that doesn't know its job. */
+    instruction: z.string().default(""),
+  })
+  .superRefine((rule, ctx) => {
+    if (rule.mode === "act" && rule.instruction.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["instruction"],
+        message: "an act rule requires an instruction",
+      });
+    }
+  });
 /** Upgrade a runtime_config written before the rename.
  *
  *  The rename changed the axes with no data migration, and boot lists agents
@@ -119,6 +148,10 @@ export const agentConfigSchema = z.object({
       /** Whether an `@everyone` counts as addressing the bot. Off by
        *  default: an @all is not a request to this agent. */
       respond_to_mention_all: z.boolean().default(false),
+      /** ADR 0046: ambient rules promote OBSERVED (unaddressed) group
+       *  messages into work. Evaluated by the backend at the observe seam
+       *  (conversation postMessage), never by the bot. */
+      ambient: z.object({ rules: z.array(ambientRuleSchema).default([]) }).default({ rules: [] }),
       /** Marks which semantics the stored allowlist was written under.
        *  Revision 1 meant "empty list = everyone"; revision 2 (current)
        *  means "empty list = nobody". The transform below upgrades rev-1
@@ -145,6 +178,9 @@ export const agentConfigSchema = z.object({
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
+/** ADR 0046: one ambient rule, parsed form (see `lark.ambient.rules`). */
+export type AmbientRule = AgentConfig["lark"]["ambient"]["rules"][number];
 
 /** Build the canonical config from the API input shape. Missing fields
  *  fall back to `prev` (update) or defaults (create). */
@@ -181,6 +217,16 @@ export function buildAgentConfig(input: {
     >;
     requireMention?: boolean;
     respondToMentionAll?: boolean;
+    /** ADR 0046 ambient rules (observe seam promotion). Replace-semantics,
+     *  like `groups`: the array given IS the new rule list. */
+    ambientRules?: Array<{
+      id: string;
+      chats?: string[];
+      senders?: string[];
+      keyword: string;
+      mode: "record" | "act";
+      instruction?: string;
+    }>;
   };
   prev?: AgentConfig;
 }): AgentConfig {
@@ -234,6 +280,19 @@ export function buildAgentConfig(input: {
       require_mention: input.lark?.requireMention ?? prev?.lark.require_mention ?? true,
       respond_to_mention_all:
         input.lark?.respondToMentionAll ?? prev?.lark.respond_to_mention_all ?? false,
+      ambient: {
+        rules:
+          input.lark?.ambientRules !== undefined
+            ? input.lark.ambientRules.map((r) => ({
+                id: r.id,
+                chats: r.chats ?? [],
+                senders: r.senders ?? [],
+                keyword: r.keyword,
+                mode: r.mode,
+                instruction: r.instruction ?? "",
+              }))
+            : (prev?.lark.ambient.rules ?? []),
+      },
       policy_rev: 2,
       // `||`, not `??: a seeded agent carries profile_ref "" and enabling
       // lark must derive `agent:<id>` — `??` treats "" as a real value and
@@ -293,6 +352,20 @@ export function serializeAgentYaml(config: AgentConfig): string {
       ...(g.policy ? [`      policy: ${q(g.policy)}`] : []),
       ...(g.allowed_senders
         ? ["      allowed_senders:", ...g.allowed_senders.map((s) => `        - ${q(s)}`)]
+        : []),
+    ]),
+    "  ambient:",
+    "    rules:",
+    ...lk.ambient.rules.flatMap((r) => [
+      `      - id: ${q(r.id)}`,
+      `        keyword: ${q(r.keyword)}`,
+      `        mode: ${q(r.mode)}`,
+      `        instruction: ${q(r.instruction)}`,
+      ...(r.chats.length > 0
+        ? ["        chats:", ...r.chats.map((c) => `          - ${q(c)}`)]
+        : []),
+      ...(r.senders.length > 0
+        ? ["        senders:", ...r.senders.map((s) => `          - ${q(s)}`)]
         : []),
     ]),
     "",

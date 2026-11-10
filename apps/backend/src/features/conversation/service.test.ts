@@ -763,3 +763,137 @@ describe("conversation compaction", () => {
     expect(transcript).toContain("src/a.ts");
   });
 });
+
+describe("ambient rules on the observe seam (ADR 0046)", () => {
+  type AmbientFn = NonNullable<Parameters<typeof createConversationService>[0]["evaluateAmbient"]>;
+
+  function makeAmbient(evaluateAmbient: AmbientFn) {
+    return createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async (runId) => {
+        dispatchCalls.push(runId);
+      },
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      evaluateAmbient,
+    });
+  }
+
+  const ACT_RULE = {
+    id: "deploy-alarm",
+    chats: [] as string[],
+    senders: [] as string[],
+    keyword: "deploy",
+    mode: "act" as const,
+    instruction: "去查部署问题",
+  };
+  const OBSERVE_INPUT = {
+    senderMemberId: "human:lark:ou_alice",
+    addressedTo: [] as string[],
+    source: { kind: "lark" as const, chatId: "oc_dev" },
+  };
+
+  test("an act match promotes the observation: framed ledger row + one run", async () => {
+    const id = "cid-amb-act";
+    setupConv(id);
+    nextAcquired = true;
+    activeRunId = null;
+    enqueueCalls.length = 0;
+    const local = makeAmbient(async () => ({ rule: ACT_RULE, outcome: "triggered" }));
+
+    const result = await local.postMessage({
+      conversationId: id,
+      ...OBSERVE_INPUT,
+      content: "deploy is broken",
+    });
+
+    // The message became a task: one triggered run on the ordinary path.
+    expect(result.triggeredRuns).toHaveLength(1);
+    expect(result.triggeredRuns[0]!.queued).toBe(false);
+    expect(enqueueCalls).toHaveLength(1);
+    // The ledger row is the FRAMED task and quotes the original verbatim —
+    // one row, not two (the observation was promoted, not duplicated).
+    const rows = messages(id);
+    expect(rows).toHaveLength(1);
+    const text = JSON.stringify(rows[0]!.content);
+    expect(text).toContain("deploy-alarm");
+    expect(text).toContain("去查部署问题");
+    expect(text).toContain("deploy is broken");
+  });
+
+  test("a record match keeps the observation: no run, raw text in the ledger", async () => {
+    const id = "cid-amb-rec";
+    setupConv(id);
+    enqueueCalls.length = 0;
+    const local = makeAmbient(async () => ({
+      rule: { ...ACT_RULE, mode: "record" as const, instruction: "" },
+      outcome: "recorded",
+    }));
+
+    const result = await local.postMessage({
+      conversationId: id,
+      ...OBSERVE_INPUT,
+      content: "deploy is broken",
+    });
+
+    expect(result.triggeredRuns).toEqual([]);
+    expect(enqueueCalls).toHaveLength(0);
+    expect(JSON.stringify(messages(id)[0]!.content)).toContain("deploy is broken");
+  });
+
+  test("no source, no evaluation: observe stays observe for web-style posts", async () => {
+    const id = "cid-amb-nosrc";
+    setupConv(id);
+    enqueueCalls.length = 0;
+    let called = 0;
+    const local = makeAmbient(async () => {
+      called++;
+      return null;
+    });
+
+    await local.postMessage({ conversationId: id, addressedTo: [], content: "no source" });
+    expect(called).toBe(0);
+    expect(enqueueCalls).toHaveLength(0);
+  });
+
+  test("an evaluator crash cannot take the human message down with it", async () => {
+    const id = "cid-amb-err";
+    setupConv(id);
+    enqueueCalls.length = 0;
+    const local = makeAmbient(async () => {
+      throw new Error("rule table corrupted");
+    });
+
+    const result = await local.postMessage({
+      conversationId: id,
+      ...OBSERVE_INPUT,
+      content: "deploy is broken",
+    });
+
+    // Failure degrades to plain observation: ledgered, unrouted, no throw.
+    expect(result.triggeredRuns).toEqual([]);
+    expect(messages(id)).toHaveLength(1);
+  });
+
+  test("the evaluator sees the sender label and the source chat", async () => {
+    const id = "cid-amb-args";
+    setupConv(id);
+    const seen: string[] = [];
+    const local = makeAmbient(async (input) => {
+      seen.push(input.agentId, input.senderMemberId, input.source.chatId, input.text);
+      return null;
+    });
+    await local.postMessage({
+      conversationId: id,
+      ...OBSERVE_INPUT,
+      content: "deploy is broken",
+    });
+    expect(seen).toEqual(["a-1", "human:lark:ou_alice", "oc_dev", "deploy is broken"]);
+  });
+});

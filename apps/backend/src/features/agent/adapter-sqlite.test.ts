@@ -331,3 +331,63 @@ describe("agentModelRef normalizes the stored reasoning effort", () => {
     expect(agentModelRef(row("XHIGH")).reasoningEffort).toBeUndefined();
   });
 });
+
+describe("ambient rules round-trip (ADR 0046)", () => {
+  test("build → yaml → parse keeps the rules; absent lark block defaults empty", () => {
+    const config = buildAgentConfig({
+      id: "a-amb",
+      name: "Amb",
+      harness: "oma",
+      lark: {
+        enabled: true,
+        ambientRules: [
+          {
+            id: "deploy-alarm",
+            chats: ["oc_dev"],
+            senders: ["ou_alice"],
+            keyword: "deploy",
+            mode: "act",
+            instruction: "去查部署问题",
+          },
+          { id: "watch-only", keyword: "Alert", mode: "record" },
+        ],
+      },
+    });
+    expect(config.lark.ambient.rules).toHaveLength(2);
+    expect(config.lark.ambient.rules[0]).toMatchObject({
+      chats: ["oc_dev"],
+      senders: ["ou_alice"],
+      mode: "act",
+    });
+
+    // agent.yml is the single source: the serializer dropping the section
+    // would silently delete the operator's rules on the next write.
+    const yaml = serializeAgentYaml(config);
+    expect(yaml).toContain("ambient:");
+    expect(yaml).toContain('id: "deploy-alarm"');
+    expect(yaml).toContain("oc_dev");
+    expect(yaml).toContain("去查部署问题");
+    const reparsed = agentConfigSchema.parse(JSON.parse(JSON.stringify(config)));
+    expect(reparsed.lark.ambient.rules).toHaveLength(2);
+
+    // An update that does not mention rules keeps the previous list.
+    const updated = buildAgentConfig({ id: "a-amb", name: "Amb", prev: config });
+    expect(updated.lark.ambient.rules).toHaveLength(2);
+  });
+
+  test("an act rule without an instruction is rejected at config time", () => {
+    // Firing a run that doesn't know its job is the failure this prevents:
+    // the agent gets a promotion framing with no instruction to follow.
+    expect(() =>
+      agentConfigSchema.parse({
+        ...cfg("a-bad", "Bad"),
+        lark: {
+          ...cfg("a-bad", "Bad").lark,
+          ambient: {
+            rules: [{ id: "r1", keyword: "x", mode: "act", instruction: "" }],
+          },
+        },
+      }),
+    ).toThrow();
+  });
+});

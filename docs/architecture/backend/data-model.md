@@ -16,8 +16,8 @@ tags: [backend, data]
 
 ## 实现文件
 
-- `apps/backend/src/infra/db/schema.ts` — 唯一真相源，25 张 `sqliteTable`
-- `apps/backend/drizzle/backend/*.sql` 与 `meta/_journal.json` — 迁移，`0000` 到 `0056`
+- `apps/backend/src/infra/db/schema.ts` — 唯一真相源，26 张 `sqliteTable`
+- `apps/backend/drizzle/backend/*.sql` 与 `meta/_journal.json` — 迁移，`0000` 到 `0058`
 - `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 取 Run 的那个大事务
 - `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 终态提交、失败提交、下一 Run 的晋升
 - `apps/backend/src/features/{conversation,agent-context,product-tools}/adapter-sqlite.ts`
@@ -38,6 +38,7 @@ lark-bot 有自己独立的库与 schema（九张表），与 `backend.db` 无�
 | `project` | 仓库级协作实体 |
 | `skill_pack` / `agent_skill_pack` / `knowledge_pack` | 技能包与知识库及其绑定 |
 | `settings` | 单行 KV，provider 配置也在这里 |
+| `proactive_event` | 环境规则命中台账（ADR 0046）：一次命中一行，record 是"本可以做什么"，act 是升格的审计；无 conversation 外键，审计事实比会话活得久 |
 
 **执行控制面**
 

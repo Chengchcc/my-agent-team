@@ -592,6 +592,11 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         // so a busy branch queues it and it becomes its own run later — which
         // is what gives every message its own card.
         mode: "normal",
+        // ADR 0046: chat provenance for the backend's ambient rules. Unlike
+        // the old envelope fields this is a real wire field the reader
+        // knows; observe messages (addressedTo: []) are the only ones the
+        // backend evaluates rules against.
+        source: { kind: "lark" as const, chatId: event.chat_id },
       });
 
     if (msgError) {

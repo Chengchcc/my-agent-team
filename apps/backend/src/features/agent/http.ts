@@ -27,6 +27,16 @@ import { AgentBusyError, AgentNotFoundError } from "./service.js";
 /** Bare memory fact filename: no separators, no traversal (memory write API). */
 const FACT_FILE_RE = /^[A-Za-z0-9._-]+\.md$/;
 
+/** ADR 0046: the ambient-rule wire shape (create/update bodies). */
+const AmbientRuleBody = t.Object({
+  id: t.String({ minLength: 1 }),
+  chats: t.Optional(t.Array(t.String({ minLength: 1 }))),
+  senders: t.Optional(t.Array(t.String({ minLength: 1 }))),
+  keyword: t.String({ minLength: 1 }),
+  mode: t.Union([t.Literal("record"), t.Literal("act")]),
+  instruction: t.Optional(t.String()),
+});
+
 // ── Response types (inferred by Elysia from handler return values) ──
 
 function toAgentResponse(row: AgentRow, status: string) {
@@ -67,6 +77,14 @@ function toAgentResponse(row: AgentRow, status: string) {
       })),
       requireMention: lk.require_mention,
       respondToMentionAll: lk.respond_to_mention_all,
+      ambientRules: lk.ambient.rules.map((r) => ({
+        id: r.id,
+        chats: r.chats,
+        senders: r.senders,
+        keyword: r.keyword,
+        mode: r.mode,
+        instruction: r.instruction,
+      })),
       status,
     },
   };
@@ -207,6 +225,7 @@ export function agentRoutes(
               ),
               requireMention: t.Optional(t.Boolean()),
               respondToMentionAll: t.Optional(t.Boolean()),
+              ambientRules: t.Optional(t.Array(AmbientRuleBody)),
             }),
           ),
         }),
@@ -317,6 +336,7 @@ export function agentRoutes(
               ),
               requireMention: t.Optional(t.Boolean()),
               respondToMentionAll: t.Optional(t.Boolean()),
+              ambientRules: t.Optional(t.Array(AmbientRuleBody)),
             }),
           ),
         }),

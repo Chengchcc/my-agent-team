@@ -13,6 +13,8 @@ import type { LedgerMessageEntry, ProductSummaryEntry } from "../agent-context/d
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
+import type { AmbientDecision, AmbientSource } from "../proactive/domain.js";
+import { frameAmbientInput } from "../proactive/domain.js";
 import type { ConversationPort, LedgerKind } from "./ports.js";
 import { resolveTrigger } from "./routing.js";
 import { renderMessageForSummary } from "./summarize.js";
@@ -74,6 +76,16 @@ export interface ConversationServiceDeps {
   /** Resolves a ledger message for compaction — the projection's own resolver,
    *  so there is exactly one decode path. Required for compaction to work. */
   resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
+  /** ADR 0046: ambient-rule evaluation for OBSERVED (naturally unrouted)
+   *  messages. Called only when member routing produced no target and the
+   *  input carries a source. Absent = observe stays observe. */
+  evaluateAmbient?: (input: {
+    agentId: string;
+    conversationId: string;
+    senderMemberId: string;
+    source: AmbientSource;
+    text: string;
+  }) => Promise<AmbientDecision | null>;
 
   idGen: () => string;
 }
@@ -118,6 +130,10 @@ export interface ConversationService {
     mode?: BranchInputMode;
     /** Per-input model override (same-kind guard applies). */
     modelOverride?: BackendModelRef;
+    /** ADR 0046: where this input came from. Carried by surfaces that can
+     *  observe unaddressed messages (today: lark-bot) so ambient rules can
+     *  scope by chat. Absent = the default trigger semantics are final. */
+    source?: AmbientSource;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
   startNewConversationForSurface(input: {
     oldConversationId: string;
@@ -196,6 +212,7 @@ class ConversationServiceImpl implements ConversationService {
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
   #summarize?: (input: { texts: readonly string[] }) => Promise<string>;
   #resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
+  #evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
 
   #idGen: () => string;
 
@@ -214,6 +231,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#resolveDefaultModel = deps.resolveDefaultModel;
     this.#summarize = deps.summarize;
     this.#resolveLedgerMessage = deps.resolveLedgerMessage;
+    this.#evaluateAmbient = deps.evaluateAmbient;
     this.#idGen = deps.idGen;
   }
 
@@ -337,6 +355,7 @@ class ConversationServiceImpl implements ConversationService {
      *  form into `content` — the agent reads text, the UI reads anchor. */
     anchor?: { url: string; anchor: unknown };
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
+    source?: AmbientSource;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
@@ -348,16 +367,52 @@ class ConversationServiceImpl implements ConversationService {
     // a room = only @mentioned members run; nobody = ledger-only.
     const members =
       this.port.listMembers?.(input.conversationId) ?? (agentId !== null ? [agentId] : []);
-    const targets = resolveTrigger({ members, addressedTo: input.addressedTo });
+    let targets = resolveTrigger({ members, addressedTo: input.addressedTo });
+    // ── ADR 0046: the observe seam ──
+    // Routing produced NO target (an admitted but unaddressed group message
+    // posts as ledger-only context). A rule the operator wrote may promote
+    // it: evaluate, and on an act match re-frame the content as the rule's
+    // task and treat the message as addressed. Everything downstream
+    // (enqueue, run, cards, approvals) is the ordinary addressed path.
+    // Scope ceilings: single-member conversations only, plain-text content
+    // only — rooms keep their explicit-mention semantics, and there is no
+    // substring to match on attachments. Any failure = no promotion.
+    let effectiveContent = input.content;
+    if (
+      targets.length === 0 &&
+      input.source !== undefined &&
+      this.#evaluateAmbient !== undefined &&
+      members.length === 1 &&
+      typeof input.content === "string"
+    ) {
+      const member = members[0]!;
+      const decision = await this.#evaluateAmbient({
+        agentId: member,
+        conversationId: input.conversationId,
+        senderMemberId,
+        source: input.source,
+        text: input.content,
+      }).catch((err: unknown) => {
+        console.error(
+          "[conversation] ambient evaluation failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+        return null;
+      });
+      if (decision?.outcome === "triggered" && decision.rule.mode === "act") {
+        effectiveContent = frameAmbientInput(decision.rule, input.content);
+        targets = [member];
+      }
+    }
 
     // ── The human message becomes canonical History FIRST ──
     const userRev = {
       messageId: humanMessageId(input.conversationId, senderMemberId),
       role: "user" as const,
       state: "done" as const,
-      text: typeof input.content === "string" ? input.content : undefined,
-      blocks: Array.isArray(input.content)
-        ? (ContentBlockSchema.array().parse(input.content) as never)
+      text: typeof effectiveContent === "string" ? effectiveContent : undefined,
+      blocks: Array.isArray(effectiveContent)
+        ? (ContentBlockSchema.array().parse(effectiveContent) as never)
         : undefined,
       conversationId: input.conversationId,
       visibility: "conversation" as const,

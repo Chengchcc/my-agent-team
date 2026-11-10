@@ -635,3 +635,24 @@ export const reminder = sqliteTable(
     index("idx_reminder_conversation").on(table.conversationId, table.createdAt),
   ],
 );
+
+/** ADR 0046: ambient-rule evaluation ledger. One row per rule MATCH (not
+  per observed message): record mode = "what the agent would have done",
+  act mode = the audit trail of the promotion. Append-only; no FK to
+  conversation on purpose — audit facts outlive the conversation. */
+export const proactiveEvent = sqliteTable(
+  "proactive_event",
+  {
+    id: text().primaryKey(),
+    ts: integer({ mode: "number" }).notNull(),
+    agentId: text("agent_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    ruleId: text("rule_id").notNull(),
+    mode: text().notNull(), // record | act
+    outcome: text().notNull(), // recorded | triggered
+    chatId: text("chat_id"),
+    senderMemberId: text("sender_member_id"),
+    snippet: text().notNull(),
+  },
+  (table) => [index("idx_proactive_event_agent").on(table.agentId, table.ts)],
+);

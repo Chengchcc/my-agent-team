@@ -7,7 +7,7 @@ import type { AgentContextService } from "../agent-context/service.js";
 
 import type { AgentRunService } from "../agent-run/service.js";
 import type { ConversationPort } from "./ports.js";
-import { createConversationService } from "./service.js";
+import { type ConversationServiceDeps, createConversationService } from "./service.js";
 
 export interface ConversationFeature {
   convPort: ConversationPort;
@@ -57,6 +57,9 @@ export function createConversationFeature(input: {
   /** Resolves a ledger message for compaction — the same resolver the context
    *  projection uses, so there is exactly one decode path. */
   resolveLedgerMessage?: LedgerMessageResolver["resolveMessage"];
+  /** ADR 0046: ambient-rule evaluator for the observe seam. Absent =
+   *  observed messages stay ledger-only. */
+  evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
 }): ConversationFeature {
   const {
     convPort,
@@ -74,6 +77,7 @@ export function createConversationFeature(input: {
     answerPendingTextAsk,
     summarize,
     resolveLedgerMessage,
+    evaluateAmbient,
   } = input;
 
   const convSvc = createConversationService({
@@ -90,6 +94,7 @@ export function createConversationFeature(input: {
     answerPendingTextAsk,
     summarize,
     resolveLedgerMessage,
+    evaluateAmbient,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));
