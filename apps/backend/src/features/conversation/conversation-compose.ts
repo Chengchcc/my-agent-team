@@ -60,6 +60,9 @@ export function createConversationFeature(input: {
   /** ADR 0046: ambient-rule evaluator for the observe seam. Absent =
    *  observed messages stay ledger-only. */
   evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
+  /** ADR 0047: validated member-join for ambient rule targets. Absent =
+   *  rules can only promote within the existing roster. */
+  addConversationMember?: ConversationServiceDeps["addConversationMember"];
 }): ConversationFeature {
   const {
     convPort,
@@ -78,6 +81,7 @@ export function createConversationFeature(input: {
     summarize,
     resolveLedgerMessage,
     evaluateAmbient,
+    addConversationMember,
   } = input;
 
   const convSvc = createConversationService({
@@ -95,6 +99,7 @@ export function createConversationFeature(input: {
     summarize,
     resolveLedgerMessage,
     evaluateAmbient,
+    addConversationMember,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));

@@ -62,6 +62,17 @@ const IDENTITY_SCHEMA = {
   },
 };
 
+/** ADR 0047: the ledger message a dispatch lands as. The instruction is
+ *  the requester's words by contract; the note is routing background. */
+export function frameDispatchInput(
+  fromAgentId: string,
+  instruction: string,
+  note?: string,
+): string {
+  const lines = [`（由 ${fromAgentId} 派发的任务）`, instruction];
+  if (note) lines.push("", `派单附注：${note}`);
+  return lines.join("\n");
+}
 export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "history_recent",
@@ -135,6 +146,21 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         identity: IDENTITY_SCHEMA,
       },
       required: ["items"],
+    },
+  },
+  {
+    name: "dispatch",
+    description:
+      "Hand a task to another agent member of this conversation. The target joins the room if needed; your dispatch lands in the shared ledger and its run reports back here. instruction must carry the requester's ORIGINAL words, never a paraphrase or an implementation plan; note (max ~30 words) is routing background only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Target agent id" },
+        instruction: { type: "string", description: "The task, in the requester's words" },
+        note: { type: "string", description: "Optional routing background, at most ~30 words" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["agent", "instruction"],
     },
   },
   {

@@ -137,6 +137,7 @@ export function createRunMethods(
             skillRoots: snapshot.skillRoots ? JSON.stringify(snapshot.skillRoots) : null,
             permissionMode: snapshot.permissionMode ?? null,
             workflowBudgetTokens: snapshot.workflowBudgetTokens ?? null,
+            authorization: snapshot.authorization ?? null,
             createdAt: now,
           })
           .run();

@@ -33,6 +33,7 @@ const AmbientRuleBody = t.Object({
   chats: t.Optional(t.Array(t.String({ minLength: 1 }))),
   senders: t.Optional(t.Array(t.String({ minLength: 1 }))),
   keyword: t.String({ minLength: 1 }),
+  agent: t.Optional(t.String({ minLength: 1 })),
   mode: t.Union([t.Literal("record"), t.Literal("act")]),
   instruction: t.Optional(t.String()),
 });
@@ -82,6 +83,7 @@ function toAgentResponse(row: AgentRow, status: string) {
         chats: r.chats,
         senders: r.senders,
         keyword: r.keyword,
+        agent: r.agent ?? null,
         mode: r.mode,
         instruction: r.instruction,
       })),

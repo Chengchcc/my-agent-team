@@ -32,6 +32,7 @@ const enqueueCalls: Array<{
   defaultModel: unknown;
   idempotencyKey: string;
   message: { text?: string };
+  authorization?: string;
 }> = [];
 const dispatchCalls: string[] = [];
 let nextAcquired = true;
@@ -62,6 +63,7 @@ function makeRunService(): AgentRunService {
         idempotencyKey: input.idempotencyKey,
         defaultModel: input.defaultModel,
         message: input.message as { text?: string },
+        authorization: input.authorization,
       });
       const runId = `run-${runIdCounter++}`;
       const inputId = `in-${runId}`;
@@ -895,5 +897,107 @@ describe("ambient rules on the observe seam (ADR 0046)", () => {
       content: "deploy is broken",
     });
     expect(seen).toEqual(["a-1", "human:lark:ou_alice", "oc_dev", "deploy is broken"]);
+  });
+
+  test("ADR 0047: a rule naming another agent promotes to IT, joining the room", async () => {
+    const id = "cid-amb-target";
+    setupConv(id);
+    nextAcquired = true;
+    activeRunId = null;
+    enqueueCalls.length = 0;
+    const memberAdds: Array<{ cid: string; agent: string }> = [];
+    const local = createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async (runId) => {
+        dispatchCalls.push(runId);
+      },
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      evaluateAmbient: async () => ({
+        rule: { ...ACT_RULE, agent: "a-2" },
+        outcome: "triggered",
+      }),
+      addConversationMember: async (cid, agentId) => {
+        memberAdds.push({ cid, agent: agentId });
+      },
+    });
+
+    const result = await local.postMessage({
+      conversationId: id,
+      ...OBSERVE_INPUT,
+      content: "deploy is broken",
+    });
+
+    // The promotion routed to the rule's target, not the conversation's own
+    // agent, and the target was made a member first.
+    expect(memberAdds).toEqual([{ cid: id, agent: "a-2" }]);
+    expect(result.triggeredRuns).toHaveLength(1);
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-2");
+    // The cheap Mandate: the run carries WHY it may run.
+    expect(enqueueCalls[0]!.authorization).toBe("ambient:deploy-alarm");
+  });
+
+  test("ADR 0047: a target that cannot join cancels the promotion", async () => {
+    const id = "cid-amb-join-fail";
+    setupConv(id);
+    enqueueCalls.length = 0;
+    const local = createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async () => {},
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      evaluateAmbient: async () => ({
+        rule: { ...ACT_RULE, agent: "ghost" },
+        outcome: "triggered",
+      }),
+      addConversationMember: async () => {
+        throw new Error("unknown agent ghost");
+      },
+    });
+
+    const result = await local.postMessage({
+      conversationId: id,
+      ...OBSERVE_INPUT,
+      content: "deploy is broken",
+    });
+
+    // 宁可不动作: the observation stays ledger-only, no run, no throw.
+    expect(result.triggeredRuns).toEqual([]);
+    expect(enqueueCalls).toHaveLength(0);
+    expect(messages(id)).toHaveLength(1);
+  });
+
+  test("authorization basis: user by default, overridden by the caller", async () => {
+    const id = "cid-auth-basis";
+    setupConv(id);
+    nextAcquired = true;
+    activeRunId = null;
+    enqueueCalls.length = 0;
+
+    await svc.postMessage({ conversationId: id, content: "human words" });
+    expect(enqueueCalls[0]!.authorization).toBe("user");
+
+    enqueueCalls.length = 0;
+    await svc.postMessage({
+      conversationId: id,
+      content: "worker, go",
+      senderMemberId: "a-1",
+      addressedTo: ["a-1"],
+      authorization: "dispatch:a-1",
+    });
+    expect(enqueueCalls[0]!.authorization).toBe("dispatch:a-1");
   });
 });

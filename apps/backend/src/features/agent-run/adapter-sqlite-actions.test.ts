@@ -395,6 +395,47 @@ describe("Agent Run: Phase 5 config snapshot", () => {
     expect(second!.skillRoots).toEqual(["/skills/loop"]);
   });
 
+  test("ADR 0047: the authorization basis freezes on the run and survives promotion", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("authz1");
+    const first = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "lead dispatches" },
+      inputIdempotencyKey: "ikey-authz1-1",
+      runIdempotencyKey: "rkey-authz1-1",
+      deliveryIdempotencyKey: "dkey-authz1-1",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      authorization: "dispatch:lead-1",
+    });
+    expect(first.acquired).toBe(true);
+    expect(first.run!.authorization).toBe("dispatch:lead-1");
+
+    // The queued dispatch keeps its basis in the queue snapshot; the
+    // promoted run answers "on whose authority" with the SAME value.
+    await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "follow_up",
+      message: { role: "user", text: "worker follows up" },
+      inputIdempotencyKey: "ikey-authz1-2",
+      runIdempotencyKey: "rkey-authz1-2",
+      deliveryIdempotencyKey: "dkey-authz1-2",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision + 1,
+      authorization: "ambient:deploy-alarm",
+    });
+    await runPort.finalizeRun(first.run!.runId, { status: "completed" });
+    const promoted = await runPort.acquireNextRun(branch.branchId);
+    expect(promoted).not.toBeNull();
+    expect(promoted!.authorization).toBe("ambient:deploy-alarm");
+  });
+
   test("listIdleBranchesWithPendingInputs returns FIFO branches whose pending input never became a Run", async () => {
     const a = await setupBranch("idle-a");
     const b = await setupBranch("idle-b");

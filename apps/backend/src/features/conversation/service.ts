@@ -86,6 +86,9 @@ export interface ConversationServiceDeps {
     source: AmbientSource;
     text: string;
   }) => Promise<AmbientDecision | null>;
+  /** ADR 0047: ensure an agent is a conversation member (validated, throws
+   *  on unknown agent). Ambient rules name promotion targets this way. */
+  addConversationMember?: (conversationId: string, agentId: string) => Promise<void>;
 
   idGen: () => string;
 }
@@ -134,6 +137,9 @@ export interface ConversationService {
      *  observe unaddressed messages (today: lark-bot) so ambient rules can
      *  scope by chat. Absent = the default trigger semantics are final. */
     source?: AmbientSource;
+    /** ADR 0047: server-side authorization override for the runs this
+     *  message triggers; the HTTP surface does not accept it. */
+    authorization?: string;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
   startNewConversationForSurface(input: {
     oldConversationId: string;
@@ -213,6 +219,7 @@ class ConversationServiceImpl implements ConversationService {
   #summarize?: (input: { texts: readonly string[] }) => Promise<string>;
   #resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
   #evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
+  #addConversationMember?: ConversationServiceDeps["addConversationMember"];
 
   #idGen: () => string;
 
@@ -232,6 +239,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#summarize = deps.summarize;
     this.#resolveLedgerMessage = deps.resolveLedgerMessage;
     this.#evaluateAmbient = deps.evaluateAmbient;
+    this.#addConversationMember = deps.addConversationMember;
     this.#idGen = deps.idGen;
   }
 
@@ -272,6 +280,8 @@ class ConversationServiceImpl implements ConversationService {
      *  the agent's default kind (foreign-kind refs would break the branch). */
     modelOverride?: BackendModelRef;
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
+    /** ADR 0047: authorization basis frozen onto the run. */
+    authorization?: string;
   }): Promise<TriggeredRun> {
     const resolved = await this.#resolveDefaultModel(input.agentId);
     const defaultModel =
@@ -319,6 +329,7 @@ class ConversationServiceImpl implements ConversationService {
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       configRevision: 1,
       idempotencyKey: input.idempotencyKey,
+      authorization: input.authorization,
     });
     debugLog(
       "conversation",
@@ -356,6 +367,11 @@ class ConversationServiceImpl implements ConversationService {
     anchor?: { url: string; anchor: unknown };
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
     source?: AmbientSource;
+    /** ADR 0047: authorization basis for the runs this message triggers
+     *  ("user" by default). Server-side callers override it (`dispatch:` for
+     *  the product tool, "system" for workflow/reminder) — the HTTP surface
+     *  does not accept it, external text cannot authorize itself. */
+    authorization?: string;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
@@ -378,6 +394,7 @@ class ConversationServiceImpl implements ConversationService {
     // only — rooms keep their explicit-mention semantics, and there is no
     // substring to match on attachments. Any failure = no promotion.
     let effectiveContent = input.content;
+    let authorization = input.authorization ?? "user";
     if (
       targets.length === 0 &&
       input.source !== undefined &&
@@ -400,8 +417,32 @@ class ConversationServiceImpl implements ConversationService {
         return null;
       });
       if (decision?.outcome === "triggered" && decision.rule.mode === "act") {
-        effectiveContent = frameAmbientInput(decision.rule, input.content);
-        targets = [member];
+        // ADR 0047: the rule may hand the promotion to another agent; routing
+        // is member-based, so a non-member target must join the room first.
+        // A failed join cancels the promotion — the observation stays
+        // ledger-only rather than routing to nobody.
+        const wanted = decision.rule.agent ?? member;
+        let promotable = wanted === member || members.includes(wanted);
+        if (!promotable && this.#addConversationMember !== undefined) {
+          promotable = await this.#addConversationMember(input.conversationId, wanted)
+            .then(() => true)
+            .catch((err: unknown) => {
+              console.error(
+                `[conversation] ambient target ${wanted} could not join; promotion cancelled:`,
+                err instanceof Error ? err.message : String(err),
+              );
+              return false;
+            });
+        } else if (!promotable) {
+          console.error(
+            `[conversation] ambient rule targets non-member ${wanted} with no join path; staying an observation`,
+          );
+        }
+        if (promotable) {
+          effectiveContent = frameAmbientInput(decision.rule, input.content);
+          authorization = `ambient:${decision.rule.id}`;
+          targets = [wanted];
+        }
       }
     }
 
@@ -447,6 +488,7 @@ class ConversationServiceImpl implements ConversationService {
             idempotencyKey: `${input.conversationId}:${seq}:${agentId}`,
             mode: input.mode,
             modelOverride: input.modelOverride,
+            authorization,
           }),
         );
       } catch (err) {

@@ -406,6 +406,10 @@ export const agentRun = sqliteTable(
     /** JSON: oma workflow-mode input ({ script, args? }); the child executes
      *  the script directly instead of an interactive loop. Loop items only. */
     workflow: text("workflow"),
+    /** ADR 0047: why this run may run — `user`, `ambient:<ruleId>`,
+     *  `dispatch:<fromAgentId>`, `system`. Frozen at acquire time (the cheap
+     *  Mandate: every run can answer "on whose authority"). */
+    authorization: text("authorization"),
     /** The native (ACP) session THIS run actually executed in, written the
      *  moment session/new or session/load succeeds — not at terminal commit.
      *  A run that dies parked (HITL) or mid-crash still knows its own
@@ -474,6 +478,10 @@ export const branchInputQueue = sqliteTable(
     /** Optional workflow budget (tokens), frozen at enqueue; the child
      *  gates workflow subagent spawns on it. */
     workflowBudgetTokens: integer("workflow_budget_tokens"),
+    /** ADR 0047 authorization basis, frozen with the rest of the request
+     *  snapshot: a QUEUED dispatch/ambient input must promote with its
+     *  authority intact, not lose it at the run boundary. */
+    authorization: text("authorization"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     deliveredAt: integer("delivered_at", { mode: "number" }),
   },

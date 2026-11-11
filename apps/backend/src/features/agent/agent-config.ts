@@ -33,6 +33,9 @@ const ambientRuleSchema = z
     senders: z.array(z.string().min(1)).default([]),
     /** Case-insensitive substring the message text must contain. */
     keyword: z.string().min(1),
+    /** ADR 0047: route the promotion to this agent (membership is ensured)
+     *  instead of the conversation's own. Absent = the conversation's agent. */
+    agent: z.string().min(1).optional(),
     mode: z.enum(["record", "act"]),
     /** The task framing the agent gets. Required for `act` — an act rule
      *  without an instruction fires a run that doesn't know its job. */
@@ -224,6 +227,7 @@ export function buildAgentConfig(input: {
       chats?: string[];
       senders?: string[];
       keyword: string;
+      agent?: string;
       mode: "record" | "act";
       instruction?: string;
     }>;
@@ -288,6 +292,7 @@ export function buildAgentConfig(input: {
                 chats: r.chats ?? [],
                 senders: r.senders ?? [],
                 keyword: r.keyword,
+                agent: r.agent,
                 mode: r.mode,
                 instruction: r.instruction ?? "",
               }))
@@ -359,6 +364,7 @@ export function serializeAgentYaml(config: AgentConfig): string {
     ...lk.ambient.rules.flatMap((r) => [
       `      - id: ${q(r.id)}`,
       `        keyword: ${q(r.keyword)}`,
+      ...(r.agent !== undefined ? [`        agent: ${q(r.agent)}`] : []),
       `        mode: ${q(r.mode)}`,
       `        instruction: ${q(r.instruction)}`,
       ...(r.chats.length > 0

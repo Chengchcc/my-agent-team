@@ -35,7 +35,7 @@
 
 ## 主动与环境规则
 
-**第一刀已落（ADR 0046，2026-11-10）**：lark observe 缝上的环境规则（record/act、`proactive_event` 台账、`GET /api/proactive/events`、配置在 `lark.ambient.rules`）已实现并带变异验证。剩下的：
+**第一刀已落（ADR 0046，2026-11-10）**：lark observe 缝上的环境规则（record/act、`proactive_event` 台账、`GET /api/proactive/events`、配置在 `lark.ambient.rules`）已实现并带变异验证。第二刀（ADR 0047，2026-11-11）：房间内派单——`dispatch` 产品工具、Run 授权依据入快照（`user/ambient:/dispatch:/system`，迁移 0059，排队晋升保真）、环境规则可指派目标 agent。仍开的：
 
 - **Web 面板**：环境规则的编辑 UI（现在只能走 `PATCH /api/agents`）与事件流页面（API 已有）。
 - **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
