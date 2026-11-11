@@ -28,6 +28,7 @@ const TOOL_MANIFEST = [
   { name: "history_around", description: "a", inputSchema: {}, entrypoint: "sse:x" },
   { name: "history_retain", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "todo_write", description: "w", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "dispatch", description: "d", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
 ];
 
@@ -40,6 +41,14 @@ let emittedAsks: Array<{ runId: string; callId: string; questions: unknown[] }> 
 let emittedTodos: Array<{ runId: string; items: readonly unknown[] }> = [];
 /** Every ask answer the service announced as landed. */
 let answeredAsks: Array<{ runId: string; callId: string }> = [];
+/** Every dispatch dep call (ADR 0047), captured for assertions. */
+let dispatchCalls: Array<{
+  fromAgentId: string;
+  conversationId: string;
+  toAgentId: string;
+  instruction: string;
+  note?: string;
+}> = [];
 
 async function createRun(messageText: string): Promise<string> {
   const acq = await backend.enqueueAndAcquire({
@@ -114,10 +123,20 @@ beforeEach(async () => {
     emitTodo: (input) => emittedTodos.push({ runId: input.runId, items: input.items }),
     onAskAnswered: (input) => answeredAsks.push(input),
     askTimeoutMs: 2000,
+    dispatch: (input) => {
+      dispatchCalls.push(input);
+      return Promise.resolve({
+        agentId: input.toAgentId,
+        runId: `run-disp-${dispatchCalls.length}`,
+        inputId: `in-disp-${dispatchCalls.length}`,
+        queued: false,
+      });
+    },
   });
   emittedAsks = [];
   emittedTodos = [];
   answeredAsks = [];
+  dispatchCalls = [];
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
   const branch = await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
@@ -805,5 +824,114 @@ describe("durable ask: the card is shown only after its action row exists", () =
       answers: [{ id: "q1", selectedValues: ["a"] }],
     });
     await retry;
+  });
+});
+
+describe("dispatch (ADR 0047 room dispatch)", () => {
+  test("a dispatch reaches the dep with the run's identity and returns its result", async () => {
+    const runId = await createRun("route this");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "disp-1",
+      idempotencyKey: `${runId}:disp-1`,
+      tool: "dispatch",
+      args: {
+        agent: "worker-1",
+        instruction: "修线上登录报错（用户原话：点登录转圈没反应）",
+        note: "来自值班群",
+      },
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(dispatchCalls).toHaveLength(1);
+    expect(dispatchCalls[0]).toMatchObject({
+      fromAgentId: AGENT,
+      conversationId: CONV,
+      toAgentId: "worker-1",
+    });
+    expect(dispatchCalls[0]!.instruction).toContain("点登录转圈没反应");
+    const payload = JSON.parse(result.content) as { runId: string; queued: boolean };
+    expect(payload.runId).toBe("run-disp-1");
+    expect(payload.queued).toBe(false);
+  });
+
+  test("a retried call replays the stored result instead of dispatching twice", async () => {
+    const runId = await createRun("route this again");
+    const args = { agent: "worker-1", instruction: "同一件事" };
+    const first = await service.call({
+      identity: identity(runId),
+      callId: "disp-2",
+      idempotencyKey: `${runId}:disp-2`,
+      tool: "dispatch",
+      args,
+    });
+    const second = await service.call({
+      identity: identity(runId),
+      callId: "disp-2",
+      idempotencyKey: `${runId}:disp-2`,
+      tool: "dispatch",
+      args,
+    });
+
+    expect(dispatchCalls).toHaveLength(1);
+    expect(second.content).toBe(first.content);
+
+    // Same callId with a DIFFERENT input is a conflict, not a re-dispatch.
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "disp-2",
+        idempotencyKey: `${runId}:disp-2`,
+        tool: "dispatch",
+        args: { agent: "worker-2", instruction: "别的事" },
+      }),
+    ).rejects.toThrow(/reused with a different tool\/input/);
+  });
+
+  test("agent and instruction are required; note is optional", async () => {
+    const runId = await createRun("validate me");
+    const call = (args: Record<string, unknown>, callId: string) =>
+      service.call({
+        identity: identity(runId),
+        callId,
+        idempotencyKey: `${runId}:${callId}`,
+        tool: "dispatch",
+        args,
+      });
+
+    await expect(call({ instruction: "no target" }, "disp-e1")).rejects.toThrow(/requires agent/);
+    await expect(call({ agent: "worker-1" }, "disp-e2")).rejects.toThrow(/requires instruction/);
+    // note omitted: the dep still fires, with no note field.
+    await call({ agent: "worker-1", instruction: "plain" }, "disp-e3");
+    expect(dispatchCalls.at(-1)!.note).toBeUndefined();
+  });
+
+  test("a dispatch dep failure surfaces as a rejected call, not a silent one", async () => {
+    const runId = await createRun("unknown worker");
+    // The bootstrap dep throws when the target agent does not exist
+    // (member add validates); the tool must let that rejection through.
+    const original = dispatchCalls;
+    dispatchCalls = original; // keep capture; simulate via a one-off service
+    const failing = createProductToolsService({
+      runPort,
+      contextPort,
+      conversationPort: convPort,
+      callPort: sqliteProductToolCallAdapter(db),
+      idGen: { ulid: () => `z-${Math.random().toString(36).slice(2, 8)}` },
+      artifactService: {
+        upload: async () => ({ url: "artifacts://a/b.txt" }),
+        download: async () => ({ content: "x", encoding: "utf8" }),
+      } as never,
+      dispatch: () => Promise.reject(new Error("unknown agent ghost-worker")),
+    });
+    await expect(
+      failing.call({
+        identity: identity(runId),
+        callId: "disp-4",
+        idempotencyKey: `${runId}:disp-4`,
+        tool: "dispatch",
+        args: { agent: "ghost-worker", instruction: "去做" },
+      }),
+    ).rejects.toThrow(/unknown agent ghost-worker/);
   });
 });

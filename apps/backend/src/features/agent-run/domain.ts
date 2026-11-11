@@ -79,6 +79,9 @@ export interface AgentRun {
   /** Oma workflow-mode input ({ script, args? }); Loop items execute a
    *  script directly instead of an interactive loop. */
   readonly workflow: { readonly script: string; readonly args?: unknown } | null;
+  /** ADR 0047: why this run may run — `user`, `ambient:<ruleId>`,
+   *  `dispatch:<fromAgentId>`, `system`. Null on rows predating the column. */
+  readonly authorization: string | null;
   readonly createdAt: number;
   readonly terminalAt: number | null;
 }
@@ -119,6 +122,9 @@ export interface BranchInput {
      *  always carries it. */
     readonly toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] } | null;
     readonly workflowBudgetTokens: number | null;
+    /** ADR 0047: rides the queue snapshot so a promoted run keeps its
+     *  authorization basis. Optional: rows predating the column. */
+    readonly authorization?: string | null;
   };
   readonly createdAt: number;
   readonly deliveredAt: number | null;
@@ -170,6 +176,8 @@ export interface AcquireAgentRunCommand {
   readonly workflowBudgetTokens?: number;
   /** Oma workflow-mode input: execute this script instead of a loop. */
   readonly workflow?: { readonly script: string; readonly args?: unknown };
+  /** ADR 0047 authorization basis, frozen onto the run and the queue row. */
+  readonly authorization?: string;
 }
 export interface AcquireAgentRunResult {
   readonly acquired: boolean;

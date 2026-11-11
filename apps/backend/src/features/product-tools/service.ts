@@ -168,6 +168,16 @@ export interface ProductToolsServiceDeps {
     }>;
     cancel(id: string): boolean;
   };
+  /** ADR 0047 dispatch: hand work to another agent member of this
+   *  conversation. Absent = the tool rejects explicitly (a deployment
+   *  without rooms must fail the call, not pretend). */
+  dispatch?: (input: {
+    fromAgentId: string;
+    conversationId: string;
+    toAgentId: string;
+    instruction: string;
+    note?: string;
+  }) => Promise<{ agentId: string; runId: string; inputId: string; queued: boolean }>;
   /** Emit the plan strip when todo_write replaces the run's list. Both the
    *  web panel and the Lark card render from this event; the run's snapshot
    *  row is the durable copy, this is the live one. */
@@ -527,6 +537,62 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: result };
   }
 
+  /** ADR 0047: hand work to another agent member. Durable-idempotent by
+   *  (runId, callId) like todo_write: a retried call replays the stored
+   *  result instead of dispatching twice. */
+  async function dispatchWork(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.dispatch) {
+      throw new ProductToolRejectedError("dispatch is not available in this deployment");
+    }
+    const agent = typeof input.args.agent === "string" ? input.args.agent.trim() : "";
+    const instruction =
+      typeof input.args.instruction === "string" ? input.args.instruction.trim() : "";
+    const note = typeof input.args.note === "string" ? input.args.note.trim() : "";
+    if (!agent) {
+      throw new ProductToolRejectedError("dispatch requires agent: the member to hand the work to");
+    }
+    if (!instruction) {
+      throw new ProductToolRejectedError(
+        "dispatch requires instruction: the task in the requester's words",
+      );
+    }
+    const inputHash = JSON.stringify({ tool: input.tool, args: input.args });
+    const existing = await callPort.getCall(run.runId, input.callId);
+    if (existing) {
+      if (existing.toolName !== input.tool || existing.inputHash !== inputHash) {
+        throw new ProductToolRejectedError(
+          `call id ${input.callId} reused with a different tool/input`,
+        );
+      }
+      return { content: existing.result ?? "{}" };
+    }
+    const call: {
+      fromAgentId: string;
+      conversationId: string;
+      toAgentId: string;
+      instruction: string;
+      note?: string;
+    } = {
+      fromAgentId: run.agentId,
+      conversationId: run.conversationId,
+      toAgentId: agent,
+      instruction,
+    };
+    if (note) call.note = note;
+    const triggered = await deps.dispatch(call);
+    const result = JSON.stringify(triggered);
+    await callPort.recordCall({
+      runId: run.runId,
+      callId: input.callId,
+      toolName: input.tool,
+      inputHash,
+      result,
+    });
+    return { content: result };
+  }
   /** ask_question: validate, park a resolver, emit to the UI, and await the
    *  web's answer (or a timeout). Mirrors oma approval's await-until-resolved. */
   async function askQuestion(
@@ -637,6 +703,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return todoWrite(run, input);
         case "remind_me":
           return remindMe(run, input);
+        case "dispatch":
+          return dispatchWork(run, input);
         case "reminder_list":
           return reminderList(run, input);
         case "reminder_cancel":

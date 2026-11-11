@@ -27,6 +27,7 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "history_around",
       "history_retain",
       "todo_write",
+      "dispatch",
       "ask_question",
       "artifact_upload",
       "artifact_download",

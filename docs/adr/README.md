@@ -71,3 +71,4 @@
 | 0044 | lark-inbound-events-official-channel-sdk(入站事件层换官方 channel SDK；评论线＝会话作用域，边界用两个适配器收住) | **部分实现**（2026-10-14：决策 1 至 6、8、9 已落地——官方 SDK 接管长连接、两个边界适配器、评论线＝会话（合成 chatId）、按文档订阅、@ 与 agent 来源双闸、回答回进同一条评论线；生产 bot 已重启并连上，`lark-cli` 总线与消费者消失。决策 7 的后端一半（`larkSetupGuidance`）已进 surface 视图，Web 渲染待做；决策 10 的隔离 app 端到端验收待做） |
 | 0045 | parallel-waves-and-all-join(波次并行与 all-join) | **Implemented**（2026-10-19 落地并带变异验证钉子） |
 | 0046 | ambient-rules-proactive-spine(环境规则：observe 缝上的规则升格，super-agent 主动脊柱第一刀) | **Implemented**（record/act 两档、`proactive_event` 台账、lark source 经 wire 传递；多成员与图片输入不参与，见正文边界） |
+| 0047 | room-dispatch(房间内派单：dispatch 产品工具 + 授权依据入 Run 快照 + 环境规则指派目标，领班/工人第一刀) | **Implemented**（迁移 0059、排队晋升保真、变异验证四钉；模型研判与池化调度在 roadmap） |

@@ -67,6 +67,9 @@ export interface AgentRunService {
     workflowBudgetTokens?: number;
     /** Oma workflow-mode input: execute this script instead of a loop. */
     workflow?: { script: string; args?: unknown };
+    /** ADR 0047 authorization basis ("user" | "ambient:<id>" |
+     *  "dispatch:<agentId>" | "system"), frozen onto the run. */
+    authorization?: string;
   }): Promise<{
     acquired: boolean;
     queued: boolean;
@@ -199,6 +202,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         ...(toolPolicy ? { toolPolicy: JSON.stringify(toolPolicy) } : {}),
         workflowBudgetTokens: input.workflowBudgetTokens,
         workflow: input.workflow,
+        authorization: input.authorization,
       });
     },
 

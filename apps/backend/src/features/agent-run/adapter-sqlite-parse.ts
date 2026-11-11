@@ -34,6 +34,7 @@ export function parseRun(row: typeof schema.agentRun.$inferSelect): AgentRun {
     nativeSessionRef: row.nativeSessionRef,
     workflowBudgetTokens: row.workflowBudgetTokens,
     workflow: row.workflow ? (JSON.parse(row.workflow) as AgentRun["workflow"]) : null,
+    authorization: row.authorization ?? null,
     createdAt: row.createdAt,
     terminalAt: row.terminalAt,
   };
@@ -63,6 +64,7 @@ export function parseInput(row: typeof schema.branchInputQueue.$inferSelect): Br
       skillRoots: row.skillRoots ? (JSON.parse(row.skillRoots) as string[]) : null,
       permissionMode: row.permissionMode,
       workflowBudgetTokens: row.workflowBudgetTokens,
+      authorization: row.authorization ?? null,
     },
     createdAt: row.createdAt,
     deliveredAt: row.deliveredAt,

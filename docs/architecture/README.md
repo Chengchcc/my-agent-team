@@ -22,6 +22,7 @@ tags: [conventions, rules]
 | 改消息与历史 | [事实与投影](./foundations/facts-and-projections.md) → [Conversation History](./conversation/history.md) → [Agent Context](./agents/context.md) → [数据模型](./backend/data-model.md) |
 | 改执行链或后端适配 | [Agent Backend](./execution/agent-backend.md) → [Agent Context](./agents/context.md) → [Product Backend](./backend/overview.md) → [Oma Runtime](./runtime/oma.md) |
 | 改环境规则或主动触发 | [环境规则](./backend/ambient-rules.md) → [飞书](./surfaces/lark.md) → [Product Backend 总览](./backend/overview.md) |
+| 改派单/多 agent 房间 | [房间内派单](./backend/room-dispatch.md) → [Agent Context](./agents/context.md) → [Product Backend 总览](./backend/overview.md) |
 | 改实时更新与终态提交 | [Run 输出与实时更新](./runs/output-and-live-updates.md) → [Conversation History](./conversation/history.md) → [Agent Context](./agents/context.md) → [Web 消息端到端](./flows/e2e-web-message.md) |
 | 改工具、MCP 或插件 | [Agent Backend](./execution/agent-backend.md) → [Oma Tools](./runtime/oma-tools.md) → [Oma 插件与 HITL](./plugins/oma-plugins.md) |
 | 改模型与 provider | [模型与 Provider](./runtime/models.md) → [Oma Runtime](./runtime/oma.md) |
@@ -50,6 +51,7 @@ tags: [conventions, rules]
 
 - [Product Backend 总览](./backend/overview.md)
 - [环境规则](./backend/ambient-rules.md)
+- [房间内派单](./backend/room-dispatch.md)
 - [Conversation History](./conversation/history.md)
 - [Agent Context](./agents/context.md)
 - [Agent 工作区与多后端](./agents/workspace-and-backends.md)

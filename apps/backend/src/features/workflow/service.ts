@@ -53,6 +53,8 @@ export interface AgentRunnerDeps {
       content: unknown;
       modelOverride?: unknown;
       permissionMode?: "ask" | "auto" | "deny" | "yolo";
+      /** ADR 0047: engine-authored runs mark themselves "system". */
+      authorization?: string;
     }): Promise<{ triggeredRuns: Array<{ runId: string; queued: boolean }> }>;
   };
   artifactService?: {
@@ -457,6 +459,8 @@ export function createWorkflowExecutionService(
         // raised here: asking would park the node forever. yolo is ungated and
         // still runs bash inside the OS sandbox.
         permissionMode: "yolo",
+        // ADR 0047: the engine, not a human, authored this run.
+        authorization: "system",
       });
       runId = posted.triggeredRuns[0]?.runId;
       if (!runId) throw new Error("agent run not triggered");

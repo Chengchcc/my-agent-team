@@ -106,6 +106,7 @@ import {
   createProductToolsDispatch,
   createProductToolsMcpServer,
   createProductToolsService,
+  frameDispatchInput,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
@@ -477,6 +478,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const summarizeFromConfig = createConfiguredSummarizer(config.summaryModel, (id) =>
     providerSvc.credentialFor(id),
   );
+  // ADR 0047: validated member ops, shared by the routes, the ambient seam
+  // and the dispatch tool (one roster authority).
+  const conversationMembers = createConversationMembers({
+    port: convPort,
+    agentExists: (id: string) => agentSvc.exists(id),
+  });
   // ADR 0046: ambient rules evaluate at the conversation observe seam. The
   // service owns the event ledger; rules themselves live in agent config.
   const proactiveSvc = createProactiveService({
@@ -489,6 +496,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     agentSvc,
     agentRunService,
     evaluateAmbient: (input) => proactiveSvc.evaluate(input),
+    addConversationMember: async (conversationId, agentId) => {
+      await conversationMembers.add(conversationId, agentId);
+    },
     summarize: summarizeFromConfig,
     resolveLedgerMessage: (conversationId, ledgerSeq) =>
       ledgerResolver.resolveMessage(conversationId, ledgerSeq),
@@ -542,6 +552,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         conversationId,
         content: `${REMINDER_BANNER_PREFIX}${text}`,
         mode: "normal",
+        // ADR 0047: no human authored this run — the reminder tick did.
+        authorization: "system",
         ...(author ? { addressedTo: [author] } : {}),
       });
     },
@@ -582,6 +594,28 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // assembled after this point, and ask resolves only happen at runtime.
     onRunWoke: (runId) => {
       void agentRunExecution?.resumeParkedRun(runId);
+    },
+    // ADR 0047 room dispatch: the closure dereferences conv at request time
+    // (product tools assemble before conversations execute anything).
+    dispatch: async ({ fromAgentId, conversationId, toAgentId, instruction, note }) => {
+      // Idempotent roster join; throws on an unknown/archived agent, which
+      // the tool surfaces as an isError result.
+      await conversationMembers.add(conversationId, toAgentId);
+      const posted = await conv.convSvc.postMessage({
+        conversationId,
+        senderMemberId: fromAgentId,
+        addressedTo: [toAgentId],
+        content: frameDispatchInput(fromAgentId, instruction, note),
+        mode: "normal",
+        authorization: `dispatch:${fromAgentId}`,
+      });
+      const first = posted.triggeredRuns.find((entry) => entry.agentId === toAgentId);
+      return {
+        agentId: toAgentId,
+        runId: first?.runId ?? "",
+        inputId: first?.inputId ?? "",
+        queued: first?.queued ?? false,
+      };
     },
   });
   let productToolsMcp: Awaited<ReturnType<typeof createProductToolsMcpServer>> | null = null;
@@ -1884,10 +1918,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       conv.convSvc,
       ulid,
       (id: string) => projectSvc.exists(id),
-      createConversationMembers({
-        port: convPort,
-        agentExists: (id: string) => agentSvc.exists(id),
-      }),
+      conversationMembers,
     ),
     reminders: reminderRoutes(reminderSvc),
     ops: opsRoutes(opsSvc),

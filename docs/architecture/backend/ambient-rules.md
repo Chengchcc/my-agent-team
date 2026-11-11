@@ -15,7 +15,6 @@ tags: [backend, lark, proactive]
 不覆盖：飞书端的准入三层（群准入/发送者白名单/@ 判定，见 [飞书](../surfaces/lark.md)）、Agent Run 自身的生命周期（见 [Product Backend 总览](./overview.md)）、决策来龙去脉（见 [ADR 0046](../../adr/0046-ambient-rules-proactive-spine.md)）。
 
 ## 实现文件
-
 - `apps/backend/src/features/proactive/domain.ts` — 纯函数：`matchAmbientRule`（first-match-wins）、`frameAmbientInput`（任务框定）
 - `apps/backend/src/features/proactive/service.ts` — 评估入口：读 agent 配置 → 匹配 → 先落事件再决定
 - `apps/backend/src/features/proactive/adapter-sqlite.ts` — `proactive_event` 表读写
@@ -36,6 +35,7 @@ tags: [backend, lark, proactive]
 | `senders` | open_id 列表（同 allowed_senders 词汇）；空 = 任何已准入发送者 |
 | `keyword` | 对消息文本的**大小写不敏感子串**匹配；故意不做正则 |
 | `mode` | `record`（只记"本可以做什么"）或 `act`（升格为任务） |
+| `agent` | 可选：升格路由给这个 agent（自动入房间，失败则整个升格取消；见 [房间内派单](./room-dispatch.md)）；缺省 = 会话原主人 |
 | `instruction` | act 必填（配置期校验拒绝空指令的 act 规则）；给 agent 的任务框定 |
 
 数组顺序即优先级：**first-match-wins**，窄规则排在宽规则前面。

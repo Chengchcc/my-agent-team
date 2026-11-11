@@ -21,6 +21,8 @@ export interface AmbientRuleInput {
   chats?: string[];
   senders?: string[];
   keyword: string;
+  /** ADR 0047: promotion target agent; absent = the conversation's own. */
+  agent?: string;
   mode: "record" | "act";
   instruction?: string;
 }

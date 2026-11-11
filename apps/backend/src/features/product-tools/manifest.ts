@@ -154,6 +154,30 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "dispatch",
+      description:
+        "Hand a task to another agent member of this conversation (ADR 0047 room dispatch). The target becomes a member if needed, your dispatch lands in the shared ledger, and its run reports back here. instruction must carry the requester's ORIGINAL words plus any constraint you were told — never a paraphrase or an implementation plan of your own; use note (max ~30 words) only for routing background.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", description: "Target agent id (a member, or an agent to add)" },
+          instruction: { type: "string", description: "The task, in the requester's words" },
+          note: { type: "string", description: "Optional routing background, at most ~30 words" },
+          identity: {
+            type: "object",
+            properties: {
+              runId: { type: "string" },
+              conversationId: { type: "string" },
+              agentId: { type: "string" },
+              branchId: { type: "string" },
+            },
+          },
+        },
+        required: ["agent", "instruction"],
+      },
+      entrypoint,
+    },
+    {
       name: "ask_question",
       description:
         "Ask the user structured questions and wait for answers. Each question needs a string id and question text, a kind of select (with options) or text (free input). Returns {answers:[{id,selectedValues,freeText}]}. Blocks until the user answers in the product UI.",

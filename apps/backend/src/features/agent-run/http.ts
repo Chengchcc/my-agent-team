@@ -373,6 +373,7 @@ export function agentRunRoutes(input: {
           verdict: deriveVerdict(run.terminalResult),
           verification: deriveVerification(run.terminalResult),
           configRevision: run.configRevision,
+          authorization: run.authorization,
           createdAt: run.createdAt,
           terminalAt: run.terminalAt,
           terminalResult: run.terminalResult,
