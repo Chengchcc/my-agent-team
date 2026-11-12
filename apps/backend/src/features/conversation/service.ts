@@ -89,6 +89,9 @@ export interface ConversationServiceDeps {
   /** ADR 0047: ensure an agent is a conversation member (validated, throws
    *  on unknown agent). Ambient rules name promotion targets this way. */
   addConversationMember?: (conversationId: string, agentId: string) => Promise<void>;
+  /** ADR 0049: role lookup for the front desk invariant. Absent = no agent
+   *  is a worker (today's behaviour — human input may address anyone). */
+  isWorkerAgent?: (agentId: string) => Promise<boolean>;
 
   idGen: () => string;
 }
@@ -220,6 +223,7 @@ class ConversationServiceImpl implements ConversationService {
   #resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
   #evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
   #addConversationMember?: ConversationServiceDeps["addConversationMember"];
+  #isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
 
   #idGen: () => string;
 
@@ -240,6 +244,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#resolveLedgerMessage = deps.resolveLedgerMessage;
     this.#evaluateAmbient = deps.evaluateAmbient;
     this.#addConversationMember = deps.addConversationMember;
+    this.#isWorkerAgent = deps.isWorkerAgent;
     this.#idGen = deps.idGen;
   }
 
@@ -384,6 +389,24 @@ class ConversationServiceImpl implements ConversationService {
     const members =
       this.port.listMembers?.(input.conversationId) ?? (agentId !== null ? [agentId] : []);
     let targets = resolveTrigger({ members, addressedTo: input.addressedTo });
+    // ── ADR 0049: the front desk invariant ──
+    // HUMAN input (authorization "user" — the only value the HTTP surface
+    // can produce) may never command a worker directly: any worker target is
+    // rerouted to the conversation's front (its owner). The raw @ text stays
+    // in the message, so the front can see who the human meant and dispatch.
+    // Inputs carrying a server-side basis (dispatch:/ambient:/system) are the
+    // product itself dispatching — they address workers directly by design.
+    if (this.#isWorkerAgent !== undefined && input.authorization === undefined) {
+      const front = agentId;
+      const rerouted: string[] = [];
+      for (const target of targets) {
+        const isWorker = await this.#isWorkerAgent(target);
+        const hasFront = front !== null && front !== target;
+        const destination = isWorker && hasFront ? front : target;
+        if (!rerouted.includes(destination)) rerouted.push(destination);
+      }
+      targets = rerouted;
+    }
     // ── ADR 0046: the observe seam ──
     // Routing produced NO target (an admitted but unaddressed group message
     // posts as ledger-only context). A rule the operator wrote may promote

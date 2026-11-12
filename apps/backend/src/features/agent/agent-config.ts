@@ -96,6 +96,10 @@ export const agentConfigSchema = z.object({
   skills: z
     .array(z.object({ id: z.string().min(1), description: z.string().default("") }))
     .default([]),
+  /** ADR 0049: "worker" = only the product dispatches to this agent (front
+   *  desk invariant — human input is rerouted to the conversation's front);
+   * absent = front-capable, today's behaviour. */
+  role: z.enum(["front", "worker"]).optional(),
   runtime_config: z.preprocess(
     upgradeLegacyRuntimeConfig,
     z.object({
@@ -200,6 +204,8 @@ export function buildAgentConfig(input: {
   description?: string;
   /** ADR 0048 capability card entries; replace-semantics like groups. */
   skills?: Array<{ id: string; description?: string }>;
+  /** ADR 0049 role; "worker" opts into the front desk invariant. */
+  role?: "front" | "worker";
   harness?: string;
   /** The model that harness runs, in its own vocabulary. "" = its default. */
   model?: string;
@@ -254,6 +260,7 @@ export function buildAgentConfig(input: {
     title: input.name ?? prev?.title ?? prev?.name ?? input.id,
     description: input.description ?? prev?.description ?? "",
     skills: input.skills ?? prev?.skills ?? [],
+    role: input.role ?? prev?.role,
     runtime_config: {
       harness,
       model,
@@ -334,6 +341,7 @@ export function serializeAgentYaml(config: AgentConfig): string {
     `description: ${q(config.description)}`,
     "skills:",
     ...config.skills.map((s) => `  - id: ${q(s.id)}\n    description: ${q(s.description)}`),
+    ...(config.role !== undefined ? [`role: ${q(config.role)}`] : []),
     "runtime_config:",
     `  harness: ${q(rc.harness)}`,
     `  model: ${q(rc.model)}`,

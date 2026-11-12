@@ -565,6 +565,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     addConversationMember: async (conversationId, agentId) => {
       await conversationMembers.add(conversationId, agentId);
     },
+    isWorkerAgent: async (id: string) => {
+      try {
+        const row = await agentSvc.getById(id);
+        return row.config.role === "worker";
+      } catch {
+        return false;
+      }
+    },
     summarize: summarizeFromConfig,
     resolveLedgerMessage: (conversationId, ledgerSeq) =>
       ledgerResolver.resolveMessage(conversationId, ledgerSeq),
@@ -1987,6 +1995,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       ulid,
       (id: string) => projectSvc.exists(id),
       conversationMembers,
+      async (id: string) => {
+        try {
+          return (await agentSvc.getById(id)).config.role;
+        } catch {
+          return undefined;
+        }
+      },
     ),
     reminders: reminderRoutes(reminderSvc),
     ops: opsRoutes(opsSvc),

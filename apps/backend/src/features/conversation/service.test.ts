@@ -1001,3 +1001,103 @@ describe("ambient rules on the observe seam (ADR 0046)", () => {
     expect(enqueueCalls[0]!.authorization).toBe("dispatch:a-1");
   });
 });
+
+describe("front desk invariant (ADR 0049)", () => {
+  const WORKERS: Record<string, true> = { "a-worker": true };
+
+  function makeFrontDesk() {
+    return createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async (runId) => {
+        dispatchCalls.push(runId);
+      },
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      isWorkerAgent: (id) => Promise.resolve(WORKERS[id] === true),
+    });
+  }
+
+  test("human input naming a worker reroutes to the conversation's front", async () => {
+    const id = "cid-front-1";
+    setupConv(id); // agentId "a-1" (the front)
+    port.addMember?.(id, "a-worker", 1);
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    const result = await makeFrontDesk().postMessage({
+      conversationId: id,
+      senderMemberId: "human:lark:ou_alice",
+      addressedTo: ["a-worker"],
+      content: "@a-worker 修一下登录",
+    });
+
+    // The FRONT ran, not the worker; the @ text survives verbatim.
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-1");
+    expect(enqueueCalls[0]!.message.text).toContain("@a-worker");
+    expect(result.triggeredRuns[0]!.agentId).toBe("a-1");
+  });
+
+  test("dispatch (a server-side basis) addresses the worker directly", async () => {
+    const id = "cid-front-2";
+    setupConv(id);
+    port.addMember?.(id, "a-worker", 1);
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    await makeFrontDesk().postMessage({
+      conversationId: id,
+      senderMemberId: "a-1",
+      addressedTo: ["a-worker"],
+      content: "（由 a-1 派发的任务）修一下登录",
+      authorization: "dispatch:a-1",
+    });
+
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-worker");
+    expect(enqueueCalls[0]!.authorization).toBe("dispatch:a-1");
+  });
+
+  test("human input naming the front still triggers the front", async () => {
+    const id = "cid-front-3";
+    setupConv(id);
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    await makeFrontDesk().postMessage({
+      conversationId: id,
+      addressedTo: ["a-1"],
+      content: "在吗",
+    });
+
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-1");
+  });
+
+  test("without the dep, today's behaviour stands: anyone is addressable", async () => {
+    const id = "cid-front-4";
+    setupConv(id);
+    port.addMember?.(id, "a-worker", 1);
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    await svc.postMessage({
+      conversationId: id,
+      addressedTo: ["a-worker"],
+      content: "@a-worker 直接说",
+    });
+
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-worker");
+  });
+});

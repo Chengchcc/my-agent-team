@@ -48,6 +48,7 @@ function toAgentResponse(row: AgentRow, status: string) {
     name: row.config.name,
     description: row.config.description,
     skills: row.config.skills,
+    role: row.config.role ?? null,
     enabled: row.config.enabled,
     workspacePath: row.workspacePath,
     // ADR 0040 decision 7: the product surface carries the two axes and nothing
@@ -190,6 +191,7 @@ export function agentRoutes(
               }),
             ),
           ),
+          role: t.Optional(t.Union([t.Literal("front"), t.Literal("worker")])),
           harness: t.String({ minLength: 1 }),
           model: t.Optional(t.String()),
           enabled: t.Optional(t.Boolean()),
@@ -309,6 +311,7 @@ export function agentRoutes(
               }),
             ),
           ),
+          role: t.Optional(t.Union([t.Literal("front"), t.Literal("worker")])),
           harness: t.Optional(t.String({ minLength: 1 })),
           model: t.Optional(t.String()),
           enabled: t.Optional(t.Boolean()),

@@ -62,3 +62,14 @@ tags: [backend, agents, product-tools]
 - 无回交（handback）通道：工人收到超范围请求按普通成员消息处理。
 - 领班的「饥饿型」配置（少工具、短产出）是配置实践，不是代码约束。
 - 观察缝的模型研判（该不该接、给谁）在 roadmap，失败语义必须退回 record。
+
+
+## 前台不变量（ADR 0049）
+
+agent 配置可声明 `role: "worker"`（缺省 = 前台语义）。此后：
+
+- **人工输入**（授权依据恒为 `user`——HTTP 消息面是唯一来源）点名 worker 成员时，触发目标在 postMessage 里改写为会话前台（`conversation.agentId`）；@ 文本原样保留，前台看得到人本来想让谁做，可据此 dispatch。
+- **产品派发**（`dispatch:` / `ambient:` / `system` 依据）不受影响——那是领班工具、环境规则、语义研判、workflow 在派活，本来就该直达工人。
+- `POST /api/conversations` 绑 worker 直接 400（worker 拥有的会话是死房间：人工输入全被重路由回 worker 自己）。
+
+不变量：worker 的 run 授权依据永远不可能是 `user`。

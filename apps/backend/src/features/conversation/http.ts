@@ -15,6 +15,9 @@ export function conversationRoutes(
     add(conversationId: string, agentId: string): Promise<boolean> | boolean;
     remove(conversationId: string, agentId: string): boolean;
   },
+  /** ADR 0049: role lookup for the creation guard (front desk invariant).
+   * Absent = any agent may own a conversation (today's behaviour). */
+  agentRoleOf?: (id: string) => Promise<"front" | "worker" | undefined>,
 ) {
   return (
     new Elysia()
@@ -31,6 +34,18 @@ export function conversationRoutes(
           const now = Date.now();
           if (body.projectId && projectExists && !projectExists(body.projectId)) {
             return Response.json({ error: `unknown project ${body.projectId}` }, { status: 400 });
+          }
+          // ADR 0049: a worker-owned conversation is a dead room — human
+          // input reroutes to the front, which IS the worker here. Refuse
+          // the binding at creation instead of creating it silently dead.
+          const targetAgent = body.agentId ?? "default";
+          if (agentRoleOf && (await agentRoleOf(targetAgent)) === "worker") {
+            return Response.json(
+              {
+                error: `agent ${targetAgent} is a worker: humans talk to a front agent, work reaches workers via dispatch`,
+              },
+              { status: 400 },
+            );
           }
           // Idempotent create: workflow-scoped chats (and any caller that
           // passes a stable conversationId) may POST on every reload when the
