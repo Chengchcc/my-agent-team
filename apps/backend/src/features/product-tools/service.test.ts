@@ -29,6 +29,7 @@ const TOOL_MANIFEST = [
   { name: "history_retain", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "todo_write", description: "w", inputSchema: {}, entrypoint: "sse:x" },
   { name: "dispatch", description: "d", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
 ];
 
@@ -132,6 +133,11 @@ beforeEach(async () => {
         queued: false,
       });
     },
+    listTeam: () =>
+      Promise.resolve([
+        { id: "lead", name: "领班", description: "路由", skills: ["triage"] },
+        { id: "fe", name: "前端工", description: "Web", skills: ["react"] },
+      ]),
   });
   emittedAsks = [];
   emittedTodos = [];
@@ -933,5 +939,48 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
         args: { agent: "ghost-worker", instruction: "去做" },
       }),
     ).rejects.toThrow(/unknown agent ghost-worker/);
+  });
+});
+
+describe("team_list (ADR 0048 roster discovery)", () => {
+  test("returns the roster with capability cards", async () => {
+    const runId = await createRun("who is on the team");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "team-1",
+      idempotencyKey: `${runId}:team-1`,
+      tool: "team_list",
+      args: {},
+    });
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content) as {
+      team: Array<{ id: string; skills: string[] }>;
+    };
+    expect(payload.team.map((t) => t.id)).toEqual(["lead", "fe"]);
+    expect(payload.team[1]!.skills).toEqual(["react"]);
+  });
+
+  test("without the dep the call rejects explicitly, not silently", async () => {
+    const runId = await createRun("no roster here");
+    const bare = createProductToolsService({
+      runPort,
+      contextPort,
+      conversationPort: convPort,
+      callPort: sqliteProductToolCallAdapter(db),
+      idGen: { ulid: () => `n-${Math.random().toString(36).slice(2, 8)}` },
+      artifactService: {
+        upload: async () => ({ url: "artifacts://a/b.txt" }),
+        download: async () => ({ content: "x", encoding: "utf8" }),
+      } as never,
+    });
+    await expect(
+      bare.call({
+        identity: identity(runId),
+        callId: "team-2",
+        idempotencyKey: `${runId}:team-2`,
+        tool: "team_list",
+        args: {},
+      }),
+    ).rejects.toThrow(/not available/);
   });
 });

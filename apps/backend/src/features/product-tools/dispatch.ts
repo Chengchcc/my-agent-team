@@ -164,6 +164,12 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "team_list",
+    description:
+      "List the team's agents with their capability cards: id, name, description, skills. Read before dispatching to decide who takes a task.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
     name: "ask_question",
     description:
       "Ask the user structured questions and wait for answers. Each question needs a string id and question text, a kind of select (with options) or text (free input). Returns {answers:[{id,selectedValues,freeText}]}. Blocks until the user answers in the product UI.",

@@ -391,3 +391,38 @@ describe("ambient rules round-trip (ADR 0046)", () => {
     ).toThrow();
   });
 });
+
+describe("capability cards round-trip (ADR 0048)", () => {
+  test("skills serialize into agent.yml and parse back; updates keep them", () => {
+    const config = buildAgentConfig({
+      id: "a-card",
+      name: "Card",
+      harness: "oma",
+      description: "前端问题都给我",
+      skills: [{ id: "react", description: "组件与样式" }, { id: "a11y" }],
+    });
+    expect(config.skills).toHaveLength(2);
+    // A missing description fills "" on parse (the card reads the same).
+    expect(config.skills[1]).toMatchObject({ id: "a11y", description: "" });
+
+    const yaml = serializeAgentYaml(config);
+    expect(yaml).toContain("skills:");
+    expect(yaml).toContain('id: "react"');
+    expect(yaml).toContain("组件与样式");
+
+    const reparsed = agentConfigSchema.parse(JSON.parse(JSON.stringify(config)));
+    expect(reparsed.skills).toHaveLength(2);
+
+    // An update that does not mention skills keeps them.
+    const updated = buildAgentConfig({ id: "a-card", name: "Card", prev: config });
+    expect(updated.skills).toHaveLength(2);
+    // A replace-semantics update swaps the whole list.
+    const replaced = buildAgentConfig({
+      id: "a-card",
+      name: "Card",
+      prev: config,
+      skills: [{ id: "only" }],
+    });
+    expect(replaced.skills.map((s) => s.id)).toEqual(["only"]);
+  });
+});
