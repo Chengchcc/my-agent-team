@@ -110,6 +110,37 @@ describe("conversation routes", () => {
     expect(foreign.status).toBe(422);
   });
 
+  test("ADR 0049: a worker agent cannot own a conversation (dead-room guard)", async () => {
+    // Create a worker agent through the real API, then try to bind a
+    // conversation to it: the front desk invariant refuses at creation.
+    const made = await api(harness, "POST", "/api/agents", {
+      name: "worker-guard",
+      harness: "oma",
+      role: "worker",
+    });
+    expect(made.status).toBe(201);
+    const agent = (await made.json()) as { id: string };
+
+    const refused = await api(harness, "POST", BASE, {
+      conversationId: "c-worker-dead",
+      agentId: agent.id,
+    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toContain("worker");
+
+    // A front agent (no role) still owns conversations normally.
+    const frontMade = await api(harness, "POST", "/api/agents", {
+      name: "front-guard",
+      harness: "oma",
+    });
+    const front = (await frontMade.json()) as { id: string };
+    const ok = await api(harness, "POST", BASE, {
+      conversationId: "c-front-ok",
+      agentId: front.id,
+    });
+    expect(ok.status).toBe(201);
+  });
+
   test("messages append to the ledger and search/export see them", async () => {
     await createConversation("c-msg");
     const posted = await api(harness, "POST", `${BASE}/c-msg/messages`, {

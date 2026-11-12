@@ -73,3 +73,4 @@
 | 0046 | ambient-rules-proactive-spine(环境规则：observe 缝上的规则升格，super-agent 主动脊柱第一刀) | **Implemented**（record/act 两档、`proactive_event` 台账、lark source 经 wire 传递；多成员与图片输入不参与，见正文边界） |
 | 0047 | room-dispatch(房间内派单：dispatch 产品工具 + 授权依据入 Run 快照 + 环境规则指派目标，领班/工人第一刀) | **Implemented**（迁移 0059、排队晋升保真、变异验证四钉；模型研判与池化调度在 roadmap） |
 | 0048 | semantic-assessment(语义研判与能力卡：观察缝模型研判 observe/auto、agent skills、team_list，主动脊柱第三刀) | **Implemented**（异步研判不阻塞 POST、失败退 error 事件、拒绝不记账；A2A 语义对齐表见正文） |
+| 0049 | front-desk-invariant(前台不变量：人工输入永不直接命令工人，worker 角色重路由到会话前台) | **Implemented**（判据=授权依据 user；创建守卫拒 worker 绑会话；服务端依据直达工人不受影响） |

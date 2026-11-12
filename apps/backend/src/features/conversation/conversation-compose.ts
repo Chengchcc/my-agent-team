@@ -63,6 +63,8 @@ export function createConversationFeature(input: {
   /** ADR 0047: validated member-join for ambient rule targets. Absent =
    *  rules can only promote within the existing roster. */
   addConversationMember?: ConversationServiceDeps["addConversationMember"];
+  /** ADR 0049: role lookup for the front desk invariant. */
+  isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
 }): ConversationFeature {
   const {
     convPort,
@@ -82,6 +84,7 @@ export function createConversationFeature(input: {
     resolveLedgerMessage,
     evaluateAmbient,
     addConversationMember,
+    isWorkerAgent,
   } = input;
 
   const convSvc = createConversationService({
@@ -100,6 +103,7 @@ export function createConversationFeature(input: {
     resolveLedgerMessage,
     evaluateAmbient,
     addConversationMember,
+    isWorkerAgent,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));

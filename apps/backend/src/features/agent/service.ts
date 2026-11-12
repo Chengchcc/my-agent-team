@@ -76,6 +76,7 @@ export function createAgentService(opts: {
         knowledgePacks: input.knowledgePacks,
         description: input.description,
         skills: input.skills,
+        role: input.role,
         lark: input.lark
           ? {
               enabled: input.lark.enabled,
@@ -133,6 +134,7 @@ export function createAgentService(opts: {
         projects: input.projects,
         description: input.description,
         skills: input.skills,
+        role: input.role,
         lark: input.lark
           ? {
               enabled: input.lark.enabled,

@@ -426,3 +426,27 @@ describe("capability cards round-trip (ADR 0048)", () => {
     expect(replaced.skills.map((s) => s.id)).toEqual(["only"]);
   });
 });
+
+describe("role round-trip (ADR 0049)", () => {
+  test("role serializes, parses, and updates replace-semantics", () => {
+    const config = buildAgentConfig({
+      id: "a-role",
+      name: "Role",
+      harness: "oma",
+      role: "worker",
+    });
+    expect(config.role).toBe("worker");
+    expect(serializeAgentYaml(config)).toContain('role: "worker"');
+
+    const reparsed = agentConfigSchema.parse(JSON.parse(JSON.stringify(config)));
+    expect(reparsed.role).toBe("worker");
+
+    // An update not mentioning role keeps it; an explicit one replaces it.
+    const kept = buildAgentConfig({ id: "a-role", name: "Role", prev: config });
+    expect(kept.role).toBe("worker");
+    const cleared = buildAgentConfig({ id: "a-role", name: "Role", prev: config, role: "front" });
+    expect(cleared.role).toBe("front");
+    // Absent role parses as undefined (front-capable default).
+    expect(buildAgentConfig({ id: "b", name: "B", harness: "oma" }).role).toBeUndefined();
+  });
+});
