@@ -33,6 +33,10 @@ export interface CreateAgentInput {
   id?: string;
   name: string;
   template?: string;
+  /** ADR 0048 capability card: free-text role description. */
+  description?: string;
+  /** ADR 0048 capability card entries; replace-semantics. */
+  skills?: Array<{ id: string; description?: string }>;
   /** Which harness runs this agent (an ACP_AGENTS key). */
   harness: string;
   /** The model that harness runs; "" or omitted = its own default. */
@@ -82,6 +86,9 @@ export interface CreateAgentInput {
 
 export interface UpdateAgentInput {
   name?: string;
+  /** ADR 0048 capability card (description + skills), replace-semantics. */
+  description?: string;
+  skills?: Array<{ id: string; description?: string }>;
   harness?: string;
   model?: string;
   /** Top-level kill switch (agent.yml enabled). */

@@ -35,11 +35,12 @@
 
 ## 主动与环境规则
 
-**第一刀已落（ADR 0046，2026-11-10）**：lark observe 缝上的环境规则（record/act、`proactive_event` 台账、`GET /api/proactive/events`、配置在 `lark.ambient.rules`）已实现并带变异验证。第二刀（ADR 0047，2026-11-11）：房间内派单——`dispatch` 产品工具、Run 授权依据入快照（`user/ambient:/dispatch:/system`，迁移 0059，排队晋升保真）、环境规则可指派目标 agent。仍开的：
+**第一刀已落（ADR 0046，2026-11-10）**：lark observe 缝上的环境规则（record/act、`proactive_event` 台账、`GET /api/proactive/events`、配置在 `lark.ambient.rules`）。第二刀（ADR 0047，2026-11-11）：房间内派单——`dispatch` 产品工具、Run 授权依据入快照（`user/ambient:/dispatch:/system`，迁移 0059）、环境规则可指派目标。第三刀（ADR 0048，2026-11-12）：语义研判（observe/auto 全局闸、失败退 error 事件、拒绝不记账）+ 能力卡（agent skills）+ `team_list`。仍开的：
 
-- **Web 面板**：环境规则的编辑 UI（现在只能走 `PATCH /api/agents`）与事件流页面（API 已有）。
+- **Web 面板**：环境规则的编辑 UI（现在只能走 `PATCH /api/agents`）、研判闸门开关与事件流页面（API 已有）。
 - **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
-- **模型辅助匹配**：语义判断"这是不是给我的活"，失败语义必须继承 ADR 0046——分类器不可用退回 record，不得死锁或放行（workflow 节点钉 yolo 的同款教训）。
+- **研判的持久候选**：在途研判重启即丢（dsh 持久化候选队列）；真需要时按 Effects 模式补一张队列表。跨群去重（同一事件两个群各派一次）与按线程批评估也在此列。
+- **池化调度与回交**：dispatch 点名具体 agent，不判空闲；工人无 handback 通道（超范围请求按普通成员消息处理）。
 
 ## Workflow
 

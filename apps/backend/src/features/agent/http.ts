@@ -46,6 +46,8 @@ function toAgentResponse(row: AgentRow, status: string) {
   return {
     id: row.id,
     name: row.config.name,
+    description: row.config.description,
+    skills: row.config.skills,
     enabled: row.config.enabled,
     workspacePath: row.workspacePath,
     // ADR 0040 decision 7: the product surface carries the two axes and nothing
@@ -179,6 +181,15 @@ export function agentRoutes(
         body: t.Object({
           name: t.String({ minLength: 1 }),
           template: t.Optional(t.String()),
+          description: t.Optional(t.String()),
+          skills: t.Optional(
+            t.Array(
+              t.Object({
+                id: t.String({ minLength: 1 }),
+                description: t.Optional(t.String()),
+              }),
+            ),
+          ),
           harness: t.String({ minLength: 1 }),
           model: t.Optional(t.String()),
           enabled: t.Optional(t.Boolean()),
@@ -289,6 +300,15 @@ export function agentRoutes(
       {
         body: t.Object({
           name: t.Optional(t.String({ minLength: 1 })),
+          description: t.Optional(t.String()),
+          skills: t.Optional(
+            t.Array(
+              t.Object({
+                id: t.String({ minLength: 1 }),
+                description: t.Optional(t.String()),
+              }),
+            ),
+          ),
           harness: t.Optional(t.String({ minLength: 1 })),
           model: t.Optional(t.String()),
           enabled: t.Optional(t.Boolean()),

@@ -90,6 +90,12 @@ export const agentConfigSchema = z.object({
   name: z.string().min(1),
   title: z.string(),
   description: z.string(),
+  /** ADR 0048 capability card, AgentCard-shaped (A2A v1.0 skills): what a
+   *  router reads when deciding whether to send work to THIS agent. Feeds
+   *  team_list and the observe-seam assessment. */
+  skills: z
+    .array(z.object({ id: z.string().min(1), description: z.string().default("") }))
+    .default([]),
   runtime_config: z.preprocess(
     upgradeLegacyRuntimeConfig,
     z.object({
@@ -190,7 +196,10 @@ export type AmbientRule = AgentConfig["lark"]["ambient"]["rules"][number];
 export function buildAgentConfig(input: {
   id: string;
   name?: string;
-  /** Which harness runs this agent (an ACP_AGENTS key). */
+  /** ADR 0048: free-text role description (part of the capability card). */
+  description?: string;
+  /** ADR 0048 capability card entries; replace-semantics like groups. */
+  skills?: Array<{ id: string; description?: string }>;
   harness?: string;
   /** The model that harness runs, in its own vocabulary. "" = its default. */
   model?: string;
@@ -243,7 +252,8 @@ export function buildAgentConfig(input: {
     id: input.id,
     name: input.name ?? prev?.name ?? input.id,
     title: input.name ?? prev?.title ?? prev?.name ?? input.id,
-    description: prev?.description ?? "",
+    description: input.description ?? prev?.description ?? "",
+    skills: input.skills ?? prev?.skills ?? [],
     runtime_config: {
       harness,
       model,
@@ -322,6 +332,8 @@ export function serializeAgentYaml(config: AgentConfig): string {
     `name: ${q(config.name)}`,
     `title: ${q(config.title)}`,
     `description: ${q(config.description)}`,
+    "skills:",
+    ...config.skills.map((s) => `  - id: ${q(s.id)}\n    description: ${q(s.description)}`),
     "runtime_config:",
     `  harness: ${q(rc.harness)}`,
     `  model: ${q(rc.model)}`,

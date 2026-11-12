@@ -98,10 +98,16 @@ import {
   providerOfModelId,
 } from "../features/models/index.js";
 import {
+  type AssessmentCall,
+  createConfiguredAssessment,
+} from "../features/proactive/assessment.js";
+import { type AgentCard, frameAssessmentInput } from "../features/proactive/domain.js";
+import {
   createProactiveService,
   proactiveRoutes,
   sqliteProactiveAdapter,
 } from "../features/proactive/index.js";
+import type { AssessmentGate } from "../features/proactive/service.js";
 import {
   createProductToolsDispatch,
   createProductToolsMcpServer,
@@ -486,9 +492,69 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   // ADR 0046: ambient rules evaluate at the conversation observe seam. The
   // service owns the event ledger; rules themselves live in agent config.
+  // ADR 0048: the semantic net under the rules — gate read per message, the
+  // model caller rebuilt only when the configured spec changes, promotion
+  // dereferences conv at request time (wired below, same late-bound trick
+  // as the dispatch tool).
+  const readAssessmentGate = (): AssessmentGate => {
+    const stored = settingsSvc.get<{ mode?: string; model?: string }>("proactiveAssessment");
+    const mode = stored?.mode;
+    if (mode !== "observe" && mode !== "auto") return { mode: "off" };
+    return { mode, model: stored?.model };
+  };
+  let cachedAssessment: { spec: string; call: AssessmentCall } | undefined;
+  const assessmentCallOf = (spec: string): AssessmentCall | undefined => {
+    if (cachedAssessment?.spec === spec) return cachedAssessment.call;
+    const call = createConfiguredAssessment(spec, (id) => providerSvc.credentialFor(id));
+    if (!call) return undefined;
+    cachedAssessment = { spec, call };
+    return call;
+  };
+  /** The enabled, non-archived roster as capability cards — the one source
+   *  both the assessment and team_list read. */
+  const rosterCards = async (): Promise<AgentCard[]> => {
+    const rows = await agentSvc.list();
+    return rows
+      .filter((row) => row.archivedAt === null && row.config.enabled)
+      .map((row) => ({
+        id: row.id,
+        name: row.config.name,
+        description: row.config.description,
+        skills: row.config.skills.map((s) =>
+          s.description.length > 0 ? `${s.id}：${s.description}` : s.id,
+        ),
+      }));
+  };
   const proactiveSvc = createProactiveService({
     port: sqliteProactiveAdapter(db),
     agentSvc,
+    assessmentGate: readAssessmentGate,
+    assessmentCall: (input) => {
+      const gate = readAssessmentGate();
+      const spec = gate.model;
+      if (spec === undefined) {
+        return Promise.reject(new Error("assessment mode is on but no model is configured"));
+      }
+      const call = assessmentCallOf(spec);
+      if (call === undefined) {
+        return Promise.reject(new Error(`assessment model spec invalid: ${spec}`));
+      }
+      return call(input);
+    },
+    listCards: rosterCards,
+    promote: async ({ conversationId, agentId, toAgentId, senderMemberId, instruction, text }) => {
+      if (toAgentId !== agentId) {
+        await conversationMembers.add(conversationId, toAgentId);
+      }
+      await conv.convSvc.postMessage({
+        conversationId,
+        senderMemberId,
+        addressedTo: [toAgentId],
+        content: frameAssessmentInput(instruction, text, senderMemberId),
+        mode: "normal",
+        authorization: "ambient:assessment",
+      });
+    },
   });
   const conv = createConversationFeature({
     convPort,
@@ -617,6 +683,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         queued: first?.queued ?? false,
       };
     },
+    // ADR 0048: the roster discovery surface a dispatching agent reads.
+    listTeam: async () => rosterCards(),
   });
   let productToolsMcp: Awaited<ReturnType<typeof createProductToolsMcpServer>> | null = null;
   // Default set: product-tools + agent-config + workflow. The workflow DSL

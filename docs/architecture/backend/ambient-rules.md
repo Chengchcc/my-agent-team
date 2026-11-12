@@ -40,6 +40,16 @@ tags: [backend, lark, proactive]
 
 数组顺序即优先级：**first-match-wins**，窄规则排在宽规则前面。
 
+## 语义研判（ADR 0048，规则之下的网）
+
+确定性规则永远是快路；**未命中任何规则**的观察消息才进语义研判——模型读团队名册（每个 agent 的能力卡：description + skills）判断"该不该接、给谁"。三个硬性质：
+
+- **POST 永不等待模型**：研判在后台跑（服务的 `drain()` 可等在途），消息先按 observe 落账返回；auto 档命中后的派发是第二条消息（引用原文、任务框定、授权依据 `ambient:assessment`、发送者沿用原发送者），复用 ADR 0047 的成员加入与派单机器。
+- **observe/auto 全局闸**：settings KV `proactiveAssessment = {mode, model: "<provider>/<model>"}`，缺省 off，逐条消息读取、改配置不重启。observe 只落 would-accept 事件；auto 落事件后真派发——事件先于派发，写不进就不派。
+- **失败即退**：模型错误 / JSON 解析失败 / 25 秒超时 → 落一条 error 事件（`outcome: "error"`，"为什么没触发"的可观测面），绝不动原始消息。拒绝（accept=false）不记账——台账只收 would-accept 与 error。
+
+`team_list` 产品工具把同一份名册（启用且未归档的 agent 及其能力卡）给到领班的 run：dispatch 之前先查"谁会什么"。
+
 ## observe 缝
 
 群聊里未被 @ 的消息本来就会以 `addressedTo: []` POST 进会话账本（只记上下文、不触发 run）。环境规则评估就挂在这条缝上：

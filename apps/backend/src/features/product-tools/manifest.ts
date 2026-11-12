@@ -178,6 +178,13 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "team_list",
+      description:
+        "List the team's agents with their capability cards (ADR 0048): id, name, description and skills. Read this before dispatching to decide WHO should take a task — a card's skills say what that agent is for.",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      entrypoint,
+    },
+    {
       name: "ask_question",
       description:
         "Ask the user structured questions and wait for answers. Each question needs a string id and question text, a kind of select (with options) or text (free input). Returns {answers:[{id,selectedValues,freeText}]}. Blocks until the user answers in the product UI.",

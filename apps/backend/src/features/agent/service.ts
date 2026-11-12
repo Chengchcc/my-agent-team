@@ -74,6 +74,8 @@ export function createAgentService(opts: {
         permissionMode: input.permissionMode,
         mcpServers: input.mcpServers,
         knowledgePacks: input.knowledgePacks,
+        description: input.description,
+        skills: input.skills,
         lark: input.lark
           ? {
               enabled: input.lark.enabled,
@@ -129,6 +131,8 @@ export function createAgentService(opts: {
         mcpServers: input.mcpServers,
         knowledgePacks: input.knowledgePacks,
         projects: input.projects,
+        description: input.description,
+        skills: input.skills,
         lark: input.lark
           ? {
               enabled: input.lark.enabled,

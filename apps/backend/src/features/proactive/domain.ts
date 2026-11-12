@@ -24,14 +24,45 @@ export interface ProactiveEvent {
   agentId: string;
   conversationId: string;
   ruleId: string;
-  /** What the rule said: record | act. */
-  mode: "record" | "act";
-  /** What the system did: recorded | triggered. */
-  outcome: "recorded" | "triggered";
+  /** What decided: a rule's mode, or `assessment` (ADR 0048 semantic net). */
+  mode: "record" | "act" | "assessment";
+  /** What the system did. `error` = the assessment itself failed — the
+   *  observability for "why didn't it fire". */
+  outcome: "recorded" | "triggered" | "error";
   chatId: string | null;
   senderMemberId: string | null;
   /** First ~200 chars of the observed message text. */
   snippet: string;
+}
+
+/** One agent's capability card as the assessment and team_list read it. */
+export interface AgentCard {
+  id: string;
+  name: string;
+  description: string;
+  skills: string[];
+}
+
+/** The semantic assessment's parsed verdict (ADR 0048). */
+export interface AssessmentResult {
+  accept: boolean;
+  /** Chosen target when accept=true; null/absent = the conversation's own. */
+  agent: string | null;
+  reason: string;
+  /** Task framing for the worker; quotes the original per ADR 0047. */
+  instruction: string;
+}
+
+/** The task framing an accepted assessment promotes with (ADR 0048). Same
+ *  contract as frameAmbientInput: instruction + the verbatim original. */
+export function frameAssessmentInput(instruction: string, text: string, sender: string): string {
+  return [
+    "（语义研判命中，这条群消息被升格为任务）",
+    instruction,
+    "",
+    `触发消息原文（来自 ${sender}）：`,
+    text,
+  ].join("\n");
 }
 
 const LARK_MEMBER_PREFIX = "human:lark:";

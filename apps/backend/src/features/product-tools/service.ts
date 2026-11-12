@@ -178,6 +178,11 @@ export interface ProductToolsServiceDeps {
     instruction: string;
     note?: string;
   }) => Promise<{ agentId: string; runId: string; inputId: string; queued: boolean }>;
+  /** ADR 0048: the team roster with capability cards (team_list). Absent =
+   *  the tool rejects explicitly. */
+  listTeam?: () => Promise<
+    Array<{ id: string; name: string; description: string; skills: string[] }>
+  >;
   /** Emit the plan strip when todo_write replaces the run's list. Both the
    *  web panel and the Lark card render from this event; the run's snapshot
    *  row is the durable copy, this is the live one. */
@@ -662,6 +667,15 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: JSON.stringify(answer) };
   }
 
+  /** ADR 0048 team_list: read-only roster with capability cards — the
+   *  discovery surface a dispatching agent reads to pick a worker. */
+  async function teamList(): Promise<ProductToolCallResult> {
+    if (!deps.listTeam) {
+      throw new ProductToolRejectedError("team_list is not available in this deployment");
+    }
+    const team = await deps.listTeam();
+    return { content: JSON.stringify({ team }) };
+  }
   return {
     async call(input) {
       if (input.signal?.aborted) {
@@ -705,6 +719,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return remindMe(run, input);
         case "dispatch":
           return dispatchWork(run, input);
+        case "team_list":
+          return teamList();
         case "reminder_list":
           return reminderList(run, input);
         case "reminder_cancel":
