@@ -321,11 +321,21 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       harness: seed.harness,
       ...(seed.model ? { model: seed.model } : {}),
       permissionMode: "auto",
+      // ADR 0048/0050: the capability card is what team_list and the
+      // semantic assessment read — seed it non-empty.
+      description: "Product guide — knows this system's architecture, workflows and guides",
+      skills: [{ id: "onboarding" }, { id: "architecture" }, { id: "troubleshooting" }],
       ...(packs.length > 0 ? { knowledgePacks: packs } : {}),
     });
   }
 
-  async function ensureAgent(id: string, name: string, harness: string, model?: string) {
+  async function ensureAgent(
+    id: string,
+    name: string,
+    harness: string,
+    model?: string,
+    description?: string,
+  ) {
     try {
       await agentSvc.getById(id);
     } catch {
@@ -335,6 +345,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         harness,
         ...(model ? { model } : {}),
         permissionMode: "auto",
+        ...(description ? { description } : {}),
       });
     }
   }
@@ -2193,7 +2204,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // workspace reconcile (no skills links, no .mcp.json).
   {
     const seed = await defaultSeedModel();
-    await ensureAgent("default", "Assistant", seed.harness, seed.model);
+    await ensureAgent(
+      "default",
+      "Assistant",
+      seed.harness,
+      seed.model,
+      "General-purpose assistant — handles any task when no specialist fits",
+    );
     await ensureGuideAgent(seed);
   }
 
