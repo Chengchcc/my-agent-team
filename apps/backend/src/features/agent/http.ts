@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join as pathJoin, resolve as pathResolve, sep } from "node:path";
 import { Elysia, t } from "elysia";
+import { ZodError } from "zod";
 import { probeCliSetupCapability } from "../lark-bot/provisioner.js";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
@@ -38,6 +39,18 @@ const AmbientRuleBody = t.Object({
   instruction: t.Optional(t.String()),
 });
 
+/** Config writes (create/update) parse through agentConfigSchema; a ZodError
+ *  there is an operator mistake (e.g. ADR 0049 worker+lark), not a 500. */
+function configError(err: unknown): Response {
+  if (err instanceof ZodError) {
+    const first = err.issues[0];
+    return Response.json(
+      { error: first ? `${first.path.join(".")}: ${first.message}` : "invalid agent config" },
+      { status: 400 },
+    );
+  }
+  throw err;
+}
 // ── Response types (inferred by Elysia from handler return values) ──
 
 function toAgentResponse(row: AgentRow, status: string) {
@@ -174,9 +187,13 @@ export function agentRoutes(
             return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
           }
         }
-        const row = await svc.create(body);
-        set.status = 201;
-        return toAgentResponse(row, statusOf(row));
+        try {
+          const row = await svc.create(body);
+          set.status = 201;
+          return toAgentResponse(row, statusOf(row));
+        } catch (err) {
+          return configError(err);
+        }
       },
       {
         body: t.Object({
@@ -296,7 +313,7 @@ export function agentRoutes(
         } catch (err) {
           if (err instanceof AgentNotFoundError)
             return Response.json({ error: err.message }, { status: 404 });
-          throw err;
+          return configError(err);
         }
       },
       {

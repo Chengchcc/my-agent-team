@@ -41,6 +41,7 @@
 - **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
 - **研判的持久候选**：在途研判重启即丢（dsh 持久化候选队列）；真需要时按 Effects 模式补一张队列表。跨群去重（同一事件两个群各派一次）与按线程批评估也在此列。
 - **池化调度与回交**：dispatch 点名具体 agent，不判空闲；工人无 handback 通道（超范围请求按普通成员消息处理）。
+- **工人在 Web 聊天面的隐藏**：agents DTO 已带 `role`；Web 成员面板/composer 按角色过滤（人看不到工人）是渲染层工作。
 
 ## Workflow
 

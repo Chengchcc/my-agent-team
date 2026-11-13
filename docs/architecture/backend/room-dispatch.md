@@ -73,3 +73,5 @@ agent 配置可声明 `role: "worker"`（缺省 = 前台语义）。此后：
 - `POST /api/conversations` 绑 worker 直接 400（worker 拥有的会话是死房间：人工输入全被重路由回 worker 自己）。
 
 不变量：worker 的 run 授权依据永远不可能是 `user`。
+
+补充（2026-11-13）：**worker 与 lark 互斥**——`role: worker` 且 `lark.enabled` 在 agentConfigSchema 层拒绝（API 建/改、agent.yml、启动三条路同一个 400/解析错）；已启用 lark 的 agent 翻成 worker 同样拒绝。工人从产品结构上就没有脸。

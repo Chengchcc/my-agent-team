@@ -450,3 +450,40 @@ describe("role round-trip (ADR 0049)", () => {
     expect(buildAgentConfig({ id: "b", name: "B", harness: "oma" }).role).toBeUndefined();
   });
 });
+
+describe("worker + lark mutex (ADR 0049)", () => {
+  test("a worker with lark enabled fails the schema, at every path", () => {
+    const base = cfg("w1", "W1");
+    const larkOn = { ...base, role: "worker" as const, lark: { ...base.lark, enabled: true } };
+    expect(() => agentConfigSchema.parse(larkOn)).toThrow(/no front surface/);
+
+    // buildAgentConfig merges lark from prev: flipping an ENABLED agent to
+    // worker is the same violation.
+    const front = buildAgentConfig({
+      id: "w2",
+      name: "W2",
+      harness: "oma",
+      lark: { enabled: true, appId: "a" },
+    });
+    expect(() =>
+      buildAgentConfig({ id: "w2", name: "W2", harness: "oma", prev: front, role: "worker" }),
+    ).toThrow(/no front surface/);
+
+    // serializeAgentYaml of a worker never carries enabled lark (parse of a
+    // hand-edited yaml is guarded by the same refine).
+    const worker = buildAgentConfig({ id: "w3", name: "W3", harness: "oma", role: "worker" });
+    expect(worker.lark.enabled).toBe(false);
+    expect(serializeAgentYaml(worker)).toContain("  enabled: false");
+  });
+
+  test("a front agent with lark, and a worker without lark, both parse", () => {
+    const front = buildAgentConfig({
+      id: "f1",
+      name: "F1",
+      harness: "oma",
+      lark: { enabled: true, appId: "a" },
+    });
+    expect(front.lark.enabled).toBe(true);
+    expect(() => agentConfigSchema.parse(JSON.parse(JSON.stringify(front)))).not.toThrow();
+  });
+});

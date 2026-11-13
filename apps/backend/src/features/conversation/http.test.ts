@@ -141,6 +141,30 @@ describe("conversation routes", () => {
     expect(ok.status).toBe(201);
   });
 
+  test("ADR 0049: a worker cannot enable lark — the schema refuses at the API", async () => {
+    // Creating a worker with lark enabled: 400, not a 500.
+    const made = await api(harness, "POST", "/api/agents", {
+      name: "worker-no-lark",
+      harness: "oma",
+      role: "worker",
+      lark: { enabled: true, appId: "cli_x", appSecret: "s" },
+    });
+    expect(made.status).toBe(400);
+    expect(((await made.json()) as { error: string }).error).toContain("no front surface");
+
+    // Flipping an existing lark-enabled agent to worker: same refusal.
+    const front = await api(harness, "POST", "/api/agents", {
+      name: "front-has-lark",
+      harness: "oma",
+      lark: { enabled: true, appId: "cli_y", appSecret: "s" },
+    });
+    expect(front.status).toBe(201);
+    const agentId = ((await front.json()) as { id: string }).id;
+    const flipped = await api(harness, "PATCH", `/api/agents/${agentId}`, { role: "worker" });
+    expect(flipped.status).toBe(400);
+    expect(((await flipped.json()) as { error: string }).error).toContain("no front surface");
+  });
+
   test("messages append to the ledger and search/export see them", async () => {
     await createConversation("c-msg");
     const posted = await api(harness, "POST", `${BASE}/c-msg/messages`, {
