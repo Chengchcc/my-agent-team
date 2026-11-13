@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Bot, Boxes, Link2, Plug, Power } from "lucide-react";
+import { AlertCircle, Bot, Boxes, Plug, Power, Wrench } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Page, PageBody, PageHeader } from "@/components/page";
@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useAgentList } from "@/features/agents/hooks";
 import { useKnowledgePacks } from "@/features/knowledge/hooks";
 import { useMcpCatalog } from "@/features/mcp/hooks";
-import { useAgentRuns } from "@/features/ops/hooks";
+import type { AgentRow } from "@/lib/api";
 
 /** Runtime → left-edge strip / avatar / chip color (design: oma cyan, claude
  * violet, omp emerald, pi red, others faint). */
@@ -42,7 +42,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ id: StatusFilter; label: string }> = [
 
 export default function TeamPage() {
   const { data: agents, isLoading } = useAgentList();
-  const { data: runs } = useAgentRuns();
   const { data: mcpData } = useMcpCatalog();
   const { data: knowledgeData } = useKnowledgePacks();
   const [runtimeFilter, setRuntimeFilter] = useState<string>("all");
@@ -77,12 +76,6 @@ export default function TeamPage() {
   const attentionCount =
     unassignedMcp.length + unassignedKnowledge.length + agentsWithoutProjects.length;
 
-  const activeRunAgents = new Set(
-    (runs?.runs ?? [])
-      .filter((r) => ["running", "waiting", "commit_failed"].includes(r.status))
-      .map((r) => r.agentId),
-  );
-
   const visible = active.filter((a) => {
     if (runtimeFilter !== "all" && a.harness !== runtimeFilter) return false;
     if (statusFilter === "enabled" && a.enabled === false) return false;
@@ -90,6 +83,10 @@ export default function TeamPage() {
     if (query && !a.name.toLowerCase().includes(query.toLowerCase())) return false;
     return true;
   });
+  // ADR 0050: the team is a front desk + workers, not a flat roster. Fronts
+  // are who humans talk to; workers only receive dispatched work.
+  const fronts = visible.filter((a) => a.role !== "worker");
+  const workers = visible.filter((a) => a.role === "worker");
 
   return (
     <Page>
@@ -248,103 +245,36 @@ export default function TeamPage() {
         ) : visible.length === 0 ? (
           <EmptyState icon={Bot} title="No match" description="Adjust the filters above." />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {visible.map((a) => {
-              const color = runtimeColor(a.harness);
-              const mcpCount = a.mcpServers?.filter((s) => s.enabled).length ?? 0;
-              const knowledgeCount = a.knowledgePacks?.length ?? 0;
-              const isDisabled = a.enabled === false;
-              return (
-                <Link
-                  key={a.id}
-                  href={`/team/${a.id}`}
-                  className="relative overflow-hidden rounded-lg border border-(--hairline) bg-(--panel) p-4 transition-colors hover:bg-(--canvas-soft)"
-                >
-                  <span
-                    className="absolute top-0 left-0 h-full w-1"
-                    style={{ backgroundColor: color }}
-                  />
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span
-                        className="flex size-9 shrink-0 items-center justify-center rounded bg-(--panel2) font-display text-sm font-semibold"
-                        style={{ color }}
-                      >
-                        {initialsOf(a.name)}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate font-display text-sm font-semibold text-(--ink-strong)">
-                            {a.name}
-                          </span>
-                          <span
-                            className="shrink-0 rounded bg-(--panel2) px-1.5 py-0.5 font-mono text-[10px] font-medium"
-                            style={{ color }}
-                          >
-                            {a.harness}
-                          </span>
-                        </div>
-                        <span className="block truncate font-mono text-[10px] text-(--mute)">
-                          {a.id}
-                        </span>
-                      </div>
-                    </div>
-                    <StatusPill
-                      tone={isDisabled ? "idle" : activeRunAgents.has(a.id) ? "running" : "success"}
-                      className="shrink-0"
-                    >
-                      {isDisabled ? "idle" : activeRunAgents.has(a.id) ? "running" : "enabled"}
-                    </StatusPill>
-                  </div>
-
-                  <dl className="mt-3 space-y-1 rounded bg-(--canvas) p-2.5 font-mono text-[11px]">
-                    <div className="flex items-center justify-between gap-2">
-                      <dt className="text-(--mute)">Model:</dt>
-                      <dd className="truncate font-medium text-(--ink)">
-                        {a.model || "harness default"}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <dt className="text-(--mute)">Runtime:</dt>
-                      <dd className="font-medium" style={{ color }}>
-                        {a.harness}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <dt className="text-(--mute)">Bindings:</dt>
-                      <dd className="font-medium text-(--ink)">
-                        {mcpCount} mcp · {knowledgeCount} knowledge
-                      </dd>
-                    </div>
-                  </dl>
-
-                  {(a.projects?.length ?? 0) > 0 && (
-                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                      <MonoLabel className="text-(--faint)">Bound context:</MonoLabel>
-                      {a.projects?.slice(0, 3).map((p) => (
-                        <span
-                          key={p}
-                          className="rounded bg-(--canvas-soft) px-1.5 py-0.5 font-mono text-[10px] text-(--accent-violet)"
-                        >
-                          {p}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="mt-3 flex items-center justify-between border-t border-(--hairline) pt-2">
-                    <span className="flex items-center gap-1.5 font-mono text-[10px] text-(--mute)">
-                      <Link2 className="size-3 text-(--ok)" />
-                      {a.projects?.length ?? 0} projects
-                    </span>
-                    <span className="font-mono text-[10px] text-(--faint)">
-                      {a.id.slice(0, 10)}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+          <>
+            {fronts.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-(--mute)">
+                  <Bot className="size-3.5 text-(--primary)" />
+                  Front desk
+                  <span className="font-mono text-[10px] text-(--faint)">{fronts.length}</span>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {fronts.map((a) => (
+                    <AgentCard key={a.id} agent={a} isWorker={false} />
+                  ))}
+                </div>
+              </section>
+            )}
+            {workers.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-(--mute)">
+                  <Wrench className="size-3.5 text-(--ok)" />
+                  Workers — dispatched only
+                  <span className="font-mono text-[10px] text-(--faint)">{workers.length}</span>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {workers.map((a) => (
+                    <AgentCard key={a.id} agent={a} isWorker />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
         )}
 
         <div className="flex items-center gap-2 text-xs text-(--faint)">
@@ -353,5 +283,98 @@ export default function TeamPage() {
         </div>
       </PageBody>
     </Page>
+  );
+}
+
+/** ADR 0050: role-aware agent card. Fronts show model + harness; workers show
+ * their capability card (skills chips) — the metadata dispatch reads. */
+function AgentCard({ agent: a, isWorker }: { agent: AgentRow; isWorker: boolean }) {
+  const color = runtimeColor(a.harness);
+  const isDisabled = a.enabled === false;
+  return (
+    <Link
+      href={`/team/${a.id}`}
+      className="relative overflow-hidden rounded-lg border border-(--hairline) bg-(--panel) p-4 transition-colors hover:bg-(--canvas-soft)"
+    >
+      <span
+        className="absolute top-0 left-0 h-full w-1"
+        style={{ backgroundColor: isWorker ? "var(--ok)" : color }}
+      />
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded bg-(--panel2) font-display text-sm font-semibold"
+            style={{ color: isWorker ? "var(--ok)" : color }}
+          >
+            {initialsOf(a.name)}
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate font-display text-sm font-semibold text-(--ink-strong)">
+                {a.name}
+              </span>
+              {isWorker ? (
+                <span className="flex shrink-0 items-center gap-0.5 rounded bg-(--panel2) px-1.5 py-0.5 font-mono text-[10px] font-medium text-(--ok)">
+                  <Wrench className="size-2.5" /> worker
+                </span>
+              ) : (
+                <span
+                  className="shrink-0 rounded bg-(--panel2) px-1.5 py-0.5 font-mono text-[10px] font-medium"
+                  style={{ color }}
+                >
+                  {a.harness}
+                </span>
+              )}
+            </div>
+            <span className="block truncate font-mono text-[10px] text-(--mute)">{a.id}</span>
+          </div>
+        </div>
+        <StatusPill tone={isDisabled ? "idle" : "success"} className="shrink-0">
+          {isDisabled ? "idle" : "ready"}
+        </StatusPill>
+      </div>
+
+      {isWorker && (a.skills?.length ?? 0) > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {a.skills?.slice(0, 4).map((s) => (
+            <span
+              key={s.id}
+              className="rounded bg-(--canvas-soft) px-1.5 py-0.5 font-mono text-[10px] text-(--ok)"
+              title={s.description}
+            >
+              {s.id}
+            </span>
+          ))}
+          {(a.skills?.length ?? 0) > 4 && (
+            <span className="font-mono text-[10px] text-(--faint)">
+              +{(a.skills?.length ?? 0) - 4}
+            </span>
+          )}
+        </div>
+      )}
+
+      {!isWorker && (
+        <dl className="mt-3 space-y-1 rounded bg-(--canvas) p-2.5 font-mono text-[11px]">
+          <div className="flex items-center justify-between gap-2">
+            <dt className="text-(--mute)">Model:</dt>
+            <dd className="truncate font-medium text-(--ink)">{a.model || "harness default"}</dd>
+          </div>
+        </dl>
+      )}
+
+      {(a.projects?.length ?? 0) > 0 && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <MonoLabel className="text-(--faint)">Bound context:</MonoLabel>
+          {a.projects?.slice(0, 3).map((p) => (
+            <span
+              key={p}
+              className="rounded bg-(--canvas-soft) px-1.5 py-0.5 font-mono text-[10px] text-(--accent-violet)"
+            >
+              {p}
+            </span>
+          ))}
+        </div>
+      )}
+    </Link>
   );
 }

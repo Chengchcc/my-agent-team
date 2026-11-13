@@ -15,6 +15,14 @@ export const agentFormSchema = z.object({
   workspacePath: z.string().trim().default(""),
   enableLark: z.boolean().default(false),
   botDisplayName: z.string().trim().default(""),
+  /** ADR 0049/0050: "worker" hides lark and makes the capability card the
+   *  primary identity; absent/"front" = front-capable (humans may talk). */
+  role: z.enum(["front", "worker"]).default("front"),
+  /** ADR 0048 capability card — what dispatch decisions read. */
+  description: z.string().trim().default(""),
+  skills: z
+    .array(z.object({ id: z.string().trim().min(1), description: z.string().default("") }))
+    .default([]),
 });
 
 export type AgentFormValues = z.infer<typeof agentFormSchema>;

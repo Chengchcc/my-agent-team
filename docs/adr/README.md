@@ -74,3 +74,4 @@
 | 0047 | room-dispatch(房间内派单：dispatch 产品工具 + 授权依据入 Run 快照 + 环境规则指派目标，领班/工人第一刀) | **Implemented**（迁移 0059、排队晋升保真、变异验证四钉；模型研判与池化调度在 roadmap） |
 | 0048 | semantic-assessment(语义研判与能力卡：观察缝模型研判 observe/auto、agent skills、team_list，主动脊柱第三刀) | **Implemented**（异步研判不阻塞 POST、失败退 error 事件、拒绝不记账；A2A 语义对齐表见正文） |
 | 0049 | front-desk-invariant(前台不变量：人工输入永不直接命令工人，worker 角色重路由到会话前台) | **Implemented**（判据=授权依据 user；创建守卫拒 worker 绑会话；服务端依据直达工人不受影响；2026-11-13 补充：worker 与 lark 互斥在 schema 层拒绝、ZodError→400） |
+| 0050 | web-topology-presentation(Web 端的前台/工人呈现：分区团队页、角色感知卡片与表单、人面选择器过滤工人) | **Implemented**（纯渲染层，零后端改动——DTO 已带 role/skills/description） |
