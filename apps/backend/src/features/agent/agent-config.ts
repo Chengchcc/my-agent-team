@@ -83,112 +83,125 @@ function upgradeLegacyRuntimeConfig(value: unknown): unknown {
   };
 }
 
-export const agentConfigSchema = z.object({
-  schema_version: z.literal("1"),
-  enabled: z.boolean(),
-  id: z.string().min(1),
-  name: z.string().min(1),
-  title: z.string(),
-  description: z.string(),
-  /** ADR 0048 capability card, AgentCard-shaped (A2A v1.0 skills): what a
-   *  router reads when deciding whether to send work to THIS agent. Feeds
-   *  team_list and the observe-seam assessment. */
-  skills: z
-    .array(z.object({ id: z.string().min(1), description: z.string().default("") }))
-    .default([]),
-  /** ADR 0049: "worker" = only the product dispatches to this agent (front
-   *  desk invariant — human input is rerouted to the conversation's front);
-   * absent = front-capable, today's behaviour. */
-  role: z.enum(["front", "worker"]).optional(),
-  runtime_config: z.preprocess(
-    upgradeLegacyRuntimeConfig,
-    z.object({
-      /** Which harness runs this agent: a key of the ACP registry
-       *  (oma | omp | claude | pi). The adapter is no longer named here - one
-       *  adapter drives every harness (ADR 0040 decision 7). */
-      harness: z.string().min(1),
-      /** The model that harness runs, in the harness's own vocabulary.
-       *  "" = the harness's own default. */
-      model: z.string().default(""),
-      reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
-      permission_mode: z.enum(["ask", "auto", "deny", "yolo"]),
-      deny_write_paths: z.array(z.string()).default([]),
-      deny_commands: z.array(z.string()).default([]),
-      allow_write_paths: z.array(z.string()).default([]),
-      max_steps: z.number().int().nonnegative(),
-      /** Per-agent resource switches (ADR 0022, file-first). */
-      mcp_servers: z
-        .array(z.object({ server_id: z.string().min(1), enabled: z.boolean() }))
-        .default([]),
-      knowledge_packs: z.array(z.string()).default([]),
-      /** Attached projects (ADR 0023): each materializes a worktree. */
-      projects: z.array(z.string().min(1)).default([]),
-    }),
-  ),
-  lark: z
-    .object({
-      enabled: z.boolean(),
-      app_id: z.string(),
-      bot_display_name: z.string(),
-      /** DM sender allowlist (open_id). Semantics follow openclaw's model:
-       *  an EMPTY list denies everyone and `"*"` grants everyone — the
-       *  permissive case is named instead of implied by emptiness, because
-       *  "nobody" and "everybody" used to look identical here. */
-      allowed_senders: z.array(z.string().min(1)).default([]),
-      /** Group admission default, for chats with no `groups` entry:
-       *  `open` = every group, `allowlist` = the allowlist below,
-       *  `disabled` = only chats already in use (see the lark-bot policy).
-       *  Absent = `disabled`. */
-      group_policy: z.enum(["open", "allowlist", "disabled"]).optional(),
-      /** Per-chat overrides, keyed by Lark chat id (`oc_…`). An entry is
-       *  also what admits a chat: a group with no entry and no existing
-       *  conversation is not answered. */
-      groups: z
-        .record(
-          z.string().min(1),
-          z.object({
-            policy: z.enum(["open", "allowlist", "disabled"]).optional(),
-            allowed_senders: z.array(z.string().min(1)).optional(),
-            /** Per-chat mention requirement. Absent = the agent's setting,
-             *  then the policy default (an `open` chat does not need an @). */
-            require_mention: z.boolean().optional(),
-          }),
-        )
-        .default({}),
-      /** Require a real @mention in groups (openclaw's `requireMention`,
-       *  default true). */
-      require_mention: z.boolean().default(true),
-      /** Whether an `@everyone` counts as addressing the bot. Off by
-       *  default: an @all is not a request to this agent. */
-      respond_to_mention_all: z.boolean().default(false),
-      /** ADR 0046: ambient rules promote OBSERVED (unaddressed) group
-       *  messages into work. Evaluated by the backend at the observe seam
-       *  (conversation postMessage), never by the bot. */
-      ambient: z.object({ rules: z.array(ambientRuleSchema).default([]) }).default({ rules: [] }),
-      /** Marks which semantics the stored allowlist was written under.
-       *  Revision 1 meant "empty list = everyone"; revision 2 (current)
-       *  means "empty list = nobody". The transform below upgrades rev-1
-       *  configs so an existing install keeps answering, instead of going
-       *  silent on upgrade. */
-      // Absent means "written before this semantics existed" — NOT rev 2.
-      // Defaulting to 2 here silently disabled the migration for every real
-      // legacy config (they have no such key), which would have read an
-      // empty list as "deny everyone" and locked the operator out.
-      policy_rev: z.number().int().default(1),
-      /** Server-generated (Lark profile init); backend writes it back. */
-      profile_ref: z.string(),
-    })
-    .transform((lk) => {
-      if (lk.policy_rev >= 2) return lk;
-      return {
-        ...lk,
-        // Rev 1 wrote `[]` for "no restriction"; carry that intent forward
-        // as the explicit wildcard rather than as an empty (now denying) list.
-        allowed_senders: lk.allowed_senders.length === 0 ? ["*"] : lk.allowed_senders,
-        policy_rev: 2,
-      };
-    }),
-});
+export const agentConfigSchema = z
+  .object({
+    schema_version: z.literal("1"),
+    enabled: z.boolean(),
+    id: z.string().min(1),
+    name: z.string().min(1),
+    title: z.string(),
+    description: z.string(),
+    /** ADR 0048 capability card, AgentCard-shaped (A2A v1.0 skills): what a
+     *  router reads when deciding whether to send work to THIS agent. Feeds
+     *  team_list and the observe-seam assessment. */
+    skills: z
+      .array(z.object({ id: z.string().min(1), description: z.string().default("") }))
+      .default([]),
+    /** ADR 0049: "worker" = only the product dispatches to this agent (front
+     *  desk invariant — human input is rerouted to the conversation's front);
+     * absent = front-capable, today's behaviour. */
+    role: z.enum(["front", "worker"]).optional(),
+    runtime_config: z.preprocess(
+      upgradeLegacyRuntimeConfig,
+      z.object({
+        /** Which harness runs this agent: a key of the ACP registry
+         *  (oma | omp | claude | pi). The adapter is no longer named here - one
+         *  adapter drives every harness (ADR 0040 decision 7). */
+        harness: z.string().min(1),
+        /** The model that harness runs, in the harness's own vocabulary.
+         *  "" = the harness's own default. */
+        model: z.string().default(""),
+        reasoning_effort: z.union([z.enum(["none", "low", "high", "max"]), z.literal("")]),
+        permission_mode: z.enum(["ask", "auto", "deny", "yolo"]),
+        deny_write_paths: z.array(z.string()).default([]),
+        deny_commands: z.array(z.string()).default([]),
+        allow_write_paths: z.array(z.string()).default([]),
+        max_steps: z.number().int().nonnegative(),
+        /** Per-agent resource switches (ADR 0022, file-first). */
+        mcp_servers: z
+          .array(z.object({ server_id: z.string().min(1), enabled: z.boolean() }))
+          .default([]),
+        knowledge_packs: z.array(z.string()).default([]),
+        /** Attached projects (ADR 0023): each materializes a worktree. */
+        projects: z.array(z.string().min(1)).default([]),
+      }),
+    ),
+    lark: z
+      .object({
+        enabled: z.boolean(),
+        app_id: z.string(),
+        bot_display_name: z.string(),
+        /** DM sender allowlist (open_id). Semantics follow openclaw's model:
+         *  an EMPTY list denies everyone and `"*"` grants everyone — the
+         *  permissive case is named instead of implied by emptiness, because
+         *  "nobody" and "everybody" used to look identical here. */
+        allowed_senders: z.array(z.string().min(1)).default([]),
+        /** Group admission default, for chats with no `groups` entry:
+         *  `open` = every group, `allowlist` = the allowlist below,
+         *  `disabled` = only chats already in use (see the lark-bot policy).
+         *  Absent = `disabled`. */
+        group_policy: z.enum(["open", "allowlist", "disabled"]).optional(),
+        /** Per-chat overrides, keyed by Lark chat id (`oc_…`). An entry is
+         *  also what admits a chat: a group with no entry and no existing
+         *  conversation is not answered. */
+        groups: z
+          .record(
+            z.string().min(1),
+            z.object({
+              policy: z.enum(["open", "allowlist", "disabled"]).optional(),
+              allowed_senders: z.array(z.string().min(1)).optional(),
+              /** Per-chat mention requirement. Absent = the agent's setting,
+               *  then the policy default (an `open` chat does not need an @). */
+              require_mention: z.boolean().optional(),
+            }),
+          )
+          .default({}),
+        /** Require a real @mention in groups (openclaw's `requireMention`,
+         *  default true). */
+        require_mention: z.boolean().default(true),
+        /** Whether an `@everyone` counts as addressing the bot. Off by
+         *  default: an @all is not a request to this agent. */
+        respond_to_mention_all: z.boolean().default(false),
+        /** ADR 0046: ambient rules promote OBSERVED (unaddressed) group
+         *  messages into work. Evaluated by the backend at the observe seam
+         *  (conversation postMessage), never by the bot. */
+        ambient: z.object({ rules: z.array(ambientRuleSchema).default([]) }).default({ rules: [] }),
+        /** Marks which semantics the stored allowlist was written under.
+         *  Revision 1 meant "empty list = everyone"; revision 2 (current)
+         *  means "empty list = nobody". The transform below upgrades rev-1
+         *  configs so an existing install keeps answering, instead of going
+         *  silent on upgrade. */
+        // Absent means "written before this semantics existed" — NOT rev 2.
+        // Defaulting to 2 here silently disabled the migration for every real
+        // legacy config (they have no such key), which would have read an
+        // empty list as "deny everyone" and locked the operator out.
+        policy_rev: z.number().int().default(1),
+        /** Server-generated (Lark profile init); backend writes it back. */
+        profile_ref: z.string(),
+      })
+      .transform((lk) => {
+        if (lk.policy_rev >= 2) return lk;
+        return {
+          ...lk,
+          // Rev 1 wrote `[]` for "no restriction"; carry that intent forward
+          // as the explicit wildcard rather than as an empty (now denying) list.
+          allowed_senders: lk.allowed_senders.length === 0 ? ["*"] : lk.allowed_senders,
+          policy_rev: 2,
+        };
+      }),
+  })
+  // ADR 0049: a worker has no front surface — binding lark would give it a
+  // face humans could talk to directly, the exact edge the invariant cuts.
+  // At the schema so API, agent.yml and boot all reject it identically.
+  .superRefine((cfg, ctx) => {
+    if (cfg.role === "worker" && cfg.lark.enabled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["lark", "enabled"],
+        message: "a worker agent has no front surface: lark cannot be enabled (ADR 0049)",
+      });
+    }
+  });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
