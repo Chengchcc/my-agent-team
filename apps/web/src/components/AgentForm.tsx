@@ -83,10 +83,15 @@ export function AgentForm({
       workspacePath: editAgent?.workspacePath ?? "",
       enableLark: editAgent?.lark?.enabled ?? false,
       botDisplayName: editAgent?.lark?.botDisplayName ?? "",
+      role: editAgent?.role === "worker" ? "worker" : "front",
+      description: editAgent?.description ?? "",
+      skills: editAgent?.skills ?? [],
     },
   });
 
   const enableLark = useWatch({ control: form.control, name: "enableLark" });
+  const roleValue = useWatch({ control: form.control, name: "role" });
+  const isWorker = roleValue === "worker";
   // The chosen harness declares the models it can run; a harness the probe could
   // not reach still renders, with its reason under the field.
   const harnessValue = useWatch({ control: form.control, name: "harness" });
@@ -110,6 +115,9 @@ export function AgentForm({
         workspacePath: editAgent.workspacePath ?? "",
         enableLark: editAgent.lark?.enabled ?? false,
         botDisplayName: editAgent.lark?.botDisplayName ?? "",
+        role: editAgent.role === "worker" ? "worker" : "front",
+        description: editAgent.description ?? "",
+        skills: editAgent.skills ?? [],
       });
       setSelectedMcpIds(
         (editAgent.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId),
@@ -129,6 +137,9 @@ export function AgentForm({
       workspacePath: "",
       enableLark: false,
       botDisplayName: "",
+      role: "front",
+      description: "",
+      skills: [],
     });
     setSelectedMcpIds((draft.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId));
     setSelectedKnowledgeIds(draft.knowledgePacks ?? []);
@@ -177,6 +188,9 @@ export function AgentForm({
       mcpServers: selectedMcpBody(),
       knowledgePacks: [...new Set(selectedKnowledgeIds)],
       reasoningEffort: values.reasoningEffort || null,
+      role: values.role,
+      description: values.description || undefined,
+      skills: values.skills.length > 0 ? values.skills : undefined,
     };
     if (values.enableLark)
       body.lark = {
@@ -480,13 +494,100 @@ export function AgentForm({
                     )}
                   />
                 </div>
+                {/* ADR 0050: capability card — role, description, skills.
+                    Workers: this IS their identity (no lark face). */}
+                <div className="space-y-4 rounded-lg border border-(--hairline) bg-(--panel2) p-4">
+                  <div className="text-xs font-semibold text-(--ink-strong)">Capability card</div>
+                  <p className="text-[0.7rem] text-(--mute)">
+                    {isWorker
+                      ? "A worker has no lark face — this card is how dispatch decisions find it."
+                      : "What this agent does; also read by semantic assessment for routing."}
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="role"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Role</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="front">
+                              Front — humans talk to it (may bind lark)
+                            </SelectItem>
+                            <SelectItem value="worker">
+                              Worker — dispatched only, no direct human contact
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={
+                              isWorker ? "e.g. fixes frontend bugs" : "e.g. team lead, routes work"
+                            }
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="skills"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Skills</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="e.g. react, css, a11y"
+                            value={field.value.map((s) => s.id).join(", ")}
+                            onChange={(e) => {
+                              const ids = e.target.value
+                                .split(/[,，]/)
+                                .map((s) => s.trim())
+                                .filter(Boolean);
+                              const existing = new Map(
+                                field.value.map((s) => [s.id, s.description] as const),
+                              );
+                              field.onChange(
+                                ids.map((id) => ({ id, description: existing.get(id) ?? "" })),
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <p className="text-[0.65rem] text-(--faint)">
+                          Comma-separated; what team_list shows and the assessment reads.
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-                <AgentFormLarkSection
-                  control={form.control}
-                  isEdit={isEdit}
-                  editAgent={editAgent}
-                  enableLark={enableLark}
-                />
+                {/* ADR 0049/0050: workers get no lark face — hidden at the UI too */}
+                {!isWorker && (
+                  <AgentFormLarkSection
+                    control={form.control}
+                    isEdit={isEdit}
+                    editAgent={editAgent}
+                    enableLark={enableLark}
+                  />
+                )}
 
                 <AgentFormResourceSection
                   title="Skills"

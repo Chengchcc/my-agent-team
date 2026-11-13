@@ -50,6 +50,9 @@ export default function ChatOverviewPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const { data: agents } = useAgentList() as { data?: AgentRow[] };
+  // ADR 0049/0050: humans talk to fronts only — workers are backend resources
+  // the product dispatches to; a worker-owned conversation is refused (400).
+  const frontAgents = agents?.filter((a) => a.role !== "worker") ?? agents;
   const { data: projects } = useProjectList();
   const [agentId, setAgentId] = useState("default");
   const [projectId, setProjectId] = useState("");
@@ -59,12 +62,12 @@ export default function ChatOverviewPage() {
   // may be disabled — the select would visually show another option while
   // the state still points at a dead agent. Reset to the first usable one.
   useEffect(() => {
-    if (!agents || agents.length === 0) return;
-    const cur = agents.find((a) => a.id === agentId);
+    if (!frontAgents || frontAgents.length === 0) return;
+    const cur = frontAgents.find((a) => a.id === agentId);
     if (cur && cur.enabled !== false) return;
-    const usable = agents.filter((a) => a.enabled !== false);
-    setAgentId((usable[0] ?? agents[0]!)?.id ?? "default");
-  }, [agents, agentId]);
+    const usable = frontAgents.filter((a) => a.enabled !== false);
+    setAgentId((usable[0] ?? frontAgents[0]!)?.id ?? "default");
+  }, [frontAgents, agentId]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery), 300);
@@ -145,7 +148,7 @@ export default function ChatOverviewPage() {
               className="ml-auto text-xs border border-(--hairline) rounded-md bg-transparent px-2 py-1 text-(--ink-strong)"
               aria-label="Agent"
             >
-              {(agents ?? []).map((a) => (
+              {(frontAgents ?? []).map((a) => (
                 <option key={a.id} value={a.id} disabled={a.enabled === false}>
                   {a.name}
                   {a.enabled === false ? " (disabled)" : ""}

@@ -28,7 +28,9 @@ export function ConversationMembers({ conversationId }: { conversationId: string
   const members = data?.members ?? [];
   const agentRows = agents ?? [];
   const nameOf = (id: string) => agentRows.find((a) => a.id === id)?.name ?? id;
-  const candidates = agentRows.filter((a) => !members.includes(a.id));
+  // ADR 0049/0050: workers join rooms via dispatch only — the human-facing
+  // member picker doesn't offer them.
+  const candidates = agentRows.filter((a) => !members.includes(a.id) && a.role !== "worker");
 
   const invalidate = () =>
     void qc.invalidateQueries({ queryKey: ["conversation-members", conversationId] });
