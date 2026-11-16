@@ -57,9 +57,17 @@ tags: [oma, runtime, context, models]
 { type: "compaction", summary, coversEntryIds, tokensBefore?, retainedEntryIds?, createdAt }
 ```
 
-摘要请求的形状固定在 `compaction-prompt.ts`（可脱离 store 与模型单测）：一条 system 提示（保留决策与理由、当前状态、确切标识符；用会话自己的语言写）+ 一条 user 消息，把转录包在 `<conversation>…</conversation>` 里。转录由 `serializeConversation` 渲染成角色标记的文本：`[user]` / `[assistant]` / `[tool]`，tool_use 渲染成 `[tool_use <name>] <input json>`，tool_result 渲染成 `[tool_result (error)] <content>`。**thinking 不渲染**（`ThinkingBlock` 自己的契约：reasoning 永不当会话文本 ✓）、**图片只留 `[image <mediaType>]` 标记**（不外泄 base64）。包一层 `<conversation>` 是为了让模型知道「这是要读的文档，不是要接着聊的对话」。两套任务提示都带一句 **split-turn 指引**：若转录结束在一轮对话中间，就自行收尾一个 `**Turn Context (split turn):**` 段（omp 为此额外跑第二次摘要再合并，见「已知缺口」）。
+摘要请求的形状固定在 `compaction-prompt.ts`（可脱离 store 与模型单测）：一条 system 提示 + 一条 user 消息，把转录包在 `<conversation>…</conversation>` 里。system 提示要求**固定的六段结构**（`## Goal` / `## Constraints & Preferences` / `## Progress`（含 `### Done`、`### In Progress`、`### Blocked`）/ `## Key Decisions` / `## Next Steps` / `## Critical Context`），外加两条硬规则：**结尾未回答的请求必须逐字保留在 `## Critical Context`**，以及保留确切标识符（路径、命令、错误串、分支/提交号）。转录由 `serializeConversation` 渲染成角色标记的文本：`[user]` / `[assistant]` / `[tool]`，tool_use 渲染成 `[tool_use <name>] <input json>`，tool_result 渲染成 `[tool_result (error)] <content>`。**thinking 不渲染**（`ThinkingBlock` 自己的契约：reasoning 永不当会话文本 ✓）、**图片只留 `[image <mediaType>]` 标记**（不外泄 base64）。包一层 `<conversation>` 是为了让模型知道「这是要读的文档，不是要接着聊的对话」。两套任务提示都带一句 **split-turn 指引**：若转录结束在一轮对话中间，就自行收尾一个 `**Turn Context (split turn):**` 段（omp 为此额外跑第二次摘要再合并，见「已知缺口」）。
 
-摘要**末尾会附一个 `<files>` 段**，由被覆盖区域的 tool 调用推导（`read` → `(Read)`、`write`/`edit` → `(Write)`、两者都碰 → `(RW)`）。它**不交给模型写**：取回摘要后由 `upsertFileOperations` 追加（同时剥掉模型自己写的 `<files>`，那只会是过时的）。清单按**整个被覆盖前缀**扫描（因此是累积的，但不需要在条目上携带任何细节），排序后最多 20 条，超出追加 `[…N files elided…]`。与 omp 的差异：**扁平列表**而非折叠目录树（20 条以内树只能省宽度，而下一轮要的是路径），也不记 `details.readFiles/modifiedFiles`。
+摘要**末尾会附三个机器维护的段**，全部由被覆盖区域的 tool 调用推导、**不交给模型写**（`upsertStateBlocks` 追加时剥掉模型自己写的同名段，那只会是过时的）：
+
+| 段 | 来源 | 上限 |
+|---|---|---|
+| `<files>` | `read` → `(Read)`、`write`/`edit` → `(Write)`、两者都碰 → `(RW)` | 20 条，超出追加 `[…N files elided…]` |
+| `<commands>` | `bash` 的 `command`，去重、单条截 200 字符 | 最近 15 条，超出前置 `[…N earlier…]` |
+| `<qa>` | `ask_question` 的 `questions[].question` 与按 `tool_use_id` 配对的答案 | 最近 10 对 |
+
+三份清单都按**整个被覆盖前缀**扫描，所以它们天然跨多次压缩累积，**不需要在条目上携带任何字段**（ADR 0053）。`<qa>` 是这组里最贵的：人已经答过的问题被再问一次，是这个系统最容易被察觉的失败；超时的问答记成 `(no answer: ask timeout)`，不静默丢弃。与 omp 的差异：**扁平列表**而非折叠目录树（20 条以内树只能省宽度，而下一轮要的是路径），也不记 `details.readFiles/modifiedFiles`（omp 的机读台账在这一层没有消费者，文本段就是它的接口）。
 
 原始 message 条目**不删**；`coversEntryIds` 是**累积**的（重建只认最新一条 compaction，所以覆盖一旦出现缺口，那些条目就会以原文回到模型面前）。
 
@@ -97,8 +105,9 @@ Run 结束时把每条 compaction 追加进 CLI 自己的 session 文件，同�
 - 估算器**已 CJK 感知**（`estimateTextTokens`：CJK 按 1.5 chars/token ✓，注释里写明为什么），且每次调用完成后用 provider 的 `usage` 给**当前上下文**定标（`usageAnchor` ✓）⇒ 偏差只落在「自锚点以来的增量」上。**残余偏差仍是 UNKNOWN，不是「已确认没有」** ✗：2026-10-13 两次真机测量（deepseek）都读错了用量字段（`actual=92`/`8`，明显是输出侧 ✓）⇒ 没拿到 prompt 大小 ✓。要定案只需先打印一次该 chunk 的 usage 形状（一次探针 ✓），再决定要不要按实测比率缩放每条消息的估算。
 - 摘要**只能用本次 Run 自己的模型与凭证**：没有更便宜的专用摘要模型，也没有多候选重试（omp 两者都有），并共用模型调用同款的死线（默认 300s）。
 - 序列化**不做长度截断**：一条超大 tool_result 会整条进摘要输入（omp 对 tool_result 做 head+tail 截断、对 tool_use 参数设单个与单次上限；等真实大工件把摘要撑爆再加，加的位置就是 `serializeConversation`）。
-- `<files>` 只认 `read`/`write`/`edit` 三个工具（omp 同样只认这三个）：MCP 工具改的文件，或在 `bash` 里改的文件，都不会出现在清单里。
-- split-turn 只是**提示词级**的：切点落在轮中间时，由同一份摘要自行收尾一个 `**Turn Context (split turn):**` 段。omp 则为轮前缀额外跑**第二次摘要**再合并 —— 两者覆盖同一批消息，差别只在呈现，所以这里省掉那次调用。代价是：提示词只是「要求」模型这么做，它可以不照做；omp 的两段是结构化保证的。
+- `<files>` 只认 `read`/`write`/`edit` 三个工具（omp 同样只认这三个）：MCP 工具改的文件，或在 `bash` 里改的文件，都不会出现在清单里（后者至少还有 `<commands>` 兜一层）。
+- **后端那条压缩入口对 ACP 会话不生效**（2026-11-16 查明）：`POST /api/conversations/:id/compact` 写 `ProductSummaryEntry`，只有 Context 投影读它；而 ACP 轨每轮 `session/load` 重放，历史在子进程会话文件里，投影只在「没有 `cliSessionRef`」的兜底场景才被渲染进 prompt（`execution-input.ts` 的 `renderHistoryBridge`）。所以长会话的状态保留由**这一页描述的 oma 压缩**负责；那个入口要接线得另开 ADR。
+- split-turn 只是**提示词级**的：切点落在轮中间时，由同一份摘要自行收尾一个 `## Turn Context (split turn)` 段。omp 则为轮前缀额外跑**第二次摘要**再合并 —— 两者覆盖同一批消息，差别只在呈现，所以这里省掉那次调用。代价是：提示词只是「要求」模型这么做，它可以不照做；omp 的两段是结构化保证的。
 - 摘要**与主模型共用同一个模型与输出上限**（`maxTokens`）：2026-10-13 真机（deepseek）实测——把**模型自己的**输出上限压到 64 时，摘要调用被 thinking token 吃光预算、**返回空文本**。**代码救不了这一半**：逐调用的上限不可能越过模型声明的上限（`summaryMaxTokens` 只保证「够写摘要、且永不超过模型」）。已修的是**沉默那一半**：空摘要现在写成 `[empty summary: the model returned no text — check this model's output cap]`，让产物自己说明原因（运行仍然报成功，因为压缩本就是尽力而为）。
 - 摘要转录有**两份实现**：后端的 `renderMessageForSummary`（已在 2026-10-13 修好工具块 ✓）与 oma 的 `serializeConversation`。出现第三个消费者时把两者提到 `@chengchenccc/message` 共用（那时再动包，现在只是一处小重复）。
 - **（2026-10-13 已修，留作教训）** 压缩会改变**哪些 assistant 回合被重发**，而 deepseek 在 thinking 模式下硬性要求带上该回合的 `reasoning_content` —— 真机三次里两次 400。根因**不在压缩**，在**编码器**：`convertMessages` 静默丢弃了 `thinking` 块，请求方向从不发 `reasoning_content`（响应方向却会解析它）。已在编码器按 deepseek 方言补上并加测试。留这一条，是因为**是压缩把它暴露出来的**：任何「重放历史」的机制都会踩到同一类 provider 契约。

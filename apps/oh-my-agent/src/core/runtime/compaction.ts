@@ -3,9 +3,13 @@ import type { SessionStore } from "../store/session-store.js";
 import type { CodingSessionEntry } from "../store/session-tree.js";
 import type { ContextSummarizer } from "./agent-loop-types.js";
 import {
+  collectCommands,
   collectFileOperations,
+  collectQa,
+  renderCommands,
   renderFileOperations,
-  upsertFileOperations,
+  renderQa,
+  upsertStateBlocks,
 } from "./compaction-prompt.js";
 
 export interface CompactionResult {
@@ -162,16 +166,21 @@ export async function compactSession(
   // If aborted during summarization, do not write a CompactionEntry.
   if (signal?.aborted) return { entryId: "", coveredIds: [] };
 
-  // The file list is appended here rather than asked of the model: it must be
-  // exact, and it is scanned over the WHOLE covered prefix (not just the new
-  // interval) so it stays cumulative without carrying details between entries —
-  // the entries are already in hand, so the scan is free.
-  const summaryWithFiles = upsertFileOperations(
-    summary,
-    renderFileOperations(
-      collectFileOperations(coveredEntries.map((m) => (m as { message: Message }).message)),
-    ),
-  );
+  // The state blocks are appended here rather than asked of the model: they must
+  // be exact, and they are scanned over the WHOLE covered prefix (not just the
+  // new interval) so they stay cumulative across compactions without carrying a
+  // field between entries — the entries are already in hand, so the scan is
+  // free. Files say what changed, commands say how it was checked, Q&A says what
+  // the human already settled (asking twice is the failure people notice).
+  const coveredMessages = coveredEntries.map((m) => (m as { message: Message }).message);
+  const stateBlocks = [
+    renderFileOperations(collectFileOperations(coveredMessages)),
+    renderCommands(collectCommands(coveredMessages)),
+    renderQa(collectQa(coveredMessages)),
+  ]
+    .filter((block) => block !== "")
+    .join("\n\n");
+  const summaryWithFiles = upsertStateBlocks(summary, stateBlocks);
 
   const result = await store.appendBatch(sessionId, {
     entries: [
