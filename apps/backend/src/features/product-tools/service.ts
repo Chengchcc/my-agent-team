@@ -181,6 +181,20 @@ export interface ProductToolsServiceDeps {
     parentRunId?: string;
     note?: string;
   }) => Promise<{ agentId: string; runId: string; inputId: string; queued: boolean }>;
+  /** ADR 0052 pooled dispatch: choose a worker when the caller named none.
+   *  Absent = only named dispatch works (a deployment with no pool). */
+  pickAgent?: (capability?: string) => Promise<{ agentId: string; reason: string } | null>;
+  /** ADR 0052 handback: a dispatched run returns work it cannot own. The
+   *  closure wakes the original dispatcher in the same room. Absent = the
+   *  tool rejects explicitly. */
+  handback?: (input: {
+    fromAgentId: string;
+    toAgentId: string;
+    conversationId: string;
+    runId: string;
+    reason: string;
+    suggestion?: string;
+  }) => Promise<{ runId: string; queued: boolean }>;
   /** ADR 0048: the team roster with capability cards (team_list). Absent =
    *  the tool rejects explicitly. */
   listTeam?: () => Promise<
@@ -555,12 +569,31 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     if (!deps.dispatch) {
       throw new ProductToolRejectedError("dispatch is not available in this deployment");
     }
-    const agent = typeof input.args.agent === "string" ? input.args.agent.trim() : "";
+    const named = typeof input.args.agent === "string" ? input.args.agent.trim() : "";
+    const capability =
+      typeof input.args.capability === "string" ? input.args.capability.trim() : "";
     const instruction =
       typeof input.args.instruction === "string" ? input.args.instruction.trim() : "";
     const note = typeof input.args.note === "string" ? input.args.note.trim() : "";
-    if (!agent) {
-      throw new ProductToolRejectedError("dispatch requires agent: the member to hand the work to");
+    // ADR 0052: no name = the pool picks (idle first, capability narrows).
+    let agent = named;
+    let poolReason: string | undefined;
+    if (agent === "") {
+      if (!deps.pickAgent) {
+        throw new ProductToolRejectedError(
+          "dispatch requires agent: this deployment has no worker pool",
+        );
+      }
+      const pick = await deps.pickAgent(capability === "" ? undefined : capability);
+      if (!pick) {
+        throw new ProductToolRejectedError(
+          capability === ""
+            ? "dispatch found no worker in the pool; pass agent to name one"
+            : `dispatch found no worker matching "${capability}"; call team_list and name one`,
+        );
+      }
+      agent = pick.agentId;
+      poolReason = pick.reason;
     }
     if (!instruction) {
       throw new ProductToolRejectedError(
@@ -593,7 +626,9 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     };
     if (note) call.note = note;
     const triggered = await deps.dispatch(call);
-    const result = JSON.stringify(triggered);
+    // Tell the caller WHO took it and why — an unnamed dispatch must not be
+    // a silent substitution.
+    const result = JSON.stringify({ ...triggered, ...(poolReason ? { picked: poolReason } : {}) });
     await callPort.recordCall({
       runId: run.runId,
       callId: input.callId,
@@ -672,6 +707,76 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: JSON.stringify(answer) };
   }
 
+  /** ADR 0052 handback: return work that is not this run's to own. Only a
+   *  dispatched run may do it (the dispatcher is the recipient), and the
+   *  reason is mandatory — an unexplained bounce is worse than a bad
+   *  attempt. */
+  async function handbackWork(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.handback) {
+      throw new ProductToolRejectedError("handback is not available in this deployment");
+    }
+    const authorization = run.authorization ?? "";
+    const isChain = authorization.startsWith("dispatch:") || authorization.startsWith("handback:");
+    if (!isChain) {
+      throw new ProductToolRejectedError(
+        `handback is for dispatched work only; this run was authorized by ${authorization === "" ? "nothing recorded" : authorization}`,
+      );
+    }
+    // The recipient is whoever handed the work over — the parent run. Falling
+    // back to the authorization prefix keeps rows written before ADR 0051.
+    // A bounced task may bounce again (A→B→C, C returns to B, B returns to A),
+    // so `handback:` runs are allowed to hand back to their own parent.
+    let toAgentId: string | null = null;
+    if (run.parentRunId !== null) {
+      const parent = await runPort.getRun(run.parentRunId);
+      toAgentId = parent?.agentId ?? null;
+    }
+    if (toAgentId === null && authorization.startsWith("dispatch:")) {
+      toAgentId = authorization.slice("dispatch:".length);
+    }
+    if (toAgentId === null) {
+      throw new ProductToolRejectedError(
+        "handback cannot tell who handed this work over (no parent run recorded)",
+      );
+    }
+    const reason = typeof input.args.reason === "string" ? input.args.reason.trim() : "";
+    const suggestion =
+      typeof input.args.suggestion === "string" ? input.args.suggestion.trim() : "";
+    if (reason === "") {
+      throw new ProductToolRejectedError("handback requires reason: why this is not yours to do");
+    }
+    const inputHash = JSON.stringify({ tool: input.tool, args: input.args });
+    const existing = await callPort.getCall(run.runId, input.callId);
+    if (existing) {
+      if (existing.toolName !== input.tool || existing.inputHash !== inputHash) {
+        throw new ProductToolRejectedError(
+          `call id ${input.callId} reused with a different tool/input`,
+        );
+      }
+      return { content: existing.result ?? "{}" };
+    }
+    const handed = await deps.handback({
+      fromAgentId: run.agentId,
+      toAgentId,
+      conversationId: run.conversationId,
+      runId: run.runId,
+      reason,
+      ...(suggestion !== "" ? { suggestion } : {}),
+    });
+    const result = JSON.stringify({ handedBackTo: toAgentId, ...handed });
+    await callPort.recordCall({
+      runId: run.runId,
+      callId: input.callId,
+      toolName: input.tool,
+      inputHash,
+      result,
+    });
+    return { content: result };
+  }
+
   /** ADR 0048 team_list: read-only roster with capability cards — the
    *  discovery surface a dispatching agent reads to pick a worker. */
   async function teamList(): Promise<ProductToolCallResult> {
@@ -726,6 +831,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return dispatchWork(run, input);
         case "team_list":
           return teamList();
+        case "handback":
+          return handbackWork(run, input);
         case "reminder_list":
           return reminderList(run, input);
         case "reminder_cancel":

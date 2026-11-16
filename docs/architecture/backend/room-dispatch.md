@@ -45,6 +45,8 @@ tags: [backend, agents, product-tools]
 
 取 Run 事务里随快照冻结；排队的输入把值带在队列行上，晋升成新 Run 时原样继承（变异验证钉住）。HTTP 消息入口**不接受**该字段——外部文本不能给自己授权。读模型：`GET /api/agent-runs/:id` 与列表的 `authorization`。
 
+**池化与回交（ADR 0052）**：`dispatch` 的 `agent` 可省略——省略时 `pickAgent(capability?)` 从 `role: worker` 的启用 agent 里挑，排序为「活跃 run 少 → 最近启动早 → id 字典序」，`capability` 只做技能/描述的大小写不敏感子串过筛（刻意不接模型路由：派单在热路径上）。负载来自 `agentLoad()`（一次 GROUP BY，跨会话统计）。工人接到不属于自己的活时调 `handback({reason, suggestion?})`：仅 `dispatch:` 授权的 run 可用，以工人身份 @ 回 dispatcher、`authorization = handback:<workerId>`、`parent_run_id = 工人 run`，从而唤醒 dispatcher 并在账本留下退回事实；reason 必填，且不自动换人。
+
 `parent_run_id`（ADR 0051，迁移 0060）：派单链的上一跳——`dispatchWork` 把**调用方 Run 的 id** 传下来，同样随队列快照晋升存活。不变量双向成立：`authorization` 以 `dispatch:` 开头 ⇔ `parent_run_id` 非空，所以沿父链上溯不会走进死胡同。其余四条通道写 `NULL`。Web 的授权账本（`/system/authority`）靠它画"这件事最初是谁要的"。
 
 ## 环境规则指派目标

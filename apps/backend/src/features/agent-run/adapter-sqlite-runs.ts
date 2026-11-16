@@ -32,6 +32,7 @@ type RunMethods = Pick<
   | "setRunTodoSnapshot"
   | "getLatestRunTodo"
   | "listCommitFailedRuns"
+  | "agentLoad"
   | "listActiveRunsWithDeliveredInputs"
   | "hasActiveRunForConversations"
   | "listActiveRunsForConversations"
@@ -513,6 +514,24 @@ export function createRunMethods(
         .limit(1)
         .get();
       return row?.todoSnapshot ?? null;
+    },
+
+    async agentLoad() {
+      const rows = db
+        .query(
+          `SELECT agent_id,
+                  SUM(CASE WHEN status IN ('running','waiting','commit_failed')
+                           THEN 1 ELSE 0 END) AS active_runs,
+                  MAX(created_at) AS last_run_at
+             FROM agent_run
+            GROUP BY agent_id`,
+        )
+        .all() as Array<{ agent_id: string; active_runs: number; last_run_at: number }>;
+      return rows.map((r) => ({
+        agentId: r.agent_id,
+        activeRuns: Number(r.active_runs ?? 0),
+        lastRunAt: Number(r.last_run_at ?? 0),
+      }));
     },
 
     async listCommitFailedRuns() {

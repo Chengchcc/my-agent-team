@@ -156,11 +156,19 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
     {
       name: "dispatch",
       description:
-        "Hand a task to another agent member of this conversation (ADR 0047 room dispatch). The target becomes a member if needed, your dispatch lands in the shared ledger, and its run reports back here. instruction must carry the requester's ORIGINAL words plus any constraint you were told — never a paraphrase or an implementation plan of your own; use note (max ~30 words) only for routing background.",
+        "Hand a task to another agent member of this conversation (ADR 0047 room dispatch). Omit agent to let the worker pool pick: it prefers an idle worker and narrows by capability. The target becomes a member if needed, your dispatch lands in the shared ledger, and its run reports back here — the response names who took it. instruction must carry the requester's ORIGINAL words plus any constraint you were told — never a paraphrase or an implementation plan of your own; use note (max ~30 words) only for routing background.",
       inputSchema: {
         type: "object",
         properties: {
-          agent: { type: "string", description: "Target agent id (a member, or an agent to add)" },
+          agent: {
+            type: "string",
+            description: "Target agent id (a member, or an agent to add). Omit it to use the pool.",
+          },
+          capability: {
+            type: "string",
+            description:
+              "With agent omitted: what the work needs (e.g. react, backend). Matched against worker capability cards.",
+          },
           instruction: { type: "string", description: "The task, in the requester's words" },
           note: { type: "string", description: "Optional routing background, at most ~30 words" },
           identity: {
@@ -173,7 +181,36 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
             },
           },
         },
-        required: ["agent", "instruction"],
+        required: ["instruction"],
+      },
+      entrypoint,
+    },
+    {
+      name: "handback",
+      description:
+        "Return a task that was dispatched to you when it is not yours to do — wrong skill, missing access, or a request that belongs to someone else. Wakes the agent that dispatched it with your reason, in the same room. Use this instead of attempting work outside your capability or silently doing nothing. Only available when you were dispatched (your authorization is dispatch:<agent>).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description: "Why this is not yours to do — one or two sentences",
+          },
+          suggestion: {
+            type: "string",
+            description: "Optional: who or what could take it instead",
+          },
+          identity: {
+            type: "object",
+            properties: {
+              runId: { type: "string" },
+              conversationId: { type: "string" },
+              agentId: { type: "string" },
+              branchId: { type: "string" },
+            },
+          },
+        },
+        required: ["reason"],
       },
       entrypoint,
     },

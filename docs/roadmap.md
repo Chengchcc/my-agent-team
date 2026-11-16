@@ -40,7 +40,7 @@
 - **Web 面板已齐（2026-11-16）**：授权账本 `/system/authority`（ADR 0051）、环境规则编辑（agent → Lark 面板，`AmbientRulesSection`）、研判闸门开关（`/system/settings`，`AssessmentSection`）。
 - **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
 - **研判的持久候选**：在途研判重启即丢（dsh 持久化候选队列）；真需要时按 Effects 模式补一张队列表。跨群去重（同一事件两个群各派一次）与按线程批评估也在此列。
-- **池化调度与回交**：dispatch 点名具体 agent，不判空闲；工人无 handback 通道（超范围请求按普通成员消息处理）。
+- **池化调度与回交**：已落（ADR 0052）——`dispatch` 可省略 agent（池子按空闲/最近启动/能力过筛），工人可 `handback` 退回并唤醒 dispatcher。仍缺：抢占（忙的工人不被中断，只是被绕过）、跨房间去重派单。
 - **工人在 Web 聊天面的隐藏**：已落（ADR 0050）——团队页分区、新建会话只列前台、成员面板过滤工人。仍缺的是 `LarkSurfacePanel` 以外的 ambient 规则排版（见上条）。
 
 ## Workflow
