@@ -21,8 +21,10 @@ function SelectValue({
   className,
   render,
   ...props
-}: SelectPrimitive.Value.Props & {
-  /** M19 (D13): Optional render function mapping value → display label. */
+}: Omit<SelectPrimitive.Value.Props, "render"> & {
+  /** M19 (D13): Optional render function mapping value → display label.
+   *  Base UI's own `render` prop means "render as a different element"; the
+   *  intersection of the two was unsatisfiable, so it is omitted here. */
   render?: (value: string) => React.ReactNode;
 }) {
   return (

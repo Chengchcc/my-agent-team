@@ -21,6 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { WorkspaceExplorer } from "@/components/WorkspaceExplorer";
 import { useAgentDetail } from "@/features/agents/hooks";
 import { useStartChat } from "@/features/conversations/hooks";
+import { AmbientRulesSection } from "@/features/lark/AmbientRulesSection";
 import { LarkSurfacePanel } from "@/features/lark/LarkSurfacePanel";
 import { useAgentRuns } from "@/features/ops/hooks";
 import {
@@ -141,7 +142,13 @@ export function AgentDetail({ agentId }: { agentId: string }) {
           {tab === "mcp" && <McpServerPanel agentId={agentId} />}
           {tab === "knowledge" && <KnowledgePackPanel agentId={agentId} />}
           {tab === "projects" && <AgentProjectsPanel agent={agent} />}
-          {tab === "lark" && <LarkSurfacePanel agentId={agentId} />}
+          {tab === "lark" && (
+            <div className="space-y-6">
+              <LarkSurfacePanel agentId={agentId} />
+              {/* ADR 0046: rules belong to the surface that hears the room. */}
+              <AmbientRulesSection agentId={agentId} />
+            </div>
+          )}
           {tab === "memory" && <AgentMemoryPanel agentId={agentId} />}
           {tab === "workspace" && <WorkspaceExplorer agentId={agentId} />}
           {tab === "activity" && (
