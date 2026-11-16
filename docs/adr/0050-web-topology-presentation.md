@@ -60,6 +60,18 @@ Web 端呈现的是这个**团队结构**，不是一堆平级的 agent。三条
 | `ConversationMembers.tsx` | 添加成员过滤 worker、工人角标 |
 | `agent-description-card.tsx` | 渲染能力卡（description + skills） |
 
+## 补充（2026-11-16）：规则与闸门的落点
+
+三件配置/事实各有归属，一条规则：**配置跟着被配置的东西走，事实跟着时间走**。
+
+| 东西 | 落点 | 为什么不是别处 |
+|---|---|---|
+| 环境规则（`lark.ambient.rules`） | agent → Lark 面板底部（`AmbientRulesSection`） | 规则配的是"这个 bot 在这个群里怎么听"，只有绑了 lark 的 agent 才有耳朵；独立"规则中心"会让人记两套归属。act 规则的 instruction 必填、默认 record，与后端 superRefine 同一条判定。 |
+| 研判闸门（`settings.proactiveAssessment`） | `/system/settings`（`AssessmentSection`） | 进程级开关，不是某个 agent 的属性。三档里 `observe` 与 `act` 的 record 同款：先记账再放行。 |
+| 授权账本（run + proactive_event） | `/system/authority`（ADR 0051） | 跨 agent、按时间排序的事实流；混进表单页会变成上半页配置下半页日志。 |
+
+不做一个叫「Autonomy」的合并页——那正是本 ADR 反对的"配置与事实混排"。
+
 ## 不做的事
 
 - 不在 Web 加"手动派单"按钮——那是领班 run 里 dispatch 工具的活。
