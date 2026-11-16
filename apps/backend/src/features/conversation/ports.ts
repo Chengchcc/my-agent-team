@@ -89,10 +89,13 @@ export interface ConversationPort {
   markLedgerEntryUndone?(conversationId: string, seq: number): void;
   /** Get fork source metadata for a conversation. */
   getForkSource?(conversationId: string): { source: string; fromSeq: number } | null;
-  /** Keyword search across all conversation ledger content. */
+  /** Keyword search across ledger content. `conversationId` scopes it to one
+   *  conversation — recall (ADR 0055) needs "what was said HERE", not a global
+   *  hit list truncated before it reaches this room. */
   searchLedger(
     keyword: string,
     limit?: number,
+    scope?: { conversationId?: string },
   ): Array<{
     conversationId: string;
     seq: number;

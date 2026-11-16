@@ -381,7 +381,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         undone: row.undone === 1,
       } as LedgerEntry;
     },
-    searchLedger(keyword: string, limit = 20) {
+    searchLedger(keyword: string, limit = 20, scope?: { conversationId?: string }) {
       // Every needle must appear, not the query verbatim: the old
       // LIKE %query% missed any row where the words sat apart, so searching
       // "husky pathspec" returned nothing even with both present.
@@ -408,7 +408,11 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           schema.conversation,
           eq(schema.conversationLedger.conversationId, schema.conversation.conversationId),
         )
-        .where(and(...clauses))
+        .where(
+          scope?.conversationId
+            ? and(...clauses, eq(schema.conversationLedger.conversationId, scope.conversationId))
+            : and(...clauses),
+        )
         .orderBy(desc(schema.conversationLedger.ts))
         .limit(limit)
         .all();

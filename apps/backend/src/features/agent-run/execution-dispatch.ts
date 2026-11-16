@@ -17,6 +17,7 @@ import type {
   ResumeDecision,
 } from "./protocol/index.js";
 import { BACKEND_KINDS, type BackendKind, debugLog } from "./protocol/index.js";
+import { collectRecall, renderRecallBlock } from "./recall.js";
 
 export interface ExecutionDispatchCtx {
   deps: AgentRunExecutionDeps;
@@ -176,6 +177,24 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // The previous run's task list re-enters the prompt so every backend
     // continues it without a pull round-trip.
     const lastTodo = await runPort.getLatestRunTodo(run.branchId);
+    // ADR 0055: recall rides the SAME run input, computed from the human's
+    // words, before the model decides what the work is. No cues = no lookup.
+    const recalled = await collectRecall(
+      {
+        listActions: (conversationId) => runPort.listActionsForConversation(conversationId),
+        searchLedger: (keyword, limit, scope) =>
+          deps.conversationSearch?.(keyword, limit, scope) ?? [],
+      },
+      { conversationId: run.conversationId, text: input.message.text ?? "" },
+    ).catch((err) => {
+      // Recall is an aid: a failure must never block the run.
+      console.error("[agent-run] recall failed:", err instanceof Error ? err.message : String(err));
+      return { hits: [], searched: [{ source: "error", hits: 0 }] };
+    });
+    const recallBlock =
+      recalled.hits.length > 0 || recalled.searched[0]?.source !== "cues"
+        ? renderRecallBlock(recalled)
+        : "";
     // H1: the bridge is the ONLY author of workspace config files. Rewrite
     // from the DB source of truth right before spawn so an agent-tampered
     // .mcp.json (forged product-tools server, run-token exfil) never
@@ -192,6 +211,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         // that died parked on HITL; the decisions complete its interrupted
         // turn child-side.
         resumeInbox.has(runId) ? { decisions: resumeInbox.get(runId)! } : undefined,
+        recallBlock,
       ),
     );
     resumeInbox.delete(runId);

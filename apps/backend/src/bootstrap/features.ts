@@ -1085,6 +1085,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     runTimeoutMs: config.runTimeoutMs,
     runPort: agentRunPort,
     contextPort,
+    // ADR 0055: recall reads this conversation's ledger; scoped so a global
+    // hit list can never crowd out what was said in this room.
+    conversationSearch: (keyword, limit, scope) => convPort.searchLedger(keyword, limit, scope),
     ledgerResolver,
     backends,
     idGen: { ulid },

@@ -37,7 +37,7 @@
 
 **第一刀已落（ADR 0046，2026-11-10）**：lark observe 缝上的环境规则（record/act、`proactive_event` 台账、`GET /api/proactive/events`、配置在 `lark.ambient.rules`）。第二刀（ADR 0047，2026-11-11）：房间内派单——`dispatch` 产品工具、Run 授权依据入快照（`user/ambient:/dispatch:/system`，迁移 0059）、环境规则可指派目标。第三刀（ADR 0048，2026-11-12）：语义研判（observe/auto 全局闸、失败退 error 事件、拒绝不记账）+ 能力卡（agent skills）+ `team_list`。第四刀（ADR 0049，2026-11-12）：前台不变量——`role: worker` 的人工输入重路由到会话前台、创建守卫。第五刀（ADR 0051，2026-11-16）：授权链 `parent_run_id`（派单不再只记一跳，随队列快照晋升存活）；Web 的**授权账本** `/system/authority` 读它——按五条通道分类的 run 列表 + 「想动没动」记录表。仍开的：
 
-- **意图与记忆（2026-11-16）**：派单已改成四维 facet（ADR 0054，`verb`/`deliverable`/`object`/`reversibility` + 槽位推导，缺料在派单前被拒）。仍缺：**记忆检索进意图识别**（线索抽取 → recall 扇出 → 钩子块 → 槽位先补后问，ADR 0055 待写）、前台路由纪律的提示词、golden set（20–40 条真实 prompt 断言 kind/缺口/问题集）。
+- **意图与记忆（2026-11-16）**：派单已改成四维 facet（ADR 0054），记忆检索已进意图识别（ADR 0055：线索抽取 → 两源扇出 → 带出处注入；`qa` 钉住、`history` 按会话限定）。仍缺：**槽位填充先查 recall 再问人**（现在 recall 只进提示词，没和缺口计算接起来）、前台路由纪律的提示词、golden set（20–40 条真实 prompt 断言 verb/缺口/问题集）、长期向量记忆的跨进程可见性。
 - **Web 面板已齐（2026-11-16）**：授权账本 `/system/authority`（ADR 0051）、环境规则编辑（agent → Lark 面板，`AmbientRulesSection`）、研判闸门开关（`/system/settings`，`AssessmentSection`）。
 - **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
 - **研判的持久候选**：在途研判重启即丢（dsh 持久化候选队列）；真需要时按 Effects 模式补一张队列表。跨群去重（同一事件两个群各派一次）与按线程批评估也在此列。
