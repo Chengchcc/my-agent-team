@@ -75,3 +75,4 @@
 | 0048 | semantic-assessment(语义研判与能力卡：观察缝模型研判 observe/auto、agent skills、team_list，主动脊柱第三刀) | **Implemented**（异步研判不阻塞 POST、失败退 error 事件、拒绝不记账；A2A 语义对齐表见正文） |
 | 0049 | front-desk-invariant(前台不变量：人工输入永不直接命令工人，worker 角色重路由到会话前台) | **Implemented**（判据=授权依据 user；创建守卫拒 worker 绑会话；服务端依据直达工人不受影响；2026-11-13 补充：worker 与 lark 互斥在 schema 层拒绝、ZodError→400） |
 | 0050 | web-topology-presentation(Web 端的前台/工人呈现：分区团队页、角色感知卡片与表单、人面选择器过滤工人) | **Implemented**（纯渲染层，零后端改动——DTO 已带 role/skills/description） |
+| 0051 | authorization-chain(run 的授权链：parent_run_id，派单链条不再只记一跳) | **Implemented**（`dispatch:` ⇔ 父链非空；随队列快照晋升存活；旧行保持 NULL） |

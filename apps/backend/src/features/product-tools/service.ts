@@ -176,6 +176,9 @@ export interface ProductToolsServiceDeps {
     conversationId: string;
     toAgentId: string;
     instruction: string;
+    /** ADR 0051: the calling run, so the dispatched run can name its origin
+     *  (the whole chain, not one hop). */
+    parentRunId?: string;
     note?: string;
   }) => Promise<{ agentId: string; runId: string; inputId: string; queued: boolean }>;
   /** ADR 0048: the team roster with capability cards (team_list). Absent =
@@ -579,12 +582,14 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       conversationId: string;
       toAgentId: string;
       instruction: string;
+      parentRunId?: string;
       note?: string;
     } = {
       fromAgentId: run.agentId,
       conversationId: run.conversationId,
       toAgentId: agent,
       instruction,
+      parentRunId: run.runId,
     };
     if (note) call.note = note;
     const triggered = await deps.dispatch(call);

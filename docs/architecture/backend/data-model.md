@@ -71,7 +71,7 @@ lark-bot 有自己独立的库与 schema（九张表），与 `backend.db` 无�
 
 **`agent_context_branch`**：`leaf_entry_id`、`ledger_cursor`、`backend_kind`、`cli_session_ref`、`is_default`、`revision`。唯一索引 `idx_context_branch_default` 保证每棵树只有一个默认分支。
 
-**`agent_run`**：`model_ref` 是 JSON，含请求时的配置快照；`idempotency_key` 唯一；`workspace_root` / `workspace_access` 记录这次跑在哪、什么权限；`product_tools` 是**一次性写入**的产品工具清单；`todo_snapshot` 承接上一次的 todo；`config_revision` 用于 CAS；`authorization` 是 ADR 0047 的授权依据（`user / ambient:<ruleId> / dispatch:<agentId> / system`），排队晋升时从输入快照继承。部分唯一索引 `idx_agent_run_active_branch` 覆盖 `status IN ('running','waiting','commit_failed')`——**同一分支同时只能有一个活跃 Run**，这是数据库层的强制，与取 Run 时的应用层检查并存。
+**`agent_run`**：`model_ref` 是 JSON，含请求时的配置快照；`idempotency_key` 唯一；`workspace_root` / `workspace_access` 记录这次跑在哪、什么权限；`product_tools` 是**一次性写入**的产品工具清单；`todo_snapshot` 承接上一次的 todo；`config_revision` 用于 CAS；`authorization` 是 ADR 0047 的授权依据（`user / ambient:<ruleId> / dispatch:<agentId> / system`），排队晋升时从输入快照继承；`parent_run_id`（ADR 0051）是派单链的上一跳，与它同源同路径（`dispatch:` ⇔ 非空）。部分唯一索引 `idx_agent_run_active_branch` 覆盖 `status IN ('running','waiting','commit_failed')`——**同一分支同时只能有一个活跃 Run**，这是数据库层的强制，与取 Run 时的应用层检查并存。
 
 **`branch_input_queue`**：`seq` 单调，是唯一排序键；`input_id` 唯一；`status` 是 `pending | delivering | delivered | cancelled`，只有适配器接收后才会从 `delivering` CAS 成 `delivered`；请求时的模型、配置版本、工作区、系统提示、权限模式、授权依据（ADR 0047）都快照在这一行里。两个幂等约束：交付幂等 `idx_queue_delivery_idem`，以及 `(branch_id, input_idempotency_key)` 唯一。
 

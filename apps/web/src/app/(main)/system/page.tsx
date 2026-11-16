@@ -1,5 +1,6 @@
 "use client";
-import { Activity, Download, XCircle } from "lucide-react";
+import { Activity, Download, ShieldCheck, XCircle } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { AgentRunsTable } from "@/components/ops/AgentRunsTable";
 import { ProcessHealthPanel } from "@/components/ops/ProcessHealthPanel";
@@ -9,6 +10,7 @@ import { TelemetryKpiGrid } from "@/components/ops/TelemetryKpiGrid";
 import { TokenAreaChart } from "@/components/ops/TokenAreaChart";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { StatusPill } from "@/components/patterns";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   useAgentRuns,
   useCancelAgentRun,
@@ -45,14 +47,23 @@ export default function SystemPage() {
           )
         }
         action={
-          <button
-            type="button"
-            onClick={() => exportOpsBundle(runs, surfaces, metrics, telemetryQuery.data)}
-            className="flex items-center gap-1.5 rounded-sm border border-(--hairline) bg-(--panel2)/50 px-3 py-1.5 text-xs text-(--ink) transition-colors hover:border-(--faint)"
-          >
-            <Download size={13} />
-            Export Ops Bundle
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/system/authority"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <ShieldCheck />
+              Authority ledger
+            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportOpsBundle(runs, surfaces, metrics, telemetryQuery.data)}
+            >
+              <Download />
+              Export Ops Bundle
+            </Button>
+          </div>
         }
       />
       {/* Live status banner: real subsystem health, not prose */}

@@ -138,6 +138,7 @@ export function createRunMethods(
             permissionMode: snapshot.permissionMode ?? null,
             workflowBudgetTokens: snapshot.workflowBudgetTokens ?? null,
             authorization: snapshot.authorization ?? null,
+            parentRunId: snapshot.parentRunId ?? null,
             createdAt: now,
           })
           .run();

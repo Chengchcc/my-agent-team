@@ -682,7 +682,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
     // ADR 0047 room dispatch: the closure dereferences conv at request time
     // (product tools assemble before conversations execute anything).
-    dispatch: async ({ fromAgentId, conversationId, toAgentId, instruction, note }) => {
+    dispatch: async ({
+      fromAgentId,
+      conversationId,
+      toAgentId,
+      instruction,
+      parentRunId,
+      note,
+    }) => {
       // Idempotent roster join; throws on an unknown/archived agent, which
       // the tool surfaces as an isError result.
       await conversationMembers.add(conversationId, toAgentId);
@@ -693,6 +700,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         content: frameDispatchInput(fromAgentId, instruction, note),
         mode: "normal",
         authorization: `dispatch:${fromAgentId}`,
+        ...(parentRunId ? { parentRunId } : {}),
       });
       const first = posted.triggeredRuns.find((entry) => entry.agentId === toAgentId);
       return {

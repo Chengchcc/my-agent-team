@@ -59,6 +59,7 @@ async function seedRun(
   status: "completed" | "failed",
   isError: boolean,
   live = false,
+  chain?: { authorization: string; parentRunId: string },
 ): Promise<SeededRun> {
   const conversationId = `conv-runs-${++seq}`;
   const agentId = `ag-runs-${seq}`;
@@ -76,6 +77,7 @@ async function seedRun(
     defaultModel: { backendKind: "oma", modelId: "fake/echo" },
     configRevision: 1,
     idempotencyKey: `ikey-${seq}`,
+    ...(chain ?? {}),
   });
   expect(acquired.acquired).toBe(true);
   const runId = acquired.run!.runId;
@@ -119,7 +121,12 @@ beforeAll(async () => {
   });
 
   runPass = await seedRun("completed", false);
-  runFail = await seedRun("completed", true);
+  // ADR 0051: a dispatched run — carries authorization + the parent it came
+  // from. Reuses an existing seed so the usage aggregates below stay put.
+  runFail = await seedRun("completed", true, false, {
+    authorization: "dispatch:front-1",
+    parentRunId: "run-front-0",
+  });
   runFailed = await seedRun("failed", false);
   runLive = await seedRun("completed", false, true);
 });
@@ -138,6 +145,8 @@ describe("agent-run routes over seeded runs", () => {
         status: string;
         verdict: string;
         usage: { inputTokens: number } | null;
+        authorization: string | null;
+        parentRunId: string | null;
       }>;
     };
     expect(runs).toHaveLength(4);
@@ -147,6 +156,10 @@ describe("agent-run routes over seeded runs", () => {
     expect(byId.get(runFailed.runId)!.verdict).toBe("unknown");
     expect(byId.get(runPass.runId)!.usage!.inputTokens).toBe(100);
     expect(byId.get(runLive.runId)!.status).toBe("running");
+    // ADR 0051: the authority ledger reads both fields off the list DTO.
+    expect(byId.get(runFail.runId)!.authorization).toBe("dispatch:front-1");
+    expect(byId.get(runFail.runId)!.parentRunId).toBe("run-front-0");
+    expect(byId.get(runPass.runId)!.parentRunId).toBeNull();
 
     const byConv = await api(
       harness,

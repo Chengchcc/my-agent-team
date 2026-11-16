@@ -44,6 +44,7 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
               permissionMode: command.permissionMode ?? null,
               workflowBudgetTokens: command.workflowBudgetTokens ?? null,
               authorization: command.authorization ?? null,
+              parentRunId: command.parentRunId ?? null,
               createdAt: now,
             })
             .run();
@@ -264,6 +265,7 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
             toolPolicy: command.toolPolicy ?? null,
             workflow: command.workflow ? JSON.stringify(command.workflow) : null,
             authorization: command.authorization ?? null,
+            parentRunId: command.parentRunId ?? null,
             createdAt: now,
           })
           .run();
