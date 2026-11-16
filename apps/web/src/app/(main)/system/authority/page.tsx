@@ -15,7 +15,14 @@ export const dynamic = "force-dynamic";
 type RunRow = NonNullable<ReturnType<typeof useAgentRuns>["data"]>["runs"][number];
 type EventRow = NonNullable<ReturnType<typeof useProactiveEvents>["data"]>["events"][number];
 
-type AuthorityKind = "human" | "rule" | "assessment" | "dispatch" | "system" | "unknown";
+type AuthorityKind =
+  | "human"
+  | "rule"
+  | "assessment"
+  | "dispatch"
+  | "handback"
+  | "system"
+  | "unknown";
 
 /** ADR 0047's five channels, read off the frozen `authorization` value. The
  *  kind is what the eye needs; the detail is the id behind it. */
@@ -34,6 +41,9 @@ function classify(authorization: string | null): {
     return { kind: "rule", detail: authorization.slice("ambient:".length), tone: "waiting" };
   if (authorization.startsWith("dispatch:"))
     return { kind: "dispatch", detail: authorization.slice("dispatch:".length), tone: "running" };
+  // ADR 0052: a worker returned work it cannot own.
+  if (authorization.startsWith("handback:"))
+    return { kind: "handback", detail: authorization.slice("handback:".length), tone: "error" };
   return { kind: "unknown", detail: authorization, tone: "idle" };
 }
 
@@ -42,6 +52,7 @@ const KIND_LABEL: Record<AuthorityKind, string> = {
   rule: "rule",
   assessment: "assessment",
   dispatch: "dispatch",
+  handback: "handback",
   system: "system",
   unknown: "unknown",
 };
@@ -91,6 +102,7 @@ export default function AuthorityPage() {
       rule: 0,
       assessment: 0,
       dispatch: 0,
+      handback: 0,
       system: 0,
       unknown: 0,
     };
@@ -131,6 +143,9 @@ export default function AuthorityPage() {
               (pre-0047) has no basis, and workflow runs are `system`. Showing
               a 0 tile for either would be noise; hiding them would make the
               counts quietly not add up. */}
+          {counts.handback > 0 && (
+            <KpiTile label="Handed back" value={counts.handback} detail="worker refused" />
+          )}
           {counts.system > 0 && <KpiTile label="System" value={counts.system} detail="clock" />}
           {counts.unknown > 0 && (
             <KpiTile

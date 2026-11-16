@@ -122,6 +122,12 @@ export interface AgentRunPort {
   /** All commit_failed runs awaiting retryTerminalCommit. */
   listCommitFailedRuns(): Promise<AgentRun[]>;
 
+  /** ADR 0052 pooled dispatch: per-agent load, one row per agent that ever
+   *  ran. `activeRuns` counts running/waiting/commit_failed; `lastRunAt`
+   *  is the newest run's createdAt (null never happens for a present row).
+   *  The pool picks idle before busy, then least-recently-started. */
+  agentLoad(): Promise<Array<{ agentId: string; activeRuns: number; lastRunAt: number }>>;
+
   /** Running/waiting runs whose bound input was DELIVERED (the child
    *  accepted) but whose live child no longer exists (Backend restart).
    * One-shot-child architecture cannot resume them: boot recovery

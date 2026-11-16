@@ -76,3 +76,4 @@
 | 0049 | front-desk-invariant(前台不变量：人工输入永不直接命令工人，worker 角色重路由到会话前台) | **Implemented**（判据=授权依据 user；创建守卫拒 worker 绑会话；服务端依据直达工人不受影响；2026-11-13 补充：worker 与 lark 互斥在 schema 层拒绝、ZodError→400） |
 | 0050 | web-topology-presentation(Web 端的前台/工人呈现：分区团队页、角色感知卡片与表单、人面选择器过滤工人) | **Implemented**（纯渲染层，零后端改动——DTO 已带 role/skills/description） |
 | 0051 | authorization-chain(run 的授权链：parent_run_id，派单链条不再只记一跳) | **Implemented**（`dispatch:` ⇔ 父链非空；随队列快照晋升存活；旧行保持 NULL） |
+| 0052 | pooled-dispatch-and-handback(池化调度与回交：dispatch 不点名=池子挑；工人可 handback 退回不属自己的活) | **Implemented**（池子=worker 角色、空闲优先、能力子串过筛、确定性排序；handback 仅限 `dispatch:` 授权的 run，唤醒 dispatcher 且记 `handback:<workerId>`） |

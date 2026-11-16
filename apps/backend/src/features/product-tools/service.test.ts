@@ -29,6 +29,7 @@ const TOOL_MANIFEST = [
   { name: "history_retain", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "todo_write", description: "w", inputSchema: {}, entrypoint: "sse:x" },
   { name: "dispatch", description: "d", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "handback", description: "h", inputSchema: {}, entrypoint: "sse:x" },
   { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
 ];
@@ -43,6 +44,17 @@ let emittedTodos: Array<{ runId: string; items: readonly unknown[] }> = [];
 /** Every ask answer the service announced as landed. */
 let answeredAsks: Array<{ runId: string; callId: string }> = [];
 /** Every dispatch dep call (ADR 0047), captured for assertions. */
+let handbackCalls: Array<{
+  fromAgentId: string;
+  toAgentId: string;
+  conversationId: string;
+  runId: string;
+  reason: string;
+  suggestion?: string;
+}> = [];
+/** Every pool pick the service asked for, with the capability it passed. */
+let pickCalls: Array<string | undefined> = [];
+let pickResult: { agentId: string; reason: string } | null = null;
 let dispatchCalls: Array<{
   fromAgentId: string;
   conversationId: string;
@@ -52,7 +64,11 @@ let dispatchCalls: Array<{
   note?: string;
 }> = [];
 
-async function createRun(messageText: string): Promise<string> {
+async function createRun(
+  messageText: string,
+  authorization?: string,
+  parentRunId?: string,
+): Promise<string> {
   const acq = await backend.enqueueAndAcquire({
     conversationId: CONV,
     agentId: AGENT,
@@ -62,6 +78,8 @@ async function createRun(messageText: string): Promise<string> {
     defaultModel: { backendKind: "oma", modelId: "fake/echo" },
     configRevision: 1,
     idempotencyKey: `pt-${Math.random().toString(36).slice(2, 8)}`,
+    ...(authorization ? { authorization } : {}),
+    ...(parentRunId ? { parentRunId } : {}),
   });
   await runPort.setRunProductTools(acq.run!.runId, TOOL_MANIFEST);
   return acq.run!.runId;
@@ -134,6 +152,14 @@ beforeEach(async () => {
         queued: false,
       });
     },
+    pickAgent: (capability) => {
+      pickCalls.push(capability);
+      return Promise.resolve(pickResult);
+    },
+    handback: (input) => {
+      handbackCalls.push(input);
+      return Promise.resolve({ runId: `run-hb-${handbackCalls.length}`, queued: false });
+    },
     listTeam: () =>
       Promise.resolve([
         { id: "lead", name: "领班", description: "路由", skills: ["triage"] },
@@ -144,6 +170,9 @@ beforeEach(async () => {
   emittedTodos = [];
   answeredAsks = [];
   dispatchCalls = [];
+  handbackCalls = [];
+  pickCalls = [];
+  pickResult = { agentId: "fe", reason: "idle" };
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
   const branch = await contextPort.getOrCreateDefaultBranch(tree.treeId, "oma");
@@ -909,7 +938,9 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
         args,
       });
 
-    await expect(call({ instruction: "no target" }, "disp-e1")).rejects.toThrow(/requires agent/);
+    // ADR 0052: a missing agent is not an error — the pool picks.
+    const pooled = await call({ instruction: "no target" }, "disp-e1");
+    expect(JSON.parse(pooled.content)).toMatchObject({ agentId: "fe", picked: "idle" });
     await expect(call({ agent: "worker-1" }, "disp-e2")).rejects.toThrow(/requires instruction/);
     // note omitted: the dep still fires, with no note field.
     await call({ agent: "worker-1", instruction: "plain" }, "disp-e3");
@@ -986,5 +1017,110 @@ describe("team_list (ADR 0048 roster discovery)", () => {
         args: {},
       }),
     ).rejects.toThrow(/not available/);
+  });
+});
+
+describe("pooled dispatch and handback (ADR 0052)", () => {
+  test("an unnamed dispatch asks the pool with the capability and reports who took it", async () => {
+    const runId = await createRun("someone fix the css");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "pool-1",
+      idempotencyKey: `${runId}:pool-1`,
+      tool: "dispatch",
+      args: { capability: "css", instruction: "修一下按钮间距" },
+    });
+    expect(pickCalls).toEqual(["css"]);
+    expect(dispatchCalls[0]).toMatchObject({ toAgentId: "fe" });
+    expect(JSON.parse(result.content)).toMatchObject({ agentId: "fe", picked: "idle" });
+  });
+
+  test("an empty pool is a rejected call that tells the model what to do next", async () => {
+    pickResult = null;
+    const runId = await createRun("nobody available");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "pool-2",
+        idempotencyKey: `${runId}:pool-2`,
+        tool: "dispatch",
+        args: { capability: "kubernetes", instruction: "deploy it" },
+      }),
+    ).rejects.toThrow(/no worker matching "kubernetes"/);
+  });
+
+  test("a named dispatch does not consult the pool", async () => {
+    const runId = await createRun("name it");
+    await service.call({
+      identity: identity(runId),
+      callId: "pool-3",
+      idempotencyKey: `${runId}:pool-3`,
+      tool: "dispatch",
+      args: { agent: "worker-9", instruction: "do this" },
+    });
+    expect(pickCalls).toEqual([]);
+    expect(dispatchCalls[0]!.toAgentId).toBe("worker-9");
+  });
+
+  test("handback wakes the dispatcher named in this run's authorization", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "hb-1",
+      idempotencyKey: `${runId}:hb-1`,
+      tool: "handback",
+      args: { reason: "这是后端的活", suggestion: "找后端工" },
+    });
+    expect(handbackCalls[0]).toMatchObject({
+      fromAgentId: AGENT,
+      toAgentId: "lead-1",
+      runId,
+      reason: "这是后端的活",
+      suggestion: "找后端工",
+    });
+    expect(JSON.parse(result.content)).toMatchObject({ handedBackTo: "lead-1" });
+  });
+
+  test("handback from a human-authorized run is refused (it has no dispatcher)", async () => {
+    const runId = await createRun("I was asked directly");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "hb-2",
+        idempotencyKey: `${runId}:hb-2`,
+        tool: "handback",
+        args: { reason: "nope" },
+      }),
+    ).rejects.toThrow(/handback is for dispatched work only/);
+    expect(handbackCalls).toEqual([]);
+  });
+
+  test("a bounced task can bounce again — the parent run names the recipient", async () => {
+    const parentRunId = await createRun("the original dispatch", "dispatch:lead-1");
+    await runPort.finalizeRun(parentRunId, { status: "completed" });
+    const runId = await createRun("came back to me", "handback:worker-1", parentRunId);
+    await service.call({
+      identity: identity(runId),
+      callId: "hb-4",
+      idempotencyKey: `${runId}:hb-4`,
+      tool: "handback",
+      args: { reason: "这个我也做不了" },
+    });
+    // The prefix says worker-1, but the CHAIN says the parent run's agent —
+    // otherwise a bounce would return to the wrong place.
+    expect(handbackCalls[0]!.toAgentId).toBe(AGENT);
+  });
+
+  test("handback requires a reason", async () => {
+    const runId = await createRun("dispatched", "dispatch:lead-1");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "hb-3",
+        idempotencyKey: `${runId}:hb-3`,
+        tool: "handback",
+        args: {},
+      }),
+    ).rejects.toThrow(/requires reason/);
   });
 });

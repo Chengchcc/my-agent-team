@@ -113,8 +113,10 @@ import {
   createProductToolsMcpServer,
   createProductToolsService,
   frameDispatchInput,
+  frameHandbackInput,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
+import { pickFromPool } from "../features/product-tools/pool.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
 import {
   createProjectService,
@@ -709,6 +711,42 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         inputId: first?.inputId ?? "",
         queued: first?.queued ?? false,
       };
+    },
+    // ADR 0052: with no name given, the pool picks — idle first, then least
+    // recently started, narrowed by the capability the caller asked for.
+    pickAgent: async (capability) => {
+      const rows = await agentSvc.list();
+      const load = new Map((await agentRunPort.agentLoad()).map((l) => [l.agentId, l]));
+      const candidates = rows
+        .filter((row) => row.archivedAt === null && row.config.enabled)
+        .map((row) => ({
+          id: row.id,
+          name: row.config.name,
+          description: row.config.description,
+          skills: row.config.skills.map((s) =>
+            s.description === "" ? s.id : `${s.id}：${s.description}`,
+          ),
+          role: row.config.role ?? null,
+          activeRuns: load.get(row.id)?.activeRuns ?? 0,
+          lastRunAt: load.get(row.id)?.lastRunAt ?? 0,
+        }));
+      const pick = pickFromPool(candidates, capability);
+      return pick === null ? null : { agentId: pick.agentId, reason: pick.reason };
+    },
+    // ADR 0052 handback: the worker's own run is the parent; the dispatcher
+    // is woken with the reason, in the same room, under its own authority.
+    handback: async ({ fromAgentId, toAgentId, conversationId, runId, reason, suggestion }) => {
+      const posted = await conv.convSvc.postMessage({
+        conversationId,
+        senderMemberId: fromAgentId,
+        addressedTo: [toAgentId],
+        content: frameHandbackInput(fromAgentId, reason, suggestion),
+        mode: "normal",
+        authorization: `handback:${fromAgentId}`,
+        parentRunId: runId,
+      });
+      const first = posted.triggeredRuns.find((entry) => entry.agentId === toAgentId);
+      return { runId: first?.runId ?? "", queued: first?.queued ?? false };
     },
     // ADR 0048: the roster discovery surface a dispatching agent reads.
     listTeam: async () => rosterCards(),

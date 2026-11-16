@@ -73,6 +73,19 @@ export function frameDispatchInput(
   if (note) lines.push("", `派单附注：${note}`);
   return lines.join("\n");
 }
+/** ADR 0052 handback framing. The reason is the evidence, the optional
+ *  suggestion is routing advice — the dispatcher decides what happens next. */
+export function frameHandbackInput(
+  fromAgentId: string,
+  reason: string,
+  suggestion?: string,
+): string {
+  const lines = [`（${fromAgentId} 把派给它的活退回来了）`, reason];
+  if (suggestion) lines.push("", `建议：${suggestion}`);
+  lines.push("", "这件活仍然由你负责：换人或自己做，不要当作已完成。");
+  return lines.join("\n");
+}
+
 export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "history_recent",
@@ -151,16 +164,38 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "dispatch",
     description:
-      "Hand a task to another agent member of this conversation. The target joins the room if needed; your dispatch lands in the shared ledger and its run reports back here. instruction must carry the requester's ORIGINAL words, never a paraphrase or an implementation plan; note (max ~30 words) is routing background only.",
+      "Hand a task to another agent member of this conversation. Omit agent to let the worker pool pick: it prefers an idle worker and narrows by capability. The target joins the room if needed; your dispatch lands in the shared ledger and its run reports back here — the response names who took it. instruction must carry the requester's ORIGINAL words, never a paraphrase or an implementation plan; note (max ~30 words) is routing background only.",
     inputSchema: {
       type: "object",
       properties: {
-        agent: { type: "string", description: "Target agent id" },
+        agent: {
+          type: "string",
+          description: "Target agent id. Omit it to use the pool.",
+        },
+        capability: {
+          type: "string",
+          description:
+            "With agent omitted: what the work needs (e.g. react, backend). Matched against worker capability cards.",
+        },
         instruction: { type: "string", description: "The task, in the requester's words" },
         note: { type: "string", description: "Optional routing background, at most ~30 words" },
         identity: IDENTITY_SCHEMA,
       },
-      required: ["agent", "instruction"],
+      required: ["instruction"],
+    },
+  },
+  {
+    name: "handback",
+    description:
+      "Return a task that was dispatched to you when it is not yours to do — wrong skill, missing access, or a request that belongs to someone else. Wakes the agent that dispatched it, with your reason, in the same room. Use it instead of attempting work outside your capability or silently doing nothing. Only available when you were dispatched.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reason: { type: "string", description: "Why this is not yours to do" },
+        suggestion: { type: "string", description: "Optional: who could take it instead" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["reason"],
     },
   },
   {

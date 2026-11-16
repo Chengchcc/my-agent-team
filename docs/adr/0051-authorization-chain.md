@@ -40,9 +40,9 @@ user | ambient:<ruleId> | ambient:assessment | dispatch:<fromAgentId> | system
 
 ## 强制不变量
 
-> `authorization` 以 `dispatch:` 开头 **⇔** `parent_run_id` 非空。
+> `authorization` 以 `dispatch:` 或 `handback:` 开头 **⇔** `parent_run_id` 非空。
 
-派单是唯一会打上 `dispatch:` 标记的路径，也唯一带父链。反之，任何父链非空的 run 必然由派单产生。这条是双侧的，测试可以断言任意一边。
+派单是唯一会打上 `dispatch:` 标记的路径，回交（ADR 0052）是唯一打 `handback:` 的路径——两者都是链条的一跳。反之，任何父链非空的 run 必然由其中之一产生。这条是双侧的，测试可以断言任意一边。
 
 ## 为什么只存一跳
 
