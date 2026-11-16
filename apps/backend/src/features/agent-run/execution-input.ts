@@ -106,6 +106,10 @@ export function buildRunInput(
   /** ADR 0038: present only on a resume dispatch — decisions that complete
    * the interrupted turn child-side. */
   resume?: { readonly decisions: readonly ResumeDecision[] },
+  /** ADR 0055: the recalled block for the message this run answers. Frozen
+   *  with the run's system prompt, so a continuation carries the same reading
+   *  of "那个". Empty = nothing to recall. */
+  recallBlock?: string,
 ): BackendRunInput {
   const bridge = !cliSessionRef && history.length > 0 ? renderHistoryBridge(history) : "";
   const inputText = input.message.text ?? "";
@@ -145,6 +149,7 @@ export function buildRunInput(
     `- branchId: ${run.branchId}`,
     "",
     renderTodoSection(lastTodo),
+    ...(recallBlock ? ["", recallBlock] : []),
   ].join("\n");
   if (run.systemPrompt) {
     runSnapshot.systemPrompt = `${run.systemPrompt}\n\n${productContext}`;

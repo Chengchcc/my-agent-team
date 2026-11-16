@@ -20,6 +20,13 @@ export interface AgentRunExecutionDeps {
   readonly onLiveEvent?: (runId: string, event: BackendEvent) => void;
   readonly runPort: AgentRunPort;
   readonly contextPort: AgentContextPort;
+  /** ADR 0055: recall searches this conversation's ledger. Structural (not the
+   *  full ConversationPort) so a test can pass a stub. */
+  readonly conversationSearch?: (
+    keyword: string,
+    limit?: number,
+    scope?: { conversationId?: string },
+  ) => ReadonlyArray<{ seq: number; ts: number; snippet: string }>;
   readonly ledgerResolver: LedgerMessageResolver;
   /** Per-kind dispatch table: `modelRef.backendKind` resolves the Backend
    *  and its catalog. Partial — a kind a deployment does not register gets

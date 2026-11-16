@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { parsePendingAction } from "./adapter-sqlite-parse.js";
@@ -20,12 +20,25 @@ type ActionMethods = Pick<
   | "listPendingActions"
   | "listDecidedActions"
   | "cancelPendingActionsForRun"
+  | "listActionsForConversation"
 >;
 
 export function createActionMethods(db: Database): ActionMethods {
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
+    async listActionsForConversation(conversationId) {
+      const rows = d
+        .select({ action: schema.pendingAction })
+        .from(schema.pendingAction)
+        .innerJoin(schema.agentRun, eq(schema.pendingAction.runId, schema.agentRun.runId))
+        .where(eq(schema.agentRun.conversationId, conversationId))
+        .orderBy(desc(schema.pendingAction.createdAt))
+        .limit(100)
+        .all();
+      return rows.map((r) => parsePendingAction(r.action));
+    },
+
     async createPendingAction(runId, action) {
       const now = Date.now();
       return db.transaction(() => {

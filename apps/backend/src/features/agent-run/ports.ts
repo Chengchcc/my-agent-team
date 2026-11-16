@@ -122,6 +122,11 @@ export interface AgentRunPort {
   /** All commit_failed runs awaiting retryTerminalCommit. */
   listCommitFailedRuns(): Promise<AgentRun[]>;
 
+  /** Every ask/approval this conversation's runs parked on — the durable
+   *  record of what the human was asked and what they answered (ADR 0055
+   *  recall: "already answered" must be findable, not remembered). */
+  listActionsForConversation(conversationId: string): Promise<PendingActionRecord[]>;
+
   /** ADR 0052 pooled dispatch: per-agent load, one row per agent that ever
    *  ran. `activeRuns` counts running/waiting/commit_failed; `lastRunAt`
    *  is the newest run's createdAt (null never happens for a present row).
