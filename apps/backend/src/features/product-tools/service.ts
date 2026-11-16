@@ -195,9 +195,16 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
-  /** ADR 0052 pooled dispatch: choose a worker when the caller named none.
+  /** ADR 0056: choosing a worker is a capability recall over the brief.
    *  Absent = only named dispatch works (a deployment with no pool). */
-  pickAgent?: (capability?: string) => Promise<{ agentId: string; reason: string } | null>;
+  pickAgent?: (query: {
+    verb?: string;
+    deliverable?: string;
+    object?: string;
+    objectKind?: string;
+    capability?: string;
+    terms?: readonly string[];
+  }) => Promise<{ agentId: string; reason: string } | null>;
   /** ADR 0052 handback: a dispatched run returns work it cannot own. The
    *  closure wakes the original dispatcher in the same room. Absent = the
    *  tool rejects explicitly. */
@@ -622,7 +629,19 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           "dispatch requires agent: this deployment has no worker pool",
         );
       }
-      const pick = await deps.pickAgent(capability === "" ? undefined : capability);
+      const pick = await deps.pickAgent({
+        verb: brief.verb,
+        deliverable: brief.deliverable,
+        ...(brief.object !== "" ? { object: brief.object } : {}),
+        objectKind: brief.objectKind,
+        ...(capability !== "" ? { capability } : {}),
+        // Slot values are the concrete nouns of this task: the scope path, the
+        // thing to review, the environment. They are the best lexical evidence
+        // a card can be matched against.
+        terms: Object.values(brief.slots).flatMap((value) =>
+          value.split(/[\s,，;；/]+/).filter((t) => t.length >= 2),
+        ),
+      });
       if (!pick) {
         throw new ProductToolRejectedError(
           capability === ""

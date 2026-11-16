@@ -117,7 +117,7 @@ import {
   frameHandbackInput,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
-import { pickFromPool } from "../features/product-tools/pool.js";
+import { describePick, recallWorkers } from "../features/product-tools/pool.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
 import {
   createProjectService,
@@ -721,7 +721,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
     // ADR 0052: with no name given, the pool picks — idle first, then least
     // recently started, narrowed by the capability the caller asked for.
-    pickAgent: async (capability) => {
+    pickAgent: async (query) => {
       const rows = await agentSvc.list();
       const load = new Map((await agentRunPort.agentLoad()).map((l) => [l.agentId, l]));
       const candidates = rows
@@ -737,8 +737,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           activeRuns: load.get(row.id)?.activeRuns ?? 0,
           lastRunAt: load.get(row.id)?.lastRunAt ?? 0,
         }));
-      const pick = pickFromPool(candidates, capability);
-      return pick === null ? null : { agentId: pick.agentId, reason: pick.reason };
+      const recall = recallWorkers(candidates, query);
+      const hit = recall.hits[0];
+      return hit === undefined ? null : { agentId: hit.agentId, reason: describePick(hit, recall) };
     },
     // ADR 0052 handback: the worker's own run is the parent; the dispatcher
     // is woken with the reason, in the same room, under its own authority.

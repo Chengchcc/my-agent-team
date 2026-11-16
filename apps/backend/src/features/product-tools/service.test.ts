@@ -59,8 +59,8 @@ let handbackCalls: Array<{
   reason: string;
   suggestion?: string;
 }> = [];
-/** Every pool pick the service asked for, with the capability it passed. */
-let pickCalls: Array<string | undefined> = [];
+/** Every capability recall the service asked for, with the query it built. */
+let pickQueries: Array<Record<string, unknown>> = [];
 let pickResult: { agentId: string; reason: string } | null = null;
 let dispatchCalls: Array<{
   fromAgentId: string;
@@ -173,8 +173,8 @@ beforeEach(async () => {
         queued: false,
       });
     },
-    pickAgent: (capability) => {
-      pickCalls.push(capability);
+    pickAgent: (query) => {
+      pickQueries.push(query);
       return Promise.resolve(pickResult);
     },
     handback: (input) => {
@@ -193,7 +193,7 @@ beforeEach(async () => {
   dispatchCalls = [];
   recallHits = [];
   handbackCalls = [];
-  pickCalls = [];
+  pickQueries = [];
   pickResult = { agentId: "fe", reason: "idle" };
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
@@ -1148,7 +1148,7 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       tool: "dispatch",
       args: { ...READY_FIX, capability: "css", instruction: "修一下按钮间距" },
     });
-    expect(pickCalls).toEqual(["css"]);
+    expect(pickQueries[0]).toMatchObject({ verb: "fix", capability: "css" });
     expect(dispatchCalls[0]).toMatchObject({ toAgentId: "fe" });
     expect(JSON.parse(result.content)).toMatchObject({ agentId: "fe", picked: "idle" });
   });
@@ -1176,7 +1176,7 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       tool: "dispatch",
       args: { ...READY_FIX, agent: "worker-9", instruction: "do this" },
     });
-    expect(pickCalls).toEqual([]);
+    expect(pickQueries).toEqual([]);
     expect(dispatchCalls[0]!.toAgentId).toBe("worker-9");
   });
 
