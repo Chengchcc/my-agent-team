@@ -371,6 +371,17 @@ export const api = {
     unwrap(client.api.agents({ id: agentId })["skill-packs"].get()),
   setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
     unwrap(client.api.agents({ id: agentId })["skill-packs"].put(body)),
+  // Authority ledger (ADR 0046/0048/0051): the durable "what the agent
+  // would have done / did do" rows behind rules and assessment.
+  listProactiveEvents: (params?: { agentId?: string; limit?: number }) =>
+    unwrap(
+      client.api.proactive.events.get({
+        query: {
+          agentId: params?.agentId,
+          limit: params?.limit,
+        },
+      }),
+    ),
   // Settings
   getSettings: () => unwrap(client.api.settings.get()),
   getSystemInfo: () => unwrap(client.api.settings.system.get()),

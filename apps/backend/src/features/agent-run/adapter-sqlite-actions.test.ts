@@ -410,9 +410,13 @@ describe("Agent Run: Phase 5 config snapshot", () => {
       configRevision: 1,
       expectedRevision: branch.revision,
       authorization: "dispatch:lead-1",
+      // ADR 0051: the dispatching run is the parent — the chain outlives
+      // the run that started it.
+      parentRunId: "run-lead-0",
     });
     expect(first.acquired).toBe(true);
     expect(first.run!.authorization).toBe("dispatch:lead-1");
+    expect(first.run!.parentRunId).toBe("run-lead-0");
 
     // The queued dispatch keeps its basis in the queue snapshot; the
     // promoted run answers "on whose authority" with the SAME value.
@@ -429,11 +433,14 @@ describe("Agent Run: Phase 5 config snapshot", () => {
       configRevision: 1,
       expectedRevision: branch.revision + 1,
       authorization: "ambient:deploy-alarm",
+      parentRunId: "run-lead-0",
     });
     await runPort.finalizeRun(first.run!.runId, { status: "completed" });
     const promoted = await runPort.acquireNextRun(branch.branchId);
     expect(promoted).not.toBeNull();
     expect(promoted!.authorization).toBe("ambient:deploy-alarm");
+    // The queue snapshot carried the parent link across the wait.
+    expect(promoted!.parentRunId).toBe("run-lead-0");
   });
 
   test("listIdleBranchesWithPendingInputs returns FIFO branches whose pending input never became a Run", async () => {

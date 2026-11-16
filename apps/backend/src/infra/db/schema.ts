@@ -410,6 +410,10 @@ export const agentRun = sqliteTable(
      *  `dispatch:<fromAgentId>`, `system`. Frozen at acquire time (the cheap
      *  Mandate: every run can answer "on whose authority"). */
     authorization: text("authorization"),
+    /** ADR 0051: the run that dispatched THIS one (`dispatch:<agent>` chains
+     *  lose their origin otherwise — audit needs the whole chain, not one
+     *  hop). Null = no parent (human input, rule, assessment, system). */
+    parentRunId: text("parent_run_id"),
     /** The native (ACP) session THIS run actually executed in, written the
      *  moment session/new or session/load succeeds — not at terminal commit.
      *  A run that dies parked (HITL) or mid-crash still knows its own
@@ -482,6 +486,9 @@ export const branchInputQueue = sqliteTable(
      *  snapshot: a QUEUED dispatch/ambient input must promote with its
      *  authority intact, not lose it at the run boundary. */
     authorization: text("authorization"),
+    /** ADR 0051: rides the snapshot like authorization — a queued dispatch
+     *  must promote with its parent link intact. */
+    parentRunId: text("parent_run_id"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     deliveredAt: integer("delivered_at", { mode: "number" }),
   },

@@ -70,6 +70,8 @@ export interface AgentRunService {
     /** ADR 0047 authorization basis ("user" | "ambient:<id>" |
      *  "dispatch:<agentId>" | "system"), frozen onto the run. */
     authorization?: string;
+    /** ADR 0051: the dispatching run, frozen onto the run and the queue. */
+    parentRunId?: string;
   }): Promise<{
     acquired: boolean;
     queued: boolean;
@@ -203,6 +205,7 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         workflowBudgetTokens: input.workflowBudgetTokens,
         workflow: input.workflow,
         authorization: input.authorization,
+        parentRunId: input.parentRunId,
       });
     },
 

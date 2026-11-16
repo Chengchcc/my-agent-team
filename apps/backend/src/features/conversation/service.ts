@@ -143,6 +143,9 @@ export interface ConversationService {
     /** ADR 0047: server-side authorization override for the runs this
      *  message triggers; the HTTP surface does not accept it. */
     authorization?: string;
+    /** ADR 0051: the run that authored this message, when a dispatch chain
+     *  did. Server-side only, same as authorization. */
+    parentRunId?: string;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
   startNewConversationForSurface(input: {
     oldConversationId: string;
@@ -287,6 +290,8 @@ class ConversationServiceImpl implements ConversationService {
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
     /** ADR 0047: authorization basis frozen onto the run. */
     authorization?: string;
+    /** ADR 0051: the dispatching run, frozen the same way. */
+    parentRunId?: string;
   }): Promise<TriggeredRun> {
     const resolved = await this.#resolveDefaultModel(input.agentId);
     const defaultModel =
@@ -335,6 +340,7 @@ class ConversationServiceImpl implements ConversationService {
       configRevision: 1,
       idempotencyKey: input.idempotencyKey,
       authorization: input.authorization,
+      parentRunId: input.parentRunId,
     });
     debugLog(
       "conversation",
@@ -377,6 +383,8 @@ class ConversationServiceImpl implements ConversationService {
      *  the product tool, "system" for workflow/reminder) — the HTTP surface
      *  does not accept it, external text cannot authorize itself. */
     authorization?: string;
+    /** ADR 0051: the dispatching run (dispatch chains only). */
+    parentRunId?: string;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
@@ -512,6 +520,7 @@ class ConversationServiceImpl implements ConversationService {
             mode: input.mode,
             modelOverride: input.modelOverride,
             authorization,
+            ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
           }),
         );
       } catch (err) {

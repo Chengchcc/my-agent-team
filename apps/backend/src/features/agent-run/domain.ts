@@ -82,6 +82,10 @@ export interface AgentRun {
   /** ADR 0047: why this run may run — `user`, `ambient:<ruleId>`,
    *  `dispatch:<fromAgentId>`, `system`. Null on rows predating the column. */
   readonly authorization: string | null;
+  /** ADR 0051: the run that dispatched THIS one, when a `dispatch:` chain
+   *  produced it. One hop is enough — walking up repeats until null gives
+   *  the origin. Null = no parent (human/rule/assessment/system). */
+  readonly parentRunId: string | null;
   readonly createdAt: number;
   readonly terminalAt: number | null;
 }
@@ -125,6 +129,9 @@ export interface BranchInput {
     /** ADR 0047: rides the queue snapshot so a promoted run keeps its
      *  authorization basis. Optional: rows predating the column. */
     readonly authorization?: string | null;
+    /** ADR 0051: the same ride for the parent link. Optional: rows
+     *  predating the column. */
+    readonly parentRunId?: string | null;
   };
   readonly createdAt: number;
   readonly deliveredAt: number | null;
@@ -178,6 +185,8 @@ export interface AcquireAgentRunCommand {
   readonly workflow?: { readonly script: string; readonly args?: unknown };
   /** ADR 0047 authorization basis, frozen onto the run and the queue row. */
   readonly authorization?: string;
+  /** ADR 0051: the dispatching run, frozen the same way. */
+  readonly parentRunId?: string;
 }
 export interface AcquireAgentRunResult {
   readonly acquired: boolean;

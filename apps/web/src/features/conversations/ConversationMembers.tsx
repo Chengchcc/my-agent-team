@@ -55,14 +55,15 @@ export function ConversationMembers({ conversationId }: { conversationId: string
         >
           <span className="truncate">{nameOf(id)}</span>
           {members.length > 1 && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-xs"
               aria-label={`Remove ${nameOf(id)}`}
-              className="text-(--mute) hover:text-(--body)"
+              className="size-3.5 text-(--mute) hover:text-(--body)"
               onClick={() => remove.mutate(id)}
             >
               <XIcon className="size-2.5" />
-            </button>
+            </Button>
           )}
         </span>
       ))}
@@ -100,14 +101,15 @@ export function ConversationMembers({ conversationId }: { conversationId: string
           </Button>
         </span>
       ) : (
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="icon-xs"
           aria-label="Add member"
-          className="inline-flex size-5 items-center justify-center rounded-full border border-dashed border-(--hairline) text-(--mute) hover:text-(--body)"
+          className="size-5 rounded-full border-dashed text-(--mute) hover:text-(--body)"
           onClick={() => setAdding(true)}
         >
           <PlusIcon className="size-3" />
-        </button>
+        </Button>
       )}
     </div>
   );

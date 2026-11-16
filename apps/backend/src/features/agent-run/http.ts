@@ -191,7 +191,8 @@ export function agentRunRoutes(input: {
           args.push(query.conversationId);
         }
         const sql = `SELECT ar.run_id, ar.conversation_id, ar.agent_id, ar.status,
-                            ar.model_ref, ar.created_at, ar.terminal_at, ar.terminal_result
+                            ar.model_ref, ar.created_at, ar.terminal_at, ar.terminal_result,
+                            ar.authorization, ar.parent_run_id
                        FROM agent_run ar
                        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
                        ORDER BY ar.created_at DESC
@@ -205,6 +206,8 @@ export function agentRunRoutes(input: {
           created_at: number;
           terminal_at: number | null;
           terminal_result: string | null;
+          authorization: string | null;
+          parent_run_id: string | null;
         }>;
         return {
           runs: rows.map((r) => {
@@ -222,6 +225,9 @@ export function agentRunRoutes(input: {
               usage: outcome?.usage ?? null,
               error: (outcome as { error?: string } | null)?.error ?? null,
               verdict: deriveVerdict(outcome),
+              // ADR 0047/0051: the legitimacy chain the authority ledger reads.
+              authorization: r.authorization,
+              parentRunId: r.parent_run_id,
             };
           }),
         };
@@ -374,6 +380,7 @@ export function agentRunRoutes(input: {
           verification: deriveVerification(run.terminalResult),
           configRevision: run.configRevision,
           authorization: run.authorization,
+          parentRunId: run.parentRunId,
           createdAt: run.createdAt,
           terminalAt: run.terminalAt,
           terminalResult: run.terminalResult,

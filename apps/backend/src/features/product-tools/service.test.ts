@@ -48,6 +48,7 @@ let dispatchCalls: Array<{
   conversationId: string;
   toAgentId: string;
   instruction: string;
+  parentRunId?: string;
   note?: string;
 }> = [];
 
@@ -854,6 +855,9 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
       fromAgentId: AGENT,
       conversationId: CONV,
       toAgentId: "worker-1",
+      // ADR 0051: the dispatched run names its origin — without this the
+      // chain is one hop and the human who asked upstream is unknowable.
+      parentRunId: runId,
     });
     expect(dispatchCalls[0]!.instruction).toContain("点登录转圈没反应");
     const payload = JSON.parse(result.content) as { runId: string; queued: boolean };
