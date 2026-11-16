@@ -2,11 +2,15 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "@chengchenccc/message";
 import {
   buildSummarizationRequest,
+  collectCommands,
   collectFileOperations,
+  collectQa,
   type FileMarker,
+  renderCommands,
   renderFileOperations,
+  renderQa,
   serializeConversation,
-  upsertFileOperations,
+  upsertStateBlocks,
 } from "./compaction-prompt.js";
 
 function msg(role: Message["role"], parts: Partial<Message>): Message {
@@ -88,7 +92,7 @@ describe("buildSummarizationRequest", () => {
 
     expect(request).toHaveLength(2);
     expect(request[0]?.role).toBe("system");
-    expect(request[0]?.text).toContain("later turn can rely on");
+    expect(request[0]?.text).toContain("ONLY thing a later turn sees");
     const user = request[1]?.text ?? "";
     // The wrapper is the whole point: it tells the model this is a document to
     // read, not a conversation to continue.
@@ -152,14 +156,13 @@ describe("file operations in summaries", () => {
     expect(block).toContain("[…3 files elided…]");
   });
 
-  test("upsert replaces a model-written block instead of stacking two", () => {
-    const once = upsertFileOperations(
-      "did the thing\n\n<files>\nstale.ts (Read)\n</files>",
-      "<files>\nfresh.ts (Write)\n</files>",
-    );
+  test("upsert replaces model-written blocks of every kind, never stacking two", () => {
+    const modelWrote =
+      "did the thing\n\n<files>\nstale.ts (Read)\n</files>\n\n<commands>\n$ rm -rf /\n</commands>";
+    const once = upsertStateBlocks(modelWrote, "<files>\nfresh.ts (Write)\n</files>");
 
     expect(once).toBe("did the thing\n\n<files>\nfresh.ts (Write)\n</files>");
-    expect(upsertFileOperations(once, "")).toBe("did the thing");
+    expect(upsertStateBlocks(once, "")).toBe("did the thing");
   });
 });
 
@@ -171,7 +174,7 @@ describe("split-turn guidance", () => {
         ?.text ?? "";
 
     for (const text of [first, update]) {
-      expect(text).toContain("**Turn Context (split turn):**");
+      expect(text).toContain("## Turn Context (split turn)");
       expect(text).toContain("has\nnot finished");
     }
   });
@@ -197,5 +200,143 @@ describe("buildSummarizationRequest from the second compaction on", () => {
         ?.text ?? "";
 
     expect(user).not.toContain("<previous-summary>");
+  });
+});
+
+describe("the summary carries state a later turn can act on", () => {
+  test("the system prompt fixes the section order and the two MUST rules", () => {
+    const [system] = buildSummarizationRequest([]);
+    const text = system?.text ?? "";
+    const order = [
+      "## Goal",
+      "## Constraints & Preferences",
+      "## Progress",
+      "### Done",
+      "### In Progress",
+      "### Blocked",
+      "## Key Decisions",
+      "## Next Steps",
+      "## Critical Context",
+    ];
+    let cursor = -1;
+    for (const heading of order) {
+      const at = text.indexOf(heading);
+      expect(at).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+    // The rule this whole change exists for: an unanswered request survives.
+    expect(text).toContain("VERBATIM");
+    expect(text).toContain("unanswered question");
+  });
+
+  test("commands are collected, deduped, and capped", () => {
+    const long = `bun test ${"x".repeat(400)}`;
+    const commands = collectCommands([
+      msg("assistant", {
+        blocks: [
+          { type: "tool_use", id: "1", name: "bash", input: { command: "bun test a" } },
+          { type: "tool_use", id: "2", name: "bash", input: { command: "bun test a" } },
+          { type: "tool_use", id: "3", name: "bash", input: { command: long } },
+          { type: "tool_use", id: "4", name: "read", input: { path: "a.ts" } },
+        ],
+      }),
+    ]);
+
+    expect(commands).toHaveLength(2);
+    expect(commands[1]!.length).toBeLessThanOrEqual(201);
+    expect(renderCommands(commands)).toContain("$ bun test a");
+  });
+
+  test("rendering keeps the most recent commands and says how many were dropped", () => {
+    const commands = Array.from({ length: 20 }, (_, i) => `cmd${i}`);
+    const block = renderCommands(commands);
+
+    expect(block).toContain("[…5 earlier…]");
+    expect(block).not.toContain("cmd4\n");
+    expect(block).toContain("$ cmd19");
+  });
+
+  test("ask_question pairs with its answer by tool_use_id", () => {
+    const pairs = collectQa([
+      msg("assistant", {
+        blocks: [
+          {
+            type: "tool_use",
+            id: "call_1",
+            name: "mcp__product-tools__ask_question",
+            input: { questions: [{ id: "q1", question: "要不要动生产？", kind: "select" }] },
+          },
+          { type: "tool_use", id: "call_2", name: "bash", input: { command: "ls" } },
+        ],
+      }),
+      msg("tool", {
+        blocks: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_1",
+            content: JSON.stringify({
+              answers: [{ id: "q1", selectedValues: ["不要"], freeText: "" }],
+            }),
+          },
+        ],
+      }),
+    ]);
+
+    expect(pairs).toEqual([{ question: "要不要动生产？", answer: "不要" }]);
+    expect(renderQa(pairs)).toBe("<qa>\nQ: 要不要动生产？\nA: 不要\n</qa>");
+  });
+
+  test("a timed-out ask is recorded as unanswered, not silently dropped", () => {
+    const pairs = collectQa([
+      msg("assistant", {
+        blocks: [
+          {
+            type: "tool_use",
+            id: "call_9",
+            name: "ask_question",
+            input: { questions: [{ id: "q9", question: "用哪个分支？" }] },
+          },
+        ],
+      }),
+      msg("tool", {
+        blocks: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_9",
+            content: JSON.stringify({ error: "ask timeout" }),
+          },
+        ],
+      }),
+    ]);
+
+    expect(pairs[0]).toEqual({ question: "用哪个分支？", answer: "(no answer: ask timeout)" });
+  });
+
+  test("free-text answers are kept too", () => {
+    const pairs = collectQa([
+      msg("assistant", {
+        blocks: [
+          {
+            type: "tool_use",
+            id: "c",
+            name: "ask_question",
+            input: { questions: [{ id: "q", question: "复现步骤？" }] },
+          },
+        ],
+      }),
+      msg("tool", {
+        blocks: [
+          {
+            type: "tool_result",
+            tool_use_id: "c",
+            content: JSON.stringify({
+              answers: [{ id: "q", selectedValues: [], freeText: "点登录转圈" }],
+            }),
+          },
+        ],
+      }),
+    ]);
+
+    expect(pairs[0]!.answer).toBe("点登录转圈");
   });
 });

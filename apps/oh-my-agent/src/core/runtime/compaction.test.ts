@@ -533,4 +533,125 @@ describe("file operations in the appended summary", () => {
       "SUMMARY\n\n<files>\nsrc/a.ts (Read)\n</files>",
     );
   });
+
+  test("commands and the human's answers travel with the summary too", async () => {
+    const { store, sid } = await setup([
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m1" },
+        createdAt: 1,
+      },
+      {
+        type: "message",
+        role: "assistant",
+        source: "assistant",
+        message: {
+          role: "assistant",
+          blocks: [
+            { type: "tool_use", id: "c1", name: "bash", input: { command: "bun test" } },
+            {
+              type: "tool_use",
+              id: "c2",
+              name: "ask_question",
+              input: { questions: [{ id: "q", question: "要不要动生产？" }] },
+            },
+          ],
+        },
+        createdAt: 2,
+      },
+      {
+        type: "message",
+        role: "tool",
+        source: "tool_result",
+        message: {
+          role: "tool",
+          blocks: [
+            { type: "tool_result", tool_use_id: "c1", content: "ok" },
+            {
+              type: "tool_result",
+              tool_use_id: "c2",
+              content: JSON.stringify({
+                answers: [{ id: "q", selectedValues: ["不要"], freeText: "" }],
+              }),
+            },
+          ],
+        },
+        createdAt: 3,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m4" },
+        createdAt: 4,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m5" },
+        createdAt: 5,
+      },
+      {
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: "m6" },
+        createdAt: 6,
+      },
+    ]);
+
+    await compactSession(store, sid, async () => "SUMMARY");
+
+    const summary = latestCompaction(await store.readBranch(sid))?.summary ?? "";
+    expect(summary).toContain("<commands>\n$ bun test\n</commands>");
+    expect(summary).toContain("Q: 要不要动生产？\nA: 不要");
+  });
+
+  test("the second compaction keeps what the first one recorded", async () => {
+    const { store, sid } = await setup([
+      {
+        type: "message",
+        role: "assistant",
+        source: "assistant",
+        message: {
+          role: "assistant",
+          blocks: [
+            { type: "tool_use", id: "c1", name: "bash", input: { command: "bun test old" } },
+          ],
+        },
+        createdAt: 1,
+      },
+      ...Array.from({ length: 9 }, (_, i) => ({
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: `m${i + 1}` },
+        createdAt: i + 2,
+      })),
+    ]);
+
+    await compactSession(store, sid, async () => "first");
+    const afterFirst = latestCompaction(await store.readBranch(sid))?.summary ?? "";
+    expect(afterFirst).toContain("$ bun test old");
+
+    await store.appendBatch(sid, {
+      entries: Array.from({ length: 11 }, (_, i) => ({
+        type: "message",
+        role: "user",
+        source: "prompt",
+        message: { role: "user", text: `m${i + 10}` },
+        createdAt: 20 + i,
+      })),
+    });
+    await compactSession(store, sid, async () => "second");
+
+    const afterSecond = latestCompaction(await store.readBranch(sid))?.summary ?? "";
+    // The block is rebuilt from the WHOLE covered prefix, so the first pass's
+    // command cannot fall out of the summary on the second pass.
+    expect(afterSecond).toContain("$ bun test old");
+    expect(afterSecond.startsWith("second")).toBe(true);
+  });
 });

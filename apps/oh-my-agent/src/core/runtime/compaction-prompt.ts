@@ -21,17 +21,30 @@ import type { Message } from "@chengchenccc/message";
  *  narrative flow. */
 export const SUMMARIZATION_SYSTEM_PROMPT = [
   "You compress a coding agent's conversation so the work can continue after the older",
-  "messages are dropped from context. Write one summary a later turn can rely on without",
-  "seeing the originals.",
+  "messages are dropped from context. The summary is the ONLY thing a later turn sees of",
+  "that region, so state it can act on matters more than narrative flow.",
   "",
-  "Keep, exactly: decisions with their reason and anything explicitly rejected; the current",
-  "state (what is implemented, what is verified, what is still open); exact identifiers such",
-  "as file paths, commands, commit or branch ids and error strings; user preferences and",
-  "constraints stated in the conversation.",
-  "Drop: greetings, tool chatter, restatements, and anything later work supersedes.",
+  "Use exactly these sections, in this order. Omit a section only when it has no content;",
+  "never rename one:",
   "",
-  "Write plain prose in the conversation's own language (usually Chinese). No preamble, no",
-  "headings, no code fences.",
+  "## Goal",
+  "## Constraints & Preferences",
+  "## Progress",
+  "### Done",
+  "### In Progress",
+  "### Blocked",
+  "## Key Decisions",
+  "## Next Steps",
+  "## Critical Context",
+  "",
+  "Rules that always apply:",
+  "- If the transcript ends with an unanswered question or a request waiting on the user,",
+  "  keep that request VERBATIM at the end of ## Critical Context. A pending question the",
+  "  next turn forgets is a user who has to answer twice.",
+  "- Keep exact identifiers: file paths, commands, error strings, branch or commit ids.",
+  "- A decision carries its reason; outright rejected options are kept, not deleted.",
+  "- Drop greetings, tool chatter, restatements, and anything later work supersedes.",
+  "- Write in the conversation's own language (usually Chinese). No preamble, no code fences.",
 ].join("\n");
 
 const FIRST_TASK = "Summarize the conversation inside <conversation>.";
@@ -48,8 +61,8 @@ const FIRST_TASK = "Summarize the conversation inside <conversation>.";
  *  label it itself — and it does not cost a whole extra model call. */
 const SPLIT_TURN_HINT =
   "If the transcript ends in the middle of a turn — its last messages belong to a user turn that has\n" +
-  "not finished, typically ending on a tool result — close with a short section headed\n" +
-  "`**Turn Context (split turn):**` describing that turn's state and what it still has to do.";
+  "not finished, typically ending on a tool result — add a final section headed exactly\n" +
+  "`## Turn Context (split turn)` describing that turn's state and what it still has to do.";
 
 /** Used from the second compaction on. The previous summary is the only thing a
  *  later turn will see of the region that precedes the new interval, so the
@@ -57,9 +70,14 @@ const SPLIT_TURN_HINT =
  *  the reader never sees the split. */
 const UPDATE_TASK = [
   "The conversation inside <conversation> continues the work described by <previous-summary>.",
-  "Write ONE summary covering BOTH: keep everything from the previous summary that is still",
-  "true, fold in the new work, and drop whatever the new work supersedes. Write it as a single",
-  "standalone summary — never mention that it updates an earlier one.",
+  "Write ONE summary covering BOTH, using the same sections:",
+  "- keep every section from the previous summary that is still true, and add what the new",
+  "  messages established;",
+  "- move finished items out of ### In Progress into ### Done;",
+  "- a pending question that is STILL unanswered stays verbatim in ## Critical Context;",
+  "  once it has an answer, drop it and keep only the resulting decision;",
+  "- drop whatever the new work supersedes.",
+  "Write it as a single standalone summary — never mention that it updates an earlier one.",
 ].join("\n");
 
 /** Render the transcript the summarizer reads. Role-tagged and line-oriented:
@@ -169,13 +187,137 @@ export function renderFileOperations(files: ReadonlyMap<string, FileMarker>): st
   return `<files>\n${lines.join("\n")}\n</files>`;
 }
 
-/** Attach the block to a summary, dropping any `<files>` the model wrote
- *  itself: the appended list is derived from real tool calls, so a model-made
- *  one can only be stale (omp's upsertFileOperations behaviour). */
-export function upsertFileOperations(summary: string, block: string): string {
-  const stripped = summary.replace(/<files>[\s\S]*?<\/files>\s*/g, "").trimEnd();
-  if (!block) return stripped;
-  return stripped ? `${stripped}\n\n${block}` : block;
+/** Every machine-maintained block. The model must not write these: each is
+ *  derived from the real tool calls in the covered region, so a model-made one
+ *  can only be stale — and two copies drift apart. */
+const STATE_BLOCK_RE = /<(files|commands|qa)>[\s\S]*?<\/\1>\s*/g;
+
+/** Attach the machine-maintained blocks to a summary, dropping whatever the
+ *  model wrote for them. Rebuilding from the whole covered prefix (below) is
+ *  what makes them survive repeated compaction — no field has to be carried
+ *  between entries. */
+export function upsertStateBlocks(summary: string, blocks: string): string {
+  const stripped = summary.replace(STATE_BLOCK_RE, "").trimEnd();
+  if (blocks === "") return stripped;
+  return stripped ? `${stripped}\n\n${blocks}` : blocks;
+}
+
+/** Commands the covered region ran. Most recent last, deduped, each capped:
+ *  a 400-line heredoc is not something the next turn can act on. */
+export const MAX_SUMMARY_COMMANDS = 15;
+const COMMAND_CHARS = 200;
+
+const SHELL_TOOLS: Record<string, true> = { bash: true };
+
+export function collectCommands(messages: readonly Message[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const message of messages) {
+    for (const block of message.blocks ?? []) {
+      if (block.type !== "tool_use" || !SHELL_TOOLS[block.name]) continue;
+      const input = block.input as { command?: unknown } | null;
+      const raw = typeof input?.command === "string" ? input.command.trim() : "";
+      if (raw === "") continue;
+      const cmd = raw.length > COMMAND_CHARS ? `${raw.slice(0, COMMAND_CHARS)}…` : raw;
+      if (seen.has(cmd)) continue;
+      seen.add(cmd);
+      out.push(cmd);
+    }
+  }
+  return out;
+}
+
+export function renderCommands(commands: readonly string[]): string {
+  if (commands.length === 0) return "";
+  const shown = commands.slice(-MAX_SUMMARY_COMMANDS);
+  const elided = commands.length - shown.length;
+  const head = elided > 0 ? `[…${elided} earlier…]` : null;
+  const lines = [...(head ? [head] : []), ...shown.map((c) => `$ ${c}`)];
+  return `<commands>\n${lines.join("\n")}\n</commands>`;
+}
+
+/** One question the run put to a human, with the answer it got. */
+export interface QaPair {
+  readonly question: string;
+  readonly answer: string;
+}
+
+export const MAX_SUMMARY_QA = 10;
+const QA_CHARS = 200;
+
+/** ask_question calls paired with their results. These are the single most
+ *  expensive thing to lose: the human already answered, and asking again is
+ *  what makes an assistant feel like it is not listening. */
+export function collectQa(messages: readonly Message[]): QaPair[] {
+  const results = new Map<string, string>();
+  for (const message of messages) {
+    for (const block of message.blocks ?? []) {
+      if (block.type === "tool_result") results.set(block.tool_use_id, block.content);
+    }
+  }
+  const out: QaPair[] = [];
+  for (const message of messages) {
+    for (const block of message.blocks ?? []) {
+      if (block.type !== "tool_use" || !block.name.endsWith("ask_question")) continue;
+      const question = askQuestions(block.input);
+      if (question === "") continue;
+      out.push({ question, answer: askAnswer(results.get(block.id)) });
+    }
+  }
+  return out;
+}
+
+export function renderQa(pairs: readonly QaPair[]): string {
+  if (pairs.length === 0) return "";
+  const shown = pairs.slice(-MAX_SUMMARY_QA);
+  return `<qa>\n${shown.map((p) => `Q: ${p.question}\nA: ${p.answer}`).join("\n")}\n</qa>`;
+}
+
+function clip(value: string, max: number): string {
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+function askQuestions(input: unknown): string {
+  if (typeof input !== "object" || input === null) return "";
+  const questions = (input as { questions?: unknown }).questions;
+  if (!Array.isArray(questions)) return "";
+  const texts: string[] = [];
+  for (const q of questions) {
+    const text =
+      typeof (q as { question?: unknown })?.question === "string"
+        ? (q as { question: string }).question
+        : "";
+    if (text.trim() !== "") texts.push(clip(text, QA_CHARS));
+  }
+  return texts.join("; ");
+}
+
+function askAnswer(content: string | undefined): string {
+  if (content === undefined || content.trim() === "") return "(no answer)";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return clip(content, QA_CHARS);
+  }
+  if (typeof parsed !== "object" || parsed === null) return clip(content, QA_CHARS);
+  const obj = parsed as { answers?: unknown; error?: unknown };
+  if (typeof obj.error === "string") return `(no answer: ${clip(obj.error, 80)})`;
+  if (!Array.isArray(obj.answers)) return clip(content, QA_CHARS);
+  const parts: string[] = [];
+  for (const a of obj.answers) {
+    const picked = (a as { selectedValues?: unknown }).selectedValues;
+    const free = (a as { freeText?: unknown }).freeText;
+    const value =
+      Array.isArray(picked) && picked.length > 0
+        ? picked.map((v) => String(v)).join(", ")
+        : typeof free === "string"
+          ? free
+          : "";
+    if (value.trim() !== "") parts.push(clip(value, QA_CHARS));
+  }
+  return parts.length > 0 ? parts.join("; ") : "(no answer)";
 }
 
 function pathOf(input: unknown): string | null {
