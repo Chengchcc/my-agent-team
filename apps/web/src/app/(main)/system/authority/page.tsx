@@ -127,6 +127,18 @@ export default function AuthorityPage() {
             value={counts.dispatch}
             detail={`${runs.filter((r) => r.parentRunId !== null && r.parentRunId !== undefined).length} with a parent`}
           />
+          {/* Only when they exist: a run older than the authorization column
+              (pre-0047) has no basis, and workflow runs are `system`. Showing
+              a 0 tile for either would be noise; hiding them would make the
+              counts quietly not add up. */}
+          {counts.system > 0 && <KpiTile label="System" value={counts.system} detail="clock" />}
+          {counts.unknown > 0 && (
+            <KpiTile
+              label="Unrecorded"
+              value={counts.unknown}
+              detail="predates the authority column"
+            />
+          )}
         </div>
 
         <section className="rounded-lg border border-(--hairline) bg-(--panel)">
