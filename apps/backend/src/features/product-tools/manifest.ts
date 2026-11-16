@@ -169,6 +169,42 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
             description:
               "With agent omitted: what the work needs (e.g. react, backend). Matched against worker capability cards.",
           },
+          verb: {
+            type: "string",
+            enum: ["fix", "build", "review", "investigate", "write", "operate", "answer"],
+            description:
+              "What the work DOES. fix a defect, build something new, review something, investigate a cause, write content, operate an environment, or answer.",
+          },
+          deliverable: {
+            type: "string",
+            enum: ["answer", "change", "report", "state-change"],
+            description: "What the human gets back.",
+          },
+          object: {
+            type: "string",
+            description: "What the work acts on, in the requester's words.",
+          },
+          objectKind: {
+            type: "string",
+            enum: ["code", "doc", "service", "data", "other"],
+          },
+          references: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Ledger/memory references you resolved for this task (e.g. seq:412, issue #123).",
+          },
+          reversibility: {
+            type: "string",
+            enum: ["reversible", "irreversible"],
+            description:
+              "Required for operate. An irreversible operate needs the human's own authority this turn.",
+          },
+          slots: {
+            type: "object",
+            description:
+              "The details that make the work executable. fix:{repro,expected,scope,acceptance}; build:{goal,scope,acceptance,constraints}; review:{target,criteria}; investigate:{question,sources,stop}; write:{audience,form,source}; operate:{environment,action,rollback}. Missing slots are rejected — ask the human for all of them at once.",
+          },
           instruction: { type: "string", description: "The task, in the requester's words" },
           note: { type: "string", description: "Optional routing background, at most ~30 words" },
           identity: {
@@ -181,7 +217,7 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
             },
           },
         },
-        required: ["instruction"],
+        required: ["instruction", "verb", "deliverable"],
       },
       entrypoint,
     },

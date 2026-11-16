@@ -78,3 +78,4 @@
 | 0051 | authorization-chain(run 的授权链：parent_run_id，派单链条不再只记一跳) | **Implemented**（`dispatch:` ⇔ 父链非空；随队列快照晋升存活；旧行保持 NULL） |
 | 0052 | pooled-dispatch-and-handback(池化调度与回交：dispatch 不点名=池子挑；工人可 handback 退回不属自己的活) | **Implemented**（池子=worker 角色、空闲优先、能力子串过筛、确定性排序；handback 仅限 `dispatch:` 授权的 run，唤醒 dispatcher 且记 `handback:<workerId>`） |
 | 0053 | compaction-state-preservation(长会话状态保留：摘要分段 + 确定性事实段 + 跨压缩继承) | **Implemented**（改的是 oma 的 `compactSession`：六段摘要、`<files>`/`<commands>`/`<qa>` 三段按整个被覆盖前缀重建；后端 `/compact` 对 ACP 会话不生效，已在正文与架构页写明） |
+| 0054 | intent-facets(派单意图用维度表达：verb/deliverable/object/reversibility；槽位由维度推导) | **Implemented**（缺槽位一次列全并拒绝派单；不可逆 `operate` 只能由本轮人类授权；两份工具 schema 由 drift 测试保证不漂） |
