@@ -43,7 +43,9 @@ tags: [backend, agents, product-tools]
 | `dispatch:<fromAgentId>` | dispatch 产品工具 |
 | `system` | workflow agent 节点、reminder |
 
-取 Run 事务里随快照冻结；排队的输入把值带在队列行上，晋升成新 Run 时原样继承（变异验证钉住）。HTTP 消息入口**不接受**该字段——外部文本不能给自己授权。读模型：`GET /api/agent-runs/:id` 的 `authorization`。
+取 Run 事务里随快照冻结；排队的输入把值带在队列行上，晋升成新 Run 时原样继承（变异验证钉住）。HTTP 消息入口**不接受**该字段——外部文本不能给自己授权。读模型：`GET /api/agent-runs/:id` 与列表的 `authorization`。
+
+`parent_run_id`（ADR 0051，迁移 0060）：派单链的上一跳——`dispatchWork` 把**调用方 Run 的 id** 传下来，同样随队列快照晋升存活。不变量双向成立：`authorization` 以 `dispatch:` 开头 ⇔ `parent_run_id` 非空，所以沿父链上溯不会走进死胡同。其余四条通道写 `NULL`。Web 的授权账本（`/system/authority`）靠它画"这件事最初是谁要的"。
 
 ## 环境规则指派目标
 
