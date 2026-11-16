@@ -62,17 +62,6 @@ const IDENTITY_SCHEMA = {
   },
 };
 
-/** ADR 0047: the ledger message a dispatch lands as. The instruction is
- *  the requester's words by contract; the note is routing background. */
-export function frameDispatchInput(
-  fromAgentId: string,
-  instruction: string,
-  note?: string,
-): string {
-  const lines = [`（由 ${fromAgentId} 派发的任务）`, instruction];
-  if (note) lines.push("", `派单附注：${note}`);
-  return lines.join("\n");
-}
 /** ADR 0052 handback framing. The reason is the evidence, the optional
  *  suggestion is routing advice — the dispatcher decides what happens next. */
 export function frameHandbackInput(
@@ -177,11 +166,38 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           description:
             "With agent omitted: what the work needs (e.g. react, backend). Matched against worker capability cards.",
         },
+        verb: {
+          type: "string",
+          enum: ["fix", "build", "review", "investigate", "write", "operate", "answer"],
+          description: "What the work DOES.",
+        },
+        deliverable: {
+          type: "string",
+          enum: ["answer", "change", "report", "state-change"],
+          description: "What the human gets back.",
+        },
+        object: { type: "string", description: "What the work acts on, in the requester's words." },
+        objectKind: { type: "string", enum: ["code", "doc", "service", "data", "other"] },
+        references: {
+          type: "array",
+          items: { type: "string" },
+          description: "Ledger/memory references you resolved for this task (e.g. seq:412, #123).",
+        },
+        reversibility: {
+          type: "string",
+          enum: ["reversible", "irreversible"],
+          description: "Required for operate; irreversible needs the human's authority this turn.",
+        },
+        slots: {
+          type: "object",
+          description:
+            "Executable details by verb (fix: repro/expected/scope/acceptance; review: target/criteria; operate: environment/action/rollback; ...). Missing slots are rejected — ask the human for all at once.",
+        },
         instruction: { type: "string", description: "The task, in the requester's words" },
         note: { type: "string", description: "Optional routing background, at most ~30 words" },
         identity: IDENTITY_SCHEMA,
       },
-      required: ["instruction"],
+      required: ["instruction", "verb", "deliverable"],
     },
   },
   {

@@ -8,11 +8,11 @@ export type {
 } from "./dispatch.js";
 export {
   createProductToolsDispatch,
-  frameDispatchInput,
   frameHandbackInput,
   PRODUCT_TOOLS,
 } from "./dispatch.js";
 export { productToolsRoutes } from "./http.js";
+export { type Brief, frameBrief, parseBrief } from "./intent.js";
 export type { ProductToolsMcpServer, ProductToolsMcpServerOptions } from "./mcp.js";
 export { createProductToolsMcpServer } from "./mcp.js";
 export type {

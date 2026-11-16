@@ -64,6 +64,19 @@ let dispatchCalls: Array<{
   note?: string;
 }> = [];
 
+/** A complete facet set: these tests are about routing/idempotency, not
+ *  about slot collection (that has its own file). */
+const READY_FIX = {
+  verb: "fix" as const,
+  deliverable: "change" as const,
+  slots: {
+    repro: "点登录转圈",
+    expected: "进入首页",
+    scope: "src/auth/**",
+    acceptance: "bun test src/auth",
+  },
+};
+
 async function createRun(
   messageText: string,
   authorization?: string,
@@ -872,6 +885,7 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
       idempotencyKey: `${runId}:disp-1`,
       tool: "dispatch",
       args: {
+        ...READY_FIX,
         agent: "worker-1",
         instruction: "修线上登录报错（用户原话：点登录转圈没反应）",
         note: "来自值班群",
@@ -896,7 +910,7 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
 
   test("a retried call replays the stored result instead of dispatching twice", async () => {
     const runId = await createRun("route this again");
-    const args = { agent: "worker-1", instruction: "同一件事" };
+    const args = { ...READY_FIX, agent: "worker-1", instruction: "同一件事" };
     const first = await service.call({
       identity: identity(runId),
       callId: "disp-2",
@@ -922,7 +936,7 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
         callId: "disp-2",
         idempotencyKey: `${runId}:disp-2`,
         tool: "dispatch",
-        args: { agent: "worker-2", instruction: "别的事" },
+        args: { ...READY_FIX, agent: "worker-2", instruction: "别的事" },
       }),
     ).rejects.toThrow(/reused with a different tool\/input/);
   });
@@ -939,11 +953,13 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
       });
 
     // ADR 0052: a missing agent is not an error — the pool picks.
-    const pooled = await call({ instruction: "no target" }, "disp-e1");
+    const pooled = await call({ ...READY_FIX, instruction: "no target" }, "disp-e1");
     expect(JSON.parse(pooled.content)).toMatchObject({ agentId: "fe", picked: "idle" });
-    await expect(call({ agent: "worker-1" }, "disp-e2")).rejects.toThrow(/requires instruction/);
+    await expect(call({ ...READY_FIX, agent: "worker-1" }, "disp-e2")).rejects.toThrow(
+      /requires instruction/,
+    );
     // note omitted: the dep still fires, with no note field.
-    await call({ agent: "worker-1", instruction: "plain" }, "disp-e3");
+    await call({ ...READY_FIX, agent: "worker-1", instruction: "plain" }, "disp-e3");
     expect(dispatchCalls.at(-1)!.note).toBeUndefined();
   });
 
@@ -971,9 +987,79 @@ describe("dispatch (ADR 0047 room dispatch)", () => {
         callId: "disp-4",
         idempotencyKey: `${runId}:disp-4`,
         tool: "dispatch",
-        args: { agent: "ghost-worker", instruction: "去做" },
+        args: { ...READY_FIX, agent: "ghost-worker", instruction: "去做" },
       }),
     ).rejects.toThrow(/unknown agent ghost-worker/);
+  });
+});
+
+describe("dispatch facets enforce themselves (ADR 0054)", () => {
+  const call = (runId: string, args: Record<string, unknown>, callId: string) =>
+    service.call({
+      identity: identity(runId),
+      callId,
+      idempotencyKey: `${runId}:${callId}`,
+      tool: "dispatch",
+      args,
+    });
+
+  test("no verb is refused, and the message points back at answering", async () => {
+    const runId = await createRun("vague");
+    await expect(call(runId, { instruction: "看看这个" }, "f-1")).rejects.toThrow(
+      /answer it instead of dispatching/,
+    );
+    expect(dispatchCalls).toEqual([]);
+  });
+
+  test("missing slots are named before the dep is ever called", async () => {
+    const runId = await createRun("thin");
+    await expect(
+      call(
+        runId,
+        {
+          instruction: "修登录",
+          verb: "fix",
+          deliverable: "change",
+          slots: { scope: "src/auth/**" },
+        },
+        "f-2",
+      ),
+    ).rejects.toThrow(/fix needs repro, expected, acceptance/);
+    expect(dispatchCalls).toEqual([]);
+  });
+
+  test("an irreversible operate without human authority is refused even when complete", async () => {
+    const runId = await createRun("prod restart", "ambient:ops-alarm");
+    await expect(
+      call(
+        runId,
+        {
+          instruction: "重启生产",
+          verb: "operate",
+          deliverable: "state-change",
+          reversibility: "irreversible",
+          slots: { environment: "prod", action: "restart api", rollback: "roll back to v1.19" },
+        },
+        "f-3",
+      ),
+    ).rejects.toThrow(/needs the human's own authority/);
+    expect(dispatchCalls).toEqual([]);
+  });
+
+  test("the same operate is allowed when a human said it in this turn", async () => {
+    const runId = await createRun("human said restart", "user");
+    await call(
+      runId,
+      {
+        instruction: "重启生产",
+        verb: "operate",
+        deliverable: "state-change",
+        reversibility: "irreversible",
+        slots: { environment: "prod", action: "restart api", rollback: "roll back to v1.19" },
+      },
+      "f-4",
+    );
+    expect(dispatchCalls).toHaveLength(1);
   });
 });
 
@@ -1028,7 +1114,7 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       callId: "pool-1",
       idempotencyKey: `${runId}:pool-1`,
       tool: "dispatch",
-      args: { capability: "css", instruction: "修一下按钮间距" },
+      args: { ...READY_FIX, capability: "css", instruction: "修一下按钮间距" },
     });
     expect(pickCalls).toEqual(["css"]);
     expect(dispatchCalls[0]).toMatchObject({ toAgentId: "fe" });
@@ -1044,7 +1130,7 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
         callId: "pool-2",
         idempotencyKey: `${runId}:pool-2`,
         tool: "dispatch",
-        args: { capability: "kubernetes", instruction: "deploy it" },
+        args: { ...READY_FIX, capability: "kubernetes", instruction: "deploy it" },
       }),
     ).rejects.toThrow(/no worker matching "kubernetes"/);
   });
@@ -1056,7 +1142,7 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       callId: "pool-3",
       idempotencyKey: `${runId}:pool-3`,
       tool: "dispatch",
-      args: { agent: "worker-9", instruction: "do this" },
+      args: { ...READY_FIX, agent: "worker-9", instruction: "do this" },
     });
     expect(pickCalls).toEqual([]);
     expect(dispatchCalls[0]!.toAgentId).toBe("worker-9");

@@ -45,6 +45,8 @@ tags: [backend, agents, product-tools]
 
 取 Run 事务里随快照冻结；排队的输入把值带在队列行上，晋升成新 Run 时原样继承（变异验证钉住）。HTTP 消息入口**不接受**该字段——外部文本不能给自己授权。读模型：`GET /api/agent-runs/:id` 与列表的 `authorization`。
 
+**派单的契约是维度，不是一句话（ADR 0054）**：`dispatch` 要求 `verb`（fix/build/review/investigate/write/operate/answer）+ `deliverable`（answer/change/report/state-change），再加可选的 `object`/`objectKind`/`references`/`reversibility`/`slots`。必需槽位由 `(verb, deliverable)` 推导（`product-tools/intent.ts` 的 `SLOTS_BY_VERB`）：`review` 只要求 target/criteria（没有 scope），`operate` 要求 environment/action/rollback。缺口不填就**在派单前**被拒，拒绝信息一次列出全部缺口；`verb=operate` 且不可逆时，跑这条派单的 run 必须是 `user` 授权（规则/研判只能去问人）。工人看到的消息由 `frameBrief` 生成：动作/交付/对象 → 槽位 → 可逆性 → 引用 → 请求者原文（逐字在最后）。
+
 **池化与回交（ADR 0052）**：`dispatch` 的 `agent` 可省略——省略时 `pickAgent(capability?)` 从 `role: worker` 的启用 agent 里挑，排序为「活跃 run 少 → 最近启动早 → id 字典序」，`capability` 只做技能/描述的大小写不敏感子串过筛（刻意不接模型路由：派单在热路径上）。负载来自 `agentLoad()`（一次 GROUP BY，跨会话统计）。工人接到不属于自己的活时调 `handback({reason, suggestion?})`：仅 `dispatch:` 授权的 run 可用，以工人身份 @ 回 dispatcher、`authorization = handback:<workerId>`、`parent_run_id = 工人 run`，从而唤醒 dispatcher 并在账本留下退回事实；reason 必填，且不自动换人。
 
 `parent_run_id`（ADR 0051，迁移 0060）：派单链的上一跳——`dispatchWork` 把**调用方 Run 的 id** 传下来，同样随队列快照晋升存活。不变量双向成立：`authorization` 以 `dispatch:` 开头 ⇔ `parent_run_id` 非空，所以沿父链上溯不会走进死胡同。其余四条通道写 `NULL`。Web 的授权账本（`/system/authority`）靠它画"这件事最初是谁要的"。

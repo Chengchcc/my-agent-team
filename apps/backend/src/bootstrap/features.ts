@@ -112,7 +112,7 @@ import {
   createProductToolsDispatch,
   createProductToolsMcpServer,
   createProductToolsService,
-  frameDispatchInput,
+  frameBrief,
   frameHandbackInput,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
@@ -689,6 +689,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       conversationId,
       toAgentId,
       instruction,
+      brief,
       parentRunId,
       note,
     }) => {
@@ -699,7 +700,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         conversationId,
         senderMemberId: fromAgentId,
         addressedTo: [toAgentId],
-        content: frameDispatchInput(fromAgentId, instruction, note),
+        content: frameBrief({ fromAgentId, brief, instruction, note }),
         mode: "normal",
         authorization: `dispatch:${fromAgentId}`,
         ...(parentRunId ? { parentRunId } : {}),

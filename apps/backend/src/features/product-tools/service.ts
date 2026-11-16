@@ -10,6 +10,13 @@ import { type AgentRun, isActiveStatus, pendingActionId } from "../agent-run/dom
 import type { AgentRunPort } from "../agent-run/ports.js";
 import type { ArtifactService } from "../artifact/index.js";
 import type { ConversationPort, LedgerEntry } from "../conversation/ports.js";
+import {
+  type Brief,
+  describeMissing,
+  missingSlots,
+  needsHumanAuthority,
+  parseBrief,
+} from "./intent.js";
 
 // ─── Product Tool Call identity (mirrors the Oma wire identity) ─
 
@@ -176,6 +183,9 @@ export interface ProductToolsServiceDeps {
     conversationId: string;
     toAgentId: string;
     instruction: string;
+    /** ADR 0054: the facets the front committed to; the worker's framing is
+     *  built from this, not from the instruction alone. */
+    brief: Brief;
     /** ADR 0051: the calling run, so the dispatched run can name its origin
      *  (the whole chain, not one hop). */
     parentRunId?: string;
@@ -569,6 +579,22 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     if (!deps.dispatch) {
       throw new ProductToolRejectedError("dispatch is not available in this deployment");
     }
+    // ADR 0054: facets first — a dispatch without a verb/deliverable pair is a
+    // model that has not decided what the work is.
+    const parsed = parseBrief(input.args);
+    if (!parsed.ok) {
+      throw new ProductToolRejectedError(parsed.reason);
+    }
+    const brief = parsed.brief;
+    const missing = missingSlots(brief);
+    if (missing.length > 0) {
+      throw new ProductToolRejectedError(describeMissing(brief.verb, missing));
+    }
+    if (needsHumanAuthority(brief) && run.authorization !== "user") {
+      throw new ProductToolRejectedError(
+        `an irreversible ${brief.verb} needs the human's own authority this turn (this run was authorized by ${run.authorization ?? "nothing recorded"}). Ask them first.`,
+      );
+    }
     const named = typeof input.args.agent === "string" ? input.args.agent.trim() : "";
     const capability =
       typeof input.args.capability === "string" ? input.args.capability.trim() : "";
@@ -615,6 +641,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       conversationId: string;
       toAgentId: string;
       instruction: string;
+      brief: Brief;
       parentRunId?: string;
       note?: string;
     } = {
@@ -622,6 +649,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       conversationId: run.conversationId,
       toAgentId: agent,
       instruction,
+      brief,
       parentRunId: run.runId,
     };
     if (note) call.note = note;
