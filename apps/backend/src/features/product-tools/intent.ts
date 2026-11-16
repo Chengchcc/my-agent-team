@@ -137,14 +137,36 @@ export function missingSlots(brief: Brief): string[] {
 
 /** The rejection message names every gap at once — a slot-filling loop that
  *  asks one field per turn is a documented failure mode, and the same applies
- *  to the model: one round trip, all the gaps. */
-export function describeMissing(verb: Verb, missing: readonly string[]): string {
+ *  to the model: one round trip, all the gaps.
+ *
+ *  `evidence` is what this run already recalled: if a line answers a gap, the
+ *  model should fill it and re-dispatch instead of asking the human something
+ *  they have already answered. */
+export function describeMissing(
+  verb: Verb,
+  missing: readonly string[],
+  evidence: ReadonlyArray<{
+    slot: string;
+    hits: ReadonlyArray<{ ref: string; text: string }>;
+  }> = [],
+): string {
   const list = missing.join(", ");
-  const guidance =
+  const lines = [`${verb} needs ${list}.`];
+  if (evidence.length > 0) {
+    lines.push("Recall from this turn may answer some of them:");
+    for (const item of evidence) {
+      const hit = item.hits[0];
+      if (hit === undefined) continue;
+      lines.push(`- ${item.slot} ← [${hit.ref}] ${hit.text.slice(0, 160)}`);
+    }
+    lines.push("Fill what the evidence actually answers, then dispatch again.");
+  }
+  lines.push(
     verb === "operate"
-      ? "Ask the human before dispatching: an irreversible action needs their confirmation in this turn."
-      : "Do not invent them — call ask_question for all of them at once, then dispatch.";
-  return `${verb} needs ${list}. ${guidance}`;
+      ? "An irreversible action still needs the human's confirmation in this turn."
+      : "Ask the human only for what is still missing — call ask_question once for all of them at once; do not invent values.",
+  );
+  return lines.join("\n");
 }
 
 /** Irreversible work may only leave the desk on a human's authority from THIS

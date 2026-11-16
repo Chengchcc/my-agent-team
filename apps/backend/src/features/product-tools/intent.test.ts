@@ -60,7 +60,7 @@ describe("ADR 0054 dispatch facets", () => {
   test("the rejection names every gap at once and forbids inventing them", () => {
     const message = describeMissing("investigate", ["question", "sources"]);
     expect(message).toContain("question, sources");
-    expect(message).toContain("ask_question for all of them at once");
+    expect(message).toContain("call ask_question once for all of them at once");
   });
 
   test("an irreversible operate is a human-authority question, not a prompt rule", () => {
@@ -126,5 +126,75 @@ describe("ADR 0054 dispatch facets", () => {
     expect(framed).toContain("请求者原文：\n点登录转圈，帮我修一下");
     // The original words come last and unedited: they are the evidence.
     expect(framed.endsWith("点登录转圈，帮我修一下")).toBe(true);
+  });
+});
+
+describe("missing slots consult recall before letting the model ask (ADR 0055)", () => {
+  test("evidence for a gap is printed with its ref, and the model is told to re-dispatch", () => {
+    const message = describeMissing(
+      "fix",
+      ["repro", "scope"],
+      [
+        {
+          slot: "repro",
+          hits: [{ ref: "seq:412", text: "点登录一直转圈，复现三次都一样" }],
+        },
+      ],
+    );
+    expect(message).toContain("fix needs repro, scope.");
+    expect(message).toContain("Recall from this turn may answer some of them:");
+    expect(message).toContain("repro ← [seq:412] 点登录一直转圈");
+    expect(message).toContain("Fill what the evidence actually answers");
+    expect(message).toContain("Ask the human only for what is still missing");
+  });
+
+  test("no evidence keeps the plain message", () => {
+    const message = describeMissing("fix", ["repro"]);
+    expect(message).not.toContain("Recall from this turn");
+    expect(message).toContain("do not invent values");
+  });
+
+  test("an irreversible operate still demands the human even when evidence exists", () => {
+    const message = describeMissing(
+      "operate",
+      ["rollback"],
+      [{ slot: "rollback", hits: [{ ref: "seq:9", text: "回滚到 v1.19" }] }],
+    );
+    expect(message).toContain("still needs the human's confirmation");
+  });
+
+  test("evidence matching is per-slot and never auto-fills", async () => {
+    const { slotEvidence } = await import("../agent-run/recall.js");
+    const hits = [
+      {
+        source: "history" as const,
+        ref: "seq:1",
+        at: 1,
+        text: "用户说验收标准是 bun test 通过",
+        why: "上次",
+      },
+      {
+        source: "qa" as const,
+        ref: "action:a",
+        at: 2,
+        text: "Q: 部署到哪个环境 A: staging",
+        why: "pinned",
+      },
+    ];
+    const evidence = slotEvidence(["acceptance", "environment"], hits);
+    expect(evidence.map((e) => e.slot)).toEqual(["acceptance", "environment"]);
+    expect(slotEvidence(["repro"], hits)).toEqual([]);
+  });
+
+  test("the brief carries the recall refs even when the model forgot them", async () => {
+    const { recallRefs } = await import("../agent-run/recall.js");
+    const refs = recallRefs(
+      [
+        { source: "history" as const, ref: "seq:412", at: 1, text: "x", why: "上次" },
+        { source: "qa" as const, ref: "action:a", at: 2, text: "y", why: "pinned" },
+      ],
+      ["#123"],
+    );
+    expect(refs).toEqual(["#123", "seq:412", "action:a"]);
   });
 });

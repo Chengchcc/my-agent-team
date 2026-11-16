@@ -8,6 +8,7 @@ import type {
 import type { AgentContextPort, IdGenerator } from "../agent-context/ports.js";
 import { type AgentRun, isActiveStatus, pendingActionId } from "../agent-run/domain.js";
 import type { AgentRunPort } from "../agent-run/ports.js";
+import { type RecallHit, recallRefs, slotEvidence } from "../agent-run/recall.js";
 import type { ArtifactService } from "../artifact/index.js";
 import type { ConversationPort, LedgerEntry } from "../conversation/ports.js";
 import {
@@ -191,6 +192,9 @@ export interface ProductToolsServiceDeps {
     parentRunId?: string;
     note?: string;
   }) => Promise<{ agentId: string; runId: string; inputId: string; queued: boolean }>;
+  /** ADR 0055: what this run recalled before dispatching. Evidence for the
+   *  slots the model left empty, so it fills instead of re-asking. */
+  recallForRun?: (runId: string) => readonly RecallHit[];
   /** ADR 0052 pooled dispatch: choose a worker when the caller named none.
    *  Absent = only named dispatch works (a deployment with no pool). */
   pickAgent?: (capability?: string) => Promise<{ agentId: string; reason: string } | null>;
@@ -585,10 +589,18 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     if (!parsed.ok) {
       throw new ProductToolRejectedError(parsed.reason);
     }
-    const brief = parsed.brief;
+    const recallHits = deps.recallForRun?.(run.runId) ?? [];
+    // Every dispatch carries the provenance of what the front was looking at,
+    // whether or not the model remembered to copy it.
+    const brief: Brief = {
+      ...parsed.brief,
+      references: recallRefs(recallHits, parsed.brief.references),
+    };
     const missing = missingSlots(brief);
     if (missing.length > 0) {
-      throw new ProductToolRejectedError(describeMissing(brief.verb, missing));
+      throw new ProductToolRejectedError(
+        describeMissing(brief.verb, missing, slotEvidence(missing, recallHits)),
+      );
     }
     if (needsHumanAuthority(brief) && run.authorization !== "user") {
       throw new ProductToolRejectedError(

@@ -195,6 +195,9 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       recalled.hits.length > 0 || recalled.searched[0]?.source !== "cues"
         ? renderRecallBlock(recalled)
         : "";
+    // The product tool consults the same hits when the model dispatches with
+    // gaps: evidence first, question second.
+    deps.onRecall?.(runId, recalled.hits);
     // H1: the bridge is the ONLY author of workspace config files. Rewrite
     // from the DB source of truth right before spawn so an agent-tampered
     // .mcp.json (forged product-tools server, run-token exfil) never

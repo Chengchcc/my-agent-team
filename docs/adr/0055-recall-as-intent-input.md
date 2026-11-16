@@ -91,6 +91,30 @@ Nothing matched (searched: qa=0, history=0). Say you looked and found nothing �
 - 预算：20 条命中输入 → 输出 ≤ 6；
 - **变异验证**（各自变红）：去掉线索短路 → "不接触任何端口"测试红；去掉会话限定 → 作用域测试红。
 
+## 补充（2026-11-16）：缺口先查证据，再问人
+
+第一版只把 recall 拼进提示词——模型"被告知"，但没有代码保证它不问已经答过的问题。补上一条：
+
+`dispatch` 的槽位校验失败时，后端把**这一轮 recall 的命中**按槽位做一次粗略匹配（`slotEvidence`：`repro` 看"复现/步骤"、`acceptance` 看"验收/测试"……），把命中连同 `ref` 一起写进拒绝信息：
+
+```
+fix needs repro, scope.
+Recall from this turn may answer some of them:
+- repro ← [seq:412] 点登录一直转圈，复现三次都一样
+Fill what the evidence actually answers, then dispatch again.
+Ask the human only for what is still missing — call ask_question once for all of them at once;
+do not invent values.
+```
+
+两条边界：
+
+- **不自动填。** 把一段记忆解读成槽位值本身就是猜测，正是本 ADR 拒绝的那类行为。代码只负责"把证据摆到模型面前"。
+- **不可逆仍要人。** 即便证据齐全，`operate` + 不可逆这一条不变——证据能补信息，不能补授权。
+
+另外，`brief.references` 现在由后端合并这一轮的 recall 命中：**模型忘了写也照样有出处**，账本上每条派单都能追到它当时看到了哪几条记忆。
+
+顺带修一个容易漏的接法：`buildRunInput` 的参数是位置参数，新参数加在末尾；execution deps 没有 `conversationPort`，所以用结构化的 `conversationSearch` 注入，测试不需要整份端口。
+
 ## 不做
 
 - **不在派单之后补 recall**：位置错了会改变分类结果。
