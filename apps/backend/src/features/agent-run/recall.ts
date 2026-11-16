@@ -247,3 +247,57 @@ export async function collectRecall(
     ],
   };
 }
+
+/** What a recalled line must mention for us to call it evidence for a slot.
+ *  Crude on purpose: this is a hint for the MODEL to re-dispatch without
+ *  re-asking, not an automatic fill (interpreting a memory snippet into a
+ *  slot value is exactly the guess we refuse to make). */
+const SLOT_HINTS: Record<string, readonly string[]> = {
+  repro: ["复现", "重现", "步骤", "repro", "steps to reproduce"],
+  expected: ["期望", "应该", "预期", "expected", "should"],
+  scope: ["范围", "目录", "文件", "模块", "scope", "path", "file"],
+  acceptance: ["验收", "测试", "通过", "acceptance", "test", "criteria"],
+  constraints: ["约束", "不要", "禁止", "必须", "constraint", "must not", "never"],
+  target: ["评", "diff", "pr", "#", "target", "review"],
+  criteria: ["标准", "准则", "criteria", "standard"],
+  question: ["为什么", "原因", "why", "cause", "question"],
+  sources: ["日志", "监控", "证据", "log", "metric", "evidence"],
+  stop: ["停止", "够", "边界", "stop", "enough"],
+  audience: ["读者", "给谁", "audience", "reader"],
+  form: ["格式", "长度", "篇幅", "format", "length"],
+  source: ["素材", "来源", "source", "material"],
+  environment: ["环境", "env", "staging", "prod"],
+  action: ["执行", "动作", "重启", "部署", "action", "restart", "deploy"],
+  rollback: ["回滚", "恢复", "rollback", "revert"],
+};
+
+/** Which recalled lines might answer each still-missing slot. */
+export function slotEvidence(
+  missing: readonly string[],
+  hits: readonly RecallHit[],
+): Array<{ slot: string; hits: RecallHit[] }> {
+  const out: Array<{ slot: string; hits: RecallHit[] }> = [];
+  for (const slot of missing) {
+    const hints = SLOT_HINTS[slot] ?? [slot];
+    const matching = hits.filter((hit) => {
+      const haystack = hit.text.toLowerCase();
+      return hints.some((hint) => haystack.includes(hint.toLowerCase()));
+    });
+    if (matching.length > 0) out.push({ slot, hits: matching.slice(0, 2) });
+  }
+  return out;
+}
+
+/** References the brief should carry whatever the model wrote: the recall it
+ *  was actually given is the provenance of this dispatch. */
+export function recallRefs(hits: readonly RecallHit[], existing: readonly string[]): string[] {
+  const seen = new Set(existing);
+  const out = [...existing];
+  for (const hit of hits) {
+    if (seen.has(hit.ref)) continue;
+    seen.add(hit.ref);
+    out.push(hit.ref);
+    if (out.length >= 8) break;
+  }
+  return out;
+}

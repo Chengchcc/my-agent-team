@@ -13,6 +13,7 @@ import type {
   BackendRunSegment,
   WorkspaceBinding,
 } from "./protocol/index.js";
+import type { RecallHit } from "./recall.js";
 
 export interface AgentRunExecutionDeps {
   /** Every live run event, as broadcast: the composition root turns the chat-shaped ones into
@@ -20,6 +21,9 @@ export interface AgentRunExecutionDeps {
   readonly onLiveEvent?: (runId: string, event: BackendEvent) => void;
   readonly runPort: AgentRunPort;
   readonly contextPort: AgentContextPort;
+  /** ADR 0055: the recall computed for this dispatch, published so the
+   *  product tool can consult it when the model dispatches with gaps. */
+  readonly onRecall?: (runId: string, hits: readonly RecallHit[]) => void;
   /** ADR 0055: recall searches this conversation's ledger. Structural (not the
    *  full ConversationPort) so a test can pass a stub. */
   readonly conversationSearch?: (

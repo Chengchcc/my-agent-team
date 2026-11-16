@@ -44,6 +44,13 @@ let emittedTodos: Array<{ runId: string; items: readonly unknown[] }> = [];
 /** Every ask answer the service announced as landed. */
 let answeredAsks: Array<{ runId: string; callId: string }> = [];
 /** Every dispatch dep call (ADR 0047), captured for assertions. */
+let recallHits: Array<{
+  source: "history" | "qa";
+  ref: string;
+  at: number;
+  text: string;
+  why: string;
+}> = [];
 let handbackCalls: Array<{
   fromAgentId: string;
   toAgentId: string;
@@ -141,6 +148,7 @@ beforeEach(async () => {
     runPort,
     contextPort,
     conversationPort: convPort,
+    recallForRun: () => recallHits,
     callPort: sqliteProductToolCallAdapter(db),
     artifactService: {
       upload: async () => ({ url: "artifacts://a/b.txt" }),
@@ -183,6 +191,7 @@ beforeEach(async () => {
   emittedTodos = [];
   answeredAsks = [];
   dispatchCalls = [];
+  recallHits = [];
   handbackCalls = [];
   pickCalls = [];
   pickResult = { agentId: "fe", reason: "idle" };
@@ -1025,6 +1034,29 @@ describe("dispatch facets enforce themselves (ADR 0054)", () => {
         "f-2",
       ),
     ).rejects.toThrow(/fix needs repro, expected, acceptance/);
+    expect(dispatchCalls).toEqual([]);
+  });
+
+  test("a gap with recall evidence tells the model to fill it, not to ask the human", async () => {
+    const runId = await createRun("recall-backed");
+    recallHits = [
+      {
+        source: "history",
+        ref: "seq:412",
+        at: Date.now(),
+        text: "点登录一直转圈，复现三次都一样",
+        why: "上次",
+      },
+    ];
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "f-evidence",
+        idempotencyKey: `${runId}:f-evidence`,
+        tool: "dispatch",
+        args: { instruction: "修登录", verb: "fix", deliverable: "change" },
+      }),
+    ).rejects.toThrow(/Recall from this turn may answer some of them:[\s\S]*seq:412/);
     expect(dispatchCalls).toEqual([]);
   });
 

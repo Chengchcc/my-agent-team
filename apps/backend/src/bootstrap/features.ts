@@ -40,6 +40,7 @@ import {
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
 import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
+import type { RecallHit } from "../features/agent-run/recall.js";
 import {
   chatUri,
   createAhpChatWriter,
@@ -620,6 +621,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // SSE stream (backend.oma.* extension event) so the web can surface the
   // AskQuestionCard. agentRunExecution is created later, so resolve lazily via
   // a mutable holder assigned after it exists.
+  // ADR 0055: the recall computed for each live run, so `dispatch` can offer
+  // evidence for missing slots instead of letting the model re-ask. Bounded:
+  // a run's recall is only useful while the run lives.
+  const recallByRun = new Map<string, readonly RecallHit[]>();
   let broadcastAskEvent:
     | ((input: { runId: string; callId: string; question: AskQuestionInput }) => void)
     | null = null;
@@ -672,6 +677,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           console.error(`[bootstrap] ask announcement failed for ${input.runId}:`, err),
         );
     },
+    recallForRun: (runId) => recallByRun.get(runId) ?? [],
     emitAsk: (input) => broadcastAskEvent?.(input),
     emitTodo: (input) => broadcastTodoEvent?.(input),
     // HITL over chat: hours, not minutes (user decision 2026-09-25).
@@ -1088,6 +1094,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // ADR 0055: recall reads this conversation's ledger; scoped so a global
     // hit list can never crowd out what was said in this room.
     conversationSearch: (keyword, limit, scope) => convPort.searchLedger(keyword, limit, scope),
+    onRecall: (runId, hits) => {
+      if (recallByRun.size >= 200) {
+        const oldest = recallByRun.keys().next().value;
+        if (oldest !== undefined) recallByRun.delete(oldest);
+      }
+      recallByRun.set(runId, hits);
+    },
     ledgerResolver,
     backends,
     idGen: { ulid },
