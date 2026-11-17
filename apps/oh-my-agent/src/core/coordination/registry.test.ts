@@ -178,3 +178,54 @@ describe("registry instances", () => {
     expect(a.getEntry("bg_iso")).toBeUndefined();
   });
 });
+
+describe("ADR 0059 waitInterruptible", () => {
+  afterEach(() => freshRegistry());
+
+  test("wakes on a pending input within one slice, before the job settles", async () => {
+    const e = processEntry("bg_1", "s1");
+    reg.registerEntry(e);
+    let pending = false;
+    const wait = reg.waitInterruptible({
+      scope: "s1",
+      totalMs: 60_000,
+      sliceMs: 5_000,
+      shouldWake: () => pending,
+    });
+    setTimeout(() => {
+      pending = true;
+    }, 30);
+    const res = await wait;
+    expect(res.woke).toBe("steer");
+    expect(res.settled).toEqual([]);
+    expect(reg.getEntry("bg_1")?.status).toBe("running");
+  });
+
+  test("returns settled rows when a watched entry settles mid-wait", async () => {
+    const e = processEntry("bg_1", "s1");
+    reg.registerEntry(e);
+    setTimeout(() => {
+      reg.updateEntry("bg_1", { status: "completed", finishedAt: Date.now(), output: "ok" });
+      e.resolve();
+    }, 20);
+    const res = await reg.waitInterruptible({ scope: "s1", totalMs: 5_000, sliceMs: 5_000 });
+    expect(res.woke).toBeNull();
+    expect(res.settled.map((r) => r.id)).toEqual(["bg_1"]);
+  });
+
+  test("respects the total budget when nothing settles and nobody wakes it", async () => {
+    reg.registerEntry(processEntry("bg_1", "s1"));
+    const started = Date.now();
+    const res = await reg.waitInterruptible({ scope: "s1", totalMs: 120, sliceMs: 50 });
+    expect(res.timedOut).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+  });
+
+  test("already-settled entries return immediately, never hanging", async () => {
+    const e = processEntry("bg_1", "s1");
+    reg.registerEntry(e);
+    reg.updateEntry("bg_1", { status: "failed", finishedAt: Date.now() });
+    const res = await reg.waitInterruptible({ scope: "s1", totalMs: 5_000 });
+    expect(res.settled.map((r) => r.status)).toEqual(["failed"]);
+  });
+});

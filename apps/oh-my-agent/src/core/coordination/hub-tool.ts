@@ -9,7 +9,12 @@ export interface HubToolDeps {
     ids?: readonly string[];
     scope: string;
     timeoutMs: number;
-  }) => Promise<{ settled: EntryRow[]; timedOut: boolean }>;
+    /** ADR 0059: wake the wait early when the run has a pending input. */
+    shouldWake?: () => boolean;
+  }) => Promise<{ settled: EntryRow[]; timedOut: boolean; woke?: "steer" | null }>;
+  /** True when the run holds a pending steer: the wait must return so the
+   *  loop can drain it at the next step boundary. */
+  readonly hasPendingInput?: () => boolean;
   readonly stop: (id: string) => { ok: boolean; error?: string };
   readonly steer: (handle: string, prompt: string) => { ok: boolean; error?: string };
   /** Delivery suppression: ack settled ids this tool result showed. */
@@ -109,8 +114,13 @@ async function streamWait(
   deps: HubToolDeps,
   opts: { ids?: readonly string[]; timeoutMs: number },
   onOutput: ((text: string) => void) | undefined,
-): Promise<{ settled: EntryRow[]; timedOut: boolean }> {
-  const wait = deps.wait({ ids: opts.ids, scope: deps.scope, timeoutMs: opts.timeoutMs });
+): Promise<{ settled: EntryRow[]; timedOut: boolean; woke?: "steer" | null }> {
+  const wait = deps.wait({
+    ids: opts.ids,
+    scope: deps.scope,
+    timeoutMs: opts.timeoutMs,
+    shouldWake: deps.hasPendingInput,
+  });
   if (!onOutput) return wait;
   let snapshot = "";
   const timer = setInterval(() => {
@@ -245,6 +255,15 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
           // onUpdate every 500ms): onOutput feeds the TUI's tool_output
           // tail so the block is alive instead of a frozen spinner.
           const out = await streamWait(deps, { ids, timeoutMs }, options?.onOutput);
+          if (out.woke === "steer") {
+            // A new input arrived: end this step so the loop drains it. The
+            // job keeps running; call hub wait again afterwards.
+            return {
+              content:
+                "Interrupted: a new input arrived while waiting. Read it first; the job is still running (hub wait again to continue watching).",
+              interrupted: true,
+            };
+          }
           deps.acknowledge?.(out.settled.map((r) => r.id));
           const text = out.timedOut
             ? "Wait timed out with nothing newly settled."
