@@ -87,3 +87,4 @@
 | 0060 | rework-verification-attribution(回传的验收证据、返工与署名) | **Proposed**（`report.verification` 四态、返工=新 run 不建列、署名是渲染契约；拒绝 Task 聚合/槽位/epoch/capability token 六项，触发条件见正文） |
 | 0061 | attention-debt(注意力债：未读、草稿与打扰纪律) | **Implemented**（`GET /api/attention` 三段派生视图、`seen_at`/`result_seen_at` 只推进读标记、`answer_draft` 回答即清、五条纪律入前台常量；回放粗检 flash 14/17 · v4-pro 16/17） |
 | 0062 | no-aggregated-delivery-card(交付卡暂不按请求聚合) | **Proposed**（结论=暂不做：终态封版 + 一次性进程 ⇒ 聚合需要一张不属于 Run 的新卡片实体；用 `/today` 三段与时间线折叠块回答这件活到哪了；触发条件与将来形状已写死） |
+| 0063 | durable-execution-scope(持久化执行：只做被打断作业的登记) | **Proposed**（不做常驻守护、不自动重放；`run_local_job` 登记表 + 终态标 `interrupted` + 下一轮上下文可见；协议增量=子进程的 job_started/finished 事件） |
