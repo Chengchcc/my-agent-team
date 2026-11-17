@@ -83,7 +83,12 @@ export function frameResultInput(workerAgentId: string, status: string, text: st
     status === "completed"
       ? `（${workerAgentId} 完成了你派给它的活）`
       : `（${workerAgentId} 的活没有做成：${status}）`;
-  const body = text.trim() === "" ? "（没有产出文字结果）" : text.trim();
+  // A notification, not a forward: the dispatcher writes its own sentence, so
+  // a runaway transcript must not ride along. 2000 chars is far beyond "one
+  // paragraph" and far below "the whole answer".
+  const raw = text.trim();
+  const body =
+    raw === "" ? "（没有产出文字结果）" : raw.length > 2000 ? `${raw.slice(0, 2000)}…` : raw;
   return [head, body, "", "这是你派出去的工作的结果：向人交代，或继续处理。"].join("\n");
 }
 

@@ -1267,6 +1267,20 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
     });
   });
 
+  test("report from a result-authorized run is refused (it is the dispatcher, not a worker)", async () => {
+    const runId = await createRun("woken by a worker result", "result:worker-1", "worker-run-1");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "rp-7",
+        idempotencyKey: `${runId}:rp-7`,
+        tool: "report",
+        args: { purpose: "attention", text: "x" },
+      }),
+    ).rejects.toThrow(/report is for dispatched work only/);
+    expect(reportCalls).toEqual([]);
+  });
+
   test("report from a human-authorized run is refused (nowhere to report to)", async () => {
     const runId = await createRun("I was asked directly");
     await expect(

@@ -859,11 +859,12 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     if (!deps.notifyParent) {
       throw new ProductToolRejectedError("report is not available in this deployment");
     }
+    // `result:` is deliberately NOT a reporting basis: a run woken by a
+    // result notification is the DISPATCHER, and its parentRunId points at the
+    // worker - letting it report would start a worker run backwards, which is
+    // the ping-pong the terminal gate exists to prevent.
     const authorization = run.authorization ?? "";
-    const isChain =
-      authorization.startsWith("dispatch:") ||
-      authorization.startsWith("handback:") ||
-      authorization.startsWith("result:");
+    const isChain = authorization.startsWith("dispatch:") || authorization.startsWith("handback:");
     if (!isChain) {
       throw new ProductToolRejectedError(
         `report is for dispatched work only; this run was authorized by ${authorization === "" ? "nothing recorded" : authorization}`,
