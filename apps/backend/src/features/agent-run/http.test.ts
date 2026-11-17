@@ -248,6 +248,82 @@ describe("agent-run routes over seeded runs", () => {
     expect(body.today.costUsd).toBeCloseTo(0.75);
   });
 
+  test("ADR 0061 attention: the three debts, and seen only advances read marks", async () => {
+    const seeded = await seedRun("completed", false, true); // stays active
+    const actionId = `${seeded.runId}:a1`;
+    await runPort.createPendingAction(seeded.runId, {
+      actionId,
+      kind: "approval",
+      payload: { callId: "a1", toolName: "bash" },
+    });
+
+    type Attention = {
+      awaitingYou: Array<{ actionId: string; seen: boolean; runId: string }>;
+      waitingAgent: Array<{ actionId: string; runId: string }>;
+      unread: Array<{ runId: string }>;
+    };
+    const first = (await (await api(harness, "GET", "/api/attention")).json()) as Attention;
+    const mine = first.awaitingYou.find((a) => a.actionId === actionId);
+    expect(mine?.seen).toBe(false); // a question nobody has looked at
+
+    // Looking is not answering: it only clears the read mark.
+    await api(harness, "POST", "/api/attention/seen", { actionId });
+    const second = (await (await api(harness, "GET", "/api/attention")).json()) as Attention;
+    expect(second.awaitingYou.find((a) => a.actionId === actionId)?.seen).toBe(true);
+
+    // The human answered; the run has not settled: the other side owes them.
+    await runPort.consumePendingAction(
+      actionId,
+      { actionId, response: { decision: "allow" } },
+      `${actionId}:allow:seen`,
+    );
+    const third = (await (await api(harness, "GET", "/api/attention")).json()) as Attention;
+    expect(third.awaitingYou.find((a) => a.actionId === actionId)).toBeUndefined();
+    expect(third.waitingAgent.find((a) => a.actionId === actionId)?.runId).toBe(seeded.runId);
+  });
+
+  test("ADR 0061 attention: an unseen terminal notice clears when the conversation is opened", async () => {
+    const seeded = await seedRun("completed", false); // terminal
+    await runPort.markResultNotified(seeded.runId);
+    type Attention = { unread: Array<{ runId: string }> };
+    const before = (await (await api(harness, "GET", "/api/attention")).json()) as Attention;
+    expect(before.unread.some((r) => r.runId === seeded.runId)).toBe(true);
+
+    await api(harness, "POST", "/api/attention/seen", {
+      conversationId: seeded.conversationId,
+    });
+    const after = (await (await api(harness, "GET", "/api/attention")).json()) as Attention;
+    expect(after.unread.some((r) => r.runId === seeded.runId)).toBe(false);
+  });
+
+  test("ADR 0061 drafts survive a read and self-clean once the question is gone", async () => {
+    const seeded = await seedRun("completed", false, true);
+    const actionId = `${seeded.runId}:d1`;
+    await runPort.createPendingAction(seeded.runId, {
+      actionId,
+      kind: "ask",
+      payload: { callId: "d1", questions: [] },
+    });
+    const path = `/api/attention/draft?runId=${seeded.runId}&callId=d1`;
+    await api(harness, "PUT", "/api/attention/draft", {
+      runId: seeded.runId,
+      callId: "d1",
+      body: JSON.stringify({ q1: "half typed" }),
+    });
+    const read = (await (await api(harness, "GET", path)).json()) as { body: string | null };
+    expect(read.body).toContain("half typed");
+
+    // Answering makes the draft meaningless: reading it after the fact
+    // returns null and deletes the row.
+    await runPort.consumePendingAction(
+      actionId,
+      { actionId, response: { answers: [] } },
+      `${actionId}:answer`,
+    );
+    const stale = (await (await api(harness, "GET", path)).json()) as { body: string | null };
+    expect(stale.body).toBeNull();
+  });
+
   test("pending-actions lists only what a human can still answer", async () => {
     const seeded = await seedRun("completed", false, true); // stays running
     const actionId = `${seeded.runId}:c1`;

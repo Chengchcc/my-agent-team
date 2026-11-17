@@ -284,6 +284,15 @@ export const api = {
       }),
     ),
   listPendingActions: () => unwrap(client.api["pending-actions"].get()),
+  // ADR 0061: the attention axis. Reading is free; `seen` only advances read
+  // marks, and drafts never touch execution state.
+  attention: () => unwrap(client.api.attention.get()),
+  markSeen: (body: { actionId?: string; runId?: string; conversationId?: string }) =>
+    unwrap(client.api.attention.seen.post(body)),
+  getAskDraft: (query: { runId: string; callId: string }) =>
+    unwrap(client.api.attention.draft.get({ query })),
+  saveAskDraft: (body: { runId: string; callId: string; body: string }) =>
+    unwrap(client.api.attention.draft.put(body)),
   getUsageSummary: (scope: { conversationId?: string; agentId?: string }) =>
     unwrap(
       client.api.usage.summary.get({

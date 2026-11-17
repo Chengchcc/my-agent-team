@@ -171,95 +171,96 @@ export function agentRunRoutes(input: {
     return t;
   }
 
-  return new Elysia()
-    .get(
-      "/api/agent-runs",
-      ({ query }) => {
-        const limit = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 500);
-        const where: string[] = [];
-        const args: (string | number)[] = [];
-        if (query.status) {
-          where.push("ar.status = ?");
-          args.push(query.status);
-        }
-        if (query.agentId) {
-          where.push("ar.agent_id = ?");
-          args.push(query.agentId);
-        }
-        if (query.conversationId) {
-          where.push("ar.conversation_id = ?");
-          args.push(query.conversationId);
-        }
-        const sql = `SELECT ar.run_id, ar.conversation_id, ar.agent_id, ar.status,
+  return (
+    new Elysia()
+      .get(
+        "/api/agent-runs",
+        ({ query }) => {
+          const limit = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 500);
+          const where: string[] = [];
+          const args: (string | number)[] = [];
+          if (query.status) {
+            where.push("ar.status = ?");
+            args.push(query.status);
+          }
+          if (query.agentId) {
+            where.push("ar.agent_id = ?");
+            args.push(query.agentId);
+          }
+          if (query.conversationId) {
+            where.push("ar.conversation_id = ?");
+            args.push(query.conversationId);
+          }
+          const sql = `SELECT ar.run_id, ar.conversation_id, ar.agent_id, ar.status,
                             ar.model_ref, ar.created_at, ar.terminal_at, ar.terminal_result,
                             ar.authorization, ar.parent_run_id
                        FROM agent_run ar
                        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
                        ORDER BY ar.created_at DESC
                        LIMIT ?`;
-        const rows = db.query(sql).all(...args, limit) as Array<{
-          run_id: string;
-          conversation_id: string;
-          agent_id: string;
-          status: string;
-          model_ref: string;
-          created_at: number;
-          terminal_at: number | null;
-          terminal_result: string | null;
-          authorization: string | null;
-          parent_run_id: string | null;
-        }>;
-        return {
-          runs: rows.map((r) => {
-            const outcome = r.terminal_result
-              ? (JSON.parse(r.terminal_result) as BackendRunOutcome)
-              : null;
-            return {
-              runId: r.run_id,
-              conversationId: r.conversation_id,
-              agentId: r.agent_id,
-              status: r.status,
-              model: JSON.parse(r.model_ref) as { backendKind: string; modelId: string },
-              createdAt: r.created_at,
-              terminalAt: r.terminal_at,
-              usage: outcome?.usage ?? null,
-              error: (outcome as { error?: string } | null)?.error ?? null,
-              verdict: deriveVerdict(outcome),
-              // ADR 0047/0051: the legitimacy chain the authority ledger reads.
-              authorization: r.authorization,
-              parentRunId: r.parent_run_id,
-            };
+          const rows = db.query(sql).all(...args, limit) as Array<{
+            run_id: string;
+            conversation_id: string;
+            agent_id: string;
+            status: string;
+            model_ref: string;
+            created_at: number;
+            terminal_at: number | null;
+            terminal_result: string | null;
+            authorization: string | null;
+            parent_run_id: string | null;
+          }>;
+          return {
+            runs: rows.map((r) => {
+              const outcome = r.terminal_result
+                ? (JSON.parse(r.terminal_result) as BackendRunOutcome)
+                : null;
+              return {
+                runId: r.run_id,
+                conversationId: r.conversation_id,
+                agentId: r.agent_id,
+                status: r.status,
+                model: JSON.parse(r.model_ref) as { backendKind: string; modelId: string },
+                createdAt: r.created_at,
+                terminalAt: r.terminal_at,
+                usage: outcome?.usage ?? null,
+                error: (outcome as { error?: string } | null)?.error ?? null,
+                verdict: deriveVerdict(outcome),
+                // ADR 0047/0051: the legitimacy chain the authority ledger reads.
+                authorization: r.authorization,
+                parentRunId: r.parent_run_id,
+              };
+            }),
+          };
+        },
+        {
+          query: t.Object({
+            status: t.Optional(
+              t.Union([
+                t.Literal("running"),
+                t.Literal("waiting"),
+                t.Literal("commit_failed"),
+                t.Literal("completed"),
+                t.Literal("failed"),
+                t.Literal("aborted"),
+                t.Literal("timeout"),
+              ]),
+            ),
+            agentId: t.Optional(t.String()),
+            conversationId: t.Optional(t.String()),
+            limit: t.Optional(t.String()),
           }),
-        };
-      },
-      {
-        query: t.Object({
-          status: t.Optional(
-            t.Union([
-              t.Literal("running"),
-              t.Literal("waiting"),
-              t.Literal("commit_failed"),
-              t.Literal("completed"),
-              t.Literal("failed"),
-              t.Literal("aborted"),
-              t.Literal("timeout"),
-            ]),
-          ),
-          agentId: t.Optional(t.String()),
-          conversationId: t.Optional(t.String()),
-          limit: t.Optional(t.String()),
-        }),
-      },
-    )
-    .get("/api/tasks", ({ query }) => {
-      // Raft #3 task cards: the input queue's semantics, made visible. A
-      // task IS a queued input plus its run — read-only projection, no new
-      // execution semantics; statuses are derived (tasks.ts) so the run
-      // state machine stays the only truth.
-      const limit = Math.min(Number(query.limit ?? 100) || 100, 300);
-      const rows = db
-        .query(
-          `SELECT q.input_id, q.status AS queue_status, q.run_id, q.created_at, q.message,
+        },
+      )
+      .get("/api/tasks", ({ query }) => {
+        // Raft #3 task cards: the input queue's semantics, made visible. A
+        // task IS a queued input plus its run — read-only projection, no new
+        // execution semantics; statuses are derived (tasks.ts) so the run
+        // state machine stays the only truth.
+        const limit = Math.min(Number(query.limit ?? 100) || 100, 300);
+        const rows = db
+          .query(
+            `SELECT q.input_id, q.status AS queue_status, q.run_id, q.created_at, q.message,
                   ar.status AS run_status, ar.agent_id, ar.conversation_id,
                   c.title AS conversation_title
              FROM branch_input_queue q
@@ -267,45 +268,45 @@ export function agentRunRoutes(input: {
              LEFT JOIN conversation c ON c.conversation_id = ar.conversation_id
             ORDER BY q.created_at DESC
             LIMIT ?`,
-        )
-        .all(limit) as Array<{
-        input_id: string;
-        queue_status: string;
-        run_id: string | null;
-        created_at: number;
-        message: string;
-        run_status: string | null;
-        agent_id: string | null;
-        conversation_id: string | null;
-        conversation_title: string | null;
-      }>;
-      const tasks = rows.map((r) =>
-        taskCardOf({
-          queue: {
-            inputId: r.input_id,
-            status: r.queue_status,
-            runId: r.run_id,
-            createdAt: r.created_at,
-            message: r.message,
-          },
-          run:
-            r.run_status === null
-              ? null
-              : { status: r.run_status, agentId: r.agent_id, conversationId: r.conversation_id },
-          conversationTitle: r.conversation_title,
-        }),
-      );
-      return { tasks };
-    })
-    .get("/api/pending-actions", () => {
-      // Global HITL read model: one row per thing a human can still answer.
-      // Terminal settles cancel their actions, so the active-run join is
-      // belt-and-suspenders against a cancelled row racing the sweep. The
-      // Today page and the TopBar bell read this instead of fan-out run
-      // detail calls.
-      const rows = db
-        .query(
-          `SELECT pa.action_id, pa.run_id, pa.kind, pa.payload, pa.created_at,
+          )
+          .all(limit) as Array<{
+          input_id: string;
+          queue_status: string;
+          run_id: string | null;
+          created_at: number;
+          message: string;
+          run_status: string | null;
+          agent_id: string | null;
+          conversation_id: string | null;
+          conversation_title: string | null;
+        }>;
+        const tasks = rows.map((r) =>
+          taskCardOf({
+            queue: {
+              inputId: r.input_id,
+              status: r.queue_status,
+              runId: r.run_id,
+              createdAt: r.created_at,
+              message: r.message,
+            },
+            run:
+              r.run_status === null
+                ? null
+                : { status: r.run_status, agentId: r.agent_id, conversationId: r.conversation_id },
+            conversationTitle: r.conversation_title,
+          }),
+        );
+        return { tasks };
+      })
+      .get("/api/pending-actions", () => {
+        // Global HITL read model: one row per thing a human can still answer.
+        // Terminal settles cancel their actions, so the active-run join is
+        // belt-and-suspenders against a cancelled row racing the sweep. The
+        // Today page and the TopBar bell read this instead of fan-out run
+        // detail calls.
+        const rows = db
+          .query(
+            `SELECT pa.action_id, pa.run_id, pa.kind, pa.payload, pa.created_at,
                   ar.conversation_id, ar.agent_id, ar.status AS run_status
              FROM pending_action pa
              JOIN agent_run ar ON ar.run_id = pa.run_id
@@ -313,141 +314,340 @@ export function agentRunRoutes(input: {
               AND ar.status IN ('running', 'waiting', 'commit_failed')
             ORDER BY pa.created_at DESC
             LIMIT 200`,
-        )
-        .all() as Array<{
-        action_id: string;
-        run_id: string;
-        kind: string;
-        payload: string;
-        created_at: number;
-        conversation_id: string;
-        agent_id: string;
-        run_status: string;
-      }>;
-      return {
-        actions: rows.map((r) => ({
-          actionId: r.action_id,
-          runId: r.run_id,
-          conversationId: r.conversation_id,
-          agentId: r.agent_id,
-          runStatus: r.run_status,
-          kind: r.kind,
-          payload: JSON.parse(r.payload) as Record<string, unknown>,
-          createdAt: r.created_at,
-        })),
-      };
-    })
-    .get(
-      "/api/usage/summary",
-      async ({ query }) => {
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
+          )
+          .all() as Array<{
+          action_id: string;
+          run_id: string;
+          kind: string;
+          payload: string;
+          created_at: number;
+          conversation_id: string;
+          agent_id: string;
+          run_status: string;
+        }>;
         return {
-          conversation: query.conversationId
-            ? await usageTotals("AND ar.conversation_id = ?", [query.conversationId])
-            : null,
-          agent: query.agentId ? await usageTotals("AND ar.agent_id = ?", [query.agentId]) : null,
-          today: await usageTotals("AND ar.created_at >= ?", [startOfDay.getTime()]),
-          // The brake, in the open: capUsd null means no cap is configured.
-          budget: input.budgetGate ? await input.budgetGate.dailyStatus() : null,
+          actions: rows.map((r) => ({
+            actionId: r.action_id,
+            runId: r.run_id,
+            conversationId: r.conversation_id,
+            agentId: r.agent_id,
+            runStatus: r.run_status,
+            kind: r.kind,
+            payload: JSON.parse(r.payload) as Record<string, unknown>,
+            createdAt: r.created_at,
+          })),
         };
-      },
-      {
-        query: t.Object({
-          conversationId: t.Optional(t.String({ minLength: 1 })),
-          agentId: t.Optional(t.String({ minLength: 1 })),
-        }),
-      },
-    )
-    .get("/api/agent-runs/:runId", async ({ params: { runId }, set }) => {
-      const run = await agentRunService.getRun(runId);
-      if (!run) {
-        set.status = 404;
-        return { error: "Run not found" };
-      }
-      const inputs = (await agentRunService.listInputs(run.branchId)).filter(
-        (i) => i.runId === runId,
-      );
-      return {
-        run: {
-          runId: run.runId,
-          branchId: run.branchId,
-          conversationId: run.conversationId,
-          agentId: run.agentId,
-          model: run.modelRef,
-          status: run.status,
-          verdict: deriveVerdict(run.terminalResult),
-          verification: deriveVerification(run.terminalResult),
-          configRevision: run.configRevision,
-          authorization: run.authorization,
-          parentRunId: run.parentRunId,
-          createdAt: run.createdAt,
-          terminalAt: run.terminalAt,
-          terminalResult: run.terminalResult,
-          usage: run.terminalResult?.usage ?? null,
-          pendingActions: await agentRunService.listPendingActions(runId).catch(() => []),
+      })
+      // ─── ADR 0061: the attention axis (derived, read-only) ───
+      // Three debts, all computed from rows that already exist:
+      //   awaitingYou  a pending question the human owes an answer
+      //   waitingAgent the human answered, their run has not settled yet
+      //   unread       a terminal notice the human has not looked at
+      // Nothing here writes execution state; `seen` only advances read marks.
+      .get("/api/attention", () => {
+        const awaitingYou = db
+          .query(
+            `SELECT pa.action_id, pa.run_id, pa.kind, pa.payload, pa.created_at, pa.seen_at,
+                  ar.conversation_id, ar.agent_id, ar.status AS run_status
+             FROM pending_action pa
+             JOIN agent_run ar ON ar.run_id = pa.run_id
+            WHERE pa.status = 'pending'
+              AND ar.status IN ('running', 'waiting', 'commit_failed')
+            ORDER BY pa.created_at DESC
+            LIMIT 200`,
+          )
+          .all() as Array<{
+          action_id: string;
+          run_id: string;
+          kind: string;
+          payload: string;
+          created_at: number;
+          seen_at: number | null;
+          conversation_id: string;
+          agent_id: string;
+          run_status: string;
+        }>;
+        const waitingAgent = db
+          .query(
+            `SELECT pa.action_id, pa.run_id, pa.kind, pa.resolved_at,
+                  ar.conversation_id, ar.agent_id, ar.status AS run_status
+             FROM pending_action pa
+             JOIN agent_run ar ON ar.run_id = pa.run_id
+            WHERE pa.status = 'resolved'
+              AND ar.status IN ('running', 'waiting')
+            ORDER BY pa.resolved_at DESC
+            LIMIT 200`,
+          )
+          .all() as Array<{
+          action_id: string;
+          run_id: string;
+          kind: string;
+          resolved_at: number | null;
+          conversation_id: string;
+          agent_id: string;
+          run_status: string;
+        }>;
+        const unread = db
+          .query(
+            `SELECT run_id, conversation_id, agent_id, status, terminal_at
+             FROM agent_run
+            WHERE terminal_at IS NOT NULL
+              AND result_notified_at IS NOT NULL
+              AND result_seen_at IS NULL
+            ORDER BY terminal_at DESC
+            LIMIT 50`,
+          )
+          .all() as Array<{
+          run_id: string;
+          conversation_id: string;
+          agent_id: string;
+          status: string;
+          terminal_at: number;
+        }>;
+        return {
+          awaitingYou: awaitingYou.map((r) => ({
+            actionId: r.action_id,
+            runId: r.run_id,
+            conversationId: r.conversation_id,
+            agentId: r.agent_id,
+            runStatus: r.run_status,
+            kind: r.kind,
+            payload: JSON.parse(r.payload) as Record<string, unknown>,
+            createdAt: r.created_at,
+            seen: r.seen_at !== null,
+          })),
+          waitingAgent: waitingAgent.map((r) => ({
+            actionId: r.action_id,
+            runId: r.run_id,
+            conversationId: r.conversation_id,
+            agentId: r.agent_id,
+            runStatus: r.run_status,
+            kind: r.kind,
+            resolvedAt: r.resolved_at,
+          })),
+          unread: unread.map((r) => ({
+            runId: r.run_id,
+            conversationId: r.conversation_id,
+            agentId: r.agent_id,
+            status: r.status,
+            terminalAt: r.terminal_at,
+          })),
+        };
+      })
+      // Opening something marks it looked at. One endpoint, three scopes.
+      .post(
+        "/api/attention/seen",
+        ({ body }) => {
+          const now = Date.now();
+          let marked = 0;
+          if (body.actionId !== undefined) {
+            marked += db
+              .query(
+                "UPDATE pending_action SET seen_at = ? WHERE action_id = ? AND seen_at IS NULL",
+              )
+              .run(now, body.actionId).changes;
+          }
+          if (body.runId !== undefined) {
+            marked += db
+              .query(
+                "UPDATE agent_run SET result_seen_at = ? WHERE run_id = ? AND result_seen_at IS NULL",
+              )
+              .run(now, body.runId).changes;
+          }
+          if (body.conversationId !== undefined) {
+            marked += db
+              .query(
+                `UPDATE pending_action SET seen_at = ?
+                WHERE seen_at IS NULL
+                  AND run_id IN (SELECT run_id FROM agent_run WHERE conversation_id = ?)`,
+              )
+              .run(now, body.conversationId).changes;
+            marked += db
+              .query(
+                `UPDATE agent_run SET result_seen_at = ?
+                WHERE conversation_id = ? AND terminal_at IS NOT NULL AND result_seen_at IS NULL`,
+              )
+              .run(now, body.conversationId).changes;
+          }
+          return { marked };
         },
-        inputs: inputs.map((i) => ({
-          inputId: i.inputId,
-          mode: i.mode,
-          status: i.status,
-          runId: i.runId,
-          createdAt: i.createdAt,
-          deliveredAt: i.deliveredAt,
-        })),
-      };
-    })
-    .post("/api/agent-runs/:runId/cancel", async ({ params: { runId }, set }) => {
-      const run = await agentRunService.getRun(runId);
-      if (!run) {
-        set.status = 404;
-        return { error: "Run not found" };
-      }
-      if (TERMINAL_STATUSES.includes(run.status)) {
-        return { ok: true, state: "already_terminal", runId, status: run.status };
-      }
-      if (!ACTIVE_STATUSES.includes(run.status)) {
-        set.status = 409;
-        return { error: `Run ${runId} is ${run.status}` };
-      }
-      await agentRunExecution.stop(runId);
-      return { ok: true, state: "abort_sent", runId };
-    })
-    .post("/api/agent-runs/:runId/approval", async ({ params: { runId }, body, set }) => {
-      const run = await agentRunService.getRun(runId);
-      if (!run) {
-        set.status = 404;
-        return { error: "Run not found" };
-      }
-      const payload = body as { callId?: unknown; decision?: unknown } | undefined;
-      const isTerminal = TERMINAL_STATUSES.includes(run.status);
-      const isAllow = payload?.decision === "allow" || payload?.decision === "allow_always";
-      const isDeny = payload?.decision === "deny" || payload?.decision === "deny_always";
-      const hasValidDecision = typeof payload?.callId === "string" && (isAllow || isDeny);
-      if (isTerminal) {
-        set.status = 409;
-        return { error: `Run ${runId} is ${run.status}` };
-      }
-      if (!hasValidDecision) {
-        set.status = 400;
-        return {
-          error:
-            "body must be { callId: string, decision: 'allow' | 'allow_always' | 'deny' | 'deny_always' }",
-        };
-      }
-      try {
-        await agentRunExecution.resolveApproval(
-          runId,
-          payload.callId as string,
-          payload.decision as "allow" | "allow_always" | "deny" | "deny_always",
-        );
-      } catch (err) {
-        if (err instanceof ApprovalNotApplicableError) {
-          set.status = 409;
-          return { error: "This approval is no longer waiting for an answer" };
+        {
+          body: t.Object({
+            actionId: t.Optional(t.String({ minLength: 1 })),
+            runId: t.Optional(t.String({ minLength: 1 })),
+            conversationId: t.Optional(t.String({ minLength: 1 })),
+          }),
+        },
+      )
+      // ADR 0061 D3: the human's unsent answer. A draft is not a fact, so it
+      // lives beside the ledger, not in it. Reading self-cleans: once the
+      // question is gone a draft has no meaning.
+      .get(
+        "/api/attention/draft",
+        ({ query }) => {
+          const row = db
+            .query("SELECT d.body FROM answer_draft d WHERE d.run_id = ? AND d.call_id = ?")
+            .get(query.runId, query.callId) as { body: string } | null;
+          if (!row) return { body: null };
+          const pending = db
+            .query(
+              "SELECT 1 AS ok FROM pending_action WHERE run_id = ? AND action_id = ? AND status = 'pending'",
+            )
+            // A pending action's id is `${runId}:${callId}` (pendingActionId);
+            // the draft is keyed by the raw pair the surface already has.
+            .get(query.runId, `${query.runId}:${query.callId}`) as { ok: number } | null;
+          if (!pending) {
+            db.query("DELETE FROM answer_draft WHERE run_id = ? AND call_id = ?").run(
+              query.runId,
+              query.callId,
+            );
+            return { body: null };
+          }
+          return { body: row.body };
+        },
+        {
+          query: t.Object({
+            runId: t.String({ minLength: 1 }),
+            callId: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      .put(
+        "/api/attention/draft",
+        ({ body }) => {
+          if (body.body === "") {
+            db.query("DELETE FROM answer_draft WHERE run_id = ? AND call_id = ?").run(
+              body.runId,
+              body.callId,
+            );
+            return { saved: false };
+          }
+          db.query(
+            `INSERT INTO answer_draft (run_id, call_id, body, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(run_id, call_id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`,
+          ).run(body.runId, body.callId, body.body, Date.now());
+          return { saved: true };
+        },
+        {
+          body: t.Object({
+            runId: t.String({ minLength: 1 }),
+            callId: t.String({ minLength: 1 }),
+            body: t.String(),
+          }),
+        },
+      )
+      .get(
+        "/api/usage/summary",
+        async ({ query }) => {
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+          return {
+            conversation: query.conversationId
+              ? await usageTotals("AND ar.conversation_id = ?", [query.conversationId])
+              : null,
+            agent: query.agentId ? await usageTotals("AND ar.agent_id = ?", [query.agentId]) : null,
+            today: await usageTotals("AND ar.created_at >= ?", [startOfDay.getTime()]),
+            // The brake, in the open: capUsd null means no cap is configured.
+            budget: input.budgetGate ? await input.budgetGate.dailyStatus() : null,
+          };
+        },
+        {
+          query: t.Object({
+            conversationId: t.Optional(t.String({ minLength: 1 })),
+            agentId: t.Optional(t.String({ minLength: 1 })),
+          }),
+        },
+      )
+      .get("/api/agent-runs/:runId", async ({ params: { runId }, set }) => {
+        const run = await agentRunService.getRun(runId);
+        if (!run) {
+          set.status = 404;
+          return { error: "Run not found" };
         }
-        throw err;
-      }
-      return { ok: true, runId, callId: payload.callId, decision: payload.decision };
-    });
+        const inputs = (await agentRunService.listInputs(run.branchId)).filter(
+          (i) => i.runId === runId,
+        );
+        return {
+          run: {
+            runId: run.runId,
+            branchId: run.branchId,
+            conversationId: run.conversationId,
+            agentId: run.agentId,
+            model: run.modelRef,
+            status: run.status,
+            verdict: deriveVerdict(run.terminalResult),
+            verification: deriveVerification(run.terminalResult),
+            configRevision: run.configRevision,
+            authorization: run.authorization,
+            parentRunId: run.parentRunId,
+            createdAt: run.createdAt,
+            terminalAt: run.terminalAt,
+            terminalResult: run.terminalResult,
+            usage: run.terminalResult?.usage ?? null,
+            pendingActions: await agentRunService.listPendingActions(runId).catch(() => []),
+          },
+          inputs: inputs.map((i) => ({
+            inputId: i.inputId,
+            mode: i.mode,
+            status: i.status,
+            runId: i.runId,
+            createdAt: i.createdAt,
+            deliveredAt: i.deliveredAt,
+          })),
+        };
+      })
+      .post("/api/agent-runs/:runId/cancel", async ({ params: { runId }, set }) => {
+        const run = await agentRunService.getRun(runId);
+        if (!run) {
+          set.status = 404;
+          return { error: "Run not found" };
+        }
+        if (TERMINAL_STATUSES.includes(run.status)) {
+          return { ok: true, state: "already_terminal", runId, status: run.status };
+        }
+        if (!ACTIVE_STATUSES.includes(run.status)) {
+          set.status = 409;
+          return { error: `Run ${runId} is ${run.status}` };
+        }
+        await agentRunExecution.stop(runId);
+        return { ok: true, state: "abort_sent", runId };
+      })
+      .post("/api/agent-runs/:runId/approval", async ({ params: { runId }, body, set }) => {
+        const run = await agentRunService.getRun(runId);
+        if (!run) {
+          set.status = 404;
+          return { error: "Run not found" };
+        }
+        const payload = body as { callId?: unknown; decision?: unknown } | undefined;
+        const isTerminal = TERMINAL_STATUSES.includes(run.status);
+        const isAllow = payload?.decision === "allow" || payload?.decision === "allow_always";
+        const isDeny = payload?.decision === "deny" || payload?.decision === "deny_always";
+        const hasValidDecision = typeof payload?.callId === "string" && (isAllow || isDeny);
+        if (isTerminal) {
+          set.status = 409;
+          return { error: `Run ${runId} is ${run.status}` };
+        }
+        if (!hasValidDecision) {
+          set.status = 400;
+          return {
+            error:
+              "body must be { callId: string, decision: 'allow' | 'allow_always' | 'deny' | 'deny_always' }",
+          };
+        }
+        try {
+          await agentRunExecution.resolveApproval(
+            runId,
+            payload.callId as string,
+            payload.decision as "allow" | "allow_always" | "deny" | "deny_always",
+          );
+        } catch (err) {
+          if (err instanceof ApprovalNotApplicableError) {
+            set.status = 409;
+            return { error: "This approval is no longer waiting for an answer" };
+          }
+          throw err;
+        }
+        return { ok: true, runId, callId: payload.callId, decision: payload.decision };
+      })
+  );
 }

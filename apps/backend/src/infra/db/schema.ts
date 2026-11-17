@@ -427,6 +427,9 @@ export const agentRun = sqliteTable(
      *  the commit and the delivery - recovery re-delivers it (at-least-once;
      *  the steer rail is idempotent by input key). */
     resultNotifiedAt: integer("result_notified_at", { mode: "number" }),
+    /** ADR 0061 D1: a terminal notice the human has not looked at yet. Set
+     *  when the conversation (or the row itself) is opened. */
+    resultSeenAt: integer("result_seen_at", { mode: "number" }),
   },
   (table) => [
     primaryKey({ columns: [table.runId] }),
@@ -520,12 +523,29 @@ export const pendingAction = sqliteTable(
     responseIdempotencyKey: text("response_idempotency_key"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     resolvedAt: integer("resolved_at", { mode: "number" }),
+    /** ADR 0061 D2: when a human first opened this question. `unread` is
+     *  advanced only by the OTHER side's action, never by our own look. */
+    seenAt: integer("seen_at", { mode: "number" }),
   },
   (table) => [
     primaryKey({ columns: [table.actionId] }),
     uniqueIndex("idx_pending_action_response_idem").on(table.responseIdempotencyKey),
     index("idx_pending_action_run").on(table.runId),
   ],
+);
+
+// ADR 0061 D3: a human's unsent free-text answer. One row per question; the
+// body survives reloads, and a successful answer deletes it. It is not a
+// fact: drafts never enter the ledger.
+export const answerDraft = sqliteTable(
+  "answer_draft",
+  {
+    runId: text("run_id").notNull(),
+    callId: text("call_id").notNull(),
+    body: text("body").notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.callId] })],
 );
 
 // Lark setup session: the wizard's authorization attempt. Persisted (not a

@@ -15,3 +15,14 @@ export function pendingActionsQuery() {
     select: (data) => data.actions ?? [],
   });
 }
+
+/** ADR 0061: the attention debt view (awaiting you / waiting on agent /
+ *  unseen results). Same 30s poll as the bell: it is a read model, and a
+ *  stale debt list is worse than a slightly late one. */
+export function attentionQuery() {
+  return queryOptions({
+    queryKey: ["attention"],
+    queryFn: () => api.attention(),
+    refetchInterval: 30_000,
+  });
+}
