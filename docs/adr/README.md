@@ -85,3 +85,4 @@
 | 0058 | unified-recall(一个召回入口：history/qa/capability 同构，memory/skill 报 skipped 并带原因) | **Implemented**（选工人也走同一入口；`searched` 区分"没查"与"查了没有"；`limit` 由调用方决定） |
 | 0059 | duplex-execution-loop(全双工执行循环：可打断的监督、轮次结束门槛、工人终态双路通知) | **Accepted**（第 1–2 刀：`waitInterruptible` 切片+100ms 轮询、收尾门槛/`job_result` 注入；工人终态与 `report` 的双路回填 + 深度护栏。待做：前台 `wait_for`/`steer_worker`/`cancel_worker`） |
 | 0060 | rework-verification-attribution(回传的验收证据、返工与署名) | **Proposed**（`report.verification` 四态、返工=新 run 不建列、署名是渲染契约；拒绝 Task 聚合/槽位/epoch/capability token 六项，触发条件见正文） |
+| 0061 | attention-debt(注意力债：未读、草稿与打扰纪律) | **Proposed**（债务是派生视图不建表：等你答/等 agent/未读；`unread` 只由对方动作推进；草稿绑 `(runId,callId)`；五条打扰纪律进前台常量） |
