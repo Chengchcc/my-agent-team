@@ -160,6 +160,18 @@ TUI 的路径显示统一走 `formatWorkspace(root, maxLen = 48)`：`$HOME` 先�
 - 三个驱动的主开关与状态都在 TUI 侧；backend 起的 Run 不涉及这些模式。
 - compaction 摘要失败不会判 Run 失败，但失败只写调试日志，终端上没有任何可见信号。
 
+## 写入策略的注入链路（ADR 0060 D7）
+
+```
+agent.yml runtime_config.{deny_write_paths, allow_write_paths, deny_commands}
+  → resolveRunConfig（enqueue 时）
+  → agent_run.tool_policy（随队列快照晋升）
+  → ACP 子进程 env：OMA_DENY_WRITE_PATHS / OMA_ALLOW_WRITE_PATHS / OMA_DENY_COMMANDS
+  → file-tools（read/write/edit）与 bash 的命令 tripwire
+```
+
+**天花板**：路径规则只约束 file tools；`bash` 只受整串精确匹配的命令 tripwire 与沙箱约束（不对命令行套 regex —— 引号/变量展开/base64 都是绕过面）。`allow` 非空时写入必须落在其中之一，`deny` 优先；以 `/` 结尾按目录前缀匹配，否则精确路径。
+
 ## 后台监督（ADR 0059，第 1 刀）
 
 Run 期间的后台工作（`bash async`、eval、子代理）登记在 per-Run 的 coordination registry。两个循环层性质：

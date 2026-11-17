@@ -193,7 +193,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 | 层 | 拦什么 | 现状 |
 |---|---|---|
 | 派单前（后端） | 缺料、不可逆无 user 授权、worker 不可直接建会话 | 已实现 |
-| 工具层（子进程内） | 写路径 allow/deny、PROTECTED_FILES、密钥剥离 | 规则已实现，**注入链路未接** |
+| 工具层（子进程内） | 写路径 allow/deny、PROTECTED_FILES、密钥剥离 | **已接通**（config → run 快照 → env → file tools）；bash 只受命令 tripwire 与沙箱约束 |
 | 沙箱（bwrap） | 网络二值（全断/全开）、文件系统隔离 | 已实现；per-host 白名单需特权 |
 | 协作式代理 | 只允许的 registry 主机 | 已实现，天花板：忽略代理变量的脚本直连 |
 
