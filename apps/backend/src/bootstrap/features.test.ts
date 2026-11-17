@@ -243,3 +243,38 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
   await services.mcpClientManager.disconnectAll();
   services.db.close();
 });
+
+describe("front-desk routing discipline (ADR 0057)", () => {
+  test("a front gets the discipline even with no identity files", async () => {
+    const { buildAgentSystemPrompt } = await import("./features.js");
+    const prompt = buildAgentSystemPrompt(null, null, { role: "front" });
+    expect(prompt).toContain("## Routing (you are the front desk)");
+    expect(prompt).toContain("`verb` is an argument to dispatch, not an exit");
+  });
+
+  test("a legacy agent with no role is a front", async () => {
+    const { buildAgentSystemPrompt } = await import("./features.js");
+    expect(buildAgentSystemPrompt(null, null) ?? "").toContain("front desk");
+    expect(buildAgentSystemPrompt(null, null, { role: null }) ?? "").toContain("front desk");
+  });
+
+  test("a worker does not: it has nobody to route for", async () => {
+    const { buildAgentSystemPrompt } = await import("./features.js");
+    expect(buildAgentSystemPrompt("soul", null, { role: "worker" })).toBe("soul");
+  });
+
+  test("the identity stays first and the discipline follows it", async () => {
+    const { buildAgentSystemPrompt } = await import("./features.js");
+    const prompt = buildAgentSystemPrompt("SOUL TEXT", "USER TEXT", { role: "front" }) ?? "";
+    expect(prompt.indexOf("SOUL TEXT")).toBeLessThan(prompt.indexOf("## Routing"));
+    expect(prompt).toContain("User context:\nUSER TEXT");
+  });
+
+  test("the three golden deviations are each addressed in the text", async () => {
+    const { buildAgentSystemPrompt } = await import("./features.js");
+    const prompt = buildAgentSystemPrompt(null, null, { role: "front" }) ?? "";
+    expect(prompt).toContain("not an exit"); // verb placed in "action"
+    expect(prompt).toContain("neither is ANSWER"); // write/investigate answered
+    expect(prompt).toContain("already states is NOT missing"); // re-asking known slots
+  });
+});

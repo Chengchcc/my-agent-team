@@ -14,6 +14,7 @@ import {
   createAgentConfigMcpServer,
   createModelCatalogCheck,
 } from "../features/agent/index.js";
+import { FRONT_DESK_DISCIPLINE } from "../features/agent/prompt-front-desk.js";
 import {
   bridgeWorktreeRoot,
   type McpServerEntry,
@@ -183,10 +184,14 @@ import type { BackendServices } from "./services.js";
 export function buildAgentSystemPrompt(
   soul: string | null,
   user: string | null,
+  /** ADR 0057: only agents that face humans get the routing discipline; a
+   *  worker has nobody to route for. Absent role = legacy front. */
+  opts?: { role?: "front" | "worker" | null },
 ): string | undefined {
   const parts: string[] = [];
   if (soul) parts.push(soul);
   if (user) parts.push(`User context:\n${user}`);
+  if (opts?.role !== "worker") parts.push(FRONT_DESK_DISCIPLINE);
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
@@ -433,7 +438,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     resolveRunConfig: async ({ agentId }) => {
       if (!agentId) return {};
       const identity = await identityStore.getIdentity(agentId);
-      const systemPrompt = buildAgentSystemPrompt(identity.soul, identity.user);
+      const agentRow = await agentSvc.getById(agentId).catch(() => null);
+      const systemPrompt = buildAgentSystemPrompt(identity.soul, identity.user, {
+        role: agentRow?.config.role ?? null,
+      });
       const packs = await skillPackPort.listForAgent(agentId);
       const packRoots = packs
         .filter((p) => p.status === "ready")
@@ -449,7 +457,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       } = {};
       if (systemPrompt) result.systemPrompt = systemPrompt;
       if (skillRoots.length > 0) result.skillRoots = skillRoots;
-      const agent = await agentSvc.getById(agentId).catch(() => null);
+      const agent = agentRow;
       if (agent) result.permissionMode = agent.config.runtime_config.permission_mode;
       if (agent) {
         const rc = agent.config.runtime_config;

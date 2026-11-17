@@ -7,6 +7,7 @@
 // Not part of CI: it costs model calls and depends on a provider being up.
 // Every case prints its expected vs actual line; exit 1 when any differs.
 
+import { FRONT_DESK_DISCIPLINE } from "../apps/backend/src/features/agent/prompt-front-desk.js";
 import { GOLDEN_INTENT_CASES } from "../apps/backend/src/features/product-tools/golden-intent.cases.js";
 import { createModelRuntime, createProvider } from "../packages/ai/src/index.js";
 
@@ -44,13 +45,13 @@ rt.registerProvider(
   }),
 );
 
+// The product's own routing text (ADR 0057), verbatim: if the baseline moves,
+// it moved because the product moved. The slot table is not in the product
+// prompt — in production it lives in the dispatch tool schema.
 const SYSTEM = [
-  "You are the front desk of a small agent team. Decide what a human request is.",
+  FRONT_DESK_DISCIPLINE,
   "",
-  "Actions:",
-  '- "answer": you can satisfy it yourself in a reply; it changes nothing.',
-  '- "ask": it is work, but some required detail is missing.',
-  '- "dispatch": it is work and every required detail is present.',
+  'The "action" field is EXACTLY one of: "answer", "ask", "dispatch".',
   "",
   "Verbs and their required slots (a brief missing any slot must be action=ask):",
   "fix: repro, expected, scope, acceptance",
