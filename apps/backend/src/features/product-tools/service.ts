@@ -216,6 +216,18 @@ export interface ProductToolsServiceDeps {
     reason: string;
     suggestion?: string;
   }) => Promise<{ runId: string; queued: boolean }>;
+  /** ADR 0059 D5/D6: talk upward to whoever dispatched this run. `progress`
+   *  must land in the ledger WITHOUT waking anyone (a worker must not
+   *  interrupt its dispatcher every five minutes); `attention` and `answer`
+   *  wake it exactly like a terminal result does. Absent = report rejects
+   *  explicitly. */
+  notifyParent?: (input: {
+    fromAgentId: string;
+    conversationId: string;
+    runId: string;
+    purpose: "progress" | "attention" | "answer";
+    text: string;
+  }) => Promise<{ delivered: "steer" | "queued" | "ledger" }>;
   /** ADR 0048: the team roster with capability cards (team_list). Absent =
    *  the tool rejects explicitly. */
   listTeam?: () => Promise<
@@ -836,6 +848,64 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: result };
   }
 
+  /** ADR 0059 D6 report: a dispatched run talks upward. `progress` is a
+   *  ledger note (never a wake); `attention`/`answer` wake the dispatcher.
+   *  Only a run in a dispatch/handback/result chain may report — a run the
+   *  human started talks to the human, not "upward". */
+  async function reportUp(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.notifyParent) {
+      throw new ProductToolRejectedError("report is not available in this deployment");
+    }
+    // `result:` is deliberately NOT a reporting basis: a run woken by a
+    // result notification is the DISPATCHER, and its parentRunId points at the
+    // worker - letting it report would start a worker run backwards, which is
+    // the ping-pong the terminal gate exists to prevent.
+    const authorization = run.authorization ?? "";
+    const isChain = authorization.startsWith("dispatch:") || authorization.startsWith("handback:");
+    if (!isChain) {
+      throw new ProductToolRejectedError(
+        `report is for dispatched work only; this run was authorized by ${authorization === "" ? "nothing recorded" : authorization}`,
+      );
+    }
+    const purpose = input.args.purpose;
+    if (purpose !== "progress" && purpose !== "attention" && purpose !== "answer") {
+      throw new ProductToolRejectedError("report requires purpose: progress, attention or answer");
+    }
+    const text = typeof input.args.text === "string" ? input.args.text.trim() : "";
+    if (text === "") {
+      throw new ProductToolRejectedError("report requires text: what should they know");
+    }
+    const inputHash = JSON.stringify({ tool: input.tool, args: input.args });
+    const existing = await callPort.getCall(run.runId, input.callId);
+    if (existing) {
+      if (existing.toolName !== input.tool || existing.inputHash !== inputHash) {
+        throw new ProductToolRejectedError(
+          `call id ${input.callId} reused with a different tool/input`,
+        );
+      }
+      return { content: existing.result ?? "{}" };
+    }
+    const delivered = await deps.notifyParent({
+      fromAgentId: run.agentId,
+      conversationId: run.conversationId,
+      runId: run.runId,
+      purpose,
+      text,
+    });
+    const result = JSON.stringify({ delivered: delivered.delivered, purpose });
+    await callPort.recordCall({
+      runId: run.runId,
+      callId: input.callId,
+      toolName: input.tool,
+      inputHash,
+      result,
+    });
+    return { content: result };
+  }
+
   /** ADR 0048 team_list: read-only roster with capability cards — the
    *  discovery surface a dispatching agent reads to pick a worker. */
   async function teamList(): Promise<ProductToolCallResult> {
@@ -892,6 +962,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return teamList();
         case "handback":
           return handbackWork(run, input);
+        case "report":
+          return reportUp(run, input);
         case "reminder_list":
           return reminderList(run, input);
         case "reminder_cancel":

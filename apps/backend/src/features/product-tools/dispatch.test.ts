@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createProductToolsDispatch } from "./dispatch.js";
+import { createProductToolsDispatch, frameReportInput, frameResultInput } from "./dispatch.js";
 import type { ProductToolsService } from "./service.js";
 
 /** Records every service call and answers with a fixed content string. */
@@ -29,6 +29,7 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "todo_write",
       "dispatch",
       "handback",
+      "report",
       "team_list",
       "ask_question",
       "artifact_upload",
@@ -93,5 +94,27 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       args: {},
     });
     expect(result).toEqual({ content: "artifact storage full", isError: true });
+  });
+});
+
+describe("ADR 0059 upward frames", () => {
+  test("a terminal result names the worker and its status", () => {
+    const ok = frameResultInput("fe", "completed", "改了三个文件");
+    expect(ok).toContain("fe");
+    expect(ok).toContain("改了三个文件");
+    const failed = frameResultInput("fe", "failed", "");
+    expect(failed).toContain("failed");
+    expect(failed).toContain("没有产出文字结果");
+  });
+
+  test("a runaway transcript is clamped — it is a notification, not a forward", () => {
+    const framed = frameResultInput("fe", "completed", "x".repeat(5000));
+    expect(framed.length).toBeLessThan(2200);
+    expect(framed).toContain("…");
+  });
+
+  test("report framing carries the purpose", () => {
+    expect(frameReportInput("fe", "attention", "要我删库吗")).toContain("需要你的判断");
+    expect(frameReportInput("fe", "progress", "跑了两个文件")).toContain("进度");
   });
 });

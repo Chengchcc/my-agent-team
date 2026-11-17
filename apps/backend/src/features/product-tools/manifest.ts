@@ -251,6 +251,20 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "report",
+      description:
+        "Talk upward to whoever dispatched this run (ADR 0059): progress is a ledger note that does not wake them; attention wakes them now; answer hands back a direct answer. Available only when you were dispatched.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          purpose: { type: "string", enum: ["progress", "attention", "answer"] },
+          text: { type: "string" },
+        },
+        required: ["purpose", "text"],
+      },
+      entrypoint,
+    },
+    {
       name: "team_list",
       description:
         "List the team's agents with their capability cards (ADR 0048): id, name, description and skills. Read this before dispatching to decide WHO should take a task — a card's skills say what that agent is for.",

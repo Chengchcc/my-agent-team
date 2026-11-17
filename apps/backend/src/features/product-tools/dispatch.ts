@@ -75,6 +75,40 @@ export function frameHandbackInput(
   return lines.join("\n");
 }
 
+/** ADR 0059 D5: a dispatched worker reached a terminal state. Compact on
+ *  purpose — who finished, how, and enough text for the dispatcher to write
+ *  the human one sentence of its own (never a forward, never a transcript). */
+export function frameResultInput(workerAgentId: string, status: string, text: string): string {
+  const head =
+    status === "completed"
+      ? `（${workerAgentId} 完成了你派给它的活）`
+      : `（${workerAgentId} 的活没有做成：${status}）`;
+  // A notification, not a forward: the dispatcher writes its own sentence, so
+  // a runaway transcript must not ride along. 2000 chars is far beyond "one
+  // paragraph" and far below "the whole answer".
+  const raw = text.trim();
+  const body =
+    raw === "" ? "（没有产出文字结果）" : raw.length > 2000 ? `${raw.slice(0, 2000)}…` : raw;
+  return [head, body, "", "这是你派出去的工作的结果：向人交代，或继续处理。"].join("\n");
+}
+
+/** ADR 0059 D6 report: the worker's own words, framed by purpose. `progress`
+ *  never wakes the dispatcher (it lands in the ledger); `attention` and
+ *  `answer` do. */
+export function frameReportInput(
+  workerAgentId: string,
+  purpose: "progress" | "attention" | "answer",
+  text: string,
+): string {
+  const head =
+    purpose === "attention"
+      ? `（${workerAgentId} 需要你的判断）`
+      : purpose === "answer"
+        ? `（${workerAgentId} 给你一个回答）`
+        : `（${workerAgentId} 的进度）`;
+  return [head, text.trim()].join("\n");
+}
+
 export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "history_recent",
@@ -212,6 +246,25 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         identity: IDENTITY_SCHEMA,
       },
       required: ["reason"],
+    },
+  },
+  {
+    name: "report",
+    description:
+      "Talk upward to whoever dispatched this run (ADR 0059). purpose=progress is a ledger note that does NOT wake them — use it for plain progress; purpose=attention wakes them now (a decision you cannot make, a blocker); purpose=answer hands back a direct answer. Keep text compact and factual: the dispatcher rewrites it for the human. Only available when you were dispatched.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purpose: {
+          type: "string",
+          enum: ["progress", "attention", "answer"],
+          description:
+            "progress: ledger only, no wake. attention: wake the dispatcher now. answer: a direct answer for them.",
+        },
+        text: { type: "string", description: "What they should know, compactly" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["purpose", "text"],
     },
   },
   {

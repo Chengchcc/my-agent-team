@@ -1,6 +1,6 @@
 # ADR 0059: 全双工执行循环 —— 可打断的监督
 
-- 状态: Accepted（第 1 刀已实现：循环层；工具面与回填待做）
+- 状态: Accepted（第 1–2 刀已实现：循环层 + 工人终态/`report` 双路回填；前台 `wait_for`/`steer_worker`/`cancel_worker` 待做）
 - 日期: 2026-11-17
 - 相关: ADR 0047（房间派单）、ADR 0049（前台不变量）、ADR 0052（池化与回交）、ADR 0058（统一召回）
 
@@ -89,18 +89,18 @@ supervise() = race(
 1. job 在跑时模型收尾 → run 不终止（断言状态仍 running）；
 2. `hub wait` 期间注入 steer → 在一个切片内被 drain（断言等待提前返回）；
 3. 取消 → job 的进程组被杀（断言 entry = stopped）；
-4. 前台 `wait_for` + 工人终态 → steer 到达前台、无新 run；
-5. 前台不在等 + 工人终态 → 排队输入 `authorization=result:<worker>`、链深正确；
-6. 工人 `report(progress)` → 只落账，前台不被唤醒；`report(attention)` → 前台被唤醒；
-7. 链深第 4 层 → 拒绝。
+4. 前台 `wait_for` + 工人终态 → steer 到达前台、无新 run；（待做：第 3 刀）
+5. ✓ 前台不在等 + 工人终态 → 排队输入 `authorization=result:<worker>`（`notify-dispatcher.test.ts`）
+6. ✓ 工人 `report(progress)` → 只落账，前台不被唤醒；`report(attention)` → 前台被唤醒（两处各一条测试，变异验证：把 progress 也唤醒 → 红）
+7. ✓ 链深第 4 层 → 拒绝唤醒、只落账（变异验证：去掉深度守卫 → 红）
 
 ## 落点
 
 | 层 | 文件 |
 |---|---|
-| 循环 | `apps/oh-my-agent/src/core/runtime/agent-loop-runner.ts`（supervise、收尾门槛）、`coordination/registry.ts`（四源竞速、run 类条目） |
-| 工具 | `apps/backend/src/features/product-tools/{manifest,dispatch,service}.ts`（四个动词 + report） |
-| 回填 | `apps/backend/src/features/agent-run/execution-service.ts`（终态 → steer / 排队输入）、`bootstrap/features.ts` |
+| 循环（第 1 刀 ✓） | `apps/oh-my-agent/src/core/runtime/agent-loop-runner.ts`（hold、`job_result` 注入）、`coordination/registry.ts`（`waitInterruptible`：切片 + 100ms 唤醒轮询） |
+| 工具（`report` ✓ / 三动词待做） | `apps/backend/src/features/product-tools/{manifest,dispatch,service}.ts` |
+| 回填（第 2 刀 ✓） | `apps/backend/src/features/agent-run/notify-dispatcher.ts`（两条轨 + 深度护栏）、`bootstrap/features.ts`（`onRunCommitted`/`onRunFailed` 接线） |
 | 文档 | `docs/architecture/runtime/oma.md`（监督一节）、`room-dispatch.md`（双路通知） |
 
 ## 后果
