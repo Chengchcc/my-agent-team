@@ -247,7 +247,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 
 | 轴 | 单位 | 在哪看 |
 |---|---|---|
-| 执行 | Run（一次尝试） | 会话内的时间线 / 请求树 / run 详情 |
+| 执行 | Run（一次尝试） | 会话内时间线的折叠块（`parent_run_id` 派生，深度 ≤3）/ run 详情 |
 | 注意力 | 债务（人欠 agent 一步 / agent 欠人一步） | `/today` 三段：等你答 · 等 agent · 未读 |
 
 债务是**派生视图**（`pending_action` + run 状态 + `seen_at`），不建 request 表——参考实现 herdr-super-agent 建表是因为它没有后端，我们的后端已有事实。
