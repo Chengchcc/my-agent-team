@@ -310,8 +310,9 @@ async function holdForBackground(
 ): Promise<boolean> {
   const bg = ctx.opts.background;
   if (bg === undefined) return false;
-  if (ctx.mutable.controller?.signal.aborted === true) return false;
   for (let parks = 0; parks < MAX_BACKGROUND_PARKS && bg.countRunning() > 0; parks++) {
+    // Checked per park: an abort between parks must end the hold, and the
+    // loop's own boundary check then terminates the turn.
     if (ctx.mutable.controller?.signal.aborted === true) return false;
     const res = await bg.waitInterruptible({
       totalMs: 0,
