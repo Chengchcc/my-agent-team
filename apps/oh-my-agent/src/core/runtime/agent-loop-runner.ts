@@ -328,15 +328,21 @@ async function holdForBackground(
       return true;
     }
   }
-  // Budget spent with nothing settled: end the turn. The jobs keep running
-  // until run teardown stops them; the note tells the model what is left.
-  if (bg.countRunning() > 0) {
-    stepState.messages = await injectRunningNote(ctx);
+  // Budget spent with nothing settled: end the turn. Ending the turn also
+  // tears the child down, so the jobs must be stopped HERE and the note must
+  // say so - promising "still running, check hub jobs" was a lie (the hub dies
+  // with the process). Cancel first, then report what was stopped.
+  const stopped = (await bg.cancelAll?.()) ?? [];
+  if (stopped.length > 0) {
+    stepState.messages = await injectStoppedNote(ctx, stopped);
   }
   return false;
 }
 
-async function injectRunningNote(ctx: LoopRunnerContext): Promise<Message[]> {
+async function injectStoppedNote(
+  ctx: LoopRunnerContext,
+  stopped: readonly string[],
+): Promise<Message[]> {
   const { opts, persist } = ctx;
   await persist([
     {
@@ -346,7 +352,9 @@ async function injectRunningNote(ctx: LoopRunnerContext): Promise<Message[]> {
       source: "job_result",
       message: {
         role: "user",
-        text: "（后台任务仍在运行，等待预算已用完；本轮收尾。任务将在运行结束时由 hub 记录，可用 hub jobs 查看。）",
+        text:
+          "（等待预算已用完，本轮收尾；随本轮结束一并终止的本地后台作业：" +
+          `${stopped.join("、")}。它们没有产出可用的结果——如果还需要，重新跑一次。）`,
       },
       createdAt: Date.now(),
     },

@@ -669,6 +669,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const notifyDispatcher = createNotifyDispatcher({
     getRun: (runId) => agentRunPort.getRun(runId),
     getActiveRun: (branchId) => agentRunPort.getActiveRun(branchId),
+    // ADR 0060 D3: at the chain-depth limit the notice goes to the agent the
+    // human talks to, never to the worker chain that hit the limit.
+    getFrontDeskAgent: async (conversationId) =>
+      conv.convPort.getConversation(conversationId)?.agentId ?? null,
     enqueueSteer: async (input) => {
       const res = await agentRunPort.enqueueAndAcquire({
         conversationId: input.conversationId,

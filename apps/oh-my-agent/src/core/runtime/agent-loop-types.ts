@@ -237,6 +237,11 @@ export interface BackgroundSupervision {
   }>;
   /** Mark ids as delivered so a later hub snapshot does not repeat them. */
   acknowledge?(ids: readonly string[]): void;
+  /** Stop every still-running entry and return a human label per entry.
+   *  The turn-end budget cannot promise "still running" (teardown kills the
+   *  child's jobs), so exhaustion calls this first and the note can tell the
+   *  truth about what it stopped. */
+  cancelAll?(): Promise<readonly string[]>;
   /** Shared with the hub tool: the loop keeps it pointing at its steer queue
    *  so a wait inside the model's step returns when a steer arrives. */
   readonly pendingInput: { has(): boolean };

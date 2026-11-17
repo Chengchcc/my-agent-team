@@ -1137,6 +1137,23 @@ function createDelegationStack(
         return { settled, timedOut: res.timedOut, woke: res.woke };
       },
       acknowledge: (ids: readonly string[]) => registry.acknowledgeDeliveries(ids),
+      // ADR 0060 D5: the turn-end budget cannot promise "still running" (the
+      // child dies with the turn), so exhaustion stops what is left and the
+      // note names it. Subagent entries go through the executor so their
+      // sessions are torn down too.
+      cancelAll: async () => {
+        const running = registry.listEntries(scope).filter((e) => e.status === "running");
+        const labels: string[] = [];
+        for (const entry of running) {
+          if (entry.kind === "subagent") {
+            delegationExecutor.stopSubagent(entry.id); // sync: best-effort
+          } else {
+            registry.stopEntry(entry.id); // sync: cancellation is best-effort
+          }
+          labels.push(entry.label);
+        }
+        return labels;
+      },
       pendingInput,
     },
   };
