@@ -17,6 +17,7 @@ import { extractText } from "@/lib/timeline";
 import type { TransientBubble } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
 import { ArtifactCard } from "./ArtifactCard";
+import { DispatchTree } from "./DispatchTree";
 import { MessageBubble } from "./MessageBubble";
 import { ReasoningTrace } from "./ReasoningTrace";
 import { TimelineApprovalCard } from "./TimelineApprovalCard";
@@ -428,18 +429,25 @@ export function Timeline({
                   {(() => {
                     const runId = m.sender.kind === "agent" ? runIdOf(m) : null;
                     const arts = runId ? (artifactsByRunId?.get(runId) ?? []) : [];
-                    if (arts.length === 0 || !onPreviewArtifact || !onDownloadArtifact) return null;
+                    if (runId === null) return null;
                     return (
-                      <div className="mt-2 space-y-1">
-                        {arts.map((a) => (
-                          <ArtifactCard
-                            key={a.url}
-                            artifact={a}
-                            onPreview={onPreviewArtifact}
-                            onDownload={onDownloadArtifact}
-                          />
-                        ))}
-                      </div>
+                      <>
+                        {/* ADR 0060 D3: what this turn dispatched, folded under
+                            it. Renders nothing when the run dispatched nobody. */}
+                        <DispatchTree conversationId={conversationId} parentRunId={runId} />
+                        {arts.length === 0 || !onPreviewArtifact || !onDownloadArtifact ? null : (
+                          <div className="mt-2 space-y-1">
+                            {arts.map((a) => (
+                              <ArtifactCard
+                                key={a.url}
+                                artifact={a}
+                                onPreview={onPreviewArtifact}
+                                onDownload={onDownloadArtifact}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </>
                     );
                   })()}
                 </div>
