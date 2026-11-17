@@ -118,7 +118,6 @@ import {
   frameHandbackInput,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
-import { describePick, recallWorkers } from "../features/product-tools/pool.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
 import {
   createProjectService,
@@ -141,6 +140,7 @@ import {
   sqliteProposalAdapter,
 } from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
+import { recall } from "../features/recall/recall.js";
 import {
   createReminderService,
   REMINDER_BANNER_PREFIX,
@@ -745,9 +745,23 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           activeRuns: load.get(row.id)?.activeRuns ?? 0,
           lastRunAt: load.get(row.id)?.lastRunAt ?? 0,
         }));
-      const recall = recallWorkers(candidates, query);
-      const hit = recall.hits[0];
-      return hit === undefined ? null : { agentId: hit.agentId, reason: describePick(hit, recall) };
+      // ADR 0058: selection goes through the SAME entry as memory and history
+      // recall, so there is one place to fix when "what do we know about this"
+      // is wrong. Capability hits carry the agent in `meta`.
+      const result = await recall(
+        { workers: async () => candidates },
+        { sources: ["capability"], brief: query },
+      );
+      const hit = result.hits[0];
+      const agentId = hit?.meta?.agentId;
+      if (hit === undefined || agentId === undefined) return null;
+      const field = result.searched.find((s) => s.source === "capability")?.detail;
+      return {
+        agentId,
+        reason: [hit.why, field]
+          .filter((p): p is string => typeof p === "string" && p !== "")
+          .join("; "),
+      };
     },
     // ADR 0052 handback: the worker's own run is the parent; the dispatcher
     // is woken with the reason, in the same room, under its own authority.

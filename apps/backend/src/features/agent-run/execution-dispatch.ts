@@ -189,10 +189,14 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     ).catch((err) => {
       // Recall is an aid: a failure must never block the run.
       console.error("[agent-run] recall failed:", err instanceof Error ? err.message : String(err));
-      return { hits: [], searched: [{ source: "error", hits: 0 }] };
+      return {
+        hits: [],
+        searched: [{ source: "history" as const, hits: 0, detail: "recall failed" }],
+        skipped: [],
+      };
     });
     const recallBlock =
-      recalled.hits.length > 0 || recalled.searched[0]?.source !== "cues"
+      recalled.hits.length > 0 || (recalled.searched[0]?.detail ?? "") !== "no reference cues"
         ? renderRecallBlock(recalled)
         : "";
     // The product tool consults the same hits when the model dispatches with
