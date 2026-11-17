@@ -31,6 +31,7 @@ import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
 import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
 import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
 import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
+import { finalAnswerMessage } from "../features/agent-run/execution-input.js";
 import {
   agentRunRoutes,
   buildHistoryTools,
@@ -701,6 +702,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         authorization: input.authorization,
         parentRunId: input.parentRunId,
       }),
+    // ADR 0060 D6: the mark is what recovery sweeps on; without it a lost
+    // notice is invisible forever.
+    markNotified: (runId) => agentRunPort.markResultNotified(runId),
   });
 
   const productTools = createProductToolsService({
@@ -1230,6 +1234,31 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       writeProductToolsManifest(root, productToolsManifest());
     },
     onRunCommitted,
+    // ADR 0060 D6: recovery saw a terminal dispatched run with no confirmed
+    // notice - deliver it now. Same closure as the live path, so the rails and
+    // the depth guard stay in one place.
+    onRunResultUndelivered: (run) => {
+      void (async () => {
+        const outcome = run.terminalResult;
+        const text =
+          outcome?.status === "completed"
+            ? extractText(finalAnswerMessage(outcome.messages) ?? {})
+            : (outcome?.error ?? "（没有记录失败原因）");
+        await notifyDispatcher({
+          fromAgentId: run.agentId,
+          conversationId: run.conversationId,
+          runId: run.runId,
+          text: frameResultInput(
+            run.agentId,
+            outcome?.status === "completed" ? "completed" : (outcome?.status ?? "failed"),
+            text,
+          ),
+          wake: true,
+        });
+      })().catch((err) =>
+        console.error(`[bootstrap] result re-delivery failed for ${run.runId}:`, err),
+      );
+    },
     onRunFailed,
     persistRunEvent: (runId, event) => {
       services.opsStore.appendRunEvent(

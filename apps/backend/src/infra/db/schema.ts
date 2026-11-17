@@ -422,6 +422,11 @@ export const agentRun = sqliteTable(
     nativeSessionRef: text("native_session_ref"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     terminalAt: integer("terminal_at", { mode: "number" }),
+    /** ADR 0060 D6: when the terminal notice reached the dispatcher. Null on
+     *  a terminal dispatched run means the notice may have been lost between
+     *  the commit and the delivery - recovery re-delivers it (at-least-once;
+     *  the steer rail is idempotent by input key). */
+    resultNotifiedAt: integer("result_notified_at", { mode: "number" }),
   },
   (table) => [
     primaryKey({ columns: [table.runId] }),

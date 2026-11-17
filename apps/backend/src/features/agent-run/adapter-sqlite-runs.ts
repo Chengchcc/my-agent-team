@@ -6,7 +6,7 @@ import {
   normalizeCanonicalMessages,
   serializeMessageRevision,
 } from "@chengchenccc/message";
-import { and, desc, eq, gte, inArray, isNull, not, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, not, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { IdGenerator } from "../agent-context/ports.js";
@@ -38,6 +38,8 @@ type RunMethods = Pick<
   | "listActiveRunsForConversations"
   | "listRecentRunsForConversations"
   | "getActiveRun"
+  | "listUnnotifiedDispatchedTerminalRuns"
+  | "markResultNotified"
 >;
 
 export function createRunMethods(
@@ -541,6 +543,34 @@ export function createRunMethods(
         .where(eq(schema.agentRun.status, "commit_failed"))
         .all();
       return rows.map(parseRun);
+    },
+
+    async listUnnotifiedDispatchedTerminalRuns(limit: number) {
+      // Terminal + dispatched + never confirmed. `dispatch:` only: handback
+      // already woke the dispatcher through the tool and `result:` runs are
+      // the dispatcher answering, never a worker to report.
+      const rows = d
+        .select()
+        .from(schema.agentRun)
+        .where(
+          and(
+            isNotNull(schema.agentRun.terminalAt),
+            isNotNull(schema.agentRun.parentRunId),
+            isNull(schema.agentRun.resultNotifiedAt),
+            like(schema.agentRun.authorization, "dispatch:%"),
+          ),
+        )
+        .orderBy(desc(schema.agentRun.terminalAt))
+        .limit(limit)
+        .all();
+      return rows.map(parseRun);
+    },
+
+    async markResultNotified(runId: string) {
+      d.update(schema.agentRun)
+        .set({ resultNotifiedAt: Date.now() })
+        .where(eq(schema.agentRun.runId, runId))
+        .run();
     },
 
     async listActiveRunsWithDeliveredInputs() {

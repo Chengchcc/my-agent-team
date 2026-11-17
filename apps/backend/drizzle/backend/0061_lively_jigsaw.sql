@@ -1,0 +1,1 @@
+ALTER TABLE `agent_run` ADD `result_notified_at` integer;

@@ -6,6 +6,7 @@ import type {
 } from "../agent-context/ports.js";
 import type { RunTokenRegistry } from "../product-tools/run-token-registry.js";
 import type { WorkspaceLockRegistry } from "../project/workspace-lock.js";
+import type { AgentRun } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
 import type {
   BackendEvent,
@@ -79,6 +80,10 @@ export interface AgentRunExecutionDeps {
     output: Message | undefined,
     committedSeq: readonly number[],
   ) => void;
+  /** ADR 0060 D6: recovery found a terminal dispatched run whose notice was
+   *  never confirmed (crash between the commit and the delivery). The closure
+   *  re-runs the same notification; it must stay idempotent per runId. */
+  readonly onRunResultUndelivered?: (run: AgentRun) => void;
   /** Called when a human input request is settled - answered, replayed, or timed out. The
    *  surface layer turns it into whatever its channel says ("the card stops being pending"); the
    *  product states the outcome and does not decide how it is shown. Repeated for replays, so

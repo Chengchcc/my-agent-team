@@ -121,6 +121,12 @@ export interface AgentRunPort {
 
   /** All commit_failed runs awaiting retryTerminalCommit. */
   listCommitFailedRuns(): Promise<AgentRun[]>;
+  /** ADR 0060 D6: terminal dispatched runs whose notice was never confirmed
+   *  (crash between the terminal commit and the delivery). Newest first. */
+  listUnnotifiedDispatchedTerminalRuns(limit: number): Promise<AgentRun[]>;
+  /** ADR 0060 D6: the notice reached the dispatcher (or was proven already
+   *  delivered). Idempotent. */
+  markResultNotified(runId: string): Promise<void>;
 
   /** Every ask/approval this conversation's runs parked on — the durable
    *  record of what the human was asked and what they answered (ADR 0055

@@ -38,6 +38,7 @@ export function parseRun(row: typeof schema.agentRun.$inferSelect): AgentRun {
     parentRunId: row.parentRunId ?? null,
     createdAt: row.createdAt,
     terminalAt: row.terminalAt,
+    resultNotifiedAt: row.resultNotifiedAt ?? null,
   };
 }
 

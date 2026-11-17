@@ -225,7 +225,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 4. **前台没有 `steer_worker` / `cancel_worker`**：中途改主意 / 停跑飞的活只能等人插话。
 5. **没有 per-worker 并发上限**：同一 worker 可在多个房间并行（靠 workspace 隔离，不靠槽位）。
 6. **持久化不做**：job 随 run 生死；"合上电脑工作继续"需要另立 ADR。
-7. **终态与通知之间有一个丢通知窗口**：提交成功、通知发出前崩溃 ⇒ 人收不到。steer 轨靠 `inputIdempotencyKey=result:<runId>` 天然幂等，`postMessage` 轨不幂等；闭合要把通知意图放进终态提交的同一事务（ADR 0060 D6）。
+7. **终态与通知之间曾经有丢通知窗口**（已闭环一半）：现在送达后落 `result_notified_at` 标记，`recover()` 扫"终态 + dispatch: + 未标记"重投 ⇒ 至少一次；steer 轨幂等，排队轨重试可能多一条账本消息。剩下的"恰好一次"要把通知意图放进终态事务（ADR 0060 D6）。
 
 ---
 
