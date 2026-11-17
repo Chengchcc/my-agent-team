@@ -49,6 +49,8 @@ tags: [backend, agents, product-tools]
 
 **池化与回交（ADR 0052）**：`dispatch` 的 `agent` 可省略——省略时 `pickAgent(capability?)` 从 `role: worker` 的启用 agent 里挑，排序为「活跃 run 少 → 最近启动早 → id 字典序」，`capability` 只做技能/描述的大小写不敏感子串过筛（刻意不接模型路由：派单在热路径上）。负载来自 `agentLoad()`（一次 GROUP BY，跨会话统计）。工人接到不属于自己的活时调 `handback({reason, suggestion?})`：仅 `dispatch:` 授权的 run 可用，以工人身份 @ 回 dispatcher、`authorization = handback:<workerId>`、`parent_run_id = 工人 run`，从而唤醒 dispatcher 并在账本留下退回事实；reason 必填，且不自动换人。
 
+**工人终态与上报（ADR 0059 D5/D6）**：被 `dispatch:` 授权的 run 到终态时，后端从 `parent_run_id` 找回 dispatcher 并把结果送上去（`frameResultInput`：谁完成/失败 + 结果文字 + 「向人交代或继续处理」）。两条轨由「dispatcher 现在在做什么」决定：**有活跃 run → 以 steer 注入**（不产生新 run，循环的 hold 在一个切片内醒来）；**空闲 → 排队输入**，`authorization = result:<workerId>`、`parent_run_id = 工人 run`，人看到的是前台的下一轮而不是一个裸工人 run。工人也可以主动 `report({purpose, text})`：`progress` 只落账（**永不唤醒**——否则工人每几分钟打断一次前台），`attention`/`answer` 与终态同轨唤醒。护栏：父链深度 ≥ 3 时降级为只落账（唤醒会再造第 4 层，机制不能自己驱动自己）；`result:` 授权的 run 不再向自己的父通知（否则同一事实来回弹）；`handback:` run 由 tool 自身唤醒，终态不重复通知。终态通知在 `onRunCommitted`（completed）与 `onRunFailed`（failed/aborted/timeout）两处发出，模块是 `features/agent-run/notify-dispatcher.ts`。
+
 `parent_run_id`（ADR 0051，迁移 0060）：派单链的上一跳——`dispatchWork` 把**调用方 Run 的 id** 传下来，同样随队列快照晋升存活。不变量双向成立：`authorization` 以 `dispatch:` 开头 ⇔ `parent_run_id` 非空，所以沿父链上溯不会走进死胡同。其余四条通道写 `NULL`。Web 的授权账本（`/system/authority`）靠它画"这件事最初是谁要的"。
 
 ## 环境规则指派目标
@@ -65,7 +67,7 @@ tags: [backend, agents, product-tools]
 ## 已知边界
 
 - 无工人槽位调度：派单点名具体 agent，空闲与否由领班（或规则作者）判断。
-- 无回交（handback）通道：工人收到超范围请求按普通成员消息处理。
+- 前台还没有 `wait_for`/`steer_worker`/`cancel_worker` 三个控制动词（ADR 0059 D6 剩余）：目前靠终态通知被动知晓，不能主动等/催/停。
 - 领班的「饥饿型」配置（少工具、短产出）是配置实践，不是代码约束。
 - 观察缝的模型研判（该不该接、给谁）在 roadmap，失败语义必须退回 record。
 

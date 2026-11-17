@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import type { AskQuestionInput } from "@chengchenccc/message";
-import { type Message, serializeMessageRevision } from "@chengchenccc/message";
+import { extractText, type Message, serializeMessageRevision } from "@chengchenccc/message";
 import type { WorkflowDefinition } from "@chengchenccc/workflow";
 import type { FeatureSet } from "../app.js";
 import { createAgentSvc } from "../features/agent/agent-compose.js";
@@ -40,6 +40,7 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
+import { createNotifyDispatcher } from "../features/agent-run/notify-dispatcher.js";
 import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
 import type { RecallHit } from "../features/agent-run/recall.js";
 import {
@@ -116,6 +117,8 @@ import {
   createProductToolsService,
   frameBrief,
   frameHandbackInput,
+  frameReportInput,
+  frameResultInput,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
@@ -659,6 +662,43 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
   });
 
+  // ADR 0059 D5: one closure for everything that travels from a dispatched
+  // run back to its dispatcher (terminal state + `report`). Rails, depth
+  // guard and the progress-never-wakes rule live in the module; this is only
+  // the port wiring.
+  const notifyDispatcher = createNotifyDispatcher({
+    getRun: (runId) => agentRunPort.getRun(runId),
+    getActiveRun: (branchId) => agentRunPort.getActiveRun(branchId),
+    enqueueSteer: async (input) => {
+      const res = await agentRunPort.enqueueAndAcquire({
+        conversationId: input.conversationId,
+        agentId: input.agentId,
+        branchId: input.branchId,
+        mode: "steer",
+        message: input.message,
+        inputIdempotencyKey: `result:${input.parentRunId}`,
+        runIdempotencyKey: `result:${input.parentRunId}`,
+        deliveryIdempotencyKey: `result:${input.parentRunId}`,
+        defaultModel: input.defaultModel,
+        configRevision: input.configRevision,
+        expectedRevision: input.configRevision,
+        authorization: input.authorization,
+        parentRunId: input.parentRunId,
+      });
+      return { inputId: res.inputId, queued: res.queued, acquired: res.acquired };
+    },
+    injectSteer: (branchId, input, opts) => injectSteer.fn(branchId, input, opts),
+    postMessage: (input) =>
+      conv.convSvc.postMessage({
+        conversationId: input.conversationId,
+        senderMemberId: input.senderMemberId,
+        addressedTo: [...input.addressedTo],
+        content: input.content,
+        authorization: input.authorization,
+        parentRunId: input.parentRunId,
+      }),
+  });
+
   const productTools = createProductToolsService({
     runPort: agentRunPort,
     contextPort,
@@ -778,6 +818,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const first = posted.triggeredRuns.find((entry) => entry.agentId === toAgentId);
       return { runId: first?.runId ?? "", queued: first?.queued ?? false };
     },
+    // ADR 0059 D6: report goes upward through the same closure the terminal
+    // state uses; progress never wakes, attention/answer do.
+    notifyParent: async ({ fromAgentId, conversationId, runId, purpose, text }) =>
+      notifyDispatcher({
+        fromAgentId,
+        conversationId,
+        runId,
+        text: frameReportInput(fromAgentId, purpose, text),
+        wake: purpose !== "progress",
+      }),
     // ADR 0048: the roster discovery surface a dispatching agent reads.
     listTeam: async () => rosterCards(),
   });
@@ -880,6 +930,19 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // The failure is a row now: the chat channel folds the turn into history, error part included.
       // No duration: a failed run never ran a turn, the error is the row's business.
       await chatWriter.foldCommittedTurn(input.runId, 0);
+      // ADR 0059 D5: a dispatched worker's failure is the dispatcher's
+      // business too - otherwise a dead worker is silent until the human
+      // notices the room went quiet.
+      const run = await agentRunPort.getRun(input.runId);
+      if (run?.parentRunId && run.authorization?.startsWith("dispatch:") === true) {
+        await notifyDispatcher({
+          fromAgentId: run.agentId,
+          conversationId: run.conversationId,
+          runId: input.runId,
+          text: frameResultInput(run.agentId, "failed", input.error),
+          wake: true,
+        });
+      }
     })().catch((err) => console.error(`[bootstrap] onRunFailed failed for ${input.runId}:`, err));
   };
   const onRunCommitted = (
@@ -908,6 +971,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         runId,
         Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt),
       );
+      // ADR 0059 D5: the worker's terminal state travels back to whoever
+      // dispatched it. Gated on `dispatch:` authorization - a `result:` run is
+      // the dispatcher's own turn answering a notification, and notifying its
+      // "parent" would ping-pong the same fact forever. `handback:` runs
+      // already woke the dispatcher through the tool itself.
+      if (run.parentRunId && run.authorization?.startsWith("dispatch:") === true) {
+        await notifyDispatcher({
+          fromAgentId: run.agentId,
+          conversationId: run.conversationId,
+          runId,
+          text: frameResultInput(run.agentId, "completed", extractText(output)),
+          wake: true,
+        });
+      }
     })().catch((err) => console.error(`[bootstrap] onRunCommitted failed for ${runId}:`, err));
   };
 

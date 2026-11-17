@@ -40,6 +40,7 @@
 - **全双工执行（ADR 0059，Proposed）**：底座都在（steer/hub 后台/resume），缺循环层三件事——等待可被 steer 打断、有活不许收尾、工人终态双路通知（活→steer、不在等→`result:` 回填）。落地后前台获得 wait_for/steer_worker/cancel_worker，工人获得 report(result|attention|answer)。**持久化（关机后工作继续）明确不在其中，另立 ADR。**
 - **意图与记忆（2026-11-17）**：派单四维 facet（ADR 0054）、记忆检索进意图（ADR 0055）、选人即能力召回（ADR 0056）、前台路由纪律（ADR 0057，注入给所有面向人的 agent）。golden 语料 21 条，确定性层由 CI 守；模型回放：flash 中位 15/17、v4-pro 中位 16/17；换模型的边际收益约 +1 条，剩余是标注歧义与采样。三个召回入口已合并（ADR 0058：一个 `recall`，`memory`/`skill` 报 `skipped` 并带原因）。仍缺：长期向量记忆的跨进程可见性（要新增一条子进程→后端的数据通路）、以及"更强模型或加一层校验"才可能带来的基线质变。
 - **Web 面板已齐（2026-11-16）**：授权账本 `/system/authority`（ADR 0051）、环境规则编辑（agent → Lark 面板，`AmbientRulesSection`）、研判闸门开关（`/system/settings`，`AssessmentSection`）。
+- **全双工执行循环（ADR 0059）**：第 1 刀已落（2026-11-17）——`waitInterruptible`（≤10s 切片 + 切片内 100ms 唤醒轮询）、收尾门槛（有活不收尾：`job_result` 注入、8 次 park 预算、预算耗尽诚实收尾）。第 2 刀已落——工人终态与 `report` 的双路回填：dispatcher 活跃 → steer 注入（不产生新 run），空闲 → 排队输入 `authorization=result:<worker>`；父链深度 ≥3 降级为只落账；`progress` 永不唤醒。仍缺：前台三动词 `wait_for`/`steer_worker`/`cancel_worker`（D6 剩余）；持久化（关机后工作继续）按 ADR 明确不在其内，另立。
 - **新来源**：GitHub webhook（issue/PR/评论 → 规则 → 任务）。前置条件是公网可达的端点与签名校验；可复用 workflow trigger 的 per-token 门。
 - **研判的持久候选**：在途研判重启即丢（dsh 持久化候选队列）；真需要时按 Effects 模式补一张队列表。跨群去重（同一事件两个群各派一次）与按线程批评估也在此列。
 - **池化调度与回交**：已落（ADR 0052）——`dispatch` 可省略 agent（池子按空闲/最近启动/能力过筛），工人可 `handback` 退回并唤醒 dispatcher。仍缺：抢占（忙的工人不被中断，只是被绕过）、跨房间去重派单。

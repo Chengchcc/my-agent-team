@@ -30,6 +30,7 @@ const TOOL_MANIFEST = [
   { name: "todo_write", description: "w", inputSchema: {}, entrypoint: "sse:x" },
   { name: "dispatch", description: "d", inputSchema: {}, entrypoint: "sse:x" },
   { name: "handback", description: "h", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "report", description: "u", inputSchema: {}, entrypoint: "sse:x" },
   { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
 ];
@@ -58,6 +59,14 @@ let handbackCalls: Array<{
   runId: string;
   reason: string;
   suggestion?: string;
+}> = [];
+/** ADR 0059 D6: every upward report the service sent (progress/attention/answer). */
+let reportCalls: Array<{
+  fromAgentId: string;
+  conversationId: string;
+  runId: string;
+  purpose: "progress" | "attention" | "answer";
+  text: string;
 }> = [];
 /** Every capability recall the service asked for, with the query it built. */
 let pickQueries: Array<Record<string, unknown>> = [];
@@ -181,6 +190,12 @@ beforeEach(async () => {
       handbackCalls.push(input);
       return Promise.resolve({ runId: `run-hb-${handbackCalls.length}`, queued: false });
     },
+    notifyParent: (input) => {
+      reportCalls.push(input);
+      return Promise.resolve({
+        delivered: input.purpose === "progress" ? ("ledger" as const) : ("steer" as const),
+      });
+    },
     listTeam: () =>
       Promise.resolve([
         { id: "lead", name: "领班", description: "路由", skills: ["triage"] },
@@ -194,6 +209,7 @@ beforeEach(async () => {
   recallHits = [];
   handbackCalls = [];
   pickQueries = [];
+  reportCalls = [];
   pickResult = { agentId: "fe", reason: "idle" };
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
@@ -1211,6 +1227,101 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       }),
     ).rejects.toThrow(/handback is for dispatched work only/);
     expect(handbackCalls).toEqual([]);
+  });
+
+  test("report(progress) travels upward without waking the dispatcher", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "rp-1",
+      idempotencyKey: `${runId}:rp-1`,
+      tool: "report",
+      args: { purpose: "progress", text: "已经跑完两个测试文件" },
+    });
+    expect(reportCalls[0]).toMatchObject({
+      fromAgentId: AGENT,
+      runId,
+      purpose: "progress",
+      text: "已经跑完两个测试文件",
+    });
+    // The rail decision is the closure's; the tooltells the model what happened.
+    expect(JSON.parse(result.content)).toMatchObject({
+      delivered: "ledger",
+      purpose: "progress",
+    });
+  });
+
+  test("report(attention) is a wake — the same rail a terminal result uses", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "rp-2",
+      idempotencyKey: `${runId}:rp-2`,
+      tool: "report",
+      args: { purpose: "attention", text: "要我删生产库吗" },
+    });
+    expect(reportCalls[0]).toMatchObject({ purpose: "attention", runId });
+    expect(JSON.parse(result.content)).toMatchObject({
+      delivered: "steer",
+      purpose: "attention",
+    });
+  });
+
+  test("report from a human-authorized run is refused (nowhere to report to)", async () => {
+    const runId = await createRun("I was asked directly");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "rp-3",
+        idempotencyKey: `${runId}:rp-3`,
+        tool: "report",
+        args: { purpose: "progress", text: "x" },
+      }),
+    ).rejects.toThrow(/report is for dispatched work only/);
+    expect(reportCalls).toEqual([]);
+  });
+
+  test("report needs a purpose and non-empty text", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "rp-4",
+        idempotencyKey: `${runId}:rp-4`,
+        tool: "report",
+        args: { purpose: "whatever", text: "x" },
+      }),
+    ).rejects.toThrow(/report requires purpose/);
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "rp-5",
+        idempotencyKey: `${runId}:rp-5`,
+        tool: "report",
+        args: { purpose: "progress", text: "   " },
+      }),
+    ).rejects.toThrow(/report requires text/);
+    expect(reportCalls).toEqual([]);
+  });
+
+  test("report replays the recorded result for a repeated call id", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    const first = await service.call({
+      identity: identity(runId),
+      callId: "rp-6",
+      idempotencyKey: `${runId}:rp-6`,
+      tool: "report",
+      args: { purpose: "answer", text: "答案是 42" },
+    });
+    const again = await service.call({
+      identity: identity(runId),
+      callId: "rp-6",
+      idempotencyKey: `${runId}:rp-6`,
+      tool: "report",
+      args: { purpose: "answer", text: "答案是 42" },
+    });
+    expect(again.content).toBe(first.content);
+    expect(reportCalls.length).toBe(1);
   });
 
   test("a bounced task can bounce again — the parent run names the recipient", async () => {
