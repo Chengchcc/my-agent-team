@@ -160,6 +160,15 @@ TUI 的路径显示统一走 `formatWorkspace(root, maxLen = 48)`：`$HOME` 先�
 - 三个驱动的主开关与状态都在 TUI 侧；backend 起的 Run 不涉及这些模式。
 - compaction 摘要失败不会判 Run 失败，但失败只写调试日志，终端上没有任何可见信号。
 
+## 后台监督（ADR 0059，第 1 刀）
+
+Run 期间的后台工作（`bash async`、eval、子代理）登记在 per-Run 的 coordination registry。两个循环层性质：
+
+- **等待可打断**：`waitInterruptible` 把 `waitEntries` 切成 ≤10s 的切片，切片内每 100ms 轮询"有新输入吗"。`hub wait` 走它——插话延迟从"命令时长"降到"≤100ms+切片边界"。
+- **有活不收尾**：模型自然停笔时若仍有后台工作，循环 hold（上限 8 次 park，wall-clock 30 分钟仍生效）：job 终结 → 结果作为一条 `job_result` 的 user 消息注入、run 继续；steer 到达 → drain 后继续；预算耗尽 → 诚实收尾（注入"仍在运行"说明）。心跳是整个 loop 期的 `setInterval`，hold 期间照发，后端静默看门狗不会误杀。
+
+`rt.close()` 在 hold 期间照常收回子进程（teardown 测试改为 hold 中 close）。持久化（进程死后工作继续）明确不在其中。
+
 ## 相关页
 
 - [Agent Backend](../execution/agent-backend.md) — 契约、四个 adapter、wire

@@ -38,6 +38,18 @@ async function probeAlive(): Promise<boolean> {
   return out.trim().length > 0;
 }
 
+/** Bounded wait for the probe to APPEAR (the async call returned and the run
+ * is holding over it). Integration test against real platform state, so the
+ * poll is a genuine wait, not a fake-timer exercise. */
+async function waitForAlive(boundMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + boundMs;
+  while (Date.now() < deadline) {
+    if (await probeAlive()) return true;
+    await Bun.sleep(50);
+  }
+  return false;
+}
+
 /** Integration test against real platform state (a spawned process), so the
  *  liveness poll is a genuine bounded wait, not a fake-timer exercise. */
 async function waitForGone(boundMs = 3000): Promise<boolean> {
@@ -71,13 +83,19 @@ describe("Run close reclaims background processes", () => {
         modelRuntime: mr,
         skillRoots: [],
       });
-      const outcome = await (await rt.run(runInput("r-bg-teardown"))).outcome;
-      // The async call returns immediately: the job is running, the Run done.
-      expect(JSON.stringify(outcome.messages)).toContain("Backgrounded as job");
-      expect(await probeAlive()).toBe(true);
+      // ADR 0059: the turn now HOLDS while the job runs (the result is
+      // injected when it settles), so the outcome is not awaited here —
+      // closing mid-hold is the sharper teardown test: a live hold, a live
+      // process, and close must still reclaim it.
+      const handle = await rt.run(runInput("r-bg-teardown"));
+      const alive = await waitForAlive();
+      expect(alive).toBe(true);
 
       await rt.close();
       expect(await waitForGone()).toBe(true);
+      // The held run settles too (stopped), so the handle does not dangle.
+      const outcome = await handle.outcome;
+      expect(["stopped", "completed", "failed"]).toContain(outcome.status);
     } finally {
       if (savedProvider === undefined) delete process.env.OMA_FAKE_PROVIDER;
       else process.env.OMA_FAKE_PROVIDER = savedProvider;

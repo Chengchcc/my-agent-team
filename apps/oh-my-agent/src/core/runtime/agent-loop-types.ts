@@ -69,6 +69,10 @@ export interface OmaSessionOptions {
   readonly approvalHandler?: ApprovalHandler;
   /** HITL ask pipeline (ask_question tool): resolves options.ask calls. */
   readonly askHandler?: (input: AskQuestionInput) => Promise<AskQuestionResult | null>;
+  /** ADR 0059: background supervision. Given, the loop holds the turn open
+   *  while background work runs, waking on settle or steer within one slice,
+   *  and injects settled results as a job_result message. */
+  readonly background?: BackgroundSupervision;
   /** Native-tool permission gate (run-runtime, ADR 0020 permissionMode): runs
    *  AFTER plugin beforeTool hooks; a block result prevents execution. Native
    *  high-risk tools (bash/write/edit/mcp__*) route here so ask/deny apply to
@@ -208,4 +212,32 @@ export interface ModelTurn {
   /** Set when a stream rule matched mid-stream: the turn's partial output
    * is discarded and the rule injected before retrying. */
   readonly streamRuleHit?: StreamRule;
+}
+
+/** The loop's view of the run's background work (ADR 0059). Implemented by
+ *  run-runtime over the coordination registry; structural so tests can fake
+ *  it without a registry. */
+export interface BackgroundSupervision {
+  countRunning(): number;
+  waitInterruptible(opts: {
+    totalMs: number;
+    sliceMs?: number;
+    shouldWake?: () => boolean;
+  }): Promise<{
+    settled: ReadonlyArray<{
+      id: string;
+      kind: string;
+      status: string;
+      label: string;
+      /** Settled output tail, already capped for a message. */
+      summary: string;
+    }>;
+    timedOut: boolean;
+    woke: "steer" | null;
+  }>;
+  /** Mark ids as delivered so a later hub snapshot does not repeat them. */
+  acknowledge?(ids: readonly string[]): void;
+  /** Shared with the hub tool: the loop keeps it pointing at its steer queue
+   *  so a wait inside the model's step returns when a steer arrives. */
+  readonly pendingInput: { has(): boolean };
 }

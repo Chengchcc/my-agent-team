@@ -266,6 +266,93 @@ async function resumeParkedCalls(
 
 /** Drain any queued steer inputs at a safe boundary, returning updated
  *  branch messages. */
+/** ADR 0059: inject settled background results as a message the next model
+ *  step reads. Same shape as a steer: persist, then re-read the branch. */
+async function injectJobResults(
+  ctx: LoopRunnerContext,
+  settled: ReadonlyArray<{
+    id: string;
+    kind: string;
+    status: string;
+    label: string;
+    summary: string;
+  }>,
+): Promise<Message[]> {
+  const { opts, persist } = ctx;
+  const lines = [`（后台任务完成，共 ${settled.length} 项）`];
+  for (const row of settled) {
+    lines.push(`- ${row.id} [${row.kind}] ${row.status}: ${row.label}`);
+    if (row.summary !== "") lines.push(`  ${row.summary}`);
+  }
+  await persist([
+    {
+      type: "message",
+      productEntryId: null,
+      role: "user",
+      source: "job_result",
+      message: { role: "user", text: lines.join("\n") },
+      createdAt: Date.now(),
+    },
+  ]);
+  opts.background?.acknowledge?.(settled.map((r) => r.id));
+  return readBranchMessages(opts.store, opts.sessionId);
+}
+
+/** ADR 0059: the turn does not end while background work runs. Wakes on a
+ *  settle or a steer within one slice; bounded by parks so a run cannot wait
+ *  forever (the wall-clock cap still applies on top). Returns true when the
+ *  loop should keep going. */
+const MAX_BACKGROUND_PARKS = 8;
+
+async function holdForBackground(
+  ctx: LoopRunnerContext,
+  stepState: LoopStepState,
+): Promise<boolean> {
+  const bg = ctx.opts.background;
+  if (bg === undefined) return false;
+  if (ctx.mutable.controller?.signal.aborted === true) return false;
+  for (let parks = 0; parks < MAX_BACKGROUND_PARKS && bg.countRunning() > 0; parks++) {
+    if (ctx.mutable.controller?.signal.aborted === true) return false;
+    const res = await bg.waitInterruptible({
+      totalMs: 0,
+      shouldWake: () => ctx.mutable.steerQueue.length > 0,
+    });
+    if (res.woke === "steer") {
+      stepState.naturalStop = false;
+      return true;
+    }
+    if (res.settled.length > 0) {
+      stepState.messages = await injectJobResults(ctx, res.settled);
+      stepState.naturalStop = false;
+      return true;
+    }
+  }
+  // Budget spent with nothing settled: end the turn. The jobs keep running
+  // until run teardown stops them; the note tells the model what is left.
+  if (bg.countRunning() > 0) {
+    stepState.messages = await injectRunningNote(ctx);
+  }
+  return false;
+}
+
+async function injectRunningNote(ctx: LoopRunnerContext): Promise<Message[]> {
+  const { opts, persist } = ctx;
+  await persist([
+    {
+      type: "message",
+      productEntryId: null,
+      role: "user",
+      source: "job_result",
+      message: {
+        role: "user",
+        text: "（后台任务仍在运行，等待预算已用完；本轮收尾。任务将在运行结束时由 hub 记录，可用 hub jobs 查看。）",
+      },
+      createdAt: Date.now(),
+    },
+  ]);
+  return readBranchMessages(opts.store, opts.sessionId);
+}
+
 async function drainSteerQueue(ctx: LoopRunnerContext, messages: Message[]): Promise<Message[]> {
   const { opts, emit, persist, mutable } = ctx;
   if (mutable.steerQueue.length === 0) return messages;
@@ -753,6 +840,12 @@ export async function runLoop(
     };
     let step = 0;
 
+    // ADR 0059: the hub tool's waits see the steer queue through this probe,
+    // so a wait inside a step returns when a new input arrives.
+    if (opts.background) {
+      opts.background.pendingInput.has = () => mutable.steerQueue.length > 0;
+    }
+
     for (const p of opts.plugins) {
       if (p.hooks?.beforeRun) {
         try {
@@ -785,7 +878,12 @@ export async function runLoop(
       }
 
       await emit({ type: "turn_end", turn: step });
-      if (stepState.naturalStop) break;
+      if (stepState.naturalStop) {
+        // ADR 0059: background work holds the turn open; a settle or a steer
+        // within one slice resumes it instead of ending it.
+        const held = await holdForBackground(ctx, stepState);
+        if (!held) break;
+      }
     }
 
     return await finalizeLoop(ctx, stepState, step, stepState.runError);

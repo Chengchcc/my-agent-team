@@ -68,6 +68,7 @@ import {
 import { createSkill } from "../tools/skill.js";
 import { createTodo, createTodoReadTool } from "../tools/todo.js";
 import { createFileTodoStore } from "../tools/todo-store.js";
+import type { BackgroundSupervision } from "./agent-loop-types.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, requestApproval } from "./approval.js";
 import { buildSummarizationRequest } from "./compaction-prompt.js";
 import { estimateMessageTokens, triggerRatioFor } from "./context-estimate.js";
@@ -927,6 +928,7 @@ function createDelegationStack(
     value: unknown;
   }>;
   plugins: Plugin[];
+  backgroundSupervision: BackgroundSupervision;
 } {
   const { registry, scope, agentTools, summarize, contextBudget, streamModel, budgetGate, emit } =
     ctx;
@@ -1060,11 +1062,21 @@ function createDelegationStack(
     },
   });
 
+  // ADR 0059: shared wake probe — the loop points it at its steer queue, the
+  //  hub tool's waits poll it, so a steer interrupts a wait within one slice.
+  const pendingInput = { has: (): boolean => false };
   const hubTools = createHubTool({
     scope,
     list: (s) => registry.listEntries(s),
     get: (id) => registry.getEntry(id),
-    wait: (o) => registry.waitEntries(o),
+    wait: (o) =>
+      registry.waitInterruptible({
+        ids: o.ids,
+        scope: o.scope,
+        totalMs: o.timeoutMs,
+        shouldWake: o.shouldWake,
+      }),
+    hasPendingInput: () => pendingInput.has(),
     // omp delivery suppression: hub snapshot/output = the delivery; the
     // settlement injection skips acknowledged ids.
     acknowledge: (ids) => registry.acknowledgeDeliveries(ids),
@@ -1094,6 +1106,39 @@ function createDelegationStack(
       { name: "orchestrate-tool", tools: orchestrateTools },
       { name: "hub-tool", tools: hubTools },
     ],
+    // ADR 0059: what the loop needs to hold a turn open over background work.
+    backgroundSupervision: {
+      countRunning: () => registry.countRunningJobs(),
+      waitInterruptible: async (o: {
+        totalMs: number;
+        sliceMs?: number;
+        shouldWake?: () => boolean;
+      }) => {
+        const res = await registry.waitInterruptible({
+          scope,
+          totalMs: o.totalMs,
+          sliceMs: o.sliceMs,
+          shouldWake: o.shouldWake,
+        });
+        // EntryRow carries no output; the settled tail lives on the entry.
+        const settled = res.settled.map((r) => {
+          const e = registry.getEntry(r.id);
+          const full =
+            e?.output ?? (typeof e?.result?.text === "string" ? e.result.text : "") ?? "";
+          const flat = full.replace(/\s+/g, " ").trim();
+          return {
+            id: r.id,
+            kind: r.kind,
+            status: r.status,
+            label: r.label,
+            summary: flat === "" ? "" : flat.slice(-300),
+          };
+        });
+        return { settled, timedOut: res.timedOut, woke: res.woke };
+      },
+      acknowledge: (ids: readonly string[]) => registry.acknowledgeDeliveries(ids),
+      pendingInput,
+    },
   };
 }
 
@@ -1394,6 +1439,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     delegationExecutor,
     runScript,
     plugins: delegationPlugins,
+    backgroundSupervision,
   } = createDelegationStack(deps, {
     registry,
     scope,
@@ -1497,6 +1543,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     ...(deps.onParkedTurn ? { onParkedTurn: deps.onParkedTurn } : {}),
     ...(permissionGate ? { permissionGate } : {}),
     askHandler: deps.askHandler,
+    background: backgroundSupervision,
   });
 
   // Bind the plugin runtime's emit to the session's emit (two-phase init).

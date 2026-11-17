@@ -13,6 +13,7 @@ export interface MessageEntry {
     | "prompt"
     | "steer"
     | "follow_up"
+    | "job_result"
     | "assistant"
     | "tool_result";
   readonly message: Message;

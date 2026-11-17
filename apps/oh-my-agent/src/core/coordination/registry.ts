@@ -41,6 +41,13 @@ export interface EntryRow {
   isError?: boolean;
 }
 
+/** ADR 0059 step budget: one wait slice. A steer arriving during a wait is
+ *  seen within this bound — that bound is what "full duplex" means here. */
+export const DEFAULT_WAIT_SLICE_MS = 10_000;
+
+/** Steer-latency poll inside a slice (see waitInterruptible). */
+const WAKE_POLL_MS = 100;
+
 const RUNNING_CAP = 32;
 const NON_RUNNING_CAP = 64;
 const TTL_MS = 5 * 60 * 1000;
@@ -62,6 +69,18 @@ export interface CoordinationRegistry {
     scope: string;
     timeoutMs: number;
   }): Promise<{ settled: EntryRow[]; timedOut: boolean }>;
+  /** ADR 0059: waitEntries in bounded slices, waking early when the caller has
+   *  a pending input (a steer). Slice length is the latency bound on "the model
+   *  sees a new message": no step may block longer than one slice. */
+  waitInterruptible(opts: {
+    ids?: readonly string[];
+    scope: string;
+    /** Total budget; 0 = indefinite (the loop's own guards bound it). */
+    totalMs: number;
+    /** Slice length; defaults to DEFAULT_WAIT_SLICE_MS. */
+    sliceMs?: number;
+    shouldWake?: () => boolean;
+  }): Promise<{ settled: EntryRow[]; timedOut: boolean; woke: "steer" | null }>;
   stopEntry(id: string): { ok: boolean; error?: string };
   countRunningJobs(): number;
   /** Delivery suppression (omp acknowledgeDeliveries): mark settled ids
@@ -184,6 +203,43 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     return { settled, timedOut: settled.length === 0 };
   }
 
+  async function waitInterruptible(opts: {
+    ids?: readonly string[];
+    scope: string;
+    totalMs: number;
+    sliceMs?: number;
+    shouldWake?: () => boolean;
+  }): Promise<{ settled: EntryRow[]; timedOut: boolean; woke: "steer" | null }> {
+    const slice =
+      opts.sliceMs !== undefined && opts.sliceMs > 0 ? opts.sliceMs : DEFAULT_WAIT_SLICE_MS;
+    const deadline = opts.totalMs > 0 ? Date.now() + opts.totalMs : null;
+    for (;;) {
+      if (opts.shouldWake?.() === true) return { settled: [], timedOut: false, woke: "steer" };
+      const watched = [...entries.values()].filter(
+        (e) => e.scope === opts.scope && (!opts.ids || opts.ids.includes(e.id)),
+      );
+      if (watched.length === 0) return { settled: [], timedOut: false, woke: null };
+      const settled = watched.filter((e) => e.status !== "running").map(row);
+      const running = watched.filter((e) => e.status === "running" && e.settle);
+      if (running.length === 0) return { settled, timedOut: false, woke: null };
+      const remaining = deadline === null ? slice : deadline - Date.now();
+      if (remaining <= 0) {
+        return { settled, timedOut: settled.length === 0, woke: null };
+      }
+      // The slice bounds a step; the poll bounds steer latency inside it. A
+      // 100ms poll is negligible next to a model step, and it is what makes
+      // "the model sees a new input" feel immediate rather than eventual.
+      const until = Date.now() + Math.min(slice, remaining);
+      while (Date.now() < until) {
+        if (opts.shouldWake?.() === true) return { settled: [], timedOut: false, woke: "steer" };
+        const settleRace = Promise.race(running.map((e) => e.settle!));
+        await Promise.race([settleRace, new Promise((r) => setTimeout(r, WAKE_POLL_MS))]);
+        const anySettled = watched.some((e) => e.status !== "running");
+        if (anySettled) break;
+      }
+    }
+  }
+
   function stopEntry(id: string): { ok: boolean; error?: string } {
     const e = entries.get(id);
     if (!e) return { ok: false, error: `unknown id "${id}"` };
@@ -267,6 +323,7 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     waitEntries,
     stopEntry,
     countRunningJobs,
+    waitInterruptible,
     acknowledgeDeliveries,
     isDeliveryAcknowledged,
     settleEntry,
