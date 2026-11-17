@@ -828,12 +828,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
     // ADR 0059 D6: report goes upward through the same closure the terminal
     // state uses; progress never wakes, attention/answer do.
-    notifyParent: async ({ fromAgentId, conversationId, runId, purpose, text }) =>
+    notifyParent: async ({ fromAgentId, conversationId, runId, purpose, text, verification }) =>
       notifyDispatcher({
         fromAgentId,
         conversationId,
         runId,
-        text: frameReportInput(fromAgentId, purpose, text),
+        text: frameReportInput(fromAgentId, purpose, text, verification),
         wake: purpose !== "progress",
       }),
     // ADR 0048: the roster discovery surface a dispatching agent reads.
