@@ -3,7 +3,9 @@
 import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
 import { Questionnaire } from "@shadcn/react/questionnaire";
 import { MessageCircle, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MonoLabel, StatusPill } from "@/components/patterns";
+import { api } from "@/lib/api";
 
 type Items = React.ComponentProps<typeof Questionnaire.Root>["items"];
 
@@ -33,14 +35,69 @@ export function AskQuestionCard({
   onSubmit,
   onChat,
   title,
+  draftId,
 }: {
   input: AskQuestionInput;
   onSubmit?: (result: AskQuestionResult) => void;
   onChat?: () => void;
   /** Override the card heading (defaults to the first question's header). */
   title?: string;
+  /** ADR 0061 D3: where this answer's draft lives. Present = the human's
+   *  typing survives a reload; absent (workflow gates) = no draft. */
+  draftId?: { runId: string; callId: string };
 }) {
   const items = buildItems(input);
+  // Drafts are saved beside the ledger, never in it: what you typed is not a
+  // fact until you submit it.
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!draftId) return;
+    let alive = true;
+    void api
+      .getAskDraft({ runId: draftId.runId, callId: draftId.callId })
+      .then((res) => {
+        if (!alive || typeof res.body !== "string" || res.body === "") return;
+        try {
+          const parsed = JSON.parse(res.body) as Record<string, unknown>;
+          const clean: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed)) if (typeof v === "string") clean[k] = v;
+          setDraft(clean);
+        } catch {
+          /* a malformed draft is dropped, never blocks answering */
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [draftId?.runId, draftId?.callId, draftId]);
+  const saveDraft = useCallback(
+    (next: Record<string, string>) => {
+      if (!draftId) return;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        void api
+          .saveAskDraft({
+            runId: draftId.runId,
+            callId: draftId.callId,
+            body: JSON.stringify(next),
+          })
+          .catch(() => {});
+      }, 800);
+    },
+    [draftId],
+  );
+  const editDraft = useCallback(
+    (key: string, value: string) => {
+      setDraft((prev) => {
+        const next = { ...prev, [key]: value };
+        saveDraft(next);
+        return next;
+      });
+    },
+    [saveDraft],
+  );
   const hasChat = input.questions.some((q) => q.allowChat);
   const heading = title ?? input.questions[0]?.header ?? "A few questions";
 
@@ -61,6 +118,13 @@ export function AskQuestionCard({
       };
     });
     onSubmit?.({ answers });
+    // Submitted means the draft has served its purpose; the server also drops
+    // it once the question is no longer pending.
+    if (draftId) {
+      void api
+        .saveAskDraft({ runId: draftId.runId, callId: draftId.callId, body: "" })
+        .catch(() => {});
+    }
   }
 
   return (
@@ -116,6 +180,13 @@ export function AskQuestionCard({
               <Questionnaire.Input
                 className="h-9 w-full rounded-md border border-(--hairline) bg-(--canvas-soft) px-3 text-sm text-(--ink) placeholder:text-(--faint) focus:border-(--primary)"
                 placeholder={q.placeholder}
+                {...(draftId
+                  ? {
+                      value: draft[q.id] ?? "",
+                      onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                        editDraft(q.id, e.target.value),
+                    }
+                  : {})}
               />
             ) : (
               <>
@@ -159,6 +230,13 @@ export function AskQuestionCard({
                     className="mt-1 h-8 w-full rounded-md border border-(--hairline) bg-(--canvas-soft) px-3 text-sm text-(--ink) placeholder:text-(--faint)"
                     placeholder="Type your own…"
                     type="text"
+                    {...(draftId
+                      ? {
+                          value: draft[`${q.id}__other`] ?? "",
+                          onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                            editDraft(`${q.id}__other`, e.target.value),
+                        }
+                      : {})}
                   />
                 )}
               </>

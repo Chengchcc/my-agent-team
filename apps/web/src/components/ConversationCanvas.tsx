@@ -65,6 +65,10 @@ export function ConversationCanvas({
   );
   useEffect(() => {
     if (maxSeenSeq > 0) markRead(conversationId, maxSeenSeq);
+    // ADR 0061: the same look clears the backend's attention debts for this
+    // conversation (a pending question, an unseen terminal notice). It only
+    // advances read marks - it cannot change what a run did.
+    void api.markSeen({ conversationId }).catch(() => {});
   }, [conversationId, maxSeenSeq]);
   // #30: the backend moved this conversation — follow it. The subscription
   // effect re-runs when the route lands on the new conversationId.

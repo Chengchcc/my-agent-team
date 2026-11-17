@@ -470,6 +470,7 @@ export function Timeline({
                     ) : (
                       <AskQuestionCard
                         input={{ questions: t.ask.questions as AskQuestionInput["questions"] }}
+                        draftId={{ runId: t.runId, callId: t.ask.callId }}
                         onSubmit={(result: AskQuestionResult) =>
                           onResolveAsk?.(t.runId, t.ask!.callId, result)
                         }

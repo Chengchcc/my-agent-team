@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
+import { AttentionInbox } from "@/components/AttentionInbox";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { KpiTile, MonoLabel, StatusPill, type StatusTone } from "@/components/patterns";
 import { RunBlockerCard } from "@/components/RunBlockerCard";
@@ -419,6 +420,7 @@ export default function TodayPage() {
         }
       />
       <PageBody size="wide" className="space-y-4">
+        <AttentionInbox />
         <RunBlockerCard />
         <p
           suppressHydrationWarning
