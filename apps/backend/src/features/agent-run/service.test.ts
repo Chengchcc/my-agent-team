@@ -76,6 +76,50 @@ describe("Agent Run service: frozen Run config", () => {
     expect(result.run?.skillRoots).toEqual(["/packs/a"]);
   });
 
+  test("the agent's write-path policy is frozen onto the run (it is enforced in the child)", async () => {
+    // ADR 0060 D7: `authorization` says why the run may run; the policy says
+    // what it may write. The chain is config -> resolver -> run row -> child
+    // env -> tool layer, and this pins the middle link: without the frozen
+    // row the env has nothing to inject and the rules are inert.
+    const svc = createAgentRunService({
+      port: runPort,
+      contextService: ctxService,
+      idGen,
+      ledgerResolver,
+      resolveRunConfig: async () => ({
+        toolPolicy: {
+          deny: ["/home/me/.ssh/", "/etc/"],
+          allow: ["/tmp/ws/"],
+          denyCommands: ["git push"],
+        },
+      }),
+    });
+    const { conversationId, agentId } = freshFixture("cfg-policy");
+    const result = await svc.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      backendKind: "oma",
+      mode: "normal",
+      message: { role: "user", text: "run" },
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      idempotencyKey: "key-cfg-policy",
+    });
+    expect(result.run?.toolPolicy).toEqual({
+      deny: ["/home/me/.ssh/", "/etc/"],
+      allow: ["/tmp/ws/"],
+      denyCommands: ["git push"],
+    });
+    // Re-read from storage: the queue row snapshot is what a promoted run
+    // inherits, so the value must survive the round trip, not just the return.
+    const stored = await runPort.getRun(result.run!.runId);
+    expect(stored?.toolPolicy).toEqual({
+      deny: ["/home/me/.ssh/", "/etc/"],
+      allow: ["/tmp/ws/"],
+      denyCommands: ["git push"],
+    });
+  });
+
   test("explicit caller values beat the resolver", async () => {
     const svc = createAgentRunService({
       port: runPort,

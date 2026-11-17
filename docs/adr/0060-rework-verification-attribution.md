@@ -106,7 +106,9 @@ report({ purpose, text, verification? })
 
 不可逆动作的门槛落在**依据**上：`needsHumanAuthority(brief)` 要求派单的 run 是 `user` 授权——即人当场批准了"这个对象上的这个动作"，工人继承的是**这一次**授权，不是"凡 user 发起皆可"。
 
-另：写路径规则（allow/deny）虽然已实现，**注入链路未接**，所以它当前不构成有效执行边界；文档与对外说明必须这么写，不能只说"规则已实现"。
+**写路径规则（allow/deny）的链路已经通了**（2026-11-17 核实并补测）：agent 配置 `runtime_config.{deny_write_paths, allow_write_paths, deny_commands}` → `resolveRunConfig` → 冻结进 run 快照（`tool_policy`）→ ACP 子进程 env（`OMA_DENY_WRITE_PATHS` / `OMA_ALLOW_WRITE_PATHS` / `OMA_DENY_COMMANDS`）→ 工具层执行。三处各有测试：服务层冻结（`service.test.ts` 新增）、子进程 env（`acp-backend.test.ts`）、工具层拒绝（`file-tools.test.ts` / `bash.test.ts`）。
+
+**边界到哪里为止（必须照实说）**：路径规则约束的是 **file tools（read/write/edit）**；`bash` 只受**命令 tripwire**（整串精确匹配）与沙箱约束，**不受路径规则约束**——刻意不对命令行套 regex（引号、变量展开、base64 都是绕过面）。因此这条边界防的是"agent 用错工具写到不该写的地方"，不是"决心用 shell 绕过"。
 
 ### D8 账本的四类内容不可互换
 
