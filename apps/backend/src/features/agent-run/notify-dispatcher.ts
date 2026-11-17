@@ -28,6 +28,10 @@ export type NotifyDelivered = "steer" | "queued" | "ledger";
 
 export interface NotifyDispatcherDeps {
   getRun(runId: string): Promise<AgentRun | null>;
+  /** The conversation's front desk (the agent the human talks to). Used when
+   *  the chain is too deep to keep waking agents: the human still has to
+   *  learn the fact, and the front desk is the human's proxy. */
+  getFrontDeskAgent(conversationId: string): Promise<string | null>;
   getActiveRun(branchId: string): Promise<{ readonly runId: string } | null>;
   /** Enqueue-only rail: `mode: "steer"` + an active run leaves a pending
    *  input instead of creating a run (the adapter owns that rule). */
@@ -77,16 +81,22 @@ export function createNotifyDispatcher(
     }
     const authorization = `result:${input.fromAgentId}`;
     if (depth >= MAX_WAKE_DEPTH) {
-      // Too deep to wake safely: the fact still lands, but nobody starts a run.
+      // Too deep to keep waking the CHAIN: the parent is a worker at the
+      // limit, and waking it starts another automatic layer. But suppressing
+      // the notice entirely would leave a human-actionable fact invisible, so
+      // it goes to the human's proxy instead - one hop, and bounded because
+      // that run is authorized `result:` (its own terminal never notifies).
+      const frontDesk = await deps.getFrontDeskAgent(input.conversationId);
+      const target = frontDesk !== null && frontDesk !== parent.agentId ? frontDesk : null;
       await deps.postMessage({
         conversationId: input.conversationId,
         senderMemberId: input.fromAgentId,
-        addressedTo: [],
-        content: input.text,
+        addressedTo: target === null ? [] : [target],
+        content: `（自动协作链已到上限（深度 ${MAX_WAKE_DEPTH}），下面这条不再继续自动派发，需要人处理）\n${input.text}`,
         authorization,
         parentRunId: input.runId,
       });
-      return { delivered: "ledger" };
+      return { delivered: target === null ? "ledger" : "queued" };
     }
     if (input.wake) {
       const active = await deps.getActiveRun(parent.branchId);

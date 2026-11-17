@@ -150,7 +150,10 @@ Run B = 新 run（A 的终态、产物、工具调用全部保持原样）
                           切片内每 100ms 轮询一次"有没有新输入"
                           · job 终结 → 结果作为 job_result 消息注入，继续
                           · steer    → 继续
-                          · 8 次 park 用尽 → 注入"仍在运行"说明后收尾
+                          · 8 次 park 用尽 → **先 cancelAll() 终止仍在跑的本地作业**
+                                             再注入"已随本轮终止：<清单>"后收尾
+                                            （收尾会 teardown 子进程，不能说
+                                              "仍在运行、稍后用 hub 查"——那是假承诺）
     两者都没有        → 允许收尾
 ```
 
@@ -166,6 +169,11 @@ Run B = 新 run（A 的终态、产物、工具调用全部保持原样）
 ---
 
 ## 5. 授权模型
+
+**两个轴必须分开念**：`authorization` 回答"凭什么启动"，`slots/object/reversibility + 工具策略`
+回答"允许干什么"。不可逆动作的门槛落在依据上（派单 run 必须是 `user` 授权 = 人当场批准了
+这个对象上的这个动作），工人继承的是**这一次**授权，不是"凡 user 发起皆可"。
+
 
 ```
 authorization（派单前冻结进 run 快照；HTTP 消息入口不接受该字段）
@@ -217,6 +225,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 4. **前台没有 `steer_worker` / `cancel_worker`**：中途改主意 / 停跑飞的活只能等人插话。
 5. **没有 per-worker 并发上限**：同一 worker 可在多个房间并行（靠 workspace 隔离，不靠槽位）。
 6. **持久化不做**：job 随 run 生死；"合上电脑工作继续"需要另立 ADR。
+7. **终态与通知之间有一个丢通知窗口**：提交成功、通知发出前崩溃 ⇒ 人收不到。steer 轨靠 `inputIdempotencyKey=result:<runId>` 天然幂等，`postMessage` 轨不幂等；闭合要把通知意图放进终态提交的同一事务（ADR 0060 D6）。
 
 ---
 
@@ -227,7 +236,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 | `Task` 聚合 + 状态机 + CAS 认领 | 本机 1600 个 run、0 次 dispatch；原子单位是 `(branch, input)` 的 acquire | 需要跨 run 维护目标状态且有真实派单流量时 |
 | 话题栈 / active_topic_id | 1405 个会话中位 1 条人话、≥20 条 0 个、2.8% 落在 run 存活期 | 会话内并行多话题成为常态时 |
 | per-worker `concurrency_slots` | 房间内靠分支串行、跨房间靠 workspace 隔离、共享 checkout 已串行 | 出现"同一 workspace 双写"的真实事故时 |
-| `execution_epoch` | 终态提交已是 CAS（同结果幂等、冲突拒绝），双写者在这一步被拦 | 出现两个子进程同时产生有效写入的证据时 |
+| `execution_epoch` | 恢复只在本进程已无活句柄时发生；共享 checkout 的 workspace 锁覆盖 run 全生命周期（agent 级 workspace 刻意只锁到交付）。终态 CAS 只裁决"谁提交"，**不能**撤销已产生的文件副作用 | 出现两个进程同时产生有效写入的证据时 |
 | 签名的 capability token | 单用户本机；token 拦不住 bash，真正的边界是沙箱 + 写路径规则 | 多租户 / 远程 worker 时 |
 | `rework_of_run_id` 列 | 返工的语义已由"新 run + 终态不可变"保证，无消费者 | 需要审计面板显示"R2 替代 R1"时 |
 

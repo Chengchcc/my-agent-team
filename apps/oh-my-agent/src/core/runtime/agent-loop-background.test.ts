@@ -24,11 +24,13 @@ function countingModel(calls: string[], text: string) {
 function fakeBackground(script: {
   countRunning(): number;
   waitInterruptible: BackgroundSupervision["waitInterruptible"];
+  cancelAll?: () => Promise<readonly string[]>;
 }): BackgroundSupervision {
   return {
     countRunning: script.countRunning,
     waitInterruptible: script.waitInterruptible,
     acknowledge: () => {},
+    ...(script.cancelAll ? { cancelAll: script.cancelAll } : {}),
     pendingInput: { has: () => false },
   };
 }
@@ -132,9 +134,10 @@ describe("ADR 0059 the turn holds open over background work", () => {
     expect(sources).toContain("steer");
   });
 
-  test("when the park budget is spent the turn ends with an honest note", async () => {
+  test("when the park budget is spent the turn ends by stopping the work, not by promising it", async () => {
     const store = storeFactory("bg3");
     await createSession(store, "bg3");
+    let cancelled = 0;
     const loop = createOmaSession({
       sessionId: "bg3",
       store,
@@ -144,11 +147,17 @@ describe("ADR 0059 the turn holds open over background work", () => {
       summarize: fakeSummarize,
       modelStream: countingModel([], "done"),
       background: fakeBackground({
-        countRunning: () => 1, // never settles
+        countRunning: () => (cancelled === 0 ? 1 : 0), // never settles on its own
         waitInterruptible: async (o) => {
           // Keep each park fast so the test does not wait 8 × 10s.
           void o;
           return { settled: [], timedOut: true, woke: null };
+        },
+        // ADR 0060 D5: the turn teardown kills the child's jobs, so the honest
+        // move is to stop them FIRST and say which ones.
+        cancelAll: async () => {
+          cancelled += 1;
+          return ["bun test（长跑）"];
         },
       }),
     });
@@ -160,7 +169,12 @@ describe("ADR 0059 the turn holds open over background work", () => {
       .filter((e) => e.type === "message")
       .find((e) => e.source === "job_result");
     expect(note).toBeDefined();
-    expect(JSON.stringify(note)).toContain("仍在运行");
+    // The old promise was a lie: teardown ends the jobs and the hub dies with
+    // the process. The note must name what was stopped.
+    expect(cancelled).toBe(1);
+    expect(JSON.stringify(note)).toContain("一并终止");
+    expect(JSON.stringify(note)).toContain("bun test（长跑）");
+    expect(JSON.stringify(note)).not.toContain("仍在运行");
   });
 
   test("no background object changes nothing: the turn ends as before", async () => {
