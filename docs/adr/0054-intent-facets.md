@@ -108,7 +108,7 @@ ask_question for all of them at once, then dispatch.
 | 确定性 | `golden-intent.test.ts` | **CI**：每个 ask 用例的缺口必须等于代码算出的缺口；每个 dispatch 用例必须完整可表达；不可逆必须要求人 |
 | 模型回放 | `scripts/golden-intent.ts`（`DEEPSEEK_API_KEY`） | 手动：把同一批 message 交给真实模型，比对 action/verb/缺口 |
 
-**当前模型基线：11/17**（3 条需要多 brief 或记忆上下文，回放里跳过）。三类可复现的偏差：
+**模型基线**（deepseek-chat，17 条可判定用例，连续三次）：`15 · 12 · 15`（中位 15）。早期记过一次 `11/17`，但那是另一份临时提示词 + 单次运行，**不可与现在直接比较**；提示词改动见 ADR 0057。剩余偏差：
 
 1. **把 verb 填进 action**（`action: "operate"`）——枚举纪律不稳，即使 schema 标了 enum；
 2. **把 `write` / `investigate` 当成 `answer`**——"写份文档"被当成一句话就能满足；
