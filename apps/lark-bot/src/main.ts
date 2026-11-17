@@ -53,6 +53,7 @@ import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actio
 import { createCardKitClient } from "./run-card/card-kit.js";
 import { runPageUrl } from "./run-card/card-renderer.js";
 import { cardStateFromChatTurn } from "./run-card/card-state.js";
+import { isOwnAgentRun } from "./run-card/ownership.js";
 import {
   liveQueuedInputCards,
   markQueuedCardCancelled,
@@ -307,6 +308,9 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
   if (watchers.has(conversationId)) return;
   const handle = watchConversationOverAhp(conversationId, larkChatId, {
     db: state.db,
+    // ADR 0060 D3: this bot speaks for ONE agent. Another member's prose in
+    // the shared ledger is not ours to deliver as our own.
+    selfAgentId: args.agentId,
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     onSend: async (chatId, text, idempotencyKey) => {
@@ -570,7 +574,10 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
     // ADR 0037 decision 2: a message that has to wait gets its own card in a
     // queued state; when the backend promotes it into a run, the SAME card
     // takes that run over (`adopt`), so nothing new appears in the topic.
-    onQueuedInput: (inputId, conversationId, sourceMessageId) => {
+    onQueuedInput: (inputId, conversationId, sourceMessageId, agentId) => {
+      // ADR 0060 D3: a queued input for another member (a dispatch to a
+      // worker) is that worker's work, not this bot's answer.
+      if (!isOwnAgentRun(args.agentId, agentId)) return;
       // #83's trigger: this conversation's newest input is queued, so messages
       // arriving until it is picked up belong together.
       merger.hold(conversationId);
@@ -595,7 +602,11 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
         },
       });
     },
-    onTriggeredRun: (runId, conversationId) => {
+    onTriggeredRun: (runId, conversationId, _sourceMessageId, agentId) => {
+      // ADR 0060 D3: a worker's run is not this bot's turn. Suppressing the
+      // card also suppresses its text (the card was what held the text back),
+      // so the matching delivery filter lives in ahp-delivery.
+      if (!isOwnAgentRun(args.agentId, agentId)) return;
       // The user's own message is what the ack reaction goes on; the card is a
       // separate message the bot sends into the chat. The TOPIC's root is what
       // it must reply to (`root_id` when this message is already inside a

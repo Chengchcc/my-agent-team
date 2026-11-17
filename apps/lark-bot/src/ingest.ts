@@ -51,10 +51,22 @@ export interface IngestContext {
     fileKey: string,
   ) => Promise<{ base64: string; mediaType: string } | null>;
   /** M15.1: Called for each triggered run — starts streaming card lifecycle */
-  onTriggeredRun?: (runId: string, conversationId: string, sourceMessageId: string) => void;
+  /** ADR 0060 D3: `agentId` says WHOSE run started. A surface speaks for one
+   *  agent; a worker's run must not get this agent's card. */
+  onTriggeredRun?: (
+    runId: string,
+    conversationId: string,
+    sourceMessageId: string,
+    agentId?: string,
+  ) => void;
   /** ADR 0037: called for a message that has to WAIT — it became a queued
    *  input behind the running turn, so it gets its own card saying so. */
-  onQueuedInput?: (inputId: string, conversationId: string, sourceMessageId: string) => void;
+  onQueuedInput?: (
+    inputId: string,
+    conversationId: string,
+    sourceMessageId: string,
+    agentId?: string,
+  ) => void;
 }
 export interface IngestResult {
   action: "consumed" | "skipped" | "error";
@@ -631,9 +643,9 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     //    used to create a card row that could never settle.
     for (const entry of runs) {
       if (entry.runId) {
-        ctx.onTriggeredRun?.(entry.runId, conversationId, event.message_id);
+        ctx.onTriggeredRun?.(entry.runId, conversationId, event.message_id, entry.agentId);
       } else if (entry.queued && entry.inputId) {
-        ctx.onQueuedInput?.(entry.inputId, conversationId, event.message_id);
+        ctx.onQueuedInput?.(entry.inputId, conversationId, event.message_id, entry.agentId);
       }
     }
 

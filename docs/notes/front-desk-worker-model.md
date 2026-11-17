@@ -218,8 +218,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 
 ## 7. 已知缺口（诚实清单）
 
-1. **飞书里工人 run 的卡片没有署名** → 工人产出被读成前台说的（归属错误）。
-   候选修法：工人 run 不发卡片（删掉这个面），或卡片标题带 agent。
+1. ~~飞书里工人 run 的卡片没有署名~~（已修）：工人 run 不再发卡片，投递也按 `_meta.authorAgentId` 过滤——只删卡片会让原文以纯文本冒充前台。artifact 投递（`contentRef`）尚未过滤。
 2. **写路径规则的注入链路未接**：agent 配置 → run 快照 → 子进程 env（后端已有 per-run env 通道）。
 3. **`report` 没有验收证据字段**：前台无法区分"验过了"与"没验"。
 4. **前台没有 `steer_worker` / `cancel_worker`**：中途改主意 / 停跑飞的活只能等人插话。
