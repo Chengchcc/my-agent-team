@@ -84,4 +84,4 @@
 | 0057 | front-desk-prompt-discipline(前台路由纪律：三条出口 + 五条约束，注入给所有面向人的 agent) | **Implemented**（`role !== worker` 才注入，身份在前；回放脚本直接引用同一常量，基线 15/12/15 over 17） |
 | 0058 | unified-recall(一个召回入口：history/qa/capability 同构，memory/skill 报 skipped 并带原因) | **Implemented**（选工人也走同一入口；`searched` 区分"没查"与"查了没有"；`limit` 由调用方决定） |
 | 0059 | duplex-execution-loop(全双工执行循环：可打断的监督、轮次结束门槛、工人终态双路通知) | **Accepted**（第 1–2 刀：`waitInterruptible` 切片+100ms 轮询、收尾门槛/`job_result` 注入；工人终态与 `report` 的双路回填 + 深度护栏。待做：前台 `wait_for`/`steer_worker`/`cancel_worker`） |
-| 0060 | rework-verification-attribution(返工、验收与署名：`done` 结构化信封、验收三类、返工新建 run、投递与署名分离) | **Proposed**（采纳外部协议对谈的三处；拒绝 Task 聚合/per-worker 槽位/progress 阈值/capability token，理由与实测数据见正文） |
+| 0060 | rework-verification-attribution(回传的验收证据、返工与署名) | **Proposed**（`report.verification` 四态、返工=新 run 不建列、署名是渲染契约；拒绝 Task 聚合/槽位/epoch/capability token 六项，触发条件见正文） |

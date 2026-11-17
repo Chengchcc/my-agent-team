@@ -1,98 +1,99 @@
-# ADR 0060: 返工、验收与署名 —— 派单契约的返回半张
+# ADR 0060: 回传的验收证据、返工与署名
 
 - 状态: Proposed
 - 日期: 2026-11-17
-- 相关: ADR 0052（池化与回交）、ADR 0054（意图四维 facet）、ADR 0059（双路回填）、ADR 0051（授权链）
+- 相关: ADR 0052（池化与回交）、ADR 0054（意图 facet）、ADR 0059（双路回填）、ADR 0050（呈现三原则）
 
 ## 背景
 
 ADR 0059 第 2 刀把"工人终态回到派单者"接通了，但回传的是一条自由文本。于是前台收到"干完了"却无法判断能不能直接交代给人——`acceptance` 只在派单侧是必填槽位，**回传侧没有兑现面**，等于写了半个契约。
 
-同时，一轮与外部 agent 的协议对谈（前台↔worker 契约、意图识别、话题切换、结果回传）给出了另一套模型。本 ADR 记录我们对它的取舍：采纳三处，拒绝三处，并钉住两边都不成立的说法。
+一轮与外部 agent 的协议对谈给出了另一套更完整的模型（Task 聚合、CAS 认领、`execution_epoch`、Completion 信封、签名 capability token）。本 ADR 记录取舍：**采纳三处、拒绝六处**，并按"先确定谁据此采取什么动作，再决定字段放哪"的顺序收敛。
 
-本机实测（`apps/backend/.backend-data/backend.db`，数据截至 2026-11-11、派单功能上线前）：1405 个有人类消息的会话、1559 条人类消息，**人均中位 1 条、最大 18、≥20 条 0 个**；落在某个 run 存活期内的人类消息 **44 条（2.8%）**；1600 个 run 中 **0 条 dispatch、0 条 parent_run_id**。⇒ 派单本身还没有可观察的流量，任何契约字段必须由机制自身产生，而不是靠设想。
+本机实测（`apps/backend/.backend-data/backend.db`，截至 2026-11-11）：1405 个有人类消息的会话、1559 条人类消息，人均中位 1 条、最大 18、≥20 条 0 个；2.8% 的人类消息落在某个 run 存活期内；1600 个 run 中 0 条 dispatch、0 条 `parent_run_id`。⇒ 派单尚无流量，契约字段必须由机制自身产生。
 
 ## 决策
 
-### D1 验收分三类，前台不做语义验收
+### D1 验收证据是一个四态字段，不进状态机
 
-| 类别 | 判定者 | 依据 |
-|---|---|---|
-| 可执行验收 | worker 执行器 / 自动化检查 | test、lint、build、diff、文件存在性 |
-| 策略验收 | 服务端（授权、scope、危险动作、必需工件） | 派单侧已有（ADR 0054 的 `needsHumanAuthority`） |
-| 主观验收 | 人 | "是否符合预期" |
+先定消费者：**前台据它决定措辞**（"执行结束，未提供验收证据" / "自动检查通过" / "检查未通过" / "尚无检查配置"）。它不改变 run 终态，也不拦成功提交（我们没有与仓库无关的通用验收入口）。
 
-前台只做四件事：收到 `done`、读已记录的检查结果、组织成人能读的摘要、标注"等待人验收"或"自动验收已通过"。**它不凭"读起来不太像"退回任何东西。**
-
-`report` 的终态档扩展为结构化信封：
+于是只需要一个字段，不需要信封：
 
 ```
-Completion {
-  deliverables[]        PR/文件/报告链接
-  checks[] { id, commandOrEvaluator, result: pass|fail|skipped, evidence }
-  acceptance[] { item, selfVerdict, evidence }   // 逐条自评，不是"我干完了"
-  decisions[]           open_questions 里自行决定了什么、为什么
-  risks[]               未解决的风险
-  verification          auto_passed | auto_failed | not_automatically_verifiable
-}
+report({ purpose, text, verification? })
+  verification ∈ not_configured | not_run | passed | failed
 ```
 
-`checks[]` 为空时 `verification = not_automatically_verifiable` 是**必须显式写出的诚实话**，而不是把 worker 自评伪装成验收通过。
+- 不传 = 没有证据（终态通知里就没有这一项，绝不默认成"通过"）；
+- `not_configured`（没配检查）与 `not_run`（配了没跑）分开，避免把"没验"说成"验不了"；
+- `deliverables` / `decisions` / `risks` **不加字段**：它们在 `text` 与账本链路里已经被表达，加数组只是把我的推测变成 schema。
 
-### D2 返工 = 新 run，不建 Task 聚合
+前台措辞规则（提示词 + 回放语料）：
 
-- **终态一次提交**保证一个 run 的产物不可变；返工**新建 run**，`rework_of_run_id` 指向被返工的 run。
-- `parent_run_id`（授权链）与 `rework_of_run_id`（返工关系）是两个事实，不可混用：前者答"凭什么跑"，后者答"这条新尝试在替谁重做"。
-- **不建 Task 实体**：派单零流量，把 `task_id + status 机 + 认领` 建成聚合是给预期造机器。两列表足够可追溯。
-
-### D3 署名与路由分离
-
-账本里 `senderMemberId` 已经是事实，Web 时间线按它署名。缺的是**投递侧**：飞书里工人的话由前台的 bot 投递，人看到的是"前台说的"——**能力边界与责任被误认**。
-
-- 事件保留原文与来源（runId + agentId），作为证据；
-- 对人的消息必须是前台组织的摘要，且**标注来源**（`执行单元 <agentId> …`，或卡片字段），不得以第一人称冒充工人；
-- 未来若工人拥有独立可见身份，可直接以其身份投递，但不得伪造。
-
-### D4 明确不做
-
-| 不做 | 理由 |
+| verification | 允许的措辞 |
 |---|---|
-| `Task` 聚合 / 状态机 / CAS 认领 | 零派单流量；我们的原子单位是 `(branch, input)` 的 acquire，DB 保证每 branch 一个活跃 run |
-| per-worker `concurrency_slots` | 房间内靠 branch 串行、跨房间靠 workspace 隔离；共享 checkout 已由 ADR 0023 §5 在 run 全生命周期内串行，槽位是第三道没人要求过的闸 |
-| `progress` 阈值与自动转发 | 无数据可定阈值；ADR 0059 已定 progress 只落账、永不唤醒 |
-| capability token 签名 | 单用户本机；且 token 拦不住 bash —— 真正的边界是 sandbox 与写入路径规则（allow-rules 注入链路仍是待办） |
+| 缺失 / `not_run` / `not_configured` | 只能说"执行已结束、产物在…"；**不得说"已完成"** |
+| `passed` | 可说"自动检查通过" |
+| `failed` | 必须说"检查未通过"，并给出前台自己的判断（继续返工 / 问人） |
 
-### D5 `can_finalize` 与 ADR 0059 的收尾门槛是两件事
+### D2 返工 = 新 run；暂不建 `rework_of` 列
 
-对方主张 `can_finalize(run) = 子任务终态 ∧ 无挂起命令 ∧ 无待决人输入 ∧ 完成事件已提交`。我们只实现前两条中的"无挂起命令"（hold），因为**远程工人不在我们的收尾门槛里**：
+"原 run 终态不变"这条不变量由两件事保证，**不需要新列**：
 
-| 未收敛的活 | 我们的处理 | 为什么可以收尾 |
+1. 返工走的是新的 `dispatch` → 新 run；
+2. 终态提交已是 CAS（同结果幂等重放、冲突结果抛 `AgentRunConflictError`），任何路径都改不了已有终态。
+
+`parent_run_id`（凭什么跑）与"替谁重做"是两个事实，将来要显示"R2 替代 R1"时再加列。**触发条件**：审计面板需要按返工关系聚合，或模型需要它避免重复派同一件活。
+
+### D3 署名是渲染契约，不是元数据
+
+账本已记录 `senderMemberId` + `agentRunId`（事实层）。缺的是**出口必须遵守的展示规则**：
+
+- 工人的原话只能作为证据出现在过程视图里，**不得以第一人称变成前台的话**；
+- 飞书：工人 run 的卡片是目前唯一会让"工人产出被读成前台说的"的出口。两条路选一条——
+  **(a) 不给工人 run 发卡片**（符合 ADR 0050"人够不着的地方不露出来"，删掉一个面）；
+  **(b) 卡片标题带 agent**（多一个面要维护）。
+  本 ADR 倾向 **(a)**，与"人只需要一条线性时间线"一致；若评审认为过程中可见性有价值，再选 (b)。
+- 传输事实（哪个 bot 发出的）与归属事实（谁写的）**永远分开**陈述。
+
+### D4 拒绝六项（附恢复条件）
+
+| 拒绝 | 依据 | 触发再评估 |
 |---|---|---|
-| 本地后台作业（bash/eval/subagent） | hold，作业终结注入 `job_result` 再继续 | 它随 run 生死，收尾即被杀 |
-| 远程工人的 run | **允许收尾** | 终态会以 steer 或 `result:` 排队输入回来，下一轮接上（ADR 0059 D5） |
+| `Task` 聚合 + 状态机 + CAS 认领 | 零派单流量；原子单位是 `(branch, input)` 的 acquire | 需要跨 run 维护目标状态且有真实流量 |
+| 排他 `intent_type` 枚举 | 每加一类重划边界；facet 是真相（ADR 0054） | —（已定） |
+| 话题栈 / `active_topic_id` | 中位 1 条人话、≥20 条 0 个 | 会话内并行多话题成为常态 |
+| per-worker `concurrency_slots` | 房间内分支串行、跨房间 workspace 隔离、共享 checkout 已串行 | 同一 workspace 双写事故 |
+| `execution_epoch` | `finalizeRun` 已终态则同结果幂等、异结果抛冲突；`commitCompletedRun` 只从 running/waiting/commit_failed 进入 | 出现两个进程同时产生**有效工具副作用**的证据 |
+| 签名 capability token | 单用户本机；token 拦不住 bash，边界在沙箱 + 写路径规则 | 多租户 / 远程 worker |
 
-这是两条自洽的路：对方靠"run 不 final"，我们靠"下一轮"。谁对取决于进程模型——一次性子进程不能既收尾又保留上下文。
+### D5 收尾门槛与他们的 `can_finalize` 不同，且是刻意的
+
+对方要求 `can_finalize = 所有子任务终态 ∧ 无挂起命令 ∧ 无待决人输入`。我们只做"无挂起命令"（hold），**远程工人的 run 不阻止收尾**：终态会以 steer 或 `result:` 排队输入回来，下一轮接上。
+
+一次性子进程不能既收尾又保留上下文 —— 两种模型各自自洽，谁对取决于进程模型。
 
 ## 不变量
 
-1. **终态不可变**（不是 run 不可变）：同一 run 可被恢复（`resumeParkedRun` 换子进程续跑），但 `terminal_result` 只写一次。
-2. **验收结论只有三种**，不允许"看起来像完成了"。
-3. **返工新 run**：`rework_of_run_id` 与 `parent_run_id` 分列，一个 run 最多一个 rework_of。
-4. **投递可换、署名不可换**：消息由谁的 bot 发出是传输事实，谁写的、谁干的是事实事实。
+1. **终态一次提交**：同结果重放，冲突结果拒绝；run 本身可恢复（同 runId 换新子进程）。
+2. **验收证据只有四种取值**，缺失不等于通过。
+3. **返工是新 run**，旧 run 的终态、产物、工具调用保持原样。
+4. **投递可换、署名不可换**。
 
 ## 落点
 
 | 层 | 文件 |
 |---|---|
-| 工具 | `apps/backend/src/features/product-tools/{manifest,dispatch,service}.ts`（`report` 终态档改结构化） |
-| 回填 | `apps/backend/src/features/agent-run/notify-dispatcher.ts`（终态通知携带 verification 结论） |
-| 数据 | `apps/backend/src/infra/db/schema.ts`（`agent_run.rework_of_run_id`）+ 迁移 |
-| 表面 | Web 时间线（已有署名，补 verification 角标）、`apps/lark-bot`（来源标注） |
-| 提示词 | 前台纪律追加一条：`not_automatically_verifiable` 时不得说"已完成"
+| 工具 | `apps/backend/src/features/product-tools/{manifest,dispatch,service}.ts`（`report` 增 `verification`） |
+| 回填 | `apps/backend/src/features/agent-run/notify-dispatcher.ts` + `features.ts`（终态通知携带 verdict） |
+| 提示词 | 前台纪律追加措辞规则（ADR 0057 的常量） |
+| 表面 | `apps/lark-bot`：工人 run 卡片不再投递（或带署名）——按 D3 的取舍 |
+| 文档 | `docs/notes/front-desk-worker-model.md`（模型全图，供外部评审） |
 
 ## 验收
 
-1. `report` 终态档缺 `checks[]` → 回传里显式 `verification: not_automatically_verifiable`（不许省）；
-2. 返工 run 的 `rework_of_run_id` 指向被返工 run，`parent_run_id` 仍指向派单方，两条测试各钉一次；
-3. 飞书投递的工人来源被标注（或明确"前台摘要"），不得出现工人原话被当作前台第一人称；
-4. 前台提示词：`auto_failed` / `not_automatically_verifiable` 两种情形下，回复不得出现"已完成"。
+1. `report` 终态档不带 `verification` → 回传里**没有**该字段（不得默认 `passed`），前台措辞测试红在"说了已完成"；
+2. `not_configured` 与 `not_run` 分别有测试，不可合并；
+3. 返工：新 run 派生自同一 brief，旧 run 的 `terminal_result` 逐字节不变；
+4. 飞书：工人 run 不再产生独立卡片（或卡片含 agent 署名），工人在 Lark 里不再以"前台已完成的回答"形态出现。
