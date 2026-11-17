@@ -88,6 +88,9 @@ export interface AgentRun {
   readonly parentRunId: string | null;
   readonly createdAt: number;
   readonly terminalAt: number | null;
+  /** ADR 0060 D6: null on a terminal dispatched run = the notice was never
+   *  confirmed, so recovery re-delivers it. */
+  readonly resultNotifiedAt: number | null;
 }
 
 // ─── Branch Input Queue ──────────────────────────────────────────

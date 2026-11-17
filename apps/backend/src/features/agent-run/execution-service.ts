@@ -144,6 +144,14 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           console.error(`[agent-run] recover promote dispatch failed for ${promoted.runId}:`, err);
         });
       }
+      // ADR 0060 D6: a terminal dispatched run whose notice was never marked
+      // was possibly lost between the commit and the delivery. Re-deliver; the
+      // rails are idempotent per runId, so a duplicate costs a second notice,
+      // never a second run.
+      const unnotified = await runPort.listUnnotifiedDispatchedTerminalRuns(50);
+      for (const run of unnotified) {
+        deps.onRunResultUndelivered?.(run);
+      }
       const failed = await runPort.listCommitFailedRuns();
       for (const run of failed) {
         await this.retryTerminalCommit(run.runId).catch((err) => {

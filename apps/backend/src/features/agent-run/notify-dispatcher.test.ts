@@ -25,6 +25,8 @@ interface Harness {
   deps: NotifyDispatcherDeps;
   steered: Array<{ branchId: string; inputId: string; text: string }>;
   posted: Array<{ addressedTo: readonly string[]; authorization: string; content: string }>;
+  /** ADR 0060 D6: runIds the notice was confirmed delivered for. */
+  notified: string[];
   enqueued: number;
 }
 
@@ -37,6 +39,7 @@ function harness(options: {
 }): Harness {
   const steered: Harness["steered"] = [];
   const posted: Harness["posted"] = [];
+  const notified: string[] = [];
   const state = { enqueued: 0 };
   const deps: NotifyDispatcherDeps = {
     getRun: async (id) => options.runs.get(id) ?? null,
@@ -58,11 +61,15 @@ function harness(options: {
         content: input.content,
       });
     },
+    markNotified: async (runId) => {
+      notified.push(runId);
+    },
   };
   return {
     deps,
     steered,
     posted,
+    notified,
     get enqueued() {
       return state.enqueued;
     },
@@ -86,6 +93,8 @@ describe("ADR 0059 notifyDispatcher", () => {
     expect(result.delivered).toBe("steer");
     expect(h.steered).toHaveLength(1);
     expect(h.posted).toHaveLength(0);
+    // Confirmed delivery is what keeps recovery from sending it twice.
+    expect(h.notified).toEqual(["worker-run"]);
   });
 
   test("an idle dispatcher gets a queued input authorized result:<worker>", async () => {
@@ -104,6 +113,7 @@ describe("ADR 0059 notifyDispatcher", () => {
     expect(result.delivered).toBe("queued");
     expect(h.posted[0]?.addressedTo).toEqual(["front"]);
     expect(h.posted[0]?.authorization).toBe("result:worker");
+    expect(h.notified).toEqual(["worker-run"]);
   });
 
   test("progress lands unaddressed — a worker must never interrupt its dispatcher", async () => {
@@ -123,6 +133,9 @@ describe("ADR 0059 notifyDispatcher", () => {
     // Even with a live dispatcher: progress takes the ledger rail only.
     expect(h.steered).toHaveLength(0);
     expect(h.posted[0]?.addressedTo).toEqual([]);
+    // A ledger note is NOT a delivery: recovery must still be able to send the
+    // real terminal notice.
+    expect(h.notified).toEqual([]);
   });
 
   test("a chain too deep to wake still records the fact, but wakes nobody", async () => {

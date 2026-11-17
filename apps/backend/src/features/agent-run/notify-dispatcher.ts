@@ -58,6 +58,12 @@ export interface NotifyDispatcherDeps {
     authorization: string;
     parentRunId: string;
   }): Promise<unknown>;
+  /** ADR 0060 D6: the notice was handed to a rail (steer, queued input, or -
+   *  at the chain-depth limit - the ledger). It does NOT mean a human read it.
+   *  Recovery re-delivers every terminal dispatched run without this mark, so
+   *  a crash between the commit and the delivery costs a duplicate at worst,
+   *  never silence. */
+  markNotified?(runId: string): Promise<void>;
 }
 
 /** How many dispatch hops a run sits below the human. The front desk's own
@@ -96,6 +102,10 @@ export function createNotifyDispatcher(
         authorization,
         parentRunId: input.runId,
       });
+      // Marked either way: the mark means "handled by a rail", not "a human
+      // read it". Without this, a degenerate no-front-desk room would re-post
+      // the same ledger line on every restart.
+      await deps.markNotified?.(input.runId);
       return { delivered: target === null ? "ledger" : "queued" };
     }
     if (input.wake) {
@@ -119,6 +129,7 @@ export function createNotifyDispatcher(
             // survivor would sit in the composer queue forever). The fallback
             // below posts a proper queued input instead.
             await deps.injectSteer(parent.branchId, { inputId: enqueued.inputId, message });
+            await deps.markNotified?.(input.runId);
             return { delivered: "steer" };
           } catch {
             // The live handle is gone (settled between the read and the
@@ -135,6 +146,9 @@ export function createNotifyDispatcher(
       authorization,
       parentRunId: input.runId,
     });
+    // Only a wake counts as "the dispatcher was told": a ledger-only note is
+    // not a delivery, so the mark stays absent and recovery still re-delivers.
+    if (input.wake) await deps.markNotified?.(input.runId);
     return { delivered: input.wake ? "queued" : "ledger" };
   };
 }
