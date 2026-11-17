@@ -227,6 +227,9 @@ export interface ProductToolsServiceDeps {
     runId: string;
     purpose: "progress" | "attention" | "answer";
     text: string;
+    /** ADR 0060 D1: the recorded check result. Absent = no evidence, which
+     *  must never render as a pass. */
+    verification?: "not_configured" | "not_run" | "passed" | "failed";
   }) => Promise<{ delivered: "steer" | "queued" | "ledger" }>;
   /** ADR 0048: the team roster with capability cards (team_list). Absent =
    *  the tool rejects explicitly. */
@@ -878,6 +881,23 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     if (text === "") {
       throw new ProductToolRejectedError("report requires text: what should they know");
     }
+    // ADR 0060 D1: four states, no fifth. An unknown value is a model mistake
+    // and must fail loudly rather than degrade into "no evidence".
+    const rawVerdict = input.args.verification;
+    let verification: "not_configured" | "not_run" | "passed" | "failed" | undefined;
+    if (rawVerdict !== undefined) {
+      if (
+        rawVerdict !== "not_configured" &&
+        rawVerdict !== "not_run" &&
+        rawVerdict !== "passed" &&
+        rawVerdict !== "failed"
+      ) {
+        throw new ProductToolRejectedError(
+          "report verification must be one of not_configured, not_run, passed, failed",
+        );
+      }
+      verification = rawVerdict;
+    }
     const inputHash = JSON.stringify({ tool: input.tool, args: input.args });
     const existing = await callPort.getCall(run.runId, input.callId);
     if (existing) {
@@ -894,8 +914,13 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       runId: run.runId,
       purpose,
       text,
+      ...(verification === undefined ? {} : { verification }),
     });
-    const result = JSON.stringify({ delivered: delivered.delivered, purpose });
+    const result = JSON.stringify({
+      delivered: delivered.delivered,
+      purpose,
+      verification: verification ?? "absent",
+    });
     await callPort.recordCall({
       runId: run.runId,
       callId: input.callId,

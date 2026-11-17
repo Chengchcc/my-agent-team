@@ -1,6 +1,6 @@
 # ADR 0060: 回传的验收证据、返工与署名
 
-- 状态: Proposed
+- 状态: Proposed（D1 `report.verification` 已实现；D6 至少一次已实现；D3 署名与 D2 返工待定）
 - 日期: 2026-11-17
 - 相关: ADR 0052（池化与回交）、ADR 0054（意图 facet）、ADR 0059（双路回填）、ADR 0050（呈现三原则）
 
@@ -29,7 +29,9 @@ report({ purpose, text, verification? })
 - `not_configured`（没配检查）与 `not_run`（配了没跑）分开，避免把"没验"说成"验不了"；
 - `deliverables` / `decisions` / `risks` **不加字段**：它们在 `text` 与账本链路里已经被表达，加数组只是把我的推测变成 schema。
 
-前台措辞规则（提示词 + 回放语料）：
+实现形状：`verification` 随 `report` 进入回填帧，帧里**固定**渲染一行验收结论（`verificationLine`），非通过时再附一句"不得说已完成"。**规则随数据走，不只写在提示词里**——提示词不是边界（本轮已两次用变异证明）。
+
+前台措辞规则（与上面的固定行互为兜底）：
 
 | verification | 允许的措辞 |
 |---|---|
@@ -145,8 +147,8 @@ report({ purpose, text, verification? })
 
 ## 验收
 
-1. `report` 终态档不带 `verification` → 回传里**没有**该字段（不得默认 `passed`），前台措辞测试红在"说了已完成"；
-2. `not_configured` 与 `not_run` 分别有测试，不可合并；
+1. ✓ `report` 不带 `verification` → 回填帧显式写"未提供验收证据"，且模型结果里记 `absent`（不得默认 `passed`）；
+2. ✓ `not_configured` / `not_run` / `passed` / `failed` / 缺失 五种渲染互不相同（一条测试钉住集合大小与"缺失不含'通过'"）；非通过时帧内含措辞约束，通过时不带；
 3. 返工：新 run 派生自同一 brief，旧 run 的 `terminal_result` 逐字节不变；
 4. 飞书：工人 run 不再产生独立卡片（或卡片含 agent 署名），工人在 Lark 里不再以"前台已完成的回答"形态出现；
 5. 等待预算用尽 → `cancelAll()` 先执行、注记逐条列出被终止的作业（变异：不取消则测试红）；

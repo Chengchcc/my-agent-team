@@ -89,16 +89,43 @@ export function frameResultInput(workerAgentId: string, status: string, text: st
   const raw = text.trim();
   const body =
     raw === "" ? "（没有产出文字结果）" : raw.length > 2000 ? `${raw.slice(0, 2000)}…` : raw;
-  return [head, body, "", "这是你派出去的工作的结果：向人交代，或继续处理。"].join("\n");
+  return [
+    head,
+    verificationLine(undefined),
+    body,
+    "",
+    "这是你派出去的工作的结果：向人交代，或继续处理。没有验收证据时不得说『已完成』。",
+  ].join("\n");
 }
 
 /** ADR 0059 D6 report: the worker's own words, framed by purpose. `progress`
  *  never wakes the dispatcher (it lands in the ledger); `attention` and
  *  `answer` do. */
+export type VerificationVerdict = "not_configured" | "not_run" | "passed" | "failed";
+
+/** The verdict as a FIXED line. The dispatcher must not phrase the completion
+ *  state itself: the state comes from the worker's recorded check, the
+ *  dispatcher only explains it (ADR 0060 D1). */
+export function verificationLine(verdict: VerificationVerdict | undefined): string {
+  switch (verdict) {
+    case "passed":
+      return "验收：指定检查已通过";
+    case "failed":
+      return "验收：检查未通过";
+    case "not_run":
+      return "验收：检查已配置但没有执行";
+    case "not_configured":
+      return "验收：没有配置任何检查";
+    default:
+      return "验收：未提供验收证据（工人没有上报检查）";
+  }
+}
+
 export function frameReportInput(
   workerAgentId: string,
   purpose: "progress" | "attention" | "answer",
   text: string,
+  verdict?: VerificationVerdict,
 ): string {
   const head =
     purpose === "attention"
@@ -106,7 +133,13 @@ export function frameReportInput(
       : purpose === "answer"
         ? `（${workerAgentId} 给你一个回答）`
         : `（${workerAgentId} 的进度）`;
-  return [head, text.trim()].join("\n");
+  const lines = [head, verificationLine(verdict), text.trim()];
+  if (verdict !== "passed") {
+    // The rule travels with the data, not only in a prompt: the dispatcher
+    // reads this line, so it cannot drift into "已完成" by accident.
+    lines.push("", "据此措辞：不得说『已完成』，只能说执行结束与产物位置。");
+  }
+  return lines.join("\n");
 }
 
 export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
@@ -262,6 +295,12 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
             "progress: ledger only, no wake. attention: wake the dispatcher now. answer: a direct answer for them.",
         },
         text: { type: "string", description: "What they should know, compactly" },
+        verification: {
+          type: "string",
+          enum: ["not_configured", "not_run", "passed", "failed"],
+          description:
+            "验收证据（ADR 0060）：not_configured=没有配置检查；not_run=配了没跑；passed/failed=执行结果。不传=没有证据，不得暗示通过。",
+        },
         identity: IDENTITY_SCHEMA,
       },
       required: ["purpose", "text"],

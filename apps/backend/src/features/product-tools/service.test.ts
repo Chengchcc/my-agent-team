@@ -67,6 +67,7 @@ let reportCalls: Array<{
   runId: string;
   purpose: "progress" | "attention" | "answer";
   text: string;
+  verification?: "not_configured" | "not_run" | "passed" | "failed";
 }> = [];
 /** Every capability recall the service asked for, with the query it built. */
 let pickQueries: Array<Record<string, unknown>> = [];
@@ -1336,6 +1337,46 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
     });
     expect(again.content).toBe(first.content);
     expect(reportCalls.length).toBe(1);
+  });
+
+  test("report carries the verification verdict through, and absence stays absent", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    const withVerdict = await service.call({
+      identity: identity(runId),
+      callId: "rp-8",
+      idempotencyKey: `${runId}:rp-8`,
+      tool: "report",
+      args: { purpose: "answer", text: "改好了", verification: "passed" },
+    });
+    expect(reportCalls[0]).toMatchObject({ verification: "passed" });
+    expect(JSON.parse(withVerdict.content)).toMatchObject({
+      verification: "passed",
+      purpose: "answer",
+    });
+
+    const without = await service.call({
+      identity: identity(runId),
+      callId: "rp-9",
+      idempotencyKey: `${runId}:rp-9`,
+      tool: "report",
+      args: { purpose: "answer", text: "改好了" },
+    });
+    // Absent is recorded as absent — never upgraded to a pass.
+    expect(reportCalls[1]?.verification).toBeUndefined();
+    expect(JSON.parse(without.content)).toMatchObject({ verification: "absent" });
+  });
+
+  test("an unknown verification value is rejected, not silently dropped", async () => {
+    const runId = await createRun("dispatched work", "dispatch:lead-1");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "rp-10",
+        idempotencyKey: `${runId}:rp-10`,
+        tool: "report",
+        args: { purpose: "answer", text: "x", verification: "probably-fine" },
+      }),
+    ).rejects.toThrow(/verification must be one of/);
   });
 
   test("a bounced task can bounce again — the parent run names the recipient", async () => {

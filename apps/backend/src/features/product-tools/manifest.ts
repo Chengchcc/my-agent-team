@@ -259,6 +259,10 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
         properties: {
           purpose: { type: "string", enum: ["progress", "attention", "answer"] },
           text: { type: "string" },
+          verification: {
+            type: "string",
+            enum: ["not_configured", "not_run", "passed", "failed"],
+          },
         },
         required: ["purpose", "text"],
       },
