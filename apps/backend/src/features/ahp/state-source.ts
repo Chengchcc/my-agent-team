@@ -82,7 +82,7 @@ export type AhpLedgerRow = Pick<
   "seq" | "content" | "undone" | "agentRunId" | "messageIndex" | "ts"
 >;
 
-export type AhpRunRow = Pick<AgentRun, "runId" | "status" | "createdAt">;
+export type AhpRunRow = Pick<AgentRun, "runId" | "status" | "createdAt" | "agentId">;
 
 /** The read ports this projection needs. All of them are queries. */
 export interface AhpStateSourceDeps {
@@ -302,6 +302,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
 
   const startedAtOf = (turnId: string): number =>
     known.find((run) => run.runId === turnId)?.createdAt ?? 0;
+  const runAgent = new Map(known.map((run) => [run.runId, run.agentId]));
 
   const turns: AhpTurn[] = [];
   let activeTurn: ChatState["activeTurn"];
@@ -315,7 +316,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
         id: turn.turnId,
         startedAt: isoOf(startedAtOf(turn.turnId)),
         message: toAhpMessage(turn.input, turn.seq, turn.undone),
-        responseParts: toResponseParts(turn.turnId, turn.parts, activities),
+        responseParts: toResponseParts(turn.turnId, turn.parts, activities, runAgent),
         usage: undefined,
       };
       continue;
@@ -326,7 +327,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
       // History carries the initiating message's own coordinates too: a surface forks or replays
       // from the message it points at, and an undone message has to read as undone.
       message: toAhpMessage(turn.input, turn.seq, turn.undone),
-      responseParts: toResponseParts(turn.turnId, turn.parts, activities),
+      responseParts: toResponseParts(turn.turnId, turn.parts, activities, runAgent),
       usage: undefined,
       state: turnStateOf(turn.status),
     });
@@ -483,14 +484,15 @@ async function activitiesOf(
 function toResponseParts(
   turnId: string,
   parts: readonly CanonicalPart[],
-  activities?: ReadonlyMap<string, string>,
+  activities: ReadonlyMap<string, string> | undefined,
+  runAgent: ReadonlyMap<string, string>,
 ): ResponsePart[] {
   return (
     parts
       // A tool row's text is the tool's raw output, which the tool call part already carries as its
       // own result: projecting it as well would read as if the agent had said it.
       .filter((part) => !(part.kind === "text" && part.role === "tool"))
-      .map((part, index) => toResponsePart(turnId, part, index, activities))
+      .map((part, index) => toResponsePart(turnId, part, index, activities, runAgent))
   );
 }
 
@@ -498,8 +500,10 @@ function toResponsePart(
   turnId: string,
   part: CanonicalPart,
   index: number,
-  activities?: ReadonlyMap<string, string>,
+  activities: ReadonlyMap<string, string> | undefined,
+  runAgent: ReadonlyMap<string, string>,
 ): ResponsePart {
+  const author = authorOf(part.messageId, runAgent);
   switch (part.kind) {
     case "text": {
       // A system row is not a chat bubble. Upstream has a part for harness-authored lines,
@@ -508,7 +512,7 @@ function toResponsePart(
         const notice: SystemNotificationResponsePart = {
           kind: enumValue<SystemNotificationResponsePart["kind"]>("systemNotification"),
           content: part.text,
-          ...metaOf(part.messageId, part.seq, part.undone),
+          ...metaOf(part.messageId, part.seq, part.undone, undefined, author),
         };
         return notice;
       }
@@ -516,7 +520,7 @@ function toResponsePart(
         kind: enumValue<MarkdownResponsePart["kind"]>("markdown"),
         id: `${turnId}:text:${index}`,
         content: part.text,
-        ...metaOf(part.messageId, part.seq, part.undone),
+        ...metaOf(part.messageId, part.seq, part.undone, undefined, author),
       };
       return markdown;
     }
@@ -525,7 +529,7 @@ function toResponsePart(
         kind: enumValue<ReasoningResponsePart["kind"]>("reasoning"),
         id: `${turnId}:reasoning:${index}`,
         content: part.text,
-        ...metaOf(part.messageId, part.seq, part.undone),
+        ...metaOf(part.messageId, part.seq, part.undone, undefined, author),
       };
       return reasoning;
     }
@@ -535,7 +539,7 @@ function toResponsePart(
         error: { errorType: part.code ?? "run_failed", message: part.message },
         // Every part carries the ledger row it came from, not only prose: a surface dedupes and
         // addresses parts by these, and a tool result or a failure is no exception.
-        ...metaOf(part.messageId, part.seq, part.undone),
+        ...metaOf(part.messageId, part.seq, part.undone, undefined, author),
       };
       return error;
     }
@@ -543,7 +547,7 @@ function toResponsePart(
       const call: ToolCallResponsePart = {
         kind: enumValue<ToolCallResponsePart["kind"]>("toolCall"),
         toolCall: toToolCall(part.toolCall, activities?.get(part.toolCall.toolCallId)),
-        ...metaOf(part.messageId, part.seq, part.undone),
+        ...metaOf(part.messageId, part.seq, part.undone, undefined, author),
       };
       return call;
     }
@@ -564,12 +568,14 @@ function metaOf(
   seq?: number,
   undone?: boolean,
   anchor?: { url: string; anchor: unknown },
+  authorAgentId?: string,
 ): { _meta?: Record<string, unknown> } {
   if (
     messageId === undefined &&
     seq === undefined &&
     undone === undefined &&
-    anchor === undefined
+    anchor === undefined &&
+    authorAgentId === undefined
   ) {
     return {};
   }
@@ -579,8 +585,22 @@ function metaOf(
       ...(seq === undefined ? {} : { seq }),
       ...(undone === undefined ? {} : { undone }),
       ...(anchor === undefined ? {} : { anchor }),
+      ...(authorAgentId === undefined ? {} : { authorAgentId }),
     },
   };
+}
+
+/** ADR 0060 D3: who wrote this row is a fact the ledger already holds (through its run), so it
+ *  travels with the part. A surface (the Lark bot) MUST NOT deliver another agent's words as
+ *  its own - that is the mis-attribution this field exists to prevent. Unknown = leave it out
+ *  rather than guess. */
+function authorOf(
+  messageId: string | undefined,
+  runAgent: ReadonlyMap<string, string>,
+): string | undefined {
+  if (messageId === undefined || !messageId.startsWith("run:")) return undefined;
+  const runId = messageId.split(":")[1];
+  return runId === undefined ? undefined : runAgent.get(runId);
 }
 
 function toInputRequestPart(request: CanonicalInputRequest): ResponsePart {

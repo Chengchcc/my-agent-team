@@ -13,7 +13,10 @@ interface Fake {
 }
 
 function fixture(): Fake {
-  const runs = new Map<string, { runId: string; status: AgentRunStatus; createdAt: number }>();
+  const runs = new Map<
+    string,
+    { runId: string; status: AgentRunStatus; createdAt: number; agentId: string }
+  >();
   const ledger = [
     {
       seq: 1,
@@ -38,7 +41,8 @@ function fixture(): Fake {
   };
   return {
     deps,
-    setRun: (runId, status, createdAt = 900) => runs.set(runId, { runId, status, createdAt }),
+    setRun: (runId, status, createdAt = 900) =>
+      runs.set(runId, { runId, status, createdAt, agentId: "a1" }),
   };
 }
 
@@ -184,6 +188,42 @@ describe("AHP state source", () => {
     // card needs the question, not just its id.
     expect((part.request as unknown as { _meta?: unknown })._meta).toMatchObject({
       productRequest: expect.anything(),
+    });
+  });
+
+  test("a part carries the agent that wrote it — a surface must not speak for another", async () => {
+    // ADR 0060 D3: the ledger is shared, the bot is one voice. The author is a
+    // fact the ledger already holds through the run, so it rides in `_meta`.
+    const fake = fixture();
+    fake.setRun("r-worker", "completed");
+    const deps: AhpStateSourceDeps = {
+      ...fake.deps,
+      getLedgerEntries: () => [
+        {
+          seq: 1,
+          content: revision({
+            messageId: "run:r-worker:assistant:0",
+            role: "assistant",
+            text: "worker answer",
+          }),
+          agentRunId: "r-worker",
+          messageIndex: 0,
+          ts: 1000,
+        },
+      ],
+      listPendingInputs: async () => [],
+    };
+    // The worker run belongs to another member of the room.
+    const chat = await createAhpStateSource({
+      ...deps,
+      getRun: async (runId) =>
+        runId === "r-worker"
+          ? { runId, status: "completed", createdAt: 900, agentId: "coding-worker" }
+          : null,
+    }).chat(chatUri("c1"));
+    const part = chat?.turns.at(-1)?.responseParts.at(-1);
+    expect((part as { _meta?: Record<string, unknown> } | undefined)?._meta).toMatchObject({
+      authorAgentId: "coding-worker",
     });
   });
 

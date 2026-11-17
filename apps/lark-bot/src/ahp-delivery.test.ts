@@ -84,6 +84,54 @@ describe("AHP delivery to Lark", () => {
   });
 });
 
+describe("ADR 0060 D3 authorship", () => {
+  const authoredPart = (text: string, messageId: string, authorAgentId: string) => ({
+    kind: "markdown",
+    id: "run-1:text:0",
+    content: text,
+    _meta: { messageId, authorAgentId },
+  });
+
+  test("another agent's prose is not delivered as this bot's words", async () => {
+    const sent: string[] = [];
+    const deps = {
+      db,
+      selfAgentId: "front",
+      onSend: async (_chatId: string, text: string) => {
+        sent.push(text);
+      },
+    };
+    await deliverChatState(
+      stateWith([authoredPart("worker answer", "run:worker-run:assistant:0", "coding-worker")]),
+      target,
+      deps,
+    );
+    expect(sent).toEqual([]);
+  });
+
+  test("this agent's own prose still lands, and an unstamped part is delivered", async () => {
+    const sent: string[] = [];
+    const deps = {
+      db,
+      selfAgentId: "front",
+      onSend: async (_chatId: string, text: string) => {
+        sent.push(text);
+      },
+    };
+    await deliverChatState(
+      stateWith([
+        authoredPart("front answer", "run:front-run:assistant:0", "front"),
+        // A part from a rail that does not stamp authors keeps today's
+        // behaviour instead of being silently dropped.
+        part("legacy", "run:old-run:assistant:0"),
+      ]),
+      target,
+      deps,
+    );
+    expect(sent).toEqual(["front answer", "legacy"]);
+  });
+});
+
 describe("a failed send", () => {
   test("is recorded as a failure and retried on the next pass", async () => {
     const parts = [part("hello", "run-1:assistant:0")];

@@ -27,6 +27,11 @@ export interface AhpDeliveryTarget {
 
 export interface AhpDeliveryDeps {
   readonly db: Database;
+  /** ADR 0060 D3: which agent this bot speaks for. A message authored by a
+   *  DIFFERENT agent shares the ledger but must never leave through this bot
+   *  as its own words - the human would read the worker as the front desk.
+   *  Absent = no filtering (surfaces that carry exactly one agent). */
+  readonly selfAgentId?: string;
   readonly onSend: (chatId: string, text: string, idempotencyKey: string) => Promise<void>;
   readonly onRebind?: (oldConversationId: string, newConversationId: string) => void;
   readonly sendTextOnly?: (chatId: string, text: string) => Promise<void>;
@@ -85,6 +90,14 @@ async function deliverText(
   const messageId = messageIdOf(part);
   const text = textOf(part);
   if (messageId === undefined || text === undefined || text === "") return;
+
+  // ADR 0060 D3: the ledger is shared but this bot is one voice. Another
+  // agent's prose reaches the human through the front desk's rewrite, never
+  // as this bot's first person.
+  const author = metaOf(part)?.authorAgentId;
+  if (typeof author === "string" && deps.selfAgentId !== undefined && author !== deps.selfAgentId) {
+    return;
+  }
 
   // ADR 0031 section 8: an assistant row encodes its run. When a run card owns this
   // chat's delivery, the card is the UX, so skip the text send (the card seals it).

@@ -921,6 +921,38 @@ describe("ingest", () => {
 
     db.close();
   });
+
+  test("onTriggeredRun carries the OWNER agent — a surface can tell a worker's run from its own", async () => {
+    const db = makeDb();
+    const owners: Array<string | undefined> = [];
+
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_own" } },
+      // A dispatch to another member lands in the same room: the run belongs
+      // to worker-9, not to the bot's own agent_123 (ADR 0060 D3).
+      { body: { seq: 7, triggeredRuns: [{ agentId: "worker-9", runId: "run_w9" }] } },
+    ]);
+
+    await ingest(
+      { ...baseEvent, event_id: "evt_own", message_id: "om_own" },
+      {
+        db,
+        selfAgentId: "agent_123",
+        selfAgentName: "TestBot",
+        botDisplayName: "TestBot",
+        backendUrl: "http://localhost",
+        profile: "test-profile",
+        onTriggeredRun: (_runId, _conversationId, _sourceMessageId, agentId) => {
+          owners.push(agentId);
+        },
+      },
+    );
+
+    expect(owners).toEqual(["worker-9"]);
+
+    db.close();
+  });
 });
 
 describe("ingest H7 sender authorization", () => {
