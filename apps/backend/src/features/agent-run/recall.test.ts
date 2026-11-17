@@ -45,6 +45,7 @@ describe("ADR 0055 recall as an input to intent recognition", () => {
         { source: "qa", hits: 0 },
         { source: "history", hits: 0 },
       ],
+      skipped: [],
     });
     expect(block).toContain("qa=0, history=0");
     expect(block).toContain("do not invent, ask the human");
@@ -62,6 +63,7 @@ describe("ADR 0055 recall as an input to intent recognition", () => {
         },
       ],
       searched: [{ source: "history", hits: 1 }],
+      skipped: [],
     });
     expect(block).toContain("[history seq:412, 2026-11-14]");
     expect(block).toContain("matched: 上次");
@@ -127,7 +129,7 @@ describe("ADR 0055 recall as an input to intent recognition", () => {
     const result = await collectRecall(ports, { conversationId: "c1", text: "加个测试" });
     expect(called).toBe(false);
     expect(result.hits).toEqual([]);
-    expect(result.searched).toEqual([{ source: "cues", hits: 0 }]);
+    expect(result.searched).toEqual([{ source: "history", hits: 0, detail: "no reference cues" }]);
   });
 
   test("hits are capped so recall cannot flood the context", async () => {

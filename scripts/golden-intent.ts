@@ -30,7 +30,7 @@ const model = {
   input: ["text"] as const,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 64_000,
-  maxTokens: 2048,
+  maxTokens: 4096,
   compat: { thinkingFormat: "deepseek" as const, maxTokensField: "max_tokens" as const },
 };
 
@@ -108,7 +108,15 @@ async function classify(message: string): Promise<Verdict> {
   )) {
     if (chunk.delta?.type === "text" && chunk.delta.text) text += chunk.delta.text;
   }
-  const parsed = JSON.parse(text) as Partial<Verdict>;
+  // Not every provider honours a strict response_format, and a reasoning model
+  // can emit prose (or thinking) before the object: take the first balanced
+  // object rather than trusting the whole string to be JSON.
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    throw new Error(`no JSON object in reply (${text.length} chars): ${text.slice(0, 120)}`);
+  }
+  const parsed = JSON.parse(text.slice(start, end + 1)) as Partial<Verdict>;
   // A "strict" schema is a request, not a guarantee: normalize before judging.
   return {
     action: typeof parsed.action === "string" ? parsed.action : "(none)",

@@ -82,3 +82,4 @@
 | 0055 | recall-as-intent-input(记忆检索是意图识别的输入：线索抽取 → 扇出两源 → 带出处注入 → 槽位先补后问) | **Implemented**（线索由代码判定、无线索零查询；`qa` 钉住未答与已答、`history` 按会话限定；零命中显式且禁止编造） |
 | 0056 | worker-selection-as-recall(选人是能力召回：brief 构造查询、带权重与理由、空闲只做平手) | **Implemented**（取代 ADR 0052 的选择规则；verb 缺失匹配时仍给最好的一手但理由不伪造；拒绝信息可指认原因） |
 | 0057 | front-desk-prompt-discipline(前台路由纪律：三条出口 + 五条约束，注入给所有面向人的 agent) | **Implemented**（`role !== worker` 才注入，身份在前；回放脚本直接引用同一常量，基线 15/12/15 over 17） |
+| 0058 | unified-recall(一个召回入口：history/qa/capability 同构，memory/skill 报 skipped 并带原因) | **Implemented**（选工人也走同一入口；`searched` 区分"没查"与"查了没有"；`limit` 由调用方决定） |
