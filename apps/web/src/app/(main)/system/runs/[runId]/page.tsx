@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { RunWaterfall } from "@/components/ops/RunWaterfall";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
 import { useAgentRunDetail, useAgentRuns } from "@/features/ops/hooks";
+import { api } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +30,29 @@ export default function SystemRunDetailPage() {
   const children = childrenQuery.data?.runs ?? [];
   const { data: agents } = useAgentList();
   const nameOf = (agentId: string) => agents?.find((a) => a.id === agentId)?.name ?? agentId;
+  // ADR 0066 D4: the shop floor is where you can talk to the worker directly.
+  // Only workers get the box - the front desk is talked to in the room.
+  const isWorker = agents?.find((a) => a.id === run?.agentId)?.role === "worker";
+  const [floorText, setFloorText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
+  async function sendFloor() {
+    if (!run || floorText.trim() === "") return;
+    setSending(true);
+    try {
+      await api.postFloorMessage({
+        conversationId: run.conversationId,
+        agentId: run.agentId,
+        text: floorText.trim(),
+      });
+      setFloorText("");
+      setSent("Sent. The room keeps a one-line note about who you talked to.");
+    } catch (error) {
+      setSent(error instanceof Error ? error.message : "Send failed");
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <Page>
@@ -102,6 +129,37 @@ export default function SystemRunDetailPage() {
                   )}
               </CardContent>
             </Card>
+
+            {isWorker ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Talk to this worker</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <p className="text-xs text-(--mute)">
+                    A floor visit: your words reach it directly, and the room gets a one-line note
+                    saying who you were talking to.
+                  </p>
+                  <Textarea
+                    value={floorText}
+                    onChange={(e) => setFloorText(e.target.value)}
+                    placeholder="Say it as you would to a colleague…"
+                    rows={3}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={sending || floorText.trim() === ""}
+                      onClick={() => void sendFloor()}
+                    >
+                      {sending ? "Sending…" : "Send to worker"}
+                    </Button>
+                    {sent ? <span className="text-xs text-(--mute)">{sent}</span> : null}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
 
             <Card>
               <CardHeader>

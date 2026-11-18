@@ -206,6 +206,10 @@ export function conversationRoutes(
             mode: body.mode,
             modelOverride: body.model,
             source: body.source,
+            // ADR 0066 D4: the human is talking to a worker directly. The
+            // surface can only ASK for this; the authorization basis is still
+            // written server-side.
+            ...(body.directToWorker === true ? { directToWorker: true } : {}),
           });
           set.status = 202;
           return result;
@@ -225,6 +229,9 @@ export function conversationRoutes(
             // arrives with text and is stored without it is the worst failure
             // shape there is, so the shape is now stated.
             content: t.Union([t.String(), t.Array(t.Record(t.String(), t.Any()))]),
+            /** ADR 0066 D4: address a worker directly instead of the front
+             *  desk. The server keeps writing the authorization itself. */
+            directToWorker: t.Optional(t.Boolean()),
             mode: t.Optional(
               t.Union([t.Literal("normal"), t.Literal("steer"), t.Literal("follow_up")]),
             ),
