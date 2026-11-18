@@ -43,7 +43,8 @@
 
 ## 环境限制（不是产品缺陷）
 
-- `next dev` 首次编译大页面（`/team`、`/system/runs/*`）会顶到 2.6–3G，本机 4G 可用下会被 memguard 杀掉（137）。按技能清孤儿 `next-server` 后可重启；run 详情页因此改用 BFF/SSR 数据核对。
+- 机器是 **8G**（`free -m`: total 7398MB / 2 核）。被 137 杀掉不是因为内存小，而是**走查期间可用只有 ~4G**：agent 自身环境就占了 ~3.4G（omp 本体 1.1G、无头 Chromium 浏览器+renderer ~0.6G、ollama 0.45G、omp worker），而 `next dev` 首次编译 `/team`、`/system/runs/*` 这类 3000+ 模块的页面峰值 2.6–3G。两者相加超过了当时的余量，memguard 按其 cap 杀掉进程（这是它该有的失败方式：快失败而不是让内核挑受害者）。
+- 结论：**跑 web 走查前先关掉不需要的浏览器标签和后台服务**，把 cap 按当时的 `free -m` 可用值给；`next-server` 孤儿要一起杀（内存能立刻回落）。run 详情页在没有余量时改用 BFF/SSR 数据核对。
 - 无头 Chromium 没装 CJK 字体，截图里中文显示为方框；应用本身正常（真浏览器不受影响）。
 
 ## 下一步候选
