@@ -34,6 +34,7 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "todo_write",
       "dispatch",
       "handback",
+      "remember",
       "steer_worker",
       "cancel_worker",
       "report",

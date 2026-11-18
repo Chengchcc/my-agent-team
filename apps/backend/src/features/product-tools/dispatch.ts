@@ -282,6 +282,22 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "remember",
+    description:
+      "Write ONE durable lesson into your own long-term memory (ADR 0065). Use it only when the human explicitly asks you to remember something ('记住…', 'remember that…') — never to accumulate notes on your own. The line is appended to .oma/memory/learned.md in the format the memory pipeline reads; duplicates are ignored. Only a run the human started may call this.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "The fact to remember, self-contained and in one or two sentences",
+        },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["text"],
+    },
+  },
+  {
     name: "steer_worker",
     description:
       "Redirect a worker that is ALREADY running in this conversation (the human changed their mind, or you see it heading the wrong way). The message reaches the worker mid-turn; it keeps its context and continues. This is not dispatch: a worker with no running task must get a new task via dispatch. Fails explicitly when nothing is running.",
