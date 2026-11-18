@@ -184,6 +184,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         listActions: (conversationId) => runPort.listActionsForConversation(conversationId),
         searchLedger: (keyword, limit, scope) =>
           deps.conversationSearch?.(keyword, limit, scope) ?? [],
+        ...(deps.searchMemory ? { searchMemory: deps.searchMemory } : {}),
       },
       { conversationId: run.conversationId, text: input.message.text ?? "" },
     ).catch((err) => {

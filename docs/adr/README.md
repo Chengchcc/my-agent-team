@@ -88,3 +88,4 @@
 | 0061 | attention-debt(注意力债：未读、草稿与打扰纪律) | **Implemented**（`GET /api/attention` 三段派生视图、`seen_at`/`result_seen_at` 只推进读标记、`answer_draft` 回答即清、五条纪律入前台常量；回放粗检 flash 14/17 · v4-pro 16/17） |
 | 0062 | no-aggregated-delivery-card(交付卡暂不按请求聚合) | **Proposed**（结论=暂不做：终态封版 + 一次性进程 ⇒ 聚合需要一张不属于 Run 的新卡片实体；用 `/today` 三段与时间线折叠块回答这件活到哪了；触发条件与将来形状已写死） |
 | 0063 | durable-execution-scope(持久化执行：只做被打断作业的可见性) | **Implemented**（作业生命周期走 `_oma/update` → telemetry；打断 =「有 started 无终态」派生，不建表；下一轮系统提示带清单且明说不重放；不做常驻守护） |
+| 0064 | memory-cross-process(长期记忆对后端可见：读工作区里的 SQLite) | **Proposed**（只读、不建库；范围=会话前台；向量+关键词可降级；`mem:<id>` 出处；失败即空） |

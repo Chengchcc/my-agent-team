@@ -41,14 +41,40 @@ describe("ADR 0058 one recall entry for every source", () => {
     expect(result.skipped).toEqual([]);
   });
 
-  test("memory and skill are reported as skipped, not as empty", async () => {
+  test("memory without a port is reported as skipped, not as empty", async () => {
+    // ADR 0064: memory became reachable, so the reason changed from "lives in
+    // the child" to "this deployment wired no port". Skill is still the child.
     const result = await recall(emptyPorts, { sources: ["memory", "skill", "history"] });
     expect(result.hits).toEqual([]);
     expect(result.skipped).toEqual([
-      { source: "memory", reason: "lives in the run's process (oma memory tool)" },
+      {
+        source: "memory",
+        reason: "no memory port wired (the agent's .oma/memory is unreachable here)",
+      },
       { source: "skill", reason: "lives in the run's process (skill packs)" },
       { source: "history", reason: "no conversation scope or ledger port" },
     ]);
+  });
+
+  test("memory with a port is searched, and its hits carry a citable ref", async () => {
+    const result = await recall(
+      {
+        searchMemory: async () => [
+          {
+            id: "m1",
+            content: "登录重定向死循环：两个分支都返回 /login",
+            source: "learn",
+            at: 1000,
+            why: "fts",
+          },
+        ],
+      },
+      { sources: ["memory"], conversationId: "c1", text: "登录一直转圈" },
+    );
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]).toMatchObject({ source: "memory", ref: "mem:m1", at: 1000 });
+    expect(result.searched.find((s) => s.source === "memory")?.hits).toBe(1);
+    expect(result.skipped).toEqual([]);
   });
 
   test("a message with no cues says it did not look, rather than 'nothing found'", async () => {
