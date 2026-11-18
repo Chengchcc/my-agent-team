@@ -1,6 +1,6 @@
 # ADR 0063: 持久化执行 —— 登记被打断的工作，而不是假装它还在跑
 
-- 状态: Proposed
+- 状态: Accepted（D2 已实现：作业生命周期上 telemetry、打断由「有 started 无终态」派生、下一轮上下文可见；不建表、不重放）
 - 日期: 2026-11-17
 - 相关: ADR 0023 §5（workspace 串行）、ADR 0038（恢复）、ADR 0059（监督与收尾门槛）、ADR 0060（至少一次回传）
 
@@ -108,7 +108,7 @@ backend.acp.job_state {'jobId':'bg_1','jobKind':'bash','label':'sleep 30','state
 
 父端接线与遥测白名单**已恢复并通过真机验证**（见 D5.2）。仍待做的两件：
 
-- **「打断」与「失败」要分开**：收尾时被杀现在报 `failed`（exit 137）；`bash` 工具把 `job.killed` 映射成 `failed`，改成 `stopped`（→`cancelled`）或单列 `interrupted` 即可；
+- **「打断」的判定是派生的**（已实现）：`started` 有、终态无 ⇒ 被打断。有终态（含收尾时被杀报的 `failed`/137）就算"结束过"，不算"没交代"——因为崩溃恰恰**没有**终态事件，而标记只能写在还活着的进程里。这比单列一个 `interrupted` 状态更稳，也不需要改 `bash` 的状态映射；
 - **不建表**：`agent_run_event` 已有 runId/type/data/ts，作业生命周期就是它的一类事件；原计划里的 `run_local_job` 表**取消**，「被打断」由「有 started、无终态」派生。
 
 **这意味着 ADR 0063 D2 的表格化与 `interrupted` 标记仍未实现**；本 ADR 只完成到"子进程能报告"，并留下了否定证据。
@@ -131,7 +131,7 @@ backend.acp.job_state {'jobId':'bg_1','jobKind':'bash','label':'sleep 30','state
 
 ## 验收
 
-1. 一个 run 起 `bash async` 后被杀：run 终态后 `run_local_job` 有一行 `interrupted`，且下一轮上下文含该作业的 label。
-2. 正常结束的作业记 `finished`，不进打断清单。
-3. 变异：把"终态时标 interrupted"删掉 → 测试红（否则登记表只是日志，不是事实）。
-4. 明确的反向断言：**重启后不会自动重跑任何作业**（没有调度器在读登记表）。
+1. ✓ 一个 run 起 `bash async` 后被杀：`agent_run_event` 里有 `started` 行；下一轮的系统提示带上"Interrupted work"块（含作业 label），并**明说没有重放**、重跑前先看副作用。
+2. ✓ 有任何终态（finished / failed / cancelled）的作业不进打断清单（5 条测试）。
+3. ✓ 变异：把"有终态也算打断"改回去 → 红；空清单也渲染标题 → 红。
+4. ✓ **没有调度器**：全仓无人读打断清单去重跑，重放只能是模型/人的显式决定。
