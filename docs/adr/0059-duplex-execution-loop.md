@@ -1,6 +1,6 @@
 # ADR 0059: 全双工执行循环 —— 可打断的监督
 
-- 状态: Accepted（第 1–2 刀已实现：循环层 + 工人终态/`report` 双路回填；前台 `wait_for`/`steer_worker`/`cancel_worker` 待做）
+- 状态: Accepted（第 1–2 刀：循环层 + 双路回填；第 3 刀：`steer_worker` / `cancel_worker`。`wait_for` **刻意不做**：终态回填已经覆盖等待场景，它只会多一条阻塞面）
 - 日期: 2026-11-17
 - 相关: ADR 0047（房间派单）、ADR 0049（前台不变量）、ADR 0052（池化与回交）、ADR 0058（统一召回）
 
@@ -89,7 +89,8 @@ supervise() = race(
 1. job 在跑时模型收尾 → run 不终止（断言状态仍 running）；
 2. `hub wait` 期间注入 steer → 在一个切片内被 drain（断言等待提前返回）；
 3. 取消 → job 的进程组被杀（断言 entry = stopped）；
-4. 前台 `wait_for` + 工人终态 → steer 到达前台、无新 run；（待做：第 3 刀）
+4. 不做 `wait_for`：终态 → steer 或排队输入 → 下一轮，已覆盖；
+4b. ✓ `steer_worker` 重定向**正在跑**的工人（找不到活跃 run 即拒绝，不悄悄排队）；`cancel_worker` 需 reason、记录停的是哪个 run（各 2 条测试，变异 2 条）
 5. ✓ 前台不在等 + 工人终态 → 排队输入 `authorization=result:<worker>`（`notify-dispatcher.test.ts`）
 6. ✓ 工人 `report(progress)` → 只落账，前台不被唤醒；`report(attention)` → 前台被唤醒（两处各一条测试，变异验证：把 progress 也唤醒 → 红）
 7. ✓ 链深第 4 层 → 拒绝唤醒、只落账（变异验证：去掉深度守卫 → 红）

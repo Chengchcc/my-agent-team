@@ -282,6 +282,37 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "steer_worker",
+    description:
+      "Redirect a worker that is ALREADY running in this conversation (the human changed their mind, or you see it heading the wrong way). The message reaches the worker mid-turn; it keeps its context and continues. This is not dispatch: a worker with no running task must get a new task via dispatch. Fails explicitly when nothing is running.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "The running worker's agent id" },
+        message: {
+          type: "string",
+          description: "What changed, in the human's words — the worker keeps its context",
+        },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["agent", "message"],
+    },
+  },
+  {
+    name: "cancel_worker",
+    description:
+      "Stop a worker that is already running in this conversation (runaway cost, wrong direction, the human said stop). The run settles as aborted and its dispatcher is notified. reason is required: an unexplained stop is worse than a bad attempt. Fails explicitly when nothing is running.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "The running worker's agent id" },
+        reason: { type: "string", description: "Why this work must stop — recorded for audit" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["agent", "reason"],
+    },
+  },
+  {
     name: "report",
     description:
       "Talk upward to whoever dispatched this run (ADR 0059). purpose=progress is a ledger note that does NOT wake them — use it for plain progress; purpose=attention wakes them now (a decision you cannot make, a blocker); purpose=answer hands back a direct answer. Keep text compact and factual: the dispatcher rewrites it for the human. Only available when you were dispatched.",
