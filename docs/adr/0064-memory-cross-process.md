@@ -60,7 +60,7 @@ ADR 0058 把「记忆 / 技能 / 工人」收敛成一个召回入口，但当�
 
 | 层 | 文件 |
 |---|---|
-| 适配器 | `apps/backend/src/features/recall/memory-recall.ts`（`createMemoryRecall`，只读、可降级） |
+| 适配器 | `apps/backend/src/features/recall/memory-recall.ts`（`createMemoryRecall`；读向量库**并**读产品自有文件 `product.md`，见 ADR 0065 D5） |
 | 召回 | `features/recall/recall.ts`（`searchMemory` 端口；有端口就查，没端口报 skipped） |
 | 派发 | `features/agent-run/{recall,execution-dispatch,execution-types}.ts`（`memory` 加入 fan-out） |
 | 组装 | `bootstrap/features.ts`（`workspaceOf` 解析会话前台的工作区；embedding 客户端可选） |

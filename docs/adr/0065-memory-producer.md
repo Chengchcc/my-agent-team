@@ -1,6 +1,6 @@
 # ADR 0065: 给长期记忆一个生产者 —— 只由人授权的 `remember`
 
-- 状态: Accepted（工具与授权已实现；文件格式与去重由集成测试钉住）
+- 状态: Accepted（工具与授权已实现；**真机闭环已验证**：remember → `product.md` → 后端召回 → 系统提示；中文按二字 shingle 匹配）
 - 日期: 2026-11-18
 - 相关: ADR 0064（读路径）、ADR 0058（统一召回）、ADR 0060（授权依据）
 
@@ -19,7 +19,7 @@ remember({ text, scope? })   // scope 暂不开放，恒为"本 agent 的长期�
 ```
 
 - **授权**：只有 `authorization === "user"` 的 run 可以写（人直接对它说话的那一轮）。`dispatch:` / `ambient:` / `result:` / `system` 一律拒绝——规则、工人、系统都不许往人的长期记忆里塞东西。
-- **落点**：写 agent 工作区的 `.oma/memory/learned.md`（`learn` 本该写的那个文件，格式 `- [YYYY-MM-DD] 事实`），再由**独立模式的 backfill**（现有 `backfillLearnedLessons`）同步进向量库。
+- **落点**：写 agent 工作区的 `.oma/memory/product.md`（同样的 `- [YYYY-MM-DD] 事实` 行格式；**不是** `learned.md`，原因见 D5）。
 - **不写库**：产品进程不直接写向量库。理由：库是独立模式与子进程的产物，产品侧插一行会绕开它的去重/引用计数/embedding 生成语义。
 
 ### D2 读回来的内容要标出处，且永不自动填槽
@@ -39,6 +39,33 @@ remember({ text, scope? })   // scope 暂不开放，恒为"本 agent 的长期�
 |---|---|
 | 产品 run 跑 backfill | 自动摄入 agent 可写文件 ⇒ 注入面（见 D3） |
 | 回退读路径 | 读路径已实现且有测试；删掉它等于承认"记忆只能手工翻文件"，成本更高 |
+
+### D5 真机修正：产品记忆用**自己的文件**（2026-11-18）
+
+D1 原本写"写 `learned.md`，由 backfill 同步进向量库"。真机否掉了这个闭环：
+
+- `remember` 成功写了 `learned.md`；
+- 但产品 run **从不跑 backfill**（D3 的刻意选择），`memory.db` 不存在；
+- 于是下一轮召回**读不到任何东西**——输入里连召回块都没有。
+
+写方写文件、读方读库，中间那道同步被 D3 关掉了。
+
+修正：产品记忆写 `<workspace>/.oma/memory/product.md`，**由后端直接按行读**（关键词匹配，不经向量库）。真机二次验证（2026-11-18）：
+
+```
+turn 1  recall hits=0 block=0   searched=history:0      ← 无 cue 不查；remember 调用成功
+turn 2  recall hits=2 block=543 searched=memory:1,qa:0,history:1
+```
+
+那一轮的输入里**没有**召回块（它进的是系统提示），所以可见性靠一行 `debugLog`（`recall ... hits= memory:` 计数）——否则"召回到了没有"没有任何可观察面。
+
+第二处修正：中文查询不能用整句匹配。共享的 `needleSegments` 把连续汉字当成一个 needle，`"还记得上次登录重定向那个根因吗"` 整句在事实行里当然找不到；改为**二字 shingle + 命中计数**（两次命中共现才算），英文词照旧。这条是"真机发现、单测补钉"。
+
+这样：
+
+- 闭环成立，且与独立模式的 `learned.md` / 向量库**互不干扰**；
+- 写入权仍只由 `user` 授权的 run 持有；
+- 手改 `learned.md` 依旧不会成为产品事实（D3 的边界保住了）。
 
 ## 不变量
 
