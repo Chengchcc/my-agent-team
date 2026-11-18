@@ -1211,7 +1211,21 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     }
   }
   const scope = deps.coordinationScope ?? deps.runId;
-  const registry = deps.registry ?? createCoordinationRegistry();
+  // ADR 0063: job lifecycle rides the loop's event stream (late-bound, the
+  // session does not exist yet). Best-effort self-driving; a broken emit must
+  // never break a job.
+  const jobEvents: { fn: ((event: OmaLoopEvent) => void) | null } = { fn: null };
+  const registry =
+    deps.registry ??
+    createCoordinationRegistry({
+      onJobChange: (job) => {
+        try {
+          jobEvents.fn?.({ type: "job_state", ...job });
+        } catch {
+          /* best effort */
+        }
+      },
+    });
   const toolStage = await buildNativeToolStage(deps, {
     knobs,
     bashSandbox,
@@ -1565,6 +1579,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
 
   // Bind the plugin runtime's emit to the session's emit (two-phase init).
   sessionEmit = (event) => session.emit(event);
+  jobEvents.fn = sessionEmit;
 
   return {
     runId: deps.runId,

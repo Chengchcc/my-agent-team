@@ -8,6 +8,16 @@ export type OmaLoopEvent =
    *  produces no events (a long tool, a slow model call, a subagent). Carries
    *  no content, is never persisted, and every surface ignores it. */
   | { type: "heartbeat" }
+  | {
+      /** ADR 0063: a local background job's lifecycle. The parent records it
+       *  so an interrupted job is a fact the next turn can see, not silence.
+       *  Carries labels only - never output (the entry owns that). */
+      type: "job_state";
+      jobId: string;
+      jobKind: "bash" | "eval" | "subagent";
+      label: string;
+      state: "started" | "finished" | "failed" | "cancelled";
+    }
   | { type: "agent_end"; status: "completed" | "failed" | "stopped" }
   | { type: "turn_start"; turn: number }
   | { type: "turn_end"; turn: number }
