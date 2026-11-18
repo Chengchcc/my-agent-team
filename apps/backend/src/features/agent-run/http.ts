@@ -191,6 +191,12 @@ export function agentRunRoutes(input: {
             where.push("ar.conversation_id = ?");
             args.push(query.conversationId);
           }
+          // ADR 0066: the runs THIS run dispatched - the path from a Lark card
+          // (front desk run) down to the worker's own record ("shop floor").
+          if (query.parentRunId) {
+            where.push("ar.parent_run_id = ?");
+            args.push(query.parentRunId);
+          }
           const sql = `SELECT ar.run_id, ar.conversation_id, ar.agent_id, ar.status,
                             ar.model_ref, ar.created_at, ar.terminal_at, ar.terminal_result,
                             ar.authorization, ar.parent_run_id
@@ -248,6 +254,7 @@ export function agentRunRoutes(input: {
             ),
             agentId: t.Optional(t.String()),
             conversationId: t.Optional(t.String()),
+            parentRunId: t.Optional(t.String()),
             limit: t.Optional(t.String()),
           }),
         },

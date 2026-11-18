@@ -256,6 +256,9 @@ export const api = {
     status?: AgentRunStatus;
     agentId?: string;
     conversationId?: string;
+    /** ADR 0066: the runs a given run dispatched (Lark card → front desk run
+     *  page → the worker's own record). */
+    parentRunId?: string;
     limit?: number;
   }) =>
     unwrap(
