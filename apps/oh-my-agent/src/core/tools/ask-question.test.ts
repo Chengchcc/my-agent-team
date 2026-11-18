@@ -111,7 +111,9 @@ describe("ask_question input validation", () => {
 describe("ask_question fails closed", () => {
   test("no pipeline configured = an error result, never an empty answer", async () => {
     const result = await ask({ questions: [{ id: "q1", question: "pick", options: ["a"] }] });
-    expect(result).toEqual({ error: "no ask pipeline configured" });
+    // Loud on purpose: a listed tool with no pipeline must not look like a
+    // successful call, or the model asks in prose instead (live 2026-11-18).
+    expect(result).toEqual({ error: "no ask pipeline configured", isError: true });
   });
 
   test("a cancelled pipeline (null) is an error, not an empty answer", async () => {

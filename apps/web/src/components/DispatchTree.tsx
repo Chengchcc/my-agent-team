@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
+import { useAgentList } from "@/features/agents/hooks";
 import { agentRunsQuery } from "@/features/ops/queries";
 import { buildDispatchTree, type DispatchNode } from "@/lib/dispatch-tree";
 
@@ -30,9 +31,14 @@ export function DispatchTree({
     ...agentRunsQuery({ conversationId, limit: 200 }),
     refetchInterval: 15_000,
   });
+  // A raw run id means nothing to a human: resolve the roster once and show
+  // the name the rest of the surface uses (live-found: the block showed
+  // b18e189f… next to chips that said "Worker One").
+  const { data: agents } = useAgentList();
+  const names = new Map((agents ?? []).map((a) => [a.id, a.name]));
   const tree = buildDispatchTree(data?.runs ?? [], parentRunId);
   if (tree.length === 0) return null;
-  return <DispatchBlock nodes={tree} />;
+  return <DispatchBlock nodes={tree} names={names} />;
 }
 
 function countLive(nodes: readonly DispatchNode[]): number {
@@ -43,7 +49,13 @@ function countLive(nodes: readonly DispatchNode[]): number {
   );
 }
 
-function DispatchBlock({ nodes }: { nodes: readonly DispatchNode[] }) {
+function DispatchBlock({
+  nodes,
+  names,
+}: {
+  nodes: readonly DispatchNode[];
+  names: ReadonlyMap<string, string>;
+}) {
   const [open, setOpen] = useState(false);
   const live = countLive(nodes);
   return (
@@ -66,7 +78,7 @@ function DispatchBlock({ nodes }: { nodes: readonly DispatchNode[] }) {
         <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {nodes.map((n) => (
             <Badge key={n.runId} variant="secondary" className="text-[10px]">
-              {n.agentId}
+              {names.get(n.agentId) ?? n.agentId}
             </Badge>
           ))}
         </span>
@@ -76,7 +88,9 @@ function DispatchBlock({ nodes }: { nodes: readonly DispatchNode[] }) {
           {nodes.map((n) => (
             <div key={n.runId}>
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-medium text-(--ink)">{n.agentId}</span>
+                <span className="font-medium text-(--ink)">
+                  {names.get(n.agentId) ?? n.agentId}
+                </span>
                 <Badge variant={tone(n.status)} className="text-[10px]">
                   {n.status}
                 </Badge>
@@ -96,7 +110,7 @@ function DispatchBlock({ nodes }: { nodes: readonly DispatchNode[] }) {
                   </Link>
                 </span>
               </div>
-              {n.children.length > 0 ? <DispatchBlock nodes={n.children} /> : null}
+              {n.children.length > 0 ? <DispatchBlock nodes={n.children} names={names} /> : null}
             </div>
           ))}
         </div>
