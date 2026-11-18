@@ -219,11 +219,11 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 ## 7. 已知缺口（诚实清单）
 
 1. ~~飞书里工人 run 的卡片没有署名~~（已修）：工人 run 不再发卡片，投递也按 `_meta.authorAgentId` 过滤——只删卡片会让原文以纯文本冒充前台。artifact 投递（`contentRef`）尚未过滤。
-2. **写路径规则的注入链路未接**：agent 配置 → run 快照 → 子进程 env（后端已有 per-run env 通道）。
-3. **`report` 没有验收证据字段**：前台无法区分"验过了"与"没验"。
-4. **前台没有 `steer_worker` / `cancel_worker`**：中途改主意 / 停跑飞的活只能等人插话。
+2. ~~写路径规则的注入链路未接~~（已澄清并补测）：链路本来已通（config → run 快照 → env → file tools），缺的是中段测试；边界写清了——**路径规则只约束 file tools，bash 只受命令 tripwire 与沙箱约束**。
+3. ~~`report` 没有验收证据字段~~（已修）：`verification` 四态 + 回填帧里的固定验收行；缺证据时明说"未提供"，非通过时附"不得说已完成"。
+4. ~~前台没有 `steer_worker` / `cancel_worker`~~（已修并真机验收）：只对**正在跑**的工人生效，找不到活跃 run 即拒绝；cancel 需 reason 且先落账。
 5. **没有 per-worker 并发上限**：同一 worker 可在多个房间并行（靠 workspace 隔离，不靠槽位）。
-6. **持久化不做**：job 随 run 生死；"合上电脑工作继续"需要另立 ADR。
+6. ~~持久化不做~~（已收敛为"可见性"）：作业生命周期上 telemetry，**打断由"有 started 无终态"派生**并进下一轮系统提示；仍不做常驻执行体、不自动重放（ADR 0063）。
 7. **终态与通知之间曾经有丢通知窗口**（已闭环一半）：现在送达后落 `result_notified_at` 标记，`recover()` 扫"终态 + dispatch: + 未标记"重投 ⇒ 至少一次；steer 轨幂等，排队轨重试可能多一条账本消息。剩下的"恰好一次"要把通知意图放进终态事务（ADR 0060 D6）。
 
 ---
@@ -241,7 +241,7 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 
 ---
 
-## 8.5 注意力轴（ADR 0061，Proposed）
+## 8.5 注意力轴（ADR 0061，Implemented）
 
 执行轴回答"怎么跑的"，注意力轴回答"还欠我什么"。二者不能混在一个界面：
 
@@ -263,3 +263,10 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 3. **授权链深度 ≥3 只落账**：拒绝唤醒意味着人可能永远不知道第 4 层发生了什么，这是有意取舍还是缺陷？
 4. **验收不进状态机**：前台据 `verification` 决定措辞，但没有任何机制阻止它说"已完成" —— 靠提示词够不够？
 5. **worker 卡片去留**：不发卡片（人看不到工人进度）vs 发卡片带署名（多一个面要维护），哪个更符合"人只需要一条线性时间线"？
+
+## 8.7 记忆链（ADR 0064 / 0065，已真机闭环）
+
+写：产品工具 `remember`，**只对 `user` 授权的 run 开放**，写 `<workspace>/.oma/memory/product.md`（不是 `learned.md`——产品 run 不跑 backfill，写那里读不到）。
+读：后端直接按行读同一文件（中文用二字 shingle），命中以 `mem:<file>:<n>` 引用进召回块，随**系统提示**进入下一轮。
+
+真机读数：无 cue 的轮次 `hits=0`（不查）；问"还记得上次…"那轮 `hits=2 block=543 searched=memory:1,history:1`。
