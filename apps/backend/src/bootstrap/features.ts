@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { resolveModelAlias } from "@chengchenccc/ai";
+import type { EmbeddingProvider } from "@chengchenccc/embedding";
 import type { AskQuestionInput } from "@chengchenccc/message";
 import { extractText, type Message, serializeMessageRevision } from "@chengchenccc/message";
 import type { WorkflowDefinition } from "@chengchenccc/workflow";
@@ -78,6 +79,7 @@ import {
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
 import { createConfiguredSummarizer } from "../features/conversation/summarize.js";
+import { createEmbeddingClient } from "../features/knowledge/embedding.js";
 import {
   createKnowledgeService,
   knowledgeRoutes,
@@ -149,6 +151,7 @@ import {
   sqliteProposalAdapter,
 } from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
+import { createMemoryRecall } from "../features/recall/memory-recall.js";
 import { recall } from "../features/recall/recall.js";
 import {
   createReminderService,
@@ -1300,6 +1303,38 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     getSetting: (key) => settingsSvc.get(key),
   });
 
+  // The vector voice needs an embedding model; without one the FTS voice still
+  // answers (degrades, never breaks - the store's own contract).
+  const embeddingProviderForRecall = (): EmbeddingProvider | null => {
+    if (!config.embeddingModel || !config.embeddingBaseUrl) return null;
+    const client = createEmbeddingClient({
+      model: config.embeddingModel,
+      baseUrl: config.embeddingBaseUrl,
+    });
+    return {
+      model: config.embeddingModel,
+      dim: 0,
+      embedDocuments: (texts) => client.embed([...texts]),
+      embedQuery: async (text) => {
+        const [vector] = await client.embed([text]);
+        return vector ?? [];
+      },
+    };
+  };
+
+  const memoryRecall = createMemoryRecall({
+    workspaceOf: async (conversationId) => {
+      const convRow = conv.convPort.getConversation(conversationId);
+      if (!convRow?.agentId) return null;
+      const ws = await resolveWorkspaceFor({
+        conversationId,
+        agentId: convRow.agentId,
+      }).catch(() => null);
+      return ws?.root ?? null;
+    },
+    embedding: embeddingProviderForRecall(),
+  });
+
   const agentRunExecution = createAgentRunExecutionService({
     budgetGate,
     workspaceLocks,
@@ -1322,6 +1357,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     idGen: { ulid },
     resolveWorkspace: ({ conversationId, agentId }) =>
       resolveWorkspaceFor({ conversationId, agentId }),
+    // ADR 0064: the front desk's long-term memory, read from its workspace.
+    // Vector voice when an embedding model is configured; keyword-only
+    // otherwise (narrower, never broken).
+    searchMemory: (input) => memoryRecall.search(input),
     onHumanInputResolved: (input) => {
       // A settled request has to stop reading as pending on the surface too, without waiting for
       // the turn to commit: a card that survives its own click reads as "my answer did not land".

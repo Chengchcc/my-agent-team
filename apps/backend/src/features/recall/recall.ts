@@ -32,6 +32,18 @@ export interface RecallPorts {
   >;
   /** Capability cards, when the caller wants a worker. */
   workers?(): Promise<readonly WorkerCard[]>;
+  /** The front desk's long-term memory (ADR 0064). Absent = the deployment
+   *  cannot reach it, and the source reports skipped with the reason. */
+  searchMemory?(input: { conversationId: string; query: string; limit: number }): Promise<
+    ReadonlyArray<{
+      id: string;
+      content: string;
+      source: string;
+      at: number;
+      why: string;
+      score?: number;
+    }>
+  >;
 }
 
 function clip(value: string, max: number = HIT_CHARS): string {
@@ -88,14 +100,43 @@ export async function recall(ports: RecallPorts, request: RecallRequest): Promis
   const query = cues?.query ?? "";
 
   for (const source of request.sources) {
-    if (!LOCAL_SOURCES.includes(source)) {
-      skipped.push({
-        source,
-        reason:
-          source === "memory"
-            ? "lives in the run's process (oma memory tool)"
-            : "lives in the run's process (skill packs)",
-      });
+    if (LOCAL_SOURCES.includes(source)) continue;
+    // ADR 0064: memory is readable from here now (a SQLite file in the
+    // agent's workspace). Skills still live in the child.
+    if (source === "memory" && ports.searchMemory !== undefined) continue;
+    skipped.push({
+      source,
+      reason:
+        source === "memory"
+          ? "no memory port wired (the agent's .oma/memory is unreachable here)"
+          : "lives in the run's process (skill packs)",
+    });
+  }
+
+  if (wanted.has("memory") && ports.searchMemory !== undefined) {
+    if (request.conversationId === undefined) {
+      skipped.push({ source: "memory", reason: "no conversation scope" });
+    } else if (query === "") {
+      skipped.push({ source: "memory", reason: "no cues in the request to search with" });
+    } else {
+      const found = await ports
+        .searchMemory({
+          conversationId: request.conversationId,
+          query,
+          limit: request.limit ?? 5,
+        })
+        .catch(() => []);
+      for (const hit of found) {
+        hits.push({
+          source: "memory",
+          ref: `mem:${hit.id}`,
+          at: hit.at,
+          text: hit.content,
+          why: hit.why,
+          ...(hit.score === undefined ? {} : { score: hit.score }),
+        });
+      }
+      searched.push({ source: "memory", hits: found.length });
     }
   }
 

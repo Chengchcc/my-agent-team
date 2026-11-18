@@ -32,6 +32,22 @@ export interface AgentRunExecutionDeps {
     limit?: number,
     scope?: { conversationId?: string },
   ) => ReadonlyArray<{ seq: number; ts: number; snippet: string }>;
+  /** ADR 0064: the front desk's long-term memory, when this deployment can
+   *  reach it. Absent = recall reports the source as skipped. */
+  readonly searchMemory?: (input: {
+    conversationId: string;
+    query: string;
+    limit: number;
+  }) => Promise<
+    ReadonlyArray<{
+      id: string;
+      content: string;
+      source: string;
+      at: number;
+      why: string;
+      score?: number;
+    }>
+  >;
   readonly ledgerResolver: LedgerMessageResolver;
   /** Per-kind dispatch table: `modelRef.backendKind` resolves the Backend
    *  and its catalog. Partial — a kind a deployment does not register gets

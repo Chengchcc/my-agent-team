@@ -29,6 +29,17 @@ export interface RecallPorts {
     limit?: number,
     scope?: { conversationId?: string },
   ): ReadonlyArray<{ seq: number; ts: number; snippet: string }>;
+  /** ADR 0064: the front desk's long-term memory (workspace SQLite). */
+  searchMemory?(input: { conversationId: string; query: string; limit: number }): Promise<
+    ReadonlyArray<{
+      id: string;
+      content: string;
+      source: string;
+      at: number;
+      why: string;
+      score?: number;
+    }>
+  >;
 }
 
 const HIT_CHARS = 300;
@@ -94,8 +105,18 @@ export async function collectRecall(
     };
   }
   return recall(
-    { listActions: (id) => ports.listActions(id), searchLedger: ports.searchLedger },
-    { sources: ["qa", "history"], conversationId: input.conversationId, text: input.text },
+    {
+      listActions: (id) => ports.listActions(id),
+      searchLedger: ports.searchLedger,
+      ...(ports.searchMemory ? { searchMemory: ports.searchMemory } : {}),
+    },
+    {
+      // ADR 0064: memory joins the same fan-out; without a port it reports
+      // skipped instead of pretending it was searched.
+      sources: ["qa", "history", "memory"],
+      conversationId: input.conversationId,
+      text: input.text,
+    },
   );
 }
 
