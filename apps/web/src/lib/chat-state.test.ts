@@ -210,6 +210,53 @@ describe("the message list from AHP chat state", () => {
     expect(texts).not.toContain("worker says: fixed it");
   });
 
+  test("ADR 0066: a floor visit's addressee reaches the room as a chip on the message", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-floor",
+          state: "complete",
+          message: {
+            text: "only fix the redirect",
+            origin: { kind: "user" },
+            _meta: {
+              messageId: "msg-9",
+              seq: 9,
+              floorFor: { agentId: "worker-9", agentName: "Worker One" },
+            },
+          },
+          responseParts: [],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      { memberId: "front", kind: "agent", agentId: "front" },
+    );
+    const human = items.find((i) => i.kind === "message");
+    expect(human?.kind === "message" ? human.floorFor : undefined).toEqual({
+      agentId: "worker-9",
+      agentName: "Worker One",
+    });
+    // A malformed bag never invents a chip.
+    const junk = itemsFromChatState(
+      state([
+        {
+          id: "r2",
+          state: "complete",
+          message: {
+            text: "hi",
+            origin: { kind: "user" },
+            _meta: { messageId: "m2", seq: 1, floorFor: { agentId: 5 } },
+          },
+          responseParts: [],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      null,
+    );
+    const second = junk.find((i) => i.kind === "message");
+    expect(second?.kind === "message" ? second.floorFor : "none").toBeUndefined();
+  });
+
   test("a finished turn yields its initiating message and its text, with the ledger ids", () => {
     const items = itemsFromChatState(
       state([

@@ -1,6 +1,6 @@
 # ADR 0066: 会议室与展厅 —— 房间只记人和前台，工人自己的事在它自己的页面
 
-- 状态: Accepted（房间过滤与"Dispatched units"已实现；**下车间直接指挥**为 D4，实现中）
+- 状态: Accepted（房间过滤、Dispatched units、下车间 D4 均已实现并真机验证）
 - 日期: 2026-11-18
 - 相关: ADR 0049（前台不变量）、ADR 0050（呈现三原则）、ADR 0060 D3（署名）、ADR 0061（注意力轴）
 
@@ -36,8 +36,20 @@
 
 - **入口**：工人 run 页上的一个输入框（"在这里直接对它说一句"）。
 - **授权**：走的仍是 `user`（服务端设置，HTTP 入参不能自称）。这是 ADR 0049 前台不变量的**唯一显式例外**：人工输入点名工人时默认改路给前台，除非这次输入被明确标为"下车间"。
-- **摘要**：这条指令同时以人的署名留一条账本记录（不点名任何人、不触发新 run），措辞"（我在 <工人> 的工位上说：…）"。秘书的下一轮从共享账本里读得到它——否则工人回来汇报"按你说的改成了 A"时，秘书不知道你说过什么。
+- **摘要**：这条指令落账时带上 `floorFor: { agentId, agentName }`，随 AHP 投影作为 `_meta.floorFor` 到达各面，房间在那一行前面画一个 `→ <工人>` 的小标签。秘书的下一轮从共享账本里读得到它——否则工人回来汇报"按你说的改成了 A"时，秘书不知道你说过什么。
+  - **为什么不做"另起一行摘要"**：房间只画**启动过 run 的消息**（它渲染 `chatState.turns`），没有 run 的裸账本行根本不进房间——真机验证时那句话在账本里、房间里却看不见。标记必须挂在人那条消息上。
+  - `floorFor` 必须进 `MessageRevisionSchema`：落账走 `MessageRevisionSchema.parse`，未知字段会被剥掉。
 - **不做**：不经摘要的直接指挥。上下文断成两半的代价比一次弹窗高。
+
+### D5 房间里不带 @ 的话是给前台的
+
+ADR 0041 的成员路由是**群聊语义**：2 人以上，不点名就只落账、不触发。它原本没问题，因为房间只有前台；但**派过一次活之后工人就成了成员**，于是人在房间里跟秘书说"进度如何？"会**静默地什么也不发生**（没有 run、没有回答、连失败都没有）。真机验 D4 时踩到。
+
+修正：`addressedTo` **缺省**（= 没表态点名谁）且输入端不是被观察的渠道（`source` 缺省，即不是 Lark）时，房间把话交给它的常驻者——前台。三条边界都保留：
+
+- **Lark（`source` 存在）**：不点名的消息仍是观察（ADR 0046），不是命令；
+- **`addressedTo: []`（显式"没人"）**：仍只落账，语义没被这份修正改写；
+- 走向是**前台**，不是绕过前台（ADR 0049 不变）。
 
 ## 不变量
 
@@ -51,12 +63,14 @@
 |---|---|
 | 房间过滤 | `apps/web/src/lib/chat-state.ts`（`_meta.authorAgentId`） |
 | 展厅入口 | `apps/web/src/app/(main)/system/runs/[runId]/page.tsx`（Dispatched units）、`features/agent-run/http.ts`（`parentRunId` 过滤） |
-| 下车间 | `features/conversation/{http,service}.ts`（`direct` 标记跳过改路）、`apps/web` 的 run 页输入框 |
+| 下车间 | `features/conversation/{http,service}.ts`（`directToWorker` 跳过改路 + 写 `floorFor`）、`packages/message` 的 schema、`features/ahp/state-source.ts`（`_meta.floorFor`）、`apps/web` 的 run 页输入框与房间标签 |
 
 ## 验收
 
 1. ✓ 另一个 agent 的 prose 不会变成房间的一行（变异：去掉过滤 → 红）。
 2. ✓ 可以按"派它的 run"列出子 run（变异：去掉过滤 → 红）。
-3. 工人 run 页发一句话：工人那一轮收到的是原文，`authorization=user`；**前台的那条分支不会被触发**。
+3. ✓ 工人 run 页发一句话：工人起一轮新 run（`parentRunId` 为空——那是人的话不是派单）、`authorization=user`；**前台不会被触发**（真机 `ae46af71e7` completed，房间里只见人那行 + `→ Worker One`）。
+4. ✓ 摘要不新增账本行（变异：去掉标记 → 红）；畸形 `floorFor` 不画标签。
+5. ✓ 房间里不点名的一句话会触发前台；Lark 不点名的消息仍只落账；显式空点名仍只落账（变异：去掉 D5 → 红）。
 4. 同一条指令在账本里留下人的署名的摘要，且不触发新 run。
 5. 普通人工输入点名工人时**仍然**改路给前台（回归，防这次例外被放宽成默认）。

@@ -640,6 +640,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         return false;
       }
     },
+    agentNameOf: async (id: string) => {
+      try {
+        const row = await agentSvc.getById(id);
+        return row.config.name;
+      } catch {
+        return undefined;
+      }
+    },
     summarize: summarizeFromConfig,
     resolveLedgerMessage: (conversationId, ledgerSeq) =>
       ledgerResolver.resolveMessage(conversationId, ledgerSeq),

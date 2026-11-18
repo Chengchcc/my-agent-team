@@ -92,6 +92,9 @@ export interface ConversationServiceDeps {
   /** ADR 0049: role lookup for the front desk invariant. Absent = no agent
    *  is a worker (today's behaviour — human input may address anyone). */
   isWorkerAgent?: (agentId: string) => Promise<boolean>;
+  /** Display name for the room's floor note (ADR 0066 D4). The note is prose
+   *  the human and the front desk read, so an agent id there is unreadable. */
+  agentNameOf?: (agentId: string) => Promise<string | undefined>;
 
   idGen: () => string;
 }
@@ -231,6 +234,7 @@ class ConversationServiceImpl implements ConversationService {
   #evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
   #addConversationMember?: ConversationServiceDeps["addConversationMember"];
   #isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
+  #agentNameOf?: ConversationServiceDeps["agentNameOf"];
 
   #idGen: () => string;
 
@@ -252,6 +256,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#evaluateAmbient = deps.evaluateAmbient;
     this.#addConversationMember = deps.addConversationMember;
     this.#isWorkerAgent = deps.isWorkerAgent;
+    this.#agentNameOf = deps.agentNameOf;
     this.#idGen = deps.idGen;
   }
 
@@ -406,6 +411,23 @@ class ConversationServiceImpl implements ConversationService {
     const members =
       this.port.listMembers?.(input.conversationId) ?? (agentId !== null ? [agentId] : []);
     let targets = resolveTrigger({ members, addressedTo: input.addressedTo });
+    // ── ADR 0066 D5: the room is the human and the front desk ──
+    // A mention-less message in a room is a message to whoever is IN the room,
+    // which is the front desk. Without this, dispatching once (the worker joins
+    // as a member) makes ADR 0041's group rule swallow the human's next line
+    // silently: no run, no answer, nothing to notice. Observed surfaces keep
+    // the group semantic - an unaddressed Lark message is an observation
+    // (ADR 0046), not a command - and an EXPLICIT empty addressing
+    // (`addressedTo: []`) still means "to nobody".
+    if (
+      targets.length === 0 &&
+      input.addressedTo === undefined &&
+      input.source === undefined &&
+      agentId !== null &&
+      members.includes(agentId)
+    ) {
+      targets = [agentId];
+    }
     // ── ADR 0049: the front desk invariant ──
     // HUMAN input (authorization "user" — the only value the HTTP surface
     // can produce) may never command a worker directly: any worker target is
@@ -490,6 +512,14 @@ class ConversationServiceImpl implements ConversationService {
       }
     }
 
+    const floorFor =
+      input.directToWorker === true && targets.length === 1 && targets[0] !== undefined
+        ? {
+            agentId: targets[0],
+            agentName: (await this.#agentNameOf?.(targets[0])) ?? targets[0],
+          }
+        : undefined;
+
     // ── The human message becomes canonical History FIRST ──
     const userRev = {
       messageId: humanMessageId(input.conversationId, senderMemberId),
@@ -503,36 +533,18 @@ class ConversationServiceImpl implements ConversationService {
       visibility: "conversation" as const,
       updatedAt: Date.now(),
       ...(input.anchor ? { anchor: input.anchor } : {}),
+      // ADR 0066 D4: a floor visit is addressed to a worker, and the ROOM still
+      // has to read who it was for - the ledger row is the human's words, not
+      // their addressee. It rides the message (not a second ledger row: the room
+      // only draws messages that started a run) and reaches surfaces as
+      // `_meta.floorFor`.
+      ...(floorFor === undefined ? {} : { floorFor }),
     };
     const seq = await this.#appendEntry({
       conversationId: input.conversationId,
       kind: "message",
       content: userRev,
     });
-
-    // ADR 0066 D4: a "down to the floor" message is addressed to a worker, and
-    // the room must still record WHO it was meant for - the ledger row above
-    // is the human's words, not their addressee, and the secretary would
-    // otherwise never learn that the boss said something on the shop floor.
-    // Ledger-only (no target): a note must never start a run.
-    if (input.directToWorker === true) {
-      for (const target of targets) {
-        if (target === agentId) continue;
-        await this.#appendEntry({
-          conversationId: input.conversationId,
-          kind: "message",
-          content: {
-            messageId: `floor:${input.conversationId}:${seq}:${target}`,
-            role: "user" as const,
-            state: "done" as const,
-            text: `（这句是对 ${target} 说的，不是对前台）`,
-            conversationId: input.conversationId,
-            visibility: "conversation" as const,
-            updatedAt: Date.now(),
-          },
-        });
-      }
-    }
 
     const triggeredRuns: TriggeredRun[] = [];
     for (const target of targets) {

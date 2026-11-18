@@ -441,6 +441,10 @@ function toAhpMessage(
         /** Anchored comment (raft absorption): rides the queued message at
          *  runtime; surfaces read it from _meta to render the jump chip. */
         readonly anchor?: { url: string; anchor: unknown };
+        /** ADR 0066 D4: a floor visit - who the human was talking to. The room
+         *  draws it as a chip on the message, because the message has no
+         *  addressee of its own once `addressedTo` is gone from the ledger. */
+        readonly floorFor?: { agentId: string; agentName: string };
       }
     | undefined,
   seq?: number,
@@ -461,6 +465,14 @@ function toAhpMessage(
     // The ledger identity again, on the initiating message: a surface dedupes its own optimistic
     // echo against it.
     ...metaOf(input?.id, seq, undone, input?.anchor),
+    ...(input?.floorFor === undefined
+      ? {}
+      : {
+          _meta: {
+            ...metaOf(input?.id, seq, undone, input?.anchor)._meta,
+            floorFor: input.floorFor,
+          },
+        }),
   };
 }
 

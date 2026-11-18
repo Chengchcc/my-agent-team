@@ -310,7 +310,15 @@ function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined
     seq: typeof meta?.seq === "number" ? meta.seq : 0,
     ...(meta?.undone === true ? { undone: true } : {}),
     ...(isAnchorMeta(meta?.anchor) ? { anchor: meta.anchor } : {}),
+    ...(isFloorFor(meta?.floorFor) ? { floorFor: meta.floorFor } : {}),
   };
+}
+
+/** ADR 0066 D4: `_meta.floorFor` - the worker a floor visit was addressed to. */
+function isFloorFor(v: unknown): v is { agentId: string; agentName: string } {
+  if (typeof v !== "object" || v === null) return false;
+  const f = v as { agentId?: unknown; agentName?: unknown };
+  return typeof f.agentId === "string" && typeof f.agentName === "string";
 }
 
 /** The projection's _meta.anchor (raft absorption): an artifacts:// url plus
@@ -324,11 +332,23 @@ function isAnchorMeta(v: unknown): v is { url: string; anchor: unknown } {
   );
 }
 
-function metaOfRequest(
-  part: unknown,
-): { messageId?: unknown; seq?: unknown; undone?: unknown; anchor?: unknown } | undefined {
+function metaOfRequest(part: unknown):
+  | {
+      messageId?: unknown;
+      seq?: unknown;
+      undone?: unknown;
+      anchor?: unknown;
+      floorFor?: unknown;
+    }
+  | undefined {
   const meta = (part as { _meta?: unknown } | undefined)?._meta;
   return meta !== null && typeof meta === "object"
-    ? (meta as { messageId?: unknown; seq?: unknown; undone?: unknown })
+    ? (meta as {
+        messageId?: unknown;
+        seq?: unknown;
+        undone?: unknown;
+        anchor?: unknown;
+        floorFor?: unknown;
+      })
     : undefined;
 }
