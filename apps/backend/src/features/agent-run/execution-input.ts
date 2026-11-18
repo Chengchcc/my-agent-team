@@ -35,6 +35,7 @@ export const TELEMETRY_EVENT_TYPES = new Set([
   "delegation_agent_started",
   "delegation_agent_completed",
   "delegation_batch_completed",
+  "backend.acp.job_state",
 ]);
 
 function renderBlock(b: ContentBlock, depth = 0): string {

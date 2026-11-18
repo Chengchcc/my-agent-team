@@ -48,6 +48,7 @@ import {
   createAcpAccumulator,
   mapAcpUpdate,
   mapAcpUsage,
+  mapOmaUpdate,
 } from "./event-mapping.js";
 import { harnessOf, resolveAcpAgent, resolveAcpAgentKey } from "./registry.js";
 import { isBackendShuttingDown } from "./shutdown.js";
@@ -478,6 +479,17 @@ export class AcpBackend implements AgentBackend<"acp"> {
               run.pushEvent(event);
             }
           })
+          // ADR 0063 D5.1: the oma-private rail. Only the job lifecycle is
+          // mapped; unknown oma events stay dropped, as they were.
+          .onNotification(
+            "_oma/update",
+            (raw: unknown) => (raw as { event?: unknown }) ?? {},
+            (ctx) => {
+              for (const event of mapOmaUpdate(ctx.params.event, "acp")) {
+                run.pushEvent(event);
+              }
+            },
+          )
           .connectWith(transport.stream, async (ctx) => {
             const init = await ctx.request(acp.methods.agent.initialize, {
               protocolVersion: acp.PROTOCOL_VERSION,
