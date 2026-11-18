@@ -252,6 +252,17 @@ export const api = {
     return resp.text();
   },
   // Ops — Agent Run is the only execution identity
+  /** ADR 0066 D4: say something to a worker directly (a floor visit). The
+   *  server still writes the authorization basis; the room records the
+   *  addressee so the front desk learns the boss was on the floor. */
+  postFloorMessage: (input: { conversationId: string; agentId: string; text: string }) =>
+    unwrap(
+      client.api.conversations({ id: input.conversationId }).messages.post({
+        content: input.text,
+        addressedTo: [input.agentId],
+        directToWorker: true,
+      }),
+    ),
   listAgentRuns: (params?: {
     status?: AgentRunStatus;
     agentId?: string;

@@ -146,6 +146,10 @@ export interface ConversationService {
     /** ADR 0051: the run that authored this message, when a dispatch chain
      *  did. Server-side only, same as authorization. */
     parentRunId?: string;
+    /** ADR 0066 D4: "down to the floor" — a human input that addresses a
+     *  worker directly instead of being rerouted to the front desk. The
+     *  surface can only ask for it; the authorization basis stays server-side. */
+    directToWorker?: boolean;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
   startNewConversationForSurface(input: {
     oldConversationId: string;
@@ -385,6 +389,11 @@ class ConversationServiceImpl implements ConversationService {
     authorization?: string;
     /** ADR 0051: the dispatching run (dispatch chains only). */
     parentRunId?: string;
+    /** ADR 0066 D4: "down to the floor" — this human input addresses a worker
+     *  DIRECTLY. The only explicit exception to the front-desk reroute; the
+     *  HTTP surface is the only caller that can set it, and the server still
+     *  writes the authorization basis itself. */
+    directToWorker?: boolean;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
@@ -404,7 +413,11 @@ class ConversationServiceImpl implements ConversationService {
     // in the message, so the front can see who the human meant and dispatch.
     // Inputs carrying a server-side basis (dispatch:/ambient:/system) are the
     // product itself dispatching — they address workers directly by design.
-    if (this.#isWorkerAgent !== undefined && input.authorization === undefined) {
+    if (
+      this.#isWorkerAgent !== undefined &&
+      input.authorization === undefined &&
+      input.directToWorker !== true
+    ) {
       const front = agentId;
       const rerouted: string[] = [];
       for (const target of targets) {
@@ -496,6 +509,30 @@ class ConversationServiceImpl implements ConversationService {
       kind: "message",
       content: userRev,
     });
+
+    // ADR 0066 D4: a "down to the floor" message is addressed to a worker, and
+    // the room must still record WHO it was meant for - the ledger row above
+    // is the human's words, not their addressee, and the secretary would
+    // otherwise never learn that the boss said something on the shop floor.
+    // Ledger-only (no target): a note must never start a run.
+    if (input.directToWorker === true) {
+      for (const target of targets) {
+        if (target === agentId) continue;
+        await this.#appendEntry({
+          conversationId: input.conversationId,
+          kind: "message",
+          content: {
+            messageId: `floor:${input.conversationId}:${seq}:${target}`,
+            role: "user" as const,
+            state: "done" as const,
+            text: `（这句是对 ${target} 说的，不是对前台）`,
+            conversationId: input.conversationId,
+            visibility: "conversation" as const,
+            updatedAt: Date.now(),
+          },
+        });
+      }
+    }
 
     const triggeredRuns: TriggeredRun[] = [];
     for (const target of targets) {

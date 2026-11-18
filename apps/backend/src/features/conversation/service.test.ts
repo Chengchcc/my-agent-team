@@ -1045,6 +1045,34 @@ describe("front desk invariant (ADR 0049)", () => {
     expect(result.triggeredRuns[0]!.agentId).toBe("a-1");
   });
 
+  test("ADR 0066: a floor visit addresses the worker AND the room records who it was for", async () => {
+    const id = "cid-front-floor";
+    setupConv(id);
+    port.addMember?.(id, "a-worker", 1);
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    const result = await makeFrontDesk().postMessage({
+      conversationId: id,
+      senderMemberId: "human:web:alice",
+      addressedTo: ["a-worker"],
+      content: "别改样式，只修跳转",
+      directToWorker: true,
+    });
+
+    // The worker ran (no reroute), still on the human's own authority.
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-worker");
+    expect(enqueueCalls[0]!.authorization).toBe("user");
+    expect(result.triggeredRuns[0]!.agentId).toBe("a-worker");
+
+    // The room keeps the addressee: one ledger-only note, no extra run.
+    const entries = port.getLedgerEntries(id).map((e) => JSON.stringify(e.content));
+    expect(entries.some((c) => c.includes("这句是对 a-worker 说的"))).toBe(true);
+    expect(enqueueCalls).toHaveLength(1);
+  });
+
   test("dispatch (a server-side basis) addresses the worker directly", async () => {
     const id = "cid-front-2";
     setupConv(id);
