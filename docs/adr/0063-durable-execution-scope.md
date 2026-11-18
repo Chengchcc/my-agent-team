@@ -67,6 +67,14 @@ run_local_job(run_id, job_id, kind, label, started_at, finished_at, outcome)
 
 所以 D2 需要一条新事件：子进程 → 后端的 `job_started` / `job_finished`（带 jobId、kind、label）。它与 ACP 的 `native_tool_*` 并列，不改变工具语义。**这是本 ADR 唯一的协议增量。**
 
+### D5.1 实现前先补的一个前置（2026-11-18 核实）
+
+子进程**已经在发** oma 私有事件：`acp-mode.ts` 把 ACP 不认识的循环事件（delegation、mcp mounts、queue drain…）通过 `_oma/update` 自定义通知发出去（ADR 0039 rule 3）。
+
+**但父端没有消费者**：`acp-backend.ts` 只 `onNotification(session.update)`，全仓 grep 不到 `_oma/update` 的处理。也就是说这条通道今天是**只写不读**的——在里面加 `job_state` 不会有任何效果。
+
+因此实现顺序必须是：**先给父端接上 `_oma/update` 的处理（并做真机验证，因为 SDK 会静默丢弃不认识的东西）**，再往里加作业事件。单元测试证明不了这条通道通不通——这正是 ADR 0063 的落点表之外、必须先做的一步。
+
 ## 不变量
 
 1. **作业仍随 run 生死**（本 ADR 不改变这一点）；登记表只记录事实，不接管执行。
@@ -77,7 +85,8 @@ run_local_job(run_id, job_id, kind, label, started_at, finished_at, outcome)
 
 | 层 | 文件 |
 |---|---|
-| 协议 | `apps/oh-my-agent/src/core/coordination/registry.ts`（emit job 事件）、`apps/backend/src/features/agent-run/acp/event-mapping.ts` |
+| 协议（前置） | `apps/backend/src/features/agent-run/acp/acp-backend.ts`：注册 `_oma/update` 处理器（当前为零），真机验证通道 |
+| 协议 | `apps/oh-my-agent/src/core/coordination/registry.ts`（lifecycle 回调 → emit job 事件）、`event-mapping.ts` |
 | 数据 | `infra/db/schema.ts`：`run_local_job` 表 + 迁移 |
 | 恢复 | `features/agent-run/execution-service.ts` 的 `recover()`：把 `interrupted` 写进 run 的终态上下文 |
 | 提示 | 下一轮系统上下文里的"上一轮被打断的作业"段落 |
