@@ -231,6 +231,12 @@ export interface ProductToolsServiceDeps {
      *  must never render as a pass. */
     verification?: "not_configured" | "not_run" | "passed" | "failed";
   }) => Promise<{ delivered: "steer" | "queued" | "ledger" }>;
+  /** ADR 0065: append one lesson to this agent's long-term memory file.
+   *  Absent = the tool rejects explicitly. */
+  remember?: (input: {
+    agentId: string;
+    text: string;
+  }) => Promise<{ saved: boolean; reason?: string }>;
   /** ADR 0059 D6: redirect a RUNNING worker in this conversation. The
    *  closure resolves the active run and steers it; "nothing running" is a
    *  rejection, not a silent queue (an idle worker needs a new task). */
@@ -870,6 +876,30 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: result };
   }
 
+  /** ADR 0065 D1: only a run the HUMAN started may write a memory. Rules,
+   *  workers and the system must not stuff the human's long-term memory. */
+  async function rememberLesson(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.remember) {
+      throw new ProductToolRejectedError("remember is not available in this deployment");
+    }
+    if (run.authorization !== "user") {
+      throw new ProductToolRejectedError(
+        `remember is for runs the human started; this run was authorized by ${run.authorization ?? "nothing recorded"}`,
+      );
+    }
+    const text = typeof input.args.text === "string" ? input.args.text.trim() : "";
+    if (text === "") {
+      throw new ProductToolRejectedError("remember requires text: the lesson to keep");
+    }
+    return replayOrRecord(run, input, async () => {
+      const out = await deps.remember!({ agentId: run.agentId, text });
+      return JSON.stringify({ saved: out.saved, ...(out.reason ? { reason: out.reason } : {}) });
+    });
+  }
+
   /** Shared guards for the two control verbs: a worker is steered or
    *  stopped, never oneself, and both need a live target. */
   function controlTarget(run: AgentRun, input: ProductToolCallInput): string {
@@ -1104,6 +1134,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return teamList();
         case "handback":
           return handbackWork(run, input);
+        case "remember":
+          return rememberLesson(run, input);
         case "steer_worker":
           return steerRunningWorker(run, input);
         case "cancel_worker":

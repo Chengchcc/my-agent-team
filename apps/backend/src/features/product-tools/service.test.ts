@@ -31,6 +31,7 @@ const TOOL_MANIFEST = [
   { name: "dispatch", description: "d", inputSchema: {}, entrypoint: "sse:x" },
   { name: "handback", description: "h", inputSchema: {}, entrypoint: "sse:x" },
   { name: "report", description: "u", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "remember", description: "m", inputSchema: {}, entrypoint: "sse:x" },
   { name: "steer_worker", description: "s", inputSchema: {}, entrypoint: "sse:x" },
   { name: "cancel_worker", description: "c", inputSchema: {}, entrypoint: "sse:x" },
   { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
@@ -71,6 +72,8 @@ let reportCalls: Array<{
   text: string;
   verification?: "not_configured" | "not_run" | "passed" | "failed";
 }> = [];
+/** ADR 0065 memory writes (lesson text, per agent). */
+let rememberCalls: Array<{ agentId: string; text: string }> = [];
 /** ADR 0059 D6 control calls (steer / cancel of a running worker). */
 let steerCalls: Array<{
   fromAgentId: string;
@@ -215,6 +218,10 @@ beforeEach(async () => {
       handbackCalls.push(input);
       return Promise.resolve({ runId: `run-hb-${handbackCalls.length}`, queued: false });
     },
+    remember: (input) => {
+      rememberCalls.push(input);
+      return Promise.resolve({ saved: true });
+    },
     steerWorker: (input) => {
       steerCalls.push(input);
       return Promise.resolve(steerOutcome);
@@ -243,6 +250,7 @@ beforeEach(async () => {
   handbackCalls = [];
   pickQueries = [];
   reportCalls = [];
+  rememberCalls = [];
   steerCalls = [];
   cancelCalls = [];
   steerOutcome = { ok: true };
@@ -1264,6 +1272,56 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       }),
     ).rejects.toThrow(/handback is for dispatched work only/);
     expect(handbackCalls).toEqual([]);
+  });
+
+  test("remember writes one lesson, but only from a run the human started", async () => {
+    const humanRun = await createRun("I asked directly", "user");
+    const ok = await service.call({
+      identity: identity(humanRun),
+      callId: "mem-1",
+      idempotencyKey: `${humanRun}:mem-1`,
+      tool: "remember",
+      args: { text: "登录重定向的根因是两个分支都返回 /login" },
+    });
+    expect(rememberCalls[0]).toMatchObject({
+      agentId: AGENT,
+      text: "登录重定向的根因是两个分支都返回 /login",
+    });
+    expect(JSON.parse(ok.content)).toMatchObject({ saved: true });
+    // The human's run is done; the branch must be free for the next ones.
+    await runPort.finalizeRun(humanRun, { status: "completed" });
+
+    // ADR 0065 D1: a dispatched/ambient/system run must not touch the human's
+    // long-term memory.
+    for (const authorization of ["dispatch:front", "ambient:rule-1", "system"]) {
+      // One branch serializes: settle each run before starting the next.
+      const foreign = await createRun(`via ${authorization}`, authorization);
+      await expect(
+        service.call({
+          identity: identity(foreign),
+          callId: `mem-${authorization}`,
+          idempotencyKey: `${foreign}:mem-${authorization}`,
+          tool: "remember",
+          args: { text: "sneaky" },
+        }),
+      ).rejects.toThrow(/remember is for runs the human started/);
+      await runPort.finalizeRun(foreign, { status: "failed", error: "test" });
+    }
+    expect(rememberCalls).toHaveLength(1);
+  });
+
+  test("remember needs a non-empty lesson", async () => {
+    const runId = await createRun("I asked directly", "user");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "mem-empty",
+        idempotencyKey: `${runId}:mem-empty`,
+        tool: "remember",
+        args: { text: "   " },
+      }),
+    ).rejects.toThrow(/remember requires text/);
+    expect(rememberCalls).toEqual([]);
   });
 
   test("steer_worker reaches the running worker through its run, not a new task", async () => {

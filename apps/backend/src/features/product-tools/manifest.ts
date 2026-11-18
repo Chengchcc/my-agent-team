@@ -251,6 +251,17 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "remember",
+      description:
+        "Write one durable lesson into this agent's long-term memory. Only when the human explicitly asks; appends to .oma/memory/learned.md, duplicates ignored. Only a run the human started may call this.",
+      inputSchema: {
+        type: "object",
+        properties: { text: { type: "string" } },
+        required: ["text"],
+      },
+      entrypoint,
+    },
+    {
       name: "steer_worker",
       description:
         "Redirect a worker that is already running in this conversation; the message reaches it mid-turn and it keeps its context. Not a dispatch: an idle worker needs a new task. Fails explicitly when nothing is running.",

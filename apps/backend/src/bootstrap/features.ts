@@ -876,6 +876,38 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         text: frameReportInput(fromAgentId, purpose, text, verification),
         wake: purpose !== "progress",
       }),
+    // ADR 0065: the product's only memory writer. It appends to the SAME file
+    // `learn` writes (learned.md, `- [YYYY-MM-DD] fact`), so the standalone
+    // backfill picks it up unchanged. The product never writes the vector
+    // store: that store's dedup/embedding semantics belong to its owner.
+    remember: async ({ agentId, text }) => {
+      const agent = await agentSvc.getById(agentId).catch(() => null);
+      const root = agent?.workspacePath;
+      if (!root) return { saved: false, reason: `agent ${agentId} has no workspace` };
+      const dir = join(root, ".oma", "memory");
+      const file = join(dir, "learned.md");
+      const line = `- [${new Date().toISOString().slice(0, 10)}] ${text.replace(/\s+/g, " ")}`;
+      try {
+        const existing = existsSync(file) ? await Bun.file(file).text() : "";
+        // Same lesson twice is one lesson: compare the fact, not the date
+        // prefix, so re-asking on another day does not duplicate it.
+        const already = existing
+          .split("\n")
+          .some((row) => row.replace(/^-\s*\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim() === text);
+        if (already) return { saved: true, reason: "already remembered" };
+        mkdirSync(dir, { recursive: true });
+        const block = [
+          existing.trim() === "" ? "# Learned\n" : existing.replace(/\s+$/, ""),
+          "",
+          line,
+          "",
+        ].join("\n");
+        await Bun.write(file, block);
+        return { saved: true };
+      } catch (error) {
+        return { saved: false, reason: (error as Error).message };
+      }
+    },
     // ADR 0059 D6: the two control verbs. Both resolve the worker's LIVE run
     // first and reject when there is none - queuing a "steer" for an idle
     // worker would silently become a task, which is dispatch's job.
