@@ -836,6 +836,77 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         text: frameReportInput(fromAgentId, purpose, text, verification),
         wake: purpose !== "progress",
       }),
+    // ADR 0059 D6: the two control verbs. Both resolve the worker's LIVE run
+    // first and reject when there is none - queuing a "steer" for an idle
+    // worker would silently become a task, which is dispatch's job.
+    steerWorker: async ({ fromAgentId, conversationId, toAgentId, runId, callId, message }) => {
+      const active = (
+        await agentRunPort.listActiveRunsForConversations([conversationId]).catch(() => [])
+      ).find((candidate) => candidate.agentId === toAgentId);
+      if (!active) {
+        return {
+          ok: false,
+          error: `${toAgentId} has no running task in this conversation; dispatch a new task instead of steering`,
+        };
+      }
+      const text = `（${fromAgentId} 转达，优先于原任务）\n${message}`;
+      const enqueued = await agentRunPort.enqueueAndAcquire({
+        conversationId,
+        agentId: toAgentId,
+        branchId: active.branchId,
+        mode: "steer",
+        message: { role: "user", text },
+        inputIdempotencyKey: `steer:${runId}:${callId}`,
+        runIdempotencyKey: `steer:${runId}:${callId}`,
+        deliveryIdempotencyKey: `steer:${runId}:${callId}`,
+        defaultModel: active.modelRef,
+        configRevision: active.configRevision,
+        expectedRevision: active.configRevision,
+        authorization: `dispatch:${fromAgentId}`,
+        parentRunId: runId,
+      });
+      if (!enqueued.queued || enqueued.acquired) {
+        return {
+          ok: false,
+          error: `${toAgentId} settled before the steer landed; nothing to steer`,
+        };
+      }
+      try {
+        await injectSteer.fn(active.branchId, {
+          inputId: enqueued.inputId,
+          message: { role: "user", text },
+        });
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: `steer failed: ${(error as Error).message}` };
+      }
+    },
+    cancelWorker: async ({ fromAgentId, conversationId, toAgentId, reason }) => {
+      const active = (
+        await agentRunPort.listActiveRunsForConversations([conversationId]).catch(() => [])
+      ).find((candidate) => candidate.agentId === toAgentId);
+      if (!active) {
+        return { ok: false, error: `${toAgentId} has no running task in this conversation` };
+      }
+      // The stop is a human-facing action taken on their behalf: the ledger
+      // records it as the caller's, with the reason, before the run settles.
+      await conv.convSvc
+        .postMessage({
+          conversationId,
+          senderMemberId: fromAgentId,
+          addressedTo: [],
+          content: `（${fromAgentId} 停止了 ${toAgentId} 的工作：${reason}）`,
+          authorization: `dispatch:${fromAgentId}`,
+          parentRunId: active.runId,
+        })
+        .catch(() => {});
+      try {
+        await agentRunExecution?.stop(active.runId);
+        return { ok: true, stoppedRunId: active.runId };
+      } catch (error) {
+        return { ok: false, error: `stop failed: ${(error as Error).message}` };
+      }
+    },
     // ADR 0048: the roster discovery surface a dispatching agent reads.
     listTeam: async () => rosterCards(),
   });

@@ -83,7 +83,7 @@
 | 0056 | worker-selection-as-recall(选人是能力召回：brief 构造查询、带权重与理由、空闲只做平手) | **Implemented**（取代 ADR 0052 的选择规则；verb 缺失匹配时仍给最好的一手但理由不伪造；拒绝信息可指认原因） |
 | 0057 | front-desk-prompt-discipline(前台路由纪律：三条出口 + 五条约束，注入给所有面向人的 agent) | **Implemented**（`role !== worker` 才注入，身份在前；回放脚本直接引用同一常量，基线 15/12/15 over 17） |
 | 0058 | unified-recall(一个召回入口：history/qa/capability 同构，memory/skill 报 skipped 并带原因) | **Implemented**（选工人也走同一入口；`searched` 区分"没查"与"查了没有"；`limit` 由调用方决定） |
-| 0059 | duplex-execution-loop(全双工执行循环：可打断的监督、轮次结束门槛、工人终态双路通知) | **Accepted**（第 1–2 刀：`waitInterruptible` 切片+100ms 轮询、收尾门槛/`job_result` 注入；工人终态与 `report` 的双路回填 + 深度护栏。待做：前台 `wait_for`/`steer_worker`/`cancel_worker`） |
+| 0059 | duplex-execution-loop(全双工执行循环：可打断的监督、轮次结束门槛、工人终态双路通知) | **Implemented**（`waitInterruptible` 切片+100ms 轮询、收尾门槛/`job_result` 注入、双路回填 + 深度护栏、`steer_worker`/`cancel_worker`；`wait_for` 刻意不做） |
 | 0060 | rework-verification-attribution(回传的验收证据、返工与署名) | **Proposed**（`report.verification` 四态、返工=新 run 不建列、署名是渲染契约；拒绝 Task 聚合/槽位/epoch/capability token 六项，触发条件见正文） |
 | 0061 | attention-debt(注意力债：未读、草稿与打扰纪律) | **Implemented**（`GET /api/attention` 三段派生视图、`seen_at`/`result_seen_at` 只推进读标记、`answer_draft` 回答即清、五条纪律入前台常量；回放粗检 flash 14/17 · v4-pro 16/17） |
 | 0062 | no-aggregated-delivery-card(交付卡暂不按请求聚合) | **Proposed**（结论=暂不做：终态封版 + 一次性进程 ⇒ 聚合需要一张不属于 Run 的新卡片实体；用 `/today` 三段与时间线折叠块回答这件活到哪了；触发条件与将来形状已写死） |

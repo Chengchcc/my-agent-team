@@ -31,6 +31,8 @@ const TOOL_MANIFEST = [
   { name: "dispatch", description: "d", inputSchema: {}, entrypoint: "sse:x" },
   { name: "handback", description: "h", inputSchema: {}, entrypoint: "sse:x" },
   { name: "report", description: "u", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "steer_worker", description: "s", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "cancel_worker", description: "c", inputSchema: {}, entrypoint: "sse:x" },
   { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
 ];
@@ -69,6 +71,28 @@ let reportCalls: Array<{
   text: string;
   verification?: "not_configured" | "not_run" | "passed" | "failed";
 }> = [];
+/** ADR 0059 D6 control calls (steer / cancel of a running worker). */
+let steerCalls: Array<{
+  fromAgentId: string;
+  conversationId: string;
+  toAgentId: string;
+  runId: string;
+  callId: string;
+  message: string;
+}> = [];
+let cancelCalls: Array<{
+  fromAgentId: string;
+  conversationId: string;
+  toAgentId: string;
+  runId: string;
+  reason: string;
+}> = [];
+/** What the closure answers; tests flip it to prove the error path. */
+let steerOutcome: { ok: true } | { ok: false; error: string } = { ok: true };
+let cancelOutcome: { ok: true; stoppedRunId: string } | { ok: false; error: string } = {
+  ok: true,
+  stoppedRunId: "run-worker-1",
+};
 /** Every capability recall the service asked for, with the query it built. */
 let pickQueries: Array<Record<string, unknown>> = [];
 let pickResult: { agentId: string; reason: string } | null = null;
@@ -191,6 +215,14 @@ beforeEach(async () => {
       handbackCalls.push(input);
       return Promise.resolve({ runId: `run-hb-${handbackCalls.length}`, queued: false });
     },
+    steerWorker: (input) => {
+      steerCalls.push(input);
+      return Promise.resolve(steerOutcome);
+    },
+    cancelWorker: (input) => {
+      cancelCalls.push(input);
+      return Promise.resolve(cancelOutcome);
+    },
     notifyParent: (input) => {
       reportCalls.push(input);
       return Promise.resolve({
@@ -211,6 +243,10 @@ beforeEach(async () => {
   handbackCalls = [];
   pickQueries = [];
   reportCalls = [];
+  steerCalls = [];
+  cancelCalls = [];
+  steerOutcome = { ok: true };
+  cancelOutcome = { ok: true, stoppedRunId: "run-worker-1" };
   pickResult = { agentId: "fe", reason: "idle" };
   convPort.createConversation({ conversationId: CONV, agentId: AGENT, createdAt: Date.now() });
   const tree = await contextPort.getOrCreateTree(CONV);
@@ -1228,6 +1264,86 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
       }),
     ).rejects.toThrow(/handback is for dispatched work only/);
     expect(handbackCalls).toEqual([]);
+  });
+
+  test("steer_worker reaches the running worker through its run, not a new task", async () => {
+    const runId = await createRun("I asked directly");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "sw-1",
+      idempotencyKey: `${runId}:sw-1`,
+      tool: "steer_worker",
+      args: { agent: "fe", message: "客户改主意了：先别动样式，只修跳转" },
+    });
+    expect(steerCalls[0]).toMatchObject({
+      fromAgentId: AGENT,
+      toAgentId: "fe",
+      runId,
+      message: "客户改主意了：先别动样式，只修跳转",
+    });
+    expect(JSON.parse(result.content)).toMatchObject({ steered: "fe" });
+  });
+
+  test("steer_worker refuses to target itself, or to carry no message", async () => {
+    const runId = await createRun("I asked directly");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "sw-2",
+        idempotencyKey: `${runId}:sw-2`,
+        tool: "steer_worker",
+        args: { agent: AGENT, message: "x" },
+      }),
+    ).rejects.toThrow(/targets another agent/);
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "sw-3",
+        idempotencyKey: `${runId}:sw-3`,
+        tool: "steer_worker",
+        args: { agent: "fe", message: "   " },
+      }),
+    ).rejects.toThrow(/requires message/);
+    expect(steerCalls).toEqual([]);
+  });
+
+  test("steer_worker surfaces 'nothing running' instead of silently queuing", async () => {
+    steerOutcome = { ok: false, error: "fe has no running task in this conversation" };
+    const runId = await createRun("I asked directly");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "sw-4",
+        idempotencyKey: `${runId}:sw-4`,
+        tool: "steer_worker",
+        args: { agent: "fe", message: "改方向" },
+      }),
+    ).rejects.toThrow(/no running task/);
+  });
+
+  test("cancel_worker needs a reason and reports the stopped run", async () => {
+    const runId = await createRun("I asked directly");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "cw-1",
+        idempotencyKey: `${runId}:cw-1`,
+        tool: "cancel_worker",
+        args: { agent: "fe", reason: " " },
+      }),
+    ).rejects.toThrow(/requires reason/);
+    const ok = await service.call({
+      identity: identity(runId),
+      callId: "cw-2",
+      idempotencyKey: `${runId}:cw-2`,
+      tool: "cancel_worker",
+      args: { agent: "fe", reason: "方向错了，先停" },
+    });
+    expect(cancelCalls[0]).toMatchObject({ toAgentId: "fe", reason: "方向错了，先停" });
+    expect(JSON.parse(ok.content)).toMatchObject({
+      cancelled: "fe",
+      stoppedRunId: "run-worker-1",
+    });
   });
 
   test("report(progress) travels upward without waking the dispatcher", async () => {

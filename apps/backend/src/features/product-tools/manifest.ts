@@ -251,6 +251,34 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "steer_worker",
+      description:
+        "Redirect a worker that is already running in this conversation; the message reaches it mid-turn and it keeps its context. Not a dispatch: an idle worker needs a new task. Fails explicitly when nothing is running.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          message: { type: "string" },
+        },
+        required: ["agent", "message"],
+      },
+      entrypoint,
+    },
+    {
+      name: "cancel_worker",
+      description:
+        "Stop a worker that is already running in this conversation; the run settles aborted and its dispatcher is notified. reason is required. Fails explicitly when nothing is running.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["agent", "reason"],
+      },
+      entrypoint,
+    },
+    {
       name: "report",
       description:
         "Talk upward to whoever dispatched this run (ADR 0059): progress is a ledger note that does not wake them; attention wakes them now; answer hands back a direct answer. Available only when you were dispatched.",

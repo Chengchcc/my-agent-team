@@ -231,6 +231,25 @@ export interface ProductToolsServiceDeps {
      *  must never render as a pass. */
     verification?: "not_configured" | "not_run" | "passed" | "failed";
   }) => Promise<{ delivered: "steer" | "queued" | "ledger" }>;
+  /** ADR 0059 D6: redirect a RUNNING worker in this conversation. The
+   *  closure resolves the active run and steers it; "nothing running" is a
+   *  rejection, not a silent queue (an idle worker needs a new task). */
+  steerWorker?: (input: {
+    fromAgentId: string;
+    conversationId: string;
+    toAgentId: string;
+    runId: string;
+    callId: string;
+    message: string;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** ADR 0059 D6: stop a RUNNING worker. Same "nothing running" rule. */
+  cancelWorker?: (input: {
+    fromAgentId: string;
+    conversationId: string;
+    toAgentId: string;
+    runId: string;
+    reason: string;
+  }) => Promise<{ ok: true; stoppedRunId: string } | { ok: false; error: string }>;
   /** ADR 0048: the team roster with capability cards (team_list). Absent =
    *  the tool rejects explicitly. */
   listTeam?: () => Promise<
@@ -851,6 +870,104 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: result };
   }
 
+  /** Shared guards for the two control verbs: a worker is steered or
+   *  stopped, never oneself, and both need a live target. */
+  function controlTarget(run: AgentRun, input: ProductToolCallInput): string {
+    const target = typeof input.args.agent === "string" ? input.args.agent.trim() : "";
+    if (target === "") {
+      throw new ProductToolRejectedError(`${input.tool} requires agent: which worker`);
+    }
+    if (target === run.agentId) {
+      // Steering yourself is a no-op with a confusing result; stopping
+      // yourself is what a plain refusal or the human's stop is for.
+      throw new ProductToolRejectedError(`${input.tool} targets another agent, not you`);
+    }
+    return target;
+  }
+
+  async function replayOrRecord(
+    run: AgentRun,
+    input: ProductToolCallInput,
+    produce: () => Promise<string>,
+  ): Promise<ProductToolCallResult> {
+    const inputHash = JSON.stringify({ tool: input.tool, args: input.args });
+    const existing = await callPort.getCall(run.runId, input.callId);
+    if (existing) {
+      if (existing.toolName !== input.tool || existing.inputHash !== inputHash) {
+        throw new ProductToolRejectedError(
+          `call id ${input.callId} reused with a different tool/input`,
+        );
+      }
+      return { content: existing.result ?? "{}" };
+    }
+    const result = await produce();
+    await callPort.recordCall({
+      runId: run.runId,
+      callId: input.callId,
+      toolName: input.tool,
+      inputHash,
+      result,
+    });
+    return { content: result };
+  }
+
+  /** ADR 0059 D6: the human changed their mind (or the front desk sees the
+   *  worker drifting) — the message reaches the RUNNING worker mid-turn. */
+  async function steerRunningWorker(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.steerWorker) {
+      throw new ProductToolRejectedError("steer_worker is not available in this deployment");
+    }
+    const toAgentId = controlTarget(run, input);
+    const message = typeof input.args.message === "string" ? input.args.message.trim() : "";
+    if (message === "") {
+      throw new ProductToolRejectedError(
+        "steer_worker requires message: what changed, in the human's words",
+      );
+    }
+    return replayOrRecord(run, input, async () => {
+      const out = await deps.steerWorker!({
+        fromAgentId: run.agentId,
+        conversationId: run.conversationId,
+        toAgentId,
+        runId: run.runId,
+        callId: input.callId,
+        message,
+      });
+      if (!out.ok) throw new ProductToolRejectedError(out.error);
+      return JSON.stringify({ steered: toAgentId });
+    });
+  }
+
+  /** ADR 0059 D6: stop a running worker. The reason is recorded with the
+   *  call; the run settles aborted and the dispatcher is notified. */
+  async function cancelRunningWorker(
+    run: AgentRun,
+    input: ProductToolCallInput,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.cancelWorker) {
+      throw new ProductToolRejectedError("cancel_worker is not available in this deployment");
+    }
+    const toAgentId = controlTarget(run, input);
+    const reason = typeof input.args.reason === "string" ? input.args.reason.trim() : "";
+    if (reason === "") {
+      throw new ProductToolRejectedError("cancel_worker requires reason: why the work must stop");
+    }
+    return replayOrRecord(run, input, async () => {
+      const out = await deps.cancelWorker!({
+        fromAgentId: run.agentId,
+        conversationId: run.conversationId,
+        toAgentId,
+        runId: run.runId,
+        reason,
+      });
+      if (!out.ok) throw new ProductToolRejectedError(out.error);
+      return JSON.stringify({ cancelled: toAgentId, stoppedRunId: out.stoppedRunId, reason });
+    });
+  }
+
   /** ADR 0059 D6 report: a dispatched run talks upward. `progress` is a
    *  ledger note (never a wake); `attention`/`answer` wake the dispatcher.
    *  Only a run in a dispatch/handback/result chain may report — a run the
@@ -987,6 +1104,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return teamList();
         case "handback":
           return handbackWork(run, input);
+        case "steer_worker":
+          return steerRunningWorker(run, input);
+        case "cancel_worker":
+          return cancelRunningWorker(run, input);
         case "report":
           return reportUp(run, input);
         case "reminder_list":
