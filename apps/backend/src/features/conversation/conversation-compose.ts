@@ -65,6 +65,8 @@ export function createConversationFeature(input: {
   addConversationMember?: ConversationServiceDeps["addConversationMember"];
   /** ADR 0049: role lookup for the front desk invariant. */
   isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
+  /** ADR 0066 D4: display name for the room's floor note. */
+  agentNameOf?: ConversationServiceDeps["agentNameOf"];
 }): ConversationFeature {
   const {
     convPort,
@@ -85,6 +87,7 @@ export function createConversationFeature(input: {
     evaluateAmbient,
     addConversationMember,
     isWorkerAgent,
+    agentNameOf,
   } = input;
 
   const convSvc = createConversationService({
@@ -104,6 +107,7 @@ export function createConversationFeature(input: {
     evaluateAmbient,
     addConversationMember,
     isWorkerAgent,
+    agentNameOf,
     idGen: ulid,
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));

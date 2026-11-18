@@ -121,6 +121,33 @@ describe("AHP state source", () => {
     expect(chat?.modifiedAt).toBe(new Date(1000).toISOString());
   });
 
+  test("ADR 0066: a floor visit's addressee rides the message as _meta.floorFor", async () => {
+    const fake = fixture();
+    fake.setRun("r1", "completed");
+    const chat = await createAhpStateSource({
+      ...fake.deps,
+      listPendingInputs: async () => [
+        {
+          runId: "r1",
+          message: JSON.stringify({
+            id: "msg-1",
+            role: "user",
+            text: "go",
+            floorFor: { agentId: "a2", agentName: "Worker One" },
+          }),
+        },
+      ],
+    }).chat(chatUri("c1"));
+    // The room draws only messages that started a run, so the addressee has to
+    // travel ON this message - a separate ledger row would never render.
+    expect(chat?.turns[0]?.message).toMatchObject({
+      _meta: { messageId: "msg-1", floorFor: { agentId: "a2", agentName: "Worker One" } },
+    });
+    // Without the marker nothing is invented.
+    const plain = await createAhpStateSource(fake.deps).chat(chatUri("c1"));
+    expect(plain?.turns[0]?.message?._meta?.floorFor).toBeUndefined();
+  });
+
   test("a waiting run is an active turn and reads as input needed", async () => {
     const fake = fixture();
     fake.setRun("r1", "waiting");

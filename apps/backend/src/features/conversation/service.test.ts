@@ -1020,6 +1020,7 @@ describe("front desk invariant (ADR 0049)", () => {
       resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
       idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
       isWorkerAgent: (id) => Promise.resolve(WORKERS[id] === true),
+      agentNameOf: async (id) => (id === "a-worker" ? "Worker One" : undefined),
     });
   }
 
@@ -1067,10 +1068,56 @@ describe("front desk invariant (ADR 0049)", () => {
     expect(enqueueCalls[0]!.authorization).toBe("user");
     expect(result.triggeredRuns[0]!.agentId).toBe("a-worker");
 
-    // The room keeps the addressee: one ledger-only note, no extra run.
-    const entries = port.getLedgerEntries(id).map((e) => JSON.stringify(e.content));
-    expect(entries.some((c) => c.includes("这句是对 a-worker 说的"))).toBe(true);
+    // The room keeps the addressee ON the message: the room only draws messages
+    // that started a run, so a separate note row would be invisible there.
+    const entries = port.getLedgerEntries(id).map((e) => JSON.parse(JSON.stringify(e.content)));
+    const human = entries.find((c) => (c as { text?: string }).text?.includes("别改样式")) as
+      | { floorFor?: { agentId?: string; agentName?: string } }
+      | undefined;
+    expect(human?.floorFor).toEqual({ agentId: "a-worker", agentName: "Worker One" });
+    // No extra ledger row: the marker rides the human's own message.
+    expect(entries).toHaveLength(1);
     expect(enqueueCalls).toHaveLength(1);
+  });
+
+  test("ADR 0066 D5: a mention-less message in a room reaches the front desk", async () => {
+    const id = "cid-front-room";
+    setupConv(id); // front = "a-1"
+    port.addMember?.(id, "a-worker", 1); // the worker joined when it was dispatched
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    const result = await makeFrontDesk().postMessage({
+      conversationId: id,
+      senderMemberId: "human:web:alice",
+      content: "登录那块还没好，进度如何？",
+    });
+
+    // Two members used to mean "mentions only" (ADR 0041's group rule), which
+    // silently swallowed the human's line once a dispatch had added a worker.
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]!.agentId).toBe("a-1");
+    expect(result.triggeredRuns[0]!.agentId).toBe("a-1");
+  });
+
+  test("an observed channel keeps the group rule: unaddressed stays ledger-only", async () => {
+    const id = "cid-front-group";
+    setupConv(id);
+    port.addMember?.(id, "a-worker", 1);
+    enqueueCalls.length = 0;
+    nextAcquired = true;
+    activeRunId = null;
+
+    const result = await makeFrontDesk().postMessage({
+      conversationId: id,
+      senderMemberId: "human:lark:ou_alice",
+      content: "群里的一句闲聊",
+      source: { kind: "lark", chatId: "oc_1" },
+    });
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(result.triggeredRuns).toHaveLength(0);
   });
 
   test("dispatch (a server-side basis) addresses the worker directly", async () => {

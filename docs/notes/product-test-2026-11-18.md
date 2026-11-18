@@ -51,3 +51,26 @@
 
 1. ~~让③④闭环~~（已按"只观察"落地）：run 终态时若**最后一段**在问人（排除代码块里的问号）且该 run **没有任何 ask 记录**，写一条 `unasked_question` 遥测行。**不改进 UI、不改变行为**——先量真实命中率；文本启发式必然有假阳性，把它们摆进收件箱等于拿噪声训练人忽略收件箱。看到数据后再决定要不要升格成债务。
 2. run 详情页在低内存机器上的可测性（轻量页或预构建）。
+
+## 第二轮（会议室/展厅真机，2026-11-18 晚）
+
+隔离栈：backend :3913（`/tmp/verify`）+ web :3001（memguard 3000M）。派单链真机跑通：前台 `5ccfaad0` → 工人 `43a4c6c9`（verdict pass，改前 1 fail → 改后 1 pass）。
+
+### 验到的
+
+| 事实 | 证据 |
+|---|---|
+| 房间只画人和前台 | 时间线只有 seq 1/2/59/69；工人的 `mcp__product-tools__report`、`bun test` 都不在房间里 |
+| 展厅链路通 | 前台 run 页 `Dispatched units` 显示 "Worker One"（不是裸 id）→ `Open` → 工人 run 页 |
+| 下车间真的到工人 | 房间发一句 → 新 run `ae46af71e7`（`parentRunId` 空）、`authorization=user`、前台不被触发 |
+| 摘要进房间 | 房间那行前面有 `→ Worker One` 标签（title "said directly to Worker One"） |
+| `unasked_question` 遥测 | run `a519fdf884` 收尾"你拍板选哪个？"且未开 ask ⇒ 记 1 条（tail 完整） |
+
+### 抓到的两个真问题（已修）
+
+1. **摘要另起一行在房间里不可见**：房间渲染的是 `chatState.turns`（启动过 run 的消息），没有 run 的裸账本行根本不画。改成挂在人那条消息上（`_meta.floorFor`），并且必须进 `MessageRevisionSchema` —— 落账走 `MessageRevisionSchema.parse`，未知字段会被静默剥掉（第一次真机就是这个原因）。
+2. **派过一次活之后，房间里不带 @ 的话彻底没反应**（ADR 0041 群聊语义 + 工人成为成员 ⇒ 只落账不触发，`triggeredRuns` 空、无报错）。这是我按"下车间"发指令时撞出来的。修法见 ADR 0066 D5：`addressedTo` **缺省**且非观察渠道 ⇒ 交给房间常驻者（前台）；`addressedTo: []` 仍表示"没人"；Lark 保持观察语义。
+
+### 仍未绑定
+
+ADR 0061 D4"问题只能通过 ask 工具到达人"：这次真机再次是**散文提问**——遥测记到了，但收件箱不会响。要不要把 `unasked_question` 升格成债务，等命中率数据。
