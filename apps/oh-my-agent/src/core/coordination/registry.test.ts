@@ -229,3 +229,27 @@ describe("ADR 0059 waitInterruptible", () => {
     expect(res.settled.map((r) => r.status)).toEqual(["failed"]);
   });
 });
+
+describe("ADR 0063 job lifecycle hook", () => {
+  test("started and settled states fire, a second settle does not repeat", () => {
+    const seen: string[] = [];
+    const reg = createCoordinationRegistry({
+      onJobChange: (e) => seen.push(`${e.jobKind}:${e.state}:${e.label}`),
+    });
+    const entry = processEntry("bg_hook", "s1");
+    reg.registerEntry(entry);
+    reg.settleEntry("bg_hook", { status: "completed", exitCode: 0 });
+    reg.settleEntry("bg_hook", { status: "failed" }); // already settled: no second event
+    expect(seen).toEqual(["bash:started:cmd-bg_hook", "bash:finished:cmd-bg_hook"]);
+  });
+
+  test("a stopped job reports cancelled, not finished", () => {
+    const seen: string[] = [];
+    const reg = createCoordinationRegistry({
+      onJobChange: (e) => seen.push(e.state),
+    });
+    reg.registerEntry(processEntry("bg_stop", "s1"));
+    reg.settleEntry("bg_stop", { status: "stopped" });
+    expect(seen).toEqual(["started", "cancelled"]);
+  });
+});

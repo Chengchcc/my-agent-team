@@ -106,8 +106,24 @@ export interface CoordinationRegistry {
   clearAll(): void;
 }
 
-export function createCoordinationRegistry(): CoordinationRegistry {
+/** ADR 0063: what a job's lifecycle looks like from outside the registry. */
+export interface JobLifecycleEvent {
+  jobId: string;
+  jobKind: "bash" | "eval" | "subagent";
+  label: string;
+  state: "started" | "finished" | "failed" | "cancelled";
+}
+
+export function createCoordinationRegistry(
+  opts: {
+    /** Fired when a job starts and when it settles. Best-effort: a broken
+     *  listener must never break the job. */
+    onJobChange?: (event: JobLifecycleEvent) => void;
+  } = {},
+): CoordinationRegistry {
   const entries = new Map<string, RegistryEntry>();
+  const jobKindOf = (kind: EntryKind): JobLifecycleEvent["jobKind"] =>
+    kind === "subagent" ? "subagent" : kind;
   let completionListener: ((entry: RegistryEntry) => void) | null = null;
   const ackedDeliveries = new Set<string>();
 
@@ -137,6 +153,16 @@ export function createCoordinationRegistry(): CoordinationRegistry {
     }
     entries.set(entry.id, entry);
     prune();
+    try {
+      opts.onJobChange?.({
+        jobId: entry.id,
+        jobKind: jobKindOf(entry.kind),
+        label: entry.label,
+        state: "started",
+      });
+    } catch {
+      /* a broken listener never breaks the job */
+    }
     return { ok: true };
   }
 
@@ -273,9 +299,28 @@ export function createCoordinationRegistry(): CoordinationRegistry {
   function settleEntry(id: string, patch: Partial<RegistryEntry>): void {
     const e = entries.get(id);
     if (!e) return;
+    const wasRunning = e.status === "running";
     updateEntry(id, { finishedAt: e.finishedAt ?? Date.now(), ...patch });
     e.resolveSettle?.();
-    notifyEntryCompletion(getEntry(id)!);
+    const settled = getEntry(id)!;
+    if (wasRunning) {
+      try {
+        opts.onJobChange?.({
+          jobId: settled.id,
+          jobKind: jobKindOf(settled.kind),
+          label: settled.label,
+          state:
+            settled.status === "completed"
+              ? "finished"
+              : settled.status === "stopped"
+                ? "cancelled"
+                : "failed",
+        });
+      } catch {
+        /* a broken listener never breaks the job */
+      }
+    }
+    notifyEntryCompletion(settled);
   }
 
   function setCompletionListener(cb: ((entry: RegistryEntry) => void) | null): void {

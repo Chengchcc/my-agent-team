@@ -73,7 +73,24 @@ run_local_job(run_id, job_id, kind, label, started_at, finished_at, outcome)
 
 **但父端没有消费者**：`acp-backend.ts` 只 `onNotification(session.update)`，全仓 grep 不到 `_oma/update` 的处理。也就是说这条通道今天是**只写不读**的——在里面加 `job_state` 不会有任何效果。
 
-因此实现顺序必须是：**先给父端接上 `_oma/update` 的处理（并做真机验证，因为 SDK 会静默丢弃不认识的东西）**，再往里加作业事件。单元测试证明不了这条通道通不通——这正是 ADR 0063 的落点表之外、必须先做的一步。
+因此实现顺序必须是：**先给父端接上 `_oma/update` 的处理，并做真机验证**，再往里加作业事件。
+
+### D5.2 真机结论：这条通道**没有送达**（2026-11-18）
+
+按上面的顺序做了：
+
+1. 子进程侧：注册表加 `onJobChange`（started/settled，`stopped` 映射成 `cancelled`，二次 settle 不重复触发），run-runtime 延迟绑定到会话 emit；单测 2 条通过。
+2. 父端：注册 `_oma/update` 处理器 + `mapOmaUpdate` 纯函数 + 把 `backend.acp.job_state` 加进遥测白名单。
+3. 隔离栈真机跑 `bash async=true`：**工具确实起了 job**（工具回执 "Backgrounded as job bg_1"，`hub` 查询到 `bg_1`），但 `agent_run_event` 里 **0 条 `job_state`**。
+
+⇒ 子进程到父端这一段仍然不通。两个候选原因，**都未验证**：
+
+- **信封形状**：父端读 `envelope.data`，而 `jobEvents.fn` 发的是裸 `OmaLoopEvent`（`{type, jobId, ...}`），`data` 为空；
+- **自定义方法被 SDK 丢弃**：父端只声明了标准通知（`session.update`），自定义方法可能在校验层就被丢掉。
+
+**因此父端接线与遥测白名单已回滚**，只保留有单测支撑的子进程侧（注册表 hook + 事件）。下一步是先做一次"信封形状"的最小探针；若确认是 SDK 丢弃自定义方法，则改走标准 `session/update` 的一个 `_meta` 字段，而不是继续猜。
+
+**这意味着 ADR 0063 D2 的表格化与 `interrupted` 标记仍未实现**；本 ADR 只完成到"子进程能报告"，并留下了否定证据。
 
 ## 不变量
 
