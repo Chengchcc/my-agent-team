@@ -41,6 +41,11 @@ import {
   resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
+import {
+  deriveInterruptedJobs,
+  type JobStateEvent,
+  renderInterruptedJobs,
+} from "../features/agent-run/interrupted-jobs.js";
 import { createNotifyDispatcher } from "../features/agent-run/notify-dispatcher.js";
 import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
 import type { RecallHit } from "../features/agent-run/recall.js";
@@ -439,7 +444,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Default frozen Run config: the target Agent's identity (SOUL.md +
     // USER.md) and its assigned READY skill packs. Loop scopes pass their
     // own LOOP.md config explicitly and skip this resolver.
-    resolveRunConfig: async ({ agentId }) => {
+    resolveRunConfig: async ({ conversationId, agentId }) => {
       if (!agentId) return {};
       const identity = await identityStore.getIdentity(agentId);
       const agentRow = await agentSvc.getById(agentId).catch(() => null);
@@ -453,13 +458,45 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // The builtin skills (capability docs: workflow authoring, loop
       // workflow) are ALWAYS available - assigned packs add on top.
       const skillRoots = [config.builtinSkillsDir, ...packRoots];
+      // ADR 0063 D2: what the LAST turn started and never finished. Derived
+      // from telemetry (a started row with no end), never replayed - the
+      // model decides whether re-running is safe.
+      let interruptedBlock = "";
+      try {
+        const recent = await agentRunPort.listRecentRunsForConversations(
+          [conversationId],
+          7 * 24 * 60 * 60 * 1000,
+        );
+        const previous = recent
+          .filter(
+            (run) =>
+              run.agentId === agentId &&
+              run.terminalAt !== null &&
+              (run.status === "completed" ||
+                run.status === "failed" ||
+                run.status === "aborted" ||
+                run.status === "timeout"),
+          )
+          .sort((a, b) => (b.terminalAt ?? 0) - (a.terminalAt ?? 0))[0];
+        if (previous) {
+          const events = services.opsStore.listRunEvents(previous.runId, 500);
+          interruptedBlock = renderInterruptedJobs(
+            deriveInterruptedJobs(events as unknown as JobStateEvent[]),
+          );
+        }
+      } catch {
+        /* a missing history never blocks a run */
+      }
+      const withInterrupted = interruptedBlock
+        ? `${systemPrompt}\n\n${interruptedBlock}`
+        : systemPrompt;
       const result: {
         systemPrompt?: string;
         skillRoots?: readonly string[];
         permissionMode?: string;
         toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
       } = {};
-      if (systemPrompt) result.systemPrompt = systemPrompt;
+      if (withInterrupted) result.systemPrompt = withInterrupted;
       if (skillRoots.length > 0) result.skillRoots = skillRoots;
       const agent = agentRow;
       if (agent) result.permissionMode = agent.config.runtime_config.permission_mode;
