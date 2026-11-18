@@ -324,6 +324,22 @@ describe("agent-run routes over seeded runs", () => {
     expect(stale.body).toBeNull();
   });
 
+  test("ADR 0066: runs can be listed by the run that dispatched them", async () => {
+    const parent = await seedRun("completed", false, false, {
+      authorization: "user",
+      parentRunId: "root-0",
+    });
+    const child = await seedRun("completed", false, false, {
+      authorization: `dispatch:${parent.agentId}`,
+      parentRunId: parent.runId,
+    });
+    const body = (await (
+      await api(harness, "GET", `/api/agent-runs?parentRunId=${parent.runId}`)
+    ).json()) as { runs: Array<{ runId: string; parentRunId: string | null }> };
+    expect(body.runs.map((r) => r.runId)).toEqual([child.runId]);
+    expect(body.runs[0]?.parentRunId).toBe(parent.runId);
+  });
+
   test("pending-actions lists only what a human can still answer", async () => {
     const seeded = await seedRun("completed", false, true); // stays running
     const actionId = `${seeded.runId}:c1`;

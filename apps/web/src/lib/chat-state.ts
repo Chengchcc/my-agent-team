@@ -224,6 +224,15 @@ export function itemsFromChatState(
   agent: SenderRef | null,
 ): UiItem[] {
   const items: UiItem[] = [];
+  // The room belongs to the human and the front desk (ADR 0066): a part the
+  // ledger says was authored by ANOTHER agent is the worker's own record, not
+  // a line in this conversation. It stays available in the run view (the
+  // "shop floor"), which reads the worker's own rows.
+  const chatAgentId = agent?.agentId ?? agent?.memberId;
+  const isForeign = (meta: { authorAgentId?: unknown } | undefined): boolean =>
+    typeof meta?.authorAgentId === "string" &&
+    chatAgentId !== undefined &&
+    meta.authorAgentId !== chatAgentId;
   const turns: Array<{
     id: string;
     message: AhpMessage;
@@ -269,7 +278,10 @@ export function itemsFromChatState(
       if (kind !== "markdown") return;
       const text = contentOf(part);
       if (!text) return;
-      const meta = metaOfRequest(part);
+      const meta = metaOfRequest(part) as
+        | { messageId?: unknown; seq?: unknown; undone?: unknown; authorAgentId?: unknown }
+        | undefined;
+      if (isForeign(meta)) return;
       const id = typeof meta?.messageId === "string" ? meta.messageId : `${turn.id}:text:${index}`;
       items.push({
         kind: "message",

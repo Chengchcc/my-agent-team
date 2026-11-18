@@ -169,6 +169,47 @@ describe("the message list from AHP chat state", () => {
   const viewer = { memberId: "viewer", kind: "human" } as const;
   const agent = { memberId: "agent-1", kind: "agent", agentId: "agent-1" } as const;
 
+  test("another agent's prose never becomes a line in this room (ADR 0066)", () => {
+    // The ledger is shared: a dispatched worker's rows carry _meta.authorAgentId.
+    // The room belongs to the human and the front desk; the worker's record
+    // lives in its run view.
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-worker",
+          state: "complete",
+          message: {
+            text: "dispatch brief",
+            origin: { kind: "user" },
+            _meta: { messageId: "msg-1", seq: 4, authorAgentId: "front" },
+          },
+          responseParts: [
+            {
+              kind: "markdown",
+              id: "t0",
+              content: "worker says: fixed it",
+              _meta: { messageId: "run:w1:assistant:0", seq: 5, authorAgentId: "worker-9" },
+            },
+            {
+              kind: "markdown",
+              id: "t1",
+              content: "front desk: here is what happened",
+              _meta: { messageId: "run:f1:assistant:0", seq: 6, authorAgentId: "front" },
+            },
+          ],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      { memberId: "front", kind: "agent", agentId: "front" },
+    );
+    const texts = items.map((i) =>
+      i.kind === "message" ? (i.content as { text?: string }).text : "",
+    );
+    expect(texts).toContain("dispatch brief");
+    expect(texts).toContain("front desk: here is what happened");
+    expect(texts).not.toContain("worker says: fixed it");
+  });
+
   test("a finished turn yields its initiating message and its text, with the ledger ids", () => {
     const items = itemsFromChatState(
       state([

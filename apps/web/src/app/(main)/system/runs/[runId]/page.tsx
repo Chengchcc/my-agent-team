@@ -6,7 +6,8 @@ import { RunWaterfall } from "@/components/ops/RunWaterfall";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAgentRunDetail } from "@/features/ops/hooks";
+import { useAgentList } from "@/features/agents/hooks";
+import { useAgentRunDetail, useAgentRuns } from "@/features/ops/hooks";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,13 @@ export default function SystemRunDetailPage() {
   const detailQuery = useAgentRunDetail(runId);
   const run = detailQuery.data?.run;
   const inputs = detailQuery.data?.inputs ?? [];
+  // ADR 0066: the "shop floor" hop. A Lark card links to this run (the front
+  // desk's turn); the units it dispatched are the next step down, and each
+  // links to its own page.
+  const childrenQuery = useAgentRuns({ parentRunId: runId, limit: 50 });
+  const children = childrenQuery.data?.runs ?? [];
+  const { data: agents } = useAgentList();
+  const nameOf = (agentId: string) => agents?.find((a) => a.id === agentId)?.name ?? agentId;
 
   return (
     <Page>
@@ -92,6 +100,46 @@ export default function SystemRunDetailPage() {
                       </div>
                     </div>
                   )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Dispatched units</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {children.length === 0 ? (
+                  <p className="text-sm text-(--mute)">
+                    This run dispatched nobody; it is the work itself.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {children.map((c) => (
+                      <div
+                        key={c.runId}
+                        className="flex items-center justify-between gap-2 border-b border-(--hairline) py-1 text-sm"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate">{nameOf(c.agentId)}</span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {c.status}
+                          </Badge>
+                        </span>
+                        <span className="flex items-center gap-3">
+                          <span className="text-xs text-(--mute)">
+                            {new Date(c.createdAt).toLocaleString()}
+                          </span>
+                          <Link
+                            href={`/system/runs/${c.runId}`}
+                            className="text-xs text-(--info) underline"
+                          >
+                            Open
+                          </Link>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
