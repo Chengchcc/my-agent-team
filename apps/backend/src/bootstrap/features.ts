@@ -50,6 +50,7 @@ import {
 import { createNotifyDispatcher } from "../features/agent-run/notify-dispatcher.js";
 import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
 import type { RecallHit } from "../features/agent-run/recall.js";
+import { endsWithQuestion, lastParagraph } from "../features/agent-run/unasked-question.js";
 import {
   chatUri,
   createAhpChatWriter,
@@ -1127,6 +1128,23 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         runId,
         Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt),
       );
+      // Observation (ADR 0066, product walk): did this answer hand a decision
+      // back without ever opening an ask? Recorded only - surfacing it waits
+      // for a measured hit rate, because a text heuristic has false positives
+      // and noise in the inbox trains people to ignore it.
+      void (async () => {
+        try {
+          const answer = extractText(output);
+          if (!endsWithQuestion(answer)) return;
+          const asks = await agentRunPort.listPendingActions(runId);
+          if (asks.some((action) => action.kind === "ask")) return;
+          services.opsStore.appendRunEvent(runId, "unasked_question", {
+            tail: lastParagraph(answer).slice(0, 200),
+          });
+        } catch {
+          /* an observation must never disturb the turn */
+        }
+      })();
       // ADR 0059 D5: the worker's terminal state travels back to whoever
       // dispatched it. Gated on `dispatch:` authorization - a `result:` run is
       // the dispatcher's own turn answering a notification, and notifying its
