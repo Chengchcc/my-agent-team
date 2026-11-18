@@ -13,7 +13,7 @@ import {
   type TurnSegment,
 } from "@/lib/conversation-reducer";
 import { renderContentBlocks } from "@/lib/render-blocks";
-import { extractText } from "@/lib/timeline";
+import { extractText, runIdOfSource } from "@/lib/timeline";
 import type { TransientBubble } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
 import { ArtifactCard } from "./ArtifactCard";
@@ -103,9 +103,7 @@ function SystemNotice({ text }: { text: string }) {
 }
 
 function runIdOf(m: MessageItem): string | null {
-  const mid = m.content.id;
-  const match = /^run:([^:]+):/.exec(mid ?? "");
-  return match ? match[1]! : null;
+  return runIdOfSource(m.id);
 }
 
 /** Sender grouping (IM style): consecutive messages from the same member form
@@ -327,6 +325,11 @@ export function Timeline({
               const last = seg.conclusion ?? seg.rounds[seg.rounds.length - 1];
               const firstIdx = first ? messages.indexOf(first) : -1;
               const lastIdx = last ? messages.indexOf(last) : -1;
+              // The turn's run is what may have dispatched: agent replies are
+              // rendered HERE (ReasoningTrace), not through the single-item
+              // branch below - attaching the tree there made it invisible in
+              // the live page (found by product test, 2026-11-18).
+              const turnRunId = (first && runIdOf(first)) ?? (last ? runIdOf(last) : null);
               return (
                 <div key={seg.id}>
                   <ReasoningTrace
@@ -337,6 +340,9 @@ export function Timeline({
                     }
                     isLast={lastIdx >= 0 ? senderGroupBounds(messages, lastIdx).isLast : false}
                   />
+                  {turnRunId ? (
+                    <DispatchTree conversationId={conversationId} parentRunId={turnRunId} />
+                  ) : null}
                 </div>
               );
             }

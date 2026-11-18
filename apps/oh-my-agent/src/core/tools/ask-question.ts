@@ -111,7 +111,10 @@ export function createAskQuestionTool(): PluginTool {
     ): Promise<Readonly<Record<string, unknown>>> {
       const normalized = normalizeInput(args);
       if ("error" in normalized) return normalized;
-      if (!options?.ask) return { error: "no ask pipeline configured" };
+      // A tool that is listed but has no pipeline must FAIL LOUDLY: returning
+      // a non-error made the model degrade to asking in prose (live
+      // 2026-11-18), which the attention discipline explicitly forbids.
+      if (!options?.ask) return { error: "no ask pipeline configured", isError: true };
       const result = await options.ask(normalized);
       if (!result) return { error: "ask pipeline returned no answer" };
       return result as unknown as Record<string, unknown>;

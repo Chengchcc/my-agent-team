@@ -531,6 +531,64 @@ describe("product-mounted tools are gated by capability, not by server name", ()
   });
 });
 
+test("an ACP-provided ask_question wins over the native tool (same rule as todo)", async () => {
+  // Live-found 2026-11-18: the product injects its ask over ACP as a code
+  // plugin, `mountedToolNames` only knew workspace .mcp.json mounts, so the
+  // native ask_question was ALSO advertised. The model picked the bare one,
+  // which has no pipeline in product runs and answered with a non-error -
+  // the front desk then asked the human in prose and the inbox never saw it.
+  const savedFake = process.env.OMA_FAKE_PROVIDER;
+  const savedTool = process.env.OMA_FAKE_TOOL;
+  const savedRecord = process.env.OMA_FAKE_TOOLS_RECORD;
+  process.env.OMA_FAKE_PROVIDER = "1";
+  // The advertised table is recorded at model-call time, so one turn must run.
+  process.env.OMA_FAKE_TOOL = JSON.stringify([
+    { name: "mcp__product-tools__ask_question", input: { questions: [] } },
+  ]);
+  const ws = mkdtempSync(join(tmpdir(), "oma-ask-acp-"));
+  const toolsRecord = join(ws, "tools-record.json");
+  process.env.OMA_FAKE_TOOLS_RECORD = toolsRecord;
+  try {
+    const modelRuntime = createModelRuntime();
+    registerBuiltinProviders(modelRuntime, process.env);
+    const rt = await createOmaRuntime({
+      runId: "r-ask-acp",
+      modelId: "fake/echo",
+      workspaceRoot: ws,
+      workspaceAccess: "read_write",
+      modelRuntime,
+      skillRoots: [],
+      pluginComponents: {
+        plugins: [
+          {
+            name: "acp-mcp",
+            tools: [
+              {
+                name: "mcp__product-tools__ask_question",
+                description: "product ask",
+                execute: async () => ({ content: "{}" }),
+              },
+            ],
+          },
+        ],
+        mcpServers: [],
+      },
+    });
+    await (await rt.run(runInput("r-ask-acp"))).outcome;
+    await rt.close();
+    const advertised = JSON.parse(readFileSync(toolsRecord, "utf8")) as string[];
+    expect(advertised).toContain("mcp__product-tools__ask_question");
+    expect(advertised).not.toContain("ask_question");
+  } finally {
+    if (savedRecord === undefined) delete process.env.OMA_FAKE_TOOLS_RECORD;
+    else process.env.OMA_FAKE_TOOLS_RECORD = savedRecord;
+    if (savedTool === undefined) delete process.env.OMA_FAKE_TOOL;
+    else process.env.OMA_FAKE_TOOL = savedTool;
+    if (savedFake === undefined) delete process.env.OMA_FAKE_PROVIDER;
+    else process.env.OMA_FAKE_PROVIDER = savedFake;
+  }
+});
+
 test("injected MCP todo_write wins over native todo (backend-injected priority)", async () => {
   const savedFake = process.env.OMA_FAKE_PROVIDER;
   const savedTool = process.env.OMA_FAKE_TOOL;

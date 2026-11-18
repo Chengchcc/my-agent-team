@@ -482,7 +482,16 @@ async function buildNativeToolStage(
     nativeToolsPlugin,
     closeMounted: mounted.close,
     mcpReports: mounted.reports,
-    mountedToolNames: new Set(mounted.tools.map((t) => t.name)),
+    // Names the model will actually see: workspace-mounted MCP tools AND the
+    // ones a client plugins in over ACP (`mcp__product-tools__ask_question`
+    // arrives as a code plugin named "acp-mcp"). Missing the latter made the
+    // "injected tool wins" rule blind to the product's own tools - live
+    // 2026-11-18, the model called the bare native ask_question and got
+    // "no ask pipeline".
+    mountedToolNames: new Set([
+      ...mounted.tools.map((t) => t.name),
+      ...(deps.codePlugins ?? []).flatMap((plugin) => (plugin.tools ?? []).map((t) => t.name)),
+    ]),
   };
 }
 
