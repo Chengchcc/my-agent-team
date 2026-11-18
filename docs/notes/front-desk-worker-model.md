@@ -252,6 +252,10 @@ parent_run_id 非空  ⇔  authorization ∈ {dispatch:, handback:, result:}
 
 债务是**派生视图**（`pending_action` + run 状态 + `seen_at`），不建 request 表——参考实现 herdr-super-agent 建表是因为它没有后端，我们的后端已有事实。
 
+## 8.6 真机验证（2026-11-18）
+
+整条链在隔离栈 + 真实模型上跑通一次，取证见 [`live-e2e-2026-11-18.md`](./live-e2e-2026-11-18.md)：派单授权链、`verification: passed` 的固定验收行、回填走 **steer**（前台当时活跃、未产生新 run）、`result_notified_at` 已写、前台改写而非转发。现场还发现 `permissionMode=auto` 会在只读操作上停住等人——"能干活"与"能自动干活"是两件事。
+
 ## 9. 若要评审，请重点看这五处
 
 1. **一次性子进程 + 远程活允许收尾**：会不会出现"前台收尾了，工人还在跑，人以为结束了"？我们的答案：终态必回传（双路），但回传失败时人确实无从知晓 —— 这算不算漏洞？
