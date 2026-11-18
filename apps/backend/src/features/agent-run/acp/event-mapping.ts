@@ -286,3 +286,30 @@ function planEntriesToItems(
           : "pending",
   }));
 }
+
+/** ADR 0063 D5.1: the child's `_oma/update` custom notification is the rail
+ *  for events the ACP schema does not know (ADR 0039 rule 3). Only the job
+ *  lifecycle is consumed today; everything else stays dropped on purpose. */
+export function mapOmaUpdate<K extends string>(envelope: unknown, kind: K): BackendEvent<K>[] {
+  if (typeof envelope !== "object" || envelope === null) return [];
+  const event = envelope as { type?: unknown; data?: unknown };
+  if (event.type !== "job_state") return [];
+  // The wire carries the runtime's ENVELOPE (`{id, type, data}`), where the
+  // event fields live under `data`; a bare event is accepted too so the
+  // mapper does not depend on which side of the envelope it is handed.
+  const { jobId, jobKind, label, state } = (event.data ?? event) as {
+    jobId?: unknown;
+    jobKind?: unknown;
+    label?: unknown;
+    state?: unknown;
+  };
+  if (
+    typeof jobId !== "string" ||
+    typeof label !== "string" ||
+    (jobKind !== "bash" && jobKind !== "eval" && jobKind !== "subagent") ||
+    (state !== "started" && state !== "finished" && state !== "failed" && state !== "cancelled")
+  ) {
+    return [];
+  }
+  return [{ type: `backend.${kind}.job_state`, payload: { jobId, jobKind, label, state } }];
+}

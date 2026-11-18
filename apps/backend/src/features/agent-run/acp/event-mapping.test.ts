@@ -6,6 +6,7 @@ import {
   createAcpAccumulator,
   mapAcpUpdate,
   mapAcpUsage,
+  mapOmaUpdate,
 } from "./event-mapping.js";
 
 type Update = schema.SessionNotification["update"];
@@ -330,5 +331,50 @@ describe("durable tool facts", () => {
     expect(
       messages.filter((m) => (m.blocks ?? []).some((b) => b.type === "tool_use")),
     ).toHaveLength(1);
+  });
+});
+
+describe("ADR 0063 the oma-private rail", () => {
+  test("the runtime ENVELOPE is unwrapped — fields live under data", () => {
+    // Live-found: the wire carries {id, type, data}; reading the fields off
+    // the envelope made every event map to nothing, and telemetry stayed
+    // empty while the child was sending fine.
+    const mapped = mapOmaUpdate(
+      {
+        id: 169,
+        type: "job_state",
+        data: {
+          type: "job_state",
+          jobId: "bg_1",
+          jobKind: "bash",
+          label: "sleep 30",
+          state: "started",
+        },
+      },
+      "acp",
+    );
+    expect(mapped).toEqual([
+      {
+        type: "backend.acp.job_state",
+        payload: { jobId: "bg_1", jobKind: "bash", label: "sleep 30", state: "started" },
+      },
+    ]);
+  });
+
+  test("a bare event is accepted too (the mapper does not depend on the envelope)", () => {
+    const mapped = mapOmaUpdate(
+      { type: "job_state", jobId: "bg_2", jobKind: "bash", label: "x", state: "finished" },
+      "acp",
+    );
+    expect(mapped[0]).toMatchObject({ type: "backend.acp.job_state" });
+  });
+
+  test("anything else on that rail stays dropped, malformed included", () => {
+    expect(mapOmaUpdate({ id: 1, type: "delegation_start", data: {} }, "acp")).toEqual([]);
+    expect(mapOmaUpdate({ id: 2, type: "job_state", data: { type: "job_state" } }, "acp")).toEqual(
+      [],
+    );
+    expect(mapOmaUpdate(null, "acp")).toEqual([]);
+    expect(mapOmaUpdate("nope", "acp")).toEqual([]);
   });
 });

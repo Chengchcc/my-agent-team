@@ -75,7 +75,25 @@ run_local_job(run_id, job_id, kind, label, started_at, finished_at, outcome)
 
 因此实现顺序必须是：**先给父端接上 `_oma/update` 的处理，并做真机验证**，再往里加作业事件。
 
-### D5.2 真机结论：这条通道**没有送达**（2026-11-18）
+### D5.2 真机结论：通道**是通的**，是我读错了信封（2026-11-18）
+
+第一次真机跑出 0 条 `job_state`，我判断「通道没送达」并回滚了父端接线。**这个判断是错的。** 加了两个临时探针（子进程发送处、父端处理器各一行 stderr）之后看到：
+
+- 子进程在发：`sending _oma/update job_state`；
+- 父端在收：`{"event":{"id":169,"type":"job_state","data":{"type":"job_state","jobId":"bg_1",...,"state":"started"}}}`。
+
+通道一直通。真正的 bug：wire 上是运行时的**信封** `{id, type, data}`，而我的映射器从信封本身读 `jobId` —— 永远 undefined，于是每条都被当成「不认识的事件」丢掉。修法是先取 `event.data`（裸事件也接受）。
+
+修好后真机落盘：
+
+```
+backend.acp.job_state {'jobId':'bg_1','jobKind':'bash','label':'sleep 30','state':'started'}
+backend.acp.job_state {'jobId':'bg_1','jobKind':'bash','label':'sleep 30','state':'failed'}   ← 收尾时被杀，exit 137
+```
+
+**教训**：探针要同时打在发送方与接收方。只看到「数据库没有行」就断言通道不通，等于把「我的解析写错了」记成了「机制不可用」——这两件事的后续动作完全相反。
+
+### D5.3 原始误判记录
 
 按上面的顺序做了：
 
@@ -88,7 +106,10 @@ run_local_job(run_id, job_id, kind, label, started_at, finished_at, outcome)
 - **信封形状**：父端读 `envelope.data`，而 `jobEvents.fn` 发的是裸 `OmaLoopEvent`（`{type, jobId, ...}`），`data` 为空；
 - **自定义方法被 SDK 丢弃**：父端只声明了标准通知（`session.update`），自定义方法可能在校验层就被丢掉。
 
-**因此父端接线与遥测白名单已回滚**，只保留有单测支撑的子进程侧（注册表 hook + 事件）。下一步是先做一次"信封形状"的最小探针；若确认是 SDK 丢弃自定义方法，则改走标准 `session/update` 的一个 `_meta` 字段，而不是继续猜。
+父端接线与遥测白名单**已恢复并通过真机验证**（见 D5.2）。仍待做的两件：
+
+- **「打断」与「失败」要分开**：收尾时被杀现在报 `failed`（exit 137）；`bash` 工具把 `job.killed` 映射成 `failed`，改成 `stopped`（→`cancelled`）或单列 `interrupted` 即可；
+- **不建表**：`agent_run_event` 已有 runId/type/data/ts，作业生命周期就是它的一类事件；原计划里的 `run_local_job` 表**取消**，「被打断」由「有 started、无终态」派生。
 
 **这意味着 ADR 0063 D2 的表格化与 `interrupted` 标记仍未实现**；本 ADR 只完成到"子进程能报告"，并留下了否定证据。
 
@@ -104,7 +125,7 @@ run_local_job(run_id, job_id, kind, label, started_at, finished_at, outcome)
 |---|---|
 | 协议（前置） | `apps/backend/src/features/agent-run/acp/acp-backend.ts`：注册 `_oma/update` 处理器（当前为零），真机验证通道 |
 | 协议 | `apps/oh-my-agent/src/core/coordination/registry.ts`（lifecycle 回调 → emit job 事件）、`event-mapping.ts` |
-| 数据 | `infra/db/schema.ts`：`run_local_job` 表 + 迁移 |
+| 数据 | **不建表**：`agent_run_event` 复用为作业账本（runId/type/data/ts 已够） |
 | 恢复 | `features/agent-run/execution-service.ts` 的 `recover()`：把 `interrupted` 写进 run 的终态上下文 |
 | 提示 | 下一轮系统上下文里的"上一轮被打断的作业"段落 |
 
