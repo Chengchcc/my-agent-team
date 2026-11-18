@@ -200,6 +200,13 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       recalled.hits.length > 0 || (recalled.searched[0]?.detail ?? "") !== "no reference cues"
         ? renderRecallBlock(recalled)
         : "";
+    // Recall is invisible unless someone looks: it rides the system prompt,
+    // not the input, so "did it find anything" has no other observable.
+    debugLog(
+      "agent-run",
+      `recall runId=${runId} hits=${recalled.hits.length} block=${recallBlock.length} ` +
+        `searched=${recalled.searched.map((s) => `${s.source}:${s.hits}`).join(",")}`,
+    );
     // The product tool consults the same hits when the model dispatches with
     // gaps: evidence first, question second.
     deps.onRecall?.(runId, recalled.hits);

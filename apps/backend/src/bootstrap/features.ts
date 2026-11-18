@@ -885,7 +885,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const root = agent?.workspacePath;
       if (!root) return { saved: false, reason: `agent ${agentId} has no workspace` };
       const dir = join(root, ".oma", "memory");
-      const file = join(dir, "learned.md");
+      // ADR 0065 amendment: the product keeps its OWN memory file. learned.md
+      // is the standalone `learn` file, and syncing it to the vector store is
+      // a standalone-only step - so a product write there would never be
+      // readable (live-proven 2026-11-18). This file is written only by a
+      // human-authorized run and read directly by the backend recall.
+      const file = join(dir, "product.md");
       const line = `- [${new Date().toISOString().slice(0, 10)}] ${text.replace(/\s+/g, " ")}`;
       try {
         const existing = existsSync(file) ? await Bun.file(file).text() : "";

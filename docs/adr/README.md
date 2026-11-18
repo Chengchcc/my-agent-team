@@ -89,4 +89,4 @@
 | 0062 | no-aggregated-delivery-card(交付卡暂不按请求聚合) | **Proposed**（结论=暂不做：终态封版 + 一次性进程 ⇒ 聚合需要一张不属于 Run 的新卡片实体；用 `/today` 三段与时间线折叠块回答这件活到哪了；触发条件与将来形状已写死） |
 | 0063 | durable-execution-scope(持久化执行：只做被打断作业的可见性) | **Implemented**（作业生命周期走 `_oma/update` → telemetry；打断 =「有 started 无终态」派生，不建表；下一轮系统提示带清单且明说不重放；不做常驻守护） |
 | 0064 | memory-cross-process(长期记忆对后端可见：读工作区里的 SQLite) | **Accepted**（只读、不建库；范围=会话前台；向量+关键词可降级；`mem:<id>` 出处；失败即空。真机发现产品 run 里没有记忆生产者 ⇒ 需要单独 ADR 决定要不要给） |
-| 0065 | memory-producer(给长期记忆一个生产者：只由人授权的 `remember`) | **Implemented**（仅 `user` 授权可写 `learned.md`；训练语料按事实去重；产品进程不直写向量库；backfill 仍限独立模式） |
+| 0065 | memory-producer(给长期记忆一个生产者：只由人授权的 `remember`) | **Implemented**（仅 `user` 授权可写 `product.md`；事实去重；产品进程不直写向量库；**真机闭环已验证**；中文按二字 shingle 匹配） |
