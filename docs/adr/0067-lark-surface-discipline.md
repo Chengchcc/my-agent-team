@@ -15,14 +15,15 @@
 
 ## 决策
 
-### D1 只有话题群才用话题回复
+### D1 话题群与普通群都走话题回复，私聊平铺
 
-`replyInThreadFor(chatMode)` 从 `chatMode !== "group"` 改成 `chatMode === "topic"`。
+`replyInThreadFor(chatMode)` 从 `chatMode !== "group"` 改成 `chatMode === "topic" || chatMode === "group"`。
 
-- **话题群**（`chat_mode: "topic"`）：必须 thread 回复，否则答案落在主流里，不在会话的话题中。
-- **私聊**（`p2p`）：平铺。thread 回复会**创建**话题，而话题一旦建出来撤不掉——这是"制造了就不能回退"的那类状态，默认不做。
-- **普通群**（`group`）：没有话题可加入，平铺。
-- **未知**（`null`，查询失败）：平铺。理由同上：平铺可以重发到话题里，误建的话题撤不掉。
+- **话题群**（`topic`）：必须 thread 回复，否则答案落在主流里，不在会话的话题中。
+- **普通群**（`group`）：**也要求** thread 回复（运营者 2026-11-19 拍板），让答案挂在一条线上而不是刷屏。
+  Lark 没有文档保证普通群接受 `reply_in_thread`，所以两条发送路径（文本、卡片）在错误信息提到 thread 时**降级重发一次平铺**——答案落到主流里，也比丢掉好。
+- **私聊**（`p2p`）：平铺。thread 回复会**创建**话题，而话题一旦建出来撤不掉。
+- **未知**（`null`）：平铺。理由同上。
 
 ### D2 陌生人的私聊是一次"申请"，不是被无视
 
@@ -36,6 +37,16 @@
 
 **为什么用文本指令而不是卡片按钮**：授权是安全边界，能承载它的最小面胜出。按钮要在同一个 `open_id` 参数前多一层卡片渲染 + 动作解码 + 新动作类型；文本指令把面收在 `parseOwnerCommand` 一个纯函数里，且必须整行匹配（"请 /approve … 一下"不是指令）。
 
+### D4 会话边界：私聊 = 一个 chat 一个会话，群 = 一个 thread 一个会话
+
+运营者的模型（原话）：私聊都在一个 conversation 里，其他都是一个 thread 一个 conversation。ADR 0037 当初对私聊取了相反的口径（每个话题一个会话），于是私聊长出了一棵话题树。
+
+- **私聊**：按 **chat id** 解析会话（该 chat 最新的一条 binding），**从不**按 topic key 解析；新建 binding 时不写话题根、不记 topic key。于是旧的话题键也**无法**把新的消息劈到另一个会话里。
+- **群**：保持 ADR 0037 的 topic 键解析（`thread_id` / `root_id`），一个 thread 一个新的会话。
+- 运行时（`startRunCard` / `sendIntoTopic` / 恢复的排队卡）：`chatMode === "p2p"` 时不带 reply 目标，即使 binding 里躺着旧的话题根。
+
+历史遗留：改造前同一个私聊可能已经有两个会话（每个话题一个）。它们都还在，但新消息只进最新的那一个；要不要合并是另一个决定。
+
 ### D3 卡片主机由 Web 配置
 
 `lark.web_url` 进 agent 配置（schema + DTO + PATCH body + `agent.yml`），Web 的 Lark 面板加一个 "Card link host" 输入框。bot 每条消息都会拉 agent 配置（既有行为），顺手记下 `webUrl` 给卡片用；**启动参数 `--web-url` 只是兜底**，因为配置是运营者能改的那一份。
@@ -44,23 +55,27 @@
 
 ## 不变量
 
-1. 私聊不创建话题；话题群里的答案必须落在话题内。
-2. 未授权的人**不能**通过任何路径驱动 agent；`/approve` 只对 owner 生效。
-3. 一次决定只有一次：已决定的申请不能被后来的点击/重复命令改写。
-4. 陌生人的重复消息不重复打扰 operator。
+1. 私聊不创建话题；话题群里的答案必须落在话题内；普通群请求话题、被拒则平铺。
+2. 会话边界：私聊按 chat 解析、群按 thread 解析。
+3. 未授权的人**不能**通过任何路径驱动 agent；`/approve` 只对 owner 生效。
+4. 一次决定只有一次：已决定的申请不能被后来的点击/重复命令改写。
+5. 陌生人的重复消息不重复打扰 operator。
 
 ## 落点
 
 | 层 | 文件 |
 |---|---|
-| 私聊平铺 | `apps/lark-bot/src/topic-routing.ts`（`replyInThreadFor`） |
+| 私聊平铺 / 群话题 | `apps/lark-bot/src/topic-routing.ts`（`replyInThreadFor`）、`lark-send.ts` 与 `run-card/card-kit.ts`（被拒降级） |
+| 会话边界 | `apps/lark-bot/src/ingest.ts`（私聊按 chat 解析）、`main.ts` / `topic-send.ts`（私聊无 reply 目标） |
 | 申请/授权 | `apps/lark-bot/src/access-requests.ts`（纯）、`bindings-sqlite.ts`（表 + 三函数）、`db/schema.ts`、`drizzle/0011_*`、`ingest.ts`（拦截与 decision 后果）、`main.ts`（发信、写白名单） |
 | 卡片主机 | `apps/backend/src/features/agent/{agent-config,http}.ts`（`web_url`）、`apps/web/src/features/lark/LarkSurfacePanel.tsx`、`ingest.ts`（每条消息记录）→ `main.ts`（`cardHost`） |
 | 发给个人 | `apps/lark-bot/src/lark-send.ts`（`--user-id` 通道，owner 可能还没有 p2p 会话） |
 
 ## 验收
 
-1. ✓ `replyInThreadFor`: topic=true、p2p=false、null=false、group=false（变异：改回 `!== "group"` → 红）。
+1. ✓ `replyInThreadFor`: topic=true、group=true、p2p=false、null=false（变异：改回 `!== "group"` → 红）。
+   降级重发只在错误提到 thread 时触发（`mentionsThread`）。
+6. ✓ 私聊消息即便携带旧的 `thread_id`/`root_id` 也回到同一个会话；私聊 binding 不写话题根、不记 topic key（变异：去掉 chat 解析 → 红）。群的 topic 解析仍成立。
 2. ✓ 被拒的私聊产生一次 `onAccessRequested`；owner 的 `/approve` 被当作管理动作消费掉（不触发 run）。
 3. ✓ 陌生人发 `/approve` **不是** owner：不执行、按普通被拒私聊处理（变异：去掉 owner 判断 → 红）。
 4. ✓ 申请只通知一次；决定单向（变异：去掉 pending 判断 → 红）。
