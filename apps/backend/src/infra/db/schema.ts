@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   primaryKey,
@@ -41,6 +42,15 @@ export const conversation = sqliteTable("conversation", {
   projectId: text("project_id").references(() => project.projectId, {
     onDelete: "restrict",
   }),
+  /** ADR 0070: the room that dispatched into this one. A dispatch opens a
+   *  CHILD CONVERSATION for the worker instead of planting a run in the
+   *  front desk's room, so the worker's process has its own ledger and the
+   *  front desk's room keeps one summary line plus a link.
+   *  Null = a root room (the human's). */
+  parentConversationId: text("parent_conversation_id").references(
+    (): AnySQLiteColumn => conversation.conversationId,
+    { onDelete: "cascade" },
+  ),
 });
 
 // (member table removed — 1:1 collapse: participation is conversation.agent_id)

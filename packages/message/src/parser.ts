@@ -110,6 +110,12 @@ export const MessageRevisionSchema = z.object({
     .object({ agentId: z.string().min(1), agentName: z.string().min(1) })
     .nullable()
     .optional(),
+  /** ADR 0070: a dispatch summary line - the child conversation it opened. The
+   *  room renders a link to that room instead of the worker's process. */
+  dispatchTo: z
+    .object({ conversationId: z.string().min(1) })
+    .nullable()
+    .optional(),
   updatedAt: z.number(),
   error: MessageErrorSchema.nullable().optional(),
   runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).nullable().optional(),

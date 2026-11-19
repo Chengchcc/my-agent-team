@@ -71,6 +71,7 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
           forkSource: input.forkSource ?? null,
           forkFromSeq: input.forkFromSeq ?? null,
           projectId: input.projectId ?? null,
+          parentConversationId: input.parentConversationId ?? null,
         })
         .returning()
         .get();
@@ -98,6 +99,16 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .get();
       if (!row) return null;
       return schema.conversationSelectSchema.parse(row);
+    },
+
+    listChildConversations(parentConversationId: string): ConversationRow[] {
+      return d
+        .select()
+        .from(schema.conversation)
+        .where(eq(schema.conversation.parentConversationId, parentConversationId))
+        .orderBy(schema.conversation.createdAt)
+        .all()
+        .map((row) => schema.conversationSelectSchema.parse(row));
     },
 
     setConversationTitle(conversationId: string, title: string): void {
@@ -159,6 +170,17 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
         .get();
       if (active) {
         throw new ConflictError("Conversation has an active run; stop it before deleting.");
+      }
+      // ADR 0070: this room's dispatched child rooms go with it. SQLite added
+      // the self-reference by ALTER TABLE, which cannot carry ON DELETE
+      // cascade, so the order is explicit: children first (recursively), then
+      // this row.
+      for (const child of d
+        .select({ id: schema.conversation.conversationId })
+        .from(schema.conversation)
+        .where(eq(schema.conversation.parentConversationId, conversationId))
+        .all()) {
+        await this.deleteConversation(child.id);
       }
       return d.transaction((tx) => {
         const trees = tx

@@ -1002,6 +1002,76 @@ describe("ambient rules on the observe seam (ADR 0046)", () => {
   });
 });
 
+describe("ADR 0070: a dispatch opens a room for the worker", () => {
+  function svcWithRooms() {
+    return createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async () => {},
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `child-${Math.random().toString(36).slice(2, 8)}`,
+      isWorkerAgent: async () => true,
+    });
+  }
+
+  test("the child room is bound to its parent and to the worker", async () => {
+    const id = "cid-dispatch-parent";
+    setupConv(id);
+    const svc = svcWithRooms();
+    const childId = await svc.createChildConversation({
+      parentConversationId: id,
+      agentId: "a-worker",
+    });
+    const child = port.getConversation(childId);
+    expect(child?.parentConversationId).toBe(id);
+    expect(child?.agentId).toBe("a-worker");
+    // Not a sidebar room: the list only carries user/fork origins.
+    expect(child?.origin).toBe("dispatch");
+  });
+
+  test("reuse keeps ONE room per (parent, worker); off opens a new one each time", async () => {
+    const id = "cid-dispatch-reuse";
+    setupConv(id);
+    const svc = svcWithRooms();
+
+    const first = await svc.dispatchRoom({
+      parentConversationId: id,
+      workerAgentId: "a-worker",
+      reuse: true,
+    });
+    const second = await svc.dispatchRoom({
+      parentConversationId: id,
+      workerAgentId: "a-worker",
+      reuse: true,
+    });
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(second.conversationId).toBe(first.conversationId);
+
+    const fresh = await svc.dispatchRoom({
+      parentConversationId: id,
+      workerAgentId: "a-worker",
+      reuse: false,
+    });
+    expect(fresh.created).toBe(true);
+    expect(fresh.conversationId).not.toBe(first.conversationId);
+
+    // A different worker never shares the room.
+    const other = await svc.dispatchRoom({
+      parentConversationId: id,
+      workerAgentId: "a-other",
+      reuse: true,
+    });
+    expect(other.created).toBe(true);
+    expect(other.conversationId).not.toBe(first.conversationId);
+  });
+});
+
 describe("front desk invariant (ADR 0049)", () => {
   const WORKERS: Record<string, true> = { "a-worker": true };
 

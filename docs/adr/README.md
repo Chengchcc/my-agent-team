@@ -93,3 +93,5 @@
 | 0066 | room-and-floor(会议室与展厅：房间只记人和前台，工人自己的事在它自己的页面) | **Implemented**（房间按 `_meta.authorAgentId` 过滤；run 页 `Dispatched units` 打通 Lark 卡片→前台 run→工人 run；下车间：`directToWorker` 是前台不变量的唯一显式例外，房间里留摘要且不触发新 run） |
 | 0067 | lark-surface-discipline(私聊平铺、陌生人来要申请、卡片主机由 Web 配) | **Implemented**（`replyInThreadFor` 只在话题群为真；`access_request` 表 + `/approve`/`/deny` 文本指令，仅 owner 生效且单向；`lark.web_url` 进配置与 Web 面板，`--web-url` 降为兜底） |
 | 0068 | backend-supervises-the-bot(机器人由 systemd 托管，后端是唯一的控制面) | **Implemented**（模板单元 `my-agent-team-lark-bot@<agent>`；后端写 0600 env + `systemctl start/stop`；状态=心跳优先 90s、`is-active` 兜底；dispose 不停单元；`LARK_BOT_SUPERVISOR=systemd` 显式开启） |
+| 0069 | ahp-socket-host(浏览器连 AHP 的主机名跟随页面) | **Implemented**（BFF 改写 `wsBase` 主机、保留后端端口、https→wss；`AHP_PUBLIC_WS_BASE` 可整段覆盖） |
+| 0070 | dispatch-opens-a-child-conversation(派发即开一间子会话) | **Implemented S1**（`parent_conversation_id`；派单落子房、父房留前台署名的摘要 + `dispatchTo` 链；默认复用由 `dispatch.reuseChildConversation` 控制；删父房带走子房） |

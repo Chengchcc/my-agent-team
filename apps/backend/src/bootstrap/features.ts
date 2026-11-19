@@ -807,17 +807,37 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       parentRunId,
       note,
     }) => {
-      // Idempotent roster join; throws on an unknown/archived agent, which
-      // the tool surfaces as an isError result.
-      await conversationMembers.add(conversationId, toAgentId);
+      // ADR 0070: the work lands in the WORKER'S OWN ROOM, opened under the
+      // room that dispatched it. The front desk's room keeps one summary line
+      // with a link, so its ledger stays a conversation instead of a mixed
+      // stream of everybody's process.
+      const reuse = settingsSvc.get<boolean>("dispatch.reuseChildConversation") ?? true;
+      const room = await conv.convSvc.dispatchRoom({
+        parentConversationId: conversationId,
+        workerAgentId: toAgentId,
+        reuse,
+      });
       const posted = await conv.convSvc.postMessage({
-        conversationId,
+        conversationId: room.conversationId,
         senderMemberId: fromAgentId,
         addressedTo: [toAgentId],
         content: frameBrief({ fromAgentId, brief, instruction, note }),
         mode: "normal",
         authorization: `dispatch:${fromAgentId}`,
         ...(parentRunId ? { parentRunId } : {}),
+      });
+      // The room's summary is the FRONT DESK's line (sender = the dispatcher),
+      // ledger-only (addressedTo: []), and carries the child's id so the room
+      // can open it.
+      const workerName =
+        (await agentSvc.getById(toAgentId).catch(() => null))?.config.name ?? toAgentId;
+      const head = instruction.length > 80 ? `${instruction.slice(0, 80)}…` : instruction;
+      await conv.convSvc.postMessage({
+        conversationId,
+        senderMemberId: fromAgentId,
+        addressedTo: [],
+        content: `→ 已派给 ${workerName}：「${head}」`,
+        dispatchTo: { conversationId: room.conversationId },
       });
       const first = posted.triggeredRuns.find((entry) => entry.agentId === toAgentId);
       return {

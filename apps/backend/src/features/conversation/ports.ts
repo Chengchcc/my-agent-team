@@ -5,6 +5,8 @@ export type { LedgerEntry, LedgerKind };
 
 export interface ConversationRow {
   conversationId: string;
+  /** ADR 0070: the room that dispatched into this one (null = a root room). */
+  parentConversationId: string | null;
   /** The conversation's agent (1:1 collapse). Nullable on legacy rows. */
   agentId: string | null;
   hopCount: number;
@@ -22,6 +24,8 @@ export interface ConversationRow {
 
 export interface CreateConversationInput {
   conversationId: string;
+  /** ADR 0070: set when a dispatch opens this room under the dispatcher's. */
+  parentConversationId?: string | null;
   /** The conversation's agent (required for new conversations). */
   agentId?: string | null;
   origin?: string;
@@ -60,6 +64,8 @@ export interface ConversationPort {
   /** C2: any conversation bound to this project (delete guard). */
   hasProjectBinding?(projectId: string): boolean;
   listConversationsByAgent(agentId: string): ConversationSummary[];
+  /** ADR 0070: the rooms this one dispatched into, oldest first. */
+  listChildConversations?(parentConversationId: string): ConversationRow[];
   getLastMessagePreview?(conversationId: string): string | null;
   getLastActivityAt?(conversationId: string): number | null;
   /** Max ledger seq (undone excluded); the unread anchor for the web. */

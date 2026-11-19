@@ -153,7 +153,24 @@ export interface ConversationService {
      *  worker directly instead of being rerouted to the front desk. The
      *  surface can only ask for it; the authorization basis stays server-side. */
     directToWorker?: boolean;
+    /** ADR 0070: this message is a dispatch SUMMARY - the room it opened for the
+     *  worker. Rides the ledger so the room can link to that conversation
+     *  instead of the worker's run. */
+    dispatchTo?: { conversationId: string };
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }>;
+  /** ADR 0070: open a room for a worker under the room that dispatched it. */
+  createChildConversation(input: {
+    parentConversationId: string;
+    agentId: string;
+    title?: string;
+  }): Promise<string>;
+  /** ADR 0070: the room a dispatch should land in. `reuse` keeps one room per
+   *  (parent, worker) pair; otherwise every dispatch gets its own. */
+  dispatchRoom(input: {
+    parentConversationId: string;
+    workerAgentId: string;
+    reuse: boolean;
+  }): Promise<{ conversationId: string; created: boolean }>;
   startNewConversationForSurface(input: {
     oldConversationId: string;
     reason: string;
@@ -399,6 +416,7 @@ class ConversationServiceImpl implements ConversationService {
      *  HTTP surface is the only caller that can set it, and the server still
      *  writes the authorization basis itself. */
     directToWorker?: boolean;
+    dispatchTo?: { conversationId: string };
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
     // NOT_FOUND, not a generic Error: a surface can DELETE a room, and the
@@ -543,6 +561,7 @@ class ConversationServiceImpl implements ConversationService {
       // only draws messages that started a run) and reaches surfaces as
       // `_meta.floorFor`.
       ...(floorFor === undefined ? {} : { floorFor }),
+      ...(input.dispatchTo === undefined ? {} : { dispatchTo: input.dispatchTo }),
     };
     const seq = await this.#appendEntry({
       conversationId: input.conversationId,
@@ -591,6 +610,44 @@ class ConversationServiceImpl implements ConversationService {
   /** M15.1: Start a fresh conversation from a surface control tool call.
    *  Copies the agent binding (NOT history), writes surface.control to the
    *  old ledger; the lark watcher rebinds its own delivery tables. */
+  async createChildConversation(input: {
+    parentConversationId: string;
+    agentId: string;
+    title?: string;
+  }): Promise<string> {
+    const parent = this.port.getConversation(input.parentConversationId);
+    if (!parent) throw new NotFoundError("conversation", input.parentConversationId);
+    const conversationId = this.#idGen();
+    this.port.createConversation({
+      conversationId,
+      agentId: input.agentId,
+      origin: "dispatch",
+      createdAt: Date.now(),
+      parentConversationId: input.parentConversationId,
+    });
+    if (input.title !== undefined) this.port.setConversationTitle(conversationId, input.title);
+    return conversationId;
+  }
+
+  async dispatchRoom(input: {
+    parentConversationId: string;
+    workerAgentId: string;
+    reuse: boolean;
+  }): Promise<{ conversationId: string; created: boolean }> {
+    if (input.reuse) {
+      const existing = (
+        this.port.listChildConversations?.(input.parentConversationId) ?? []
+      ).filter((row) => row.agentId === input.workerAgentId);
+      const newest = existing.at(-1);
+      if (newest) return { conversationId: newest.conversationId, created: false };
+    }
+    const conversationId = await this.createChildConversation({
+      parentConversationId: input.parentConversationId,
+      agentId: input.workerAgentId,
+    });
+    return { conversationId, created: true };
+  }
+
   async startNewConversationForSurface(input: {
     oldConversationId: string;
     reason: string;
