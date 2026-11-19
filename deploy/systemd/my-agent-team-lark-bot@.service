@@ -1,0 +1,20 @@
+[Unit]
+Description=my-agent-team Lark bot (%i)
+Documentation=file:///root/my-agent-team/docs/adr/0068-backend-supervises-the-bot.md
+After=network-online.target my-agent-team-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The backend writes this EnvironmentFile before `systemctl start`, and rewrites
+# it whenever the agent's Lark settings change.
+EnvironmentFile=/root/my-agent-team/apps/backend/.backend-data/lark-bot/%i.env
+Environment=PATH=/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/root/my-agent-team/scripts/lark-bot-unit.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

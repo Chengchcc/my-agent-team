@@ -1,0 +1,27 @@
+[Unit]
+Description=my-agent-team web (Next.js surface on :3001)
+After=network-online.target my-agent-team-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/my-agent-team/apps/web
+# Next loads apps/web/.env (BACKEND_URL, BACKEND_AUTH_TOKEN, SESSION_SECRET,
+# MOCK_PASSWORD) from the working directory.
+Environment=NODE_ENV=development
+Environment=PATH=/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/root/.bun/bin/bun node_modules/next/dist/bin/next dev --port 3001 -H 127.0.0.1
+Restart=always
+RestartSec=3
+# This box has 2 cores / 8 GB. `next build` cannot run here (it stalls), so the
+# surface runs `next dev`, whose first compile of a heavy page peaks near 3 GB.
+# The cgroup cap is the replacement for scripts/memguard.sh: exceeding it kills
+# THIS unit (fast fail) instead of letting the kernel pick a victim - usually
+# the backend.
+MemoryMax=3400M
+MemorySwapMax=0
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
