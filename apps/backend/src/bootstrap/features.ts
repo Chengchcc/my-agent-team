@@ -317,6 +317,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     onAgentUpdate: (agentId: string, prevProjects: string[]) =>
       reconcileAgent.fn(agentId, prevProjects),
     assertNoActiveRun: (agentId: string) => busyGuard.check?.(agentId),
+    // Tests inject a no-op: the real writer edits the operator's live
+    // `~/.lark-cli/config.json`, and a test suite must never do that.
+    ...(services.larkProfileInit ? { profileInit: services.larkProfileInit } : {}),
   });
 
   /** The onboarding agent (raft absorption): knows this product out of the box

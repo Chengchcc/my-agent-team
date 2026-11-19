@@ -80,6 +80,14 @@ import { replyInThreadFor, topicLookupKeys } from "./topic-routing.js";
 import { sendImageIntoTopic, sendIntoTopic } from "./topic-send.js";
 
 const args = parseArgs(process.argv.slice(2));
+
+/** ADR 0067: the host behind Lark card links. The Web-configured value wins
+ *  (it is the address the operator can actually reach); the launch flag is the
+ *  fallback. Declared here, ABOVE every card path: restored bindings start run
+ *  cards during startup, before any inbound event refreshes it, and a `let`
+ *  further down the file is in its temporal dead zone at that moment
+ *  (ReferenceError, live 2026-11-19). */
+let cardHost: string | null = args.webUrl ?? null;
 const state = await bootstrap(args);
 
 const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
@@ -565,8 +573,6 @@ function isMergeable(event: LarkMessageEvent): boolean {
  *  (it is the address the operator can actually reach); the launch flag is the
  *  fallback for a bot started before anyone configured one. Refreshed per
  *  event - the agent config it comes from is fetched per event anyway. */
-let cardHost: string | null = args.webUrl ?? null;
-
 async function runIngest(event: LarkMessageEvent): Promise<void> {
   const result = await ingest(event, {
     db: state.db,

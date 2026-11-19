@@ -117,8 +117,16 @@ test("boot pull-up starts bots for lark-enabled agents", async () => {
   };
 
   const { createBackendServices } = await import("./services.js");
+  // The real profile writer shells out to `lark-cli config init`, which edits
+  // the operator's `~/.lark-cli/config.json` and drops secret files: running
+  // this test used to rewrite the machine's LIVE Lark credentials (the bot then
+  // crash-looped with `invalid param`). A fake keeps the seam covered.
+  const profileInits: Array<{ profileRef: string; appId: string }> = [];
   const services = createBackendServices(cfg as Parameters<typeof createBackendServices>[0], {
     larkBotRegistry: fakeRegistry,
+    larkProfileInit: async (profileRef, appId) => {
+      profileInits.push({ profileRef, appId });
+    },
   });
 
   const { installFeatures } = await import("./features.js");
@@ -134,6 +142,8 @@ test("boot pull-up starts bots for lark-enabled agents", async () => {
     }),
   );
   expect(res.status).toBe(200);
+  // The enable went through the injected writer, NOT the operator's config.
+  expect(profileInits).toEqual([{ profileRef: "agent:default", appId: "cli_test" }]);
 
   // An archived agent keeps its lark config; the pull-up used to list archived
   // rows too and started a bot for a deleted agent on every restart.
@@ -159,11 +169,16 @@ test("boot pull-up starts bots for lark-enabled agents", async () => {
   );
   expect(archived.status).toBe(200);
 
+  // Only the BOOT pull-up counts: creating the probe legitimately ensured its
+  // bot once, and asserting over that would test the create path instead of
+  // the pull-up's "enabled agents only" rule.
+  const beforeBoot = ensured.length;
   await installed.start();
-  // PATCH starts the bot immediately and the boot pull-up re-ensures it —
-  // both callers, one contract: only enabled agents, derived profile.
-  expect(ensured.length).toBeGreaterThanOrEqual(1);
-  expect(ensured.every((e) => e.agentId === "default" && e.profile === "agent:default")).toBe(true);
+  const bootEnsures = ensured.slice(beforeBoot);
+  expect(bootEnsures.length).toBeGreaterThanOrEqual(1);
+  expect(bootEnsures.every((e) => e.agentId === "default" && e.profile === "agent:default")).toBe(
+    true,
+  );
   expect(services.larkBotRegistry.statusOf("default")).toBe("running");
 
   await installed.dispose();

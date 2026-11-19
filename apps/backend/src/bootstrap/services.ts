@@ -17,11 +17,17 @@ export interface BackendServices {
   mcpClientManager: McpClientManager;
   opsStore: RuntimeOpsStore;
   larkBotRegistry: LarkBotRegistry;
+  /** Test seam: the real profile writer edits `~/.lark-cli/config.json`.
+   *  Absent = the real one (production). */
+  larkProfileInit?: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
 }
 
 export function createBackendServices(
   config?: BackendConfig,
-  opts?: { larkBotRegistry?: LarkBotRegistry },
+  opts?: {
+    larkBotRegistry?: LarkBotRegistry;
+    larkProfileInit?: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
+  },
 ): BackendServices {
   const cfg = config ?? loadConfig();
   const db = openDb(`${cfg.dataDir}/backend.db`, { migrationsDir: cfg.migrationsDir });
@@ -56,5 +62,6 @@ export function createBackendServices(
     mcpClientManager,
     opsStore,
     larkBotRegistry,
+    ...(opts?.larkProfileInit ? { larkProfileInit: opts.larkProfileInit } : {}),
   };
 }
