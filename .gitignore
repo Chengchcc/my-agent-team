@@ -47,3 +47,4 @@ dist-gateway/
 
 # npm pack output
 *.tgz
+scripts/front-desk-decisions.report.json
