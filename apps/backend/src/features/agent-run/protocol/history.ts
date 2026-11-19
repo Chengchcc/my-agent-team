@@ -42,7 +42,14 @@ export interface AgentRunSnapshot<K extends string = string> {
   /** Frozen write-path policy: the ACP child exposes it as
    *  OMA_DENY_WRITE_PATHS / OMA_ALLOW_WRITE_PATHS, and the tool layer honours
    *  it even under yolo (it is a boundary, not a judgment). */
-  readonly toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
+  readonly toolPolicy?: {
+    deny: string[];
+    allow: string[];
+    denyCommands?: string[];
+    /** ADR 0072: tools the agent's ROLE must not have (the front desk routes
+     *  instead of doing the work). The oma child reads OMA_DISABLED_TOOLS. */
+    disabledTools?: string[];
+  };
   /** Optional workflow budget (tokens) frozen at Run creation. */
   readonly workflowBudgetTokens?: number;
   readonly configRevision: number;

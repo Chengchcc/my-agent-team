@@ -96,6 +96,22 @@ function promptBlocksOf(message: Message): Array<
   return out;
 }
 
+/** The write allow-list for one run: its own workspace plus whatever the agent
+ *  was explicitly granted. The run's cwd is always present, so "no policy
+ *  configured" can no longer mean "write anywhere".
+ *
+ *  Trailing separator is deliberate: the tool layer matches a `dir/` rule
+ *  against the whole subtree, while a bare path matches only that directory. */
+export function writeAllowList(input: {
+  workspace: { root: string };
+  run: { toolPolicy?: { allow: readonly string[] } | null };
+}): string[] {
+  const root = input.workspace.root;
+  const own = root.endsWith("/") ? root : `${root}/`;
+  const granted = input.run.toolPolicy?.allow ?? [];
+  return [own, ...granted.filter((path) => path !== root)];
+}
+
 export class AcpBackendError extends Error {
   constructor(
     readonly code: AcpBackendErrorCode,
@@ -336,8 +352,16 @@ export class AcpBackend implements AgentBackend<"acp"> {
       ...(input.run.toolPolicy?.deny.length
         ? { OMA_DENY_WRITE_PATHS: input.run.toolPolicy.deny.join(",") }
         : {}),
-      ...(input.run.toolPolicy?.allow.length
-        ? { OMA_ALLOW_WRITE_PATHS: input.run.toolPolicy.allow.join(",") }
+      // ADR 0072: writes are confined to the run's own workspace by default.
+      // Without this, an agent could write into a SIBLING agent's workspace by
+      // absolute path (the front desk edited worker-one's files live,
+      // 2026-11-19). A shared directory is now an explicit act: put it in the
+      // agent's `allowWritePaths`, which lands in `toolPolicy.allow` above.
+      OMA_ALLOW_WRITE_PATHS: writeAllowList(input).join(","),
+      // Capability, not persuasion: the front desk's tool list has no write /
+      // edit / bash, so "it did the work itself" stops being possible.
+      ...(input.run.toolPolicy?.disabledTools?.length
+        ? { OMA_DISABLED_TOOLS: input.run.toolPolicy.disabledTools.join(",") }
         : {}),
       // The command slice is a tripwire, not a boundary (exact whole-string
       // matches only), but it travels the same frozen channel.

@@ -80,6 +80,20 @@ const DEFAULT_HEARTBEAT_MS = 15_000;
 
 /** Start the loop: bind runtime, resolve tools, persist the prompt, and
  *  return the system prompt + first branch messages. */
+/** `OMA_DISABLED_TOOLS` — comma-separated tool names the run may not mount.
+ *  Empty = every tool the runtime would otherwise offer. */
+export function disabledToolsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): Set<string> {
+  const raw = env.OMA_DISABLED_TOOLS ?? "";
+  return new Set(
+    raw
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name !== ""),
+  );
+}
+
 async function prepareLoopStart(
   ctx: LoopRunnerContext,
   codingInput: CodingLoopInput,
@@ -126,7 +140,13 @@ async function prepareLoopStart(
   state.runUsage = undefined;
 
   const runTools = opts.resolveTools ? await opts.resolveTools(codingInput) : [];
-  toolMapRef.current = new Map([...baseTools, ...runTools].map((t) => [t.name, t]));
+  // ADR 0072: a role can be denied tools by capability, not by prompting. The
+  // backend freezes the list into the run's env (same channel as the write
+  // policy), so the front desk cannot edit files or shell out even if the model
+  // insists - the tool simply is not mounted.
+  const disabled = disabledToolsFromEnv();
+  const mounted = [...baseTools, ...runTools].filter((t) => !disabled.has(t.name));
+  toolMapRef.current = new Map(mounted.map((t) => [t.name, t]));
 
   await emit({ type: "agent_start" });
 
