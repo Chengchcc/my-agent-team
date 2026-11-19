@@ -3,6 +3,7 @@
 import { Activity, Cpu, Database, KeyRound, Server } from "lucide-react";
 import { useState } from "react";
 import { AssessmentSection } from "@/components/AssessmentSection";
+import { DispatchSettingsSection } from "@/components/DispatchSettingsSection";
 import { LoginPasswordSection } from "@/components/LoginPasswordSection";
 import { ProviderSettingsSection } from "@/components/ProviderSettingsSection";
 import { Page, PageBody, PageHeader } from "@/components/page";
@@ -118,6 +119,7 @@ export default function SettingsPage() {
         </div>
 
         <ProviderSettingsSection />
+        <DispatchSettingsSection />
         {/* ADR 0048: how much of the "is this work?" decision is delegated. */}
         <AssessmentSection />
         <LoginPasswordSection />
