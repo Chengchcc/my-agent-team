@@ -1465,18 +1465,15 @@ describe("ADR 0072: a role can be denied tools by capability", () => {
       },
     });
     await backend
-      .execute(
-        {
-          run: {
-            runId: "r1",
-            model: { backendKind: "acp", modelId: "acp/oma" },
-            configRevision: 1,
-            toolPolicy: { deny: [], allow: [], disabledTools: ["bash", "write", "edit"] },
-          },
-          workspace: { root: "/tmp/ws" },
-        } as never,
-        { onEvent: () => {} } as never,
-      )
+      .execute({
+        run: {
+          runId: "r1",
+          model: { backendKind: "acp", modelId: "acp/oma" },
+          configRevision: 1,
+          toolPolicy: { deny: [], allow: [], disabledTools: ["bash", "write", "edit"] },
+        },
+        workspace: { root: "/tmp/ws" },
+      } as never)
       .catch(() => {});
     expect(spawns[0]?.env?.OMA_DISABLED_TOOLS).toBe("bash,write,edit");
   });
