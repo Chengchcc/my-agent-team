@@ -51,7 +51,15 @@
 
 backend 退出时**不** stop 单元：重启 backend 不应让机器人重连。只有"用户在应用里关掉"才停。
 
-### D5 选择用显式开关
+### D5 单元必须显式给 HOME
+
+systemd 对"没有写 `User=` 的单元"**不设置 HOME**。而 `lark-cli` 靠 `~/.lark-cli/config.json` 找 profile：没有 HOME 时它报 `not_configured`（还附带一句误导性的"run config init --new"）。
+
+真机上这条的形态最容易误判：**手工在 shell 里跑同一条命令成功，机器人里每条投递都失败**，卡片停在"排队/creating"。两个单元（backend 与 bot）都显式写 `Environment=HOME=/root`。
+
+**通式：单元里凡是要 shell-out 到读用户目录的工具（credential 文件、缓存），都要显式给 HOME——"我手工跑得通"不是证据。**
+
+### D6 选择用显式开关
 
 `LARK_BOT_SUPERVISOR=systemd`（写在后端单元里）。没装模板单元的开发机保持子进程模式，行为不变。没有自动探测：自动选择会让"为什么这台机器上是另一种行为"变成一个谜。
 
@@ -71,6 +79,7 @@ backend 退出时**不** stop 单元：重启 backend 不应让机器人重连�
 | 控制器 | `apps/backend/src/features/lark-bot/systemd-registry.ts`（+ 测试）、工厂分支 `lark-bot-registry-factory.ts` |
 | 心跳→状态 | `apps/backend/src/bootstrap/services.ts`（`heartbeatOf` → `opsStore`） |
 | 开关 | `packages/config/src/env.ts`（`LARK_BOT_SUPERVISOR`）、后端单元的 `Environment=` |
+| 单元环境 | `deploy/systemd/*.service`（`HOME`、`PATH`）与 `apps/backend/.env`（provider key，见指南） |
 
 ## 验收
 
@@ -79,4 +88,5 @@ backend 退出时**不** stop 单元：重启 backend 不应让机器人重连�
 3. ✓ 心跳新鲜时以心跳为准，`error` 心跳压过活着的进程（变异：恒返回 running → 红）；心跳过期回落到进程状态。
 4. ✓ 单元名从 agentId 推导，含 shell 元字符的 id 直接拒绝。
 5. ✓ 真机：`PATCH {enabled:false}` → 单元 `inactive`、`status: not_configured`；`PATCH {enabled:true,…}` → 单元 `active`、`status: running`；后端 cgroup 里**没有**机器人子进程；`journalctl -u my-agent-team-lark-bot@default` 显示 `channel connected app=cli_aa3e242e58781bee`。
-6. 待重启验证：`systemctl restart my-agent-team-backend` 后机器人进程 **PID 不变**（D4）。
+6. ✓ 重启 backend 后机器人 PID 不变（D4：3930492 → 3930492）。
+7. ✓ 单元内 `HOME=/root`；真机投递成功（平台侧可见机器人发出的"投递正常"）。
