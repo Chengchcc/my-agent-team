@@ -1,5 +1,5 @@
 | 0071 | every-turn-answers-with-a-card(任何来源的 turn 都用卡片回) | **Implemented**（`onChatState` 对 `activeTurn` 无卡则建卡；只对运行中的 turn，不为历史补卡；首帧前结束的 run 仍回退纯文本） |# ADR 索引
-
+| 0072 | front-desk-does-not-do-the-work(前台不干活：写入围栏 + 角色决定工具) | **Implemented**（`OMA_ALLOW_WRITE_PATHS` 默认含自身 cwd；前台禁用 `bash/eval/write/edit`；共享目录=显式 `allowWritePaths`；实测 `eval` 是 bash 之后的逃逸口） |
 决策记录的**唯一目录**。架构级规则文档(design-philosophy / e2e-contract-rules / db-typesafe-rules)与协议实测记录(gate0)仍在 `docs/architecture/`，见文末链接。
 
 **状态图例**：Accepted=现行有效；Implemented=已实施；Superseded=被后续迭代取代(仅历史)；Deferred=维持不做；Obsolete=对象已移除；被取代/目标达成=以不同形态落地。

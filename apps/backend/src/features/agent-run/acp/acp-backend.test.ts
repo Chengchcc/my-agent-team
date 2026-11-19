@@ -7,7 +7,7 @@ import type {
   BackendRunOutcome,
   BackendRunSegment,
 } from "../protocol/index.js";
-import { AcpBackend, AcpBackendError, type AcpMcpProvider } from "./acp-backend.js";
+import { AcpBackend, AcpBackendError, type AcpMcpProvider, writeAllowList } from "./acp-backend.js";
 import { setBackendShuttingDown } from "./shutdown.js";
 import { type AcpSpawn, createNodeSpawn } from "./transport.js";
 
@@ -1062,9 +1062,12 @@ describe("AcpBackend against an in-memory fake agent", () => {
     await collect(segment);
     // The tool layer enforces these even under yolo, so the chain has to end
     // in the child's env or the policy is inert.
+    // ADR 0072: the run's OWN cwd is always first (a run may write where it
+    // runs); the configured grant follows. Before this, an agent with no policy
+    // could write anywhere.
     expect(spawnEnv[0]).toMatchObject({
       OMA_DENY_WRITE_PATHS: "/home/me/.ssh/",
-      OMA_ALLOW_WRITE_PATHS: "/tmp/ws/notes/",
+      OMA_ALLOW_WRITE_PATHS: "/tmp/acp-fake-ws/,/tmp/ws/notes/",
       OMA_DENY_COMMANDS: "git push",
     });
     await backend.dispose();
@@ -1448,5 +1451,52 @@ describe("#27: steering is negotiated at handshake, not assumed", () => {
     const backend = new AcpBackend({ spawnImpl: startFakeAgent({}, blockedObs()) });
     await expect(backend.steer("run-missing", steerInput("x"))).rejects.toThrow(/no live acp run/);
     await backend.dispose();
+  });
+});
+
+describe("ADR 0072: a role can be denied tools by capability", () => {
+  test("the frozen list travels to the child as OMA_DISABLED_TOOLS", async () => {
+    // The front desk routes; without this list it just does the work itself.
+    const spawns: Array<{ env?: Record<string, string | undefined> }> = [];
+    const backend = new AcpBackend({
+      spawnImpl: (opts) => {
+        spawns.push({ env: opts.env });
+        throw new Error("stop after spawn");
+      },
+    });
+    await backend
+      .execute(
+        {
+          run: {
+            runId: "r1",
+            model: { backendKind: "acp", modelId: "acp/oma" },
+            configRevision: 1,
+            toolPolicy: { deny: [], allow: [], disabledTools: ["bash", "write", "edit"] },
+          },
+          workspace: { root: "/tmp/ws" },
+        } as never,
+        { onEvent: () => {} } as never,
+      )
+      .catch(() => {});
+    expect(spawns[0]?.env?.OMA_DISABLED_TOOLS).toBe("bash,write,edit");
+  });
+});
+
+describe("ADR 0072: writes stay inside the run's own workspace", () => {
+  test("the cwd is always allowed, with a trailing separator for subtrees", () => {
+    expect(writeAllowList({ workspace: { root: "/data/agents/default" }, run: {} })).toEqual([
+      "/data/agents/default/",
+    ]);
+  });
+
+  test("an explicit grant is added - that is how two agents share a directory", () => {
+    // The operator's rule: separated by default, shared only when configured.
+    const allow = writeAllowList({
+      workspace: { root: "/data/agents/default" },
+      run: { toolPolicy: { allow: ["/data/shared/"] } },
+    });
+    expect(allow).toEqual(["/data/agents/default/", "/data/shared/"]);
+    // A sibling workspace is NOT implied - it has to be granted.
+    expect(allow.some((p) => p.includes("worker-one"))).toBe(false);
   });
 });

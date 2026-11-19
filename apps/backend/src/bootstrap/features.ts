@@ -509,15 +509,27 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       if (agent) result.permissionMode = agent.config.runtime_config.permission_mode;
       if (agent) {
         const rc = agent.config.runtime_config;
+        // ADR 0072: the FRONT DESK routes; it does not edit code or shell out.
+        // Its own workspace is not the place the work happens, so handing it
+        // bash/write/edit only lets it bypass dispatch (live: it edited the
+        // worker's files and reported "已加好"). Workers keep every tool.
+        // Everything that can WRITE or run code: the front desk keeps read /
+        // ls / glob / grep (investigation) and the product tools. `eval` is on
+        // the list because it is arbitrary JS with node:fs - the live escape
+        // hatch that wrote the worker's file after bash was denied.
+        const frontDeskTools =
+          agent.config.role === "worker" ? [] : ["bash", "eval", "write", "edit"];
         if (
           rc.deny_write_paths.length > 0 ||
           rc.allow_write_paths.length > 0 ||
-          rc.deny_commands.length > 0
+          rc.deny_commands.length > 0 ||
+          frontDeskTools.length > 0
         ) {
           result.toolPolicy = {
             deny: [...rc.deny_write_paths],
             allow: [...rc.allow_write_paths],
             denyCommands: [...rc.deny_commands],
+            ...(frontDeskTools.length > 0 ? { disabledTools: frontDeskTools } : {}),
           };
         }
       }

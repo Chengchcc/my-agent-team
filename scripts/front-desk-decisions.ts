@@ -102,6 +102,13 @@ async function settle(conversationId: string): Promise<string> {
       const mine = (pending.actions ?? []).filter(
         (a) => a.runId === runs[0]?.runId && a.status === "pending",
       );
+      if (mine.length === 0) {
+        // The run turns `waiting` a beat before its action row lands; giving up
+        // immediately recorded "parked" for a run the operator would have
+        // approved (observed 2026-11-19).
+        await Bun.sleep(2000);
+        continue;
+      }
       if (mine.some((a) => a.kind === "ask")) return "waiting";
       const approval = mine.find((a) => a.kind === "approval");
       if (approval) {
