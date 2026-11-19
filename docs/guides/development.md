@@ -132,6 +132,11 @@ systemctl status 'my-agent-team-lark-bot@default'
 journalctl -u 'my-agent-team-lark-bot@default' -f
 ```
 
+**模型 API key 必须写在 `apps/backend/.env`**（0600）。systemd 不继承你的 shell：
+手工 `bun run src/main.ts` 时 key 来自交互环境，看起来一切正常；换成单元后进程环境里没有 key，
+provider 就不会注册，run 以 **`model not found in catalog: <id>`** 失败——注意这句话具有误导性，
+它的真实含义常常是"这个 provider 没有凭据"。
+
 机器人的开关只有一个入口：Web 的 Lark 面板（或 `PATCH /api/agents/:id {lark:{enabled}}`）。
 不要手工 `systemctl start` 机器人单元去"绕过"应用状态——两边各自为政时，面板显示的和实际跑的不是一回事。
 单元的 EnvironmentFile 在 `<BACKEND_DATA_DIR>/lark-bot/<agentId>.env`（0600），由后端写，不要手改。
