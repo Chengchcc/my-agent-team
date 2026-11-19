@@ -1002,6 +1002,49 @@ describe("ambient rules on the observe seam (ADR 0046)", () => {
   });
 });
 
+describe("ADR 0070: a ledger-only note records its author", () => {
+  test("an agent sender stamps authorAgentId; a human sender does not", async () => {
+    const id = "cid-author-stamp";
+    setupConv(id);
+    const svc = createConversationService({
+      port,
+      agentRunService: runSvc,
+      dispatchRun: async () => {},
+      injectSteer: async () => {},
+      isLive: () => false,
+      isInflight: () => false,
+      abortStaleRun: async () => {},
+      contextService: contextSvc,
+      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
+      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
+      isWorkerAgent: async () => true,
+    });
+    await svc.postMessage({
+      conversationId: id,
+      senderMemberId: "a-front",
+      addressedTo: [],
+      content: "→ 已派给 a-worker：「x」",
+      dispatchTo: { conversationId: "child-1" },
+    });
+    await svc.postMessage({
+      conversationId: id,
+      senderMemberId: "human:web:alice",
+      content: "hello",
+    });
+    const rows = port
+      .getLedgerEntries(id)
+      .map((e) => JSON.parse(JSON.stringify(e.content))) as Array<{
+      text?: string;
+      authorAgentId?: string;
+    }>;
+    const marker = rows.find((r) => r.text?.startsWith("→"));
+    const human = rows.find((r) => r.text === "hello");
+    // Without this the room renders the summary in the human's own bubble.
+    expect(marker?.authorAgentId).toBe("a-front");
+    expect(human?.authorAgentId).toBeUndefined();
+  });
+});
+
 describe("ADR 0070: a dispatch opens a room for the worker", () => {
   function svcWithRooms() {
     return createConversationService({

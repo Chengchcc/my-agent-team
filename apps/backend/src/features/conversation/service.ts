@@ -229,6 +229,14 @@ export interface ConversationService {
   cancelInput(inputId: string): Promise<void>;
 }
 
+/** Is this sender an AGENT (as opposed to the human or the system)?
+ *
+ *  Human senders are `user` and `human:*`; a bare id is an agent. Used to stamp
+ *  `authorAgentId` on ledger-only rows, which have no run to attribute them. */
+function isAgentSender(senderMemberId: string): boolean {
+  return senderMemberId !== "user" && !senderMemberId.startsWith("human:");
+}
+
 export function createConversationService(deps: ConversationServiceDeps): ConversationService {
   return new ConversationServiceImpl(deps);
 }
@@ -562,6 +570,10 @@ class ConversationServiceImpl implements ConversationService {
       // `_meta.floorFor`.
       ...(floorFor === undefined ? {} : { floorFor }),
       ...(input.dispatchTo === undefined ? {} : { dispatchTo: input.dispatchTo }),
+      // The sender decides authorship. Run-produced rows are attributed by their
+      // run; a ledger-only note (the dispatch summary) has no run, so without
+      // this it renders as the human's own line.
+      ...(isAgentSender(senderMemberId) ? { authorAgentId: senderMemberId } : {}),
     };
     const seq = await this.#appendEntry({
       conversationId: input.conversationId,
