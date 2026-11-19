@@ -150,6 +150,22 @@ function builtinSource(root: string | undefined, name: string): string | null {
   return root === undefined ? null : join(root, name);
 }
 
+/** Is this builtin pack ORPHANED - its source directory no longer exists?
+ *
+ *  Builtin packs mirror repo directories (`docs/<name>`), so a pack whose
+ *  directory is gone can never be refreshed again and its copy never gets
+ *  re-created: the row keeps promising content, agents keep symlinking to a
+ *  directory that does not exist, and the prompt shows an empty index forever
+ *  (live 2026-11-19: the retired `my-agent-team` pack). */
+export function isOrphanedBuiltinPack(
+  builtinRoot: string | undefined,
+  row: { sourceKind: string; name: string },
+): boolean {
+  if (row.sourceKind !== "builtin") return false;
+  const src = builtinSource(builtinRoot, row.name);
+  return src !== null && !existsSync(src);
+}
+
 /** Re-copy a builtin pack when its source no longer matches the copy on disk.
  *
  *  A pack is a copy of a repo directory, so "install once" freezes every later

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { KnowledgePackRow } from "./entities.js";
 import { knowledgeInstallRoot, refreshBuiltinPack } from "./install.js";
 import type { KnowledgePackPort } from "./ports.js";
+import { createKnowledgeService } from "./service.js";
 
 /** Builtin packs are copies of repo directories. The bug this covers: the copy
  *  was made once and never revisited, so a page deleted from the repo lived on
@@ -62,6 +63,33 @@ function setup() {
   const port = memoryPort([row]);
   return { tmp, source, target, dataDir, builtinRoot, row, port };
 }
+
+describe("ADR 0022 (amended): a builtin pack whose source is gone is dropped", () => {
+  test("syncBuiltin removes the orphan instead of promising content forever", async () => {
+    const s = setup();
+    try {
+      // The retired `my-agent-team` pack: the row and its old copy exist, the
+      // repo directory does not. Refreshing can never succeed, and an agent
+      // pointing at it keeps a symlink to a directory that will never have
+      // files (live 2026-11-19: the prompt showed an empty index forever).
+      const orphan = { ...s.row, id: "pack-old", name: "my-agent-team" };
+      s.port.create(orphan);
+      const svc = createKnowledgeService({
+        port: s.port,
+        dataDir: s.dataDir,
+        idGen: () => "generated",
+        builtinRoot: s.builtinRoot,
+      });
+      const touched = await svc.syncBuiltin();
+      expect(touched).toContain("my-agent-team");
+      expect(s.port.getById("pack-old")).toBeNull();
+      // The healthy pack stays.
+      expect(s.port.getById("pack-1")).not.toBeNull();
+    } finally {
+      rmSync(s.tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("builtin knowledge refresh", () => {
   test("copies when the source moved on, and records the fingerprint", async () => {
