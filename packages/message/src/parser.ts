@@ -116,6 +116,10 @@ export const MessageRevisionSchema = z.object({
     .object({ conversationId: z.string().min(1) })
     .nullable()
     .optional(),
+  /** ADR 0060 D3 / 0070: who wrote this row when it did NOT come from a run
+   *  (a dispatch summary, a surface note). Run-produced rows derive their
+   *  author from the run; these have none to derive from. */
+  authorAgentId: z.string().min(1).nullable().optional(),
   updatedAt: z.number(),
   error: MessageErrorSchema.nullable().optional(),
   runStatus: z.enum(["running", "retrying", "compacting", "waiting"]).nullable().optional(),
