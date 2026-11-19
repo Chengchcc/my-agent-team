@@ -210,6 +210,47 @@ describe("the message list from AHP chat state", () => {
     expect(texts).not.toContain("worker says: fixed it");
   });
 
+  test("ADR 0060 D3: an agent-authored input is NOT shown as the human", () => {
+    // A dispatch brief is written by the front desk but stored as an INPUT
+    // (role user). Rendering by role alone put the front desk's words in the
+    // human's own bubble - the operator read it as "I never sent this".
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-front",
+          state: "complete",
+          message: {
+            text: "what I actually typed",
+            origin: { kind: "user" },
+            _meta: { messageId: "msg-1", seq: 1 },
+          },
+          responseParts: [],
+        },
+        {
+          id: "run-worker",
+          state: "complete",
+          message: {
+            text: "(dispatched by default) fix the redirect",
+            origin: { kind: "user" },
+            _meta: { messageId: "msg-2", seq: 2, authorAgentId: "front" },
+          },
+          responseParts: [],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      { memberId: "front", kind: "agent", agentId: "front" },
+    );
+    const byText = (needle: string) =>
+      items.find(
+        (i) => i.kind === "message" && (i.content as { text?: string }).text?.includes(needle),
+      );
+    const mine = byText("what I actually typed");
+    const theirs = byText("dispatched by default");
+    expect(mine?.kind === "message" ? mine.sender.kind : null).toBe("human");
+    expect(theirs?.kind === "message" ? theirs.sender.kind : null).toBe("agent");
+    expect(theirs?.kind === "message" ? theirs.content.role : null).toBe("assistant");
+  });
+
   test("ADR 0066: a floor visit's addressee reaches the room as a chip on the message", () => {
     const items = itemsFromChatState(
       state([
