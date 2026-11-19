@@ -111,6 +111,140 @@ describe("AHP server core against the official client", () => {
     expect(connection.subscriptions.size).toBe(0);
   });
 
+  test("a second initialize is refused: one handshake per connection", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    const init = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        channel: AHP_ROOT,
+        clientId: "x",
+        protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+        initialSubscriptions: [AHP_ROOT],
+      },
+    };
+    connection.handle(JSON.stringify(init));
+    await Bun.sleep(5);
+    connection.handle(JSON.stringify({ ...init, id: 2 }));
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number } };
+    // AhpErrorCodes.InvalidRequest.
+    expect(reply.error?.code).toBe(-32600);
+  });
+
+  test("initialize on a non-root channel is refused", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          channel: CHAT_URI,
+          clientId: "x",
+          protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+          initialSubscriptions: [AHP_ROOT],
+        },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number } };
+    expect(reply.error?.code).toBe(-32602);
+  });
+
+  test("subscribe with a non-string channel is refused, not coerced", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "subscribe", params: { channel: 42 } }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number } };
+    expect(reply.error?.code).toBe(-32602);
+    expect(connection.subscriptions.size).toBe(0);
+  });
+
+  test("initialize whose subscription fails registers NOTHING", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          channel: AHP_ROOT,
+          clientId: "x",
+          protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+          initialSubscriptions: [AHP_ROOT, "ahp-terminal:/nope"],
+        },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number } };
+    expect(reply.error?.code).toBe(-32602);
+    // The good channel in the same batch must not stay subscribed after a
+    // failure: a half-registered handshake is the bug this guards.
+    expect(connection.subscriptions.size).toBe(0);
+  });
+
+  test("reconnect beyond the buffer falls back to a SNAPSHOT", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "reconnect",
+        params: { subscriptions: [AHP_ROOT], lastSeenServerSeq: 999 },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as {
+      result?: { type?: string; snapshots?: unknown[] };
+    };
+    expect(reply.result?.type).toBe("snapshot");
+    expect(reply.result?.snapshots).toHaveLength(1);
+    expect(connection.subscriptions.has(AHP_ROOT as URI)).toBe(true);
+  });
+
+  test("reconnect with a malformed payload answers instead of throwing", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "reconnect",
+        params: { subscriptions: "not-an-array", lastSeenServerSeq: "soon" },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { result?: unknown; error?: unknown };
+    // Whatever the shape, the server answers: an unparsable reconnect must not
+    // leave the client waiting forever.
+    expect(reply.result !== undefined || reply.error !== undefined).toBe(true);
+  });
+
+  test("reconnect to an unserved channel is refused", async () => {
+    const server = createAhpServer({ source: fakeSource() });
+    const { connection, received } = connect(server);
+    connection.handle(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "reconnect",
+        params: { subscriptions: ["ahp-terminal:/nope"], lastSeenServerSeq: 999 },
+      }),
+    );
+    await Bun.sleep(5);
+    const reply = JSON.parse(received.at(-1)!) as { error?: { code: number } };
+    expect(reply.error?.code).toBe(-32602);
+  });
+
   test("an unknown session is NotFound, not a cached empty state", async () => {
     const server = createAhpServer({
       source: {
