@@ -37,6 +37,10 @@ export const envSchema = z.object({
   /** ADR 0068: `systemd` = one unit per Lark bot, driven with `systemctl`;
    *  unset = the bot is a child process of the backend (dev boxes). */
   LARK_BOT_SUPERVISOR: z.enum(["systemd"]).optional(),
+  /** ADR 0069: where the browser should open the AHP socket when a reverse
+   *  proxy terminates both HTTP and WS on one address. Unset = the BFF derives
+   *  it from the host the page was served from. */
+  AHP_PUBLIC_WS_BASE: z.string().optional(),
   BACKEND_TEMPLATE_DIR: z.string().optional(),
   BACKEND_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
   BACKEND_CANCEL_GRACE_MS: z.coerce.number().int().positive().default(5_000),

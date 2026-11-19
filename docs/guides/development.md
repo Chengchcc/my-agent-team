@@ -137,6 +137,18 @@ journalctl -u 'my-agent-team-lark-bot@default' -f
 provider 就不会注册，run 以 **`model not found in catalog: <id>`** 失败——注意这句话具有误导性，
 它的真实含义常常是"这个 provider 没有凭据"。
 
+### 从别的机器访问 Web
+
+页面和聊天数据走**两个端口**：HTTP/SSE 走 `3001`，聊天数据的 AHP WebSocket 走**后端**的 `3000`。
+BFF 会把 socket 地址改写成你访问页面用的主机名（ADR 0069），所以端口转发要把两个都带上：
+
+```bash
+ssh -L 3001:127.0.0.1:3001 -L 3000:127.0.0.1:3000 root@<host>
+```
+
+只转 3001 时页面能打开、**历史聊天是空的**，而后端日志里一切正常——这是最容易误判成"数据没了"的形态。
+真的要让一个端口承担全部（反向代理），在 `apps/web/.env` 里设 `AHP_PUBLIC_WS_BASE=wss://your-host/ahp`。
+
 机器人的开关只有一个入口：Web 的 Lark 面板（或 `PATCH /api/agents/:id {lark:{enabled}}`）。
 不要手工 `systemctl start` 机器人单元去"绕过"应用状态——两边各自为政时，面板显示的和实际跑的不是一回事。
 单元的 EnvironmentFile 在 `<BACKEND_DATA_DIR>/lark-bot/<agentId>.env`（0600），由后端写，不要手改。

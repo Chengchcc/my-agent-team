@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 process.env.BACKEND_AUTH_TOKEN = "be-secret";
 process.env.BACKEND_URL = "http://backend.test:3000";
 
-const { passthroughHeaders, proxyRequest, stripHopByHop } = await import("./bff");
+const { passthroughHeaders, proxyRequest, rewriteWsTicket, stripHopByHop } = await import("./bff");
 
 const realFetch = globalThis.fetch;
 afterAll(() => {
@@ -188,5 +188,37 @@ describe("proxyRequest", () => {
     expect(res.headers.get("x-custom")).toBeNull();
     expect(res.headers.get("Cache-Control")).toBe("no-transform");
     expect(res.headers.get("X-Accel-Buffering")).toBe("no");
+  });
+});
+
+describe("ADR 0069: the AHP socket follows the page's host", () => {
+  test("a forwarded page gets its own hostname, the backend's port", () => {
+    // The browser reached :3001 through a forward; the backend reported
+    // ws://127.0.0.1:3000 and dialling that from the laptop hits the laptop.
+    expect(
+      rewriteWsTicket(
+        { ticket: "t", wsBase: "ws://127.0.0.1:3000" },
+        { host: "localhost:3001", proto: "http:" },
+      ),
+    ).toEqual({ ticket: "t", wsBase: "ws://localhost:3000" });
+  });
+
+  test("https pages get wss", () => {
+    expect(
+      rewriteWsTicket(
+        { wsBase: "ws://10.0.0.5:3000" },
+        { host: "ops.example.com", proto: "https:" },
+      ).wsBase,
+    ).toBe("wss://ops.example.com:3000");
+  });
+
+  test("an explicit deployment override wins verbatim", () => {
+    // A reverse proxy that terminates both, or a different socket host.
+    expect(
+      rewriteWsTicket(
+        { wsBase: "ws://127.0.0.1:3000" },
+        { host: "ops.example.com", proto: "https:", override: "wss://ops.example.com/ahp" },
+      ).wsBase,
+    ).toBe("wss://ops.example.com/ahp");
   });
 });

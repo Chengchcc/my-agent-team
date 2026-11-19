@@ -76,9 +76,10 @@ export async function proxyRequest(
   const BACKEND_TOKEN = getBackendToken();
 
   const url = new URL(req.url);
+  const segmentsOf = pathSegments[0] === "api" ? pathSegments.slice(1) : pathSegments;
   // Normalize: backend routes are under /api/; Treaty generates /api/bff/api/...
   // while manual fetch may use /api/bff/conversations/... — accept both.
-  const segments = pathSegments[0] === "api" ? pathSegments.slice(1) : pathSegments;
+  const segments = segmentsOf;
   const upstreamUrl = `${BACKEND_URL}/api/${segments.join("/")}${url.search}`;
 
   const upstreamHeaders = stripHopByHop(req.headers);
@@ -97,6 +98,21 @@ export async function proxyRequest(
       signal: isSsePath(pathSegments) ? undefined : req.signal,
     });
 
+    // ADR 0069: the AHP socket address the backend reports is ITS bind address
+    // (`ws://127.0.0.1:3000`). A browser that reached this page through a
+    // forward or a proxy would dial its OWN loopback and the room would stay
+    // empty while every HTTP call works. Rewrite the host to the one the page
+    // was served from, keeping the backend's port; AHP_PUBLIC_WS_BASE wins
+    // verbatim for a real reverse proxy that terminates both.
+    if (segments.join("/") === "ahp/ws-ticket" && upstream.ok) {
+      const body = (await upstream.clone().json()) as { ticket?: string; wsBase?: string };
+      const rewritten = rewriteWsTicket(body, {
+        host: req.headers.get("host") ?? "",
+        proto: url.protocol,
+        override: env().AHP_PUBLIC_WS_BASE,
+      });
+      return Response.json(rewritten, { headers: { "Cache-Control": "no-store" } });
+    }
     const responseHeaders = passthroughHeaders(upstream.headers);
     responseHeaders.set("Cache-Control", "no-transform");
     responseHeaders.set("X-Accel-Buffering", "no");
@@ -114,4 +130,32 @@ export async function proxyRequest(
     }
     throw err;
   }
+}
+
+/** ADR 0069: point the AHP socket at the host the page was served from.
+ *
+ *  `ws://127.0.0.1:3000` is correct only for a browser running on the backend's
+ *  own machine. Anything else (an SSH forward, a reverse proxy) needs the
+ *  page's hostname; the backend's PORT is kept because the socket listener is
+ *  the backend.
+ *
+ *  `override` is for a proxy that exposes the socket somewhere else entirely:
+ *  then the operator says so once per deployment and we do not guess. */
+export function rewriteWsTicket(
+  body: { ticket?: string; wsBase?: string },
+  input: { host: string; proto: string; override?: string },
+): { ticket?: string; wsBase: string } {
+  if (input.override !== undefined && input.override !== "") {
+    return { ...body, wsBase: input.override };
+  }
+  const scheme = input.proto === "https:" ? "wss" : "ws";
+  const hostname = input.host.split(":")[0] ?? "127.0.0.1";
+  const port = (() => {
+    try {
+      return new URL(body.wsBase ?? "").port;
+    } catch {
+      return "";
+    }
+  })();
+  return { ...body, wsBase: `${scheme}://${hostname}${port === "" ? "" : `:${port}`}` };
 }
