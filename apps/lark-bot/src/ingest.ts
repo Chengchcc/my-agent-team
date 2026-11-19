@@ -4,6 +4,7 @@ import {
   chatHasConversations,
   confirmInbound,
   findConversationByTopicKey,
+  forgetConversationBinding,
   getMemberBinding,
   inboundExists,
   listActiveRunCards,
@@ -266,6 +267,21 @@ async function watchExecutionAndReport(opts: {
       return;
     }
   }
+}
+
+/** A 404 from the messages route: the conversation no longer exists. Anything
+ *  else (a 500, an invalid body) is a real fault and must not trigger recreation
+ *  - that would silently throw away the operator's room on a transient error. */
+function isGone(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const status = (error as { status?: unknown }).status;
+  if (status === 404) return true;
+  const value = (error as { value?: unknown }).value;
+  const message =
+    typeof value === "object" && value !== null && "error" in value
+      ? String((value as { error: unknown }).error)
+      : "";
+  return /not found/i.test(message);
 }
 
 export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promise<IngestResult> {
@@ -553,34 +569,33 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
 
   if (!reserveResult.ok) return { action: "skipped", triggered: false, triggeredRuns: [] };
 
-  // ─── Create conversation if needed (HTTP call, outside transaction) ───
-  if (reserveResult.needCreateConv) {
+  /** Open a room and bind this Lark context to it. Used on the first message
+   *  AND when a room was deleted under us (a surface can do that). */
+  async function openRoom(): Promise<string | null> {
     const { data: convData, error: convError } = await client.api.conversations.post({
       agentId: selfAgentId,
     });
     if (convError) {
       console.error(`[ingest] create conversation failed: ${JSON.stringify(convError)}`);
-      return { action: "error", triggered: false, triggeredRuns: [] };
+      return null;
     }
     if (typeof convData !== "object" || convData === null) {
       console.error("[ingest] create conversation returned non-object");
-      return { action: "error", triggered: false, triggeredRuns: [] };
+      return null;
     }
-    conversationId = (convData as Record<string, unknown>).conversationId as string;
-    memberId = `human:lark:${event.sender_id}`;
+    return (convData as Record<string, unknown>).conversationId as string;
+  }
 
-    // Write local bindings (delivery state is lark-surface-local; the
-    // backend no longer tracks human members). The topic keys are what makes
-    // the NEXT message in this topic continue here instead of opening another
-    // conversation.
+  /** Bind this Lark context to a room: the next message must resolve here. */
+  function bindRoom(roomId: string): void {
     db.transaction(() => {
       putConversationBinding(db, {
-        conversationId,
+        conversationId: roomId,
         larkChatId: event.chat_id,
         chatType: event.chat_type,
         chatMode: null,
         // The message this conversation's topic hangs off: the topic's first
-        // message when we are already inside one, otherwise THIS message —
+        // message when we are already inside one, otherwise THIS message -
         // because the answer replies to it in-thread, and that reply is what
         // creates the topic (probed: the API returns a `thread_id`).
         topicRootMessageId: event.chat_type === "group" ? topicRootMessageId(event) : null,
@@ -588,12 +603,20 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
       });
       // A DM has no topic: no root to reply into and no keys to remember.
       if (event.chat_type === "group") {
-        rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
+        rememberTopicKeys(db, event.chat_id, roomId, rememberKeys, Date.now());
       }
       putMemberBinding(db, event.chat_id, event.sender_id, memberId);
     })();
+    onNewBinding?.(roomId, event.chat_id);
+  }
 
-    onNewBinding?.(conversationId, event.chat_id);
+  // ─── Create conversation if needed (HTTP call, outside transaction) ───
+  if (reserveResult.needCreateConv) {
+    const created = await openRoom();
+    if (created === null) return { action: "error", triggered: false, triggeredRuns: [] };
+    conversationId = created;
+    memberId = `human:lark:${event.sender_id}`;
+    bindRoom(created);
   } else {
     conversationId = reserveResult.conversationId!;
     // memberId was already set during the transaction above
@@ -646,33 +669,51 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   }
 
   // ─── Step 2: POST /messages ───
+  const postMessage = () =>
+    client.api.conversations({ id: conversationId }).messages.post({
+      senderMemberId,
+      addressedTo,
+      // The text IS the content. This used to be an envelope
+      // `{ text, source, larkEventId, larkMessageId }` — an object the
+      // writer does not understand, so the text was dropped and every Lark
+      // message reached the agent as an empty turn (the model then invented
+      // work from whatever old context it could find). The three extra
+      // fields had no reader anywhere: the bot keeps the Lark ids in its own
+      // inbound_message table, and the card keeps its own message id. If a
+      // surface label is ever needed, it belongs on the ledger entry, not
+      // smuggled inside the content the agent reads.
+      content: postContent,
+      // Each Lark message is its OWN turn (ADR 0037): "normal" keeps the
+      // backend from folding this message into the running turn as a steer,
+      // so a busy branch queues it and it becomes its own run later — which
+      // is what gives every message its own card.
+      mode: "normal",
+      // ADR 0046: chat provenance for the backend's ambient rules. Unlike
+      // the old envelope fields this is a real wire field the reader
+      // knows; observe messages (addressedTo: []) are the only ones the
+      // backend evaluates rules against.
+      source: { kind: "lark" as const, chatId: event.chat_id },
+    });
+
   try {
-    const { data: msgData, error: msgError } = await client.api
-      .conversations({ id: conversationId })
-      .messages.post({
-        senderMemberId,
-        addressedTo,
-        // The text IS the content. This used to be an envelope
-        // `{ text, source, larkEventId, larkMessageId }` — an object the
-        // writer does not understand, so the text was dropped and every Lark
-        // message reached the agent as an empty turn (the model then invented
-        // work from whatever old context it could find). The three extra
-        // fields had no reader anywhere: the bot keeps the Lark ids in its own
-        // inbound_message table, and the card keeps its own message id. If a
-        // surface label is ever needed, it belongs on the ledger entry, not
-        // smuggled inside the content the agent reads.
-        content: postContent,
-        // Each Lark message is its OWN turn (ADR 0037): "normal" keeps the
-        // backend from folding this message into the running turn as a steer,
-        // so a busy branch queues it and it becomes its own run later — which
-        // is what gives every message its own card.
-        mode: "normal",
-        // ADR 0046: chat provenance for the backend's ambient rules. Unlike
-        // the old envelope fields this is a real wire field the reader
-        // knows; observe messages (addressedTo: []) are the only ones the
-        // backend evaluates rules against.
-        source: { kind: "lark" as const, chatId: event.chat_id },
-      });
+    let posted = await postMessage();
+    if (posted.error && isGone(posted.error)) {
+      // The room was DELETED under us (a surface can do that). Keeping the
+      // binding would fail every later message forever, so forget it, open a
+      // fresh room and retry ONCE - the old history is gone either way.
+      console.error(
+        `[ingest] conversation ${conversationId} is gone; opening a new room for chat ${event.chat_id}`,
+      );
+      forgetConversationBinding(db, conversationId);
+      const fresh = await openRoom();
+      if (fresh === null) {
+        return { action: "error", conversationId, triggered: false, triggeredRuns: [] };
+      }
+      conversationId = fresh;
+      bindRoom(fresh);
+      posted = await postMessage();
+    }
+    const { data: msgData, error: msgError } = posted;
 
     if (msgError) {
       console.error(`[ingest] POST /messages failed: ${JSON.stringify(msgError)}`);

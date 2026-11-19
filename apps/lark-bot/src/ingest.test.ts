@@ -1036,6 +1036,52 @@ describe("ingest H7 sender authorization", () => {
     db.close();
   });
 
+  test("a room deleted under us is recreated, not failed forever", async () => {
+    const db = makeDb();
+    // A binding whose conversation no longer exists (a surface deleted it).
+    db.run(
+      "INSERT INTO conversation_binding (conversation_id, lark_chat_id, chat_type, chat_mode, created_at) VALUES (?, ?, ?, ?, ?)",
+      ["conv_deleted", "oc_p2p_001", "p2p", "p2p", Date.now()],
+    );
+    mockFetch([
+      { body: { lark: { allowedSenders: ["ou_user001"] } } },
+      // POST /messages on the deleted room: 404
+      { status: 404, body: { error: "conversation not found: conv_deleted" } },
+      // recovery: a fresh room, then the same message lands in it
+      { body: { conversationId: "conv_fresh" } },
+      { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
+    ]);
+    const result = await ingest(baseEvent, ingestCtx(db));
+    expect(result.action).toBe("consumed");
+    expect(result.conversationId).toBe("conv_fresh");
+    // The dangling binding is gone; the chat now points at the new room.
+    const row = db
+      .query("SELECT conversation_id FROM conversation_binding WHERE lark_chat_id = ?")
+      .all("oc_p2p_001") as Array<{ conversation_id: string }>;
+    expect(row.map((r) => r.conversation_id)).toEqual(["conv_fresh"]);
+    db.close();
+  });
+
+  test("a transient 500 does NOT throw the room away", async () => {
+    const db = makeDb();
+    db.run(
+      "INSERT INTO conversation_binding (conversation_id, lark_chat_id, chat_type, chat_mode, created_at) VALUES (?, ?, ?, ?, ?)",
+      ["conv_keep", "oc_p2p_001", "p2p", "p2p", Date.now()],
+    );
+    mockFetch([
+      { body: { lark: { allowedSenders: ["ou_user001"] } } },
+      { status: 500, body: { error: "boom" } },
+    ]);
+    const result = await ingest(baseEvent, ingestCtx(db));
+    expect(result.action).toBe("error");
+    // Recreation on a transient fault would silently discard the operator's room.
+    const row = db
+      .query("SELECT conversation_id FROM conversation_binding WHERE lark_chat_id = ?")
+      .all("oc_p2p_001") as Array<{ conversation_id: string }>;
+    expect(row.map((r) => r.conversation_id)).toEqual(["conv_keep"]);
+    db.close();
+  });
+
   test("ADR 0067 D4: a DM is ONE conversation, whatever thread it carries", async () => {
     const db = makeDb();
     // The chat already has a room; a message that arrives inside an old Lark

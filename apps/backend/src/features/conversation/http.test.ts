@@ -178,8 +178,10 @@ describe("conversation routes", () => {
     expect(seq).toBeGreaterThan(0);
     expect(triggeredRuns).toEqual([]);
 
+    // A deleted room is NOT a server fault: the caller (the Lark bot) has a
+    // binding to it and recovers only if the answer says "gone".
     const unknownConv = await api(harness, "POST", `${BASE}/nope/messages`, { content: "x" });
-    expect(unknownConv.status).toBe(500);
+    expect(unknownConv.status).toBe(404);
 
     const search = await api(harness, "GET", `${BASE}/search?q=hello%20ledger`);
     const { results } = (await search.json()) as { results: unknown[] };
