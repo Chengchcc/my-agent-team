@@ -302,11 +302,23 @@ function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined
   const meta = metaOfRequest({ _meta: "_meta" in message ? message._meta : undefined });
   const messageId = typeof meta?.messageId === "string" ? meta.messageId : undefined;
   const kind = message.origin?.kind as string;
+  // ADR 0060 D3: the AUTHOR decides who spoke, not the row's role. A dispatch
+  // brief (or a worker's report) is an INPUT - role "user" - written by an
+  // agent; rendered by role alone it appeared as if the human had typed it.
+  const authorAgentId = typeof meta?.authorAgentId === "string" ? meta.authorAgentId : undefined;
+  const byAgent = authorAgentId !== undefined;
   return {
     kind: "message",
     id: messageId ?? `input:${message.text.slice(0, 24)}`,
-    sender: kind === "user" ? viewer : { memberId: "agent", kind: "agent" },
-    content: { role: kind === "user" ? "user" : "assistant", text: message.text } satisfies Message,
+    sender: byAgent
+      ? { memberId: "agent", kind: "agent", agentId: authorAgentId }
+      : kind === "user"
+        ? viewer
+        : { memberId: "agent", kind: "agent" },
+    content: {
+      role: byAgent ? "assistant" : kind === "user" ? "user" : "assistant",
+      text: message.text,
+    } satisfies Message,
     seq: typeof meta?.seq === "number" ? meta.seq : 0,
     ...(meta?.undone === true ? { undone: true } : {}),
     ...(isAnchorMeta(meta?.anchor) ? { anchor: meta.anchor } : {}),
@@ -339,6 +351,7 @@ function metaOfRequest(part: unknown):
       undone?: unknown;
       anchor?: unknown;
       floorFor?: unknown;
+      authorAgentId?: unknown;
     }
   | undefined {
   const meta = (part as { _meta?: unknown } | undefined)?._meta;
@@ -349,6 +362,7 @@ function metaOfRequest(part: unknown):
         undone?: unknown;
         anchor?: unknown;
         floorFor?: unknown;
+        authorAgentId?: unknown;
       })
     : undefined;
 }
