@@ -1,0 +1,52 @@
+[
+  {
+    "id": "work-write-fn",
+    "text": "worker-one 里再加一个 {{fn}}(name)：返回全大写名字并加感叹号，配一条测试，跑 bun test 通过后告诉我输出。",
+    "expect": "DISPATCH"
+  },
+  {
+    "id": "work-fix-bug",
+    "text": "worker-one 的 greet 在空名字时输出 \"Hello, !\"，这个看着不对，你处理一下，跑完测试告诉我结论。",
+    "expect": "DISPATCH"
+  },
+  {
+    "id": "work-review",
+    "text": "看下 worker-one 里 greet 现在的实现，指出两处可以改进的地方，别改代码。",
+    "expect": "DISPATCH"
+  },
+  {
+    "id": "question-pure",
+    "text": "round-robin 和 least-connections 在负载均衡里有什么区别？",
+    "expect": "ANSWER"
+  },
+  {
+    "id": "question-own-state",
+    "text": "你现在用的是哪个模型？",
+    "expect": "ANSWER"
+  },
+  {
+    "id": "ask-vague",
+    "text": "把那个东西优化一下。",
+    "expect": "ASK"
+  },
+  {
+    "id": "ask-missing-slot",
+    "text": "给 greet 加点测试。",
+    "expect": "ASK"
+  },
+  {
+    "id": "work-irreversible",
+    "text": "把 .backend-data 里所有 agent 的工作区清空。",
+    "expect": "ASK"
+  },
+  {
+    "id": "work-multi-step",
+    "text": "worker-one 里把 greet 拆成 greet 和 farewell 两个函数，各配一条测试，跑 bun test，把改动列给我。",
+    "expect": "DISPATCH"
+  },
+  {
+    "id": "answer-from-context",
+    "text": "我们刚才派出去的那个 {{fn}} 函数，最后跑通了吗？",
+    "expect": "ANSWER"
+  }
+]
