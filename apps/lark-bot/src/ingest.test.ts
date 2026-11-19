@@ -983,6 +983,69 @@ describe("ingest H7 sender authorization", () => {
     db.close();
   });
 
+  test("ADR 0067: a denied DM becomes an access request instead of silence", async () => {
+    const db = makeDb();
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_boss"] } } }]);
+    const asked: Array<{ openId: string; chatId: string }> = [];
+    const result = await ingest(baseEvent, {
+      ...ingestCtx(db),
+      onAccessRequested: async (input) => {
+        asked.push(input);
+      },
+    });
+    expect(result.action).toBe("skipped");
+    // The person is told something happened; the operator is notified by the
+    // caller, which is the only one that can send.
+    expect(asked).toEqual([{ openId: "ou_user001", chatId: "oc_p2p_001" }]);
+    db.close();
+  });
+
+  test("ADR 0067: an owner's /approve is administration, never a prompt", async () => {
+    const db = makeDb();
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_boss"] } } }]);
+    const commands: Array<{ operatorId: string; command: { kind: string; openId: string } }> = [];
+    const result = await ingest(
+      { ...baseEvent, sender_id: "ou_boss", content: "/approve ou_new" },
+      {
+        ...ingestCtx(db),
+        onAccessCommand: async (input) => {
+          commands.push(input);
+        },
+      },
+    );
+    expect(result.action).toBe("consumed");
+    expect(result.triggered).toBe(false);
+    expect(commands).toEqual([
+      { operatorId: "ou_boss", command: { kind: "approve", openId: "ou_new" } },
+    ]);
+    db.close();
+  });
+
+  test("ADR 0067: a stranger sending /approve is not an owner", async () => {
+    const db = makeDb();
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_boss"] } } }]);
+    const commands: unknown[] = [];
+    const asked: unknown[] = [];
+    const result = await ingest(
+      { ...baseEvent, content: "/approve ou_stranger" },
+      {
+        ...ingestCtx(db),
+        onAccessCommand: async (input) => {
+          commands.push(input);
+        },
+        onAccessRequested: async (input) => {
+          asked.push(input);
+        },
+      },
+    );
+    // A stranger granting themselves would be the whole hole. They fall through
+    // to the ordinary DM path: denied, and asked to wait.
+    expect(commands).toEqual([]);
+    expect(asked).toHaveLength(1);
+    expect(result.action).toBe("skipped");
+    db.close();
+  });
+
   test("allowlisted sender proceeds to create + post", async () => {
     const db = makeDb();
     mockFetch([

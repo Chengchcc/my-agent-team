@@ -57,12 +57,11 @@ describe("topic routing keys (ADR 0037)", () => {
 
   test("reply in thread: required in a topic chat, accepted in p2p", () => {
     expect(replyInThreadFor("topic")).toBe(true);
-    // Probed live: a thread reply in p2p returns a thread_id — it is the only
-    // thing that gives a p2p chat a visible topic.
-    expect(replyInThreadFor("p2p")).toBe(true);
-    // Unknown mode answers in thread: the flag is what creates the topic, and
-    // the surfaces that accept it are the ones we serve.
-    expect(replyInThreadFor(null)).toBe(true);
+    // DM stays flat (2026-11-19): a thread reply would make the DM a topic
+    // chat for good, which is not what a private chat is.
+    expect(replyInThreadFor("p2p")).toBe(false);
+    // Unknown mode stays flat: threading creates state that cannot be undone.
+    expect(replyInThreadFor(null)).toBe(false);
     // A plain group has no topic to join.
     expect(replyInThreadFor("group")).toBe(false);
   });

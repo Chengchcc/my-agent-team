@@ -81,6 +81,8 @@ function toAgentResponse(row: AgentRow, status: string) {
       enabled: lk.enabled,
       appId: lk.app_id !== "" ? lk.app_id : null,
       profileRef: lk.profile_ref !== "" ? lk.profile_ref : null,
+      /** ADR 0067: the host a Lark card links to (Web-configured). */
+      webUrl: lk.web_url !== "" ? lk.web_url : null,
       botDisplayName: lk.bot_display_name !== "" ? lk.bot_display_name : null,
       allowedSenders: lk.allowed_senders,
       /** Group admission default for chats with no entry; absent means
@@ -238,6 +240,8 @@ export function agentRoutes(
               appId: t.Optional(t.String({ minLength: 1 })),
               appSecret: t.Optional(t.String({ minLength: 1 })),
               botDisplayName: t.Optional(t.String()),
+              /** ADR 0067: base URL behind Lark card links. */
+              webUrl: t.Optional(t.String()),
               /** `"*"` is the explicit wildcard; an empty list denies. */
               allowedSenders: t.Optional(t.Array(t.String({ minLength: 1 }))),
               groupPolicy: t.Optional(
@@ -360,6 +364,8 @@ export function agentRoutes(
               appId: t.Optional(t.String({ minLength: 1 })),
               appSecret: t.Optional(t.String({ minLength: 1 })),
               botDisplayName: t.Optional(t.String()),
+              /** ADR 0067: base URL behind Lark card links. */
+              webUrl: t.Optional(t.String()),
               allowedSenders: t.Optional(t.Array(t.String({ minLength: 1 }))),
               groupPolicy: t.Optional(
                 t.Union([t.Literal("open"), t.Literal("allowlist"), t.Literal("disabled")]),

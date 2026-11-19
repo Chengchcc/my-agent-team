@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { parseOwnerCommand } from "./access-requests.js";
 import {
   chatHasConversations,
   confirmInbound,
@@ -32,6 +33,19 @@ export interface IngestContext {
   /** Reply to a control command (/stop) — direct text send, not a
    * conversation message. */
   onCommandReply?: (chatId: string, text: string) => Promise<void>;
+  /** ADR 0067: a DM from someone outside the allowlist is an access request.
+   *  The caller persists it and tells both sides; ingest only decides that it
+   *  IS one (the policy stays pure). */
+  onAccessRequested?: (input: { openId: string; chatId: string }) => Promise<void>;
+  /** ADR 0067: the operator's `/approve`/`/deny` in their own DM. Only called
+   *  when the sender IS an owner - the check lives here, where the config is. */
+  onAccessCommand?: (input: {
+    operatorId: string;
+    command: { kind: "approve" | "deny"; openId: string };
+  }) => Promise<void>;
+  /** ADR 0067: the agent's Web-configured host for card links (null = none),
+   *  recorded per event so a card carries an address the operator can reach. */
+  setCardHost?: (url: string | null) => void;
   /** Create + send the workflow progress card for this chat; null = no card
    *  (not configured or the platform refused) and the watcher falls back to
    *  plain text lines. */
@@ -282,6 +296,12 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // per-chat rules key the way decideInbound expects (they were inert before).
   const wireLark = agentData.lark as LarkAccessConfig & { groups?: unknown };
   const larkCfg: LarkAccessConfig = { ...wireLark, groups: normalizeGroups(wireLark.groups) };
+  // ADR 0067: the operator configures the card host in the Web; the bot flag is
+  // only the fallback. Recorded here because this is where the config is read.
+  const configuredHost = (wireLark as { webUrl?: unknown }).webUrl;
+  if (typeof configuredHost === "string" && configuredHost !== "") {
+    ctx.setCardHost?.(configuredHost);
+  }
   const mentionedBot = isBotMentioned(event, botDisplayName);
   const mentionAll = isMentionAll(event);
   // Reading the binding is the only way to know whether this chat is already
@@ -298,12 +318,33 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     mentionAll,
     chatInUse,
   });
+  // ADR 0067: the operator answers access requests from their own DM. Checked
+  // BEFORE the agent turn so `/approve` never becomes a prompt - an owner's
+  // command is administration, not conversation. Only an allowlisted sender
+  // counts as an owner (a "*" allowlist allows everyone to talk, not to grant).
+  if (event.chat_type !== "group") {
+    const command = parseOwnerCommand(event.content);
+    const owners = larkCfg.allowedSenders.filter((id) => id !== "*");
+    if (command && owners.includes(event.sender_id)) {
+      await ctx.onAccessCommand?.({ operatorId: event.sender_id, command });
+      console.log(`[ingest] access ${command.kind} by ${event.sender_id} for ${command.openId}`);
+      return { action: "consumed", triggered: false, triggeredRuns: [] };
+    }
+  }
   if (decision.outcome === "skip") {
     // Logged, not silent: "why did the bot ignore this message" is the first
     // question when access control misbehaves, and the reason names the layer.
     console.log(
       `[ingest] skipped (${decision.reason}) chat=${event.chat_id} type=${event.chat_type} sender=${event.sender_id}`,
     );
+    // ADR 0067: a stranger's DM is a request, not noise. Told once, so the
+    // person is not left thinking the bot is broken.
+    if (decision.reason === "dm_denied") {
+      await ctx.onAccessRequested?.({
+        openId: event.sender_id,
+        chatId: event.chat_id,
+      });
+    }
     return { action: "skipped", triggered: false, triggeredRuns: [] };
   }
   const addressed = decision.outcome === "answer";

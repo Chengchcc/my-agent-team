@@ -75,6 +75,8 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
   const [groupPolicy, setGroupPolicy] = useState<"disabled" | "open" | "allowlist">("disabled");
   const [requireMention, setRequireMention] = useState(true);
   const [respondAll, setRespondAll] = useState(false);
+  // ADR 0067: the host Lark cards link to. Deployment fact, so it lives here.
+  const [webUrl, setWebUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -117,6 +119,7 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
     setGroupPolicy(agent.lark?.groupPolicy ?? "disabled");
     setRequireMention(agent.lark?.requireMention ?? true);
     setRespondAll(agent.lark?.respondToMentionAll ?? false);
+    setWebUrl(agent.lark?.webUrl ?? "");
     const overrides: Record<string, "open" | "allowlist" | "disabled" | "inherit"> = {};
     const mentions: Record<string, "inherit" | "required" | "optional"> = {};
     for (const group of agent.lark?.groups ?? []) {
@@ -212,6 +215,7 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
           groupPolicy,
           requireMention,
           respondToMentionAll: respondAll,
+          webUrl: webUrl.trim(),
         },
       });
       await qc.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
@@ -305,6 +309,20 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
           Groups recognize @mentions by this name, so it must match the bot's name in Lark. Leave it
           empty and the bot only works in direct messages.
           {groupNameMissing ? " Groups are enabled, so this cannot be saved empty." : ""}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="lark-web-url">Card link host</Label>
+        <Input
+          id="lark-web-url"
+          value={webUrl}
+          onChange={(e) => setWebUrl(e.target.value)}
+          placeholder="https://ops.example.com"
+        />
+        <p className="text-xs text-muted-foreground">
+          Cards link to this host. Leave it empty and the bot falls back to the address it was
+          started with.
         </p>
       </div>
 

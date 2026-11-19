@@ -4,8 +4,10 @@ import {
   chatHasConversations,
   confirmInbound,
   countPendingDeliveries,
+  decideAccessRequest,
   ensureTopicRoot,
   findConversationByTopicKey,
+  getAccessRequest,
   getConversationBinding,
   getMemberBinding,
   inboundExists,
@@ -16,6 +18,7 @@ import {
   putConversationBinding,
   putMemberBinding,
   rebindConversation,
+  recordAccessRequest,
   rememberTopicKeys,
   reserveInbound,
   setTopicRoot,
@@ -228,6 +231,65 @@ describe("countPendingDeliveries", () => {
 
     upsertMessageDelivery(db, rec("msg:pending", "done"));
     expect(countPendingDeliveries(db)).toBe(0);
+    db.close();
+  });
+});
+
+describe("ADR 0067: access requests survive restarts and answer once", () => {
+  test("record → pending; a repeat does not reopen or re-notify", () => {
+    const db = openBindings("test-agent", `${testDir}-access`);
+    const first = recordAccessRequest(db, {
+      openId: "ou_a",
+      chatId: "oc_1",
+      displayName: "",
+      now: 1,
+    });
+    expect(first.created).toBe(true);
+    expect(first.row.status).toBe("pending");
+    const again = recordAccessRequest(db, {
+      openId: "ou_a",
+      chatId: "oc_1",
+      displayName: "",
+      now: 2,
+    });
+    // Not created again: the operator hears about a person once per decision.
+    expect(again.created).toBe(false);
+    expect(again.row.createdAt).toBe(1);
+    db.close();
+  });
+
+  test("decide is one-way: a second decision cannot undo the first", () => {
+    const db = openBindings("test-agent", `${testDir}-access`);
+    recordAccessRequest(db, { openId: "ou_b", chatId: "oc_1", displayName: "", now: 1 });
+    expect(
+      decideAccessRequest(db, { openId: "ou_b", approve: true, decidedBy: "ou_owner", now: 3 }),
+    ).toBe(true);
+    expect(getAccessRequest(db, "ou_b")).toMatchObject({
+      status: "approved",
+      decidedBy: "ou_owner",
+      decidedAt: 3,
+    });
+    // A stale click must not flip an approved person back to denied.
+    expect(
+      decideAccessRequest(db, { openId: "ou_b", approve: false, decidedBy: "ou_owner", now: 4 }),
+    ).toBe(false);
+    expect(getAccessRequest(db, "ou_b")?.status).toBe("approved");
+    db.close();
+  });
+
+  test("a denied person stays denied when they write again", () => {
+    const db = openBindings("test-agent", `${testDir}-access`);
+    recordAccessRequest(db, { openId: "ou_c", chatId: "oc_1", displayName: "", now: 1 });
+    decideAccessRequest(db, { openId: "ou_c", approve: false, decidedBy: "ou_owner", now: 2 });
+    const again = recordAccessRequest(db, {
+      openId: "ou_c",
+      chatId: "oc_1",
+      displayName: "",
+      now: 3,
+    });
+    // Otherwise the bot becomes a doorbell: every message pings the operator.
+    expect(again.created).toBe(false);
+    expect(again.row.status).toBe("denied");
     db.close();
   });
 });

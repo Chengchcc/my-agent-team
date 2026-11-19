@@ -38,18 +38,19 @@ export function topicRootMessageId(event: LarkMessageEvent): string {
 /** Does an answer have to be sent as a THREAD reply (which is what creates or
  *  joins a Lark topic)?
  *
- *  - topic chat: required, otherwise the answer lands in the main stream;
- *  - p2p: ACCEPTED and it is the only thing that gives a p2p chat a topic at
- *    all — probed live 2026-09-24: a thread reply to the user's message comes
- *    back with a `thread_id`, so the topic exists from then on;
- *  - plain group: not used (nothing to join; the topic surface is either a
- *    topic chat or a p2p chat).
- *
- *  A conversation whose mode is not known yet (a p2p conversation before its
- *  first lookup) answers in thread: the flag is what the user asked for, and
- *  p2p was measured to accept it. */
+ *  - topic chat ("topic"): required, otherwise the answer lands in the main
+ *    stream instead of the conversation's topic;
+ *  - p2p: NOT used. A thread reply here would turn a plain DM into a topic
+ *    chat (`thread_id` comes back, the topic then exists for good), so every
+ *    DM answer would sit in its own thread instead of the chat itself. The
+ *    operator asked for the opposite (2026-11-19): DM stays flat, and only
+ *    group topics get thread replies;
+ *  - plain group: nothing to join;
+ *  - unknown (`null`, a lookup that failed): flat. Threading is the choice
+ *    that creates state (a topic that cannot be undone); the flat answer can
+ *    be retried into a topic, a stray topic cannot. */
 export function replyInThreadFor(chatMode: string | null): boolean {
-  return chatMode !== "group";
+  return chatMode === "topic";
 }
 
 /** Keys to remember for the conversation this message belongs to.
