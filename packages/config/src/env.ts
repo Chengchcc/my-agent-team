@@ -34,6 +34,9 @@ export const envSchema = z.object({
       "Root of the stack's file resources (skills/, docs/, workflow-showcase/). Defaults to the repo root, which a source checkout has; a packaged stack ships resources/ and points this at it.",
     ),
   BACKEND_WORKSPACE_ROOT: z.string().optional(),
+  /** ADR 0068: `systemd` = one unit per Lark bot, driven with `systemctl`;
+   *  unset = the bot is a child process of the backend (dev boxes). */
+  LARK_BOT_SUPERVISOR: z.enum(["systemd"]).optional(),
   BACKEND_TEMPLATE_DIR: z.string().optional(),
   BACKEND_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
   BACKEND_CANCEL_GRACE_MS: z.coerce.number().int().positive().default(5_000),
