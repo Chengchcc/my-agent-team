@@ -28,6 +28,7 @@ import {
   getCommentSubscription,
   getConversationBinding,
   getInputCard,
+  getRunCard,
   listBoundChats,
   listConversationBindings,
   listNonTerminalRunCards,
@@ -362,6 +363,19 @@ function ensureWatcher(conversationId: string, larkChatId: string) {
     // there, so broadcasting costs a map walk and keeps the seam free of routing tables.
     onChatState: (chat) => {
       for (const handle of cardWatchers.values()) void handle.update(chat);
+      // ADR 0071: a run started from ANOTHER surface (the API, the web, a
+      // workflow) has no Lark source message, so ingest never started its card
+      // and this room's answer arrived as PLAIN TEXT.
+      //
+      // Only the LIVE turn: a finished turn from before this bot started must
+      // not get a retro card (startup painted three stale ones once). A run that
+      // completes before its first state frame still falls back to text, which
+      // is the status quo and is better than a card nobody was waiting for.
+      const live = chat.activeTurn?.id;
+      if (live && !cardWatchers.has(live) && !getRunCard(state.db, live)) {
+        console.log(`[lark-bot] run ${live} came from another surface; starting its card`);
+        void startRunCard(live, conversationId, larkChatId, null);
+      }
       // A comment line has no card to paint, so a parked run's question has to
       // go into the thread itself. The state is read through the SAME
       // projection the card uses, so the two cannot disagree about the ask.

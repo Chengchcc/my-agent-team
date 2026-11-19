@@ -1,4 +1,4 @@
-# ADR 索引
+| 0071 | every-turn-answers-with-a-card(任何来源的 turn 都用卡片回) | **Implemented**（`onChatState` 对 `activeTurn` 无卡则建卡；只对运行中的 turn，不为历史补卡；首帧前结束的 run 仍回退纯文本） |# ADR 索引
 
 决策记录的**唯一目录**。架构级规则文档(design-philosophy / e2e-contract-rules / db-typesafe-rules)与协议实测记录(gate0)仍在 `docs/architecture/`，见文末链接。
 
