@@ -16,3 +16,4 @@ export {
 export type { LarkProfileSetupSession } from "./setup-manager.js";
 export { LarkSetupManager } from "./setup-manager.js";
 export { createLarkSetupStore, type LarkSetupStore } from "./setup-store.js";
+export { botEnvPathOf, SystemdLarkBotRegistry, systemdUnitOf } from "./systemd-registry.js";

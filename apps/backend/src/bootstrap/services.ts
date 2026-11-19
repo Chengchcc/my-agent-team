@@ -40,7 +40,14 @@ export function createBackendServices(
   const mcpClientManager = createMcpClientManager({ allowPrivateHosts: loopbackBind });
   const opsStore = new RuntimeOpsStore(db);
 
-  const larkBotRegistry = createLarkBotRegistry(cfg, opts?.larkBotRegistry);
+  // ADR 0068: with the systemd supervisor the bot's "listening" state comes
+  // from its own heartbeat, so the panel shows the Lark socket, not just a PID.
+  const larkBotRegistry = createLarkBotRegistry(cfg, opts?.larkBotRegistry, {
+    heartbeatOf: (agentId) => {
+      const surface = opsStore.getSurfaceHealthsForAgent(agentId).find((s) => s.surface === "lark");
+      return surface ? { status: surface.status, lastSeenAt: surface.lastSeenAt } : null;
+    },
+  });
 
   return {
     config: cfg,

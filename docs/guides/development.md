@@ -115,3 +115,23 @@ husky 的 pre-commit 会先 `biome format` 再 `git add -u`，把已跟踪文件
 - [排障指南](../architecture/operations/troubleshooting.md) — 起不来、连不上、跑不动时按层查
 - [Product Backend 总览](../architecture/backend/overview.md) — 后端启动时装了什么
 - [依赖注入](../architecture/foundations/dependency-injection.md) — 组装点和注入手法
+
+## 生产运行（systemd）
+
+本仓库在这台机器上以三个单元运行，都由 systemd 托管：
+
+| 单元 | 作用 |
+|---|---|
+| `my-agent-team-backend.service` | 控制面；启动时会按 agent 配置拉起对应的机器人单元 |
+| `my-agent-team-web.service` | Next.js 面（:3001）；`MemoryMax=3400M` 代替 `scripts/memguard.sh` |
+| `my-agent-team-lark-bot@<agentId>.service` | 某个 agent 的 Lark 机器人；**由 backend 通过 `systemctl` 启停**（ADR 0068） |
+
+```bash
+systemctl status my-agent-team-backend my-agent-team-web
+systemctl status 'my-agent-team-lark-bot@default'
+journalctl -u 'my-agent-team-lark-bot@default' -f
+```
+
+机器人的开关只有一个入口：Web 的 Lark 面板（或 `PATCH /api/agents/:id {lark:{enabled}}`）。
+不要手工 `systemctl start` 机器人单元去"绕过"应用状态——两边各自为政时，面板显示的和实际跑的不是一回事。
+单元的 EnvironmentFile 在 `<BACKEND_DATA_DIR>/lark-bot/<agentId>.env`（0600），由后端写，不要手改。
