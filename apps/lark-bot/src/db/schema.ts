@@ -166,3 +166,20 @@ export const commentSubscription = sqliteTable("comment_subscription", {
   fileType: text("file_type").notNull(),
   subscribedAt: integer({ mode: "number" }).notNull(),
 });
+
+/** ADR 0067: a stranger's DM is an ACCESS REQUEST, not a message. One row per
+ *  requester (open_id is the key: the same person may appear in several p2p
+ *  chats), so the operator sees one line per person and the bot does not
+ *  re-notify on every retry. */
+export const accessRequest = sqliteTable("access_request", {
+  openId: text("open_id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  /** The platform's display name at request time; may be empty. */
+  displayName: text("display_name").notNull(),
+  /** `pending` | `approved` | `denied` */
+  status: text("status").notNull(),
+  createdAt: integer({ mode: "number" }).notNull(),
+  decidedAt: integer({ mode: "number" }),
+  /** open_id of the operator who decided (audit; only owners may decide). */
+  decidedBy: text("decided_by"),
+});

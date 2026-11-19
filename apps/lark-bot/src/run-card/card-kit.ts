@@ -220,7 +220,15 @@ export function createCardKitClient(tokens: TokenProvider): CardKitClient {
       }
       const resp = await call("POST", path, body);
       const { envelope, result } = await parse(resp);
-      if (!result.ok) return result;
+      if (!result.ok) {
+        // ADR 0067: a plain group is asked to thread, and the platform may
+        // refuse the flag. The card is the answer - losing it is worse than
+        // landing it in the main stream, so retry once flat.
+        if (opts?.replyInThread === true && /thread|话题/i.test(result.error)) {
+          return this.sendCard(chatId, cardId, { replyTo, replyInThread: false });
+        }
+        return result;
+      }
       const data = envelope.data;
       const messageId =
         typeof data === "object" &&

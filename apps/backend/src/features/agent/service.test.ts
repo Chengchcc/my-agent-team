@@ -97,6 +97,21 @@ describe("AgentService", () => {
     expect(agent.config.runtime_config.knowledge_packs).toEqual(["my-agent-team"]);
   });
 
+  test("ADR 0067: update carries lark.webUrl into the stored config", async () => {
+    const { svc } = makeSvc();
+    const agent = await svc.create({ name: "host", harness: "oma", model: "anthropic/x" });
+    const updated = await svc.update(agent.id, {
+      lark: { enabled: true, webUrl: "https://ops.example.com" },
+    });
+    // The field rides four layers (route body, domain input, service mapping,
+    // config merge) and each one can drop it silently - this is the assertion
+    // that says all four carry it.
+    expect(updated.config.lark.web_url).toBe("https://ops.example.com");
+    // An unrelated lark patch must not clear it.
+    const again = await svc.update(agent.id, { lark: { enabled: true, requireMention: false } });
+    expect(again.config.lark.web_url).toBe("https://ops.example.com");
+  });
+
   test("getById throws AgentNotFoundError for unknown id", async () => {
     const { svc } = makeSvc();
     await expect(svc.getById("nonexistent")).rejects.toThrow(AgentNotFoundError);

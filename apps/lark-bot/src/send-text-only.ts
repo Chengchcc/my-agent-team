@@ -10,12 +10,13 @@ export function sendTextOnly(
   profile: string,
   chatId: string,
   text: string,
-  opts: { replyTo?: string | null; replyInThread?: boolean } = {},
+  opts: { replyTo?: string | null; replyInThread?: boolean; toUserId?: string } = {},
 ): Promise<LarkSendResult> {
   return sendViaLarkCli({
     profile,
     chatId,
     text,
+    ...(opts.toUserId ? { toUserId: opts.toUserId } : {}),
     replyTo: opts.replyTo,
     replyInThread: opts.replyInThread,
   });

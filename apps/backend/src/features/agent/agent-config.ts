@@ -178,6 +178,10 @@ export const agentConfigSchema = z
         policy_rev: z.number().int().default(1),
         /** Server-generated (Lark profile init); backend writes it back. */
         profile_ref: z.string(),
+        /** ADR 0067: the host a Lark card links to (`https://…/`). Empty =
+         *  the bot's own --web-url. Configured in the Web because the address
+         *  the operator can reach is a deployment fact, not a build-time one. */
+        web_url: z.string().default(""),
       })
       .transform((lk) => {
         if (lk.policy_rev >= 2) return lk;
@@ -237,6 +241,8 @@ export function buildAgentConfig(input: {
     enabled?: boolean;
     appId?: string;
     botDisplayName?: string;
+    /** ADR 0067: base URL for Lark card links (Web-configured). */
+    webUrl?: string;
     /** DM sender allowlist (open_id); `"*"` is the explicit wildcard. */
     allowedSenders?: string[];
     /** Default policy for groups with no entry in `groups`. */
@@ -333,6 +339,7 @@ export function buildAgentConfig(input: {
       // lark must derive `agent:<id>` — `??` treats "" as a real value and
       // the agent could never get a profile from PATCH/wizard alone.
       profile_ref: prev?.lark.profile_ref || (input.lark?.enabled ? `agent:${input.id}` : ""),
+      web_url: input.lark?.webUrl ?? prev?.lark.web_url ?? "",
     },
   });
 }
@@ -378,6 +385,7 @@ export function serializeAgentYaml(config: AgentConfig): string {
     `  app_id: ${q(lk.app_id)}`,
     `  bot_display_name: ${q(lk.bot_display_name)}`,
     `  profile_ref: ${q(lk.profile_ref)}`,
+    `  web_url: ${q(lk.web_url ?? "")}`,
     "  allowed_senders:",
     ...lk.allowed_senders.map((s) => `    - ${q(s)}`),
     `  group_policy: ${q(lk.group_policy ?? "disabled")}`,

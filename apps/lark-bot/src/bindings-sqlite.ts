@@ -824,3 +824,77 @@ export function listBoundChats(
   }
   return [...byChat.values()].sort((a, b) => (a.chatId < b.chatId ? -1 : 1));
 }
+
+// ─── ADR 0067: DM access requests ───────────────────────────────────
+
+export interface AccessRequestRow {
+  openId: string;
+  chatId: string;
+  displayName: string;
+  status: "pending" | "approved" | "denied";
+  createdAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+}
+
+/** Record a stranger's DM. An already-decided request is NOT reopened: a denied
+ *  person stays denied until the operator reconsiders, otherwise every message
+ *  they send would ping the operator again (the bot would be a doorbell). */
+export function recordAccessRequest(
+  db: Database,
+  input: { openId: string; chatId: string; displayName: string; now: number },
+): { row: AccessRequestRow; created: boolean } {
+  const existing = getAccessRequest(db, input.openId);
+  if (existing) return { row: existing, created: false };
+  d(db)
+    .insert(schema.accessRequest)
+    .values({
+      openId: input.openId,
+      chatId: input.chatId,
+      displayName: input.displayName,
+      status: "pending",
+      createdAt: input.now,
+    })
+    .run();
+  const row = getAccessRequest(db, input.openId);
+  if (!row) throw new Error(`access request for ${input.openId} vanished after insert`);
+  return { row, created: true };
+}
+
+export function getAccessRequest(db: Database, openId: string): AccessRequestRow | null {
+  const row = d(db)
+    .select()
+    .from(schema.accessRequest)
+    .where(eq(schema.accessRequest.openId, openId))
+    .get();
+  if (!row) return null;
+  return {
+    openId: row.openId,
+    chatId: row.chatId,
+    displayName: row.displayName,
+    status: row.status === "approved" || row.status === "denied" ? row.status : "pending",
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt ?? null,
+    decidedBy: row.decidedBy ?? null,
+  };
+}
+
+/** Only a pending request can be decided; deciding twice would let a stale
+ *  button undo a later decision. Returns false when nothing changed. */
+export function decideAccessRequest(
+  db: Database,
+  input: { openId: string; approve: boolean; decidedBy: string; now: number },
+): boolean {
+  const existing = getAccessRequest(db, input.openId);
+  if (existing?.status !== "pending") return false;
+  d(db)
+    .update(schema.accessRequest)
+    .set({
+      status: input.approve ? "approved" : "denied",
+      decidedAt: input.now,
+      decidedBy: input.decidedBy,
+    })
+    .where(eq(schema.accessRequest.openId, input.openId))
+    .run();
+  return true;
+}

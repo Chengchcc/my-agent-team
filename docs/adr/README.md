@@ -91,3 +91,4 @@
 | 0064 | memory-cross-process(长期记忆对后端可见：读工作区里的 SQLite) | **Accepted**（只读、不建库；范围=会话前台；向量+关键词可降级；`mem:<id>` 出处；失败即空。真机发现产品 run 里没有记忆生产者 ⇒ 需要单独 ADR 决定要不要给） |
 | 0065 | memory-producer(给长期记忆一个生产者：只由人授权的 `remember`) | **Implemented**（仅 `user` 授权可写 `product.md`；事实去重；产品进程不直写向量库；**真机闭环已验证**；中文按二字 shingle 匹配） |
 | 0066 | room-and-floor(会议室与展厅：房间只记人和前台，工人自己的事在它自己的页面) | **Implemented**（房间按 `_meta.authorAgentId` 过滤；run 页 `Dispatched units` 打通 Lark 卡片→前台 run→工人 run；下车间：`directToWorker` 是前台不变量的唯一显式例外，房间里留摘要且不触发新 run） |
+| 0067 | lark-surface-discipline(私聊平铺、陌生人来要申请、卡片主机由 Web 配) | **Implemented**（`replyInThreadFor` 只在话题群为真；`access_request` 表 + `/approve`/`/deny` 文本指令，仅 owner 生效且单向；`lark.web_url` 进配置与 Web 面板，`--web-url` 降为兜底） |

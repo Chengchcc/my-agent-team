@@ -286,12 +286,10 @@ describe("ingest", () => {
     db.close();
   });
 
-  test("p2p top-level message roots its own topic on the user's message", async () => {
-    // The answer replies to THAT message in-thread, and that reply is what
-    // creates the topic (probed: the API returns a `thread_id` and `root_id`
-    // pointing back at the user's message). So the root is the user's message,
-    // not our card — recording the card instead would leave the answer with
-    // nothing to hang the topic on.
+  test("ADR 0067 D4: a p2p conversation records no topic at all", async () => {
+    // The DM is one flat room. Nothing may be rooted or keyed for it: a root
+    // would put the card in a thread, and a topic key would carve the next
+    // message into a second conversation.
     const db = makeDb();
     mockFetch([
       AGENT_CONFIG,
@@ -311,13 +309,11 @@ describe("ingest", () => {
     const binding = db
       .query("SELECT topic_root_message_id FROM conversation_binding WHERE conversation_id = ?")
       .get(result.conversationId!) as { topic_root_message_id: string | null };
-    expect(binding.topic_root_message_id).toBe("om_001");
-    // ...and the message is also a topic key, so a reply that names it as
-    // `root_id` (a reply outside the thread) resolves here too.
-    const key = db
-      .query("SELECT conversation_id FROM topic_binding WHERE topic_key = ?")
-      .get("om_001") as { conversation_id: string } | null;
-    expect(key?.conversation_id).toBe(result.conversationId);
+    expect(binding.topic_root_message_id).toBeNull();
+    const keys = db
+      .query("SELECT count(*) AS n FROM topic_binding WHERE conversation_id = ?")
+      .get(result.conversationId!) as { n: number };
+    expect(keys.n).toBe(0);
 
     db.close();
   });
@@ -374,15 +370,17 @@ describe("ingest", () => {
     db.close();
   });
 
-  test("topic chat: the opening message roots the topic, replies resolve to it", async () => {
+  test("group topic chat: the opening message roots the topic, replies resolve to it", async () => {
+    // ADR 0067 D4: the TOPIC boundary is a GROUP concept. A DM is one room for
+    // the whole chat, so this fixture has to be a group to exercise it.
     const db = makeDb();
-    mockFetch([
-      AGENT_CONFIG,
-      { body: { conversationId: "conv_topic" } },
-      { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
-      AGENT_CONFIG,
-      { body: { seq: 2, triggeredRuns: [{ agentId: "agent_123", runId: "run-2" }] } },
-    ]);
+    const groupBase = {
+      ...baseEvent,
+      chat_id: "oc_topic",
+      chat_type: "group" as const,
+      content: "@TestBot hello",
+      mentions: [{ id: "ou_bot_test", key: "@_user_1", name: "TestBot" }],
+    };
     const ctx = {
       db,
       selfAgentId: "agent_123",
@@ -392,15 +390,15 @@ describe("ingest", () => {
       profile: "test-profile",
     };
 
+    mockFetch([
+      AGENT_CONFIG,
+      { body: { conversationId: "conv_topic" } },
+      { body: { members: ["agent_123"] } },
+      { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
+    ]);
     // A topic-chat top-level message carries its own thread id (measured).
     const opened = await ingest(
-      {
-        ...baseEvent,
-        event_id: "evt_t1",
-        message_id: "om_t1",
-        chat_id: "oc_topic",
-        thread_id: "omt_t",
-      },
+      { ...groupBase, event_id: "evt_t1", message_id: "om_t1", thread_id: "omt_t" },
       ctx,
     );
     expect(opened.conversationId).toBe("conv_topic");
@@ -411,12 +409,12 @@ describe("ingest", () => {
       .get("conv_topic") as { topic_root_message_id: string | null };
     expect(binding.topic_root_message_id).toBe("om_t1");
 
+    mockFetch([AGENT_CONFIG, { body: { members: ["agent_123"] } }, { body: { seq: 2 } }]);
     const inside = await ingest(
       {
-        ...baseEvent,
+        ...groupBase,
         event_id: "evt_t2",
         message_id: "om_t2",
-        chat_id: "oc_topic",
         thread_id: "omt_t",
         root_id: "om_t1",
         reply_to: "om_t1",
@@ -433,18 +431,10 @@ describe("ingest", () => {
       { body: { seq: 3 } },
     ]);
     const other = await ingest(
-      {
-        ...baseEvent,
-        event_id: "evt_t3",
-        message_id: "om_t3",
-        chat_id: "oc_topic",
-        thread_id: "omt_other",
-      },
+      { ...groupBase, event_id: "evt_t3", message_id: "om_t3", thread_id: "omt_other" },
       ctx,
     );
     expect(other.conversationId).toBe("conv_topic_2");
-
-    db.close();
   });
 
   test("group message without @bot — posts with source, doesn't trigger", async () => {
@@ -980,6 +970,88 @@ describe("ingest H7 sender authorization", () => {
     const result = await ingest(baseEvent, ingestCtx(db));
     expect(result.action).toBe("skipped");
     expect(result.triggered).toBe(false);
+    db.close();
+  });
+
+  test("ADR 0067: a denied DM becomes an access request instead of silence", async () => {
+    const db = makeDb();
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_boss"] } } }]);
+    const asked: Array<{ openId: string; chatId: string }> = [];
+    const result = await ingest(baseEvent, {
+      ...ingestCtx(db),
+      onAccessRequested: async (input) => {
+        asked.push(input);
+      },
+    });
+    expect(result.action).toBe("skipped");
+    // The person is told something happened; the operator is notified by the
+    // caller, which is the only one that can send.
+    expect(asked).toEqual([{ openId: "ou_user001", chatId: "oc_p2p_001" }]);
+    db.close();
+  });
+
+  test("ADR 0067: an owner's /approve is administration, never a prompt", async () => {
+    const db = makeDb();
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_boss"] } } }]);
+    const commands: Array<{ operatorId: string; command: { kind: string; openId: string } }> = [];
+    const result = await ingest(
+      { ...baseEvent, sender_id: "ou_boss", content: "/approve ou_new" },
+      {
+        ...ingestCtx(db),
+        onAccessCommand: async (input) => {
+          commands.push(input);
+        },
+      },
+    );
+    expect(result.action).toBe("consumed");
+    expect(result.triggered).toBe(false);
+    expect(commands).toEqual([
+      { operatorId: "ou_boss", command: { kind: "approve", openId: "ou_new" } },
+    ]);
+    db.close();
+  });
+
+  test("ADR 0067: a stranger sending /approve is not an owner", async () => {
+    const db = makeDb();
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_boss"] } } }]);
+    const commands: unknown[] = [];
+    const asked: unknown[] = [];
+    const result = await ingest(
+      { ...baseEvent, content: "/approve ou_stranger" },
+      {
+        ...ingestCtx(db),
+        onAccessCommand: async (input) => {
+          commands.push(input);
+        },
+        onAccessRequested: async (input) => {
+          asked.push(input);
+        },
+      },
+    );
+    // A stranger granting themselves would be the whole hole. They fall through
+    // to the ordinary DM path: denied, and asked to wait.
+    expect(commands).toEqual([]);
+    expect(asked).toHaveLength(1);
+    expect(result.action).toBe("skipped");
+    db.close();
+  });
+
+  test("ADR 0067 D4: a DM is ONE conversation, whatever thread it carries", async () => {
+    const db = makeDb();
+    // The chat already has a room; a message that arrives inside an old Lark
+    // thread (thread_id + root_id) must continue it, not open a second one.
+    db.run(
+      "INSERT INTO conversation_binding (conversation_id, lark_chat_id, chat_type, chat_mode, created_at) VALUES (?, ?, ?, ?, ?)",
+      ["conv_dm", "oc_p2p_001", "p2p", "p2p", Date.now()],
+    );
+    // Exactly one fetch: the agent config. A second POST /conversations would
+    // exhaust the mock and fail the test.
+    mockFetch([{ body: { lark: { allowedSenders: ["ou_user001"] } } }, { body: { seq: 7 } }]);
+    const result = await ingest(
+      { ...baseEvent, thread_id: "omt_old", root_id: "om_root" },
+      ingestCtx(db),
+    );
+    expect(result.conversationId).toBe("conv_dm");
     db.close();
   });
 

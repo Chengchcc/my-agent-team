@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { parseOwnerCommand } from "./access-requests.js";
 import {
   chatHasConversations,
   confirmInbound,
@@ -6,6 +7,7 @@ import {
   getMemberBinding,
   inboundExists,
   listActiveRunCards,
+  newestConversationForChat,
   putConversationBinding,
   putMemberBinding,
   rememberTopicKeys,
@@ -32,6 +34,19 @@ export interface IngestContext {
   /** Reply to a control command (/stop) — direct text send, not a
    * conversation message. */
   onCommandReply?: (chatId: string, text: string) => Promise<void>;
+  /** ADR 0067: a DM from someone outside the allowlist is an access request.
+   *  The caller persists it and tells both sides; ingest only decides that it
+   *  IS one (the policy stays pure). */
+  onAccessRequested?: (input: { openId: string; chatId: string }) => Promise<void>;
+  /** ADR 0067: the operator's `/approve`/`/deny` in their own DM. Only called
+   *  when the sender IS an owner - the check lives here, where the config is. */
+  onAccessCommand?: (input: {
+    operatorId: string;
+    command: { kind: "approve" | "deny"; openId: string };
+  }) => Promise<void>;
+  /** ADR 0067: the agent's Web-configured host for card links (null = none),
+   *  recorded per event so a card carries an address the operator can reach. */
+  setCardHost?: (url: string | null) => void;
   /** Create + send the workflow progress card for this chat; null = no card
    *  (not configured or the platform refused) and the watcher falls back to
    *  plain text lines. */
@@ -282,6 +297,12 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   // per-chat rules key the way decideInbound expects (they were inert before).
   const wireLark = agentData.lark as LarkAccessConfig & { groups?: unknown };
   const larkCfg: LarkAccessConfig = { ...wireLark, groups: normalizeGroups(wireLark.groups) };
+  // ADR 0067: the operator configures the card host in the Web; the bot flag is
+  // only the fallback. Recorded here because this is where the config is read.
+  const configuredHost = (wireLark as { webUrl?: unknown }).webUrl;
+  if (typeof configuredHost === "string" && configuredHost !== "") {
+    ctx.setCardHost?.(configuredHost);
+  }
   const mentionedBot = isBotMentioned(event, botDisplayName);
   const mentionAll = isMentionAll(event);
   // Reading the binding is the only way to know whether this chat is already
@@ -298,12 +319,33 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     mentionAll,
     chatInUse,
   });
+  // ADR 0067: the operator answers access requests from their own DM. Checked
+  // BEFORE the agent turn so `/approve` never becomes a prompt - an owner's
+  // command is administration, not conversation. Only an allowlisted sender
+  // counts as an owner (a "*" allowlist allows everyone to talk, not to grant).
+  if (event.chat_type !== "group") {
+    const command = parseOwnerCommand(event.content);
+    const owners = larkCfg.allowedSenders.filter((id) => id !== "*");
+    if (command && owners.includes(event.sender_id)) {
+      await ctx.onAccessCommand?.({ operatorId: event.sender_id, command });
+      console.log(`[ingest] access ${command.kind} by ${event.sender_id} for ${command.openId}`);
+      return { action: "consumed", triggered: false, triggeredRuns: [] };
+    }
+  }
   if (decision.outcome === "skip") {
     // Logged, not silent: "why did the bot ignore this message" is the first
     // question when access control misbehaves, and the reason names the layer.
     console.log(
       `[ingest] skipped (${decision.reason}) chat=${event.chat_id} type=${event.chat_type} sender=${event.sender_id}`,
     );
+    // ADR 0067: a stranger's DM is a request, not noise. Told once, so the
+    // person is not left thinking the bot is broken.
+    if (decision.reason === "dm_denied") {
+      await ctx.onAccessRequested?.({
+        openId: event.sender_id,
+        chatId: event.chat_id,
+      });
+    }
     return { action: "skipped", triggered: false, triggeredRuns: [] };
   }
   const addressed = decision.outcome === "answer";
@@ -463,6 +505,24 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     }
     memberId = mid;
 
+    // ADR 0067 D4: a DM is ONE conversation. The chat is the boundary, not a
+    // topic - a private chat is one continuous room, whatever thread Lark may
+    // have assigned to an older answer. (Groups keep the topic boundary: there
+    // one thread IS one conversation.)
+    if (event.chat_type !== "group") {
+      const existing = newestConversationForChat(db, event.chat_id);
+      if (existing) {
+        conversationId = existing;
+        return { ok: true as const, needCreateConv: false as const, conversationId: existing };
+      }
+      // No conversation yet: this message opens the chat's single room.
+      return {
+        ok: true as const,
+        needCreateConv: true as const,
+        conversationId: null as string | null,
+      };
+    }
+
     // Continue the topic if any of its keys is already known: a topic-chat
     // reply carries the topic's thread id, and a p2p reply chain resolves by
     // the message it hangs off until Lark assigns that chain a thread id.
@@ -523,10 +583,13 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         // message when we are already inside one, otherwise THIS message —
         // because the answer replies to it in-thread, and that reply is what
         // creates the topic (probed: the API returns a `thread_id`).
-        topicRootMessageId: topicRootMessageId(event),
+        topicRootMessageId: event.chat_type === "group" ? topicRootMessageId(event) : null,
         createdAt: Date.now(),
       });
-      rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
+      // A DM has no topic: no root to reply into and no keys to remember.
+      if (event.chat_type === "group") {
+        rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
+      }
       putMemberBinding(db, event.chat_id, event.sender_id, memberId);
     })();
 

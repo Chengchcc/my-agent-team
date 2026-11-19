@@ -42,7 +42,11 @@ function parseSendOutput(stdout: string): { messageId?: string; threadId?: strin
 
 export function sendViaLarkCli(input: {
   profile: string;
+  /** A chat id (oc_…) — or, when `toUserId` is set, unused. */
   chatId: string;
+  /** ADR 0067: DM a person by open_id when there is no chat with them yet
+   *  (the operator's own DM is where access requests are answered). */
+  toUserId?: string;
   text: string;
   /** Lark deduplicates on this key; omitted for one-shot notifications. */
   idempotencyKey?: string;
@@ -54,6 +58,8 @@ export function sendViaLarkCli(input: {
   if (input.replyTo) {
     args.push("+messages-reply", "--message-id", input.replyTo, "--text", input.text);
     if (input.replyInThread) args.push("--reply-in-thread");
+  } else if (input.toUserId) {
+    args.push("+messages-send", "--user-id", input.toUserId, "--text", input.text);
   } else {
     args.push("+messages-send", "--chat-id", input.chatId, "--text", input.text);
   }
@@ -80,5 +86,20 @@ export function sendViaLarkCli(input: {
     }
     resolve({ ok: true, ...parseSendOutput(stdout) });
   });
-  return promise;
+  // ADR 0067: a plain group is ASKED to thread (the operator wants answers in
+  // a thread), but Lark does not document accepting `reply_in_thread` there.
+  // If the platform refuses the flag, an answer in the main stream beats no
+  // answer - retry once without it.
+  return promise.then((result) =>
+    result.ok || input.replyInThread !== true || !mentionsThread(result.error)
+      ? result
+      : sendViaLarkCli({ ...input, replyInThread: false }),
+  );
+}
+
+/** Does an error say the thread flag is the problem? Checked on the message,
+ *  not the code: the API answers 230xxx codes for it and lark-cli prints the
+ *  message. */
+export function mentionsThread(error: string | undefined): boolean {
+  return typeof error === "string" && /thread|话题/i.test(error);
 }

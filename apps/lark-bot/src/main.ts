@@ -7,14 +7,23 @@ import {
 } from "@larksuite/channel";
 import type { ChatState } from "@microsoft/agent-host-protocol";
 import { z } from "zod";
+import {
+  ownerDecidedText,
+  ownerNoticeText,
+  requesterApprovedText,
+  requesterDeniedText,
+  requesterPendingText,
+} from "./access-requests.js";
 import type { WatcherHandle } from "./ahp-watcher.js";
 import { watchConversationOverAhp } from "./ahp-watcher.js";
 import { parseArgs } from "./args.js";
 import {
   countPendingDeliveries,
+  decideAccessRequest,
   ensureTopicRoot,
   findConversationByComment,
   findConversationByTopicKey,
+  getAccessRequest,
   getCommentBinding,
   getCommentSubscription,
   getConversationBinding,
@@ -24,6 +33,7 @@ import {
   listNonTerminalRunCards,
   newestConversationForChat,
   putCommentSubscription,
+  recordAccessRequest,
   updateChatMode,
 } from "./bindings-sqlite.js";
 import { bootstrap } from "./bootstrap.js";
@@ -442,32 +452,28 @@ async function startRunCard(
   adopt?: { cardKitId: string; larkMessageId: string },
 ) {
   if (cardWatchers.has(runId)) return;
-  // Where this answer belongs (ADR 0037). The conversation records its topic's
-  // root; no root yet means THIS message roots the topic — which is the normal
-  // case in a chat with no topic mode (p2p), where the card is the topic and
-  // the user's reply to the card continues it. Replying to the caller's own
-  // message instead would bury the card inside a chain rooted on the user,
-  // and the next reply would open a new conversation.
-  const replyTo = ensureTopicRoot(state.db, larkChatId, conversationId);
-  // Reply targeting (ADR 0037): the answer belongs to the topic, and inside a
-  // TOPIC chat it must carry `reply_in_thread` or it lands outside the topic —
-  // while a normal chat REJECTS that flag. So the chat's mode decides, and it
-  // is resolved once per conversation and remembered on the binding.
+  // Where this answer belongs (ADR 0037 + 0067 D4). A GROUP chat answers into
+  // its conversation's topic; a DM is one flat room, so its card is posted into
+  // the chat with no reply target at all - a reply here would carve the DM into
+  // a topic the operator never asked for.
   const binding = getConversationBinding(state.db, conversationId);
   let chatMode = binding?.chatMode ?? null;
   if (chatMode === null) {
     chatMode = await cardClient.getChatMode(larkChatId);
     if (chatMode) updateChatMode(state.db, conversationId, chatMode);
   }
-  // Topic chats REQUIRE a thread reply and p2p ACCEPTS one — in p2p that reply
-  // is what creates the topic at all (probed: the API returns a `thread_id`).
+  const isDirect = chatMode === "p2p";
+  const replyTo = isDirect ? null : ensureTopicRoot(state.db, larkChatId, conversationId);
+  // Reply targeting: a topic chat must carry `reply_in_thread` or the card
+  // lands outside the topic; a plain group asks for it too (a rejection falls
+  // back to a flat send, see sendCard); a DM never does.
   const replyInThread = replyInThreadFor(chatMode);
   const handle = await watchRunCard(runId, conversationId, larkChatId, {
     db: state.db,
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     cardClient,
-    webUrl: runPageUrl(args.webUrl, runId),
+    webUrl: runPageUrl(cardHost, runId),
     sourceMessageId,
     replyTo,
     replyInThread,
@@ -500,7 +506,9 @@ for (const inputId of liveQueuedInputCards(state.db)) {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     cardClient,
-    replyTo: binding?.topicRootMessageId ?? null,
+    // A DM is a flat room (ADR 0067 D4): no reply target, even for a binding
+    // restored from before the rule changed.
+    replyTo: binding?.chatMode === "p2p" ? null : (binding?.topicRootMessageId ?? null),
     replyInThread: replyInThreadFor(binding?.chatMode ?? null),
     onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
       if (!cardKitId || !larkMessageId) return;
@@ -553,6 +561,12 @@ function isMergeable(event: LarkMessageEvent): boolean {
 /** One ingest. `event` may be a merged batch (merge-batch.ts): the ids it
  *  carries are the first original's, which is what the ack reaction and the
  *  run card attach to. */
+/** ADR 0067: the host behind Lark card links. The Web-configured value wins
+ *  (it is the address the operator can actually reach); the launch flag is the
+ *  fallback for a bot started before anyone configured one. Refreshed per
+ *  event - the agent config it comes from is fetched per event anyway. */
+let cardHost: string | null = args.webUrl ?? null;
+
 async function runIngest(event: LarkMessageEvent): Promise<void> {
   const result = await ingest(event, {
     db: state.db,
@@ -587,7 +601,9 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
         backendUrl: args.backendUrl,
         backendAuthToken: args.backendAuthToken,
         cardClient,
-        replyTo: binding?.topicRootMessageId ?? null,
+        // A DM is a flat room (ADR 0067 D4): no reply target, even for a binding
+        // restored from before the rule changed.
+        replyTo: binding?.chatMode === "p2p" ? null : (binding?.topicRootMessageId ?? null),
         replyInThread: replyInThreadFor(binding?.chatMode ?? null),
         onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
           // The queued input is now a run: whatever accumulated behind it ships
@@ -645,6 +661,70 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
       } catch {
         return null;
       }
+    },
+    setCardHost: (url) => {
+      cardHost = url ?? args.webUrl ?? null;
+    },
+    // ADR 0067: a stranger's DM becomes a request the operator answers. The
+    // stranger is told once; the operator gets one line per person, with the
+    // exact command to send back.
+    onAccessRequested: async ({ openId, chatId }) => {
+      // A p2p chat is named after the person, so the operator can recognize
+      // them instead of reading an open_id. Best effort: no name is fine.
+      const chatName = await cardClient.getChatInfo(chatId).catch(() => null);
+      const { row, created } = recordAccessRequest(state.db, {
+        openId,
+        chatId,
+        displayName: chatName?.name ?? "",
+        now: Date.now(),
+      });
+      if (row.status !== "pending") {
+        console.log(`[lark-bot] access request from ${openId} ignored: already ${row.status}`);
+        return;
+      }
+      if (created) {
+        await sendTextOnly(profile, chatId, requesterPendingText());
+      }
+      for (const owner of await ownersOf()) {
+        const sent = await sendTextOnly(
+          profile,
+          "",
+          ownerNoticeText({
+            displayName: row.displayName,
+            openId,
+            created,
+          }),
+          { toUserId: owner },
+        );
+        if (!sent.ok) console.error(`[lark-bot] owner notice failed: ${sent.error}`);
+      }
+    },
+    onAccessCommand: async ({ operatorId, command }) => {
+      const approve = command.kind === "approve";
+      const changed = decideAccessRequest(state.db, {
+        openId: command.openId,
+        approve,
+        decidedBy: operatorId,
+        now: Date.now(),
+      });
+      if (!changed) {
+        await sendTextOnly(profile, "", "没有待处理的申请（可能已经批复过）。", {
+          toUserId: operatorId,
+        });
+        return;
+      }
+      if (approve) await grantSender(command.openId);
+      const req = getAccessRequest(state.db, command.openId);
+      if (req) {
+        await sendTextOnly(
+          profile,
+          req.chatId,
+          approve ? requesterApprovedText() : requesterDeniedText(),
+        );
+      }
+      await sendTextOnly(profile, "", ownerDecidedText({ openId: command.openId, approve }), {
+        toUserId: operatorId,
+      });
     },
     onCommandReply: async (chatId, text) => {
       // Chat-wide notice ("nothing to stop"), but it must not open a topic of
@@ -741,6 +821,40 @@ async function handleEvent(event: LarkMessageEvent): Promise<void> {
 // rebuilds the NDJSON line this pipeline parses, so the trust model (validate
 // against the local run_card row) is unchanged.
 const actionBackendClient = createClient(args.backendUrl, args.backendAuthToken);
+
+/** ADR 0067: the operator ids on an agent DTO's lark surface. A `"*"` entry
+ *  means "anyone may talk", never "anyone may grant", so it is not an owner.
+ *  Narrowed step by step - a bare cast at a cross-process boundary is banned
+ *  (audit:contracts), and this value decides who can grant access. */
+function allowlistOf(data: unknown): string[] {
+  if (typeof data !== "object" || data === null || !("lark" in data)) return [];
+  const lark = data.lark;
+  if (typeof lark !== "object" || lark === null || !("allowedSenders" in lark)) return [];
+  const list = lark.allowedSenders;
+  if (!Array.isArray(list)) return [];
+  return list.filter((id): id is string => typeof id === "string");
+}
+
+async function ownersOf(): Promise<string[]> {
+  const resp = await actionBackendClient.api.agents({ id: args.agentId }).get();
+  return allowlistOf(resp.data).filter((id) => id !== "*");
+}
+
+/** ADR 0067: write an approved person into the agent's DM allowlist. Re-read
+ *  the list from the backend instead of a cached copy - the operator may have
+ *  edited it in the Web a second ago, and a merge on stale data would drop
+ *  that edit. */
+async function grantSender(openId: string): Promise<void> {
+  const resp = await actionBackendClient.api.agents({ id: args.agentId }).get();
+  const current = allowlistOf(resp.data);
+  if (current.includes(openId) || current.includes("*")) return;
+  const patched = await actionBackendClient.api
+    .agents({ id: args.agentId })
+    .patch({ lark: { enabled: true, allowedSenders: [...current, openId] } });
+  if (patched.error) {
+    console.error(`[lark-bot] granting ${openId} failed: ${JSON.stringify(patched.error)}`);
+  }
+}
 const cardActionDeps: CardActionDeps = {
   db: state.db,
   cancelRun: async (runId) => {

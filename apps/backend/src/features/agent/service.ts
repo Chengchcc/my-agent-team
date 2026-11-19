@@ -88,6 +88,7 @@ export function createAgentService(opts: {
               requireMention: input.lark.requireMention,
               respondToMentionAll: input.lark.respondToMentionAll,
               ambientRules: input.lark.ambientRules,
+              webUrl: input.lark.webUrl,
             }
           : undefined,
       });
@@ -146,6 +147,7 @@ export function createAgentService(opts: {
               requireMention: input.lark.requireMention,
               respondToMentionAll: input.lark.respondToMentionAll,
               ambientRules: input.lark.ambientRules,
+              webUrl: input.lark.webUrl,
             }
           : undefined,
         prev: existing.config,

@@ -64,6 +64,8 @@ export interface CreateAgentInput {
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
+    /** ADR 0067: base URL behind Lark card links (Web-configured). */
+    webUrl?: string;
     /** DM allowlist (open_id); `"*"` is the explicit wildcard, empty denies. */
     allowedSenders?: string[];
     /** Default policy for groups with no entry in `groups`. */
@@ -109,6 +111,8 @@ export interface UpdateAgentInput {
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
+    /** ADR 0067: base URL behind Lark card links (Web-configured). */
+    webUrl?: string;
     /** DM allowlist (open_id); `"*"` is the explicit wildcard, empty denies. */
     allowedSenders?: string[];
     /** Default policy for groups with no entry in `groups`. */
