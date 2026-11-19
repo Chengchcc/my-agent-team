@@ -103,6 +103,9 @@ export function conversationRoutes(
           forkSource: conv.forkSource,
           projectId: conv.projectId,
           forkFromSeq: conv.forkFromSeq,
+          // ADR 0070: a child room names the room that dispatched into it, so
+          // its page can offer the way back.
+          parentConversationId: conv.parentConversationId,
           lastActivityAt: svc.port.getLastActivityAt?.(id) ?? null,
           lastMessagePreview: svc.port.getLastMessagePreview?.(id) ?? null,
           lastSeq: svc.port.getLastSeq?.(id) ?? null,

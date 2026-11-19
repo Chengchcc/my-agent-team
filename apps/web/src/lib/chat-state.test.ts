@@ -210,6 +210,53 @@ describe("the message list from AHP chat state", () => {
     expect(texts).not.toContain("worker says: fixed it");
   });
 
+  test("ADR 0070: a dispatch summary carries the child room it opened", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-front",
+          state: "complete",
+          message: {
+            text: "→ dispatched to Worker One",
+            origin: { kind: "user" },
+            _meta: {
+              messageId: "msg-1",
+              seq: 4,
+              authorAgentId: "front",
+              dispatchTo: { conversationId: "child-1" },
+            },
+          },
+          responseParts: [],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      { memberId: "front", kind: "agent", agentId: "front" },
+    );
+    const row = items.find((i) => i.kind === "message");
+    expect(row?.kind === "message" ? row.dispatchTo : undefined).toEqual({
+      conversationId: "child-1",
+    });
+    // A malformed bag renders nothing rather than a broken link.
+    const junk = itemsFromChatState(
+      state([
+        {
+          id: "r2",
+          state: "complete",
+          message: {
+            text: "x",
+            origin: { kind: "user" },
+            _meta: { messageId: "m2", seq: 1, dispatchTo: { conversationId: 7 } },
+          },
+          responseParts: [],
+        },
+      ]),
+      { memberId: "viewer", kind: "human" },
+      null,
+    );
+    const second = junk.find((i) => i.kind === "message");
+    expect(second?.kind === "message" ? second.dispatchTo : "none").toBeUndefined();
+  });
+
   test("ADR 0060 D3: an agent-authored input is NOT shown as the human", () => {
     // A dispatch brief is written by the front desk but stored as an INPUT
     // (role user). Rendering by role alone put the front desk's words in the

@@ -2,6 +2,7 @@
 
 import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
 import { FileTextIcon } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ArtifactMeta } from "@/lib/api";
@@ -408,6 +409,18 @@ export function Timeline({
                         />
                       ) : null;
                     })()}
+                    {m.dispatchTo ? (
+                      // ADR 0070: a dispatch summary points at the WORKER'S
+                      // ROOM, not at a run. That room is a conversation like
+                      // any other, just not listed in the sidebar.
+                      <Link
+                        href={`/chat/${m.dispatchTo.conversationId}`}
+                        className="mb-1 inline-flex items-center gap-1 rounded-full border border-(--line) px-2 py-0.5 text-[10px] text-(--mute) hover:text-(--fg)"
+                        title="Open the room this dispatch created"
+                      >
+                        Open sub-conversation ↗
+                      </Link>
+                    ) : null}
                     {m.floorFor ? (
                       // ADR 0066 D4: a floor visit. The room is the record, so it
                       // says who the human walked down to see - otherwise the

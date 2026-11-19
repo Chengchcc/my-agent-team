@@ -323,7 +323,17 @@ function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined
     ...(meta?.undone === true ? { undone: true } : {}),
     ...(isAnchorMeta(meta?.anchor) ? { anchor: meta.anchor } : {}),
     ...(isFloorFor(meta?.floorFor) ? { floorFor: meta.floorFor } : {}),
+    ...(isDispatchTo(meta?.dispatchTo) ? { dispatchTo: meta.dispatchTo } : {}),
   };
+}
+
+/** ADR 0070: `_meta.dispatchTo` - the child room a dispatch opened. */
+function isDispatchTo(v: unknown): v is { conversationId: string } {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as { conversationId?: unknown }).conversationId === "string"
+  );
 }
 
 /** ADR 0066 D4: `_meta.floorFor` - the worker a floor visit was addressed to. */
@@ -351,6 +361,7 @@ function metaOfRequest(part: unknown):
       undone?: unknown;
       anchor?: unknown;
       floorFor?: unknown;
+      dispatchTo?: unknown;
       authorAgentId?: unknown;
     }
   | undefined {
@@ -362,6 +373,7 @@ function metaOfRequest(part: unknown):
         undone?: unknown;
         anchor?: unknown;
         floorFor?: unknown;
+        dispatchTo?: unknown;
         authorAgentId?: unknown;
       })
     : undefined;
