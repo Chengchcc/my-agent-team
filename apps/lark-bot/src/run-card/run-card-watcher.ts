@@ -55,6 +55,8 @@ export interface RunCardWatcherOptions {
   /** CardKit client — the direct-HTTPS hot path (never spawns lark-cli). */
   cardClient: CardKitClient;
   webUrl: string | null;
+  /** The room's page; the card links here first (see RunCardMeta). */
+  roomUrl?: string | null;
   /** Plain-text send for the seal fallback (lark-cli; rare by design). */
   sendText: (
     chatId: string,
@@ -194,7 +196,12 @@ export async function watchRunCard(
    *  streams and one that only paints when the fold arrives, and silence here hid exactly that. */
   let loggedMissingTurn = false;
 
-  const meta = { runId, startedAt: Date.now(), webUrl };
+  const meta = {
+    runId,
+    startedAt: Date.now(),
+    ...(opts.roomUrl ? { roomUrl: opts.roomUrl } : {}),
+    webUrl,
+  };
 
   // Restart recovery: reuse the row (card entity, sequence, output).
   const existing = getRunCard(db, runId);

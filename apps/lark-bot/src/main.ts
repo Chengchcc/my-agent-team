@@ -61,7 +61,7 @@ import { createTokenProvider, resolveProfileCredentials } from "./lark-api.js";
 import { MergeHold, renderMergedMessages } from "./merge-hold.js";
 import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
-import { runPageUrl } from "./run-card/card-renderer.js";
+import { roomPageUrl, runPageUrl } from "./run-card/card-renderer.js";
 import { cardStateFromChatTurn } from "./run-card/card-state.js";
 import { isOwnAgentRun } from "./run-card/ownership.js";
 import {
@@ -482,6 +482,7 @@ async function startRunCard(
     backendAuthToken: args.backendAuthToken,
     cardClient,
     webUrl: runPageUrl(cardHost, runId),
+    roomUrl: roomPageUrl(cardHost, conversationId),
     sourceMessageId,
     replyTo,
     replyInThread,

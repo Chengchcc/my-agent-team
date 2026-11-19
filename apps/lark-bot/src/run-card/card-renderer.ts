@@ -31,7 +31,11 @@ export const STATUS_ELEMENT_ID = "run_status";
 export interface RunCardMeta {
   runId: string;
   startedAt: number;
-  /** Console deep link; when absent no link is rendered. */
+  /** The ROOM this run belongs to: where the human's own record lives. This is
+   *  the card's primary link - the run page is evidence ("shop floor"), not an
+   *  entrance. */
+  roomUrl?: string | null;
+  /** Run detail page (the shop floor). Secondary on the card. */
   webUrl: string | null;
 }
 
@@ -44,6 +48,12 @@ export interface RunCardMeta {
 export function runPageUrl(webUrl: string | null, runId: string): string | null {
   if (!webUrl) return null;
   return `${webUrl.replace(/\/+$/, "")}/system/runs/${runId}`;
+}
+
+/** The conversation page: the meeting room the human reads. */
+export function roomPageUrl(webUrl: string | null, conversationId: string): string | null {
+  if (!webUrl) return null;
+  return `${webUrl.replace(/\/+$/, "")}/chat/${conversationId}`;
 }
 
 const HEADER_BY_STATUS: Record<string, { title: string; template: string; footer: string }> = {
@@ -208,7 +218,9 @@ export function renderTodoPanel(state: RunCardState): Record<string, unknown> | 
 export function renderStatusContent(state: RunCardState, meta: RunCardMeta): string {
   const entry = HEADER_BY_STATUS[cardStatusKey(state)] ?? HEADER_BY_STATUS.streaming!;
   const elapsed = state.terminal ? "" : ` · 耗时 ${elapsedLine(meta.startedAt)}`;
-  const webLink = meta.webUrl ? ` · [在 Web 查看](${meta.webUrl})` : "";
+  const webLink =
+    (meta.roomUrl ? ` · [打开会议室](${meta.roomUrl})` : "") +
+    (meta.webUrl ? ` · [运行详情](${meta.webUrl})` : "");
   return `**${entry.footer}**${elapsed}${webLink}`;
 }
 
@@ -450,10 +462,15 @@ export function renderAskCard(state: RunCardState, meta: RunCardMeta): Record<st
       text_size: "notation",
     });
   }
-  if (meta.webUrl) {
+  // The room first: it is the thing the human reads. The run page stays one
+  // click away as evidence (tools, verification, dispatch chain).
+  const links: string[] = [];
+  if (meta.roomUrl) links.push(`[打开会议室](${meta.roomUrl})`);
+  if (meta.webUrl) links.push(`[运行详情](${meta.webUrl})`);
+  if (links.length > 0) {
     elements.push({
       tag: "markdown",
-      content: `[在 Web 查看](${meta.webUrl})`,
+      content: links.join(" · "),
       text_size: "notation",
     });
   }
