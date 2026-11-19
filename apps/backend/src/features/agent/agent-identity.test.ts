@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createAgentIdentityStore } from "./agent-identity.js";
+import { createAgentIdentityStore, identityTextOf } from "./agent-identity.js";
 
 const tmpBase = `/tmp/agent-identity-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const dataDir = path.join(tmpBase, "data");
@@ -81,5 +81,29 @@ describe("AgentIdentityStore", () => {
     const identity2 = await store.getIdentity(agentId);
     expect(identity2.soul).toBe("updated soul");
     expect(identity2.user).toBe("updated user");
+  });
+});
+
+describe("a seeded template is not an identity", () => {
+  test("heading-only bodies read as absent (both template spellings)", () => {
+    // Today's seeder writes English; workspaces created earlier carry Chinese.
+    // Both are the same thing: nobody has written an identity yet.
+    expect(
+      identityTextOf(
+        "# SOUL\n\nDescribe this agent's identity, personality, and behavior guidelines here.\n",
+      ),
+    ).toBeNull();
+    expect(identityTextOf("# SOUL\n\n在此描述此 Agent 的身份、人格与行为准则。\n")).toBeNull();
+    expect(identityTextOf("# SOUL\n\n")).toBeNull();
+    expect(identityTextOf("   \n\n")).toBeNull();
+    expect(identityTextOf(null)).toBeNull();
+  });
+
+  test("real content survives verbatim", () => {
+    const written = "# SOUL\n\nBe terse. Never guess a file path.\n";
+    // Headings included: the operator's own document is passed through, not
+    // re-rendered by us.
+    expect(identityTextOf(written)).toBe(written);
+    expect(identityTextOf("只有一行也算写过了。")).toBe("只有一行也算写过了。");
   });
 });
