@@ -62,7 +62,20 @@ export async function setupTestApp(opts?: {
   };
 
   const { createBackendServices } = await import("../bootstrap/services.js");
-  const services = createBackendServices(cfg as Parameters<typeof createBackendServices>[0]);
+  // Hermetic on purpose. The real lark-bot registry SPAWNS a process and the
+  // real profile writer shells out to `lark-cli config init`, which edits the
+  // operator's `~/.lark-cli/config.json`. Letting a test suite do either is how
+  // the live bot's credentials were rewritten to a placeholder (2026-11-19) and
+  // it left a trail of `cli_y`/`cli_archived` profiles behind.
+  const services = createBackendServices(cfg as Parameters<typeof createBackendServices>[0], {
+    larkBotRegistry: {
+      ensureLarkBot: async () => {},
+      stopLarkBot: async () => {},
+      statusOf: () => "configured" as const,
+      dispose: async () => {},
+    },
+    larkProfileInit: async () => {},
+  });
   const { installFeatures } = await import("../bootstrap/features.js");
   const installed = await installFeatures(services);
   const { createApp } = await import("../app.js");

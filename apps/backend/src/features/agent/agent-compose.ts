@@ -25,6 +25,10 @@ export function createAgentSvc(
     onAgentUpdate?: (agentId: string, prevProjects: string[]) => Promise<void>;
     /** Throws when the agent has an active Agent Run. Defaults to no-op. */
     assertNoActiveRun?: (agentId: string) => void;
+    /** Writes a lark-cli profile. Injectable because the real one edits the
+     *  operator's `~/.lark-cli/config.json`: a test that exercises this path
+     *  must not rewrite the machine's live credentials. */
+    profileInit?: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
   },
 ): AgentService {
   const agentPort = sqliteAgentAdapter(db);
@@ -58,7 +62,7 @@ export function createAgentSvc(
 
   return withLarkLifecycle({
     service: agentSvcRaw,
-    profileInit: larkProfileInit,
+    profileInit: opts?.profileInit ?? larkProfileInit,
     ensureBot: (id, botDisplayName, larkProfile) =>
       larkBotRegistry.ensureLarkBot(id, botDisplayName, larkProfile),
     stopBot: (id) => larkBotRegistry.stopLarkBot(id),
