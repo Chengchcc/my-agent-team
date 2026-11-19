@@ -27,15 +27,17 @@ export async function sendIntoTopic(input: {
   idempotencyKey?: string;
 }): Promise<LarkSendResult> {
   const binding = getConversationBinding(input.db, input.conversationId);
+  // ADR 0067 D4: a DM is one flat room - no reply target, nothing to remember.
+  const flat = binding?.chatMode === "p2p";
   const result = await sendViaLarkCli({
     profile: input.profile,
     chatId: input.chatId,
     text: input.text,
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
-    replyTo: ensureTopicRoot(input.db, input.chatId, input.conversationId),
+    replyTo: flat ? null : ensureTopicRoot(input.db, input.chatId, input.conversationId),
     replyInThread: replyInThreadFor(binding?.chatMode ?? null),
   });
-  if (result.ok && result.messageId) {
+  if (result.ok && result.messageId && !flat) {
     const keys = result.threadId ? [result.messageId, result.threadId] : [result.messageId];
     rememberTopicKeys(input.db, input.chatId, input.conversationId, keys, Date.now());
   }

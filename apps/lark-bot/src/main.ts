@@ -452,25 +452,21 @@ async function startRunCard(
   adopt?: { cardKitId: string; larkMessageId: string },
 ) {
   if (cardWatchers.has(runId)) return;
-  // Where this answer belongs (ADR 0037). The conversation records its topic's
-  // root; no root yet means THIS message roots the topic — which is the normal
-  // case in a chat with no topic mode (p2p), where the card is the topic and
-  // the user's reply to the card continues it. Replying to the caller's own
-  // message instead would bury the card inside a chain rooted on the user,
-  // and the next reply would open a new conversation.
-  const replyTo = ensureTopicRoot(state.db, larkChatId, conversationId);
-  // Reply targeting (ADR 0037): the answer belongs to the topic, and inside a
-  // TOPIC chat it must carry `reply_in_thread` or it lands outside the topic —
-  // while a normal chat REJECTS that flag. So the chat's mode decides, and it
-  // is resolved once per conversation and remembered on the binding.
+  // Where this answer belongs (ADR 0037 + 0067 D4). A GROUP chat answers into
+  // its conversation's topic; a DM is one flat room, so its card is posted into
+  // the chat with no reply target at all - a reply here would carve the DM into
+  // a topic the operator never asked for.
   const binding = getConversationBinding(state.db, conversationId);
   let chatMode = binding?.chatMode ?? null;
   if (chatMode === null) {
     chatMode = await cardClient.getChatMode(larkChatId);
     if (chatMode) updateChatMode(state.db, conversationId, chatMode);
   }
-  // Topic chats REQUIRE a thread reply and p2p ACCEPTS one — in p2p that reply
-  // is what creates the topic at all (probed: the API returns a `thread_id`).
+  const isDirect = chatMode === "p2p";
+  const replyTo = isDirect ? null : ensureTopicRoot(state.db, larkChatId, conversationId);
+  // Reply targeting: a topic chat must carry `reply_in_thread` or the card
+  // lands outside the topic; a plain group asks for it too (a rejection falls
+  // back to a flat send, see sendCard); a DM never does.
   const replyInThread = replyInThreadFor(chatMode);
   const handle = await watchRunCard(runId, conversationId, larkChatId, {
     db: state.db,
@@ -510,7 +506,9 @@ for (const inputId of liveQueuedInputCards(state.db)) {
     backendUrl: args.backendUrl,
     backendAuthToken: args.backendAuthToken,
     cardClient,
-    replyTo: binding?.topicRootMessageId ?? null,
+    // A DM is a flat room (ADR 0067 D4): no reply target, even for a binding
+    // restored from before the rule changed.
+    replyTo: binding?.chatMode === "p2p" ? null : (binding?.topicRootMessageId ?? null),
     replyInThread: replyInThreadFor(binding?.chatMode ?? null),
     onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
       if (!cardKitId || !larkMessageId) return;
@@ -603,7 +601,9 @@ async function runIngest(event: LarkMessageEvent): Promise<void> {
         backendUrl: args.backendUrl,
         backendAuthToken: args.backendAuthToken,
         cardClient,
-        replyTo: binding?.topicRootMessageId ?? null,
+        // A DM is a flat room (ADR 0067 D4): no reply target, even for a binding
+        // restored from before the rule changed.
+        replyTo: binding?.chatMode === "p2p" ? null : (binding?.topicRootMessageId ?? null),
         replyInThread: replyInThreadFor(binding?.chatMode ?? null),
         onPromoted: (promotedInput, runId, cardKitId, larkMessageId) => {
           // The queued input is now a run: whatever accumulated behind it ships

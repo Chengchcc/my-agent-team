@@ -86,5 +86,20 @@ export function sendViaLarkCli(input: {
     }
     resolve({ ok: true, ...parseSendOutput(stdout) });
   });
-  return promise;
+  // ADR 0067: a plain group is ASKED to thread (the operator wants answers in
+  // a thread), but Lark does not document accepting `reply_in_thread` there.
+  // If the platform refuses the flag, an answer in the main stream beats no
+  // answer - retry once without it.
+  return promise.then((result) =>
+    result.ok || input.replyInThread !== true || !mentionsThread(result.error)
+      ? result
+      : sendViaLarkCli({ ...input, replyInThread: false }),
+  );
+}
+
+/** Does an error say the thread flag is the problem? Checked on the message,
+ *  not the code: the API answers 230xxx codes for it and lark-cli prints the
+ *  message. */
+export function mentionsThread(error: string | undefined): boolean {
+  return typeof error === "string" && /thread|话题/i.test(error);
 }

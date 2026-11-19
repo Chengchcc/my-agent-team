@@ -40,17 +40,18 @@ export function topicRootMessageId(event: LarkMessageEvent): string {
  *
  *  - topic chat ("topic"): required, otherwise the answer lands in the main
  *    stream instead of the conversation's topic;
- *  - p2p: NOT used. A thread reply here would turn a plain DM into a topic
- *    chat (`thread_id` comes back, the topic then exists for good), so every
- *    DM answer would sit in its own thread instead of the chat itself. The
- *    operator asked for the opposite (2026-11-19): DM stays flat, and only
- *    group topics get thread replies;
- *  - plain group: nothing to join;
- *  - unknown (`null`, a lookup that failed): flat. Threading is the choice
- *    that creates state (a topic that cannot be undone); the flat answer can
- *    be retried into a topic, a stray topic cannot. */
+ *  - plain group ("group"): requested (2026-11-19) so answers sit in a thread
+ *    instead of flooding the chat. Lark is not documented to accept
+ *    `reply_in_thread` here, so the send path treats a rejection as "this chat
+ *    does not thread" and retries flat - a failed send would lose the answer,
+ *    which is worse than an answer in the main stream;
+ *  - p2p: NOT used. A thread reply here would turn the DM into a topic chat for
+ *    good (`thread_id` comes back and the topic then exists), which is not what
+ *    a private chat is;
+ *  - unknown (`null`, a lookup that failed): flat. Threading creates state that
+ *    cannot be undone; a flat answer can be re-sent into a topic. */
 export function replyInThreadFor(chatMode: string | null): boolean {
-  return chatMode === "topic";
+  return chatMode === "topic" || chatMode === "group";
 }
 
 /** Keys to remember for the conversation this message belongs to.

@@ -7,6 +7,7 @@ import {
   getMemberBinding,
   inboundExists,
   listActiveRunCards,
+  newestConversationForChat,
   putConversationBinding,
   putMemberBinding,
   rememberTopicKeys,
@@ -504,6 +505,24 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
     }
     memberId = mid;
 
+    // ADR 0067 D4: a DM is ONE conversation. The chat is the boundary, not a
+    // topic - a private chat is one continuous room, whatever thread Lark may
+    // have assigned to an older answer. (Groups keep the topic boundary: there
+    // one thread IS one conversation.)
+    if (event.chat_type !== "group") {
+      const existing = newestConversationForChat(db, event.chat_id);
+      if (existing) {
+        conversationId = existing;
+        return { ok: true as const, needCreateConv: false as const, conversationId: existing };
+      }
+      // No conversation yet: this message opens the chat's single room.
+      return {
+        ok: true as const,
+        needCreateConv: true as const,
+        conversationId: null as string | null,
+      };
+    }
+
     // Continue the topic if any of its keys is already known: a topic-chat
     // reply carries the topic's thread id, and a p2p reply chain resolves by
     // the message it hangs off until Lark assigns that chain a thread id.
@@ -564,10 +583,13 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
         // message when we are already inside one, otherwise THIS message —
         // because the answer replies to it in-thread, and that reply is what
         // creates the topic (probed: the API returns a `thread_id`).
-        topicRootMessageId: topicRootMessageId(event),
+        topicRootMessageId: event.chat_type === "group" ? topicRootMessageId(event) : null,
         createdAt: Date.now(),
       });
-      rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
+      // A DM has no topic: no root to reply into and no keys to remember.
+      if (event.chat_type === "group") {
+        rememberTopicKeys(db, event.chat_id, conversationId, rememberKeys, Date.now());
+      }
       putMemberBinding(db, event.chat_id, event.sender_id, memberId);
     })();
 
