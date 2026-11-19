@@ -15,7 +15,7 @@ import {
 } from "../bindings-sqlite.js";
 import { handleCardActionLine } from "./card-actions.js";
 import { createCardFlushController } from "./card-flush.js";
-import { renderCard, renderRunCard, runPageUrl } from "./card-renderer.js";
+import { renderCard, renderRunCard, roomPageUrl, runPageUrl } from "./card-renderer.js";
 import {
   cardStateFromChatTurn,
   initialRunCardState,
@@ -166,7 +166,7 @@ describe("renderRunCard", () => {
     // prefixed it), so there is no "正在：" + "正在执行：" double prefix.
     expect(json).toContain("🧪 正在执行：bun test apps/backend");
     expect(json).toContain("✓ 正在读取：src/main.ts");
-    expect(json).not.toContain("在 Web 查看");
+    expect(json).not.toContain("运行详情");
   });
 
   test("waiting approval swaps stop for approve/reject buttons", () => {
@@ -201,7 +201,34 @@ describe("renderRunCard", () => {
     const config = card.config as Record<string, unknown>;
     expect(config.streaming_mode).toBeUndefined();
     expect(JSON.stringify(card)).not.toContain("/stop");
-    expect(JSON.stringify(card)).toContain("在 Web 查看");
+    expect(JSON.stringify(card)).toContain("运行详情");
+  });
+
+  test("the ROOM is the card's first link, the run page second", () => {
+    // The human reads conversations; a run page is evidence. A card that opens
+    // on the run asks the operator to read a workshop log to find their answer.
+    const card = renderRunCard(cardStateOf({ settled: "complete" }), {
+      runId: "r1",
+      startedAt: Date.now(),
+      roomUrl: roomPageUrl("http://box:3001", "c1"),
+      webUrl: runPageUrl("http://box:3001", "r1"),
+    });
+    const json = JSON.stringify(card);
+    expect(roomPageUrl("http://box:3001", "c1")).toBe("http://box:3001/chat/c1");
+    expect(json).toContain("[打开会议室](http://box:3001/chat/c1)");
+    expect(json).toContain("[运行详情](http://box:3001/system/runs/r1)");
+    expect(json.indexOf("打开会议室")).toBeLessThan(json.indexOf("运行详情"));
+  });
+
+  test("without a room link the card degrades to the run link alone", () => {
+    const card = renderRunCard(cardStateOf({ settled: "complete" }), {
+      runId: "r1",
+      startedAt: Date.now(),
+      webUrl: runPageUrl("http://box:3001", "r1"),
+    });
+    const json = JSON.stringify(card);
+    expect(json).not.toContain("打开会议室");
+    expect(json).toContain("运行详情");
   });
 
   test("the console link lands on the run, not the console base", () => {
@@ -217,7 +244,7 @@ describe("renderRunCard", () => {
       webUrl: runPageUrl("http://box:3001", "r1"),
     });
     const json = JSON.stringify(card);
-    expect(json).toContain("在 Web 查看");
+    expect(json).toContain("运行详情");
     expect(json).toContain("http://box:3001/system/runs/r1");
   });
 
