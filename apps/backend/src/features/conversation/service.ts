@@ -8,7 +8,7 @@ import {
 } from "@chengchenccc/message";
 import type { BackendModelRef } from "../../features/agent-run/protocol/index.js";
 import { debugLog } from "../../features/agent-run/protocol/index.js";
-import { DomainError } from "../../infra/domain-errors.js";
+import { DomainError, NotFoundError } from "../../infra/domain-errors.js";
 import type { LedgerMessageEntry, ProductSummaryEntry } from "../agent-context/domain.js";
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
@@ -401,7 +401,11 @@ class ConversationServiceImpl implements ConversationService {
     directToWorker?: boolean;
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
-    if (!convRow) throw new Error(`Conversation not found: ${input.conversationId}`);
+    // NOT_FOUND, not a generic Error: a surface can DELETE a room, and the
+    // caller (the Lark bot) has a binding to it. That caller's recovery is
+    // "forget the binding, open a fresh room", which it can only do if the
+    // answer says the room is gone instead of looking like a server fault.
+    if (!convRow) throw new NotFoundError("conversation", input.conversationId);
 
     const agentId = convRow.agentId;
     const senderMemberId = input.senderMemberId ?? "user";

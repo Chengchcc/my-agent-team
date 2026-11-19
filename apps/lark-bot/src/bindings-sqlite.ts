@@ -244,6 +244,22 @@ export function ensureTopicRoot(
 /** The conversation a chat-scoped message belongs to: its NEWEST topic. Used
  *  by control replies, which are chat-wide ("nothing to stop") but must still
  *  land where the user is looking instead of opening a topic of their own. */
+/** Drop everything that points at a conversation the backend no longer has.
+ *
+ *  A surface can delete a room; the bot's binding then points at nothing and
+ *  every later message dies on a 404. Forgetting the binding is what lets the
+ *  next message open a fresh room instead of failing forever. */
+export function forgetConversationBinding(db: Database, conversationId: string): void {
+  d(db)
+    .delete(schema.topicBinding)
+    .where(eq(schema.topicBinding.conversationId, conversationId))
+    .run();
+  d(db)
+    .delete(schema.conversationBinding)
+    .where(eq(schema.conversationBinding.conversationId, conversationId))
+    .run();
+}
+
 export function newestConversationForChat(db: Database, larkChatId: string): string | null {
   const bindings = listConversationBindings(db).filter((b) => b.larkChatId === larkChatId);
   if (bindings.length === 0) return null;
