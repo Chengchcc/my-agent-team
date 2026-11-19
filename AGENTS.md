@@ -30,7 +30,7 @@ Every response has two parts:
 
 `my-agent-team` is a monorepo for building multi-agent AI systems. It spans from a protocol-level agent runtime (`packages/message`, `apps/oh-my-agent/src/core`) through a production backend (`apps/backend`) and web UI (`apps/web`), plus a Agentic Workflow engine.
 
-**Tech stack:** Bun 1.3.14 runtime, TypeScript 6.x (ESM, `NodeNext`), Turborepo v2, Elysia HTTP, Drizzle ORM + SQLite, Next.js 15 App Router, React Query v5, shadcn/ui + Tailwind CSS v4, Biome + ESLint.
+**Tech stack:** Bun 1.4.4 runtime, TypeScript 6.x (ESM, `NodeNext`), Turborepo v2, Elysia HTTP, Drizzle ORM + SQLite, Next.js 15 App Router, React Query v5, shadcn/ui + Tailwind CSS v4, Biome + ESLint.
 
 ## Architecture & Data Flow
 
