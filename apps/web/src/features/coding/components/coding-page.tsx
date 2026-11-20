@@ -1,7 +1,7 @@
 "use client";
 
 import { Columns2Icon, PlusIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -45,18 +45,42 @@ export function CodingPage() {
     if (hint) setTabHint(hint);
   }, []);
 
+  // ADR 0073: `?agent=<id>` — a conversation's header links straight to the
+  // directory that room's agent works in. Select the pane, and open one when
+  // this agent has none yet (the link is meant to do something on click).
+  const agentParam =
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("agent");
+  // Latest values through refs: the effect must fire on a PARAM change only.
+  // Depending on `terminals` would re-run it on every poll, and depending on
+  // `spawn` (a fresh mutation object each render) would loop.
+  const terminalsRef = useRef(terminals);
+  terminalsRef.current = terminals;
+  const spawnRef = useRef(spawn);
+  spawnRef.current = spawn;
+  useEffect(() => {
+    if (agentParam === null) return;
+    setSelected({ agentId: agentParam });
+    const exists = terminalsRef.current.some(
+      (x) => x.agentId === agentParam && x.projectId === null,
+    );
+    if (!exists) spawnRef.current.mutate({ agentId: agentParam, title: "bash" });
+  }, [agentParam]);
+
   const selTerminals = selected
-    ? terminals.filter(
-        (x) =>
-          x.projectId === selected.projectId &&
-          x.agentId === selected.agentId &&
-          // A task-worktree selection groups ONLY that path's terminals;
-          // a main selection groups the terminals whose cwd isn't a task
-          // path (they never set worktreePath at spawn).
-          (selected.worktreePath === undefined
-            ? !isTaskWorktreeCwd(x.cwd)
-            : x.cwd === selected.worktreePath),
-      )
+    ? terminals.filter((x) => {
+        if (x.agentId !== selected.agentId) return false;
+        if (selected.projectId === undefined) {
+          // ADR 0073: a workspace pane — no project, no worktree split.
+          return x.projectId === null;
+        }
+        if (x.projectId !== selected.projectId) return false;
+        // A task-worktree selection groups ONLY that path's terminals;
+        // a main selection groups the terminals whose cwd isn't a task
+        // path (they never set worktreePath at spawn).
+        return selected.worktreePath === undefined
+          ? !isTaskWorktreeCwd(x.cwd)
+          : x.cwd === selected.worktreePath;
+      })
     : [];
   const active =
     selTerminals.find((x) => x.terminalId === activeId) ??

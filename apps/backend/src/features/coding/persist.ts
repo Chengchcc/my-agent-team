@@ -14,7 +14,7 @@ function isPersisted(value: unknown): value is PersistedTerminal {
   return (
     typeof v.terminalId === "string" &&
     v.terminalId.length > 0 &&
-    typeof v.projectId === "string" &&
+    (v.projectId === null || typeof v.projectId === "string") &&
     typeof v.agentId === "string" &&
     typeof v.cwd === "string" &&
     typeof v.title === "string" &&
