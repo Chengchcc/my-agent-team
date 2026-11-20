@@ -8,6 +8,7 @@ export const wikiKeys = {
   pages: ["wiki", "pages"] as const,
   page: (path: string) => ["wiki", "page", path] as const,
   query: (text: string) => ["wiki", "query", text] as const,
+  graph: ["wiki", "graph"] as const,
   lint: ["wiki", "lint"] as const,
 };
 
@@ -23,12 +24,8 @@ export function useWikiPage(path: string | null) {
   });
 }
 
-export function useWikiSearch(text: string) {
-  return useQuery({
-    queryKey: wikiKeys.query(text),
-    queryFn: () => api.queryWiki(text),
-    enabled: text.trim() !== "",
-  });
+export function useWikiGraph() {
+  return useQuery({ queryKey: wikiKeys.graph, queryFn: () => api.graphWiki() });
 }
 
 export function useWikiBacklinks(path: string | null) {

@@ -18,7 +18,8 @@ interface SearchResult {
 type Hit =
   | ({ type: "conversation"; href: string } & SearchResult)
   | { type: "agent"; id: string; name: string; desc?: string; href: string }
-  | { type: "project"; id: string; name: string; href: string };
+  | { type: "project"; id: string; name: string; href: string }
+  | { type: "wiki"; path: string; title: string; status: string; href: string };
 
 interface GlobalSearchProps {
   open: boolean;
@@ -78,6 +79,28 @@ function highlight(text: string, query: string): React.ReactNode {
   );
 }
 
+/** Title and detail per hit kind, as plain control flow: the render used to
+ *  nest ternaries and adding a fourth kind would have made it unreadable. */
+function resultTitle(r: Hit): string {
+  if (r.type === "conversation")
+    return r.conversationTitle ?? `Conversation ${r.conversationId.slice(0, 8)}`;
+  if (r.type === "wiki") return r.title;
+  return r.name;
+}
+
+function resultDetail(r: Hit, query: string): React.ReactNode {
+  if (r.type === "conversation") return highlight(extractSnippet(r.snippet), query);
+  if (r.type === "agent") return highlight(r.desc ?? "", query);
+  if (r.type === "wiki") return highlight(`${r.status} · ${r.path}`, query);
+  return null;
+}
+
+function resultKey(r: Hit, index: number): string {
+  if (r.type === "conversation") return `conversation-${r.conversationId}-${index}`;
+  if (r.type === "wiki") return `wiki-${r.path}-${index}`;
+  return `${r.type}-${r.id}-${index}`;
+}
+
 export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,10 +142,11 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
         return fallback;
       };
       try {
-        const [conv, agents, projects] = await Promise.all([
+        const [conv, agents, projects, wiki] = await Promise.all([
           api.searchConversations(query.trim()).catch(() => fail({ results: [] })),
           api.listAgents().catch(() => fail([] as Awaited<ReturnType<typeof api.listAgents>>)),
           api.listProjects().catch(() => fail({ projects: [] })),
+          api.queryWiki(query.trim()).catch(() => fail({ hits: [] })),
         ]);
         setSearchFailed(failed);
         const agentList = Array.isArray(agents) ? agents : [];
@@ -157,6 +181,17 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                 href: `/team/projects/${p.projectId}`,
               }),
             ),
+          // The wiki is knowledge, not chat: it answers "what do we already
+          // know", which is the question people open this box for.
+          ...(wiki.hits ?? []).slice(0, 5).map(
+            (h): Hit => ({
+              type: "wiki",
+              path: h.path,
+              title: h.title,
+              status: h.status,
+              href: `/wiki/page?path=${encodeURIComponent(h.path)}`,
+            }),
+          ),
         ];
         setResults(hits);
         setActiveIndex(hits.length > 0 ? 0 : -1);
@@ -222,7 +257,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             className="flex-1 bg-transparent py-3 text-base outline-none placeholder:text-(--mute)"
-            placeholder="Search chats, agents, projects..."
+            placeholder="Search chats, wiki, agents, projects..."
             spellCheck={false}
           />
           <button
@@ -287,7 +322,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
           {!isLoading &&
             results.map((r, i) => (
               <button
-                key={`${r.type}-${"id" in r ? r.id : ""}-${i}`}
+                key={resultKey(r, i)}
                 type="button"
                 onClick={() => {
                   onClose();
@@ -301,9 +336,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                     {r.type}
                   </span>
                   <span className="text-xs font-medium text-(--ink-strong) truncate max-w-[260px]">
-                    {r.type === "conversation"
-                      ? (r.conversationTitle ?? `Conversation ${r.conversationId.slice(0, 8)}`)
-                      : r.name}
+                    {resultTitle(r)}
                   </span>
                   {r.type === "conversation" && (
                     <>
@@ -314,13 +347,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                     </>
                   )}
                 </div>
-                <p className="line-clamp-2 text-sm text-(--ink)">
-                  {r.type === "conversation"
-                    ? highlight(extractSnippet(r.snippet), query)
-                    : r.type === "agent"
-                      ? highlight(r.desc ?? "", query)
-                      : null}
-                </p>
+                <p className="line-clamp-2 text-sm text-(--ink)">{resultDetail(r, query)}</p>
               </button>
             ))}
         </div>

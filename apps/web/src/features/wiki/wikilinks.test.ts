@@ -19,8 +19,9 @@ describe("Obsidian-style wikilinks", () => {
     );
   });
 
-  test("an unresolved [[Name]] goes to search, not to a 404", () => {
-    expect(linkifyWikilinks("[[Brand New]]", index)).toBe("[Brand New](/wiki?text=Brand%20New)");
+  test("an unresolved [[Name]] renders as plain text (no dead link)", () => {
+    expect(linkifyWikilinks("[[Brand New]]", index)).toBe("Brand New");
+    expect(linkifyWikilinks("[[Brand New|a nicer name]]", index)).toBe("a nicer name");
   });
 
   test("![[x]] is an embed chip, not a wiki link (the ! must not leak)", () => {
