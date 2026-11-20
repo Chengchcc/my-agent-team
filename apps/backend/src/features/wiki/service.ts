@@ -50,6 +50,21 @@ export interface WikiSourceInput {
   content?: string;
 }
 
+export interface WikiGraphNode {
+  path: string;
+  title: string;
+  status: WikiPageStatus;
+  maintainedBy: string;
+  /** First path segment: personal | projects | decisions | … */
+  space: string;
+}
+
+export interface WikiGraph {
+  nodes: WikiGraphNode[];
+  /** `to` is always an EXISTING page: a link to nothing is not an edge. */
+  edges: Array<{ from: string; to: string }>;
+}
+
 export interface WikiBacklink {
   path: string;
   title: string;
@@ -63,12 +78,35 @@ export interface WikiService {
   /** ADR 0074: who points here. Both `[[Title]]` wikilinks and markdown
    *  `](path)` links count — two syntaxes, one graph. */
   backlinks(path: string): WikiBacklink[];
+  /** The whole link graph, for the Obsidian-style view. */
+  graph(): WikiGraph;
   read(path: string): WikiPage | null;
   query(input: { text?: string; limit?: number }): WikiSearchHit[];
   create(input: Omit<WikiWriteInput, "expectedRevision">): Promise<WikiWriteResult>;
   patch(input: WikiWriteInput): Promise<WikiWriteResult>;
   lint(): WikiLintFinding[];
   addSource(input: WikiSourceInput): { path: string };
+}
+
+/** Every link target a body points at, in both syntaxes, resolved to page
+ *  paths when possible. Unresolved wikilinks are dropped: an edge to a page
+ *  that does not exist would draw a node nobody can open. */
+function linkTargetsOf(
+  body: string,
+  pathByTitle: ReadonlyMap<string, string>,
+  existing: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  for (const match of body.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
+    const target = match[1]!.trim();
+    const path = pathByTitle.get(target);
+    if (path !== undefined) out.push(path);
+  }
+  for (const match of body.matchAll(/\]\(([^)\s]+\.md)\)/g)) {
+    const path = match[1]!;
+    if (existing.has(path)) out.push(path);
+  }
+  return out;
 }
 
 /** Position of the first link to any of `names` in `body`, or -1. Both
@@ -320,6 +358,29 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
         });
       }
       return out;
+    },
+    graph() {
+      const pages = allPages();
+      const existing = new Set(pages.map((p) => p.path));
+      const pathByTitle = new Map<string, string>();
+      for (const page of pages) {
+        if (!pathByTitle.has(page.frontmatter.title))
+          pathByTitle.set(page.frontmatter.title, page.path);
+      }
+      const nodes: WikiGraphNode[] = pages.map((p) => ({
+        path: p.path,
+        title: p.frontmatter.title,
+        status: p.frontmatter.status,
+        maintainedBy: p.frontmatter.maintainedBy,
+        space: p.path.split("/")[0] ?? "",
+      }));
+      const edges: Array<{ from: string; to: string }> = [];
+      for (const page of pages) {
+        for (const to of linkTargetsOf(page.body, pathByTitle, existing)) {
+          if (to !== page.path) edges.push({ from: page.path, to });
+        }
+      }
+      return { nodes, edges };
     },
     read(path) {
       if (validatePagePath(path) !== null) return null;

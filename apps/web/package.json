@@ -40,6 +40,7 @@
     "@xyflow/react": "^12.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "d3-force": "^3.0.1",
     "elysia": "^1.0.0",
     "lucide-react": "^1.17.0",
     "monaco-editor": "0.52.2",
@@ -60,11 +61,12 @@
   "devDependencies": {
     "@manypkg/cli": "^0.25.1",
     "@tailwindcss/postcss": "^4.0.0",
+    "@types/d3-force": "^3.0.10",
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "puppeteer-core": "^24.0.0",
     "tailwindcss": "^4.0.0",
-    "typescript": "^6.0.3",
-    "puppeteer-core": "^24.0.0"
+    "typescript": "^6.0.3"
   }
 }

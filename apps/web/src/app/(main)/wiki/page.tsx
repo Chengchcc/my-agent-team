@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { Input } from "@/components/ui/input";
-import { useWikiLint, useWikiPages, useWikiSearch } from "@/features/wiki/hooks";
+import { Button } from "@/components/ui/button";
+import { useWikiGraph, useWikiLint, useWikiPages } from "@/features/wiki/hooks";
 import { wikiPageHref } from "@/features/wiki/paths";
+import { WikiGraph } from "@/features/wiki/WikiGraph";
 
-/** ADR 0074 S3/S5: browse what the assistant knows. Read-only — edits go
- *  through the agent's tools (CAS + ownership) or through git by a person.
+/** ADR 0074 S3/S5: browse what the assistant knows.
  *
- *  Layout follows the file-tree habit: the spaces and folders are a tree on
- *  the left, the selected space's pages (or the search results) on the right,
- *  and a health-check strip underneath. Not virtualized: at this scale the
- *  tree is dozens of rows; the ceiling is ~1k pages, then bring a tree lib. */
+ *  Two views, the Obsidian pair: the file tree (what exists, where) and the
+ *  link graph (what talks to what). Search lives in Ctrl+K — one search box in
+ *  the product, not one per surface.
+ *
+ *  The tree is not virtualized: dozens of rows now, ceiling around a thousand,
+ *  then bring a tree library. */
 interface WikiPageRow {
   path: string;
   title: string;
@@ -38,9 +40,11 @@ interface TreeNode {
 
 function buildTree(pages: readonly WikiPageRow[]): TreeNode[] {
   const roots: TreeNode[] = [];
+  // Every space is a real folder on disk, so the tree shows it even when it
+  // holds no pages yet — an empty tree reads as "broken", an empty folder
+  // reads as "nothing filed here".
   for (const space of SPACES) {
     const inSpace = pages.filter((p) => p.path.startsWith(`${space}/`));
-    if (inSpace.length === 0) continue;
     const spaceNode: TreeNode = { name: space, children: [] };
     for (const page of inSpace) {
       const parts = page.path.split("/").slice(1); // drop the space segment
@@ -83,6 +87,14 @@ function TreeBranch({ node, depth }: { node: TreeNode; depth: number }) {
       >
         {node.name}
       </p>
+      {node.children.length === 0 ? (
+        <p
+          className="px-2 text-[10px] italic text-(--mute)"
+          style={{ paddingLeft: `${20 + depth * 12}px` }}
+        >
+          empty
+        </p>
+      ) : null}
       <ul>
         {node.children.map((child) => (
           <TreeBranch
@@ -97,66 +109,63 @@ function TreeBranch({ node, depth }: { node: TreeNode; depth: number }) {
 }
 
 export default function WikiPage() {
-  const initial =
-    typeof window === "undefined"
-      ? ""
-      : (new URLSearchParams(window.location.search).get("text") ?? "");
-  const [text, setText] = useState(initial);
+  const [view, setView] = useState<"files" | "graph">("files");
   const pages = useWikiPages();
-  const search = useWikiSearch(text);
   const lint = useWikiLint();
+  const graph = useWikiGraph();
 
   const all = (pages.data as { pages?: WikiPageRow[] } | undefined)?.pages ?? [];
-  const hits = (search.data as { hits?: WikiPageRow[] } | undefined)?.hits ?? [];
   const findings =
     (lint.data as { findings?: Array<{ code: string; path: string; detail: string }> } | undefined)
       ?.findings ?? [];
-  const searching = text.trim() !== "";
-  const shown = searching ? hits : all;
+  const graphData =
+    (graph.data as
+      | {
+          nodes?: Array<{ path: string; title: string; status: string; space: string }>;
+          edges?: Array<{ from: string; to: string }>;
+        }
+      | undefined) ?? {};
   const tree = useMemo(() => buildTree(all), [all]);
 
   return (
     <Page>
       <PageHeader
         title="Wiki"
-        description="Compiled knowledge the assistant keeps. Every page cites its sources; a stale write is refused, never merged silently."
+        description="Compiled knowledge the assistant keeps. Every page cites its sources; a stale write is refused, never merged silently. Search it with Ctrl+K."
       />
       <PageBody>
-        <div className="flex gap-6">
-          <aside className="w-56 shrink-0">
-            <p className="mb-2 text-[10px] uppercase tracking-wide text-(--mute)">Files</p>
-            {tree.length === 0 ? (
-              <p className="px-2 text-[11px] text-(--mute)">empty</p>
-            ) : (
+        <div className="mb-4 flex items-center gap-2">
+          <Button
+            variant={view === "files" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("files")}
+          >
+            Files
+          </Button>
+          <Button
+            variant={view === "graph" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setView("graph")}
+          >
+            Graph
+          </Button>
+        </div>
+
+        {view === "graph" ? (
+          <WikiGraph nodes={graphData.nodes ?? []} edges={graphData.edges ?? []} />
+        ) : (
+          <div className="flex gap-6">
+            <aside className="w-56 shrink-0">
+              <p className="mb-2 text-[10px] uppercase tracking-wide text-(--mute)">Files</p>
               <ul>
                 {tree.map((node) => (
                   <TreeBranch key={node.name} node={node} depth={0} />
                 ))}
               </ul>
-            )}
-          </aside>
+            </aside>
 
-          <div className="min-w-0 flex-1">
-            <div className="mb-4 max-w-md">
-              <Input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Search titles and bodies…"
-                aria-label="Search the wiki"
-              />
-            </div>
-
-            {searching ? (
-              <section className="space-y-1">
-                <p className="text-[10px] uppercase tracking-wide text-(--mute)">
-                  {shown.length} result{shown.length === 1 ? "" : "s"}
-                </p>
-                {shown.map((p) => (
-                  <WikiRow key={p.path} page={p} />
-                ))}
-              </section>
-            ) : (
-              SPACES.map((space) => {
+            <div className="min-w-0 flex-1">
+              {SPACES.map((space) => {
                 const inSpace = all.filter((p) => p.path.startsWith(`${space}/`));
                 if (inSpace.length === 0) return null;
                 return (
@@ -173,47 +182,47 @@ export default function WikiPage() {
                     </ul>
                   </section>
                 );
-              })
-            )}
+              })}
 
-            {!searching && all.length === 0 ? (
-              <p className="text-sm text-(--mute)">
-                Nothing compiled yet. Pages appear when the assistant files what it learned; raw
-                sources land under raw/ first.
-              </p>
-            ) : null}
-
-            <section className="mt-6 rounded-lg border border-(--hairline) p-4">
-              <p className="mb-2 text-[10px] uppercase tracking-wide text-(--mute)">
-                Health check ({findings.length})
-              </p>
-              {findings.length === 0 ? (
+              {all.length === 0 ? (
                 <p className="text-sm text-(--mute)">
-                  No findings: every page has sources and an inbound link.
+                  Nothing compiled yet. Ask the assistant to file what it learned — it writes
+                  through the wiki tools, and the page shows up here with its sources and backlinks.
                 </p>
-              ) : (
-                <ul className="space-y-1">
-                  {findings.map((f) => (
-                    <li key={`${f.code}:${f.path}`} className="flex items-center gap-2 text-sm">
-                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-400">
-                        {f.code}
-                      </span>
-                      <Link
-                        href={wikiPageHref(f.path)}
-                        className="truncate text-(--link) hover:underline"
-                      >
-                        {f.path}
-                      </Link>
-                      <span className="min-w-0 flex-1 truncate text-[11px] text-(--mute)">
-                        {f.detail}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+              ) : null}
+
+              <section className="mt-6 rounded-lg border border-(--hairline) p-4">
+                <p className="mb-2 text-[10px] uppercase tracking-wide text-(--mute)">
+                  Health check ({findings.length})
+                </p>
+                {findings.length === 0 ? (
+                  <p className="text-sm text-(--mute)">
+                    No findings: every page has sources and an inbound link.
+                  </p>
+                ) : (
+                  <ul className="space-y-1">
+                    {findings.map((f) => (
+                      <li key={`${f.code}:${f.path}`} className="flex items-center gap-2 text-sm">
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-400">
+                          {f.code}
+                        </span>
+                        <Link
+                          href={wikiPageHref(f.path)}
+                          className="truncate text-(--link) hover:underline"
+                        >
+                          {f.path}
+                        </Link>
+                        <span className="min-w-0 flex-1 truncate text-[11px] text-(--mute)">
+                          {f.detail}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
           </div>
-        </div>
+        )}
       </PageBody>
     </Page>
   );

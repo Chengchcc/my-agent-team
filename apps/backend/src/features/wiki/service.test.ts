@@ -243,6 +243,41 @@ describe("ADR 0074 S3: lint and raw", () => {
     expect(hits).toContain("projects/b.md");
   });
 
+  test("graph: nodes are pages, edges are resolved links in both syntaxes", async () => {
+    const svc = makeService();
+    await svc.create({
+      path: "concepts/g1.md",
+      agentId: "pa-1",
+      title: "G One",
+      content: "x",
+      sources: ["conversation:c1:1-2"],
+    });
+    await svc.create({
+      path: "projects/g2.md",
+      agentId: "pa-1",
+      title: "G Two",
+      content: "see [[G One]] and [g3](concepts/g3.md) and [[Missing Page]]",
+      sources: ["conversation:c1:3-4"],
+    });
+    await svc.create({
+      path: "concepts/g3.md",
+      agentId: "pa-1",
+      title: "G Three",
+      content: "y",
+      sources: ["conversation:c1:5-6"],
+    });
+    const graph = svc.graph();
+    expect(graph.nodes.map((n) => n.path).sort()).toEqual([
+      "concepts/g1.md",
+      "concepts/g3.md",
+      "projects/g2.md",
+    ]);
+    // Both syntaxes become edges; the unresolved wikilink becomes nothing.
+    expect(graph.edges).toContainEqual({ from: "projects/g2.md", to: "concepts/g1.md" });
+    expect(graph.edges).toContainEqual({ from: "projects/g2.md", to: "concepts/g3.md" });
+    expect(graph.edges).toHaveLength(2);
+  });
+
   test("a page linked only by [[Title]] is not an orphan", async () => {
     const svc = makeService();
     await svc.create({

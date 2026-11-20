@@ -7,19 +7,19 @@ import { encodeWikiPath } from "./paths";
  *    ![[Concepts/Retry]]       → an "embed" chip (we do not transclude; we
  *                                open the page — a copy would drift)
  *
- * An unresolved [[Name]] links to the search surface rather than to a page
- * that would 404: in a read-only wiki "create this page" is the assistant's
- * job, not the reader's.
+ * An unresolved [[Name]] renders as plain text: there is no page to open, and
+ * the wiki has no search box of its own (search is Ctrl+K). A dead link is
+ * worse than a quiet one.
  *
  * Deliberately a string transform, not a remark plugin: the output is ordinary
  * markdown, so the renderer keeps one code path (and one sanitizer).
  */
 export function linkifyWikilinks(body: string, pathByTitle: ReadonlyMap<string, string>): string {
-  const resolve = (target: string): { href: string; label: string } => {
+  const resolve = (target: string): { href: string | null; label: string } => {
     const title = target.trim();
     const path = pathByTitle.get(title) ?? (title.endsWith(".md") ? title : null);
     if (path !== null) return { href: `/wiki/page?path=${encodeWikiPath(path)}`, label: title };
-    return { href: `/wiki?text=${encodeURIComponent(title)}`, label: title };
+    return { href: null, label: title };
   };
 
   // Embeds first: `![[x]]` must not be eaten by the plain-wikilink rule.
@@ -27,6 +27,7 @@ export function linkifyWikilinks(body: string, pathByTitle: ReadonlyMap<string, 
     /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
     (_all, target: string, label?: string) => {
       const hit = resolve(target);
+      if (hit.href === null) return label ?? hit.label;
       return `[${label ?? hit.label} ↗](${hit.href})`;
     },
   );
@@ -35,6 +36,7 @@ export function linkifyWikilinks(body: string, pathByTitle: ReadonlyMap<string, 
     /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
     (_all, target: string, label?: string) => {
       const hit = resolve(target);
+      if (hit.href === null) return label ?? hit.label;
       return `[${label ?? hit.label}](${hit.href})`;
     },
   );

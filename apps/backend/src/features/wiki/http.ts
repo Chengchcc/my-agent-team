@@ -30,5 +30,6 @@ export function wikiRoutes(svc: WikiService) {
       }
       return { backlinks: svc.backlinks(path) };
     })
+    .get("/api/wiki/graph", () => svc.graph())
     .get("/api/wiki/lint", () => ({ findings: svc.lint() }));
 }
