@@ -139,7 +139,10 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
       const convs = d
         .select()
         .from(schema.conversation)
-        .where(inArray(schema.conversation.origin, ["user", "fork"]))
+        // ADR 0074 S0: a dispatch room (origin "dispatch") is listed too — the
+        // nav shows it NESTED under the room that dispatched it (the web groups
+        // by parentConversationId). "Only roots" (ADR 0070 D3) hid the team.
+        .where(inArray(schema.conversation.origin, ["user", "fork", "dispatch"]))
         .orderBy(desc(schema.conversation.createdAt))
         .all();
       return convs.map((c) => ({
