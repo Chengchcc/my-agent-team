@@ -195,6 +195,9 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0074 S2: ops-event sink for observations that must never disturb a
+   *  turn (text-answer mismatch). */
+  observe?: (runId: string, kind: string, payload: Record<string, unknown>) => void;
   /** ADR 0074: tracked work items. Absent = the requirement tools reject
    *  explicitly and dispatch links nothing. */
   requirements?: {
@@ -323,6 +326,8 @@ export interface ProductToolsService {
   /** Resolve a pending ask (web submitted answers). Idempotent no-op if none.
    *  Returns true when a live ask actually resolved. */
   resolveAsk(runId: string, callId: string, answer: AskQuestionResult): boolean;
+  /** ADR 0074 S2: record a possible text-answer mismatch (observation only). */
+  observeOrphanTextAnswer(conversationId: string): Promise<void>;
   /** The still-open free-text ask for this conversation, if any (roadmap:
    *  自由文本追问). Only kind=text asks qualify — a select ask waits for its
    *  buttons, and a text reply must not answer it by accident. */
@@ -897,6 +902,11 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     // Park the resolver; emit + await until resolveAsk (web) or timeout (null).
     const { promise, resolve } = Promise.withResolvers<AskQuestionResult | null>();
     pendingAsks.set(key, resolve);
+    // ADR 0074 S2: an ask raised in a run that already ANSWERED one continues
+    // the same decision ("改一下刚才那个方案") — carry the prior action id so
+    // the record reads as a follow-up, not a fresh question with no history.
+    const decided = await runPort.listDecidedActions(run.runId).catch(() => []);
+    const prior = decided.filter((a) => a.kind === "ask").at(-1);
     // Durable ask: persist BEFORE the card is clickable. A surface can only
     // answer a durable action, so emitting first showed the user something
     // nothing could resolve; a persistence failure must fail the tool call
@@ -906,7 +916,11 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       await runPort.createPendingAction(run.runId, {
         actionId: key,
         kind: "ask",
-        payload: { callId: input.callId, questions: parsed.questions },
+        payload: {
+          callId: input.callId,
+          questions: parsed.questions,
+          ...(prior ? { reopens: `${run.runId}:${prior.callId}` } : {}),
+        },
       });
     } catch (err) {
       pendingAsks.delete(key);
@@ -1314,6 +1328,32 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
         })
         .catch(() => {});
       return Boolean(resolve);
+    },
+
+    /** ADR 0074 S2 observation: a free-text reply arrived with NOTHING
+     *  pending. If this conversation answered an ask within the window, the
+     *  reply probably belonged to it — the matching gap ADR 0074 keeps honest
+     *  instead of pretending a text heuristic closes it. Recorded, never acted
+     *  on. */
+    async observeOrphanTextAnswer(conversationId: string): Promise<void> {
+      try {
+        // The window is enforced by listRecentRunsForConversations: a run not
+        // seen for ten minutes is not "recently answered".
+        const runs = await runPort.listRecentRunsForConversations([conversationId], 10 * 60_000);
+        for (const run of runs) {
+          const decided = await runPort.listDecidedActions(run.runId).catch(() => []);
+          const recent = decided.filter((a) => a.kind === "ask").at(-1);
+          if (recent) {
+            deps.observe?.(run.runId, "text_answer_orphan", {
+              conversationId,
+              reopens: `${run.runId}:${recent.callId}`,
+            });
+            return;
+          }
+        }
+      } catch {
+        /* an observation must never disturb the turn */
+      }
     },
 
     async pendingTextAskForConversation(conversationId) {

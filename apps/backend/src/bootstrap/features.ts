@@ -690,7 +690,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // the closure dereferences it at request time, long after boot wiring.
     answerPendingTextAsk: async (conversationId, text) => {
       const ask = await productTools.pendingTextAskForConversation(conversationId);
-      if (!ask) return false;
+      if (!ask) {
+        // ADR 0074 S2: nothing pending — if an ask here was answered recently,
+        // this reply probably belonged to it. Observation only (the matching
+        // gap is measured, not silently "fixed" by guessing).
+        void productTools.observeOrphanTextAnswer(conversationId);
+        return false;
+      }
       return productTools.resolveAsk(ask.runId, ask.callId, {
         answers: [{ id: ask.questionId, selectedValues: [], freeText: text }],
       });
@@ -810,6 +816,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         );
     },
     recallForRun: (runId) => recallByRun.get(runId) ?? [],
+    // ADR 0074 S2: observations (text-answer mismatch) go to the ops log —
+    // recorded, never acted on.
+    observe: (runId, kind, payload) => services.opsStore.appendRunEvent(runId, kind, payload),
     // ADR 0074: tracked work items — the PA's requirement tools, plus the
     // dispatch link (named id → the conversation's newest open item → one
     // created from the brief). All resolution lives in the requirement
