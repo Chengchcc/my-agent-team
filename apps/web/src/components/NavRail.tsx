@@ -179,6 +179,19 @@ function NavContent() {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
+                isActive={pathname.startsWith("/requirements")}
+                tooltip={t("Requirements")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/requirements");
+                }}
+              >
+                <FolderKanbanIcon />
+                <span className="truncate">{t("Requirements")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
                 isActive={pathname.startsWith("/workflows")}
                 tooltip={t("Workflows")}
                 onClick={() => {

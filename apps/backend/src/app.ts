@@ -16,6 +16,7 @@ import type { projectRoutes } from "./features/project/http.js";
 import type { proposalRoutes } from "./features/proposal/http.js";
 import type { providerRoutes } from "./features/provider/http.js";
 import type { reminderRoutes } from "./features/reminder/http.js";
+import type { requirementRoutes } from "./features/requirement/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
 import type { settingsRoutes } from "./features/settings/http.js";
 import type { skillPackRoutes } from "./features/skill-pack/http.js";
@@ -43,6 +44,7 @@ export interface FeatureSet {
   harnesses: ReturnType<typeof harnessRoutes>;
   workflowExecutions: ReturnType<typeof workflowRoutes>;
   artifacts: ReturnType<typeof artifactRoutes>;
+  requirements: ReturnType<typeof requirementRoutes>;
   proactive: ReturnType<typeof proactiveRoutes>;
   productTools: ProductToolsService;
 }
@@ -71,6 +73,7 @@ export function createApp(token: string, features: FeatureSet) {
     agentRuns,
     workflowExecutions,
     artifacts,
+    requirements,
     productTools,
     coding,
     ahp,
@@ -139,6 +142,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(agentRuns)
     .use(workflowExecutions)
     .use(artifacts)
+    .use(requirements)
     .use(projects)
     .use(productToolsRoutes(productTools))
     .use(coding)

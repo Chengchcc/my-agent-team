@@ -40,6 +40,7 @@ type RunMethods = Pick<
   | "getActiveRun"
   | "listUnnotifiedDispatchedTerminalRuns"
   | "markResultNotified"
+  | "setRequirementId"
 >;
 
 export function createRunMethods(
@@ -49,6 +50,16 @@ export function createRunMethods(
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
+    /** ADR 0074: stamp the requirement a run executes for (the dispatch tool
+     *  resolves it). No-op when the run is gone — a tracking failure must not
+     *  fail the work it tracks. */
+    setRequirementId(runId: string, requirementId: string): void {
+      d.update(schema.agentRun)
+        .set({ requirementId })
+        .where(eq(schema.agentRun.runId, runId))
+        .run();
+    },
+
     /** One Run / one input: promote the oldest still-unowned queued input
      *  (run_id IS NULL) into a FRESH Run when the branch is idle. The new
      *  Run is built from the queued input's OWN config snapshot - never
