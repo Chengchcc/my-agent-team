@@ -233,26 +233,27 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
   };
   expect(Object.keys(mcp.mcpServers)).toContain("workflow");
 
-  // Onboarding agent (raft absorption): seeded once with the wiki packs that
-  // the same boot installed, and its own reconciled workspace.
-  const guideRow = db.query("SELECT config FROM agents WHERE id = 'guide'").get() as {
+  // ADR 0074 seed contract: exactly the personal agent and ONE team member.
+  // A third seeded agent with role null would be a second front desk, which is
+  // the mess that gets cleaned by hand on every install that seeds it.
+  const seeded = db.query("SELECT id, config FROM agents ORDER BY id").all() as Array<{
+    id: string;
     config: string;
-  } | null;
-  expect(guideRow).not.toBeNull();
-  const guideConfig = JSON.parse(guideRow!.config) as {
+  }>;
+  expect(seeded.map((row) => row.id).sort()).toEqual(["coder", "default"]);
+  const personal = JSON.parse(seeded.find((row) => row.id === "default")!.config) as {
     name: string;
-    runtime_config: { knowledge_packs: string[] };
+    role?: string;
   };
-  expect(guideConfig.name).toBe("Guide");
-  const packNames = db
-    .query(
-      `SELECT p.name FROM knowledge_pack p WHERE p.id IN (${guideConfig.runtime_config.knowledge_packs
-        .map(() => "?")
-        .join(",")})`,
-    )
-    .all(...guideConfig.runtime_config.knowledge_packs) as Array<{ name: string }>;
-  expect(packNames.map((r) => r.name).sort()).toEqual(["architecture", "guides"]);
-  expect(existsSync(`${dir}/agents/guide`)).toBe(true);
+  expect(personal.name).toBe("Personal Agent");
+  const coder = JSON.parse(seeded.find((row) => row.id === "coder")!.config) as {
+    name: string;
+    role?: string;
+  };
+  expect(coder.name).toBe("Coder");
+  // The worker role is what keeps it OUT of the front desk; without it the
+  // seed would create a second assistant.
+  expect(coder.role).toBe("worker");
 
   await installed.dispose();
   await services.mcpClientManager.disconnectAll();
