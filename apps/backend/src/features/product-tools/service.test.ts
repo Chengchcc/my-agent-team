@@ -710,6 +710,85 @@ describe("product tools service", () => {
     expect(answeredAsks).toEqual([{ runId, callId }]);
   });
 
+  test("S2: an ask after an answered one carries `reopens` (same decision, not a new question)", async () => {
+    const runId = await createRun("iterate on a plan");
+    const first = "ask-first";
+    const pendingFirst = service.call({
+      identity: identity(runId),
+      callId: first,
+      idempotencyKey: `${runId}:${first}`,
+      tool: "ask_question",
+      args: { questions: [{ id: "q1", kind: "text", question: "Name it?" }] },
+    });
+    await new Promise((r) => setTimeout(r, 40));
+    service.resolveAsk(runId, first, {
+      answers: [{ id: "q1", selectedValues: [], freeText: "shout()" }],
+    });
+    await pendingFirst;
+
+    // The follow-up question in the same run continues THAT decision.
+    const second = "ask-second";
+    const pendingSecond = service.call({
+      identity: identity(runId),
+      callId: second,
+      idempotencyKey: `${runId}:${second}`,
+      tool: "ask_question",
+      args: { questions: [{ id: "q2", kind: "text", question: "Uppercase too?" }] },
+    });
+    await new Promise((r) => setTimeout(r, 40));
+    const rows = db
+      .query(
+        "SELECT call_id, payload FROM (SELECT action_id AS call_id, payload FROM pending_action WHERE run_id = ?) ",
+      )
+      .all(runId) as Array<{ call_id: string; payload: string }>;
+    const secondRow = db
+      .query("SELECT payload FROM pending_action WHERE run_id = ? ORDER BY rowid DESC LIMIT 1")
+      .get(runId) as { payload: string };
+    const persisted = JSON.parse(secondRow.payload) as { reopens?: string };
+    expect(persisted.reopens).toBe(`${runId}:${first}`);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    service.resolveAsk(runId, second, {
+      answers: [{ id: "q2", selectedValues: [], freeText: "yes" }],
+    });
+    await pendingSecond;
+  });
+
+  test("S2: a second surface answering an already-answered ask is refused, not merged", async () => {
+    const runId = await createRun("one decision, two surfaces");
+    const callId = "ask-dup";
+    const pending = service.call({
+      identity: identity(runId),
+      callId,
+      idempotencyKey: `${runId}:${callId}`,
+      tool: "ask_question",
+      args: { questions: [{ id: "q1", kind: "text", question: "Which one?" }] },
+    });
+    await new Promise((r) => setTimeout(r, 40));
+    // The Lark card answers first (live resolver consumed).
+    expect(
+      service.resolveAsk(runId, callId, {
+        answers: [{ id: "q1", selectedValues: [], freeText: "A" }],
+      }),
+    ).toBe(true);
+    await pending;
+    // The Web tab, still showing the card, presses answer: no live resolver
+    // remains, and the durable CAS refuses the overwrite. The surfaces stay
+    // one record — the second answer cannot silently replace the first.
+    expect(
+      service.resolveAsk(runId, callId, {
+        answers: [{ id: "q1", selectedValues: [], freeText: "B" }],
+      }),
+    ).toBe(false);
+    await new Promise((r) => setTimeout(r, 30));
+    const row = db
+      .query("SELECT response FROM pending_action WHERE run_id = ? ORDER BY rowid DESC LIMIT 1")
+      .get(runId) as { response: string | null };
+    const resp = JSON.parse(row.response ?? "{}") as {
+      answer?: { answers?: Array<{ freeText?: string }> };
+    };
+    expect(resp.answer?.answers?.[0]?.freeText).toBe("A");
+  });
+
   test("todo_write publishes the plan strip event", async () => {
     // The only producer of `todo_update` was the NATIVE todo tool's hook. In a
     // backend run the product tool is the installed one, so no event was ever

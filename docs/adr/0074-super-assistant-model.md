@@ -88,11 +88,13 @@
 
 实现约束：web 源码的 CJK 仍被 `audit:ui` 门禁（i18n 未落地），故界面用英文标签（如 Team），中文词汇（超级助理/团队成员/事项）先落在文档与提示词层。
 
-## 六、决策请求（Request）的升级
+## 六、决策请求（Request）的升级（S2，已落地）
 
 - 已有：`pending_action`（ask/approval）、会话+时机匹配、五条打扰纪律。
-- 新增：**卡片答案携带 request_id**（Web 与 Lark 卡片的 value 就是 id）；**reopen**（实质性追问重开）；Lark/Web 同一份、任一端回答另一端同步。
-- 自由文本回复仍靠匹配——**如实保留该缺口**，用 `unasked_question` 遥测观察错配率，不假装解决。
+- **卡片答案携带 request_id**：已核实两端本就成立——Web 的 `resolveProductAsk` 带 `runId+callId`，Lark 卡片 action value 带 `runId+callId+questionId`；S2 只补钉：**第二个表面再答**不会覆盖第一个答案（活体 resolver 已消费 + 持久 CAS 拒绝，`resolveAsk` 返回 false）。
+- **reopen**：同一 run 里再次 `ask_question` 时，持久 payload 带 `reopens: <上一次 ask 的 actionId>`——记录读作"同一决定的追问"，不是无历史的新问题。这是确定性判定（同一 run = 同一决策链），不猜文本。
+- **Lark/Web 同一份**：两端都落同一 `pending_action` 行，任一端回答后另一端的视图从同一行读状态。
+- 自由文本回复仍靠匹配——**如实保留该缺口**，新增 `text_answer_orphan` 观测（无 pending ask 但 10 分钟内该会话刚答过 ask ⇒ 记为可能的错配），与 `unasked_question` 一起构成错配率的两个读数；观测不改变行为。
 
 ## 七、落地顺序
 
