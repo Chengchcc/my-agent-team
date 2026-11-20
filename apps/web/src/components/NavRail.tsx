@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ActivityIcon,
   ArchiveIcon,
+  BookOpenIcon,
   BotIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -454,6 +455,19 @@ function NavContent() {
               >
                 <LibraryIcon />
                 <span className="truncate">{t("Knowledge")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/wiki")}
+                tooltip={t("Wiki")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/wiki");
+                }}
+              >
+                <BookOpenIcon />
+                <span className="truncate">{t("Wiki")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
