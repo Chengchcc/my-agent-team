@@ -5,6 +5,8 @@ import {
   ActivityIcon,
   ArchiveIcon,
   BotIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   FolderKanbanIcon,
   LibraryIcon,
   LogOutIcon,
@@ -18,9 +20,10 @@ import {
   SettingsIcon,
   TerminalIcon,
   Trash2Icon,
+  UsersIcon,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -81,8 +84,30 @@ function NavContent() {
   const { data: waitingGates } = useQuery(waitingGatesQuery());
   const createConversation = useCreateConversation();
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  // ADR 0074 S0: team-member rooms (dispatch origin) fold UNDER the room that
+  // dispatched them — one level, collapsed by default. The rail stays a
+  // person-organized surface; the team's work is one click deeper.
+  const roots = chatConversations.filter((c) => !c.parentConversationId);
+  const childrenOf = new Map<string, typeof chatConversations>();
+  for (const c of chatConversations) {
+    if (!c.parentConversationId) continue;
+    const bucket = childrenOf.get(c.parentConversationId) ?? [];
+    bucket.push(c);
+    childrenOf.set(c.parentConversationId, bucket);
+  }
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const railItems = roots.flatMap((conv) => {
+    const kids = childrenOf.get(conv.conversationId) ?? [];
+    if (kids.length === 0 || !expanded.has(conv.conversationId)) {
+      return [{ conv, childCount: kids.length }];
+    }
+    return [
+      { conv, childCount: kids.length },
+      ...kids.map((child) => ({ conv: child, childCount: 0 })),
+    ];
+  });
   const virtualizer = useVirtualizer({
-    count: chatConversations.length,
+    count: railItems.length,
     getScrollElement: () => chatScrollRef.current,
     estimateSize: () => 36,
     overscan: 5,
@@ -215,8 +240,12 @@ function NavContent() {
                 style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}
               >
                 {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const conv = chatConversations[virtualRow.index]!;
-                  const title = conversationDisplayName(conv);
+                  const item = railItems[virtualRow.index]!;
+                  const conv = item.conv;
+                  const isChild = conv.parentConversationId !== null;
+                  const title = isChild
+                    ? `${conversationDisplayName(conv)}`
+                    : conversationDisplayName(conv);
                   return (
                     <div
                       key={conv.conversationId}
@@ -234,14 +263,19 @@ function NavContent() {
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           isActive={pathname === `/chat/${conv.conversationId}`}
-                          tooltip={title}
+                          tooltip={isChild ? `Team · ${title}` : title}
                           onClick={() => {
                             closeMobile();
                             markRead(conv.conversationId, conv.lastSeq ?? 0);
                             router.push(`/chat/${conv.conversationId}`);
                           }}
+                          className={isChild ? "pl-6" : undefined}
                         >
-                          <MessageSquareIcon />
+                          {isChild ? (
+                            <UsersIcon className="size-3 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <MessageSquareIcon />
+                          )}
                           {isUnread(conv.conversationId, conv.lastSeq) && (
                             <span
                               className="size-1.5 rounded-full bg-primary shrink-0"
@@ -249,6 +283,44 @@ function NavContent() {
                             />
                           )}
                           <span className="truncate">{title}</span>
+                          {!isChild && item.childCount > 0 ? (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Team rooms (${item.childCount})`}
+                              aria-expanded={expanded.has(conv.conversationId)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpanded((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(conv.conversationId))
+                                    next.delete(conv.conversationId);
+                                  else next.add(conv.conversationId);
+                                  return next;
+                                });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setExpanded((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(conv.conversationId))
+                                      next.delete(conv.conversationId);
+                                    else next.add(conv.conversationId);
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+                            >
+                              {expanded.has(conv.conversationId) ? (
+                                <ChevronDownIcon className="size-3" />
+                              ) : (
+                                <ChevronRightIcon className="size-3" />
+                              )}
+                            </span>
+                          ) : null}
                         </SidebarMenuButton>
                         <DropdownMenu>
                           <DropdownMenuTrigger
