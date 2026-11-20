@@ -50,14 +50,40 @@ export interface WikiSourceInput {
   content?: string;
 }
 
+export interface WikiBacklink {
+  path: string;
+  title: string;
+  /** The sentence around the link — enough to judge relevance without opening
+   *  the page. */
+  context: string;
+}
+
 export interface WikiService {
   list(): Array<{ path: string; title: string; status: WikiPageStatus; maintainedBy: string }>;
+  /** ADR 0074: who points here. Both `[[Title]]` wikilinks and markdown
+   *  `](path)` links count — two syntaxes, one graph. */
+  backlinks(path: string): WikiBacklink[];
   read(path: string): WikiPage | null;
   query(input: { text?: string; limit?: number }): WikiSearchHit[];
   create(input: Omit<WikiWriteInput, "expectedRevision">): Promise<WikiWriteResult>;
   patch(input: WikiWriteInput): Promise<WikiWriteResult>;
   lint(): WikiLintFinding[];
   addSource(input: WikiSourceInput): { path: string };
+}
+
+/** Position of the first link to any of `names` in `body`, or -1. Both
+ *  Obsidian wikilinks and plain markdown links count: the graph should not
+ *  depend on which syntax the writer happened to use. */
+function findLinkAt(body: string, names: readonly string[]): number {
+  let best = -1;
+  for (const name of names) {
+    for (const needle of [`[[${name}]]`, `[[${name}|`, `](${name})`]) {
+      const at = body.indexOf(needle);
+      if (at < 0) continue;
+      if (best < 0 || at < best) best = at;
+    }
+  }
+  return best;
 }
 
 const INDEX_PATH = "index.md";
@@ -274,6 +300,27 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
         maintainedBy: p.frontmatter.maintainedBy,
       }));
     },
+    backlinks(path) {
+      const pages = allPages();
+      const target = pages.find((p) => p.path === path);
+      const names = target === undefined ? [path] : [path, target.frontmatter.title];
+      const out: WikiBacklink[] = [];
+      for (const other of pages) {
+        if (other.path === path) continue;
+        const at = findLinkAt(other.body, names);
+        if (at < 0) continue;
+        const from = Math.max(0, at - 80);
+        out.push({
+          path: other.path,
+          title: other.frontmatter.title,
+          context: other.body
+            .slice(from, at + 120)
+            .replace(/\s+/g, " ")
+            .trim(),
+        });
+      }
+      return out;
+    },
     read(path) {
       if (validatePagePath(path) !== null) return null;
       return readPage(path);
@@ -319,7 +366,8 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
           });
         }
         const linked = [...bodies.entries()].some(
-          ([otherPath, body]) => otherPath !== page.path && body.includes(`](${page.path})`),
+          ([otherPath, body]) =>
+            otherPath !== page.path && findLinkAt(body, [page.path, page.frontmatter.title]) >= 0,
         );
         if (!linked) {
           findings.push({

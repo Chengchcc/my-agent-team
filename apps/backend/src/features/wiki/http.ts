@@ -22,5 +22,13 @@ export function wikiRoutes(svc: WikiService) {
       if (text !== undefined) request.text = text;
       return { hits: svc.query(request) };
     })
+    .get("/api/wiki/backlinks", ({ query, set }) => {
+      const path = query.path ?? "";
+      if (svc.read(path) === null) {
+        set.status = 404;
+        return { error: `wiki page not found: ${path}` };
+      }
+      return { backlinks: svc.backlinks(path) };
+    })
     .get("/api/wiki/lint", () => ({ findings: svc.lint() }));
 }

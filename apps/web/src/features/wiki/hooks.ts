@@ -31,6 +31,14 @@ export function useWikiSearch(text: string) {
   });
 }
 
+export function useWikiBacklinks(path: string | null) {
+  return useQuery({
+    queryKey: ["wiki", "backlinks", path ?? ""],
+    queryFn: () => api.wikiBacklinks(path ?? ""),
+    enabled: path !== null && path !== "",
+  });
+}
+
 export function useWikiLint() {
   return useQuery({ queryKey: wikiKeys.lint, queryFn: () => api.wikiLint() });
 }
