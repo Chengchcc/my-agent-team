@@ -4,10 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Markdown } from "@/components/Markdown";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { useWikiPage } from "@/features/wiki/hooks";
+import { useWikiBacklinks, useWikiPage, useWikiPages } from "@/features/wiki/hooks";
+import { wikiPageHref } from "@/features/wiki/paths";
+import { linkifyWikilinks, titleIndex } from "@/features/wiki/wikilinks";
 
-/** ADR 0074 S3: one page — its frontmatter (who keeps it, where the claims
- *  come from) above the body. Read-only by design. */
+/** ADR 0074 S3/S5: one page — frontmatter (who keeps it, where the claims come
+ *  from) above the body, and below it the backlinks: what points here. The
+ *  backlinks are the point of a wiki; a page nobody links to is knowledge that
+ *  will not be found (lint says the same thing). */
 interface WikiPageShape {
   path: string;
   frontmatter: {
@@ -22,11 +26,29 @@ interface WikiPageShape {
   revision: string;
 }
 
+interface PageRow {
+  path: string;
+  title: string;
+}
+
+/** The backlink path always ends up here, so the strip names the page it is
+ *  talking about even when the excerpt is empty. */
 export default function WikiPageView() {
   const params = useSearchParams();
   const path = params?.get("path") ?? null;
   const { data, isLoading } = useWikiPage(path);
+  const all = useWikiPages();
+  const back = useWikiBacklinks(path);
   const page = data as WikiPageShape | undefined;
+
+  const pages = (all.data as { pages?: PageRow[] } | undefined)?.pages ?? [];
+  const bodyMarkdown = page === undefined ? "" : linkifyWikilinks(page.body, titleIndex(pages));
+  const backlinks =
+    (
+      back.data as
+        | { backlinks?: Array<{ path: string; title: string; context: string }> }
+        | undefined
+    )?.backlinks ?? [];
 
   if (path === null) {
     return (
@@ -90,10 +112,7 @@ export default function WikiPageView() {
             {fm.supersedes.map((s, i) => (
               <span key={s}>
                 {i > 0 ? ", " : ""}
-                <Link
-                  href={`/wiki/page?path=${encodeURIComponent(s)}`}
-                  className="text-(--link) hover:underline"
-                >
+                <Link href={wikiPageHref(s)} className="text-(--link) hover:underline">
                   {s}
                 </Link>
               </span>
@@ -102,8 +121,31 @@ export default function WikiPageView() {
         ) : null}
 
         <article className="rounded-lg border border-(--hairline) p-4">
-          <Markdown text={page.body} />
+          <Markdown text={bodyMarkdown} />
         </article>
+
+        <section className="mt-4 rounded-lg border border-(--hairline) p-4">
+          <p className="mb-2 text-[10px] uppercase tracking-wide text-(--mute)">
+            Linked from ({backlinks.length})
+          </p>
+          {backlinks.length === 0 ? (
+            <p className="text-sm text-(--mute)">Nothing points here yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {backlinks.map((b) => (
+                <li key={b.path}>
+                  <Link
+                    href={wikiPageHref(b.path)}
+                    className="text-sm text-(--link) hover:underline"
+                  >
+                    {b.title}
+                  </Link>
+                  <p className="text-[11px] text-(--mute)">…{b.context}…</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </PageBody>
     </Page>
   );

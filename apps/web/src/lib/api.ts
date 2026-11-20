@@ -268,6 +268,7 @@ export const api = {
   getWikiPage: (path: string) => unwrap(client.api.wiki.page.get({ query: { path } })),
   queryWiki: (text: string) => unwrap(client.api.wiki.query.get({ query: { text } })),
   wikiLint: () => unwrap(client.api.wiki.lint.get()),
+  wikiBacklinks: (path: string) => unwrap(client.api.wiki.backlinks.get({ query: { path } })),
   /** ADR 0074: tracked work items (requirements). */
   listRequirements: () => unwrap(client.api.requirements.get()),
   getRequirement: (id: string) => unwrap(client.api.requirements({ id }).get()),

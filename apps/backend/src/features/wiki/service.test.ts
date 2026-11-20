@@ -215,6 +215,57 @@ describe("ADR 0074 S3: lint and raw", () => {
     expect(out.path).toBe("raw/files/karpathy-llm-wiki.md");
   });
 
+  test("backlinks count both [[wikilinks]] and markdown links", async () => {
+    const svc = makeService();
+    const target = await svc.create({
+      path: "concepts/target.md",
+      agentId: "pa-1",
+      title: "Target Page",
+      content: "the target",
+    });
+    if (!target.ok) throw new Error("seed failed");
+    await svc.create({
+      path: "projects/a.md",
+      agentId: "pa-1",
+      title: "A",
+      content: "see [[Target Page]] for details",
+      sources: ["conversation:c1:1-2"],
+    });
+    await svc.create({
+      path: "projects/b.md",
+      agentId: "pa-1",
+      title: "B",
+      content: "see [it](concepts/target.md)",
+      sources: ["conversation:c1:3-4"],
+    });
+    const hits = svc.backlinks("concepts/target.md").map((h) => h.path);
+    expect(hits).toContain("projects/a.md");
+    expect(hits).toContain("projects/b.md");
+  });
+
+  test("a page linked only by [[Title]] is not an orphan", async () => {
+    const svc = makeService();
+    await svc.create({
+      path: "concepts/pointed.md",
+      agentId: "pa-1",
+      title: "Pointed",
+      content: "x",
+      sources: ["conversation:c1:1-2"],
+    });
+    await svc.create({
+      path: "projects/ref.md",
+      agentId: "pa-1",
+      title: "Ref",
+      content: "go to [[Pointed]]",
+      sources: ["conversation:c1:3-4"],
+    });
+    const codes = svc
+      .lint()
+      .filter((f) => f.path === "concepts/pointed.md")
+      .map((f) => f.code);
+    expect(codes).not.toContain("orphan");
+  });
+
   test("index.md is rebuilt on every write and links each page", async () => {
     const svc = makeService();
     await svc.create({
