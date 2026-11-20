@@ -263,6 +263,11 @@ export const api = {
         directToWorker: true,
       }),
     ),
+  /** ADR 0074 S3: the wiki (read-only over HTTP — writes go through tools). */
+  listWikiPages: () => unwrap(client.api.wiki.pages.get()),
+  getWikiPage: (path: string) => unwrap(client.api.wiki.page.get({ query: { path } })),
+  queryWiki: (text: string) => unwrap(client.api.wiki.query.get({ query: { text } })),
+  wikiLint: () => unwrap(client.api.wiki.lint.get()),
   /** ADR 0074: tracked work items (requirements). */
   listRequirements: () => unwrap(client.api.requirements.get()),
   getRequirement: (id: string) => unwrap(client.api.requirements({ id }).get()),
