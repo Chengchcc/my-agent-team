@@ -328,43 +328,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ...(services.larkProfileInit ? { profileInit: services.larkProfileInit } : {}),
   });
 
-  /** The onboarding agent (raft absorption): knows this product out of the box
-   *  — the installed wiki packs ride its config and the builtin skill pack
-   *  arrives through onCreate. Created once and never rewritten: a later edit
-   *  of its model, packs or name is the user's, so an upgrade must not revert
-   *  it. */
-  async function ensureGuideAgent(seed: { harness: string; model: string }) {
-    try {
-      await agentSvc.getById("guide");
-      return;
-    } catch {
-      /* not created yet */
-    }
-    const packs = knowledgeSvc
-      .list()
-      .filter((p) => p.status === "ready" && p.sourceKind === "builtin")
-      .filter((p) => p.name === "architecture" || p.name === "guides")
-      .map((p) => p.id);
-    await agentSvc.create({
-      id: "guide",
-      name: "Guide",
-      harness: seed.harness,
-      ...(seed.model ? { model: seed.model } : {}),
-      permissionMode: "auto",
-      // ADR 0048/0050: the capability card is what team_list and the
-      // semantic assessment read — seed it non-empty.
-      description: "Product guide — knows this system's architecture, workflows and guides",
-      skills: [{ id: "onboarding" }, { id: "architecture" }, { id: "troubleshooting" }],
-      ...(packs.length > 0 ? { knowledgePacks: packs } : {}),
-    });
-  }
-
   async function ensureAgent(
     id: string,
     name: string,
-    harness: string,
-    model?: string,
-    description?: string,
+    options: { harness: string; model?: string; description?: string; role?: "worker" },
   ) {
     try {
       await agentSvc.getById(id);
@@ -372,10 +339,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       await agentSvc.create({
         id,
         name,
-        harness,
-        ...(model ? { model } : {}),
+        harness: options.harness,
+        ...(options.model ? { model: options.model } : {}),
         permissionMode: "auto",
-        ...(description ? { description } : {}),
+        ...(options.description ? { description: options.description } : {}),
+        ...(options.role ? { role: options.role } : {}),
       });
     }
   }
@@ -2711,14 +2679,27 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // workspace reconcile (no skills links, no .mcp.json).
   {
     const seed = await defaultSeedModel();
-    await ensureAgent(
-      "default",
-      "Assistant",
-      seed.harness,
-      seed.model,
-      "General-purpose assistant — handles any task when no specialist fits",
-    );
-    await ensureGuideAgent(seed);
+    // ADR 0074: a fresh install is one personal agent and ONE team member —
+    // the PA has nobody to dispatch to otherwise. The worker role is the
+    // difference between a team member and a second front desk.
+    await ensureAgent("default", "Personal Agent", {
+      harness: seed.harness,
+      ...(seed.model ? { model: seed.model } : {}),
+      description:
+        "Personal agent — manages your attention: understands, dispatches, keeps the wiki",
+    });
+    // Never touch an existing worker: renaming or replacing one would orphan
+    // its conversations and its workspace. Only a team with NO member gets
+    // the seed.
+    const hasWorker = (await agentSvc.list()).some((agent) => agent.config.role === "worker");
+    if (!hasWorker) {
+      await ensureAgent("coder", "Coder", {
+        harness: seed.harness,
+        ...(seed.model ? { model: seed.model } : {}),
+        description: "Software engineer — reads, changes and verifies code in its own workspace",
+        role: "worker",
+      });
+    }
   }
 
   // B4: one best-effort reconcile over every LIVE agent at boot — worktrees
