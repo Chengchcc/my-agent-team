@@ -354,6 +354,90 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "wiki_read",
+    description:
+      "Read one wiki page (frontmatter + body + revision). Paths are root-relative: projects/<p>/x.md, decisions/x.md, concepts/x.md, lessons/x.md, personal/<your agentId>/x.md.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string" }, identity: IDENTITY_SCHEMA },
+      required: ["path"],
+    },
+  },
+  {
+    name: "wiki_query",
+    description:
+      "Search the wiki (title + body substring). Use it before answering from memory: compiled knowledge beats re-deriving. Returns path, title, status, maintainedBy, snippet.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string" },
+        limit: { type: "number" },
+        identity: IDENTITY_SCHEMA,
+      },
+    },
+  },
+  {
+    name: "wiki_create",
+    description:
+      "Create a NEW wiki page. Needs path, title and content. Always cite sources (conversation:<id>:<from>-<to>, file:raw/files/<name>, or a URL) — an unsourced page is a rumour and lint will say so. Pages under personal/ belong to you alone.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        title: { type: "string" },
+        content: { type: "string" },
+        status: { type: "string", enum: ["draft", "confirmed", "superseded"] },
+        sources: { type: "array", items: { type: "string" } },
+        supersedes: { type: "array", items: { type: "string" } },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["path", "title", "content"],
+    },
+  },
+  {
+    name: "wiki_patch",
+    description:
+      "Update an EXISTING page. Read it first and pass the revision you read as expected_revision — a stale revision is refused (someone else changed it; re-read and merge). content replaces the whole body.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        expected_revision: { type: "string" },
+        title: { type: "string" },
+        content: { type: "string" },
+        status: { type: "string", enum: ["draft", "confirmed", "superseded"] },
+        sources: { type: "array", items: { type: "string" } },
+        supersedes: { type: "array", items: { type: "string" } },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["path", "expected_revision"],
+    },
+  },
+  {
+    name: "wiki_lint",
+    description:
+      "Health-check the wiki: unsourced pages, orphan pages (nothing links to them), supersedes targets that do not exist. Report findings; do not silently rewrite pages to fix them.",
+    inputSchema: { type: "object", properties: { identity: IDENTITY_SCHEMA } },
+  },
+  {
+    name: "wiki_source_add",
+    description:
+      "Save RAW material. kind=conversation records a ledger RANGE by reference (the chat is never copied); kind=text saves material verbatim under raw/files/. Saving is not endorsing — compile claims into pages separately.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["conversation", "text"] },
+        conversation_id: { type: "string" },
+        from_seq: { type: "number" },
+        to_seq: { type: "number" },
+        title: { type: "string" },
+        content: { type: "string" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["kind"],
+    },
+  },
+  {
     name: "requirement_track",
     description:
       "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A. Create needs title and goal; update needs requirement_id and only the fields you change. The user's own words stay in the conversation - your summary goes here, and they can correct it.",

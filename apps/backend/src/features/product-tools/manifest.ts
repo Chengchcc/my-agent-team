@@ -154,6 +154,83 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "wiki_read",
+      description: "Read one wiki page (frontmatter + body + revision).",
+      inputSchema: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+      },
+      entrypoint,
+    },
+    {
+      name: "wiki_query",
+      description: "Search the wiki by title/body substring.",
+      inputSchema: {
+        type: "object",
+        properties: { text: { type: "string" }, limit: { type: "number" } },
+      },
+      entrypoint,
+    },
+    {
+      name: "wiki_create",
+      description: "Create a new wiki page with sources.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          title: { type: "string" },
+          content: { type: "string" },
+          status: { type: "string", enum: ["draft", "confirmed", "superseded"] },
+          sources: { type: "array", items: { type: "string" } },
+          supersedes: { type: "array", items: { type: "string" } },
+        },
+        required: ["path", "title", "content"],
+      },
+      entrypoint,
+    },
+    {
+      name: "wiki_patch",
+      description: "Update an existing page with a CAS revision.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          expected_revision: { type: "string" },
+          title: { type: "string" },
+          content: { type: "string" },
+          status: { type: "string", enum: ["draft", "confirmed", "superseded"] },
+          sources: { type: "array", items: { type: "string" } },
+          supersedes: { type: "array", items: { type: "string" } },
+        },
+        required: ["path", "expected_revision"],
+      },
+      entrypoint,
+    },
+    {
+      name: "wiki_lint",
+      description: "Health-check the wiki.",
+      inputSchema: { type: "object", properties: {} },
+      entrypoint,
+    },
+    {
+      name: "wiki_source_add",
+      description: "Save raw material (conversation range by reference, or text verbatim).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["conversation", "text"] },
+          conversation_id: { type: "string" },
+          from_seq: { type: "number" },
+          to_seq: { type: "number" },
+          title: { type: "string" },
+          content: { type: "string" },
+        },
+        required: ["kind"],
+      },
+      entrypoint,
+    },
+    {
       name: "requirement_track",
       description:
         "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A.",

@@ -96,6 +96,38 @@
 - **Lark/Web 同一份**：两端都落同一 `pending_action` 行，任一端回答后另一端的视图从同一行读状态。
 - 自由文本回复仍靠匹配——**如实保留该缺口**，新增 `text_answer_orphan` 观测（无 pending ask 但 10 分钟内该会话刚答过 ask ⇒ 记为可能的错配），与 `unasked_question` 一起构成错配率的两个读数；观测不改变行为。
 
+## 六b、Wiki（S3，已落地）
+
+**位置**：`<dataDir>/wiki`，独立于任何 agent 的工作区（产品级资产：换 PA、删 agent 不带走知识），本身是 **git 仓库**。
+
+**目录（Karpathy LLM-wiki 形状 + 我们的分区）**：
+
+```
+wiki/
+  schema.md      ← 运营约定（第三层：人机共演化，读得到才守得住）
+  index.md       ← 每次写入自动重建的目录
+  log.md         ← 只追加，`## [时间] 动作 | 路径 — 作者`
+  raw/
+    conversations/  ← 对话区间「引用」（记 seq 范围，绝不复制聊天）
+    files/          ← 人提供的材料，原样保存
+  personal/<agentId>/   ← 私人区：只有该 PA 可写
+  projects/<project>/   ← 公共区：任何 PA 可写
+  decisions/ concepts/ lessons/
+```
+
+**写权限**：`maintainedBy` 记归属（patch 永不翻转）；`personal/` 的写者由**路径约定**强制（第二段必须等于调用者 agentId）——可审计的规则，不是隐藏策略。公共分区任何 PA 可写。
+
+**工具集（唯一写路径，仍是产品工具，PA 不获得 file/命令能力）**：
+`wiki_read` / `wiki_query`（标题+正文子串，先查编译知识）/ `wiki_create` / `wiki_patch`（**`expected_revision` CAS**，过期拒绝并回当前页）/ `wiki_lint`（无来源、孤儿页、supersedes 指向不存在）/ `wiki_source_add`（对话区间按引用 / 文本原样入库）。
+
+**并发**：按页串行（进程内队列）+ CAS。两个 run 或两个 PA 同时改一页：先到的赢，后到的被拒并看到当前页——要求重读合并，不静默覆盖。**多后端实例不在部署模型内**（单 SQLite 本就单写者）。
+
+**HTTP 只读**：`/api/wiki/pages|page|query|lint`；写入必须经工具或人通过 git——不开第二个未经审计的写入口。
+
+**Wikipedia 类比**：借鉴的是**可验证性**（sources + lint）与**历史**（git、作者）；不搬开放编辑、关注度门槛与「禁止原创研究」——PA 的综合正是产品价值。人的手改=普通 commit，自动整理不覆盖；矛盾由 lint 列出交人裁决，不自动合并。
+
+**不做**：实时运行状态（后端事实）、权限配置（wiki≠控制面）、Knowledge 包（独立配置）、嵌入检索（index.md 在这个规模足够）。
+
 ## 七、落地顺序
 
 | 刀 | 内容 |

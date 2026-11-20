@@ -179,6 +179,7 @@ import {
   skillPackRoutes,
   sqliteSkillPackAdapter,
 } from "../features/skill-pack/index.js";
+import { createFsWikiStore, createWikiService, wikiRoutes } from "../features/wiki/index.js";
 import {
   createNodeRunners,
   createWorkflowExecutionService,
@@ -434,6 +435,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     port: sqliteRequirementAdapter(db),
     idGen: ulid,
   });
+
+  // ADR 0074 S3: the wiki lives in its own data directory (a product-level
+  // asset, not any agent's workspace) and is a git repository. Writes go
+  // through the wiki_* product tools only.
+  const wikiSvc = createWikiService({ store: createFsWikiStore(join(config.dataDir, "wiki")) });
   // #25: the ACP adapter reports every session bind here, so a run that dies
   // parked still owns the native session it was executing in.
   // #25: awaited by the ACP adapter BEFORE the prompt — a session whose
@@ -823,6 +829,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // dispatch link (named id → the conversation's newest open item → one
     // created from the brief). All resolution lives in the requirement
     // service; this closure only connects ports.
+    wiki: {
+      read: (path) => wikiSvc.read(path),
+      query: (input) => wikiSvc.query(input),
+      lint: () => wikiSvc.lint(),
+      create: (input) => wikiSvc.create(input),
+      patch: (input) => wikiSvc.patch(input),
+      addSource: (input) => wikiSvc.addSource(input),
+    },
     requirements: {
       create: (input) => requirementSvc.create(input),
       update: (id, patch) => requirementSvc.update(id, patch),
@@ -2529,6 +2543,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     }),
     ahp: ahpHost.routes,
     requirements: requirementRoutes(requirementSvc),
+    wiki: wikiRoutes(wikiSvc),
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
     mcp: mcpRoutes(mcpSvc),

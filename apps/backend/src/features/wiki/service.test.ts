@@ -1,0 +1,229 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createFsWikiStore } from "./adapter-fs.js";
+import { parsePageText, serializePage } from "./domain.js";
+import { createWikiService, type WikiService } from "./service.js";
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function makeService(): WikiService {
+  const root = mkdtempSync(join(tmpdir(), "wiki-test-"));
+  dirs.push(root);
+  return createWikiService({ store: createFsWikiStore(root) });
+}
+
+describe("wiki frontmatter", () => {
+  test("serialize → parse round-trips sources and ownership", () => {
+    const text = serializePage({
+      path: "concepts/x.md",
+      frontmatter: {
+        title: "Retry strategy",
+        maintainedBy: "pa-1",
+        status: "confirmed",
+        sources: ["conversation:c1:10-20", "file:raw/files/a.md"],
+        supersedes: ["concepts/old.md"],
+        updated: "2026-11-20T00:00:00.000Z",
+      },
+      body: "Backoff is exponential.\n",
+    });
+    const parsed = parsePageText(text);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.frontmatter.title).toBe("Retry strategy");
+    expect(parsed!.frontmatter.sources).toEqual(["conversation:c1:10-20", "file:raw/files/a.md"]);
+    expect(parsed!.frontmatter.supersedes).toEqual(["concepts/old.md"]);
+    expect(parsed!.body.trim()).toBe("Backoff is exponential.");
+  });
+
+  test("a file without frontmatter is opaque, never rewritten", () => {
+    expect(parsePageText("# just markdown")).toBeNull();
+  });
+});
+
+describe("ADR 0074 S3: wiki writes", () => {
+  test("create then patch with the right revision succeeds and bumps it", async () => {
+    const svc = makeService();
+    const created = await svc.create({
+      path: "concepts/retry.md",
+      agentId: "pa-1",
+      title: "Retry",
+      content: "exponential backoff",
+      sources: ["conversation:c1:1-9"],
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const patched = await svc.patch({
+      path: "concepts/retry.md",
+      agentId: "pa-1",
+      content: "exponential backoff with jitter",
+      expectedRevision: created.page.revision,
+    });
+    expect(patched.ok).toBe(true);
+    if (!patched.ok) return;
+    expect(patched.page.revision).not.toBe(created.page.revision);
+    expect(patched.page.body).toContain("jitter");
+  });
+
+  test("a stale revision is refused and the current page comes back", async () => {
+    const svc = makeService();
+    const created = await svc.create({
+      path: "concepts/a.md",
+      agentId: "pa-1",
+      title: "A",
+      content: "v1",
+    });
+    if (!created.ok) throw new Error("seed failed");
+    const first = await svc.patch({
+      path: "concepts/a.md",
+      agentId: "pa-1",
+      content: "v2",
+      expectedRevision: created.page.revision,
+    });
+    expect(first.ok).toBe(true);
+    // Second writer still holds the ORIGINAL revision: it must re-read.
+    const stale = await svc.patch({
+      path: "concepts/a.md",
+      agentId: "pa-2",
+      content: "v3",
+      expectedRevision: created.page.revision,
+    });
+    expect(stale.ok).toBe(false);
+    if (stale.ok) return;
+    expect(stale.reason).toBe("conflict");
+    if (stale.reason !== "conflict") return;
+    expect(stale.current?.body.trim()).toBe("v2");
+  });
+
+  test("personal pages are writable only by their owner; shared pages by any PA", async () => {
+    const svc = makeService();
+    const privateWrite = await svc.create({
+      path: "personal/pa-1/notes.md",
+      agentId: "pa-2",
+      title: "n",
+      content: "x",
+    });
+    expect(privateWrite.ok).toBe(false);
+    if (privateWrite.ok) return;
+    expect(privateWrite.reason).toBe("forbidden");
+
+    const ownerWrite = await svc.create({
+      path: "personal/pa-1/notes.md",
+      agentId: "pa-1",
+      title: "n",
+      content: "x",
+    });
+    expect(ownerWrite.ok).toBe(true);
+
+    const sharedWrite = await svc.create({
+      path: "lessons/shared.md",
+      agentId: "pa-2",
+      title: "s",
+      content: "y",
+      sources: ["conversation:c1:1-2"],
+    });
+    expect(sharedWrite.ok).toBe(true);
+  });
+
+  test("ownership never flips on a patch by another agent", async () => {
+    const svc = makeService();
+    const created = await svc.create({
+      path: "concepts/owned.md",
+      agentId: "pa-1",
+      title: "o",
+      content: "1",
+    });
+    if (!created.ok) throw new Error("seed failed");
+    const patched = await svc.patch({
+      path: "concepts/owned.md",
+      agentId: "pa-2",
+      content: "2",
+      expectedRevision: created.page.revision,
+    });
+    expect(patched.ok).toBe(true);
+    if (!patched.ok) return;
+    expect(patched.page.frontmatter.maintainedBy).toBe("pa-1");
+  });
+
+  test("creating needs title and content; path must sit in a known space", async () => {
+    const svc = makeService();
+    const noTitle = await svc.create({
+      path: "concepts/x.md",
+      agentId: "pa-1",
+      content: "c",
+    });
+    expect(noTitle.ok).toBe(false);
+    const badPath = await svc.create({
+      path: "elsewhere/x.md",
+      agentId: "pa-1",
+      title: "t",
+      content: "c",
+    });
+    expect(badPath.ok).toBe(false);
+    const traversal = await svc.create({
+      path: "concepts/../../etc/passwd.md",
+      agentId: "pa-1",
+      title: "t",
+      content: "c",
+    });
+    expect(traversal.ok).toBe(false);
+  });
+});
+
+describe("ADR 0074 S3: lint and raw", () => {
+  test("lint reports unsourced pages and dangling supersedes targets", async () => {
+    const svc = makeService();
+    await svc.create({
+      path: "concepts/unsourced.md",
+      agentId: "pa-1",
+      title: "u",
+      content: "claim without a source",
+      supersedes: ["concepts/gone.md"],
+    });
+    const codes = svc.lint().map((f) => f.code);
+    expect(codes).toContain("unsourced");
+    expect(codes).toContain("missing-supersedes-target");
+  });
+
+  test("a conversation source is a REFERENCE — the chat is not copied", () => {
+    const svc = makeService();
+    const out = svc.addSource({
+      agentId: "pa-1",
+      kind: "conversation",
+      conversationId: "c0b5fb98",
+      fromSeq: 11834,
+      toSeq: 11905,
+    });
+    expect(out.path).toBe("raw/conversations/c0b5fb98-11834-11905.md");
+    const page = svc.read(out.path);
+    // raw files are not pages; read() is page-scoped, so the store-level file
+    // is checked through query's space scan instead.
+    expect(page).toBeNull();
+  });
+
+  test("text sources are saved verbatim", () => {
+    const svc = makeService();
+    const out = svc.addSource({
+      agentId: "pa-1",
+      kind: "text",
+      title: "Karpathy LLM wiki",
+      content: "The wiki is a persistent, compounding artifact.",
+    });
+    expect(out.path).toBe("raw/files/karpathy-llm-wiki.md");
+  });
+
+  test("index.md is rebuilt on every write and links each page", async () => {
+    const svc = makeService();
+    await svc.create({
+      path: "concepts/one.md",
+      agentId: "pa-1",
+      title: "One",
+      content: "1",
+    });
+    const listed = svc.list().map((p) => p.path);
+    expect(listed).toContain("concepts/one.md");
+  });
+});

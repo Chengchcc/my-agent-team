@@ -195,6 +195,42 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0074 S3: the wiki is written ONLY through these closures (product
+   *  tools), never through native file tools — the PA keeps its no-write
+   *  boundary and the knowledge base gets identity, CAS and ownership. */
+  wiki?: {
+    read(path: string): unknown;
+    query(input: { text?: string; limit?: number }): unknown;
+    lint(): unknown;
+    create(input: {
+      path: string;
+      agentId: string;
+      title?: string;
+      content?: string;
+      status?: "draft" | "confirmed" | "superseded";
+      sources?: readonly string[];
+      supersedes?: readonly string[];
+    }): Promise<unknown>;
+    patch(input: {
+      path: string;
+      agentId: string;
+      expectedRevision: string;
+      title?: string;
+      content?: string;
+      status?: "draft" | "confirmed" | "superseded";
+      sources?: readonly string[];
+      supersedes?: readonly string[];
+    }): Promise<unknown>;
+    addSource(input: {
+      agentId: string;
+      kind: "conversation" | "text";
+      conversationId?: string;
+      fromSeq?: number;
+      toSeq?: number;
+      title?: string;
+      content?: string;
+    }): unknown;
+  };
   /** ADR 0074 S2: ops-event sink for observations that must never disturb a
    *  turn (text-answer mismatch). */
   observe?: (runId: string, kind: string, payload: Record<string, unknown>) => void;
@@ -662,6 +698,103 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       result,
     });
     return { content: result };
+  }
+
+  /** ADR 0074 S3: wiki tools — the ONLY write path into the knowledge base. */
+  function requireWiki() {
+    if (!deps.wiki) {
+      throw new ProductToolRejectedError("the wiki is not available in this deployment");
+    }
+    return deps.wiki;
+  }
+
+  function wikiRead(args: Record<string, unknown>): ProductToolCallResult {
+    const wiki = requireWiki();
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    if (path === "") throw new ProductToolRejectedError("wiki_read needs a page path");
+    const page = wiki.read(path);
+    if (page === null) throw new ProductToolRejectedError(`no wiki page at ${path}`);
+    return { content: JSON.stringify(page) };
+  }
+
+  async function wikiQuery(args: Record<string, unknown>): Promise<ProductToolCallResult> {
+    const wiki = requireWiki();
+    const request: { text?: string; limit?: number } = {};
+    if (typeof args.text === "string" && args.text.trim() !== "") request.text = args.text.trim();
+    if (typeof args.limit === "number") request.limit = args.limit;
+    return { content: JSON.stringify(wiki.query(request)) };
+  }
+
+  async function wikiWrite(
+    run: AgentRun,
+    tool: "wiki_create" | "wiki_patch",
+    args: Record<string, unknown>,
+  ): Promise<ProductToolCallResult> {
+    const wiki = requireWiki();
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    if (path === "") throw new ProductToolRejectedError(`${tool} needs a page path`);
+    const common: {
+      path: string;
+      agentId: string;
+      title?: string;
+      content?: string;
+      status?: "draft" | "confirmed" | "superseded";
+      sources?: readonly string[];
+      supersedes?: readonly string[];
+    } = { path, agentId: run.agentId };
+    if (typeof args.title === "string") common.title = args.title;
+    if (typeof args.content === "string") common.content = args.content;
+    if (args.status === "confirmed" || args.status === "superseded" || args.status === "draft") {
+      common.status = args.status;
+    }
+    if (Array.isArray(args.sources))
+      common.sources = args.sources.filter((v) => typeof v === "string");
+    if (Array.isArray(args.supersedes))
+      common.supersedes = args.supersedes.filter((v) => typeof v === "string");
+
+    if (tool === "wiki_create") {
+      return { content: JSON.stringify(await wiki.create(common)) };
+    }
+    const expected = typeof args.expected_revision === "string" ? args.expected_revision : "";
+    if (expected === "") {
+      throw new ProductToolRejectedError(
+        "wiki_patch needs expected_revision (read the page first; empty means it must not exist)",
+      );
+    }
+    return { content: JSON.stringify(await wiki.patch({ ...common, expectedRevision: expected })) };
+  }
+
+  function wikiLint(): ProductToolCallResult {
+    return { content: JSON.stringify(requireWiki().lint()) };
+  }
+
+  function wikiSourceAdd(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
+    const wiki = requireWiki();
+    if (args.kind === "text") {
+      const content = typeof args.content === "string" ? args.content : "";
+      if (content.trim() === "") throw new ProductToolRejectedError("text sources need content");
+      const out: { agentId: string; kind: "text"; title?: string; content: string } = {
+        agentId: run.agentId,
+        kind: "text",
+        content,
+      };
+      if (typeof args.title === "string") out.title = args.title;
+      return { content: JSON.stringify(wiki.addSource(out)) };
+    }
+    const conversationId = typeof args.conversation_id === "string" ? args.conversation_id : "";
+    if (conversationId === "") {
+      throw new ProductToolRejectedError("conversation sources need conversation_id");
+    }
+    const out: {
+      agentId: string;
+      kind: "conversation";
+      conversationId: string;
+      fromSeq?: number;
+      toSeq?: number;
+    } = { agentId: run.agentId, kind: "conversation", conversationId };
+    if (typeof args.from_seq === "number") out.fromSeq = args.from_seq;
+    if (typeof args.to_seq === "number") out.toSeq = args.to_seq;
+    return { content: JSON.stringify(wiki.addSource(out)) };
   }
 
   /** ADR 0074: create or update a tracked item. Pure Q&A never calls this. */
@@ -1278,6 +1411,18 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return remindMe(run, input);
         case "dispatch":
           return dispatchWork(run, input);
+        case "wiki_read":
+          return wikiRead(input.args);
+        case "wiki_query":
+          return wikiQuery(input.args);
+        case "wiki_create":
+          return wikiWrite(run, "wiki_create", input.args);
+        case "wiki_patch":
+          return wikiWrite(run, "wiki_patch", input.args);
+        case "wiki_lint":
+          return wikiLint();
+        case "wiki_source_add":
+          return wikiSourceAdd(run, input.args);
         case "requirement_track":
           return requirementTrack(run, input.args);
         case "requirement_query":
