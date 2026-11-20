@@ -195,6 +195,9 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0074 S4: compiled wiki knowledge for a dispatch brief. Absent = no
+   *  wiki in this deployment (dispatch still works). */
+  wikiRecall?: (text: string) => ReadonlyArray<{ path: string; title: string }>;
   /** ADR 0074 S3: the wiki is written ONLY through these closures (product
    *  tools), never through native file tools — the PA keeps its no-write
    *  boundary and the knowledge base gets identity, CAS and ownership. */
@@ -886,11 +889,24 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       throw new ProductToolRejectedError(parsed.reason);
     }
     const recallHits = deps.recallForRun?.(run.runId) ?? [];
+    const instruction =
+      typeof input.args.instruction === "string" ? input.args.instruction.trim() : "";
+    const note = typeof input.args.note === "string" ? input.args.note.trim() : "";
+    // ADR 0074 S4: what the team already knows rides in the brief. The wiki is
+    // compiled knowledge, so its hits are evidence of the same kind as ledger
+    // and memory refs — path only, the worker opens the page itself.
+    const wikiRefs: string[] = [];
+    if (deps.wikiRecall) {
+      const probe = `${parsed.brief.verb} ${parsed.brief.object} ${instruction}`.trim();
+      if (probe !== "") {
+        for (const hit of deps.wikiRecall(probe)) wikiRefs.push(`wiki:${hit.path}`);
+      }
+    }
     // Every dispatch carries the provenance of what the front was looking at,
     // whether or not the model remembered to copy it.
     const brief: Brief = {
       ...parsed.brief,
-      references: recallRefs(recallHits, parsed.brief.references),
+      references: [...recallRefs(recallHits, parsed.brief.references), ...wikiRefs],
     };
     const missing = missingSlots(brief);
     if (missing.length > 0) {
@@ -906,9 +922,6 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     const named = typeof input.args.agent === "string" ? input.args.agent.trim() : "";
     const capability =
       typeof input.args.capability === "string" ? input.args.capability.trim() : "";
-    const instruction =
-      typeof input.args.instruction === "string" ? input.args.instruction.trim() : "";
-    const note = typeof input.args.note === "string" ? input.args.note.trim() : "";
     // ADR 0052: no name = the pool picks (idle first, capability narrows).
     let agent = named;
     let poolReason: string | undefined;
