@@ -243,6 +243,48 @@ describe("ADR 0074 S3: lint and raw", () => {
     expect(hits).toContain("projects/b.md");
   });
 
+  test("a write reports ITS OWN findings, so the writer can fix them in-turn", async () => {
+    const svc = makeService();
+    const created = await svc.create({
+      path: "concepts/lonely.md",
+      agentId: "pa-1",
+      title: "Lonely",
+      content: "no sources, nobody links here",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const codes = created.findings.map((f) => f.code);
+    // Both are true of this page at this instant; the writer sees them now,
+    // not on the next full sweep.
+    expect(codes).toContain("unsourced");
+    expect(codes).toContain("orphan");
+
+    // After a source and an inbound link, the same page comes back clean.
+    const withSource = await svc.patch({
+      path: "concepts/lonely.md",
+      agentId: "pa-1",
+      expectedRevision: created.page.revision,
+      sources: ["conversation:c1:1-2"],
+    });
+    if (!withSource.ok) throw new Error("patch failed");
+    await svc.create({
+      path: "projects/linker.md",
+      agentId: "pa-1",
+      title: "Linker",
+      content: "see [[Lonely]]",
+      sources: ["conversation:c1:3-4"],
+    });
+    const again = await svc.patch({
+      path: "concepts/lonely.md",
+      agentId: "pa-1",
+      expectedRevision: withSource.page.revision,
+      sources: ["conversation:c1:1-2"],
+      supersedes: [],
+    });
+    if (!again.ok) throw new Error("second patch failed");
+    expect(again.findings).toEqual([]);
+  });
+
   test("graph: nodes are pages, edges are resolved links in both syntaxes", async () => {
     const svc = makeService();
     await svc.create({

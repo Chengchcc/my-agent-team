@@ -25,7 +25,13 @@ export interface WikiWriteInput {
 }
 
 export type WikiWriteResult =
-  | { ok: true; page: WikiPage }
+  | {
+      ok: true;
+      page: WikiPage;
+      /** Findings about the page just written, so the writer can fix them in
+       *  the same turn (an unsourced claim is cheapest to fix now). */
+      findings: WikiLintFinding[];
+    }
   | { ok: false; reason: "conflict"; current: WikiPage | null }
   | { ok: false; reason: "invalid" | "forbidden"; detail: string };
 
@@ -229,6 +235,43 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
     return pages;
   }
 
+  /** Findings that concern ONE page. Shared by the full sweep and by the
+   *  write path: the same predicate in both places, or the nudge and the
+   *  report disagree — which teaches people to ignore both. */
+  function findingsFor(page: WikiPage, pages: readonly WikiPage[]): WikiLintFinding[] {
+    const out: WikiLintFinding[] = [];
+    if (page.frontmatter.sources.length === 0) {
+      out.push({
+        code: "unsourced",
+        path: page.path,
+        detail: "no sources: a claim nobody can trace is a rumour",
+      });
+    }
+    const linked = pages.some(
+      (other) =>
+        other.path !== page.path &&
+        findLinkAt(other.body, [page.path, page.frontmatter.title]) >= 0,
+    );
+    if (!linked) {
+      out.push({
+        code: "orphan",
+        path: page.path,
+        detail: "no page links here — index.md does not count",
+      });
+    }
+    const existing = new Set(pages.map((p) => p.path));
+    for (const target of page.frontmatter.supersedes) {
+      if (!existing.has(target)) {
+        out.push({
+          code: "missing-supersedes-target",
+          path: page.path,
+          detail: `supersedes ${target}, which does not exist`,
+        });
+      }
+    }
+    return out;
+  }
+
   function rebuildIndex(pages: readonly WikiPage[]): void {
     const lines = [
       "# Wiki index",
@@ -325,7 +368,7 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
           detail: "page was written but could not be read back",
         };
       }
-      return { ok: true, page: written };
+      return { ok: true, page: written, findings: findingsFor(written, allPages()) };
     });
   }
 
@@ -416,37 +459,8 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
     },
     lint() {
       const pages = allPages();
-      const bodies = new Map(pages.map((p) => [p.path, p.body] as const));
       const findings: WikiLintFinding[] = [];
-      for (const page of pages) {
-        if (page.frontmatter.sources.length === 0) {
-          findings.push({
-            code: "unsourced",
-            path: page.path,
-            detail: "no sources: a claim nobody can trace is a rumour",
-          });
-        }
-        const linked = [...bodies.entries()].some(
-          ([otherPath, body]) =>
-            otherPath !== page.path && findLinkAt(body, [page.path, page.frontmatter.title]) >= 0,
-        );
-        if (!linked) {
-          findings.push({
-            code: "orphan",
-            path: page.path,
-            detail: "no page links here — index.md does not count",
-          });
-        }
-        for (const target of page.frontmatter.supersedes) {
-          if (!bodies.has(target)) {
-            findings.push({
-              code: "missing-supersedes-target",
-              path: page.path,
-              detail: `supersedes ${target}, which does not exist`,
-            });
-          }
-        }
-      }
+      for (const page of pages) findings.push(...findingsFor(page, pages));
       return findings;
     },
     addSource(input) {
