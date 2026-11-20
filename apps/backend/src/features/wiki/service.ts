@@ -72,6 +72,13 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
   // The third layer of the LLM-wiki pattern: the conventions live IN the
   // repository, next to the pages they govern, so any reader (or the next
   // session) finds them without being told.
+  if (deps.store.read("index.md") === null) {
+    deps.store.write(
+      "index.md",
+      "# Wiki index\n\nGenerated on every write — empty until the first page exists.\n",
+      { author: "wiki", summary: "wiki: seed index" },
+    );
+  }
   if (deps.store.read("schema.md") === null) {
     deps.store.write(
       "schema.md",
