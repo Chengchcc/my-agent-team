@@ -106,7 +106,10 @@ let dispatchCalls: Array<{
   instruction: string;
   parentRunId?: string;
   note?: string;
+  brief?: { references: readonly string[] };
 }> = [];
+/** ADR 0074 S4: the wiki hits the deployment offers to a dispatch brief. */
+let wikiRecallHits: Array<{ path: string; title: string }> = [];
 
 /** A complete facet set: these tests are about routing/idempotency, not
  *  about slot collection (that has its own file). */
@@ -186,6 +189,7 @@ beforeEach(async () => {
     contextPort,
     conversationPort: convPort,
     recallForRun: () => recallHits,
+    wikiRecall: () => wikiRecallHits,
     callPort: sqliteProductToolCallAdapter(db),
     artifactService: {
       upload: async () => ({ url: "artifacts://a/b.txt" }),
@@ -246,6 +250,7 @@ beforeEach(async () => {
   emittedTodos = [];
   answeredAsks = [];
   dispatchCalls = [];
+  wikiRecallHits = [];
   recallHits = [];
   handbackCalls = [];
   pickQueries = [];
@@ -708,6 +713,26 @@ describe("product tools service", () => {
     // its inputs after being answered can only be refused.
     await new Promise((r) => setTimeout(r, 20));
     expect(answeredAsks).toEqual([{ runId, callId }]);
+  });
+
+  test("S4: wiki knowledge rides in the dispatch brief as references", async () => {
+    wikiRecallHits = [{ path: "projects/login/retry.md", title: "Login retry policy" }];
+    pickResult = { agentId: "worker-1", reason: "idle" };
+    const runId = await createRun("fix the login spinner");
+    await service.call({
+      identity: identity(runId),
+      callId: "disp-wiki",
+      idempotencyKey: `${runId}:disp-wiki`,
+      tool: "dispatch",
+      args: {
+        verb: "fix",
+        deliverable: "change",
+        instruction: "修一下登录转圈，按已有重试策略来",
+        slots: READY_FIX.slots,
+      },
+    });
+    const sent = dispatchCalls.at(-1);
+    expect(sent?.brief?.references).toContain("wiki:projects/login/retry.md");
   });
 
   test("S2: an ask after an answered one carries `reopens` (same decision, not a new question)", async () => {

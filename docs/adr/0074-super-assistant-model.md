@@ -128,6 +128,12 @@ wiki/
 
 **不做**：实时运行状态（后端事实）、权限配置（wiki≠控制面）、Knowledge 包（独立配置）、嵌入检索（index.md 在这个规模足够）。
 
+## 六c、派单接 wiki（S4，已落地）
+
+派单时（`dispatch` 工具）用 `verb + object + instruction` 查询 wiki，命中的前 3 页以 `wiki:<path>` 形式并入 brief 的 `references`——与账本/记忆召回同一种证据，只给路径，工人自己翻页。wiki 为空或未配置时零成本跳过（`wikiRecall` 缺省即无 wiki 部署）。
+
+**未做（记录在案）**：需求详情页的「使用了哪些 wiki 页」没有单独落库——brief 的 references 只存在于派单输入里。要做需要给需求加一张关联表，等真实使用出现需求再加，不提前建。
+
 ## 七、落地顺序
 
 | 刀 | 内容 |
@@ -136,6 +142,7 @@ wiki/
 | S1 | 事项 v1（Brief 持久化 + `requirement_id` + 事项列表/详情页） |
 | S2 | 决策请求升级（卡片带 ID、reopen、双端同步） |
 | S3 | Wiki（git 仓库、分区、wiki 工具集、ingest/lint；v1 PA 直用工具） |
+| S4 | 派单 brief 接 wiki 召回（`wiki:<path>` 进 references） |
 
 暂不引入（同意设计稿）：重型话题栈、通用 DAG 编排、多层 PA、执行认领队列、全量知识图谱。
 

@@ -829,6 +829,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // dispatch link (named id → the conversation's newest open item → one
     // created from the brief). All resolution lives in the requirement
     // service; this closure only connects ports.
+    // ADR 0074 S4: what the team already knows rides in the brief.
+    wikiRecall: (text) =>
+      wikiSvc.query({ text, limit: 3 }).map((h) => ({ path: h.path, title: h.title })),
     wiki: {
       read: (path) => wikiSvc.read(path),
       query: (input) => wikiSvc.query(input),
