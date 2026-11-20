@@ -240,7 +240,7 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
     id: string;
     config: string;
   }>;
-  expect(seeded.map((row) => row.id).sort()).toEqual(["coder", "default"]);
+  expect(seeded.map((row) => row.id).sort()).toEqual(["coder", "default", "researcher"]);
   const personal = JSON.parse(seeded.find((row) => row.id === "default")!.config) as {
     name: string;
     role?: string;
@@ -254,6 +254,30 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
   // The worker role is what keeps it OUT of the front desk; without it the
   // seed would create a second assistant.
   expect(coder.role).toBe("worker");
+  // Both members carry a role-appropriate identity, written at seed time and
+  // then owned by the operator (never rewritten by a later boot).
+  const coderSoul = readFileSync(`${dir}/agents/coder/SOUL.md`, "utf8");
+  expect(coderSoul).toContain("# Coder");
+  const researcherSoul = readFileSync(`${dir}/agents/researcher/SOUL.md`, "utf8");
+  expect(researcherSoul).toContain("# Researcher");
+  const personalSoul = readFileSync(`${dir}/agents/default/SOUL.md`, "utf8");
+  expect(personalSoul).toContain("# Personal Agent");
+  // The marker is what keeps a deliberate deletion deleted on the next boot.
+  const marker = JSON.parse(readFileSync(`${dir}/.agent-seed.json`, "utf8")) as {
+    seeded: string[];
+  };
+  expect(marker.seeded.sort()).toEqual(["coder", "default", "researcher"]);
+  // The nightly sweep exists from the first boot: knowledge decays unless
+  // something runs lint on a schedule.
+  const workflow = JSON.parse(readFileSync(`${dir}/workflows/wiki-lint.workflow.json`, "utf8")) as {
+    triggers: Array<{ type: string; cron?: string }>;
+    nodes: Array<{ type: string; agentId?: string }>;
+  };
+  expect(workflow.triggers[0]?.type).toBe("cron");
+  expect(workflow.triggers[0]?.cron).toBe("0 4 * * *");
+  expect(workflow.nodes.some((node) => node.type === "agent" && node.agentId === "default")).toBe(
+    true,
+  );
 
   await installed.dispose();
   await services.mcpClientManager.disconnectAll();

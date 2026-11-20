@@ -138,6 +138,21 @@ wiki/
 
 **为什么第一层最重要**：lint 的价值在于「写的时候就别写错」。一个刚写下的无来源结论，作者就在现场、成本最低；等到每日巡检再发现，改的人已经不在上下文里了——那正是知识库腐烂的方式。
 
+### 定时巡检（已做，2026-11-20）
+
+种子写 `workflows/wiki-lint.workflow.json`（每日 04:00，`0 4 * * *`）：
+- 一个 **agent 节点**，跑 Personal Agent 的 lint 纪律——无来源补来源或降 draft、孤儿补回链、悬空 supersedes 删条目、过时只标记不裁决、同一概念被三页以上链接才建 stub；
+- **无人审节点**：lint 是维护，不是决策，注意力收件箱只留给人必须拍板的事；
+- 每处修改走 `wiki_read` → `wiki_patch(expected_revision)`，被拒就重读重合并；
+- 真机验证（2026-11-20 手动触发 execution `de11bf95…`）：它给 `concepts/super-agent-conventions.md` 末尾加了「相关页面 → `[[PA permission model]]`」，orphan 消失，`/api/wiki/lint` 归零。
+
+### 种子的身份与成员（同日）
+
+- 种子 = **Personal Agent + Coder + Researcher**（两个 worker 的能力卡不同，选人才有得选）；
+- 每个种子成员写**角色化 SOUL.md**（人员设定，不是产品规则——产品规则是前台纪律，重复写会彼此过期）；
+- 只写模板/空文件：`identityTextOf` 判定「还是模板」才覆盖，人写过的一个字都不动；
+- `.agent-seed.json` 标记已种成员：**删掉的成员不会每次重启又长回来**（guide agent 的教训）。
+
 ## 六c、派单接 wiki（S4，已落地）
 
 派单时（`dispatch` 工具）用 `verb + object + instruction` 查询 wiki，命中的前 3 页以 `wiki:<path>` 形式并入 brief 的 `references`——与账本/记忆召回同一种证据，只给路径，工人自己翻页。wiki 为空或未配置时零成本跳过（`wikiRecall` 缺省即无 wiki 部署）。
