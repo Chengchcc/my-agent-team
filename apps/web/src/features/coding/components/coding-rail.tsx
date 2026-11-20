@@ -27,7 +27,8 @@ import {
 } from "../hooks";
 
 export interface CodingSelection {
-  projectId: string;
+  /** ADR 0073: absent = the agent's OWN workspace (no project worktree). */
+  projectId?: string;
   agentId: string;
   /** Task-worktree path (clicking a slug row) — undefined = main worktree. */
   worktreePath?: string;
@@ -402,6 +403,7 @@ export function CodingRail({
 }) {
   const { data } = useProjectList();
   const projects = data?.projects ?? [];
+  const workspaceTerminals = terminals.filter((x) => x.projectId === null);
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r border-zinc-800 bg-zinc-950">
@@ -440,6 +442,43 @@ export function CodingRail({
           );
         })}
       </div>
+
+      {/* ADR 0073: panes in an agent's OWN workspace — the directory a room's
+          worker runs in. No project needed, so a conversation can link here. */}
+      {workspaceTerminals.length > 0 ? (
+        <>
+          <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+            {t("Workspace")}
+          </div>
+          <div className="border-b border-zinc-800 pb-1">
+            {workspaceTerminals.map((term) => {
+              const active =
+                selected !== null &&
+                selected.projectId === undefined &&
+                selected.agentId === term.agentId;
+              const dot = terminalDot(term);
+              return (
+                <Button
+                  key={term.terminalId}
+                  variant="ghost"
+                  onClick={() => onSelect({ agentId: term.agentId })}
+                  className={`h-auto w-full justify-start gap-2 rounded-none px-3 py-1 text-left text-[11px] font-normal hover:bg-zinc-800/60 ${
+                    active ? "bg-zinc-800" : ""
+                  }`}
+                >
+                  <span className={dot.cls} title={dot.label}>
+                    {dot.mark}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-zinc-300">{term.agentId}</span>
+                  <span className="truncate text-[10px] text-zinc-500">
+                    {term.cwd.split("/").pop()}
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
 
       <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
         {t("Worktrees")}

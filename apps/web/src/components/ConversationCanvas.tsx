@@ -321,6 +321,17 @@ export function ConversationCanvas({
             <ConversationMembers conversationId={conversationId} />
           </div>
           <div className="flex items-center gap-3 shrink-0 ml-4">
+            {primaryAgent?.agentId ? (
+              // ADR 0073: the room's agent works in its own workspace; this is
+              // the way into the pane that is actually running there.
+              <Link
+                href={`/coding?agent=${encodeURIComponent(primaryAgent.agentId)}`}
+                className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
+                title="Open a terminal in this conversation's workspace"
+              >
+                Terminal
+              </Link>
+            ) : null}
             <Link
               href={`/artifacts?folder=${encodeURIComponent(`tool-images/${conversationId}`)}`}
               className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"

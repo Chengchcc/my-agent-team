@@ -2016,13 +2016,32 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // ─── Coding page terminals (plan A: PTY registry, ADR on Coding page) ──
 
   const resolveCodingTarget = async (
-    projectId: string,
+    projectId: string | null | undefined,
     agentId: string,
     worktreePath?: string,
   ): Promise<CodingTarget> => {
     const agents = await agentSvc.list(true);
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) throw new NotFoundError("agent", agentId);
+    // --- the pane's shell and oma line, for whichever directory we resolve ---
+    const oma = resolveOmaCommand(config);
+    const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+    const omaLaunchLine = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
+    const targetOf = (cwd: string, omaEnv?: Record<string, string | undefined>): CodingTarget => ({
+      cwd,
+      // ponytail: literal /bin/bash — env must flow through packages/config.
+      shell: { executable: "/bin/bash", args: [], env: omaEnv ?? oma.env },
+      omaLaunch: omaLaunchLine,
+      omaPane: {
+        executable: "/bin/bash",
+        args: ["-c", `${omaLaunchLine} --continue; exec /bin/bash`],
+        env: omaEnv ?? oma.env,
+      },
+    });
+    // ADR 0073: no project = a terminal in the agent's OWN workspace, which is
+    // where a room's worker runs. A conversation can open it without inventing
+    // a project first.
+    if (projectId === null || projectId === undefined) return targetOf(agent.workspacePath);
     if (!agent.config.runtime_config.projects.includes(projectId)) {
       throw new ConflictError(`agent ${agentId} has not attached project ${projectId}`);
     }
@@ -2052,24 +2071,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     if (cwd !== main && !existsSync(cwd)) {
       throw new NotFoundError("task worktree", cwd);
     }
-    const oma = resolveOmaCommand(config);
-    const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
-    const omaLaunch = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
-    return {
-      cwd,
-      // ponytail: literal /bin/bash — env must flow through packages/config
-      // (audit:contracts bans bare process.env reads here); add a config
-      // knob only if a deployment ever needs a different shell.
-      shell: { executable: "/bin/bash", args: [], env: oma.env },
-      omaLaunch,
-      // oma panes (re)spawn as: oma --continue, then an interactive shell
-      // when it exits — no injection race, and a dead oma drops to a shell.
-      omaPane: {
-        executable: "/bin/bash",
-        args: ["-c", `${omaLaunch} --continue; exec /bin/bash`],
-        env: oma.env,
-      },
-    };
+    return targetOf(cwd);
   };
 
   const listCodingTaskWorktrees = (projectId: string) =>

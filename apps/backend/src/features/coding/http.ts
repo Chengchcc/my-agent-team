@@ -29,8 +29,11 @@ export interface CodingTarget {
 
 export interface CodingRoutesDeps {
   registry: TerminalRegistry;
+  /** `projectId` null/absent = the agent's OWN workspace (no worktree): the
+   *  directory a room's worker runs in, so a conversation links right to it
+   *  (ADR 0073). */
   resolveTarget: (
-    projectId: string,
+    projectId: string | null | undefined,
     agentId: string,
     worktreePath?: string,
   ) => Promise<CodingTarget>;
@@ -95,9 +98,13 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       "/api/coding/terminals",
       async ({ body, set }) => {
         try {
-          const target = await resolveTarget(body.projectId, body.agentId, body.worktreePath);
+          const target = await resolveTarget(
+            body.projectId ?? null,
+            body.agentId,
+            body.worktreePath,
+          );
           const terminal = registry.spawn({
-            projectId: body.projectId,
+            projectId: body.projectId ?? null,
             agentId: body.agentId,
             cwd: target.cwd,
             title: body.title ?? "bash",
@@ -115,7 +122,8 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       },
       {
         body: t.Object({
-          projectId: t.String({ minLength: 1 }),
+          // Absent = a terminal in the agent's own workspace (ADR 0073).
+          projectId: t.Optional(t.String({ minLength: 1 })),
           agentId: t.String({ minLength: 1 }),
           title: t.Optional(t.String({ minLength: 1 })),
           worktreePath: t.Optional(t.String({ minLength: 1 })),

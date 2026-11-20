@@ -79,6 +79,20 @@ const wsUrl = (terminalId: string, ticket: string) =>
   `ws://127.0.0.1:${app.server!.port}/ws/coding/${terminalId}?ticket=${ticket}`;
 
 describe("coding routes", () => {
+  test("ADR 0073: a terminal with NO project lands in the agent's workspace", async () => {
+    // A room's worker runs in its own workspace, which has no project. The
+    // resolver is called with null and the route stores projectId: null, so the
+    // rail can group it as a workspace pane.
+    const res = await fetch(`${base}/api/coding/terminals`, {
+      method: "POST",
+      body: JSON.stringify({ agentId: "a1" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { terminal?: { projectId?: string | null } };
+    expect(body.terminal?.projectId).toBeNull();
+  });
+
   test("unknown project maps to 404", async () => {
     const res = await fetch(`${base}/api/coding/terminals`, {
       method: "POST",

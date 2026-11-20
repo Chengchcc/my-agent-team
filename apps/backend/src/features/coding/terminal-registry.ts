@@ -27,7 +27,9 @@ export interface TerminalCommand {
 
 export interface TerminalInfo {
   readonly terminalId: string;
-  readonly projectId: string;
+  /** ADR 0073: null = a terminal in the agent's OWN workspace (no project
+   *  worktree) — the directory a room's worker runs in. */
+  readonly projectId: string | null;
   readonly agentId: string;
   readonly cwd: string;
   /** Display hint — set at spawn, renamed by launch-oma. */
@@ -42,7 +44,7 @@ export interface TerminalInfo {
  *  (env) are deliberately absent — they are re-derived at restore time. */
 export interface PersistedTerminal {
   terminalId: string;
-  projectId: string;
+  projectId: string | null;
   agentId: string;
   cwd: string;
   title: string;
@@ -63,7 +65,7 @@ interface Slot {
 }
 
 export interface SpawnInput {
-  projectId: string;
+  projectId: string | null;
   agentId: string;
   cwd: string;
   title?: string;
