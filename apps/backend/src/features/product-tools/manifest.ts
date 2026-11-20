@@ -154,6 +154,38 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "requirement_track",
+      description:
+        "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          requirement_id: { type: "string", description: "Omit to create" },
+          title: { type: "string" },
+          goal: { type: "string", description: "What done looks like" },
+          background: { type: "string" },
+          constraints: { type: "string" },
+          expected_deliverables: { type: "string" },
+          acceptance_criteria: { type: "string" },
+        },
+        required: ["title", "goal"],
+      },
+      entrypoint,
+    },
+    {
+      name: "requirement_query",
+      description:
+        "Read tracked work items: one by id (with runs, verification and open requests), or the list. The resume-in-a-new-conversation path.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          requirement_id: { type: "string" },
+          include_closed: { type: "boolean" },
+        },
+      },
+      entrypoint,
+    },
+    {
       name: "dispatch",
       description:
         "Hand a task to another agent member of this conversation (ADR 0047 room dispatch). Omit agent to let the worker pool pick: it prefers an idle worker and narrows by capability. The target becomes a member if needed, your dispatch lands in the shared ledger, and its run reports back here — the response names who took it. instruction must carry the requester's ORIGINAL words plus any constraint you were told — never a paraphrase or an implementation plan of your own; use note (max ~30 words) only for routing background.",

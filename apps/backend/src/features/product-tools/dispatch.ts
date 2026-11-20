@@ -354,6 +354,38 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "requirement_track",
+    description:
+      "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A. Create needs title and goal; update needs requirement_id and only the fields you change. The user's own words stay in the conversation - your summary goes here, and they can correct it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requirement_id: { type: "string", description: "Omit to create" },
+        title: { type: "string" },
+        goal: { type: "string", description: "What done looks like" },
+        background: { type: "string" },
+        constraints: { type: "string" },
+        expected_deliverables: { type: "string" },
+        acceptance_criteria: { type: "string" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["title", "goal"],
+    },
+  },
+  {
+    name: "requirement_query",
+    description:
+      "Read tracked work items: one by id (with its runs, verification and open requests), or the list with include_closed. Use it to resume work in a new conversation - status comes from execution records, not from anyone's summary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requirement_id: { type: "string" },
+        include_closed: { type: "boolean" },
+        identity: IDENTITY_SCHEMA,
+      },
+    },
+  },
+  {
     name: "team_list",
     description:
       "List the team's agents with their capability cards: id, name, description, skills. Read before dispatching to decide who takes a task.",

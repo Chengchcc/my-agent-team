@@ -263,6 +263,11 @@ export const api = {
         directToWorker: true,
       }),
     ),
+  /** ADR 0074: tracked work items (requirements). */
+  listRequirements: () => unwrap(client.api.requirements.get()),
+  getRequirement: (id: string) => unwrap(client.api.requirements({ id }).get()),
+  updateRequirement: (id: string, body: Record<string, unknown>) =>
+    unwrap(client.api.requirements({ id }).patch(body)),
   listAgentRuns: (params?: {
     status?: AgentRunStatus;
     agentId?: string;

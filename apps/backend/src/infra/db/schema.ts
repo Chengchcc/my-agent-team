@@ -53,6 +53,35 @@ export const conversation = sqliteTable("conversation", {
   ),
 });
 
+/** ADR 0074: a REQUIREMENT (事项) — the stable work goal the PA identifies
+ *  from conversation and maintains continuously. Not a copy of the dispatch
+ *  brief: it can exist with no dispatch, survive rework and cross-member
+ *  collaboration, and its status derives from execution/request/acceptance
+ *  records rather than a summary edit. */
+export const requirement = sqliteTable("requirement", {
+  requirementId: text("requirement_id").primaryKey(),
+  /** Short handle (the PA's summary; the user's own words stay on the origin
+   *  message — the two are deliberately not merged). */
+  title: text().notNull(),
+  /** What "done" is after, in one or two sentences. */
+  goal: text().notNull(),
+  background: text(),
+  constraints: text(),
+  expectedDeliverables: text("expected_deliverables"),
+  acceptanceCriteria: text("acceptance_criteria"),
+  /** Stored lifecycle: open | done | cancelled. Everything between
+   *  (in_progress / waiting_user / pending_acceptance) is DERIVED in the read
+   *  model from runs and pending requests — a summary edit can never mark
+   *  work finished. */
+  status: text().notNull().default("open"),
+  /** Where the goal was first stated (the human's words live there). */
+  originConversationId: text("origin_conversation_id"),
+  originSeq: integer("origin_seq"),
+  createdByAgentId: text("created_by_agent_id"),
+  createdAt: integer({ mode: "number" }).notNull(),
+  updatedAt: integer({ mode: "number" }).notNull(),
+});
+
 // (member table removed — 1:1 collapse: participation is conversation.agent_id)
 
 // ─── conversation_ledger ───────────────────────────────────────────
@@ -424,6 +453,11 @@ export const agentRun = sqliteTable(
      *  lose their origin otherwise — audit needs the whole chain, not one
      *  hop). Null = no parent (human input, rule, assessment, system). */
     parentRunId: text("parent_run_id"),
+    /** ADR 0074: the requirement this run executes for. Set by the dispatch
+     *  tool; runs without one (chat, wiki upkeep) carry null. */
+    requirementId: text("requirement_id").references(() => requirement.requirementId, {
+      onDelete: "set null",
+    }),
     /** The native (ACP) session THIS run actually executed in, written the
      *  moment session/new or session/load succeeds — not at terminal commit.
      *  A run that dies parked (HITL) or mid-crash still knows its own

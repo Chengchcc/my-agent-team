@@ -449,6 +449,13 @@
       "when": 1795082911097,
       "tag": "0063_spotty_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1795145167913,
+      "tag": "0064_cold_talisman",
+      "breakpoints": true
     }
   ]
 }

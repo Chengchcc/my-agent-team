@@ -195,6 +195,45 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0074: tracked work items. Absent = the requirement tools reject
+   *  explicitly and dispatch links nothing. */
+  requirements?: {
+    create(input: {
+      title: string;
+      goal: string;
+      background?: string | null;
+      constraints?: string | null;
+      expectedDeliverables?: string | null;
+      acceptanceCriteria?: string | null;
+      originConversationId?: string | null;
+      createdByAgentId?: string | null;
+    }): { requirementId: string };
+    update(
+      id: string,
+      patch: {
+        title?: string;
+        goal?: string;
+        background?: string | null;
+        constraints?: string | null;
+        expectedDeliverables?: string | null;
+        acceptanceCriteria?: string | null;
+        status?: "open" | "done" | "cancelled";
+      },
+    ): { requirementId: string };
+    get(id: string): unknown;
+    list(includeClosed: boolean): unknown;
+    /** Resolve which item a dispatch belongs to (named id → the conversation's
+     *  newest open item → created from the brief) and stamp it on the run. */
+    linkDispatchedRun(input: {
+      runId: string;
+      requirementId?: string;
+      conversationId: string;
+      agentId: string;
+      briefTitle: string;
+      briefGoal: string;
+      acceptance?: string | null;
+    }): { requirementId: string };
+  };
   /** ADR 0056: choosing a worker is a capability recall over the brief.
    *  Absent = only named dispatch works (a deployment with no pool). */
   pickAgent?: (query: {
@@ -620,6 +659,78 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: result };
   }
 
+  /** ADR 0074: create or update a tracked item. Pure Q&A never calls this. */
+  function requirementTrack(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
+    if (!deps.requirements) {
+      throw new ProductToolRejectedError(
+        "requirement tracking is not available in this deployment",
+      );
+    }
+    const str = (v: unknown): string | undefined =>
+      typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+    const optStr = (v: unknown): string | null | undefined => (v === null ? null : str(v));
+    const id = str(args.requirement_id);
+    const title = str(args.title);
+    const goal = str(args.goal);
+    if (id === undefined) {
+      if (title === undefined || goal === undefined) {
+        throw new ProductToolRejectedError("creating a requirement needs title and goal");
+      }
+      const row = deps.requirements.create({
+        title,
+        goal,
+        ...(optStr(args.background) !== undefined ? { background: optStr(args.background) } : {}),
+        ...(optStr(args.constraints) !== undefined
+          ? { constraints: optStr(args.constraints) }
+          : {}),
+        ...(optStr(args.expected_deliverables) !== undefined
+          ? { expectedDeliverables: optStr(args.expected_deliverables) }
+          : {}),
+        ...(optStr(args.acceptance_criteria) !== undefined
+          ? { acceptanceCriteria: optStr(args.acceptance_criteria) }
+          : {}),
+        originConversationId: run.conversationId,
+        createdByAgentId: run.agentId,
+      });
+      return { content: JSON.stringify(row) };
+    }
+    const row = deps.requirements.update(id, {
+      ...(title !== undefined ? { title } : {}),
+      ...(goal !== undefined ? { goal } : {}),
+      ...(optStr(args.background) !== undefined ? { background: optStr(args.background) } : {}),
+      ...(optStr(args.constraints) !== undefined ? { constraints: optStr(args.constraints) } : {}),
+      ...(optStr(args.expected_deliverables) !== undefined
+        ? { expectedDeliverables: optStr(args.expected_deliverables) }
+        : {}),
+      ...(optStr(args.acceptance_criteria) !== undefined
+        ? { acceptanceCriteria: optStr(args.acceptance_criteria) }
+        : {}),
+    });
+    return { content: JSON.stringify(row) };
+  }
+
+  /** ADR 0074: read items — one with runs/verification/open requests, or the
+   *  list. The resume-in-a-new-conversation path. */
+  function requirementQuery(args: Record<string, unknown>): ProductToolCallResult {
+    if (!deps.requirements) {
+      throw new ProductToolRejectedError(
+        "requirement tracking is not available in this deployment",
+      );
+    }
+    const id = typeof args.requirement_id === "string" ? args.requirement_id.trim() : "";
+    if (id !== "") return { content: JSON.stringify(deps.requirements.get(id)) };
+    const includeClosed = args.include_closed === true;
+    return { content: JSON.stringify(deps.requirements.list(includeClosed)) };
+  }
+
+  /** A short handle for an item created from a brief: the verb+object in the
+   *  requester's words beats a truncated instruction. */
+  function briefTitleOf(brief: Brief, instruction: string): string {
+    const object = brief.object.trim();
+    const head = object !== "" ? `${brief.verb} ${object}` : instruction;
+    return head.length > 80 ? `${head.slice(0, 80)}…` : head;
+  }
+
   /** ADR 0047: hand work to another agent member. Durable-idempotent by
    *  (runId, callId) like todo_write: a retried call replays the stored
    *  result instead of dispatching twice. */
@@ -725,6 +836,29 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     };
     if (note) call.note = note;
     const triggered = await deps.dispatch(call);
+    // ADR 0074: a dispatched run belongs to a tracked item (named id → the
+    // conversation's newest open item → one created from the brief). Best
+    // effort: a tracking failure must not fail the work itself.
+    if (deps.requirements) {
+      try {
+        const named =
+          typeof input.args.requirement === "string" ? input.args.requirement.trim() : "";
+        deps.requirements.linkDispatchedRun({
+          runId: triggered.runId,
+          ...(named !== "" ? { requirementId: named } : {}),
+          conversationId: run.conversationId,
+          agentId: run.agentId,
+          briefTitle: briefTitleOf(brief, instruction),
+          briefGoal: instruction,
+          ...(brief.slots.acceptance !== undefined ? { acceptance: brief.slots.acceptance } : {}),
+        });
+      } catch (err) {
+        console.error(
+          `[product-tools] linking run ${triggered.runId} to a requirement failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     // Tell the caller WHO took it and why — an unnamed dispatch must not be
     // a silent substitution.
     const result = JSON.stringify({ ...triggered, ...(poolReason ? { picked: poolReason } : {}) });
@@ -1130,6 +1264,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return remindMe(run, input);
         case "dispatch":
           return dispatchWork(run, input);
+        case "requirement_track":
+          return requirementTrack(run, input.args);
+        case "requirement_query":
+          return requirementQuery(input.args);
         case "team_list":
           return teamList();
         case "handback":

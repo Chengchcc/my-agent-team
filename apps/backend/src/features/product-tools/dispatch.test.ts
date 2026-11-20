@@ -38,6 +38,8 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "steer_worker",
       "cancel_worker",
       "report",
+      "requirement_track",
+      "requirement_query",
       "team_list",
       "ask_question",
       "artifact_upload",

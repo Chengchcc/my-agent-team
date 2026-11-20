@@ -33,6 +33,8 @@ export interface AgentRunPort {
    *  into and cannot be replayed as a new run's input. Returns null when
    *  nothing qualifies. */
   acquireNextRun(branchId: string): Promise<AgentRun | null>;
+  /** ADR 0074: stamp the requirement this run executes for. */
+  setRequirementId?(runId: string, requirementId: string): void;
 
   /** CAS an input from `delivering` to `delivered`. Duplicate acceptance
    *  returns the already-delivered row. */

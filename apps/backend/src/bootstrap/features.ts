@@ -160,6 +160,11 @@ import {
   reminderRoutes,
   sqliteReminderAdapter,
 } from "../features/reminder/index.js";
+import {
+  createRequirementService,
+  requirementRoutes,
+  sqliteRequirementAdapter,
+} from "../features/requirement/index.js";
 import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
 import { settingsRoutes } from "../features/settings/index.js";
 import type { SkillPackRow } from "../features/skill-pack/index.js";
@@ -422,6 +427,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ledgerResolver,
   });
   const agentRunPort = sqliteAgentRunAdapter(db, { contextPort, ledgerResolver, idGen: { ulid } });
+
+  // ADR 0074: tracked work items (requirements) — the stable goal the PA
+  // identifies and maintains; runs link to it, the read model derives status.
+  const requirementSvc = createRequirementService({
+    port: sqliteRequirementAdapter(db),
+    idGen: ulid,
+  });
   // #25: the ACP adapter reports every session bind here, so a run that dies
   // parked still owns the native session it was executing in.
   // #25: awaited by the ACP adapter BEFORE the prompt — a session whose
@@ -798,6 +810,30 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         );
     },
     recallForRun: (runId) => recallByRun.get(runId) ?? [],
+    // ADR 0074: tracked work items — the PA's requirement tools, plus the
+    // dispatch link (named id → the conversation's newest open item → one
+    // created from the brief). All resolution lives in the requirement
+    // service; this closure only connects ports.
+    requirements: {
+      create: (input) => requirementSvc.create(input),
+      update: (id, patch) => requirementSvc.update(id, patch),
+      get: (id) => requirementSvc.get(id),
+      list: (includeClosed) => requirementSvc.list(includeClosed),
+      linkDispatchedRun: (input) => {
+        const item = requirementSvc.resolveForDispatch({
+          ...(input.requirementId !== undefined ? { requirementId: input.requirementId } : {}),
+          conversationId: input.conversationId,
+          agentId: input.agentId,
+          briefTitle: input.briefTitle,
+          briefGoal: input.briefGoal,
+          ...(input.acceptance !== undefined && input.acceptance !== null
+            ? { acceptance: input.acceptance }
+            : {}),
+        });
+        agentRunPort.setRequirementId?.(input.runId, item.requirementId);
+        return { requirementId: item.requirementId };
+      },
+    },
     emitAsk: (input) => broadcastAskEvent?.(input),
     emitTodo: (input) => broadcastTodoEvent?.(input),
     // HITL over chat: hours, not minutes (user decision 2026-09-25).
@@ -2483,6 +2519,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       wsBase: browserWsBase,
     }),
     ahp: ahpHost.routes,
+    requirements: requirementRoutes(requirementSvc),
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
     mcp: mcpRoutes(mcpSvc),
