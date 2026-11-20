@@ -20,6 +20,7 @@ import type { requirementRoutes } from "./features/requirement/http.js";
 import type { opsRoutes } from "./features/runtime-ops/http.js";
 import type { settingsRoutes } from "./features/settings/http.js";
 import type { skillPackRoutes } from "./features/skill-pack/http.js";
+import type { wikiRoutes } from "./features/wiki/http.js";
 import type { workflowRoutes } from "./features/workflow/http.js";
 import { checkAuthToken } from "./infra/auth.js";
 import { DomainError } from "./infra/domain-errors.js";
@@ -45,6 +46,7 @@ export interface FeatureSet {
   workflowExecutions: ReturnType<typeof workflowRoutes>;
   artifacts: ReturnType<typeof artifactRoutes>;
   requirements: ReturnType<typeof requirementRoutes>;
+  wiki: ReturnType<typeof wikiRoutes>;
   proactive: ReturnType<typeof proactiveRoutes>;
   productTools: ProductToolsService;
 }
@@ -74,6 +76,7 @@ export function createApp(token: string, features: FeatureSet) {
     workflowExecutions,
     artifacts,
     requirements,
+    wiki,
     productTools,
     coding,
     ahp,
@@ -143,6 +146,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(workflowExecutions)
     .use(artifacts)
     .use(requirements)
+    .use(wiki)
     .use(projects)
     .use(productToolsRoutes(productTools))
     .use(coding)
