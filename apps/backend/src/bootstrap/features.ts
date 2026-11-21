@@ -15,6 +15,7 @@ import type { WorkflowDefinition } from "@chengchenccc/workflow";
 import type { FeatureSet } from "../app.js";
 import { createAgentSvc } from "../features/agent/agent-compose.js";
 import { createAgentIdentityStore, identityTextOf } from "../features/agent/agent-identity.js";
+import { FRONT_DESK_DISABLED_TOOLS } from "../features/agent/front-desk-tools.js";
 import {
   AgentBusyError,
   agentModelRef,
@@ -568,12 +569,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         // Its own workspace is not the place the work happens, so handing it
         // bash/write/edit only lets it bypass dispatch (live: it edited the
         // worker's files and reported "已加好"). Workers keep every tool.
-        // Everything that can WRITE or run code: the front desk keeps read /
-        // ls / glob / grep (investigation) and the product tools. `eval` is on
-        // the list because it is arbitrary JS with node:fs - the live escape
-        // hatch that wrote the worker's file after bash was denied.
-        const frontDeskTools =
-          agent.config.role === "worker" ? [] : ["bash", "eval", "write", "edit"];
+        // ADR 0072/0074: the boundary lives in one list so the prompt and the
+        // tool filter cannot drift (the prompt says "you have no repository";
+        // the list is what makes that true).
+        const frontDeskTools = agent.config.role === "worker" ? [] : [...FRONT_DESK_DISABLED_TOOLS];
         if (
           rc.deny_write_paths.length > 0 ||
           rc.allow_write_paths.length > 0 ||
@@ -866,6 +865,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // dispatch link (named id → the conversation's newest open item → one
     // created from the brief). All resolution lives in the requirement
     // service; this closure only connects ports.
+    // ADR 0074: project registry, dereferenced at request time (projectSvc is
+    // assembled later in this function, like the other late bindings here).
+    projects: {
+      list: () =>
+        projectSvc.list().map((p) => ({
+          projectId: p.projectId,
+          name: p.name,
+          repoUrl: p.repoUrl ?? null,
+        })),
+    },
     // ADR 0074 S4: what the team already knows rides in the brief.
     wikiRecall: (text) =>
       wikiSvc.query({ text, limit: 3 }).map((h) => ({ path: h.path, title: h.title })),
@@ -917,6 +926,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       brief,
       parentRunId,
       note,
+      findings,
     }) => {
       // ADR 0070: the work lands in the WORKER'S OWN ROOM, opened under the
       // room that dispatched it. The front desk's room keeps one summary line
@@ -932,7 +942,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         conversationId: room.conversationId,
         senderMemberId: fromAgentId,
         addressedTo: [toAgentId],
-        content: frameBrief({ fromAgentId, brief, instruction, note }),
+        content: frameBrief({
+          fromAgentId,
+          brief,
+          instruction,
+          ...(note !== undefined ? { note } : {}),
+          ...(findings !== undefined ? { findings } : {}),
+          meta: {
+            conversation: conversationId,
+            ...(parentRunId !== undefined ? { "parent-run": parentRunId } : {}),
+            "to-agent": toAgentId,
+          },
+        }),
         mode: "normal",
         authorization: `dispatch:${fromAgentId}`,
         ...(parentRunId ? { parentRunId } : {}),

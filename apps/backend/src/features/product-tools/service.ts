@@ -187,6 +187,8 @@ export interface ProductToolsServiceDeps {
     /** ADR 0054: the facets the front committed to; the worker's framing is
      *  built from this, not from the instruction alone. */
     brief: Brief;
+    /** What the front found on its own (wiki pages it consulted). */
+    findings?: readonly string[];
     /** ADR 0051: the calling run, so the dispatched run can name its origin
      *  (the whole chain, not one hop). */
     parentRunId?: string;
@@ -195,6 +197,11 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0074: the project registry, so the front desk can classify which
+   *  project a request is about instead of guessing. Absent = no projects. */
+  projects?: {
+    list(): ReadonlyArray<{ projectId: string; name: string; repoUrl: string | null }>;
+  };
   /** ADR 0074 S4: compiled wiki knowledge for a dispatch brief. Absent = no
    *  wiki in this deployment (dispatch still works). */
   wikiRecall?: (text: string) => ReadonlyArray<{ path: string; title: string }>;
@@ -800,6 +807,33 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: JSON.stringify(wiki.addSource(out)) };
   }
 
+  /** Resolve a project by id or by name. Unknown values are rejected, not
+   *  silently dropped: a requirement filed under the wrong project is worse
+   *  than one filed under none. */
+  function resolveProjectRef(value: unknown): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null || value === "") return null;
+    if (typeof value !== "string") {
+      throw new ProductToolRejectedError("project must be a project id or name");
+    }
+    const projects = deps.projects?.list() ?? [];
+    const wanted = value.trim();
+    const hit = projects.find((p) => p.projectId === wanted || p.name === wanted);
+    if (!hit) {
+      const known = projects.map((p) => p.name).join(", ");
+      throw new ProductToolRejectedError(
+        `unknown project "${wanted}"; ${known === "" ? "no projects are registered" : `known: ${known}`}`,
+      );
+    }
+    return hit.projectId;
+  }
+
+  /** The project registry: which project a request is about is a question the
+   *  front desk must answer before it can file or dispatch. */
+  function projectList(): ProductToolCallResult {
+    return { content: JSON.stringify(deps.projects?.list() ?? []) };
+  }
+
   /** ADR 0074: create or update a tracked item. Pure Q&A never calls this. */
   function requirementTrack(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
     if (!deps.requirements) {
@@ -817,9 +851,11 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       if (title === undefined || goal === undefined) {
         throw new ProductToolRejectedError("creating a requirement needs title and goal");
       }
+      const projectId = resolveProjectRef(args.project);
       const row = deps.requirements.create({
         title,
         goal,
+        ...(projectId !== undefined ? { projectId } : {}),
         ...(optStr(args.background) !== undefined ? { background: optStr(args.background) } : {}),
         ...(optStr(args.constraints) !== undefined
           ? { constraints: optStr(args.constraints) }
@@ -835,7 +871,9 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       });
       return { content: JSON.stringify(row) };
     }
+    const projectId = resolveProjectRef(args.project);
     const row = deps.requirements.update(id, {
+      ...(projectId !== undefined ? { projectId } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(goal !== undefined ? { goal } : {}),
       ...(optStr(args.background) !== undefined ? { background: optStr(args.background) } : {}),
@@ -896,10 +934,16 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     // compiled knowledge, so its hits are evidence of the same kind as ledger
     // and memory refs — path only, the worker opens the page itself.
     const wikiRefs: string[] = [];
+    const frontFindings: string[] = [];
     if (deps.wikiRecall) {
       const probe = `${parsed.brief.verb} ${parsed.brief.object} ${instruction}`.trim();
       if (probe !== "") {
-        for (const hit of deps.wikiRecall(probe)) wikiRefs.push(`wiki:${hit.path}`);
+        for (const hit of deps.wikiRecall(probe)) {
+          wikiRefs.push(`wiki:${hit.path}`);
+          // Path AND title: the worker can decide whether to open it without
+          // a round trip, and the title is the front's summary of what it is.
+          frontFindings.push(`wiki: ${hit.title} — ${hit.path}`);
+        }
       }
     }
     // Every dispatch carries the provenance of what the front was looking at,
@@ -977,6 +1021,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       brief: Brief;
       parentRunId?: string;
       note?: string;
+      findings?: readonly string[];
     } = {
       fromAgentId: run.agentId,
       conversationId: run.conversationId,
@@ -984,6 +1029,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       instruction,
       brief,
       parentRunId: run.runId,
+      ...(frontFindings.length > 0 ? { findings: frontFindings } : {}),
     };
     if (note) call.note = note;
     const triggered = await deps.dispatch(call);
@@ -1436,6 +1482,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return wikiLint();
         case "wiki_source_add":
           return wikiSourceAdd(run, input.args);
+        case "project_list":
+          return projectList();
         case "requirement_track":
           return requirementTrack(run, input.args);
         case "requirement_query":

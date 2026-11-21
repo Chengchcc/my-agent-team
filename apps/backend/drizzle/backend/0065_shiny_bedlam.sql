@@ -1,0 +1,1 @@
+ALTER TABLE `requirement` ADD `project_id` text;

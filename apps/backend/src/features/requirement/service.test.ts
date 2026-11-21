@@ -58,6 +58,7 @@ const row = (over: Partial<RequirementRow> = {}): RequirementRow => ({
   expectedDeliverables: null,
   acceptanceCriteria: null,
   status: "open",
+  projectId: null,
   originConversationId: "c1",
   originSeq: null,
   createdByAgentId: "pa",

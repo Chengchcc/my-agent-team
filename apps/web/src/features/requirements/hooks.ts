@@ -17,6 +17,10 @@ export function useRequirements() {
   });
 }
 
+export function useProjects() {
+  return useQuery({ queryKey: ["projects"], queryFn: () => api.listProjects() });
+}
+
 export function useRequirement(id: string) {
   return useQuery({
     queryKey: requirementKeys.detail(id),

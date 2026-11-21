@@ -438,6 +438,12 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "project_list",
+    description:
+      "List the registered projects (id, name, repo). Use it to decide WHICH project a request is about before filing a requirement or dispatching; if two projects fit, ask.",
+    inputSchema: { type: "object", properties: { identity: IDENTITY_SCHEMA } },
+  },
+  {
     name: "requirement_track",
     description:
       "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A. Create needs title and goal; update needs requirement_id and only the fields you change. The user's own words stay in the conversation - your summary goes here, and they can correct it.",
@@ -445,6 +451,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       type: "object",
       properties: {
         requirement_id: { type: "string", description: "Omit to create" },
+        project: { type: "string", description: "Project id or name this goal belongs to" },
         title: { type: "string" },
         goal: { type: "string", description: "What done looks like" },
         background: { type: "string" },
