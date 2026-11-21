@@ -2,7 +2,7 @@
 | 0072 | front-desk-does-not-do-the-work(前台不干活：写入围栏 + 角色决定工具) | **Implemented**（`OMA_ALLOW_WRITE_PATHS` 默认含自身 cwd；前台禁用 `bash/eval/write/edit`；共享目录=显式 `allowWritePaths`；实测 `eval` 是 bash 之后的逃逸口） |
 | 0073 | a-terminal-in-the-agents-own-workspace(从会话直接打开工人工作区终端) | **Implemented**（终端模型 `projectId: string \| null`；`null` ⇒ cwd=agent workspace；coding 侧栏加 Workspace 分组；会话 header 的 Terminal → `/coding?agent=` 且无面板时自动开） |决策记录的**唯一目录**。架构级规则文档(design-philosophy / e2e-contract-rules / db-typesafe-rules)与协议实测记录(gate0)仍在 `docs/architecture/`，见文末链接。
 | 0074 | super-assistant-model(超级助理模型：会话按团队成员找人、事项按目标追事、知识按主题沉淀) | **Accepted（设计定稿；S0 导航分层与词汇落地中；事项/Wiki/决策请求升级分阶段）** |
-**状态图例**：Accepted=现行有效；Implemented=已实施；Superseded=被后续迭代取代(仅历史)；Deferred=维持不做；Obsolete=对象已移除；被取代/目标达成=以不同形态落地。
+| 0075 | request-routing(请求路由：请求有主人，前台先看一眼，人只看升级) | **Proposed**（设计定稿；P1/P2 为通道与上下文修复，P3 代答工具待实现） |**状态图例**：Accepted=现行有效；Implemented=已实施；Superseded=被后续迭代取代(仅历史)；Deferred=维持不做；Obsolete=对象已移除；被取代/目标达成=以不同形态落地。
 
 | # | 标题 | 状态 |
 |---|---|---|
