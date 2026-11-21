@@ -176,33 +176,73 @@ export function needsHumanAuthority(brief: Brief): boolean {
   return brief.verb === "operate" && brief.reversibility === "irreversible";
 }
 
-/** The framing the worker reads. It is a spec, not a paraphrase: the original
+/** The framing the worker reads. A spec, not a paraphrase: the original
  *  words stay verbatim, the facets say what the front understood, and the
- *  slots say what "done" means. */
+ *  slots say what "done" means.
+ *
+ *  Tagged rather than bulleted (the convention the repo's goal prompts already
+ *  use): a model scanning a first message that may be long needs the
+ *  boundaries to be syntax, not typography — "where does the request end and
+ *  the front's summary begin" must be unambiguous, because the request is
+ *  evidence and the summary is an interpretation. */
 export function frameBrief(input: {
   fromAgentId: string;
   brief: Brief;
   instruction: string;
   note?: string;
+  /** What the front desk found on its own (wiki pages it consulted, prior
+   *  work it located). Separate from `references` on purpose: a reference is
+   *  provenance the brief inherits, a finding is the front's own reading of
+   *  it — mixing the two lets an interpretation pass as evidence. */
+  findings?: readonly string[];
+  /** Machine-readable dispatch context (conversation, parent run). Small on
+   *  purpose: it exists so a worker's logs can be joined back to the room,
+   *  not as a second brief. */
+  meta?: Readonly<Record<string, string>>;
 }): string {
-  const { fromAgentId, brief, instruction, note } = input;
-  const lines = [
-    `（由 ${fromAgentId} 派发的任务）`,
-    `动作：${brief.verb} · 交付：${brief.deliverable} · 对象：${brief.objectKind}${
-      brief.object === "" ? "" : `「${brief.object}」`
-    }`,
+  const { fromAgentId, brief, instruction, note, findings, meta } = input;
+  const lines = [`<dispatch from="${fromAgentId}">`];
+  const attrs = [
+    `verb="${brief.verb}"`,
+    `deliverable="${brief.deliverable}"`,
+    `object-kind="${brief.objectKind}"`,
   ];
+  if (brief.object !== "") attrs.push(`object="${brief.object}"`);
+  if (brief.verb === "operate") attrs.push(`reversibility="${brief.reversibility}"`);
+  lines.push(`<task ${attrs.join(" ")}>`);
+
   const slotNames = brief.deliverable === "answer" ? [] : SLOTS_BY_VERB[brief.verb];
   const slotLines = slotNames
     .map((name) => {
       const value = brief.slots[name];
-      return value === undefined || value === "" ? null : `${name}：${value}`;
+      return value === undefined || value === "" ? null : `${name}: ${value}`;
     })
     .filter((line): line is string => line !== null);
-  if (slotLines.length > 0) lines.push("", ...slotLines);
-  if (brief.verb === "operate") lines.push(`可逆性：${brief.reversibility}`);
-  if (brief.references.length > 0) lines.push("", `引用：${brief.references.join("、")}`);
-  if (note) lines.push("", `派单附注：${note}`);
-  lines.push("", "请求者原文：", instruction);
+  if (slotLines.length > 0) {
+    lines.push("<slots>", ...slotLines, "</slots>");
+  }
+  if (brief.references.length > 0) {
+    lines.push("<references>", ...brief.references.map((ref) => `- ${ref}`), "</references>");
+  }
+  if (findings !== undefined && findings.length > 0) {
+    lines.push("<front_findings>", ...findings.map((line) => `- ${line}`), "</front_findings>");
+  }
+  if (meta !== undefined) {
+    const attrs = Object.entries(meta)
+      .filter(([, value]) => value !== "")
+      .map(([key, value]) => `${key}="${value}"`);
+    if (attrs.length > 0) lines.push(`<meta ${attrs.join(" ")} />`);
+  }
+  if (note) lines.push(`<note>${note}</note>`);
+  lines.push(
+    "<original_request>",
+    instruction,
+    "</original_request>",
+    // The one line that must survive any prompt rewrite: the request above is
+    // what the human said, everything else in this message is the front's
+    // reading of it.
+    "The original request is evidence; treat it as authored by the requester.",
+    "</dispatch>",
+  );
   return lines.join("\n");
 }

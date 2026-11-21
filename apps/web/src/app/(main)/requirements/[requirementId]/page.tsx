@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { useRequirement } from "@/features/requirements/hooks";
+import { useProjects, useRequirement } from "@/features/requirements/hooks";
 
 /** ADR 0074: one requirement, assembled from linked facts — runs with their
  *  verification, open requests — never a copy of the chat. */
@@ -31,6 +31,7 @@ interface RequirementDetail {
     expectedDeliverables: string | null;
     acceptanceCriteria: string | null;
     status: string;
+    projectId: string | null;
   };
   derivedStatus: string;
   runs: RunFact[];
@@ -50,7 +51,16 @@ function Field({ label, value }: { label: string; value: string | null }) {
 export default function RequirementDetailPage() {
   const { requirementId } = useParams<{ requirementId: string }>();
   const { data, isLoading } = useRequirement(requirementId as string);
+  const { data: projectsData } = useProjects();
   const detail = data as RequirementDetail | undefined;
+  const projectName = (() => {
+    if (detail === undefined) return null;
+    const rows =
+      (projectsData as { projects?: Array<{ projectId: string; name: string }> } | undefined)
+        ?.projects ?? [];
+    const hit = rows.find((p) => p.projectId === detail.requirement.projectId);
+    return hit?.name ?? detail.requirement.projectId;
+  })();
 
   if (isLoading || !detail) {
     return (
@@ -71,6 +81,11 @@ export default function RequirementDetailPage() {
         description={`Status: ${detail.derivedStatus} (derived from records)`}
       />
       <PageBody>
+        {projectName !== null ? (
+          <p className="mb-3 text-[11px] text-(--mute)">
+            Project: <span className="text-(--ink)">{projectName}</span>
+          </p>
+        ) : null}
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="space-y-3 rounded-lg border border-(--hairline) p-4">
             <Field label="Goal" value={r.goal} />

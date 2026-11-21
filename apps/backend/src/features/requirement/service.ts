@@ -22,6 +22,7 @@ export interface RequirementService {
     constraints?: string | null;
     expectedDeliverables?: string | null;
     acceptanceCriteria?: string | null;
+    projectId?: string | null;
     originConversationId?: string | null;
     originSeq?: number | null;
     createdByAgentId?: string | null;
@@ -40,6 +41,7 @@ export interface RequirementService {
     briefTitle: string;
     briefGoal: string;
     acceptance?: string | null;
+    projectId?: string | null;
   }): RequirementRow;
 }
 
@@ -60,6 +62,7 @@ export function createRequirementService(deps: {
         expectedDeliverables: input.expectedDeliverables ?? null,
         acceptanceCriteria: input.acceptanceCriteria ?? null,
         status: "open",
+        projectId: input.projectId ?? null,
         originConversationId: input.originConversationId ?? null,
         originSeq: input.originSeq ?? null,
         createdByAgentId: input.createdByAgentId ?? null,
@@ -99,6 +102,7 @@ export function createRequirementService(deps: {
         title: input.briefTitle,
         goal: input.briefGoal,
         acceptanceCriteria: input.acceptance ?? null,
+        projectId: input.projectId ?? null,
         originConversationId: input.conversationId,
         createdByAgentId: input.agentId,
       });

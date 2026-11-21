@@ -231,6 +231,12 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "project_list",
+      description: "List the registered projects.",
+      inputSchema: { type: "object", properties: {} },
+      entrypoint,
+    },
+    {
       name: "requirement_track",
       description:
         "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A.",
@@ -238,6 +244,7 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
         type: "object",
         properties: {
           requirement_id: { type: "string", description: "Omit to create" },
+          project: { type: "string" },
           title: { type: "string" },
           goal: { type: "string", description: "What done looks like" },
           background: { type: "string" },

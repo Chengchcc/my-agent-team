@@ -50,6 +50,8 @@
 
 **v1 不设图书馆员**：PA 经上述工具直接做轻量增量整理；批量 ingest/深度 lint 以后再委派。自动整理限预算、可暂停、不延迟人的消息。**不为 wiki 重新开放 bash/eval。**
 
+**边界的一般形式（2026-11-21 真机教训）**：前台的判据不是"哪类活"清单，而是**答案的来源**——能从本段对话里满足的是 ANSWER，需要对话之外任何东西（文件、仓库、网页、账号、服务、产出物）的是 WORK。工具层把这条判据变成事实：前台**没有** `read/ls/grep/glob/tree/web_*/browser`（连同 bash/eval/write/edit），它自己的工作区也没有代码。于是"我去看看"这句话在物理上不成立，只剩派发或补一个缺失细节（如"项目在哪"）两个出口。**派出去撞墙不算解决**：worker 报告无访问时，前台开一条决策请求写清要授权什么，或换人——绝不回退成"那我自己来"。
+
 **Wiki 可写 ≠ 权限规则可写**：agent 配置、工具白名单、沙箱策略、授权快照、系统指令、受信 schema、git hooks、worker 配置与 workspace 全部在写范围之外。wiki 里写"允许合并"不构成授权——**wiki 是知识输入，不是控制平面**。
 
 ## 四、Wiki 的结构与权威
@@ -152,6 +154,16 @@ wiki/
 - 每个种子成员写**角色化 SOUL.md**（人员设定，不是产品规则——产品规则是前台纪律，重复写会彼此过期）；
 - 只写模板/空文件：`identityTextOf` 判定「还是模板」才覆盖，人写过的一个字都不动；
 - `.agent-seed.json` 标记已种成员：**删掉的成员不会每次重启又长回来**（guide agent 的教训）。
+
+## 六b2、派单消息的形状与需求的归属（2026-11-21）
+
+**worker 收到的第一条消息是 XML 结构**（项目里 goals 提示词已在用的写法）：`<dispatch>` → `<task verb/deliverable/object-kind/object>` → `<slots>` → `<references>`（继承的出处）→ `<front_findings>`（**前台自己查到的**，如命中的 wiki 页标题+路径）→ `<meta conversation/parent-run/to-agent>` → `<note>` → `<original_request>`（原文逐字，最后收尾）。
+
+为什么分 `<references>` 与 `<front_findings>`：前者是转交的出处，后者是前台的**解读**。混在一起，解读就会被当成证据。
+
+**需求归属项目**：`requirement.project_id`（迁移 0065）。前台用 `project_list` 看有哪些项目，`requirement_track(project=名称或 id)` 归档；两个项目都像时，这正好是值得问的那一个细节；一个都不像就明说，而不是编一个位置。
+
+**前台先查已知**：回答或发问之前，先 `wiki_query` / `requirement_query` / `project_list`——已经写下来的答案不该再花人的注意力问一遍。
 
 ## 六c、派单接 wiki（S4，已落地）
 

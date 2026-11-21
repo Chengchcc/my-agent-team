@@ -74,6 +74,11 @@ export const requirement = sqliteTable("requirement", {
    *  model from runs and pending requests — a summary edit can never mark
    *  work finished. */
   status: text().notNull().default("open"),
+  /** ADR 0074: which project the goal belongs to. The PA classifies it from
+   *  the request (or asks when two projects fit) — "which project is this
+   *  about" is the question that makes requirements navigable later. Null is
+   *  honest: some goals have no repository. */
+  projectId: text("project_id"),
   /** Where the goal was first stated (the human's words live there). */
   originConversationId: text("origin_conversation_id"),
   originSeq: integer("origin_seq"),

@@ -19,6 +19,8 @@ export interface RequirementRow {
   expectedDeliverables: string | null;
   acceptanceCriteria: string | null;
   status: RequirementStoredStatus;
+  /** ADR 0074: the project the goal belongs to (null = none / unknown). */
+  projectId: string | null;
   originConversationId: string | null;
   originSeq: number | null;
   createdByAgentId: string | null;
@@ -36,6 +38,7 @@ export interface RequirementPatch {
   expectedDeliverables?: string | null;
   acceptanceCriteria?: string | null;
   status?: RequirementStoredStatus;
+  projectId?: string | null;
 }
 
 export interface RequirementRunFact {

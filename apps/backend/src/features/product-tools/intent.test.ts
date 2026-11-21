@@ -116,16 +116,28 @@ describe("ADR 0054 dispatch facets", () => {
       brief: parsed.brief,
       instruction: "点登录转圈，帮我修一下",
       note: "来自值班群",
+      findings: ["wiki: Login retry policy — projects/login/retry.md"],
+      meta: { conversation: "c-1", "parent-run": "r-1" },
     });
 
-    expect(framed).toContain("（由 lead 派发的任务）");
-    expect(framed).toContain("动作：fix · 交付：change · 对象：code「登录页」");
-    expect(framed).toContain("repro：点登录转圈");
-    expect(framed).toContain("acceptance：bun test src/auth");
-    expect(framed).toContain("引用：seq:412");
-    expect(framed).toContain("请求者原文：\n点登录转圈，帮我修一下");
-    // The original words come last and unedited: they are the evidence.
-    expect(framed.endsWith("点登录转圈，帮我修一下")).toBe(true);
+    // Tagged, not bulleted: the boundaries between the front's reading and the
+    // requester's words are syntax, because one is an interpretation and the
+    // other is evidence.
+    expect(framed.startsWith('<dispatch from="lead">')).toBe(true);
+    expect(framed).toContain(
+      '<task verb="fix" deliverable="change" object-kind="code" object="登录页">',
+    );
+    expect(framed).toContain("repro: 点登录转圈");
+    expect(framed).toContain("acceptance: bun test src/auth");
+    expect(framed).toContain("<references>\n- seq:412\n</references>");
+    // The front's OWN reading is a separate block from inherited references.
+    expect(framed).toContain(
+      "<front_findings>\n- wiki: Login retry policy — projects/login/retry.md\n</front_findings>",
+    );
+    expect(framed).toContain('<meta conversation="c-1" parent-run="r-1" />');
+    expect(framed).toContain("<note>来自值班群</note>");
+    expect(framed).toContain("<original_request>\n点登录转圈，帮我修一下\n</original_request>");
+    expect(framed.endsWith("</dispatch>")).toBe(true);
   });
 });
 
