@@ -48,6 +48,53 @@ const DEFAULT_SEAL_CONGESTION_BUDGET_MS = 180_000;
  *  (231001), `OnIt` and `DONE` are accepted. */
 const ACK_EMOJI = "OnIt";
 
+/** The run's terminal status straight from the backend — the watchdog's fact.
+ *
+ *  Why this exists: the card seals on the chat channel's terminal state, and
+ *  live 2026-11-21 a card stayed on "思考中" forever while its run had
+ *  completed a minute earlier (run_card.status=completed, no update failures,
+ *  header never replaced). Whatever drops the terminal frame, the card must
+ *  not inherit it: the backend already knows, so the watcher asks. */
+async function fetchRunStatus(
+  backendUrl: string,
+  token: string | null,
+  runId: string,
+): Promise<{ status: string; error: string | null } | null> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers["x-auth-token"] = token;
+  const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
+  if (!resp.ok) return null;
+  const body = z
+    .object({
+      run: z
+        .object({
+          status: z.string(),
+          terminalResult: z
+            .object({ error: z.string().nullable().optional() })
+            .nullable()
+            .optional(),
+        })
+        .passthrough(),
+    })
+    .passthrough();
+  const parsed = body.safeParse(await resp.json().catch(() => null));
+  if (!parsed.success) return null;
+  return {
+    status: parsed.data.run.status,
+    error: parsed.data.run.terminalResult?.error ?? null,
+  };
+}
+
+/** Map the backend's terminal word onto the card's terminal vocabulary. */
+export function cardTerminalOf(
+  status: string,
+): { status: "completed" | "failed" | "cancelled" } | null {
+  if (status === "completed") return { status: "completed" };
+  if (status === "aborted") return { status: "cancelled" };
+  if (status === "failed" || status === "timeout") return { status: "failed" };
+  return null;
+}
+
 export interface RunCardWatcherOptions {
   db: Database;
   backendUrl: string;
@@ -219,6 +266,8 @@ export async function watchRunCard(
     }
   }
   let state: RunCardState;
+  /** Set once the card reached its terminal frame; the watchdog stops there. */
+  let sealedOnce = false;
   if (existing) {
     state = {
       ...initialRunCardState(),
@@ -521,6 +570,7 @@ export async function watchRunCard(
     const before = state;
     state = next;
     if (state.terminal) {
+      sealedOnce = true;
       await updater.finish();
       await seal();
       await leaveTerminalReaction();
@@ -531,12 +581,41 @@ export async function watchRunCard(
 
   void drive();
 
+  /** Terminal watchdog: if the chat channel never delivers the fold, seal from
+   *  the backend's own terminal fact. Cheap (one GET per 15s, only while a
+   *  card is live) and stops the moment the card seals or closes. */
+  const probeTerminal = async (): Promise<void> => {
+    if (aborted || sealedOnce || state.terminal) return;
+    const fact = await fetchRunStatus(backendUrl, backendAuthToken, runId).catch(() => null);
+    if (fact === null) return;
+    const terminal = cardTerminalOf(fact.status);
+    if (terminal === null) return;
+    state = {
+      ...state,
+      terminal: { status: terminal.status, error: fact.error },
+    };
+    sealedOnce = true;
+    clearInterval(terminalWatchdog);
+    await updater.finish();
+    await seal();
+    await leaveTerminalReaction();
+  };
+  const terminalWatchdog = setInterval(() => {
+    void probeTerminal().catch((err: unknown) => {
+      console.error(
+        `[lark-bot] card ${runId}: terminal probe failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }, 15_000);
+  terminalWatchdog.unref?.();
+
   return {
     runId,
     update,
     close: () => {
       aborted = true;
       stopTicker();
+      clearInterval(terminalWatchdog);
     },
   };
 }
