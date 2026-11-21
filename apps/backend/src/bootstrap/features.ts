@@ -465,7 +465,26 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     idGen: { ulid },
     ledgerResolver,
   });
-  const agentRunPort = sqliteAgentRunAdapter(db, { contextPort, ledgerResolver, idGen: { ulid } });
+  const agentRunPort = sqliteAgentRunAdapter(db, {
+    contextPort,
+    ledgerResolver,
+    idGen: { ulid },
+    // ADR 0075: the owner of a parked request depends on whether the
+    // dispatcher is a front desk or another worker.
+    // Sync on purpose: pending actions are created inside a db.transaction.
+    roleOfAgent: (agentId: string) => {
+      const row = db.query("SELECT config FROM agents WHERE id = ?").get(agentId) as {
+        config: string;
+      } | null;
+      if (row === null) return null;
+      try {
+        const cfg = JSON.parse(row.config) as { role?: "worker" | "front" };
+        return cfg.role === "worker" ? "worker" : "front";
+      } catch {
+        return null;
+      }
+    },
+  });
 
   // ADR 0074: tracked work items (requirements) — the stable goal the PA
   // identifies and maintains; runs link to it, the read model derives status.

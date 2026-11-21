@@ -87,5 +87,8 @@ export function parsePendingAction(
     responseIdempotencyKey: row.responseIdempotencyKey,
     createdAt: row.createdAt,
     resolvedAt: row.resolvedAt,
+    ...(row.owner !== null ? { owner: row.owner } : {}),
+    answeredBy: row.answeredBy ?? null,
+    ...(row.evidence !== null ? { evidence: JSON.parse(row.evidence) as string[] } : {}),
   };
 }

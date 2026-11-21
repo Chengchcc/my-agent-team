@@ -154,6 +154,12 @@ export interface PendingActionRecord {
   readonly responseIdempotencyKey: string | null;
   readonly createdAt: number;
   readonly resolvedAt: number | null;
+  /** ADR 0075: who is expected to answer right now (`user` or `agent:<id>`). */
+  readonly owner?: string;
+  /** ADR 0075: who actually answered (`user` or `agent:<id>`). */
+  readonly answeredBy?: string | null;
+  /** ADR 0075: what an answering agent cited. */
+  readonly evidence?: readonly string[];
 }
 
 // ─── Commands ────────────────────────────────────────────────────

@@ -2,6 +2,41 @@ import { describe, expect, test } from "bun:test";
 import { db, runPort, setupBranch } from "./adapter-sqlite.harness.js";
 import { AgentRunConflictError, PendingActionAlreadyConsumedError } from "./domain.js";
 
+describe("ADR 0075: a request records WHO should answer it", () => {
+  const raise = async (suffix: string, authorization?: string) => {
+    const { conversationId, agentId, branch } = await setupBranch(`pa-${suffix}`);
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: `t-${suffix}` },
+      inputIdempotencyKey: `ikey-${suffix}`,
+      runIdempotencyKey: `rkey-${suffix}`,
+      deliveryIdempotencyKey: `dkey-${suffix}`,
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      ...(authorization ? { authorization } : {}),
+    });
+    return runPort.createPendingAction(res.run!.runId, {
+      actionId: `action-${suffix}`,
+      kind: "approval",
+      payload: {},
+    });
+  };
+
+  test("a human-run request belongs to the user", async () => {
+    const action = await raise("owner-user");
+    expect(action.owner).toBe("user");
+  });
+
+  test("a dispatched request belongs to its dispatcher", async () => {
+    const action = await raise("owner-dispatch", "dispatch:pa-front");
+    expect(action.owner).toBe("agent:pa-front");
+  });
+});
+
 describe("Agent Run: PendingAction consume-once", () => {
   test("create and consume pending action", async () => {
     const { conversationId, agentId, branch } = await setupBranch("pa1");

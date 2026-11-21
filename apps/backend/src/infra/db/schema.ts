@@ -575,6 +575,19 @@ export const pendingAction = sqliteTable(
     /** ADR 0061 D2: when a human first opened this question. `unread` is
      *  advanced only by the OTHER side's action, never by our own look. */
     seenAt: integer("seen_at", { mode: "number" }),
+    /** ADR 0075: who is expected to answer right now.
+     *  `agent:<id>` (the dispatcher looks first) or `user` (escalated). */
+    owner: text(),
+    /** ADR 0075: who actually answered — `agent:<id>` or `user`. Null while
+     *  pending; it is the audit fact that separates an answered request from
+     *  a decided one. */
+    answeredBy: text("answered_by"),
+    /** ADR 0075: the same request after escalation keeps ONE row; this points
+     *  at nothing extra, it records that the owner changed at (ms). */
+    escalatedAt: integer("escalated_at", { mode: "number" }),
+    /** ADR 0075: what the answering agent cited (wiki path / brief ref /
+     *  project id). Required for an agent answer: no evidence, no answer. */
+    evidence: text(), // JSON string[]
   },
   (table) => [
     primaryKey({ columns: [table.actionId] }),
