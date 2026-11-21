@@ -632,7 +632,14 @@ export async function ingest(event: LarkMessageEvent, ctx: IngestContext): Promi
   let addressedTo: string[] | undefined;
   let senderMemberId: string | undefined;
   if (event.chat_type === "p2p") {
-    addressedTo = undefined;
+    // A 1:1 message is addressed to ITS BOT, full stop. Leaving this
+    // undefined relied on "the room has one member" - which stops being true
+    // the moment the front desk dispatches once and a worker joins the room.
+    // From then on every unaddressed 1:1 message resolved to NO target and the
+    // room went silent (the D5 fallback excludes sourced messages, because an
+    // unaddressed GROUP message is an observation). Naming the addressee here
+    // is the truthful description of a direct message.
+    addressedTo = [selfAgentId];
   } else if (event.chat_type === "group") {
     // The policy already decided: admitted by the group gate, sender allowed,
     // and either addressed or deliberately observed. "observe" still posts

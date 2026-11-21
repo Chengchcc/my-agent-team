@@ -239,7 +239,7 @@ describe("ingest", () => {
   test("p2p message — creates conversation, posts message, addresses agent", async () => {
     const db = makeDb();
 
-    mockFetch([
+    const calls = mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_new" } }, // create conversation
       // server-derived 1:1 routing returns the triggered run
@@ -258,6 +258,13 @@ describe("ingest", () => {
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(true);
     expect(result.ledgerSeq).toBe(1);
+
+    // A 1:1 message names its addressee EXPLICITLY. Leaving it undefined made
+    // routing depend on "the room has one member" — a room that gains a worker
+    // member (after one dispatch) then swallowed every later direct message
+    // with no run and no reply. Live 2026-11-21.
+    const posted = calls.find((call) => call.url.includes("/messages"));
+    expect(JSON.parse(posted!.body!).addressedTo).toEqual(["agent_123"]);
 
     db.close();
   });
