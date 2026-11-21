@@ -2946,16 +2946,25 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     const workerNames = new Set(
       team.filter((agent) => agent.config.role === "worker").map((agent) => agent.config.name),
     );
+    // ADR 0056: choosing a worker IS a capability recall over these cards. A
+    // card that names an identity ("software engineer") matches nothing; one
+    // that names the WORK does. Live 2026-11-21 the front desk could not map
+    // "investigate this repo" onto "执行派下来的具体改动" and did the
+    // investigation itself.
     const members = [
       {
         id: "coder",
         name: "Coder",
-        description: "Software engineer — reads, changes and verifies code in its own workspace",
+        description:
+          "读代码、查实现、跑测试、改代码的工程师。有 shell 与文件工具，工作在自己的仓库副本里：" +
+          "可以回答「这个项目某功能怎么实现的」「为什么这里会报错」，也能直接改代码并验证。",
       },
       {
         id: "researcher",
         name: "Researcher",
-        description: "Researcher — gathers sources, compares options and reports trade-offs",
+        description:
+          "调研与比较：收集外部资料、核对事实、比较多个方案并给出取舍与依据。产出是判断依据，" +
+          "不做代码实现。适合「调研/比较/写一份分析」这类需要查证的工作。",
       },
     ];
     for (const member of members) {

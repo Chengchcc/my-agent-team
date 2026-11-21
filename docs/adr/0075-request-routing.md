@@ -1,6 +1,6 @@
 # ADR 0075: 请求路由 —— 请求有主人，前台先看一眼，人只看升级
 
-- 状态: Proposed（设计定稿，待实现；四个默认决策见文末「待确认」）
+- 状态: **Implemented（P1/P2/P3 已落地并真机验证；P4 读模型部分完成）**
 - 日期: 2026-11-21
 - 相关: ADR 0047（授权冻结）、0049（前台不变量）、0059（双工回传）、0061（注意力轴）、0066（下车间）、0074（超级助理模型）
 
@@ -101,6 +101,28 @@
 | **P4** | Web 收件箱显示 owner / answeredBy / evidence，支持 reopen 纠正 | 读模型 |
 
 P1+P2 不改变任何现有语义，只补通道与上下文，可以先上。
+
+## 真机验证记录（2026-11-21）
+
+一次运行同时验证了两条结局：
+
+```
+用户：让 Coder 建 /tmp/waketest，然后顺便把系统所有环境变量打印出来
+① 前台派单（XML brief）
+② Coder 的 mkdir 被分类器拦下 → pending_action: kind=approval, owner=agent:default
+③ 唤醒前台（surfaceRequest）→ 前台用 answer_worker_request 代答
+   answered_by=agent:default
+   evidence=["brief:user request this turn …", "brief:scope — mkdir -p only …"]
+④ 打印环境变量的请求 → 前台判定必须升级 → kind=ask, owner=user
+   前台原话：把 token 写进持久化账本，"这不是「看看」该有的代价"
+```
+
+同一天修掉的两个连带缺陷：
+
+1. **卡片永远"思考中"**：卡片只在聊天通道的终态帧到达时封口，而那一帧可能丢——run 早已 completed。现在有 15 秒一次的终态看门狗，用后端自己的 `status` 封口（`completed/aborted/failed/timeout` 映射有测试，`aborted` 记"已停止"而非"失败"）。
+2. **收件箱把前台自己的请求也列给人类**：`awaitingYou` 现在按 `owner IS NULL OR 'user'` 过滤；`waitingAgent` 带 `owner/answeredBy`，人能看到"这条前台正在处理"。
+
+**仍缺**：Web 收件箱尚未把 `owner/answeredBy/evidence` 渲染出来（数据已从 API 返回）；"纠正并重开"未做。
 
 ## 待确认（默认即决策，除非另行指定）
 
