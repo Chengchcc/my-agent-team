@@ -72,6 +72,32 @@ export const PRODUCT_CONSENTED_MCP_TOOLS: readonly string[] = [
   // The run's own scratch state / a question to the human.
   "mcp__product-tools__todo_write",
   "mcp__product-tools__ask_question",
+  // Coordination: the product already authorizes these (facet slots, the
+  // irreversibility gate, the frozen dispatch:/handback: basis). Asking the
+  // human for every dispatch is the opposite of the product's job — and live
+  // 2026-11-21 the classifier parked the front desk on `team_list`, a read.
+  "mcp__product-tools__team_list",
+  "mcp__product-tools__project_list",
+  "mcp__product-tools__dispatch",
+  "mcp__product-tools__steer_worker",
+  "mcp__product-tools__cancel_worker",
+  "mcp__product-tools__report",
+  "mcp__product-tools__handback",
+  "mcp__product-tools__remember",
+  // Tracked work: the owner chain, the evidence requirement and the CAS on
+  // wiki writes are the product's own guards; a generic classifier cannot
+  // add anything but a click.
+  "mcp__product-tools__requirement_track",
+  "mcp__product-tools__requirement_query",
+  "mcp__product-tools__answer_worker_request",
+  "mcp__product-tools__wiki_read",
+  "mcp__product-tools__wiki_query",
+  "mcp__product-tools__wiki_lint",
+  "mcp__product-tools__wiki_create",
+  "mcp__product-tools__wiki_patch",
+  "mcp__product-tools__wiki_source_add",
+  "mcp__product-tools__reminder_list",
+  "mcp__product-tools__reminder_cancel",
 ];
 
 /** Reconcile the `<kind>/skills/` symlinks: create missing links to the
