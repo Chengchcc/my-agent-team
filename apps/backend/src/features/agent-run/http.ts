@@ -354,11 +354,17 @@ export function agentRunRoutes(input: {
       .get("/api/attention", () => {
         const awaitingYou = db
           .query(
+            // ADR 0075: the inbox is what the HUMAN must answer. A request the
+            // dispatcher owns is not waiting on the person — listing it here is
+            // how an inbox teaches people to ignore it. Legacy rows with no
+            // owner stay visible (they predate the routing).
             `SELECT pa.action_id, pa.run_id, pa.kind, pa.payload, pa.created_at, pa.seen_at,
+                  pa.owner, pa.answered_by, pa.evidence,
                   ar.conversation_id, ar.agent_id, ar.status AS run_status
              FROM pending_action pa
              JOIN agent_run ar ON ar.run_id = pa.run_id
             WHERE pa.status = 'pending'
+              AND (pa.owner IS NULL OR pa.owner = 'user')
               AND ar.status IN ('running', 'waiting', 'commit_failed')
             ORDER BY pa.created_at DESC
             LIMIT 200`,
@@ -370,13 +376,16 @@ export function agentRunRoutes(input: {
           payload: string;
           created_at: number;
           seen_at: number | null;
+          owner: string | null;
+          answered_by: string | null;
+          evidence: string | null;
           conversation_id: string;
           agent_id: string;
           run_status: string;
         }>;
         const waitingAgent = db
           .query(
-            `SELECT pa.action_id, pa.run_id, pa.kind, pa.resolved_at,
+            `SELECT pa.action_id, pa.run_id, pa.kind, pa.resolved_at, pa.owner, pa.answered_by,
                   ar.conversation_id, ar.agent_id, ar.status AS run_status
              FROM pending_action pa
              JOIN agent_run ar ON ar.run_id = pa.run_id
@@ -390,6 +399,8 @@ export function agentRunRoutes(input: {
           run_id: string;
           kind: string;
           resolved_at: number | null;
+          owner: string | null;
+          answered_by: string | null;
           conversation_id: string;
           agent_id: string;
           run_status: string;
@@ -422,6 +433,11 @@ export function agentRunRoutes(input: {
             payload: JSON.parse(r.payload) as Record<string, unknown>,
             createdAt: r.created_at,
             seen: r.seen_at !== null,
+            // ADR 0075: who owes the answer, and (once answered) who gave it
+            // and on what evidence — the audit the person needs to trust it.
+            owner: r.owner ?? "user",
+            answeredBy: r.answered_by,
+            evidence: r.evidence === null ? [] : (JSON.parse(r.evidence) as string[]),
           })),
           waitingAgent: waitingAgent.map((r) => ({
             actionId: r.action_id,
@@ -431,6 +447,8 @@ export function agentRunRoutes(input: {
             runStatus: r.run_status,
             kind: r.kind,
             resolvedAt: r.resolved_at,
+            owner: r.owner ?? null,
+            answeredBy: r.answered_by ?? null,
           })),
           unread: unread.map((r) => ({
             runId: r.run_id,
