@@ -11,6 +11,7 @@ import {
 } from "./domain.js";
 import type { AgentRunPort } from "./ports.js";
 import type { PendingActionResponse } from "./protocol/index.js";
+import { requestOwnerOf } from "./request-owner.js";
 
 type ActionMethods = Pick<
   AgentRunPort,
@@ -23,7 +24,10 @@ type ActionMethods = Pick<
   | "listActionsForConversation"
 >;
 
-export function createActionMethods(db: Database): ActionMethods {
+export function createActionMethods(
+  db: Database,
+  deps: { roleOfAgent?: (agentId: string) => "worker" | "front" | null } = {},
+): ActionMethods {
   const d = drizzle(db, { schema, casing: "snake_case" });
 
   return {
@@ -61,6 +65,12 @@ export function createActionMethods(db: Database): ActionMethods {
             payload: JSON.stringify(action.payload),
             status: "pending",
             createdAt: now,
+            // ADR 0075: the dispatcher looks first. Persisted at creation so
+            // every surface (web inbox, cards, escalation) reads one fact.
+            owner: requestOwnerOf({
+              authorization: run.authorization ?? null,
+              ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
+            }).owner,
           })
           .run();
 

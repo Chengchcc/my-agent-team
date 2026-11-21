@@ -19,13 +19,16 @@ export interface AgentRunAdapterDeps {
    *  never pass it; tests throw here to prove the whole transaction rolls
    *  back with zero partial Product facts. */
   readonly commitTestHook?: () => void;
+  /** ADR 0075: role lookup for a request's dispatcher. One worker asking
+   *  another is not a reason to hop the question upward through workers. */
+  readonly roleOfAgent?: (agentId: string) => "worker" | "front" | null;
 }
 
 export function sqliteAgentRunAdapter(db: Database, deps: AgentRunAdapterDeps): AgentRunPort {
   return {
     ...createEnqueueMethod(db, deps),
     ...createInputQueueMethods(db),
-    ...createActionMethods(db),
+    ...createActionMethods(db, deps),
     ...createRunMethods(db, deps),
   };
 }
