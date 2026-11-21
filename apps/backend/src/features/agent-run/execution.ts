@@ -44,6 +44,9 @@ export function createAgentRunExecutionService(
         kind: "approval",
         payload: { ...payload },
       });
+      // ADR 0075: tell whoever owns it. Deliberately not awaited: a slow
+      // notification must not hold the approval event the card is waiting for.
+      deps.onRequestCreated?.({ runId, callId, kind: "approval", payload });
     },
   });
   const { dispatchFn, entryFor } = createExecutionDispatcher({

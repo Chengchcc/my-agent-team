@@ -316,6 +316,14 @@ export interface ProductToolsServiceDeps {
     reason: string;
     suggestion?: string;
   }) => Promise<{ runId: string; queued: boolean }>;
+  /** ADR 0075: a request just parked (ask). Fire-and-forget, same contract as
+   *  the approval hook: notification must not delay the surface. */
+  onRequestCreated?: (input: {
+    runId: string;
+    callId: string;
+    kind: string;
+    payload: Readonly<Record<string, unknown>>;
+  }) => void;
   /** ADR 0059 D5/D6: talk upward to whoever dispatched this run. `progress`
    *  must land in the ledger WITHOUT waking anyone (a worker must not
    *  interrupt its dispatcher every five minutes); `attention` and `answer`
@@ -1183,6 +1191,13 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       );
     }
     deps.emitAsk?.({ runId: run.runId, callId: input.callId, question: parsed });
+    // ADR 0075: the owner looks first (the dispatcher), not the human.
+    deps.onRequestCreated?.({
+      runId: run.runId,
+      callId: input.callId,
+      kind: "ask",
+      payload: { questions: parsed.questions },
+    });
     let answer: AskQuestionResult | null;
     try {
       answer = await Promise.race([
