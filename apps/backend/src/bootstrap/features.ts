@@ -892,16 +892,24 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         : `提问：${String((input.payload.questions as Array<{ question?: string }> | undefined)?.[0]?.question ?? "").slice(0, 200)}`;
 
     if (owner.agentId === null) {
-      // Human-owned. A root room already reaches the inbox; a child room needs
-      // the notice lifted into the room Lark is bound to.
+      // Human-owned. A root room already reaches the inbox (and the Lark card
+      // renders the pending action). A child room does NOT: the bot delivers
+      // run turns only, so a plain notice row is invisible there (checked in
+      // the bot's delivery ledger, 2026-11-21). The path that works is the
+      // front desk: wake the parent room's agent and have it escalate with a
+      // structured ask, which IS a card.
       const parentId = room.parentConversationId;
       if (!parentId) return;
+      const frontDesk = conv.convPort.getConversation(parentId)?.agentId ?? null;
+      if (frontDesk === null) return;
       await conv.convSvc.postMessage({
         conversationId: parentId,
         senderMemberId: run.agentId ?? "system",
-        addressedTo: [],
-        content: `⚠️ ${workerName} 在「${room.title ?? "子会话"}」需要你决定：${detail}
-到 Web 的「待你处理」处理，或回复允许/拒绝。`,
+        addressedTo: [frontDesk],
+        content: [
+          `【需要人类决定】${workerName} 在子会话「${room.title ?? "未命名"}」停下了：${detail}`,
+          "用 ask_question 在本房间升级给人：写清谁在问、在做什么、要执行什么、为什么必须由人决定、影响范围，并给出允许/拒绝选项。",
+        ].join("\n"),
       });
       return;
     }
