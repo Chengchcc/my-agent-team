@@ -165,6 +165,10 @@ wiki/
 
 **前台先查已知**：回答或发问之前，先 `wiki_query` / `requirement_query` / `project_list`——已经写下来的答案不该再花人的注意力问一遍。
 
+**槽位表的定义（重要修正，2026-11-21）**：槽位是**人必须提供的东西**，不是"值得考虑的东西"。`investigate` 曾经要求 `question / sources / stop` 三格全填，真机上出现了完整的失败链：前台三次尝试派单 → 三次被「investigate needs sources / needs stop」拒绝 → 回退成自己答（而它答得像模像样，问题被掩盖）。来源是工人能找到的，停止点由预算决定——两样都不是人才能回答的。改为 `investigate: []`；语料里的 `ask-investigate-thin` 相应改为 `dispatch-investigate-thin` 并写明理由。同类问题在其他 verb 上仍可能潜伏：判断标准是"人不说，worker 是否就完全无法开始"。
+
+**工具的禁用清单在 ACP 路径上曾经失效**：`OMA_DISABLED_TOOLS` 只被 RPC 循环读取，而部署走 ACP —— 于是前台的 `web_fetch` / `task`（子代理，工具全权）照样可用，禁用形同虚设。已在 `acp-mode` 接上同一个解析器并传入 `toolFilter`（覆盖原生命令、插件工具与委派工具）。真机复验：同一句请求，工具轨迹里不再有 `web_fetch`/`task`，出现了 `dispatch`。
+
 ## 六c、派单接 wiki（S4，已落地）
 
 派单时（`dispatch` 工具）用 `verb + object + instruction` 查询 wiki，命中的前 3 页以 `wiki:<path>` 形式并入 brief 的 `references`——与账本/记忆召回同一种证据，只给路径，工人自己翻页。wiki 为空或未配置时零成本跳过（`wikiRecall` 缺省即无 wiki 部署）。
