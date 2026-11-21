@@ -49,7 +49,14 @@ const SLOTS_BY_VERB: Record<Verb, readonly string[]> = {
   fix: ["repro", "expected", "scope", "acceptance"],
   build: ["goal", "scope", "acceptance", "constraints"],
   review: ["target", "criteria"],
-  investigate: ["question", "sources", "stop"],
+  // Nothing here is human-only knowledge: the question IS the request, the
+  // sources are wherever the work lives (a registered project, the workspace),
+  // and the stopping point is the worker's judgment under its budget. Requiring
+  // them blocked every real dispatch — the front desk tried three times,
+  // collected "investigate needs sources / needs stop", and answered the
+  // question itself instead (live 2026-11-21). A slot list is the set of things
+  // the HUMAN must supply, not a checklist of things someone could think about.
+  investigate: [],
   write: ["audience", "form", "source"],
   operate: ["environment", "action", "rollback"],
   answer: [],

@@ -24,4 +24,8 @@ export const FRONT_DESK_DISABLED_TOOLS: readonly string[] = [
   "web_search",
   "web_fetch",
   "browser",
+  "read_image",
+  // The delegation tool spawns a SUBAGENT, which has every tool — the widest
+  // escape hatch of all: "I cannot read the repo" becomes "my subagent can".
+  "task",
 ];

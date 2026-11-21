@@ -19,6 +19,7 @@ import { adaptMcpTool, sanitizeServerName } from "@chengchenccc/adapter-mcp";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import { type ContentBlock, type Message, MessageSchema } from "@chengchenccc/message";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
+import { disabledToolsFromEnv } from "../../core/runtime/agent-loop-runner.js";
 import {
   type ApprovalDecision,
   type ApprovalHandler,
@@ -361,8 +362,15 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       );
     }
     const modelId = `${modelEntry.providerId}/${modelEntry.modelId}`;
+    // ADR 0072: the backend freezes a role's denied tools into this process's
+    // env (OMA_DISABLED_TOOLS). The RPC loop honored it; THIS path did not, so
+    // a front desk on ACP could still fetch the web and spawn subagents after
+    // its file tools were gone (live 2026-11-21). Same env, same parser, and
+    // the filter reaches native tools, plugin tools and the delegation tool.
+    const disabledTools = disabledToolsFromEnv();
     const runtime = await createOmaRuntime({
       runId: `acp-${session.sessionId}`,
+      ...(disabledTools.size > 0 ? { toolFilter: { deny: disabledTools } } : {}),
       modelId,
       approvalHandler: (req) =>
         preSupplied.has(req.callId)

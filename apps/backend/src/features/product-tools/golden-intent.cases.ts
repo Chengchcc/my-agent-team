@@ -122,15 +122,21 @@ export const GOLDEN_INTENT_CASES: readonly GoldenCase[] = [
     },
   },
   {
-    id: "ask-investigate-thin",
+    // Was "ask-investigate-thin" (missing sources/stop => ask). Live evidence
+    // 2026-11-21: the front desk tried to dispatch a project investigation
+    // three times, collected "investigate needs sources / needs stop", and
+    // answered the question itself. Sources and stopping points are NOT
+    // human-only knowledge — the worker finds the sources and its budget ends
+    // the search — so a thin investigation is dispatched, and the worker asks
+    // upward only if it truly cannot start.
+    id: "dispatch-investigate-thin",
     message: "为什么 nightly 报告昨天没发出来",
-    why: "有疑问句、没有证据源和停止条件——先问，别让工人到处翻",
+    why: "疑问句 + 没有证据源：来源是工人能找到的，不是人要回答的——派出去",
     expected: {
-      action: "ask",
+      action: "dispatch",
       verb: "investigate",
       deliverable: "report",
       slots: { question: "nightly 报告昨天没发出来" },
-      missing: ["sources", "stop"],
     },
   },
   {
