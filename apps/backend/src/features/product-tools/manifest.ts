@@ -231,6 +231,22 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "answer_worker_request",
+      description: "Answer a worker's parked request, with evidence.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          run_id: { type: "string" },
+          call_id: { type: "string" },
+          decision: { type: "string", enum: ["allow", "deny"] },
+          answer: {},
+          evidence: { type: "array", items: { type: "string" } },
+        },
+        required: ["run_id", "call_id", "evidence"],
+      },
+      entrypoint,
+    },
+    {
       name: "project_list",
       description: "List the registered projects.",
       inputSchema: { type: "object", properties: {} },

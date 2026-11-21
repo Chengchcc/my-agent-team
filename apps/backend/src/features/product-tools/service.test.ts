@@ -36,6 +36,7 @@ const TOOL_MANIFEST = [
   { name: "cancel_worker", description: "c", inputSchema: {}, entrypoint: "sse:x" },
   { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "answer_worker_request", description: "a", inputSchema: {}, entrypoint: "sse:x" },
 ];
 
 /** Captures emitAsk calls so tests can assert the request surfaced.
@@ -733,6 +734,33 @@ describe("product tools service", () => {
     });
     const sent = dispatchCalls.at(-1);
     expect(sent?.brief?.references).toContain("wiki:projects/login/retry.md");
+  });
+
+  test("ADR 0075: an agent answer needs evidence, and may not remember a permission", async () => {
+    const runId = await createRun("answer a worker request");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "ans-no-evidence",
+        idempotencyKey: `${runId}:ans-no-evidence`,
+        tool: "answer_worker_request",
+        args: { run_id: "run-worker", call_id: "call-1", decision: "allow" },
+      }),
+    ).rejects.toThrow(/evidence/);
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "ans-always",
+        idempotencyKey: `${runId}:ans-always`,
+        tool: "answer_worker_request",
+        args: {
+          run_id: "run-worker",
+          call_id: "call-1",
+          decision: "allow_always",
+          evidence: ["wiki:concepts/x.md"],
+        },
+      }),
+    ).rejects.toThrow(/remembering a permission/);
   });
 
   test("S2: an ask after an answered one carries `reopens` (same decision, not a new question)", async () => {
