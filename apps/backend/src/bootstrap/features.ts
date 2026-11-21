@@ -59,6 +59,7 @@ import {
 import { createNotifyDispatcher } from "../features/agent-run/notify-dispatcher.js";
 import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
 import type { RecallHit } from "../features/agent-run/recall.js";
+import { requestOwnerOf } from "../features/agent-run/request-owner.js";
 import { endsWithQuestion, lastParagraph } from "../features/agent-run/unasked-question.js";
 import {
   chatUri,
@@ -851,6 +852,73 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     markNotified: (runId) => agentRunPort.markResultNotified(runId),
   });
 
+  /** ADR 0075: a parked request goes to its owner.
+   *
+   *  - dispatched work: wake the dispatcher IN ITS OWN ROOM with the request
+   *    details, so it can answer (answer_worker_request) or escalate;
+   *  - anything the human owns: if the run lives in a child room, write a
+   *    notice into the parent room — that is the chat Lark is bound to. Worker
+   *    rooms have no binding, which is exactly why approvals were invisible.
+   */
+  async function surfaceRequest(input: {
+    runId: string;
+    callId: string;
+    kind: string;
+    payload: Readonly<Record<string, unknown>>;
+  }): Promise<void> {
+    const run = await agentRunPort.getRun(input.runId).catch(() => null);
+    if (run === null) return;
+    const room = conv.convPort.getConversation(run.conversationId);
+    if (!room) return;
+    const roleOf = (agentId: string): "worker" | "front" | null => {
+      const row = db.query("SELECT config FROM agents WHERE id = ?").get(agentId) as {
+        config: string;
+      } | null;
+      if (row === null) return null;
+      try {
+        const cfg = JSON.parse(row.config) as { role?: "worker" | "front" };
+        return cfg.role === "worker" ? "worker" : "front";
+      } catch {
+        return null;
+      }
+    };
+    const owner = requestOwnerOf({ authorization: run.authorization ?? null, roleOf });
+    const worker =
+      run.agentId === null ? null : await agentSvc.getById(run.agentId).catch(() => null);
+    const workerName = worker?.config.name ?? run.agentId ?? "worker";
+    const detail =
+      input.kind === "approval"
+        ? `审批：${String(input.payload.toolName ?? "动作")} — ${String(input.payload.reason ?? "").slice(0, 200)}`
+        : `提问：${String((input.payload.questions as Array<{ question?: string }> | undefined)?.[0]?.question ?? "").slice(0, 200)}`;
+
+    if (owner.agentId === null) {
+      // Human-owned. A root room already reaches the inbox; a child room needs
+      // the notice lifted into the room Lark is bound to.
+      const parentId = room.parentConversationId;
+      if (!parentId) return;
+      await conv.convSvc.postMessage({
+        conversationId: parentId,
+        senderMemberId: run.agentId ?? "system",
+        addressedTo: [],
+        content: `⚠️ ${workerName} 在「${room.title ?? "子会话"}」需要你决定：${detail}
+到 Web 的「待你处理」处理，或回复允许/拒绝。`,
+      });
+      return;
+    }
+
+    const target = room.parentConversationId ?? room.conversationId;
+    await conv.convSvc.postMessage({
+      conversationId: target,
+      senderMemberId: run.agentId ?? "system",
+      addressedTo: [owner.agentId],
+      content: [
+        `【请求】${workerName} 需要你决定：${detail}`,
+        `用 answer_worker_request(run_id="${run.runId}", call_id="${input.callId}", evidence=[...]) 回答；`,
+        "答不了（不可逆操作 / 超出授权 / 验收 / 无证据）就升级给人。",
+      ].join("\n"),
+    });
+  }
+
   const productTools = createProductToolsService({
     runPort: agentRunPort,
     contextPort,
@@ -921,6 +989,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       }
       await agentRunPort.markActionAnswered?.(actionId, `agent:${agentId}`, evidence);
       return { ok: true as const };
+    },
+    onRequestCreated: (input) => {
+      void surfaceRequest(input).catch((err: unknown) => {
+        console.error(
+          `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     },
     // ADR 0074: project registry, dereferenced at request time (projectSvc is
     // assembled later in this function, like the other late bindings here).
@@ -1612,6 +1687,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   const agentRunExecution = createAgentRunExecutionService({
     budgetGate,
+    // ADR 0075: a request just parked - surface it to its owner (this closure
+    // is defined above and dereferences late bindings at request time).
+    onRequestCreated: (input) => {
+      void surfaceRequest(input).catch((err: unknown) => {
+        console.error(
+          `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    },
     workspaceLocks,
     productToolsTokenRegistry,
     runTimeoutMs: config.runTimeoutMs,

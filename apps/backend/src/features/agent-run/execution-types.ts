@@ -141,6 +141,14 @@ export interface AgentRunExecutionDeps {
     callId: string;
     payload: Readonly<Record<string, unknown>>;
   }) => Promise<void>;
+  /** ADR 0075: a request just parked. Fire-and-forget — the notification must
+   *  never delay the event a card is waiting for. */
+  readonly onRequestCreated?: (input: {
+    runId: string;
+    callId: string;
+    kind: string;
+    payload: Readonly<Record<string, unknown>>;
+  }) => void;
 }
 
 export interface LiveRun {
