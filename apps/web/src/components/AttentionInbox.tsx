@@ -16,6 +16,30 @@ import { api } from "@/lib/api";
  *
  *  Everything here is derived from rows that already exist; nothing on this
  *  card can change an execution fact. Opening a row marks it looked at. */
+/** One line for WHAT the request is, in the same order the Web card uses:
+ *  the command for an approval, the question for an ask, the tool name as the
+ *  last resort. A row that only says "Approval needed" makes the person open a
+ *  room to find out what for. */
+function requestLine(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) return "";
+  const record = payload as Record<string, unknown>;
+  const input = record.input;
+  if (typeof input === "string" && input.trim() !== "") return input.trim().slice(0, 120);
+  if (typeof input === "object" && input !== null && "command" in input) {
+    const command = (input as { command?: unknown }).command;
+    if (typeof command === "string" && command.trim() !== "") return command.trim().slice(0, 120);
+  }
+  const questions = record.questions;
+  if (Array.isArray(questions) && questions.length > 0) {
+    const first = questions[0] as { question?: unknown };
+    if (typeof first.question === "string" && first.question.trim() !== "") {
+      return first.question.trim().slice(0, 120);
+    }
+  }
+  if (typeof record.toolName === "string" && record.toolName !== "") return record.toolName;
+  return "";
+}
+
 export function AttentionInbox() {
   const qc = useQueryClient();
   const { data } = useQuery(attentionQuery());
@@ -43,7 +67,10 @@ export function AttentionInbox() {
           {awaitingYou.map((a) => (
             <Row
               key={a.actionId}
-              title={a.kind === "approval" ? "Approval needed" : "A question for you"}
+              title={
+                requestLine(a.payload) ||
+                (a.kind === "approval" ? "Approval needed" : "A question for you")
+              }
               detail={`${a.agentId} · ${a.seen ? "seen" : "new"}`}
               href={`/chat/${a.conversationId}`}
               onOpen={() => seen.mutate({ actionId: a.actionId })}
@@ -57,7 +84,14 @@ export function AttentionInbox() {
             <Row
               key={a.actionId}
               title={a.kind === "approval" ? "Agent is applying your approval" : "Agent is working"}
-              detail={a.agentId}
+              // ADR 0075: WHO answered is an audit fact, not decoration - the
+              // person asked for the machine to decide some of this, and has to
+              // be able to see which decisions were the machine's.
+              detail={
+                a.answeredBy
+                  ? `${a.answeredBy}${"evidence" in a && Array.isArray(a.evidence) && a.evidence.length > 0 ? ` · ${a.evidence[0]}` : ""}`
+                  : a.agentId
+              }
               href={`/chat/${a.conversationId}`}
             />
           ))}
