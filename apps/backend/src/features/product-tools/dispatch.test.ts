@@ -44,6 +44,7 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "wiki_patch",
       "wiki_lint",
       "wiki_source_add",
+      "answer_worker_request",
       "project_list",
       "requirement_track",
       "requirement_query",

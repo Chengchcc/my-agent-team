@@ -16,6 +16,7 @@ import { requestOwnerOf } from "./request-owner.js";
 type ActionMethods = Pick<
   AgentRunPort,
   | "createPendingAction"
+  | "markActionAnswered"
   | "consumePendingAction"
   | "getPendingAction"
   | "listPendingActions"
@@ -88,6 +89,13 @@ export function createActionMethods(
           .get()!;
         return parsePendingAction(row);
       })();
+    },
+
+    async markActionAnswered(actionId, answeredBy, evidence) {
+      d.update(schema.pendingAction)
+        .set({ answeredBy, evidence: JSON.stringify(evidence) })
+        .where(eq(schema.pendingAction.actionId, actionId))
+        .run();
     },
 
     async consumePendingAction(actionId, response: PendingActionResponse, responseIdempotencyKey) {

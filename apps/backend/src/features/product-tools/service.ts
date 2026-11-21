@@ -202,6 +202,18 @@ export interface ProductToolsServiceDeps {
   projects?: {
     list(): ReadonlyArray<{ projectId: string; name: string; repoUrl: string | null }>;
   };
+  /** ADR 0075: answer a request a worker raised on this dispatcher's behalf.
+   *  The deployment owns ownership checks and the approval/ask split; the tool
+   *  only validates the shape and refuses the two things an agent must never
+   *  do (answer without evidence, or remember a permission forever). */
+  answerWorkerRequest?: (input: {
+    agentId: string;
+    runId: string;
+    callId: string;
+    decision?: "allow" | "deny";
+    answer?: unknown;
+    evidence: readonly string[];
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** ADR 0074 S4: compiled wiki knowledge for a dispatch brief. Absent = no
    *  wiki in this deployment (dispatch still works). */
   wikiRecall?: (text: string) => ReadonlyArray<{ path: string; title: string }>;
@@ -832,6 +844,54 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
    *  front desk must answer before it can file or dispatch. */
   function projectList(): ProductToolCallResult {
     return { content: JSON.stringify(deps.projects?.list() ?? []) };
+  }
+
+  /** ADR 0075: a dispatcher answers a worker's parked request. */
+  async function answerWorkerRequest(
+    run: AgentRun,
+    args: Record<string, unknown>,
+  ): Promise<ProductToolCallResult> {
+    const runId = typeof args.run_id === "string" ? args.run_id.trim() : "";
+    const callId = typeof args.call_id === "string" ? args.call_id.trim() : "";
+    if (runId === "" || callId === "") {
+      throw new ProductToolRejectedError("answer_worker_request needs run_id and call_id");
+    }
+    const evidence = Array.isArray(args.evidence)
+      ? args.evidence.filter(
+          (item): item is string => typeof item === "string" && item.trim() !== "",
+        )
+      : [];
+    if (evidence.length === 0) {
+      // The whole point of the owner chain: an answer the dispatcher cannot
+      // ground is not an answer. Escalate instead of guessing.
+      throw new ProductToolRejectedError(
+        "an answer needs evidence (wiki page, brief reference, project id). Without it, escalate to the human with ask_question.",
+      );
+    }
+    const decision = args.decision;
+    if (decision === "allow_always" || decision === "deny_always") {
+      throw new ProductToolRejectedError(
+        "an agent may allow or deny ONCE; remembering a permission is the human's decision",
+      );
+    }
+    if (decision !== undefined && decision !== "allow" && decision !== "deny") {
+      throw new ProductToolRejectedError("decision must be allow or deny");
+    }
+    if (!deps.answerWorkerRequest) {
+      // Shape first: the refusals above are contract rules, not deployment
+      // facts — a deployment without the seam still must not accept a guess.
+      throw new ProductToolRejectedError("answering worker requests is not available here");
+    }
+    const result = await deps.answerWorkerRequest({
+      agentId: run.agentId,
+      runId,
+      callId,
+      ...(decision !== undefined ? { decision: decision as "allow" | "deny" } : {}),
+      ...(args.answer !== undefined ? { answer: args.answer } : {}),
+      evidence,
+    });
+    if (!result.ok) throw new ProductToolRejectedError(result.error);
+    return { content: JSON.stringify({ ok: true }) };
   }
 
   /** ADR 0074: create or update a tracked item. Pure Q&A never calls this. */
@@ -1484,6 +1544,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return wikiSourceAdd(run, input.args);
         case "project_list":
           return projectList();
+        case "answer_worker_request":
+          return answerWorkerRequest(run, input.args);
         case "requirement_track":
           return requirementTrack(run, input.args);
         case "requirement_query":

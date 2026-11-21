@@ -438,6 +438,27 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "answer_worker_request",
+    description:
+      "Answer a request a worker raised in a room you dispatched (its approval or ask). Evidence is MANDATORY (wiki page, brief reference, project id) - an answer you cannot ground should be escalated to the human instead. You may allow or deny ONCE; remembering a permission is the human's decision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: { type: "string" },
+        call_id: { type: "string" },
+        decision: { type: "string", enum: ["allow", "deny"], description: "For an approval" },
+        answer: { description: "For an ask: { answers: [{ id, selectedValues, freeText? }] }" },
+        evidence: {
+          type: "array",
+          items: { type: "string" },
+          description: "wiki:<path> | requirement:<id> | project:<id> | brief:<ref>",
+        },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["run_id", "call_id", "evidence"],
+    },
+  },
+  {
     name: "project_list",
     description:
       "List the registered projects (id, name, repo). Use it to decide WHICH project a request is about before filing a requirement or dispatching; if two projects fit, ask.",

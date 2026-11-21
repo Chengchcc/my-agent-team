@@ -40,6 +40,7 @@ import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
 import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
 import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
 import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
+import { pendingActionId } from "../features/agent-run/domain.js";
 import { finalAnswerMessage } from "../features/agent-run/execution-input.js";
 import {
   agentRunRoutes,
@@ -884,6 +885,43 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // dispatch link (named id → the conversation's newest open item → one
     // created from the brief). All resolution lives in the requirement
     // service; this closure only connects ports.
+    // ADR 0075: the dispatcher answers a worker's parked request. Ownership is
+    // enforced here (the row says who should answer), and the audit stamp is
+    // written by the same call. Late-bound: agentRunExecution and productTools
+    // are assembled below.
+    answerWorkerRequest: async ({ agentId, runId, callId, decision, answer, evidence }) => {
+      const actionId = pendingActionId(runId, callId);
+      const action = await agentRunPort.getPendingAction(actionId);
+      if (action === null || action.status !== "pending") {
+        return { ok: false as const, error: `request ${callId} is no longer pending` };
+      }
+      if (action.owner !== `agent:${agentId}`) {
+        return {
+          ok: false as const,
+          error: `request ${callId} is owned by ${action.owner ?? "user"}, not you`,
+        };
+      }
+      if (action.kind === "approval") {
+        if (decision === undefined) {
+          return { ok: false as const, error: "an approval needs decision: allow | deny" };
+        }
+        await agentRunExecution.resolveApproval(runId, callId, decision);
+      } else {
+        if (answer === undefined) {
+          return { ok: false as const, error: "an ask needs answer" };
+        }
+        const woke = productTools.resolveAsk(
+          runId,
+          callId,
+          answer as Parameters<typeof productTools.resolveAsk>[2],
+        );
+        if (!woke) {
+          return { ok: false as const, error: `ask ${callId} has no live resolver` };
+        }
+      }
+      await agentRunPort.markActionAnswered?.(actionId, `agent:${agentId}`, evidence);
+      return { ok: true as const };
+    },
     // ADR 0074: project registry, dereferenced at request time (projectSvc is
     // assembled later in this function, like the other late bindings here).
     projects: {
