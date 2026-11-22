@@ -1448,6 +1448,34 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           /* an observation must never disturb the turn */
         }
       })();
+      // Observation (ADR 0075, live 2026-11-22): the front desk produced a
+      // long-form answer with NO dispatch. That is the "it did the work
+      // itself" failure the routing rules exist to prevent, and the only way
+      // to know whether a rule change helped is to count it. Recorded, never
+      // gated: a short explanation is a legitimate answer, and a heuristic
+      // that blocks answers would be worse than the behaviour it measures.
+      void (async () => {
+        try {
+          const frontDesk = (await agentSvc.getById(run.agentId).catch(() => null))?.config.role;
+          if (frontDesk === "worker") return;
+          const answer = extractText(output);
+          if (answer.length < 800) return;
+          // Read the durable tool-call ledger: a dispatch leaves a row even
+          // when the model never mentioned it in prose.
+          const dispatchedRows = db
+            .query(
+              "SELECT 1 FROM product_tool_call WHERE run_id = ? AND tool_name = 'dispatch' LIMIT 1",
+            )
+            .all(runId);
+          if (dispatchedRows.length > 0) return;
+          services.opsStore.appendRunEvent(runId, "unrouted_work", {
+            chars: answer.length,
+            head: answer.slice(0, 160),
+          });
+        } catch {
+          /* an observation must never disturb the turn */
+        }
+      })();
       // ADR 0059 D5: the worker's terminal state travels back to whoever
       // dispatched it. Gated on `dispatch:` authorization - a `result:` run is
       // the dispatcher's own turn answering a notification, and notifying its

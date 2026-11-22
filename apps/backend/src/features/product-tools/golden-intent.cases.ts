@@ -155,15 +155,18 @@ export const GOLDEN_INTENT_CASES: readonly GoldenCase[] = [
     },
   },
   {
-    id: "ask-write-thin",
+    // Was "ask-write-thin" (missing source => ask). Same correction as
+    // investigate (live 2026-11-22): the source of an onboarding doc is the
+    // repository it documents — the worker finds it. Blocking on it made the
+    // front desk write the doc itself instead of dispatching.
+    id: "dispatch-write-thin",
     message: "给新同事写一份上手文档，面向后端，1000 字左右",
-    why: "对象和形态都有，缺素材来源——写手编不出你的项目",
+    why: "形态与对象都在话里；素材是仓库本身，工人能找到——派出去",
     expected: {
-      action: "ask",
+      action: "dispatch",
       verb: "write",
       deliverable: "report",
       slots: { audience: "新同事（后端）", form: "1000 字左右" },
-      missing: ["source"],
     },
   },
   {

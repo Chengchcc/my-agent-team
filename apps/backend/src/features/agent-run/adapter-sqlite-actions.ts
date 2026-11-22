@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { parsePendingAction } from "./adapter-sqlite-parse.js";
@@ -169,6 +169,13 @@ export function createActionMethods(
             response: JSON.stringify(response.response),
             responseIdempotencyKey,
             resolvedAt: now,
+            // ADR 0075: whoever consumed the row is the author, and everything
+            // that reaches consumePendingAction directly is a human surface.
+            // The agent path answers first and stamps itself AFTER (see
+            // markActionAnswered), which overwrites this. Without it the audit
+            // said "owner: user, by: null" for a human answer — the one fact
+            // the audit exists to state.
+            answeredBy: sql`coalesce(${schema.pendingAction.answeredBy}, 'user')`,
           })
           .where(
             and(

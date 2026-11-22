@@ -57,7 +57,12 @@ const SLOTS_BY_VERB: Record<Verb, readonly string[]> = {
   // question itself instead (live 2026-11-21). A slot list is the set of things
   // the HUMAN must supply, not a checklist of things someone could think about.
   investigate: [],
-  write: ["audience", "form", "source"],
+  // Same correction as investigate (live 2026-11-22): a README/document
+  // request names its own form, its audience is whoever reads the repo, and the
+  // source is the thing being documented — none of the three is human-only
+  // knowledge. Requiring them refused every real "write X" request and the
+  // front desk produced the deliverable itself instead of dispatching.
+  write: [],
   operate: ["environment", "action", "rollback"],
   answer: [],
 };
