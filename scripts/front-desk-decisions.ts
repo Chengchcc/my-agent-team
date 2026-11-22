@@ -213,6 +213,29 @@ async function classify(conversationId: string, baseline?: ReadonlySet<string>):
   if (fresh.length > 0) {
     return { verdict: "DISPATCH", detail: `${fresh.length} new child room(s)` };
   }
+  // A REUSED child room (ADR 0070 default) leaves no new conversation behind,
+  // so the tool-call ledger is the authority: a dispatch row means it dispatched
+  // even when the room is the same one as before.
+  const latestRun = runs[0];
+  if (latestRun !== undefined) {
+    // Read the durable ledger directly: the probe runs on the backend's box and
+    // no HTTP route exposes per-run tool calls.
+    const callDb = new Database(join(import.meta.dir, "../apps/backend/.backend-data/backend.db"), {
+      readonly: true,
+    });
+    try {
+      const row = callDb
+        .query(
+          "SELECT 1 FROM product_tool_call WHERE run_id = ? AND tool_name = 'dispatch' LIMIT 1",
+        )
+        .get(latestRun.runId);
+      if (row !== null) {
+        return { verdict: "DISPATCH", detail: `dispatch call in ${latestRun.runId.slice(0, 8)}` };
+      }
+    } finally {
+      callDb.close();
+    }
+  }
   const paused = runs.find((r) => r.status === "waiting");
   if (paused) return { verdict: "ASK", detail: `run ${paused.runId.slice(0, 8)} is waiting` };
   return { verdict: "ANSWER", detail: `run ${runs[0]?.runId.slice(0, 8) ?? "-"}` };
