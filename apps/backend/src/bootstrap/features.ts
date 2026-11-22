@@ -1575,6 +1575,30 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // "parent" would ping-pong the same fact forever. `handback:` runs
       // already woke the dispatcher through the tool itself.
       if (run.parentRunId && run.authorization?.startsWith("dispatch:") === true) {
+        // ADR 0076 H1: a dispatched worker's report IS a deliverable, so the
+        // backend materializes it as an artifact when the model did not. Live
+        // 2026-11-22: the brief carried `<delivery>` and both workers still
+        // answered in prose — the handoff then had nothing to hand over.
+        // Relying on the model to remember is not a contract; making the file
+        // is. Best effort: an upload failure must not block the notification.
+        const finalText = extractText(output);
+        let artifacts = artifactUrlsOf(runId);
+        if (artifacts.length === 0 && finalText.trim() !== "") {
+          try {
+            const uploaded = await artifactService.upload({
+              folder: "reports",
+              filename: `${runId}.md`,
+              content: finalText,
+              encoding: "utf8",
+              source: { runId, conversationId: run.conversationId, agentId: run.agentId },
+            });
+            artifacts = [uploaded.url];
+          } catch (err) {
+            console.error(
+              `[bootstrap] report artifact for ${runId} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
         await notifyDispatcher({
           fromAgentId: run.agentId,
           conversationId: run.conversationId,
@@ -1583,8 +1607,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           text: frameResultInput(
             run.agentId,
             "completed",
-            extractText(output),
-            artifactUrlsOf(runId),
+            finalText,
+            artifacts,
             planOfDispatcher(
               conv.convPort.getConversation(run.conversationId)?.parentConversationId ?? null,
             ),
