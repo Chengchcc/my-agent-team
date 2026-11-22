@@ -261,3 +261,24 @@ describe("missing slots consult recall before letting the model ask (ADR 0055)",
     expect(refs).toEqual(["#123", "seq:412", "action:a"]);
   });
 });
+
+describe("ADR 0075/0076: the plan survives the handoff", () => {
+  test("the terminal frame carries the dispatcher's plan and says to continue it", () => {
+    const framed = frameResultInput(
+      "researcher",
+      "completed",
+      "报告完成",
+      [],
+      "- [done] 调研首屏\n- [pending] 按结论改 README",
+    );
+    expect(framed).toContain("<plan>");
+    expect(framed).toContain("[pending] 按结论改 README");
+    // The wake-up is a fresh call: without this line the model asks the human
+    // whether to continue instead of dispatching the next step.
+    expect(framed).toContain("不要回来问人要不要继续");
+  });
+
+  test("no plan means no plan block", () => {
+    expect(frameResultInput("researcher", "completed", "报告完成")).not.toContain("<plan>");
+  });
+});

@@ -856,6 +856,35 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     markNotified: (runId) => agentRunPort.markResultNotified(runId),
   });
 
+  /** The dispatcher's plan as the worker's result will carry it. The plan is
+   *  the todo snapshot of the dispatcher's most recent run — the only place a
+   *  multi-step intention survives a turn boundary. */
+  const planOfDispatcher = (dispatcherConversationId: string | null): string => {
+    if (dispatcherConversationId === null) return "";
+    const row = db
+      .query(
+        `SELECT todo_snapshot FROM agent_run
+          WHERE conversation_id = ? AND todo_snapshot IS NOT NULL AND todo_snapshot <> ''
+          ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(dispatcherConversationId) as { todo_snapshot: string } | null;
+    if (row === null) return "";
+    try {
+      const parsed: unknown = JSON.parse(row.todo_snapshot);
+      if (!Array.isArray(parsed)) return "";
+      const lines: string[] = [];
+      for (const item of parsed) {
+        if (typeof item !== "object" || item === null) continue;
+        const text = "text" in item && typeof item.text === "string" ? item.text : "";
+        const status = "status" in item && typeof item.status === "string" ? item.status : "";
+        if (text !== "") lines.push(`- [${status || "pending"}] ${text}`);
+      }
+      return lines.join("\n");
+    } catch {
+      return "";
+    }
+  };
+
   /** Artifact URLs a run uploaded. Read from the product-tool ledger: the
    *  upload result is the only place the URL is recorded, and a chain that
    *  hands the next step a paraphrase instead of the URL loses the deliverable
@@ -1556,6 +1585,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
             "completed",
             extractText(output),
             artifactUrlsOf(runId),
+            planOfDispatcher(
+              conv.convPort.getConversation(run.conversationId)?.parentConversationId ?? null,
+            ),
           ),
           wake: true,
         });
