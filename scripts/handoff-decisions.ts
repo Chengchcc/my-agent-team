@@ -111,7 +111,7 @@ if (scenario === "topics") {
   console.log(`scenario=topics room=${topicsRoom.conversationId}\n`);
   const turns: Array<{ text: string; verdict: string; contaminated: boolean; reply: string }> = [];
   for (const text of TOPIC_TURNS) {
-    const before = new Set(await childRoomsOf(topicsRoom.conversationId));
+    const before = new Set(childrenOf(topicsRoom.conversationId).map((k) => k.conversationId));
     await api(`/api/conversations/${topicsRoom.conversationId}/messages`, {
       method: "POST",
       body: JSON.stringify({ content: text }),
@@ -128,8 +128,11 @@ if (scenario === "topics") {
       if (status !== "running") break;
       await Bun.sleep(5000);
     }
-    const verdict =
-      status === "waiting" ? "ASK" : (await classify(topicsRoom.conversationId, before)).verdict;
+    // DISPATCH = a child appeared after this turn started; ASK = parked; else
+    // ANSWER.
+    const after = childrenOf(topicsRoom.conversationId);
+    const fresh = after.filter((k) => !before.has(k.conversationId));
+    const verdict = status === "waiting" ? "ASK" : fresh.length > 0 ? "DISPATCH" : "ANSWER";
     const reply = lastAssistantText(topicsRoom.conversationId);
     // Contamination: a later turn should not keep talking about greet.
     const isWorkTurn = text === TOPIC_TURNS[0];
@@ -147,6 +150,24 @@ if (scenario === "topics") {
   );
   db.close();
   process.exit(0);
+}
+
+/** Last non-empty assistant line in a room — what the person actually read. */
+function lastAssistantText(conversationId: string): string {
+  const rows = db
+    .query(
+      "SELECT content FROM conversation_ledger WHERE conversation_id = ? ORDER BY seq DESC LIMIT 20",
+    )
+    .all(conversationId) as Array<{ content: string }>;
+  for (const row of rows) {
+    const parsed: unknown = JSON.parse(row.content);
+    if (typeof parsed !== "object" || parsed === null) continue;
+    if (!("role" in parsed) || parsed.role !== "assistant") continue;
+    if ("text" in parsed && typeof parsed.text === "string" && parsed.text.trim() !== "") {
+      return parsed.text;
+    }
+  }
+  return "";
 }
 
 const started = Date.now();
