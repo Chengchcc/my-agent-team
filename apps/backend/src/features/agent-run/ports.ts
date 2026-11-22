@@ -199,6 +199,9 @@ export interface AgentRunPort {
   listPendingActions(runId: string): Promise<PendingActionRecord[]>;
   /** ADR 0075: stamp the audit facts on an answered request (who, on what
    *  evidence). Separate from consume so both answer paths record it. */
+  /** ADR 0075 P4b: a person corrected an agent's answer. The row keeps its
+   *  identity (one request, one row) and the audit says `user` decided. */
+  correctActionResponse?(actionId: string, response: unknown): Promise<void>;
   markActionAnswered?(
     actionId: string,
     answeredBy: string,

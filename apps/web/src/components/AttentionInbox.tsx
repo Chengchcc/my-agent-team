@@ -2,8 +2,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { attentionQuery } from "@/features/runs/queries";
 import { api } from "@/lib/api";
 
@@ -47,6 +56,18 @@ export function AttentionInbox() {
     mutationFn: (body: { actionId?: string; runId?: string; conversationId?: string }) =>
       api.markSeen(body),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["attention"] }),
+  });
+
+  const [correctFor, setCorrectFor] = useState<string | null>(null);
+  const [correction, setCorrection] = useState("");
+  const correct = useMutation({
+    mutationFn: (body: { actionId: string; response: unknown }) =>
+      api.correctAttention(body.actionId, body.response),
+    onSuccess: () => {
+      setCorrectFor(null);
+      setCorrection("");
+      void qc.invalidateQueries({ queryKey: ["attention"] });
+    },
   });
 
   const awaitingYou = data?.awaitingYou ?? [];
@@ -93,6 +114,9 @@ export function AttentionInbox() {
                   : a.agentId
               }
               href={`/chat/${a.conversationId}`}
+              onCorrect={
+                a.answeredBy?.startsWith("agent:") ? () => setCorrectFor(a.actionId) : undefined
+              }
             />
           ))}
         </Column>
@@ -110,6 +134,42 @@ export function AttentionInbox() {
           ))}
         </Column>
       </div>
+
+      {/* ADR 0075 P4b: overruling the machine keeps the request, changes the
+       * author, and tells the worker — a correction the worker never hears is
+       * a note the machine made to itself. */}
+      <Dialog
+        open={correctFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setCorrectFor(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Correct this answer</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={correction}
+            onChange={(e) => setCorrection(e.target.value)}
+            placeholder="What the answer should have been. The worker is told, in its own room."
+            rows={4}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCorrectFor(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={correction.trim() === "" || correct.isPending}
+              onClick={() => {
+                if (correctFor === null) return;
+                correct.mutate({ actionId: correctFor, response: { note: correction.trim() } });
+              }}
+            >
+              Send correction
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -139,12 +199,14 @@ function Row({
   href,
   onOpen,
   highlight,
+  onCorrect,
 }: {
   title: string;
   detail: string;
   href: string;
   onOpen?: () => void;
   highlight?: boolean;
+  onCorrect?: () => void;
 }) {
   return (
     <div
@@ -156,13 +218,20 @@ function Row({
         <p className="truncate text-sm text-(--ink)">{title}</p>
         <p className="truncate text-xs text-(--mute)">{detail}</p>
       </div>
-      <Link
-        href={href}
-        onClick={onOpen}
-        className={buttonVariants({ variant: "ghost", size: "sm" })}
-      >
-        Open
-      </Link>
+      <div className="flex shrink-0 items-center gap-1">
+        {onCorrect ? (
+          <Button variant="ghost" size="sm" onClick={onCorrect} title="Overrule this answer">
+            Correct
+          </Button>
+        ) : null}
+        <Link
+          href={href}
+          onClick={onOpen}
+          className={buttonVariants({ variant: "ghost", size: "sm" })}
+        >
+          Open
+        </Link>
+      </div>
     </div>
   );
 }

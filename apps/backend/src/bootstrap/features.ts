@@ -2732,6 +2732,37 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       db,
       agentRunService,
       agentRunExecution,
+      // ADR 0075 P4b: correct a machine answer. The row keeps its id; the
+      // audit flips to `user`; the WORKER hears it in its own room, so the
+      // correction is not a note the machine made to itself.
+      correctAnswer: async ({ actionId, response }) => {
+        const action = await agentRunPort.getPendingAction(actionId);
+        if (action === null) return { ok: false as const, error: "request not found" };
+        if (action.status !== "resolved") {
+          return { ok: false as const, error: "only a resolved request can be corrected" };
+        }
+        const answeredBy = action.answeredBy ?? null;
+        if (answeredBy === null || answeredBy === "user") {
+          return { ok: false as const, error: "no agent answer to correct" };
+        }
+        if (agentRunPort.correctActionResponse === undefined) {
+          return { ok: false as const, error: "correction is not supported by this port" };
+        }
+        await agentRunPort.correctActionResponse(actionId, response);
+        const run = await agentRunPort.getRun(action.runId).catch(() => null);
+        if (run === null) return { ok: true as const };
+        await conv.convSvc.postMessage({
+          conversationId: run.conversationId,
+          senderMemberId: "user",
+          addressedTo: [run.agentId],
+          content: [
+            `【更正】你之前请求 ${actionId} 的回答已由人更正。`,
+            "以这次的内容为准，重做受影响的部分；如有冲突，说明你按哪一条执行。",
+            `更正内容：${JSON.stringify(response).slice(0, 800)}`,
+          ].join("\n"),
+        });
+        return { ok: true as const };
+      },
       // ponytail: catalog prices snapshotted once per boot; catalogs are
       // static for the process lifetime (env/config driven).
       // The catch is load-bearing, not decoration: this promise is BORN at
