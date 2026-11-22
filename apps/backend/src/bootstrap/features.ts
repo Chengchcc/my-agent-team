@@ -60,6 +60,10 @@ import { createNotifyDispatcher } from "../features/agent-run/notify-dispatcher.
 import type { BackendRegistry } from "../features/agent-run/protocol/index.js";
 import type { RecallHit } from "../features/agent-run/recall.js";
 import { requestOwnerOf } from "../features/agent-run/request-owner.js";
+import {
+  isIrreversibleRequest,
+  isStatusQuestion,
+} from "../features/agent-run/routing-observations.js";
 import { endsWithQuestion, lastParagraph } from "../features/agent-run/unasked-question.js";
 import {
   chatUri,
@@ -1444,6 +1448,40 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           services.opsStore.appendRunEvent(runId, "unasked_question", {
             tail: lastParagraph(answer).slice(0, 200),
           });
+        } catch {
+          /* an observation must never disturb the turn */
+        }
+      })();
+      // Observation (ADR 0075): the two boundaries the slot fix did not
+      // repair. Counted separately so the rate of each is readable.
+      void (async () => {
+        try {
+          const role = (await agentSvc.getById(run.agentId).catch(() => null))?.config.role;
+          if (role === "worker") return;
+          const inputs = await agentRunService.listInputs(run.branchId).catch(() => []);
+          const mine = inputs.find((i) => i.runId === runId);
+          const requestText = typeof mine?.message?.text === "string" ? mine.message.text : "";
+          if (requestText === "") return;
+          const dispatchedRows = db
+            .query(
+              "SELECT 1 FROM product_tool_call WHERE run_id = ? AND tool_name = 'dispatch' LIMIT 1",
+            )
+            .all(runId);
+          const dispatched = dispatchedRows.length > 0;
+          const pending = await agentRunPort.listPendingActions(runId).catch(() => []);
+          const decided = await agentRunPort.listDecidedActions(runId).catch(() => []);
+          const asked =
+            pending.some((a) => a.kind === "ask") || decided.some((d) => d.kind === "ask");
+          if (isIrreversibleRequest(requestText) && !asked && !dispatched) {
+            services.opsStore.appendRunEvent(runId, "irreversible_unasked", {
+              head: requestText.slice(0, 160),
+            });
+          }
+          if (isStatusQuestion(requestText) && dispatched) {
+            services.opsStore.appendRunEvent(runId, "status_question_dispatched", {
+              head: requestText.slice(0, 160),
+            });
+          }
         } catch {
           /* an observation must never disturb the turn */
         }

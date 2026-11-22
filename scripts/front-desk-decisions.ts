@@ -183,7 +183,19 @@ interface Outcome {
  *  every real dispatch was read as ANSWER (live 2026-11-22: 4/10 reported while
  *  five of the "misses" had `origin=dispatch` children). A broken ruler is
  *  worse than no ruler: it reports a product failure that does not exist. */
-async function classify(conversationId: string): Promise<Outcome> {
+async function childRoomsOf(conversationId: string): Promise<string[]> {
+  const conversations = await api<{
+    conversations?: Array<{ conversationId: string; parentConversationId?: string | null }>;
+  }>("/api/conversations");
+  return (conversations.conversations ?? [])
+    .filter((c) => c.parentConversationId === conversationId)
+    .map((c) => c.conversationId);
+}
+
+/** `baseline` = children that already existed before this case: a shared room
+ *  accumulates them, and counting the room's whole history would report every
+ *  later ANSWER as a DISPATCH. */
+async function classify(conversationId: string, baseline?: ReadonlySet<string>): Promise<Outcome> {
   const [{ runs }, conversations] = await Promise.all([
     api<{ runs: RunRow[] }>(`/api/agent-runs?conversationId=${encodeURIComponent(conversationId)}`),
     api<{
@@ -197,8 +209,9 @@ async function classify(conversationId: string): Promise<Outcome> {
   const children = (conversations.conversations ?? []).filter(
     (c) => c.parentConversationId === conversationId,
   );
-  if (children.length > 0) {
-    return { verdict: "DISPATCH", detail: `${children.length} child room(s)` };
+  const fresh = children.filter((c) => baseline === undefined || !baseline.has(c.conversationId));
+  if (fresh.length > 0) {
+    return { verdict: "DISPATCH", detail: `${fresh.length} new child room(s)` };
   }
   const paused = runs.find((r) => r.status === "waiting");
   if (paused) return { verdict: "ASK", detail: `run ${paused.runId.slice(0, 8)} is waiting` };
@@ -215,15 +228,31 @@ console.log(`worker workspace snapshot: ${SNAPSHOT}\n`);
 const suffix = Math.random().toString(36).slice(2, 6);
 const withName = (text: string) => text.replaceAll("{{fn}}", `fn_${suffix}`);
 
+// `--shared`: every case runs in ONE room, the way a human actually uses the
+// product. A fresh room per case measures the model with NO history; the real
+// failure ("it answers because it remembers answering") only shows up once the
+// room has a past. Both modes are useful; the report says which one it was.
+const shared = args.includes("--shared");
+const sharedRoom = shared
+  ? await api<{ conversationId: string }>("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({ agentId: "default" }),
+    })
+  : null;
+if (sharedRoom) console.log(`shared room: ${sharedRoom.conversationId}\n`);
+
 for (const raw of cases.slice(0, only)) {
   const c: Case = { ...raw, text: withName(raw.text) };
   // Every case starts from the snapshot: "the work already exists" must never
   // be the reason a dispatch did not happen.
   restoreWorkerWorkspace();
-  const room = await api<{ conversationId: string }>("/api/conversations", {
-    method: "POST",
-    body: JSON.stringify({ agentId: "default" }),
-  });
+  const room =
+    sharedRoom ??
+    (await api<{ conversationId: string }>("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({ agentId: "default" }),
+    }));
+  const baseline = new Set(await childRoomsOf(room.conversationId));
   await api(`/api/conversations/${room.conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify({ content: c.text }),
@@ -232,7 +261,10 @@ for (const raw of cases.slice(0, only)) {
   const got =
     status === "waiting"
       ? { verdict: "ASK" as const, detail: "parked" }
-      : await classify(room.conversationId);
+      : await classify(room.conversationId, baseline);
+  // In a shared room the child-room check reads the room's WHOLE history, so a
+  // dispatch from an earlier case would mark later answers as DISPATCH. Count
+  // only children created after this case started.
   const ok = got.verdict === c.expect;
   const reply = lastAssistantText(room.conversationId);
   results.push({ c, got, ok, reply });
