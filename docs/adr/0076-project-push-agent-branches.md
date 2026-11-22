@@ -71,6 +71,20 @@ worker 改的是自己的 clone  →  ???  →  GitHub
 - 在 `deny_write_paths` 里显式加入真仓库根与 `.backend-data`（至少挡住文件工具）；
 - bash 的路径级只读需要沙箱支持（bwrap 只读 bind 或 cwd 锁），列为独立的收口项——它与本 ADR 的 push 通道互补：**该改的走 push，不该碰的物理上碰不到**。
 
+## 前置：交付物必须是 artifact（H1，已落地）
+
+回写之前，"派单"必须先能**产出可交接的东西**。2026-11-22 的 chain 探针给出了缺口：研究员把报告写成了聊天文本，`artifacts/` 下没有新增，于是"交接"没有可交接的物。
+
+- 派单 brief 新增 `<delivery>`：非 answer 的交付必须 `artifact_upload`（folder 用需求 id 或任务名），最终回答附 `artifacts://` 路径；
+- 工人终态帧新增 `<artifacts>`：后端从 `product_tool_call` 里读该 run 的上传记录，把 URL 原样回传，并注明"下一步要的是 URL，不是复述"。
+
+## 计划要随唤醒一起回来（H2，已落地）
+
+计划若只活在提示词里，工人回来时唤醒的是一次**全新调用**，计划已经不在了——chain 停在这一步。
+
+- 纪律：多步任务先 `todo_write`（每步一个 item，标明谁做），再派第一步；
+- 结构：工人终态唤醒派单者时附 `<plan>`（派单者最近一次 run 的 `todo_snapshot`），并写明"计划还有未完成项 ⇒ 带着 artifacts 直接派下一步，不要回来问人"。
+
 ## 不做什么
 
 - 不做自动合并、不自动开 PR（v2：拿 compare URL 人点一下即可）；

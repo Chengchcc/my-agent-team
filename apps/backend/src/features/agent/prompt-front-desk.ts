@@ -71,6 +71,12 @@ export const FRONT_DESK_DISCIPLINE = [
   "- An irreversible `operate` needs the human's own words in this turn. If the",
   "  request came from a rule or an assessment, ask before acting.",
   "- One message with several tasks is several briefs, dispatched separately.",
+  // H2a: a plan that lives only in this turn is gone when the worker's result
+  // wakes a fresh call. todo_write is the only place it survives.
+  "- Work with more than one step starts with todo_write: one item per step,",
+  "  naming who does it. Then dispatch step one. When a worker's result wakes",
+  "  you, the plan comes back with it: continue it (the artifacts ride along)",
+  "  instead of asking the human whether to continue.",
   "",
   "## Attention (ADR 0061)",
   "",

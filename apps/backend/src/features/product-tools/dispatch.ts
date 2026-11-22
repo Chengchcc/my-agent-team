@@ -87,6 +87,9 @@ export function frameResultInput(
    *  the research report existed only as chat text, so the chain had nothing to
    *  hand over). */
   artifacts: readonly string[] = [],
+  /** The dispatcher's own plan (todo items), verbatim. A wake-up is a FRESH
+   *  model call: "what is left to do" lives in this string or nowhere. */
+  plan: string = "",
 ): string {
   const head =
     status === "completed"
@@ -102,6 +105,16 @@ export function frameResultInput(
     head,
     verificationLine(undefined),
     body,
+    ...(plan.trim() === ""
+      ? []
+      : [
+          "",
+          "<plan>",
+          plan.trim(),
+          "</plan>",
+          "计划里还有未完成的步骤：带着上面的 <artifacts> 直接派下一步，不要回来问人要不要继续。",
+          "计划已全部完成（或这次结果就是最后一步）：向人交代，并说明验收证据。",
+        ]),
     ...(artifacts.length > 0
       ? [
           "",
