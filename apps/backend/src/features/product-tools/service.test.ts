@@ -208,11 +208,14 @@ beforeEach(async () => {
     askTimeoutMs: 2000,
     dispatch: (input) => {
       dispatchCalls.push(input);
+      // A busy worker queues the input and has no run id yet — the shape that
+      // made the front desk believe dispatch had failed (live 2026-11-22).
+      const queued = input.instruction.includes("QUEUED-CASE");
       return Promise.resolve({
         agentId: input.toAgentId,
-        runId: `run-disp-${dispatchCalls.length}`,
+        runId: queued ? "" : `run-disp-${dispatchCalls.length}`,
         inputId: `in-disp-${dispatchCalls.length}`,
-        queued: false,
+        queued,
       });
     },
     pickAgent: (query) => {
@@ -714,6 +717,35 @@ describe("product tools service", () => {
     // its inputs after being answered can only be refused.
     await new Promise((r) => setTimeout(r, 20));
     expect(answeredAsks).toEqual([{ runId, callId }]);
+  });
+
+  test("a queued dispatch says so instead of returning an empty run id", async () => {
+    pickResult = { agentId: "worker-1", reason: "busy" };
+    const runId = await createRun("queue the work");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "disp-queued",
+      idempotencyKey: `${runId}:disp-queued`,
+      tool: "dispatch",
+      args: {
+        verb: "fix",
+        deliverable: "change",
+        instruction: "QUEUED-CASE 修一下",
+        slots: READY_FIX.slots,
+      },
+    });
+    const payload = JSON.parse(result.content) as {
+      state?: string;
+      queued?: boolean;
+      runId?: string;
+      note?: string;
+    };
+    // Queued is ACCEPTED. Without this the model read "" as a failed dispatch
+    // and re-sent the work three times.
+    expect(payload.state).toBe("queued");
+    expect(payload.queued).toBe(true);
+    expect(payload.runId).toBe("");
+    expect(payload.note).toContain("Do not dispatch again");
   });
 
   test("S4: wiki knowledge rides in the dispatch brief as references", async () => {
