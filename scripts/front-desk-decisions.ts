@@ -175,16 +175,33 @@ interface Outcome {
   detail: string;
 }
 
-/** DISPATCH = a run in this room carries a parent (ADR 0051/0070: the dispatch
- *  opened a room and the worker's run names it); ASK = parked; else ANSWER. */
+/** DISPATCH = a child room was opened under this room (ADR 0070), ASK = the
+ *  run PARKED, else ANSWER.
+ *
+ *  The old check looked for a run with a parentRunId INSIDE this room — true
+ *  before ADR 0070, false after: the worker's run lives in the child room, so
+ *  every real dispatch was read as ANSWER (live 2026-11-22: 4/10 reported while
+ *  five of the "misses" had `origin=dispatch` children). A broken ruler is
+ *  worse than no ruler: it reports a product failure that does not exist. */
 async function classify(conversationId: string): Promise<Outcome> {
-  const { runs } = await api<{ runs: RunRow[] }>(
-    `/api/agent-runs?conversationId=${encodeURIComponent(conversationId)}`,
+  const [{ runs }, conversations] = await Promise.all([
+    api<{ runs: RunRow[] }>(`/api/agent-runs?conversationId=${encodeURIComponent(conversationId)}`),
+    api<{
+      conversations?: Array<{
+        conversationId: string;
+        parentConversationId?: string | null;
+        origin?: string;
+      }>;
+    }>("/api/conversations"),
+  ]);
+  const children = (conversations.conversations ?? []).filter(
+    (c) => c.parentConversationId === conversationId,
   );
+  if (children.length > 0) {
+    return { verdict: "DISPATCH", detail: `${children.length} child room(s)` };
+  }
   const paused = runs.find((r) => r.status === "waiting");
   if (paused) return { verdict: "ASK", detail: `run ${paused.runId.slice(0, 8)} is waiting` };
-  const child = runs.find((r) => typeof r.parentRunId === "string" && r.parentRunId !== "");
-  if (child) return { verdict: "DISPATCH", detail: `child run ${child.runId.slice(0, 8)}` };
   return { verdict: "ANSWER", detail: `run ${runs[0]?.runId.slice(0, 8) ?? "-"}` };
 }
 
