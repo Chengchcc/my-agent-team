@@ -25,8 +25,18 @@ if (!TOKEN) {
 const DB = join(import.meta.dir, "../apps/backend/.backend-data/backend.db");
 
 const args = process.argv.slice(2);
-const scenario = (args[args.indexOf("--scenario") + 1] ?? "chain") as "chain" | "fanout";
+const scenario = (args[args.indexOf("--scenario") + 1] ?? "chain") as "chain" | "fanout" | "topics";
 const timeoutSec = Number(args[args.indexOf("--timeout") + 1] ?? "480");
+
+const TOPIC_TURNS = [
+  // Turn 1 starts a work topic...
+  "修一下 worker-one 里 greet 空名字会输出畸形字符串的 bug，配一条测试。",
+  // ...turn 2 switches to an unrelated concept question. The front desk must
+  // recognise the switch: answering is right; dragging the bug along is not.
+  "顺便问一下：round-robin 和 least-connections 在负载均衡里有什么区别？",
+  // ...turn 3 is a preference note, not more work.
+  "记一下：我偏好简短回答。",
+] as const;
 
 const MESSAGES: Record<"chain" | "fanout", string> = {
   chain:
@@ -91,6 +101,52 @@ function runStatuses(conversationId: string): string[] {
     .query(`SELECT status FROM agent_run WHERE conversation_id = ? ORDER BY created_at ASC`)
     .all(conversationId) as Array<{ status: string }>;
   return rows.map((r) => r.status);
+}
+
+if (scenario === "topics") {
+  const topicsRoom = await api<{ conversationId: string }>("/api/conversations", {
+    method: "POST",
+    body: JSON.stringify({ agentId: "default" }),
+  });
+  console.log(`scenario=topics room=${topicsRoom.conversationId}\n`);
+  const turns: Array<{ text: string; verdict: string; contaminated: boolean; reply: string }> = [];
+  for (const text of TOPIC_TURNS) {
+    const before = new Set(await childRoomsOf(topicsRoom.conversationId));
+    await api(`/api/conversations/${topicsRoom.conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content: text }),
+    });
+    // Bounded settle: this loop is about the DECISION and the reply, not about
+    // waiting out a worker.
+    const deadlineAt = Date.now() + 180_000;
+    let status = "unknown";
+    while (Date.now() < deadlineAt) {
+      const { runs } = await api<{ runs: Array<{ status: string }> }>(
+        `/api/agent-runs?conversationId=${encodeURIComponent(topicsRoom.conversationId)}`,
+      );
+      status = runs[0]?.status ?? "none";
+      if (status !== "running") break;
+      await Bun.sleep(5000);
+    }
+    const verdict =
+      status === "waiting" ? "ASK" : (await classify(topicsRoom.conversationId, before)).verdict;
+    const reply = lastAssistantText(topicsRoom.conversationId);
+    // Contamination: a later turn should not keep talking about greet.
+    const isWorkTurn = text === TOPIC_TURNS[0];
+    const contaminated = !isWorkTurn && /greet/i.test(reply);
+    turns.push({ text: text.slice(0, 40), verdict, contaminated, reply: reply.slice(0, 220) });
+    console.log(
+      `${isWorkTurn ? "work " : "topic"} verdict=${verdict.padEnd(8)} contaminated=${contaminated} | ${text.slice(0, 30)}`,
+    );
+  }
+  const report = { scenario, room: topicsRoom.conversationId, turns };
+  console.log(JSON.stringify(report, null, 2));
+  await Bun.write(
+    join(import.meta.dir, "handoff-decisions.report.json"),
+    JSON.stringify(report, null, 2),
+  );
+  db.close();
+  process.exit(0);
 }
 
 const started = Date.now();
