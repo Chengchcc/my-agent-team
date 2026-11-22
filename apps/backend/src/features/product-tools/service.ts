@@ -1104,7 +1104,9 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     // ADR 0074: a dispatched run belongs to a tracked item (named id → the
     // conversation's newest open item → one created from the brief). Best
     // effort: a tracking failure must not fail the work itself.
-    if (deps.requirements) {
+    // A queued dispatch has NO run yet (the worker's branch is busy): linking an
+    // empty run id is a no-op that reads like success. Link only when started.
+    if (deps.requirements && triggered.runId !== "") {
       try {
         const named =
           typeof input.args.requirement === "string" ? input.args.requirement.trim() : "";
@@ -1124,9 +1126,22 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       }
     }
 
-    // Tell the caller WHO took it and why — an unnamed dispatch must not be
-    // a silent substitution.
-    const result = JSON.stringify({ ...triggered, ...(poolReason ? { picked: poolReason } : {}) });
+    // Tell the caller WHO took it, WHY, and — the part that was missing —
+    // WHETHER it started. Live 2026-11-22 a busy worker made the dep return
+    // `runId: ""` + `queued: true`; the front desk read the empty id as a
+    // failure, re-dispatched three times and told the human the chain was
+    // broken. Queued is ACCEPTED, not failed.
+    const state = triggered.runId !== "" ? "started" : triggered.queued ? "queued" : "not_started";
+    const result = JSON.stringify({
+      state,
+      ...triggered,
+      ...(state === "queued"
+        ? {
+            note: "accepted and queued behind the worker's current turn; it WILL run. Do not dispatch again — report the queue to the human.",
+          }
+        : {}),
+      ...(poolReason ? { picked: poolReason } : {}),
+    });
     await callPort.recordCall({
       runId: run.runId,
       callId: input.callId,
