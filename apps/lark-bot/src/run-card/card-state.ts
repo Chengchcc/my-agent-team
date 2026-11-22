@@ -305,7 +305,11 @@ export function cardStateFromChatTurn(
     }
     if (kind === "inputRequest" && "request" in part) {
       // An answered request is not pending any more: the card stops offering it.
-      if ("response" in part && part.response !== undefined) continue;
+      // `null` is NOT an answer — the projection writes `response: action.response
+      // ?? null` for every pending action, so testing "field present" dropped
+      // EVERY live question and the card sat on "thinking" while the run was
+      // parked (live 2026-11-22). Only a real response closes the frame.
+      if ("response" in part && part.response !== undefined && part.response !== null) continue;
       const request = part.request;
       // `_meta` rides a shape upstream gives no slot to; the page records that convention.
       const requestMeta = recordOf(recordOf(request)?._meta);

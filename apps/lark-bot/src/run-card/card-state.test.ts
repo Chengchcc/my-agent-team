@@ -280,3 +280,43 @@ describe("the card state from a chat turn", () => {
     expect(cardStateFromChatTurn(state({}), "run-1")).toBeUndefined();
   });
 });
+
+describe("ADR 0075: a null response is not an answer (live 2026-11-22)", () => {
+  test("a pending question with response:null still renders as waiting", () => {
+    // The backend projection writes `response: action.response ?? null` for
+    // every pending action. Testing "field present" treated that as answered,
+    // so the card never showed the question and sat on "thinking" forever.
+    const chat = {
+      turns: [
+        {
+          id: "run-null",
+          startedAt: new Date(0).toISOString(),
+          message: { text: "", origin: { kind: "user" } },
+          usage: undefined,
+          state: "running",
+          responseParts: [
+            {
+              kind: "inputRequest",
+              // The wire shape: the product request rides `_meta`, and
+              // `message` names the pending-action kind.
+              request: {
+                message: "ask",
+                _meta: {
+                  productRequest: {
+                    callId: "call-1",
+                    questions: [{ id: "q1", kind: "text", question: "which one?" }],
+                  },
+                },
+              },
+              response: null,
+            },
+          ],
+        },
+      ],
+      activeTurn: undefined,
+    } as unknown as Parameters<typeof cardStateFromChatTurn>[0];
+    const state = cardStateFromChatTurn(chat, "run-null");
+    expect(state?.pendingAction?.kind).toBe("ask");
+    expect(state?.waiting).toBe("ask");
+  });
+});
