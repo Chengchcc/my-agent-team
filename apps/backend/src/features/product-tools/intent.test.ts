@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { frameResultInput } from "./dispatch.js";
 import {
   describeMissing,
   frameBrief,
@@ -138,6 +139,56 @@ describe("ADR 0054 dispatch facets", () => {
     expect(framed).toContain("<note>来自值班群</note>");
     expect(framed).toContain("<original_request>\n点登录转圈，帮我修一下\n</original_request>");
     expect(framed.endsWith("</dispatch>")).toBe(true);
+  });
+});
+
+describe("ADR 0075/0076: the deliverable is an artifact, and it rides the handoff", () => {
+  test("the brief demands an uploaded artifact for non-answer work", () => {
+    const parsed = parseBrief({
+      verb: "investigate",
+      deliverable: "report",
+      object: "my-agent-team README 首屏",
+      objectKind: "doc",
+      slots: {},
+    });
+    if (!parsed.ok) throw new Error("fixture");
+    const framed = frameBrief({
+      fromAgentId: "default",
+      brief: parsed.brief,
+      instruction: "调研一下首屏该怎么写",
+    });
+    expect(framed).toContain("<delivery>");
+    expect(framed).toContain("artifact_upload");
+    // A handoff needs the URL, not a retelling.
+    expect(framed).toContain("不是你的复述");
+  });
+
+  test("an answer brief asks for no artifact", () => {
+    const parsed = parseBrief({
+      verb: "answer",
+      deliverable: "answer",
+      object: "负载均衡",
+      objectKind: "other",
+      slots: {},
+    });
+    if (!parsed.ok) throw new Error("fixture");
+    const framed = frameBrief({
+      fromAgentId: "default",
+      brief: parsed.brief,
+      instruction: "讲讲区别",
+    });
+    expect(framed).not.toContain("<delivery>");
+  });
+
+  test("the terminal frame carries uploaded URLs as references for the next step", () => {
+    const framed = frameResultInput("researcher", "completed", "报告完成", [
+      "artifacts://readme-plan/plan.md",
+    ]);
+    expect(framed).toContain("<artifacts>");
+    expect(framed).toContain("artifacts://readme-plan/plan.md");
+    expect(framed).toContain("references");
+    // Without uploads there is no empty block pretending one happened.
+    expect(frameResultInput("researcher", "completed", "报告完成")).not.toContain("<artifacts>");
   });
 });
 

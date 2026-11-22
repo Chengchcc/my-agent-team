@@ -856,6 +856,32 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     markNotified: (runId) => agentRunPort.markResultNotified(runId),
   });
 
+  /** Artifact URLs a run uploaded. Read from the product-tool ledger: the
+   *  upload result is the only place the URL is recorded, and a chain that
+   *  hands the next step a paraphrase instead of the URL loses the deliverable
+   *  (live 2026-11-22: the research report existed only as chat text). */
+  const artifactUrlsOf = (runId: string): string[] => {
+    const rows = db
+      .query(
+        "SELECT result FROM product_tool_call WHERE run_id = ? AND tool_name = 'artifact_upload'",
+      )
+      .all(runId) as Array<{ result: string | null }>;
+    const urls: string[] = [];
+    for (const row of rows) {
+      if (row.result === null) continue;
+      try {
+        const parsed: unknown = JSON.parse(row.result);
+        if (typeof parsed === "object" && parsed !== null && "url" in parsed) {
+          const url = parsed.url;
+          if (typeof url === "string" && url.startsWith("artifacts://")) urls.push(url);
+        }
+      } catch {
+        /* a malformed row is skipped, never fatal */
+      }
+    }
+    return urls;
+  };
+
   /** ADR 0075: a parked request goes to its owner.
    *
    *  - dispatched work: wake the dispatcher IN ITS OWN ROOM with the request
@@ -1524,7 +1550,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           fromAgentId: run.agentId,
           conversationId: run.conversationId,
           runId,
-          text: frameResultInput(run.agentId, "completed", extractText(output)),
+          // ADR 0075/0076: carry the deliverables, not a description of them.
+          text: frameResultInput(
+            run.agentId,
+            "completed",
+            extractText(output),
+            artifactUrlsOf(runId),
+          ),
           wake: true,
         });
       }
