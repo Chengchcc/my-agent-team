@@ -1,19 +1,27 @@
 {
   "scenario": "chain",
-  "room": "696fea1f550e4eaea5c66349ac",
-  "settled": false,
-  "elapsedSec": 270,
+  "room": "5c777af0c89a4687842b184e5c",
+  "settled": true,
+  "elapsedSec": 380,
   "children": [
     {
       "agentId": "researcher",
-      "atSec": 25,
+      "atSec": 31,
       "artifactRef": null,
       "wikiRef": null,
-      "task": null
+      "task": "<task verb=\"investigate\" deliverable=\"report\" object-kind=\"other\" object=\"同类 AI agent / agent 框架项目的 README 首屏\">"
+    },
+    {
+      "agentId": "adce782188a740b18e764cdc08",
+      "atSec": 31,
+      "artifactRef": null,
+      "wikiRef": null,
+      "task": "<task verb=\"investigate\" deliverable=\"report\" object-kind=\"other\" object=\"my-agent-team 的 README 首屏与文档门禁\">"
     }
   ],
-  "agents": ["researcher"],
+  "agents": ["researcher", "adce782188a740b18e764cdc08"],
   "runStatuses": {
-    "researcher": ["completed"]
+    "researcher": ["completed"],
+    "adce782188a740b18e764cdc08": ["completed"]
   }
 }
