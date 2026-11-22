@@ -268,6 +268,8 @@ export async function watchRunCard(
   let state: RunCardState;
   /** Set once the card reached its terminal frame; the watchdog stops there. */
   let sealedOnce = false;
+  /** One DONE reaction per run (the swap adds unconditionally). */
+  let terminalReactionLeft = false;
   if (existing) {
     state = {
       ...initialRunCardState(),
@@ -399,8 +401,17 @@ export async function watchRunCard(
   /** Terminal feedback: take the acknowledgement back and leave a DONE.
    *  Best effort — the card is already the source of truth by now. */
   async function leaveTerminalReaction(): Promise<void> {
+    // ONE swap per run. The swap ADDS the DONE reaction unconditionally, so a
+    // second call (a watcher resync replays the terminal state every few
+    // minutes) added another DONE — live 2026-11-22 the user received one every
+    // five minutes on the same message. `ackReactionId === null` means there is
+    // nothing to swap (already swapped, or the ack never landed): adding DONE
+    // would be a duplicate either way.
+    if (terminalReactionLeft) return;
+    terminalReactionLeft = true;
     if (!sourceMessageId) return;
     if (ackPending) await ackPending;
+    if (ackReactionId === null) return;
     const outcome = await swapAckReaction(cardClient, {
       messageId: sourceMessageId,
       ackReactionId,
