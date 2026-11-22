@@ -78,7 +78,16 @@ export function frameHandbackInput(
 /** ADR 0059 D5: a dispatched worker reached a terminal state. Compact on
  *  purpose — who finished, how, and enough text for the dispatcher to write
  *  the human one sentence of its own (never a forward, never a transcript). */
-export function frameResultInput(workerAgentId: string, status: string, text: string): string {
+export function frameResultInput(
+  workerAgentId: string,
+  status: string,
+  text: string,
+  /** Deliverables the worker uploaded. Carrying them is the difference between
+   *  handing the next step an artifact and paraphrasing one (live 2026-11-22:
+   *  the research report existed only as chat text, so the chain had nothing to
+   *  hand over). */
+  artifacts: readonly string[] = [],
+): string {
   const head =
     status === "completed"
       ? `（${workerAgentId} 完成了你派给它的活）`
@@ -93,6 +102,15 @@ export function frameResultInput(workerAgentId: string, status: string, text: st
     head,
     verificationLine(undefined),
     body,
+    ...(artifacts.length > 0
+      ? [
+          "",
+          "<artifacts>",
+          ...artifacts.map((url) => `- ${url}`),
+          "</artifacts>",
+          "下一步如果要用这份产物，把上面这些 URL 原样放进派单的 references，不要复述内容。",
+        ]
+      : []),
     "",
     "这是你派出去的工作的结果：向人交代，或继续处理。没有验收证据时不得说『已完成』。",
   ].join("\n");

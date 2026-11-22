@@ -245,6 +245,14 @@ export function frameBrief(input: {
       .map(([key, value]) => `${key}="${value}"`);
     if (attrs.length > 0) lines.push(`<meta ${attrs.join(" ")} />`);
   }
+  if (brief.deliverable !== "answer") {
+    lines.push(
+      "<delivery>",
+      "成品用 artifact_upload 上传（folder 用需求 id 或任务名），并在最终回答里附上 artifacts:// 路径。",
+      "交接给下一步时，对方要的是那个 URL，不是你的复述。",
+      "</delivery>",
+    );
+  }
   if (note) lines.push(`<note>${note}</note>`);
   lines.push(
     "<original_request>",
