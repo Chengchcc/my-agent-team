@@ -32,7 +32,8 @@
   {
     "id": "ask-missing-slot",
     "text": "给 greet 加点测试。",
-    "expect": "ASK"
+    "expect": "DISPATCH",
+    "why": "给 greet 加测试的信息足够（对象在话里，位置是仓库）——槽位修复后应直接派"
   },
   {
     "id": "work-irreversible",
