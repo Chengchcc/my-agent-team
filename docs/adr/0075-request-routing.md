@@ -122,7 +122,13 @@ P1+P2 不改变任何现有语义，只补通道与上下文，可以先上。
 1. **卡片永远"思考中"**：卡片只在聊天通道的终态帧到达时封口，而那一帧可能丢——run 早已 completed。现在有 15 秒一次的终态看门狗，用后端自己的 `status` 封口（`completed/aborted/failed/timeout` 映射有测试，`aborted` 记"已停止"而非"失败"）。
 2. **收件箱把前台自己的请求也列给人类**：`awaitingYou` 现在按 `owner IS NULL OR 'user'` 过滤；`waitingAgent` 带 `owner/answeredBy`，人能看到"这条前台正在处理"。
 
-**仍缺**：Web 收件箱尚未把 `owner/answeredBy/evidence` 渲染出来（数据已从 API 返回）；"纠正并重开"未做。
+**P4 已完成**：
+
+- 收件箱三项更新：`awaitingYou` 按 `owner = user` 过滤（前台自己的请求不再冒充"待你处理"）；`waitingAgent` 显示 `answeredBy` 与第一条 `evidence`；标题显示请求本身（命令原文 / 问题原文），不再是"A question for you"。
+- **纠正（P4b）**：`POST /api/attention/:actionId/correct`，只对"机器答过、且已 resolved"的行生效；同一行保留 id，`answered_by` 翻成 `user`，并**向 worker 自己的房间**投一条【更正】（"以这次为准，重做受影响的部分；有冲突说明按哪条执行"）——worker 听不到的更正是机器给自己写的便条。Web 收件箱的 "Correct" 按钮走同一个接口。
+- 测试：适配器层钉住"更正后 answeredBy=user、response 换成人的答案"。
+
+**仍未做**：`wait_for`（前台在同一轮里等结果，卡片保持"执行中"）。不做是因为当前"先收口、结果回来新起一轮"已经覆盖多数场景；一旦出现"必须同一轮汇总"的真实需求再加。
 
 ## 待确认（默认即决策，除非另行指定）
 
