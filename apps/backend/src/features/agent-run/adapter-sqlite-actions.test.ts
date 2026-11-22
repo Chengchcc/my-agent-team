@@ -37,6 +37,43 @@ describe("ADR 0075: a request records WHO should answer it", () => {
   });
 });
 
+describe("ADR 0075 P4b: a correction keeps the row and flips the audit", () => {
+  test("the stored response becomes the human's, attributed to user", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("pa-correct");
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "t" },
+      inputIdempotencyKey: "ikey-correct",
+      runIdempotencyKey: "rkey-correct",
+      deliveryIdempotencyKey: "dkey-correct",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      authorization: "dispatch:pa-front",
+    });
+    const runId = res.run!.runId;
+    await runPort.createPendingAction(runId, {
+      actionId: "action-correct",
+      kind: "approval",
+      payload: {},
+    });
+    await runPort.consumePendingAction(
+      "action-correct",
+      { actionId: "action-correct", response: { decision: "allow" } },
+      "resp-correct",
+    );
+    await runPort.markActionAnswered?.("action-correct", "agent:pa-front", ["brief:x"]);
+    // The person overrules the machine: same row, new answer, new author.
+    await runPort.correctActionResponse?.("action-correct", { decision: "deny" });
+    const after = await runPort.getPendingAction("action-correct");
+    expect(after?.answeredBy).toBe("user");
+    expect(after?.response).toEqual({ decision: "deny" });
+  });
+});
+
 describe("Agent Run: PendingAction consume-once", () => {
   test("create and consume pending action", async () => {
     const { conversationId, agentId, branch } = await setupBranch("pa1");

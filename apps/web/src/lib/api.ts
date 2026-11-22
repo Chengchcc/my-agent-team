@@ -263,6 +263,9 @@ export const api = {
         directToWorker: true,
       }),
     ),
+  /** ADR 0075 P4b: correct a machine answer to a request. */
+  correctAttention: (actionId: string, response: unknown) =>
+    unwrap(client.api.attention({ actionId }).correct.post({ response } as never)),
   /** ADR 0074 S3: the wiki (read-only over HTTP — writes go through tools). */
   listWikiPages: () => unwrap(client.api.wiki.pages.get()),
   getWikiPage: (path: string) => unwrap(client.api.wiki.page.get({ query: { path } })),

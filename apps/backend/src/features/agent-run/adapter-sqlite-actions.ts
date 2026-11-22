@@ -17,6 +17,7 @@ type ActionMethods = Pick<
   AgentRunPort,
   | "createPendingAction"
   | "markActionAnswered"
+  | "correctActionResponse"
   | "consumePendingAction"
   | "getPendingAction"
   | "listPendingActions"
@@ -89,6 +90,13 @@ export function createActionMethods(
           .get()!;
         return parsePendingAction(row);
       })();
+    },
+
+    async correctActionResponse(actionId, response) {
+      d.update(schema.pendingAction)
+        .set({ response: JSON.stringify(response), answeredBy: "user" })
+        .where(eq(schema.pendingAction.actionId, actionId))
+        .run();
     },
 
     async markActionAnswered(actionId, answeredBy, evidence) {

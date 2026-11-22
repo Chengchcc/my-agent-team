@@ -106,6 +106,12 @@ export function agentRunRoutes(input: {
   budgetGate?: {
     dailyStatus(): Promise<{ spentUsd: number; capUsd: number | null }>;
   };
+  /** ADR 0075 P4b: correct a machine answer. The deployment owns the port
+   *  write and the delivery (the worker's room), because both live there. */
+  correctAnswer?: (input: {
+    actionId: string;
+    response: unknown;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
 }) {
   const { db, agentRunService, agentRunExecution, modelCosts } = input;
 
@@ -460,6 +466,22 @@ export function agentRunRoutes(input: {
         };
       })
       // Opening something marks it looked at. One endpoint, three scopes.
+      .post(
+        "/api/attention/:actionId/correct",
+        async ({ params: { actionId }, body, set }) => {
+          if (!input.correctAnswer) {
+            set.status = 501;
+            return { error: "correction is not configured on this backend" };
+          }
+          const result = await input.correctAnswer({ actionId, response: body.response });
+          if (!result.ok) {
+            set.status = 409;
+            return { error: result.error };
+          }
+          return { ok: true, actionId };
+        },
+        { body: t.Object({ response: t.Unknown() }) },
+      )
       .post(
         "/api/attention/seen",
         ({ body }) => {
