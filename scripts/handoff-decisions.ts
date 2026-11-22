@@ -72,9 +72,14 @@ function childrenOf(parent: string): Child[] {
       // Boundary narrowing, not an assertion: the ledger row is JSON we wrote,
       // but a malformed row must degrade to "" instead of throwing here.
       const parsed: unknown = JSON.parse(first.content);
-      if (typeof parsed === "object" && parsed !== null && "content" in parsed) {
-        const content = parsed.content;
-        if (typeof content === "string") text = content;
+      // The ledger row carries the words under `text` (agent-ledger shape);
+      // older rows used `content`. Read both, without asserting a shape.
+      if (typeof parsed === "object" && parsed !== null) {
+        if ("text" in parsed && typeof parsed.text === "string") {
+          text = parsed.text;
+        } else if ("content" in parsed && typeof parsed.content === "string") {
+          text = parsed.content;
+        }
       }
     }
     return { ...row, firstMessage: text };

@@ -1,0 +1,19 @@
+{
+  "scenario": "chain",
+  "room": "696fea1f550e4eaea5c66349ac",
+  "settled": false,
+  "elapsedSec": 270,
+  "children": [
+    {
+      "agentId": "researcher",
+      "atSec": 25,
+      "artifactRef": null,
+      "wikiRef": null,
+      "task": null
+    }
+  ],
+  "agents": ["researcher"],
+  "runStatuses": {
+    "researcher": ["completed"]
+  }
+}
