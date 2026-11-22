@@ -1601,7 +1601,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
         await notifyDispatcher({
           fromAgentId: run.agentId,
-          conversationId: run.conversationId,
+          // The dispatcher lives in the PARENT room (ADR 0070: the worker's
+          // room is its own). Posting the wake into the child room addressed to
+          // an agent who is not a member there starts nothing and lands where
+          // nobody reads it — live 2026-11-22 the chain stopped exactly here.
+          conversationId:
+            conv.convPort.getConversation(run.conversationId)?.parentConversationId ??
+            run.conversationId,
           runId,
           // ADR 0075/0076: carry the deliverables, not a description of them.
           text: frameResultInput(
