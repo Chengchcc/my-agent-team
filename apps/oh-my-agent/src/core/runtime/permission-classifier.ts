@@ -125,14 +125,35 @@ export async function classifyPermissionAction(opts: {
     const call = async (): Promise<string> => {
       // A fresh budget per call: the retry must not inherit the first call's
       // half-spent timeout, or it aborts before the model can answer.
-      const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+      //
+      // The budget is OUR timer, and an expiry says so. The model stream
+      // reports "model call aborted" for any caller signal, so a slow classifier
+      // used to read as a provider failure — live 2026-11-23 an operator spent
+      // an hour on "the classifier is broken" when the truth was "v4-pro did
+      // not answer a one-line question in 30s".
+      const controller = timeoutMs > 0 ? new AbortController() : undefined;
+      const timer =
+        controller === undefined
+          ? undefined
+          : setTimeout(() => controller.abort(), timeoutMs).unref?.();
       let text = "";
-      for await (const chunk of opts.stream(
-        messages,
-        signal,
-        opts.modelId ?? classifierModelId(),
-      )) {
-        if (chunk.delta?.type === "text") text += chunk.delta.text;
+      try {
+        for await (const chunk of opts.stream(
+          messages,
+          controller?.signal,
+          opts.modelId ?? classifierModelId(),
+        )) {
+          if (chunk.delta?.type === "text") text += chunk.delta.text;
+        }
+      } catch (err) {
+        if (controller?.signal.aborted === true) {
+          throw new Error(
+            `classifier timed out after ${timeoutMs}ms (model ${opts.modelId ?? classifierModelId() ?? "run default"})`,
+          );
+        }
+        throw err;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
       }
       return text;
     };

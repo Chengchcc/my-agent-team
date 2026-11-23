@@ -129,6 +129,12 @@ export function createAgentService(opts: {
         enabled: input.enabled,
         reasoningEffort: input.reasoningEffort,
         permissionMode: input.permissionMode,
+        // The tool policy is a SECURITY boundary: the HTTP schema accepts it,
+        // so dropping it here would answer 200 and arm nothing (live
+        // 2026-11-23: a worker kept reading the backend's data directory).
+        denyWritePaths: input.denyWritePaths,
+        allowWritePaths: input.allowWritePaths,
+        denyCommands: input.denyCommands,
         maxSteps: input.maxSteps,
         mcpServers: input.mcpServers,
         knowledgePacks: input.knowledgePacks,
