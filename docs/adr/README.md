@@ -4,6 +4,7 @@
 | 0074 | super-assistant-model(超级助理模型：会话按团队成员找人、事项按目标追事、知识按主题沉淀) | **Accepted（设计定稿；S0 导航分层与词汇落地中；事项/Wiki/决策请求升级分阶段）** |
 | 0075 | request-routing(请求路由：请求有主人，前台先看一眼，人只看升级) | **Proposed**（设计定稿；P1/P2 为通道与上下文修复，P3 代答工具待实现） |**状态图例**：Accepted=现行有效；Implemented=已实施；Superseded=被后续迭代取代(仅历史)；Deferred=维持不做；Obsolete=对象已移除；被取代/目标达成=以不同形态落地。
 | 0076 | project-push-agent-branches(工人的改动回写仓库：只推 agent/* 分支) | **Proposed**（设计定稿；凭据在后端、分支由 runId 派生、永不 force/master） |
+| 0077 | requirement-owns-the-workspace(需求拥有工作区：需求/会话 M:N，副本随需求) | **Proposed**（设计定稿；agent 只绑项目，归属靠会话的 current_requirement 指针） |
 | # | 标题 | 状态 |
 |---|---|---|
 | 0001 | loop-prune-is-post-processing | **Obsolete**（Loop 已删，2026-08-28） |
