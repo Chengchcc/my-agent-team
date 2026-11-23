@@ -1137,6 +1137,19 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         workerAgentId: toAgentId,
         reuse,
       });
+      const workerAgent = await agentSvc.getById(toAgentId).catch(() => null);
+      const workerRoot = workerAgent?.workspacePath ?? "";
+      // If the object names a project this worker has attached, point at ITS
+      // worktree (ADR 0023) — that is the copy the worker may write.
+      const attached = workerAgent?.config.runtime_config.projects ?? [];
+      const namedProject =
+        attached
+          .map((pid: string) => projectSvc.getById(pid))
+          .find((p) => brief.object.includes(p.name) || instruction.includes(p.name)) ?? null;
+      const workerWorktree =
+        namedProject === null || workerRoot === ""
+          ? null
+          : `${workerRoot}/projects/${namedProject.projectId}`;
       const posted = await conv.convSvc.postMessage({
         conversationId: room.conversationId,
         senderMemberId: fromAgentId,
@@ -1145,6 +1158,17 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           fromAgentId,
           brief,
           instruction,
+          // H3: the worker must know its OWN directory. The brief otherwise
+          // carries the human's path (`/root/my-agent-team/README.md`) and the
+          // shell fence refuses every write to it (live 2026-11-23).
+          ...(workerRoot !== ""
+            ? {
+                workspace: {
+                  root: workerRoot,
+                  ...(workerWorktree !== null ? { worktree: workerWorktree } : {}),
+                },
+              }
+            : {}),
           ...(note !== undefined ? { note } : {}),
           ...(findings !== undefined ? { findings } : {}),
           meta: {
