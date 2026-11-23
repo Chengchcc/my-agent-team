@@ -105,6 +105,11 @@ export function writeEscapeOf(command: string, workspaceRoot: string): string | 
   const absolute = [...command.matchAll(/(?:^|[\s;|&(])(\/[^\s;|&)"']+)/g)].map((m) => m[1]);
   for (const path of absolute) {
     if (path === undefined) continue;
+    // `/dev/null` and the standard streams are not files the run writes:
+    // `cmd 2>/dev/null` is read-only work, and refusing it made ordinary
+    // commands look like escapes (live 2026-11-23 a worker could not inspect
+    // a file because it redirected stderr).
+    if (/^\/dev\/(null|stdout|stderr|tty)$/.test(path)) continue;
     if (path === workspaceRoot) return path;
     if (path.startsWith(root)) continue;
     // A denied absolute path that is only READ is fine; the write verb gate
