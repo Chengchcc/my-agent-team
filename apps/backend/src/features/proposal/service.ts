@@ -13,6 +13,8 @@ export interface ProposalService {
   pending(kind: ProposalKind, targetId: string): PendingProposal | null;
   /** Every pending proposal (optionally one kind), newest first. */
   pendingAll(kind?: ProposalKind): PendingProposal[];
+  /** One pending proposal by id (the decision route applies before resolving). */
+  pendingById(id: string): PendingProposal | null;
   resolve(id: string, decision: "adopted" | "discarded"): boolean;
 }
 
@@ -34,6 +36,24 @@ export function createProposalService(deps: {
         createdAt,
       });
       return { id, kind, targetId, payload, createdAt };
+    },
+
+    pendingById(id) {
+      const row = deps.port.listPending().find((r) => r.id === id);
+      if (!row) return null;
+      return {
+        id: row.id,
+        kind: isProposalKind(row.kind) ? row.kind : "agent_config",
+        targetId: row.targetId,
+        payload: ((): unknown => {
+          try {
+            return JSON.parse(row.payload);
+          } catch {
+            return null;
+          }
+        })(),
+        createdAt: row.createdAt,
+      };
     },
 
     pendingAll(kind) {

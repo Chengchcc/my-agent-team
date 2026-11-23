@@ -3103,7 +3103,29 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     proactive: proactiveRoutes(proactiveSvc),
     productTools,
     settings: settingsRoutes(settingsSvc),
-    proposal: proposalRoutes(proposalSvc),
+    // ADR 0040 + 2026-11-23: adoption APPLIES. The two appliers are the same
+    // paths the HTTP routes use, so a proposal cannot do something a person
+    // could not do by hand.
+    proposal: proposalRoutes(proposalSvc, {
+      updateAgent: async (agentId, input) => {
+        await agentSvc.update(agentId, input as Parameters<typeof agentSvc.update>[1]);
+      },
+      createProject: async ({ name, repoUrl, defaultBranch, attachTo }) => {
+        const created = await projectSvc.createProject({
+          name,
+          repoUrl,
+          ...(defaultBranch !== undefined ? { defaultBranch } : {}),
+        });
+        for (const agentId of attachTo) {
+          const agent = await agentSvc.getById(agentId).catch(() => null);
+          if (!agent) continue;
+          const current = agent.config.runtime_config.projects;
+          if (current.includes(created.projectId)) continue;
+          await agentSvc.update(agentId, { projects: [...current, created.projectId] });
+        }
+        return created.projectId;
+      },
+    }),
 
     auth: authRoutes(passwordSvc),
 
