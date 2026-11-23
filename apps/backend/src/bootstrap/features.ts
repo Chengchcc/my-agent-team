@@ -1072,6 +1072,26 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         );
       });
     },
+    // ADR 0076: the room's project and each member's holdings, for the
+    // dispatch guard (a topic room needs a worker with a copy of it).
+    roomProjectOf: (conversationId) => {
+      const projectId = conv.convPort.getConversation(conversationId)?.projectId ?? null;
+      if (projectId === null) return null;
+      const project = projectSvc.getById(projectId);
+      return { projectId, name: project.name };
+    },
+    workerProjects: (agentId) => {
+      const row = db.query("SELECT config FROM agents WHERE id = ?").get(agentId) as {
+        config: string;
+      } | null;
+      if (row === null) return [];
+      try {
+        const cfg = JSON.parse(row.config) as { runtime_config?: { projects?: string[] } };
+        return cfg.runtime_config?.projects ?? [];
+      } catch {
+        return [];
+      }
+    },
     // ADR 0076: propose a project (name + repo + who holds it). The proposal
     // service records it; a human adopts it in Web. Nothing is registered here.
     proposeProject: (input) => {
@@ -1159,13 +1179,21 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       });
       const workerAgent = await agentSvc.getById(toAgentId).catch(() => null);
       const workerRoot = workerAgent?.workspacePath ?? "";
-      // If the object names a project this worker has attached, point at ITS
-      // worktree (ADR 0023) — that is the copy the worker may write.
       const attached = workerAgent?.config.runtime_config.projects ?? [];
+      // The ROOM's project wins over guessing from the brief text: a room
+      // bound to a project is a topic, and the topic's directory is the one
+      // the worker must work in (ADR 0023 worktree).
+      const roomProjectId = conv.convPort.getConversation(conversationId)?.projectId ?? null;
+      const roomProject =
+        roomProjectId !== null && attached.includes(roomProjectId)
+          ? projectSvc.getById(roomProjectId)
+          : null;
       const namedProject =
+        roomProject ??
         attached
           .map((pid: string) => projectSvc.getById(pid))
-          .find((p) => brief.object.includes(p.name) || instruction.includes(p.name)) ?? null;
+          .find((p) => brief.object.includes(p.name) || instruction.includes(p.name)) ??
+        null;
       const workerWorktree =
         namedProject === null || workerRoot === ""
           ? null

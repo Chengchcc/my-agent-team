@@ -48,8 +48,11 @@ export function CodingPage() {
   // ADR 0073: `?agent=<id>` — a conversation's header links straight to the
   // directory that room's agent works in. Select the pane, and open one when
   // this agent has none yet (the link is meant to do something on click).
-  const agentParam =
-    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("agent");
+  const params = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const agentParam = params?.get("agent") ?? null;
+  // ADR 0076: a room bound to a project opens THAT project's pane for the
+  // agent — the room is a topic, and the topic's directory is the work site.
+  const projectParam = params?.get("project") ?? null;
   // Latest values through refs: the effect must fire on a PARAM change only.
   // Depending on `terminals` would re-run it on every poll, and depending on
   // `spawn` (a fresh mutation object each render) would loop.
@@ -59,12 +62,25 @@ export function CodingPage() {
   spawnRef.current = spawn;
   useEffect(() => {
     if (agentParam === null) return;
-    setSelected({ agentId: agentParam });
-    const exists = terminalsRef.current.some(
-      (x) => x.agentId === agentParam && x.projectId === null,
+    const wantProject = projectParam ?? undefined;
+    setSelected(
+      wantProject === undefined
+        ? { agentId: agentParam }
+        : { agentId: agentParam, projectId: wantProject },
     );
-    if (!exists) spawnRef.current.mutate({ agentId: agentParam, title: "bash" });
-  }, [agentParam]);
+    const exists = terminalsRef.current.some((x) =>
+      wantProject === undefined
+        ? x.agentId === agentParam && x.projectId === null
+        : x.agentId === agentParam && x.projectId === wantProject,
+    );
+    if (!exists) {
+      spawnRef.current.mutate({
+        agentId: agentParam,
+        title: "bash",
+        ...(wantProject !== undefined ? { projectId: wantProject } : {}),
+      });
+    }
+  }, [agentParam, projectParam]);
 
   const selTerminals = selected
     ? terminals.filter((x) => {

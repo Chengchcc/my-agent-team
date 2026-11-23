@@ -296,6 +296,17 @@ export function ConversationCanvas({
     [conversationId, send, currentRunId, router],
   );
 
+  // The room's project (a topic), when it has one. Read without asserting a
+  // shape: an older snapshot may predate the field.
+  const roomProjectId =
+    snapshot !== null &&
+    snapshot !== undefined &&
+    "projectId" in snapshot &&
+    typeof snapshot.projectId === "string" &&
+    snapshot.projectId !== ""
+      ? snapshot.projectId
+      : null;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
       {/* Header */}
@@ -322,10 +333,13 @@ export function ConversationCanvas({
           </div>
           <div className="flex items-center gap-3 shrink-0 ml-4">
             {primaryAgent?.agentId ? (
-              // ADR 0073: the room's agent works in its own workspace; this is
-              // the way into the pane that is actually running there.
+              // ADR 0073/0076: the room's agent works in its own workspace —
+              // and when the ROOM is bound to a project, in that project's
+              // worktree. The link carries both so the pane opens on the topic.
               <Link
-                href={`/coding?agent=${encodeURIComponent(primaryAgent.agentId)}`}
+                href={`/coding?agent=${encodeURIComponent(primaryAgent.agentId)}${
+                  roomProjectId === null ? "" : `&project=${encodeURIComponent(roomProjectId)}`
+                }`}
                 className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
                 title="Open a terminal in this conversation's workspace"
               >

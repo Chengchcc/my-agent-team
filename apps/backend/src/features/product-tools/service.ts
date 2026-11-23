@@ -197,6 +197,11 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0076: the room's bound project, and who holds it. A room bound to a
+   *  project is a topic; dispatching its work to a member without a copy of it
+   *  sends the work into a wall. */
+  roomProjectOf?: (conversationId: string) => { projectId: string; name: string } | null;
+  workerProjects?: (agentId: string) => readonly string[];
   /** ADR 0076: a project the assistant proposes (name + repo). Registering
    *  what the company works on is a human decision, like creating a team
    *  member — the tool can only file the proposal. */
@@ -1144,6 +1149,18 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       ...(frontFindings.length > 0 ? { findings: frontFindings } : {}),
     };
     if (note) call.note = note;
+    // ADR 0076: the room knows which project it is about; a member without it
+    // has no copy to read or write. Refuse with a pointer instead of
+    // dispatching into a wall.
+    if (deps.roomProjectOf && deps.workerProjects) {
+      const roomProject = deps.roomProjectOf(run.conversationId);
+      if (roomProject !== null && !deps.workerProjects(agent).includes(roomProject.projectId)) {
+        throw new ProductToolRejectedError(
+          `this room is about project "${roomProject.name}" and ${agent} has no copy of it; ` +
+            "dispatch to a member that holds it (team_list lists each member's projects)",
+        );
+      }
+    }
     const triggered = await deps.dispatch(call);
     // ADR 0074: a dispatched run belongs to a tracked item (named id → the
     // conversation's newest open item → one created from the brief). Best
