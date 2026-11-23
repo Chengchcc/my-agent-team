@@ -1,19 +1,24 @@
 {
-  "scenario": "chain",
-  "room": "6b8c0691880744b49880989da4",
-  "settled": false,
-  "elapsedSec": 440,
-  "children": [
+  "scenario": "topics",
+  "room": "5a207837cf0c4926bfc15a3036",
+  "turns": [
     {
-      "agentId": "researcher",
-      "atSec": 29,
-      "artifactRef": null,
-      "wikiRef": null,
-      "task": "<task verb=\"investigate\" deliverable=\"report\" object-kind=\"other\" object=\"my-agent-team 根目录 README.md 的首屏（打开后不滚动可见的部分）\">"
+      "text": "修一下 worker-one 里 greet 空名字会输出畸形字符串的 bug，",
+      "verdict": "DISPATCH",
+      "contaminated": false,
+      "reply": "已经派给 **Coder**（`run ade81e75…`）动手修，我给的验收口径是：\n\n- **复现**：`greet(\"\")` / 纯空白名字 → 形如 `Hello, !` 或多重空格的畸形串\n- **期望**：trim 后按空名字给一句干净问候；正常名字、首尾带空白的名字行为不变\n- **范围**：只动 worker-one 的 `greet` 实现和旁边的 `*.test.ts`，不碰 `farewell`\n- **验收**"
+    },
+    {
+      "text": "顺便问一下：round-robin 和 least-connections 在负",
+      "verdict": "ANSWER",
+      "contaminated": false,
+      "reply": "核心区别：**round-robin 按“请求数”平均分，least-connections 按“当前未完成的活”分**。前者假设每个请求代价相同，后者对这个假设不买账。\n\n| | round-robin | least-connections |\n|---|---|---|\n| 决策依据 | 计数器轮转，下一个后端 | 当前 active 连接/请求数最少者 |\n| 成本 | O(1)，无共享状态 | 需要每后端实时计数（或共享状态）"
+    },
+    {
+      "text": "记一下：我偏好简短回答。",
+      "verdict": "ANSWER",
+      "contaminated": false,
+      "reply": "已记住。Coder 还没回报；它一回来，我只给结论、diff 要点和 `bun test` 结果。"
     }
-  ],
-  "agents": ["researcher"],
-  "runStatuses": {
-    "researcher": ["completed"]
-  }
+  ]
 }

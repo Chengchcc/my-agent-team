@@ -85,6 +85,25 @@ worker 改的是自己的 clone  →  ???  →  GitHub
 - 纪律：多步任务先 `todo_write`（每步一个 item，标明谁做），再派第一步；
 - 结构：工人终态唤醒派单者时附 `<plan>`（派单者最近一次 run 的 `todo_snapshot`），并写明"计划还有未完成项 ⇒ 带着 artifacts 直接派下一步，不要回来问人"。
 
+## 链式交接的真机验证（2026-11-23）
+
+`scripts/handoff-decisions.ts --scenario chain` 跑通，证据链：
+
+1. 前台派研究（`<dispatch><task verb="investigate">` + `<delivery>`）；
+2. **研究员自己上传了产物**：`artifacts://4cc2ef63…/README-首屏调研报告.md`；
+3. 研究员终态 → 唤醒帧（父房 seq 13919）同时带 `<artifacts>` 与 `<plan>`；
+4. 前台**没有回来问人**，直接派出第二跳：`<task verb="build" object="my-agent-team README.md 首屏">`，其 `<references>` 里是：
+
+```
+- artifacts://4cc2ef63…/README-首屏调研报告.md     ← 研究员自己传的
+- artifacts://readme-first-screen-audit/…          ← 另一份产物
+- artifacts://reports/78d56f0f….md                 ← 后端兜底物化的
+- artifacts://reports/1442fe77….md
+- seq:13919                                        ← 唤醒输入本身
+```
+
+**这条链之前断在 `notifyDispatcher` 把唤醒发进 worker 自己的房间**（前台不是那里的成员 ⇒ 队列里什么都没进）。改为发往父房后，链闭合。
+
 ## 不做什么
 
 - 不做自动合并、不自动开 PR（v2：拿 compare URL 人点一下即可）；
