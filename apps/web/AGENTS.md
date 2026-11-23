@@ -30,6 +30,11 @@ bun run test         # bun test
 bun run lint:ui      # UI consistency audit (zero CJK in src, alert/confirm ban)
 ```
 
+**Deployed surface is a production build** (`next start`, `NODE_ENV=production`).
+A source change is not visible until `bash scripts/rebuild-web.sh` runs `next
+build` (heap-capped: this box is 2 cores / 8 GB) and restarts
+`my-agent-team-web.service`. `next dev` stays the local-development loop only.
+
 ## Data flow
 
 - Browser never talks to the backend directly. Every request goes through
