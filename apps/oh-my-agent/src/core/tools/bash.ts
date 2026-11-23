@@ -83,6 +83,36 @@ export function deniedCommand(
   return rules.find((rule) => rule === trimmed);
 }
 
+/** Write-side fence for the SHELL (ADR 0072 applied to bash).
+ *
+ *  `validateCwd` only guards the cwd PARAMETER; a command can `cd
+ *  /root/my-agent-team && git checkout -b x` and write anywhere. Live
+ *  2026-11-23 a worker did exactly that in the operator's real repository.
+ *
+ *  Deliberately narrow and honest about its ceiling: it looks at absolute
+ *  paths in a command that also carries a write verb (or a redirect into that
+ *  path) and refuses when one lands outside the workspace. Quotes, variables
+ *  and `cd` chains can still defeat a textual scan — this is a guard against
+ *  the accident, not a sandbox. The real boundary is OS isolation. */
+const WRITE_VERB =
+  /\b(?:rm|rmdir|mv|cp|tee|mkdir|touch|chmod|chown|dd|truncate|install|ln|sed\s+-i|git\s+(?:add|commit|checkout|switch|reset|clean|push|merge|rebase|stash|branch|tag))\b/;
+
+export function writeEscapeOf(command: string, workspaceRoot: string): string | undefined {
+  // A redirect is a write even when no verb is named ().
+  if (!WRITE_VERB.test(command) && !command.includes(">")) return undefined;
+  const root = workspaceRoot.endsWith("/") ? workspaceRoot : `${workspaceRoot}/`;
+  const absolute = [...command.matchAll(/(?:^|[\s;|&(])(\/[^\s;|&)"']+)/g)].map((m) => m[1]);
+  for (const path of absolute) {
+    if (path === undefined) continue;
+    if (path === workspaceRoot) return path;
+    if (path.startsWith(root)) continue;
+    // A denied absolute path that is only READ is fine; the write verb gate
+    // above already scoped this to commands that change something.
+    return path;
+  }
+  return undefined;
+}
+
 export function createBashTool(opts: {
   workspaceRoot: string;
   /** Coordination scope: TUI session key or backend run id. */
@@ -276,6 +306,18 @@ export function createBashTool(opts: {
       if (denied !== undefined) {
         return {
           content: `Error: command denied by OMA_DENY_COMMANDS: ${denied}`,
+          isError: true,
+        };
+      }
+      // Shell write fence (ADR 0072): a command that writes to an absolute
+      // path outside the workspace is refused here, not audited later. Only
+      // WITHOUT an OS sandbox: bwrap is the real boundary, and pre-empting it
+      // makes the sandbox's own guarantees untestable.
+      const escaped =
+        opts.sandbox === undefined ? writeEscapeOf(command, opts.workspaceRoot) : undefined;
+      if (escaped !== undefined) {
+        return {
+          content: `Error: writes outside the workspace are refused by this run (${escaped}). Work inside ${opts.workspaceRoot}.`,
           isError: true,
         };
       }
