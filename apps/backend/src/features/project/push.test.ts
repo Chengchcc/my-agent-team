@@ -80,6 +80,8 @@ describe("ADR 0076: pushing a worker's worktree", () => {
     // live 2026-11-23: the worker ran `git commit` itself and the old
     // "clean tree" check refused a branch with one commit waiting.
     const { origin, worktree } = fixture();
+    // A worker commits on ITS branch, never on the base one.
+    sh(worktree, ["checkout", "-q", "-b", "agent/worker/1"]);
     sh(worktree, ["add", "-A"]);
     sh(worktree, ["commit", "-q", "-m", "docs: done by the worker"]);
     const result = pushProjectWorktree({
