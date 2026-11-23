@@ -102,6 +102,12 @@ export interface UpdateAgentInput {
   workspacePath?: string;
   reasoningEffort?: "none" | "low" | "high" | "max" | null;
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
+  /** Write/read-path policy injected into the child. The HTTP schema accepts
+   *  it, so an update must carry it or a 200 arms nothing. */
+  denyWritePaths?: string[];
+  allowWritePaths?: string[];
+  /** Exact whole-string commands the bash tool refuses (a tripwire). */
+  denyCommands?: string[];
   maxSteps?: number;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   knowledgePacks?: string[];

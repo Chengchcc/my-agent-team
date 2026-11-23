@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultRegistry } from "../coordination/registry.js";
-import { createBashTool, deniedCommand, writeEscapeOf } from "./bash.js";
+import { createBashTool, deniedCommand, deniedPathOf, writeEscapeOf } from "./bash.js";
 
 const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
 
@@ -313,5 +313,42 @@ describe("ADR 0072: the shell does not write outside the workspace", () => {
     expect(writeEscapeOf("cat /root/my-agent-team/README.md", "/tmp/ws")).toBeUndefined();
     expect(writeEscapeOf("git commit -m x", "/tmp/ws")).toBeUndefined();
     expect(writeEscapeOf("rm -rf /tmp/ws/out", "/tmp/ws")).toBeUndefined();
+  });
+});
+
+describe("deniedPathOf: a denied path is denied for reading too", () => {
+  const root = "/data/agents/worker-one";
+  const deny = ["/data/.backend-data/", "/data/agents/worker-one/.env"];
+
+  test("an absolute read of the denied tree is refused", () => {
+    expect(deniedPathOf("cat /data/.backend-data/backend.db", root, deny)).toBe(
+      "/data/.backend-data/",
+    );
+  });
+
+  test("a relative walk up into it is refused", () => {
+    expect(deniedPathOf("ls ../../.backend-data", root, deny)).toBe("/data/.backend-data/");
+  });
+
+  test("an exact denied file is refused", () => {
+    expect(deniedPathOf("head -3 .env", root, deny)).toBe("/data/agents/worker-one/.env");
+  });
+
+  test("the worker's own directory inside the denied tree stays readable", () => {
+    const ws = "/data/.backend-data/agents/worker-one";
+    expect(deniedPathOf("cat README.md && ls projects/5185", ws, deny)).toBeUndefined();
+    expect(
+      deniedPathOf("cat /data/.backend-data/agents/worker-one/README.md", ws, deny),
+    ).toBeUndefined();
+  });
+
+  test("a rule pointing inside the workspace still applies", () => {
+    const ws = "/data/agents/worker-one";
+    expect(deniedPathOf("cat .env", ws, deny)).toBe("/data/agents/worker-one/.env");
+  });
+
+  test("ordinary work inside the workspace is not touched", () => {
+    expect(deniedPathOf("ls projects/518505c2 && cat README.md", root, deny)).toBeUndefined();
+    expect(deniedPathOf("bun test src/core", root, deny)).toBeUndefined();
   });
 });

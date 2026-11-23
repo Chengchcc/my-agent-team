@@ -286,3 +286,26 @@ describe("classifyPermissionAction", () => {
     if (verdict.verdict === "block") expect(verdict.reason).toBeTruthy();
   });
 });
+
+describe("a classifier that never answers", () => {
+  test("says it timed out, with the budget and the model, not 'model call aborted'", async () => {
+    // live 2026-11-23: the message "classifier unavailable: model call aborted"
+    // sent the diagnosis to the provider. It was our own 30s budget.
+    const verdict = await classifyPermissionAction({
+      toolName: "bash",
+      input: { command: "ls" },
+      userTexts: ["look around"],
+      timeoutMs: 20,
+      stream: (_messages, signal) =>
+        (async function* () {
+          await new Promise<void>((resolve) => {
+            if (signal?.aborted) return resolve();
+            signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          if (signal?.aborted) throw new Error("model call aborted");
+        })(),
+    });
+    expect(verdict.verdict).toBe("block");
+    expect(verdict.reason).toContain("classifier timed out after 20ms");
+  });
+});

@@ -35,6 +35,11 @@ import { createCardUpdater } from "./card-updater.js";
 
 const FLUSH_INTERVAL_MS = 150;
 const MAX_BUFFER_CHARS_BEFORE_FLUSH = 120;
+/** How often a live card asks the backend whether its run ended. The chat
+ *  channel's terminal frame can be dropped; the card must not inherit that
+ *  (ADR 0031 §3). Five seconds, not fifteen: at fifteen the worst case a person
+ *  waits after the answer exists is ~40s (live 2026-11-23, measured 41s). */
+const TERMINAL_WATCHDOG_MS = 5_000;
 const SEAL_RETRY_DELAYS_MS = [200, 500, 1000];
 /** How long the terminal seal waits out chat congestion (rate limits are
  *  transient; the card owns the answer, so a text fallback here means the user
@@ -686,7 +691,7 @@ export async function watchRunCard(
         `[lark-bot] card ${runId}: terminal probe failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
-  }, 15_000);
+  }, TERMINAL_WATCHDOG_MS);
   terminalWatchdog.unref?.();
 
   return {

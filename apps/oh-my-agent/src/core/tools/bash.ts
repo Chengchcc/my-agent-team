@@ -1,3 +1,4 @@
+import { resolve as resolvePath } from "node:path";
 import type { Tool } from "@chengchenccc/message";
 import { childEnv } from "@chengchenccc/message";
 import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
@@ -111,6 +112,63 @@ export function writeEscapeOf(command: string, workspaceRoot: string): string | 
     return path;
   }
   return undefined;
+}
+
+/** Paths this run may neither read nor write (backend-injected
+ *  OMA_DENY_WRITE_PATHS). A denied path is a secret boundary, so a READ of it
+ *  is not "harmless": live 2026-11-23 a worker read the backend's data
+ *  directory (`.env` with provider keys, the whole SQLite database) with
+ *  `cat`/`ls` — the write fence never looked at reads.
+ *
+ *  Textual, therefore leaky (`cd` chains, variables, `find -exec`); the hard
+ *  boundary stays the OS sandbox. This catches the accident and the obvious
+ *  attempt. */
+export function deniedPathOf(
+  command: string,
+  workspaceRoot: string,
+  denyRules: readonly string[],
+): string | undefined {
+  if (denyRules.length === 0) return undefined;
+  const root = workspaceRoot.endsWith("/") ? workspaceRoot : `${workspaceRoot}/`;
+  const ws = resolvePath(workspaceRoot);
+  const matches = (candidate: string): string | undefined => {
+    let full = candidate;
+    if (!candidate.startsWith("/")) full = `${root}${candidate}`;
+    const normalized = resolvePath(full);
+    const insideWorkspace = normalized === ws || normalized.startsWith(`${ws}/`);
+    for (const rule of denyRules) {
+      const base = rule.endsWith("/") ? rule.slice(0, -1) : resolvePath(rule);
+      const hit = normalized === base || normalized.startsWith(`${base}/`);
+      if (!hit) continue;
+      // The workspace is always readable — a worker's own directory sits INSIDE
+      // the data directory, and denying the ancestor must not deny the worker.
+      // A rule that points INSIDE the workspace (.env in it) still applies.
+      if (insideWorkspace && !base.startsWith(`${ws}/`) && base !== ws) continue;
+      return rule;
+    }
+    return undefined;
+  };
+  // Absolute tokens, and relative ones that walk up (`../x`) or name a denied
+  // entry (`cat .backend-data/backend.db`).
+  const tokens = [...command.matchAll(/(?:^|[\s;|&(='"])((?:\.\.?\/)?[^\s;|&)'"]+)/g)]
+    .map((m) => m[1])
+    .filter((t): t is string => t !== undefined);
+  for (const token of tokens) {
+    if (token.startsWith("-")) continue;
+    if (!token.includes("/") && token !== ".." && !token.includes(".")) continue;
+    const hit = matches(token);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
+}
+
+/** The backend's deny list, one rule per entry (comma-separated in the env). */
+function denyRulesOf(raw: string | undefined): readonly string[] {
+  if (raw === undefined) return [];
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
 }
 
 export function createBashTool(opts: {
@@ -318,6 +376,19 @@ export function createBashTool(opts: {
       if (escaped !== undefined) {
         return {
           content: `Error: writes outside the workspace are refused by this run (${escaped}). Work inside ${opts.workspaceRoot}.`,
+          isError: true,
+        };
+      }
+      // A denied path is denied for reading too: the backend's data directory
+      // holds provider keys (.env) and the whole database.
+      const deniedRule = deniedPathOf(
+        command,
+        opts.workspaceRoot,
+        denyRulesOf(process.env.OMA_DENY_WRITE_PATHS),
+      );
+      if (deniedRule !== undefined) {
+        return {
+          content: `Error: path denied by this run's policy (${deniedRule}). It holds credentials or other runs' data; ask the person if you believe you need it.`,
           isError: true,
         };
       }
