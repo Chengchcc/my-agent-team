@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultRegistry } from "../coordination/registry.js";
-import { createBashTool, deniedCommand } from "./bash.js";
+import { createBashTool, deniedCommand, writeEscapeOf } from "./bash.js";
 
 const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
 
@@ -291,5 +291,27 @@ describe("command tripwire (OMA_DENY_COMMANDS)", () => {
       if (prev === undefined) delete process.env.OMA_DENY_COMMANDS;
       else process.env.OMA_DENY_COMMANDS = prev;
     }
+  });
+});
+
+describe("ADR 0072: the shell does not write outside the workspace", () => {
+  test("a write verb aimed at an absolute path outside the workspace is refused", () => {
+    // Live 2026-11-23: a worker ran `cd /root/my-agent-team && git checkout -b`
+    // and committed into the operator's real repository.
+    expect(writeEscapeOf("cd /root/my-agent-team && git checkout -b x", "/tmp/ws")).toBe(
+      "/root/my-agent-team",
+    );
+    expect(writeEscapeOf("rm -rf /root/my-agent-team/src", "/tmp/ws")).toBe(
+      "/root/my-agent-team/src",
+    );
+    expect(writeEscapeOf("echo hi >> /root/my-agent-team/README.md", "/tmp/ws")).toBe(
+      "/root/my-agent-team/README.md",
+    );
+  });
+
+  test("reads and workspace writes are allowed", () => {
+    expect(writeEscapeOf("cat /root/my-agent-team/README.md", "/tmp/ws")).toBeUndefined();
+    expect(writeEscapeOf("git commit -m x", "/tmp/ws")).toBeUndefined();
+    expect(writeEscapeOf("rm -rf /tmp/ws/out", "/tmp/ws")).toBeUndefined();
   });
 });
