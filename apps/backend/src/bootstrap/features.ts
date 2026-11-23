@@ -146,7 +146,7 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "../features/project/index.js";
-import { checkoutRefusal, pushProjectWorktree } from "../features/project/push.js";
+import { pushProjectWorktree } from "../features/project/push.js";
 import { ensureRequirementWorktree } from "../features/project/requirement-workspace.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
 import {
@@ -1085,30 +1085,36 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       if (named.repoUrl === null || named.repoUrl === "") {
         return { ok: false as const, error: `project ${named.name} has no remote to push to` };
       }
-      // ADR 0077: what gets pushed is the requirement's checkout FOR THAT
-      // PROJECT, and only if this run is actually working in it. The run's
-      // workspace alone is not enough: a run in project A's checkout must not
-      // be able to push A's tree to B's remote, and an agent workspace
-      // (SOUL.md, .mcp.json) must never be handed back as a project.
+      // ADR 0077: what gets pushed is the requirement's checkout OF THAT PROJECT.
+      // The run's workspace is, by construction, its room's current requirement's
+      // checkout (execution resolves it from the same pointer), so the question
+      // is only whether THIS room's requirement has an open checkout of THIS
+      // project: a run in A's checkout cannot push to B's remote, and an agent
+      // workspace (SOUL.md, .mcp.json) is never handed back as a project.
+      // (Measured: `run.workspace` is not persisted on the run row — it is
+      // resolved at delivery — so reading it here always saw "unset".)
       const run = await agentRunPort.getRun(runId).catch(() => null);
-      const requirementId = run ? workspaceSvc.currentRequirementOf(run.conversationId) : null;
-      const expected =
-        requirementId === null
+      const room = checkoutOf(run?.conversationId ?? "");
+      const checkout =
+        room.requirementId === null
           ? null
-          : workspaceSvc.findForRequirement({ requirementId, projectId: named.projectId });
-      const worktree = run?.workspace?.root ?? null;
-      const refusal = checkoutRefusal({
-        projectName: named.name,
-        expected: expected?.path ?? null,
-        actual: worktree,
-      });
-      if (refusal !== undefined || expected === null) {
-        return { ok: false as const, error: refusal ?? "no checkout for this project" };
+          : workspaceSvc.findForRequirement({
+              requirementId: room.requirementId,
+              projectId: named.projectId,
+            });
+      if (checkout === null) {
+        return {
+          ok: false as const,
+          error:
+            `this run's room has no ${named.name} checkout to hand back ` +
+            "(its requirement was never given one for that project); " +
+            "dispatch work on that project here first",
+        };
       }
-      const checkout = expected.path;
+      const checkoutPath = checkout.path;
       try {
         const pushed = pushProjectWorktree({
-          worktree: checkout,
+          worktree: checkoutPath,
           repoUrl: named.repoUrl,
           runId,
           message,
