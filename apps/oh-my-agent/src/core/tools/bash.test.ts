@@ -392,3 +392,11 @@ describe("foreignRepoRefusal: git only in a repository the run owns", () => {
     expect(foreignRepoRefusal("git status", ws, undefined)).toBeUndefined();
   });
 });
+
+describe("writeEscapeOf: the standard streams are not escapes", () => {
+  test("a redirect to /dev/null is allowed", () => {
+    expect(writeEscapeOf("grep -n root /etc/passwd 2>/dev/null", "/work")).toBe("/etc/passwd");
+    expect(writeEscapeOf("ls -la > /dev/null", "/work")).toBeUndefined();
+    expect(writeEscapeOf("cat README.md 2>/dev/null", "/work")).toBeUndefined();
+  });
+});

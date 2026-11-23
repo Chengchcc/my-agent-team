@@ -352,6 +352,11 @@ export class AcpBackend implements AgentBackend<"acp"> {
       ...(input.run.toolPolicy?.deny.length
         ? { OMA_DENY_WRITE_PATHS: input.run.toolPolicy.deny.join(",") }
         : {}),
+      // The browser refuses loopback by default while BASH reaches 127.0.0.1
+      // with curl — so the refusal is not a boundary, it only blocks legitimate
+      // work on the product's own surface (live 2026-11-23: a screenshot task
+      // could not log in). Operator opt-in, and cloud metadata stays refused.
+      ...(process.env.OMA_BROWSER_LOCAL_NETWORK === "1" ? { OMA_BROWSER_LOCAL_NETWORK: "1" } : {}),
       // ADR 0072: writes are confined to the run's own workspace by default.
       // Without this, an agent could write into a SIBLING agent's workspace by
       // absolute path (the front desk edited worker-one's files live,
