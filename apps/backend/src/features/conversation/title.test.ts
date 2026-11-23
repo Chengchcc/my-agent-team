@@ -58,3 +58,16 @@ describe("product-owned conversation titles", () => {
     expect(deriveConversationTitle("[a.ts L1-2] ")).toBeNull();
   });
 });
+
+describe("a dispatch brief titles its room", () => {
+  test("verb + object, not the XML envelope", () => {
+    const brief = `<dispatch from="default">\n<task verb="review" deliverable="report" object="README 分支">\n<meta/>`;
+    expect(deriveConversationTitle(brief)).toBe("review · README 分支");
+  });
+
+  test("a human message keeps its own words", () => {
+    expect(deriveConversationTitle("README 看着有点乱，你看着办。")).toBe(
+      "README 看着有点乱，你看着办。",
+    );
+  });
+});
