@@ -11,6 +11,8 @@ export interface ProposalService {
    *  older pending row is left where it is rather than rewritten. */
   propose(kind: ProposalKind, targetId: string, payload: unknown): PendingProposal;
   pending(kind: ProposalKind, targetId: string): PendingProposal | null;
+  /** Every pending proposal (optionally one kind), newest first. */
+  pendingAll(kind?: ProposalKind): PendingProposal[];
   resolve(id: string, decision: "adopted" | "discarded"): boolean;
 }
 
@@ -32,6 +34,17 @@ export function createProposalService(deps: {
         createdAt,
       });
       return { id, kind, targetId, payload, createdAt };
+    },
+
+    pendingAll(kind) {
+      // Rows with an unknown kind or unreadable payload are skipped, not
+      // surfaced as nulls: the inbox lists only what a page can act on.
+      const out: PendingProposal[] = [];
+      for (const row of deps.port.listPending(kind)) {
+        const proposal = toProposal(row);
+        if (proposal !== null) out.push(proposal);
+      }
+      return out;
     },
 
     pending(kind, targetId) {

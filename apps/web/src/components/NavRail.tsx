@@ -9,6 +9,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   FolderKanbanIcon,
+  InboxIcon,
   LibraryIcon,
   LogOutIcon,
   MessageSquareIcon,
@@ -201,6 +202,19 @@ function NavContent() {
               >
                 <TerminalIcon />
                 <span className="truncate">{t("Coding")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/proposals")}
+                tooltip={t("Proposals")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/proposals");
+                }}
+              >
+                <InboxIcon />
+                <span className="truncate">{t("Proposals")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
