@@ -37,8 +37,12 @@ export const conversation = sqliteTable("conversation", {
   createdAt: integer({ mode: "number" }).notNull(),
   forkSource: text("fork_source"),
   forkFromSeq: integer("fork_from_seq"),
-  /** Project binding (ADR 0023): runs in this conversation use the
-   *  project worktree as cwd. Null = agent workspace (default). */
+  /** ADR 0077: which requirement this room is currently advancing. The
+   *  pointer is what makes requirement/conversation M:N usable — a message
+   *  advances exactly one requirement, and switching is an explicit act. */
+  currentRequirementId: text("current_requirement_id").references(() => requirement.requirementId),
+  /** Project binding (ADR 0023): the room's project for dispatch guards and
+   *  briefs. ADR 0077: it no longer selects a workspace — the requirement does. */
   projectId: text("project_id").references(() => project.projectId, {
     onDelete: "restrict",
   }),
@@ -86,6 +90,55 @@ export const requirement = sqliteTable("requirement", {
   createdAt: integer({ mode: "number" }).notNull(),
   updatedAt: integer({ mode: "number" }).notNull(),
 });
+
+// ─── workspace (ADR 0077): the material of a requirement ──────────
+/** A checkout a requirement works in: one project, one branch, never the
+ *  default branch. Ownership is the REQUIREMENT's (M:N), not the agent's —
+ *  that is what lets two requirements run at once without sharing a tree. */
+export const workspace = sqliteTable("workspace", {
+  workspaceId: text("workspace_id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => project.projectId),
+  /** Absolute path on disk (a git worktree of the project mirror). */
+  path: text().notNull(),
+  /** The branch this checkout commits on (`req/<requirementId>/<project>`). */
+  branch: text().notNull(),
+  /** Commit the checkout started from (what a review diffs against). */
+  baseRef: text("base_ref").notNull(),
+  /** open | released. Released keeps the row: history outlives the directory. */
+  status: text().notNull().default("open"),
+  createdAt: integer({ mode: "number" }).notNull(),
+  updatedAt: integer({ mode: "number" }).notNull(),
+});
+
+export const requirementWorkspace = sqliteTable(
+  "requirement_workspace",
+  {
+    requirementId: text("requirement_id")
+      .notNull()
+      .references(() => requirement.requirementId),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.workspaceId),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.requirementId, table.workspaceId] })],
+);
+
+export const conversationRequirement = sqliteTable(
+  "conversation_requirement",
+  {
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.conversationId),
+    requirementId: text("requirement_id")
+      .notNull()
+      .references(() => requirement.requirementId),
+    createdAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.conversationId, table.requirementId] })],
+);
 
 // (member table removed — 1:1 collapse: participation is conversation.agent_id)
 
