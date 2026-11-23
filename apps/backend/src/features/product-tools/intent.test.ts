@@ -282,3 +282,42 @@ describe("ADR 0075/0076: the plan survives the handoff", () => {
     expect(frameResultInput("researcher", "completed", "报告完成")).not.toContain("<plan>");
   });
 });
+
+describe("ADR 0076 H3: the brief names the worker's own directory", () => {
+  test("workspace root (and the project worktree when named) rides the brief", () => {
+    const parsed = parseBrief({
+      verb: "fix",
+      deliverable: "change",
+      object: "my-agent-team README 首屏",
+      objectKind: "doc",
+      slots: {},
+    });
+    if (!parsed.ok) throw new Error("fixture");
+    const framed = frameBrief({
+      fromAgentId: "default",
+      brief: parsed.brief,
+      instruction: "改一下首屏",
+      workspace: {
+        root: "/data/agents/worker-one",
+        worktree: "/data/agents/worker-one/projects/p1",
+      },
+    });
+    expect(framed).toContain('<workspace root="/data/agents/worker-one">');
+    expect(framed).toContain("/data/agents/worker-one/projects/p1");
+    // The human's absolute paths in the brief are not the worker's to write.
+    expect(framed).toContain("不是你该写的地方");
+  });
+
+  test("no workspace block when the deployment did not supply one", () => {
+    const parsed = parseBrief({
+      verb: "fix",
+      deliverable: "change",
+      object: "x",
+      objectKind: "doc",
+      slots: {},
+    });
+    if (!parsed.ok) throw new Error("fixture");
+    const framed = frameBrief({ fromAgentId: "default", brief: parsed.brief, instruction: "y" });
+    expect(framed).not.toContain("<workspace");
+  });
+});

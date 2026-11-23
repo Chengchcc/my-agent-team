@@ -211,8 +211,13 @@ export function frameBrief(input: {
    *  purpose: it exists so a worker's logs can be joined back to the room,
    *  not as a second brief. */
   meta?: Readonly<Record<string, string>>;
+  /** Where the worker may write. Without this the model aims at the path the
+   *  HUMAN used (`/root/my-agent-team/README.md`) and every write is refused —
+   *  live 2026-11-23 the chain reached the right worker with the wrong
+   *  directory. */
+  workspace?: { root: string; worktree?: string };
 }): string {
-  const { fromAgentId, brief, instruction, note, findings, meta } = input;
+  const { fromAgentId, brief, instruction, note, findings, meta, workspace } = input;
   const lines = [`<dispatch from="${fromAgentId}">`];
   const attrs = [
     `verb="${brief.verb}"`,
@@ -244,6 +249,16 @@ export function frameBrief(input: {
       .filter(([, value]) => value !== "")
       .map(([key, value]) => `${key}="${value}"`);
     if (attrs.length > 0) lines.push(`<meta ${attrs.join(" ")} />`);
+  }
+  if (workspace !== undefined && workspace.root !== "") {
+    lines.push(
+      `<workspace root="${workspace.root}">`,
+      ...(workspace.worktree !== undefined
+        ? [`项目工作副本：${workspace.worktree}（你的改动落在这里）`]
+        : []),
+      "所有写入都必须在这个目录内；brief 里出现的其它绝对路径是【人的】路径，不是你该写的地方。",
+      "</workspace>",
+    );
   }
   if (brief.deliverable !== "answer") {
     lines.push(

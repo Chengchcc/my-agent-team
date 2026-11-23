@@ -104,6 +104,14 @@ worker 改的是自己的 clone  →  ???  →  GitHub
 
 **这条链之前断在 `notifyDispatcher` 把唤醒发进 worker 自己的房间**（前台不是那里的成员 ⇒ 队列里什么都没进）。改为发往父房后，链闭合。
 
+## H3：brief 必须写明"你的目录在哪"（已落地）
+
+链在修好唤醒后到达了正确的工人，却带着**人的路径**（`/root/my-agent-team/README.md`）——于是每一次写入都撞上 shell 栅栏（真机 6 次拒绝）。这不是工人不听话，是它只知道人的路径。
+
+- 派单 brief 新增 `<workspace root="…">`：根目录 + （若任务点名了该工人已挂载的项目）该项目 worktree 路径；
+- 明写"brief 里出现的其它绝对路径是**人的**路径，不是你该写的地方"；
+- 归属数据来自 `agent.runtime_config.projects` 与 `project.name` 的匹配——确定性，不靠模型猜。
+
 ## 不做什么
 
 - 不做自动合并、不自动开 PR（v2：拿 compare URL 人点一下即可）；
