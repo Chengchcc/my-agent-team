@@ -249,6 +249,8 @@ export async function watchRunCard(
   /** Reported once: a state that never carries this run is the difference between a card that
    *  streams and one that only paints when the fold arrives, and silence here hid exactly that. */
   let loggedMissingTurn = false;
+  let loggedFirstTurn = false;
+  let loggedFirstText = false;
 
   const meta = {
     runId,
@@ -593,6 +595,21 @@ export async function watchRunCard(
     }
     const before = state;
     state = next;
+    // Arrival timing, once each: a card that only ever paints at seal time
+    // means the states are late, not that the painter is wrong (live
+    // 2026-11-23: the seal trailed the run's terminal by 21s).
+    if (!loggedFirstTurn) {
+      loggedFirstTurn = true;
+      console.log(
+        `[lark-bot] card ${runId}: first state with a turn at +${Date.now() - meta.startedAt}ms`,
+      );
+    }
+    if (!loggedFirstText && state.output !== "") {
+      loggedFirstText = true;
+      console.log(
+        `[lark-bot] card ${runId}: first state with text at +${Date.now() - meta.startedAt}ms`,
+      );
+    }
     if (state.terminal) {
       // Every later state still carries this same terminal turn. Sealing again
       // would replace the card and close streaming once per state — live
