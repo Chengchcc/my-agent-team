@@ -21,6 +21,10 @@ export interface ProjectPushInput {
   token?: string;
   /** For the compare URL; defaults to the project's branch or "master". */
   defaultBranch?: string;
+  /** Who produced the change (an agent's display name). It goes into the
+   *  commit body: the author is the operator (so the commit is attributable),
+   *  and the body is where the run that did the work belongs. */
+  agent?: string;
 }
 
 export interface ProjectPushResult {
@@ -89,6 +93,9 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
     const commitArgs = ["commit", "--no-verify", "-m", input.message];
     if (input.note !== undefined && input.note.trim() !== "")
       commitArgs.push("-m", input.note.trim());
+    if (input.agent !== undefined && input.agent.trim() !== "") {
+      commitArgs.push("-m", `Agent: ${input.agent.trim()} (run ${input.runId})`);
+    }
     const commit = git(worktree, commitArgs);
     if (commit.code !== 0) {
       throw new ProjectPushRefused(`git commit failed: ${commit.err.trim().slice(0, 200)}`);
