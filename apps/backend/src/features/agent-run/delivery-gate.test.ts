@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type DeliveryGateRun, deliveryNoteOf } from "./delivery-gate.js";
+import { type DeliveryGateRun, deliveryNoteOf, producedByEvent } from "./delivery-gate.js";
 
 const run = (over: Partial<DeliveryGateRun> & { runId: string }): DeliveryGateRun => ({
   agentId: "worker-a",
@@ -63,5 +63,19 @@ describe("the delivery gate", () => {
   test("a run the front desk itself started is not a second opinion", () => {
     const note = gate([run({ runId: "w1", agentId: "pa", parentRunId: null })], new Set(["w1"]));
     expect(note).toBeUndefined();
+  });
+});
+
+describe("what counts as producing a change", () => {
+  test("edit and a push are production", () => {
+    expect(producedByEvent('{"toolName":"edit"}')).toBe(true);
+    expect(producedByEvent('{"toolName":"mcp__product-tools__project_push"}')).toBe(true);
+  });
+
+  test("a verifier's own report file is not production", () => {
+    // measured: the Reviewer used write + artifact_upload + report, never edit
+    expect(producedByEvent('{"toolName":"write"}')).toBe(false);
+    expect(producedByEvent('{"toolName":"mcp__product-tools__artifact_upload"}')).toBe(false);
+    expect(producedByEvent('{"toolName":"read"}')).toBe(false);
   });
 });

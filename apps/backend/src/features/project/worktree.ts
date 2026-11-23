@@ -96,14 +96,15 @@ export async function applyGitIdentity(worktree: string): Promise<void> {
  *  operator's `.mcp.json` to get a clean commit, and a hand-back would have
  *  carried the file. Excluded locally, never committed to the project. */
 async function excludeGeneratedFiles(worktree: string): Promise<void> {
+  // The COMMON git dir, not the worktree's own: git reads info/exclude from
+  // the common dir, so a per-worktree file is silently ignored (measured
+  // 2026-11-23: the file was correct and `git status` still listed `.mcp.json`).
+  // The common dir here is the project MIRROR, never the operator's checkout.
   const gitDir = (
-    await Bun.$`git -C ${worktree} rev-parse --git-dir`.nothrow().quiet().text()
+    await Bun.$`git -C ${worktree} rev-parse --git-path info/exclude`.nothrow().quiet().text()
   ).trim();
   if (gitDir === "") return;
-  const root = gitDir.startsWith("/") ? gitDir : `${worktree}/${gitDir}`;
-  // Per-worktree exclude (the shared info/exclude would hide the file from the
-  // operator's own checkout too).
-  const target = `${root}/info/exclude`;
+  const target = gitDir.startsWith("/") ? gitDir : `${worktree}/${gitDir}`;
   const current = existsSync(target) ? await Bun.file(target).text() : "";
   const missing = [".mcp.json", ".oma/"].filter(
     (line) => !current.split("\n").some((existing) => existing.trim() === line),

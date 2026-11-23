@@ -30,6 +30,16 @@ export interface DeliveryGateInput {
   readonly produced: (runId: string) => boolean;
 }
 
+/** Tools that change the workspace. A producer is any run that used one —
+ *  `mcp__product-tools__project_push` carries a prefix, and that mismatch is
+ *  exactly how the gate stayed silent on a real hand-back (2026-11-23). */
+export function producedByEvent(serialized: string): boolean {
+  // `edit` or a push — NOT plain `write`: a verifier writes its own report file
+  // (measured: the Reviewer used write + artifact_upload + report, never edit),
+  // and counting that as production would erase every verification.
+  return /"toolName":"edit"/.test(serialized) || serialized.includes("project_push");
+}
+
 /** The line to append, or undefined when the delivery is verified (or when
  *  nothing was dispatched at all: a plain answer needs no second opinion). */
 export function deliveryNoteOf(input: DeliveryGateInput): string | undefined {
