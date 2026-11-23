@@ -39,7 +39,7 @@ const autoRun = async (opts: {
     reason?: string;
     source?: string;
     sandboxed?: boolean;
-  }) => Promise<{ decision: "allow" | "deny"; reason?: string }>;
+  }) => Promise<{ decision: "allow" | "allow_always" | "deny" | "deny_always"; reason?: string }>;
   localMemory?: boolean;
   workspaceRoot?: string;
 }): Promise<string> => {
@@ -82,6 +82,41 @@ const autoRun = async (opts: {
   await rt.close();
   return JSON.stringify(out.messages);
 };
+
+describe("auto mode remembers a human's always answer", () => {
+  test(
+    "one allow_always covers the run's later calls of the same tool",
+    withFakes(async () => {
+      // Live 2026-11-23: a six-line README change cost four approvals because
+      // every classifier-blocked action escalated on its own.
+      const asked: string[] = [];
+      // Extra entries: the classifier's own model call consumes from the same
+      // fake queue, so the script needs headroom for two tool calls.
+      const script = [
+        { name: "bash", input: { description: "a", command: "echo one > a.txt" } },
+        { name: "bash", input: { description: "b", command: "echo two > b.txt" } },
+        { name: "bash", input: { description: "c", command: "echo three > c.txt" } },
+        { name: "bash", input: { description: "d", command: "echo four > d.txt" } },
+      ];
+      const out = await autoRun({
+        runId: "r-auto-always",
+        script,
+        text: "block",
+        permissionMode: "auto",
+        approvalHandler: async (req) => {
+          asked.push(req.toolName);
+          return { decision: "allow_always" };
+        },
+      });
+      expect(asked).toHaveLength(1);
+      const created = ["a.txt", "b.txt", "c.txt", "d.txt"].filter((f) => existsSync(join(tmp, f)));
+      // Whatever the fake queue let through, it is more than one call: the
+      // point is that the second and later calls did not ask again.
+      expect(created.length).toBeGreaterThan(1);
+      expect(out).not.toContain("blocked by classifier");
+    }),
+  );
+});
 
 describe("permissionMode auto classifier gate (CC alignment)", () => {
   test(
