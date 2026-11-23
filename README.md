@@ -16,6 +16,62 @@
 
 my-agent-team 是一个**团队级 Agent 运行时**：每个 Agent 一个工作区，身份、技能、MCP 与记忆都是工作区里的文件；oma / claude / pi / omp 四个 harness 任选，各自用原生 session 续接上下文；对话在 Web 控制台与飞书之间实时同步，所有端渲染的是账本里的同一份事实。
 
+## 📸 截图
+
+| Today | Team / Agents |
+|---|---|
+| <img src="docs/screenshots/today.png" width="280" alt="Today inbox"> | <img src="docs/screenshots/team.png" width="280" alt="Team agents"> |
+
+| MCP Servers | System (Observability) |
+|---|---|
+| <img src="docs/screenshots/mcp.png" width="280" alt="MCP catalog"> | <img src="docs/screenshots/system.png" width="280" alt="System telemetry overview"> |
+
+| Workflow Orchestrator | Chat Run Console | Oma TUI — real session |
+|---|---|---|
+| <img src="docs/screenshots/workflow-execution.png" width="280" alt="Live DAG orchestrator"> | <img src="docs/screenshots/chat.png" width="280" alt="Chat run console"> | <img src="docs/screenshots/oma-tui-real.png" width="280" alt="Oma TUI real session"> |
+
+| Oma TUI — tools | Oma TUI — mermaid |
+|---|---|
+| <img src="docs/screenshots/oma-tui-tools.png" width="280" alt="Oma TUI tools"> | <img src="docs/screenshots/oma-tui-mermaid.png" width="280" alt="Oma TUI mermaid"> |
+
+## 📦 安装（预编译产物）
+
+不想跑源码，就装一个能用的（oma + backend + web 一起下发）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
+oma gateway up        # 前台；-d 放后台，健康后才返回
+```
+
+脚本会按需装 Bun、装 `@chengchenccc/oh-my-agent`，并把 gateway 产物下到 `~/.oma/gateway/`；它不替你启动服务。`OMA_VERSION=rc` 走 npm 的 `rc` 通道：带 `oma gateway` 命令的版本还没发到 `latest`。登录地址与口令由 `oma gateway up` 打印；也可 `oma gateway status` 再查，口令落在 `~/.oma/gateway-secrets.json`（0600）。改口令：Web 设置页 Settings → Login password（立即生效），或 `oma gateway passwd`；两者都在时设置页的哈希优先。
+
+常用命令：
+
+| 命令 | 做什么 |
+|---|---|
+| `oma gateway up` / `up -d` | 起 backend + web（前台 / 后台） |
+| `oma gateway status` | 版本、进程、健康、登录口令 |
+| `oma gateway down` | 停掉后台那个 |
+| `oma update` | CLI 与产物一起升级（`--check` 只看；按 latest/rc 取高者，不下行降级） |
+
+`oma gateway up` / `fetch` 都接受 `--version <版本>` 指定产物版本。
+
+手动装也行：`bun add -g @chengchenccc/oh-my-agent@rc` → `oma gateway fetch` → `oma gateway up`（`fetch` 不能省：Bun 默认不跑依赖的 postinstall）。系统依赖是 `bun`、`tar`、`zstd`；代码与数据分开落盘，升级不动 `~/.oma/gateway-data/`。
+
+成功判据与源码方式相同：打开 `http://127.0.0.1:3001/login`，用打印出的口令登录。
+
+**可复制示例**
+
+```bash
+# 一次性问答（print 模式）
+oma -p "用三句话总结 docs/architecture/README.md"
+
+# 看已装版本、进程与登录口令
+oma gateway status
+```
+
+**文档**：[项目 Wiki](docs/README.md) · [架构总览](docs/architecture/system-overview.md) · [开发指南](docs/guides/development.md) · [贡献指引](CONTRIBUTING.md)
+
 ## 🚀 Getting Started
 
 ### 从源码跑（四步）
@@ -85,31 +141,16 @@ bun run dev:web      # http://localhost:3001
 
 设了哪家的 key，哪家的 builtin provider 就可用；自定义 provider 与模型覆盖写在 `~/.oma/models.yml`（gateway 场景的额外限制见「安全模型」）。
 
-### 直接装预编译产物
+## ✨ 本周新增
 
-不想跑源码，就装一个能用的（oma + backend + web 一起下发）：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
-oma gateway up        # 前台；-d 放后台，健康后才返回
-```
-
-脚本会按需装 Bun、装 `@chengchenccc/oh-my-agent`，并把 gateway 产物下到 `~/.oma/gateway/`；它不替你启动服务。`OMA_VERSION=rc` 走 npm 的 `rc` 通道：带 `oma gateway` 命令的版本还没发到 `latest`。登录地址与口令由 `oma gateway up` 打印；也可 `oma gateway status` 再查，口令落在 `~/.oma/gateway-secrets.json`（0600）。改口令：Web 设置页 Settings → Login password（立即生效），或 `oma gateway passwd`；两者都在时设置页的哈希优先。
-
-常用命令：
-
-| 命令 | 做什么 |
-|---|---|
-| `oma gateway up` / `up -d` | 起 backend + web（前台 / 后台） |
-| `oma gateway status` | 版本、进程、健康、登录口令 |
-| `oma gateway down` | 停掉后台那个 |
-| `oma update` | CLI 与产物一起升级（`--check` 只看；按 latest/rc 取高者，不下行降级） |
-
-`oma gateway up` / `fetch` 都接受 `--version <版本>` 指定产物版本。
-
-手动装也行：`bun add -g @chengchenccc/oh-my-agent@rc` → `oma gateway fetch` → `oma gateway up`（`fetch` 不能省：Bun 默认不跑依赖的 postinstall）。系统依赖是 `bun`、`tar`、`zstd`；代码与数据分开落盘，升级不动 `~/.oma/gateway-data/`。
-
-成功判据与源码方式相同：打开 `http://127.0.0.1:3001/login`，用打印出的口令登录。
+- **项目副本与回写** — worker 在自己的项目副本里工作；`project_push` 把改动推到从 runId 派生的 `agent/<runId>` 分支，拒绝推 `master`/`main`，人看 compare 链接决定合不合（`apps/backend/src/features/project/push.ts`）。
+- **交付门** — 改动没有第二个成员核对时，后端会在交付消息里追加一行「未经核验」（`apps/backend/src/features/agent-run/delivery-gate.ts`）。
+- **直连工人** — 新建会话可以绑定某个 worker 并以 `direct: true` 直连；默认仍走前台，worker 不直接接人的消息（`apps/backend/src/features/conversation/http.ts`）。
+- **提案在需求页里处理** — agent 的配置/项目提案不再有独立页面，在 `/requirements` 的 Proposals 视图里看"会改什么"，点 Adopt **即应用**（`apps/backend/src/features/proposal/apply.ts`）。
+- **知识只有一个面** — 知识包已下线，wiki 是唯一的读、写、检索入口（`docs/adr/0078-one-knowledge-surface.md`）。
+- **工具策略** — 每个 agent 可配 `deny_write_paths` / `allow_write_paths` / `deny_commands`，注入子进程后由 bash 执行；写逃逸与越界 git（读写别的仓库）都会被拒（`apps/backend/src/features/agent/agent-config.ts`、`apps/oh-my-agent/src/core/tools/bash.ts`）。
+- **团队卡片与项目采纳** — 团队成员卡片带项目（最多展示 3 个）；项目提案（repo + 持有人）由人在 Proposals 页一键 adopt（`apps/web/src/app/(main)/team/page.tsx`、`apps/backend/src/features/proposal/http.ts`）。
+- **子会话标题** — 派单子会话的标题取 `verb · object`，不再是 `<dispatch>` XML 信封（`apps/backend/src/features/conversation/title.ts`）。
 
 ## 🏗 架构
 
