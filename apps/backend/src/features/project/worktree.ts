@@ -90,6 +90,29 @@ export async function applyGitIdentity(worktree: string): Promise<void> {
   await Bun.$`git -C ${worktree} config user.email ${who.email}`.nothrow().quiet();
 }
 
+/** The run writes generated files into its working directory (`.mcp.json` at
+ *  minimum). They are not the project's content, but they made every worktree
+ *  permanently dirty — live 2026-11-23 a worker tried to `git stash` the
+ *  operator's `.mcp.json` to get a clean commit, and a hand-back would have
+ *  carried the file. Excluded locally, never committed to the project. */
+async function excludeGeneratedFiles(worktree: string): Promise<void> {
+  const gitDir = (
+    await Bun.$`git -C ${worktree} rev-parse --git-dir`.nothrow().quiet().text()
+  ).trim();
+  if (gitDir === "") return;
+  const root = gitDir.startsWith("/") ? gitDir : `${worktree}/${gitDir}`;
+  // Per-worktree exclude (the shared info/exclude would hide the file from the
+  // operator's own checkout too).
+  const target = `${root}/info/exclude`;
+  const current = existsSync(target) ? await Bun.file(target).text() : "";
+  const missing = [".mcp.json", ".oma/"].filter(
+    (line) => !current.split("\n").some((existing) => existing.trim() === line),
+  );
+  if (missing.length === 0) return;
+  const prefix = current === "" || current.endsWith("\n") ? current : `${current}\n`;
+  await Bun.write(target, `${prefix}${missing.join("\n")}\n`);
+}
+
 export async function ensureWorktree(
   mirrorPath: string,
   agentWorkspace: string,
@@ -99,9 +122,10 @@ export async function ensureWorktree(
   const wt = worktreePath(agentWorkspace, project.projectId);
   const listed = await Bun.$`git -C ${mirrorPath} worktree list --porcelain`.text();
   if (listed.includes(wt)) {
-    // Older worktrees predate identity handling: repair in place (cheap, and
-    // only when the placeholder or empty identity is what git would use).
+    // Older worktrees predate identity/exclude handling: repair in place
+    // (cheap, and idempotent).
     await applyGitIdentity(wt);
+    await excludeGeneratedFiles(wt);
     return wt;
   }
   if (existsSync(wt)) return null;
@@ -118,6 +142,7 @@ export async function ensureWorktree(
     await Bun.$`git -C ${mirrorPath} worktree add -b ${branch} ${wt} ${target}`.quiet();
   }
   await applyGitIdentity(wt);
+  await excludeGeneratedFiles(wt);
   return wt;
 }
 
