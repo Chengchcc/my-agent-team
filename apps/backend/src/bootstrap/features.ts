@@ -2034,15 +2034,24 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         `[workspace] opened requirement ${requirementId} for room ${input.conversationId} (project ${projectId})`,
       );
     }
+    // The checkout is where WORKERS work. A front-desk run routes and then
+    // holds for the worker's result — if it also took the checkout, it would
+    // hold the workspace lock the worker needs, and the two would wait on each
+    // other forever (measured 2026-11-23: 0 tool calls in 13 minutes). The
+    // front desk stays in its own directory; it opened the requirement above
+    // and that is its whole part in it.
+    const isWorker = agent?.config.role === "worker";
     const checkout =
-      requirementId !== null && projectId !== null
+      isWorker && requirementId !== null && projectId !== null
         ? await workspaceSvc.ensureForRequirement({ requirementId, projectId })
         : null;
     return resolveRunWorkspace({
       agentId: input.agentId ?? null,
       agentWorkspacePath: agent?.workspacePath ?? null,
       fallbackRoot: config.workspaceRoot,
-      conversationProjectId: projectId,
+      // A front desk in a project room is not "a project run": it has no
+      // checkout and must not be refused for lacking one.
+      conversationProjectId: isWorker ? projectId : null,
       requirementWorkspacePath: checkout?.path ?? null,
     });
   };
