@@ -29,6 +29,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -36,6 +43,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -59,6 +73,7 @@ import {
   useDeleteConversation,
 } from "@/features/conversations/hooks";
 import { useCurrentUser } from "@/features/identity/hooks";
+import { useProjects } from "@/features/requirements/hooks";
 import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
@@ -79,6 +94,15 @@ function NavContent() {
     (c) => "origin" in c && c.origin !== "loop" && c.origin !== "cron" && c.origin !== "workflow",
   );
   const deleteConversation = useDeleteConversation();
+  // ADR 0076: a conversation may be BOUND to a project — then its dispatch
+  // guard, its brief and its terminal all use that project. Optional on
+  // purpose: ad-hoc rooms (questions, wiki upkeep) have no project.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newProject, setNewProject] = useState("");
+  const { data: projectRows } = useProjects();
+  const projects =
+    (projectRows as { projects?: Array<{ projectId: string; name: string }> } | undefined)
+      ?.projects ?? [];
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // U4: badge the Workflows nav when any execution waits for a human.
@@ -118,7 +142,7 @@ function NavContent() {
     setOpenMobile(false);
   }
 
-  function makeConversation() {
+  function makeConversation(projectId?: string) {
     // Quick-create targets the default agent, falling back to the first
     // enabled one — never a hardcoded dead agent id.
     const agent =
@@ -129,6 +153,7 @@ function NavContent() {
     createConversation.mutate(
       {
         agentId,
+        ...(projectId ? { projectId } : {}),
       },
       {
         onSuccess: (conv) => {
@@ -238,7 +263,10 @@ function NavContent() {
             variant="ghost"
             size="icon-xs"
             disabled={createConversation.isPending}
-            onClick={makeConversation}
+            onClick={() => {
+              setNewProject("");
+              setNewOpen(true);
+            }}
             className="ml-auto text-primary hover:text-primary/80"
             aria-label="New conversation"
           >
@@ -524,6 +552,51 @@ function NavContent() {
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
+      {/* ADR 0076: an optional project binds the room — dispatch, brief and
+       * terminal all follow it. "No project" keeps ad-hoc rooms undemanding. */}
+      <Dialog
+        open={newOpen}
+        onOpenChange={(open) => {
+          if (!open) setNewOpen(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New conversation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Bind it to a project so the room's work happens in that project's copy.
+            </p>
+            <Select value={newProject} onValueChange={(v) => setNewProject(v ?? "")}>
+              <SelectTrigger>
+                <SelectValue placeholder="No project" />
+              </SelectTrigger>
+              <SelectContent>
+                {projects.map((project) => (
+                  <SelectItem key={project.projectId} value={project.projectId}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={createConversation.isPending}
+              onClick={() => {
+                setNewOpen(false);
+                makeConversation(newProject === "" ? undefined : newProject);
+              }}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {confirmDialog}
     </SidebarContent>
   );
