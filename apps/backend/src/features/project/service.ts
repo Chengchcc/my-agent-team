@@ -39,9 +39,15 @@ function validateRepoRefs(
     if (!u) throw new ValidationError("repoUrl must not be empty");
     if (u.startsWith("-")) throw new ValidationError("repoUrl must not start with '-'");
     const schemeOk = /^(https|ssh|file):\/\//.test(u);
+    // The scp-like form is what people actually paste (`git@github.com:o/r.git`).
+    // No whitespace, no shell metacharacters: the value still lands in a git
+    // command line, so the shape stays narrow.
+    const scpLike = /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s;|&$`<>()]+$/.test(u);
     const localPath = u.startsWith("/") || u.startsWith(".");
-    if (!schemeOk && !localPath) {
-      throw new ValidationError("repoUrl must be an https/ssh/file URL or a local path");
+    if (!schemeOk && !scpLike && !localPath) {
+      throw new ValidationError(
+        "repoUrl must be an https/ssh/file URL, a git@host:path remote, or a local path",
+      );
     }
   }
   if (defaultBranch) {
