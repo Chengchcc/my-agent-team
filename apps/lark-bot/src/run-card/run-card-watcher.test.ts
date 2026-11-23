@@ -94,6 +94,38 @@ describe("the run card watches the chat channel", () => {
     handle.close();
   }, 15_000);
 
+  test("a repeated terminal state seals once, not once per state", async () => {
+    // live 2026-11-23: the seal ran six times in five seconds because the
+    // watcher set `sealedOnce` but never read it.
+    const calls: string[] = [];
+    const handle = await watchRunCard(runId, "conv-watch-1", "oc_watch", {
+      db,
+      cardPaceClock: instantCardPaceClock,
+      backendUrl: "http://127.0.0.1:1",
+      backendAuthToken: null,
+      cardClient: fakeCardClient(calls),
+      webUrl: null,
+      sourceMessageId: null,
+      replyTo: null,
+      replyInThread: false,
+      sendText: async () => {
+        calls.push("sendText");
+      },
+    });
+    // Let the card exist first (drive() creates it asynchronously).
+    await handle.update(chatOf([markdown("working")], false) as never);
+    await new Promise((r) => setTimeout(r, 50));
+    const terminal = chatOf([markdown("done")], true) as never;
+    await handle.update(terminal);
+    const afterFirst = calls.length;
+    await handle.update(terminal);
+    await handle.update(terminal);
+    // Nothing at all: no replace, no second text fallback, no reaction swap.
+    expect(calls.length).toBe(afterFirst);
+    expect(calls.filter((c) => c === "sendText").length).toBeLessThanOrEqual(1);
+    handle.close();
+  }, 15_000);
+
   test("a rate-limited seal waits for the card instead of sending a second message", async () => {
     // #87: congestion (230020) used to be read as "this card cannot be
     // replaced", so the answer went out as a plain message while the card kept

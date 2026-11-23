@@ -594,7 +594,13 @@ export async function watchRunCard(
     const before = state;
     state = next;
     if (state.terminal) {
+      // Every later state still carries this same terminal turn. Sealing again
+      // would replace the card and close streaming once per state — live
+      // 2026-11-23 the seal ran six times in five seconds and the card never
+      // settled. One seal per run.
+      if (sealedOnce) return;
       sealedOnce = true;
+      stopTicker();
       await updater.finish();
       await seal();
       await leaveTerminalReaction();
