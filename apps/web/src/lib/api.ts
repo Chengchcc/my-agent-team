@@ -716,6 +716,8 @@ export const api = {
     input?: Record<string, unknown>;
     artifacts?: string[];
   }) => unwrap(client.api["workflow-executions"].post(body)),
+  /** Every still-pending proposal (ADR 0040 inbox). */
+  listPendingProposals: () => unwrap(client.api.proposals.pending.get()),
   /** The pending proposal for a target (ADR 0040: an MCP tool proposes, a page adopts), or null
    *  when nothing is waiting. */
   getPendingProposal: (kind: "agent_config" | "workflow_definition", targetId: string) =>

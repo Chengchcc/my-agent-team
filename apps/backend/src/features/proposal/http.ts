@@ -8,6 +8,11 @@ import type { ProposalService } from "./service.js";
  *  decision travels in the body anyway. */
 export function proposalRoutes(service: ProposalService) {
   return new Elysia()
+    .get("/api/proposals/pending", ({ query }) => ({
+      proposals: service.pendingAll(
+        query.kind !== undefined && isProposalKind(query.kind) ? query.kind : undefined,
+      ),
+    }))
     .get("/api/proposals/:kind/:targetId", ({ params, set }) => {
       if (!isProposalKind(params.kind)) {
         set.status = 400;
