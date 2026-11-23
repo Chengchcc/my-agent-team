@@ -35,6 +35,26 @@ export interface ProjectPushResult {
 
 export class ProjectPushRefused extends Error {}
 
+/** ADR 0077: a hand-back pushes the requirement's checkout OF THAT PROJECT,
+ *  and only when the run is actually working in it. The run's workspace alone
+ *  proves nothing: a run in project A's checkout must not push A's tree to B's
+ *  remote, and an agent workspace (SOUL.md, .mcp.json) is never a project.
+ *  Returns the refusal, or undefined when the push may proceed. */
+export function checkoutRefusal(input: {
+  projectName: string;
+  /** The requirement's open checkout for this project; null when there is none. */
+  expected: string | null;
+  /** Where this run is working; null when unset. */
+  actual: string | null;
+}): string | undefined {
+  if (input.expected !== null && input.actual === input.expected) return undefined;
+  return (
+    `this run is not working in a ${input.projectName} checkout ` +
+    `(its workspace is ${input.actual ?? "unset"}); project_push hands back the ` +
+    "requirement's checkout of that project and nothing else"
+  );
+}
+
 function git(cwd: string, args: readonly string[]): { code: number; out: string; err: string } {
   const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   return {

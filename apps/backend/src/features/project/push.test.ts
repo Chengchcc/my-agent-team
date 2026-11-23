@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ProjectPushRefused, pushProjectWorktree } from "./push.js";
+import { checkoutRefusal, ProjectPushRefused, pushProjectWorktree } from "./push.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -144,5 +144,36 @@ describe("ADR 0076: the scp-like remote", () => {
     });
     expect(result.branch).toBe("agent/run-scp");
     expect(result.compareUrl).toBeNull();
+  });
+});
+
+describe("checkoutRefusal: a hand-back is bound to the project's own checkout", () => {
+  test("the run working in the requirement's checkout of that project may push", () => {
+    expect(
+      checkoutRefusal({ projectName: "A", expected: "/ws/R-1/A", actual: "/ws/R-1/A" }),
+    ).toBeUndefined();
+  });
+
+  test("a run in another project's checkout is refused", () => {
+    const refusal = checkoutRefusal({
+      projectName: "B",
+      expected: "/ws/R-1/B",
+      actual: "/ws/R-1/A",
+    });
+    expect(refusal).toContain("not working in a B checkout");
+  });
+
+  test("no requirement checkout for the project is refused, whatever the run's workspace is", () => {
+    const refusal = checkoutRefusal({ projectName: "A", expected: null, actual: "/agents/x" });
+    expect(refusal).toContain("not working in a A checkout");
+  });
+
+  test("an agent workspace is never handed back as a project", () => {
+    const refusal = checkoutRefusal({
+      projectName: "A",
+      expected: "/ws/R-1/A",
+      actual: "/agents/x",
+    });
+    expect(refusal).toContain("/agents/x");
   });
 });

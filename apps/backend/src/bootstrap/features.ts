@@ -146,7 +146,8 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "../features/project/index.js";
-import { pushProjectWorktree } from "../features/project/push.js";
+import { checkoutRefusal, pushProjectWorktree } from "../features/project/push.js";
+import { ensureRequirementWorktree } from "../features/project/requirement-workspace.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
 import {
   createTaskWorktree,
@@ -199,6 +200,7 @@ import {
   sqliteWorkflowExecutionAdapter,
   workflowRoutes,
 } from "../features/workflow/index.js";
+import { createWorkspaceService } from "../features/workspace/service.js";
 import { startAllowlistProxy } from "../infra/allowlist-proxy.js";
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
 import { ulid } from "../infra/ids.js";
@@ -1078,14 +1080,35 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         .find((candidate) => candidate.projectId === project || candidate.name === project);
       if (named === undefined) return { ok: false as const, error: `unknown project: ${project}` };
       if (!agent.config.runtime_config.projects.includes(named.projectId)) {
-        return { ok: false as const, error: `${agentId} has no copy of ${named.name}` };
+        return { ok: false as const, error: `${agentId} is not bound to ${named.name}` };
       }
       if (named.repoUrl === null || named.repoUrl === "") {
         return { ok: false as const, error: `project ${named.name} has no remote to push to` };
       }
+      // ADR 0077: what gets pushed is the requirement's checkout FOR THAT
+      // PROJECT, and only if this run is actually working in it. The run's
+      // workspace alone is not enough: a run in project A's checkout must not
+      // be able to push A's tree to B's remote, and an agent workspace
+      // (SOUL.md, .mcp.json) must never be handed back as a project.
+      const run = await agentRunPort.getRun(runId).catch(() => null);
+      const requirementId = run ? workspaceSvc.currentRequirementOf(run.conversationId) : null;
+      const expected =
+        requirementId === null
+          ? null
+          : workspaceSvc.findForRequirement({ requirementId, projectId: named.projectId });
+      const worktree = run?.workspace?.root ?? null;
+      const refusal = checkoutRefusal({
+        projectName: named.name,
+        expected: expected?.path ?? null,
+        actual: worktree,
+      });
+      if (refusal !== undefined || expected === null) {
+        return { ok: false as const, error: refusal ?? "no checkout for this project" };
+      }
+      const checkout = expected.path;
       try {
         const pushed = pushProjectWorktree({
-          worktree: `${agent.workspacePath}/projects/${named.projectId}`,
+          worktree: checkout,
           repoUrl: named.repoUrl,
           runId,
           message,
@@ -1226,10 +1249,34 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           .map((pid: string) => projectSvc.getById(pid))
           .find((p) => brief.object.includes(p.name) || instruction.includes(p.name)) ??
         null;
-      const workerWorktree =
-        namedProject === null || workerRoot === ""
-          ? null
-          : `${workerRoot}/projects/${namedProject.projectId}`;
+      // ADR 0077: the work lands in the REQUIREMENT's checkout. No requirement
+      // yet → the dispatch opens one (visible in /requirements) rather than
+      // falling back to a copy the agent owns.
+      let workerWorktree: string | null = null;
+      if (namedProject !== null) {
+        let requirementId = workspaceSvc.currentRequirementOf(conversationId);
+        if (requirementId === null) {
+          const opened = requirementSvc.create({
+            title: brief.object.slice(0, 80) || instruction.slice(0, 80),
+            goal: instruction.slice(0, 300) || brief.object,
+            projectId: namedProject.projectId,
+            originConversationId: conversationId,
+            createdByAgentId: fromAgentId,
+          });
+          requirementId = opened.requirementId;
+          workspaceSvc.attachConversation({ conversationId, requirementId });
+        }
+        const checkout = await workspaceSvc.ensureForRequirement({
+          requirementId,
+          projectId: namedProject.projectId,
+        });
+        workerWorktree = checkout.path;
+        // The worker's room advances the same requirement.
+        workspaceSvc.attachConversation({
+          conversationId: room.conversationId,
+          requirementId,
+        });
+      }
       const posted = await conv.convSvc.postMessage({
         conversationId: room.conversationId,
         senderMemberId: fromAgentId,
@@ -1884,18 +1931,113 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
    *  fallback root. The run dispatch lets a mis-attached project throw (that is a real failure);
    *  the AHP session read treats the same failure as "nothing to show". */
-  const resolveWorkspaceFor = async (input: {
+  // ADR 0077: the requirement's checkout, materialized on first use. The
+  // agent's project binding is a capability (who may be dispatched) and never
+  // a directory — one agent owning one copy is what serialized two tasks.
+  const workspaceSvc = createWorkspaceService({
+    db,
+    idGen: ulid,
+    materialize: async ({ projectId, requirementId }) => {
+      const project = projectSvc.getById(projectId);
+      if (!project?.repoUrl) return null;
+      const wp = {
+        projectId: project.projectId,
+        repoUrl: project.repoUrl,
+        defaultBranch: project.defaultBranch,
+      };
+      const mirror = await ensureMirror(config.dataDir, wp);
+      return ensureRequirementWorktree({
+        mirrorPath: mirror,
+        workspacesRoot: join(config.dataDir, "workspaces"),
+        requirementId,
+        projectId,
+        defaultBranch: project.defaultBranch,
+      });
+    },
+  });
+
+  /** The room's current requirement and its OPEN checkout for a project, or
+   *  nulls. Read-only. */
+  const checkoutOf = (
+    conversationId: string,
+  ): {
+    requirementId: string | null;
+    projectId: string | null;
+    checkout: { path: string } | null;
+  } => {
+    const convRow = conv.convPort.getConversation(conversationId);
+    const requirementId = workspaceSvc.currentRequirementOf(conversationId);
+    const requirementProject =
+      requirementId === null
+        ? null
+        : (requirementSvc.get(requirementId)?.requirement.projectId ?? null);
+    const projectId = convRow?.projectId ?? requirementProject;
+    const checkout =
+      requirementId !== null && projectId !== null
+        ? workspaceSvc.findForRequirement({ requirementId, projectId })
+        : null;
+    return { requirementId, projectId, checkout };
+  };
+
+  /** Read-only lookup for readers (chat state, memory recall). It never opens
+   *  a requirement: a read must not write. A project room with no checkout yet
+   *  reads from the agent's own directory. */
+  const peekWorkspaceFor = async (input: {
+    conversationId: string;
+    agentId?: string | null;
+  }): Promise<{ root: string; access: "read_write" }> => {
+    const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
+    const { projectId, checkout } = checkoutOf(input.conversationId);
+    return resolveRunWorkspace({
+      agentId: input.agentId ?? null,
+      agentWorkspacePath: agent?.workspacePath ?? null,
+      fallbackRoot: config.workspaceRoot,
+      // No checkout → not a project room as far as the resolver is concerned.
+      conversationProjectId: checkout === null ? null : projectId,
+      requirementWorkspacePath: checkout?.path ?? null,
+    });
+  };
+
+  /** The workspace a RUN works in. A project room with no requirement gets one
+   *  NOW — opened by the product and visible in /requirements (ADR 0077): the
+   *  alternative is a first message that fails because it has nowhere to work.
+   *  A human room names its requirement after the room; a dispatched room
+   *  already points at the dispatcher's requirement. */
+  const workspaceForRun = async (input: {
     conversationId: string;
     agentId?: string | null;
   }): Promise<{ root: string; access: "read_write" }> => {
     const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
     const convRow = conv.convPort.getConversation(input.conversationId);
+    let { requirementId, projectId } = checkoutOf(input.conversationId);
+    if (projectId !== null && requirementId === null) {
+      const project = projectSvc.getById(projectId);
+      const title =
+        (convRow?.title ?? "").trim().slice(0, 80) ||
+        (project ? `${project.name} — work opened from this room` : "Work opened from this room");
+      const opened = requirementSvc.create({
+        title,
+        goal: "Opened by the product when work started in this room; refine the goal here.",
+        projectId,
+        originConversationId: input.conversationId,
+        createdByAgentId: input.agentId ?? null,
+      });
+      requirementId = opened.requirementId;
+      workspaceSvc.attachConversation({ conversationId: input.conversationId, requirementId });
+      console.log(
+        `[workspace] opened requirement ${requirementId} for room ${input.conversationId} (project ${projectId})`,
+      );
+    }
+    const checkout =
+      requirementId !== null && projectId !== null
+        ? await workspaceSvc.ensureForRequirement({ requirementId, projectId })
+        : null;
     return resolveRunWorkspace({
       agentId: input.agentId ?? null,
       agentWorkspacePath: agent?.workspacePath ?? null,
-      agentProjects: agent?.config.runtime_config.projects ?? [],
       fallbackRoot: config.workspaceRoot,
-      conversationProjectId: convRow?.projectId ?? null,
+      conversationProjectId: projectId,
+      requirementWorkspacePath: checkout?.path ?? null,
     });
   };
 
@@ -1948,7 +2090,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     workspaceOf: async (conversationId) => {
       const convRow = conv.convPort.getConversation(conversationId);
       if (!convRow?.agentId) return null;
-      const ws = await resolveWorkspaceFor({
+      const ws = await peekWorkspaceFor({
         conversationId,
         agentId: convRow.agentId,
       }).catch(() => null);
@@ -1986,8 +2128,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ledgerResolver,
     backends,
     idGen: { ulid },
-    resolveWorkspace: ({ conversationId, agentId }) =>
-      resolveWorkspaceFor({ conversationId, agentId }),
+    resolveWorkspace: ({ conversationId, agentId }) => workspaceForRun({ conversationId, agentId }),
     // ADR 0064: the front desk's long-term memory, read from its workspace.
     // Vector voice when an embedding model is configured; keyword-only
     // otherwise (narrower, never broken).
@@ -2431,36 +2572,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
       }
       const packs = await skillPackPort.listForAgent(agentId);
-      // ADR 0023: materialize a worktree per attached project and bridge
-      // the same mcp + product-tools config into it. Failures warn, never
-      // throw (reconcile stays best-effort like the other bridges).
+      // ADR 0077: an agent no longer owns project checkouts. The checkout is
+      // the requirement's (`<dataDir>/workspaces/<requirementId>/<projectId>`),
+      // created when a dispatch needs it; `projects` on the agent stays what it
+      // always was for the guard — who may be dispatched to which project.
       const extraRoots: string[] = [];
-      for (const pid of agent.config.runtime_config.projects) {
-        const project = projectSvc.getById(pid);
-        if (!project?.repoUrl) {
-          console.warn(
-            `[reconcile] agent ${agentId}: project ${pid} missing or no repoUrl, skipped`,
-          );
-          continue;
-        }
-        const wp = {
-          projectId: project.projectId,
-          repoUrl: project.repoUrl,
-          defaultBranch: project.defaultBranch,
-        };
-        try {
-          const mirror = await ensureMirror(config.dataDir, wp);
-          const wt = await ensureWorktree(mirror, agent.workspacePath, wp, agentId);
-          if (wt) extraRoots.push(wt);
-          else {
-            console.warn(
-              `[reconcile] agent ${agentId}: worktree slot for ${pid} occupied, skipped`,
-            );
-          }
-        } catch (err) {
-          console.warn(`[reconcile] agent ${agentId}: worktree for ${pid} failed:`, err);
-        }
-      }
       reconcileAgentResources({
         extraRoots,
         workspacePath: agent.workspacePath,
@@ -2852,7 +2968,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Todos are stored per branch; the chat state keys them by run.
     workspaceRootOf: async (conversationId) => {
       const row = conv.convPort.getConversation(conversationId);
-      const workspace = await resolveWorkspaceFor({
+      const workspace = await peekWorkspaceFor({
         conversationId,
         agentId: row?.agentId ?? null,
       }).catch(() => null);

@@ -636,6 +636,9 @@ class ConversationServiceImpl implements ConversationService {
       origin: "dispatch",
       createdAt: Date.now(),
       parentConversationId: input.parentConversationId,
+      // ADR 0077: the room's project is context for guards and briefs; the
+      // checkout comes from the requirement the dispatch points the room at.
+      ...(parent.projectId ? { projectId: parent.projectId } : {}),
     });
     if (input.title !== undefined) this.port.setConversationTitle(conversationId, input.title);
     return conversationId;

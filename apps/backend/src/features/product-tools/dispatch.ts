@@ -566,7 +566,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "team_list",
     description:
-      "List the team's agents with their capability cards: id, name, description, skills, AND the projects each has attached. Read before dispatching: a worker without the project has no copy of it to read or write.",
+      "List the team's agents with their capability cards: id, name, description, skills, AND the projects each has attached. Read before dispatching: a worker not bound to the project cannot be dispatched to it.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
   {
