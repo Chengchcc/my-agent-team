@@ -63,6 +63,13 @@ async function fetchRunStatus(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers["x-auth-token"] = token;
   const resp = await fetch(`${backendUrl}/api/agent-runs/${runId}`, { headers });
+  if (resp.status === 404) {
+    // The run is not in the backend at all (pruned, or from before a reset).
+    // No later probe will ever succeed, so the caller must settle on what it
+    // has instead of ticking forever (live 2026-11-23: a card from a vanished
+    // run repainted every second, seq 424).
+    return { status: "gone", error: null };
+  }
   if (!resp.ok) return null;
   const body = z
     .object({
@@ -471,6 +478,9 @@ export async function watchRunCard(
         attempt += 1;
       }
     }
+    console.log(
+      `[lark-bot] card ${runId}: seal ${sealed ? "replaced" : "fell back to text"} after ${Date.now() - meta.startedAt}ms (chars ${content.length})`,
+    );
     if (sealed) {
       // Close streaming mode so the client leaves the streaming view and
       // renders the frozen terminal card (reference: setCardStreamingMode).
@@ -595,10 +605,36 @@ export async function watchRunCard(
   /** Terminal watchdog: if the chat channel never delivers the fold, seal from
    *  the backend's own terminal fact. Cheap (one GET per 15s, only while a
    *  card is live) and stops the moment the card seals or closes. */
+  let loggedProbeFailure = false;
   const probeTerminal = async (): Promise<void> => {
     if (aborted || sealedOnce || state.terminal) return;
-    const fact = await fetchRunStatus(backendUrl, backendAuthToken, runId).catch(() => null);
-    if (fact === null) return;
+    const fact = await fetchRunStatus(backendUrl, backendAuthToken, runId).catch((err: unknown) => {
+      if (!loggedProbeFailure) {
+        loggedProbeFailure = true;
+        console.error(
+          `[lark-bot] card ${runId}: terminal probe threw: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return null;
+    });
+    if (fact === null) {
+      if (!loggedProbeFailure) {
+        loggedProbeFailure = true;
+        console.error(`[lark-bot] card ${runId}: terminal probe got no run fact; still live`);
+      }
+      return;
+    }
+    if (fact.status === "gone") {
+      // Nothing left to wait for. Seal with whatever text exists so the row
+      // leaves the live set (restart recovery only re-drives live rows).
+      console.error(`[lark-bot] card ${runId}: the run no longer exists; sealing what we have`);
+      sealedOnce = true;
+      clearInterval(terminalWatchdog);
+      await updater.finish();
+      await seal();
+      await leaveTerminalReaction();
+      return;
+    }
     const terminal = cardTerminalOf(fact.status);
     if (terminal === null) return;
     state = {

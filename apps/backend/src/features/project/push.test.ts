@@ -58,11 +58,44 @@ describe("ADR 0076: pushing a worker's worktree", () => {
     expect(master.stdout.toString().trim().length).toBeGreaterThan(0);
   });
 
-  test("a clean worktree is refused - there is nothing to hand back", () => {
+  test("a worker that already committed still pushes - a clean tree is not empty", () => {
+    // live 2026-11-23: the worker ran `git commit` itself and the old
+    // "clean tree" check refused a branch with one commit waiting.
     const { origin, worktree } = fixture();
-    pushProjectWorktree({ worktree, repoUrl: `file://${origin}`, runId: "run-1", message: "x" });
+    sh(worktree, ["add", "-A"]);
+    sh(worktree, ["commit", "-q", "-m", "docs: done by the worker"]);
+    const result = pushProjectWorktree({
+      worktree,
+      repoUrl: `file://${origin}`,
+      runId: "run-committed",
+      message: "unused",
+    });
+    expect(result.branch).toBe("agent/run-committed");
+    expect(result.commits).toBe(1);
+  });
+
+  test("a fresh worktree with nothing new is refused", () => {
+    const root = mkdtempSync(join(tmpdir(), "push-clean-"));
+    dirs.push(root);
+    const origin = join(root, "origin.git");
+    sh(root, ["init", "--bare", "-q", origin]);
+    const seed = join(root, "seed");
+    sh(root, ["clone", "-q", origin, "seed"]);
+    sh(seed, ["config", "user.email", "t@l"]);
+    sh(seed, ["config", "user.name", "t"]);
+    writeFileSync(join(seed, "README.md"), "hello\n");
+    sh(seed, ["add", "-A"]);
+    sh(seed, ["commit", "-q", "-m", "seed"]);
+    sh(seed, ["push", "-q", "origin", "HEAD:refs/heads/master"]);
+    const wt = join(root, "wt");
+    sh(root, ["clone", "-q", origin, "wt"]);
     expect(() =>
-      pushProjectWorktree({ worktree, repoUrl: `file://${origin}`, runId: "run-1", message: "x" }),
+      pushProjectWorktree({
+        worktree: wt,
+        repoUrl: `file://${origin}`,
+        runId: "run-clean",
+        message: "x",
+      }),
     ).toThrow(ProjectPushRefused);
   });
 
