@@ -10,6 +10,11 @@ function memoryPort(): ProposalPort & { rows: ProposalRow[] } {
     insert(row) {
       rows.push({ ...row, status: "pending", resolvedAt: null });
     },
+    listPending(kind) {
+      return [...rows]
+        .reverse()
+        .filter((r) => r.status === "pending" && (kind === undefined || r.kind === kind));
+    },
     latestPending(kind, targetId) {
       return (
         [...rows]

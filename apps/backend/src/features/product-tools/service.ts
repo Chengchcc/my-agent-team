@@ -202,6 +202,19 @@ export interface ProductToolsServiceDeps {
    *  sends the work into a wall. */
   roomProjectOf?: (conversationId: string) => { projectId: string; name: string } | null;
   workerProjects?: (agentId: string) => readonly string[];
+  /** ADR 0076: push the worker's worktree to an `agent/<runId>` branch. The
+   *  deployment owns the credential and the branch name; the tool only names
+   *  the project and the commit subject. */
+  pushProject?: (input: {
+    agentId: string;
+    runId: string;
+    project: string;
+    message: string;
+    note?: string;
+  }) => Promise<
+    | { ok: true; branch: string; commits: number; compareUrl: string | null }
+    | { ok: false; error: string }
+  >;
   /** ADR 0076: a project the assistant proposes (name + repo). Registering
    *  what the company works on is a human decision, like creating a team
    *  member — the tool can only file the proposal. */
@@ -920,6 +933,32 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: JSON.stringify({ ok: true }) };
   }
 
+  /** ADR 0076: hand the change back as a branch a person can review. */
+  async function projectPush(
+    run: AgentRun,
+    args: Record<string, unknown>,
+  ): Promise<ProductToolCallResult> {
+    if (!deps.pushProject) {
+      throw new ProductToolRejectedError("pushing is not available in this deployment");
+    }
+    const project = typeof args.project === "string" ? args.project.trim() : "";
+    const message = typeof args.message === "string" ? args.message.trim() : "";
+    if (project === "" || message === "") {
+      throw new ProductToolRejectedError("project_push needs project and message");
+    }
+    const result = await deps.pushProject({
+      agentId: run.agentId,
+      runId: run.runId,
+      project,
+      message,
+      ...(typeof args.note === "string" && args.note.trim() !== ""
+        ? { note: args.note.trim() }
+        : {}),
+    });
+    if (!result.ok) throw new ProductToolRejectedError(result.error);
+    return { content: JSON.stringify({ state: "pushed", ...result }) };
+  }
+
   /** ADR 0076: propose a project. Never creates it — the human adopts. */
   function projectPropose(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
     if (!deps.proposeProject) {
@@ -1633,6 +1672,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return wikiLint();
         case "wiki_source_add":
           return wikiSourceAdd(run, input.args);
+        case "project_push":
+          return projectPush(run, input.args);
         case "project_propose":
           return projectPropose(run, input.args);
         case "project_list":
