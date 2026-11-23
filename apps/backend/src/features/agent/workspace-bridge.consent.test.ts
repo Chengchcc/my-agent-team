@@ -14,7 +14,6 @@ describe("consented product tools", () => {
       "mcp__product-tools__wiki_read",
       "mcp__product-tools__wiki_lint",
       "mcp__product-tools__history_recent",
-      "mcp__knowledge__knowledge_read",
     ]) {
       expect(PRODUCT_CONSENTED_MCP_TOOLS).toContain(tool);
     }

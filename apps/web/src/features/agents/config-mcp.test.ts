@@ -30,7 +30,6 @@ describe("agentConfigToDraft", () => {
       permissionMode: "auto",
       maxSteps: 40,
       mcpServers: [{ serverId: "mcp-1", enabled: true }],
-      knowledgePacks: ["kp-1"],
     });
   });
 
@@ -53,13 +52,11 @@ describe("agentConfigToDraft", () => {
       model: "",
       maxSteps: null,
       mcpServers: [],
-      knowledgePacks: [],
     });
     expect(agentConfigToDraft(null)).toEqual({
       model: "",
       maxSteps: null,
       mcpServers: [],
-      knowledgePacks: [],
     });
   });
 });

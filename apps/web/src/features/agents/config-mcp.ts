@@ -36,7 +36,6 @@ export function agentConfigToRow(config: unknown, base: AgentRow): AgentRow {
     permissionMode: PERMISSION_MODES.find((m) => m === rc.permission_mode) ?? base.permissionMode,
     maxSteps,
     mcpServers,
-    knowledgePacks: Array.isArray(rc.knowledge_packs) ? (rc.knowledge_packs as string[]) : [],
     projects: Array.isArray(rc.projects) ? (rc.projects as string[]) : [],
     lark: {
       ...base.lark,
@@ -70,7 +69,6 @@ export function agentConfigToDraft(config: unknown): AgentDraft {
           return { serverId: String(row.server_id ?? ""), enabled: Boolean(row.enabled) };
         })
       : [],
-    knowledgePacks: Array.isArray(rc.knowledge_packs) ? (rc.knowledge_packs as string[]) : [],
   };
 }
 

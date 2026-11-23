@@ -1,12 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 
-/** ADR 0040/0076: an MCP tool proposes, a page adopts. The inbox is what makes
- *  a proposal the assistant filed from chat adoptable without a page having
- *  been open at the time. */
 export const proposalKeys = {
   pending: ["proposals", "pending"] as const,
 };
+
+export interface PendingProposal {
+  id: string;
+  kind: string;
+  targetId: string;
+  payload: unknown;
+  createdAt: number;
+}
 
 export function usePendingProposals() {
   return useQuery({
@@ -15,37 +21,23 @@ export function usePendingProposals() {
   });
 }
 
-/** Adopting a project_creation proposal applies BOTH halves: register the
- *  project and attach it to the members the proposer named. One decision, one
- *  click — a project nobody holds is a project nobody can work in. */
-export function useAdoptProjectProposal() {
+/** Adopting APPLIES (ADR 0040): the deployment runs the applier and only then
+ *  resolves the row, so one click is one decision — no second page, no
+ *  "adopted" that changed nothing (the previous inbox could do exactly that). */
+export function useAdoptProposal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
-      proposalId: string;
-      name: string;
-      repoUrl: string;
-      defaultBranch?: string;
-      attachTo?: readonly string[];
-    }) => {
-      const created = await api.createProject({
-        name: input.name,
-        repoUrl: input.repoUrl,
-        ...(input.defaultBranch !== undefined ? { defaultBranch: input.defaultBranch } : {}),
-      });
-      const projectId = created.project.projectId;
-      for (const agentId of input.attachTo ?? []) {
-        const agent = await api.getAgent(agentId);
-        const current = Array.isArray(agent.projects) ? agent.projects : [];
-        if (current.includes(projectId)) continue;
-        await api.updateAgent(agentId, { projects: [...current, projectId] });
-      }
-      await api.resolveProposal(input.proposalId, "adopted");
-      return projectId;
-    },
+    mutationFn: (proposalId: string) => api.resolveProposal(proposalId, "adopted"),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: proposalKeys.pending });
+      void qc.invalidateQueries({ queryKey: ["agents"] });
       void qc.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Adopted and applied.");
+    },
+    onError: (err) => {
+      toast.error("Could not adopt", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 }
@@ -54,6 +46,9 @@ export function useDiscardProposal() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (proposalId: string) => api.resolveProposal(proposalId, "discarded"),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: proposalKeys.pending }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: proposalKeys.pending });
+      toast.success("Discarded.");
+    },
   });
 }

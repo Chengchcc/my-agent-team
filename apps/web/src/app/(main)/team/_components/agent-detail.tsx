@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { AgentMemoryPanel } from "@/components/AgentMemoryPanel";
 import { ConversationList } from "@/components/ConversationList";
 import { IdentityPanel } from "@/components/IdentityPanel";
-import { KnowledgePackPanel } from "@/components/KnowledgePackPanel";
 import { McpServerPanel } from "@/components/McpServerPanel";
 import { AgentRunsTable } from "@/components/ops/AgentRunsTable";
 import { QueryState } from "@/components/ops/QueryState";
@@ -34,22 +33,12 @@ import { AgentConfigBar } from "./agent-config-bar";
 import { AgentDescriptionCard } from "./agent-description-card";
 import { AgentProjectsPanel } from "./agent-projects-panel";
 
-type Tab =
-  | "persona"
-  | "skills"
-  | "mcp"
-  | "knowledge"
-  | "projects"
-  | "lark"
-  | "memory"
-  | "workspace"
-  | "activity";
+type Tab = "persona" | "skills" | "mcp" | "projects" | "lark" | "memory" | "workspace" | "activity";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "persona", label: "Persona" },
   { key: "skills", label: "Skills" },
   { key: "mcp", label: "MCP" },
-  { key: "knowledge", label: "Knowledge" },
   { key: "projects", label: "Projects" },
   { key: "lark", label: "Lark" },
   { key: "memory", label: "Memory" },
@@ -140,7 +129,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
           {tab === "persona" && <IdentityPanel agentId={agentId} />}
           {tab === "skills" && <AgentSkillsPanel agentId={agentId} />}
           {tab === "mcp" && <McpServerPanel agentId={agentId} />}
-          {tab === "knowledge" && <KnowledgePackPanel agentId={agentId} />}
           {tab === "projects" && <AgentProjectsPanel agent={agent} />}
           {tab === "lark" && (
             <div className="space-y-6">

@@ -309,32 +309,6 @@ export const settings = sqliteTable("settings", {
   updatedAt: integer({ mode: "number" }).notNull(),
 });
 
-// ─── knowledge_pack (ADR 0022: install pool only; per-agent switches
-//     live in agent.yml - file-first, no assignment table) ────────────
-export const knowledgePack = sqliteTable(
-  "knowledge_pack",
-  {
-    id: text().primaryKey(),
-    name: text().notNull(),
-    description: text().notNull(),
-    sourceKind: text().notNull(),
-    sourceUrl: text(),
-    versionRef: text(),
-    sourceRev: text(),
-    installedRef: text(),
-    status: text().notNull(),
-    error: text(),
-    createdAt: integer({ mode: "number" }).notNull(),
-    updatedAt: integer({ mode: "number" }).notNull(),
-  },
-  (table) => [index("idx_knowledge_pack_status").on(table.status)],
-);
-
-export const knowledgePackSelectSchema = createSelectSchema(knowledgePack, {
-  sourceKind: (s) => s.transform((v) => v as "builtin" | "git" | "zip"),
-  status: (s) => s.transform((v) => v as "pending" | "installing" | "ready" | "failed" | "syncing"),
-});
-
 // ─── Zod schemas (type chain: drizzle table → Zod → z.infer → TS type) ──
 
 import { createSelectSchema } from "drizzle-zod";

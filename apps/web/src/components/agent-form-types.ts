@@ -38,5 +38,4 @@ export interface AgentDraft {
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
   maxSteps?: number | null;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
-  knowledgePacks?: string[];
 }

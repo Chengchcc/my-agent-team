@@ -9,8 +9,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   FolderKanbanIcon,
-  InboxIcon,
-  LibraryIcon,
   LogOutIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
@@ -209,19 +207,6 @@ function NavContent() {
               >
                 <TerminalIcon />
                 <span className="truncate">{t("Coding")}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/proposals")}
-                tooltip={t("Proposals")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/proposals");
-                }}
-              >
-                <InboxIcon />
-                <span className="truncate">{t("Proposals")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -450,9 +435,7 @@ function NavContent() {
                 isActive={
                   pathname === "/team" ||
                   (pathname.startsWith("/team/") &&
-                    !["skills", "mcp", "knowledge", "projects"].some((r) =>
-                      pathname.startsWith(`/team/${r}`),
-                    ))
+                    !["skills", "mcp", "projects"].some((r) => pathname.startsWith(`/team/${r}`)))
                 }
                 tooltip={t("Agents")}
                 onClick={() => {
@@ -491,19 +474,6 @@ function NavContent() {
               >
                 <PlugIcon />
                 <span className="truncate">{t("MCP")}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/team/knowledge")}
-                tooltip={t("Knowledge")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/team/knowledge");
-                }}
-              >
-                <LibraryIcon />
-                <span className="truncate">{t("Knowledge")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>

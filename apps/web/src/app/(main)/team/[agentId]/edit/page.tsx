@@ -93,7 +93,6 @@ export default function AgentEditPage() {
               suggestions={[
                 "Switch the model to deepseek/deepseek-v4-flash",
                 "Set permission mode to auto (approval off)",
-                "Attach the my-agent-team knowledge pack",
                 "Raise max steps to 40",
                 "Enable non-determinism / reasoning effort high",
               ]}

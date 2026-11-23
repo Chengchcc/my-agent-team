@@ -82,19 +82,17 @@ describe("AgentService", () => {
     expect(agent.config.runtime_config.permission_mode).toBe("ask");
   });
 
-  test("create carries mcpServers and knowledgePacks into runtime config", async () => {
+  test("create carries mcpServers into runtime config", async () => {
     const { svc } = makeSvc();
     const agent = await svc.create({
       name: "equipped",
       harness: "oma",
       model: "anthropic/x",
       mcpServers: [{ serverId: "search", enabled: true }],
-      knowledgePacks: ["my-agent-team"],
     });
     expect(agent.config.runtime_config.mcp_servers).toEqual([
       { server_id: "search", enabled: true },
     ]);
-    expect(agent.config.runtime_config.knowledge_packs).toEqual(["my-agent-team"]);
   });
 
   test("ADR 0067: update carries lark.webUrl into the stored config", async () => {

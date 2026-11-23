@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { Page, PageBody, PageHeader } from "@/components/page";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePendingProposals } from "@/features/proposals/hooks";
 import { useRequirements } from "@/features/requirements/hooks";
+import { ProposalsView } from "./_components/proposals-view";
 
 /** ADR 0074: the "requirements by goal" view. One row per tracked item; the
  *  status chip is DERIVED (execution/request/acceptance records), so nobody's
@@ -26,43 +29,61 @@ interface RequirementListRow {
 
 export default function RequirementsPage() {
   const { data, isLoading } = useRequirements();
+  const pending = usePendingProposals();
   const rows = (data as { requirements?: RequirementListRow[] } | undefined)?.requirements ?? [];
+  const pendingCount =
+    (pending.data as { proposals?: unknown[] } | undefined)?.proposals?.length ?? 0;
 
   return (
     <Page>
       <PageHeader
         title="Requirements"
-        description="Work goals the assistant tracks — status derives from execution records, not summaries."
+        description="Work goals the assistant tracks — status derives from execution records, not summaries. Proposals are decisions waiting for you; adopting one applies it."
       />
       <PageBody>
-        {isLoading ? (
-          <p className="text-sm text-(--mute)">Loading…</p>
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-(--mute)">
-            No tracked items yet. They appear when the assistant starts a goal worth following.
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {rows.map((r) => (
-              <li key={r.requirementId}>
-                <Link
-                  href={`/requirements/${r.requirementId}`}
-                  className="flex items-center gap-3 rounded-lg border border-(--hairline) px-3 py-2 hover:border-(--primary) transition-colors"
-                >
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] ${STATUS_TONE[r.status] ?? STATUS_TONE.open}`}
-                  >
-                    {r.status}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-(--ink)">{r.title}</span>
-                  <span className="shrink-0 text-[10px] text-(--mute)">
-                    {new Date(r.updatedAt).toLocaleString()}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <Tabs defaultValue="requirements">
+          <TabsList>
+            <TabsTrigger value="requirements">Requirements</TabsTrigger>
+            <TabsTrigger value="proposals">
+              Proposals{pendingCount > 0 ? ` (${pendingCount})` : ""}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="proposals">
+            <ProposalsView />
+          </TabsContent>
+          <TabsContent value="requirements">
+            {isLoading ? (
+              <p className="text-sm text-(--mute)">Loading…</p>
+            ) : rows.length === 0 ? (
+              <p className="text-sm text-(--mute)">
+                No tracked items yet. They appear when the assistant starts a goal worth following.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {rows.map((r) => (
+                  <li key={r.requirementId}>
+                    <Link
+                      href={`/requirements/${r.requirementId}`}
+                      className="flex items-center gap-3 rounded-lg border border-(--hairline) px-3 py-2 hover:border-(--primary) transition-colors"
+                    >
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] ${STATUS_TONE[r.status] ?? STATUS_TONE.open}`}
+                      >
+                        {r.status}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-(--ink)">
+                        {r.title}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-(--mute)">
+                        {new Date(r.updatedAt).toLocaleString()}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+        </Tabs>
       </PageBody>
     </Page>
   );

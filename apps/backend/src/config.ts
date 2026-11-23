@@ -29,12 +29,6 @@ export interface BackendConfig {
   resourcesDir: string;
   /** Builtin skills seed source (`<resources>/skills`). */
   builtinSkillsDir: string;
-  /** Root the builtin knowledge pack is selected under: the wiki. The pack is
-   *  the current-state zone (`docs/architecture/`), chosen by name at seed
-   *  time; every page's frontmatter becomes an index entry, so there is no
-   *  second copy to keep in sync. `docs/adr/` stays out because a skill
-   *  generates those files and would drop hand-written frontmatter. */
-  knowledgePacksDir: string;
   /** Showcase workflow seeds (`<resources>/workflow-showcase`). */
   workflowShowcaseDir: string;
   /** Oma executable (spawned per Run). Defaults to "oma"
@@ -43,9 +37,6 @@ export interface BackendConfig {
   /** permissionMode=auto classifier model forwarded to the oma child
    *  (OMA_PERMISSION_CLASSIFIER_MODEL). Absent = the run's model. */
   omaPermissionClassifierModel?: string;
-  /** Knowledge recall MCP server entry (ADR 0022). Optional: exotic
-   *  deployments override; otherwise dev uses source, prod uses dist. */
-  knowledgeMcpServerBin?: string;
   ompBin?: string;
   piBin?: string;
   piMcpAdapterPath?: string;
@@ -111,11 +102,9 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     askTimeoutMs: env.BACKEND_ASK_TIMEOUT_MS ?? 24 * 60 * 60_000,
     resourcesDir,
     builtinSkillsDir: resolve(resourcesDir, "skills"),
-    knowledgePacksDir: resolve(resourcesDir, "docs"),
     workflowShowcaseDir: resolve(resourcesDir, "workflow-showcase"),
     omaBin: env.OMA_BIN,
     omaPermissionClassifierModel: env.OMA_PERMISSION_CLASSIFIER_MODEL,
-    knowledgeMcpServerBin: env.KNOWLEDGE_MCP_SERVER_BIN,
     piBin: env.PI_BIN,
     piMcpAdapterPath: env.PI_MCP_ADAPTER_PATH,
     claudeBin: env.CLAUDE_BIN,
