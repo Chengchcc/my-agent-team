@@ -40,6 +40,7 @@ import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
 import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
 import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
 import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
+import { deliveryNoteOf } from "../features/agent-run/delivery-gate.js";
 import { pendingActionId } from "../features/agent-run/domain.js";
 import { finalAnswerMessage } from "../features/agent-run/execution-input.js";
 import {
@@ -2017,6 +2018,34 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       writeProductToolsManifest(root, productToolsManifest());
     },
     onRunCommitted,
+    // ADR 0072/0076 delivery gate: a change is "verified" only when a DIFFERENT
+    // agent ran after the producing run and changed nothing. The line is
+    // appended by the deployment, so a model cannot claim a second opinion it
+    // never got (live 2026-11-23 a change shipped with none).
+    deliveryNote: async (run) => {
+      if (!run.agentId) return undefined;
+      const agent = await agentSvc.getById(run.agentId).catch(() => null);
+      // Workers answer their dispatcher; only a front desk delivers to a person.
+      if (agent?.config.role === "worker") return undefined;
+      const recent = await agentRunPort
+        .listRecentRunsForConversations([run.conversationId], 6 * 60 * 60_000)
+        .catch(() => []);
+      return deliveryNoteOf({
+        selfAgentId: run.agentId,
+        runs: recent.map((r) => ({
+          runId: r.runId,
+          agentId: r.agentId,
+          parentRunId: r.parentRunId,
+          createdAt: r.createdAt,
+          terminalAt: r.terminalAt,
+          status: r.terminalResult?.status ?? r.status,
+        })),
+        produced: (runId) =>
+          services.opsStore
+            .listRunEvents(runId, 2000)
+            .some((e) => /"toolName":"(write|edit|project_push)"/.test(JSON.stringify(e))),
+      });
+    },
     // ADR 0060 D6: recovery saw a terminal dispatched run with no confirmed
     // notice - deliver it now. Same closure as the live path, so the rails and
     // the depth guard stay in one place.
