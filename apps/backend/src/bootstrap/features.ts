@@ -2037,7 +2037,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         (await agentRunPort
           .listRecentRunsForConversations([run.conversationId], 6 * 60 * 60_000)
           .catch(() => []));
-      return deliveryNoteOf({
+      const note = deliveryNoteOf({
         selfAgentId: run.agentId,
         runs: recent.map((r) => ({
           runId: r.runId,
@@ -2052,6 +2052,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
             .listRunEvents(runId, 2000)
             .some((e) => producedByEvent(JSON.stringify(e))),
       });
+      console.log(
+        `[delivery-gate] run=${run.runId.slice(0, 12)} dispatched=${recent.length} → ${note ?? "verified"}`,
+      );
+      return note;
     },
     // ADR 0060 D6: recovery saw a terminal dispatched run with no confirmed
     // notice - deliver it now. Same closure as the live path, so the rails and
