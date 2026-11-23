@@ -69,17 +69,28 @@ Run → (会话, 需求, 工作区) 一次执行落在确定的三元组上
 
 ## 实施切法
 
-**第一刀（可上线，不改变现状行为）**
-- 迁移：`workspace`（id, project_id, path, branch, base_ref, status）、
-  `requirement_workspace`（M:N）、`conversation_requirement`（M:N）、
-  `conversation.current_requirement_id`
-- 派单解析：房间的当前需求 → 该需求在该项目的工作区；**没有需求时退回
-  今天的 agent 副本**（行为不变）
-- `requirement_track` 建需求时顺手建工作区（worktree at master，不装依赖）
+**不做双模型**（长期主义：两套解析路径的维护成本是永久的，一次切干净更便宜）。
 
-**第二刀**：交付门与回写按需求聚合；验证"两个需求并行跑在各自副本"
+**第一刀**
+- 迁移 0067：`workspace`、`requirement_workspace`（M:N）、
+  `conversation_requirement`（M:N）、`conversation.current_requirement_id`
+- 派单**只**从需求解析工作区：房间的 `current_requirement_id` →
+  该需求在该项目的工作区；需求没有该项目的工作区就建一个
+  （worktree at 项目默认分支，不装依赖）
+- **没有需求就由产品开一个**：派单前自动 `requirement_track`（标题取 brief 的
+  目标，`created_by_agent_id` 记为派单方），并在回复里说明"已开 R-xxx"。
+  需求是可见的（`/requirements`），不是隐式状态。
+- `requirement_track` 建需求时可以立即建工作区（可选，等派单时再建也行）
 
-**第三刀**：下线"agent 拥有代码目录"的旧模型
+**第二刀**：交付门与回写按需求聚合（diff 的并集 = 需求的工作区集合）；
+用两个需求并行跑验证
+
+**第三刀（一次性切干净）**
+- 派单不再读 `agents/<id>/projects/*`；agent 目录只留身份/技能/记忆/知识库
+- 现存 agent 副本：分支已在镜像与远端（回写过的在 GitHub，未回写的在 mirror），
+  目录可以直接删；`git worktree prune` 收尾
+- 删除 `conversation.project_id` 选择工作区的旧语义（它仍保留为"房间属于哪个项目"
+  的展示与守卫依据，但不再决定 cwd）
 
 ## 未决
 
