@@ -307,10 +307,10 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
   /** The gate's line, as a canonical assistant message: it belongs to the
    *  transcript, so a refresh cannot lose it. */
   function verificationMessage(note: string): Message {
-    return {
-      role: "assistant",
-      content: [{ type: "text", text: note }],
-    } as Message;
+    // `Message` carries `text` (the ledger row is {role, text}); a content-block
+    // shape here normalized to an empty message and was dropped silently
+    // (measured 2026-11-23: the gate returned the line, the transcript had none).
+    return { role: "assistant", text: note } as Message;
   }
 
   /** Terminal handling for one outcome: completed -> atomic Product commit;
