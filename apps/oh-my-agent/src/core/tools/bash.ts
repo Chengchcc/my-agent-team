@@ -186,13 +186,15 @@ function denyRulesOf(raw: string | undefined): readonly string[] {
  *  addresses the OPERATOR's repository: live 2026-11-23 a worker ran plain git
  *  commands in it and staged/moved files in the real repo. A run may only talk
  *  to a repository it owns — its own project copy. */
-export function foreignRepoOf(workspaceRoot: string): string | undefined {
-  const res = Bun.spawnSync(["git", "-C", workspaceRoot, "rev-parse", "--show-toplevel"], {
+/** Async on purpose: the TUI's event loop must never wait on a subprocess (its
+ *  e2e suite pins that), and the tool table is assembled on that loop. */
+export async function foreignRepoOf(workspaceRoot: string): Promise<string | undefined> {
+  const proc = Bun.spawn(["git", "-C", workspaceRoot, "rev-parse", "--show-toplevel"], {
     stdout: "pipe",
     stderr: "pipe",
   });
-  if ((res.exitCode ?? 1) !== 0) return undefined;
-  const top = res.stdout.toString().trim();
+  if ((await proc.exited) !== 0) return undefined;
+  const top = (await new Response(proc.stdout).text()).trim();
   if (top === "") return undefined;
   const ws = resolvePath(workspaceRoot);
   if (top === ws) return undefined;
@@ -257,7 +259,9 @@ export function createBashTool(opts: {
   /** Resolved once: whether this workspace sits inside a repository it does
    *  not own (the backend's agent data directory sits inside the operator's
    *  checkout). */
-  const foreignTop = foreignRepoOf(opts.workspaceRoot);
+  let foreignTopPromise: Promise<string | undefined> | undefined;
+  const foreignTopOf = (): Promise<string | undefined> =>
+    (foreignTopPromise ??= foreignRepoOf(opts.workspaceRoot).catch(() => undefined));
   const launcher = opts.sandbox ?? new NullBashSandbox(opts.workspaceRoot);
   const scope = opts.scope;
   const registry = opts.registry ?? defaultRegistry;
@@ -447,7 +451,7 @@ export function createBashTool(opts: {
       }
       // A repository the run does not own: plain git here addresses the
       // operator's checkout (an agent workspace is nested inside it).
-      const foreign = foreignRepoRefusal(command, opts.workspaceRoot, foreignTop);
+      const foreign = foreignRepoRefusal(command, opts.workspaceRoot, await foreignTopOf());
       if (foreign !== undefined) {
         return {
           content: `Error: this workspace is not a git repository; ${foreign} is, and it is not yours. Work in your own copy (${opts.workspaceRoot}/projects/<projectId>) or pass -C <that path>.`,

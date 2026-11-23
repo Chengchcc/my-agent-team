@@ -100,6 +100,8 @@ function NavContent() {
   // purpose: ad-hoc rooms (questions, wiki upkeep) have no project.
   const [newOpen, setNewOpen] = useState(false);
   const [newProject, setNewProject] = useState("");
+  /** "front" = the default front agent; a worker id = a direct line. */
+  const [newAgent, setNewAgent] = useState("front");
   const { data: projectRows } = useProjects();
   const projects =
     (projectRows as { projects?: Array<{ projectId: string; name: string }> } | undefined)
@@ -143,18 +145,23 @@ function NavContent() {
     setOpenMobile(false);
   }
 
-  function makeConversation(projectId?: string) {
+  function makeConversation(projectId?: string, agentIdChoice?: string) {
     // Quick-create targets the default agent, falling back to the first
-    // enabled one — never a hardcoded dead agent id.
+    // enabled one — never a hardcoded dead agent id. An explicit choice wins;
+    // choosing a worker opens a DIRECT LINE (ADR 0049 amendment), which the
+    // backend only accepts with `direct: true`.
     const agent =
+      (agentIdChoice ? agents?.find((a) => a.id === agentIdChoice) : undefined) ??
       agents?.find((a) => a.id === "default" && a.enabled !== false) ??
       agents?.find((a) => a.enabled !== false) ??
       agents?.[agents.length - 1];
     const agentId = agent?.id ?? "default";
+    const direct = agent?.role === "worker";
     createConversation.mutate(
       {
         agentId,
         ...(projectId ? { projectId } : {}),
+        ...(direct ? { direct: true } : {}),
       },
       {
         onSuccess: (conv) => {
@@ -580,6 +587,24 @@ function NavContent() {
           </DialogHeader>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
+              Talk to the front desk, or pick a team member for a direct line (bypasses routing).
+            </p>
+            <Select value={newAgent} onValueChange={(v) => setNewAgent(v ?? "")}>
+              <SelectTrigger>
+                <SelectValue placeholder="Front desk" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="front">Front desk</SelectItem>
+                {(agents ?? [])
+                  .filter((a) => a.enabled !== false && a.id !== "default")
+                  .map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.role === "worker" ? `${a.name} (direct line)` : a.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
               Bind it to a project so the room's work happens in that project's copy.
             </p>
             <Select value={newProject} onValueChange={(v) => setNewProject(v ?? "")}>
@@ -603,7 +628,10 @@ function NavContent() {
               disabled={createConversation.isPending}
               onClick={() => {
                 setNewOpen(false);
-                makeConversation(newProject === "" ? undefined : newProject);
+                makeConversation(
+                  newProject === "" ? undefined : newProject,
+                  newAgent === "front" ? undefined : newAgent,
+                );
               }}
             >
               Create

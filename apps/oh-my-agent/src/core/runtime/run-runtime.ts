@@ -739,6 +739,15 @@ function createRunPermissionGates(
         reason: `${toolName}: critical-path deletion (root/top-level/home target) — re-issue with a narrower named path`,
       };
     }
+    // A human already answered for this tool, this run ("allow always" on an
+    // earlier escalation). Asking again is the bandwidth leak the operator
+    // measured: four approvals for a six-line change (live 2026-11-23).
+    // The critical-path guard above still wins, and permissionMode=deny is
+    // decided before this gate runs at all.
+    if (alwaysAllowed.has(toolName)) return undefined;
+    if (alwaysDenied.has(toolName)) {
+      return { block: true, reason: `${toolName}: denied for this run by the user` };
+    }
     const verdict = await classifyPermissionAction({
       toolName,
       input,
@@ -781,6 +790,16 @@ function createRunPermissionGates(
     // Same truthful signal as the ask gate (BashSandbox design P4).
     if (toolName === "bash") escalation.sandboxed = bashSandboxed;
     const human = await requestApproval(deps.approvalHandler, escalation, approvalDeadlineMs);
+    // The same two remembered answers the ask gate honours: one human reply
+    // covers the rest of the run for this tool, in either direction.
+    if (human.decision === "allow_always") alwaysAllowed.add(toolName);
+    if (human.decision === "deny_always") {
+      alwaysDenied.add(toolName);
+      return {
+        block: true,
+        reason: `${toolName}: denied for this run by the user`,
+      };
+    }
     if (human.decision === "deny") {
       return {
         block: true,
