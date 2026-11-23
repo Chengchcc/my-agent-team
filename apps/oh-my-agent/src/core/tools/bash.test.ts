@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultRegistry } from "../coordination/registry.js";
-import { createBashTool, deniedCommand, deniedPathOf, writeEscapeOf } from "./bash.js";
+import {
+  createBashTool,
+  deniedCommand,
+  deniedPathOf,
+  foreignRepoRefusal,
+  writeEscapeOf,
+} from "./bash.js";
 
 const bashTool = createBashTool({ workspaceRoot: process.cwd(), scope: "test" });
 
@@ -360,5 +366,29 @@ describe("deniedPathOf: a denied path is denied for reading too", () => {
   test("ordinary work inside the workspace is not touched", () => {
     expect(deniedPathOf("ls projects/518505c2 && cat README.md", root, deny)).toBeUndefined();
     expect(deniedPathOf("bun test src/core", root, deny)).toBeUndefined();
+  });
+});
+
+describe("foreignRepoRefusal: git only in a repository the run owns", () => {
+  const ws = "/repo/apps/backend/.backend-data/agents/worker-one";
+  const top = "/repo";
+
+  test("a plain git command in a nested workspace is refused", () => {
+    expect(foreignRepoRefusal("git status --short", ws, top)).toBe(top);
+    expect(foreignRepoRefusal("git checkout -b x", ws, top)).toBe(top);
+  });
+
+  test("git aimed at an owned copy is allowed", () => {
+    expect(foreignRepoRefusal("git -C projects/5185 log --oneline -1", ws, top)).toBeUndefined();
+    expect(foreignRepoRefusal("cd projects/5185 && git status --short", ws, top)).toBeUndefined();
+  });
+
+  test("non-git work is untouched", () => {
+    expect(foreignRepoRefusal("bun test src/core", ws, top)).toBeUndefined();
+    expect(foreignRepoRefusal("cat .gitignore", ws, top)).toBeUndefined();
+  });
+
+  test("a workspace that is its own repo has no fence", () => {
+    expect(foreignRepoRefusal("git status", ws, undefined)).toBeUndefined();
   });
 });

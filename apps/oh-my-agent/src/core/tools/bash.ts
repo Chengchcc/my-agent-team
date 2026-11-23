@@ -180,6 +180,59 @@ function denyRulesOf(raw: string | undefined): readonly string[] {
     .filter((part) => part !== "");
 }
 
+/** Repository the run's workspace is nested inside, when it is not the
+ *  workspace itself. A backend agent workspace lives under the operator's
+ *  checkout (`<repo>/apps/backend/.backend-data/agents/<id>`), so `git` there
+ *  addresses the OPERATOR's repository: live 2026-11-23 a worker ran plain git
+ *  commands in it and staged/moved files in the real repo. A run may only talk
+ *  to a repository it owns — its own project copy. */
+export function foreignRepoOf(workspaceRoot: string): string | undefined {
+  const res = Bun.spawnSync(["git", "-C", workspaceRoot, "rev-parse", "--show-toplevel"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if ((res.exitCode ?? 1) !== 0) return undefined;
+  const top = res.stdout.toString().trim();
+  if (top === "") return undefined;
+  const ws = resolvePath(workspaceRoot);
+  if (top === ws) return undefined;
+  return top;
+}
+
+/** Refuse a git command aimed at a repository the run does not own. A command
+ *  that first enters an owned directory (`cd projects/<id> && git …`) or names
+ *  one with `-C <path>` is fine. Textual, like the other fences. */
+export function foreignRepoRefusal(
+  command: string,
+  workspaceRoot: string,
+  foreignTop: string | undefined,
+): string | undefined {
+  if (foreignTop === undefined) return undefined;
+  if (!/\bgit\b/.test(command)) return undefined;
+  const ws = resolvePath(workspaceRoot);
+  const owned = (candidate: string): boolean => {
+    if (!candidate.startsWith("/")) candidate = resolvePath(`${ws}/${candidate}`);
+    const target = resolvePath(candidate);
+    return target === ws || target.startsWith(`${ws}/`);
+  };
+  for (const m of command.matchAll(/\bgit\s+(?:-C\s+)?([^\s;&|]+)/g)) {
+    const arg = m[1];
+    if (arg === undefined) continue;
+    if (arg === "-C") continue;
+    if (arg.startsWith("-")) continue;
+    // A bare word is a git subcommand ("status"), not a path: treating it as
+    // workspace-relative made every command look owned.
+    if (!arg.includes("/") && arg !== "." && arg !== "..") continue;
+    if (owned(arg)) return undefined;
+  }
+  if (/\bcd\s+[^\s;&|]+\s*(?:&&|;)/.test(command)) {
+    const cd = /\bcd\s+([^\s;&|]+)/.exec(command);
+    const arg = cd?.[1];
+    if (arg !== undefined && owned(arg)) return undefined;
+  }
+  return foreignTop;
+}
+
 export function createBashTool(opts: {
   workspaceRoot: string;
   /** Coordination scope: TUI session key or backend run id. */
@@ -201,6 +254,10 @@ export function createBashTool(opts: {
   registry?: CoordinationRegistry;
 }): Tool {
   const sandbox = new WorkspaceSandbox(opts.workspaceRoot);
+  /** Resolved once: whether this workspace sits inside a repository it does
+   *  not own (the backend's agent data directory sits inside the operator's
+   *  checkout). */
+  const foreignTop = foreignRepoOf(opts.workspaceRoot);
   const launcher = opts.sandbox ?? new NullBashSandbox(opts.workspaceRoot);
   const scope = opts.scope;
   const registry = opts.registry ?? defaultRegistry;
@@ -385,6 +442,15 @@ export function createBashTool(opts: {
       if (escaped !== undefined) {
         return {
           content: `Error: writes outside the workspace are refused by this run (${escaped}). Work inside ${opts.workspaceRoot}.`,
+          isError: true,
+        };
+      }
+      // A repository the run does not own: plain git here addresses the
+      // operator's checkout (an agent workspace is nested inside it).
+      const foreign = foreignRepoRefusal(command, opts.workspaceRoot, foreignTop);
+      if (foreign !== undefined) {
+        return {
+          content: `Error: this workspace is not a git repository; ${foreign} is, and it is not yours. Work in your own copy (${opts.workspaceRoot}/projects/<projectId>) or pass -C <that path>.`,
           isError: true,
         };
       }
