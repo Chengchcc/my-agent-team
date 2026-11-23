@@ -55,8 +55,25 @@ export function firstUserText(
  *  usable to build one from. Whitespace collapses (a multi-line prompt must not
  *  produce a multi-line sidebar entry) and an over-long one is cut at a word
  *  boundary. */
+/** A dispatch brief's own task, as a title. Measured 2026-11-23: every child
+ *  room was titled with the raw `<dispatch …><task …>` envelope, which tells a
+ *  reader nothing and cannot be searched for. */
+export function titleFromBrief(text: string): string | null {
+  const task = /<task\b([^>]*)>/.exec(text);
+  if (task === null) return null;
+  const attrs = task[1] ?? "";
+  const verb = /\bverb="([^"]*)"/.exec(attrs)?.[1]?.trim() ?? "";
+  const object = /\bobject="([^"]*)"/.exec(attrs)?.[1]?.trim() ?? "";
+  const label = object !== "" ? object : verb;
+  if (label === "") return null;
+  const titled = verb !== "" && object !== "" ? `${verb} · ${object}` : label;
+  return titled.length <= MAX_LENGTH + 20 ? titled : `${titled.slice(0, MAX_LENGTH + 20)}…`;
+}
+
 export function deriveConversationTitle(text: string | null | undefined): string | null {
   if (typeof text !== "string") return null;
+  const fromBrief = titleFromBrief(text);
+  if (fromBrief !== null) return fromBrief;
   const flat = stripProductPrefixes(text).replace(/\s+/gu, " ").trim();
   if (flat === "") return null;
   if (flat.length <= MAX_LENGTH) return flat;
