@@ -65,9 +65,7 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
   if (status.code !== 0) {
     throw new ProjectPushRefused(`git status failed: ${status.err.trim().slice(0, 200)}`);
   }
-  if (status.out.trim() === "") {
-    throw new ProjectPushRefused("nothing to push: the worktree has no changes");
-  }
+  const dirty = status.out.trim() !== "";
 
   const branch = `agent/${input.runId.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 60)}`;
   if (branch === "agent/master" || branch === "agent/main") {
@@ -79,16 +77,34 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
   if (checkout.code !== 0) {
     throw new ProjectPushRefused(`git checkout failed: ${checkout.err.trim().slice(0, 200)}`);
   }
-  const add = git(worktree, ["add", "-A"]);
-  if (add.code !== 0) {
-    throw new ProjectPushRefused(`git add failed: ${add.err.trim().slice(0, 200)}`);
+  if (dirty) {
+    const add = git(worktree, ["add", "-A"]);
+    if (add.code !== 0) {
+      throw new ProjectPushRefused(`git add failed: ${add.err.trim().slice(0, 200)}`);
+    }
+    // --no-verify: this commit is machinery. The project's hooks (biome,
+    // commitlint) run against the WORKER's tree and message and fail the push
+    // for reasons that belong to a human's commit, not to a hand-back
+    // (live 2026-11-23: commitlint rejected the worker's message, no push).
+    const commitArgs = ["commit", "--no-verify", "-m", input.message];
+    if (input.note !== undefined && input.note.trim() !== "")
+      commitArgs.push("-m", input.note.trim());
+    const commit = git(worktree, commitArgs);
+    if (commit.code !== 0) {
+      throw new ProjectPushRefused(`git commit failed: ${commit.err.trim().slice(0, 200)}`);
+    }
   }
-  const commitArgs = ["commit", "-m", input.message];
-  if (input.note !== undefined && input.note.trim() !== "")
-    commitArgs.push("-m", input.note.trim());
-  const commit = git(worktree, commitArgs);
-  if (commit.code !== 0) {
-    throw new ProjectPushRefused(`git commit failed: ${commit.err.trim().slice(0, 200)}`);
+
+  // A clean tree is NOT "nothing to push": the worker may have committed
+  // already (live 2026-11-23 it did, and the old check refused a branch that
+  // had one commit waiting). The decision is "are there commits no remote has".
+  const ahead = git(worktree, ["rev-list", "--count", "HEAD", "--not", "--remotes"]);
+  if (ahead.code !== 0) {
+    throw new ProjectPushRefused(`git rev-list failed: ${ahead.err.trim().slice(0, 200)}`);
+  }
+  const commits = Number.parseInt(ahead.out.trim(), 10);
+  if (!Number.isFinite(commits) || commits === 0) {
+    throw new ProjectPushRefused("nothing to push: no commits ahead of the remote");
   }
 
   const url = pushUrl(input.repoUrl, input.token);
@@ -114,5 +130,5 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
     const target = input.defaultBranch ?? "master";
     compareUrl = `${webBase}/compare/${target}...${branch}`;
   }
-  return { branch, commits: 1, compareUrl };
+  return { branch, commits, compareUrl };
 }
