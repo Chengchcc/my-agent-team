@@ -1099,6 +1099,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
             ? { token: process.env.PROJECT_PUSH_TOKEN }
             : {}),
           ...(named.defaultBranch !== null ? { defaultBranch: named.defaultBranch } : {}),
+          ...(agent.config.name ? { agent: agent.config.name } : {}),
         });
         return { ok: true as const, ...pushed };
       } catch (err) {

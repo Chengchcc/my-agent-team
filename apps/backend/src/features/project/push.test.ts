@@ -58,6 +58,24 @@ describe("ADR 0076: pushing a worker's worktree", () => {
     expect(master.stdout.toString().trim().length).toBeGreaterThan(0);
   });
 
+  test("the commit body names the agent that did the work", () => {
+    const { origin, worktree } = fixture();
+    pushProjectWorktree({
+      worktree,
+      repoUrl: `file://${origin}`,
+      runId: "run-agent",
+      message: "docs: rewrite the first screen",
+      agent: "Coder",
+    });
+    const body = Bun.spawnSync(
+      ["git", "-C", origin, "log", "-1", "--format=%B", "agent/run-agent"],
+      {
+        stdout: "pipe",
+      },
+    ).stdout.toString();
+    expect(body).toContain("Agent: Coder (run run-agent)");
+  });
+
   test("a worker that already committed still pushes - a clean tree is not empty", () => {
     // live 2026-11-23: the worker ran `git commit` itself and the old
     // "clean tree" check refused a branch with one commit waiting.
