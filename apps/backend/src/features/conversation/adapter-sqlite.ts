@@ -225,6 +225,13 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
             if (!left) break;
           }
         }
+        // ADR 0077: the room's edges to its requirements go with it (the join
+        // rows reference the conversation and would otherwise refuse the
+        // delete). The requirements themselves stay: they are the work, and a
+        // room is only where it was discussed.
+        tx.delete(schema.conversationRequirement)
+          .where(eq(schema.conversationRequirement.conversationId, conversationId))
+          .run();
         const deleted = tx
           .delete(schema.conversation)
           .where(eq(schema.conversation.conversationId, conversationId))

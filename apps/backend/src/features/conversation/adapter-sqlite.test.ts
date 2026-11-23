@@ -210,6 +210,33 @@ describe("searchLedger", () => {
 // ─── deleteConversation ────────────────────────────────────
 
 describe("deleteConversation", () => {
+  test("a room linked to a requirement (ADR 0077) can still be deleted", async () => {
+    const id = `del-req-${Date.now()}`;
+    adapter.createConversation({ conversationId: id, agentId: "ag-del", createdAt: Date.now() });
+    const now = Date.now();
+    db.exec(
+      `INSERT INTO requirement (requirement_id, title, goal, status, created_at, updated_at)
+       VALUES ('req-${id}', 't', 'g', 'open', ${now}, ${now})`,
+    );
+    db.exec(
+      `INSERT INTO conversation_requirement (conversation_id, requirement_id, created_at)
+       VALUES ('${id}', 'req-${id}', ${now})`,
+    );
+    db.exec(
+      `UPDATE conversation SET current_requirement_id = 'req-${id}' WHERE conversation_id = '${id}'`,
+    );
+    expect(await adapter.deleteConversation(id)).toBe(true);
+    const left = db
+      .query(`SELECT count(*) AS n FROM conversation_requirement WHERE conversation_id = '${id}'`)
+      .get() as { n: number };
+    expect(left.n).toBe(0);
+    // The requirement is the work; it outlives the room it was discussed in.
+    const kept = db
+      .query(`SELECT count(*) AS n FROM requirement WHERE requirement_id = 'req-${id}'`)
+      .get() as { n: number };
+    expect(kept.n).toBe(1);
+  });
+
   function makeConversation(): string {
     const id = `del-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     adapter.createConversation({
