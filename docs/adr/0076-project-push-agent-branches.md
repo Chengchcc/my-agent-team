@@ -112,6 +112,18 @@ worker 改的是自己的 clone  →  ???  →  GitHub
 - 明写"brief 里出现的其它绝对路径是**人的**路径，不是你该写的地方"；
 - 归属数据来自 `agent.runtime_config.projects` 与 `project.name` 的匹配——确定性，不靠模型猜。
 
+## 房间绑定项目（H4，已落地）
+
+`conversation.project_id` 一直存在但**没有任何读者**——"这个房间是关于哪个项目"只有人知道，系统不知道。现在三处读同一个事实：
+
+| 读点 | 行为 |
+|---|---|
+| 派单守卫 | 房间绑了项目、被选中的成员没挂它 ⇒ **拒绝并指路**（"team_list 会列出每个成员的项目"），不把活派进墙里 |
+| brief 的 `<workspace>` | 房间项目优先于"从 brief 文本里猜项目名"；worktree = `<agent>/projects/<projectId>` |
+| 房间 header 的 Terminal | 链接带 `&project=`，coding 页选中/新建**该项目的面板**，落在该 agent 的 worktree |
+
+Storage 事实（同一轮查明）：项目副本是**共享 bare 仓库 + 每 agent 一个 worktree**（`.git` 是 132 字节的指向文件），对象不重复；但每个 worktree 内的 `node_modules` 是各自的（worker 那份额外 1.5G）。
+
 ## 不做什么
 
 - 不做自动合并、不自动开 PR（v2：拿 compare URL 人点一下即可）；
