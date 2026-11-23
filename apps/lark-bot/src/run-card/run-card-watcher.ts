@@ -583,7 +583,10 @@ export async function watchRunCard(
       if (!loggedMissingTurn) {
         loggedMissingTurn = true;
         console.log(
-          `[lark-bot] card ${runId}: the state carries no turn for this run; not painting until it does`,
+          `[lark-bot] card ${runId}: the state carries no turn for this run (active ${chat.activeTurn?.id?.slice(0, 12) ?? "none"}, turns ${chat.turns.length}: ${chat.turns
+            .slice(-3)
+            .map((t) => t.id.slice(0, 12))
+            .join(",")}); not painting until it does`,
         );
       }
       return;
