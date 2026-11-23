@@ -35,14 +35,20 @@ export function conversationRoutes(
           if (body.projectId && projectExists && !projectExists(body.projectId)) {
             return Response.json({ error: `unknown project ${body.projectId}` }, { status: 400 });
           }
-          // ADR 0049: a worker-owned conversation is a dead room — human
-          // input reroutes to the front, which IS the worker here. Refuse
-          // the binding at creation instead of creating it silently dead.
+          // ADR 0049 (amended 2026-11-23): a worker-owned room is a DIRECT
+          // LINE — the person decided to skip the front desk, so the room is
+          // not a dead one and the request is honoured. Without the explicit
+          // flag the old rule stands: a plain binding would read as "a room
+          // where nobody answers", because unmarked rooms route to the front.
           const targetAgent = body.agentId ?? "default";
-          if (agentRoleOf && (await agentRoleOf(targetAgent)) === "worker") {
+          if (
+            body.direct !== true &&
+            agentRoleOf &&
+            (await agentRoleOf(targetAgent)) === "worker"
+          ) {
             return Response.json(
               {
-                error: `agent ${targetAgent} is a worker: humans talk to a front agent, work reaches workers via dispatch`,
+                error: `agent ${targetAgent} is a worker: humans talk to a front agent, work reaches workers via dispatch (pass direct:true to open a direct line)`,
               },
               { status: 400 },
             );
@@ -71,6 +77,8 @@ export function conversationRoutes(
             conversationId: t.Optional(t.String({ minLength: 1 })),
             projectId: t.Optional(t.String({ minLength: 1 })),
             agentId: t.Optional(t.String({ minLength: 1 })),
+            /** ADR 0049 amendment: an explicit direct line to a worker. */
+            direct: t.Optional(t.Boolean()),
             /** Conversation provenance: user | workflow | fork. Workflow-
              *  scoped chats are excluded from the user's chat surfaces. */
             origin: t.Optional(t.String({ minLength: 1 })),
