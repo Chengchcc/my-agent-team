@@ -577,6 +577,13 @@ export async function watchRunCard(
    *  text still flushes, because the phase and the steps may have moved. */
   const update = async (chat: ChatState): Promise<void> => {
     if (aborted) return;
+    // Every bound room's state is broadcast to every card (one update path,
+    // no routing table). A state from ANOTHER room can never carry this run, so
+    // treat it as not-for-me before the lookup: its turn ids are noise, and
+    // logging them as "the state carries no turn" sent the diagnosis to the
+    // wrong layer (live 2026-11-23: the card logged the CHILD room's turn).
+    const resource = (chat as { resource?: unknown }).resource;
+    if (typeof resource === "string" && !resource.includes(conversationId)) return;
     const next = cardStateFromChatTurn(chat, runId, Date.now());
     // Every run appears as a turn (the projection builds one per run row, and a failed run's
     // error row folds into its tail), so a state that does not carry this run is simply a state
