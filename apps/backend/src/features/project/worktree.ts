@@ -66,6 +66,30 @@ export async function ensureMirror(dataDir: string, project: WorktreeProject): P
  *  (`agent/<agentId>/<projectId>`). Returns the worktree path, or null
  *  when the slot is occupied by a plain directory (user's own files are
  *  never clobbered). */
+/** The operator's git identity, from the host's config. A worktree without one
+ *  makes git fall back to `Your Name <you@example.com>`, which attributes the
+ *  worker's commits to nobody — GitHub then lists no contributor for the
+ *  branch (live 2026-11-23). Read once per call; absent config = null, and the
+ *  worktree keeps git's default rather than inventing an identity. */
+export async function resolveGitIdentity(): Promise<{ name: string; email: string } | null> {
+  const name = (await Bun.$`git config --get user.name`.nothrow().quiet().text()).trim();
+  const email = (await Bun.$`git config --get user.email`.nothrow().quiet().text()).trim();
+  if (name === "" || email === "") return null;
+  return { name, email };
+}
+
+/** Write an identity into a worktree unless it already has a real one. */
+export async function applyGitIdentity(worktree: string): Promise<void> {
+  const current = (
+    await Bun.$`git -C ${worktree} config --get user.email`.nothrow().quiet().text()
+  ).trim();
+  if (current !== "" && current !== "you@example.com") return;
+  const who = await resolveGitIdentity();
+  if (who === null) return;
+  await Bun.$`git -C ${worktree} config user.name ${who.name}`.nothrow().quiet();
+  await Bun.$`git -C ${worktree} config user.email ${who.email}`.nothrow().quiet();
+}
+
 export async function ensureWorktree(
   mirrorPath: string,
   agentWorkspace: string,
@@ -74,7 +98,12 @@ export async function ensureWorktree(
 ): Promise<string | null> {
   const wt = worktreePath(agentWorkspace, project.projectId);
   const listed = await Bun.$`git -C ${mirrorPath} worktree list --porcelain`.text();
-  if (listed.includes(wt)) return wt;
+  if (listed.includes(wt)) {
+    // Older worktrees predate identity handling: repair in place (cheap, and
+    // only when the placeholder or empty identity is what git would use).
+    await applyGitIdentity(wt);
+    return wt;
+  }
   if (existsSync(wt)) return null;
   const branch = branchName(agentId, project.projectId);
   const hasBranch =
@@ -88,6 +117,7 @@ export async function ensureWorktree(
   } else {
     await Bun.$`git -C ${mirrorPath} worktree add -b ${branch} ${wt} ${target}`.quiet();
   }
+  await applyGitIdentity(wt);
   return wt;
 }
 
