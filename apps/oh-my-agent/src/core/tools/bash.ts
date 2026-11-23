@@ -133,7 +133,16 @@ export function deniedPathOf(
   const ws = resolvePath(workspaceRoot);
   const matches = (candidate: string): string | undefined => {
     let full = candidate;
-    if (!candidate.startsWith("/")) full = `${root}${candidate}`;
+    // `~` is the home directory, not a workspace-relative name: `cat
+    // ~/.ssh/id_ed25519` must hit a `/root/.ssh/` rule (live 2026-11-23 the
+    // scanner read it as `./~/.ssh/...` and allowed it).
+    const home = process.env.HOME;
+    if (candidate === "~" || candidate.startsWith("~/")) {
+      if (home === undefined || home === "") return undefined;
+      full = `${home}${candidate.slice(1)}`;
+    } else if (!candidate.startsWith("/")) {
+      full = `${root}${candidate}`;
+    }
     const normalized = resolvePath(full);
     const insideWorkspace = normalized === ws || normalized.startsWith(`${ws}/`);
     for (const rule of denyRules) {

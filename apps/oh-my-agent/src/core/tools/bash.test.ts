@@ -347,6 +347,16 @@ describe("deniedPathOf: a denied path is denied for reading too", () => {
     expect(deniedPathOf("cat .env", ws, deny)).toBe("/data/agents/worker-one/.env");
   });
 
+  test("a tilde path is the home directory", () => {
+    const saved = process.env.HOME;
+    process.env.HOME = "/root";
+    try {
+      expect(deniedPathOf("cat ~/.ssh/id_ed25519", root, ["/root/.ssh/"])).toBe("/root/.ssh/");
+    } finally {
+      process.env.HOME = saved;
+    }
+  });
+
   test("ordinary work inside the workspace is not touched", () => {
     expect(deniedPathOf("ls projects/518505c2 && cat README.md", root, deny)).toBeUndefined();
     expect(deniedPathOf("bun test src/core", root, deny)).toBeUndefined();
