@@ -112,6 +112,15 @@ worker 改的是自己的 clone  →  ???  →  GitHub
 - 明写"brief 里出现的其它绝对路径是**人的**路径，不是你该写的地方"；
 - 归属数据来自 `agent.runtime_config.projects` 与 `project.name` 的匹配——确定性，不靠模型猜。
 
+## D1–D3 已实现（`project_push`）
+
+工具 `project_push({ project, message, note? })`：
+- 分支在**后端**由 `runId` 派生（`agent/<runId>`），工具参数里没有分支名，master 在构造上不可达；
+- 凭据只来自后端环境 `PROJECT_PUSH_TOKEN`（https 远端缺凭据 ⇒ **拒绝**，绝不弹提示）；file/ssh 远端用自己的认证；
+- 干净的工作树 ⇒ 拒绝（"nothing to push"），保存半成品不是交付；
+- 返回 `{ state: "pushed", branch, commits, compareUrl }` —— compare URL 就是人 review 的入口；
+- 单测用**真实 bare 仓库 + worktree** 验证：分支落在远端、master 未动、无凭据拒绝、干净树拒绝。
+
 ## 房间绑定项目（H4，已落地）
 
 `conversation.project_id` 一直存在但**没有任何读者**——"这个房间是关于哪个项目"只有人知道，系统不知道。现在三处读同一个事实：

@@ -150,6 +150,7 @@ import {
   projectRoutes,
   sqliteProjectAdapter,
 } from "../features/project/index.js";
+import { pushProjectWorktree } from "../features/project/push.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
 import {
   createTaskWorktree,
@@ -1071,6 +1072,41 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
+    },
+    // ADR 0076: hand the change back. Credential from the backend's env only;
+    // the branch is derived from the run id inside pushProjectWorktree.
+    pushProject: async ({ agentId, runId, project, message, note }) => {
+      const agent = await agentSvc.getById(agentId).catch(() => null);
+      if (agent === null) return { ok: false as const, error: `agent not found: ${agentId}` };
+      const named = projectSvc
+        .list()
+        .find((candidate) => candidate.projectId === project || candidate.name === project);
+      if (named === undefined) return { ok: false as const, error: `unknown project: ${project}` };
+      if (!agent.config.runtime_config.projects.includes(named.projectId)) {
+        return { ok: false as const, error: `${agentId} has no copy of ${named.name}` };
+      }
+      if (named.repoUrl === null || named.repoUrl === "") {
+        return { ok: false as const, error: `project ${named.name} has no remote to push to` };
+      }
+      try {
+        const pushed = pushProjectWorktree({
+          worktree: `${agent.workspacePath}/projects/${named.projectId}`,
+          repoUrl: named.repoUrl,
+          runId,
+          message,
+          ...(note !== undefined ? { note } : {}),
+          ...(process.env.PROJECT_PUSH_TOKEN !== undefined
+            ? { token: process.env.PROJECT_PUSH_TOKEN }
+            : {}),
+          ...(named.defaultBranch !== null ? { defaultBranch: named.defaultBranch } : {}),
+        });
+        return { ok: true as const, ...pushed };
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     },
     // ADR 0076: the room's project and each member's holdings, for the
     // dispatch guard (a topic room needs a worker with a copy of it).

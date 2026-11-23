@@ -490,6 +490,21 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "project_push",
+    description:
+      "Hand your change back as a reviewable branch: commits your worktree and pushes it to agent/<runId> on the project remote. The branch is derived for you and master is unreachable; a human merges. Use it when the work is done and verified, not to save partial state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project id or name you are working in" },
+        message: { type: "string", description: "Commit subject" },
+        note: { type: "string", description: "Optional commit body" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["project", "message"],
+    },
+  },
+  {
     name: "project_propose",
     description:
       "Propose a project the work needs but the registry does not have yet ('do a new front-end page', 'continue issue X in repo Y'). NEVER creates it: the human adopts in Web → Proposals. Pass attach_to so creation and attachment are ONE decision - a project nobody holds is a project nobody can work in.",

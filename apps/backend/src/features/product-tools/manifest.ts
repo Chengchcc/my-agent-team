@@ -247,6 +247,20 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "project_push",
+      description: "Push the worktree to agent/<runId> for review.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: { type: "string" },
+          message: { type: "string" },
+          note: { type: "string" },
+        },
+        required: ["project", "message"],
+      },
+      entrypoint,
+    },
+    {
       name: "project_propose",
       description: "Propose a project (name + repo) and who should hold it; a human adopts.",
       inputSchema: {
