@@ -11,6 +11,7 @@ import type { AgentRunPort } from "./ports.js";
 import type {
   BackendEvent,
   BackendRegistry,
+  BackendRunOutcome,
   BackendRunSegment,
   WorkspaceBinding,
 } from "./protocol/index.js";
@@ -99,6 +100,16 @@ export interface AgentRunExecutionDeps {
   /** ADR 0060 D6: recovery found a terminal dispatched run whose notice was
    *  never confirmed (crash between the commit and the delivery). The closure
    *  re-runs the same notification; it must stay idempotent per runId. */
+  /** ADR 0072/0076: the DELIVERY GATE. Called before a completed run's
+   *  terminal commit; returns a note to append to the answer, or undefined.
+   *  The front desk may write anything about verification - this line is the
+   *  backend's own fact, so "someone checked this" can never be claimed by
+   *  the model alone (live 2026-11-23 a change shipped with no second agent
+   *  and the answer simply said "done"). */
+  readonly deliveryNote?: (
+    run: AgentRun,
+    outcome: BackendRunOutcome,
+  ) => Promise<string | undefined>;
   readonly onRunResultUndelivered?: (run: AgentRun) => void;
   /** Called when a human input request is settled - answered, replayed, or timed out. The
    *  surface layer turns it into whatever its channel says ("the card stops being pending"); the

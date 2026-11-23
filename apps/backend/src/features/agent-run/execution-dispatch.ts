@@ -1,4 +1,5 @@
 import { resolveModelAlias } from "@chengchenccc/ai";
+import type { Message } from "@chengchenccc/message";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
 import { buildHistoryTools } from "../product-tools/manifest.js";
@@ -303,6 +304,15 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     return { outcome: await outcome, segment, drain };
   }
 
+  /** The gate's line, as a canonical assistant message: it belongs to the
+   *  transcript, so a refresh cannot lose it. */
+  function verificationMessage(note: string): Message {
+    return {
+      role: "assistant",
+      content: [{ type: "text", text: note }],
+    } as Message;
+  }
+
   /** Terminal handling for one outcome: completed -> atomic Product commit;
    *  failed/aborted/timeout -> terminal Run without an assistant message. */
   async function settleOutcome(run: AgentRun, outcome: BackendRunOutcome): Promise<void> {
@@ -314,10 +324,17 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     }
     if (outcome.status === "completed") {
       try {
+        // Delivery gate: the verification state is appended by the deployment,
+        // not written by the model (a missing second opinion must be visible).
+        const note = await deps.deliveryNote?.(run, outcome).catch(() => undefined);
+        const messages =
+          note === undefined
+            ? (outcome.messages ?? [])
+            : [...(outcome.messages ?? []), verificationMessage(note)];
         const { seqs } = await runPort.commitCompletedRun({
           runId: run.runId,
           outcome,
-          messages: outcome.messages ?? [],
+          messages,
         });
         debugLog(
           "agent-run",

@@ -71,6 +71,12 @@ export const FRONT_DESK_DISCIPLINE = [
   "- An irreversible `operate` needs the human's own words in this turn. If the",
   "  request came from a rule or an assessment, ask before acting.",
   "- One message with several tasks is several briefs, dispatched separately.",
+  // ADR 0072/0076 delivery gate: the backend appends "unverified" to a change
+  // nobody else checked, so the check has to be part of the route, not a
+  // courtesy.
+  "- A change is delivered only after ANOTHER member checked it: dispatch a",
+  '  review (verb "investigate", deliverable "report") at the pushed branch and',
+  "  wait for it. The deployment marks unverified changes; you cannot.",
   // H2a: a plan that lives only in this turn is gone when the worker's result
   // wakes a fresh call. todo_write is the only place it survives.
   "- Work with more than one step starts with todo_write: one item per step,",
