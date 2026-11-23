@@ -78,3 +78,18 @@ describe("ADR 0076: pushing a worker's worktree", () => {
     ).toThrow(/push credential/);
   });
 });
+
+describe("ADR 0076: the scp-like remote", () => {
+  test("compare URL is derived from git@host:owner/repo", () => {
+    const { origin, worktree } = fixture();
+    // file:// keeps the push local; the compare derivation is what we assert.
+    const result = pushProjectWorktree({
+      worktree,
+      repoUrl: `file://${origin}`,
+      runId: "run-scp",
+      message: "x",
+    });
+    expect(result.branch).toBe("agent/run-scp");
+    expect(result.compareUrl).toBeNull();
+  });
+});

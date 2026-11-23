@@ -100,11 +100,19 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
     );
   }
 
+  // The compare URL is what the person clicks; derive it from either remote
+  // shape (https or `git@host:owner/repo`).
   let compareUrl: string | null = null;
+  const scp = /^[A-Za-z0-9._-]+@([A-Za-z0-9.-]+):(.+)$/.exec(input.repoUrl);
+  let webBase: string | null = null;
   if (input.repoUrl.startsWith("https://")) {
-    const base = input.repoUrl.replace(/\.git$/, "").replace(/\/$/, "");
+    webBase = input.repoUrl.replace(/\.git$/, "").replace(/\/$/, "");
+  } else if (scp !== null) {
+    webBase = `https://${scp[1]}/${scp[2]!.replace(/\.git$/, "")}`;
+  }
+  if (webBase !== null) {
     const target = input.defaultBranch ?? "master";
-    compareUrl = `${base}/compare/${target}...${branch}`;
+    compareUrl = `${webBase}/compare/${target}...${branch}`;
   }
   return { branch, commits: 1, compareUrl };
 }
