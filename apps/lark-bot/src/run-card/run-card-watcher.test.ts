@@ -21,7 +21,12 @@ afterAll(() => {
 const markdown = (content: string) => ({ kind: "markdown", id: "t0", content });
 
 /** A chat state whose turn is either active (streaming) or folded (settled). */
-function chatOf(parts: unknown[], settled: boolean, id: string = runId): unknown {
+function chatOf(
+  parts: unknown[],
+  settled: boolean,
+  id: string = runId,
+  conv = "conv-watch-1",
+): unknown {
   const turn = {
     id,
     startedAt: new Date(0).toISOString(),
@@ -31,7 +36,7 @@ function chatOf(parts: unknown[], settled: boolean, id: string = runId): unknown
     ...(settled ? { state: "complete" } : {}),
   };
   return {
-    resource: "ahp-chat:/conv-watch-1",
+    resource: `ahp-chat:/${conv}`,
     title: "t",
     status: 1,
     modifiedAt: new Date(0).toISOString(),
@@ -251,13 +256,15 @@ describe("the run card watches the chat channel", () => {
     // past the flush interval: update() does not await the flush it requests
     // (single-flight), so an immediate second update would just coalesce into
     // this replace instead of taking the element path.
-    await handle.update(chatOf([markdown("a".repeat(400))], false, "run-order") as never);
+    await handle.update(
+      chatOf([markdown("a".repeat(400))], false, "run-order", "conv-order") as never,
+    );
     await new Promise((r) => setTimeout(r, 300));
     expect(calls.filter((c) => c === "updateCard").length).toBe(1);
 
     // Flush 2 (same frame, new output) takes the element path and HANGS there.
     const streaming = handle.update(
-      chatOf([markdown("b".repeat(400))], false, "run-order") as never,
+      chatOf([markdown("b".repeat(400))], false, "run-order", "conv-order") as never,
     );
     await new Promise((r) => setTimeout(r, 50));
     expect(calls).toContain("stream:start");
@@ -266,7 +273,9 @@ describe("the run card watches the chat channel", () => {
     // While the push is still in flight, the run settles: the seal must drain
     // it before sending its own replace, or the platform sees a LOWER sequence
     // after a higher one (300317).
-    const settling = handle.update(chatOf([markdown("b".repeat(400))], true, "run-order") as never);
+    const settling = handle.update(
+      chatOf([markdown("b".repeat(400))], true, "run-order", "conv-order") as never,
+    );
     await new Promise((r) => setTimeout(r, 50));
     expect(calls.filter((c) => c === "updateCard").length).toBe(1);
     expect(calls).not.toContain("stream:end");
