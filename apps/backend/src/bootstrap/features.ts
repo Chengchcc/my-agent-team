@@ -684,6 +684,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         skills: row.config.skills.map((s) =>
           s.description.length > 0 ? `${s.id}：${s.description}` : s.id,
         ),
+        ...(row.config.runtime_config.projects.length > 0
+          ? {
+              projects: row.config.runtime_config.projects.map((pid) => {
+                const project = projectSvc.getById(pid) as { name?: string } | null;
+                return { projectId: pid, name: project?.name ?? pid };
+              }),
+            }
+          : {}),
       }));
   };
   const proactiveSvc = createProactiveService({
@@ -1063,6 +1071,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
+    },
+    // ADR 0076: propose a project (name + repo + who holds it). The proposal
+    // service records it; a human adopts it in Web. Nothing is registered here.
+    proposeProject: (input) => {
+      const proposal = proposalSvc.propose("project_creation", input.name, {
+        name: input.name,
+        repoUrl: input.repoUrl,
+        ...(input.defaultBranch !== undefined ? { defaultBranch: input.defaultBranch } : {}),
+        ...(input.attachTo !== undefined ? { attachTo: [...input.attachTo] } : {}),
+        proposedBy: input.proposedBy,
+      });
+      return { proposalId: proposal.id };
     },
     // ADR 0074: project registry, dereferenced at request time (projectSvc is
     // assembled later in this function, like the other late bindings here).

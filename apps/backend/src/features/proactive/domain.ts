@@ -41,6 +41,11 @@ export interface AgentCard {
   name: string;
   description: string;
   skills: string[];
+  /** Projects this member has attached (ADR 0023): the PA must be able to see
+   *  that a worker owns a repository copy before it dispatches repository
+   *  work to it — otherwise "who can read this repo" is unknowable and the
+   *  dispatch lands on a worker with nowhere to write. */
+  projects?: Array<{ projectId: string; name: string }>;
 }
 
 /** The semantic assessment's parsed verdict (ADR 0048). */

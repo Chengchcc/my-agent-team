@@ -2,7 +2,7 @@
  *  definition rewrite: it proposes one, and the target page adopts it as an unsaved edit the human
  *  commits. The row is what makes the tool's own answer true — the page can be opened later and the
  *  proposal is still there to review. */
-export type ProposalKind = "agent_config" | "workflow_definition";
+export type ProposalKind = "agent_config" | "workflow_definition" | "project_creation";
 export type ProposalStatus = "pending" | "adopted" | "discarded";
 
 export interface PendingProposal {
@@ -26,7 +26,11 @@ export interface ProposalRow {
   resolvedAt: number | null;
 }
 
-const KINDS = ["agent_config", "workflow_definition"] as const satisfies readonly ProposalKind[];
+const KINDS = [
+  "agent_config",
+  "workflow_definition",
+  "project_creation",
+] as const satisfies readonly ProposalKind[];
 
 /** A kind that came off the wire. Only the tools write proposals, so an unknown one is a bug or a
  *  hand-edited row: it is refused rather than guessed at. */
