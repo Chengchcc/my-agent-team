@@ -1195,8 +1195,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       const roomProject = deps.roomProjectOf(run.conversationId);
       if (roomProject !== null && !deps.workerProjects(agent).includes(roomProject.projectId)) {
         throw new ProductToolRejectedError(
-          `this room is about project "${roomProject.name}" and ${agent} has no copy of it; ` +
-            "dispatch to a member that holds it (team_list lists each member's projects)",
+          `this room is about project "${roomProject.name}" and ${agent} is not bound to it; ` +
+            "dispatch to a member that is (team_list lists each member's projects)",
         );
       }
     }

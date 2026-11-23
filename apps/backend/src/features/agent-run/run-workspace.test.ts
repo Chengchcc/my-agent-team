@@ -4,12 +4,12 @@ import { resolveRunWorkspace } from "./run-workspace.js";
 const base = {
   agentId: "agent-1",
   agentWorkspacePath: "/ws/agent-1",
-  agentProjects: ["proj-1"],
   fallbackRoot: "/ws/fallback",
   conversationProjectId: null,
+  requirementWorkspacePath: null,
 };
 
-describe("resolveRunWorkspace", () => {
+describe("resolveRunWorkspace (ADR 0077: the requirement owns the checkout)", () => {
   test("a plain conversation runs in the agent workspace", () => {
     expect(resolveRunWorkspace(base)).toEqual({
       root: "/ws/agent-1",
@@ -23,30 +23,31 @@ describe("resolveRunWorkspace", () => {
     expect(ws.root).toBe("/ws/fallback");
   });
 
-  test("a project-bound conversation runs in that project's worktree", () => {
-    const ws = resolveRunWorkspace({ ...base, conversationProjectId: "proj-1" });
-    expect(ws.root).toBe("/ws/agent-1/projects/proj-1");
-    // A shared checkout (#59): the dispatch holds the workspace lock for the
-    // run's whole life, parked human asks included.
-    expect(ws.shared).toBe(true);
+  test("a project room runs in its requirement's checkout, never the agent's own copy", () => {
+    const ws = resolveRunWorkspace({
+      ...base,
+      conversationProjectId: "proj-1",
+      requirementWorkspacePath: "/data/workspaces/R-1/proj-1",
+    });
+    expect(ws.root).toBe("/data/workspaces/R-1/proj-1");
+    // One active run per requirement checkout (invariant 3).
+    expect(ws.shared).toBeTruthy();
   });
 
-  test("an unattached project is an explicit failure, not a fallback", () => {
-    expect(() => resolveRunWorkspace({ ...base, conversationProjectId: "proj-2" })).toThrow(
-      /has not attached project proj-2/,
+  test("a project room with no requirement checkout is an explicit failure", () => {
+    expect(() => resolveRunWorkspace({ ...base, conversationProjectId: "proj-1" })).toThrow(
+      /no requirement workspace/,
     );
-    expect(() =>
-      resolveRunWorkspace({ ...base, conversationProjectId: "proj-1", agentProjects: [] }),
-    ).toThrow(/has not attached project proj-1/);
   });
 
-  test("access never depends on the permission mode — a read_only workspace silently deletes the tools `ask` exists to ask about", () => {
-    // The regression this pins: `ask` used to resolve to read_only, and a
-    // read_only workspace mounts neither write nor bash, so the mode had
-    // nothing left to ask about and no approval card could ever appear.
+  test("access never depends on the permission mode", () => {
     const shapes = [
       resolveRunWorkspace(base),
-      resolveRunWorkspace({ ...base, conversationProjectId: "proj-1" }),
+      resolveRunWorkspace({
+        ...base,
+        conversationProjectId: "proj-1",
+        requirementWorkspacePath: "/data/workspaces/R-1/proj-1",
+      }),
       resolveRunWorkspace({ ...base, agentWorkspacePath: null }),
     ];
     for (const ws of shapes) expect(ws.access).toBe("read_write");
