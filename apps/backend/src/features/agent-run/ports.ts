@@ -167,6 +167,10 @@ export interface AgentRunPort {
   /** Runs a surface may still be showing: active, or ended within the window. A run that never
    *  streamed anything has no ledger rows, no queue row and no fold actions, so once it stops
    *  being active it would otherwise vanish from the chat state with its terminal unpainted. */
+  /** Runs DISPATCHED by a run of this conversation, wherever they ran (each
+   *  dispatch opens its own room). The delivery gate needs them: a producer's
+   *  run is never in the front desk's own conversation. */
+  listDispatchedRuns?(parentConversationId: string, withinMs: number): Promise<AgentRun[]>;
   listRecentRunsForConversations(
     conversationIds: readonly string[],
     withinMs: number,

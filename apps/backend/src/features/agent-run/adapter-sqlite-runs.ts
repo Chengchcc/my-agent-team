@@ -36,6 +36,7 @@ type RunMethods = Pick<
   | "listActiveRunsWithDeliveredInputs"
   | "hasActiveRunForConversations"
   | "listActiveRunsForConversations"
+  | "listDispatchedRuns"
   | "listRecentRunsForConversations"
   | "getActiveRun"
   | "listUnnotifiedDispatchedTerminalRuns"
@@ -629,6 +630,25 @@ export function createRunMethods(
           and(
             inArray(schema.agentRun.conversationId, [...conversationIds]),
             inArray(schema.agentRun.status, [...ACTIVE_RUN_STATUSES]),
+          ),
+        )
+        .all();
+      return rows.map(parseRun);
+    },
+
+    async listDispatchedRuns(parentConversationId, withinMs) {
+      const cutoff = Date.now() - withinMs;
+      const rows = d
+        .select()
+        .from(schema.agentRun)
+        .where(
+          and(
+            isNotNull(schema.agentRun.parentRunId),
+            sql`${schema.agentRun.parentRunId} IN (SELECT run_id FROM agent_run WHERE conversation_id = ${parentConversationId})`,
+            or(
+              inArray(schema.agentRun.status, [...ACTIVE_RUN_STATUSES]),
+              gte(schema.agentRun.terminalAt, cutoff),
+            ),
           ),
         )
         .all();

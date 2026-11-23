@@ -40,7 +40,7 @@ import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
 import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
 import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
 import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
-import { deliveryNoteOf } from "../features/agent-run/delivery-gate.js";
+import { deliveryNoteOf, producedByEvent } from "../features/agent-run/delivery-gate.js";
 import { pendingActionId } from "../features/agent-run/domain.js";
 import { finalAnswerMessage } from "../features/agent-run/execution-input.js";
 import {
@@ -2027,9 +2027,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const agent = await agentSvc.getById(run.agentId).catch(() => null);
       // Workers answer their dispatcher; only a front desk delivers to a person.
       if (agent?.config.role === "worker") return undefined;
-      const recent = await agentRunPort
-        .listRecentRunsForConversations([run.conversationId], 6 * 60 * 60_000)
-        .catch(() => []);
+      // Dispatched runs live in their own rooms: the front desk's own
+      // conversation never holds the producer (measured 2026-11-23 — the gate
+      // stayed silent because it only looked at this room).
+      const recent =
+        (await agentRunPort
+          .listDispatchedRuns?.(run.conversationId, 6 * 60 * 60_000)
+          .catch(() => null)) ??
+        (await agentRunPort
+          .listRecentRunsForConversations([run.conversationId], 6 * 60 * 60_000)
+          .catch(() => []));
       return deliveryNoteOf({
         selfAgentId: run.agentId,
         runs: recent.map((r) => ({
@@ -2043,7 +2050,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         produced: (runId) =>
           services.opsStore
             .listRunEvents(runId, 2000)
-            .some((e) => /"toolName":"(write|edit|project_push)"/.test(JSON.stringify(e))),
+            .some((e) => producedByEvent(JSON.stringify(e))),
       });
     },
     // ADR 0060 D6: recovery saw a terminal dispatched run with no confirmed
