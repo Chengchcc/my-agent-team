@@ -105,7 +105,18 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
   // A clean tree is NOT "nothing to push": the worker may have committed
   // already (live 2026-11-23 it did, and the old check refused a branch that
   // had one commit waiting). The decision is "are there commits no remote has".
-  const ahead = git(worktree, ["rev-list", "--count", "HEAD", "--not", "--remotes"]);
+  // Counted against the PROJECT's base branch, explicitly. `--not --remotes`
+  // read 9 commits on a one-commit hand-back: the worktree's repo is a mirror
+  // whose remote-tracking refs do not describe the base (live 2026-11-23).
+  const base = `refs/heads/${input.defaultBranch ?? "master"}`;
+  const baseExists =
+    git(worktree, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`]).code === 0;
+  const ahead = git(
+    worktree,
+    baseExists
+      ? ["rev-list", "--count", "HEAD", "--not", base]
+      : ["rev-list", "--count", "HEAD", "--not", "--remotes"],
+  );
   if (ahead.code !== 0) {
     throw new ProjectPushRefused(`git rev-list failed: ${ahead.err.trim().slice(0, 200)}`);
   }
