@@ -6,7 +6,6 @@ import type { artifactRoutes } from "./features/artifact/http.js";
 import type { authRoutes } from "./features/auth/http.js";
 import type { codingRoutes } from "./features/coding/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
-import type { knowledgeRoutes } from "./features/knowledge/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
 import type { harnessRoutes, modelRoutes } from "./features/models/http.js";
 import type { proactiveRoutes } from "./features/proactive/http.js";
@@ -34,7 +33,6 @@ export interface FeatureSet {
   agentRuns: ReturnType<typeof agentRunRoutes>;
   skillPacks: ReturnType<typeof skillPackRoutes>;
   mcp: ReturnType<typeof mcpRoutes>;
-  knowledge: ReturnType<typeof knowledgeRoutes>;
   coding: ReturnType<typeof codingRoutes>;
   ahp: ReturnType<typeof createAhpHost>["routes"];
   settings: ReturnType<typeof settingsRoutes>;
@@ -64,7 +62,6 @@ export function createApp(token: string, features: FeatureSet) {
     projects,
     skillPacks,
     mcp,
-    knowledge,
 
     settings,
     proposal,
@@ -157,7 +154,6 @@ export function createApp(token: string, features: FeatureSet) {
     .use(auth)
     .use(providers)
     .use(mcp)
-    .use(knowledge)
     .use(models)
     .use(harnesses)
     .use(proactive);

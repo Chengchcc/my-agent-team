@@ -58,7 +58,6 @@ export interface CreateAgentInput {
   denyCommands?: string[];
   allowWritePaths?: string[];
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
-  knowledgePacks?: string[];
   lark?: {
     enabled: boolean;
     appId?: string;
@@ -110,7 +109,6 @@ export interface UpdateAgentInput {
   denyCommands?: string[];
   maxSteps?: number;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
-  knowledgePacks?: string[];
   projects?: string[];
   lark?: {
     enabled?: boolean;

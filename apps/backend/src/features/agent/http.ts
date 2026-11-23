@@ -72,7 +72,6 @@ function toAgentResponse(row: AgentRow, status: string) {
     permissionMode: rc.permission_mode,
     maxSteps: rc.max_steps > 0 ? rc.max_steps : null,
     mcpServers: rc.mcp_servers.map((s) => ({ serverId: s.server_id, enabled: s.enabled })),
-    knowledgePacks: rc.knowledge_packs,
     projects: rc.projects,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -233,7 +232,6 @@ export function agentRoutes(
           mcpServers: t.Optional(
             t.Array(t.Object({ serverId: t.String({ minLength: 1 }), enabled: t.Boolean() })),
           ),
-          knowledgePacks: t.Optional(t.Array(t.String({ minLength: 1 }))),
           lark: t.Optional(
             t.Object({
               enabled: t.Boolean(),
@@ -356,7 +354,6 @@ export function agentRoutes(
           mcpServers: t.Optional(
             t.Array(t.Object({ serverId: t.String({ minLength: 1 }), enabled: t.Boolean() })),
           ),
-          knowledgePacks: t.Optional(t.Array(t.String({ minLength: 1 }))),
           projects: t.Optional(t.Array(t.String({ minLength: 1 }))),
           lark: t.Optional(
             t.Object({

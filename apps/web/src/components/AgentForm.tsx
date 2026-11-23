@@ -28,7 +28,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateAgent, useMcpCatalog, useUpdateAgent } from "@/features/agents/hooks";
-import { useKnowledgePacks } from "@/features/knowledge/hooks";
 import { useHarnessList } from "@/features/models/hooks";
 import {
   useAgentSkillPacks,
@@ -65,7 +64,6 @@ export function AgentForm({
   const [serverError, setServerError] = useState("");
   const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
   const [selectedMcpIds, setSelectedMcpIds] = useState<string[]>([]);
-  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<string[]>([]);
   // ADR 0040 decision 7: the adapter kind is no longer a product concept. One
   // adapter drives every harness, so the form asks which harness runs this agent
   // (an ACP registry key) and which of that harness's own declared models it uses.
@@ -122,7 +120,6 @@ export function AgentForm({
       setSelectedMcpIds(
         (editAgent.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId),
       );
-      setSelectedKnowledgeIds(editAgent.knowledgePacks ?? []);
       return;
     }
     if (!draft) return;
@@ -142,7 +139,6 @@ export function AgentForm({
       skills: [],
     });
     setSelectedMcpIds((draft.mcpServers ?? []).filter((m) => m.enabled).map((m) => m.serverId));
-    setSelectedKnowledgeIds(draft.knowledgePacks ?? []);
   }, [editAgent, draft, form]);
 
   // Skill pack assignments
@@ -150,7 +146,6 @@ export function AgentForm({
   const { data: assignedPacks } = useAgentSkillPacks(editAgent?.id ?? "");
   const setPacksMutation = useSetAgentPacks(editAgent?.id ?? "");
   const { data: mcpCatalog } = useMcpCatalog();
-  const { data: knowledgeData } = useKnowledgePacks();
   const mcpCatalogServers: { serverId: string; name: string }[] = mcpCatalog?.mcpServers ?? [];
 
   /** Checkbox state → per-agent attach body. In edit mode this preserves
@@ -186,7 +181,6 @@ export function AgentForm({
       model: values.model,
       permissionMode: values.permissionMode,
       mcpServers: selectedMcpBody(),
-      knowledgePacks: [...new Set(selectedKnowledgeIds)],
       reasoningEffort: values.reasoningEffort || null,
       role: values.role,
       description: values.description || undefined,
@@ -276,7 +270,6 @@ export function AgentForm({
             setServerError("");
             setSelectedPackIds([]);
             setSelectedMcpIds([]);
-            setSelectedKnowledgeIds([]);
             setOpen(true);
           }}
           variant={triggerLabel ? "outline" : "default"}
@@ -606,13 +599,6 @@ export function AgentForm({
                   selectedIds={selectedMcpIds}
                   onToggle={toggleId(setSelectedMcpIds)}
                   emptyHint="No MCP servers installed yet — install at /team/mcp"
-                />
-                <AgentFormResourceSection
-                  title="Knowledge"
-                  items={(knowledgeData?.packs ?? []).map((p) => ({ id: p.id, name: p.name }))}
-                  selectedIds={selectedKnowledgeIds}
-                  onToggle={toggleId(setSelectedKnowledgeIds)}
-                  emptyHint="No knowledge packs installed yet — install at /team/knowledge"
                 />
 
                 {serverError && <p className="text-xs text-destructive">{serverError}</p>}

@@ -9,7 +9,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { knowledgePackIndex } from "../knowledge/install.js";
 /** BackendKind → project config dir (ADR 0003 decision 2: the four
  *  config dirs each oma reads from its cwd). */
 export const KIND_DIR: Record<string, string> = {
@@ -59,8 +58,6 @@ export interface McpServerEntry {
  *    safe — the tool stays gated. */
 export const PRODUCT_MCP_EXPANDABLE_VARS: readonly string[] = ["PRODUCT_TOOLS_RUN_TOKEN"];
 export const PRODUCT_CONSENTED_MCP_TOOLS: readonly string[] = [
-  "mcp__knowledge__knowledge_search",
-  "mcp__knowledge__knowledge_read",
   "mcp__product-tools__history_recent",
   "mcp__product-tools__history_search",
   "mcp__product-tools__history_around",
@@ -208,51 +205,6 @@ export function writeProductToolsManifest(
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-/** Reconcile the workspace knowledge/ dir (ADR 0022): symlink each
- *  assigned pack + regenerate the machine index (pack summaries + file
- *  lists). Idempotent; stale links are removed; a non-symlink entry is
- *  never clobbered. */
-export function reconcileKnowledgeResources(
-  workspacePath: string,
-  packs: ReadonlyArray<{ id: string; source: string; name: string; description: string }>,
-): void {
-  const root = join(workspacePath, "knowledge");
-  mkdirSync(root, { recursive: true });
-  const wanted = new Set(packs.map((p) => p.id));
-  for (const entry of readdirSync(root)) {
-    if (entry === "index.md") continue;
-    const full = join(root, entry);
-    try {
-      if (lstatSync(full).isSymbolicLink() && !wanted.has(entry)) unlinkSync(full);
-    } catch {
-      /* non-symlink user entries stay */
-    }
-  }
-  const sections: string[] = [
-    "# Knowledge",
-    "",
-    "Agent 知识库索引(桥接生成,reconcile 时重建)。",
-    "",
-  ];
-  for (const p of packs) {
-    const slot = join(root, p.id);
-    if (!existsSync(p.source)) continue;
-    let slotExists = false;
-    try {
-      lstatSync(slot);
-      slotExists = true;
-    } catch {
-      /* absent or dangling: link it */
-    }
-    if (!slotExists) symlinkSync(p.source, slot, "dir");
-    sections.push(
-      knowledgePackIndex({ name: p.name, description: p.description, installedRef: p.source }),
-    );
-    sections.push("");
-  }
-  writeFileSync(join(root, "index.md"), sections.join("\n"));
-}
-
 /** Claude workspace settings (ADR 0022): the product's own MCP tools are
  *  read-only history surface - pre-allowed so unattended -p runs don't
  *  hit the permission gate. Other tools keep claude's default prompts. */
@@ -283,12 +235,6 @@ export function reconcileAgentResources(input: {
   skillPacks: readonly SkillLink[];
   mcpServers: readonly McpServerEntry[];
   productTools: readonly unknown[];
-  knowledgePacks: ReadonlyArray<{
-    id: string;
-    source: string;
-    name: string;
-    description: string;
-  }>;
   /** Extra workspace roots (project worktrees, ADR 0023) receiving the
    *  same mcp + product-tools bridge. The caller materializes them. */
   extraRoots?: readonly string[];
@@ -298,7 +244,6 @@ export function reconcileAgentResources(input: {
     writeProductToolsManifest(root, input.productTools);
   }
   reconcileSkillLinks(input.workspacePath, input.kind, input.skillPacks);
-  reconcileKnowledgeResources(input.workspacePath, input.knowledgePacks);
   writeClaudeSettings(input.workspacePath);
 }
 

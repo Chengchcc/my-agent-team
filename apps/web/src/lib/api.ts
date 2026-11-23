@@ -20,7 +20,6 @@ export type LarkSetupSession = ApiReturn<typeof api.larkSetup>;
 export type AgentRow = ApiReturn<typeof api.listAgents>[number] & {
   enabled?: boolean;
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
-  knowledgePacks?: string[];
   projects?: string[];
 };
 export type AgentRunDetail = ApiReturn<typeof api.getAgentRun>;
@@ -496,42 +495,6 @@ export const api = {
   getSystemMetrics: () => unwrap(client.api.ops["system-metrics"].get()),
   deleteMcpServer: (serverId: string) =>
     fetch(`/api/bff/mcp-servers/${serverId}`, {
-      method: "DELETE",
-      credentials: "include",
-    }).then((r) => r.ok),
-  // Knowledge packs (ADR 0022, direct fetch)
-  listKnowledgePacks: () =>
-    fetch("/api/bff/knowledge-packs", { credentials: "include" }).then((r) => r.json()),
-  knowledgeStats: (packId: string) =>
-    unwrap(client.api["knowledge-packs"]({ id: packId }).stats.get()),
-  getKnowledgePackFiles: (id: string, path?: string) =>
-    unwrap(client.api["knowledge-packs"]({ id }).files.get({ query: path ? { path } : undefined })),
-  searchKnowledgePack: (id: string, q: string) =>
-    unwrap(client.api["knowledge-packs"]({ id }).search.get({ query: { q } })),
-  knowledgeAllStats: async () => {
-    const r = await fetch("/api/bff/knowledge-packs/stats", { credentials: "include" });
-    if (!r.ok) throw new Error(`stats failed: ${r.status}`);
-    return (await r.json()) as Array<{
-      packId: string;
-      files: number;
-      totalBytes: number;
-      estTokens: number;
-    }>;
-  },
-  installKnowledgePack: (body: {
-    name: string;
-    description?: string;
-    sourceKind: "builtin" | "git" | "zip";
-    sourceUrl?: string;
-  }) =>
-    fetch("/api/bff/knowledge-packs/install", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then((r) => r.json()),
-  deleteKnowledgePack: (id: string) =>
-    fetch(`/api/bff/knowledge-packs/${id}`, {
       method: "DELETE",
       credentials: "include",
     }).then((r) => r.ok),

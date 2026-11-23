@@ -7,11 +7,9 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { knowledgePackIndex } from "../knowledge/install.js";
 import {
   reconcileAgentResources,
   reconcileSkillLinks,
@@ -95,44 +93,6 @@ describe("workspace bridge", () => {
     expect(existsSync(path)).toBe(false);
     rmSync(ws, { recursive: true, force: true });
   });
-
-  test("knowledgePackIndex excludes .git", () => {
-    const ws = tmpWorkspace();
-    const pack = join(ws, "pack");
-    mkdirSync(join(pack, ".git"), { recursive: true });
-    mkdirSync(join(pack, "docs"), { recursive: true });
-    writeFileSync(join(pack, ".git", "HEAD"), "ref: refs/heads/main");
-    writeFileSync(join(pack, "docs", "a.md"), "# A");
-    const index = knowledgePackIndex({ name: "p", description: "d", installedRef: pack });
-    expect(index).not.toContain(".git");
-    expect(index).toContain("docs/");
-    rmSync(ws, { recursive: true, force: true });
-  });
-
-  test("knowledgePackIndex is progressive: metadata in, bodies out", () => {
-    const ws = tmpWorkspace();
-    const pack = join(ws, "pack");
-    mkdirSync(pack, { recursive: true });
-    writeFileSync(
-      join(pack, "runs.md"),
-      "---\ntitle: Run lifecycle\ndescription: How a run ends\ntags: [runs]\n---\n\nSECRET BODY TEXT\n",
-    );
-    writeFileSync(join(pack, "plain.md"), "no frontmatter here\n");
-    writeFileSync(join(pack, "hidden.md"), "---\ntitle: Hidden\nhide: true\n---\nbody\n");
-    writeFileSync(join(pack, "data.json"), "{}\n");
-    const index = knowledgePackIndex({ name: "p", description: "d", installedRef: pack });
-    // metadata is in the index
-    expect(index).toContain("Run lifecycle");
-    expect(index).toContain("How a run ends");
-    expect(index).toContain("[runs]");
-    // bodies and the hidden file are not
-    expect(index).not.toContain("SECRET BODY TEXT");
-    expect(index).not.toContain("Hidden");
-    // a file without frontmatter is still listed, by path
-    expect(index).toContain("`plain.md`");
-    expect(index).toContain("`data.json`");
-    rmSync(ws, { recursive: true, force: true });
-  });
 });
 
 describe("extraRoots bridge (ADR 0023)", () => {
@@ -152,7 +112,6 @@ describe("extraRoots bridge (ADR 0023)", () => {
         },
       ],
       productTools: [{ name: "history_recent" }],
-      knowledgePacks: [],
       extraRoots: [wt],
     });
     expect(existsSync(join(wt, ".mcp.json"))).toBe(true);

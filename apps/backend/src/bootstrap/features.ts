@@ -95,12 +95,7 @@ import {
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
 import { createConfiguredSummarizer } from "../features/conversation/summarize.js";
-import { createEmbeddingClient } from "../features/knowledge/embedding.js";
-import {
-  createKnowledgeService,
-  knowledgeRoutes,
-  sqliteKnowledgePackAdapter,
-} from "../features/knowledge/index.js";
+import { createEmbeddingClient } from "../features/embedding-client.js";
 import {
   CliSetupProvisioner,
   createLarkSetupStore,
@@ -207,7 +202,6 @@ import {
 import { startAllowlistProxy } from "../infra/allowlist-proxy.js";
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
 import { ulid } from "../infra/ids.js";
-import { resolveKnowledgeMcpServerEntry } from "../infra/knowledge-mcp-command.js";
 import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
 import { sseUrlEndpoint } from "../infra/sse-url.js";
 import type { BackendServices } from "./services.js";
@@ -2304,9 +2298,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  truth before the next spawn mounts it. */
   async function bridgeMcpServers(agentId: string): Promise<McpServerEntry[]> {
     const agent = await agentSvc.getById(agentId);
-    const assignedKnowledge = agent.config.runtime_config.knowledge_packs
-      .map((packId) => knowledgeSvc.getById(packId))
-      .filter((p): p is NonNullable<typeof p> => p !== null && p.status === "ready");
     return [
       ...(await mcpSvc.listForAgent(agentId)).map((s) => ({
         name: s.name,
@@ -2363,38 +2354,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
               name: "agent-config",
               transport: "sse" as const,
               url: agentConfigMcp.url,
-            },
-          ]
-        : []),
-      // The knowledge recall server (ADR 0022): merged only when the
-      // agent has ready packs (stdio, scoped to its knowledge dir).
-      ...(assignedKnowledge.length > 0
-        ? [
-            {
-              name: "knowledge",
-              transport: "stdio" as const,
-              command: process.execPath,
-              args: [
-                resolveKnowledgeMcpServerEntry(config),
-                join(agent.workspacePath, "knowledge"),
-                ...assignedKnowledge.flatMap((p) =>
-                  p.installedRef ? ["--allowed-pack", p.installedRef] : [],
-                ),
-              ],
-              // Semantic search needs the embedding endpoint, and this server is
-              // its own process: it reads these two from its env. Both values are
-              // non-secret (a model id and a local URL), so writing them into the
-              // workspace file keeps that file's secret-free rule intact.
-              ...(config.embeddingModel
-                ? {
-                    env: {
-                      KNOWLEDGE_EMBEDDING_MODEL: config.embeddingModel,
-                      ...(config.embeddingBaseUrl
-                        ? { KNOWLEDGE_EMBEDDING_BASE_URL: config.embeddingBaseUrl }
-                        : {}),
-                    },
-                  }
-                : {}),
             },
           ]
         : []),
@@ -2472,9 +2431,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
       }
       const packs = await skillPackPort.listForAgent(agentId);
-      const assignedKnowledge = agent.config.runtime_config.knowledge_packs
-        .map((packId) => knowledgeSvc.getById(packId))
-        .filter((p): p is NonNullable<typeof p> => p !== null && p.status === "ready");
       // ADR 0023: materialize a worktree per attached project and bridge
       // the same mcp + product-tools config into it. Failures warn, never
       // throw (reconcile stays best-effort like the other bridges).
@@ -2514,68 +2470,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           .map((p) => ({ id: p.id, source: installPath(config.dataDir, p.id) })),
         mcpServers: await bridgeMcpServers(agentId),
         productTools: productToolsManifest(),
-        knowledgePacks: assignedKnowledge.map((p) => ({
-          id: p.id,
-          source: p.installedRef ?? "",
-          name: p.name,
-          description: p.description,
-        })),
       });
     } catch (err) {
       console.error(`[bridge] reconcile failed for ${agentId}:`, err);
     }
   };
-
-  // ─── Knowledge packs (ADR 0022) ──────────────────────────────
-  const knowledgeSvc = createKnowledgeService({
-    port: sqliteKnowledgePackAdapter(db),
-    dataDir: config.dataDir,
-    idGen: ulid,
-    builtinRoot: config.knowledgePacksDir,
-  });
-
-  // Builtin wiki packs: repo doc zones copied into the data dir once and then
-  // available to every agent. The doc directory is the single source — there is
-  // no second copy to drift, and the ADR archive stays out of it because a
-  // skill generates those files.
-  for (const pack of [
-    {
-      name: "architecture",
-      description: "my-agent-team 现状架构：系统总览、执行链、数据、各子系统、安全与规则",
-    },
-    { name: "guides", description: "my-agent-team 使用与开发指南：安装、部署、配置、排障" },
-  ]) {
-    if (knowledgeSvc.list().some((p) => p.sourceKind === "builtin" && p.name === pack.name)) {
-      continue;
-    }
-    await knowledgeSvc
-      .install({ ...pack, sourceKind: "builtin" })
-      .catch((err: Error) =>
-        console.error(`[knowledge] builtin ${pack.name} seed failed: ${err.message}`),
-      );
-  }
-
-  // Builtin packs are copies of repo directories; refresh the ones whose source
-  // moved on since the copy was made (deleted or renamed pages otherwise stay
-  // in the index the prompt shows for as long as the data dir lives).
-  const refreshedKnowledge = await knowledgeSvc.syncBuiltin();
-  if (refreshedKnowledge.length > 0) {
-    console.error(`[knowledge] builtin packs refreshed: ${refreshedKnowledge.join(", ")}`);
-    // Refreshing the pack content is only half the job: `knowledge/index.md` is
-    // what the prompt actually shows, and it is otherwise rebuilt only when an
-    // agent is created or updated. Without this re-bridge a refreshed pack keeps
-    // listing its deleted pages until someone happens to edit an agent.
-    for (const agent of await agentSvc.list(true)) {
-      if (agent.config.runtime_config.knowledge_packs.length === 0) continue;
-      await reconcileAgent
-        .fn(agent.id)
-        .catch((err: Error) =>
-          console.warn(
-            `[knowledge] re-bridge after refresh failed for ${agent.id}: ${err.message}`,
-          ),
-        );
-    }
-  }
 
   // ─── FeatureSet ─────────────────────────────────────────────
 
@@ -3097,7 +2996,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),
     mcp: mcpRoutes(mcpSvc),
-    knowledge: knowledgeRoutes(knowledgeSvc),
     workflowExecutions: workflowApp,
     artifacts: artifactRoutes(artifactService),
     proactive: proactiveRoutes(proactiveSvc),

@@ -7,7 +7,6 @@ import { Page, PageBody, PageHeader } from "@/components/page";
 import { KpiTile, MonoLabel, StatusPill } from "@/components/patterns";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useAgentList } from "@/features/agents/hooks";
-import { useKnowledgePacks } from "@/features/knowledge/hooks";
 import { useMcpCatalog } from "@/features/mcp/hooks";
 import type { AgentRow } from "@/lib/api";
 
@@ -43,7 +42,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ id: StatusFilter; label: string }> = [
 export default function TeamPage() {
   const { data: agents, isLoading } = useAgentList();
   const { data: mcpData } = useMcpCatalog();
-  const { data: knowledgeData } = useKnowledgePacks();
   const [runtimeFilter, setRuntimeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [query, setQuery] = useState("");
@@ -61,7 +59,6 @@ export default function TeamPage() {
     (sum, a) => sum + (a.mcpServers?.filter((m) => m.enabled).length ?? 0),
     0,
   );
-  const boundKnowledge = active.reduce((sum, a) => sum + (a.knowledgePacks?.length ?? 0), 0);
 
   const unassignedMcp = (mcpData?.mcpServers ?? []).filter(
     (server) =>
@@ -69,12 +66,8 @@ export default function TeamPage() {
         a.mcpServers?.some((m) => m.serverId === server.serverId && m.enabled),
       ),
   );
-  const unassignedKnowledge = (knowledgeData?.packs ?? []).filter(
-    (pack) => !(agents ?? []).some((a) => a.knowledgePacks?.includes(pack.id)),
-  );
   const agentsWithoutProjects = active.filter((a) => !a.projects?.length);
-  const attentionCount =
-    unassignedMcp.length + unassignedKnowledge.length + agentsWithoutProjects.length;
+  const attentionCount = unassignedMcp.length + agentsWithoutProjects.length;
 
   const visible = active.filter((a) => {
     if (runtimeFilter !== "all" && a.harness !== runtimeFilter) return false;
@@ -127,9 +120,9 @@ export default function TeamPage() {
           />
           <KpiTile
             label="Bound capabilities"
-            value={boundMcp + boundKnowledge}
+            value={boundMcp}
             icon={Plug}
-            detail={`${boundMcp} mcp · ${boundKnowledge} knowledge`}
+            detail={`${boundMcp} mcp`}
           />
           <KpiTile
             label="Needs attention"
@@ -206,16 +199,6 @@ export default function TeamPage() {
                   <MonoLabel>mcp · unassigned</MonoLabel>
                 </Link>
               ))}
-              {unassignedKnowledge.map((p) => (
-                <Link
-                  key={p.id}
-                  href="/team/knowledge"
-                  className="flex items-center justify-between gap-2 py-2 transition-colors hover:text-(--primary)"
-                >
-                  <span className="truncate text-(--ink)">{p.name}</span>
-                  <MonoLabel>knowledge · unassigned</MonoLabel>
-                </Link>
-              ))}
               {agentsWithoutProjects.map((a) => (
                 <Link
                   key={a.id}
@@ -279,7 +262,7 @@ export default function TeamPage() {
 
         <div className="flex items-center gap-2 text-xs text-(--faint)">
           <Boxes className="size-3.5" />
-          Agent capabilities live in Skills, MCP and Knowledge under Team.
+          Agent capabilities live in Skills and MCP under Team.
         </div>
       </PageBody>
     </Page>
