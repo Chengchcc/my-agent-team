@@ -1,27 +1,27 @@
 {
   "scenario": "chain",
-  "room": "8c716a90388b4f33b4b23c3973",
+  "room": "ad12632d92584ecfa8e4532bf1",
   "settled": false,
-  "elapsedSec": 701,
+  "elapsedSec": 601,
   "children": [
     {
       "agentId": "researcher",
-      "atSec": 29,
+      "atSec": 30,
       "artifactRef": null,
       "wikiRef": null,
-      "task": "<task verb=\"investigate\" deliverable=\"report\" object-kind=\"doc\" object=\"同类项目（多智能体框架 / coding agent）公开 README 的首屏写法\">"
+      "task": "<task verb=\"investigate\" deliverable=\"report\" object-kind=\"doc\" object=\"同类项目 README 首屏（滚动前第一屏）的写法\">"
     },
     {
       "agentId": "adce782188a740b18e764cdc08",
-      "atSec": 334,
-      "artifactRef": "artifacts://readme-hero-rewrite/rewrite-spec.md",
+      "atSec": 32,
+      "artifactRef": null,
       "wikiRef": null,
-      "task": "<task verb=\"fix\" deliverable=\"change\" object-kind=\"doc\" object=\"/root/my-agent-team/README.md 的首屏\">"
+      "task": "<task verb=\"investigate\" deliverable=\"report\" object-kind=\"doc\" object=\"my-agent-team README.md 首屏现状与文档检查门槛\">"
     }
   ],
   "agents": ["researcher", "adce782188a740b18e764cdc08"],
   "runStatuses": {
     "researcher": ["completed"],
-    "adce782188a740b18e764cdc08": ["running"]
+    "adce782188a740b18e764cdc08": ["completed", "running"]
   }
 }

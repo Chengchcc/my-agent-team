@@ -197,6 +197,19 @@ export interface ProductToolsServiceDeps {
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
   recallForRun?: (runId: string) => readonly RecallHit[];
+  /** ADR 0076: a project the assistant proposes (name + repo). Registering
+   *  what the company works on is a human decision, like creating a team
+   *  member — the tool can only file the proposal. */
+  proposeProject?: (input: {
+    name: string;
+    repoUrl: string;
+    defaultBranch?: string;
+    /** Members the proposer wants the project attached to. Creation and
+     *  attachment are ONE human decision: "做一个前端页面" without a member
+     *  holding the copy is a project nobody can work in. */
+    attachTo?: readonly string[];
+    proposedBy: string;
+  }) => { proposalId: string };
   /** ADR 0074: the project registry, so the front desk can classify which
    *  project a request is about instead of guessing. Absent = no projects. */
   projects?: {
@@ -902,6 +915,37 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: JSON.stringify({ ok: true }) };
   }
 
+  /** ADR 0076: propose a project. Never creates it — the human adopts. */
+  function projectPropose(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
+    if (!deps.proposeProject) {
+      throw new ProductToolRejectedError("project proposals are not available here");
+    }
+    const name = typeof args.name === "string" ? args.name.trim() : "";
+    const repoUrl = typeof args.repo_url === "string" ? args.repo_url.trim() : "";
+    if (name === "" || repoUrl === "") {
+      throw new ProductToolRejectedError("project_propose needs name and repo_url");
+    }
+    const attachTo = Array.isArray(args.attach_to)
+      ? args.attach_to.filter((item): item is string => typeof item === "string" && item !== "")
+      : [];
+    const proposal = deps.proposeProject({
+      name,
+      repoUrl,
+      ...(typeof args.default_branch === "string" && args.default_branch.trim() !== ""
+        ? { defaultBranch: args.default_branch.trim() }
+        : {}),
+      ...(attachTo.length > 0 ? { attachTo } : {}),
+      proposedBy: run.agentId,
+    });
+    return {
+      content: JSON.stringify({
+        proposalId: proposal.proposalId,
+        state: "proposed",
+        note: "A human adopts it in Web → Proposals; nothing is registered yet.",
+      }),
+    };
+  }
+
   /** ADR 0074: create or update a tracked item. Pure Q&A never calls this. */
   function requirementTrack(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
     if (!deps.requirements) {
@@ -1572,6 +1616,8 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return wikiLint();
         case "wiki_source_add":
           return wikiSourceAdd(run, input.args);
+        case "project_propose":
+          return projectPropose(run, input.args);
         case "project_list":
           return projectList();
         case "answer_worker_request":

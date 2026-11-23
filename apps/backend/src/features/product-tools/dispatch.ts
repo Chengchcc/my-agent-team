@@ -490,6 +490,26 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     },
   },
   {
+    name: "project_propose",
+    description:
+      "Propose a project the work needs but the registry does not have yet ('do a new front-end page', 'continue issue X in repo Y'). NEVER creates it: the human adopts in Web → Proposals. Pass attach_to so creation and attachment are ONE decision - a project nobody holds is a project nobody can work in.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short project name" },
+        repo_url: { type: "string", description: "Git URL (https or file)" },
+        default_branch: { type: "string" },
+        attach_to: {
+          type: "array",
+          items: { type: "string" },
+          description: "Agent ids that should get this project attached",
+        },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["name", "repo_url"],
+    },
+  },
+  {
     name: "project_list",
     description:
       "List the registered projects (id, name, repo). Use it to decide WHICH project a request is about before filing a requirement or dispatching; if two projects fit, ask.",
@@ -531,7 +551,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "team_list",
     description:
-      "List the team's agents with their capability cards: id, name, description, skills. Read before dispatching to decide who takes a task.",
+      "List the team's agents with their capability cards: id, name, description, skills, AND the projects each has attached. Read before dispatching: a worker without the project has no copy of it to read or write.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
   {

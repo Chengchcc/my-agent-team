@@ -37,6 +37,7 @@ const TOOL_MANIFEST = [
   { name: "team_list", description: "t", inputSchema: {}, entrypoint: "sse:x" },
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
   { name: "answer_worker_request", description: "a", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "project_propose", description: "p", inputSchema: {}, entrypoint: "sse:x" },
 ];
 
 /** Captures emitAsk calls so tests can assert the request surfaced.
@@ -109,6 +110,9 @@ let dispatchCalls: Array<{
   note?: string;
   brief?: { references: readonly string[] };
 }> = [];
+/** ADR 0076: proposals a run filed (kind=project_creation). */
+let proposedProjects: Array<{ name: string; repoUrl: string; attachTo?: readonly string[] }> = [];
+
 /** ADR 0074 S4: the wiki hits the deployment offers to a dispatch brief. */
 let wikiRecallHits: Array<{ path: string; title: string }> = [];
 
@@ -206,6 +210,10 @@ beforeEach(async () => {
     emitTodo: (input) => emittedTodos.push({ runId: input.runId, items: input.items }),
     onAskAnswered: (input) => answeredAsks.push(input),
     askTimeoutMs: 2000,
+    proposeProject: (input) => {
+      proposedProjects.push(input);
+      return { proposalId: `prop-${proposedProjects.length}` };
+    },
     dispatch: (input) => {
       dispatchCalls.push(input);
       // A busy worker queues the input and has no run id yet — the shape that
@@ -255,6 +263,7 @@ beforeEach(async () => {
   answeredAsks = [];
   dispatchCalls = [];
   wikiRecallHits = [];
+  proposedProjects = [];
   recallHits = [];
   handbackCalls = [];
   pickQueries = [];
@@ -1744,5 +1753,35 @@ describe("pooled dispatch and handback (ADR 0052)", () => {
         args: {},
       }),
     ).rejects.toThrow(/requires reason/);
+  });
+});
+
+describe("ADR 0076: a project the registry lacks is PROPOSED, never created", () => {
+  test("creation and attachment travel as ONE decision", async () => {
+    const runId = await createRun("给我做一个新的前端页面");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "prop-1",
+      idempotencyKey: `${runId}:prop-1`,
+      tool: "project_propose",
+      args: { name: "front-page", repo_url: "https://x/y.git", attach_to: ["worker-1"] },
+    });
+    const payload = JSON.parse(result.content) as { state?: string; proposalId?: string };
+    expect(payload.state).toBe("proposed");
+    expect(payload.proposalId).toBe("prop-1");
+    expect(proposedProjects[0]?.attachTo).toEqual(["worker-1"]);
+  });
+
+  test("a proposal without name or repo is refused", async () => {
+    const runId = await createRun("x");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "prop-2",
+        idempotencyKey: `${runId}:prop-2`,
+        tool: "project_propose",
+        args: { name: "only-name" },
+      }),
+    ).rejects.toThrow(/repo_url/);
   });
 });
