@@ -304,7 +304,26 @@ export default function SkillPacksPage() {
   }, [hasPending, refetch]);
 
   const selectedPack = list.find((p) => p.id === selectedId) ?? null;
-  const ready = list.filter((p) => p.status === "ready").length;
+  // "Ready" is one fact, not two: once the integrity check has run, it is the
+  // check that decides. Before that the count is "installed" and the detail
+  // says so — the audit found "Ready 1/1" on screen while validation reported
+  // a missing directory, and both were believed (2026-11-24).
+  const validated = validateResult === null ? null : new Map(validateResult.map((r) => [r.id, r]));
+  /** What the card says about this pack: the integrity check wins over the
+   *  install status whenever it has run. */
+  const cardState = (
+    pack: (typeof list)[number],
+    checked: Map<string, { ok: boolean }> | null,
+  ): string => {
+    const verdict = checked?.get(pack.id);
+    if (verdict && !verdict.ok) return "not valid";
+    return statusLabel(pack.status);
+  };
+
+  const ready =
+    validated === null
+      ? list.filter((p) => p.status === "ready").length
+      : [...validated.values()].filter((r) => r.ok).length;
   const syncing = list.filter(
     (p) => p.status === "syncing" || p.status === "installing" || p.status === "pending",
   ).length;
@@ -426,10 +445,12 @@ export default function SkillPacksPage() {
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             <KpiTile label="Packs" value={list.length} icon={Package} detail="installed" />
             <KpiTile
-              label="Ready"
+              label={validated === null ? "Installed" : "Ready"}
               value={ready}
               icon={Download}
-              detail={`${syncing} syncing`}
+              detail={
+                validated === null ? `${syncing} syncing · not validated` : "after validation"
+              }
               bar={list.length === 0 ? 0 : (ready / list.length) * 100}
               barTone="ok"
             />
@@ -568,7 +589,7 @@ export default function SkillPacksPage() {
                         </p>
                       </ResourceCardContent>
                       <ResourceCardFooter
-                        meta={`● ${statusLabel(p.status)}${p.error ? " · error" : ""}`}
+                        meta={`● ${cardState(p, validated)}${p.error ? " · error" : ""}`}
                         action={{ label: "Inspect", onClick: () => setSelectedId(p.id) }}
                       >
                         {p.sourceKind !== "builtin" && (

@@ -201,4 +201,8 @@ export const zh: Record<string, string> = {
   Schedule: "排期",
   "none today": "今天没有",
   "{n} opened today": "今天新开 {n} 个",
+  Installed: "已安装",
+  "not valid": "校验未通过",
+  "after validation": "校验后",
+  "not validated": "未校验",
 };
