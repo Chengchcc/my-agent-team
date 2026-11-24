@@ -119,7 +119,8 @@ if (typeof window !== "undefined") initLocale();
  *  which is honest for a shell-wide setting. */
 export function chooseLocale(lang: string): void {
   window.localStorage.setItem(LOCALE_STORAGE_KEY, lang);
-  // biome-ignore lint/suspicious/noDocumentCookie: the server reads this raw
-  // cookie to render the chosen language; localStorage cannot do that.
+  // The server reads this raw cookie to render the chosen language; there is
+  // no localStorage equivalent for it (biome-ignore: that is the whole point).
+  // biome-ignore lint/suspicious/noDocumentCookie: the server must see the choice
   document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(lang)}; path=/; max-age=31536000; SameSite=Lax`;
 }
