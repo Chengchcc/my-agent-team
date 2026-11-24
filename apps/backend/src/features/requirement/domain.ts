@@ -56,6 +56,9 @@ export interface RequirementRequestFact {
   kind: string;
   status: string;
   head: string;
+  /** Who owes the answer. `user` (or unset, for rows that predate the column)
+   *  is the only owner that makes the item "waiting for you" (audit N2). */
+  owner?: string | null;
 }
 
 export interface RequirementView {
@@ -77,13 +80,20 @@ export function deriveRequirementStatus(
   if (stored === "done" || stored === "cancelled") return stored;
   // The attention headline outranks "work in flight": a run parked on a human
   // answer is WAITING FOR THE USER even while it is the live run.
-  const blocking = requests.some((r) => r.status === "pending");
+  const blocking = requests.some((r) => r.status === "pending" && (r.owner ?? "user") === "user");
   if (blocking) return "waiting_user";
   const live = runs.some((r) => r.status === "running" || r.status === "waiting");
   if (live) return "in_progress";
   const executed = runs.length > 0 && runs.every((r) => isTerminal(r.status));
-  if (executed && runs.some((r) => r.verification === "passed")) return "pending_acceptance";
-  if (executed) return "in_progress";
+  if (executed) {
+    // Acceptance is about the CURRENT attempt: a passed check from an old run
+    // must not mark the item accepted-ready after a later attempt failed
+    // (audit N2: 12 completed + 1 aborted read as in_progress, and the reverse
+    // — one old pass over a newer failure — read as ready).
+    const latest = [...runs].sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (latest?.verification === "passed") return "pending_acceptance";
+    return "in_progress";
+  }
   return "open";
 }
 

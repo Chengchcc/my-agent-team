@@ -98,6 +98,52 @@ describe("ADR 0074: derived requirement status", () => {
     ).toBe("pending_acceptance");
   });
 
+  test("a request an agent owns is not 'waiting for you' (audit N2)", () => {
+    expect(
+      deriveRequirementStatus(
+        "open",
+        [{ runId: "r", agentId: "w", status: "waiting", verification: null, createdAt: 1 }],
+        [
+          {
+            actionId: "a",
+            runId: "r",
+            kind: "ask",
+            status: "pending",
+            head: "which db?",
+            owner: "agent:worker-1",
+          },
+        ],
+      ),
+    ).toBe("in_progress");
+  });
+
+  test("acceptance reads the latest attempt, not any historical pass (audit N2)", () => {
+    const oldPass = {
+      runId: "r1",
+      agentId: "w",
+      status: "completed",
+      verification: "passed",
+      createdAt: 1,
+    };
+    const newerFail = {
+      runId: "r2",
+      agentId: "w",
+      status: "failed",
+      verification: "failed",
+      createdAt: 2,
+    };
+    expect(deriveRequirementStatus("open", [oldPass, newerFail], [])).toBe("in_progress");
+    // A pass on the NEWEST attempt is the case that offers acceptance.
+    const latestPass = {
+      runId: "r3",
+      agentId: "w",
+      status: "completed",
+      verification: "passed",
+      createdAt: 3,
+    };
+    expect(deriveRequirementStatus("open", [newerFail, latestPass], [])).toBe("pending_acceptance");
+  });
+
   test("a stored terminal beats everything; no runs means open", () => {
     expect(deriveRequirementStatus("done", [], [])).toBe("done");
     expect(deriveRequirementStatus("cancelled", [], [])).toBe("cancelled");

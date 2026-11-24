@@ -24,6 +24,12 @@
     ],
     "allowJs": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "next-env.d.ts",
+    ".next-stage/types/**/*.ts"
+  ],
   "exclude": ["node_modules", ".next", "tests", "scripts", "**/*.test.ts", "**/*.test.tsx"]
 }
