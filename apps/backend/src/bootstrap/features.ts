@@ -576,13 +576,25 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const withInterrupted = interruptedBlock
         ? `${systemPrompt}\n\n${interruptedBlock}`
         : systemPrompt;
+      // ADR 0076 H4, the fourth read point: the room's project is told to the
+      // front desk itself. The guard, the brief and the terminal already read
+      // it; the model did not, and asked "which project is this README in?"
+      // of a room bound to one (live 2026-11-24) — the most common unnecessary
+      // question on a vague request.
+      const roomProjectId = conv.convPort.getConversation(conversationId)?.projectId ?? null;
+      const roomProject = roomProjectId === null ? null : projectSvc.getById(roomProjectId);
+      const roomLine =
+        roomProject === null
+          ? ""
+          : `\n\nThis room is about the project "${roomProject.name}". A request here is about that project unless the person says otherwise — do not ask which project.`;
+      const withRoom = `${withInterrupted}${roomLine}`;
       const result: {
         systemPrompt?: string;
         skillRoots?: readonly string[];
         permissionMode?: string;
         toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
       } = {};
-      if (withInterrupted) result.systemPrompt = withInterrupted;
+      if (withRoom) result.systemPrompt = withRoom;
       if (skillRoots.length > 0) result.skillRoots = skillRoots;
       const agent = agentRow;
       if (agent) result.permissionMode = agent.config.runtime_config.permission_mode;
