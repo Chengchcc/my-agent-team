@@ -9,9 +9,18 @@ import { ProviderSettingsSection } from "@/components/ProviderSettingsSection";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { KpiTile, MonoLabel, StatusPill } from "@/components/patterns";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useProviders } from "@/features/providers/hooks";
 import { useSystemInfo } from "@/features/settings/hooks";
 import type { SystemInfo } from "@/lib/api";
+import { chooseLocale, currentLocale, localeOptions, t } from "@/lib/i18n";
 
 function EnvRow({ k, v }: { k: string; v: string }) {
   const secret = /KEY|TOKEN|SECRET|PASSWORD/i.test(k);
@@ -25,6 +34,49 @@ function EnvRow({ k, v }: { k: string; v: string }) {
         {v}
       </dd>
     </div>
+  );
+}
+
+/** ADR 0079: the interface language. The operator menu offers the same
+ *  choice; Settings owns it, because this is where the top-bar avatar sends
+ *  people. A switch reloads the page — the dictionary is not reactive. */
+function InterfaceLanguageSection() {
+  const locale = currentLocale();
+  return (
+    <section className="rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--hairline) px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-(--ink)">{t("Language")}</h2>
+          <p className="mt-0.5 text-xs text-(--mute)">
+            {t("English is the source; the other languages are dictionaries of it.")}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="ui-language" className="text-xs text-(--mute)">
+            {t("Language")}
+          </Label>
+          <Select
+            value={locale}
+            onValueChange={(value) => {
+              if (typeof value !== "string" || value === locale) return;
+              chooseLocale(value);
+              window.location.reload();
+            }}
+          >
+            <SelectTrigger id="ui-language" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {localeOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -118,6 +170,7 @@ export default function SettingsPage() {
           />
         </div>
 
+        <InterfaceLanguageSection />
         <ProviderSettingsSection />
         <DispatchSettingsSection />
         {/* ADR 0048: how much of the "is this work?" decision is delegated. */}

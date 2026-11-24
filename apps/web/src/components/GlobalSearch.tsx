@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRecentConversations } from "@/features/conversations/hooks";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 interface SearchResult {
   conversationId: string;
@@ -257,7 +258,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             className="flex-1 bg-transparent py-3 text-base outline-none placeholder:text-(--mute)"
-            placeholder="Search chats, wiki, agents, projects..."
+            placeholder={t("Search chats, wiki, agents, projects...")}
             spellCheck={false}
           />
           <button

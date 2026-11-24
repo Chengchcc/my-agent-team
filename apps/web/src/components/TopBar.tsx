@@ -33,9 +33,23 @@ function OnlinePill() {
       aria-live="polite"
     >
       <span
-        className={`size-1.5 rounded-full ${online ? "animate-dot-pulse bg-(--ok)" : "bg-(--err)"}`}
+        className={`size-1.5 rounded-full ${
+          online
+            ? ping.data !== undefined && ping.data >= 2000
+              ? "bg-(--warn)"
+              : "animate-dot-pulse bg-(--ok)"
+            : "bg-(--err)"
+        }`}
       />
-      {online ? `Online ${ping.data ?? "…"}ms` : "Offline"}
+      {/* A number that is not measured yet is not shown: "…ms" reads as a
+          measurement. Over two seconds the badge says so in the person's unit. */}
+      {online
+        ? ping.data === undefined
+          ? "Online"
+          : ping.data >= 2000
+            ? `Slow ${(ping.data / 1000).toFixed(1)}s`
+            : `Online ${ping.data}ms`
+        : "Offline"}
     </span>
   );
 }

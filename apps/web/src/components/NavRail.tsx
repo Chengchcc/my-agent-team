@@ -40,6 +40,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -77,7 +79,7 @@ import { useProjects } from "@/features/requirements/hooks";
 import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
-import { t } from "@/lib/i18n";
+import { chooseLocale, currentLocale, localeOptions, t } from "@/lib/i18n";
 import { isUnread, markRead } from "@/lib/read-seq";
 
 function NavContent() {
@@ -181,7 +183,7 @@ function NavContent() {
     <SidebarContent>
       {/* Work */}
       <SidebarGroup>
-        <SidebarGroupLabel>Work</SidebarGroupLabel>
+        <SidebarGroupLabel>{t("Work")}</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -265,7 +267,7 @@ function NavContent() {
       {/* Chat */}
       <SidebarGroup>
         <SidebarGroupLabel>
-          Chat
+          {t("Chat")}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -428,7 +430,7 @@ function NavContent() {
 
       {/* Team */}
       <SidebarGroup>
-        <SidebarGroupLabel>Team</SidebarGroupLabel>
+        <SidebarGroupLabel>{t("Team")}</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -509,7 +511,7 @@ function NavContent() {
 
       {/* System */}
       <SidebarGroup>
-        <SidebarGroupLabel>System</SidebarGroupLabel>
+        <SidebarGroupLabel>{t("System")}</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -554,33 +556,35 @@ function NavContent() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New conversation</DialogTitle>
+            <DialogTitle>{t("New conversation")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Talk to the front desk, or pick a team member for a direct line (bypasses routing).
+              {t(
+                "Talk to the front desk, or pick a team member for a direct line (bypasses routing).",
+              )}
             </p>
             <Select value={newAgent} onValueChange={(v) => setNewAgent(v ?? "")}>
               <SelectTrigger>
-                <SelectValue placeholder="Front desk" />
+                <SelectValue placeholder={t("Front desk")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="front">Front desk</SelectItem>
+                <SelectItem value="front">{t("Front desk")}</SelectItem>
                 {(agents ?? [])
                   .filter((a) => a.enabled !== false && a.id !== "default")
                   .map((a) => (
                     <SelectItem key={a.id} value={a.id}>
-                      {a.role === "worker" ? `${a.name} (direct line)` : a.name}
+                      {a.role === "worker" ? `${a.name} ${t("(direct line)")}` : a.name}
                     </SelectItem>
                   ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Bind it to a project so the room's work happens in that project's copy.
+              {t("Bind it to a project so the room's work happens in that project's copy.")}
             </p>
             <Select value={newProject} onValueChange={(v) => setNewProject(v ?? "")}>
               <SelectTrigger>
-                <SelectValue placeholder="No project" />
+                <SelectValue placeholder={t("No project")} />
               </SelectTrigger>
               <SelectContent>
                 {projects.map((project) => (
@@ -593,7 +597,7 @@ function NavContent() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setNewOpen(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={createConversation.isPending}
@@ -605,7 +609,7 @@ function NavContent() {
                 );
               }}
             >
-              Create
+              {t("Create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -641,8 +645,32 @@ function NavFooter() {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Signed in as {user?.userId ?? "unknown"}</DropdownMenuLabel>
+                <DropdownMenuLabel>
+                  {t("Signed in as")} {user?.userId ?? "unknown"}
+                </DropdownMenuLabel>
               </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              {/* ADR 0079: the UI language lives here — a shell-wide setting
+                  belongs in the operator menu, not on a page. */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("Language")}</DropdownMenuLabel>
+              </DropdownMenuGroup>
+              {/* Base UI: a radio group holds radio items only — a group nested
+                  inside it kept the whole menu from opening. */}
+              <DropdownMenuRadioGroup
+                value={currentLocale()}
+                onValueChange={(value) => {
+                  if (typeof value !== "string") return;
+                  chooseLocale(value);
+                  window.location.reload();
+                }}
+              >
+                {localeOptions.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={signOut}>
                 <LogOutIcon />

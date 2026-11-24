@@ -5,9 +5,10 @@
  *   - native alert( / confirm( / window.confirm( in apps/web/src (UI review
  *     WS-2: every confirmation/error goes through useConfirm / toast).
  *
- * Also gating (translation completed 2026-08-31):
- *   - CJK characters anywhere in apps/web/src — user-visible strings are
- *     English-only now; new UI copy must not reintroduce Chinese.
+ * Also gating (ADR 0079):
+ *   - CJK characters anywhere in apps/web/src EXCEPT lib/locales/ — English
+ *     is the source language; translated text lives in the dictionaries
+ *     alone, which is what keeps the two languages from drifting.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -39,10 +40,8 @@ for (const file of files) {
   if (/window\.alert\s*\(/.test(src)) {
     failures.push(`native alert in ${relative(ROOT, file)}`);
   }
-  // CJK: now gating — the translation is complete (2026-08-31). New
-  // user-visible Chinese belongs in comments only, which this scan skips
-  // for files under components/ui (none expected) but checks everywhere
-  // else. Zero tolerance, same as the review acceptance.
+  // CJK is gated everywhere except the locale dictionaries (ADR 0079): the
+  // source stays English, translations live in lib/locales/.
   // EXEMPT: lib/locales/ — that is where i18n translation dictionaries
   // live by design (see lib/locales/README.md); non-English text there is
   // the feature, not rot.
@@ -64,7 +63,7 @@ if (failures.length > 0) {
 }
 
 console.log(`audit:ui OK — no native alert/confirm (${files.length} files scanned)`);
-console.log("CJK remaining (informational, zero-gated once translations land):");
+console.log("CJK by directory (only lib/locales is expected):");
 for (const [dir, n] of [...cjkByDir.entries()].sort((a, b) => b[1] - a[1])) {
   console.log(`  ${n}\t${dir}`);
 }

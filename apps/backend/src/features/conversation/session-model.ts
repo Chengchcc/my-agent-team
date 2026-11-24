@@ -69,7 +69,7 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
   const errorByRun = errorPartsByRun(input.ledger);
   const seqByMessage = seqByMessageId(input.ledger);
 
-  return input.runs.map((run) => {
+  const runTurns = input.runs.map((run) => {
     const requests = requestsByRun.get(run.runId) ?? [];
     const attached = attachInputRequests(
       turnPartsFromMessages(messagesByRun.get(run.runId) ?? []),
@@ -94,6 +94,70 @@ export function buildTurns(input: BuildTurnsInput): CanonicalTurn[] {
       parts,
     };
   });
+  const shownAsInput = new Set<string>();
+  for (const message of inputByRun.values())
+    if (message.id !== undefined) shownAsInput.add(message.id);
+  // Run turns first, ledger turns in row order after; the caller sorts by time.
+  const runIds = new Set(input.runs.map((run) => run.runId));
+  return [...runTurns, ...orphanTurns(input.ledger, runIds, shownAsInput, seqByMessage)];
+}
+
+/** Messages that belong to no Run still happened. A fork copies a room's
+ *  history row by row and no Run comes along, and a dispatcher's ledger-only
+ *  note ("handed to Coder") never had one — so a forked room rendered empty
+ *  while holding its whole history (live 2026-11-24). A row that a queue input
+ *  already shows as some Run's `input` is skipped (same message id), so
+ *  nothing is displayed twice. A user row opens a turn; the rows after it
+ *  join it, as a Run's parts would. */
+function orphanTurns(
+  ledger: readonly SessionModelLedgerRow[],
+  runIds: ReadonlySet<string>,
+  shownAsInput: ReadonlySet<string>,
+  seqByMessage: Map<string, RowFacts>,
+): CanonicalTurn[] {
+  const drafts: Array<{ turn: Omit<CanonicalTurn, "parts">; parts: CanonicalPart[] }> = [];
+  const open = (): { turn: Omit<CanonicalTurn, "parts">; parts: CanonicalPart[] } | undefined =>
+    drafts.at(-1);
+  for (const row of [...ledger].sort((a, b) => a.seq - b.seq)) {
+    // A fork copies rows with their source Run ids; those Runs are not this
+    // room's, so the rows are ledger turns here too.
+    if ((row.agentRunId !== null && runIds.has(row.agentRunId)) || row.undone === true) continue;
+    const revision = parseRevision(row.content);
+    if (revision === null || shownAsInput.has(revision.messageId)) continue;
+    // A run's error bubble folds into that run's turn (errorPartsByRun).
+    if (revision.messageId.startsWith("run:")) continue;
+    const message = revisionToMessage(revision);
+    if (message.role === "user" || open() === undefined) {
+      drafts.push({
+        turn: {
+          turnId: `ledger:${row.seq}`,
+          seq: row.seq,
+          ...(message.role !== "system" ? { role: message.role } : {}),
+          ...(message.role === "user" ? { input: message } : {}),
+          status: "completed",
+        },
+        parts: [],
+      });
+      if (message.role === "user") continue;
+    }
+    const current = open();
+    if (current === undefined) continue;
+    for (const part of turnPartsFromMessages([message])) {
+      current.parts.push(withSeq(part, seqByMessage));
+    }
+  }
+  return drafts.map(({ turn, parts }) => ({ ...turn, parts }));
+}
+
+function parseRevision(
+  content: unknown,
+): (ReturnType<typeof deserializeLedgerContent> & { messageId: string }) | null {
+  try {
+    const parsed = deserializeLedgerContent(asJsonString(content));
+    return "messageId" in parsed && typeof parsed.messageId === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The error part for a failed turn. T3-2's persisted bubble (`run:<runId>:error`) carries no
