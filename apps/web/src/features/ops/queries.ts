@@ -2,10 +2,14 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { opsKeys } from "./query-keys";
 
-export function agentRunsQuery(params?: Parameters<typeof api.listAgentRuns>[0]) {
+export function agentRunsQuery(
+  params?: Omit<NonNullable<Parameters<typeof api.listAgentRuns>[0]>, "signal">,
+) {
   return queryOptions({
     queryKey: opsKeys.runs(params),
-    queryFn: () => api.listAgentRuns(params),
+    // The signal is per-fetch, not part of the key: a cancelled 15s poll must
+    // not outlive the block that asked for it.
+    queryFn: ({ signal }) => api.listAgentRuns({ ...params, signal }),
   });
 }
 
