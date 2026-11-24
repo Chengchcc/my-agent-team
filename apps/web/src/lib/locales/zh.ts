@@ -212,4 +212,9 @@ export const zh: Record<string, string> = {
   "This page failed to render": "这个页面渲染失败",
   "The rest of the console still works.": "控制台的其余部分仍然可用。",
   "Try again": "重试",
+  "where this console keeps its data": "这个控制台存数据的位置",
+  "info request failed": "信息请求失败",
+  "This workflow runs a script node, and scripts are disabled on this server. It can be edited here, not run.":
+    "这个流程包含脚本节点，而本服务器禁用脚本。可以在这里编辑，但不能运行。",
+  "Starting…": "启动中……",
 };

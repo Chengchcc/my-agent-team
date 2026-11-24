@@ -133,7 +133,12 @@ export default function SettingsPage() {
 
   const enabledProviderCount = configured;
   const envCount = info ? Object.keys(info.env).length : 0;
-  const dataDir = info?.paths.dataDir ?? "—";
+  const sys = systemQuery;
+  // Three facts, three states: the path (or "not reported"), still loading, or
+  // failed. A dash here used to sit beside the real path one line below, and
+  // "?" could mean either of the last two (audit 2026-11-24).
+  const dataDir = info?.paths.dataDir ?? null;
+  const dirValue = dataDir ?? (sys.isPending ? "…" : sys.isError ? "unavailable" : "not reported");
 
   return (
     <Page>
@@ -161,11 +166,16 @@ export default function SettingsPage() {
             bar={envCount > 0 ? 100 : 0}
             barTone="violet"
           />
-          <KpiTile label="Data dir" value="—" detail={dataDir} icon={Database} />
+          <KpiTile
+            label="Data dir"
+            value={dirValue}
+            detail={t("where this console keeps its data")}
+            icon={Database}
+          />
           <KpiTile
             label="Runtime"
-            value={info?.paths.dataDir ? "local" : "?"}
-            detail="deployment"
+            value={sys.isPending ? "…" : sys.isError ? "unknown" : "local"}
+            detail={sys.isError ? t("info request failed") : "deployment"}
             icon={Cpu}
           />
         </div>
