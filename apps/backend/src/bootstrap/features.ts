@@ -2177,15 +2177,25 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const agent = await agentSvc.getById(run.agentId).catch(() => null);
       // Workers answer their dispatcher; only a front desk delivers to a person.
       if (agent?.config.role === "worker") return undefined;
-      // Dispatched runs live in their own rooms: the front desk's own
-      // conversation never holds the producer (measured 2026-11-23 — the gate
-      // stayed silent because it only looked at this room).
+      // ADR 0077: the subject is the REQUIREMENT. Every room that advanced it
+      // counts — the same work continues from a DM, a group and a direct line —
+      // so the runs come by requirement, not by room. Rooms with no tracked
+      // requirement fall back to what was dispatched from this room (a producer
+      // is never in the front desk's own conversation, which kept the gate
+      // silent — measured 2026-11-23).
+      const WINDOW_MS = 6 * 60 * 60_000;
+      const requirementId = workspaceSvc.currentRequirementOf(run.conversationId);
+      const byRequirement =
+        requirementId === null
+          ? null
+          : await agentRunPort.listRunsForRequirement?.(requirementId, WINDOW_MS).catch(() => null);
       const recent =
+        byRequirement ??
         (await agentRunPort
-          .listDispatchedRuns?.(run.conversationId, 6 * 60 * 60_000)
+          .listDispatchedRuns?.(run.conversationId, WINDOW_MS)
           .catch(() => null)) ??
         (await agentRunPort
-          .listRecentRunsForConversations([run.conversationId], 6 * 60 * 60_000)
+          .listRecentRunsForConversations([run.conversationId], WINDOW_MS)
           .catch(() => []));
       const note = deliveryNoteOf({
         selfAgentId: run.agentId,
