@@ -87,7 +87,13 @@ export interface WikiService {
   /** The whole link graph, for the Obsidian-style view. */
   graph(): WikiGraph;
   read(path: string): WikiPage | null;
-  query(input: { text?: string; limit?: number }): WikiSearchHit[];
+  query(input: {
+    text?: string;
+    limit?: number;
+    /** Sections this caller must not see. ADR 0074: `personal/` never rides in
+     *  a brief — enforced here, at the recall exit, not by directory habit. */
+    excludeSections?: readonly string[];
+  }): WikiSearchHit[];
   create(input: Omit<WikiWriteInput, "expectedRevision">): Promise<WikiWriteResult>;
   patch(input: WikiWriteInput): Promise<WikiWriteResult>;
   lint(): WikiLintFinding[];
@@ -432,7 +438,10 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
     query(input) {
       const limit = input.limit ?? 20;
       const needle = (input.text ?? "").toLowerCase().trim();
-      const pages = allPages();
+      const excluded = input.excludeSections ?? [];
+      const pages = allPages().filter(
+        (page) => !excluded.some((section) => page.path.startsWith(`${section}/`)),
+      );
       const hits: WikiSearchHit[] = [];
       for (const page of pages) {
         if (needle !== "") {

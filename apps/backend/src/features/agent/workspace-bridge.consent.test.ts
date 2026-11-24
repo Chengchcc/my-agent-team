@@ -22,4 +22,15 @@ describe("consented product tools", () => {
   test("storage writes stay gated - consent is not a prefix rule", () => {
     expect(PRODUCT_CONSENTED_MCP_TOOLS).not.toContain("mcp__product-tools__artifact_upload");
   });
+
+  /** The independent audit (2026-11-24) could not find a role check in the
+   *  agent-config service and could not prove a run creates an agent without
+   *  a person's click. The click IS this fence: creation tools are not
+   *  pre-consented, so the child's gate asks. Adding one here would hand
+   *  unattended agent creation to whichever model is driving. */
+  test("agent creation is never pre-consented", () => {
+    for (const tool of PRODUCT_CONSENTED_MCP_TOOLS) {
+      expect(tool).not.toStartWith("mcp__agent-config__");
+    }
+  });
 });
