@@ -1187,7 +1187,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
     // ADR 0074 S4: what the team already knows rides in the brief.
     wikiRecall: (text) =>
-      wikiSvc.query({ text, limit: 3 }).map((h) => ({ path: h.path, title: h.title })),
+      wikiSvc
+        .query({ text, limit: 3, excludeSections: ["personal"] })
+        .map((h) => ({ path: h.path, title: h.title })),
     wiki: {
       read: (path) => wikiSvc.read(path),
       query: (input) => wikiSvc.query(input),

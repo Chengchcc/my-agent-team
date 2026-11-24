@@ -343,6 +343,28 @@ describe("ADR 0074 S3: lint and raw", () => {
     expect(codes).not.toContain("orphan");
   });
 
+  test("personal pages can be excluded at the recall exit (ADR 0074)", async () => {
+    const svc = makeService();
+    await svc.create({
+      path: "personal/pa-1/mine.md",
+      agentId: "pa-1",
+      title: "Mine",
+      content: "retry note",
+    });
+    await svc.create({
+      path: "concepts/shared.md",
+      agentId: "pa-1",
+      title: "Shared",
+      content: "retry note",
+    });
+    const all = svc.query({ text: "retry" }).map((h) => h.path);
+    expect(all.some((path) => path.startsWith("personal/"))).toBe(true);
+    // The brief never carries personal/: the constraint lives at this exit,
+    // not in a directory convention (independent audit, 2026-11-24).
+    const brief = svc.query({ text: "retry", excludeSections: ["personal"] }).map((h) => h.path);
+    expect(brief).toEqual(["concepts/shared.md"]);
+  });
+
   test("index.md is rebuilt on every write and links each page", async () => {
     const svc = makeService();
     await svc.create({
