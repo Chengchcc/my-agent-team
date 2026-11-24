@@ -9,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { useAgentList } from "@/features/agents/hooks";
 import { agentRunsQuery } from "@/features/ops/queries";
 import { buildDispatchTree, type DispatchNode } from "@/lib/dispatch-tree";
+import { t } from "@/lib/i18n";
 
 /** The execution side of one dispatched request, folded under the message that
  *  caused it (ADR 0060 D3).
@@ -36,7 +37,11 @@ export function DispatchTree({
   // b18e189f… next to chips that said "Worker One").
   const { data: agents } = useAgentList();
   const names = new Map((agents ?? []).map((a) => [a.id, a.name]));
-  const tree = buildDispatchTree(data?.runs ?? [], parentRunId);
+  const rows = (data?.runs ?? []).map((r) => ({
+    ...r,
+    goal: (r as { requirementTitle?: string | null }).requirementTitle ?? null,
+  }));
+  const tree = buildDispatchTree(rows, parentRunId);
   if (tree.length === 0) return null;
   return <DispatchBlock nodes={tree} names={names} />;
 }
@@ -96,6 +101,8 @@ function DispatchBlock({
                 </Badge>
                 {n.verdict === "fail" ? (
                   <span className="text-(--err)">a tool reported an error</span>
+                ) : n.verdict === "pass" ? (
+                  <span className="text-(--ok)">{t("checks passed")}</span>
                 ) : null}
                 <span className="ml-auto flex items-center gap-2">
                   <span className="text-(--faint)">
@@ -110,6 +117,13 @@ function DispatchBlock({
                   </Link>
                 </span>
               </div>
+              {n.goal ? (
+                <p className="mt-0.5 truncate text-[11px] text-(--mute)" title={n.goal}>
+                  {n.goal}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-[11px] text-(--faint)">{t("no tracked goal")}</p>
+              )}
               {n.children.length > 0 ? <DispatchBlock nodes={n.children} names={names} /> : null}
             </div>
           ))}

@@ -205,8 +205,10 @@ export function agentRunRoutes(input: {
           }
           const sql = `SELECT ar.run_id, ar.conversation_id, ar.agent_id, ar.status,
                             ar.model_ref, ar.created_at, ar.terminal_at, ar.terminal_result,
-                            ar.authorization, ar.parent_run_id
+                            ar.authorization, ar.parent_run_id, ar.requirement_id,
+                            req.title AS requirement_title
                        FROM agent_run ar
+                       LEFT JOIN requirement req ON req.requirement_id = ar.requirement_id
                        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
                        ORDER BY ar.created_at DESC
                        LIMIT ?`;
@@ -221,6 +223,8 @@ export function agentRunRoutes(input: {
             terminal_result: string | null;
             authorization: string | null;
             parent_run_id: string | null;
+            requirement_id: string | null;
+            requirement_title: string | null;
           }>;
           return {
             runs: rows.map((r) => {
@@ -241,6 +245,11 @@ export function agentRunRoutes(input: {
                 // ADR 0047/0051: the legitimacy chain the authority ledger reads.
                 authorization: r.authorization,
                 parentRunId: r.parent_run_id,
+                // What the run was for: an execution unit that shows only
+                // member+status cannot be told apart from its siblings
+                // (audit 2026-11-24).
+                requirementId: r.requirement_id,
+                requirementTitle: r.requirement_title,
               };
             }),
           };

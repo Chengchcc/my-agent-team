@@ -11,6 +11,8 @@ export interface DispatchRunRow {
   readonly createdAt: number;
   readonly parentRunId: string | null;
   readonly verdict?: "pass" | "fail" | "unknown" | null;
+  /** The tracked work this run advances, when it has one. */
+  readonly goal?: string | null;
 }
 
 export interface DispatchNode {
@@ -19,6 +21,7 @@ export interface DispatchNode {
   readonly status: string;
   readonly createdAt: number;
   readonly verdict?: "pass" | "fail" | "unknown" | null;
+  readonly goal?: string | null;
   readonly children: readonly DispatchNode[];
 }
 
@@ -46,6 +49,7 @@ export function buildDispatchTree(
       status: r.status,
       createdAt: r.createdAt,
       verdict: r.verdict ?? null,
+      goal: r.goal ?? null,
       children: buildDispatchTree(runs, r.runId, depth + 1, new Set([...seen, r.runId])),
     }));
 }

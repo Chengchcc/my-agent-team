@@ -226,4 +226,6 @@ export const zh: Record<string, string> = {
   "Tell Personal Agent the goal — it dispatches to the team and comes back only when it needs you.":
     "把目标告诉 Personal Agent——它派给团队，只在需要你时回来问。",
   "Loading conversations…": "正在加载会话……",
+  "checks passed": "检查通过",
+  "no tracked goal": "没有关联目标",
 };

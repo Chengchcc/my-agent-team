@@ -64,4 +64,22 @@ describe("ADR 0060 dispatch tree derivation", () => {
   test("no children means the block renders nothing (not an empty shell)", () => {
     expect(buildDispatchTree([run({ runId: "w1" })], "another-front")).toEqual([]);
   });
+
+  test("a unit carries the tracked goal its run advances", () => {
+    const runs = [
+      {
+        runId: "r1",
+        agentId: "a",
+        status: "completed",
+        createdAt: 1,
+        parentRunId: "p",
+        goal: "Fix login retry",
+      },
+      { runId: "r2", agentId: "a", status: "completed", createdAt: 2, parentRunId: "p" },
+    ];
+    const [first, second] = buildDispatchTree(runs, "p");
+    expect(first!.goal).toBe("Fix login retry");
+    // No requirement attached is said out loud, not filled with a guess.
+    expect(second!.goal).toBeNull();
+  });
 });
