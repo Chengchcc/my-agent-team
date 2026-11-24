@@ -55,14 +55,15 @@ type ExecutionRow = {
 };
 
 import type { WorkflowDefinitionRow as DefinitionRow } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 type TabFilter = "all" | "running" | "gates" | "done";
 
 const TABS: ReadonlyArray<{ id: TabFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "running", label: "Running" },
-  { id: "gates", label: "Gates" },
-  { id: "done", label: "Done" },
+  { id: "all", label: t("All") },
+  { id: "running", label: t("Running") },
+  { id: "gates", label: t("Gates") },
+  { id: "done", label: t("Done") },
 ];
 
 /** Execution status → pattern pill tone. Unknown statuses read as idle. */
@@ -109,7 +110,7 @@ function UnreadConversations() {
   return (
     <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
       <div className="mb-3 flex items-center justify-between">
-        <MonoLabel>Unread conversations</MonoLabel>
+        <MonoLabel>{t("Unread conversations")}</MonoLabel>
         <StatusPill tone="waiting">{unread.length}</StatusPill>
       </div>
       <div className="space-y-1.5">
@@ -151,19 +152,19 @@ function RemindersSection() {
   return (
     <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
       <div className="mb-3 flex items-center justify-between">
-        <MonoLabel>Reminders</MonoLabel>
+        <MonoLabel>{t("Reminders")}</MonoLabel>
         <StatusPill tone="waiting">{(reminders ?? []).length}</StatusPill>
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Remind me to..."
+          placeholder={t("Remind me to...")}
           className="min-w-40 flex-1"
         />
         <Select value={target} onValueChange={(v) => setConvId(v ?? "")}>
           <SelectTrigger className="w-44">
-            <SelectValue placeholder="Conversation" />
+            <SelectValue placeholder={t("Conversation")} />
           </SelectTrigger>
           <SelectContent>
             {convs.map((c) => (
@@ -192,7 +193,7 @@ function RemindersSection() {
         </Button>
       </div>
       {(reminders ?? []).length === 0 ? (
-        <p className="text-xs text-(--mute)">Nothing scheduled.</p>
+        <p className="text-xs text-(--mute)">{t("Nothing scheduled.")}</p>
       ) : (
         <div className="space-y-1.5">
           {(reminders ?? []).map((r) => (
@@ -431,7 +432,7 @@ export default function TodayPage() {
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <KpiTile
-            label="Active runs today"
+            label={t("Active runs today")}
             value={runRunning}
             icon={Activity}
             detail={`${runSucceeded} done · ${runFailed} failed`}
@@ -439,7 +440,7 @@ export default function TodayPage() {
             barTone="primary"
           />
           <KpiTile
-            label="Tokens · cost 24h"
+            label={t("Tokens · cost 24h")}
             value={
               totalTokens >= 1_000_000
                 ? `${(totalTokens / 1_000_000).toFixed(2)}M`
@@ -449,13 +450,13 @@ export default function TodayPage() {
             detail={`$${cost24h.toFixed(2)} burn`}
           />
           <KpiTile
-            label="Workflow executions"
+            label={t("Workflow executions")}
             value={todayExecs.length}
             icon={GitBranch}
             detail={`${succeeded} success · ${failed} failed · ${runningExecs} live`}
           />
           <KpiTile
-            label="Gates waiting"
+            label={t("Gates waiting")}
             value={waitingHuman.length}
             icon={UserCheck}
             detail={gatesToday > 0 ? `${gatesToday} opened today` : "none today"}
@@ -472,7 +473,7 @@ export default function TodayPage() {
                 className="rounded-lg border border-(--hairline) bg-(--panel) p-4"
               >
                 <div className="mb-3 flex items-center justify-between">
-                  <MonoLabel>Pending human decisions</MonoLabel>
+                  <MonoLabel>{t("Pending human decisions")}</MonoLabel>
                   <StatusPill tone="waiting">
                     {waitingHuman.length + hitlActions.length} required
                   </StatusPill>
@@ -626,7 +627,7 @@ export default function TodayPage() {
 
             <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <MonoLabel className="mr-auto">Activity stream</MonoLabel>
+                <MonoLabel className="mr-auto">{t("Activity stream")}</MonoLabel>
                 {TABS.map((t) => (
                   <button
                     key={t.id}
@@ -691,7 +692,7 @@ export default function TodayPage() {
 
             {activeRuns.length > 0 && (
               <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <MonoLabel>Agent runs · live</MonoLabel>
+                <MonoLabel>{t("Agent runs · live")}</MonoLabel>
                 <div className="mt-3 divide-y divide-(--hairline)">
                   {activeRuns.slice(0, 6).map((r) => (
                     <Link
@@ -719,7 +720,7 @@ export default function TodayPage() {
             {scheduledLoops.length > 0 && (
               <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <MonoLabel>Scheduled loops</MonoLabel>
+                  <MonoLabel>{t("Scheduled loops")}</MonoLabel>
                   <MonoLabel className="text-(--faint)">cron pool</MonoLabel>
                 </div>
                 <div className="divide-y divide-(--hairline)">
@@ -744,9 +745,9 @@ export default function TodayPage() {
 
             {telemetry.data && telemetry.data.costByHour.length > 0 && (
               <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <MonoLabel>Cost burn · 24h</MonoLabel>
+                <MonoLabel>{t("Cost burn · 24h")}</MonoLabel>
                 <ChartContainer
-                  config={{ costUsd: { label: "Cost", color: "var(--chart-1)" } }}
+                  config={{ costUsd: { label: t("Cost"), color: "var(--chart-1)" } }}
                   className="mt-2 h-24 w-full"
                 >
                   <BarChart data={telemetry.data.costByHour}>
@@ -768,7 +769,7 @@ export default function TodayPage() {
             {enabledAgents.length > 0 && (
               <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <MonoLabel>Agent roster</MonoLabel>
+                  <MonoLabel>{t("Agent roster")}</MonoLabel>
                   <StatusPill tone="success">{enabledAgents.length} alive</StatusPill>
                 </div>
                 <div className="divide-y divide-(--hairline)">
@@ -793,7 +794,7 @@ export default function TodayPage() {
 
             {telemetry.data && telemetry.data.failures.length > 0 && (
               <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <MonoLabel>Recent failures</MonoLabel>
+                <MonoLabel>{t("Recent failures")}</MonoLabel>
                 <div className="mt-2 space-y-2">
                   {telemetry.data.failures.slice(0, 5).map((f) => (
                     <Link

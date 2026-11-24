@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { hasLocale, LOCALE_COOKIE } from "@/lib/i18n";
 import { readSession } from "@/lib/session";
 
 export const metadata: Metadata = {
@@ -19,10 +20,15 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   const jar = await cookies();
   const session = await readSession(jar.toString());
   if (!session) redirect("/login");
+  // The chosen language, handed to the shell explicitly: the server renders the
+  // client components' HTML too, and its module state is English-only (one
+  // process, many requests) — so an implicit switch would flash English first.
+  const chosenLocale = jar.get(LOCALE_COOKIE)?.value ?? "en";
+  const locale = hasLocale(chosenLocale) ? chosenLocale : "en";
   return (
     <TooltipProvider delay={500}>
       <SidebarProvider>
-        <AppShell>{children}</AppShell>
+        <AppShell locale={locale}>{children}</AppShell>
       </SidebarProvider>
     </TooltipProvider>
   );
