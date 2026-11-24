@@ -149,6 +149,7 @@ export async function classifyPermissionAction(opts: {
         if (controller?.signal.aborted === true) {
           throw new Error(
             `classifier timed out after ${timeoutMs}ms (model ${opts.modelId ?? classifierModelId() ?? "run default"})`,
+            { cause: err },
           );
         }
         throw err;
