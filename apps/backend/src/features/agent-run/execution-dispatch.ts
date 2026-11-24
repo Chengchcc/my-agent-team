@@ -118,6 +118,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       (await resolveWorkspace({
         conversationId: run.conversationId,
         agentId: run.agentId,
+        runId: run.runId,
       }));
     debugLog(
       "agent-run",
@@ -423,6 +424,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
           (await resolveWorkspace({
             conversationId: run.conversationId,
             agentId: run.agentId,
+            runId: run.runId,
           }));
         const deliverResult = await deps.workspaceLocks.withLock(
           workspace0.root,

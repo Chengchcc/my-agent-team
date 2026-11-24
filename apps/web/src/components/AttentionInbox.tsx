@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { useAgentList } from "@/features/agents/hooks";
 import { attentionQuery } from "@/features/runs/queries";
 import { api } from "@/lib/api";
 
@@ -52,6 +53,16 @@ function requestLine(payload: unknown): string {
 export function AttentionInbox() {
   const qc = useQueryClient();
   const { data } = useQuery(attentionQuery());
+  const agents = useAgentList();
+  const agentRows = Array.isArray(agents.data) ? agents.data : [];
+  const agentNameById = new Map<string, string>();
+  for (const agent of agentRows) agentNameById.set(agent.id, agent.name);
+  // A person reads "Coder", never a member's id (10 of 13 rows once shared one
+  // hash title). The short id stays as the fallback for a member that is gone.
+  const agentName = (id: string | null | undefined): string =>
+    (id !== null && id !== undefined ? agentNameById.get(id) : undefined) ??
+    id?.slice(0, 8) ??
+    "unknown";
   const seen = useMutation({
     mutationFn: (body: { actionId?: string; runId?: string; conversationId?: string }) =>
       api.markSeen(body),
@@ -125,7 +136,7 @@ export function AttentionInbox() {
           {unread.map((r) => (
             <Row
               key={r.runId}
-              title={`${r.status === "completed" ? "Finished" : "Ended"}: ${r.agentId}`}
+              title={`${r.status === "completed" ? "Finished" : "Ended"}: ${agentName(r.agentId)}`}
               detail={new Date(r.terminalAt).toLocaleTimeString()}
               href={`/chat/${r.conversationId}`}
               onOpen={() => seen.mutate({ runId: r.runId })}

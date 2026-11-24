@@ -275,10 +275,12 @@ export function agentRunRoutes(input: {
           .query(
             `SELECT q.input_id, q.status AS queue_status, q.run_id, q.created_at, q.message,
                   ar.status AS run_status, ar.agent_id, ar.conversation_id,
-                  c.title AS conversation_title
+                  c.title AS conversation_title,
+                  json_extract(a.config, '$.name') AS agent_name
              FROM branch_input_queue q
              LEFT JOIN agent_run ar ON ar.run_id = q.run_id
              LEFT JOIN conversation c ON c.conversation_id = ar.conversation_id
+             LEFT JOIN agents a ON a.id = ar.agent_id
             ORDER BY q.created_at DESC
             LIMIT ?`,
           )
@@ -290,6 +292,7 @@ export function agentRunRoutes(input: {
           message: string;
           run_status: string | null;
           agent_id: string | null;
+          agent_name: string | null;
           conversation_id: string | null;
           conversation_title: string | null;
         }>;
@@ -307,6 +310,7 @@ export function agentRunRoutes(input: {
                 ? null
                 : { status: r.run_status, agentId: r.agent_id, conversationId: r.conversation_id },
             conversationTitle: r.conversation_title,
+            ownerName: r.agent_name,
           }),
         );
         return { tasks };

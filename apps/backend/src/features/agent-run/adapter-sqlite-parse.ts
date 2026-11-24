@@ -36,6 +36,7 @@ export function parseRun(row: typeof schema.agentRun.$inferSelect): AgentRun {
     workflow: row.workflow ? (JSON.parse(row.workflow) as AgentRun["workflow"]) : null,
     authorization: row.authorization ?? null,
     parentRunId: row.parentRunId ?? null,
+    requirementId: row.requirementId ?? null,
     createdAt: row.createdAt,
     terminalAt: row.terminalAt,
     resultNotifiedAt: row.resultNotifiedAt ?? null,

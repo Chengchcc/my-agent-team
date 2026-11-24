@@ -193,6 +193,8 @@ export interface ProductToolsServiceDeps {
      *  (the whole chain, not one hop). */
     parentRunId?: string;
     note?: string;
+    /** ADR 0077: the requirement the brief names, if any. */
+    requirementId?: string;
   }) => Promise<{ agentId: string; runId: string; inputId: string; queued: boolean }>;
   /** ADR 0055: what this run recalled before dispatching. Evidence for the
    *  slots the model left empty, so it fills instead of re-asking. */
@@ -1178,6 +1180,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       parentRunId?: string;
       note?: string;
       findings?: readonly string[];
+      /** ADR 0077: the requirement the brief names, if any. The dispatch makes
+       *  it the room's current one (an explicit switch), so the checkout and
+       *  the run's own link can never disagree. */
+      requirementId?: string;
     } = {
       fromAgentId: run.agentId,
       conversationId: run.conversationId,
@@ -1186,6 +1192,9 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       brief,
       parentRunId: run.runId,
       ...(frontFindings.length > 0 ? { findings: frontFindings } : {}),
+      ...(typeof input.args.requirement === "string" && input.args.requirement.trim() !== ""
+        ? { requirementId: input.args.requirement.trim() }
+        : {}),
     };
     if (note) call.note = note;
     // ADR 0076: the room knows which project it is about; a member without it

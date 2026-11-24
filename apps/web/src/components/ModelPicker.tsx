@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -83,30 +84,16 @@ export function ModelPicker({
         {harnesses.map((h) => (
           <div key={h.key}>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[10px] uppercase tracking-kicker">
-              {h.name}
-            </DropdownMenuLabel>
-            <DropdownMenuItem
-              className={
-                value?.modelId === `acp/${h.key}` && !value?.harnessModel
-                  ? "bg-(--canvas-soft)"
-                  : ""
-              }
-              onClick={() =>
-                onChange({
-                  backendKind: "acp",
-                  modelId: `acp/${h.key}`,
-                  reasoningEffort: undefined,
-                })
-              }
-            >
-              <span className="text-(--mute)">Harness default</span>
-            </DropdownMenuItem>
-            {h.models.map((m) => (
+            {/* Base UI: a group label is only valid inside a group. Without
+                it the menu threw on open (live 2026-11-24: the chat composer's
+                harness picker took the whole page down every time). */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-kicker">
+                {h.name}
+              </DropdownMenuLabel>
               <DropdownMenuItem
-                key={m.value}
                 className={
-                  value?.modelId === `acp/${h.key}` && value?.harnessModel === m.value
+                  value?.modelId === `acp/${h.key}` && !value?.harnessModel
                     ? "bg-(--canvas-soft)"
                     : ""
                 }
@@ -114,36 +101,57 @@ export function ModelPicker({
                   onChange({
                     backendKind: "acp",
                     modelId: `acp/${h.key}`,
-                    harnessModel: m.value,
                     reasoningEffort: undefined,
                   })
                 }
               >
-                <span className="truncate">{m.name}</span>
+                <span className="text-(--mute)">Harness default</span>
               </DropdownMenuItem>
-            ))}
+              {h.models.map((m) => (
+                <DropdownMenuItem
+                  key={m.value}
+                  className={
+                    value?.modelId === `acp/${h.key}` && value?.harnessModel === m.value
+                      ? "bg-(--canvas-soft)"
+                      : ""
+                  }
+                  onClick={() =>
+                    onChange({
+                      backendKind: "acp",
+                      modelId: `acp/${h.key}`,
+                      harnessModel: m.value,
+                      reasoningEffort: undefined,
+                    })
+                  }
+                >
+                  <span className="truncate">{m.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
             {h.error && <div className="px-3 py-1 text-[10px] text-(--warn)">{h.error}</div>}
           </div>
         ))}
         {value && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[10px] uppercase tracking-kicker">
-              Reasoning effort
-            </DropdownMenuLabel>
-            <div className="flex gap-1 px-2 pb-1">
-              {EFFORTS.map((e) => (
-                <Button
-                  key={e}
-                  size="sm"
-                  variant={value?.reasoningEffort === e ? "default" : "outline"}
-                  className="h-6 flex-1 px-1 text-[10px]"
-                  onClick={() => value && onChange({ ...value, reasoningEffort: e })}
-                >
-                  {e}
-                </Button>
-              ))}
-            </div>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-kicker">
+                Reasoning effort
+              </DropdownMenuLabel>
+              <div className="flex gap-1 px-2 pb-1">
+                {EFFORTS.map((e) => (
+                  <Button
+                    key={e}
+                    size="sm"
+                    variant={value?.reasoningEffort === e ? "default" : "outline"}
+                    className="h-6 flex-1 px-1 text-[10px]"
+                    onClick={() => value && onChange({ ...value, reasoningEffort: e })}
+                  >
+                    {e}
+                  </Button>
+                ))}
+              </div>
+            </DropdownMenuGroup>
           </>
         )}
       </DropdownMenuContent>

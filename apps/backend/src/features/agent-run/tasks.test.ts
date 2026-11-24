@@ -64,3 +64,39 @@ describe("task card projection (raft #3: queue semantics made visible)", () => {
     expect(card.owner).toBeNull();
   });
 });
+
+describe("a dispatched task reads as a task, not as an envelope", () => {
+  test("the brief's verb and object replace the XML; the owner shows a name", () => {
+    const card = taskCardOf({
+      queue: {
+        inputId: "in-1",
+        status: "delivered",
+        runId: "run-1",
+        createdAt: 1,
+        message: JSON.stringify({
+          text: '<dispatch from="default">\n<task verb="fix" deliverable="change" object="README first screen">\n<slots/>',
+        }),
+      },
+      run: { status: "running", agentId: "adce7821", conversationId: "c-1" },
+      conversationTitle: null,
+      ownerName: "Coder",
+    });
+    expect(card.text).toBe("fix · README first screen");
+    expect(card.ownerName).toBe("Coder");
+  });
+
+  test("a human message stays as written", () => {
+    const card = taskCardOf({
+      queue: {
+        inputId: "in-2",
+        status: "pending",
+        createdAt: 1,
+        message: JSON.stringify({ text: "fix the README" }),
+      },
+      run: null,
+      conversationTitle: null,
+    });
+    expect(card.text).toBe("fix the README");
+    expect(card.ownerName).toBeUndefined();
+  });
+});

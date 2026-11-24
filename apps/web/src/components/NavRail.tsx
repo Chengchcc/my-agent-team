@@ -37,6 +37,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -639,7 +640,9 @@ function NavFooter() {
               </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
-              <DropdownMenuLabel>Signed in as {user?.userId ?? "unknown"}</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Signed in as {user?.userId ?? "unknown"}</DropdownMenuLabel>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={signOut}>
                 <LogOutIcon />
