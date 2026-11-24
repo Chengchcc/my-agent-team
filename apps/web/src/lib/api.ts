@@ -285,6 +285,9 @@ export const api = {
      *  page → the worker's own record). */
     parentRunId?: string;
     limit?: number;
+    /** React Query aborts a cancelled query; without this the request runs on
+     *  and its response lands in a component that is gone (audit B5). */
+    signal?: AbortSignal;
   }) =>
     unwrap(
       client.api["agent-runs"].get({
@@ -293,9 +296,15 @@ export const api = {
               status: params.status,
               agentId: params.agentId,
               conversationId: params.conversationId,
+              // This key was accepted and then never sent: `Dispatched units`
+              // asked for a run's children and got the newest runs in the
+              // console (audit 2026-11-24 — the page was right, the request
+              // was not).
+              parentRunId: params.parentRunId,
               limit: params.limit != null ? String(params.limit) : undefined,
             }
           : undefined,
+        ...(params?.signal ? { fetch: { signal: params.signal } } : {}),
       }),
     ),
   getAgentRun: (runId: string) => unwrap(client.api["agent-runs"]({ runId }).get()),

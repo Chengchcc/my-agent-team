@@ -56,7 +56,7 @@
 3. [ ] **纯问答不自动建事项**
 4. [x] 搜索命中片段（围绕命中词开窗；同会话合并仍未做）
 5. [x] Activity 计数口径说明（该成员跨房间最近 50 次）
-6. [x] run 详情 `Dispatched units` 关联语义**已核实正确**（`parent_run_id = 本 run`，实测 1 条且父 ID 匹配）——审计该条在当前代码不复现
+6. [x] run 详情 `Dispatched units`：**审计是对的、我上一轮的"已核实正确"错了**。后端语义正确，但 web wrapper `api.listAgentRuns` 收下 `parentRunId` 却从不发送 → 页面拿到全站最新 runs。已修 + 测试
 7. [ ] 状态词与形状按对象归并（执行生命周期 / 连接 / 安装校验 三轴）
 
 ## D. 安全与决策（需 ADR）
