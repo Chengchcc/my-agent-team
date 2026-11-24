@@ -234,6 +234,24 @@ export interface ProductToolsServiceDeps {
    *  project a request is about instead of guessing. Absent = no projects. */
   projects?: {
     list(): ReadonlyArray<{ projectId: string; name: string; repoUrl: string | null }>;
+    /** ADR 0080: a project with the members that hold it — the PA manages
+     *  projects through MCP, so it needs to see the attachment state. */
+    detail?(project: string): Promise<{
+      projectId: string;
+      name: string;
+      repoUrl: string | null;
+      defaultBranch: string | null;
+      agents: ReadonlyArray<{ id: string; name: string; role: string | null }>;
+    } | null>;
+    /** Attach or detach one member. Returns the resulting project detail. */
+    attach?(input: {
+      project: string;
+      agentId: string;
+      attached: boolean;
+    }): Promise<
+      | { ok: true; agents: ReadonlyArray<{ id: string; name: string }> }
+      | { ok: false; error: string }
+    >;
   };
   /** ADR 0075: answer a request a worker raised on this dispatcher's behalf.
    *  The deployment owns ownership checks and the approval/ask split; the tool
@@ -885,6 +903,38 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
    *  front desk must answer before it can file or dispatch. */
   function projectList(): ProductToolCallResult {
     return { content: JSON.stringify(deps.projects?.list() ?? []) };
+  }
+
+  async function projectDetail(args: Record<string, unknown>): Promise<ProductToolCallResult> {
+    const ref = typeof args.project === "string" ? args.project.trim() : "";
+    if (ref === "") throw new ProductToolRejectedError("project_detail needs a project id or name");
+    if (deps.projects?.detail === undefined) {
+      throw new ProductToolRejectedError("project details are not available in this deployment");
+    }
+    const detail = await deps.projects.detail(ref);
+    if (detail === null) throw new ProductToolRejectedError(`unknown project: ${ref}`);
+    return { content: JSON.stringify(detail) };
+  }
+
+  async function projectAttach(args: Record<string, unknown>): Promise<ProductToolCallResult> {
+    const project = typeof args.project === "string" ? args.project.trim() : "";
+    const agentId = typeof args.agent_id === "string" ? args.agent_id.trim() : "";
+    if (project === "" || agentId === "") {
+      throw new ProductToolRejectedError("project_attach needs project and agent_id");
+    }
+    if (args.attached !== undefined && typeof args.attached !== "boolean") {
+      throw new ProductToolRejectedError("attached must be true or false");
+    }
+    if (deps.projects?.attach === undefined) {
+      throw new ProductToolRejectedError("project membership is not editable in this deployment");
+    }
+    const result = await deps.projects.attach({
+      project,
+      agentId,
+      attached: args.attached !== false,
+    });
+    if (!result.ok) throw new ProductToolRejectedError(result.error);
+    return { content: JSON.stringify({ ok: true, agents: result.agents }) };
   }
 
   /** ADR 0075: a dispatcher answers a worker's parked request. */
@@ -1687,6 +1737,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return projectPropose(run, input.args);
         case "project_list":
           return projectList();
+        case "project_detail":
+          return projectDetail(input.args);
+        case "project_attach":
+          return projectAttach(input.args);
         case "answer_worker_request":
           return answerWorkerRequest(run, input.args);
         case "requirement_track":

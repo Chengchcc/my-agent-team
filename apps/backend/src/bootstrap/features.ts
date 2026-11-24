@@ -1190,6 +1190,47 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           name: p.name,
           repoUrl: p.repoUrl ?? null,
         })),
+      // ADR 0080: the PA manages projects through MCP; it needs to see who
+      // holds a project before attaching anyone.
+      detail: async (ref) => {
+        const p = projectSvc.list().find((x) => x.projectId === ref || x.name === ref);
+        if (p === undefined) return null;
+        const roster = await agentSvc.list();
+        const agents = roster
+          .filter((a) => a.config.runtime_config.projects.includes(p.projectId))
+          .map((a) => ({
+            id: a.id,
+            name: a.config.name,
+            role: a.config.role ?? null,
+          }));
+        return {
+          projectId: p.projectId,
+          name: p.name,
+          repoUrl: p.repoUrl ?? null,
+          defaultBranch: p.defaultBranch ?? null,
+          agents,
+        };
+      },
+      attach: async ({ project, agentId, attached }) => {
+        const p = projectSvc.list().find((x) => x.projectId === project || x.name === project);
+        if (p === undefined) return { ok: false as const, error: `unknown project: ${project}` };
+        const agent = await agentSvc.getById(agentId).catch(() => null);
+        if (agent === null) return { ok: false as const, error: `unknown member: ${agentId}` };
+        const current = agent.config.runtime_config.projects;
+        const next = attached
+          ? [...new Set([...current, p.projectId])]
+          : current.filter((id) => id !== p.projectId);
+        if (next.length !== current.length) {
+          await agentSvc.update(agentId, { projects: next });
+        }
+        const rows = await agentSvc.list();
+        return {
+          ok: true as const,
+          agents: rows
+            .filter((a) => a.config.runtime_config.projects.includes(p.projectId))
+            .map((a) => ({ id: a.id, name: a.config.name })),
+        };
+      },
     },
     // ADR 0074 S4: what the team already knows rides in the brief.
     wikiRecall: (text) =>
@@ -2067,7 +2108,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     const convRow = conv.convPort.getConversation(input.conversationId);
     let { requirementId } = checkoutOf(input.conversationId);
     const { projectId } = checkoutOf(input.conversationId);
-    if (projectId !== null && requirementId === null) {
+    // Who works here decides whether an item is opened. A requirement is the
+    // PA's record of WORK it discovered (ADR 0080); a front-desk turn that
+    // answers a question in a project room is not that, and used to leave a
+    // "work opened from this room" item behind for every question (audit
+    // 2026-11-24 / N4). Only a run that actually works — a worker — opens one,
+    // which is also the run that takes the checkout (see below).
+    const isWorker = agent?.config.role === "worker";
+    if (isWorker && projectId !== null && requirementId === null) {
       const project = projectSvc.getById(projectId);
       // Name it after what the person asked, not after the room: the room has
       // no title yet when its first run starts, so the project fallback made
@@ -2112,7 +2160,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // other forever (measured 2026-11-23: 0 tool calls in 13 minutes). The
     // front desk stays in its own directory; it opened the requirement above
     // and that is its whole part in it.
-    const isWorker = agent?.config.role === "worker";
     const checkout =
       isWorker && requirementId !== null && projectId !== null
         ? await workspaceSvc.ensureForRequirement({ requirementId, projectId })
@@ -2227,6 +2274,22 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Vector voice when an embedding model is configured; keyword-only
     // otherwise (narrower, never broken).
     searchMemory: (input) => memoryRecall.search(input),
+    // ADR 0080: work the PA wrote down is recalled the way memory is, so a new
+    // turn sees "this already exists" instead of opening a duplicate item.
+    searchRequirements: (query, limit) => {
+      const needle = query.toLowerCase();
+      return requirementSvc
+        .list(false)
+        .filter((r) => `${r.title}\n${r.goal}`.toLowerCase().includes(needle))
+        .slice(0, limit)
+        .map((r) => ({
+          requirementId: r.requirementId,
+          title: r.title,
+          goal: r.goal,
+          status: r.status,
+          at: r.updatedAt,
+        }));
+    },
     onHumanInputResolved: (input) => {
       // A settled request has to stop reading as pending on the surface too, without waiting for
       // the turn to commit: a card that survives its own click reads as "my answer did not land".

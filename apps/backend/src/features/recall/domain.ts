@@ -13,7 +13,15 @@
 
 /** Where a hit came from. `memory` and `skill` are resolved in the child; the
  *  backend reports them as skipped rather than silently omitting them. */
-export type RecallSource = "history" | "qa" | "capability" | "memory" | "skill";
+export type RecallSource =
+  | "history"
+  | "qa"
+  | "capability"
+  | "memory"
+  | "skill"
+  /** ADR 0080: a requirement is a work item the PA wrote down — recalled the
+   *  same way memory is, so a new turn can see that this work already exists. */
+  | "requirement";
 
 export interface RecallHit {
   readonly source: RecallSource;

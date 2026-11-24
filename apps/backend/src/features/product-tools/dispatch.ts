@@ -531,6 +531,34 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     inputSchema: { type: "object", properties: { identity: IDENTITY_SCHEMA } },
   },
   {
+    name: "project_detail",
+    description:
+      "Read one project with the members that hold it (id, name, repo, default branch, who is bound). Use before attaching anyone: a member without the project cannot be dispatched to it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project id or name" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["project"],
+    },
+  },
+  {
+    name: "project_attach",
+    description:
+      "Bind or unbind a member to a project. A member only works in a project's copies when it holds the project; use project_detail first to see the current set. This changes team configuration, so it needs the human's approval.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project id or name" },
+        agent_id: { type: "string", description: "Member to bind or unbind" },
+        attached: { type: "boolean", description: "true attaches (default), false detaches" },
+        identity: IDENTITY_SCHEMA,
+      },
+      required: ["project", "agent_id"],
+    },
+  },
+  {
     name: "requirement_track",
     description:
       "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A. Create needs title and goal; update needs requirement_id and only the fields you change. The user's own words stay in the conversation - your summary goes here, and they can correct it.",

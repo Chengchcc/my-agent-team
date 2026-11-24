@@ -35,6 +35,17 @@ export interface AgentRunExecutionDeps {
   ) => ReadonlyArray<{ seq: number; ts: number; snippet: string }>;
   /** ADR 0064: the front desk's long-term memory, when this deployment can
    *  reach it. Absent = recall reports the source as skipped. */
+  /** ADR 0080: tracked work, recalled like memory. Absent = skipped. */
+  readonly searchRequirements?: (
+    query: string,
+    limit: number,
+  ) => ReadonlyArray<{
+    requirementId: string;
+    title: string;
+    goal: string;
+    status: string;
+    at: number;
+  }>;
   readonly searchMemory?: (input: {
     conversationId: string;
     query: string;

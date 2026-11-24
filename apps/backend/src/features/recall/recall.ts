@@ -5,7 +5,7 @@ import type { RecallHit, RecallRequest, RecallResult, RecallSource } from "./dom
 /** The sources this process can answer. The other two (memory, skill) live in
  *  the run's child; asking for them here reports them as skipped instead of
  *  pretending they were empty. */
-const LOCAL_SOURCES: readonly RecallSource[] = ["history", "qa", "capability"];
+const LOCAL_SOURCES: readonly RecallSource[] = ["history", "qa", "capability", "requirement"];
 
 const MAX_HITS = 6;
 const MAX_PINNED_QA = 3;
@@ -32,6 +32,18 @@ export interface RecallPorts {
   >;
   /** Capability cards, when the caller wants a worker. */
   workers?(): Promise<readonly WorkerCard[]>;
+  /** Tracked work items (ADR 0080). Same contract as memory: absent means the
+   *  deployment cannot answer, and the source says so instead of looking empty. */
+  searchRequirements?(
+    query: string,
+    limit: number,
+  ): ReadonlyArray<{
+    requirementId: string;
+    title: string;
+    goal: string;
+    status: string;
+    at: number;
+  }>;
   /** The front desk's long-term memory (ADR 0064). Absent = the deployment
    *  cannot reach it, and the source reports skipped with the reason. */
   searchMemory?(input: { conversationId: string; query: string; limit: number }): Promise<
@@ -104,13 +116,34 @@ export async function recall(ports: RecallPorts, request: RecallRequest): Promis
     // ADR 0064: memory is readable from here now (a SQLite file in the
     // agent's workspace). Skills still live in the child.
     if (source === "memory" && ports.searchMemory !== undefined) continue;
+    if (source === "requirement" && ports.searchRequirements !== undefined) continue;
     skipped.push({
       source,
       reason:
         source === "memory"
           ? "no memory port wired (the agent's .oma/memory is unreachable here)"
-          : "lives in the run's process (skill packs)",
+          : source === "requirement"
+            ? "no requirement store wired here"
+            : "lives in the run's process (skill packs)",
     });
+  }
+
+  if (wanted.has("requirement") && ports.searchRequirements !== undefined) {
+    if (query === "") {
+      skipped.push({ source: "requirement", reason: "no cues in the request to search with" });
+    } else {
+      const found = ports.searchRequirements(query, request.limit ?? 5);
+      for (const item of found) {
+        hits.push({
+          source: "requirement",
+          ref: `req:${item.requirementId}`,
+          at: item.at,
+          text: `${item.title} — ${clip(item.goal, 160)}`,
+          why: `open work item (${item.status}) matching the cues`,
+        });
+      }
+      searched.push({ source: "requirement", hits: found.length });
+    }
   }
 
   if (wanted.has("memory") && ports.searchMemory !== undefined) {
