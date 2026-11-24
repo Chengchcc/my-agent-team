@@ -2076,7 +2076,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         (project ? `${project.name} — work opened from this room` : "Work opened from this room");
       const opened = requirementSvc.create({
         title,
-        goal: "Opened by the product when work started in this room; refine the goal here.",
+        // No "refine here": the detail page has no editor, so the promise was
+        // false (independent audit, 2026-11-24). Say only what happened.
+        goal: "Opened by the product when work started in this room.",
         projectId,
         originConversationId: input.conversationId,
         createdByAgentId: input.agentId ?? null,

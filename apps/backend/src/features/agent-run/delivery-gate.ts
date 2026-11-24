@@ -64,5 +64,9 @@ export function deliveryNoteOf(input: DeliveryGateInput): string | undefined {
       !input.produced(run.runId),
   );
   if (verified) return undefined;
-  return "⚑ 核验：没有第二个成员核对过这份改动——本轮交付未经核验。";
+  // Say what the judgement CAN see: another member finished a run afterwards
+  // without changing files. It does not see what that member read, nor whether
+  // their conclusion holds — so a missing note is not a pass either
+  // (independent audit, 2026-11-24).
+  return "⚑ 核验：没有第二个成员核对过这份改动——本轮交付未经核验。（判据：只认「另一成员在其之后完成且未改文件」；不判断他读了什么、结论是否成立。）";
 }
