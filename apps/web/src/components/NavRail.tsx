@@ -284,7 +284,7 @@ function NavContent() {
         </SidebarGroupLabel>
         <SidebarGroupContent>
           {chatConversations.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-2">No conversations yet</p>
+            <p className="text-xs text-muted-foreground px-2">{t("No conversations yet")}</p>
           ) : (
             <div ref={chatScrollRef} className="max-h-[min(44vh,600px)] overflow-y-auto">
               <div

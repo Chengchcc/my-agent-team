@@ -189,7 +189,7 @@ function RemindersSection() {
             setWhen("");
           }}
         >
-          Schedule
+          {t("Schedule")}
         </Button>
       </div>
       {(reminders ?? []).length === 0 ? (
@@ -459,7 +459,7 @@ export default function TodayPage() {
             label={t("Gates waiting")}
             value={waitingHuman.length}
             icon={UserCheck}
-            detail={gatesToday > 0 ? `${gatesToday} opened today` : "none today"}
+            detail={gatesToday > 0 ? t("{n} opened today", { n: gatesToday }) : t("none today")}
             bar={waitingHuman.length > 0 ? 100 : 0}
             barTone="violet"
           />
