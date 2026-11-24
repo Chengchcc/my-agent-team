@@ -67,6 +67,8 @@ export function createConversationFeature(input: {
   isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
   /** ADR 0066 D4: display name for the room's floor note. */
   agentNameOf?: ConversationServiceDeps["agentNameOf"];
+  /** ADR 0080: the real config revision frozen on each run. */
+  configRevisionOf?: ConversationServiceDeps["configRevisionOf"];
 }): ConversationFeature {
   const {
     convPort,
@@ -88,6 +90,7 @@ export function createConversationFeature(input: {
     addConversationMember,
     isWorkerAgent,
     agentNameOf,
+    configRevisionOf,
   } = input;
 
   const convSvc = createConversationService({
@@ -109,6 +112,7 @@ export function createConversationFeature(input: {
     isWorkerAgent,
     agentNameOf,
     idGen: ulid,
+    ...(configRevisionOf ? { configRevisionOf } : {}),
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {
       return agentModelRef(await agentSvc.getById(agentId));
     },

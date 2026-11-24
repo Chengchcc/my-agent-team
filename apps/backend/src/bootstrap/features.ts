@@ -761,6 +761,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         return undefined;
       }
     },
+    // ADR 0080: freeze a real config revision on the run — the member's config
+    // `updatedAt`, which moves whenever its settings change. A constant 1 made
+    // "which policy was this authorised under" unanswerable.
+    configRevisionOf: async (id: string) => {
+      try {
+        return (await agentSvc.getById(id)).updatedAt;
+      } catch {
+        return 1;
+      }
+    },
     summarize: summarizeFromConfig,
     resolveLedgerMessage: (conversationId, ledgerSeq) =>
       ledgerResolver.resolveMessage(conversationId, ledgerSeq),
@@ -843,6 +853,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     getFrontDeskAgent: async (conversationId) =>
       conv.convPort.getConversation(conversationId)?.agentId ?? null,
     enqueueSteer: async (input) => {
+      // `expectedRevision` is the BRANCH's CAS counter, not the config
+      // revision. Passing configRevision (constant 1) made the CAS fail on
+      // every later turn, so a live steer always fell through to the inject
+      // fallback — the message arrived, but the queue row and the run
+      // disagreed about it. Read the branch this steer targets.
+      const steerBranch = await contextPort.getBranch(input.branchId).catch(() => null);
       const res = await agentRunPort.enqueueAndAcquire({
         conversationId: input.conversationId,
         agentId: input.agentId,
@@ -854,7 +870,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         deliveryIdempotencyKey: `result:${input.parentRunId}`,
         defaultModel: input.defaultModel,
         configRevision: input.configRevision,
-        expectedRevision: input.configRevision,
+        expectedRevision: steerBranch?.revision ?? input.configRevision,
         authorization: input.authorization,
         parentRunId: input.parentRunId,
       });
@@ -1543,6 +1559,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         };
       }
       const text = `（${fromAgentId} 转达，优先于原任务）\n${message}`;
+      // Same correction as enqueueSteer: the CAS counter is the branch's, not
+      // the run's config revision (which is a constant today).
+      const steerBranch = await contextPort.getBranch(active.branchId).catch(() => null);
       const enqueued = await agentRunPort.enqueueAndAcquire({
         conversationId,
         agentId: toAgentId,
@@ -1554,7 +1573,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         deliveryIdempotencyKey: `steer:${runId}:${callId}`,
         defaultModel: active.modelRef,
         configRevision: active.configRevision,
-        expectedRevision: active.configRevision,
+        expectedRevision: steerBranch?.revision ?? active.configRevision,
         authorization: `dispatch:${fromAgentId}`,
         parentRunId: runId,
       });

@@ -27,6 +27,10 @@ export interface ConversationServiceDeps {
   port: ConversationPort;
   /** Phase 4 durable run creation: enqueue + branch acquire. */
   agentRunService: AgentRunService;
+  /** ADR 0080: the config revision frozen on the run. A real number (the
+   *  member's config `updatedAt`) instead of a constant, so "which policy was
+   *  this run authorised under" can be answered later. Absent = 1 (legacy). */
+  configRevisionOf?: (agentId: string) => number | Promise<number>;
   /** Roadmap (自由文本追问): when the conversation has a pending TEXT ask,
    *  a reply becomes that ask's answer instead of a queued input. Returns
    *  false when nothing was pending (the caller proceeds normally).
@@ -254,6 +258,7 @@ class ConversationServiceImpl implements ConversationService {
   #onMessagesUndone: ConversationServiceDeps["onMessagesUndone"];
   #contextService: AgentContextService;
   #resolveDefaultModel: (agentId: string) => Promise<BackendModelRef>;
+  #configRevisionOf?: ConversationServiceDeps["configRevisionOf"];
   #summarize?: (input: { texts: readonly string[] }) => Promise<string>;
   #resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
   #evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
@@ -276,6 +281,7 @@ class ConversationServiceImpl implements ConversationService {
     this.#onMessagesUndone = deps.onMessagesUndone;
     this.#contextService = deps.contextService;
     this.#resolveDefaultModel = deps.resolveDefaultModel;
+    this.#configRevisionOf = deps.configRevisionOf;
     this.#summarize = deps.summarize;
     this.#resolveLedgerMessage = deps.resolveLedgerMessage;
     this.#evaluateAmbient = deps.evaluateAmbient;
@@ -371,7 +377,7 @@ class ConversationServiceImpl implements ConversationService {
       message: input.message,
       defaultModel,
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
-      configRevision: 1,
+      configRevision: (await this.#configRevisionOf?.(input.agentId)) ?? 1,
       idempotencyKey: input.idempotencyKey,
       authorization: input.authorization,
       parentRunId: input.parentRunId,
