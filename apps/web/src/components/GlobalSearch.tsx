@@ -89,8 +89,22 @@ function resultTitle(r: Hit): string {
   return r.name;
 }
 
+/** The part of a long message where the query actually matched. Two hits that
+ *  share a title were indistinguishable because both showed the message's
+ *  first line (audit 2026-11-24). */
+export function windowAround(text: string, query: string): string {
+  const needle = query.trim().toLowerCase();
+  if (needle === "" || text.length <= 160) return text;
+  const at = text.toLowerCase().indexOf(needle);
+  if (at < 0) return `${text.slice(0, 160)}…`;
+  const start = Math.max(0, at - 60);
+  const end = Math.min(text.length, at + needle.length + 100);
+  return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
+}
+
 function resultDetail(r: Hit, query: string): React.ReactNode {
-  if (r.type === "conversation") return highlight(extractSnippet(r.snippet), query);
+  if (r.type === "conversation")
+    return highlight(windowAround(extractSnippet(r.snippet), query), query);
   if (r.type === "agent") return highlight(r.desc ?? "", query);
   if (r.type === "wiki") return highlight(`${r.status} · ${r.path}`, query);
   return null;
