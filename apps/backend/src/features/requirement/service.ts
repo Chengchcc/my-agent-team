@@ -55,6 +55,8 @@ export function createRequirementService(deps: {
     create(input) {
       return deps.port.create({
         requirementId: deps.idGen(),
+        acceptedEvidence: null,
+        acceptedAt: null,
         title: input.title,
         goal: input.goal,
         background: input.background ?? null,

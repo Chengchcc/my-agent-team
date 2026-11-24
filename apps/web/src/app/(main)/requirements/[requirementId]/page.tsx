@@ -30,6 +30,8 @@ interface RequestFact {
 interface RequirementDetail {
   requirement: {
     requirementId: string;
+    acceptedAt: number | null;
+    acceptedEvidence: readonly string[] | null;
     title: string;
     goal: string;
     background: string | null;
@@ -144,6 +146,17 @@ export default function RequirementDetailPage() {
         {projectName !== null ? (
           <p className="mb-3 text-[11px] text-(--mute)">
             Project: <span className="text-(--ink)">{projectName}</span>
+          </p>
+        ) : null}
+        {r.acceptedAt !== null ? (
+          // What the person accepted, kept as the basis (ADR 0080): a later run
+          // must not be able to rewrite why this item was closed.
+          <p
+            className="mb-3 text-[11px] text-(--mute)"
+            title={(r.acceptedEvidence ?? []).join("\n")}
+          >
+            {t("Accepted")} {new Date(r.acceptedAt).toLocaleString()} ·{" "}
+            {t("based on {n} runs", { n: r.acceptedEvidence?.length ?? 0 })}
           </p>
         ) : null}
         <div className="grid gap-4 lg:grid-cols-2">

@@ -24,7 +24,28 @@ export function requirementRoutes(svc: RequirementService) {
       "/api/requirements/:id",
       ({ params: { id }, body, set }) => {
         try {
-          return { requirement: svc.update(id, body) };
+          // ADR 0080: a person's acceptance records WHAT they accepted — the
+          // runs and their verification verdicts at that moment. Without it the
+          // north star ("accepted work") has no evidence to point at, and a
+          // later run would silently rewrite the basis.
+          const acceptance =
+            body.status === "done"
+              ? {
+                  acceptedAt: Date.now(),
+                  acceptedEvidence: (() => {
+                    try {
+                      const view = svc.get(id);
+                      const refs = view.runs.map(
+                        (r) => `run:${r.runId} ${r.verification ?? "unverified"}`,
+                      );
+                      return refs.length > 0 ? refs : ["no runs at acceptance"];
+                    } catch {
+                      return ["no runs at acceptance"];
+                    }
+                  })(),
+                }
+              : {};
+          return { requirement: svc.update(id, { ...body, ...acceptance }) };
         } catch (err) {
           if (err instanceof RequirementNotFoundError) {
             set.status = 404;
