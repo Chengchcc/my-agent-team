@@ -198,4 +198,7 @@ export const zh: Record<string, string> = {
   "Pick a worktree on the left to open its terminal.": "在左侧选一个工作副本以打开它的终端。",
   "Terminals keep running when you leave this page — detach, not close.":
     "离开这一页时终端会继续运行——是脱离，不是关闭。",
+  Schedule: "排期",
+  "none today": "今天没有",
+  "{n} opened today": "今天新开 {n} 个",
 };
