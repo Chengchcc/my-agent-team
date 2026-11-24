@@ -49,6 +49,9 @@ type Row = {
   };
   /** Cron trigger declarations (cron type only; API/manual are implicit). */
   triggers?: Array<{ type: "cron"; cron: string; enabled?: boolean }>;
+  /** The server will refuse to run this definition: it has a script node and
+   *  scripts are disabled here. */
+  scriptNodesBlocked?: boolean;
 };
 
 function defaultDraft(id: string) {
@@ -111,6 +114,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
      *  2026-11-24). */
     input?: Array<{ key: string; type: string | string[] }> | null;
   } | null>(null);
+  const [runBlocked, setRunBlocked] = useState(false);
   const [runVals, setRunVals] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
   const [newName, setNewName] = useState("");
@@ -182,6 +186,9 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
   async function openRun(id: string) {
     setRunId(id);
     setRunVals({});
+    // The server says whether this definition needs a script node it may not
+    // run. Saying so here beats a 403 after the click (audit 2026-11-24).
+    setRunBlocked(definitions.find((d) => d.workflowId === id)?.scriptNodesBlocked === true);
     try {
       const def = await api.getWorkflowDefinition(id);
       setRunDef(def?.definition ?? null);
@@ -445,8 +452,15 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
                 );
               })
             )}
-            <Button className="w-full" onClick={run} disabled={running}>
-              {running ? "Starting…" : "Run"}
+            {runBlocked && (
+              <p className="rounded-md border border-(--warn)/40 bg-(--warn)/10 px-2 py-1.5 text-xs text-(--warn)">
+                {t(
+                  "This workflow runs a script node, and scripts are disabled on this server. It can be edited here, not run.",
+                )}
+              </p>
+            )}
+            <Button className="w-full" onClick={run} disabled={running || runBlocked}>
+              {running ? t("Starting…") : t("Run")}
             </Button>
           </div>
         </DialogContent>
