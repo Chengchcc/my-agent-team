@@ -59,9 +59,6 @@ trap cleanup EXIT
 # ── backend: one file + migrations + the child MCP entry ──────────
 echo "pack-gateway: bundling backend"
 ( cd "$ROOT" && bun build apps/backend/src/main.ts --target=bun --outfile="$STAGE/backend/main.js" )
-# Spawned per agent workspace as `bun <entry>` (process.execPath + args), so it
-# needs its own bundle; the manifest points KNOWLEDGE_MCP_SERVER_BIN at it.
-( cd "$ROOT" && bun build apps/backend/src/features/knowledge/mcp-server.ts --target=bun --outfile="$STAGE/backend/knowledge-mcp.js" )
 mkdir -p "$STAGE/backend/drizzle"
 cp -r "$ROOT/apps/backend/drizzle/." "$STAGE/backend/drizzle/"
 
@@ -86,7 +83,6 @@ cp "$PTY_LIBS"/* "$PTY_DIR/"
 echo "pack-gateway: staging resources"
 mkdir -p "$STAGE/resources/workflow-showcase"
 cp -r "$ROOT/skills/." "$STAGE/resources/skills/"
-cp -r "$ROOT/docs/." "$STAGE/resources/docs/"  # builtin knowledge pack source (pack name: architecture)
 cp -r "$ROOT/apps/backend/src/features/workflow/showcase/." "$STAGE/resources/workflow-showcase/"
 
 # ── web: standalone tree + static + self-hosted monaco ────────────
@@ -136,7 +132,6 @@ cat > "$STAGE/gateway.json" <<JSON
         "BACKEND_RESOURCES_DIR": "{root}/resources",
         "BACKEND_HOST": "127.0.0.1",
         "BACKEND_PORT": "3000",
-        "KNOWLEDGE_MCP_SERVER_BIN": "{root}/backend/knowledge-mcp.js",
         "OMA_BIN": "{omaBin}"
       },
       "secrets": ["BACKEND_AUTH_TOKEN"]
@@ -166,10 +161,8 @@ JSON
 # ── fail-closed checks ────────────────────────────────────────────
 echo "pack-gateway: checks"
 [ -s "$STAGE/backend/main.js" ] || die "backend bundle is empty"
-[ -s "$STAGE/backend/knowledge-mcp.js" ] || die "knowledge MCP bundle missing"
 [ -f "$STAGE/backend/drizzle/backend/meta/_journal.json" ] || die "migrations journal missing"
 [ -d "$STAGE/resources/skills" ] || die "resources/skills missing"
-[ -d "$STAGE/resources/docs" ] || die "resources/docs missing"
 [ -f "$STAGE/web/$APPREL/public/monaco/vs/loader.js" ] || die "monaco assets missing"
 [ -d "$STAGE/web/$APPREL/.next/server" ] || die "app server code missing"
 

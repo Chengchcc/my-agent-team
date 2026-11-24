@@ -29,7 +29,7 @@
 | 0019 | cli-session-dual-truth(运行态/产品态双轨) | Accepted（「双轨」提法已收成单轨：共用分支上的 `cli_session_ref`） |
 | 0020 | agent-workspace-and-resource-bridge | Accepted（三处未落地：manifest.json 资源索引整节 absent、workspace seed 无 USER.md 与 memory/、§4 的 skillRoots 移除未做；手改 agent.yml 不回读） |
 | 0021 | one-conversation-one-agent-member(session 投影) | Accepted（决策 4 的 thingRef 全仓零命中） |
-| 0022 | mcp-catalog-and-knowledge-packs | Accepted（catalog 改成文件；但迁移 0027 只把 `mcp_server` 改名为 `mcp_server_legacy`、未 DROP，存量提升无生产调用者（`mergeMcpCatalog` 是死代码）；空 knowledge 包仍会写 index.md） |
+| 0022 | mcp-catalog-and-knowledge-packs | **Partly superseded**（知识包一半由 0078 取代并下线；MCP catalog 一半仍有效。原文：catalog 改成文件；但迁移 0027 只把 `mcp_server` 改名为 `mcp_server_legacy`、未 DROP，存量提升无生产调用者（`mergeMcpCatalog` 是死代码）；空 knowledge 包仍会写 index.md） |
 | 0023 | project-worktree-workspace(多对多 worktree 桥接) | Accepted（P1、P2 与任务轴附录均已实现） |
 | 0024 | oma-wire-protocol-fixture-contract | Accepted |
 | 0025 | loop-workflow-first-execution(Workflow 一等执行) | **Obsolete**（Loop 已删；Workflow DSL 作为独立功能继续存在） |

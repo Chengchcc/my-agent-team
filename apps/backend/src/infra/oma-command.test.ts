@@ -17,7 +17,7 @@ const baseConfig: BackendConfig = {
   maxConcurrentRuns: 4,
   builtinSkillsDir: "/tmp/skills",
   resourcesDir: "/tmp",
-  knowledgePacksDir: "/tmp/knowledge-packs",
+  browserLocalNetwork: false,
   workflowShowcaseDir: "/tmp/workflow-showcase",
   workflowScriptsEnabled: false,
   workflowScriptDenyReadDirs: ["/tmp"],

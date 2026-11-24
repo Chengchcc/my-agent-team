@@ -20,14 +20,6 @@ function setup(dir: string) {
   mkdirSync(dir, { recursive: true });
   mkdirSync(builtinDir, { recursive: true });
   writeFileSync(`${dir}/models.yml`, modelsYml);
-  // A minimal builtin wiki root: the boot seeds `architecture`/`guides` from
-  // here, and the onboarding agent attaches what that same boot installed.
-  const docsDir = `${dir}/docs`;
-  for (const zone of ["architecture", "guides"]) {
-    mkdirSync(`${docsDir}/${zone}`, { recursive: true });
-    writeFileSync(`${docsDir}/${zone}/README.md`, `# ${zone}\n`);
-  }
-
   return {
     dataDir: dir,
     workspaceRoot: dir,
@@ -38,7 +30,7 @@ function setup(dir: string) {
     cancelGraceMs: 100,
     maxConcurrentRuns: 4,
     builtinSkillsDir: builtinDir,
-    knowledgePacksDir: docsDir,
+    browserLocalNetwork: false,
   };
 }
 
