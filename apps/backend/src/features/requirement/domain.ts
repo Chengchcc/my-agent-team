@@ -12,6 +12,9 @@ export type RequirementViewStatus =
 
 export interface RequirementRow {
   requirementId: string;
+  /** What the person accepted, as `run:<id> <verdict>` references. */
+  acceptedEvidence: readonly string[] | null;
+  acceptedAt: number | null;
   title: string;
   goal: string;
   background: string | null;
@@ -39,6 +42,9 @@ export interface RequirementPatch {
   acceptanceCriteria?: string | null;
   status?: RequirementStoredStatus;
   projectId?: string | null;
+  /** Set by the acceptance path (a person marking the item done). */
+  acceptedEvidence?: string[] | null;
+  acceptedAt?: number | null;
 }
 
 export interface RequirementRunFact {

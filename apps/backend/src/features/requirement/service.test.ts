@@ -58,6 +58,8 @@ const row = (over: Partial<RequirementRow> = {}): RequirementRow => ({
   expectedDeliverables: null,
   acceptanceCriteria: null,
   status: "open",
+  acceptedEvidence: null,
+  acceptedAt: null,
   projectId: null,
   originConversationId: "c1",
   originSeq: null,
@@ -148,6 +150,24 @@ describe("ADR 0074: derived requirement status", () => {
     expect(deriveRequirementStatus("done", [], [])).toBe("done");
     expect(deriveRequirementStatus("cancelled", [], [])).toBe("cancelled");
     expect(deriveRequirementStatus("open", [], [])).toBe("open");
+  });
+});
+
+describe("ADR 0080: acceptance keeps its evidence", () => {
+  test("marking done records the runs and their verdicts", () => {
+    const { svc } = svcWith([row({ requirementId: "req-acc", title: "Fix retry" })]);
+    const before = svc.get("req-acc");
+    expect(before.requirement.acceptedAt).toBeNull();
+    const accepted = svc.update("req-acc", {
+      status: "done",
+      acceptedAt: 1700000000000,
+      acceptedEvidence: ["run:r1 passed", "run:r2 unverified"],
+    });
+    expect(accepted.status).toBe("done");
+    expect(accepted.acceptedAt).toBe(1700000000000);
+    expect(accepted.acceptedEvidence).toEqual(["run:r1 passed", "run:r2 unverified"]);
+    // Reading it back is the point: the basis must not be re-derived later.
+    expect(svc.get("req-acc").requirement.acceptedEvidence).toHaveLength(2);
   });
 });
 

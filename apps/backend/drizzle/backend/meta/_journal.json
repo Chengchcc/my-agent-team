@@ -491,6 +491,13 @@
       "when": 1795527446877,
       "tag": "0069_square_gamma_corps",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1795528385999,
+      "tag": "0070_yellow_betty_ross",
+      "breakpoints": true
     }
   ]
 }

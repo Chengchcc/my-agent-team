@@ -38,6 +38,8 @@ export function sqliteRequirementAdapter(db: Database): RequirementPort {
   const d = drizzle(db, { schema, casing: "snake_case" });
   const toRow = (r: typeof schema.requirement.$inferSelect): RequirementRow => ({
     requirementId: r.requirementId,
+    acceptedEvidence: r.acceptedEvidence ? (JSON.parse(r.acceptedEvidence) as string[]) : null,
+    acceptedAt: r.acceptedAt ?? null,
     title: r.title,
     goal: r.goal,
     background: r.background ?? null,
@@ -85,9 +87,19 @@ export function sqliteRequirementAdapter(db: Database): RequirementPort {
       return row ? toRow(row) : null;
     },
     update(id, patch, now) {
+      const { acceptedEvidence, ...rest } = patch;
       const updated = d
         .update(schema.requirement)
-        .set({ ...patch, updatedAt: now })
+        .set({
+          ...rest,
+          ...(acceptedEvidence !== undefined
+            ? {
+                acceptedEvidence:
+                  acceptedEvidence === null ? null : JSON.stringify(acceptedEvidence),
+              }
+            : {}),
+          updatedAt: now,
+        })
         .where(eq(schema.requirement.requirementId, id))
         .returning()
         .get();

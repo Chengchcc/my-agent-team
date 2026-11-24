@@ -242,4 +242,6 @@ export const zh: Record<string, string> = {
   "Marked done": "已标记完成",
   Cancelled: "已取消",
   "Could not update the requirement": "无法更新需求",
+  Accepted: "已验收",
+  "based on {n} runs": "依据 {n} 次运行",
 };

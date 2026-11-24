@@ -64,6 +64,10 @@ export const conversation = sqliteTable("conversation", {
  *  records rather than a summary edit. */
 export const requirement = sqliteTable("requirement", {
   requirementId: text("requirement_id").primaryKey(),
+  /** ADR 0080: what the human accepted, as run references with their
+   *  verification verdicts (JSON string[]), and when. Null while open. */
+  acceptedEvidence: text("accepted_evidence"),
+  acceptedAt: integer("accepted_at", { mode: "number" }),
   /** Short handle (the PA's summary; the user's own words stay on the origin
    *  message — the two are deliberately not merged). */
   title: text().notNull(),

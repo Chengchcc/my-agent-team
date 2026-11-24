@@ -198,15 +198,21 @@ export const api = {
     unwrap(client.api.reminders({ id }).snooze.post({ fireAt })),
   cancelReminder: (id: string) => unwrap(client.api.reminders({ id }).delete()),
   // Conversations
-  listConversations: (agentId?: string) =>
-    unwrap(client.api.conversations.get({ query: agentId ? { agentId } : undefined })),
+  listConversations: (agentId?: string, signal?: AbortSignal) =>
+    unwrap(
+      client.api.conversations.get({
+        query: agentId ? { agentId } : undefined,
+        ...(signal ? { fetch: { signal } } : {}),
+      }),
+    ),
   createConversation: (body: {
     conversationId?: string;
     projectId?: string;
     agentId: string;
     origin?: string;
   }) => unwrap(client.api.conversations.post(body)),
-  getConversation: (id: string) => unwrap(client.api.conversations({ id }).get()),
+  getConversation: (id: string, signal?: AbortSignal) =>
+    unwrap(client.api.conversations({ id }).get(signal ? { fetch: { signal } } : undefined)),
   listConversationMembers: (id: string) => unwrap(client.api.conversations({ id }).members.get()),
   addConversationMember: (id: string, agentId: string) =>
     unwrap(client.api.conversations({ id }).members.post({ agentId })),

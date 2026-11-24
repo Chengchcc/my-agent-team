@@ -14,7 +14,8 @@ export function conversationListQuery(agentId: string) {
 export function recentConversationsQuery() {
   return queryOptions({
     queryKey: conversationKeys.recent(),
-    queryFn: () => api.listConversations(),
+    // Polled every 10s: a cancelled poll must stop, not land in a gone tree.
+    queryFn: ({ signal }) => api.listConversations(undefined, signal),
     refetchInterval: 10_000,
   });
 }
@@ -22,7 +23,7 @@ export function recentConversationsQuery() {
 export function conversationDetailQuery(id: string) {
   return queryOptions({
     queryKey: conversationKeys.detail(id),
-    queryFn: () => api.getConversation(id),
+    queryFn: ({ signal }) => api.getConversation(id, signal),
     refetchInterval: 3_000,
   });
 }
