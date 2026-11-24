@@ -80,3 +80,19 @@
 - 每条修复指到**可运行的测试或探针**；没有测试的文案改动不算修复完成。
 - 部署后抽验：`/today`、`/system/settings`、一次执行详情、一次导出。
 - 审计的旧结论按现状复核后再动：本轮撤回"refine here"；确认"ECharts"实为 Recharts。
+
+## 7. 剩余项的选项（决策已收窄，不是没想）
+
+| 项 | 选项 A | 选项 B | 现状与建议 |
+|---|---|---|---|
+| 交付固定 base/head Diff 深链 | 在 `agent_run.terminal_result` 里加 `delivery:{projectId,base,head}`，交付文本渲染成链接 | 从 worker 的最终文本里正则抽 SHA（脆弱，拒绝） | 选 A；改动面：run 终态写入 + 交付文案渲染 + Project Diff 接受 base/head 参数 |
+| 纯问答不建事项 | 前台 run（role=front）在项目房间免 checkout，只有 worker 才开需求 | 需求改为"首次写入时创建" | 选 A：与已有"只有 worker 拿 checkout"一致；但要改 `resolveRunWorkspace` 的硬约束（项目房间必须有需求工作区），属 ADR 0077 修订 |
+| 状态词与形状三轴归并 | 先统一"同对象同词 + 词形冗余（✓/×/Ⅱ/○）"，token 后置 | 一次性重做配色体系 | 选 A；审计自己也把配色列为待实测 |
+| 代答：不可逆/超冻结/验收硬拒绝 | 让 `pending_action` 携带风险字段（`risk:{irreversible,scope}`），代答链按字段拒绝 | 按工具名黑名单判断 | 选 A：黑名单会变成假检查。需要 ACP 审批请求 → pending_action 的映射加字段 |
+| agent_create 角色/人授权 | 创建前要求 `authorization` 含人的批准记录（dispatch 冻结里带上） | 直接创建改为只产出提案（`agent_write` 已有） | 选 B 更小：删掉生产路径的直建，保留提案；代价是 PA 招聘多一步人的 Save |
+| 验收证据绑定 | 人点"完成"时把当前 run/artifact 引用写进 requirement | 规则化自动验收 | 只做 A；自动验收需要人预先定义规则（审计明确反对自报完成） |
+| Policy 版本化 | 每次派单冻结 `configRevision` 的真实版本号（现在恒为 1） | 引入完整 Policy 对象 | 先做 A（当前恒 1 是假版本号），完整 Policy 等真实需求 |
+
+## 8. 本轮补充
+
+- 代答更正时**保留原答者**：`answer_corrected` ops 事件记录 `originalAnsweredBy` 与 `originalEvidence`（否则更正后行里只剩 `user`，G2 的分母丢失）。没有专门的单测，靠 tsc + 人工核对事件写入点。
