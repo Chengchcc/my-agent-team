@@ -74,18 +74,40 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
   };
 
   if (existing) {
-    // Already seeded: refresh only when the repo's skill set moved on.
-    if (
+    // Already seeded. Refresh when the repo's skills moved on — and ALWAYS when
+    // the target directory is gone: a row that says `ready` with nothing on
+    // disk made Skills show "Ready 1/1" beside "materialized directory missing"
+    // (audit 2026-11-24), and the old condition could never repair it because
+    // it required the missing directory to exist.
+    const targetMissing = !existsSync(builtinTarget);
+    const movedOn =
       existsSync(builtinSkillsDir) &&
       existsSync(builtinTarget) &&
-      directoryFingerprint(builtinSkillsDir) !== directoryFingerprint(builtinTarget)
-    ) {
-      if (installBuiltin()) console.error("[seed] builtin skills refreshed from the repo");
+      directoryFingerprint(builtinSkillsDir) !== directoryFingerprint(builtinTarget);
+    if (targetMissing || movedOn) {
+      if (installBuiltin()) {
+        console.error(
+          `[seed] builtin skills ${targetMissing ? "reinstalled (directory was missing)" : "refreshed from the repo"}`,
+        );
+        if (existing.status === "ready") {
+          await port.recordInstalledRef(BUILTIN_PACK_ID, builtinTarget);
+        } else {
+          await port.applyInstallTransition(BUILTIN_PACK_ID, "ready", {
+            now: Date.now(),
+            installedRef: builtinTarget,
+          });
+        }
+      }
+    }
+    // A `ready` row with no ref still cannot be validated; backfill it once the
+    // files are there.
+    if (existing.installedRef === null && existsSync(builtinTarget)) {
+      await port.recordInstalledRef(BUILTIN_PACK_ID, builtinTarget);
     }
     return;
   }
 
-  installBuiltin();
+  const landed = installBuiltin();
 
   await port.register({
     id: BUILTIN_PACK_ID,
@@ -97,9 +119,13 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
     now: Date.now(),
   });
 
-  // Only mark as ready if the source actually landed on disk
-  if (existsSync(builtinSkillsDir)) {
+  // Only mark as ready if the source actually landed on disk — and record WHERE
+  // it landed, or `validate()` has nothing to check.
+  if (landed && existsSync(builtinTarget)) {
     await port.applyInstallTransition(BUILTIN_PACK_ID, "installing", { now: Date.now() });
-    await port.applyInstallTransition(BUILTIN_PACK_ID, "ready", { now: Date.now() });
+    await port.applyInstallTransition(BUILTIN_PACK_ID, "ready", {
+      now: Date.now(),
+      installedRef: builtinTarget,
+    });
   }
 }

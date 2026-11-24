@@ -22,6 +22,11 @@ export interface SkillPackPort {
     patch?: TransitionPatch & { now: number },
   ): Promise<SkillPackRow | null>;
 
+  /** Record where a pack lives without a status change. Needed because
+   *  `ready -> ready` is not a legal transition, and a repair that already
+   *  copied the files still has to make `validate()` able to look. */
+  recordInstalledRef(id: string, installedRef: string): Promise<SkillPackRow | null>;
+
   remove(id: string): Promise<boolean>;
 
   // ─── Agent assignments ───

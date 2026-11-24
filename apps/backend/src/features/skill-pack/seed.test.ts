@@ -58,6 +58,25 @@ describe("seedSkillPacks", () => {
     expect(readFileSync(targetSkill, "utf-8")).toContain("# Test Skill");
   });
 
+  test("repairs a ready row whose directory disappeared", async () => {
+    const subDir = join(skillsSourceDir, "test-skill");
+    ensureDir(subDir);
+    writeFileSync(join(subDir, "SKILL.md"), "# Test Skill\n");
+
+    await seedSkillPacks({ port, dataDir, builtinSkillsDir: skillsSourceDir });
+    const target = join(dataDir, "skill-packs", BUILTIN_PACK_ID);
+    // The state found live (audit 2026-11-24): the row says ready, nothing is
+    // on disk, and installedRef is null so validate() cannot check anything.
+    rmSync(target, { recursive: true, force: true });
+
+    await seedSkillPacks({ port, dataDir, builtinSkillsDir: skillsSourceDir });
+
+    const { existsSync: exists } = await import("node:fs");
+    expect(exists(join(target, "test-skill", "SKILL.md"))).toBe(true);
+    const after = await port.get(BUILTIN_PACK_ID);
+    expect(after?.installedRef).toBe(target);
+  });
+
   test("is idempotent — second run is no-op", async () => {
     ensureDir(skillsSourceDir);
     writeFileSync(join(skillsSourceDir, "SKILL.md"), "x");
@@ -134,7 +153,10 @@ describe("seedSkillPacks", () => {
     await seedSkillPacks({ port, dataDir, builtinSkillsDir: skillsSourceDir });
 
     const builtin = await port.get(BUILTIN_PACK_ID);
-    expect(builtin?.status).toBe("installing"); // untouched by reaper
+    // The reaper must not mark builtin failed (that would hide a shipped pack);
+    // the seed itself finishes the interrupted install instead.
+    expect(builtin?.status).not.toBe("failed");
+    expect(builtin?.status).toBe("ready");
   });
 
   test("source dir missing: still registers builtin but logs error", async () => {
