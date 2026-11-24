@@ -61,7 +61,7 @@
 
 ## D. 安全与决策（需 ADR）
 
-1. [~] 代答硬拒绝：**不可逆已用字段实现**（`risk.irreversible` + `answerRefusal`）；超冻结授权 / 验收语义仍待 ADR
+1. [~] 代答硬拒绝：**不可逆已闭环**（ADR 0080：`agent_run.risk` 迁移 0069 → dispatch 声明 → 请求创建时带 `payload.risk`、owner 强制 user → `answerRefusal` 拒绝代理回答，共 8 条测试）。**超冻结授权 / 验收语义仍未做**，两者都改"谁能代答什么"，应同一份决策
 2. [x] 唤醒失败把 owner 转人（`escalateActionToUser` + 测试）
 3. [x] `agent_create` 改为**只提案**（填创建页表单，人按 Create）；直建只留在 HTTP 路由
 4. [ ] 验收证据与 `requirement` 状态绑定
