@@ -44,7 +44,7 @@
 ## B. 下一批（M1：派活与收货）
 
 1. [x] **执行单元折叠块**：一行显示目标、作者、改动文件数、最新交付、检查/互审深链；缺证据明示（前端 + 后端投影）
-2. [ ] **交付固定 base/head Diff 深链**（需要把交付 revision 写入交付事实，属结构性小功能）：复用 Project Diff，明确"历史交付 ≠ 当前副本"
+2. [x] **交付固定 revision 的 Diff**：`project_push` 记 `project_delivered{projectId,branch,commits,compareUrl}` 事件；未核验黄条带分支与 compare 链接：复用 Project Diff，明确"历史交付 ≠ 当前副本"
 3. [x] **交付黄条**：写明判据有限（`delivery-gate` 只判"另一成员完成且未改"），可回查 revision
 4. [ ] **Chat 索引页**空态引导（选择或新建）——已有描述与加载行，待补空态
 5. [x] 「refine here」虚构承诺：文案在**后端 goal 文本**里（不在前端），已改；上一轮的撤回作废
@@ -61,9 +61,9 @@
 
 ## D. 安全与决策（需 ADR）
 
-1. [ ] 代答硬拒绝：不可逆、超冻结授权、验收语义（现在只有空证据拒绝）
+1. [~] 代答硬拒绝：**不可逆已用字段实现**（`risk.irreversible` + `answerRefusal`）；超冻结授权 / 验收语义仍待 ADR
 2. [x] 唤醒失败把 owner 转人（`escalateActionToUser` + 测试）
-3. [ ] `agent_create` 服务内角色/人授权绑定，或改为只提案（当前护栏=不预同意 + 外层审批）
+3. [x] `agent_create` 改为**只提案**（填创建页表单，人按 Create）；直建只留在 HTTP 路由
 4. [ ] 验收证据与 `requirement` 状态绑定
 5. [ ] Policy 版本化与在途通知
 
