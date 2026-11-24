@@ -1,9 +1,15 @@
 "use client";
 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
 import { Page, PageBody, PageHeader } from "@/components/page";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useProjects, useRequirement } from "@/features/requirements/hooks";
+import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 /** ADR 0074: one requirement, assembled from linked facts — runs with their
  *  verification, open requests — never a copy of the chat. */
@@ -62,6 +68,21 @@ export default function RequirementDetailPage() {
     return hit?.name ?? detail.requirement.projectId;
   })();
 
+  const qc = useQueryClient();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const setStatus = useMutation({
+    mutationFn: (status: "done" | "cancelled") => api.updateRequirement(requirementId, { status }),
+    onSuccess: (_data, status) => {
+      toast.success(status === "done" ? t("Marked done") : t("Cancelled"));
+      void qc.invalidateQueries({ queryKey: ["requirements"] });
+      void qc.invalidateQueries({ queryKey: ["requirement", requirementId] });
+    },
+    onError: (err) =>
+      toast.error(t("Could not update the requirement"), {
+        description: err instanceof Error ? err.message : String(err),
+      }),
+  });
+
   if (isLoading || !detail) {
     return (
       <Page>
@@ -78,7 +99,46 @@ export default function RequirementDetailPage() {
     <Page>
       <PageHeader
         title={r.title}
-        description={`Status: ${detail.derivedStatus} (derived from records)`}
+        description={`${t("Status")}: ${detail.derivedStatus} · ${t("stored")}: ${r.status}`}
+        actions={
+          r.status === "open" ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  void confirm({
+                    title: t("Cancel this requirement?"),
+                    description: t("It leaves the list as cancelled. Runs and their records stay."),
+                    confirmText: t("Cancel requirement"),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) setStatus.mutate("cancelled");
+                  })
+                }
+              >
+                {t("Cancel")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void confirm({
+                    title: t("Mark this requirement done?"),
+                    description: t(
+                      "Records your decision against this work. The runs and their evidence stay as they are.",
+                    ),
+                    confirmText: t("Mark done"),
+                  }).then((ok) => {
+                    if (ok) setStatus.mutate("done");
+                  })
+                }
+              >
+                {t("Mark done")}
+              </Button>
+            </>
+          ) : null
+        }
       />
       <PageBody>
         {projectName !== null ? (
@@ -140,6 +200,7 @@ export default function RequirementDetailPage() {
           </section>
         </div>
       </PageBody>
+      {confirmDialog}
     </Page>
   );
 }
