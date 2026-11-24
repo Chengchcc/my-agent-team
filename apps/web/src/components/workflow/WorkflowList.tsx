@@ -30,6 +30,7 @@ import {
 import { ExecutionRowsList, type WorkflowExec } from "@/components/workflow/ExecutionRowsList";
 import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { executionStatus, statusClasses } from "@/lib/status";
 
 type Row = {
   workflowId: string;
@@ -297,18 +298,11 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
                         `/workflows/${d.workflowId}/executions/${d.lastExecution.executionId}`,
                       )
                     }
-                    className={`rounded-full px-1.5 py-0.5 transition-colors hover:ring-1 hover:ring-(--primary)/40 ${
-                      d.lastExecution.status === "success"
-                        ? "bg-(--primary)/10 text-(--primary)"
-                        : d.lastExecution.status === "failure"
-                          ? "bg-(--err)/10 text-(--err)"
-                          : "bg-(--panel2) text-(--mute)"
-                    }`}
+                    className={`rounded-full px-1.5 py-0.5 transition-colors hover:ring-1 hover:ring-(--primary)/40 ${statusClasses(executionStatus(d.lastExecution.status).tone)}`}
                     title={t("Open this execution")}
                   >
-                    {d.lastExecution.status === "waiting_human"
-                      ? "Awaiting confirmation"
-                      : d.lastExecution.status}
+                    {executionStatus(d.lastExecution.status).shape}{" "}
+                    {executionStatus(d.lastExecution.status).label}
                   </button>
                   <span>{new Date(d.lastExecution.createdAt).toLocaleString("en-US")}</span>
                   {d.lastExecution.terminalAt && d.lastExecution.createdAt && (

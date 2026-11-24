@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/duration";
 import { t } from "@/lib/i18n";
+import { executionStatus, statusClasses } from "@/lib/status";
 import { humanizeWorkflowError } from "./humanize-error";
 
 export type WorkflowExec = {
@@ -91,17 +92,9 @@ export function ExecutionRowsList({
                   </span>
                 )}
                 <span
-                  className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                    e.status === "success"
-                      ? "border-(--primary)/40 bg-(--primary)/10 text-(--primary)"
-                      : e.status === "failure"
-                        ? "border-(--err)/40 bg-(--err)/10 text-(--err)"
-                        : e.status === "waiting_human"
-                          ? "border-(--info)/40 bg-(--info)/10 text-(--info)"
-                          : "border-(--hairline) bg-(--panel2) text-(--mute)"
-                  }`}
+                  className={`rounded-full border px-2 py-0.5 text-[10px] ${statusClasses(executionStatus(e.status).tone)}`}
                 >
-                  {e.status === "waiting_human" ? "Awaiting confirmation" : e.status}
+                  {executionStatus(e.status).shape} {executionStatus(e.status).label}
                 </span>
                 {dur !== undefined && (
                   <span className="text-[10px] text-(--mute)">{formatDuration(dur)}</span>
