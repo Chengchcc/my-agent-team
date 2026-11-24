@@ -661,11 +661,17 @@ export default function TodayPage() {
               ) : visibleExecs.length === 0 ? (
                 <div className="flex items-center gap-2 text-xs text-(--mute)">
                   <CheckCircle2 className="size-4" />
-                  No workflow executions today.{" "}
-                  <Link href="/workflows" className="text-(--primary) hover:underline">
-                    Create a workflow
-                  </Link>{" "}
-                  to automate recurring work.
+                  {tab === "running"
+                    ? "Nothing is running right now."
+                    : "No workflow executions today."}{" "}
+                  {tab === "running" ? null : (
+                    <>
+                      <Link href="/workflows" className="text-(--primary) hover:underline">
+                        Create a workflow
+                      </Link>{" "}
+                      to automate recurring work.
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="divide-y divide-(--hairline)">

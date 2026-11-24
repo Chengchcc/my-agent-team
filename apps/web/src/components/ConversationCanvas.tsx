@@ -255,9 +255,12 @@ export function ConversationCanvas({
     return agents?.find((a) => a.id === primaryAgentId)?.harness;
   }, [agents, primaryAgentId]);
 
+  const [exporting, setExporting] = useState(false);
   const handleExport = useCallback(async () => {
     // A click that produces nothing is the worst outcome (a review measured
-    // it as "the download icon does nothing"): say so when it fails.
+    // it as "the download icon does nothing"): say so when it fails, and say
+    // it is working while the 17-second request runs.
+    setExporting(true);
     try {
       const md = await api.exportConversation(conversationId);
       const blob = new Blob([md], { type: "text/markdown" });
@@ -276,6 +279,8 @@ export function ConversationCanvas({
       toast.error("Export failed", {
         description: err instanceof Error ? err.message : "Unknown error",
       });
+    } finally {
+      setExporting(false);
     }
   }, [conversationId]);
 
@@ -400,7 +405,8 @@ export function ConversationCanvas({
               size="icon"
               className="size-7 "
               onClick={handleExport}
-              title={t("Export conversation")}
+              disabled={exporting}
+              title={exporting ? t("Exporting…") : t("Export conversation")}
             >
               <Download size={14} />
             </Button>

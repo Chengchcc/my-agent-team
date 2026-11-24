@@ -171,6 +171,7 @@ export function CodingPage() {
                               variant="ghost"
                               size="icon"
                               className="size-5 opacity-0 transition-opacity group-hover:opacity-100"
+                              aria-label={t("Close terminal (kills the process)")}
                               onClick={() => void requestClose(term)}
                             />
                           }
@@ -187,6 +188,7 @@ export function CodingPage() {
                         variant="ghost"
                         size="icon"
                         className="size-6"
+                        aria-label={t("New terminal in this worktree")}
                         onClick={() =>
                           spawn.mutate({
                             projectId: selected.projectId,
@@ -208,6 +210,7 @@ export function CodingPage() {
                         variant="ghost"
                         size="icon"
                         className={`ml-auto size-6 ${split ? "bg-zinc-800 text-zinc-100" : ""}`}
+                        aria-label={t("Toggle split view")}
                         onClick={() => setSplit((v) => !v)}
                       >
                         <Columns2Icon className="size-3.5" />

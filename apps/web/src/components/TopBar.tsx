@@ -44,13 +44,15 @@ function OnlinePill() {
       />
       {/* A number that is not measured yet is not shown: "…ms" reads as a
           measurement. Over two seconds the badge says so in the person's unit. */}
-      {online
-        ? ping.data === undefined
-          ? t("Online")
-          : ping.data >= 2000
-            ? t("Slow {ms}", { ms: (ping.data / 1000).toFixed(1) })
-            : t("Online {ms}ms", { ms: ping.data })
-        : t("Offline")}
+      {ping.isPending
+        ? t("Checking…")
+        : online
+          ? ping.data === undefined
+            ? t("Online")
+            : ping.data >= 2000
+              ? t("Slow {ms}", { ms: (ping.data / 1000).toFixed(1) })
+              : t("Online {ms}ms", { ms: ping.data })
+          : t("Offline")}
     </span>
   );
 }

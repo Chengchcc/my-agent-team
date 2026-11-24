@@ -205,4 +205,11 @@ export const zh: Record<string, string> = {
   "not valid": "校验未通过",
   "after validation": "校验后",
   "not validated": "未校验",
+  "Nothing is running right now.": "当前没有正在运行的东西。",
+  "Model: agent config": "模型：跟随成员设置",
+  "Checking…": "检测中……",
+  "Exporting…": "导出中……",
+  "This page failed to render": "这个页面渲染失败",
+  "The rest of the console still works.": "控制台的其余部分仍然可用。",
+  "Try again": "重试",
 };

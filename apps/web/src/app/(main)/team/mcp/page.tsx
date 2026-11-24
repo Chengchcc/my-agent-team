@@ -748,7 +748,7 @@ export default function McpCatalogPage() {
                   <EmptyState
                     icon={Plug}
                     title="No servers yet"
-                    description="Add your first MCP server with the Add Server button above."
+                    description="Add your first MCP server with the Connect Server button above."
                   />
                 </div>
               )}
