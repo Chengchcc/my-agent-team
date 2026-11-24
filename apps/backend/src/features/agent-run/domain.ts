@@ -82,6 +82,9 @@ export interface AgentRun {
   /** ADR 0047: why this run may run — `user`, `ambient:<ruleId>`,
    *  `dispatch:<fromAgentId>`, `system`. Null on rows predating the column. */
   readonly authorization: string | null;
+  /** ADR 0080: risk the dispatcher declared for this run's work. An approval
+   *  raised under `irreversible` belongs to the person, not to an agent. */
+  readonly risk: { readonly irreversible?: boolean } | null;
   /** ADR 0051: the run that dispatched THIS one, when a `dispatch:` chain
    *  produced it. One hop is enough — walking up repeats until null gives
    *  the origin. Null = no parent (human/rule/assessment/system). */

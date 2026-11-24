@@ -35,6 +35,8 @@ export interface AgentRunPort {
   acquireNextRun(branchId: string): Promise<AgentRun | null>;
   /** ADR 0074: stamp the requirement this run executes for. */
   setRequirementId?(runId: string, requirementId: string): void;
+  /** ADR 0080: stamp the risk the dispatcher declared for this run. */
+  setRunRisk?(runId: string, risk: { irreversible?: boolean }): void;
 
   /** CAS an input from `delivering` to `delivered`. Duplicate acceptance
    *  returns the already-delivered row. */

@@ -1007,6 +1007,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   const productTools = createProductToolsService({
     runPort: agentRunPort,
+    // ADR 0080: the dispatcher's risk rides the worker's run.
+    setRunRisk: (runId, risk) => agentRunPort.setRunRisk?.(runId, risk),
     contextPort,
     conversationPort: convPort,
     callPort: sqliteProductToolCallAdapter(db),
