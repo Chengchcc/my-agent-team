@@ -75,6 +75,9 @@ export const PRODUCT_CONSENTED_MCP_TOOLS: readonly string[] = [
   // 2026-11-21 the classifier parked the front desk on `team_list`, a read.
   "mcp__product-tools__team_list",
   "mcp__product-tools__project_list",
+  // Reading a project's members is what deciding to attach is made of; the
+  // attach itself stays gated (it changes team configuration).
+  "mcp__product-tools__project_detail",
   "mcp__product-tools__dispatch",
   "mcp__product-tools__steer_worker",
   "mcp__product-tools__cancel_worker",

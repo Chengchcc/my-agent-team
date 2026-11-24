@@ -187,6 +187,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         searchLedger: (keyword, limit, scope) =>
           deps.conversationSearch?.(keyword, limit, scope) ?? [],
         ...(deps.searchMemory ? { searchMemory: deps.searchMemory } : {}),
+        ...(deps.searchRequirements ? { searchRequirements: deps.searchRequirements } : {}),
       },
       { conversationId: run.conversationId, text: input.message.text ?? "" },
     ).catch((err) => {

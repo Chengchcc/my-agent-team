@@ -29,6 +29,17 @@ export interface RecallPorts {
     limit?: number,
     scope?: { conversationId?: string },
   ): ReadonlyArray<{ seq: number; ts: number; snippet: string }>;
+  /** ADR 0080: tracked work, recalled like memory. */
+  searchRequirements?(
+    query: string,
+    limit: number,
+  ): ReadonlyArray<{
+    requirementId: string;
+    title: string;
+    goal: string;
+    status: string;
+    at: number;
+  }>;
   /** ADR 0064: the front desk's long-term memory (workspace SQLite). */
   searchMemory?(input: { conversationId: string; query: string; limit: number }): Promise<
     ReadonlyArray<{
@@ -109,11 +120,12 @@ export async function collectRecall(
       listActions: (id) => ports.listActions(id),
       searchLedger: ports.searchLedger,
       ...(ports.searchMemory ? { searchMemory: ports.searchMemory } : {}),
+      ...(ports.searchRequirements ? { searchRequirements: ports.searchRequirements } : {}),
     },
     {
       // ADR 0064: memory joins the same fan-out; without a port it reports
       // skipped instead of pretending it was searched.
-      sources: ["qa", "history", "memory"],
+      sources: ["qa", "history", "memory", "requirement"],
       conversationId: input.conversationId,
       text: input.text,
     },

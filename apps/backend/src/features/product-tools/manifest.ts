@@ -282,6 +282,32 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
       entrypoint,
     },
     {
+      name: "project_detail",
+      description:
+        "Read one project with the members that hold it (repo, default branch, who is bound).",
+      inputSchema: {
+        type: "object",
+        properties: { project: { type: "string", description: "Project id or name" } },
+        required: ["project"],
+      },
+      entrypoint,
+    },
+    {
+      name: "project_attach",
+      description:
+        "Bind or unbind a member to a project. Changes team configuration; needs a human's approval.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "Project id or name" },
+          agent_id: { type: "string" },
+          attached: { type: "boolean", description: "true attaches (default), false detaches" },
+        },
+        required: ["project", "agent_id"],
+      },
+      entrypoint,
+    },
+    {
       name: "requirement_track",
       description:
         "Create or update a tracked work item (requirement) for a goal worth following: multiple turns, dispatch to team members, delivery and acceptance. NOT for one-shot Q&A.",
