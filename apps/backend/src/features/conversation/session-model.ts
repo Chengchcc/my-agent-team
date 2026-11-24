@@ -124,8 +124,14 @@ function orphanTurns(
     if ((row.agentRunId !== null && runIds.has(row.agentRunId)) || row.undone === true) continue;
     const revision = parseRevision(row.content);
     if (revision === null || shownAsInput.has(revision.messageId)) continue;
-    // A run's error bubble folds into that run's turn (errorPartsByRun).
-    if (revision.messageId.startsWith("run:")) continue;
+    // A run's error bubble folds into that run's turn (errorPartsByRun); the
+    // other `run:` rows are ordinary assistant/tool messages. Skipping the
+    // whole prefix dropped them from every forked room — the common case, not
+    // an edge: 811 assistant and 679 tool rows carry it (audit 2026-11-24).
+    if (revision.messageId.startsWith("run:") && revision.messageId.endsWith(":error")) continue;
+    // In a room that still has the run, its turn already carries these rows.
+    const messageRunId = runIdOfRunMessage(revision.messageId);
+    if (messageRunId !== undefined && runIds.has(messageRunId)) continue;
     const message = revisionToMessage(revision);
     if (message.role === "user" || open() === undefined) {
       drafts.push({
@@ -147,6 +153,13 @@ function orphanTurns(
     }
   }
   return drafts.map(({ turn, parts }) => ({ ...turn, parts }));
+}
+
+/** `run:<runId>:<kind>[:<n>]` → the run id; anything else → undefined. */
+function runIdOfRunMessage(messageId: string): string | undefined {
+  if (!messageId.startsWith("run:")) return undefined;
+  const parts = messageId.split(":");
+  return parts.length >= 3 ? parts[1] : undefined;
 }
 
 function parseRevision(
