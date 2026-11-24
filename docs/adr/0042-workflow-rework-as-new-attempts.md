@@ -72,7 +72,7 @@ P1 DSL：边类型 + budget 校验（parse/graph 纯函数 + 测试，无后端�
 P2 引擎：尝试序号、下游失效集合、rework 上下文注入（纯域 + 测试）            ✓
 P3 服务：追加行、预算耗尽两条出口（fail / waiting_human grant）、事件与 DTO   ✓
 P4 呈现：时间线按尝试分组、grant 卡与端点                                    ✓
-P5 文档：DSL 手册（skills/agentic-workflow-dsl/SKILL.md）与架构页同步        ✓
+P5 文档：DSL 手册（skills/workflow_design/SKILL.md）与架构页同步        ✓
 ```
 
 实现笔记：返工状态不额外持久化——「源行与目标行的最新一行都是 `superseded`」即
@@ -84,4 +84,4 @@ P5 文档：DSL 手册（skills/agentic-workflow-dsl/SKILL.md）与架构页同�
 - [Workflow 架构页](../architecture/workflow.md) — 现行 DSL 与引擎
 - [ADR 0025](0025-loop-workflow-first-execution.md) — Loop（已删，与本 ADR 无关，仅避免重号混淆）
 - issue #79 — 需求来源与对照（botmux 的 `loop` / `revisit`）
-- `skills/agentic-workflow-dsl/SKILL.md` — 生成侧；P5 必须同步，否则模型会继续生成没有返工的表达
+- `skills/workflow_design/SKILL.md` — 生成侧；P5 必须同步，否则模型会继续生成没有返工的表达

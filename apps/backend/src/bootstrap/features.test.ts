@@ -217,7 +217,7 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
   // .mcp.json. The workflow server must be in the DEFAULT enabled set: it is
   // the only read path into <dataDir>/workflows for a run (the file tools are
   // sandboxed to the agent workspace), so dropping it silently kills the
-  // workflow-editor chat and the agentic-workflow-dsl skill.
+  // workflow-editor chat and the workflow_design skill.
   const workspace = `${dir}/agents/default`;
   expect(existsSync(`${workspace}/.oma/skills`)).toBe(true);
   const mcp = JSON.parse(readFileSync(`${workspace}/.mcp.json`, "utf8")) as {

@@ -1,5 +1,5 @@
 ---
-name: subagent-fanout
+name: agent_fanout
 description: >
   Delegate work to subagents (task batch fan-out) and write/run
   workflow_run orchestration scripts for large-scale subagent tasks:

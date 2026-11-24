@@ -1,5 +1,5 @@
 ---
-name: agent-doctor
+name: agent_doctor
 description: >
   Inspect another agent's workspace and memory when it keeps misbehaving:
   read its workspace files (MEMORY/notes/config), summarize what its
