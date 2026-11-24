@@ -1076,10 +1076,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       return { ok: true as const };
     },
     onRequestCreated: (input) => {
-      void surfaceRequest(input).catch((err: unknown) => {
+      void surfaceRequest(input).catch(async (err: unknown) => {
         console.error(
           `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
         );
+        // The machine route (the owner agent) could not be told, so it will
+        // never answer: hand the question to the person instead of leaving an
+        // orphan in the inbox that reads as "the agent is on it".
+        await agentRunPort
+          .escalateActionToUser?.(pendingActionId(input.runId, input.callId))
+          .catch(() => undefined);
       });
     },
     // ADR 0076: hand the change back. Credential from the backend's env only;
@@ -2185,10 +2191,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // ADR 0075: a request just parked - surface it to its owner (this closure
     // is defined above and dereferences late bindings at request time).
     onRequestCreated: (input) => {
-      void surfaceRequest(input).catch((err: unknown) => {
+      void surfaceRequest(input).catch(async (err: unknown) => {
         console.error(
           `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
         );
+        // The machine route (the owner agent) could not be told, so it will
+        // never answer: hand the question to the person instead of leaving an
+        // orphan in the inbox that reads as "the agent is on it".
+        await agentRunPort
+          .escalateActionToUser?.(pendingActionId(input.runId, input.callId))
+          .catch(() => undefined);
       });
     },
     workspaceLocks,

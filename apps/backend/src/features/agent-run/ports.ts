@@ -215,4 +215,8 @@ export interface AgentRunPort {
     answeredBy: string,
     evidence: readonly string[],
   ): Promise<void>;
+  /** Hand a question to the person because the machine route failed (no live
+   *  resolver to wake). Without this the request stayed owned by an agent that
+   *  could never answer it, and the failure existed only in a log line. */
+  escalateActionToUser?(actionId: string): Promise<void>;
 }
