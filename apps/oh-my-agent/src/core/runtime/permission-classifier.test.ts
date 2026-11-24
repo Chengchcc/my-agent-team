@@ -287,6 +287,14 @@ describe("classifyPermissionAction", () => {
   });
 });
 
+/** Resolves when the signal aborts (at once if it already has). */
+function aborted(signal: AbortSignal | undefined): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    signal?.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
+
 describe("a classifier that never answers", () => {
   test("says it timed out, with the budget and the model, not 'model call aborted'", async () => {
     // live 2026-11-23: the message "classifier unavailable: model call aborted"
@@ -296,14 +304,19 @@ describe("a classifier that never answers", () => {
       input: { command: "ls" },
       userTexts: ["look around"],
       timeoutMs: 20,
-      stream: (_messages, signal) =>
-        (async function* () {
-          await new Promise<void>((resolve) => {
-            if (signal?.aborted) return resolve();
-            signal?.addEventListener("abort", () => resolve(), { once: true });
-          });
-          if (signal?.aborted) throw new Error("model call aborted");
-        })(),
+      // A stream that answers only when its signal aborts (an async iterable,
+      // not a generator: eslint's require-yield has no patience for a
+      // generator that never yields).
+      stream: (_messages, signal) => ({
+        [Symbol.asyncIterator]() {
+          return {
+            next: () =>
+              aborted(signal).then(() => {
+                throw new Error("model call aborted");
+              }),
+          };
+        },
+      }),
     });
     expect(verdict.verdict).toBe("block");
     expect(verdict.reason).toContain("classifier timed out after 20ms");

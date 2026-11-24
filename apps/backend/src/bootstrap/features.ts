@@ -2015,7 +2015,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   }): Promise<{ root: string; access: "read_write" }> => {
     const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
     const convRow = conv.convPort.getConversation(input.conversationId);
-    let { requirementId, projectId } = checkoutOf(input.conversationId);
+    let { requirementId } = checkoutOf(input.conversationId);
+    const { projectId } = checkoutOf(input.conversationId);
     if (projectId !== null && requirementId === null) {
       const project = projectSvc.getById(projectId);
       const title =
@@ -2453,7 +2454,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
    *  agent-tampered .mcp.json is always overwritten from this source of
    *  truth before the next spawn mounts it. */
   async function bridgeMcpServers(agentId: string): Promise<McpServerEntry[]> {
-    const agent = await agentSvc.getById(agentId);
+    // Fail loudly on an unknown agent: the bridge is the single author of the
+    // workspace .mcp.json, and an empty server list for a real agent would
+    // silently strip its tools.
+    await agentSvc.getById(agentId);
     return [
       ...(await mcpSvc.listForAgent(agentId)).map((s) => ({
         name: s.name,
