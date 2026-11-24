@@ -10,6 +10,7 @@ import { useAgentList } from "@/features/agents/hooks";
 import { agentRunsQuery } from "@/features/ops/queries";
 import { buildDispatchTree, type DispatchNode } from "@/lib/dispatch-tree";
 import { t } from "@/lib/i18n";
+import { badgeVariantFor, executionStatus } from "@/lib/status";
 
 /** The execution side of one dispatched request, folded under the message that
  *  caused it (ADR 0060 D3).
@@ -96,8 +97,8 @@ function DispatchBlock({
                 <span className="font-medium text-(--ink)">
                   {names.get(n.agentId) ?? n.agentId}
                 </span>
-                <Badge variant={tone(n.status)} className="text-[10px]">
-                  {n.status}
+                <Badge variant={badgeVariantFor(lookOf(n.status).tone)} className="text-[10px]">
+                  {lookOf(n.status).shape} {lookOf(n.status).label}
                 </Badge>
                 {n.verdict === "fail" ? (
                   <span className="text-(--err)">a tool reported an error</span>
@@ -133,8 +134,8 @@ function DispatchBlock({
   );
 }
 
-function tone(status: string): "default" | "secondary" | "destructive" {
-  if (status === "completed") return "default";
-  if (status === "failed" || status === "aborted" || status === "timeout") return "destructive";
-  return "secondary";
+/** One vocabulary for execution state (see lib/status): the badge variant and
+ *  the word/shape both come from it, so this panel cannot drift from the rest. */
+function lookOf(status: string) {
+  return executionStatus(status);
 }
