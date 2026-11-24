@@ -40,6 +40,7 @@ import { AcpBackend } from "../features/agent-run/acp/acp-backend.js";
 import { probeHarnessCatalog } from "../features/agent-run/acp/harness-catalog.js";
 import { AcpModelCatalog } from "../features/agent-run/acp/model-catalog.js";
 import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
+import { answerRefusal } from "../features/agent-run/answer-guard.js";
 import { deliveryNoteOf, producedByEvent } from "../features/agent-run/delivery-gate.js";
 import { pendingActionId } from "../features/agent-run/domain.js";
 import { finalAnswerMessage } from "../features/agent-run/execution-input.js";
@@ -1045,15 +1046,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     answerWorkerRequest: async ({ agentId, runId, callId, decision, answer, evidence }) => {
       const actionId = pendingActionId(runId, callId);
       const action = await agentRunPort.getPendingAction(actionId);
-      if (action === null || action.status !== "pending") {
+      if (action === null) {
         return { ok: false as const, error: `request ${callId} is no longer pending` };
       }
-      if (action.owner !== `agent:${agentId}`) {
-        return {
-          ok: false as const,
-          error: `request ${callId} is owned by ${action.owner ?? "user"}, not you`,
-        };
-      }
+      // One rule, shared with the tool's shape checks (see answer-guard).
+      const refusal = answerRefusal(
+        {
+          actionId: callId,
+          status: action.status,
+          owner: action.owner ?? null,
+          payload: action.payload,
+        },
+        agentId,
+      );
+      if (refusal !== undefined) return { ok: false as const, error: refusal };
       if (action.kind === "approval") {
         if (decision === undefined) {
           return { ok: false as const, error: "an approval needs decision: allow | deny" };
@@ -1140,6 +1146,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           ...(config.projectPushToken !== undefined ? { token: config.projectPushToken } : {}),
           ...(named.defaultBranch !== null ? { defaultBranch: named.defaultBranch } : {}),
           ...(agent.config.name ? { agent: agent.config.name } : {}),
+        });
+        // The delivery's fixed revision, as a fact (not as prose the model may
+        // paraphrase): a person reviewing later reads the branch and the
+        // provider's base...branch comparison for THIS run (audit 2026-11-24).
+        services.opsStore.appendRunEvent(runId, "project_delivered", {
+          projectId: named.projectId,
+          branch: pushed.branch,
+          commits: pushed.commits,
+          compareUrl: pushed.compareUrl,
         });
         return { ok: true as const, ...pushed };
       } catch (err) {
@@ -2353,6 +2368,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           services.opsStore
             .listRunEvents(runId, 2000)
             .some((e) => producedByEvent(JSON.stringify(e))),
+        deliveryOf: (runId) => {
+          const event = services.opsStore
+            .listRunEvents(runId, 2000)
+            .find((e) => e.type === "project_delivered");
+          if (event === undefined) return undefined;
+          const data = event.data as { branch?: unknown; compareUrl?: unknown };
+          if (typeof data.branch !== "string") return undefined;
+          return {
+            branch: data.branch,
+            compareUrl: typeof data.compareUrl === "string" ? data.compareUrl : null,
+          };
+        },
       });
       console.log(
         `[delivery-gate] run=${run.runId.slice(0, 12)} dispatched=${recent.length} → ${note ?? "verified"}`,

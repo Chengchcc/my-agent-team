@@ -29,6 +29,12 @@ export interface DeliveryGateInput {
   readonly runs: readonly DeliveryGateRun[];
   /** Did this run use a tool that changes the workspace? */
   readonly produced: (runId: string) => boolean;
+  /** The delivered branch and its provider comparison URL, when this run
+   *  pushed one. A person reviewing an unverified delivery should not have to
+   *  hunt the conversation for the revision (audit 2026-11-24). */
+  readonly deliveryOf?: (
+    runId: string,
+  ) => { branch: string; compareUrl: string | null } | undefined;
 }
 
 /** Tools that change the workspace. A producer is any run that used one —
@@ -64,9 +70,14 @@ export function deliveryNoteOf(input: DeliveryGateInput): string | undefined {
       !input.produced(run.runId),
   );
   if (verified) return undefined;
+  const delivered = input.deliveryOf?.(last.runId);
+  const review =
+    delivered === undefined
+      ? ""
+      : `\n  交付：${delivered.branch}${delivered.compareUrl === null ? "" : ` · 对比 ${delivered.compareUrl}`}`;
   // Say what the judgement CAN see: another member finished a run afterwards
   // without changing files. It does not see what that member read, nor whether
   // their conclusion holds — so a missing note is not a pass either
   // (independent audit, 2026-11-24).
-  return "⚑ 核验：没有第二个成员核对过这份改动——本轮交付未经核验。（判据：只认「另一成员在其之后完成且未改文件」；不判断他读了什么、结论是否成立。）";
+  return `⚑ 核验：没有第二个成员核对过这份改动——本轮交付未经核验。（判据：只认「另一成员在其之后完成且未改文件」；不判断他读了什么、结论是否成立。）${review}`;
 }
