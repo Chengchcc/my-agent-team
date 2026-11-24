@@ -90,7 +90,7 @@ function NavContent() {
 
   // Quick-create agent resolution: default → first enabled (never a dead id).
   const { data: agents } = useAgentList() as { data?: AgentRow[] };
-  const { data: conversations } = useAllConversations();
+  const { data: conversations, isLoading: conversationsLoading } = useAllConversations();
   // Loop/Cron conversations belong in Work, not Chat — exclude them from the rail.
   const chatConversations = (conversations ?? []).filter(
     (c) => "origin" in c && c.origin !== "loop" && c.origin !== "cron" && c.origin !== "workflow",
@@ -283,7 +283,9 @@ function NavContent() {
           </Button>
         </SidebarGroupLabel>
         <SidebarGroupContent>
-          {chatConversations.length === 0 ? (
+          {conversationsLoading ? (
+            <p className="text-xs text-muted-foreground px-2">{t("Loading…")}</p>
+          ) : chatConversations.length === 0 ? (
             <p className="text-xs text-muted-foreground px-2">{t("No conversations yet")}</p>
           ) : (
             <div ref={chatScrollRef} className="max-h-[min(44vh,600px)] overflow-y-auto">

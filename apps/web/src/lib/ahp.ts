@@ -38,13 +38,25 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
   const runOnce = async (): Promise<void> => {
     const request = deps.fetchTicket ?? defaultFetchTicket;
     const { ticket, wsBase } = await request();
+    // A ticket request is a network round trip: the surface can be gone before
+    // it answers. Connecting anyway left a live socket and subscription that
+    // nothing would ever shut down (close() had already run and found no
+    // client to stop) — measured with a deterministic probe, audit 2026-11-24.
+    if (closed) return;
     const transport = (deps.transportFactory ?? createWebSocketTransport)(
       `${wsBase}/ws/ahp?ticket=${encodeURIComponent(ticket)}`,
     );
     const client = (deps.clientFactory ?? ((t: AhpTransport) => new AhpClient(t)))(transport);
     active = client;
+    if (closed) return;
     client.connect();
 
+    // Same window again: initialize is awaited before the first snapshot.
+    if (closed) {
+      void client.shutdown().catch(() => undefined);
+      active = undefined;
+      return;
+    }
     const init = await client.initialize({
       clientId: deps.clientId ?? "web",
       protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],

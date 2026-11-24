@@ -504,7 +504,13 @@ export function ConversationCanvas({
         {/* Main scroll area */}
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-w-0 overflow-y-auto">
           <div className="mx-auto max-w-[min(760px,100%)] w-full p-6  pb-40">
-            {items.length === 0 ? (
+            {items.length === 0 && streamConn !== "open" ? (
+              // The subscription is the history. Until its first snapshot
+              // arrives "start the conversation" is a claim about a room we
+              // have not read yet — the console said it for ten seconds on a
+              // room with 400 messages (audit 2026-11-24).
+              <p className="px-1 py-8 text-sm text-(--mute)">{t("Loading…")}</p>
+            ) : items.length === 0 ? (
               <div className="flex flex-col items-start justify-center py-24">
                 {primaryAgent && (
                   <h1 className="font-display text-2xl font-semibold tracking-tight text-(--ink-strong) mb-3">

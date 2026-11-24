@@ -73,6 +73,13 @@ export interface ConvState {
   pendingSendCount: number;
   /** W7: Monotonic sequence number for client-generated message IDs. */
   optimisticSeq: number;
+  /** Human messages canonical held when the oldest un-echoed send was made.
+   *  The echo is a *new* human message, so "more than this many" is what tells
+   *  the overlay its send landed. The old test ("canonical has any human
+   *  message") dropped every send in a room that already had history — the
+   *  message never appeared until the projection caught up (audit
+   *  2026-11-24). */
+  echoBaseline: number | null;
 }
 
 export type Action =
@@ -83,7 +90,6 @@ export type Action =
   | { type: "conn"; status: StreamConn }
   | { type: "continuation"; control: SurfaceControl; live: boolean }
   | { type: "send/error"; message: string }
-  | { type: "member"; seq: number; kind: string; payload: unknown }
   | {
       /** A settled message from the conversation's timeline.
        *  role is the authorship discriminator: user → viewer side,
@@ -115,6 +121,7 @@ export function initialState(): ConvState {
     error: null,
     pendingSendCount: 0,
     optimisticSeq: 0,
+    echoBaseline: null,
   };
 }
 
@@ -264,17 +271,20 @@ function segmentSenderOf(seg: TurnSegment): SenderRef {
 
 // ─── Reducer ───────────────────────────────────────────────
 
+function humanCountOf(items: readonly UiItem[]): number {
+  return items.filter((item) => item.kind === "message" && item.sender.kind === "human").length;
+}
+
 /** Derive the rendered list: canonical wholesale, plus overlay entries the
  *  projection has not echoed yet (same id = the echo won, overlay goes). */
 function reconcile(state: ConvState): ConvState {
   const canonicalIds = new Set(state.canonical.map((item) => item.id));
   // The optimistic send's id (opt-…) never equals its echo's (the ledger's
   // messageId), so id-collision alone cannot collapse it: a committed user
-  // turn in canonical IS the echo. Bursts collapse together on the first
-  // echo — the same one-beat imprecision the old latest-opt rule had.
-  const echoed = state.canonical.some(
-    (item) => item.kind === "message" && item.sender.kind === "human",
-  );
+  // turn in canonical IS the echo. Counting is what makes that true in a room
+  // that already has history — see echoBaseline. Bursts collapse together on
+  // the first echo (ponytail: one beat of imprecision, same as before).
+  const echoed = state.echoBaseline !== null && humanCountOf(state.canonical) > state.echoBaseline;
   const overlay = state.overlay.filter((item) => {
     if (
       item.kind === "message" &&
@@ -300,7 +310,7 @@ function reconcile(state: ConvState): ConvState {
       items.push(item);
     }
   }
-  return { ...state, overlay, items };
+  return { ...state, overlay, items, echoBaseline: echoed ? null : state.echoBaseline };
 }
 
 export function reducer(s: ConvState, a: Action): ConvState {
@@ -374,6 +384,7 @@ export function reducer(s: ConvState, a: Action): ConvState {
       return reconcile({
         ...s,
         pendingSendCount: s.pendingSendCount + 1,
+        echoBaseline: s.echoBaseline ?? humanCountOf(s.canonical),
         overlay: [
           ...s.overlay,
           {
@@ -397,10 +408,16 @@ export function reducer(s: ConvState, a: Action): ConvState {
       };
 
     case "send/error":
-      return {
+      // The send never landed, so no echo will come: holding the optimistic
+      // bubble and its baseline would hide the next send's echo test.
+      return reconcile({
         ...s,
         error: a.message,
-      };
+        echoBaseline: null,
+        overlay: s.overlay.filter(
+          (item) => !(item.kind === "message" && item.id.startsWith("opt-")),
+        ),
+      });
 
     default:
       return s;
