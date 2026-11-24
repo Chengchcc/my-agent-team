@@ -19,6 +19,7 @@ import {
 import { useProjectList } from "@/features/projects/hooks";
 import { type AgentRow, getForkSourceId } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
+import { t } from "@/lib/i18n";
 
 function relativeTime(ts: number | null | undefined): string {
   if (!ts) return "";
@@ -111,6 +112,7 @@ export default function ChatOverviewPage() {
       <Page>
         <PageHeader breadcrumb={[{ label: "Chat" }]} title="Chat" />
         <PageBody size="reading">
+          <p className="mb-3 text-xs text-(--mute)">{t("Loading conversations…")}</p>
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
               <div key={i} className="animate-pulse h-16 bg-(--canvas-soft) rounded-lg" />

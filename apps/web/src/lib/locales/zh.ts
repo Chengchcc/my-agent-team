@@ -221,4 +221,9 @@ export const zh: Record<string, string> = {
   "across buckets": "跨分组合计",
   "Following live": "实时跟随",
   Paused: "已暂停",
+  Finished: "已完成",
+  Ended: "已结束",
+  "Tell Personal Agent the goal — it dispatches to the team and comes back only when it needs you.":
+    "把目标告诉 Personal Agent——它派给团队，只在需要你时回来问。",
+  "Loading conversations…": "正在加载会话……",
 };

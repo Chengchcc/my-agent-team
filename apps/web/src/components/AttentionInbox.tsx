@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
 import { attentionQuery } from "@/features/runs/queries";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 /** ADR 0061: the debt list, not the work list.
  *
@@ -89,6 +90,13 @@ export function AttentionInbox() {
 
   return (
     <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
+      {/* The product's own sentence, at the place a person looks first: what
+          this screen is for and who does the work (product audit, 2026-11-24). */}
+      <p className="mb-3 text-xs text-(--mute)">
+        {t(
+          "Tell Personal Agent the goal — it dispatches to the team and comes back only when it needs you.",
+        )}
+      </p>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="font-mono text-[10px] uppercase tracking-kicker text-(--mute)">Inbox</h2>
         <Badge variant={awaitingYou.some((a) => !a.seen) ? "default" : "secondary"}>{total}</Badge>
@@ -136,8 +144,12 @@ export function AttentionInbox() {
           {unread.map((r) => (
             <Row
               key={r.runId}
-              title={`${r.status === "completed" ? "Finished" : "Ended"}: ${agentName(r.agentId)}`}
-              detail={new Date(r.terminalAt).toLocaleTimeString()}
+              title={
+                r.title
+                  ? r.title
+                  : `${r.status === "completed" ? t("Finished") : t("Ended")}: ${agentName(r.agentId)}`
+              }
+              detail={`${agentName(r.agentId)} · ${new Date(r.terminalAt).toLocaleTimeString()}`}
               href={`/chat/${r.conversationId}`}
               onOpen={() => seen.mutate({ runId: r.runId })}
               highlight

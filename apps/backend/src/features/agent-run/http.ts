@@ -417,13 +417,15 @@ export function agentRunRoutes(input: {
         }>;
         const unread = db
           .query(
-            `SELECT run_id, conversation_id, agent_id, status, terminal_at
-             FROM agent_run
-            WHERE terminal_at IS NOT NULL
-              AND result_notified_at IS NOT NULL
-              AND result_seen_at IS NULL
-            ORDER BY terminal_at DESC
-            LIMIT 50`,
+            `SELECT r.run_id, r.conversation_id, r.agent_id, r.status, r.terminal_at,
+                    c.title AS conversation_title
+               FROM agent_run r
+               LEFT JOIN conversation c ON c.conversation_id = r.conversation_id
+              WHERE r.terminal_at IS NOT NULL
+                AND r.result_notified_at IS NOT NULL
+                AND r.result_seen_at IS NULL
+              ORDER BY r.terminal_at DESC
+              LIMIT 50`,
           )
           .all() as Array<{
           run_id: string;
@@ -431,6 +433,7 @@ export function agentRunRoutes(input: {
           agent_id: string;
           status: string;
           terminal_at: number;
+          conversation_title: string | null;
         }>;
         return {
           awaitingYou: awaitingYou.map((r) => ({
@@ -466,6 +469,10 @@ export function agentRunRoutes(input: {
             agentId: r.agent_id,
             status: r.status,
             terminalAt: r.terminal_at,
+            // Three finishes by the same member used to read identically
+            // ("Finished: Coder"). The room's title says which work it was
+            // (audit 2026-11-24).
+            title: r.conversation_title,
           })),
         };
       })
