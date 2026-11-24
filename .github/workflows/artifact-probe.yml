@@ -78,7 +78,6 @@ jobs:
             BACKEND_DATA_DIR=/tmp/gateway-data/backend \
             BACKEND_MIGRATIONS_DIR=/tmp/gateway/backend/drizzle/backend \
             BACKEND_RESOURCES_DIR=/tmp/gateway/resources \
-            KNOWLEDGE_MCP_SERVER_BIN=/tmp/gateway/backend/knowledge-mcp.js \
             OMA_BIN="$GITHUB_WORKSPACE/apps/oh-my-agent/dist/cli.js" \
             ANTHROPIC_AUTH_TOKEN=mock-key \
             ANTHROPIC_BASE_URL=http://127.0.0.1:8099/v1 \

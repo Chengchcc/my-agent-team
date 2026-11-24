@@ -35,3 +35,8 @@
   需要向量时，在 wiki 上加，而不是恢复第二套知识。
 - `agent_config` 提案的 payload 里可能仍带 `knowledge_packs`；应用时忽略未知字段
   （`agentUpdateFromConfig` 只映射已知键）。
+- 发布链路要一起清：`scripts/pack-gateway.sh` 曾打包 `features/knowledge/mcp-server.ts`
+  并在启动清单里写 `KNOWLEDGE_MCP_SERVER_BIN`，`.github/workflows/artifact-probe.yml` 也
+  设过它。源文件删除后这两处成了悬空引用（打包器会在 `bun build` 处失败），已移除；
+  打包器在端口空闲时端到端跑通（boot smoke ok）。ADR 0022 的知识包一半由此取代，
+  MCP catalog 一半仍有效。
