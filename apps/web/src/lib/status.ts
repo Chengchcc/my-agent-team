@@ -53,3 +53,20 @@ export function badgeVariantFor(
   if (tone === "ok" || tone === "live") return "default";
   return "secondary";
 }
+
+/** Colour classes for a tone. One mapping, so "success" cannot be cyan on one
+ *  page and green on another (audit 2026-11-24 found exactly that). */
+export function statusClasses(tone: StatusTone): string {
+  switch (tone) {
+    case "ok":
+      return "border-(--ok)/40 bg-(--ok)/10 text-(--ok)";
+    case "err":
+      return "border-(--err)/40 bg-(--err)/10 text-(--err)";
+    case "warn":
+      return "border-(--warn)/40 bg-(--warn)/10 text-(--warn)";
+    case "live":
+      return "border-(--primary)/40 bg-(--primary)/10 text-(--primary)";
+    default:
+      return "border-(--hairline) bg-(--panel2) text-(--mute)";
+  }
+}

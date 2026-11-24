@@ -22,7 +22,7 @@ export function pendingActionsQuery() {
 export function attentionQuery() {
   return queryOptions({
     queryKey: ["attention"],
-    queryFn: () => api.attention(),
+    queryFn: ({ signal }) => api.attention(signal),
     refetchInterval: 30_000,
   });
 }
