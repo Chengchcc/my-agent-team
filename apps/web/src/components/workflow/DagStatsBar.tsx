@@ -76,7 +76,7 @@ export function DagStatsBar({
             <span
               className={`size-1.5 rounded-full ${streaming ? "bg-(--ok) animate-pulse" : "bg-(--faint)"}`}
             />
-            {streaming ? "stream active" : "stream paused"}
+            {streaming ? "Following live" : "Paused"}
           </button>
         )}
       </div>

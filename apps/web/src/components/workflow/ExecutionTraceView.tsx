@@ -43,6 +43,9 @@ export type TraceExecution = {
   exit?: string;
   error?: string;
   createdAt: number;
+  /** Real end of the run (the backend row carries it; this type used to omit
+   *  it and the view invented `createdAt + 90s`). */
+  terminalAt?: number;
 };
 
 function replayStore(events: TraceEvent[], upto: number): Record<string, unknown> {
@@ -58,11 +61,13 @@ function replayStore(events: TraceEvent[], upto: number): Record<string, unknown
   return store;
 }
 
-/** `2s` / `1m 05s` / `0.4s` — run duration from created to now-or-terminal.
- *  (Backend doesn't expose terminalAt on the trace view; a terminal run is
- *  rendered as a short fixed window past created for display parity.) */
-function fmtDuration(createdAt: number, terminal: boolean): string {
-  const ms = Math.max(0, (terminal ? createdAt + 90_000 : Date.now()) - createdAt);
+/** `2s` / `1m 05s` / `0.4s` — created → now, or created → terminalAt. A
+ *  terminal run with no recorded end says so; the old version printed
+ *  `createdAt + 90s`, which is why the list said 0s and this page 1m30s for
+ *  the same execution (audit 2026-11-24). */
+function fmtDuration(createdAt: number, terminalAt: number | undefined): string {
+  if (terminalAt === undefined) return "—";
+  const ms = Math.max(0, terminalAt - createdAt);
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -129,6 +134,7 @@ export function ExecutionTraceView({
   // same rows the stream replayed, so the scrubber and the console read one list either way; the
   // route is refreshed only when something outside them moved (a gate opened, the run ended).
   const terminal = ["success", "failure", "custom"].includes(execution.status);
+  const endMs = terminal ? execution.terminalAt : undefined;
   useEffect(() => {
     if (terminal) return;
     let stopped = false;
@@ -164,7 +170,9 @@ export function ExecutionTraceView({
   const [followLive, setFollowLive] = useState(true);
   // Stream toggle drives the same live subscription; when paused, the console
   // stops appending (the replay index stays put).
-  const streamEnabled = followLive;
+  // A finished execution has nothing left to follow: the badge said "stream
+  // active" in green over a failure (audit 2026-11-24).
+  const streamEnabled = followLive && !terminal;
 
   const nodeStatus = useMemo(() => {
     const done = new Set<string>();
@@ -340,7 +348,9 @@ export function ExecutionTraceView({
               <span>
                 Duration{" "}
                 <span suppressHydrationWarning className="text-(--ink-strong)">
-                  {fmtDuration(execution.createdAt, terminal)}
+                  {terminal
+                    ? fmtDuration(execution.createdAt, endMs)
+                    : fmtDuration(execution.createdAt, Date.now())}
                 </span>{" "}
                 <span className="text-(--faint)">({terminal ? "Terminal" : "Active"})</span>
               </span>
