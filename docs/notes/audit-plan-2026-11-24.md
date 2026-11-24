@@ -93,6 +93,14 @@
 | 验收证据绑定 | 人点"完成"时把当前 run/artifact 引用写进 requirement | 规则化自动验收 | 只做 A；自动验收需要人预先定义规则（审计明确反对自报完成） |
 | Policy 版本化 | 每次派单冻结 `configRevision` 的真实版本号（现在恒为 1） | 引入完整 Policy 对象 | 先做 A（当前恒 1 是假版本号），完整 Policy 等真实需求 |
 
-## 8. 本轮补充
+## 8. 平台操作交给 PA（2026-11-24 追加）
+
+- MCP：`project_detail`（读，预同意）、`project_attach`（写，需批准）；`project_list` / `team_list` / `requirement_query` 已有。
+- 需求成为可**召回**的工作：`requirement` 进入统一召回（与 memory 同一条路），避免重复开项。
+- 自动开需求只发生在 **worker** 的 run（前台问答不再留垃圾行）。
+- Skills 统一 `<domain>_<action>`：`skills_about` / `agent_doctor` / `workflow_design` / `agent_fanout` / `project_manage` / `member_manage` / `requirement_memory`。
+- builtin 包修复：目标目录缺失会重装并写 `installedRef`（线上 `ok=true, skills=7`）。
+
+## 9. 本轮补充
 
 - 代答更正时**保留原答者**：`answer_corrected` ops 事件记录 `originalAnsweredBy` 与 `originalEvidence`（否则更正后行里只剩 `user`，G2 的分母丢失）。没有专门的单测，靠 tsc + 人工核对事件写入点。
