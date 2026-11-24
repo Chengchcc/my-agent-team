@@ -274,7 +274,7 @@ export default function TodayPage() {
   const [definitions, setDefinitions] = useState<DefinitionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabFilter>("all");
-  const { data: runs } = useAgentRuns();
+  const { data: runs, isLoading: runsLoading } = useAgentRuns();
   const qc = useQueryClient();
   const { data: hitlActions = [] } = useQuery(pendingActionsQuery());
   const telemetry = useTelemetrySummary();
@@ -433,34 +433,44 @@ export default function TodayPage() {
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <KpiTile
             label={t("Active runs today")}
-            value={runRunning}
+            value={runsLoading ? "—" : runRunning}
             icon={Activity}
-            detail={`${runSucceeded} done · ${runFailed} failed`}
+            detail={runsLoading ? "—" : `${runSucceeded} done · ${runFailed} failed`}
             bar={doneRatio}
             barTone="primary"
           />
           <KpiTile
             label={t("Tokens · cost 24h")}
             value={
-              totalTokens >= 1_000_000
-                ? `${(totalTokens / 1_000_000).toFixed(2)}M`
-                : totalTokens.toLocaleString()
+              telemetry.isLoading
+                ? "—"
+                : totalTokens >= 1_000_000
+                  ? `${(totalTokens / 1_000_000).toFixed(2)}M`
+                  : totalTokens.toLocaleString()
             }
             icon={Coins}
-            detail={`$${cost24h.toFixed(2)} burn`}
+            detail={telemetry.isLoading ? "—" : `$${cost24h.toFixed(2)} burn`}
           />
           <KpiTile
             label={t("Workflow executions")}
-            value={todayExecs.length}
+            value={loading ? "—" : todayExecs.length}
             icon={GitBranch}
-            detail={`${succeeded} success · ${failed} failed · ${runningExecs} live`}
+            detail={
+              loading ? "—" : `${succeeded} success · ${failed} failed · ${runningExecs} live`
+            }
           />
           <KpiTile
             label={t("Gates waiting")}
-            value={waitingHuman.length}
+            value={loading ? "—" : waitingHuman.length}
             icon={UserCheck}
-            detail={gatesToday > 0 ? t("{n} opened today", { n: gatesToday }) : t("none today")}
-            bar={waitingHuman.length > 0 ? 100 : 0}
+            detail={
+              loading
+                ? "—"
+                : gatesToday > 0
+                  ? t("{n} opened today", { n: gatesToday })
+                  : t("none today")
+            }
+            bar={!loading && waitingHuman.length > 0 ? 100 : 0}
             barTone="violet"
           />
         </div>

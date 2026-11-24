@@ -39,6 +39,41 @@ function fakeClient(snapshot: unknown, events: SubscriptionEvent[], refreshes: u
   };
 }
 
+describe("closing while the ticket is still in flight", () => {
+  test("a late ticket does not open a connection the surface can no longer close", async () => {
+    let connects = 0;
+    let shutdowns = 0;
+    const ticket = Promise.withResolvers<{ ticket: string; wsBase: string }>();
+    const connection = connectAhpChat({
+      conversationId: "probe",
+      onChange: () => {},
+      fetchTicket: () => ticket.promise,
+      transportFactory: () => ({ send() {}, recv: async () => null, close() {} }) as never,
+      clientFactory: () =>
+        ({
+          connect: () => {
+            connects++;
+          },
+          initialize: async () => ({ snapshots: [] }),
+          attachSubscription: () => ({
+            [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true }) }),
+          }),
+          subscribe: async () => ({ subscription: { close: async () => {} } }),
+          shutdown: async () => {
+            shutdowns++;
+          },
+        }) as never,
+    });
+    connection.close();
+    ticket.resolve({ ticket: "fixture", wsBase: "ws://fixture" });
+    await Bun.sleep(20);
+    // The audit's probe: before the fix this was connects=1, shutdowns=0 — a
+    // socket and a subscription left running with nobody holding the handle.
+    expect(connects).toBe(0);
+    expect(shutdowns).toBe(0);
+  });
+});
+
 describe("web surface over AHP", () => {
   test("a completed tool re-reads the channel, so a DB-only fact is not painted stale (#52)", async () => {
     const seen: string[] = [];

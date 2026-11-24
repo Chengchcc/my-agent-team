@@ -126,6 +126,46 @@ describe("message", () => {
   });
 });
 
+describe("optimistic send in a room that already has history", () => {
+  const human = (id: string, seq: number, text: string) => ({
+    kind: "message" as const,
+    id,
+    seq,
+    sender: { kind: "human" as const, memberId: "user" },
+    content: { id, role: "user" as const, state: "done" as const, text },
+  });
+
+  test("the new message shows before the projection echoes it", () => {
+    let s = reducer(initialState(), { type: "items", items: [human("old-1", 1, "old")] });
+    s = reducer(s, { type: "send", text: "new", viewer: { kind: "human", memberId: "user" } });
+    // Before the fix this was invisible: "canonical has a human message" read
+    // as "the echo already landed" (audit 2026-11-24).
+    expect(s.items.some((i) => i.kind === "message" && i.content.text === "new")).toBe(true);
+  });
+
+  test("the echo replaces it instead of appearing beside it", () => {
+    let s = reducer(initialState(), { type: "items", items: [human("old-1", 1, "old")] });
+    s = reducer(s, { type: "send", text: "new", viewer: { kind: "human", memberId: "user" } });
+    s = reducer(s, {
+      type: "items",
+      items: [human("old-1", 1, "old"), human("echo-1", 2, "new")],
+    });
+    const texts = s.items
+      .filter((i) => i.kind === "message")
+      .map((i) => (i.kind === "message" ? i.content.text : ""));
+    expect(texts.filter((x) => x === "new")).toHaveLength(1);
+    expect(s.items.some((i) => i.id.startsWith("opt-"))).toBe(false);
+  });
+
+  test("a failed send does not leave its bubble behind", () => {
+    let s = reducer(initialState(), { type: "items", items: [human("old-1", 1, "old")] });
+    s = reducer(s, { type: "send", text: "new", viewer: { kind: "human", memberId: "user" } });
+    s = reducer(s, { type: "send/error", message: "network" });
+    expect(s.items.some((i) => i.kind === "message" && i.content.text === "new")).toBe(false);
+    expect(s.error).toBe("network");
+  });
+});
+
 describe("isBusy", () => {
   test("busy while a send is in flight", () => {
     let s = bootstrap();
