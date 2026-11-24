@@ -157,6 +157,7 @@ export function sqliteRequirementAdapter(db: Database): RequirementPort {
             kind: row.kind,
             status: row.status,
             head: headOf(row.payload),
+            owner: row.owner,
           });
         }
       }
