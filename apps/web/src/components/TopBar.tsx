@@ -11,6 +11,7 @@ import { backendPingQuery, surfacesQuery } from "@/features/ops/queries";
 import { pendingActionsQuery } from "@/features/runs/queries";
 import { waitingGatesQuery } from "@/features/workflow/queries";
 import type { AgentRow } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 /** Runtime chip labels for known harnesses; unknown harnesses fall back. */
 const CHIP_LABEL: Record<string, string> = {
@@ -45,11 +46,11 @@ function OnlinePill() {
           measurement. Over two seconds the badge says so in the person's unit. */}
       {online
         ? ping.data === undefined
-          ? "Online"
+          ? t("Online")
           : ping.data >= 2000
-            ? `Slow ${(ping.data / 1000).toFixed(1)}s`
-            : `Online ${ping.data}ms`
-        : "Offline"}
+            ? t("Slow {ms}", { ms: (ping.data / 1000).toFixed(1) })
+            : t("Online {ms}ms", { ms: ping.data })
+        : t("Offline")}
     </span>
   );
 }
@@ -76,11 +77,12 @@ function RuntimeChips({ agents }: { agents?: AgentRow[] }) {
  *  configured when nothing was ever started), so the old `status === "healthy"`
  *  comparison was never true and the chip printed the raw vocabulary. */
 function larkChipState(statuses: string[]): { label: string; tone: string } {
-  if (statuses.includes("error")) return { label: "connection failed", tone: "var(--destructive)" };
+  if (statuses.includes("error"))
+    return { label: t("connection failed"), tone: "var(--destructive)" };
   if (statuses.includes("degraded"))
-    return { label: "needs attention", tone: "var(--destructive)" };
-  if (statuses.includes("running")) return { label: "online", tone: "var(--accent-violet)" };
-  return { label: "not connected", tone: "var(--muted-foreground)" };
+    return { label: t("needs attention"), tone: "var(--destructive)" };
+  if (statuses.includes("running")) return { label: t("online"), tone: "var(--accent-violet)" };
+  return { label: t("not connected"), tone: "var(--muted-foreground)" };
 }
 
 function LarkChip() {
@@ -127,7 +129,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
           type="button"
           onClick={onSearch}
           className="flex h-7 w-44 items-center gap-2 rounded-sm border border-(--hairline) bg-(--canvas) px-2 text-(--faint) transition-colors hover:border-(--hairline-soft) hover:text-(--mute) md:w-56"
-          aria-label="Search"
+          aria-label={t("Search")}
         >
           <Search className="size-3.5" />
           <span className="text-xs">Search</span>

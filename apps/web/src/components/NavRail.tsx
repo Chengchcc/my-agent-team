@@ -451,7 +451,7 @@ function NavContent() {
               </SidebarMenuButton>
             </SidebarMenuItem>
             <div className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-(--mute)">
-              Capabilities
+              {t("Capabilities")}
             </div>
             <SidebarMenuItem>
               <SidebarMenuButton
@@ -520,14 +520,14 @@ function NavContent() {
                   pathname === "/system" ||
                   (pathname.startsWith("/system") && !pathname.startsWith("/system/settings"))
                 }
-                tooltip="System"
+                tooltip={t("System")}
                 onClick={() => {
                   closeMobile();
                   router.push("/system");
                 }}
               >
                 <ActivityIcon />
-                <span className="truncate">System</span>
+                <span className="truncate">{t("System")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>

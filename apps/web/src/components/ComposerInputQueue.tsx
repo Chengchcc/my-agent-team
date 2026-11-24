@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PendingInput } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 interface ComposerInputQueueProps {
   inputs: PendingInput[];
@@ -129,13 +130,13 @@ function QueueItem({
                 className="size-7 p-0 text-(--mute) hover:text-(--body)"
                 disabled={busy}
                 onClick={onSteer}
-                aria-label="Send now"
+                aria-label={t("Send now")}
               >
                 <Send size={13} />
               </Button>
             }
           />
-          <TooltipContent>Send now (insert into current run)</TooltipContent>
+          <TooltipContent>{t("Send now (insert into current run)")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
@@ -149,13 +150,13 @@ function QueueItem({
                   setDraft(input.text);
                   setEditing(true);
                 }}
-                aria-label="Edit"
+                aria-label={t("Edit")}
               >
                 <Pencil size={13} />
               </Button>
             }
           />
-          <TooltipContent>Edit</TooltipContent>
+          <TooltipContent>{t("Edit")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
@@ -166,13 +167,13 @@ function QueueItem({
                 className="size-7 p-0 text-(--mute) hover:text-(--err)"
                 disabled={busy}
                 onClick={onCancel}
-                aria-label="Cancel"
+                aria-label={t("Cancel")}
               >
                 <X size={13} />
               </Button>
             }
           />
-          <TooltipContent>Cancel</TooltipContent>
+          <TooltipContent>{t("Cancel")}</TooltipContent>
         </Tooltip>
       </div>
     </li>

@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { formatDuration } from "@/lib/duration";
+import { t } from "@/lib/i18n";
 import { humanizeWorkflowError } from "./humanize-error";
 
 export type WorkflowExec = {
@@ -101,7 +103,9 @@ export function ExecutionRowsList({
                 >
                   {e.status === "waiting_human" ? "Awaiting confirmation" : e.status}
                 </span>
-                {dur !== undefined && <span className="text-[10px] text-(--mute)">{dur}s</span>}
+                {dur !== undefined && (
+                  <span className="text-[10px] text-(--mute)">{formatDuration(dur)}</span>
+                )}
               </div>
               <Link
                 href={`/workflows/${workflowId}/executions/${e.executionId}`}
@@ -130,7 +134,7 @@ export function ExecutionRowsList({
         );
       })}
       {executions.length === 0 && (
-        <div className="mt-4 text-sm text-muted-foreground">No executions yet.</div>
+        <div className="mt-4 text-sm text-muted-foreground">{t("No executions yet.")}</div>
       )}
       <AlertDialog
         open={confirmId !== null}
@@ -141,10 +145,10 @@ export function ExecutionRowsList({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete execution {confirmId}?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>{t("This action cannot be undone.")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (confirmId) void del(confirmId);

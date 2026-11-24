@@ -22,6 +22,19 @@ cd "$(dirname "$0")/../apps/web"
 STAGE=".next-stage"
 PREV=".next-prev"
 
+# `next build` rewrites tsconfig.json and next-env.d.ts to point at whatever
+# distDir it used, so a staging build left the repo claiming `.next-stage/types`
+# (seen 2026-11-24: a dirty tree and a typecheck aimed at a directory that is
+# renamed right after). Snapshot them and put them back, success or failure.
+META="$(mktemp -d)"
+cp tsconfig.json next-env.d.ts "$META/"
+restore_meta() {
+  cp "$META/tsconfig.json" tsconfig.json
+  cp "$META/next-env.d.ts" next-env.d.ts
+  rm -rf "$META"
+}
+trap 'restore_meta' EXIT
+
 rm -rf "$STAGE"
 echo "rebuild-web: next build (heap cap 2048M, into $STAGE)"
 NODE_OPTIONS="--max-old-space-size=2048" NEXT_DIST_DIR="$STAGE" node node_modules/next/dist/bin/next build

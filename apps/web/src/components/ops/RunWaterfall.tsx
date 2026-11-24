@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { runEventsQuery } from "@/features/ops/queries";
+import { formatDurationMs } from "@/lib/duration";
 
 type RunEvent = { seq: number; type: string; data: Record<string, unknown>; ts: number };
 
@@ -22,7 +23,7 @@ const PHASE_COLOR: Record<string, string> = {
 
 function fmtDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  return formatDurationMs(ms);
 }
 
 /** Derive phase segments from the durable run-event log: closed

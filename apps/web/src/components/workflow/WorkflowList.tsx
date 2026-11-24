@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sheet";
 import { ExecutionRowsList, type WorkflowExec } from "@/components/workflow/ExecutionRowsList";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 type Row = {
   workflowId: string;
@@ -231,16 +232,16 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
       />
       <PageBody size="wide" className="space-y-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <KpiTile label="Definitions" value={definitions.length} detail="workflows" />
+          <KpiTile label={t("Definitions")} value={definitions.length} detail={t("workflows")} />
           <KpiTile
-            label="Scheduled"
+            label={t("Scheduled")}
             value={cronCount}
             detail="cron triggers"
             bar={definitions.length === 0 ? 0 : (cronCount / definitions.length) * 100}
             barTone="violet"
           />
           <KpiTile
-            label="Last 24h runs"
+            label={t("Last 24h runs")}
             value={recentRuns}
             detail={recentFailures > 0 ? `${recentFailures} failed` : "all clear"}
             bar={recentRuns === 0 ? 0 : ((recentRuns - recentFailures) / recentRuns) * 100}
@@ -296,7 +297,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
                           ? "bg-(--err)/10 text-(--err)"
                           : "bg-(--panel2) text-(--mute)"
                     }`}
-                    title="Open this execution"
+                    title={t("Open this execution")}
                   >
                     {d.lastExecution.status === "waiting_human"
                       ? "Awaiting confirmation"
@@ -343,7 +344,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">New Workflow</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{t("New Workflow")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -371,7 +372,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
               )}
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-(--mute)">Start from</Label>
+              <Label className="text-xs text-(--mute)">{t("Start from")}</Label>
               <div className="space-y-2">
                 <Button
                   variant="outline"
@@ -379,7 +380,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
                   className="flex h-auto w-full flex-col items-start gap-0.5 px-3 py-2 text-left"
                   onClick={() => void create()}
                 >
-                  <span className="font-medium">Blank canvas</span>
+                  <span className="font-medium">{t("Blank canvas")}</span>
                   <span className="line-clamp-1 text-[10px] font-normal text-(--mute)">
                     start → end, build from scratch
                   </span>
@@ -423,7 +424,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
           </DialogHeader>
           <div className="space-y-3">
             {(runDef?.input ?? []).length === 0 ? (
-              <p className="text-xs text-(--mute)">This workflow has no input parameters.</p>
+              <p className="text-xs text-(--mute)">{t("This workflow has no input parameters.")}</p>
             ) : (
               (runDef?.input ?? []).map((param) => {
                 const key = param.key;
@@ -459,10 +460,10 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete workflow {confirmId}?</AlertDialogTitle>
-            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>{t("This cannot be undone.")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (confirmId) void del(confirmId);
@@ -476,7 +477,7 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
       <Sheet open={sheetWorkflowId !== null} onOpenChange={(o) => !o && setSheetWorkflowId(null)}>
         <SheetContent className="w-[92vw] max-w-[760px] overflow-y-auto">
           <SheetHeader>
-            <SheetTitle className="truncate">Executions</SheetTitle>
+            <SheetTitle className="truncate">{t("Executions")}</SheetTitle>
             <SheetDescription className="truncate">Runs of {sheetWorkflowId}</SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-2">

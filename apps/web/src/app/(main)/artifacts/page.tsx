@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { InfoBanner } from "@/components/ui/polish";
 import { useArtifacts, useDeleteArtifact, useUploadArtifact } from "@/features/artifacts/hooks";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -181,19 +182,19 @@ function ArtifactsView() {
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <KpiTile
-            label="Total stored"
+            label={t("Total stored")}
             value={artifacts.length}
             icon={FileText}
             detail="artifacts"
           />
           <KpiTile
-            label="Storage"
+            label={t("Storage")}
             value={fmtSize(totalBytes)}
             icon={HardDrive}
             detail="across buckets"
           />
           <KpiTile
-            label="Buckets"
+            label={t("Buckets")}
             value={folders.length}
             icon={FolderOpen}
             detail={folders.slice(0, 2).join(" · ") || "none"}
@@ -223,7 +224,7 @@ function ArtifactsView() {
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "date" | "size" | "name")}
               className="rounded border border-(--hairline) bg-(--canvas-soft) px-2 py-1 font-mono text-[11px] text-(--mute)"
-              aria-label="Sort artifacts"
+              aria-label={t("Sort artifacts")}
             >
               <option value="date">Sort: newest</option>
               <option value="size">Sort: size</option>
@@ -236,7 +237,7 @@ function ArtifactsView() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="filter by url…"
                 className="w-full bg-transparent font-mono text-[11px] text-(--ink) placeholder:text-(--faint) focus:outline-none"
-                aria-label="Filter artifacts by url"
+                aria-label={t("Filter artifacts by url")}
               />
             </div>
           </div>
@@ -255,7 +256,7 @@ function ArtifactsView() {
               to create one.
             </div>
           ) : visible.length === 0 ? (
-            <div className="mt-3 text-xs text-(--mute)">No artifacts match the filters.</div>
+            <div className="mt-3 text-xs text-(--mute)">{t("No artifacts match the filters.")}</div>
           ) : (
             <div className="mt-3 space-y-2">
               {visible.map((a) => {
@@ -322,7 +323,7 @@ function ArtifactsView() {
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">Upload artifact</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{t("Upload artifact")}</DialogTitle>
             <DialogDescription className="text-xs">
               Pick a file and choose a bucket folder. The full URL is shown below.
             </DialogDescription>

@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConversationInputs } from "@/features/conversations/hooks";
 import { conversationKeys } from "@/features/conversations/query-keys";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import { slashCommands } from "@/lib/slash-commands";
 import { ComposerInputQueue } from "./ComposerInputQueue";
 
@@ -36,7 +37,7 @@ export function Composer({
   onSend,
   onSlashCommand,
   disabled,
-  placeholder = "Type a message… Ctrl+Enter to send",
+  placeholder = t("Type a message… Ctrl+Enter to send"),
   isBusy,
   onStop,
 }: ComposerProps) {
@@ -354,7 +355,7 @@ export function Composer({
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={disabled ? "Replying…" : effectivePlaceholder}
+              placeholder={disabled ? t("Replying…") : effectivePlaceholder}
               rows={1}
               disabled={disabled}
               className="w-full resize-none bg-(--panel) border border-(--hairline)
@@ -409,7 +410,7 @@ export function Composer({
               </div>
               <div className="max-h-56 overflow-y-auto">
                 {filteredSlash.length === 0 ? (
-                  <p className="text-xs text-(--mute) p-3 ">No matching commands</p>
+                  <p className="text-xs text-(--mute) p-3 ">{t("No matching commands")}</p>
                 ) : (
                   filteredSlash.map((c, i) => (
                     <Button

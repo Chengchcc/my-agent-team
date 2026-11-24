@@ -99,7 +99,7 @@ export function PageHeader({
         <div>
           {kicker && (
             <p className="text-(--text-cap) tracking-kicker uppercase font-semibold text-(--mute)">
-              {kicker}
+              {t(kicker ?? "")}
             </p>
           )}
           <div className="flex items-center gap-2.5">
@@ -107,7 +107,9 @@ export function PageHeader({
             {pill}
           </div>
           {(subtitle ?? description) && (
-            <p className="mt-0.5 text-(--text-body) text-(--mute)">{subtitle ?? description}</p>
+            <p className="mt-0.5 text-(--text-body) text-(--mute)">
+              {t(subtitle ?? description ?? "")}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2">{actions ?? action}</div>

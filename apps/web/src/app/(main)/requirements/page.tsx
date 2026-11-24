@@ -5,6 +5,7 @@ import { Page, PageBody, PageHeader } from "@/components/page";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePendingProposals } from "@/features/proposals/hooks";
 import { useRequirements } from "@/features/requirements/hooks";
+import { t } from "@/lib/i18n";
 import { ProposalsView } from "./_components/proposals-view";
 
 /** ADR 0074: the "requirements by goal" view. One row per tracked item; the
@@ -38,14 +39,17 @@ export default function RequirementsPage() {
     <Page>
       <PageHeader
         title="Requirements"
-        description="Work goals the assistant tracks — status derives from execution records, not summaries. Proposals are decisions waiting for you; adopting one applies it."
+        description={t(
+          "Work goals the assistant tracks — status derives from execution records, not summaries. Proposals are decisions waiting for you; adopting one applies it.",
+        )}
       />
       <PageBody>
         <Tabs defaultValue="requirements">
           <TabsList>
-            <TabsTrigger value="requirements">Requirements</TabsTrigger>
+            <TabsTrigger value="requirements">{t("Requirements")}</TabsTrigger>
             <TabsTrigger value="proposals">
-              Proposals{pendingCount > 0 ? ` (${pendingCount})` : ""}
+              {t("Proposals")}
+              {pendingCount > 0 ? ` (${pendingCount})` : ""}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="proposals">
@@ -53,10 +57,12 @@ export default function RequirementsPage() {
           </TabsContent>
           <TabsContent value="requirements">
             {isLoading ? (
-              <p className="text-sm text-(--mute)">Loading…</p>
+              <p className="text-sm text-(--mute)">{t("Loading…")}</p>
             ) : rows.length === 0 ? (
               <p className="text-sm text-(--mute)">
-                No tracked items yet. They appear when the assistant starts a goal worth following.
+                {t(
+                  "No tracked items yet. They appear when the assistant starts a goal worth following.",
+                )}
               </p>
             ) : (
               <ul className="space-y-1">

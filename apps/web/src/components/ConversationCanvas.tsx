@@ -17,6 +17,7 @@ import { useConversation } from "@/hooks/useConversation";
 import type { ArtifactMeta, ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
+import { t } from "@/lib/i18n";
 import { markRead } from "@/lib/read-seq";
 import type { CommandContext } from "@/lib/slash-commands";
 import { findCommand, parseArgs } from "@/lib/slash-commands";
@@ -354,17 +355,17 @@ export function ConversationCanvas({
                   roomProjectId === null ? "" : `&project=${encodeURIComponent(roomProjectId)}`
                 }`}
                 className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
-                title="Open a terminal in this conversation's workspace"
+                title={t("Open a terminal in this conversation's workspace")}
               >
-                Terminal
+                {t("Terminal")}
               </Link>
             ) : null}
             <Link
               href={`/artifacts?folder=${encodeURIComponent(`tool-images/${conversationId}`)}`}
               className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
-              title="Files this conversation produced (screenshots and other tool output)"
+              title={t("Files this conversation produced (screenshots and other tool output)")}
             >
-              Artifacts
+              {t("Artifacts")}
             </Link>
             {label && (
               <>
@@ -382,16 +383,16 @@ export function ConversationCanvas({
                 </span>
               </>
             )}
-            {!label && <StatusPill tone="idle">idle</StatusPill>}
+            {!label && <StatusPill tone="idle">{t("idle")}</StatusPill>}
             {busy && currentRunId && (
               <button
                 type="button"
                 onClick={() => {
-                  api.cancelAgentRun(currentRunId).then(() => toast.success("Stopped"));
+                  api.cancelAgentRun(currentRunId).then(() => toast.success(t("Stopped")));
                 }}
                 className="rounded-sm border border-(--err)/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-kicker text-(--err) transition-colors hover:bg-(--err)/10"
               >
-                stop
+                {t("stop")}
               </button>
             )}
             <Button
@@ -399,7 +400,7 @@ export function ConversationCanvas({
               size="icon"
               className="size-7 "
               onClick={handleExport}
-              title="Export conversation"
+              title={t("Export conversation")}
             >
               <Download size={14} />
             </Button>
@@ -511,10 +512,10 @@ export function ConversationCanvas({
                   </h1>
                 )}
                 <p className="text-sm text-(--mute) mb-1">
-                  Send a message to start the conversation
+                  {t("Send a message to start the conversation")}
                 </p>
                 <p className="text-[11px] text-(--faint)">
-                  Ctrl+Enter to send · Shift+Enter for newline
+                  {t("Ctrl+Enter to send · Shift+Enter for newline")}
                 </p>
               </div>
             ) : (
@@ -558,7 +559,7 @@ export function ConversationCanvas({
           <Button
             onClick={scrollToBottom}
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-(--canvas) border border-(--hairline) rounded-full p-2 hover:border-(--primary) transition-colors"
-            title="Back to bottom"
+            title={t("Back to bottom")}
           >
             <ArrowDown size={14} className="text-(--body)" />
           </Button>
@@ -596,7 +597,7 @@ export function ConversationCanvas({
             id="roster-drawer"
             className="md:hidden fixed right-0 inset-y-0 w-64 bg-(--canvas) border-l border-(--hairline) z-50 overflow-y-auto p-3 shadow-lg"
             role="dialog"
-            aria-label="Members"
+            aria-label={t("Members")}
           >
             <RosterList agent={agent} onClose={() => setRosterOpen(false)} />
             <RunDiagnostics conversationId={conversationId} agentId={primaryAgentId} />
@@ -635,12 +636,12 @@ export function ConversationCanvas({
           onSend={send}
           onSlashCommand={handleSlashCommand}
           disabled={false}
-          placeholder={busy ? "Steer the agent..." : "Send a message..."}
+          placeholder={busy ? t("Steer the agent...") : t("Send a message...")}
           isBusy={busy}
           onStop={
             currentRunId
               ? () => {
-                  api.cancelAgentRun(currentRunId).then(() => toast.success("Stopped"));
+                  api.cancelAgentRun(currentRunId).then(() => toast.success(t("Stopped")));
                 }
               : undefined
           }

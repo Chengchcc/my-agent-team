@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { t } from "@/lib/i18n";
 import { StreamingCursor } from "./StreamingCursor";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 
@@ -157,20 +158,20 @@ export function MessageBubble({
         </>
       )}
       {runStatus === "retrying" && (
-        <p className="text-xs text-amber-500 animate-pulse mt-1">Retrying...</p>
+        <p className="text-xs text-amber-500 animate-pulse mt-1">{t("Retrying...")}</p>
       )}
       {runStatus === "compacting" && (
-        <p className="text-xs text-blue-500 animate-pulse mt-1">Compacting context...</p>
+        <p className="text-xs text-blue-500 animate-pulse mt-1">{t("Compacting context...")}</p>
       )}
       {runStatus === "waiting" && (
-        <p className="text-xs text-muted-foreground mt-1">Awaiting approval...</p>
+        <p className="text-xs text-muted-foreground mt-1">{t("Awaiting approval...")}</p>
       )}
       {(state === "error" || error) && (
         <div
           data-testid="message-error"
           className="mt-2 px-3 py-2 rounded-md border border-(--err)/40 bg-(--err)/10 text-xs text-(--err) wrap-break-word"
         >
-          {error ?? "Run failed"}
+          {error ?? t("Run failed")}
         </div>
       )}
     </MessageShell>
