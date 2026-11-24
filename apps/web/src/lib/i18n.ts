@@ -1,8 +1,8 @@
-/** i18n seam (UI review: "English baseline + i18n wiring").
+/** i18n (UI review: "English baseline + i18n wiring"; ADR 0079).
  *
- *  The UI language is English-only, enforced by `audit:ui` (zero CJK in
- *  apps/web/src — EXCEPT files under lib/locales/, which is where
- *  translation dictionaries live).
+ *  English is the SOURCE, not the only language. `audit:ui` keeps the source
+ *  free of CJK; translated text lives in `lib/locales/<lang>.ts` alone, which
+ *  is what makes "the two languages cannot drift" checkable.
  *
  *  Wiring contract:
  *  - Keys ARE the English strings: `t("Today")` returns "Today" when no
@@ -35,4 +35,41 @@ export function setLocale(lang: string): void {
  *  entry renders the key unchanged, so untranslated strings stay English. */
 export function t(key: string): string {
   return locales.get(current)?.[key] ?? key;
+}
+
+export const LOCALE_STORAGE_KEY = "ui.locale";
+
+/** Every language that has a dictionary, in menu order. */
+export const localeOptions: readonly { value: string; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "zh", label: "\u4e2d\u6587" },
+];
+
+export function currentLocale(): string {
+  return current;
+}
+
+/** The language to start in: what the person chose, else their browser's
+ *  language when it has a dictionary, else English. */
+export function preferredLocale(): string {
+  if (typeof window === "undefined") return "en";
+  const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  if (stored !== null && locales.has(stored)) return stored;
+  const browser = navigator.language?.toLowerCase() ?? "";
+  if (browser.startsWith("zh") && locales.has("zh")) return "zh";
+  return "en";
+}
+
+/** Apply the stored choice. The dictionaries must be registered first
+ *  (lib/locales/index.ts imports them). */
+export function initLocale(): void {
+  if (typeof window === "undefined") return;
+  setLocale(preferredLocale());
+}
+
+/** Remember a choice. There is no reactive subscription (ponytail: the seam,
+ *  not the framework) — the caller reloads, which is honest for a shell-wide
+ *  setting and costs nothing to maintain. */
+export function chooseLocale(lang: string): void {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, lang);
 }

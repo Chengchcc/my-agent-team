@@ -300,8 +300,13 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
     })),
   });
 
-  const startedAtOf = (turnId: string): number =>
-    known.find((run) => run.runId === turnId)?.createdAt ?? 0;
+  // A ledger turn (no Run: forked history, a dispatcher's note) starts when its
+  // first row was written; a Run turn when the Run did.
+  const tsBySeq = new Map(ledger.map((entry) => [entry.seq, entry.ts] as const));
+  const startedAtOf = (turn: { turnId: string; seq?: number }): number =>
+    known.find((run) => run.runId === turn.turnId)?.createdAt ??
+    (turn.seq === undefined ? undefined : tsBySeq.get(turn.seq)) ??
+    0;
   const runAgent = new Map(known.map((run) => [run.runId, run.agentId]));
 
   const turns: AhpTurn[] = [];
@@ -314,7 +319,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
       // Upstream allows one running turn; the product guarantees one running Run per conversation.
       activeTurn ??= {
         id: turn.turnId,
-        startedAt: isoOf(startedAtOf(turn.turnId)),
+        startedAt: isoOf(startedAtOf(turn)),
         message: toAhpMessage(turn.input, turn.seq, turn.undone),
         responseParts: toResponseParts(turn.turnId, turn.parts, activities, runAgent),
         usage: undefined,
@@ -323,7 +328,7 @@ async function chatView(deps: AhpStateSourceDeps, row: AhpConversationRow): Prom
     }
     turns.push({
       id: turn.turnId,
-      startedAt: isoOf(startedAtOf(turn.turnId)),
+      startedAt: isoOf(startedAtOf(turn)),
       // History carries the initiating message's own coordinates too: a surface forks or replays
       // from the message it points at, and an undone message has to read as undone.
       message: toAhpMessage(turn.input, turn.seq, turn.undone),

@@ -1,4 +1,6 @@
 .next
+.next-stage
+.next-prev
 node_modules
 .env
 tsbuildinfo

@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   // Self-contained server bundle: `next build` also emits .next/standalone
   // (server.js + the traced runtime), which is what the shipped artifact runs.
   // `next start` against .next still works unchanged.
+  // A staging build (scripts/rebuild-web.sh) writes to its own directory and
+  // is swapped in by rename; building into the served `.next` took the live
+  // console down for the whole build (2026-11-24).
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   output: "standalone",
   // The app has zero next/image usages, so the optimizer buys nothing while
   // its optional sharp/libvips native deps (platform-specific, ~40MB) land in

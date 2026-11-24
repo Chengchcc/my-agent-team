@@ -1,7 +1,7 @@
-import { extractText } from "@chengchenccc/message";
 import { Elysia, t } from "elysia";
 import { describeAnchor, isArtifactAnchor } from "../artifact/anchor.js";
 import { parseArtifactUrl } from "../artifact/domain.js";
+import { renderRevision } from "./export-markdown.js";
 import { senderLabelOf } from "./ledger-codec.js";
 import type { ConversationService } from "./service.js";
 
@@ -351,8 +351,7 @@ export function conversationRoutes(
           try {
             // Drizzle's select schema auto-parses content from JSON string to object.
             const parsed = typeof e.content === "string" ? JSON.parse(e.content) : e.content;
-            text =
-              typeof parsed === "string" ? parsed : extractText(parsed) || JSON.stringify(parsed);
+            text = renderRevision(parsed);
           } catch {
             text = String(e.content);
           }

@@ -7,6 +7,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /** Shared page skeleton. One grammar for every top-level page:
@@ -19,13 +20,22 @@ export function Page({ children }: { children: ReactNode }) {
 /** One breadcrumb grammar: a string renders one crumb; a structured
  *  trail renders link ancestors + a terminal BreadcrumbPage, separated by
  *  the shared separator. ReactNode passes through untouched. */
+/** Breadcrumb text is shell vocabulary ("Work / Workflows"), so every segment
+ *  goes through the dictionary; an unknown segment stays as written. */
+function shellText(text: string): string {
+  return text
+    .split(" / ")
+    .map((segment) => t(segment))
+    .join(" / ");
+}
+
 function renderBreadcrumb(
   bc: ReactNode | string | ReadonlyArray<{ label: string; href?: string }>,
 ): ReactNode {
   if (typeof bc === "string") {
     return (
       <BreadcrumbItem>
-        <BreadcrumbPage>{bc}</BreadcrumbPage>
+        <BreadcrumbPage>{shellText(bc)}</BreadcrumbPage>
       </BreadcrumbItem>
     );
   }
@@ -35,9 +45,9 @@ function renderBreadcrumb(
       const item = (
         <BreadcrumbItem key={`${c.label}-${i}`}>
           {c.href && !last ? (
-            <BreadcrumbLink href={c.href}>{c.label}</BreadcrumbLink>
+            <BreadcrumbLink href={c.href}>{shellText(c.label)}</BreadcrumbLink>
           ) : (
-            <BreadcrumbPage>{c.label}</BreadcrumbPage>
+            <BreadcrumbPage>{shellText(c.label)}</BreadcrumbPage>
           )}
         </BreadcrumbItem>
       );
@@ -93,7 +103,7 @@ export function PageHeader({
             </p>
           )}
           <div className="flex items-center gap-2.5">
-            <h1 className="text-h1/tight font-semibold text-(--ink)">{title}</h1>
+            <h1 className="text-h1/tight font-semibold text-(--ink)">{t(title)}</h1>
             {pill}
           </div>
           {(subtitle ?? description) && (

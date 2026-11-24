@@ -336,3 +336,93 @@ test("parts carry the ledger coordinate of the row they came from", () => {
   expect(seqOf("first")).toBe(rows[0]!.seq);
   expect(seqOf("second")).toBe(rows[1]!.seq);
 });
+
+describe("ledger turns (ADR 0040: a message that belongs to no Run still happened)", () => {
+  const userRow = (seq: number, id: string, text: string): SessionModelLedgerRow => ({
+    seq,
+    conversationId: "conv-fork",
+    content: revision({ messageId: id, role: "user", text }),
+    agentRunId: null,
+    messageIndex: 0,
+  });
+  const assistantRow = (seq: number, id: string, text: string): SessionModelLedgerRow => ({
+    seq,
+    conversationId: "conv-fork",
+    content: revision({ messageId: id, role: "assistant", text }),
+    agentRunId: null,
+    messageIndex: 0,
+  });
+
+  test("a forked room's copied history projects as turns", () => {
+    // Live 2026-11-24: "Fork from here" produced a room with its whole ledger
+    // copied and nothing on screen, because every turn was expected to be a Run.
+    const turns = buildTurns({
+      ledger: [
+        userRow(1, "msg:u1", "fix the README"),
+        assistantRow(2, "msg:a1", "on it"),
+        assistantRow(3, "msg:a2", "done"),
+        userRow(4, "msg:u2", "thanks"),
+      ],
+      queue: [],
+      runs: [],
+      pendingActions: [],
+    });
+    expect(turns.map((t) => t.turnId)).toEqual(["ledger:1", "ledger:4"]);
+    expect(turns[0]?.input?.text).toBe("fix the README");
+    expect(turns[0]?.parts.map((p) => ("text" in p ? p.text : ""))).toEqual(["on it", "done"]);
+    expect(turns[1]?.input?.text).toBe("thanks");
+    expect(turns[1]?.parts).toEqual([]);
+  });
+
+  test("copied rows that name a Run of ANOTHER room are ledger turns here", () => {
+    // A fork copies rows verbatim, source run ids included; none of those Runs
+    // exist in the forked room.
+    const turns = buildTurns({
+      ledger: [
+        userRow(1, "msg:u1", "fix the README"),
+        { ...assistantRow(2, "msg:a1", "done"), agentRunId: "run-of-the-source-room" },
+      ],
+      queue: [],
+      runs: [],
+      pendingActions: [],
+    });
+    expect(turns.map((t) => t.turnId)).toEqual(["ledger:1"]);
+    expect(turns[0]?.parts.map((p) => ("text" in p ? p.text : ""))).toEqual(["done"]);
+  });
+
+  test("a row a queue input already shows for a Run is not shown twice", () => {
+    const turns = buildTurns({
+      ledger: [userRow(1, "msg:u1", "hi")],
+      queue: [queueRow("run-1", { id: "msg:u1", role: "user", text: "hi" })],
+      runs: [{ runId: "run-1", status: "completed" }],
+      pendingActions: [],
+    });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.turnId).toBe("run-1");
+  });
+
+  test("a dispatcher's ledger-only note is its own turn", () => {
+    const turns = buildTurns({
+      ledger: [assistantRow(7, "msg:note", "handed to Coder")],
+      queue: [],
+      runs: [],
+      pendingActions: [],
+    });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.input).toBeUndefined();
+    expect(turns[0]?.seq).toBe(7);
+  });
+
+  test("undone rows and run error bubbles stay out", () => {
+    const turns = buildTurns({
+      ledger: [
+        { ...userRow(1, "msg:u1", "gone"), undone: true },
+        { ...assistantRow(2, "run:run-1:error", "boom"), messageIndex: 0 },
+      ],
+      queue: [],
+      runs: [],
+      pendingActions: [],
+    });
+    expect(turns).toEqual([]);
+  });
+});

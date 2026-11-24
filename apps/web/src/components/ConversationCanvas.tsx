@@ -255,14 +255,27 @@ export function ConversationCanvas({
   }, [agents, primaryAgentId]);
 
   const handleExport = useCallback(async () => {
-    const md = await api.exportConversation(conversationId);
-    const blob = new Blob([md], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${conversationId}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // A click that produces nothing is the worst outcome (a review measured
+    // it as "the download icon does nothing"): say so when it fails.
+    try {
+      const md = await api.exportConversation(conversationId);
+      const blob = new Blob([md], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${conversationId}.md`;
+      a.rel = "noopener";
+      // Firefox only honours a download from an element that is in the document.
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Exported", { description: `${conversationId}.md` });
+    } catch (err) {
+      toast.error("Export failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
   }, [conversationId]);
 
   // The live Agent Run, as the chat channel reports it (the projection makes the running run the

@@ -6,6 +6,7 @@
 | 0076 | project-push-agent-branches(工人的改动回写仓库：只推 agent/* 分支) | **Proposed**（设计定稿；凭据在后端、分支由 runId 派生、永不 force/master） |
 | 0077 | requirement-owns-the-workspace(需求拥有工作区：需求/会话 M:N，副本随需求) | **Proposed**（设计定稿；agent 只绑项目，归属靠会话的 current_requirement 指针） |
 | 0078 | one-knowledge-surface(知识只有一个面：下线知识包，wiki 即知识) | **Implemented**（特性目录/路由/挂载/配置字段/页面/表全部移除；迁移 0068） |
+| 0079 | ui-language-is-a-skin(界面语言是皮肤：英文是源，中文是词典) | **Implemented**（zh 词典 + 操作员菜单切换；源码仍零 CJK，翻译只在 lib/locales） |
 | # | 标题 | 状态 |
 |---|---|---|
 | 0001 | loop-prune-is-post-processing | **Obsolete**（Loop 已删，2026-08-28） |
