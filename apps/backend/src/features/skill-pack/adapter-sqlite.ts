@@ -40,6 +40,16 @@ export function sqliteSkillPackAdapter(db: Database): SkillPackPort {
       return rows.map((r) => schema.skillPackSelectSchema.parse(r));
     },
 
+    async recordInstalledRef(id, installedRef): Promise<SkillPackRow | null> {
+      const row = await this.get(id);
+      if (row === null) return null;
+      d.update(schema.skillPack)
+        .set({ installedRef, updatedAt: Date.now() })
+        .where(eq(schema.skillPack.id, id))
+        .run();
+      return this.get(id);
+    },
+
     async applyInstallTransition(id, next, patch): Promise<SkillPackRow | null> {
       const row = await this.get(id);
       if (!row) return null;
