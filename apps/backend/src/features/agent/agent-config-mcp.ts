@@ -147,13 +147,21 @@ export async function callAgentConfigTool(
 ): Promise<string> {
   if (name === "agent_create") {
     const input = readAgentCreateInput(args);
-    deps.reserveCreate();
-    // Through the agent service, like the HTTP route: materialize the
-    // workspace, write agent.yml, insert the row and run onCreate (builtin
-    // skill pack + workspace reconcile). A file write would create a ghost.
-    const row = await deps.createAgent(input);
-    const model = input.model ? ` running ${input.model}` : " on its harness default";
-    return `created agent "${input.name}" (id: ${row.id}) — harness ${input.harness}${model}. It carries the builtin skills; the user can refine it at /team/${row.id}/edit`;
+    // The operator's decision (2026-11-24): an agent never creates a member.
+    // It proposes one and a person presses Create — the same shape as
+    // agent_write, so the create page shows a filled form instead of a new row
+    // appearing behind the human's back. Direct creation stays on the HTTP
+    // route, where a person is at the keyboard.
+    const proposed = {
+      name: input.name,
+      harness: input.harness,
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+    };
+    deps.proposals?.propose("agent_config", AGENT_DRAFT_ID, proposed);
+    const id8 = randomUUID().slice(0, 8);
+    return `proposed a new member "${input.name}" (${id8}) — NOT created: open /team/new/edit, review the filled form and press Create`;
   }
   const agentId = typeof args.agentId === "string" ? args.agentId : "";
   if (!agentId) throw new Error("agentId required");
@@ -210,7 +218,7 @@ export async function createAgentConfigMcpServer(
         {
           name: "agent_create",
           description:
-            'Create a NEW agent (a teammate) for the user: real agent row + workspace + builtin skills. Use it when the user asks for another agent and is NOT on the create page; pass a display name, the harness to run it on, and optionally its model (take your own from the Workspace system reminder if the user has no preference). On the create page (agentId "new") use agent_write with agentId "new" instead, so the user reviews the form before anything is created.',
+            'Propose a NEW member (a teammate): nothing is created. The create page (/team/new/edit) is filled from your proposal and the user presses Create — a member is a configuration change, so it needs their click. Pass a display name, the harness to run it on, and optionally its model (take your own from the Workspace system reminder if the user has no preference). Say "proposed", never "created".',
           inputSchema: {
             type: "object",
             properties: {

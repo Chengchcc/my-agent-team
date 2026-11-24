@@ -103,4 +103,44 @@ describe("the requirement is the unit of delivery (ADR 0077)", () => {
     );
     expect(note).toBeUndefined();
   });
+
+  test("an unverified delivery carries its branch and comparison URL", () => {
+    const runs = [
+      {
+        runId: "w1",
+        agentId: "coder",
+        parentRunId: "f1",
+        createdAt: 1,
+        terminalAt: 2,
+        status: "completed",
+      },
+    ];
+    const note = deliveryNoteOf({
+      selfAgentId: "front",
+      runs,
+      produced: (id) => id === "w1",
+      deliveryOf: () => ({
+        branch: "agent/w1",
+        compareUrl: "https://example/o/r/compare/master...agent/w1",
+      }),
+    });
+    expect(note).toContain("核验");
+    expect(note).toContain("agent/w1");
+    expect(note).toContain("https://example/o/r/compare/master...agent/w1");
+  });
+
+  test("no delivery fact, no invented link", () => {
+    const runs = [
+      {
+        runId: "w1",
+        agentId: "coder",
+        parentRunId: "f1",
+        createdAt: 1,
+        terminalAt: 2,
+        status: "completed",
+      },
+    ];
+    const note = deliveryNoteOf({ selfAgentId: "front", runs, produced: (id) => id === "w1" });
+    expect(note).not.toContain("对比");
+  });
 });

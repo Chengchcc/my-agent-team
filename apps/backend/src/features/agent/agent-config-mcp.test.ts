@@ -91,8 +91,8 @@ describe("agent-config MCP tools", () => {
     ]);
   });
 
-  test("agent_create creates through the service and reports the new id", async () => {
-    const { d, created } = deps();
+  test("agent_create proposes a new member instead of creating one", async () => {
+    const { d, created, proposals } = deps();
     const text = await callAgentConfigTool(d, "agent_create", {
       name: "Code Reviewer",
       harness: "oma",
@@ -100,18 +100,13 @@ describe("agent-config MCP tools", () => {
       permissionMode: "auto",
       reasoningEffort: "high",
     });
-    expect(created).toEqual([
-      {
-        name: "Code Reviewer",
-        harness: "oma",
-        model: "anthropic/claude-sonnet-4-6",
-        reasoningEffort: "high",
-        permissionMode: "auto",
-      },
-    ]);
-    expect(text).toContain("created agent");
-    expect(text).toContain("ag-new");
-    expect(text).toContain("/team/ag-new/edit");
+    // Operator decision 2026-11-24: creating a member is a human's click.
+    expect(created).toEqual([]);
+    expect(text).toContain("proposed");
+    expect(text).toContain("NOT created");
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.kind).toBe("agent_config");
+    expect(proposals[0]!.payload).toMatchObject({ name: "Code Reviewer", harness: "oma" });
   });
 
   test("an agent cannot give itself an ungated sibling: yolo is admin-only", async () => {
