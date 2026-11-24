@@ -37,6 +37,12 @@ export interface BackendConfig {
   /** permissionMode=auto classifier model forwarded to the oma child
    *  (OMA_PERMISSION_CLASSIFIER_MODEL). Absent = the run's model. */
   omaPermissionClassifierModel?: string;
+  /** Child runs' browser may reach loopback/LAN (OMA_BROWSER_LOCAL_NETWORK=1).
+   *  Opt-in: bash reaches 127.0.0.1 regardless, so this is consistency, not a
+   *  loosening; cloud metadata endpoints stay refused. */
+  browserLocalNetwork: boolean;
+  /** Credential for project_push against https remotes (ADR 0076). */
+  projectPushToken?: string;
   ompBin?: string;
   piBin?: string;
   piMcpAdapterPath?: string;
@@ -105,6 +111,8 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     workflowShowcaseDir: resolve(resourcesDir, "workflow-showcase"),
     omaBin: env.OMA_BIN,
     omaPermissionClassifierModel: env.OMA_PERMISSION_CLASSIFIER_MODEL,
+    browserLocalNetwork: env.OMA_BROWSER_LOCAL_NETWORK === "1",
+    projectPushToken: env.PROJECT_PUSH_TOKEN,
     piBin: env.PI_BIN,
     piMcpAdapterPath: env.PI_MCP_ADAPTER_PATH,
     claudeBin: env.CLAUDE_BIN,

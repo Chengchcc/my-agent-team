@@ -86,10 +86,16 @@ export const envSchema = z.object({
     .string()
     .optional()
     .describe("Model id reviewing gated tools under permissionMode=auto (default: run model)"),
-  KNOWLEDGE_MCP_SERVER_BIN: z
+  OMA_BROWSER_LOCAL_NETWORK: z
     .string()
     .optional()
-    .describe("Knowledge recall MCP server entry (ADR 0022; default: dev source / prod dist)"),
+    .describe("Set to 1 so child runs' browser tool may reach loopback/LAN (bash already can)"),
+  PROJECT_PUSH_TOKEN: z
+    .string()
+    .optional()
+    .describe(
+      "Credential for project_push against https remotes; absent = https remotes are refused",
+    ),
   OMP_BIN: z.string().optional().describe("omp executable per Run (default: omp on PATH)"),
   PI_BIN: z.string().optional().describe("pi executable per Run (default: pi on PATH)"),
   PI_MCP_ADAPTER_PATH: z

@@ -1119,9 +1119,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           runId,
           message,
           ...(note !== undefined ? { note } : {}),
-          ...(process.env.PROJECT_PUSH_TOKEN !== undefined
-            ? { token: process.env.PROJECT_PUSH_TOKEN }
-            : {}),
+          ...(config.projectPushToken !== undefined ? { token: config.projectPushToken } : {}),
           ...(named.defaultBranch !== null ? { defaultBranch: named.defaultBranch } : {}),
           ...(agent.config.name ? { agent: agent.config.name } : {}),
         });
@@ -1838,6 +1836,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       ...(config.omaPermissionClassifierModel
         ? { OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel }
         : {}),
+      ...(config.browserLocalNetwork ? { OMA_BROWSER_LOCAL_NETWORK: "1" } : {}),
       ...(sandboxProxy
         ? {
             HTTP_PROXY: sandboxProxy.url,
