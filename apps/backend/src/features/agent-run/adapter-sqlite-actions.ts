@@ -59,21 +59,32 @@ export function createActionMethods(
           throw new Error(`Cannot create PendingAction: run ${runId} is ${run.status}, not active`);
         }
 
+        // ADR 0080: the risk the dispatcher declared rides the request itself,
+        // and an irreversible one belongs to the person from the moment it is
+        // created — the owner rule alone would hand it to the front desk.
+        const declared = run.risk ? (JSON.parse(run.risk) as { irreversible?: boolean }) : null;
+        const irreversible = declared?.irreversible === true;
+        const payload = irreversible
+          ? { ...action.payload, risk: { irreversible: true } }
+          : action.payload;
+
         // Insert PendingAction (idempotent: duplicate actionId will fail via PK)
         d.insert(schema.pendingAction)
           .values({
             actionId: action.actionId,
             runId,
             kind: action.kind,
-            payload: JSON.stringify(action.payload),
+            payload: JSON.stringify(payload),
             status: "pending",
             createdAt: now,
             // ADR 0075: the dispatcher looks first. Persisted at creation so
             // every surface (web inbox, cards, escalation) reads one fact.
-            owner: requestOwnerOf({
-              authorization: run.authorization ?? null,
-              ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
-            }).owner,
+            owner: irreversible
+              ? "user"
+              : requestOwnerOf({
+                  authorization: run.authorization ?? null,
+                  ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
+                }).owner,
           })
           .run();
 

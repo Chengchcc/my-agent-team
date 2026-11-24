@@ -37,6 +37,67 @@ describe("ADR 0075: a request records WHO should answer it", () => {
   });
 });
 
+describe("ADR 0080: an irreversible dispatch is the person's to approve", () => {
+  async function raisedWithRisk(suffix: string) {
+    const { conversationId, agentId, branch } = await setupBranch(`pa-risk-${suffix}`);
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: `t-${suffix}` },
+      inputIdempotencyKey: `ikey-${suffix}`,
+      runIdempotencyKey: `rkey-${suffix}`,
+      deliveryIdempotencyKey: `dkey-${suffix}`,
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      authorization: "dispatch:pa-front",
+    });
+    const runId = res.run!.runId;
+    runPort.setRunRisk?.(runId, { irreversible: true });
+    return runPort.createPendingAction(runId, {
+      actionId: `action-risk-${suffix}`,
+      kind: "approval",
+      payload: { toolName: "bash" },
+    });
+  }
+
+  test("the owner is the person, not the dispatcher", async () => {
+    const action = await raisedWithRisk("owner");
+    expect(action.owner).toBe("user");
+  });
+
+  test("the request carries the mark its answerer is judged by", async () => {
+    const action = await raisedWithRisk("payload");
+    expect((action.payload as { risk?: { irreversible?: boolean } }).risk?.irreversible).toBe(true);
+  });
+
+  test("a run without a mark keeps the dispatcher as owner", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("pa-risk-none");
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "t-none" },
+      inputIdempotencyKey: "ikey-none",
+      runIdempotencyKey: "rkey-none",
+      deliveryIdempotencyKey: "dkey-none",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      authorization: "dispatch:pa-front",
+    });
+    const action = await runPort.createPendingAction(res.run!.runId, {
+      actionId: "action-risk-none",
+      kind: "approval",
+      payload: {},
+    });
+    expect(action.owner).toBe("agent:pa-front");
+  });
+});
+
 describe("a failed machine route hands the question to the person", () => {
   test("escalation flips the owner to user and records when", async () => {
     const { conversationId, agentId, branch } = await setupBranch("pa-escalate");

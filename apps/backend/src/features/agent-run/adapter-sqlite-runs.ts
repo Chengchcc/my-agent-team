@@ -43,6 +43,7 @@ type RunMethods = Pick<
   | "listUnnotifiedDispatchedTerminalRuns"
   | "markResultNotified"
   | "setRequirementId"
+  | "setRunRisk"
 >;
 
 export function createRunMethods(
@@ -58,6 +59,14 @@ export function createRunMethods(
     setRequirementId(runId: string, requirementId: string): void {
       d.update(schema.agentRun)
         .set({ requirementId })
+        .where(eq(schema.agentRun.runId, runId))
+        .run();
+    },
+
+    /** ADR 0080: the same no-op-on-missing contract as setRequirementId. */
+    setRunRisk(runId: string, risk: { irreversible?: boolean }): void {
+      d.update(schema.agentRun)
+        .set({ risk: JSON.stringify(risk) })
         .where(eq(schema.agentRun.runId, runId))
         .run();
     },

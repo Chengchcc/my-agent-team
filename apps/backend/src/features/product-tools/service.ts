@@ -232,6 +232,8 @@ export interface ProductToolsServiceDeps {
   }) => { proposalId: string };
   /** ADR 0074: the project registry, so the front desk can classify which
    *  project a request is about instead of guessing. Absent = no projects. */
+  /** ADR 0080: record the risk the dispatcher declared on the worker's run. */
+  setRunRisk?: (runId: string, risk: { irreversible?: boolean }) => void;
   projects?: {
     list(): ReadonlyArray<{ projectId: string; name: string; repoUrl: string | null }>;
     /** ADR 0080: a project with the members that hold it — the PA manages
@@ -1247,6 +1249,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
         : {}),
     };
     if (note) call.note = note;
+    // ADR 0080: an irreversible operate carries its risk onto the worker's run,
+    // so every approval it raises is the person's to decide (an agent may not
+    // allow what the human never authorised).
+    const risk = needsHumanAuthority(brief) ? { irreversible: true } : undefined;
     // ADR 0076: the room knows which project it is about; a member without it
     // has no copy to read or write. Refuse with a pointer instead of
     // dispatching into a wall.
@@ -1265,6 +1271,14 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     // effort: a tracking failure must not fail the work itself.
     // A queued dispatch has NO run yet (the worker's branch is busy): linking an
     // empty run id is a no-op that reads like success. Link only when started.
+    if (risk !== undefined && triggered.runId !== "") {
+      try {
+        deps.setRunRisk?.(triggered.runId, risk);
+      } catch {
+        // A missed stamp must not fail dispatch; the approval falls back to the
+        // owner rule (a request without a mark is answerable by its owner).
+      }
+    }
     if (deps.requirements && triggered.runId !== "") {
       try {
         const named =

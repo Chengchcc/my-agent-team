@@ -481,6 +481,10 @@ export const agentRun = sqliteTable(
      *  `dispatch:<fromAgentId>`, `system`. Frozen at acquire time (the cheap
      *  Mandate: every run can answer "on whose authority"). */
     authorization: text("authorization"),
+    /** ADR 0080: risk the DISPATCHER declared for this run's work (JSON:
+     *  `{irreversible?: boolean}`). An approval raised by a run carrying
+     *  `irreversible` is the person's, never an agent's (audit 2026-11-24). */
+    risk: text("risk"),
     /** ADR 0051: the run that dispatched THIS one (`dispatch:<agent>` chains
      *  lose their origin otherwise — audit needs the whole chain, not one
      *  hop). Null = no parent (human input, rule, assessment, system). */
