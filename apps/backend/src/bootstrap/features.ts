@@ -3179,6 +3179,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         if (agentRunPort.correctActionResponse === undefined) {
           return { ok: false as const, error: "correction is not supported by this port" };
         }
+        // The row flips its author to `user`; without this record the original
+        // answerer and what it cited are gone, and a correction rate cannot be
+        // computed from the current row alone (audit G2).
+        services.opsStore.appendRunEvent(action.runId, "answer_corrected", {
+          actionId,
+          originalAnsweredBy: answeredBy,
+          originalEvidence: action.evidence ?? [],
+          correctedBy: "user",
+        });
         await agentRunPort.correctActionResponse(actionId, response);
         const run = await agentRunPort.getRun(action.runId).catch(() => null);
         if (run === null) return { ok: true as const };
