@@ -1,10 +1,10 @@
 ---
-name: agentic-workflow-dsl
+name: workflow_design
 description: >
   Generate or validate an Agentic Workflow DSL (*.workflow.json): the node graph
   (start/end/agent/script/human), JSONLogic edge conditions, meta, and
   input/output schemas. Not for oma subagent fan-out orchestration (see
-  subagent-fanout).
+  agent_fanout).
 user_invocable: true
 ---
 

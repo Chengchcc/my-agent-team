@@ -1592,7 +1592,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // sits outside every agent workspace, so the file tools refuse it ("path
   // escapes workspace") and this MCP server is the agent's only read path
   // into a definition. Leaving it off silently breaks the workflow editor
-  // chat and the agentic-workflow-dsl skill.
+  // chat and the workflow_design skill.
   const enabledMcpServers = new Set(
     (config.enabledMcpServers ?? "product-tools,agent,workflow")
       .split(",")

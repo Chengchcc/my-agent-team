@@ -1,5 +1,5 @@
 ---
-name: about-skills
+name: skills_about
 description: 解释技能系统怎么用——`skill_load` 怎么取正文、每轮 Meta 里的 Skills 索引、`${SKILL_DIR}` 如何解析成真实路径。
 ---
 
@@ -20,7 +20,7 @@ description: 解释技能系统怎么用——`skill_load` 怎么取正文、每
 调用 `skill_load` 工具，传入技能名称：
 
 ```
-skill_load("about-skills")
+skill_load("skills_about")
 ```
 
 加载后，技能正文会注入到你的上下文中。
@@ -36,7 +36,7 @@ skill_load("about-skills")
 会被解析为：
 
 ```
-用 bash 执行：python3 /path/to/skill-packs/<pack-id>/about-skills/scripts/analyze.py
+用 bash 执行：python3 /path/to/skill-packs/<pack-id>/skills_about/scripts/analyze.py
 ```
 
 这使得技能可以引用同目录下的脚本和资源文件。
