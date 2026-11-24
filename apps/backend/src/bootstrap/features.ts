@@ -1202,8 +1202,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       get: (id) => requirementSvc.get(id),
       list: (includeClosed) => requirementSvc.list(includeClosed),
       linkDispatchedRun: (input) => {
+        // One truth for "which requirement" (ADR 0077): the brief's named one,
+        // else the room's current one. "The conversation's newest open item" —
+        // the 0074 fallback — stays for rooms that never got a pointer.
+        const pointed = workspaceSvc.currentRequirementOf(input.conversationId);
         const item = requirementSvc.resolveForDispatch({
-          ...(input.requirementId !== undefined ? { requirementId: input.requirementId } : {}),
+          ...(input.requirementId !== undefined
+            ? { requirementId: input.requirementId }
+            : pointed !== null
+              ? { requirementId: pointed }
+              : {}),
           conversationId: input.conversationId,
           agentId: input.agentId,
           briefTitle: input.briefTitle,
@@ -1237,6 +1245,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       parentRunId,
       note,
       findings,
+      requirementId: namedRequirement,
     }) => {
       // ADR 0070: the work lands in the WORKER'S OWN ROOM, opened under the
       // room that dispatched it. The front desk's room keeps one summary line
@@ -1270,7 +1279,18 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // falling back to a copy the agent owns.
       let workerWorktree: string | null = null;
       if (namedProject !== null) {
-        let requirementId = workspaceSvc.currentRequirementOf(conversationId);
+        let requirementId = namedRequirement ?? workspaceSvc.currentRequirementOf(conversationId);
+        // A brief that names a requirement moves the room to it: the switch is
+        // the dispatcher's explicit act, not an inference from "newest open".
+        if (
+          namedRequirement !== undefined &&
+          namedRequirement !== workspaceSvc.currentRequirementOf(conversationId)
+        ) {
+          workspaceSvc.attachConversation({
+            conversationId,
+            requirementId: namedRequirement,
+          });
+        }
         if (requirementId === null) {
           const opened = requirementSvc.create({
             title: brief.object.slice(0, 80) || instruction.slice(0, 80),
@@ -1625,7 +1645,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           fromAgentId: run.agentId,
           conversationId: run.conversationId,
           runId: input.runId,
-          text: frameResultInput(run.agentId, "failed", input.error),
+          text: frameResultInput(await agentNameOf(run.agentId), "failed", input.error),
           wake: true,
         });
       }
@@ -1778,7 +1798,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           runId,
           // ADR 0075/0076: carry the deliverables, not a description of them.
           text: frameResultInput(
-            run.agentId,
+            await agentNameOf(run.agentId),
             "completed",
             finalText,
             artifacts,
@@ -1948,6 +1968,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
    *  fallback root. The run dispatch lets a mis-attached project throw (that is a real failure);
    *  the AHP session read treats the same failure as "nothing to show". */
+  /** A worker's name for human-facing text. An id is for machines: result
+   *  notices and inbox titles rendered `adce782188a740b18e764cdc08` where a
+   *  person should read "Coder" (live 2026-11-24: 10 of 13 inbox rows had the
+   *  same hash title). */
+  const agentNameOf = async (agentId: string | null): Promise<string> => {
+    if (agentId === null) return "unknown member";
+    const agent = await agentSvc.getById(agentId).catch(() => null);
+    return agent?.config.name ?? agentId;
+  };
+
   // ADR 0077: the requirement's checkout, materialized on first use. The
   // agent's project binding is a capability (who may be dispatched) and never
   // a directory — one agent owning one copy is what serialized two tasks.
@@ -2023,6 +2053,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const workspaceForRun = async (input: {
     conversationId: string;
     agentId?: string | null;
+    runId?: string;
   }): Promise<{ root: string; access: "read_write" }> => {
     const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
     const convRow = conv.convPort.getConversation(input.conversationId);
@@ -2030,8 +2061,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     const { projectId } = checkoutOf(input.conversationId);
     if (projectId !== null && requirementId === null) {
       const project = projectSvc.getById(projectId);
+      // Name it after what the person asked, not after the room: the room has
+      // no title yet when its first run starts, so the project fallback made
+      // every auto-opened requirement read "my-agent-team — work opened from
+      // this room" (27 rows, a dozen of them identical — live 2026-11-24).
+      const asked = deriveConversationTitle(
+        firstUserText(conv.convPort.getLedgerEntries(input.conversationId)),
+      );
       const title =
         (convRow?.title ?? "").trim().slice(0, 80) ||
+        asked ||
         (project ? `${project.name} — work opened from this room` : "Work opened from this room");
       const opened = requirementSvc.create({
         title,
@@ -2045,6 +2084,17 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       console.log(
         `[workspace] opened requirement ${requirementId} for room ${input.conversationId} (project ${projectId})`,
       );
+    }
+    // ADR 0077: the run is linked to the requirement whose checkout it gets —
+    // EVERY run, not only dispatched ones. Dispatch links the worker it starts;
+    // this is what links a person's own front-desk turn and a worker driven on
+    // a direct line. Never over an existing link: a brief that named a
+    // requirement already decided it.
+    if (input.runId !== undefined && requirementId !== null) {
+      const row = await agentRunPort.getRun(input.runId).catch(() => null);
+      if (row !== null && row.requirementId === null) {
+        agentRunPort.setRequirementId?.(input.runId, requirementId);
+      }
     }
     // The checkout is where WORKERS work. A front-desk run routes and then
     // holds for the worker's result — if it also took the checkout, it would
@@ -2155,7 +2205,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ledgerResolver,
     backends,
     idGen: { ulid },
-    resolveWorkspace: ({ conversationId, agentId }) => workspaceForRun({ conversationId, agentId }),
+    resolveWorkspace: ({ conversationId, agentId, runId }) =>
+      workspaceForRun({ conversationId, agentId, ...(runId !== undefined ? { runId } : {}) }),
     // ADR 0064: the front desk's long-term memory, read from its workspace.
     // Vector voice when an embedding model is configured; keyword-only
     // otherwise (narrower, never broken).
@@ -2244,7 +2295,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           conversationId: run.conversationId,
           runId: run.runId,
           text: frameResultInput(
-            run.agentId,
+            await agentNameOf(run.agentId),
             outcome?.status === "completed" ? "completed" : (outcome?.status ?? "failed"),
             text,
           ),

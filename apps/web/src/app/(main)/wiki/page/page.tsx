@@ -20,7 +20,9 @@ interface WikiPageShape {
     status: string;
     sources: string[];
     supersedes: string[];
-    updated: string;
+    /** The backend says string, but the typed client revives ISO timestamps as
+     *  Date objects, and React cannot render a Date. Format at the edge. */
+    updated: string | Date;
   };
   body: string;
   revision: string;
@@ -29,6 +31,12 @@ interface WikiPageShape {
 interface PageRow {
   path: string;
   title: string;
+}
+
+/** A timestamp as a day, whichever way the client delivered it. */
+function formatDay(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 10);
 }
 
 /** The backlink path always ends up here, so the strip names the page it is
@@ -88,7 +96,7 @@ export default function WikiPageView() {
           <span>·</span>
           <span>revision {page.revision}</span>
           <span>·</span>
-          <span>updated {fm.updated}</span>
+          <span>updated {formatDay(fm.updated)}</span>
         </div>
 
         {fm.sources.length > 0 ? (

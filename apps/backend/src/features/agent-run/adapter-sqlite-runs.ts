@@ -638,14 +638,16 @@ export function createRunMethods(
     },
 
     async listRunsForRequirement(requirementId, withinMs) {
+      // By the run's OWN link, never by a room's current pointer: a pointer
+      // moves, and with it every past run of that room would silently change
+      // which requirement it belonged to.
       const cutoff = Date.now() - withinMs;
       const rows = d
         .select()
         .from(schema.agentRun)
         .where(
           and(
-            sql`(${schema.agentRun.conversationId} IN (SELECT conversation_id FROM conversation_requirement WHERE requirement_id = ${requirementId})
-              OR ${schema.agentRun.conversationId} IN (SELECT conversation_id FROM conversation WHERE current_requirement_id = ${requirementId}))`,
+            eq(schema.agentRun.requirementId, requirementId),
             or(
               inArray(schema.agentRun.status, [...ACTIVE_RUN_STATUSES]),
               gte(schema.agentRun.terminalAt, cutoff),

@@ -86,6 +86,10 @@ export interface AgentRun {
    *  produced it. One hop is enough — walking up repeats until null gives
    *  the origin. Null = no parent (human/rule/assessment/system). */
   readonly parentRunId: string | null;
+  /** ADR 0077: the requirement this run advanced, by the run's OWN link (set
+   *  at dispatch, or when its workspace was resolved). Never derived from a
+   *  room's current pointer: pointers move, a run's work does not. */
+  readonly requirementId: string | null;
   readonly createdAt: number;
   readonly terminalAt: number | null;
   /** ADR 0060 D6: null on a terminal dispatched run = the notice was never

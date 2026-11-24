@@ -4,6 +4,8 @@
  *  truth. Claim = the run's agent (the branch owner); nothing to claim by
  *  hand in v1. */
 
+import { titleFromBrief } from "../conversation/title.js";
+
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "done" | "closed";
 
 export function deriveTaskStatus(input: {
@@ -32,8 +34,10 @@ export interface TaskCard {
   inputId: string;
   runId: string | null;
   status: TaskStatus;
-  /** The agent that owns (claimed) the work — the run's agent. */
+  /** The agent that owns (claimed) the work — the run's agent id. */
   owner: string | null;
+  /** That agent's display name. A hash is for machines; a list shows names. */
+  ownerName?: string | null;
   conversationId: string | null;
   conversationTitle: string | null;
   text: string;
@@ -50,6 +54,7 @@ export function taskCardOf(input: {
   };
   run: { status: string; agentId?: string | null; conversationId?: string | null } | null;
   conversationTitle: string | null;
+  ownerName?: string | null;
 }): TaskCard {
   let text = "";
   try {
@@ -58,6 +63,11 @@ export function taskCardOf(input: {
   } catch {
     // malformed payload: an empty card beats a thrown projection
   }
+  // A dispatched task's raw text is the brief envelope. A person reads
+  // "fix · README.md first screen", not `<dispatch from=…><task verb=…`
+  // (live 2026-11-24: every task on Today showed the XML).
+  const briefTitle = titleFromBrief(text);
+  if (briefTitle !== null) text = briefTitle;
   return {
     inputId: input.queue.inputId,
     runId: input.queue.runId ?? null,
@@ -66,6 +76,7 @@ export function taskCardOf(input: {
       runStatus: input.run?.status ?? null,
     }),
     owner: input.run?.agentId ?? null,
+    ...(input.ownerName !== undefined ? { ownerName: input.ownerName } : {}),
     conversationId: input.run?.conversationId ?? null,
     conversationTitle: input.conversationTitle,
     text,

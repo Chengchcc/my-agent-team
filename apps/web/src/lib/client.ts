@@ -5,12 +5,19 @@ import { treaty } from "@elysiajs/eden";
 export const client = treaty<App>("/api/bff", {
   keepDomain: true,
   fetch: { credentials: "include" },
+  // Eden revives ISO-looking strings as Date objects by default; the backend's
+  // types say `string`, and React cannot render a Date. One switch here beats
+  // a deep walk per response: the runtime now matches the declared types.
+  // (Live 2026-11-24: the wiki page and chat history both crashed on
+  // "Objects are not valid as a React child (found: Date)".)
+  parseDate: false,
 });
 
 /** Server-side treaty — direct to backend with x-auth-token (SSR bootstrap). */
 export function createServerClient(backendUrl: string, authToken: string) {
   return treaty<App>(backendUrl, {
     headers: { "x-auth-token": authToken },
+    parseDate: false,
   });
 }
 

@@ -58,7 +58,7 @@ export function TasksSection() {
                   ) : (
                     <span>unassigned</span>
                   )}
-                  {t.owner && <span>· {t.owner}</span>}
+                  {t.owner && <span>· {t.ownerName ?? t.owner}</span>}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">

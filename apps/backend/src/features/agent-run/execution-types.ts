@@ -73,6 +73,10 @@ export interface AgentRunExecutionDeps {
   readonly resolveWorkspace: (input: {
     conversationId: string;
     agentId: string;
+    /** ADR 0077: the run being resolved, so it can be linked to the
+     *  requirement whose checkout it gets. Absent for lookups that are not
+     *  about a run (none today). */
+    runId?: string;
   }) => Promise<WorkspaceBinding>;
   /** Product Tools MCP endpoint the Oma child connects to
    *  (`sse:<url>`), from PRODUCT_TOOLS_MCP_URL. */

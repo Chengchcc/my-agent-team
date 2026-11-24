@@ -76,13 +76,39 @@ function slugify(name: string): string {
     .slice(0, 64);
 }
 
+/** A workflow parameter's type word, from either shape the definition uses:
+ *  a bare word, or a schema object whose `type` may be a list. */
+function paramHintOf(schema: unknown): "string" | "number" | "boolean" {
+  if (typeof schema === "string") {
+    return schema === "number" || schema === "integer"
+      ? "number"
+      : schema === "boolean"
+        ? "boolean"
+        : "string";
+  }
+  if (schema !== null && typeof schema === "object" && "type" in schema) {
+    const types = schema.type;
+    const first = Array.isArray(types) ? types[0] : types;
+    return first === "number" || first === "integer"
+      ? "number"
+      : first === "boolean"
+        ? "boolean"
+        : "string";
+  }
+  return "string";
+}
+
 export function WorkflowList({ definitions }: { definitions: Row[] }) {
   const router = useRouter();
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [runDef, setRunDef] = useState<{
-    input?: Record<string, "string" | "number" | "boolean">;
+    /** The definition's parameters: an array of `{ key, type }` descriptors
+     *  (packages/workflow InputHint), or none. Rendering a descriptor as text
+     *  crashed the page on every Run of a workflow with parameters (live
+     *  2026-11-24). */
+    input?: Array<{ key: string; type: string | string[] }> | null;
   } | null>(null);
   const [runVals, setRunVals] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
@@ -166,10 +192,12 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
     if (!runId || running) return;
     setRunning(true);
     const input: Record<string, unknown> = {};
-    for (const [key, hint] of Object.entries(runDef?.input ?? {})) {
-      const raw = runVals[key] ?? "";
+    for (const param of runDef?.input ?? []) {
+      const hint = paramHintOf(param.type);
+      const raw = runVals[param.key] ?? "";
       if (!raw) continue;
-      input[key] = hint === "number" ? Number(raw) : hint === "boolean" ? raw === "true" : raw;
+      input[param.key] =
+        hint === "number" ? Number(raw) : hint === "boolean" ? raw === "true" : raw;
     }
     try {
       await api.startWorkflowExecution({
@@ -394,23 +422,27 @@ export function WorkflowList({ definitions }: { definitions: Row[] }) {
             <DialogTitle className="text-sm font-semibold">Run {runId}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            {Object.keys(runDef?.input ?? {}).length === 0 ? (
+            {(runDef?.input ?? []).length === 0 ? (
               <p className="text-xs text-(--mute)">This workflow has no input parameters.</p>
             ) : (
-              Object.entries(runDef?.input ?? {}).map(([key, hint]) => (
-                <div key={key} className="flex flex-col gap-1">
-                  <Label className="text-xs text-(--mute)">
-                    {key} <span className="text-(--faint)">({hint})</span>
-                  </Label>
-                  <Input
-                    className="h-9 border-(--hairline) bg-(--canvas) text-xs"
-                    type={hint === "number" ? "number" : hint === "boolean" ? "text" : "text"}
-                    placeholder={hint === "boolean" ? "true / false" : ""}
-                    value={runVals[key] ?? ""}
-                    onChange={(e) => setRunVals((v) => ({ ...v, [key]: e.target.value }))}
-                  />
-                </div>
-              ))
+              (runDef?.input ?? []).map((param) => {
+                const key = param.key;
+                const hint = paramHintOf(param.type);
+                return (
+                  <div key={key} className="flex flex-col gap-1">
+                    <Label className="text-xs text-(--mute)">
+                      {key} <span className="text-(--faint)">({hint})</span>
+                    </Label>
+                    <Input
+                      className="h-9 border-(--hairline) bg-(--canvas) text-xs"
+                      type={hint === "number" ? "number" : hint === "boolean" ? "text" : "text"}
+                      placeholder={hint === "boolean" ? "true / false" : ""}
+                      value={runVals[key] ?? ""}
+                      onChange={(e) => setRunVals((v) => ({ ...v, [key]: e.target.value }))}
+                    />
+                  </div>
+                );
+              })
             )}
             <Button className="w-full" onClick={run} disabled={running}>
               {running ? "Starting…" : "Run"}
