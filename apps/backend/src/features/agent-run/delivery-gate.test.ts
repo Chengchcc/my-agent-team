@@ -79,3 +79,28 @@ describe("what counts as producing a change", () => {
     expect(producedByEvent('{"toolName":"read"}')).toBe(false);
   });
 });
+
+describe("the requirement is the unit of delivery (ADR 0077)", () => {
+  test("a worker a person drove on a direct line is a producer too", () => {
+    // parentRunId is null when a human, not a dispatcher, started the run.
+    const note = gate([run({ runId: "w-direct", parentRunId: null })], new Set(["w-direct"]));
+    expect(note).toContain("未经核验");
+  });
+
+  test("a review from ANY room of the requirement clears it", () => {
+    const note = gate(
+      [
+        run({ runId: "w1", parentRunId: null }),
+        run({
+          runId: "w2",
+          agentId: "reviewer",
+          parentRunId: "pa-2",
+          createdAt: 3000,
+          terminalAt: 4000,
+        }),
+      ],
+      new Set(["w1"]),
+    );
+    expect(note).toBeUndefined();
+  });
+});

@@ -24,7 +24,8 @@ export interface DeliveryGateRun {
 export interface DeliveryGateInput {
   /** The delivering (front desk) run. */
   readonly selfAgentId: string;
-  /** Recent runs of the conversation, any dispatcher. */
+  /** The runs attached to what is being delivered (its requirement; a room as
+   *  the fallback when nothing is tracked). */
   readonly runs: readonly DeliveryGateRun[];
   /** Did this run use a tool that changes the workspace? */
   readonly produced: (runId: string) => boolean;
@@ -43,8 +44,11 @@ export function producedByEvent(serialized: string): boolean {
 /** The line to append, or undefined when the delivery is verified (or when
  *  nothing was dispatched at all: a plain answer needs no second opinion). */
 export function deliveryNoteOf(input: DeliveryGateInput): string | undefined {
+  // How a run reached the requirement does not matter — dispatched from a room,
+  // or a person driving a worker on a direct line. What matters is that a
+  // DIFFERENT agent did it (ADR 0077: the requirement is the unit of delivery).
   const dispatched = input.runs.filter(
-    (run) => run.parentRunId !== null && run.agentId !== null && run.agentId !== input.selfAgentId,
+    (run) => run.agentId !== null && run.agentId !== input.selfAgentId,
   );
   const producers = dispatched
     .filter((run) => run.status === "completed" && input.produced(run.runId))
