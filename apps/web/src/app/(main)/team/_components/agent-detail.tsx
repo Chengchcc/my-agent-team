@@ -29,6 +29,7 @@ import {
   useSkillPackList,
 } from "@/features/skill-packs/hooks";
 import { overlineClass } from "@/lib/form-styles";
+import { t } from "@/lib/i18n";
 import { AgentConfigBar } from "./agent-config-bar";
 import { AgentDescriptionCard } from "./agent-description-card";
 import { AgentProjectsPanel } from "./agent-projects-panel";
@@ -214,7 +215,12 @@ function RecentRuns({ agentId }: { agentId: string }) {
   const runsQuery = useAgentRuns({ agentId, limit: 50 });
   return (
     <div>
-      <h2 className={`${overlineClass} mb-3`}>Recent Runs</h2>
+      <h2 className={`${overlineClass} mb-1`}>Recent Runs</h2>
+      {/* The count needs its scope, or 0 here reads as "this member never
+          works" while the System page lists their runs (audit 2026-11-24). */}
+      <p className="mb-3 text-[11px] text-(--mute)">
+        {t("Last 50 runs of this member, across every room.")}
+      </p>
       <QueryState
         query={runsQuery}
         empty={(data) => data.runs.length === 0}

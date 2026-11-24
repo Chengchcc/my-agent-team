@@ -228,4 +228,18 @@ export const zh: Record<string, string> = {
   "Loading conversations…": "正在加载会话……",
   "checks passed": "检查通过",
   "no tracked goal": "没有关联目标",
+  "Last 50 runs of this member, across every room.": "该成员跨所有房间的最近 50 次运行。",
+  Status: "状态",
+  stored: "存储值",
+  "Cancel this requirement?": "取消这个需求？",
+  "It leaves the list as cancelled. Runs and their records stay.":
+    "它会以「已取消」离开列表；运行记录仍然保留。",
+  "Cancel requirement": "取消需求",
+  "Mark this requirement done?": "把这个需求标记为完成？",
+  "Records your decision against this work. The runs and their evidence stay as they are.":
+    "记录你对该项工作的决定；运行记录与证据保持不变。",
+  "Mark done": "标记完成",
+  "Marked done": "已标记完成",
+  Cancelled: "已取消",
+  "Could not update the requirement": "无法更新需求",
 };
