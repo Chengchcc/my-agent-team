@@ -162,6 +162,9 @@ export interface PendingActionRecord {
   readonly owner?: string;
   /** ADR 0075: who actually answered (`user` or `agent:<id>`). */
   readonly answeredBy?: string | null;
+  /** ADR 0075: when the owner changed from an agent to the person because the
+   *  machine route failed. It is the fact that makes the escalation visible. */
+  readonly escalatedAt?: number | null;
   /** ADR 0075: what an answering agent cited. */
   readonly evidence?: readonly string[];
 }

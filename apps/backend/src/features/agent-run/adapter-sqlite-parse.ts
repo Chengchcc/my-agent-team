@@ -90,6 +90,7 @@ export function parsePendingAction(
     resolvedAt: row.resolvedAt,
     ...(row.owner !== null ? { owner: row.owner } : {}),
     answeredBy: row.answeredBy ?? null,
+    escalatedAt: row.escalatedAt ?? null,
     ...(row.evidence !== null ? { evidence: JSON.parse(row.evidence) as string[] } : {}),
   };
 }

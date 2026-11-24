@@ -17,6 +17,7 @@ type ActionMethods = Pick<
   AgentRunPort,
   | "createPendingAction"
   | "markActionAnswered"
+  | "escalateActionToUser"
   | "correctActionResponse"
   | "consumePendingAction"
   | "getPendingAction"
@@ -96,6 +97,18 @@ export function createActionMethods(
       d.update(schema.pendingAction)
         .set({ response: JSON.stringify(response), answeredBy: "user" })
         .where(eq(schema.pendingAction.actionId, actionId))
+        .run();
+    },
+
+    async escalateActionToUser(actionId) {
+      d.update(schema.pendingAction)
+        .set({ owner: "user", escalatedAt: Date.now() })
+        .where(
+          and(
+            eq(schema.pendingAction.actionId, actionId),
+            eq(schema.pendingAction.status, "pending"),
+          ),
+        )
         .run();
     },
 

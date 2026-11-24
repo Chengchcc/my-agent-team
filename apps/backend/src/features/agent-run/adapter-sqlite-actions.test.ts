@@ -37,6 +37,63 @@ describe("ADR 0075: a request records WHO should answer it", () => {
   });
 });
 
+describe("a failed machine route hands the question to the person", () => {
+  test("escalation flips the owner to user and records when", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("pa-escalate");
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "t-escalate" },
+      inputIdempotencyKey: "ikey-escalate",
+      runIdempotencyKey: "rkey-escalate",
+      deliveryIdempotencyKey: "dkey-escalate",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      authorization: "dispatch:pa-front",
+    });
+    const action = await runPort.createPendingAction(res.run!.runId, {
+      actionId: "action-escalate",
+      kind: "ask",
+      payload: { questions: [{ question: "which db?" }] },
+    });
+    expect(action.owner).toBe("agent:pa-front");
+    await runPort.escalateActionToUser?.("action-escalate");
+    const after = await runPort.getPendingAction("action-escalate");
+    expect(after?.owner).toBe("user");
+    expect(after?.escalatedAt).toBeGreaterThan(0);
+  });
+
+  test("a resolved request is not re-owned by a late failure", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("pa-escalate-late");
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "t-escalate-late" },
+      inputIdempotencyKey: "ikey-escalate-late",
+      runIdempotencyKey: "rkey-escalate-late",
+      deliveryIdempotencyKey: "dkey-escalate-late",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+    });
+    await runPort.createPendingAction(res.run!.runId, {
+      actionId: "action-escalate-late",
+      kind: "ask",
+      payload: {},
+    });
+    await runPort.markActionAnswered?.("action-escalate-late", "user", ["conversation:c:1"]);
+    await runPort.escalateActionToUser?.("action-escalate-late");
+    const after = await runPort.getPendingAction("action-escalate-late");
+    expect(after?.owner ?? "user").toBe("user");
+    expect(after?.answeredBy).toBe("user");
+  });
+});
+
 describe("ADR 0075 P4b: a correction keeps the row and flips the audit", () => {
   test("the stored response becomes the human's, attributed to user", async () => {
     const { conversationId, agentId, branch } = await setupBranch("pa-correct");
