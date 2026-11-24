@@ -104,3 +104,24 @@
 ## 9. 本轮补充
 
 - 代答更正时**保留原答者**：`answer_corrected` ops 事件记录 `originalAnsweredBy` 与 `originalEvidence`（否则更正后行里只剩 `user`，G2 的分母丢失）。没有专门的单测，靠 tsc + 人工核对事件写入点。
+
+## 10. F 组长测配方（可执行，不要用短测冒充）
+
+**内存（30 分钟 / 2 小时 retainer）**
+1. 关掉所有自建浏览器标签与本地模型服务（实测：遗留 headless Chromium 会吃掉 40% CPU，并让构建/测试时序抖动）。
+2. 用**无扩展**的独立 profile 启动一次浏览器，固定路线：
+   `Today → 建一次会话 → 发一条消息 → 打开终端 detach → 打开一个 Monaco(DLS) → 切回 Today`，循环 N 次。
+3. 每个采样点用 CDP：`HeapProfiler.collectGarbage` → `Runtime.getHeapUsage` + `Memory.getDOMCounters`；
+   记录 `JSHeapUsedSize / nodes / listeners`。
+4. 判据：30 分钟与 2 小时两点的**主线程 heap 与 DOM 节点**是否单调增长；`socket` 数量用 AHP 订阅数旁证。
+5. 结论只能写成"未复现"或"复现并给出 retainer 链"，不能写"已修"（除非有前后对照）。
+
+**AHP 帧队列背压**
+- 位置：`packages/ahp-client/src/transport.ts` 的 `FrameQueue`（目前无 cap）。
+- 度量：长历史房间（≥1万行）里连续 60 秒接收动作，统计每秒入队/出队数与峰值深度；
+  若峰值持续增长 → 需要上限 + 背压策略；若平稳 → 记录为"有界（实测）"，不改代码。
+
+**Query signal**
+- 已覆盖：runs（15s）、会话列表（10s）、会话详情（3s）。
+- 剩余端点按同一模式推进：给 `api.*` 加 `signal?`，`queryFn: ({ signal }) => api.x(..., signal)`。
+- 验证：浏览器 DevTools Network 里切换页面，pending 请求应显示 cancelled 而不是继续完成。
