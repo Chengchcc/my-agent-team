@@ -386,10 +386,20 @@ export default function SkillPacksPage() {
     setValidating(true);
     try {
       const r = await fetch("/api/bff/skill-packs/validate", { credentials: "include" });
+      if (!r.ok) {
+        setValidateResult(null);
+        toast.error("Validate failed", { description: `HTTP ${r.status}` });
+        return;
+      }
       const j = (await r.json()) as {
         packs: Array<{ id: string; name: string; ok: boolean; skills: number; issues: string[] }>;
       };
-      setValidateResult(j.packs ?? []);
+      if (!Array.isArray(j.packs) || j.packs.length === 0) {
+        setValidateResult(null);
+        toast.warning("Nothing to validate", { description: "No packs are installed." });
+        return;
+      }
+      setValidateResult(j.packs);
     } catch {
       toast.error("Validate failed");
     } finally {

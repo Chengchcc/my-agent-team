@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useHarnessList } from "@/features/models/hooks";
 import type { ChatModelOverride } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 export type { ChatModelOverride };
 
@@ -59,7 +60,7 @@ export function ModelPicker({
               ? selectedModel
                 ? `${selectedHarness?.name ?? shortName(value.modelId)} · ${selectedModel.name}`
                 : (value.harnessModel ?? shortName(value.modelId))
-              : "Auto"}
+              : t("Model: agent config")}
             {value?.reasoningEffort ? ` · ${value.reasoningEffort}` : ""}
             <ChevronDown size={12} />
           </Button>
