@@ -60,3 +60,23 @@ rm scripts/__audit-probe.ts
 - 审计的构建版本与当前不同：`fd2c053a` → `cc8c70a7` 之后需重新采样才算常态 SLO。
 - 审计没有执行生产写（审批、发送、创建、删除）。本文件也不把"只读复现"当"已修证明"，
   每条修复都指到一条可运行的测试或探针。
+
+## 6. 第二轮（读完四份报告后的增量）
+
+读完 `frontend-audit`／`product-audit`／`ux-audit`／`adr0074-evaluation` 后新增的处置：
+
+| 项 | 处置 | 位置 |
+|---|---|---|
+| Fork 的 `run:<id>:assistant` 回复被丢 | **纠正上一轮的判断**：只跳错误气泡与本房已表示的 run；实测账本 811 条 assistant、679 条 tool 带该前缀 | `session-model.ts` + 探针 |
+| AHP 每轮不释放 | 每轮 `finally` shutdown，重连不再留上一轮的 socket/subscription | `ahp.ts` + 测试 |
+| 页面崩溃带走侧栏 | 新增 `(main)/error.tsx`（根边界在布局之上，旧注释不成立） | `app/(main)/error.tsx` |
+| 终态仍写 STREAM ACTIVE | 徽章改为「实时跟随／已暂停」，终态即停 | `ExecutionTraceView`、`DagStatsBar` |
+| 同一 run 列表 0s／详情 1m30s | 详情用真实 `terminalAt`；没有就显示「—」，不再编造 +90s | 同上 |
+| Today 三条 `Finished: Coder` 撞题 | 后端 unread DTO 带房间标题；无标题才回退成员名 | `agent-run/http.ts`、`AttentionInbox` |
+| Skills `Ready 1/1` 与目录缺失同屏 | 校验跑过后由校验结果单独决定 Ready 与卡片状态 | `team/skills/page.tsx` |
+| 加载期假 0／假空 | 指挥台 KPI 显示 `—`；会话与侧栏显示加载中 | 已在前一轮 |
+| 首屏不知道产品是干什么的 | Inbox 顶端一句「把目标告诉 Personal Agent…」 | `AttentionInbox` |
+
+**撤回的旧结论**：需求详情的「refine goal here 却无入口」——当前源码里没有这句文案，按现状撤销。
+
+**仍未做**（按 M1/M2/ADR 排期，见仓库 todo）：执行单元折叠块与固定 base/head Diff、交付黄条判据说明、事项状态派生与完成/取消 UI、纯问答不建事项、搜索命中片段、状态词按对象归并、代答三类硬拒绝、创建授权绑定、内存长测。
