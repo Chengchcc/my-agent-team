@@ -191,13 +191,13 @@ function ArtifactsView() {
             label={t("Storage")}
             value={fmtSize(totalBytes)}
             icon={HardDrive}
-            detail="across buckets"
+            detail={t("across buckets")}
           />
           <KpiTile
             label={t("Buckets")}
             value={folders.length}
             icon={FolderOpen}
-            detail={folders.slice(0, 2).join(" · ") || "none"}
+            detail={folders.slice(0, 2).join(" · ") || t("root files count as no bucket")}
           />
         </div>
 

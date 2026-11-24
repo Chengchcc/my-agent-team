@@ -217,4 +217,8 @@ export const zh: Record<string, string> = {
   "This workflow runs a script node, and scripts are disabled on this server. It can be edited here, not run.":
     "这个流程包含脚本节点，而本服务器禁用脚本。可以在这里编辑，但不能运行。",
   "Starting…": "启动中……",
+  "root files count as no bucket": "根目录文件不计入分组",
+  "across buckets": "跨分组合计",
+  "Following live": "实时跟随",
+  Paused: "已暂停",
 };
