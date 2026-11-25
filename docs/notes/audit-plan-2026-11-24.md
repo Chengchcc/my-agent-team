@@ -107,6 +107,18 @@
 
 ## 10. F 组长测配方（可执行，不要用短测冒充）
 
+**内存：方法与已测基线（2026-11-25）**
+
+方法已验证：`page.metrics()` + `HeapProfiler.collectGarbage` 后取 `JSHeapUsedSize / Nodes / JSEventListeners`。
+
+| 采样 | heap | DOM nodes | listeners |
+|---|---:|---:|---:|
+| Today（首次） | 23.9 MB | 796 | 1410 |
+| → Workflows | 13.4 MB | 581 | 413 |
+| → 回到 Today | 16.6 MB | 772 | 1405 |
+
+**判读**：同一路线往返后回到基线（甚至更低），**没有暴露增长**；这是 3 个点的短样本，不能替代下列 30 分钟 / 2 小时判定。
+
 **内存（30 分钟 / 2 小时 retainer）**
 1. 关掉所有自建浏览器标签与本地模型服务（实测：遗留 headless Chromium 会吃掉 40% CPU，并让构建/测试时序抖动）。
 2. 用**无扩展**的独立 profile 启动一次浏览器，固定路线：
