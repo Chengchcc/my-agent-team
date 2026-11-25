@@ -24,6 +24,7 @@ import { extractText } from "@/lib/timeline";
 import type { TodoItem, TransientBubble } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 import { Composer } from "./Composer";
+import { type ConversationDensity, ConversationDensityContext } from "./conversation-density";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
 
@@ -42,8 +43,16 @@ export interface ConversationPanelProps {
   emptyTitle?: ReactNode;
   /** Skills the conversation's agent can load, offered in the `/` picker. */
   skills?: readonly SkillCommand[];
+  /** A draft put into the composer while it is empty, for the person to edit and send. */
+  draft?: string;
+  /** Whether showing this conversation counts as the person having seen it. The chat page says
+   *  yes; a panel embedded beside something else says no, so opening that other thing does not
+   *  clear unread marks. */
+  marksSeen?: boolean;
   /** Page chrome that belongs beside the messages — the chat page's roster. */
   aside?: ReactNode;
+  /** The scale this conversation runs at: the page's, or the tighter one of a side sheet. */
+  density?: ConversationDensity;
 }
 
 /** The content of one conversation: messages, live state and the composer. Everything here is
@@ -56,7 +65,10 @@ export function ConversationPanel({
   anchorSeq,
   emptyTitle,
   skills,
+  draft,
+  marksSeen = true,
   aside,
+  density = "page",
 }: ConversationPanelProps) {
   const router = useRouter();
   const {
@@ -72,18 +84,22 @@ export function ConversationPanel({
   } = conversation;
   const { agent, items, error, streamConn, continuation } = state;
   // Seeing the conversation marks it read: covers deep links and messages
-  // that arrive while the panel is open (the sidebar dot clears too).
+  // that arrive while the panel is open (the sidebar dot clears too). A view
+  // that merely shows a conversation beside something else does not count as
+  // seeing it: opening an editor must not clear that conversation's unread
+  // marks or its attention debts.
   const maxSeenSeq = useMemo(
     () => items.reduce((max, item) => Math.max(max, item.kind === "message" ? item.seq : 0), 0),
     [items],
   );
   useEffect(() => {
+    if (!marksSeen) return;
     if (maxSeenSeq > 0) markRead(conversationId, maxSeenSeq);
     // ADR 0061: the same look clears the backend's attention debts for this
     // conversation (a pending question, an unseen terminal notice). It only
     // advances read marks - it cannot change what a run did.
     void api.markSeen({ conversationId }).catch(() => {});
-  }, [conversationId, maxSeenSeq]);
+  }, [conversationId, maxSeenSeq, marksSeen]);
 
   const { data: artifactsData } = useArtifacts();
   const artifactsByRunId = useMemo(() => {
@@ -242,7 +258,7 @@ export function ConversationPanel({
   );
 
   return (
-    <>
+    <ConversationDensityContext value={density}>
       {/* SSE connection warning — sticky alert until the stream recovers */}
       {(streamConn === "reconnecting" || streamConn === "closed") && (
         <div
@@ -293,7 +309,7 @@ export function ConversationPanel({
           {lastUserMessage && (
             <Button
               onClick={() => send(lastUserMessage)}
-              className="text-xs text-(--primary) hover:text-(--primary-soft) transition-colors shrink-0 ml-4"
+              className="text-xs text-(--primary) hover:text-(--primary-deep) transition-colors shrink-0 ml-4"
             >
               Retry
             </Button>
@@ -399,8 +415,9 @@ export function ConversationPanel({
           isBusy={busy}
           onStop={currentRunId ? stopRun : undefined}
           skills={skills}
+          draft={draft}
         />
       </div>
-    </>
+    </ConversationDensityContext>
   );
 }

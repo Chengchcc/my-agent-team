@@ -1,0 +1,220 @@
+/** Team page dictionary (zh). Keys are the English strings the Team screen, the member detail,
+ *  the member editor and its form call `t()` with. The integrator merges this into `zh.ts`. */
+
+export const teamZh: Record<string, string> = {
+  // Page head and hero
+  "Agent registry": "Agent 注册表",
+  "Agent registry and discovery": "Agent 注册与发现",
+  "See each agent's capability configuration, its own workspace and its conversations. A PA discovers workers with team_list; no shared team or conversation is required.":
+    "查看 Agent 的能力配置、独立 Workspace 与会话。PA 通过 team_list 发现 Worker，不要求预先属于同一团队或会话。",
+  "New member": "新成员",
+  "Discover by capability": "按能力发现",
+  "Discover by capability, dispatch by task.": "按能力发现，按任务派发。",
+  "Several PAs can discover and use the same worker. The main conversation belongs to the person and the PA; a worker keeps its own execution context. Enabling only marks the member as available: it starts no process and connects nothing.":
+    "多个 PA 可以发现并使用同一个 Worker。主会话属于人和 PA，Worker 保留独立的执行上下文。启用只是把成员标为可接任务：不创建进程，也不连接任何系统。",
+  "Registered members": "已登记成员",
+  "Available for new work": "可接新任务",
+  Conversations: "会话",
+
+  // Sections
+  "PA type": "PA 型",
+  "Worker type": "Worker 型",
+  "The members people talk to. Each PA keeps its own identity, workspace and conversations, and discovers workers as it needs them.":
+    "与人对话的成员。每位 PA 保留独立的身份、Workspace 与会话，按需发现 Worker。",
+  "Found by capability, within the scope of the work it is given. Several PAs can use the same worker; there is no fixed team membership.":
+    "按能力被发现，在所交付工作的范围内执行。多个 PA 可以使用同一个 Worker；没有固定的团队成员关系。",
+  "{n} members": "{n} 位成员",
+  "No member of this type yet.": "还没有这一类型的成员。",
+  "Member not found": "找不到该成员",
+  "It may have been removed. The registry lists what exists.":
+    "它可能已被移除。注册表只列出现存的成员。",
+
+  // Member card
+  enabled: "已启用",
+  paused: "已暂停",
+  PA: "PA",
+  Worker: "Worker",
+  "talks with people and dispatches work": "面向人并派发工作",
+  "runs the work dispatched to it": "按派发范围执行",
+  "PA type · talks with people and dispatches work": "PA 型 · 面向人并派发工作",
+  "Worker type · runs the work dispatched to it": "Worker 型 · 按派发范围执行",
+  "No capability description yet.": "尚未填写能力描述。",
+  "Harness · configured": "Harness · 本地配置",
+  "Member workspace": "成员 Workspace",
+  "Work context": "工作上下文",
+  "{n} conversations": "{n} 个会话",
+  "Capability entries {n}": "能力声明 {n}",
+  "Skill packs {n}": "技能包 {n}",
+  "Projects {n}": "项目 {n}",
+  View: "查看",
+  "Edit settings": "编辑设置",
+  "Pause new work": "暂停接新任务",
+  "Enable for new work": "启用接新任务",
+  "Skills, MCP and harness say what is configured, not what a run is authorized to do.":
+    "Skills、MCP 与 Harness 只说明配置了什么，不等于一次执行的授权。",
+  "Pause this member from taking new work?": "暂停这位成员接新任务？",
+  "{name} is left out of what the PA discovers and dispatches to. Its conversations and history stay.":
+    "{name} 将不再出现在 PA 可发现与可派发的名单里。它的会话与历史都会保留。",
+  "Keep it enabled": "继续接新任务",
+  "{name} is paused.": "已暂停 {name}。",
+  "{name} can take new work again.": "{name} 又可以接新任务了。",
+  "Could not change the member": "无法修改成员",
+
+  // Member detail dialog
+  "Member detail": "成员详情",
+  Close: "关闭",
+  Overview: "概览",
+  Capability: "能力",
+  Workspace: "工作区",
+  Persona: "Persona",
+  Memory: "内存占用",
+  Projects: "项目",
+  Lark: "Lark",
+  Activity: "活动",
+  Config: "配置",
+  "Open conversation": "打开会话",
+  "Start a conversation": "开始会话",
+  "No conversation yet": "还没有会话",
+  "Enable the member first.": "请先启用成员。",
+  "Could not start a conversation": "无法新建会话",
+
+  // Member detail tabs
+  "Member role": "成员角色",
+  "Receiving new work": "接新任务",
+  "Enabled: the PA can discover it and dispatch to it.": "已启用：PA 可以发现它并向它派发。",
+  "Paused: left out of what the PA discovers and dispatches to.":
+    "已暂停：不在 PA 可发现与可派发的名单里。",
+  None: "无",
+  Configured: "配置时间",
+  "Not available": "未提供",
+  "Capability card": "能力卡",
+  "Name, description and capability entries describe the work this member is for. What is mounted does not by itself authorize anything.":
+    "名称、描述与能力声明说明这位成员负责什么。挂载了什么，本身不构成任何授权。",
+  "No capability entries declared; the description stands.": "尚未声明独立能力条目；仍以描述为准。",
+  "No description": "暂无描述",
+  "Skill packs · assigned": "Skills · 已分配",
+  "What is assigned to this member. Registration and whether it is on disk are separate states, shown on the Skills page.":
+    "这位成员分配到的技能包。登记与是否已落盘是另外两个状态，在 Skills 页查看。",
+  "No skill pack assigned.": "未分配技能包。",
+  "Manage skill packs": "管理技能包",
+  "MCP · bound": "MCP · 已绑定",
+  "No MCP server bound.": "未绑定 MCP。",
+  mounted: "已挂载",
+  "No longer in the catalog": "已不在目录中",
+  "Manage MCP": "管理 MCP",
+  "Harness · run configuration": "Harness · 运行配置",
+  "The configuration the run starts from. It is not a record of what a run was allowed to do.":
+    "这是执行开始时的配置，不是一次执行实际被允许做什么的记录。",
+  Usage: "用量",
+  "Recent runs": "最近的执行",
+  "Last 50 runs of this member, across every room.": "这位成员最近 50 次执行，跨所有会话。",
+  "No recent runs.": "最近没有执行。",
+  "Loading conversations…": "正在加载会话…",
+  "This member has no conversation yet.": "这位成员还没有会话。",
+  Open: "打开",
+  Direct: "直接会话",
+  Forked: "分叉",
+  Dispatched: "派发子会话",
+  Workflow: "工作流",
+  "Lark entry": "Lark 入口",
+  "Not applicable: a worker takes no direct instruction from people.":
+    "不适用：Worker 不接受人的直接指令。",
+  "Work reaches a worker by dispatch.": "工作经派发到达 Worker。",
+  "The member as the registry holds it now. Edits go through the form, with a PA beside it.":
+    "注册表当前保存的成员配置。修改请通过表单，旁边可以和 PA 讨论。",
+
+  // Projects tab
+  "No projects yet. Create one under Team → Projects.": "还没有项目。请在「团队 → 项目」里创建。",
+  Attach: "关联",
+  Detach: "取消关联",
+  "Attaching gives this member a working copy of the project. It runs nothing by itself.":
+    "关联会给这位成员一份项目的工作副本。它本身不运行任何东西。",
+  "Project attached": "已关联项目",
+  "Project detached": "已取消关联",
+  "Failed to update projects": "无法更新项目关联",
+  "Unknown error": "未知错误",
+
+  // Member form
+  Member: "成员",
+  Name: "名称",
+  "PA: talks to people and may bind a Lark bot": "PA：面向人，可以绑定 Lark 机器人",
+  "Worker: receives dispatched work, no direct contact": "Worker：接收派发的工作，不与人直接对话",
+  "e.g. Archivist": "例如：档案管理员",
+  Runtime: "运行时",
+  "Select harness…": "选择 Harness…",
+  Harness: "Harness",
+  Model: "模型",
+  "Harness default": "Harness 默认",
+  "Reasoning effort": "推理强度",
+  "Provider default": "提供商默认值",
+  "None (thinking off)": "关闭（不思考）",
+  Low: "低",
+  High: "高",
+  Max: "最大",
+  "Permission mode": "权限模式",
+  "Ask (approval)": "Ask（需要批准）",
+  Auto: "Auto",
+  Deny: "Deny",
+  "Yolo (ungated, OS sandbox on)": "Yolo（不设门，仅系统沙箱）",
+  "Max steps": "最大步数",
+  Unlimited: "不限",
+  "Leave empty to use the default location.": "留空则使用默认位置。",
+  "Changing it moves the member's workspace.": "修改后会迁移这位成员的 Workspace。",
+  "Capability description": "能力描述",
+  "e.g. fixes frontend bugs": "例如：修复前端缺陷",
+  "e.g. team lead, routes work": "例如：团队负责人，负责分派工作",
+  "A worker has no Lark face: this card is how dispatch finds it.":
+    "Worker 没有 Lark 入口：派发靠这张能力卡找到它。",
+  "What this member does; routing reads it too.": "这位成员做什么；路由也会读到这里。",
+  "Capability entries": "能力声明",
+  "Comma-separated. What team_list shows and routing reads.":
+    "逗号分隔。team_list 展示的内容，路由也会读取。",
+  "Give this PA a Lark bot": "为这位 PA 配置 Lark 机器人",
+  "Bot display name": "机器人名称",
+  "Must match the Lark app settings": "需与 Lark 应用设置一致",
+  "Groups recognise @mentions by this name. Leave it empty and the bot only answers direct messages.":
+    "群聊按这个名字识别 @提及。留空则机器人只回应私聊。",
+  "The bot is connected from the member's Lark tab after you create the member.":
+    "创建成员后，在它的 Lark 标签页连接机器人。",
+  "Connect the bot from this member's Lark tab.": "请在这位成员的 Lark 标签页连接机器人。",
+  "Skill packs": "技能包",
+  "No skill packs installed yet. Install them under Team → Skills.":
+    "还没有安装技能包。请在「团队 → Skills」里安装。",
+  "No MCP servers installed yet. Install them under Team → MCP.":
+    "还没有安装 MCP 服务。请在「团队 → MCP」里安装。",
+  "Mounting is a saved preference; it does not start or connect anything.":
+    "挂载只是一项保存的偏好：不会启动或连接任何东西。",
+  "Failed to save agent": "无法保存成员",
+  "Skill packs not assigned": "未分配技能包",
+  "Retry from the member's Capability tab.": "请在成员的「能力」标签页重试。",
+  "Failed to assign skill packs": "无法分配技能包",
+
+  // Member editor sheet
+  "Member config": "成员配置",
+  "Let a new member join the team.": "让一位新成员加入团队。",
+  "PA session": "PA 会话",
+  "No PA": "暂无 PA",
+  In: "当前会话",
+  "No conversation with this PA yet": "还没有和这位 PA 的会话",
+  "New session": "新建会话",
+  "Draft a request": "起草请求",
+  "Puts a request about this member into the input, for you to edit and send":
+    "把一条关于这位成员的请求放进输入框，由你修改后再发送",
+  "a new member": "一位新成员",
+  "No PA to ask yet. Create a personal agent first.": "还没有可以询问的 PA，请先创建超级助理。",
+  "Start a session with this PA to ask about the member.": "和这位 PA 开始一个会话，再询问成员。",
+  Cancel: "取消",
+  "Create member": "创建成员",
+  "Save changes": "保存修改",
+  "Saving...": "保存中…",
+  "Could not save": "无法保存",
+  "Member created": "已创建成员",
+  "Member updated": "已保存成员",
+  "Saved. The PA's suggestion could not be recorded.": "已保存，但没能记录 PA 的这条建议。",
+
+  // Suggestion card rows the registry writes outside the form
+  "Paths writes are denied in": "禁止写入的路径",
+  "Paths writes are allowed in": "允许写入的路径",
+  "Commands denied": "禁止的命令",
+  "Knowledge packs": "知识包",
+};

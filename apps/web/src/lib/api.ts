@@ -13,6 +13,13 @@ export type AgentRunStatus =
   | "failed"
   | "aborted"
   | "timeout";
+/** What a proposal is about. Mirrors the backend's `ProposalKind`. */
+export type ProposalKindName =
+  | "agent_config"
+  | "workflow_definition"
+  | "project_creation"
+  | "project_update";
+export type PendingProposalRow = NonNullable<ApiReturn<typeof api.getPendingProposal>["proposal"]>;
 
 export type ProjectRow = ApiReturn<typeof api.listProjects>["projects"][number];
 export type CodingTerminalRow = ApiReturn<typeof api.listCodingTerminals>["terminals"][number];
@@ -697,15 +704,20 @@ export const api = {
     input?: Record<string, unknown>;
     artifacts?: string[];
   }) => unwrap(client.api["workflow-executions"].post(body)),
-  /** Every still-pending proposal (ADR 0040 inbox). */
-  listPendingProposals: () => unwrap(client.api.proposals.pending.get()),
+  /** Every still-pending proposal (ADR 0040 inbox), optionally of one kind. */
+  listPendingProposals: (kind?: ProposalKindName) =>
+    unwrap(client.api.proposals.pending.get({ query: kind === undefined ? undefined : { kind } })),
   /** The pending proposal for a target (ADR 0040: an MCP tool proposes, a page adopts), or null
    *  when nothing is waiting. */
-  getPendingProposal: (kind: "agent_config" | "workflow_definition", targetId: string) =>
+  getPendingProposal: (kind: ProposalKindName, targetId: string) =>
     unwrap(client.api.proposals({ kind })({ targetId }).get()),
-  /** Say what the page did with it. A second decision on the same proposal is refused (409). */
-  resolveProposal: (id: string, decision: "adopted" | "discarded") =>
-    unwrap(client.api["proposal-decisions"]({ id }).post({ decision })),
+  /** Say what the page did with it. A second decision on the same proposal is refused (409).
+   *  `payload` is what the form saved after the person reviewed the suggestion: the backend
+   *  applies exactly that, and the row records it. */
+  resolveProposal: (id: string, decision: "adopted" | "discarded", payload?: unknown) => {
+    const body = payload === undefined ? { decision } : { decision, payload };
+    return unwrap(client.api["proposal-decisions"]({ id }).post(body));
+  },
   getWorkflowExecutionTrace: (executionId: string) =>
     unwrap(client.api["workflow-executions"]({ executionId }).trace.get()),
   cancelWorkflowExecution: (executionId: string) =>

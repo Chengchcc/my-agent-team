@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { agentUpdateFromConfig, applyProposal, ProposalNotApplicable } from "./apply.js";
+import {
+  agentUpdateFromConfig,
+  applyProposal,
+  type ProjectPatch,
+  ProposalNotApplicable,
+  projectPatchFrom,
+  reviewedPayload,
+} from "./apply.js";
 
 describe("adoption applies the payload", () => {
   test("an agent config maps onto the update API's flat shape", () => {
@@ -68,5 +75,72 @@ describe("adoption applies the payload", () => {
         deps: { updateAgent: async () => {}, createProject: async () => "p" },
       }),
     ).rejects.toBeInstanceOf(ProposalNotApplicable);
+  });
+
+  test("a project change reaches the project applier as a patch of the named fields only", async () => {
+    const seen: Array<[string, ProjectPatch]> = [];
+    await applyProposal({
+      kind: "project_update",
+      targetId: "p1",
+      payload: { projectId: "p1", name: "Renamed", proposedBy: "pa" },
+      deps: {
+        updateAgent: async () => {},
+        createProject: async () => "p",
+        updateProject: async (id, patch) => {
+          seen.push([id, patch]);
+        },
+      },
+    });
+    expect(seen).toEqual([["p1", { name: "Renamed" }]]);
+  });
+
+  test("a project change nothing can apply is refused, not marked", async () => {
+    await expect(
+      applyProposal({
+        kind: "project_update",
+        targetId: "p1",
+        payload: { name: "Renamed" },
+        deps: { updateAgent: async () => {}, createProject: async () => "p" },
+      }),
+    ).rejects.toBeInstanceOf(ProposalNotApplicable);
+  });
+});
+
+describe("a reviewed project payload", () => {
+  test("an empty repository or branch clears it; a field not named is left alone", () => {
+    expect(projectPatchFrom({ repoUrl: "", defaultBranch: "dev", proposedBy: "pa" })).toEqual({
+      repoUrl: null,
+      defaultBranch: "dev",
+    });
+  });
+
+  test("the values the human saved replace the tool's for a project, and only those", () => {
+    const reviewed = reviewedPayload(
+      "project_update",
+      { projectId: "p1", name: "tool", proposedBy: "pa" },
+      { name: "human", projectId: "p2" },
+    );
+    expect(reviewed).toEqual({ projectId: "p1", name: "human", proposedBy: "pa" });
+  });
+
+  test("a new project keeps the members the tool named unless the form names others", () => {
+    const stored = { name: "a", repoUrl: "u", attachTo: ["w1"] };
+    expect(reviewedPayload("project_creation", stored, { name: "b" })).toEqual({
+      ...stored,
+      name: "b",
+    });
+    expect(reviewedPayload("project_creation", stored, { attachTo: ["w2", ""] })).toEqual({
+      ...stored,
+      attachTo: ["w2"],
+    });
+  });
+
+  test("other kinds keep the stored payload, whatever the page sends", () => {
+    const stored = { name: "x" };
+    expect(reviewedPayload("agent_config", stored, { name: "y" })).toBe(stored);
+  });
+
+  test("no override means the stored payload", () => {
+    expect(reviewedPayload("project_update", { name: "x" }, undefined)).toEqual({ name: "x" });
   });
 });

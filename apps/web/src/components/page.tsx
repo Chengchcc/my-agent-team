@@ -88,31 +88,29 @@ export function PageHeader({
   /** Action cluster, right-aligned: ghost -> outline -> primary, gap 8. */
   actions?: ReactNode;
 }) {
+  let line = description;
+  if (subtitle !== undefined) line = subtitle;
   return (
-    <div className="border-b border-(--hairline) p-4 sm:px-6 lg:px-8">
+    <div className="mb-[29px] px-4 sm:px-6 lg:px-8">
       {breadcrumb != null && (
-        <Breadcrumb className="mb-1">
+        <Breadcrumb className="mb-2">
           <BreadcrumbList>{renderBreadcrumb(breadcrumb)}</BreadcrumbList>
         </Breadcrumb>
       )}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="min-w-0">
           {kicker && (
-            <p className="text-(--text-cap) tracking-kicker uppercase font-semibold text-(--mute)">
-              {t(kicker ?? "")}
-            </p>
+            <p className="text-[10px] tracking-[1.8px] uppercase text-(--faint)">{t(kicker)}</p>
           )}
           <div className="flex items-center gap-2.5">
-            <h1 className="text-h1/tight font-semibold text-(--ink)">{t(title)}</h1>
+            <h1 className="text-[29px] leading-[1.4] font-[550] tracking-[-1px] text-(--ink)">
+              {t(title)}
+            </h1>
             {pill}
           </div>
-          {(subtitle ?? description) && (
-            <p className="mt-0.5 text-(--text-body) text-(--mute)">
-              {t(subtitle ?? description ?? "")}
-            </p>
-          )}
+          {line && <p className="mt-0.5 text-xs text-(--mute)">{t(line)}</p>}
         </div>
-        <div className="flex items-center gap-2">{actions ?? action}</div>
+        <div className="flex flex-wrap items-center gap-2">{actions ?? action}</div>
       </div>
     </div>
   );
@@ -130,7 +128,7 @@ export function PageBody({
   return (
     <div
       className={cn(
-        "px-4 sm:px-6 lg:p-8 py-6 ",
+        "px-4 sm:px-6 lg:px-8 pb-6 ",
         size === "wide" ? "" : "mx-auto max-w-3xl",
         className,
       )}

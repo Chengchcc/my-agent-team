@@ -1,4 +1,5 @@
 export { sqliteProposalAdapter } from "./adapter-sqlite.js";
+export { ProposalNotApplicable } from "./apply.js";
 export {
   isProposalKind,
   type PendingProposal,

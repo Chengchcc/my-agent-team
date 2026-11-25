@@ -1,41 +1,38 @@
 import { z } from "zod";
 
+const skillSchema = z.object({ id: z.string().trim().min(1), description: z.string().default("") });
+
+/** The member form's validation. One schema for every surface that edits a member, so they
+ *  cannot accept different members. */
 export const agentFormSchema = z.object({
   name: z.string().trim().min(1, "Agent name is required"),
-  /** Which harness runs this agent: an ACP registry key (oma | omp | claude | pi).
-   *  One adapter drives all of them (ADR 0040 decision 7), so this is the only
-   *  "who runs it" field the form has. */
+  /** Which harness runs this agent: an ACP registry key (oma | omp | claude | pi). One adapter
+   *  drives all of them (ADR 0040 decision 7). */
   harness: z.string().trim().min(1, "Harness is required"),
-  /** The model that harness runs, in that harness's own vocabulary.
-   *  "" = the harness's own default. */
+  /** The model that harness runs, in that harness's own vocabulary. "" = its own default. */
   model: z.string().trim().default(""),
   reasoningEffort: z.enum(["", "none", "low", "high", "max"]).default(""),
   permissionMode: z.enum(["ask", "auto", "deny", "yolo"]).default("ask"),
-  maxSteps: z.string().trim().default(""),
+  /** As text, so an empty field is valid: "" means no limit. */
+  maxSteps: z
+    .string()
+    .trim()
+    .default("")
+    .refine(
+      (value) => value === "" || (Number.isInteger(Number(value)) && Number(value) >= 1),
+      "Max steps must be a whole number of 1 or more",
+    ),
   workspacePath: z.string().trim().default(""),
-  enableLark: z.boolean().default(false),
+  enableLark: z.enum(["off", "on"]).default("off"),
   botDisplayName: z.string().trim().default(""),
-  /** ADR 0049/0050: "worker" hides lark and makes the capability card the
-   *  primary identity; absent/"front" = front-capable (humans may talk). */
+  /** ADR 0049/0050: "worker" hides lark and makes the capability card the primary identity. */
   role: z.enum(["front", "worker"]).default("front"),
-  /** ADR 0048 capability card — what dispatch decisions read. */
+  /** ADR 0048 capability card: what dispatch decisions read. */
   description: z.string().trim().default(""),
-  skills: z
-    .array(z.object({ id: z.string().trim().min(1), description: z.string().default("") }))
-    .default([]),
+  skills: z.array(skillSchema).default([]),
+  /** MCP servers and skill packs the member has mounted. */
+  mcpServerIds: z.array(z.string()).default([]),
+  skillPackIds: z.array(z.string()).default([]),
 });
 
 export type AgentFormValues = z.infer<typeof agentFormSchema>;
-
-/** What the create page's chat may propose for an agent that does not exist
- *  yet. Deliberately narrower than AgentRow: a draft must never carry another
- *  agent's identity, workspacePath or lark credentials into the form. */
-export interface AgentDraft {
-  name?: string;
-  harness?: string;
-  model?: string;
-  reasoningEffort?: "none" | "low" | "high" | "max";
-  permissionMode?: "ask" | "auto" | "deny" | "yolo";
-  maxSteps?: number | null;
-  mcpServers?: Array<{ serverId: string; enabled: boolean }>;
-}

@@ -53,9 +53,9 @@ function SheetContent({
         className={cn(
           "fixed inset-y-0  z-50 flex w-64 flex-col overflow-y-auto bg-popover p-3 text-popover-foreground shadow-lg outline-none transition-transform duration-200",
           side === "right" &&
-            "right-0 border-l border-border data-ending-style:translate-x-full data-starting-style:translate-x-full",
+            "right-0 border-l border-border rounded-l-[17px] data-ending-style:translate-x-full data-starting-style:translate-x-full",
           side === "left" &&
-            "left-0 border-r border-border data-ending-style:-translate-x-full data-starting-style:-translate-x-full",
+            "left-0 border-r border-border rounded-r-[17px] data-ending-style:-translate-x-full data-starting-style:-translate-x-full",
           className,
         )}
         {...props}
@@ -79,7 +79,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-header"
-      className={cn("flex flex-col gap-0.5 p-4", className)}
+      className={cn("flex flex-col gap-0.5 px-5 py-4", className)}
       {...props}
     />
   );
@@ -89,7 +89,10 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      className={cn(
+        "mt-auto flex flex-col gap-2 border-t border-(--hairline) bg-black/10 p-4",
+        className,
+      )}
       {...props}
     />
   );
@@ -99,7 +102,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn("text-base font-medium text-foreground", className)}
+      className={cn("text-lg font-[550] tracking-[-0.5px] text-(--ink)", className)}
       {...props}
     />
   );
@@ -109,7 +112,7 @@ function SheetDescription({ className, ...props }: SheetPrimitive.Description.Pr
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("text-xs text-(--mute)", className)}
       {...props}
     />
   );

@@ -96,7 +96,7 @@ function AnchorChip({
 function SystemNotice({ text }: { text: string }) {
   return (
     <div className="flex justify-center py-2">
-      <span className="text-[11px] text-(--mute) bg-(--bg-muted) px-3 py-1 rounded-full">
+      <span className="text-[11px] text-(--mute) bg-(--canvas-soft) px-3 py-1 rounded-full">
         {text}
       </span>
     </div>
@@ -436,7 +436,6 @@ export function Timeline({
                       <MessageBubble
                         align={isSelf ? "right" : "left"}
                         name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
-                        kind={m.sender.kind}
                         agentId={m.sender.agentId}
                         createdAt={m.content.createdAt}
                         content={splitAnchorText(extractText(m.content), Boolean(m.anchor)).text}
@@ -528,7 +527,6 @@ export function Timeline({
                   <MessageBubble
                     align="left"
                     name={t.sender.displayName ?? t.sender.memberId}
-                    kind="agent"
                     agentId={t.sender.agentId}
                     content={t.text}
                     isStreaming={!t.error}

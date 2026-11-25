@@ -8,7 +8,10 @@
  *  dispatch. "Requirements" stays 需求 rather than 任务: the Today page already
  *  has a "Tasks" section, and two things must not share one word. */
 
-export const zh: Record<string, string> = {
+import { pageZh } from "./pages";
+
+/** The console's general words. The page dictionaries under `./pages` come after it. */
+export const zhOwn: Record<string, string> = {
   Today: "指挥台",
   Coding: "工作台",
   Requirements: "需求",
@@ -27,7 +30,7 @@ export const zh: Record<string, string> = {
   Capabilities: "能力",
   Authority: "授权",
   "Agent Runs": "成员的执行",
-  Runs: "执行",
+  Runs: "运行",
   New: "新建",
   "Agent Chat": "成员会话",
   Agent: "成员",
@@ -41,6 +44,9 @@ export const zh: Record<string, string> = {
   "Search conversations": "搜索会话",
   "Search chats, wiki, agents, projects...": "搜索会话、知识库、成员、项目…",
   "Toggle Sidebar": "收起 / 展开侧栏",
+  "Run Diagnostics": "运行诊断",
+  "Fork from here": "从这里分叉",
+  "Forking…": "分叉中……",
   Account: "账户",
   "Account settings": "账户设置",
   "Signed in as": "登录为",
@@ -207,7 +213,7 @@ export const zh: Record<string, string> = {
   "not validated": "未校验",
   "Nothing is running right now.": "当前没有正在运行的东西。",
   "Model: agent config": "模型：跟随成员设置",
-  "Checking…": "检测中……",
+  "Checking…": "检查中……",
   "Exporting…": "导出中……",
   "This page failed to render": "这个页面渲染失败",
   "The rest of the console still works.": "控制台的其余部分仍然可用。",
@@ -225,10 +231,10 @@ export const zh: Record<string, string> = {
   Ended: "已结束",
   "Tell Personal Agent the goal — it dispatches to the team and comes back only when it needs you.":
     "把目标告诉 Personal Agent——它派给团队，只在需要你时回来问。",
-  "Loading conversations…": "正在加载会话……",
+  "Loading conversations…": "正在加载会话…",
   "checks passed": "检查通过",
   "no tracked goal": "没有关联目标",
-  "Last 50 runs of this member, across every room.": "该成员跨所有房间的最近 50 次运行。",
+  "Last 50 runs of this member, across every room.": "这位成员最近 50 次执行，跨所有会话。",
   Status: "状态",
   stored: "存储值",
   "Cancel this requirement?": "取消这个需求？",
@@ -244,4 +250,98 @@ export const zh: Record<string, string> = {
   "Could not update the requirement": "无法更新需求",
   Accepted: "已验收",
   "based on {n} runs": "依据 {n} 次运行",
+  // Resource editor sheet (shared)
+  Form: "表单",
+  "PA session": "PA 会话",
+  "Editor panels": "编辑面板",
+  "Discard unsaved changes?": "放弃未保存的修改？",
+  "What you edited here is not saved. Leaving now loses it; the conversation stays.":
+    "这里的修改还没有保存。现在离开会丢失修改，会话会保留。",
+  "Discard and leave": "放弃并离开",
+  "Keep editing": "继续编辑",
+  "Restore to side sheet": "恢复为侧栏",
+  "Expand to full page": "展开为整页",
+  // Suggestion card (shared)
+  "Suggested change": "修改建议",
+  "suggests a change": "提出了一条修改建议",
+  "You edited the form after this suggestion arrived, so it no longer describes the draft. Ask again to get a fresh one.":
+    "建议到达后你改过表单，它已经不对应现在的草稿。请重新向 PA 提出。",
+  "Filled the form. Nothing is saved until you save.": "已填入表单。保存之前不会有任何改动生效。",
+  Field: "字段",
+  "Current form": "当前表单",
+  Suggested: "建议值",
+  "Not set": "未设置",
+  changed: "有变化",
+  unchanged: "无变化",
+  "Apply to form": "采纳到表单",
+  "Discard suggestion": "放弃建议",
+  "Fills the form only. Nothing is saved until you save.": "只填入表单。保存之前不会写入任何内容。",
+  // Project editor
+  "New project": "新建项目",
+  "Edit project": "编辑项目",
+  "Register a project the team can work in.": "登记一个团队可以参与的项目。",
+  Project: "项目",
+  "Project ID": "项目 ID",
+  "assigned when saved": "保存后生成",
+  "Saving registers metadata only: nothing is cloned, created on disk or granted.":
+    "保存只登记元信息：不会克隆仓库，不会在磁盘上创建目录，也不授予任何权限。",
+  PA: "PA",
+  "No PA": "暂无 PA",
+  In: "当前会话",
+  "No conversation with this PA yet": "还没有和这位 PA 的会话",
+  "New session": "新建会话",
+  "Could not start a conversation": "无法新建会话",
+  "Draft a request": "起草请求",
+  "Puts a request about this project into the input, for you to edit and send":
+    "把一条关于该项目的请求放进输入框，由你修改后再发送",
+  "a new project": "一个新项目",
+  "No PA to ask yet. Create a personal agent first.": "还没有可以询问的 PA，请先创建超级助理。",
+  "Start a session with this PA to ask about the project.": "和这位 PA 开始一个会话，再询问项目。",
+  "Could not save": "无法保存",
+  "Failed to save project": "保存项目失败",
+  "Project updated": "项目已更新",
+  "Project created": "项目已创建",
+  "Save changes": "保存修改",
+  "Create project": "创建项目",
+  "Saving...": "保存中…",
+  // Navigation shell
+  "Work sessions": "工作会话",
+  "Recent conversations": "最近的会话",
+  "Team & Projects": "团队与项目",
+  Channels: "Channels · Lark",
+  Observability: "可观测",
+  // Conversation
+  "Work session": "工作会话",
+  You: "你",
+  Message: "消息",
+  "Commands and skills": "命令与 Skill",
+  Complete: "补全",
+  "Cite artifacts": "引用产物",
+  Insert: "插入",
+  Skill: "Skill",
+  "Source and current PA": "来源与当前 PA",
+  "The main session is between you and the PA. Workers run in their own sessions.":
+    "主会话一般只有你和当前 PA。Worker 的执行在各自的子会话里进行。",
+  // Projects
+  "Give every project a working context.": "让每个项目都有工作上下文。",
+  "Repository, team, work": "仓库、团队、工作",
+  "Code, members and goals line up here.": "代码、成员和目标，在这里对齐。",
+  "A project keeps its repository metadata and the members attached to it. Registering one clones nothing and grants nothing.":
+    "项目保存仓库元信息和关联的成员。登记项目不会克隆仓库，也不授予任何权限。",
+  "Team members": "团队成员",
+  "Default branch": "默认分支",
+  "Attached agents": "关联成员",
+  Created: "创建时间",
+  "Open project": "打开项目",
+  "No projects yet": "还没有项目",
+  "Register a project to give its work a context. Nothing is cloned.":
+    "登记一个项目，给它的工作一个上下文。不会克隆任何仓库。",
+  "No repository configured": "未配置仓库",
+  "Failed to delete project": "删除项目失败",
+  "Cannot delete: the project still has requirements": "无法删除：这个项目还有需求",
+  'Delete project "{name}"?': "删除项目「{name}」？",
 };
+
+/** One wording per key is enforced by `pages/index.test.ts`; nothing here overrides anything.
+ *  The spread only fills in the keys the general dictionary does not have. */
+export const zh: Record<string, string> = { ...zhOwn, ...pageZh };

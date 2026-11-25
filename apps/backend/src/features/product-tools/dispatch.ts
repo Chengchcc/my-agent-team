@@ -507,10 +507,15 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "project_propose",
     description:
-      "Propose a project the work needs but the registry does not have yet ('do a new front-end page', 'continue issue X in repo Y'). NEVER creates it: the human adopts in Web → Proposals. Pass attach_to so creation and attachment are ONE decision - a project nobody holds is a project nobody can work in.",
+      "Propose a project the work needs but the registry does not have yet (name + repo_url), or — with project_id — a change to a registered project's name, repo_url or default_branch. NEVER writes the registry: the human reviews it in the project form and adopts it there. For a new project pass attach_to so creation and attachment are ONE decision - a project nobody holds is a project nobody can work in.",
     inputSchema: {
       type: "object",
       properties: {
+        project_id: {
+          type: "string",
+          description:
+            "An existing project's id (from project_list): propose changes to it instead of a new project",
+        },
         name: { type: "string", description: "Short project name" },
         repo_url: { type: "string", description: "Git URL (https or file)" },
         default_branch: { type: "string" },
@@ -521,7 +526,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         },
         identity: IDENTITY_SCHEMA,
       },
-      required: ["name", "repo_url"],
     },
   },
   {

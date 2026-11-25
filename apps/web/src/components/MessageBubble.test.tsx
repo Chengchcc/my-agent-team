@@ -8,7 +8,6 @@ describe("MessageBubble error pill", () => {
       <MessageBubble
         align="left"
         name="Agent"
-        kind="agent"
         agentId="a1"
         content="partial output"
         state="error"
@@ -21,23 +20,28 @@ describe("MessageBubble error pill", () => {
 
   test("does not render the pill for a done message", () => {
     const html = renderToStaticMarkup(
-      <MessageBubble
-        align="left"
-        name="Agent"
-        kind="agent"
-        agentId="a1"
-        content="done"
-        state="done"
-      />,
+      <MessageBubble align="left" name="Agent" agentId="a1" content="done" state="done" />,
     );
     expect(html).not.toContain("message-error");
   });
 
-  test("user messages render as a panel2 bubble (§3)", () => {
-    const html = renderToStaticMarkup(
-      <MessageBubble align="right" kind="human" content="hello" state="done" />,
+  test("the person's message is a right-aligned bubble with their mark on the right", () => {
+    const html = renderToStaticMarkup(<MessageBubble align="right" content="hello" state="done" />);
+    expect(html).toContain('data-align="right"');
+    expect(html).toContain("rounded-br-[3px]");
+    expect(html.indexOf("hello")).toBeLessThan(html.lastIndexOf("role-avatar"));
+  });
+
+  test("an agent message shows its mark and name only on the first of a group", () => {
+    const first = renderToStaticMarkup(
+      <MessageBubble align="left" name="Personal Agent" content="a" showSender />,
     );
-    expect(html).toContain("bg-(--panel2)");
-    expect(html).toContain("rounded-lg");
+    const next = renderToStaticMarkup(
+      <MessageBubble align="left" name="Personal Agent" content="b" />,
+    );
+    expect(first).toContain("Personal Agent");
+    expect(first).toContain("role-avatar");
+    expect(next).not.toContain("Personal Agent");
+    expect(next).not.toContain("role-avatar");
   });
 });

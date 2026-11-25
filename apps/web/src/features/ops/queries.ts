@@ -69,3 +69,16 @@ export function backendPingQuery() {
     retry: 1,
   });
 }
+
+/** The telemetry of one window, for Observability's 1h / 24h switch. The
+ *  default summary (`telemetrySummaryQuery`) stays what Today and the others read. */
+export type OpsWindow = "1h" | "24h";
+
+const WINDOW_MS: Record<OpsWindow, number> = { "1h": 3_600_000, "24h": 86_400_000 };
+
+export function telemetryWindowQuery(window: OpsWindow) {
+  return queryOptions({
+    queryKey: [...opsKeys.telemetrySummary(), window] as const,
+    queryFn: () => api.getTelemetrySummary(Date.now() - WINDOW_MS[window]),
+  });
+}

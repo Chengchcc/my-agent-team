@@ -15,7 +15,9 @@ export interface ProposalService {
   pendingAll(kind?: ProposalKind): PendingProposal[];
   /** One pending proposal by id (the decision route applies before resolving). */
   pendingById(id: string): PendingProposal | null;
-  resolve(id: string, decision: "adopted" | "discarded"): boolean;
+  /** `payload` is the reviewed values an adoption applied; the row then holds them instead of
+   *  what the tool sent. */
+  resolve(id: string, decision: "adopted" | "discarded", payload?: unknown): boolean;
 }
 
 export function createProposalService(deps: {
@@ -72,8 +74,9 @@ export function createProposalService(deps: {
       return row === null ? null : toProposal(row);
     },
 
-    resolve(id, decision) {
-      return deps.port.resolve(id, decision, now());
+    resolve(id, decision, payload) {
+      const applied = payload === undefined ? undefined : JSON.stringify(payload);
+      return deps.port.resolve(id, decision, now(), applied);
     },
   };
 }

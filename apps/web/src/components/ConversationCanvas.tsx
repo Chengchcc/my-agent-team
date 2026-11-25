@@ -3,16 +3,18 @@
 import { Download } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { Button } from "@/components/ui/button";
+import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
 import { useAgentList } from "@/features/agents/hooks";
-import { ConversationMembers } from "@/features/conversations/ConversationMembers";
+import { useConversationTitle } from "@/features/conversations/hooks";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
+import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
 import { StatusPill } from "./patterns";
 import { RosterList } from "./RosterList";
@@ -77,7 +79,6 @@ export function ConversationCanvas({
   }, [continuation, conversationId, router]);
 
   // W3+W5: use the most recent agent run's status, not first-found.
-  // Scan from newest to oldest to get the current run's transient state.
   const isAwaiting = state.items.some(
     (item) =>
       item.kind === "message" && item.sender.kind === "agent" && item.content.state === "waiting",
@@ -104,19 +105,17 @@ export function ConversationCanvas({
     }
   }, [initialMessage, send, conversationId, router]);
 
-  // The conversation's agent (1:1 collapse — exactly one)
   const primaryAgent = agent;
   const primaryAgentId = agentMemberId(primaryAgent);
   const agentName = agentDisplayName(primaryAgent);
 
-  // Harness badge: agentId → agents.harness (D2/D3). Drives the header badge;
-  // every harness (oma/omp/claude/pi) runs through the shared ACP adapter
-  // (ADR 0040).
   const { data: agents } = useAgentList();
-  const primaryHarness = useMemo(() => {
-    if (!primaryAgentId) return undefined;
-    return agents?.find((a) => a.id === primaryAgentId)?.harness;
-  }, [agents, primaryAgentId]);
+  const member = agents?.find((a) => a.id === primaryAgentId);
+  const primaryHarness = member?.harness;
+  const mark = roleKindOf({ name: agentName, role: member?.role });
+
+  const { data: titleRow } = useConversationTitle(conversationId);
+  const title = titleRow ? conversationDisplayName(titleRow) : agentName;
 
   const [exporting, setExporting] = useState(false);
   const handleExport = useCallback(async () => {
@@ -146,9 +145,8 @@ export function ConversationCanvas({
     }
   }, [conversationId]);
 
-  // The live Agent Run, as the chat channel reports it (the projection makes the running run the
-  // active turn). The /stop target never comes from message state: canonical history has no
-  // open runs.
+  // The live Agent Run, as the chat channel reports it. The /stop target never comes from
+  // message state: canonical history has no open runs.
   const currentRunId = activeRunId;
 
   const stopRun = useCallback(() => {
@@ -167,104 +165,113 @@ export function ConversationCanvas({
       ? snapshot.projectId
       : null;
 
-  const [rosterOpen, setRosterOpen] = useState(false);
-  // Page chrome beside the messages: the roster on desktop, its trigger on mobile.
+  const [rosterOpen, setRosterOpen] = useState<"" | "open">("");
+  const rosterOpenNow = rosterOpen === "open";
+
+  // Beside the messages: who the PA is, then the room's members and diagnostics.
   const rosterAside = (
     <>
-      <aside className="hidden md:block shrink-0 w-72 border-l border-(--hairline) overflow-y-auto p-3">
-        <RosterList agent={agent} />
-        <RunDiagnostics conversationId={conversationId} agentId={primaryAgentId} />
-        <UsagePanel conversationId={conversationId} />
+      <aside className="hidden w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-(--hairline) p-5 md:flex">
+        <section className="rounded-[15px] border border-white/6 bg-(--panel) p-5">
+          <h2 className="mb-3 text-sm font-[550] text-(--ink)">{t("Source and current PA")}</h2>
+          <div className="flex items-center gap-2.5 rounded-[11px] border border-(--hairline) p-3">
+            <RoleAvatar kind={mark} name={agentName} />
+            <div className="min-w-0">
+              <strong className="block text-xs text-(--ink)">{agentName}</strong>
+              <small className="mt-1 block text-[10px] text-(--mute)">
+                {primaryHarness === undefined ? t("Agent") : primaryHarness}
+                {" · "}
+                {conversationId}
+              </small>
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] leading-relaxed text-(--faint)">
+            {t("The main session is between you and the PA. Workers run in their own sessions.")}
+          </p>
+        </section>
+        <section className="rounded-[15px] border border-white/6 bg-(--panel) p-5">
+          <h2 className="mb-3 text-sm font-[550] text-(--ink)">{t("Members")}</h2>
+          <RosterList agent={agent} />
+          <RunDiagnostics conversationId={conversationId} agentId={primaryAgentId} />
+          <UsagePanel conversationId={conversationId} />
+        </section>
       </aside>
 
-      {/* Roster — mobile trigger */}
       <Button
-        variant="ghost"
+        variant="outline"
         size="sm"
-        onClick={() => setRosterOpen(true)}
+        onClick={() => setRosterOpen("open")}
         className="md:hidden"
-        aria-expanded={rosterOpen}
+        aria-expanded={rosterOpenNow}
         aria-controls="roster-drawer"
       >
-        Agent
+        {t("Members")}
       </Button>
     </>
   );
 
+  const terminalHref = `/coding?agent=${encodeURIComponent(primaryAgentId ?? "")}${
+    roomProjectId === null ? "" : `&project=${encodeURIComponent(roomProjectId)}`
+  }&locate=1`;
+  const folder = ["tool-images", conversationId].join("/");
+  const artifactsHref = `/artifacts?folder=${encodeURIComponent(folder)}`;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      {/* Header */}
-      <div className="shrink-0 border-b border-(--hairline) px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <Link
-                href="/chat"
-                className="text-[10px] text-(--mute) hover:text-(--body) transition-colors shrink-0"
-              >
-                Chat
-              </Link>
-              {primaryAgent && (
-                <>
-                  <span className="text-(--hairline)">/</span>
-                  <span className="text-[10px] text-(--body) truncate">{agentName}</span>
-                </>
-              )}
+      {/* Page head: source, title, who is on the other side, and the room's actions */}
+      <div className="shrink-0 px-6 pt-7 sm:px-[38px]">
+        <div className="flex flex-wrap items-center justify-between gap-5 pb-[29px]">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <RoleAvatar kind={mark} name={agentName} />
+              <p className="text-[10px] tracking-[1.8px] uppercase text-(--faint)">
+                {t("Work session")}
+              </p>
             </div>
-            <ConversationMembers conversationId={conversationId} />
+            <h1 className="mt-2 truncate text-[29px] leading-[1.4] font-[550] tracking-[-1px] text-(--ink)">
+              {title}
+            </h1>
+            <p className="mt-0.5 text-xs text-(--mute)">{agentName}</p>
           </div>
-          <div className="flex items-center gap-3 shrink-0 ml-4">
-            {primaryAgent?.agentId && (
-              // ADR 0073/0076: the room's agent works in its own workspace —
-              // and when the ROOM is bound to a project, in that project's
-              // worktree. The link carries both so the pane opens on the topic.
-              <Link
-                href={`/coding?agent=${encodeURIComponent(primaryAgent.agentId)}${
-                  roomProjectId === null ? "" : `&project=${encodeURIComponent(roomProjectId)}`
-                }`}
-                className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
-                title={t("Open a terminal in this conversation's workspace")}
-              >
-                {t("Terminal")}
-              </Link>
-            )}
-            <Link
-              href={`/artifacts?folder=${encodeURIComponent(`tool-images/${conversationId}`)}`}
-              className="text-[10px] tracking-kicker uppercase text-(--mute) hover:text-(--primary) transition-colors"
-              title={t("Files this conversation produced (screenshots and other tool output)")}
-            >
-              {t("Artifacts")}
-            </Link>
-            {label && (
+          <div className="flex flex-wrap items-center gap-2">
+            {label ? (
               <>
                 <span
                   className={`size-1.5 rounded-full transition-colors duration-500 ${
                     busy ? "animate-dot-pulse bg-(--primary)" : "bg-(--mute)"
                   }`}
                 />
-                <span
-                  className={`text-xs tracking-kicker uppercase font-semibold ${
-                    busy ? "text-(--primary)" : "text-(--mute)"
-                  }`}
-                >
+                <span className="text-[10px] uppercase tracking-[1.8px] text-(--mute)">
                   {label}
                 </span>
               </>
+            ) : (
+              <StatusPill tone="idle">{t("idle")}</StatusPill>
             )}
-            {!label && <StatusPill tone="idle">{t("idle")}</StatusPill>}
             {busy && currentRunId && (
-              <button
-                type="button"
-                onClick={stopRun}
-                className="rounded-sm border border-(--err)/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-kicker text-(--err) transition-colors hover:bg-(--err)/10"
-              >
+              <Button variant="destructive" size="sm" onClick={stopRun}>
                 {t("stop")}
-              </button>
+              </Button>
+            )}
+            {primaryAgentId && (
+              // ADR 0073/0076: the room's agent works in its own workspace — and when the ROOM is
+              // bound to a project, in that project's worktree. `locate` only focuses a workbench
+              // that already exists; it never starts a terminal behind the person's back.
+              <Button size="sm" variant="outline" render={<Link href={terminalHref} />}>
+                {t("Terminal")}
+              </Button>
             )}
             <Button
+              size="sm"
+              variant="outline"
+              render={<Link href={artifactsHref} />}
+              title={t("Files this conversation produced (screenshots and other tool output)")}
+            >
+              {t("Artifacts")}
+            </Button>
+            <Button
               variant="ghost"
-              size="icon"
-              className="size-7 "
+              size="icon-sm"
               onClick={handleExport}
               disabled={exporting}
               title={exporting ? t("Exporting…") : t("Export conversation")}
@@ -273,34 +280,6 @@ export function ConversationCanvas({
             </Button>
           </div>
         </div>
-        {primaryAgent && (
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-sm font-medium text-(--ink-strong)">{agentName}</span>
-            {primaryHarness && (
-              <span className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                {primaryHarness}
-              </span>
-            )}
-            <span className="font-mono text-[10px] text-(--faint)">{conversationId}</span>
-            <span className="mx-1 h-3 w-px bg-(--hairline)" />
-            {/* Run-control chips: live binding + status */}
-            <span className="rounded-sm border border-(--hairline) bg-(--panel) px-1.5 py-0.5 font-mono text-[10px] text-(--body)">
-              conv_store
-            </span>
-            {busy && label && (
-              <>
-                <button
-                  type="button"
-                  onClick={stopRun}
-                  className="rounded-sm border border-(--err)/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-kicker text-(--err) transition-colors hover:bg-(--err)/10"
-                >
-                  abort
-                </button>
-                <span className="font-mono text-[10px] text-(--primary)">{label}</span>
-              </>
-            )}
-          </div>
-        )}
       </div>
 
       <ConversationPanel
@@ -309,28 +288,28 @@ export function ConversationCanvas({
         anchorSeq={anchorSeq}
         emptyTitle={
           primaryAgent ? (
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-(--ink-strong) mb-3">
-              {agentName}
-            </h1>
+            <p className="mb-2 text-sm text-(--mute)">
+              {t("Send a message to start the conversation")}
+            </p>
           ) : null
         }
         aside={rosterAside}
       />
 
-      {/* Roster — mobile drawer overlay */}
-      {rosterOpen && (
+      {/* Members — mobile drawer overlay */}
+      {rosterOpenNow && (
         <>
           <div
-            className="md:hidden fixed inset-0 bg-black/40 z-40"
-            onClick={() => setRosterOpen(false)}
+            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            onClick={() => setRosterOpen("")}
           />
           <aside
             id="roster-drawer"
-            className="md:hidden fixed right-0 inset-y-0 w-64 bg-(--canvas) border-l border-(--hairline) z-50 overflow-y-auto p-3 shadow-lg"
+            className="fixed inset-y-0 right-0 z-50 w-72 overflow-y-auto border-l border-(--hairline) bg-(--panel) p-4 shadow-lg md:hidden"
             role="dialog"
             aria-label={t("Members")}
           >
-            <RosterList agent={agent} onClose={() => setRosterOpen(false)} />
+            <RosterList agent={agent} onClose={() => setRosterOpen("")} />
             <RunDiagnostics conversationId={conversationId} agentId={primaryAgentId} />
             <UsagePanel conversationId={conversationId} />
           </aside>

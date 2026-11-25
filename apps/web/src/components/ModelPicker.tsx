@@ -53,7 +53,7 @@ export function ModelPicker({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 shrink-0 px-2 text-[11px] text-(--mute) hover:text-(--body) mb-0.5"
+            className="h-7 shrink-0 px-0 text-[10px] text-(--mute) hover:text-(--ink)"
             title="Harness and model for the next run (default: agent config)"
           >
             {value

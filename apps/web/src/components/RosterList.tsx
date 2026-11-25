@@ -41,7 +41,7 @@ export function RosterList({ agent, onClose }: RosterListProps) {
   return (
     <>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] tracking-kicker uppercase text-(--mute) font-semibold">
+        <span className="text-[10px] tracking-kicker uppercase text-(--faint) font-normal">
           Agent
         </span>
         {onClose && (
@@ -62,7 +62,7 @@ export function RosterList({ agent, onClose }: RosterListProps) {
             <span className="truncate text-(--body) flex-1">{m.displayName ?? m.memberId}</span>
             {busy && (
               <span
-                className="size-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"
+                className="size-1.5 rounded-full bg-(--ok) animate-pulse shrink-0"
                 title="Run in progress"
               />
             )}

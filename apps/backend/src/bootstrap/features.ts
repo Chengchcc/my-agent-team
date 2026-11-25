@@ -160,6 +160,7 @@ import {
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
 import {
   createProposalService,
+  ProposalNotApplicable,
   type ProposalService,
   proposalRoutes,
   sqliteProposalAdapter,
@@ -1222,6 +1223,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         repoUrl: input.repoUrl,
         ...(input.defaultBranch !== undefined ? { defaultBranch: input.defaultBranch } : {}),
         ...(input.attachTo !== undefined ? { attachTo: [...input.attachTo] } : {}),
+        proposedBy: input.proposedBy,
+      });
+      return { proposalId: proposal.id };
+    },
+    // A change to a registered project, recorded against the project's id. The project form
+    // shows it beside its fields; adopting it there is what applies it.
+    proposeProjectUpdate: (input) => {
+      const proposal = proposalSvc.propose("project_update", input.projectId, {
+        projectId: input.projectId,
+        ...input.changes,
         proposedBy: input.proposedBy,
       });
       return { proposalId: proposal.id };
@@ -3377,6 +3388,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           await agentSvc.update(agentId, { projects: [...current, created.projectId] });
         }
         return created.projectId;
+      },
+      updateProject: async (projectId, patch) => {
+        try {
+          await projectSvc.update(projectId, patch);
+        } catch (err) {
+          // The reason the project route would give. The row stays pending, so the person can
+          // fix the form and save again.
+          throw new ProposalNotApplicable(err instanceof Error ? err.message : String(err));
+        }
       },
     }),
 

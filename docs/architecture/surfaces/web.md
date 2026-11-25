@@ -22,6 +22,7 @@ tags: [web, surfaces, terminal]
 - `apps/web/src/lib/transient-reducer.ts` — 临时气泡、工具步骤、todo、审批与问答
 - `apps/web/src/components/Timeline.tsx` — turn 分组与滚动锚点
 - `apps/web/src/components/ConversationCanvas.tsx` — 头部状态标签、错误条、Stop
+- `apps/web/src/components/ConversationPanel.tsx` — 会话内容（消息、实时状态、输入框）的唯一实现；聊天页的 `ConversationCanvas.tsx` 只留页面外壳，侧栏与内嵌视图直接用这个面板（`density="panel"`、`marksSeen={false}`，见 ADR 0081）
 - `apps/web/src/features/coding/components/{coding-page,coding-rail,terminal-pane,split-view}.tsx` — 终端页 UI
 - `apps/backend/src/features/coding/{http,terminal-registry,agent-status,task-worktrees}.ts` — 终端页后端
 

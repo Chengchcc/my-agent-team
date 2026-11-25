@@ -1,10 +1,12 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, CornerDownLeft, Terminal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, CornerDownLeft } from "lucide-react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ConversationDensityContext } from "@/components/conversation-density";
 import { type ChatModelOverride, ModelPicker } from "@/components/ModelPicker";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useConversationInputs } from "@/features/conversations/hooks";
@@ -12,11 +14,12 @@ import { conversationKeys } from "@/features/conversations/query-keys";
 import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { type SkillCommand, slashCommands } from "@/lib/slash-commands";
+import { cn } from "@/lib/utils";
 import { ComposerInputQueue } from "./ComposerInputQueue";
 
-/** Composer metrics (§3): auto height 40–160px, panel bg, radius 8. */
-const COMPOSER_MIN_H = 40;
-const COMPOSER_MAX_H = 160;
+/** Composer metrics: the design prototype's well — auto height 52–180px, radius 13. */
+const COMPOSER_MIN_H = 52;
+const COMPOSER_MAX_H = 180;
 
 /** One row of the `/` picker: a client command, or a skill the agent can load. */
 interface PickerItem {
@@ -41,6 +44,8 @@ interface ComposerProps {
   onStop?: () => void;
   /** Skills offered in the `/` picker after the commands; completing one only names it. */
   skills?: readonly SkillCommand[];
+  /** A draft put into the input while it is empty, for the person to edit and send. */
+  draft?: string;
 }
 export function Composer({
   conversationId,
@@ -51,6 +56,7 @@ export function Composer({
   isBusy,
   onStop,
   skills,
+  draft,
 }: ComposerProps) {
   const [model, setModel] = useState<ChatModelOverride | null>(() => {
     try {
@@ -182,6 +188,17 @@ export function Composer({
     el.style.height = `${COMPOSER_MIN_H}px`;
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_H)}px`;
   }, []);
+
+  // An offered draft goes in only while the input is empty: it never replaces what the person
+  // typed. The same text is offered once; a caller offers again by changing it.
+  const [offeredDraft, setOfferedDraft] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (draft === undefined || draft === offeredDraft) return;
+    if (value !== "") return;
+    setOfferedDraft(draft);
+    setValue(draft);
+    autoGrow();
+  }, [draft, offeredDraft, value, autoGrow]);
 
   // (resolveAddressedTo removed with client-side routing — server derives targets)
 
@@ -329,9 +346,11 @@ export function Composer({
   };
 
   const effectivePlaceholder = placeholder;
+  // An editor sheet embeds this at the prototype's tighter scale (see conversation-density).
+  const tight = useContext(ConversationDensityContext) === "panel";
 
   return (
-    <div className="bg-(--canvas) px-6 py-4">
+    <div className={cn("pt-2", tight ? "px-4 pb-4" : "px-6 pb-5")}>
       {inputsQuery.data && (
         <ComposerInputQueue
           inputs={inputsQuery.data.inputs}
@@ -341,152 +360,160 @@ export function Composer({
           onCancel={(inputId) => cancelMut.mutate(inputId)}
         />
       )}
-      <div className="mx-auto flex gap-2 items-end relative" style={{ maxWidth: "72ch" }}>
-        <div className="flex-1 relative">
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pb-1.5">
-              {attachments.map((a, i) => (
-                <div
-                  key={i}
-                  className="relative size-12 rounded-md border border-(--hairline) overflow-hidden"
-                  title="Attached image"
+      <div className="relative mx-auto" style={{ maxWidth: "72ch" }}>
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pb-2">
+            {attachments.map((a, i) => (
+              <div
+                key={i}
+                className="relative size-12 rounded-md border border-(--hairline) overflow-hidden"
+                title="Attached image"
+              >
+                {/* biome-ignore lint/performance/noImgElement: data: URI — next/image cannot optimize inline base64 */}
+                <img
+                  src={`data:${a.mediaType};base64,${a.base64}`}
+                  alt="attached"
+                  className="size-full  object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute top-0 right-0 bg-black/60 text-white text-[10px]/4 px-1 "
                 >
-                  {/* biome-ignore lint/performance/noImgElement: data: URI — next/image cannot optimize inline base64 */}
-                  <img
-                    src={`data:${a.mediaType};base64,${a.base64}`}
-                    alt="attached"
-                    className="size-full  object-cover"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove image"
-                    onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                    className="absolute top-0 right-0 bg-black/60 text-white text-[10px]/4 px-1 "
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
-            <Textarea
-              ref={textareaRef}
-              value={value}
-              onChange={handleInput}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={disabled ? t("Replying…") : effectivePlaceholder}
-              rows={1}
-              disabled={disabled}
-              className="w-full resize-none bg-(--panel) border border-(--hairline)
-                       rounded-lg p-3  text-sm text-(--ink)
-                       placeholder:text-(--mute)
-                       focus:outline-none focus:border-(--primary)
-                       disabled:opacity-40 disabled:cursor-not-allowed
-                       transition-colors duration-200"
-              style={{ minHeight: `${COMPOSER_MIN_H}px`, maxHeight: `${COMPOSER_MAX_H}px` }}
-            />
+                  ×
+                </button>
+              </div>
+            ))}
           </div>
-          {/* Artifact picker popover */}
-          {showArtifact && filteredArtifacts.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 w-96 bg-(--canvas) border border-(--hairline) rounded-lg z-50 overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-(--hairline) bg-(--canvas-soft)">
-                <span className="text-[10px] tracking-widest uppercase text-(--mute) font-semibold">
-                  Cite artifacts
-                </span>
-                <span className="text-[10px] text-(--mute) flex items-center gap-1">
-                  <CornerDownLeft size={10} /> Insert
-                </span>
-              </div>
-              <div className="max-h-48 overflow-y-auto">
-                {filteredArtifacts.map((u, i) => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={completeArtifact}
-                    onMouseEnter={() => setArtifactIndex(i)}
-                    className={`w-full text-left px-3 py-1.5 font-mono text-[11px] truncate ${
-                      i === artifactIndex
-                        ? "bg-(--panel2) text-(--ink)"
-                        : "text-(--mute) hover:bg-(--panel2)"
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
-            </div>
+        )}
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+          className={cn(
+            "rounded-[13px] border border-(--hairline) bg-[#1b1f22] transition-colors focus-within:border-(--primary)/60",
+            tight ? "px-3.5 pt-3" : "px-4 pt-3.5",
           )}
-          {/* Slash command popover */}
-          {showSlash && (
-            <div className="absolute bottom-full left-0 mb-1 w-80 bg-(--canvas) border border-(--hairline) rounded-lg z-50 overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-(--hairline) bg-(--canvas-soft)">
-                <span className="text-[10px] tracking-widest uppercase text-(--mute) font-semibold">
-                  Commands
-                </span>
-                <span className="text-[10px] text-(--mute) flex items-center gap-1">
-                  <CornerDownLeft size={10} /> Complete
-                </span>
-              </div>
-              <div className="max-h-56 overflow-y-auto">
-                {filteredSlash.length === 0 ? (
-                  <p className="text-xs text-(--mute) p-3 ">{t("No matching commands")}</p>
-                ) : (
-                  filteredSlash.map((c, i) => (
-                    <Button
-                      key={c.command}
-                      onClick={completeSlash}
-                      onMouseEnter={() => setSlashIndex(i)}
-                      className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
-                        i === slashIndex ? "bg-(--primary)/10" : "hover:bg-(--canvas-soft)"
-                      }`}
-                    >
-                      <Terminal size={15} className="text-(--primary) shrink-0" />
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-sm text-(--body) truncate font-mono">
-                          {c.command}{" "}
-                          {c.argsHint && (
-                            <span className="text-(--mute) font-sans">{c.argsHint}</span>
-                          )}
-                        </span>
-                        <span className="text-[11px] text-(--mute) truncate">{c.description}</span>
-                      </div>
-                      {c.skill && (
-                        <span className="shrink-0 rounded-sm border border-(--hairline) px-1 text-[10px] text-(--mute)">
-                          Skill
-                        </span>
-                      )}
-                    </Button>
-                  ))
+        >
+          <Textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={disabled ? t("Replying…") : effectivePlaceholder}
+            rows={1}
+            disabled={disabled}
+            aria-label={t("Message")}
+            className={cn(
+              "w-full resize-none border-0 bg-transparent p-0 leading-relaxed text-(--ink) placeholder:text-(--faint) focus-visible:border-transparent focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-40",
+              tight ? "text-[11px]" : "text-xs",
+            )}
+            style={{ minHeight: `${COMPOSER_MIN_H}px`, maxHeight: `${COMPOSER_MAX_H}px` }}
+          />
+          <div className="mt-1.5 flex items-center justify-between gap-2.5 pb-3">
+            <ModelPicker value={model} onChange={pickModel} />
+            {isBusy && onStop ? (
+              <Button
+                onClick={onStop}
+                size="icon"
+                className={cn(
+                  "rounded-full bg-(--err)/15 hover:bg-(--err)/25",
+                  tight ? "size-[32px]" : "size-[35px]",
                 )}
-              </div>
-            </div>
-          )}
+                title="Stop run"
+                aria-label="Stop"
+              >
+                <span className="size-2.5 rounded-full bg-(--err) animate-pulse" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSend}
+                disabled={disabled || !value.trim()}
+                size="icon"
+                className={cn(
+                  "rounded-full bg-(--primary) text-[#172421] hover:bg-[rgb(201,248,223)]",
+                  tight ? "size-[32px]" : "size-[35px]",
+                )}
+                aria-label="Send"
+              >
+                <ArrowUp size={16} className="shrink-0" />
+              </Button>
+            )}
+          </div>
         </div>
 
-        <ModelPicker value={model} onChange={pickModel} />
+        {/* Artifact picker popover */}
+        {showArtifact && filteredArtifacts.length > 0 && (
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-96 overflow-hidden rounded-xl border border-(--hairline) bg-(--panel)">
+            <div className="flex items-center justify-between border-b border-(--hairline) px-3 py-2">
+              <span className="text-[10px] uppercase tracking-[1.8px] text-(--faint)">
+                {t("Cite artifacts")}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] text-(--mute)">
+                <CornerDownLeft size={10} /> {t("Insert")}
+              </span>
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {filteredArtifacts.map((u, i) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={completeArtifact}
+                  onMouseEnter={() => setArtifactIndex(i)}
+                  className={`w-full truncate px-3 py-2 text-left font-mono text-[11px] transition-colors ${
+                    i === artifactIndex
+                      ? "bg-white/4 text-(--ink)"
+                      : "text-(--mute) hover:bg-white/4"
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {isBusy && onStop ? (
-          <Button
-            onClick={onStop}
-            size="icon"
-            className="shrink-0 mb-0.5 size-8  bg-(--err)/15 hover:bg-(--err)/25"
-            title="Stop run"
-            aria-label="Stop"
-          >
-            <span className="size-2.5 rounded-full bg-(--err) animate-pulse" />
-          </Button>
-        ) : (
-          <Button
-            onClick={handleSend}
-            disabled={disabled || !value.trim()}
-            size="icon"
-            className="shrink-0 mb-0.5 size-8 "
-            aria-label="Send"
-          >
-            <ArrowUp size={16} className="shrink-0" />
-          </Button>
+        {/* Slash picker popover: commands first, then the skills this agent can load */}
+        {showSlash && (
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-96 overflow-hidden rounded-xl border border-(--hairline) bg-(--panel)">
+            <div className="flex items-center justify-between border-b border-(--hairline) px-3 py-2">
+              <span className="text-[10px] uppercase tracking-[1.8px] text-(--faint)">
+                {t("Commands and skills")}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] text-(--mute)">
+                <CornerDownLeft size={10} /> {t("Complete")}
+              </span>
+            </div>
+            <div className="max-h-64 overflow-y-auto py-1" role="listbox">
+              {filteredSlash.length === 0 ? (
+                <p className="p-3 text-xs text-(--mute)">{t("No matching commands")}</p>
+              ) : (
+                filteredSlash.map((c, i) => (
+                  <button
+                    key={c.command}
+                    type="button"
+                    role="option"
+                    aria-selected={i === slashIndex}
+                    onClick={completeSlash}
+                    onMouseEnter={() => setSlashIndex(i)}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+                      i === slashIndex ? "bg-white/4" : "hover:bg-white/4"
+                    }`}
+                  >
+                    <span className="shrink-0 font-mono text-xs text-(--ink)">
+                      {c.command}
+                      {c.argsHint && <span className="text-(--mute)"> {c.argsHint}</span>}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-(--mute)">
+                      {c.description}
+                    </span>
+                    {c.skill && <Badge variant="secondary">{t("Skill")}</Badge>}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -16,6 +16,7 @@ import {
 } from "@/features/conversations/hooks";
 import { api } from "@/lib/api";
 import type { MessageItem } from "@/lib/conversation-reducer";
+import { t } from "@/lib/i18n";
 import { extractText } from "@/lib/timeline";
 
 /** Assistant messages carry their run id in the message id (`run:<id>:…`).
@@ -256,7 +257,7 @@ export function TimelineMessageActions({
               }
               disabled={forkMut.isPending}
             >
-              {forkMut.isPending ? "Forking…" : "Fork from here"}
+              {forkMut.isPending ? t("Forking…") : t("Fork from here")}
             </Button>
           )}
         </div>
