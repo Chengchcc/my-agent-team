@@ -1,20 +1,38 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { zhOwn } from "../zh";
+import { artifactsZh } from "./artifacts";
+import { authorityZh } from "./authority";
 import { channelsZh } from "./channels";
+import { chatZh } from "./chat";
+import { codingZh } from "./coding";
 import { pageZh } from "./index";
+import { mcpZh } from "./mcp";
 import { observabilityZh } from "./observability";
 import { requirementsZh } from "./requirements";
+import { settingsZh } from "./settings";
+import { skillsZh } from "./skills";
 import { teamZh } from "./team";
+import { todayZh } from "./today";
 import { wikiZh } from "./wiki";
+import { workflowsZh } from "./workflows";
 
 /** Every page dictionary, by file name. A new page file must be listed here and in `index.ts`. */
 const PAGE_DICTIONARIES: Record<string, Record<string, string>> = {
+  "authority.ts": authorityZh,
+  "artifacts.ts": artifactsZh,
   "channels.ts": channelsZh,
   "observability.ts": observabilityZh,
   "requirements.ts": requirementsZh,
+  "settings.ts": settingsZh,
   "team.ts": teamZh,
   "wiki.ts": wikiZh,
+  "mcp.ts": mcpZh,
+  "skills.ts": skillsZh,
+  "workflows.ts": workflowsZh,
+  "chat.ts": chatZh,
+  "coding.ts": codingZh,
+  "today.ts": todayZh,
 };
 
 const SOURCES: Record<string, Record<string, string>> = { "zh.ts": zhOwn, ...PAGE_DICTIONARIES };

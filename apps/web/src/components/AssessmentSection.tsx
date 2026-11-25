@@ -1,10 +1,11 @@
 "use client";
 
-import { BrainCircuit } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { MonoLabel, StatusPill } from "@/components/patterns";
+import { badgeVariantOfTone, type FactTone, Note } from "@/components/ops/kit";
+import { SettingsField } from "@/components/SettingsField";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { useModelList } from "@/features/models/hooks";
 import { useSettings, useUpdateSetting } from "@/features/settings/hooks";
+import { t } from "@/lib/i18n";
 
 /** ADR 0048: the semantic net under the deterministic rules.
  *
@@ -27,17 +29,40 @@ import { useSettings, useUpdateSetting } from "@/features/settings/hooks";
 
 type GateMode = "off" | "observe" | "auto";
 
-const MODE_COPY: Record<GateMode, string> = {
-  off: "Never asks a model. Only the rules you wrote can create work.",
-  observe: "Asks, but only records “it would have taken this” — nothing runs.",
-  auto: "Asks and dispatches the accepted ones. No confirmation.",
-};
+/** `auto` starts runs nobody confirmed, so it is the one mode that reads as a warning. */
+const MODE_TONE: Record<GateMode, FactTone> = { off: "muted", observe: "muted", auto: "warn" };
 
-function parseSpec(spec: string | undefined): { provider: string; model: string } {
-  if (spec === undefined || spec === "") return { provider: "", model: "" };
+function modeLabel(value: unknown): string {
+  if (value === "auto") return t("Auto — dispatch on accept");
+  if (value === "observe") return t("Observe — record only");
+  return t("Off — don't ask");
+}
+
+function modeCopy(mode: GateMode): string {
+  if (mode === "auto") return t("Asks and dispatches the accepted ones. No confirmation.");
+  if (mode === "observe") {
+    return t("Asks, but only records “it would have taken this” — nothing runs.");
+  }
+  return t("Never asks a model. Only the rules you wrote can create work.");
+}
+
+/** The stored gate, read without guessing: an unknown mode is off. */
+function readGate(raw: unknown): { mode: GateMode; model: string } {
+  if (typeof raw !== "object" || raw === null) return { mode: "off", model: "" };
+  const modeRaw = "mode" in raw ? raw.mode : undefined;
+  const modelRaw = "model" in raw ? raw.model : undefined;
+  const mode: GateMode = modeRaw === "observe" || modeRaw === "auto" ? modeRaw : "off";
+  const model = typeof modelRaw === "string" ? modelRaw : "";
+  const gate = { mode, model };
+  return gate;
+}
+
+function parseSpec(spec: string): { provider: string; model: string } {
+  if (spec === "") return { provider: "", model: spec };
   const slash = spec.indexOf("/");
   if (slash <= 0) return { provider: "", model: spec };
-  return { provider: spec.slice(0, slash), model: spec.slice(slash + 1) };
+  const parts = { provider: spec.slice(0, slash), model: spec.slice(slash + 1) };
+  return parts;
 }
 
 export function AssessmentSection() {
@@ -45,13 +70,7 @@ export function AssessmentSection() {
   const { data: catalog } = useModelList();
   const update = useUpdateSetting();
 
-  const stored = useMemo(() => {
-    const raw = (settings?.settings as Record<string, unknown> | undefined)?.proactiveAssessment;
-    const value =
-      raw !== null && typeof raw === "object" ? (raw as { mode?: string; model?: string }) : {};
-    const mode: GateMode = value.mode === "observe" || value.mode === "auto" ? value.mode : "off";
-    return { mode, model: value.model ?? "" };
-  }, [settings]);
+  const stored = useMemo(() => readGate(settings?.settings.proactiveAssessment), [settings]);
 
   const [mode, setMode] = useState<GateMode>("off");
   const [provider, setProvider] = useState("");
@@ -71,139 +90,137 @@ export function AssessmentSection() {
   const needsModel = mode !== "off";
   const canSave = !needsModel || spec !== "";
 
-  function save() {
+  function save(): void {
     if (!canSave) return;
     const value = mode === "off" ? { mode } : { mode, model: spec };
     update.mutate(
       { key: "proactiveAssessment", value },
       {
-        onSuccess: () => toast.success("Assessment gate saved"),
+        onSuccess: () => toast.success(t("Assessment gate saved")),
         onError: (err) =>
-          toast.error("Could not save the gate", {
-            description: err instanceof Error ? err.message : "Unknown error",
+          toast.error(t("Could not save the gate"), {
+            description: err instanceof Error ? err.message : t("Unknown error"),
           }),
       },
     );
   }
 
   return (
-    <section className="rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-(--hairline) px-4 py-3">
-        <div className="flex items-center gap-2">
-          <BrainCircuit className="size-4 text-(--accent-violet)" />
-          <MonoLabel>Semantic assessment</MonoLabel>
-          <StatusPill tone={stored.mode === "auto" ? "waiting" : "idle"}>{stored.mode}</StatusPill>
+    <SettingsField
+      title={t("Semantic assessment")}
+      aside={
+        <Badge variant={badgeVariantOfTone(MODE_TONE[stored.mode])} className="font-mono">
+          {stored.mode}
+        </Badge>
+      }
+      hint={t(
+        "Group messages that mention nobody and miss every rule can be judged by a model: is this work for the team, and who should take it? The prompt is fixed product code. What you choose here is whether it runs and what happens to its verdict.",
+      )}
+    >
+      <div className="grid gap-3 sm:grid-cols-[200px_1fr] sm:items-start">
+        <div className="space-y-1">
+          <Label htmlFor="assessment-mode">{t("Mode")}</Label>
+          <Select
+            value={mode}
+            onValueChange={(v) => setMode(v === "observe" || v === "auto" ? v : "off")}
+          >
+            <SelectTrigger id="assessment-mode" className="w-full">
+              <SelectValue render={(v) => modeLabel(v)} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">{t("Off — don't ask")}</SelectItem>
+              <SelectItem value="observe">{t("Observe — record only")}</SelectItem>
+              <SelectItem value="auto">{t("Auto — dispatch on accept")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Note>{modeCopy(mode)}</Note>
         </div>
-        <span className="font-mono text-[10px] text-(--faint)">
-          {stored.model !== "" ? stored.model : "no model"}
-        </span>
-      </div>
 
-      <div className="space-y-3 px-4 py-3">
-        <p className="text-xs/relaxed text-(--mute)">
-          Group messages that mention nobody and miss every rule can be judged by a model: is this
-          work for the team, and who should take it? The prompt is fixed product code — what you
-          choose here is whether it runs and what happens to its verdict. The{" "}
-          <Link href="/system/authority" className="text-(--primary) hover:underline">
-            authority ledger
-          </Link>{" "}
-          shows what it decided.
-        </p>
-
-        <div className="grid gap-3 sm:grid-cols-[200px_1fr] sm:items-start">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="assessment-mode">Mode</Label>
+            <Label htmlFor="assessment-provider">{t("Provider")}</Label>
             <Select
-              value={mode}
-              onValueChange={(v) => setMode(v === "observe" || v === "auto" ? v : "off")}
+              value={provider}
+              onValueChange={(v) => {
+                setProvider(v === null ? "" : v);
+                setModel("");
+              }}
+              disabled={!needsModel}
             >
-              <SelectTrigger id="assessment-mode" className="w-full">
+              <SelectTrigger id="assessment-provider" className="w-full">
                 <SelectValue
-                  render={(v) =>
-                    v === "auto"
-                      ? "Auto — dispatch on accept"
-                      : v === "observe"
-                        ? "Observe — record only"
-                        : "Off — don't ask"
-                  }
+                  placeholder={t("Pick a provider")}
+                  render={(v) => {
+                    const found = providers.find((p) => p.id === v);
+                    if (found === undefined) return String(v);
+                    return found.name;
+                  }}
                 />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="off">Off — don't ask</SelectItem>
-                <SelectItem value="observe">Observe — record only</SelectItem>
-                <SelectItem value="auto">Auto — dispatch on accept</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <p className="text-[10px] text-(--faint)">{MODE_COPY[mode]}</p>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="assessment-provider">Provider</Label>
-              <Select
-                value={provider}
-                onValueChange={(v) => {
-                  setProvider(v ?? "");
-                  setModel("");
-                }}
-                disabled={!needsModel}
-              >
-                <SelectTrigger id="assessment-provider" className="w-full">
-                  <SelectValue
-                    placeholder="Pick a provider"
-                    render={(v) => providers.find((p) => p.id === v)?.name ?? v}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {providers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="assessment-model">Model</Label>
-              <Select
-                value={model}
-                onValueChange={(v) => setModel(v ?? "")}
-                disabled={!needsModel || provider === ""}
-              >
-                <SelectTrigger id="assessment-model" className="w-full">
-                  <SelectValue
-                    placeholder="Pick a model"
-                    render={(v) => modelsForProvider.find((m) => m.id === v)?.name ?? v}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelsForProvider.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name ?? m.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-1">
+            <Label htmlFor="assessment-model">{t("Model")}</Label>
+            <Select
+              value={model}
+              onValueChange={(v) => setModel(v === null ? "" : v)}
+              disabled={!needsModel || provider === ""}
+            >
+              <SelectTrigger id="assessment-model" className="w-full">
+                <SelectValue
+                  placeholder={t("Pick a model")}
+                  render={(v) => {
+                    const found = modelsForProvider.find((m) => m.id === v);
+                    if (found === undefined) return String(v);
+                    const name =
+                      found.name === null || found.name === undefined ? found.id : found.name;
+                    return name;
+                  }}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {modelsForProvider.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name === null || m.name === undefined ? m.id : m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
-
-        {mode === "auto" && (
-          <p className="rounded border border-(--warn)/40 bg-(--warn)/10 px-2 py-1.5 text-[11px] text-(--warn)">
-            Accepted messages start runs without your confirmation. Start with Observe and read the
-            ledger first.
-          </p>
-        )}
-
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={save} disabled={!canSave || update.isPending}>
-            Save gate
-          </Button>
-          {!canSave && (
-            <span className="text-[11px] text-(--mute)">Pick a model, or set the mode to Off.</span>
-          )}
         </div>
       </div>
-    </section>
+
+      {mode === "auto" && (
+        <p className="rounded-[9px] border border-(--warn)/11 bg-(--warn)/3 px-[15px] py-3 text-[11px]/relaxed text-(--warn)">
+          {t(
+            "Accepted messages start runs without your confirmation. Start with Observe and read the ledger first.",
+          )}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={save} disabled={!canSave || update.isPending}>
+          {t("Save gate")}
+        </Button>
+        {!canSave && (
+          <span className="text-[11px] text-(--mute)">
+            {t("Pick a model, or set the mode to Off.")}
+          </span>
+        )}
+        <Link
+          href="/system/authority"
+          className="ml-auto text-[11px] text-(--primary-deep) hover:text-(--primary) hover:underline"
+        >
+          {t("The authority ledger shows what it decided.")}
+        </Link>
+      </div>
+    </SettingsField>
   );
 }

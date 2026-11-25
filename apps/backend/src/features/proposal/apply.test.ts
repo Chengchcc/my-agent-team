@@ -6,6 +6,7 @@ import {
   ProposalNotApplicable,
   projectPatchFrom,
   reviewedPayload,
+  sameJson,
 } from "./apply.js";
 
 describe("adoption applies the payload", () => {
@@ -64,6 +65,45 @@ describe("adoption applies the payload", () => {
         deps: { updateAgent: async () => {}, createProject: async () => "p" },
       }),
     ).rejects.toBeInstanceOf(ProposalNotApplicable);
+  });
+
+  test("a workflow proposal is adopted only when the saved definition IS the proposal", async () => {
+    const proposal = { name: "nightly", nodes: [{ id: "a" }], edges: [] };
+    const base = { updateAgent: async () => {}, createProject: async () => "p" };
+    // The editor saved the proposal as it was (key order is not a difference): adopted.
+    await applyProposal({
+      kind: "workflow_definition",
+      targetId: "w1",
+      payload: proposal,
+      deps: {
+        ...base,
+        readWorkflowDefinition: async () => ({ edges: [], nodes: [{ id: "a" }], name: "nightly" }),
+      },
+    });
+    // The person changed the graph before saving: that document is not this proposal.
+    await expect(
+      applyProposal({
+        kind: "workflow_definition",
+        targetId: "w1",
+        payload: proposal,
+        deps: { ...base, readWorkflowDefinition: async () => ({ ...proposal, name: "changed" }) },
+      }),
+    ).rejects.toBeInstanceOf(ProposalNotApplicable);
+    // No saved definition, or no way to read one: refused, and the row stays pending.
+    await expect(
+      applyProposal({
+        kind: "workflow_definition",
+        targetId: "w1",
+        payload: proposal,
+        deps: { ...base, readWorkflowDefinition: async () => null },
+      }),
+    ).rejects.toBeInstanceOf(ProposalNotApplicable);
+  });
+
+  test("the same document whatever the key order; a different array is a different document", () => {
+    expect(sameJson({ a: 1, b: [1, { d: 2, c: 3 }] }, { b: [1, { c: 3, d: 2 }], a: 1 })).toBe(true);
+    expect(sameJson([1, 2], [2, 1])).toBe(false);
+    expect(sameJson(null, undefined)).toBe(false);
   });
 
   test("a project proposal needs a name and a repository", async () => {

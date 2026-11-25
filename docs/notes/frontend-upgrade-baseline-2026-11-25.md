@@ -107,20 +107,12 @@ Skill 与 MCP 没有管理类产品工具。内置技能包里有 `project_manag
 | 项目编辑样例 | 完成 | 宽侧栏加 PA 会话；`project_update` 提议与审阅值保存 |
 | 整站基础 | 完成 | 主题与版式整站替换、导航分组、会话密度、共享 PA 会话（`PaSession`、`AskPaSheet`）、页面词典合并与一致性检查、Channels 页面 |
 | 第一波页面 | 完成 | 成员（列表、详情、编辑）、需求（列表、目标页、建议收件箱）、Wiki（索引、阅读、问 PA）、可观测 |
-| 第二波页面 | 未开始 | Workflow、Coding、成果空间、Authority、Settings、Skills、MCP、Today、会话列表 |
+| 第二波页面 | 完成 | Workflow（列表、只读概览、编辑器）、Coding、成果空间、Authority、Settings、Skills、MCP、Today、会话总览；真机验证结果见 ADR 0081 |
+| 未做 | — | 运行详情页 `/system/runs/:id` |
 
-### 第二波从哪里接
+### 两个波次里查出来、留给后端或产品的缺口
 
-每个页面都已经有带测试的纯逻辑层，缺的是页面本身：
-
-- **Workflow**：`features/workflow/{queries,definition-facts,draft}.ts` 已写好。要做列表页（卡片：节点数、边数、实例数、触发器）、只读概览（`/workflows/<id>`），编辑器只在 `?edit=1` 时打开；编辑器里去掉那次必然失败的「采纳」调用，建议只作为未保存草稿加载。
-- **Coding**：没有新代码。要做页头、终端列表、显式的「新建终端」对话框，以及 `?locate=1`（只定位已有工作台，找不到时说明原因并另给「新建」按钮）。需求页的工作台链接等它。
-- **成果空间**：`features/artifacts/artifact-view.ts`（类型判定、diff 解析）已写好。没有验收接口，所以没有「接受交付」。
-- **Authority**：`features/ops/authority-ledger.ts`（来源分类与来源链）已写好。页面是只读账本，没有批准按钮。
-- **Settings**：`features/settings/settings-json.ts`（Raw JSON 校验与差异）已写好。要做「表单 / Raw JSON」切换和显式保存。
-- **Skills**：`features/skill-packs/pack-model.ts`（四个分开的事实）已写好。页面里不能请求或列出带隐藏路径（`.git/`、点开头文件）的文件。
-- **MCP**：`features/mcp/{tool-catalog,queries,mutations}.ts` 已写好。重做时必须去掉现有页面的三个缺陷：预填的打码密钥被写回覆盖真实值、保存失败被当成成功、调用出错显示成绿色。编辑时密钥只写不读。
-- **Today 与会话列表**：都没有新代码。Today 现在还是工作流人工关卡、提醒、任务、收藏四样东西唯一的网页入口，替换之前要先决定它们去哪。会话没有「来自 Lark 聊天还是群」这个字段，页面要如实说。
+各页缺什么接口，记在 ADR 0081 的「没有解决的」里。其中影响最大的三条：流程列表没有批量读；同一目标只能读到最新一条挂着的建议；会话不记录来源是 Lark 私聊还是群。
 
 ## 复现验证环境
 

@@ -54,3 +54,81 @@ export function copyWorkflowDefinition(
 ): WorkflowDefinition {
   return { ...source, id, triggers: [], meta: { ...source.meta, name, status: "draft" } };
 }
+
+/** What one of a run's input fields takes. */
+export type InputKind = "string" | "number" | "boolean" | "artifact";
+
+/** The input of a run as the dialog sends it. */
+export interface RunInput {
+  input: Record<string, unknown>;
+  /** The artifact fields' addresses, which the server also expects beside the input. */
+  artifacts: string[];
+}
+
+/** What a run's input field takes, from the definition's hint for it. */
+export function inputKindOf(type: unknown): InputKind {
+  if (type === "artifact") {
+    return "artifact";
+  }
+  return paramHintOf(type);
+}
+
+/** The input of a run from what the person typed into the dialog's fields. An empty field is
+ *  left out, so the definition's own default applies; a number field holds a number and a
+ *  boolean field holds `true` or `false`, not the words. */
+export function runInput(
+  params: ReadonlyArray<{ key: string; type: unknown }>,
+  values: Readonly<Record<string, string>>,
+): RunInput {
+  const input: Record<string, unknown> = {};
+  const artifacts: string[] = [];
+  for (const param of params) {
+    const raw = values[param.key] ?? "";
+    if (raw === "") {
+      continue;
+    }
+    const kind = inputKindOf(param.type);
+    if (kind === "number") {
+      input[param.key] = Number(raw);
+    } else if (kind === "boolean") {
+      input[param.key] = raw === "true";
+    } else {
+      input[param.key] = raw;
+    }
+    if (kind === "artifact") {
+      artifacts.push(raw);
+    }
+  }
+  return { input, artifacts };
+}
+
+/** The lines that tell the PA which workflow a request is about. The editor's "Draft a request"
+ *  puts them into the composer once, with the request after them. It is a message to the model,
+ *  so it is English in every UI language. */
+export function workflowRequest(workflowId: string, goal: string, skillCommand: string): string {
+  const skill = skillCommand === "" ? "" : `${skillCommand}\n`;
+  const context = [
+    "<workflow-context>",
+    `<workflowId>${workflowId}</workflowId>`,
+    `<goal>${goal}</goal>`,
+    "</workflow-context>",
+  ].join("\n");
+  const how =
+    "Read this workflow with workflow_read first. Send a changed definition with workflow_write: it reaches me as an unsaved draft, and nothing is saved until I save it.";
+  return `${skill}${context}\n\n${how}\n\nMy request: `;
+}
+
+/** The request the new-workflow sheet puts into the composer: the workflow is not created yet, so
+ *  it asks for advice and says so. English in every UI language, like every message to the model. */
+export function newWorkflowRequest(
+  name: string,
+  description: string,
+  skillCommand: string,
+): string {
+  const skill = skillCommand === "" ? "" : `${skillCommand}\n`;
+  const trimmed = description.trim();
+  const purpose = trimmed === "" ? "" : `\nWhat it is for: ${trimmed}`;
+  const ask =
+    "Suggest the steps it needs and where a person must decide. Nothing is created by this message: I create the draft myself and ask for changes in its editor.";
+  return `${skill}I am about to create a workflow named "${name}".${purpose}\n${ask}\n\nMy request: `;
+}

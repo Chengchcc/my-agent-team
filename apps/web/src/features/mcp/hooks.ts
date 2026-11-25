@@ -22,6 +22,7 @@ export {
   useDeleteMcpServer,
   useInvokeMcpTool,
   useRestartMcpServer,
+  useSetAgentMcpServers,
   useTestMcpConnection,
   useUpdateMcpServer,
 } from "./mutations";

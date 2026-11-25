@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentKeys } from "@/features/agents/query-keys";
 import { api } from "@/lib/api";
 import type { McpServerDetail } from "./queries";
 import { mcpKeys } from "./query-keys";
@@ -136,6 +137,21 @@ export function useInvokeMcpTool() {
       );
       const outcome = shapeToolCall(raw);
       return outcome;
+    },
+  });
+}
+
+/** Rewrites one member's binding list for a connection. The list is the member's whole
+ *  `mcpServers`, other servers carried over; see `bindChanges`. */
+export function useSetAgentMcpServers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      agentId: string;
+      mcpServers: Array<{ serverId: string; enabled: boolean }>;
+    }) => api.updateAgent(input.agentId, { mcpServers: input.mcpServers }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: agentKeys.lists() });
     },
   });
 }

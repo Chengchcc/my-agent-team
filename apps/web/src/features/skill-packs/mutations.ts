@@ -52,3 +52,24 @@ export function useSetAgentPacks(agentId: string) {
     },
   });
 }
+
+type PackAssignment = { agentId: string; packIds: string[] };
+
+/** Rewrites the pack list of each listed member (and only those). One failure leaves the
+ *  others saved; the list is refetched either way. */
+export function useSetAgentsPacks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (assignments: PackAssignment[]): Promise<void> => {
+      for (const assignment of assignments) {
+        await api.setAgentSkillPacks(assignment.agentId, { packIds: assignment.packIds });
+      }
+    },
+    onSuccess: (_result, assignments) => {
+      for (const assignment of assignments) {
+        queryClient.invalidateQueries({ queryKey: skillPackKeys.agentPacks(assignment.agentId) });
+      }
+      queryClient.invalidateQueries({ queryKey: skillPackKeys.list() });
+    },
+  });
+}

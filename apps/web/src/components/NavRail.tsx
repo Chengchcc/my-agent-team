@@ -299,7 +299,7 @@ function NavContent() {
               setNewOpen(true);
             }}
             className="ml-auto text-primary hover:text-primary/80"
-            aria-label="New conversation"
+            aria-label={t("New conversation")}
           >
             <PlusIcon />
           </Button>

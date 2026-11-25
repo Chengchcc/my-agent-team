@@ -2,7 +2,9 @@
 
 import { Lock } from "lucide-react";
 import { useState } from "react";
-import { MonoLabel, StatusPill } from "@/components/patterns";
+import { badgeVariantOfTone, type FactTone } from "@/components/ops/kit";
+import { SettingsField } from "@/components/SettingsField";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,8 +16,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAuthPassword, useSetAuthPassword } from "@/features/auth/hooks";
+import { t } from "@/lib/i18n";
 
 const MIN_LENGTH = 8;
+
+type DialogState = "closed" | "open";
 
 /** Change the console login password. What is stored is an argon2id verifier,
  *  so it takes effect on the next login without touching the deployment's
@@ -24,59 +29,67 @@ const MIN_LENGTH = 8;
 export function LoginPasswordSection() {
   const { data, isLoading } = useAuthPassword();
   const updatePassword = useSetAuthPassword();
-  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<DialogState>("closed");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const mismatch = confirm.length > 0 && password !== confirm;
   const tooShort = password.length > 0 && password.length < MIN_LENGTH;
 
-  async function save() {
-    if (password.length < MIN_LENGTH || mismatch) return;
-    await updatePassword.mutateAsync(password);
-    setPassword("");
-    setConfirm("");
-    setOpen(false);
+  function settle(next: DialogState): void {
+    setState(next);
+    if (next === "closed") {
+      setPassword("");
+      setConfirm("");
+    }
   }
 
+  async function save(): Promise<void> {
+    if (password.length < MIN_LENGTH || mismatch) return;
+    await updatePassword.mutateAsync(password);
+    settle("closed");
+  }
+
+  const tone: FactTone = data?.configured === true ? "ok" : "muted";
+  const status = data?.configured === true ? t("set here") : t("launcher default");
+
   return (
-    <section className="rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
-      <div className="flex items-center justify-between border-b border-(--hairline) px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Lock className="size-4 text-(--primary)" />
-          <MonoLabel>Login password</MonoLabel>
+    <>
+      <SettingsField
+        title={t("Login password")}
+        aside={
+          isLoading ? undefined : (
+            <Badge variant={badgeVariantOfTone(tone)} className="font-mono">
+              {status}
+            </Badge>
+          )
+        }
+        hint={
+          data?.configured === true
+            ? t("A password set here is stored as a hash and is the one that logs in.")
+            : t(
+                "Until you set one, the password generated at first start (gateway-secrets.json, or the dev .env) is the one that logs in.",
+              )
+        }
+      >
+        <div>
+          <Button size="sm" variant="outline" onClick={() => settle("open")}>
+            <Lock className="size-3.5" />
+            {t("Change password")}
+          </Button>
         </div>
-        {!isLoading && (
-          <StatusPill tone={data?.configured ? "success" : "idle"}>
-            {data?.configured ? "set here" : "launcher default"}
-          </StatusPill>
-        )}
-      </div>
-      <div className="space-y-3 p-4">
-        <p className="text-xs text-(--mute)">
-          {data?.configured
-            ? "A password set here is stored as a hash and is the one that logs in."
-            : "Until you set one, the password generated at first start (gateway-secrets.json, or the dev .env) is the one that logs in."}
-        </p>
-        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-          Change password
-        </Button>
-      </div>
+      </SettingsField>
 
       <Dialog
-        open={open}
+        open={state === "open"}
         onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) {
-            setPassword("");
-            setConfirm("");
-          }
+          if (!next) settle("closed");
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Change login password</DialogTitle>
+            <DialogTitle>{t("Change login password")}</DialogTitle>
             <DialogDescription>
-              Starts working right away — no restart, and the plaintext is never stored.
+              {t("Starts working right away — no restart, and the plaintext is never stored.")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -85,32 +98,36 @@ export function LoginPasswordSection() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={`New password (at least ${MIN_LENGTH} characters)`}
+              placeholder={t("New password (at least {count} characters)", { count: MIN_LENGTH })}
             />
             <Input
               type="password"
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              placeholder="Repeat it"
+              placeholder={t("Repeat it")}
             />
-            {tooShort && <p className="text-xs text-(--err)">At least {MIN_LENGTH} characters.</p>}
-            {mismatch && <p className="text-xs text-(--err)">The two entries differ.</p>}
+            {tooShort && (
+              <p className="text-xs text-(--err)">
+                {t("At least {count} characters.", { count: MIN_LENGTH })}
+              </p>
+            )}
+            {mismatch && <p className="text-xs text-(--err)">{t("The two entries differ.")}</p>}
           </div>
           <DialogFooter>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+            <Button size="sm" variant="ghost" onClick={() => settle("closed")}>
+              {t("Cancel")}
             </Button>
             <Button
               size="sm"
               onClick={() => void save()}
               disabled={updatePassword.isPending || password.length < MIN_LENGTH || mismatch}
             >
-              Save
+              {t("Save")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   );
 }

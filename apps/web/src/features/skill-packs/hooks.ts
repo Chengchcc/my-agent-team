@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { hiddenSegment } from "./pack-model";
 import {
   agentSkillPacksQuery,
   skillPackFilesQuery,
@@ -12,12 +13,16 @@ export function useSkillPackList() {
   return useQuery(skillPackListQuery());
 }
 
-export function useSkillPackSkills(id: string) {
-  return useQuery({ ...skillPackSkillsQuery(id), enabled: !!id });
+/** The skills of a pack. Nothing is requested while it is not materialized: the backend would
+ *  answer 404, and the page says the files are unavailable instead. */
+export function useSkillPackSkills(id: string, options: { readable: boolean }) {
+  return useQuery({ ...skillPackSkillsQuery(id), enabled: options.readable && id !== "" });
 }
 
-export function useSkillPackFiles(id: string, path?: string) {
-  return useQuery({ ...skillPackFilesQuery(id, path), enabled: !!id });
+/** One directory of a pack. Never asks for a path with a hidden segment. */
+export function useSkillPackFiles(id: string, path: string, options: { readable: boolean }) {
+  const allowed = options.readable && hiddenSegment(path === "" ? "root" : path) === null;
+  return useQuery({ ...skillPackFilesQuery(id, path === "" ? undefined : path), enabled: allowed });
 }
 
 export function useAgentSkillPacks(agentId: string) {
@@ -39,6 +44,7 @@ export {
   useDeletePack,
   useInstallGitPack,
   useSetAgentPacks,
+  useSetAgentsPacks,
   useSyncPack,
   useUploadZipPack,
 } from "./mutations";

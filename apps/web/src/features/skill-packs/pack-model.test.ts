@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { visibleHits } from "@/components/pack-file-utils";
 import {
   derivePackFacts,
   hiddenSegment,
   type PackCheck,
+  packIdsAfter,
   packRevision,
   skillDirOf,
+  upstreamChanged,
 } from "./pack-model";
 
 function check(overrides: Partial<PackCheck>): PackCheck {
@@ -81,5 +84,58 @@ describe("skillDirOf", () => {
   test("the SKILL.md path becomes its directory", () => {
     expect(skillDirOf("agent_doctor/SKILL.md")).toBe("agent_doctor");
     expect(skillDirOf("SKILL.md")).toBe("");
+  });
+});
+
+describe("hiddenSegment guards what is requested and listed", () => {
+  test("a dot segment anywhere makes the path hidden", () => {
+    expect(hiddenSegment(".git/config")).toBe(".git");
+    expect(hiddenSegment("skills/x/.env")).toBe(".env");
+    expect(hiddenSegment("skills/.hidden/SKILL.md")).toBe(".hidden");
+    expect(hiddenSegment("skills/references/notes.md")).toBeNull();
+  });
+
+  test("every hidden path is dropped, visible ones kept", () => {
+    const hits = [
+      { path: "a/SKILL.md", line: 1, snippet: "s" },
+      { path: ".git/HEAD", line: 2, snippet: "s" },
+      { path: "a/.netrc", line: 3, snippet: "s" },
+    ];
+    expect(visibleHits(hits).map((hit) => hit.path)).toEqual(["a/SKILL.md"]);
+    expect(visibleHits(undefined)).toEqual([]);
+  });
+});
+
+describe("packIdsAfter", () => {
+  test("adds, removes, or reports no change", () => {
+    expect(packIdsAfter(["a"], "b", true)).toEqual(["a", "b"]);
+    expect(packIdsAfter(["a", "b"], "a", false)).toEqual(["b"]);
+    expect(packIdsAfter(["a"], "a", true)).toBeNull();
+    expect(packIdsAfter(["a"], "b", false)).toBeNull();
+  });
+});
+
+describe("upstreamChanged", () => {
+  class RequestError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  }
+
+  test("reads the 409 body and nothing else", () => {
+    const body = JSON.stringify({
+      error: "moved",
+      code: "upstream_changed",
+      from: "aaa",
+      to: "bbb",
+    });
+    expect(upstreamChanged(new RequestError(409, body))).toEqual({ from: "aaa", to: "bbb" });
+    expect(upstreamChanged(new RequestError(500, body))).toBeNull();
+    expect(upstreamChanged(new RequestError(409, "not json"))).toBeNull();
+    expect(upstreamChanged(new RequestError(409, '{"code":"other"}'))).toBeNull();
+    expect(upstreamChanged("x")).toBeNull();
   });
 });

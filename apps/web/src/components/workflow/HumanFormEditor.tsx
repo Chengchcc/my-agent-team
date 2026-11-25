@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { t } from "@/lib/i18n";
 
 type Field = {
   type?: "string" | "textarea" | "number" | "enum" | "boolean";
@@ -64,12 +65,14 @@ export function HumanFormEditor({
             <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-(--info)">
               {key}
             </span>
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
+              className="shrink-0 text-(--err) hover:text-(--err)"
               onClick={() => removeField(key)}
-              className="shrink-0 text-[10px] text-(--err) hover:underline"
             >
-              Delete
-            </button>
+              {t("Delete")}
+            </Button>
           </div>
           <Select
             value={f.type ?? "string"}

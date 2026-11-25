@@ -122,8 +122,12 @@ export default function RequirementDetailPage() {
   }
 
   const workbenchNote = t(
-    "The coding workbench cannot be located from this page yet, so no link to it is offered. Nothing on this page opens a terminal.",
+    "Workbench links only locate a terminal that already exists. When a member has none, the coding page says so and offers a separate Create button; no link here opens a terminal by itself.",
   );
+  // A goal that has a project locates the member's pane in that project (ADR 0076).
+  const workbenchBase = "/coding?locate=1&agent=";
+  const workbenchProject =
+    project === undefined ? "" : `&project=${encodeURIComponent(project.projectId)}`;
 
   return (
     <Page>
@@ -385,11 +389,15 @@ export default function RequirementDetailPage() {
                         </div>
                       </dl>
                       {run.agentId !== null && (
-                        <p className="mt-3 text-[10px] leading-relaxed text-(--faint)">
+                        <Link
+                          href={`${workbenchBase}${encodeURIComponent(run.agentId)}${workbenchProject}`}
+                          className="mt-3 inline-flex items-center gap-1 text-[10px] text-(--primary-deep) hover:underline"
+                        >
                           {t(
-                            "Workbench: Not available. Locating this member's existing terminal is not supported by the coding page yet; a plain member link would open a new terminal, so none is offered.",
-                          )}
-                        </p>
+                            "Workbench: locate this member's terminal. It only focuses one that exists; nothing here opens a terminal.",
+                          )}{" "}
+                          <ArrowUpRight className="size-3" />
+                        </Link>
                       )}
                     </article>
                   );

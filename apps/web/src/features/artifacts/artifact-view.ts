@@ -131,3 +131,105 @@ export function parseDiff(text: string): DiffView {
   const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
   return { files, additions, deletions };
 }
+
+/** What the gallery reads off a stored file's list row. */
+export interface ArtifactLike {
+  readonly url: string;
+  readonly filename: string;
+  readonly mimeType: string;
+  readonly updatedAt: number;
+}
+
+/** The mark on a card: the file's extension in capitals, `FILE` when it has none. */
+export function fileBadge(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  const hasExtension = dot > 0 && dot < filename.length - 1;
+  return hasExtension ? filename.slice(dot + 1).toUpperCase() : "FILE";
+}
+
+export type ArtifactFilter = "all" | ArtifactKind;
+
+export interface ArtifactKindCounts {
+  readonly all: number;
+  readonly change: number;
+  readonly visual: number;
+  readonly document: number;
+  readonly other: number;
+}
+
+/** What each filter tab counts. */
+export function countArtifactKinds(artifacts: readonly ArtifactLike[]): ArtifactKindCounts {
+  const counts: Record<ArtifactFilter, number> = {
+    all: 0,
+    change: 0,
+    visual: 0,
+    document: 0,
+    other: 0,
+  };
+  for (const artifact of artifacts) {
+    counts.all += 1;
+    counts[artifactKind(artifact)] += 1;
+  }
+  return counts;
+}
+
+/** The gallery's rows for one tab and one search: the files of that kind whose
+ *  name or url holds every word of the search, newest first. */
+export function filterArtifacts<T extends ArtifactLike>(
+  artifacts: readonly T[],
+  kind: ArtifactFilter,
+  query: string,
+): T[] {
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word !== "");
+  const hits = artifacts.filter((artifact) => {
+    const inKind = kind === "all" || artifactKind(artifact) === kind;
+    const haystack = `${artifact.filename} ${artifact.url}`.toLowerCase();
+    const matches = words.every((word) => haystack.includes(word));
+    return inKind && matches;
+  });
+  const newestFirst = [...hits].sort((a, b) => b.updatedAt - a.updatedAt);
+  return newestFirst;
+}
+
+/** The opening lines of a text, as a card shows them: leading blanks skipped,
+ *  long lines cut. */
+export function firstLines(text: string, count: number, width = 80): string[] {
+  const lines: string[] = [];
+  for (const raw of text.split("\n")) {
+    if (lines.length >= count) break;
+    const line = raw.trimEnd();
+    const blank = line.trim() === "";
+    if (blank && lines.length === 0) continue;
+    lines.push(line.length > width ? `${line.slice(0, width - 1)}…` : line);
+  }
+  return lines;
+}
+
+/** The rows a card shows for a change: its hunk headers and changed lines. */
+export function diffPreview(text: string, count: number): DiffRow[] {
+  const rows: DiffRow[] = [];
+  for (const file of parseDiff(text).files) {
+    for (const row of file.rows) {
+      if (rows.length >= count) return rows;
+      const keep = row.kind === "add" || row.kind === "del" || row.kind === "hunk";
+      if (keep) rows.push(row);
+    }
+  }
+  return rows;
+}
+
+/** A stored file's bytes as a URL a browser can show. The product files `.svg`
+ *  away as a byte stream, so its name says what it is. */
+export function artifactDataUrl(
+  meta: { readonly filename: string; readonly mimeType: string },
+  content: string,
+  encoding: "utf8" | "base64",
+): string {
+  const nameSaysSvg = /\.svg$/i.test(meta.filename) && !meta.mimeType.startsWith("image/");
+  const mime = nameSaysSvg ? "image/svg+xml" : meta.mimeType;
+  if (encoding === "base64") return `data:${mime};base64,${content}`;
+  return `data:${mime};charset=utf-8,${encodeURIComponent(content)}`;
+}

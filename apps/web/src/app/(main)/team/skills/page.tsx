@@ -1,689 +1,826 @@
 "use client";
 
-import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { Download, GitBranch, Package, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { Package } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { type AskPaRequest, AskPaSheet } from "@/components/AskPaSheet";
 import { InstallPackForm } from "@/components/InstallPackForm";
+import { badgeVariantOfTone as badgeOf, Note, type FactTone as Tone } from "@/components/ops/kit";
+import { QueryState } from "@/components/ops/QueryState";
 import { PackFileSearch } from "@/components/PackFileSearch";
 import { PackFileViewer } from "@/components/PackFileViewer";
-import { PackAgentsTab } from "@/components/pack-agents-tab";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { KpiTile, MonoLabel, StatusPill } from "@/components/patterns";
-import { FileTree, statusLabel } from "@/components/SkillPackManager";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { EmptyState } from "@/components/ui/empty-state";
-import { InfoBanner, ListToolbar, SectionKicker, statusBadge } from "@/components/ui/polish";
 import {
-  ResourceCard,
-  ResourceCardContent,
-  ResourceCardFooter,
-  ResourceCardHeader,
-  ResourceTag,
-  type ResourceTone,
-} from "@/components/ui/resource-card";
-import { ResourceDetailSheet } from "@/components/ui/resource-detail-sheet";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Text } from "@/components/ui/text";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
+import { Sheet, SheetContent, SheetFooter, SheetTitle } from "@/components/ui/sheet";
 import { useAgentList } from "@/features/agents/hooks";
 import {
   useDeletePack,
+  useSetAgentsPacks,
+  useSkillPackFiles,
   useSkillPackList,
+  useSkillPackLockfile,
   useSkillPackSkills,
+  useSkillPackValidate,
   useSyncPack,
 } from "@/features/skill-packs/hooks";
-import { agentSkillPacksQuery } from "@/features/skill-packs/queries";
-import { skillPackKeys } from "@/features/skill-packs/query-keys";
-import { type AgentRow, type ApiReturn, api } from "@/lib/api";
+import {
+  type CheckState,
+  derivePackFacts,
+  hiddenSegment,
+  type Materialized,
+  packIdsAfter,
+  packRevision,
+  upstreamChanged,
+} from "@/features/skill-packs/pack-model";
+import { agentSkillPacksQuery, skillPackFilesQuery } from "@/features/skill-packs/queries";
+import type { ApiReturn, api } from "@/lib/api";
+import { t } from "@/lib/i18n";
+
+/** Skill packages. Registration, being on disk and the check are three recorded facts and
+ *  are stated apart; nothing on this page downloads, installs or runs a skill except the
+ *  explicit Sync and Uninstall. File requests refuse hidden paths (`.git/`, dotfiles), which
+ *  the backend would otherwise serve, and a pack that is not materialized is never asked. */
 
 type PackEntry = ApiReturn<typeof api.listSkillPacks>[number];
+type Skill = ApiReturn<typeof api.getSkillPackSkills>[number];
+type FileEntry = { name: string; type: string };
 
-type SkillSummary = { name: string; description: string; dir: string };
+const KIND: Record<PackEntry["sourceKind"], string> = {
+  builtin: "BUILTIN",
+  git: "GIT",
+  zip: "ZIP",
+};
 
-function toDateString(value: number): string {
-  const ms = value > 1e12 ? value : value * 1000;
-  return new Date(ms).toLocaleDateString();
-}
+const MATERIALIZED: Record<Materialized, { label: string; tone: Tone }> = {
+  yes: { label: "yes", tone: "ok" },
+  no: { label: "no", tone: "err" },
+  installing: { label: "in progress", tone: "warn" },
+};
 
-function PackDrawer({
-  pack,
-  usedBy,
-  agents,
-  isAssigned,
-  onAssign,
-  onRemove,
-  onSync,
-  onDelete,
-  onClose,
+const CHECK: Record<CheckState, { label: string; tone: Tone }> = {
+  "not checked": { label: "not checked", tone: "muted" },
+  passed: { label: "passed", tone: "ok" },
+  failed: { label: "failed", tone: "err" },
+};
+
+function Fact({
+  name,
+  state,
+  tone,
+  title,
 }: {
-  pack: PackEntry;
-  usedBy: AgentRow[];
-  agents: AgentRow[];
-  isAssigned: (agentId: string) => boolean;
-  onAssign: (agentId: string) => void;
-  onRemove: (agentId: string) => void;
-  onSync: () => void;
-  onDelete: () => void;
-  onClose: () => void;
+  name: string;
+  state: string;
+  tone: Tone;
+  title?: string;
 }) {
-  const [tab, setTab] = useState<"overview" | "files" | "agents">("overview");
-  const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const { data: skills } = useSkillPackSkills(pack.id);
-
-  const root = selectedSkill ? selectedSkill.dir : "";
-  const badge = statusBadge(pack.status);
-
   return (
-    <ResourceDetailSheet
-      open
-      onClose={onClose}
-      icon={<Package className="size-5 text-(--mute)" />}
-      title={pack.name}
-      subtitle={pack.sourceKind === "git" ? "Git" : pack.sourceKind}
-      badge={{
-        label: badge.label,
-        tone: pack.status === "ready" ? "ok" : pack.status === "failed" ? "err" : "warn",
-      }}
-      tabs={[
-        { key: "overview", label: "Overview" },
-        { key: "files", label: "Files" },
-        { key: "agents", label: "Agents" },
-      ]}
-      tab={tab}
-      onTabChange={(key) => {
-        setTab(key as "overview" | "files" | "agents");
-        if (key !== "files") setSelectedFile(null);
-      }}
-      breadcrumb={[
-        { label: pack.name, onClick: () => setTab("overview") },
-        ...(tab === "files"
-          ? [
-              {
-                label: selectedSkill?.name ?? "All files",
-                onClick: selectedSkill ? () => setSelectedSkill(null) : undefined,
-              },
-              ...(selectedFile ? [{ label: selectedFile.split("/").pop() ?? selectedFile }] : []),
-            ]
-          : []),
-      ]}
-      footer={
-        <>
-          {pack.sourceKind === "git" && (
-            <Button variant="outline" size="sm" onClick={onSync}>
-              Sync from Git
-            </Button>
-          )}
-          {pack.sourceKind !== "builtin" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-(--err) hover:bg-(--err)/10"
-              onClick={onDelete}
-            >
-              Delete
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Close
-          </Button>
-        </>
-      }
-    >
-      {tab === "overview" && (
-        <div className="space-y-4">
-          <div>
-            <Text as="p" className="text-sm text-(--mute)">
-              {pack.description || "No description."}
-            </Text>
-            <div className="mt-2 flex flex-wrap gap-1">
-              <span className="rounded bg-(--panel2) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                {pack.sourceKind}
-              </span>
-              {pack.keepSynced === true && (
-                <span className="rounded bg-(--ok)/12 px-1.5 py-0.5 font-mono text-[10px] text-(--ok)">
-                  auto-sync
-                </span>
-              )}
-            </div>
-          </div>
-          <dl className="divide-y divide-(--hairline) rounded-md border border-(--hairline) bg-(--canvas-soft) px-3 py-1">
-            <DetailRow label="Type" value={pack.sourceKind === "git" ? "Git" : pack.sourceKind} />
-            <DetailRow label="Source" value={pack.sourceUrl ?? pack.installedRef ?? "—"} />
-            <DetailRow label="Status" value={badge.label} />
-            <DetailRow label="Latest revision" value={pack.installedRef?.slice(0, 8) ?? "—"} />
-            <DetailRow label="Installed" value={`${usedBy.length} agents`} />
-            <DetailRow label="Updated" value={toDateString(pack.createdAt)} />
-          </dl>
-        </div>
-      )}
-
-      {tab === "files" && (
-        <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
-          <div className="space-y-3 md:w-[280px] md:shrink-0">
-            <Text as="p" className="text-sm font-semibold">
-              Files
-            </Text>
-            {skills && skills.length > 0 && (
-              <Select
-                value={selectedSkill?.dir ?? ""}
-                onValueChange={(v) => {
-                  const s = skills.find((x) => x.dir === v);
-                  setSelectedSkill(s ?? null);
-                  setSelectedFile(null);
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue placeholder="All files" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All files</SelectItem>
-                  {skills.map((s) => (
-                    <SelectItem key={s.dir} value={s.dir}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <PackFileSearch packId={pack.id} onOpen={(p) => setSelectedFile(p)} />
-            <div className="rounded-md border border-(--hairline) p-2">
-              <FileTree
-                packId={pack.id}
-                path={root}
-                onSelectFile={setSelectedFile}
-                selectedPath={selectedFile ?? undefined}
-              />
-            </div>
-          </div>
-          <div className="min-h-0 min-w-0 flex-1">
-            {selectedFile ? (
-              <PackFileViewer packId={pack.id} path={selectedFile} />
-            ) : (
-              <div className="rounded-lg border border-dashed border-(--hairline) p-8 text-center">
-                <Text as="p" className="text-sm text-(--mute)">
-                  Select a file to view its contents.
-                </Text>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === "agents" && (
-        <PackAgentsTab
-          agents={agents}
-          usedBy={usedBy}
-          isAssigned={isAssigned}
-          onAssign={onAssign}
-          onRemove={onRemove}
-        />
-      )}
-    </ResourceDetailSheet>
+    <Badge variant={badgeOf(tone)} title={title} className="font-normal">
+      <span className="text-(--faint)">{t(name)} ·</span> {t(state)}
+    </Badge>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function sourceOf(pack: PackEntry): string {
+  if (pack.sourceKind === "builtin") return t("Builtin");
+  const revision = packRevision(pack.installedRef);
+  if (pack.sourceKind === "git") {
+    const at = revision === null ? "" : ` @ ${revision}`;
+    return `${pack.sourceUrl ?? ""}${at}`;
+  }
+  return t("ZIP upload");
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function inDir(dir: string, name: string): string {
+  return dir === "" ? name : `${dir}/${name}`;
+}
+
+// ── Card ────────────────────────────────────────────────────────────────────────
+
+function PackCard({
+  pack,
+  check,
+  members,
+  onView,
+  onCheck,
+  onAssign,
+  onSync,
+  onUninstall,
+}: {
+  pack: PackEntry;
+  check: Parameters<typeof derivePackFacts>[1];
+  members: number;
+  onView: () => void;
+  onCheck: () => void;
+  onAssign: () => void;
+  onSync: () => void;
+  onUninstall: () => void;
+}) {
+  const facts = derivePackFacts(pack, check);
   return (
-    <div className="grid grid-cols-[160px_1fr] items-baseline gap-4 py-1.5">
-      <dt className="font-label-caps text-label-caps uppercase tracking-wider text-(--faint)">
-        {label}
-      </dt>
-      <dd className="truncate text-right font-mono text-xs text-(--body) tabular-nums">{value}</dd>
+    <article className="rounded-2xl border border-white/6 bg-(--panel) p-5">
+      <p className="text-[10px] tracking-[1.8px] uppercase text-(--faint)">
+        {KIND[pack.sourceKind]} · {t("SKILL PACK")}
+      </p>
+      <h2 className="mt-1.5 text-sm font-[550] text-(--ink)">{pack.name}</h2>
+      {pack.description !== "" && <p className="text-xs text-(--mute)">{pack.description}</p>}
+      <p className="truncate font-mono text-[10px] text-(--faint)">{sourceOf(pack)}</p>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <Fact name="Registered" state="yes" tone="ok" />
+        <Fact
+          name="Materialized"
+          state={MATERIALIZED[facts.materialized].label}
+          tone={MATERIALIZED[facts.materialized].tone}
+          title={t(
+            facts.materializedSource === "check"
+              ? "The last check looked at the disk."
+              : "From the install record; no check has looked at the disk yet.",
+          )}
+        />
+        <Fact name="Check" state={CHECK[facts.check].label} tone={CHECK[facts.check].tone} />
+        <Fact
+          name="Members"
+          state={t("{count} assigned", { count: members })}
+          tone={members > 0 ? "ok" : "muted"}
+        />
+      </div>
+      <p className="mt-3 text-[11px] text-(--mute)">
+        {facts.materialized === "yes"
+          ? t("Files readable")
+          : t("Skill files not available · not materialized")}
+      </p>
+      {pack.status === "failed" && pack.error !== null && (
+        <Note className="mt-1 text-(--err)">{pack.error}</Note>
+      )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button size="sm" onClick={onView}>
+          {t("View pack and skills")}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCheck}>
+          {t("Check")}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onAssign}>
+          {t("Assign members")}
+        </Button>
+        {pack.sourceKind === "git" && (
+          <Button size="sm" variant="outline" onClick={onSync}>
+            {t("Sync from Git")}
+          </Button>
+        )}
+        {pack.sourceKind !== "builtin" && (
+          <Button size="sm" variant="destructive" onClick={onUninstall}>
+            {t("Uninstall")}
+          </Button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+// ── Pack sheet ─────────────────────────────────────────────────────────────────
+
+function SkillFiles({
+  packId,
+  dir,
+  selected,
+  onSelect,
+}: {
+  packId: string;
+  dir: string;
+  selected: string;
+  onSelect: (path: string) => void;
+}) {
+  const root = useSkillPackFiles(packId, dir, { readable: true });
+  const folders =
+    root.data?.type === "dir"
+      ? (root.data.entries ?? []).filter(
+          (entry) => entry.type === "dir" && hiddenSegment(entry.name) === null,
+        )
+      : [];
+  const inner = useQueries({
+    queries: folders.map((folder) => skillPackFilesQuery(packId, inDir(dir, folder.name))),
+  });
+  const files = (entries: FileEntry[]): FileEntry[] =>
+    entries.filter((entry) => entry.type === "file" && hiddenSegment(entry.name) === null);
+
+  function link(path: string, label: string): ReactNode {
+    return (
+      <Button
+        key={path}
+        variant={path === selected ? "secondary" : "ghost"}
+        size="xs"
+        className="w-full justify-start font-mono"
+        onClick={() => onSelect(path)}
+      >
+        <span className="truncate">{label}</span>
+      </Button>
+    );
+  }
+
+  if (root.isLoading) return <p className="text-[11px] text-(--mute)">{t("Reading files…")}</p>;
+  if (root.data?.type !== "dir") {
+    return <p className="text-[11px] text-(--mute)">{t("File not available")}</p>;
+  }
+  return (
+    <div className="space-y-1">
+      <ul className="space-y-0.5">
+        {files(root.data.entries ?? []).map((entry) => link(inDir(dir, entry.name), entry.name))}
+      </ul>
+      {folders.map((folder, index) => {
+        const path = inDir(dir, folder.name);
+        const node = inner[index]?.data;
+        const entries = node?.type === "dir" ? files(node.entries ?? []) : [];
+        return (
+          <details key={path} open>
+            <summary className="cursor-pointer py-1 font-mono text-[11px] text-(--mute)">
+              {folder.name}/
+            </summary>
+            <ul className="space-y-0.5 pl-3">
+              {entries.map((entry) => link(inDir(path, entry.name), entry.name))}
+              {inner[index]?.isError && (
+                <li>
+                  <Note>{t("File not available")}</Note>
+                </li>
+              )}
+            </ul>
+          </details>
+        );
+      })}
     </div>
   );
 }
 
-export default function SkillPacksPage() {
-  const { data: packs, isLoading, refetch } = useSkillPackList();
-  const [query, setQuery] = useState("");
-  const [validateResult, setValidateResult] = useState<Array<{
-    id: string;
-    name: string;
-    ok: boolean;
-    skills: number;
-    issues: string[];
-  }> | null>(null);
-  const [validating, setValidating] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showInstall, setShowInstall] = useState(false);
-  const syncMutation = useSyncPack();
-  const deleteMutation = useDeletePack();
-  const qc = useQueryClient();
-  const { confirm, dialog: confirmDialog } = useConfirm();
-  const { data: agentsData } = useAgentList();
+function PackSheet({
+  pack,
+  onCheck,
+  onAssign,
+  onClose,
+}: {
+  pack: PackEntry;
+  onCheck: () => void;
+  onAssign: () => void;
+  onClose: () => void;
+}) {
+  const facts = derivePackFacts(pack, null);
+  const readable = facts.materialized === "yes";
+  const skills = useSkillPackSkills(pack.id, { readable });
+  const [picked, setPicked] = useState<string | null>(null);
+  const list = skills.data ?? [];
+  // The skills endpoint reports each skill as its SKILL.md path: that path is the file to open.
+  const first = list[0] === undefined ? "" : list[0].dir;
+  const selected = picked ?? first;
 
-  const agentPackQueries = useQueries({
-    queries: (agentsData ?? []).map((a) => agentSkillPacksQuery(a.id)),
-  });
-  const usedByMap: Record<string, AgentRow[]> = {};
-  (agentsData ?? []).forEach((a, i) => {
-    const agentPacks = agentPackQueries[i]?.data;
-    if (!Array.isArray(agentPacks)) return;
-    for (const p of agentPacks) {
-      usedByMap[p.id] = [...(usedByMap[p.id] ?? []), a];
-    }
-  });
-
-  const list = useMemo(() => packs ?? [], [packs]);
-  const sourceKinds = useMemo(() => [...new Set(list.map((p) => p.sourceKind))].sort(), [list]);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return list.filter((p) => {
-      if (sourceFilter !== "all" && p.sourceKind !== sourceFilter) return false;
-      if (statusFilter === "ready" && p.status !== "ready") return false;
-      if (
-        statusFilter === "syncing" &&
-        p.status !== "syncing" &&
-        p.status !== "installing" &&
-        p.status !== "pending"
-      )
-        return false;
-      if (statusFilter === "error" && p.status !== "failed") return false;
-      if (!q) return true;
-      return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
-    });
-  }, [list, query, statusFilter, sourceFilter]);
-
-  const hasPending = list.some((p) => p.status === "installing" || p.status === "syncing");
-  useEffect(() => {
-    if (!hasPending) return;
-    const timer = setInterval(() => refetch(), 3000);
-    return () => clearInterval(timer);
-  }, [hasPending, refetch]);
-
-  const selectedPack = list.find((p) => p.id === selectedId) ?? null;
-  // "Ready" is one fact, not two: once the integrity check has run, it is the
-  // check that decides. Before that the count is "installed" and the detail
-  // says so — the audit found "Ready 1/1" on screen while validation reported
-  // a missing directory, and both were believed (2026-11-24).
-  const validated = validateResult === null ? null : new Map(validateResult.map((r) => [r.id, r]));
-  /** What the card says about this pack: the integrity check wins over the
-   *  install status whenever it has run. */
-  const cardState = (
-    pack: (typeof list)[number],
-    checked: Map<string, { ok: boolean }> | null,
-  ): string => {
-    const verdict = checked?.get(pack.id);
-    if (verdict && !verdict.ok) return "not valid";
-    return statusLabel(pack.status);
-  };
-
-  const ready =
-    validated === null
-      ? list.filter((p) => p.status === "ready").length
-      : [...validated.values()].filter((r) => r.ok).length;
-  const syncing = list.filter(
-    (p) => p.status === "syncing" || p.status === "installing" || p.status === "pending",
-  ).length;
-  const errors = list.filter((p) => p.status === "failed").length;
-
-  const statusTabs = [
-    { key: "all", label: "All" },
-    { key: "ready", label: "Ready" },
-    { key: "syncing", label: "Syncing" },
-    { key: "error", label: "Error" },
-  ].map((t) => ({
-    ...t,
-    count: statusCount(t.key),
-  }));
-
-  function statusCount(key: string): number {
-    if (key === "all") return list.length;
-    if (key === "ready") return ready;
-    if (key === "syncing") return syncing;
-    return errors;
+  function open(path: string): void {
+    if (hiddenSegment(path) !== null) return;
+    setPicked(path);
   }
 
-  const handleSync = async (packId: string) => {
-    syncMutation.mutate(
-      { id: packId },
-      {
-        onError: async (err) => {
-          const e = err as { status?: number; message?: string };
-          if (e?.status !== 409) return;
-          let change: { from?: string; to?: string } = {};
-          try {
-            change = JSON.parse(e.message ?? "{}");
-          } catch {
-            /* keep empty */
-          }
-          const ok = await confirm({
-            title: "Upstream changed",
-            description: `Sync skill pack from ${change.from?.slice(0, 8) ?? "unknown"} to ${change.to?.slice(0, 8) ?? "unknown"}?`,
-            confirmText: "Sync",
-          });
-          if (ok) syncMutation.mutate({ id: packId, confirm: true });
-        },
-      },
-    );
-  };
-  const handleDelete = async (pack: PackEntry) => {
-    const ok = await confirm({
-      title: `Delete pack "${pack.name}"?`,
-      description: "This cannot be undone.",
-      confirmText: "Delete",
-      destructive: true,
-    });
-    if (ok) {
-      deleteMutation.mutate(pack.id);
-      setSelectedId(null);
-    }
-  };
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <SheetContent
+        showCloseButton={false}
+        className="w-[92vw] max-w-[1200px] gap-0 p-0 sm:max-w-[1200px]"
+      >
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-(--hairline) px-6 py-4">
+          <div className="min-w-0">
+            <p className="mb-1 text-[10px] tracking-kicker uppercase text-(--mute)">
+              {KIND[pack.sourceKind]} · {t("SKILL PACK")}
+            </p>
+            <SheetTitle className="truncate text-left">{pack.name}</SheetTitle>
+            <p className="text-xs text-(--mute)">{pack.description}</p>
+          </div>
+          <Button variant="ghost" size="icon-sm" aria-label={t("Close")} onClick={onClose}>
+            ×
+          </Button>
+        </header>
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[380px_minmax(0,1fr)]">
+          <section className="min-h-0 space-y-4 overflow-y-auto border-b border-(--hairline) p-5 md:border-r md:border-b-0">
+            <h2 className="text-sm font-[550] text-(--ink)">{t("Skills in this pack")}</h2>
+            {!readable && (
+              <p className="text-xs text-(--mute)">
+                {t("Files are not available: this pack is not materialized on disk")}
+              </p>
+            )}
+            {readable && skills.isError && (
+              <p className="text-xs text-(--mute)">{t("Not available")}</p>
+            )}
+            {readable && skills.isSuccess && list.length === 0 && (
+              <p className="text-xs text-(--mute)">{t("The pack holds no skill.")}</p>
+            )}
+            <ul className="space-y-1">
+              {list.map((skill: Skill) => (
+                <li key={skill.dir}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto w-full flex-col items-start py-1.5"
+                    onClick={() => open(skill.dir)}
+                  >
+                    <span className="font-mono text-xs text-(--ink)">{skill.name}</span>
+                    {skill.description !== "" && (
+                      <span className="text-[11px] font-normal text-(--mute)">
+                        {skill.description}
+                      </span>
+                    )}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <div className="space-y-2 border-t border-(--hairline) pt-4">
+              <h2 className="text-sm font-[550] text-(--ink)">{t("Skill files")}</h2>
+              {readable ? (
+                <>
+                  <PackFileSearch packId={pack.id} onOpen={open} />
+                  {list.map((skill: Skill) => (
+                    <div key={skill.dir}>
+                      <p className="mb-1 font-mono text-[10px] text-(--faint)">{skill.name}/</p>
+                      <SkillFiles
+                        packId={pack.id}
+                        dir={skill.dir}
+                        selected={selected}
+                        onSelect={open}
+                      />
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p className="text-[11px] text-(--mute)">
+                  {t("Files are not available: this pack is not materialized on disk")}
+                </p>
+              )}
+            </div>
+          </section>
+          <section className="min-h-0 overflow-y-auto p-5">
+            <PackFileViewer packId={pack.id} path={selected} readable={readable} />
+          </section>
+        </div>
+        <SheetFooter className="flex-row flex-wrap justify-end gap-2 bg-(--canvas-soft)">
+          <Button variant="outline" size="sm" onClick={onCheck}>
+            {t("Check")}
+          </Button>
+          <Button size="sm" onClick={onAssign}>
+            {t("Assign to members")}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
-  async function runValidate() {
-    setValidating(true);
+// ── Dialogs ────────────────────────────────────────────────────────────────────
+
+function CheckDialog({
+  pack,
+  onClose,
+  onView,
+}: {
+  pack: PackEntry;
+  onClose: () => void;
+  onView: () => void;
+}) {
+  const validate = useSkillPackValidate();
+  useEffect(() => {
+    void validate.refetch();
+    // Ask once when the dialog opens; the answer stays in the query cache for the cards.
+  }, [validate.refetch]);
+  const row = validate.data?.find((entry) => entry.id === pack.id);
+
+  function body(): ReactNode {
+    if (validate.isFetching) return <p className="text-xs text-(--mute)">{t("Checking…")}</p>;
+    if (validate.isError)
+      return (
+        <p className="text-xs text-(--err)">
+          {t("The check failed: {reason}", { reason: errorText(validate.error) })}
+        </p>
+      );
+    if (row === undefined)
+      return (
+        <p className="text-xs text-(--mute)">{t("The check returned no row for this pack.")}</p>
+      );
+    if (row.ok) {
+      return (
+        <p className="text-xs text-(--ok)">
+          {t("Passed: {count} skills with a readable SKILL.md", { count: row.skills })}
+        </p>
+      );
+    }
+    return (
+      <ul className="space-y-1 text-xs text-(--err)">
+        {row.issues.map((issue) => (
+          <li key={issue}>{issue}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <p className="text-[10px] tracking-kicker uppercase text-(--mute)">{t("CHECK")}</p>
+          <DialogTitle>
+            {t("Check")} · {pack.name}
+          </DialogTitle>
+          <DialogDescription>
+            {t(
+              "The check reads each skill's SKILL.md. It does not run the pack, scan dependencies or verify the source.",
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {body()}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("Close")}
+          </Button>
+          <Button onClick={onView}>{t("View pack and skills")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** One member and the pack ids it has, undefined while its list is still loading. */
+interface MemberPacks {
+  agent: ApiReturn<typeof api.listAgents>[number];
+  packIds: string[] | undefined;
+}
+
+function AssignDialog({
+  pack,
+  members,
+  onClose,
+}: {
+  pack: PackEntry;
+  members: MemberPacks[];
+  onClose: () => void;
+}) {
+  const saveMany = useSetAgentsPacks();
+  const [checked, setChecked] = useState<Readonly<Record<string, boolean>>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const member of members) {
+      if (member.packIds !== undefined) initial[member.agent.id] = member.packIds.includes(pack.id);
+    }
+    return initial;
+  });
+  const changes = useMemo(
+    () =>
+      members.flatMap((member) => {
+        if (member.packIds === undefined) return [];
+        const next = packIdsAfter(member.packIds, pack.id, checked[member.agent.id] === true);
+        if (next === null) return [];
+        return [{ agentId: member.agent.id, packIds: next }];
+      }),
+    [members, checked, pack.id],
+  );
+
+  async function save(): Promise<void> {
     try {
-      const r = await fetch("/api/bff/skill-packs/validate", { credentials: "include" });
-      if (!r.ok) {
-        setValidateResult(null);
-        toast.error("Validate failed", { description: `HTTP ${r.status}` });
-        return;
-      }
-      const j = (await r.json()) as {
-        packs: Array<{ id: string; name: string; ok: boolean; skills: number; issues: string[] }>;
-      };
-      if (!Array.isArray(j.packs) || j.packs.length === 0) {
-        setValidateResult(null);
-        toast.warning("Nothing to validate", { description: "No packs are installed." });
-        return;
-      }
-      setValidateResult(j.packs);
-    } catch {
-      toast.error("Validate failed");
-    } finally {
-      setValidating(false);
+      await saveMany.mutateAsync(changes);
+      onClose();
+    } catch (error) {
+      toast.error(t("Assignment not saved"), { description: errorText(error) });
     }
   }
 
   return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {t("Assign members")} · {pack.name}
+          </DialogTitle>
+          <DialogDescription>
+            {t(
+              "Adds or removes only this pack for the members whose box you changed. Other packs of a member stay as they are, and nothing is installed.",
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-80 space-y-1 overflow-y-auto">
+          {members.map(({ agent, packIds }) => (
+            <li key={agent.id}>
+              <Label className="flex cursor-pointer items-center gap-3 rounded-lg p-2  text-xs font-normal hover:bg-white/3">
+                <Checkbox
+                  disabled={packIds === undefined}
+                  checked={checked[agent.id] === true}
+                  onCheckedChange={(value) =>
+                    setChecked((prev) => ({ ...prev, [agent.id]: value === true }))
+                  }
+                />
+                <RoleAvatar kind={roleKindOf(agent)} name={agent.name} size="sm" />
+                <span className="text-(--ink)">{agent.name}</span>
+                {packIds === undefined && (
+                  <span className="ml-auto text-[10px] text-(--mute)">{t("Loading…")}</span>
+                )}
+              </Label>
+            </li>
+          ))}
+          {members.length === 0 && (
+            <li className="px-2 text-xs text-(--mute)">{t("No members yet.")}</li>
+          )}
+        </ul>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("Cancel")}
+          </Button>
+          <Button disabled={saveMany.isPending || changes.length === 0} onClick={() => void save()}>
+            {t("Save {count} changes", { count: changes.length })}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LockfileDialog({ onClose }: { onClose: () => void }) {
+  const lockfile = useSkillPackLockfile();
+  useEffect(() => {
+    void lockfile.refetch();
+  }, [lockfile.refetch]);
+  const json = lockfile.data === undefined ? "" : JSON.stringify(lockfile.data, null, 2);
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(json);
+      setCopied("copied");
+    } catch {
+      setCopied("failed");
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <p className="text-[10px] tracking-kicker uppercase text-(--mute)">{t("LOCKFILE")}</p>
+          <DialogTitle>{t("Lockfile")}</DialogTitle>
+          <DialogDescription>
+            {t(
+              "Read-only JSON, as the backend writes it. No credentials are in it; select the text to copy it by hand.",
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {lockfile.isFetching && <p className="text-xs text-(--mute)">{t("Loading…")}</p>}
+        {lockfile.isError && (
+          <p className="text-xs text-(--err)">
+            {t("Not available: {reason}", { reason: errorText(lockfile.error) })}
+          </p>
+        )}
+        {lockfile.data !== undefined && (
+          <pre className="max-h-[50vh] overflow-auto rounded-lg border border-white/6 bg-(--canvas) p-3 font-mono text-[10px] text-(--body)">
+            {json}
+          </pre>
+        )}
+        {copied === "copied" && <p className="text-xs text-(--mute)">{t("Copied.")}</p>}
+        {copied === "failed" && (
+          <p className="text-xs text-(--mute)">
+            {t("The browser refused the clipboard; select the text instead.")}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" disabled={json === ""} onClick={() => void copy()}>
+            {t("Copy JSON")}
+          </Button>
+          <Button onClick={onClose}>{t("Close")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
+export default function SkillPacksPage() {
+  const packs = useSkillPackList();
+  const agents = useAgentList();
+  const validate = useSkillPackValidate();
+  const sync = useSyncPack();
+  const remove = useDeletePack();
+  const { confirm, dialog } = useConfirm();
+  const [viewId, setViewId] = useState<string | null>(null);
+  const [checkId, setCheckId] = useState<string | null>(null);
+  const [assignId, setAssignId] = useState<string | null>(null);
+  const [lockfile, setLockfile] = useState<"closed" | "open">("closed");
+  const [register, setRegister] = useState<"closed" | "open">("closed");
+  const [ask, setAsk] = useState<AskPaRequest | null>(null);
+
+  const memberList = agents.data ?? [];
+  const memberPacks = useQueries({
+    queries: memberList.map((agent) => agentSkillPacksQuery(agent.id)),
+  });
+  const members = useMemo<MemberPacks[]>(
+    () =>
+      memberList.map((agent, index) => ({
+        agent,
+        packIds: Array.isArray(memberPacks[index]?.data)
+          ? (memberPacks[index]?.data as { id: string }[]).map((entry) => entry.id)
+          : undefined,
+      })),
+    [memberList, memberPacks],
+  );
+
+  const list = packs.data ?? [];
+  const checks = validate.data ?? [];
+  const askRequest: AskPaRequest = {
+    title: t("Skill packages"),
+    description: t("Advice only: the PA has no tool that manages skill packs."),
+    draft: t(
+      "Which skill packs are worth keeping, and is any of them assigned to members who do not use it?",
+    ),
+  };
+
+  function find(id: string | null): PackEntry | undefined {
+    if (id === null) return undefined;
+    return list.find((pack) => pack.id === id);
+  }
+
+  async function syncPack(pack: PackEntry): Promise<void> {
+    const go = await confirm({
+      title: t("Sync {name} from Git?", { name: pack.name }),
+      description: t(
+        "Pulls the pinned revision again from the repository and reinstalls the pack. If the upstream moved, nothing is installed until you confirm the new revision.",
+      ),
+      confirmText: t("Sync"),
+    });
+    if (!go) return;
+    try {
+      await sync.mutateAsync({ id: pack.id });
+    } catch (error) {
+      const moved = upstreamChanged(error);
+      if (moved === null) {
+        toast.error(t("Sync failed"), { description: errorText(error) });
+        return;
+      }
+      const accept = await confirm({
+        title: t("The upstream moved"),
+        description: t(
+          "The pinned revision {from} is gone; the repository is at {to}. Sync to the new revision?",
+          { from: moved.from.slice(0, 8), to: moved.to.slice(0, 8) },
+        ),
+        confirmText: t("Sync to the new revision"),
+      });
+      if (accept) {
+        try {
+          await sync.mutateAsync({ id: pack.id, confirm: true });
+        } catch (retryError) {
+          toast.error(t("Sync failed"), { description: errorText(retryError) });
+        }
+      }
+    }
+  }
+
+  async function uninstall(pack: PackEntry): Promise<void> {
+    const go = await confirm({
+      title: t("Uninstall {name}?", { name: pack.name }),
+      description: t(
+        "Removes the pack and its files. Members that have it keep their other skills. This cannot be undone.",
+      ),
+      destructive: true,
+      confirmText: t("Uninstall"),
+    });
+    if (!go) return;
+    try {
+      await remove.mutateAsync(pack.id);
+      if (viewId === pack.id) setViewId(null);
+    } catch (error) {
+      toast.error(t("Uninstall failed"), { description: errorText(error) });
+    }
+  }
+
+  const viewed = find(viewId);
+
+  return (
     <Page>
       <PageHeader
-        breadcrumb="Team / Capabilities / Skills"
-        title="Skills"
-        description="Managed skills and capability bundles per agent."
-        pill={
-          list.length > 0 ? (
-            <StatusPill tone="success">
-              {ready}/{list.length} ready
-            </StatusPill>
-          ) : undefined
-        }
+        kicker="SKILL PACKAGES · REGISTRY"
+        title="Skill packages"
+        subtitle="See which skills a pack holds, open its description and files, then decide who uses it."
         actions={
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={validating}
-              onClick={() => void runValidate()}
-            >
-              {validating ? "Validating…" : "Validate manifests"}
+            <Button variant="violet" onClick={() => setAsk(askRequest)}>
+              {t("Ask the PA")}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open("/api/bff/skill-packs/lockfile", "_blank", "noopener")}
-            >
-              View lockfile
+            <Button variant="outline" onClick={() => setLockfile("open")}>
+              {t("Lockfile")}
             </Button>
-            <Button onClick={() => setShowInstall(true)}>
-              <Download className="size-4" />
-              Import Skill Pack
+            <Button onClick={() => setRegister("open")}>
+              <Package className="size-4" /> {t("Register skill pack")}
             </Button>
           </>
         }
       />
       <PageBody>
-        <div className="space-y-6">
-          <InfoBanner
-            id="ib:skills-help"
-            title="How this page works"
-            body="Install a pack from git or a zip upload, then assign it per agent from the agent's Skills tab. Click a card to browse its skills and files."
-          />
-
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            <KpiTile label="Packs" value={list.length} icon={Package} detail="installed" />
-            <KpiTile
-              label={validated === null ? "Installed" : "Ready"}
-              value={ready}
-              icon={Download}
-              detail={
-                validated === null ? `${syncing} syncing · not validated` : "after validation"
-              }
-              bar={list.length === 0 ? 0 : (ready / list.length) * 100}
-              barTone="ok"
-            />
-            <KpiTile
-              label="Syncing"
-              value={syncing}
-              icon={RefreshCw}
-              detail="installing · pending"
-            />
-            <KpiTile
-              label="Errors"
-              value={errors}
-              icon={Trash2}
-              detail={errors > 0 ? "failed packs" : "clean"}
-              bar={errors > 0 ? 100 : 0}
-              barTone="err"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            {["all", ...sourceKinds].map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => setSourceFilter(kind)}
-                className={`rounded px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                  sourceFilter === kind
-                    ? "bg-(--panel2) font-medium text-(--primary)"
-                    : "bg-(--canvas-soft) text-(--mute) hover:text-(--ink)"
-                }`}
-              >
-                {kind === "all"
-                  ? `All sources (${list.length})`
-                  : `${kind} (${list.filter((x) => x.sourceKind === kind).length})`}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {statusTabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setStatusFilter(t.key)}
-                className={`rounded px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                  statusFilter === t.key
-                    ? "bg-(--panel2) font-medium text-(--primary)"
-                    : "bg-(--canvas-soft) text-(--mute) hover:text-(--ink)"
-                }`}
-              >
-                {t.label} ({t.count})
-              </button>
-            ))}
-          </div>
-
-          <ListToolbar
-            searchValue={query}
-            onSearch={setQuery}
-            placeholder="Search skill packs by name or description"
-          />
-          {validateResult && (
-            <section className="space-y-2 rounded-lg border border-(--hairline) bg-(--panel) p-4">
-              <div className="flex items-center justify-between">
-                <MonoLabel>Manifest validation</MonoLabel>
-                <StatusPill tone={validateResult.every((r) => r.ok) ? "success" : "error"}>
-                  {validateResult.filter((r) => r.ok).length}/{validateResult.length} ok
-                </StatusPill>
-              </div>
-              <div className="divide-y divide-(--hairline) text-xs">
-                {validateResult.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between gap-2 py-1.5">
-                    <span className="truncate font-mono text-(--ink)">{r.name}</span>
-                    <span
-                      className={`font-mono text-[10px] ${r.ok ? "text-(--ok)" : "text-(--err)"}`}
-                    >
-                      {r.ok ? `${r.skills} skills` : r.issues[0]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <div>
-            <SectionKicker hint="Sync pulls the latest revision of git packs.">
-              Installed packs
-            </SectionKicker>
-            {isLoading ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Skeleton className="h-40" />
-                <Skeleton className="h-40" />
-                <Skeleton className="h-40" />
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((p) => {
-                  const statusToneResource = (status: string): ResourceTone =>
-                    status === "ready" ? "ok" : status === "failed" ? "err" : "warn";
-                  const iconTone =
-                    p.sourceKind === "builtin"
-                      ? "var(--primary)"
-                      : p.sourceKind === "git"
-                        ? "var(--accent-violet)"
-                        : "var(--ok)";
-                  return (
-                    <ResourceCard
-                      key={p.id}
-                      tone={statusToneResource(p.status)}
-                      // Open the pack detail sheet when clicking the card body.
-                    >
-                      <ResourceCardHeader
-                        icon={
-                          <span
-                            className="flex size-full items-center justify-center rounded"
-                            style={{
-                              backgroundColor: `color-mix(in srgb, ${iconTone} 10%, transparent)`,
-                              color: iconTone,
-                            }}
-                          >
-                            <Package className="size-5" />
-                          </span>
-                        }
-                        title={p.name}
-                        idChip={p.installedRef ? `@${p.installedRef.slice(0, 8)}` : undefined}
-                        badge={{ label: statusLabel(p.status), tone: statusToneResource(p.status) }}
-                      />
-                      <ResourceCardContent>
-                        <p className="line-clamp-2 text-sm text-(--mute)">
-                          {p.error ?? p.description ?? "No description."}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-1">
-                          <ResourceTag label={p.sourceKind} tone="info" />
-                        </div>
-                        <p className="text-xs text-(--mute)">
-                          {toDateString(p.createdAt)}
-                          {p.keepSynced === true ? " · auto-sync" : ""}
-                        </p>
-                      </ResourceCardContent>
-                      <ResourceCardFooter
-                        meta={`● ${cardState(p, validated)}${p.error ? " · error" : ""}`}
-                        action={{ label: "Inspect", onClick: () => setSelectedId(p.id) }}
-                      >
-                        {p.sourceKind !== "builtin" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-(--err) hover:bg-(--err)/10"
-                            aria-label={`Delete ${p.name}`}
-                            onClick={() => void handleDelete(p)}
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        )}
-                      </ResourceCardFooter>
-                    </ResourceCard>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <div data-testid="empty-state" className="col-span-full">
-                    <EmptyState
-                      icon={GitBranch}
-                      title="No skill packs installed"
-                      description="Install your first pack to give agents reusable skills."
-                    />
-                  </div>
-                )}
-              </div>
+        <section className="mb-4 rounded-2xl border border-(--hairline) bg-[linear-gradient(135deg,#1e2c32,#162027)] p-5">
+          <p className="text-sm font-[550] text-(--ink)">{t("See what is in a pack first.")}</p>
+          <p className="mt-1 max-w-3xl text-xs text-(--mute)">
+            {t(
+              "Registration, being on disk and the check are recorded separately. A materialized pack's SKILL.md and referenced files are readable; a pack that is not on disk says its files are unavailable. Nothing here downloads, installs or runs a skill.",
             )}
-          </div>
-        </div>
+          </p>
+        </section>
+        <QueryState
+          query={packs}
+          empty={(data) => data.length === 0}
+          emptyTitle={t("No skill packs yet")}
+          emptyDescription={t("Register a pack to give members reusable skills.")}
+          emptyIcon={Package}
+        >
+          {(data) => (
+            <div className="grid gap-4 md:grid-cols-2">
+              {data.map((pack) => {
+                const check = checks.find((entry) => entry.id === pack.id) ?? null;
+                return (
+                  <PackCard
+                    key={pack.id}
+                    pack={pack}
+                    check={check}
+                    members={members.filter((member) => member.packIds?.includes(pack.id)).length}
+                    onView={() => setViewId(pack.id)}
+                    onCheck={() => setCheckId(pack.id)}
+                    onAssign={() => setAssignId(pack.id)}
+                    onSync={() => void syncPack(pack)}
+                    onUninstall={() => void uninstall(pack)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </QueryState>
+        <Note className="mt-4">
+          {t(
+            "The check covers every pack at once; its result stays until it is run again and is not stored by the backend.",
+          )}
+        </Note>
       </PageBody>
 
-      <Dialog open={showInstall} onOpenChange={setShowInstall}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Import Skill Pack</DialogTitle>
-          </DialogHeader>
-          <InstallPackForm
-            onDone={() => {
-              setShowInstall(false);
-              refetch();
-            }}
-            onCancel={() => setShowInstall(false)}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {selectedPack && (
-        <PackDrawer
-          pack={selectedPack}
-          usedBy={usedByMap[selectedPack.id] ?? []}
-          agents={agentsData ?? []}
-          isAssigned={(agentId) => {
-            const idx = (agentsData ?? []).findIndex((a) => a.id === agentId);
-            const agentPacks = agentPackQueries[idx]?.data;
-            return (
-              Array.isArray(agentPacks) && agentPacks.some((pack) => pack.id === selectedPack.id)
-            );
-          }}
-          onAssign={(agentId) => {
-            const idx = (agentsData ?? []).findIndex((a) => a.id === agentId);
-            const current = agentPackQueries[idx]?.data;
-            const currentIds = Array.isArray(current) ? current.map((x) => x.id) : [];
-            const next = currentIds.includes(selectedPack.id)
-              ? currentIds
-              : [...currentIds, selectedPack.id];
-            void api.setAgentSkillPacks(agentId, { packIds: next });
-            void qc.invalidateQueries({ queryKey: skillPackKeys.agentPacks(agentId) });
-          }}
-          onRemove={(agentId) => {
-            const idx = (agentsData ?? []).findIndex((a) => a.id === agentId);
-            const current = agentPackQueries[idx]?.data;
-            const currentIds = Array.isArray(current) ? current.map((x) => x.id) : [];
-            const next = currentIds.filter((id) => id !== selectedPack.id);
-            void api.setAgentSkillPacks(agentId, { packIds: next });
-            void qc.invalidateQueries({ queryKey: skillPackKeys.agentPacks(agentId) });
-          }}
-          onSync={() => void handleSync(selectedPack.id)}
-          onDelete={() => void handleDelete(selectedPack)}
-          onClose={() => setSelectedId(null)}
+      {viewed !== undefined && (
+        <PackSheet
+          pack={viewed}
+          onClose={() => setViewId(null)}
+          onCheck={() => setCheckId(viewed.id)}
+          onAssign={() => setAssignId(viewed.id)}
         />
       )}
-
-      {confirmDialog}
+      {find(checkId) !== undefined && (
+        <CheckDialog
+          pack={find(checkId) as PackEntry}
+          onClose={() => setCheckId(null)}
+          onView={() => {
+            setViewId(checkId);
+            setCheckId(null);
+          }}
+        />
+      )}
+      {find(assignId) !== undefined && (
+        <AssignDialog
+          pack={find(assignId) as PackEntry}
+          members={members}
+          onClose={() => setAssignId(null)}
+        />
+      )}
+      {lockfile === "open" && <LockfileDialog onClose={() => setLockfile("closed")} />}
+      {register === "open" && <InstallPackForm onClose={() => setRegister("closed")} />}
+      <AskPaSheet request={ask} onClose={() => setAsk(null)} />
+      {dialog}
     </Page>
   );
 }

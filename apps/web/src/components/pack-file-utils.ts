@@ -1,6 +1,7 @@
 "use client";
 
-import { type UseQueryOptions, type UseQueryResult, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { hiddenSegment } from "@/features/skill-packs/pack-model";
 import { skillPackFilesQuery } from "@/features/skill-packs/queries";
 import { api } from "@/lib/api";
 
@@ -11,18 +12,25 @@ export type PackFileNode =
 
 export type PackKind = "skill";
 
-/** One hook for both pack kinds — the same read-only file surface is reused
- *  by the skill-pack and knowledge-pack drawers. */
-type PackFilesQueryOptions = UseQueryOptions<PackFileNode, Error, PackFileNode, readonly unknown[]>;
-
-/** The read-only file surface the skill-pack drawer uses. (It once served a
- *  second pack kind; the wiki replaced it.) */
+/** The read-only file surface of a pack. It refuses any path with a hidden segment (`.git/`,
+ *  dotfiles): the backend serves them, so this is the only guard. `readable` is false while the
+ *  pack is not on disk, and then nothing is requested either. */
 export function usePackFiles(
   _kind: PackKind,
   id: string,
-  path?: string,
-): UseQueryResult<PackFileNode, Error> {
-  return useQuery(skillPackFilesQuery(id, path) as PackFilesQueryOptions);
+  path: string,
+  options: { readable: boolean },
+) {
+  const allowed =
+    options.readable && id !== "" && hiddenSegment(path === "" ? "root" : path) === null;
+  return useQuery({ ...skillPackFilesQuery(id, path === "" ? undefined : path), enabled: allowed });
+}
+
+/** Search hits the reader may open: a hit inside a hidden segment is dropped, never listed. */
+export function visibleHits(
+  results: ReadonlyArray<{ path: string; line: number; snippet: string }> | undefined,
+): Array<{ path: string; line: number; snippet: string }> {
+  return (results ?? []).filter((hit) => hiddenSegment(hit.path) === null);
 }
 
 export function searchPackFiles(

@@ -1,18 +1,19 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, CheckCircle2, Clock, Coins, GitBranch, Loader2, UserCheck } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, ChevronRight, MessagesSquare } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { toast } from "sonner";
-import { AttentionInbox } from "@/components/AttentionInbox";
+import { type ReactNode, useEffect, useState } from "react";
+import { AttentionInbox, type InboxState } from "@/components/AttentionInbox";
+import { Note } from "@/components/ops/kit";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { KpiTile, MonoLabel, StatusPill, type StatusTone } from "@/components/patterns";
 import { RunBlockerCard } from "@/components/RunBlockerCard";
-import { Button } from "@/components/ui/button";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RoleAvatar } from "@/components/ui/role-avatar";
 import {
   Select,
   SelectContent,
@@ -20,815 +21,419 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatNextRun, nextCronRun } from "@/components/workflow/cron-next";
 import { useAgentList } from "@/features/agents/hooks";
 import { useAllConversations } from "@/features/conversations/hooks";
 import { SavedSection } from "@/features/conversations/SavedSection";
-import { useAgentRuns, useTelemetrySummary } from "@/features/ops/hooks";
 import {
   useCancelReminder,
   useCreateReminder,
   useReminders,
   useSnoozeReminder,
 } from "@/features/reminders/hooks";
-import { type PendingHitlAction, pendingActionsQuery } from "@/features/runs/queries";
+import { attentionQuery, waitingGatesQuery } from "@/features/runs/queries";
 import { TasksSection } from "@/features/runs/TasksSection";
+import { todayZones } from "@/features/today/zones";
 import type { AgentRow } from "@/lib/api";
-import { api } from "@/lib/api";
-import {
-  getReadSeqVersion,
-  getReadSeqVersionServer,
-  isUnread,
-  subscribeReadSeq,
-} from "@/lib/read-seq";
+import { overlineClass } from "@/lib/form-styles";
+import { t } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
-type ExecutionRow = {
-  executionId: string;
-  workflowId: string;
-  triggeredBy?: string | null;
-  status: string;
-  error?: string;
-  createdAt: number;
-  terminalAt?: number;
-};
+/** The date eyebrow, in the prototype's "DAY · WHAT THIS PAGE IS FOR" form. The day is read in
+ *  the browser: the server cannot know the viewer's weekday. */
+const DAY_KICKER = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
 
-import type { WorkflowDefinitionRow as DefinitionRow } from "@/lib/api";
-import { t } from "@/lib/i18n";
+const SECTION_LABEL = "flex items-center gap-[9px] text-sm font-[550] text-(--ink)";
+const TINY_COUNT = "rounded bg-white/5 px-1.5 py-px font-mono text-[10px] text-(--faint)";
+const PANEL = "rounded-2xl border border-white/6 bg-(--panel)";
+const TEXT_LINK =
+  "inline-flex items-center gap-[5px] text-[11px] text-(--mute) transition-colors hover:text-(--primary)";
 
-type TabFilter = "all" | "running" | "gates" | "done";
-
-const TABS: ReadonlyArray<{ id: TabFilter; label: string }> = [
-  { id: "all", label: t("All") },
-  { id: "running", label: t("Running") },
-  { id: "gates", label: t("Gates") },
-  { id: "done", label: t("Done") },
-];
-
-/** Execution status → pattern pill tone. Unknown statuses read as idle. */
-const TONE_BY_STATUS: Record<string, StatusTone> = {
-  running: "running",
-  waiting_human: "waiting",
-  success: "success",
-  failure: "error",
-};
-
-function statusTone(status: string): StatusTone {
-  return TONE_BY_STATUS[status] ?? "idle";
+function useDayIndex(): number | null {
+  const [dayIndex, setDayIndex] = useState<number | null>(null);
+  useEffect(() => {
+    setDayIndex(new Date().getDay());
+  }, []);
+  return dayIndex;
 }
 
-function statusLabel(status: string): string {
-  if (status === "waiting_human") return "wait gate";
-  return status;
-}
-
-function isToday(ts: number | string | undefined) {
-  if (ts == null) return false;
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return false;
-  const now = new Date();
+function HeroStat({ value, label }: { value: number | string; label: string }) {
   return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
+    <span>
+      <strong className="mr-[7px] text-[22px] text-(--primary)">{value}</strong>
+      <small className="text-[10px] text-(--mute)">{label}</small>
+    </span>
   );
 }
 
-function hhmm(ts: number) {
-  return new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+function RouteNode({ mark, title, small }: { mark: ReactNode; title: string; small: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-[13px] border border-(--hairline) bg-[#111c2290] px-[15px] py-[13px]">
+      {mark}
+      <div>
+        <strong className="block text-xs font-[550] text-(--ink)">{title}</strong>
+        <small className="mt-1 block text-[9px] text-(--mute)">{small}</small>
+      </div>
+    </div>
+  );
 }
 
-/** Conversations with ledger entries past the browser's stored read
- *  position. Read state lives in localStorage (single user, ADR 0026);
- *  this re-renders via the store's version when a canvas marks read. */
-function UnreadConversations() {
-  const { data: conversations } = useAllConversations();
-  useSyncExternalStore(subscribeReadSeq, getReadSeqVersion, getReadSeqVersionServer);
-  const unread = (conversations ?? []).filter((c) => isUnread(c.conversationId, c.lastSeq));
-  if (unread.length === 0) return null;
+function capabilityEntries(worker: AgentRow): string {
+  if (worker.skills.length === 0) return t("none declared");
+  const entries = worker.skills.map((skill) =>
+    [skill.id, skill.description].filter(Boolean).join(" · "),
+  );
+  return entries.join("; ");
+}
+
+/** The registry as Today shows it: the workers a PA can discover, each behind its name. The
+ *  full registry is the team page's. */
+function RegistryAside({ agents }: { agents: AgentRow[] }) {
+  const workers = agents.filter((agent) => agent.role === "worker" && agent.archivedAt === null);
   return (
-    <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <MonoLabel>{t("Unread conversations")}</MonoLabel>
-        <StatusPill tone="waiting">{unread.length}</StatusPill>
-      </div>
-      <div className="space-y-1.5">
-        {unread.map((c) => (
-          <Link
-            key={c.conversationId}
-            href={`/chat/${c.conversationId}`}
-            className="flex items-center justify-between rounded-sm border border-(--hairline) px-3 py-2 text-xs text-(--ink) transition-colors hover:border-(--primary)"
-          >
+    <section className="rounded-[15px] border border-white/6 bg-(--panel) p-5">
+      <p className="text-[10px] tracking-[1.8px] uppercase text-(--faint)">{t("Agent registry")}</p>
+      <h2 className="mt-2 mb-3 text-sm font-[550] text-(--ink)">
+        {t("Members that can be discovered now")}
+      </h2>
+      <p className="text-[11px] leading-[1.8] text-(--mute)">
+        {t(
+          "Team configuration is managed by people. Different PAs can discover the same worker; there is no fixed team membership here. Being registered does not mean a real check has passed.",
+        )}
+      </p>
+      {workers.length === 0 && (
+        <p className="mt-3 text-[11px] leading-[1.8] text-(--mute)">
+          {t("No worker is registered yet.")}
+        </p>
+      )}
+      {workers.map((worker) => (
+        <Collapsible key={worker.id} className="border-t border-(--hairline) py-[11px]">
+          <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md text-left text-xs leading-[1.9] text-(--ink) transition-colors hover:text-(--primary)">
             <span className="flex min-w-0 items-center gap-2">
-              <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-              <span className="truncate">{c.title || c.conversationId}</span>
+              <RoleAvatar kind="worker" name={worker.name} size="sm" />
+              <span className="truncate">{worker.name}</span>
+              <span className="text-[10px] text-(--mute)">
+                · {worker.enabled === false ? t("paused") : t("enabled")}
+              </span>
             </span>
-            <span className="text-[10px] text-(--mute)">{relativeUnread(c.lastActivityAt)}</span>
-          </Link>
-        ))}
+            <ChevronRight className="size-3.5 shrink-0 text-(--mute)" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <p className="my-2 text-[10px] leading-[1.8] wrap-anywhere text-(--mute)">
+              {worker.description || t("No capability description yet.")}
+              <br />
+              {t("Harness")}: {worker.harness}
+              <br />
+              {t("Capability entries")}: {capabilityEntries(worker)}
+              <br />
+              {t("Workspace")}:{" "}
+              <span className="font-mono">{worker.workspacePath || t("Not available")}</span>
+            </p>
+            <Link
+              href={`/team/${worker.id}`}
+              className={buttonVariants({ size: "sm", variant: "outline" })}
+            >
+              {t("View member settings")}
+            </Link>
+          </CollapsibleContent>
+        </Collapsible>
+      ))}
+      <div className="mt-4">
+        <Link href="/team" className={TEXT_LINK}>
+          {t("Manage the agent registry")}
+          <ChevronRight className="size-3" />
+        </Link>
       </div>
     </section>
   );
 }
 
+/** Reminders are created, snoozed and cancelled from here and nowhere else on the web. Each
+ *  one is tied to one conversation. */
 function RemindersSection() {
-  const { data: reminders } = useReminders();
+  const { data: reminders = [] } = useReminders();
   const { data: conversations } = useAllConversations();
   const create = useCreateReminder();
   const snooze = useSnoozeReminder();
   const cancel = useCancelReminder();
-  const [convId, setConvId] = useState("");
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const [conversationId, setConversationId] = useState("");
   const [text, setText] = useState("");
   const [when, setWhen] = useState("");
 
-  const convs = conversations ?? [];
-  const target = convId || convs[0]?.conversationId || "";
-  const fireMs = when ? new Date(when).getTime() : NaN;
-  const canCreate = target && text.trim() && Number.isFinite(fireMs) && fireMs > Date.now();
+  const rooms = conversations ?? [];
+  const firstRoom = rooms.at(0);
+  const fallback = firstRoom === undefined ? "" : firstRoom.conversationId;
+  const target = conversationId || fallback;
+  const fireMs = when === "" ? Number.NaN : new Date(when).getTime();
+  const canCreate =
+    target !== "" && text.trim() !== "" && Number.isFinite(fireMs) && fireMs > Date.now();
 
-  const snoozeBy = (id: string, ms: number) => snooze.mutate({ id, fireAt: Date.now() + ms });
+  function schedule() {
+    if (!canCreate) return;
+    create.mutate({ conversationId: target, text: text.trim(), fireAt: fireMs });
+    setText("");
+    setWhen("");
+  }
+
+  async function cancelReminder(id: string): Promise<void> {
+    const ok = await confirm({
+      title: t("Cancel this reminder?"),
+      description: t("It will not fire. The conversation is not touched."),
+      confirmText: t("Cancel reminder"),
+      destructive: true,
+    });
+    if (!ok) return;
+    cancel.mutate(id);
+  }
 
   return (
-    <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <MonoLabel>{t("Reminders")}</MonoLabel>
-        <StatusPill tone="waiting">{(reminders ?? []).length}</StatusPill>
+    <section className={PANEL}>
+      {confirmDialog}
+      <div className="flex items-center justify-between px-5 pt-4 pb-3">
+        <h2 className={SECTION_LABEL}>
+          {t("Reminders")}
+          <span className={TINY_COUNT}>{reminders.length}</span>
+        </h2>
       </div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={t("Remind me to...")}
-          className="min-w-40 flex-1"
-        />
-        <Select value={target} onValueChange={(v) => setConvId(v ?? "")}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder={t("Conversation")} />
-          </SelectTrigger>
-          <SelectContent>
-            {convs.map((c) => (
-              <SelectItem key={c.conversationId} value={c.conversationId}>
-                {c.title || c.conversationId}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          type="datetime-local"
-          value={when}
-          onChange={(e) => setWhen(e.target.value)}
-          className="w-48"
-        />
-        <Button
-          size="sm"
-          disabled={!canCreate || create.isPending}
-          onClick={() => {
-            create.mutate({ conversationId: target, text: text.trim(), fireAt: fireMs });
-            setText("");
-            setWhen("");
-          }}
-        >
+      <form
+        className="flex flex-wrap items-start gap-2 px-5 pb-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          schedule();
+        }}
+      >
+        <div className="min-w-48 flex-1">
+          <Label htmlFor="reminder-text" className={overlineClass}>
+            {t("Remind me to...")}
+          </Label>
+          <Input
+            id="reminder-text"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+        </div>
+        <div className="w-60">
+          <Label htmlFor="reminder-conversation" className={overlineClass}>
+            {t("Conversation")}
+          </Label>
+          <Select
+            value={target}
+            onValueChange={(value) => setConversationId(value ?? "")}
+            disabled={rooms.length === 0}
+          >
+            <SelectTrigger id="reminder-conversation" className="w-full">
+              <SelectValue placeholder={t("Conversation")} />
+            </SelectTrigger>
+            <SelectContent>
+              {rooms.map((room) => (
+                <SelectItem key={room.conversationId} value={room.conversationId}>
+                  {room.title || room.conversationId}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-52">
+          <Label htmlFor="reminder-when" className={overlineClass}>
+            {t("When")}
+          </Label>
+          <Input
+            id="reminder-when"
+            type="datetime-local"
+            value={when}
+            onChange={(event) => setWhen(event.target.value)}
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={!canCreate || create.isPending}>
           {t("Schedule")}
         </Button>
+      </form>
+      <div className="px-5 pb-4">
+        <Note>{t("A reminder needs a conversation, a text and a time in the future.")}</Note>
       </div>
-      {(reminders ?? []).length === 0 ? (
-        <p className="text-xs text-(--mute)">{t("Nothing scheduled.")}</p>
+      {reminders.length === 0 ? (
+        <p className="px-5 pb-4 text-xs text-(--mute)">{t("Nothing scheduled.")}</p>
       ) : (
-        <div className="space-y-1.5">
-          {(reminders ?? []).map((r) => (
-            <div
-              key={r.id}
-              className="flex items-center justify-between gap-2 rounded-sm border border-(--hairline) px-3 py-2"
+        <ul>
+          {reminders.map((reminder) => (
+            <li
+              key={reminder.id}
+              className="flex items-center justify-between gap-3 border-t border-(--hairline) px-5 py-2.5"
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs text-(--ink)">
-                  {r.recurrence && <span title={r.recurrence}>↻ </span>}
-                  {r.text}
+                  {reminder.recurrence && <span title={reminder.recurrence}>↻ </span>}
+                  {reminder.text}
                 </p>
                 <p className="text-[10px] text-(--mute)">
-                  <Link href={`/chat/${r.conversationId}`} className="hover:underline">
-                    {r.conversationTitle || r.conversationId}
-                  </Link>
-                  {" · "}
-                  {new Date(r.fireAt).toLocaleString()}
+                  <Link href={`/chat/${reminder.conversationId}`} className="hover:underline">
+                    {reminder.conversationTitle || reminder.conversationId}
+                  </Link>{" "}
+                  · {new Date(reminder.fireAt).toLocaleString()}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <Button variant="ghost" size="sm" onClick={() => snoozeBy(r.id, 3_600_000)}>
-                  +1h
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={snooze.isPending}
+                  onClick={() => snooze.mutate({ id: reminder.id, fireAt: Date.now() + 3_600_000 })}
+                >
+                  {t("+1h")}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => snoozeBy(r.id, 86_400_000)}>
-                  +24h
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={snooze.isPending}
+                  onClick={() =>
+                    snooze.mutate({ id: reminder.id, fireAt: Date.now() + 86_400_000 })
+                  }
+                >
+                  {t("+24h")}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="text-(--mute)"
                   disabled={cancel.isPending}
-                  onClick={() => cancel.mutate(r.id)}
+                  onClick={() => void cancelReminder(reminder.id)}
                 >
-                  Cancel
+                  {t("Cancel reminder")}
                 </Button>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </section>
   );
 }
 
-function relativeUnread(ts: number | null): string {
-  if (!ts) return "";
-  const minutes = Math.round((Date.now() - ts) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
-/** One-line read of a pending HITL action: approvals name the tool, asks
- * quote the first question. Payload is opaque DB JSON - guard every field. */
-function hitlSummary(a: PendingHitlAction): { title: string; detail: string } {
-  const p = a.payload as { toolName?: unknown; reason?: unknown; questions?: unknown };
-  if (a.kind === "approval") {
-    return {
-      title: `Approve ${typeof p.toolName === "string" && p.toolName ? p.toolName : "a tool"}`,
-      detail:
-        typeof p.reason === "string" && p.reason !== ""
-          ? p.reason
-          : "an agent run is parked on your decision",
-    };
-  }
-  const first = Array.isArray(p.questions) ? (p.questions[0] as { question?: unknown }) : undefined;
-  return {
-    title: typeof first?.question === "string" ? first.question : "A question from your agent",
-    detail: "answer it in the conversation",
-  };
-}
-
 export default function TodayPage() {
-  const [executions, setExecutions] = useState<ExecutionRow[]>([]);
-  const [definitions, setDefinitions] = useState<DefinitionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<TabFilter>("all");
-  const { data: runs, isLoading: runsLoading } = useAgentRuns();
-  const qc = useQueryClient();
-  const { data: hitlActions = [] } = useQuery(pendingActionsQuery());
-  const telemetry = useTelemetrySummary();
-  const { data: agents } = useAgentList() as { data?: AgentRow[] };
+  const attention = useQuery(attentionQuery());
+  const gates = useQuery(waitingGatesQuery());
+  const agentsQuery = useAgentList();
+  const conversationsQuery = useAllConversations();
+  const dayIndex = useDayIndex();
+  const agents = agentsQuery.data ?? [];
+  const conversations = conversationsQuery.data ?? [];
+  const zones = todayZones(attention.data, gates.data ?? []);
 
-  useEffect(() => {
-    Promise.all([
-      api.listWorkflowExecutions().then((res) => (res?.executions ?? []) as ExecutionRow[]),
-      api
-        .listWorkflowDefinitions()
-        .then((res) => res?.definitions ?? [])
-        .catch(() => [] as DefinitionRow[]),
-    ])
-      .then(([execs, defs]) => {
-        setExecutions(execs);
-        setDefinitions(defs);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const loading = attention.isPending || gates.isPending;
+  let inboxState: InboxState = "ready";
+  if (loading) inboxState = "loading";
+  if (attention.isError || gates.isError) inboxState = "failed";
 
-  const todayExecs = useMemo(() => executions.filter((e) => isToday(e.createdAt)), [executions]);
-  const waitingHuman = executions.filter((e) => e.status === "waiting_human");
-  const succeeded = todayExecs.filter((e) => e.status === "success").length;
-  const failed = todayExecs.filter((e) => e.status === "failure").length;
-  const gatesToday = todayExecs.filter((e) => e.status === "waiting_human").length;
-  const runningExecs = todayExecs.filter((e) => e.status === "running").length;
-
-  const todayRuns = (runs?.runs ?? []).filter((r) => isToday(r.createdAt));
-  const activeRuns = (runs?.runs ?? []).filter((r) =>
-    ["running", "waiting", "commit_failed"].includes(r.status),
+  const pas = agents.filter(
+    (agent) => agent.role !== "worker" && agent.archivedAt === null && agent.enabled !== false,
   );
-  const runSucceeded = todayRuns.filter((r) => r.status === "completed").length;
-  const runFailed = todayRuns.filter(
-    (r) => r.status === "failed" || r.status === "aborted" || r.status === "timeout",
-  ).length;
-  const runRunning = todayRuns.filter((r) =>
-    ["running", "waiting", "commit_failed"].includes(r.status),
-  ).length;
-  // Tokens & cost are the rolling 24h telemetry aggregate (same source as the
-  // System banner) — not the calendar-day run rows, which are sparse and make
-  // the KPI read 0 while the system already shows a real 24h number.
-  const totalTokens = (telemetry.data?.inputTokens ?? 0) + (telemetry.data?.outputTokens ?? 0);
-  const cost24h = telemetry.data?.costUsd ?? 0;
-
-  const doneRatio =
-    runSucceeded + runFailed + runRunning === 0
-      ? 0
-      : (runSucceeded / (runSucceeded + runFailed + runRunning)) * 100;
-
-  const visibleExecs = todayExecs.filter((e) => {
-    if (tab === "running") return e.status === "running";
-    if (tab === "gates") return e.status === "waiting_human";
-    if (tab === "done") return e.status === "success" || e.status === "failure";
-    return true;
-  });
-
-  const scheduledLoops = useMemo(() => {
-    return definitions
-      .map((d) => {
-        const trigger = (d.triggers ?? []).find((t) => t.enabled !== false);
-        if (!trigger) return null;
-        return { id: d.workflowId, cron: trigger.cron, next: nextCronRun(trigger.cron) };
-      })
-      .filter((x): x is { id: string; cron: string; next: Date | null } => x !== null)
-      .sort((a, b) => (a.next?.getTime() ?? Infinity) - (b.next?.getTime() ?? Infinity));
-  }, [definitions]);
-
-  const enabledAgents = (agents ?? []).filter((a) => a.enabled !== false);
-
-  const [approvingAll, setApprovingAll] = useState(false);
-  async function approveAllGates() {
-    setApprovingAll(true);
-    try {
-      const targets: Array<{ executionId: string; nodeId: string }> = [];
-      for (const e of waitingHuman) {
-        const trace = await api.getWorkflowExecutionTrace(e.executionId);
-        const nodeId = trace.pendingHuman?.nodeId;
-        if (nodeId) targets.push({ executionId: e.executionId, nodeId });
-      }
-      if (targets.length === 0) {
-        toast.error("No resolvable gates");
-        return;
-      }
-      await api.resolveHumanTasks(targets);
-      toast.success(`Approved ${targets.length} gate${targets.length > 1 ? "s" : ""}`);
-      setLoading(true);
-      const refreshed = await api.listWorkflowExecutions();
-      setExecutions((refreshed?.executions ?? []) as ExecutionRow[]);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Batch approve failed");
-    } finally {
-      setApprovingAll(false);
-      setLoading(false);
-    }
+  const firstPaMember = pas.at(0);
+  const firstPa = firstPaMember === undefined ? "PA" : firstPaMember.name;
+  const roots = conversations.filter((room) => room.parentConversationId === null).length;
+  const dash = "—";
+  let kicker: string | undefined;
+  if (dayIndex !== null) {
+    kicker = t("{day} · what needs you", { day: t(DAY_KICKER[dayIndex] ?? "Today") });
   }
-
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 
   return (
     <Page>
       <PageHeader
-        breadcrumb="Work / Today"
-        title="Today"
-        pill={
-          activeRuns.length > 0 ? (
-            <StatusPill tone="running">live · {activeRuns.length} running</StatusPill>
-          ) : undefined
-        }
+        kicker={kicker}
+        title={t("Leave your attention to what needs your decision.")}
+        description={t(
+          "Start by messaging the PA from Lark. The web gathers what awaits your decision, the PA's progress and new results.",
+        )}
         actions={
           <>
-            <Link
-              href="/workflows"
-              className="rounded-sm border border-(--hairline) bg-(--panel2)/50 px-3 py-1.5 text-xs text-(--ink) transition-colors hover:border-(--faint)"
-            >
-              Workflows
-            </Link>
-            {(waitingHuman.length > 0 || hitlActions.length > 0) && (
-              <>
-                <Link
-                  href="#needs-you"
-                  className="rounded-sm border border-(--hairline) bg-(--panel2)/50 px-3 py-1.5 text-xs text-(--ink) transition-colors hover:border-(--faint)"
-                >
-                  Needs you ({waitingHuman.length + hitlActions.length})
-                </Link>
-                {waitingHuman.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={approvingAll}
-                    onClick={() => void approveAllGates()}
-                    className="rounded-sm bg-(--primary-soft) px-3 py-1.5 text-xs font-semibold text-(--on-primary) transition-colors hover:bg-(--primary) disabled:opacity-60"
-                  >
-                    {approvingAll ? "Approving…" : `Batch approve (${waitingHuman.length})`}
-                  </button>
-                )}
-              </>
-            )}
+            <Button variant="outline" render={<Link href="/channels" />}>
+              {t("Set up Lark")}
+            </Button>
+            <Button render={<Link href="/chat" />}>{t("Start a conversation")}</Button>
           </>
         }
       />
-      <PageBody size="wide" className="space-y-4">
-        <AttentionInbox />
-        <RunBlockerCard />
-        <p
-          suppressHydrationWarning
-          className="font-mono text-[10px] uppercase tracking-kicker text-(--faint)"
-        >
-          {today}
-        </p>
-
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <KpiTile
-            label={t("Active runs today")}
-            value={runsLoading ? "—" : runRunning}
-            icon={Activity}
-            detail={runsLoading ? "—" : `${runSucceeded} done · ${runFailed} failed`}
-            bar={doneRatio}
-            barTone="primary"
-          />
-          <KpiTile
-            label={t("Tokens · cost 24h")}
-            value={
-              telemetry.isLoading
-                ? "—"
-                : totalTokens >= 1_000_000
-                  ? `${(totalTokens / 1_000_000).toFixed(2)}M`
-                  : totalTokens.toLocaleString()
-            }
-            icon={Coins}
-            detail={telemetry.isLoading ? "—" : `$${cost24h.toFixed(2)} burn`}
-          />
-          <KpiTile
-            label={t("Workflow executions")}
-            value={loading ? "—" : todayExecs.length}
-            icon={GitBranch}
-            detail={
-              loading ? "—" : `${succeeded} success · ${failed} failed · ${runningExecs} live`
-            }
-          />
-          <KpiTile
-            label={t("Gates waiting")}
-            value={loading ? "—" : waitingHuman.length}
-            icon={UserCheck}
-            detail={
-              loading
-                ? "—"
-                : gatesToday > 0
-                  ? t("{n} opened today", { n: gatesToday })
-                  : t("none today")
-            }
-            bar={!loading && waitingHuman.length > 0 ? 100 : 0}
-            barTone="violet"
-          />
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-4">
-          <div className="min-w-0 space-y-4 lg:col-span-3">
-            {(waitingHuman.length > 0 || hitlActions.length > 0) && (
-              <section
-                id="needs-you"
-                className="rounded-lg border border-(--hairline) bg-(--panel) p-4"
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <MonoLabel>{t("Pending human decisions")}</MonoLabel>
-                  <StatusPill tone="waiting">
-                    {waitingHuman.length + hitlActions.length} required
-                  </StatusPill>
-                </div>
-                <div className="space-y-2">
-                  {waitingHuman.slice(0, 8).map((e) => (
-                    <Link
-                      key={e.executionId}
-                      href={`/workflows/${encodeURIComponent(e.workflowId)}/executions/${e.executionId}`}
-                      className="flex items-center justify-between gap-3 rounded-md border border-(--hairline) bg-(--canvas) px-3 py-2 transition-colors hover:border-(--accent-violet)"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-(--ink)">
-                          {e.workflowId}
-                        </div>
-                        <div className="truncate font-mono text-[10px] text-(--mute)">
-                          {e.executionId} · {hhmm(e.createdAt)}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <span
-                          className="rounded-sm px-1.5 py-0.5 font-mono text-[10px]"
-                          style={{
-                            backgroundColor:
-                              "color-mix(in srgb, var(--accent-violet) 12%, transparent)",
-                            color: "var(--accent-violet)",
-                          }}
-                        >
-                          {e.triggeredBy?.startsWith("cron:") ? "cron" : "manual"}
-                        </span>
-                        <button
-                          type="button"
-                          className="rounded-sm border border-(--err)/40 px-2 py-1 text-[11px] text-(--err) transition-colors hover:bg-(--err)/10"
-                          onClick={(ev) => {
-                            ev.preventDefault();
-                            void (async () => {
-                              const trace = await api.getWorkflowExecutionTrace(e.executionId);
-                              const nodeId = trace.pendingHuman?.nodeId;
-                              if (!nodeId) return;
-                              await api.resolveHumanTasks([{ executionId: e.executionId, nodeId }]);
-                              toast.success("Gate rejected");
-                              const refreshed = await api.listWorkflowExecutions();
-                              setExecutions((refreshed?.executions ?? []) as ExecutionRow[]);
-                            })();
-                          }}
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-sm bg-(--primary-soft) px-2 py-1 text-[11px] font-semibold text-(--on-primary) transition-colors hover:bg-(--primary)"
-                          onClick={(ev) => {
-                            ev.preventDefault();
-                            void (async () => {
-                              const trace = await api.getWorkflowExecutionTrace(e.executionId);
-                              const nodeId = trace.pendingHuman?.nodeId;
-                              if (!nodeId) return;
-                              await api.resolveHumanTasks([{ executionId: e.executionId, nodeId }]);
-                              toast.success("Gate approved");
-                              const refreshed = await api.listWorkflowExecutions();
-                              setExecutions((refreshed?.executions ?? []) as ExecutionRow[]);
-                            })();
-                          }}
-                        >
-                          Approve
-                        </button>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-                {hitlActions.length > 0 && (
-                  <div className="mt-2 space-y-2 border-t border-(--hairline)/60 pt-2">
-                    {hitlActions.slice(0, 8).map((a) => {
-                      const summary = hitlSummary(a);
-                      const agentName = agents?.find((ag) => ag.id === a.agentId)?.name;
-                      const callId = typeof a.payload.callId === "string" ? a.payload.callId : null;
-                      const answerApproval = (
-                        decision: "allow" | "allow_always" | "deny" | "deny_always",
-                      ) => {
-                        if (!callId) return;
-                        void (async () => {
-                          try {
-                            await api.resolveApproval(a.runId, callId, decision);
-                            toast.success(
-                              decision === "allow" || decision === "allow_always"
-                                ? "Approved"
-                                : "Denied",
-                            );
-                            await qc.invalidateQueries({ queryKey: ["pending-actions"] });
-                          } catch {
-                            toast.error("Resolve failed — open the conversation to retry");
-                          }
-                        })();
-                      };
-                      return (
-                        <Link
-                          key={a.actionId}
-                          href={`/chat/${encodeURIComponent(a.conversationId)}`}
-                          className="flex items-center justify-between gap-3 rounded-md border border-(--hairline) bg-(--canvas) px-3 py-2 transition-colors hover:border-(--accent-violet)"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-(--ink)">
-                              {summary.title}
-                            </div>
-                            <div className="truncate font-mono text-[10px] text-(--mute)">
-                              {agentName ?? a.agentId} · {a.kind} · {hhmm(a.createdAt)}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {a.kind === "approval" && callId !== null ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="rounded-sm border border-(--err)/40 px-2 py-1 text-[11px] text-(--err) transition-colors hover:bg-(--err)/10"
-                                  onClick={(ev) => {
-                                    ev.preventDefault();
-                                    answerApproval("deny");
-                                  }}
-                                >
-                                  Deny
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded-sm bg-(--primary-soft) px-2 py-1 text-[11px] font-semibold text-(--on-primary) transition-colors hover:bg-(--primary)"
-                                  onClick={(ev) => {
-                                    ev.preventDefault();
-                                    answerApproval("allow");
-                                  }}
-                                >
-                                  Allow
-                                </button>
-                              </>
-                            ) : (
-                              <span className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                                open chat
-                              </span>
-                            )}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
+      <PageBody>
+        <section className="relative mb-[26px] overflow-hidden rounded-[20px] border border-[#9ceacc36] bg-[radial-gradient(ellipse_at_95%_0,#78d7bd25,transparent_60%),linear-gradient(130deg,#21313a,#192329)] p-7">
+          <h2 className="text-2xl tracking-[-0.8px] text-(--ink-strong)">
+            {t("Talk about the work first. The project context belongs to the items.")}
+          </h2>
+          <p className="mt-2.5 max-w-[640px] text-xs leading-[1.9] text-(--mute)">
+            {t(
+              "You keep one continuous conversation with the PA behind the bot. One PA can serve several work groups, and one work session can discuss several projects. The basis of each item, what is still ambiguous, and new project proposals can all be checked on the web.",
             )}
+          </p>
+          <div className="mt-[23px] flex flex-wrap items-center gap-3">
+            <RouteNode
+              mark={<RoleAvatar kind="user" name={t("You")} />}
+              title={t("You tell the PA the goal")}
+              small={t("from Lark, or from the web")}
+            />
+            <ArrowRight className="size-4 text-(--primary)" />
+            <RouteNode
+              mark={
+                <span className="grid size-[34px] shrink-0 place-items-center rounded-[11px] border border-(--hairline) bg-(--panel2) text-(--primary)">
+                  <MessagesSquare className="size-4" />
+                </span>
+              }
+              title={t("One bot belongs to one PA")}
+              small={t("whether it is connected is a separate fact")}
+            />
+            <ArrowRight className="size-4 text-(--primary)" />
+            <RouteNode
+              mark={<RoleAvatar kind="pa" name={firstPa} />}
+              title={t("The PA records the work and dispatches")}
+              small={t("and comes back only when it needs you")}
+            />
+          </div>
+          <div className="mt-[18px] flex flex-wrap gap-[25px] border-t border-[#c6f1e015] pt-[18px]">
+            <HeroStat
+              value={agentsQuery.isSuccess ? pas.length : dash}
+              label={t("Personal agents")}
+            />
+            <HeroStat
+              value={conversationsQuery.isSuccess ? roots : dash}
+              label={t("Work sessions")}
+            />
+            <HeroStat value={loading ? dash : zones.needs.length} label={t("need you")} />
+            <HeroStat value={loading ? dash : zones.results.length} label={t("unread results")} />
+          </div>
+        </section>
 
-            <UnreadConversations />
+        <div className="grid grid-cols-1 gap-[23px] lg:grid-cols-[minmax(0,1fr)_250px] xl:grid-cols-[minmax(0,1fr)_290px]">
+          <div className="min-w-0">
+            <RunBlockerCard />
+            <AttentionInbox
+              zones={zones}
+              state={inboxState}
+              onRetry={() => {
+                void attention.refetch();
+                void gates.refetch();
+              }}
+            />
             <RemindersSection />
-            <TasksSection />
-            <SavedSection />
-
-            <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <MonoLabel className="mr-auto">{t("Activity stream")}</MonoLabel>
-                {TABS.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTab(t.id)}
-                    className={`rounded-sm border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-kicker transition-colors ${
-                      tab === t.id
-                        ? "border-(--primary) text-(--primary)"
-                        : "border-(--hairline) text-(--mute) hover:text-(--ink)"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              {loading ? (
-                <div className="flex items-center gap-2 text-xs text-(--mute)">
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Loading executions…
-                </div>
-              ) : visibleExecs.length === 0 ? (
-                <div className="flex items-center gap-2 text-xs text-(--mute)">
-                  <CheckCircle2 className="size-4" />
-                  {tab === "running"
-                    ? "Nothing is running right now."
-                    : "No workflow executions today."}{" "}
-                  {tab === "running" ? null : (
-                    <>
-                      <Link href="/workflows" className="text-(--primary) hover:underline">
-                        Create a workflow
-                      </Link>{" "}
-                      to automate recurring work.
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="divide-y divide-(--hairline)">
-                  {visibleExecs.slice(0, 12).map((e) => (
-                    <Link
-                      key={e.executionId}
-                      href={`/workflows/${encodeURIComponent(e.workflowId)}/executions/${e.executionId}`}
-                      className="-mx-1 flex items-center justify-between gap-3 px-1 py-2 transition-colors hover:bg-(--panel2)"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        {e.triggeredBy?.startsWith("cron:") ? (
-                          <Clock className="size-3.5 shrink-0 text-(--mute)" />
-                        ) : (
-                          <GitBranch className="size-3.5 shrink-0 text-(--mute)" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate text-sm text-(--ink)">{e.workflowId}</div>
-                          <div className="truncate font-mono text-[10px] text-(--mute)">
-                            {e.executionId}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <span className="font-mono text-[10px] text-(--faint) tabular-nums">
-                          {hhmm(e.createdAt)}
-                        </span>
-                        <StatusPill tone={statusTone(e.status)}>{statusLabel(e.status)}</StatusPill>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {activeRuns.length > 0 && (
-              <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <MonoLabel>{t("Agent runs · live")}</MonoLabel>
-                <div className="mt-3 divide-y divide-(--hairline)">
-                  {activeRuns.slice(0, 6).map((r) => (
-                    <Link
-                      key={r.runId}
-                      href={`/system/runs/${r.runId}`}
-                      className="-mx-1 flex items-center justify-between gap-3 px-1 py-2 transition-colors hover:bg-(--panel2)"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm text-(--ink)">
-                          {r.agentId} · {r.model.modelId}
-                        </div>
-                        <div className="truncate font-mono text-[10px] text-(--mute)">
-                          {r.runId.slice(0, 12)} · {hhmm(r.createdAt)}
-                        </div>
-                      </div>
-                      <StatusPill tone="running">{r.status}</StatusPill>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
           </div>
-
-          <div className="min-w-0 space-y-4 lg:col-span-1">
-            {scheduledLoops.length > 0 && (
-              <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <MonoLabel>{t("Scheduled loops")}</MonoLabel>
-                  <MonoLabel className="text-(--faint)">cron pool</MonoLabel>
-                </div>
-                <div className="divide-y divide-(--hairline)">
-                  {scheduledLoops.slice(0, 5).map((loop) => (
-                    <Link
-                      key={loop.id}
-                      href={`/workflows/${encodeURIComponent(loop.id)}`}
-                      className="-mx-1 flex items-center justify-between gap-2 px-1 py-2 transition-colors hover:bg-(--panel2)"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-(--ink)">{loop.id}</div>
-                        <div className="font-mono text-[10px] text-(--mute)">{loop.cron}</div>
-                      </div>
-                      <span className="shrink-0 font-mono text-[10px] text-(--ok) tabular-nums">
-                        {formatNextRun(loop.next)}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {telemetry.data && telemetry.data.costByHour.length > 0 && (
-              <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <MonoLabel>{t("Cost burn · 24h")}</MonoLabel>
-                <ChartContainer
-                  config={{ costUsd: { label: t("Cost"), color: "var(--chart-1)" } }}
-                  className="mt-2 h-24 w-full"
-                >
-                  <BarChart data={telemetry.data.costByHour}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                      dataKey="hour"
-                      tickFormatter={(h: number) =>
-                        new Date(h).toLocaleTimeString("en-US", { hour: "numeric" })
-                      }
-                    />
-                    <YAxis width={40} tickFormatter={(v: number) => `$${v}`} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="costUsd" fill="var(--chart-1)" radius={2} />
-                  </BarChart>
-                </ChartContainer>
-              </section>
-            )}
-
-            {enabledAgents.length > 0 && (
-              <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <MonoLabel>{t("Agent roster")}</MonoLabel>
-                  <StatusPill tone="success">{enabledAgents.length} alive</StatusPill>
-                </div>
-                <div className="divide-y divide-(--hairline)">
-                  {enabledAgents.slice(0, 6).map((a) => (
-                    <Link
-                      key={a.id}
-                      href={`/team/${a.id}`}
-                      className="-mx-1 flex items-center justify-between gap-2 px-1 py-2 transition-colors hover:bg-(--panel2)"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-(--ink)">{a.name}</div>
-                        <div className="font-mono text-[10px] text-(--mute)">{a.id}</div>
-                      </div>
-                      <span className="shrink-0 rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)">
-                        {a.harness}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {telemetry.data && telemetry.data.failures.length > 0 && (
-              <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-                <MonoLabel>{t("Recent failures")}</MonoLabel>
-                <div className="mt-2 space-y-2">
-                  {telemetry.data.failures.slice(0, 5).map((f) => (
-                    <Link
-                      key={f.runId}
-                      href={`/system/runs/${f.runId}`}
-                      className="block rounded-md border border-(--hairline) bg-(--canvas) px-3 py-2 transition-colors hover:border-(--err)"
-                    >
-                      <div className="truncate text-xs font-medium text-(--ink)">
-                        {f.status} · {f.modelId}
-                      </div>
-                      <div className="truncate text-[10px] text-(--mute)">{f.error ?? "—"}</div>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
+          <aside className="min-w-0">
+            <RegistryAside agents={agents} />
+          </aside>
         </div>
+
+        <div className="mt-[23px] grid grid-cols-1 gap-[23px] xl:grid-cols-2">
+          <TasksSection />
+          <SavedSection />
+        </div>
+        <p className="mt-[25px] text-[10px] text-(--faint)">
+          {t("oh-my-agent · attention for what needs you.")}
+        </p>
       </PageBody>
     </Page>
   );

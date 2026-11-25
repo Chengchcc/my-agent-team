@@ -39,10 +39,10 @@ export const requirementsZh: Record<string, string> = {
   "Cancel this goal?": "取消这个目标？",
   "Cancel goal": "取消目标",
   "Mark this goal done?": "把这个目标标记为完成？",
-  "The coding workbench cannot be located from this page yet, so no link to it is offered. Nothing on this page opens a terminal.":
-    "目前还不能从这个页面定位编码工作台，所以没有提供链接。本页的任何操作都不会打开终端。",
-  "Workbench: Not available. Locating this member's existing terminal is not supported by the coding page yet; a plain member link would open a new terminal, so none is offered.":
-    "工作台：未提供。Coding 页暂不支持定位该成员已有的终端；直接按成员链接会新开终端，所以这里不提供链接。",
+  "Workbench links only locate a terminal that already exists. When a member has none, the coding page says so and offers a separate Create button; no link here opens a terminal by itself.":
+    "工作台链接只定位已有的终端。成员没有终端时，Coding 页会说明，并另给一个“创建终端”按钮；这里的链接都不会自己打开终端。",
+  "Workbench: locate this member's terminal. It only focuses one that exists; nothing here opens a terminal.":
+    "工作台：定位该成员的终端。它只聚焦已有的终端；这里不会打开终端。",
   "All goals": "所有目标",
   Worker: "Worker",
   Owner: "负责人",

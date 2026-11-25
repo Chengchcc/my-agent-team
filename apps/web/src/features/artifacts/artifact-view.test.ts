@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { artifactKind, looksLikeDiff, parseDiff } from "./artifact-view";
+import {
+  type ArtifactKindCounts,
+  artifactDataUrl,
+  artifactKind,
+  countArtifactKinds,
+  diffPreview,
+  fileBadge,
+  filterArtifacts,
+  firstLines,
+  looksLikeDiff,
+  parseDiff,
+} from "./artifact-view";
 
 const GIT_PATCH = [
   "diff --git a/README.md b/README.md",
@@ -105,5 +116,106 @@ describe("parseDiff", () => {
     const view = parseDiff("# Notes\n\nSome prose.\n");
     expect(view.files).toHaveLength(0);
     expect(view.additions).toBe(0);
+  });
+});
+
+interface Stored {
+  url: string;
+  filename: string;
+  mimeType: string;
+  updatedAt: number;
+}
+
+const STORED: readonly Stored[] = [
+  {
+    url: "artifacts://reports/delivery.md",
+    filename: "delivery.md",
+    mimeType: "text/markdown",
+    updatedAt: 30,
+  },
+  {
+    url: "artifacts://reports/change.diff",
+    filename: "change.diff",
+    mimeType: "application/octet-stream",
+    updatedAt: 20,
+  },
+  {
+    url: "artifacts://produced/shot.png",
+    filename: "shot.png",
+    mimeType: "image/png",
+    updatedAt: 10,
+  },
+  {
+    url: "artifacts://produced/blob.bin",
+    filename: "blob.bin",
+    mimeType: "application/octet-stream",
+    updatedAt: 5,
+  },
+];
+
+const NONE: ArtifactKindCounts = { all: 0, change: 0, visual: 0, document: 0, other: 0 };
+
+describe("the gallery's filters", () => {
+  test("one count per kind, and all of them", () => {
+    expect(countArtifactKinds(STORED)).toEqual({
+      all: 4,
+      change: 1,
+      visual: 1,
+      document: 1,
+      other: 1,
+    });
+    expect(countArtifactKinds([])).toEqual(NONE);
+  });
+
+  test("a tab shows one kind; the search matches name or url word by word, newest first", () => {
+    const documents = filterArtifacts(STORED, "document", "");
+    const reports = filterArtifacts(STORED, "all", "REPORTS");
+    const shots = filterArtifacts(STORED, "all", "produced png");
+    expect(documents.map((artifact) => artifact.url)).toEqual(["artifacts://reports/delivery.md"]);
+    expect(reports.map((artifact) => artifact.url)).toEqual([
+      "artifacts://reports/delivery.md",
+      "artifacts://reports/change.diff",
+    ]);
+    expect(shots.map((artifact) => artifact.url)).toEqual(["artifacts://produced/shot.png"]);
+    expect(filterArtifacts(STORED, "all", "nothing like this")).toEqual([]);
+    expect(filterArtifacts(STORED, "all", "  ")).toEqual([...STORED]);
+  });
+});
+
+describe("card previews", () => {
+  test("first lines skip leading blanks, cut long lines and stop at the count", () => {
+    expect(firstLines("\n\n# Title\n\nbody line\n", 2)).toEqual(["# Title", ""]);
+    expect(firstLines("x".repeat(100), 5)).toEqual([`${"x".repeat(79)}…`]);
+    expect(firstLines("a\nb\nc", 10)).toEqual(["a", "b", "c"]);
+  });
+
+  test("a change's preview holds hunk headers and changed lines, never context", () => {
+    const rows = diffPreview(GIT_PATCH, 4);
+    expect(rows.map((row) => row.kind)).toEqual(["hunk", "del", "add", "add"]);
+    expect(diffPreview("no diff here", 4)).toEqual([]);
+  });
+
+  test("an svg filed as a byte stream still reads as an image", () => {
+    const svg = artifactDataUrl(
+      { filename: "a.svg", mimeType: "application/octet-stream" },
+      "<svg>",
+      "utf8",
+    );
+    expect(svg).toBe("data:image/svg+xml;charset=utf-8,%3Csvg%3E");
+    const png = artifactDataUrl({ filename: "a.png", mimeType: "image/png" }, "AAAA", "base64");
+    expect(png).toBe("data:image/png;base64,AAAA");
+    const text = artifactDataUrl(
+      { filename: "a.svg", mimeType: "image/svg+xml" },
+      "PHN2Zz4",
+      "base64",
+    );
+    expect(text).toBe("data:image/svg+xml;base64,PHN2Zz4");
+  });
+
+  test("the card's mark is the extension in capitals, FILE when there is none", () => {
+    expect(fileBadge("delivery.md")).toBe("MD");
+    expect(fileBadge("workspace-study.svg")).toBe("SVG");
+    expect(fileBadge("Makefile")).toBe("FILE");
+    expect(fileBadge(".env")).toBe("FILE");
   });
 });

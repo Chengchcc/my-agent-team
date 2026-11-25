@@ -16,5 +16,8 @@ export function artifactContentQuery(url: string, updatedAt: number) {
   return queryOptions({
     queryKey: [...artifactKeys.all, "content", url, updatedAt] as const,
     queryFn: () => api.downloadArtifact(url),
+    // The key carries the stored time, so a replaced file is a new query; an
+    // unchanged one is not downloaded again on every window focus.
+    staleTime: 5 * 60_000,
   });
 }

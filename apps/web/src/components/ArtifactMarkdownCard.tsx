@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useArtifacts } from "@/features/artifacts/hooks";
 import type { ArtifactMeta } from "@/lib/api";
 import { ArtifactCard } from "./ArtifactCard";
-import { ArtifactPreviewSheet, downloadArtifact } from "./ArtifactPreviewSheet";
+import { downloadArtifact } from "./ArtifactPreview";
+import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 
 export function ArtifactMarkdownCard({ url }: { url: string }) {
   const { data } = useArtifacts();

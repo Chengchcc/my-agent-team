@@ -81,3 +81,33 @@ export function skillDirOf(dir: string): string {
   if (slash < 0) return "";
   return dir.slice(0, slash);
 }
+
+/** A member's pack list after the box for `packId` was set to `checked`, or null when that is
+ *  already the truth. The caller sends the new list for that one member only. */
+export function packIdsAfter(
+  current: readonly string[],
+  packId: string,
+  checked: boolean,
+): string[] | null {
+  const has = current.includes(packId);
+  if (checked === has) return null;
+  if (checked) return [...current, packId];
+  return current.filter((id) => id !== packId);
+}
+
+/** What a pack's sync answered when the upstream moved: the backend refuses with 409
+ *  `upstream_changed` and the two revisions, and installs nothing until confirmed. */
+export function upstreamChanged(error: unknown): { from: string; to: string } | null {
+  if (!(error instanceof Error)) return null;
+  const status = (error as { status?: unknown }).status;
+  if (status !== 409) return null;
+  try {
+    const body = JSON.parse(error.message) as { code?: unknown; from?: unknown; to?: unknown };
+    if (body.code === "upstream_changed") {
+      return { from: String(body.from), to: String(body.to) };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}

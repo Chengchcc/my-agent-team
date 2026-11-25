@@ -265,7 +265,11 @@ function MountedConversation({
   emptyTitle,
 }: MountedConversationProps) {
   const conversation = useConversation(conversationId);
-  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
+  // The skills on offer are the ones the agent who actually answers can load. A stable
+  // conversation (a workflow's) keeps the agent it was created with, which is not always the
+  // PA picked in the bar above it.
+  const agentId = conversation.state.agent?.agentId ?? paId;
+  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(agentId), enabled: agentId !== "" });
   const skills: readonly SkillCommand[] = skillsQuery.data ?? [];
   return (
     <ConversationPanel

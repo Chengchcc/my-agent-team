@@ -1,5 +1,6 @@
+import type { VariantProps } from "class-variance-authority";
 import type { ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { t } from "@/lib/i18n";
 import type { StatusLook, StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,17 @@ export function StatusBadge({ look, className }: { look: StatusLook; className?:
       {t(look.label)}
     </Badge>
   );
+}
+
+/** The tone of a fact stated outside the status vocabulary — a pack's materialization, a
+ *  connection test. The page picks the tone; this picks the pill, so every page states a tone
+ *  the same way. */
+export type FactTone = "ok" | "warn" | "err" | "muted";
+
+export type FactBadgeVariant = VariantProps<typeof badgeVariants>["variant"];
+
+export function badgeVariantOfTone(tone: FactTone): FactBadgeVariant {
+  return pillVariant(tone);
 }
 
 /** A line of the prototype's table panels. Wide screens see a table; below
@@ -91,5 +103,5 @@ export function PanelCell({
 
 /** The prototype's note line: the least prominent text on the page. */
 export function Note({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn("text-[10px] leading-relaxed text-(--faint)", className)}>{children}</p>;
+  return <p className={cn("text-[10px]/relaxed  text-(--faint)", className)}>{children}</p>;
 }

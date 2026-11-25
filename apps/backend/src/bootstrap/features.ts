@@ -3389,6 +3389,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
         return created.projectId;
       },
+      // A workflow proposal is adopted only when the saved definition IS the proposal (the
+      // editor's own save writes the graph; the decision only reads it). Same id rule and
+      // directory as the workflow routes.
+      readWorkflowDefinition: async (workflowId) => {
+        if (!/^[A-Za-z0-9._-]+$/.test(workflowId)) return null;
+        const file = join(config.dataDir, "workflows", `${workflowId}.workflow.json`);
+        if (!existsSync(file)) return null;
+        return JSON.parse(await Bun.file(file).text());
+      },
       updateProject: async (projectId, patch) => {
         try {
           await projectSvc.update(projectId, patch);

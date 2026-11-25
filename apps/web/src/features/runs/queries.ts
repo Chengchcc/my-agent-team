@@ -26,3 +26,31 @@ export function attentionQuery() {
     refetchInterval: 30_000,
   });
 }
+
+/** The executions that wait for a person, as rows. The nav badge counts the same request: one
+ *  cache entry, two selections. */
+export function waitingGatesQuery() {
+  return queryOptions({
+    queryKey: ["workflow-executions-gates"],
+    queryFn: () => api.listWorkflowExecutions(),
+    refetchInterval: 30_000,
+    select: (data) => (data.executions ?? []).filter((e) => e.status === "waiting_human"),
+  });
+}
+
+/** What one gate waits on. Read when a person opens that gate's scope. */
+export function gateTraceQuery(executionId: string) {
+  return queryOptions({
+    queryKey: ["workflow-executions", executionId, "trace"],
+    queryFn: () => api.getWorkflowExecutionTrace(executionId),
+  });
+}
+
+/** The task cards: the input queue's state, derived. Reading decides nothing. */
+export function tasksQuery() {
+  return queryOptions({
+    queryKey: ["tasks"],
+    queryFn: () => api.listTasks(120),
+    staleTime: 15_000,
+  });
+}

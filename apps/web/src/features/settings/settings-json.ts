@@ -237,7 +237,7 @@ export function reasonText(reason: SettingsReason): string {
     case "managed":
       return t("{key} is managed by {where}; change it there.", {
         key,
-        where: reason.where ?? "",
+        where: t(reason.where ?? ""),
       });
     case "missing":
       return t(
@@ -252,4 +252,19 @@ export function reasonText(reason: SettingsReason): string {
         { key },
       );
   }
+}
+
+/** An accepted validation, by itself. */
+export type AcceptedSettings = Extract<Validation, { ok: true }>;
+
+/** What "Save N changes" will PUT, in order. Built only from an accepted
+ *  validation: a rejected one has no plan, so a managed key, a credential or
+ *  a left-out key never reaches the API from the Raw JSON view. */
+export function savePlan(validation: Validation): readonly { key: string; value: unknown }[] {
+  if (!validation.ok) return [];
+  const plan = validation.changes.map((change) => {
+    const step = { key: change.key, value: change.value };
+    return step;
+  });
+  return plan;
 }

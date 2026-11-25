@@ -13,7 +13,7 @@ export function useCodingTerminalsList(): CodingTerminalRow[] {
   return data?.terminals ?? [];
 }
 
-function useTerminalMutation<T>(mutationFn: (arg: T) => Promise<unknown>) {
+function useTerminalMutation<T, R>(mutationFn: (arg: T) => Promise<R>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn,

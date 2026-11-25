@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { t } from "@/lib/i18n";
 
 function updateEdge(
   def: WorkflowDefinition,
@@ -88,12 +89,14 @@ export function EdgePropertyPanel({
         <h3 className="truncate font-mono text-sm font-semibold text-(--info)">
           {edge.from} → {edge.to}
         </h3>
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          className="shrink-0 text-(--err) hover:text-(--err)"
           onClick={() => onDelete?.(deleteEdge(definition, edgeIndex))}
-          className="text-xs text-(--err) hover:underline"
         >
-          Delete edge
-        </button>
+          {t("Delete edge")}
+        </Button>
       </div>
 
       <div className="space-y-1">
@@ -209,12 +212,14 @@ export function EdgePropertyPanel({
                 />
               )}
               <div className="flex justify-end">
-                <button
-                  className="text-[10px] text-(--err) hover:underline"
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="shrink-0 text-(--err) hover:text-(--err)"
                   onClick={() => setConditions(conditions.filter((_, j) => j !== i))}
                 >
-                  Delete condition
-                </button>
+                  {t("Delete condition")}
+                </Button>
               </div>
             </div>
           ))}

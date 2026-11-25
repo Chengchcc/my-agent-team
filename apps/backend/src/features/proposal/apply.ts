@@ -23,6 +23,8 @@ export interface ApplyDeps {
   }) => Promise<string>;
   /** Change the metadata of a registered project. Throws on validation, or when it is gone. */
   updateProject?: (projectId: string, patch: ProjectPatch) => Promise<void>;
+  /** The definition a workflow id holds now, or null when it has none. */
+  readWorkflowDefinition?: (workflowId: string) => Promise<unknown>;
 }
 
 export class ProposalNotApplicable extends Error {}
@@ -100,12 +102,37 @@ export async function applyProposal(input: {
     await input.deps.updateProject(input.targetId, projectPatchFrom(payload));
     return;
   }
-  // workflow_definition: applying it means rewriting a graph the human should
-  // see as a draft first. Until that path exists in the deployment, the honest
-  // answer is "not adoptable here" — not a green checkmark.
-  throw new ProposalNotApplicable(
-    `${input.kind} cannot be adopted here; open its own page and save it there`,
-  );
+  // workflow_definition: a graph is written by the workflow editor's own save, through the
+  // route that validates it — never rewritten behind this one. "Adopted" is then a statement
+  // about what is saved, and it holds only when the saved definition IS the proposal. A graph
+  // the person changed before saving is not this proposal; its row is discarded, not adopted.
+  if (!input.deps.readWorkflowDefinition) {
+    throw new ProposalNotApplicable("workflow changes cannot be recorded here");
+  }
+  const saved = await input.deps.readWorkflowDefinition(input.targetId);
+  if (saved === null || !sameJson(saved, payload)) {
+    throw new ProposalNotApplicable(
+      "the saved definition is not this proposal; save it in the workflow editor first, or discard the proposal",
+    );
+  }
+}
+
+/** Whether two JSON values are the same document, whatever the key order. */
+export function sameJson(a: unknown, b: unknown): boolean {
+  return stableJson(a) === stableJson(b);
+}
+
+function stableJson(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([x], [y]) =>
+      x < y ? -1 : x > y ? 1 : 0,
+    );
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 /** The metadata a project proposal can change. */

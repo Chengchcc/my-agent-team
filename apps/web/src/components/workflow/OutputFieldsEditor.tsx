@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { t as translate } from "@/lib/i18n";
 
 const TYPES = ["string", "number", "boolean", "artifact"] as const;
 
@@ -63,12 +64,14 @@ export function OutputFieldsEditor({
               ))}
             </SelectContent>
           </Select>
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
+            className="shrink-0 text-(--err) hover:text-(--err)"
             onClick={() => remove(i)}
-            className="shrink-0 text-[10px] text-(--err) hover:underline"
           >
-            Delete
-          </button>
+            {translate("Delete")}
+          </Button>
         </div>
       ))}
       <div className="flex gap-1">

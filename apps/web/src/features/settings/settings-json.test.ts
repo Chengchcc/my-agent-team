@@ -4,6 +4,7 @@ import {
   parseSettingsDocument,
   reasonText,
   SETTING_SPECS,
+  savePlan,
   validateSettings,
 } from "./settings-json";
 
@@ -152,5 +153,34 @@ describe("validateSettings", () => {
     if (result.ok) throw new Error("expected a reason");
     const text = reasonText(result.reasons[0]!);
     expect(text).toContain("totally.new");
+  });
+});
+
+describe("savePlan", () => {
+  test("a rejected validation has no plan: a managed key or a wrong type never reaches the API", () => {
+    const managed = check(
+      edited(CURRENT, { "provider.deepseek": { apiKey: "sk-aaaaaaaaaaaaaaaaaaaa" } }),
+    );
+    expect(managed.ok).toBeFalsy();
+    expect(savePlan(managed)).toEqual([]);
+    const wrongType = check(edited(CURRENT, { "cost.dailyBudgetUsd": "sk-aaaaaaaaaaaaaaaaaaaa" }));
+    expect(wrongType.ok).toBeFalsy();
+    expect(savePlan(wrongType)).toEqual([]);
+  });
+
+  test("an accepted validation becomes one PUT per change, in document order, values as written", () => {
+    const result = check(
+      edited(CURRENT, {
+        "dispatch.reuseChildConversation": false,
+        "cost.dailyBudgetUsd": 5,
+        "sandbox.networkAllowlist": ["example.com"],
+      }),
+    );
+    if (result.ok === false) throw new Error("expected changes");
+    expect(savePlan(result)).toEqual([
+      { key: "dispatch.reuseChildConversation", value: false },
+      { key: "cost.dailyBudgetUsd", value: 5 },
+      { key: "sandbox.networkAllowlist", value: ["example.com"] },
+    ]);
   });
 });

@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { t as translate } from "@/lib/i18n";
 
 const TYPES = ["string", "number", "boolean", "artifact"] as const;
 
@@ -84,9 +85,14 @@ export function InputPanel({
             >
               <span className="min-w-0 flex-1 truncate font-mono">{f.key}</span>
               <span className="text-(--mute)">{f.type}</span>
-              <button onClick={() => remove(i)} className="shrink-0 text-(--err) hover:underline">
-                Delete
-              </button>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="shrink-0 text-(--err) hover:text-(--err)"
+                onClick={() => remove(i)}
+              >
+                {translate("Delete")}
+              </Button>
             </div>
           ))}
         </div>
