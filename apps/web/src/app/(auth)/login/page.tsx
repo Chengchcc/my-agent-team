@@ -75,14 +75,14 @@ function LoginForm() {
       <div className="fixed top-0 inset-x-0 h-0.5 bg-(--primary)" />
 
       <div className="w-full max-w-sm px-8 animate-fade-in">
-        <p className="text-xs tracking-kicker uppercase text-(--mute) mb-8 font-sans font-semibold">
-          Agent OS
+        <p className="text-xs tracking-kicker text-(--mute) mb-8 font-sans font-semibold">
+          oh-my-agent
         </p>
 
         <h1 className="text-3xl/tight font-normal text-(--ink-strong) mb-2 font-sans">
-          Agent
+          Attention for what
           <br />
-          Workspace
+          needs you.
         </h1>
 
         <p className="text-sm text-(--body) mb-6">A terminal for working with agents</p>
@@ -129,7 +129,7 @@ function LoginForm() {
 
         <div className="mt-12 pt-6 border-t border-(--hairline)">
           <p className="text-[10px] tracking-kicker text-(--mute)">
-            my-agent-team &copy; {new Date().getFullYear()}
+            oh-my-agent &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>

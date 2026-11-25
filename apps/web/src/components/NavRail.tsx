@@ -692,7 +692,7 @@ export function NavRail() {
       <SidebarHeader>
         <div className="flex items-center justify-between gap-2 px-2 py-1">
           <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            Agent OS
+            oh-my-agent
           </span>
           <SidebarTrigger className="hidden md:flex" />
         </div>

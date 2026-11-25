@@ -3,7 +3,7 @@ import { QueryProvider } from "@/providers/QueryProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agent OS — Agent Workspace",
+  title: "oh-my-agent",
   description: "Multi-agent collaboration workspace",
 };
 

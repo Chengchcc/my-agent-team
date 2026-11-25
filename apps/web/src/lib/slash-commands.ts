@@ -20,6 +20,13 @@ export interface SlashCommand {
   execute: (ctx: CommandContext) => Promise<CommandResult>;
 }
 
+/** A `/` entry that names a skill the agent can load. It is not a client command: completing it
+ *  only puts the name in the message, and the agent decides whether to load the skill. */
+export interface SkillCommand {
+  command: string;
+  description: string;
+}
+
 export const slashCommands: SlashCommand[] = [
   {
     command: "/clear",

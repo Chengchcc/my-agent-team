@@ -11,12 +11,20 @@ import { useConversationInputs } from "@/features/conversations/hooks";
 import { conversationKeys } from "@/features/conversations/query-keys";
 import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import { slashCommands } from "@/lib/slash-commands";
+import { type SkillCommand, slashCommands } from "@/lib/slash-commands";
 import { ComposerInputQueue } from "./ComposerInputQueue";
 
 /** Composer metrics (§3): auto height 40–160px, panel bg, radius 8. */
 const COMPOSER_MIN_H = 40;
 const COMPOSER_MAX_H = 160;
+
+/** One row of the `/` picker: a client command, or a skill the agent can load. */
+interface PickerItem {
+  command: string;
+  description: string;
+  argsHint?: string;
+  skill: boolean;
+}
 
 interface ComposerProps {
   conversationId: string;
@@ -31,6 +39,8 @@ interface ComposerProps {
   /** A run is live: the send button becomes the red-dot Stop. */
   isBusy?: boolean;
   onStop?: () => void;
+  /** Skills offered in the `/` picker after the commands; completing one only names it. */
+  skills?: readonly SkillCommand[];
 }
 export function Composer({
   conversationId,
@@ -40,6 +50,7 @@ export function Composer({
   placeholder = t("Type a message… Ctrl+Enter to send"),
   isBusy,
   onStop,
+  skills,
 }: ComposerProps) {
   const [model, setModel] = useState<ChatModelOverride | null>(() => {
     try {
@@ -113,8 +124,18 @@ export function Composer({
 
   const filteredSlash = useMemo(() => {
     const q = value.trim().toLowerCase();
-    return slashCommands.filter((c) => c.command.startsWith(q));
-  }, [value]);
+    // Commands run here; a skill is only named in the message. One list, in that order.
+    const items: PickerItem[] = slashCommands.map((c) => ({
+      command: c.command,
+      description: c.description,
+      argsHint: c.argsHint,
+      skill: false,
+    }));
+    for (const skill of skills ?? []) {
+      items.push({ command: skill.command, description: skill.description, skill: true });
+    }
+    return items.filter((item) => item.command.startsWith(q));
+  }, [value, skills]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional - must reset when filter narrows options
   useEffect(() => {
@@ -431,6 +452,11 @@ export function Composer({
                         </span>
                         <span className="text-[11px] text-(--mute) truncate">{c.description}</span>
                       </div>
+                      {c.skill && (
+                        <span className="shrink-0 rounded-sm border border-(--hairline) px-1 text-[10px] text-(--mute)">
+                          Skill
+                        </span>
+                      )}
                     </Button>
                   ))
                 )}

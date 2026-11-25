@@ -8,7 +8,7 @@ import { hasLocale, LOCALE_COOKIE } from "@/lib/i18n";
 import { readSession } from "@/lib/session";
 
 export const metadata: Metadata = {
-  title: "Agent OS — Agent Workspace",
+  title: "oh-my-agent",
   description: "Multi-agent collaboration workspace",
 };
 
