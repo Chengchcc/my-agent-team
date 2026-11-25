@@ -333,8 +333,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       await skillPackSvc.setAgentPacks(agentId, ["builtin"]);
       await reconcileAgent.fn(agentId);
     },
-    onAgentUpdate: (agentId: string, prevProjects: string[]) =>
-      reconcileAgent.fn(agentId, prevProjects),
+    onAgentUpdate: async (agentId: string, prevProjects: string[]) => {
+      await reconcileAgent.fn(agentId, prevProjects);
+      // A running run keeps the config it was frozen with (by design). Saying so
+      // on the run makes the divergence visible instead of silent — the audit's
+      // "policy changed while in flight" (ADR 0080).
+      const live = db
+        .query(
+          "SELECT run_id FROM agent_run WHERE agent_id = ? AND status IN ('running','waiting')",
+        )
+        .all(agentId) as Array<{ run_id: string }>;
+      for (const row of live) {
+        services.opsStore.appendRunEvent(row.run_id, "config_changed_during_run", { agentId });
+      }
+    },
     assertNoActiveRun: (agentId: string) => busyGuard.check?.(agentId),
     // Tests inject a no-op: the real writer edits the operator's live
     // `~/.lark-cli/config.json`, and a test suite must never do that.
