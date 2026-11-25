@@ -326,7 +326,8 @@ export const api = {
         decision,
       }),
     ),
-  listPendingActions: () => unwrap(client.api["pending-actions"].get()),
+  listPendingActions: (signal?: AbortSignal) =>
+    unwrap(client.api["pending-actions"].get(signal ? { fetch: { signal } } : undefined)),
   // ADR 0061: the attention axis. Reading is free; `seen` only advances read
   // marks, and drafts never touch execution state.
   attention: (signal?: AbortSignal) =>
@@ -388,7 +389,8 @@ export const api = {
   ) => unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
   // Coding terminals (worktree PTYs)
-  listCodingTerminals: () => unwrap(client.api.coding.terminals.get()),
+  listCodingTerminals: (signal?: AbortSignal) =>
+    unwrap(client.api.coding.terminals.get(signal ? { fetch: { signal } } : undefined)),
   spawnCodingTerminal: (body: Parameters<typeof client.api.coding.terminals.post>[0]) =>
     unwrap(client.api.coding.terminals.post(body)),
   closeCodingTerminal: (id: string) => unwrap(client.api.coding.terminals({ id }).delete()),

@@ -10,7 +10,7 @@ export type PendingHitlAction = ApiReturn<typeof api.listPendingActions>["action
 export function pendingActionsQuery() {
   return queryOptions({
     queryKey: ["pending-actions"],
-    queryFn: () => api.listPendingActions(),
+    queryFn: ({ signal }) => api.listPendingActions(signal),
     refetchInterval: 30_000,
     select: (data) => data.actions ?? [],
   });

@@ -9,7 +9,7 @@ export const codingKeys = {
 export const codingTerminalsQuery = () =>
   queryOptions({
     queryKey: codingKeys.terminals,
-    queryFn: () => api.listCodingTerminals(),
+    queryFn: ({ signal }) => api.listCodingTerminals(signal),
     // Terminal status (running/exited) is display state, not critical data —
     // a short poll keeps the rail dots honest; live output rides the WS.
     refetchInterval: 4000,
