@@ -21,6 +21,7 @@ import { t } from "@/lib/i18n";
 import { markRead } from "@/lib/read-seq";
 import type { CommandContext } from "@/lib/slash-commands";
 import { findCommand, parseArgs } from "@/lib/slash-commands";
+import { connectionStatus } from "@/lib/status";
 import { extractText } from "@/lib/timeline";
 import type { TodoItem, TransientBubble } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
@@ -459,9 +460,7 @@ export function ConversationCanvas({
               streamConn === "closed" ? "bg-(--err)" : "bg-(--warn)"
             }`}
           />
-          <span className="flex-1">
-            {streamConn === "closed" ? "Disconnected" : "Reconnecting…"}
-          </span>
+          <span className="flex-1">{connectionStatus(streamConn).label}</span>
           {streamConn === "closed" && (
             <Button
               size="sm"

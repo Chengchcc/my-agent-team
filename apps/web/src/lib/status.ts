@@ -45,6 +45,30 @@ export function executionStatus(status: string): StatusLook {
   }
 }
 
+/** Connection state (the AHP stream, a surface's health). Separate from
+ *  execution state on purpose: "connected" must never read as "the work is
+ *  still running" (audit 2026-11-24). */
+export function connectionStatus(state: string): StatusLook {
+  switch (state) {
+    case "open":
+    case "running":
+      return { label: "connected", shape: "●", tone: "ok" };
+    case "connecting":
+      return { label: "connecting", shape: "○", tone: "muted" };
+    case "reconnecting":
+      return { label: "reconnecting", shape: "◐", tone: "warn" };
+    case "closed":
+      return { label: "disconnected", shape: "×", tone: "err" };
+    case "degraded":
+      return { label: "needs attention", shape: "◐", tone: "warn" };
+    case "error":
+    case "failed":
+      return { label: "connection failed", shape: "×", tone: "err" };
+    default:
+      return { label: state, shape: "○", tone: "muted" };
+  }
+}
+
 /** Badge variant for a tone, so callers stop hand-rolling the mapping. */
 export function badgeVariantFor(
   tone: StatusTone,
