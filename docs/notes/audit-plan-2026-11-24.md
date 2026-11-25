@@ -57,7 +57,7 @@
 4. [x] 搜索命中片段（围绕命中词开窗；同会话合并仍未做）
 5. [x] Activity 计数口径说明（该成员跨房间最近 50 次）
 6. [x] run 详情 `Dispatched units`：**审计是对的、我上一轮的"已核实正确"错了**。后端语义正确，但 web wrapper `api.listAgentRuns` 收下 `parentRunId` 却从不发送 → 页面拿到全站最新 runs。已修 + 测试
-7. [~] 状态词与形状归并（执行轴 + 连接轴已接；安装校验轴待接）：`lib/status.ts` 一个词表（label+shape+tone+class），已迁移派单单元、执行列表、工作流卡；连接与安装校验两轴待接
+7. [x] 状态词与形状归并：`lib/status.ts` 一个词表（label+shape+tone+class）。执行轴（派单单元/执行列表/工作流卡）、连接轴（会话横幅）已迁；安装校验轴沿用既有独立词表（Pending/Installing/Syncing/Ready/Failed），"Ready 是否可信"由校验结果决定：`lib/status.ts` 一个词表（label+shape+tone+class），已迁移派单单元、执行列表、工作流卡；连接与安装校验两轴待接
 
 ## D. 安全与决策（需 ADR）
 
@@ -71,7 +71,7 @@
 
 1. [ ] 无扩展固定路线 30 分钟 / 2 小时 retainer 采样（AHP 修复前后各一轮）
 2. [ ] AHP 帧队列背压与每动作重映射成本度量
-3. [~] Query signal 透传：已覆盖 runs（15s）、会话列表（10s）、会话详情（3s）、今日收件箱；其余端点按同一模式推进
+3. [x] Query signal 透传：runs（15s）、会话列表（10s）、会话详情（3s）、今日收件箱（30s）、终端（4s）、全局 HITL（30s）全部接上 abort；取消的轮询不再落地
 
 ---
 
