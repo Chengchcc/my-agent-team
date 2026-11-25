@@ -34,6 +34,7 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
   const uri = chatUri(deps.conversationId);
   let closed = false;
   let active: AhpClientLike | undefined;
+  let queueSensor: ReturnType<typeof setInterval> | undefined;
 
   const runOnce = async (): Promise<void> => {
     let client: AhpClientLike | undefined;
@@ -64,6 +65,20 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
       const transport = (deps.transportFactory ?? createWebSocketTransport)(
         `${wsBase}/ws/ahp?ticket=${encodeURIComponent(ticket)}`,
       );
+      // Read-only diagnostic: the frame queue's peak depth, so the backpressure
+      // question can be answered from the page (audit 2026-11-24) without a
+      // devtools session on a production build. Cleared on close.
+      if (typeof window !== "undefined") {
+        const read = () => (transport as { maxQueueDepth?: unknown }).maxQueueDepth;
+        if (typeof read() === "number") {
+          const w = window as unknown as { __ahpQueueDepth?: number };
+          w.__ahpQueueDepth = read() as number;
+          queueSensor = setInterval(() => {
+            const now = read();
+            if (typeof now === "number") w.__ahpQueueDepth = now;
+          }, 2000);
+        }
+      }
       client = (deps.clientFactory ?? ((t: AhpTransport) => new AhpClient(t)))(transport);
       active = client;
       if (closed) return;
@@ -128,6 +143,7 @@ export function connectAhpChat(deps: AhpChatDeps): AhpChatConnection {
   return {
     close: () => {
       closed = true;
+      if (queueSensor !== undefined) clearInterval(queueSensor);
       void active?.shutdown().catch(() => undefined);
     },
   };
