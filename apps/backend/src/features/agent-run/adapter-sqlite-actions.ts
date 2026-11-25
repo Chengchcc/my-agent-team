@@ -3,6 +3,7 @@ import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import { parsePendingAction } from "./adapter-sqlite-parse.js";
+import { beyondFrozenScope } from "./answer-guard.js";
 import {
   type AgentRun,
   AgentRunConflictError,
@@ -64,9 +65,24 @@ export function createActionMethods(
         // created — the owner rule alone would hand it to the front desk.
         const declared = run.risk ? (JSON.parse(run.risk) as { irreversible?: boolean }) : null;
         const irreversible = declared?.irreversible === true;
-        const payload = irreversible
-          ? { ...action.payload, risk: { irreversible: true } }
-          : action.payload;
+        // A request that visibly exceeds the run's frozen policy is the
+        // person's too: the dispatcher may answer inside the scope it
+        // authorised, not ones that would widen it.
+        const outOfScope = beyondFrozenScope(action.payload, {
+          toolPolicy: run.toolPolicy
+            ? (JSON.parse(run.toolPolicy) as {
+                deny: string[];
+                allow: string[];
+                denyCommands?: string[];
+              })
+            : null,
+        });
+        const marks = {
+          ...(irreversible ? { irreversible: true } : {}),
+          ...(outOfScope !== undefined ? { beyondScope: true, reason: outOfScope } : {}),
+        };
+        const payload =
+          Object.keys(marks).length > 0 ? { ...action.payload, risk: marks } : action.payload;
 
         // Insert PendingAction (idempotent: duplicate actionId will fail via PK)
         d.insert(schema.pendingAction)
@@ -79,12 +95,13 @@ export function createActionMethods(
             createdAt: now,
             // ADR 0075: the dispatcher looks first. Persisted at creation so
             // every surface (web inbox, cards, escalation) reads one fact.
-            owner: irreversible
-              ? "user"
-              : requestOwnerOf({
-                  authorization: run.authorization ?? null,
-                  ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
-                }).owner,
+            owner:
+              irreversible || outOfScope !== undefined
+                ? "user"
+                : requestOwnerOf({
+                    authorization: run.authorization ?? null,
+                    ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
+                  }).owner,
           })
           .run();
 

@@ -98,6 +98,36 @@ describe("ADR 0080: an irreversible dispatch is the person's to approve", () => 
   });
 });
 
+describe("ADR 0080: a request beyond the frozen scope is the person's", () => {
+  test("a denied command marks the request and forces the human owner", async () => {
+    const { conversationId, agentId, branch } = await setupBranch("pa-scope");
+    const res = await runPort.enqueueAndAcquire({
+      conversationId,
+      agentId,
+      branchId: branch.branchId,
+      mode: "normal",
+      message: { role: "user", text: "t-scope" },
+      inputIdempotencyKey: "ikey-scope",
+      runIdempotencyKey: "rkey-scope",
+      deliveryIdempotencyKey: "dkey-scope",
+      defaultModel: { backendKind: "oma", modelId: "model-a" },
+      configRevision: 1,
+      expectedRevision: branch.revision,
+      authorization: "dispatch:pa-front",
+      toolPolicy: JSON.stringify({ deny: [], allow: [], denyCommands: ["git push"] }),
+    });
+    const action = await runPort.createPendingAction(res.run!.runId, {
+      actionId: "action-scope",
+      kind: "approval",
+      payload: { toolName: "bash", input: { command: "git push origin main" } },
+    });
+    expect(action.owner).toBe("user");
+    const risk = (action.payload as { risk?: { beyondScope?: boolean; reason?: string } }).risk;
+    expect(risk?.beyondScope).toBe(true);
+    expect(risk?.reason).toContain("git push");
+  });
+});
+
 describe("a failed machine route hands the question to the person", () => {
   test("escalation flips the owner to user and records when", async () => {
     const { conversationId, agentId, branch } = await setupBranch("pa-escalate");
