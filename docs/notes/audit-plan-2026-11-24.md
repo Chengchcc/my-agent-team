@@ -57,7 +57,7 @@
 4. [x] 搜索命中片段（围绕命中词开窗；同会话合并仍未做）
 5. [x] Activity 计数口径说明（该成员跨房间最近 50 次）
 6. [x] run 详情 `Dispatched units`：**审计是对的、我上一轮的"已核实正确"错了**。后端语义正确，但 web wrapper `api.listAgentRuns` 收下 `parentRunId` 却从不发送 → 页面拿到全站最新 runs。已修 + 测试
-7. [~] 状态词与形状归并：`lib/status.ts` 一个词表（label+shape+tone+class），已迁移派单单元、执行列表、工作流卡；连接与安装校验两轴待接
+7. [~] 状态词与形状归并（执行轴 + 连接轴已接；安装校验轴待接）：`lib/status.ts` 一个词表（label+shape+tone+class），已迁移派单单元、执行列表、工作流卡；连接与安装校验两轴待接
 
 ## D. 安全与决策（需 ADR）
 
@@ -65,7 +65,7 @@
 2. [x] 唤醒失败把 owner 转人（`escalateActionToUser` + 测试）
 3. [x] `agent_create` 改为**只提案**（填创建页表单，人按 Create）；直建只留在 HTTP 路由
 4. [ ] 验收证据与 `requirement` 状态绑定
-5. [ ] Policy 版本化与在途通知
+5. [x] Policy 版本化与在途通知：版本号=成员配置 `updatedAt` 并冻结在 run 上；配置在 run 进行中被改时，给该 run 记 `config_changed_during_run`（冻结语义不变，分歧可见）
 
 ## E. 内存与长时验证
 
