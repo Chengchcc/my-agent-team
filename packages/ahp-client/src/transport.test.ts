@@ -69,3 +69,15 @@ test("a frame sent before the handshake finishes is delivered once it does", asy
   );
   transport.close();
 });
+
+test("the queue reports its high-water mark, so backlog is measurable", async () => {
+  const transport = createWebSocketTransport(`ws://127.0.0.1:${server.port}`);
+  // Nothing is pulled yet: the greeting (and an echo) wait in the queue.
+  await transport.send({ jsonrpc: "2.0", id: 1, method: "a" } as never);
+  await new Promise((r) => setTimeout(r, 150));
+  const peak = transport.maxQueueDepth;
+  expect(peak).toBeGreaterThanOrEqual(1);
+  transport.close();
+  // A ceiling, not a gauge: draining or closing must not lower it.
+  expect(transport.maxQueueDepth).toBe(peak);
+});

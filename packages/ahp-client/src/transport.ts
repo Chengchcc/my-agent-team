@@ -16,9 +16,16 @@ export interface WebSocketTransportOptions {
   readonly signal?: AbortSignal;
 }
 
-/** Frame queue: socket events push, `recv()` pulls, so a small queue sits between them. */
+/** Frame queue: socket events push, `recv()` pulls, so a small queue sits between them.
+ *
+ *  Depth is tracked because the audit asked for a bounded answer, not a guess:
+ *  `maxDepth` is the high-water mark since the transport was created. Reading it
+ *  back (or asserting it in a probe) turns "is the queue unbounded?" into a
+ *  measurement; the queue stays uncapped here until that measurement says it
+ *  needs a limit. */
 class FrameQueue {
   readonly #frames: TransportFrame[] = [];
+  #maxDepth = 0;
   readonly #waiters: Array<(frame: TransportFrame | null) => void> = [];
   #failure: Error | undefined;
   #closed = false;
@@ -31,13 +38,22 @@ class FrameQueue {
     }
     if (this.#closed) return;
     const waiter = this.#waiters.shift();
-    if (waiter) waiter(frame);
-    else this.#frames.push(frame);
+    if (waiter) {
+      waiter(frame);
+      return;
+    }
+    this.#frames.push(frame);
+    if (this.#frames.length > this.#maxDepth) this.#maxDepth = this.#frames.length;
   }
 
   fail(error: Error): void {
     this.#failure = error;
     while (this.#waiters.length > 0) this.#waiters.shift()?.(null);
+  }
+
+  /** High-water mark since this queue was created (frames waiting, not pulls). */
+  get maxDepth(): number {
+    return this.#maxDepth;
   }
 
   next(): Promise<TransportFrame | null> {
@@ -49,10 +65,16 @@ class FrameQueue {
   }
 }
 
+/** The transport plus the one measurement the audit asked for. It still IS an
+ *  `AhpTransport`; the extra field is read-only instrumentation, not protocol. */
+export interface InstrumentedAhpTransport extends AhpTransport {
+  readonly maxQueueDepth: number;
+}
+
 export function createWebSocketTransport(
   url: string,
   options: WebSocketTransportOptions = {},
-): AhpTransport {
+): InstrumentedAhpTransport {
   const open = options.webSocket ?? ((target: string) => new WebSocket(target));
   const socket = open(url);
   const frames = new FrameQueue();
@@ -110,6 +132,11 @@ export function createWebSocketTransport(
       else pending.push(frame);
     },
     recv: () => frames.next(),
+    /** Measurement hook for the backpressure question (audit 2026-11-24):
+     *  a long-history room's peak backlog, read after the fact. */
+    get maxQueueDepth(): number {
+      return frames.maxDepth;
+    },
     close(): void {
       frames.push(null);
       try {
