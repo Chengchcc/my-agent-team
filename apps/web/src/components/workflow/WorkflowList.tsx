@@ -79,7 +79,7 @@ function TriggerColumn({ card }: { card: WorkflowCard }) {
         </>
       )}
       <Badge variant={card.running ? "wait" : "secondary"} className="mt-2">
-        {card.running ? t("Run in flight") : status}
+        {card.running ? t("Run in flight") : t(status)}
       </Badge>
     </div>
   );
@@ -101,8 +101,14 @@ function LastRunColumn({ card }: { card: WorkflowCard }) {
     <div className={LAST_RUN_CELL}>
       <Caption>{t("Last run")}</Caption>
       <StatusBadge look={executionStatus(lastRun.status)} className="mt-2" />
-      <Caption className="mt-2 font-mono">{lastRun.executionId}</Caption>
-      <Caption>
+      <Link
+        href={`/workflows/${encodeURIComponent(card.row.workflowId)}/executions/${encodeURIComponent(lastRun.executionId)}`}
+        title={lastRun.executionId}
+        className="mt-2 block text-[11px] text-(--primary) hover:underline"
+      >
+        {t("View execution trace")} ↗
+      </Link>
+      <Caption className="mt-0.5">
         {new Date(lastRun.startedAt).toLocaleString()} · {duration}
       </Caption>
     </div>

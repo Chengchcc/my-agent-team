@@ -131,8 +131,17 @@ function buildComponents(tone: "default" | "muted"): Components {
     hr: () => <hr className="border-(--hairline) my-3" />,
 
     code: ({ className, children, ...props }) => {
-      const isBlock = /language-/.test(className ?? "");
+      const rawText = typeof children === "string" ? children : "";
+      const isBlock = /language-/.test(className ?? "") || rawText.includes("\n");
       if (!isBlock) {
+        const trimmed = rawText.trim();
+        if (/^artifacts:\/\/\S+$/.test(trimmed)) {
+          return <ArtifactMarkdownCard url={trimmed} />;
+        }
+        const reqMatch = REQUIREMENT_HREF_RE.exec(trimmed);
+        if (reqMatch?.[1]) {
+          return <RequirementMarkdownChip requirementId={decodeURIComponent(reqMatch[1])} />;
+        }
         return (
           <code
             className="font-mono text-[0.85em] bg-(--canvas-soft) border border-(--hairline) rounded px-1 py-0.5 text-(--canvas-text-soft)"
@@ -143,13 +152,13 @@ function buildComponents(tone: "default" | "muted"): Components {
         );
       }
       return (
-        <code className={`font-mono text-[13px] ${className ?? ""}`} {...props}>
+        <code className={`block font-mono text-[13px] ${className ?? ""}`} {...props}>
           {children}
         </code>
       );
     },
     pre: ({ children }) => (
-      <pre className="font-mono text-[13px] bg-(--canvas-soft) border border-(--hairline) rounded-lg p-4 overflow-x-auto my-2 text-(--canvas-text-soft)">
+      <pre className="my-2 overflow-x-auto rounded-lg border border-(--hairline) bg-(--canvas-soft) p-4 font-mono text-[13px] leading-relaxed text-(--canvas-text-soft) [&_code]:rounded-none [&_code]:border-0 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[13px]">
         {children}
       </pre>
     ),

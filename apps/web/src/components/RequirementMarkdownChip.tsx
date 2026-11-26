@@ -75,7 +75,9 @@ export function RequirementMarkdownChip({
             <DialogTitle className="text-base text-(--ink-strong)">
               {req?.title ?? `${t("Requirement")} · ${shortEntityId(requirementId)}`}
             </DialogTitle>
-            <DialogDescription className="font-mono text-[10px]">{requirementId}</DialogDescription>
+            <DialogDescription className="text-[11px]" title={requirementId}>
+              {req?.createdByAgentId ? t("Tracked requirement") : shortEntityId(requirementId)}
+            </DialogDescription>
           </DialogHeader>
           {req ? (
             <div className="space-y-3 text-xs leading-relaxed text-(--ink)">

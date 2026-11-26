@@ -303,8 +303,8 @@ export function Timeline({
 
   return (
     <div className="flex gap-0">
-      {/* Anchor nav — right side, subtle */}
-      {anchors.length > 0 && (
+      {/* Anchor nav — right side, subtle; only shown when there are multiple turns to jump between */}
+      {anchors.length > 1 && (
         <div className="relative z-10 order-2 w-8 shrink-0">
           <div className="sticky top-20 z-10 flex flex-col items-center gap-1 py-2">
             {anchors.map((a) => (

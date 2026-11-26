@@ -123,14 +123,14 @@ export function TimelineMessageActions({
             onClick={() => setEditing(false)}
             disabled={replayMut.isPending}
           >
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button
             size="sm"
             onClick={handleConfirmReplay}
             disabled={replayMut.isPending || !draft.trim()}
           >
-            {replayMut.isPending ? "Replaying..." : "Replay"}
+            {replayMut.isPending ? t("Replaying…") : t("Replay")}
           </Button>
         </div>
       </div>
@@ -153,12 +153,12 @@ export function TimelineMessageActions({
             onClick={() => {
               const text = extractText(item.content);
               void navigator.clipboard?.writeText(text).then(
-                () => toast.success("Copied"),
-                () => toast.error("Copy failed"),
+                () => toast.success(t("Copied")),
+                () => toast.error(t("Copy failed")),
               );
             }}
           >
-            Copy
+            {t("Copy")}
           </Button>
           {isUser ? (
             canTarget && (
@@ -168,7 +168,7 @@ export function TimelineMessageActions({
                 className="h-6 text-[10px] text-(--mute) hover:text-(--body)"
                 onClick={handleStartEdit}
               >
-                Edit & resend
+                {t("Edit & resend")}
               </Button>
             )
           ) : (
@@ -177,9 +177,9 @@ export function TimelineMessageActions({
                 <Link
                   href={`/system/runs/${runIdOf(item)}?from=${encodeURIComponent(`/chat/${conversationId}`)}`}
                   className="inline-flex h-6 items-center px-2 text-[10px] text-(--mute) hover:text-(--body)"
-                  title="Open run detail"
+                  title={t("Open run detail")}
                 >
-                  Run detail ↗
+                  {t("Run detail ↗")}
                 </Link>
               )}
               <Button
@@ -192,18 +192,18 @@ export function TimelineMessageActions({
                     {
                       onSuccess: (data) => {
                         onMarkUndone?.(data.undoneSeqs);
-                        toast.success("Undone");
+                        toast.success(t("Undone"));
                       },
                       onError: (err) =>
-                        toast.error("Undo failed", {
-                          description: err instanceof Error ? err.message : "Unknown error",
+                        toast.error(t("Undo failed"), {
+                          description: err instanceof Error ? err.message : t("Unknown error"),
                         }),
                     },
                   )
                 }
                 disabled={undoMut.isPending}
               >
-                {undoMut.isPending ? "Undoing…" : "Undo"}
+                {undoMut.isPending ? t("Undoing…") : t("Undo")}
               </Button>
             </>
           )}
@@ -215,7 +215,7 @@ export function TimelineMessageActions({
               onClick={handleRegenerate}
               disabled={undoMut.isPending || postMut.isPending}
             >
-              Regenerate
+              {t("Regenerate")}
             </Button>
           )}
           {item.seq > 0 && (
@@ -223,13 +223,13 @@ export function TimelineMessageActions({
               variant="ghost"
               size="icon"
               className="size-6 text-(--mute) hover:text-(--primary)"
-              title={bookmarked ? "Remove bookmark" : "Save message"}
+              title={bookmarked ? t("Remove bookmark") : t("Save message")}
               onClick={() => {
                 const next = !bookmarked;
                 setBookmarked(next);
                 api.setSaved(conversationId, item.seq, next).catch(() => {
                   setBookmarked(!next);
-                  toast.error("Bookmark failed");
+                  toast.error(t("Bookmark failed"));
                 });
               }}
             >

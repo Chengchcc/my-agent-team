@@ -49,6 +49,13 @@ describe("Markdown renderer", () => {
     expect(html("Hello world")).toContain("Hello world");
   });
 
+  it("renders fenced code without language tag without inline border pills", () => {
+    const out = html("```\nline 1\nline 2\n```");
+    expect(out).toContain("<pre");
+    expect(out).toContain("<code");
+    expect(out).toContain("[&amp;_code]:border-0");
+  });
+
   it("keeps internal console routes in-app without target=_blank while external links open new tab", () => {
     const internal = html("[Go to chat](/chat/conv-1)");
     expect(internal).toContain('href="/chat/conv-1"');

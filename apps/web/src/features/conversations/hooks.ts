@@ -113,6 +113,7 @@ export function useConversationMembers(conversationId: string) {
 }
 
 export function usePostConversationMessage(conversationId: string) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (params: {
       text: string;
@@ -134,6 +135,9 @@ export function usePostConversationMessage(conversationId: string) {
         model: params.model,
         addressedTo: params.addressedTo,
       });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: conversationKeys.all });
     },
   });
 }

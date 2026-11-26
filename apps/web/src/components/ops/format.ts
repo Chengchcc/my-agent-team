@@ -1,5 +1,6 @@
 /** Numbers as the ops pages write them: short, mono, no false precision. */
 import { formatDurationMs } from "@/lib/duration";
+import { t } from "@/lib/i18n";
 
 export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -16,7 +17,7 @@ export function fmtBytes(bytes: number): string {
 
 /** How long ago a moment was, in a person's words. */
 export function fmtAgo(at: number | null, now: number): string {
-  if (at === null) return "never";
+  if (at === null) return t("never");
   const elapsed = Math.max(0, now - at);
   return formatDurationMs(elapsed);
 }

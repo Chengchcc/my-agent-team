@@ -13,7 +13,7 @@ export default async function ProjectsPage() {
   return (
     <Page>
       <PageHeader
-        breadcrumb={[{ label: "Team & Projects" }, { label: "Projects" }]}
+        breadcrumb={[{ label: t("Team & Projects") }, { label: t("Projects") }]}
         title={t("Projects")}
         subtitle={t("Give every project a working context.")}
         action={<ProjectForm />}

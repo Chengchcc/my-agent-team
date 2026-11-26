@@ -1,3 +1,5 @@
+import { t } from "@/lib/i18n";
+
 /** Display title for a conversation row. Never surface the raw id hash:
  *  fall back to the last message preview, then a neutral placeholder. */
 export function conversationDisplayName(conv: {
@@ -8,5 +10,5 @@ export function conversationDisplayName(conv: {
   if (title) return title;
   const preview = conv.lastMessagePreview?.trim();
   if (preview) return preview;
-  return "New conversation";
+  return t("New conversation");
 }

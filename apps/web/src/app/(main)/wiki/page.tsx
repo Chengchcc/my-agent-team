@@ -245,7 +245,7 @@ export default function WikiPage() {
   function maintainer(id: string): string {
     const name = agentNameById.get(id);
     if (name === undefined) return id;
-    return `${name} (${id})`;
+    return name;
   }
 
   function summaryOf(row: EntryRow): string {
@@ -453,7 +453,9 @@ export default function WikiPage() {
                     )}
                     {workflow !== null && workflow !== undefined && (
                       <>
-                        {t("Status: {status}", { status: workflow.status ?? "—" })}
+                        {t("Status: {status}", {
+                          status: workflow.status ? t(workflow.status) : "—",
+                        })}
                         <br />
                         {scheduled.length === 0 && (
                           <>
@@ -470,7 +472,7 @@ export default function WikiPage() {
                         {latestRun === undefined && t("Not run yet")}
                         {latestRun !== undefined &&
                           t("Last run: {status} · {time}", {
-                            status: executionStatus(latestRun.status).label,
+                            status: t(executionStatus(latestRun.status).label),
                             time: new Date(latestRun.createdAt).toLocaleString(),
                           })}
                       </>

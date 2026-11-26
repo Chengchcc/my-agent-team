@@ -451,11 +451,14 @@ export function ConversationCanvas({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 md:flex-nowrap">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <RoleAvatar kind={mark} name={agentName} />
-            <div className="min-w-0">
-              <h1 className="truncate text-[22px] leading-snug font-[550] tracking-[-0.6px] text-(--ink)">
+            <div className="min-w-0 flex-1">
+              <h1
+                title={title}
+                className="truncate text-base leading-snug font-[550] tracking-[-0.3px] text-(--ink) sm:text-lg"
+              >
                 {title}
               </h1>
               <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-(--mute)">
@@ -475,7 +478,7 @@ export function ConversationCanvas({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {label ? (
               <>
                 <span

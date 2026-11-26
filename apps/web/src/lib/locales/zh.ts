@@ -385,6 +385,27 @@ export const zhOwn: Record<string, string> = {
   "Bundled skills the agent can use.": "为成员提供可加载的能力技能。",
   "Start a chat": "发起第一次对话",
   "Pick an agent and send the first message.": "选择一位 PA 并发送首条消息。",
+  // Walkthrough UX polish & message actions
+  "Requirements · Goals & proposals": "需求 · 目标与提案",
+  "Tracked requirement": "追踪中的需求",
+  "View execution trace": "查看执行轨迹",
+  active: "已启用",
+  draft: "草稿",
+  Copied: "已复制",
+  "Copy failed": "复制失败",
+  "Edit & resend": "编辑并重发",
+  "Open run detail": "打开运行详情",
+  "Run detail ↗": "运行详情 ↗",
+  Undone: "已撤销",
+  "Undo failed": "撤销失败",
+  "Undoing…": "撤销中…",
+  "Unknown error": "未知错误",
+  Regenerate: "重新生成",
+  Replay: "重放",
+  "Replaying…": "重放中…",
+  "Save message": "收藏消息",
+  "Remove bookmark": "取消收藏",
+  "Bookmark failed": "收藏失败",
 };
 
 /** One wording per key is enforced by `pages/index.test.ts`; nothing here overrides anything.
