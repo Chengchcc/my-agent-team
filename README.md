@@ -16,6 +16,14 @@
 
 [Why my-agent-team](#-why-my-agent-team) · [Quick Start](#-quick-start) · [Screenshots](#-screenshots) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
 
+<br />
+
+<a href="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-main-flow.mp4">
+  <img src="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-preview.webp" alt="my-agent-team walkthrough: Today, Chat, Requirements, Multi-Harness Team, Workflow DAG, and Git Wiki" width="100%" />
+</a>
+
+<sub>End-to-end walkthrough: Today → Chat & Artifacts → Tracked Requirements → 4-Harness Team → Workflow DAG → Git Wiki · <a href="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-main-flow.mp4">Download full HD MP4</a></sub>
+
 </div>
 
 ---
@@ -51,38 +59,38 @@ Most coding agents live in an isolated terminal tab. **my-agent-team** turns the
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/chat.png" alt="Chat Run Console" width="100%" />
-      <br /><sub><b>Chat Console</b> — streaming runs, context telemetry, workspace config</sub>
+      <img src="docs/screenshots/today.png" alt="Today Inbox" width="100%" />
+      <br /><sub><b>Today Inbox</b> — pending human gates, active goals, work sessions & team roster</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/workflow-execution.png" alt="Workflow DAG Orchestrator" width="100%" />
-      <br /><sub><b>Agentic Workflow DAG</b> — agent, sandboxed script, and human-in-the-loop nodes</sub>
+      <img src="docs/screenshots/chat.png" alt="Chat Run Console" width="100%" />
+      <br /><sub><b>Chat Console</b> — PA dispatch table, inline Requirement & Artifact chips, right-rail inspector</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/team.png" alt="Team and Agents" width="100%" />
-      <br /><sub><b>Team Matrix</b> — Personal Assistant front desk + dispatched specialist workers</sub>
+      <img src="docs/screenshots/workflow-execution.png" alt="Workflow DAG Orchestrator" width="100%" />
+      <br /><sub><b>Agentic Workflow DAG</b> — agent, sandboxed script, and human-in-the-loop gate nodes</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/oma-tui-real.png" alt="Oma TUI" width="100%" />
-      <br /><sub><b>Oma TUI</b> — standalone interactive terminal with progressive skills & tool cards</sub>
+      <img src="docs/screenshots/requirements.png" alt="Tracked Requirements" width="100%" />
+      <br /><sub><b>Tracked Requirements</b> — goals, constraints, acceptance criteria & linked runs/artifacts</sub>
     </td>
   </tr>
 </table>
 
 <details>
-<summary>More screenshots (Today Inbox, System Telemetry, MCP Catalog, Oma TUI Tools & Mermaid)</summary>
+<summary>More screenshots (Multi-Harness Team, Git-Backed Wiki, Oma TUI)</summary>
 
 <br />
 
-| Today Inbox | System Telemetry | MCP Catalog |
-|---|---|---|
-| <img src="docs/screenshots/today.png" width="280" alt="Today inbox" /> | <img src="docs/screenshots/system.png" width="280" alt="System telemetry" /> | <img src="docs/screenshots/mcp.png" width="280" alt="MCP catalog" /> |
-
-| Oma TUI — Tool Calls | Oma TUI — Mermaid Rendering |
+| Multi-Harness Team (`oma` · `claude` · `pi` · `omp`) | Git-Backed LLM Wiki |
 |---|---|
-| <img src="docs/screenshots/oma-tui-tools.png" width="380" alt="Oma TUI tools" /> | <img src="docs/screenshots/oma-tui-mermaid.png" width="380" alt="Oma TUI mermaid" /> |
+| <img src="docs/screenshots/team.png" width="420" alt="Team agents across harnesses" /> | <img src="docs/screenshots/wiki.png" width="420" alt="Git-backed LLM Wiki" /> |
+
+| Oma TUI — Interactive Session | Oma TUI — Tool Calls & Mermaid |
+|---|---|
+| <img src="docs/screenshots/oma-tui-real.png" width="420" alt="Oma TUI real session" /> | <img src="docs/screenshots/oma-tui-mermaid.png" width="420" alt="Oma TUI mermaid" /> |
 
 </details>
 
