@@ -43,7 +43,9 @@ export function OutputFieldsEditor({
 
   return (
     <div className="space-y-2">
-      {fields.length === 0 && <p className="text-xs text-(--faint)">No output fields</p>}
+      {fields.length === 0 && (
+        <p className="text-xs text-(--faint)">{translate("No output fields")}</p>
+      )}
       {fields.map((f, i) => (
         <div key={i} className="flex items-center gap-1">
           <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-(--info)">
@@ -77,7 +79,7 @@ export function OutputFieldsEditor({
       <div className="flex gap-1">
         <Input
           className="h-7 flex-1 border-(--hairline) bg-(--canvas) text-xs"
-          placeholder="Field name"
+          placeholder={translate("Field name")}
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           onKeyDown={(e) => {

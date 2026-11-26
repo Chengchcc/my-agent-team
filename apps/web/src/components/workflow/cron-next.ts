@@ -1,6 +1,8 @@
 /** Minimal 5-field cron next-run calculator (supports *, numbers, lists,
  *  ranges a-b, steps (star-slash-n). Returns null for unparseable expressions. */
 
+import { t } from "@/lib/i18n";
+
 function fieldMatcher(pattern: string, min: number, max: number): ((v: number) => boolean) | null {
   const parts = pattern
     .split(",")
@@ -53,22 +55,22 @@ export function nextCronRun(expr: string, from = new Date()): Date | null {
   const domRestricted = fields[2] !== "*";
   const dowRestricted = fields[4] !== "*";
 
-  const t = new Date(from.getTime());
-  t.setSeconds(0, 0);
-  t.setMinutes(t.getMinutes() + 1);
+  const cursor = new Date(from.getTime());
+  cursor.setSeconds(0, 0);
+  cursor.setMinutes(cursor.getMinutes() + 1);
   const limit = from.getTime() + 370 * 24 * 3600 * 1000;
-  while (t.getTime() <= limit) {
+  while (cursor.getTime() <= limit) {
     if (
-      minute(t.getMinutes()) &&
-      hour(t.getHours()) &&
-      mon(t.getMonth() + 1) &&
+      minute(cursor.getMinutes()) &&
+      hour(cursor.getHours()) &&
+      mon(cursor.getMonth() + 1) &&
       (domRestricted && dowRestricted
-        ? dom(t.getDate()) || dow(t.getDay())
-        : dom(t.getDate()) && dow(t.getDay()))
+        ? dom(cursor.getDate()) || dow(cursor.getDay())
+        : dom(cursor.getDate()) && dow(cursor.getDay()))
     ) {
-      return new Date(t.getTime());
+      return new Date(cursor.getTime());
     }
-    t.setMinutes(t.getMinutes() + 1);
+    cursor.setMinutes(cursor.getMinutes() + 1);
   }
   return null;
 }
@@ -78,8 +80,8 @@ export function formatNextRun(d: Date | null): string {
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  if (sameDay) return `Today ${hm}`;
+  if (sameDay) return t("Today {time}", { time: hm });
   const tomorrow = new Date(now.getTime() + 24 * 3600 * 1000);
-  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow ${hm}`;
+  if (d.toDateString() === tomorrow.toDateString()) return t("Tomorrow {time}", { time: hm });
   return `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }

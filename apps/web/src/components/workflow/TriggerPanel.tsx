@@ -34,15 +34,16 @@ export function describeCron(expr: string): string {
   const mm = String(Number(min)).padStart(2, "0");
   const hm = `${hh}:${mm}`;
   if (dow === "1-5") {
-    return `Weekdays ${hm}`;
+    return t("Weekdays {time}", { time: hm });
   }
   if (dow !== undefined && /^[0-6]$/.test(dow)) {
-    return `${WEEKDAYS[Number(dow)] ?? ""} ${hm}`;
+    const weekday = WEEKDAYS[Number(dow)] ?? "";
+    return t("{weekday} {time}", { weekday: t(weekday), time: hm });
   }
   if (hour === "*") {
-    return `Every hour at ${mm} min`;
+    return t("Every hour at {minute} min", { minute: mm });
   }
-  return `Daily ${hm}`;
+  return t("Daily {time}", { time: hm });
 }
 
 function buildCron(mode: Mode, time: string, weekday: number): string {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { t } from "@/lib/i18n";
 import type { TraceEvent } from "./ExecutionTraceView";
 
 /** Colored tag per event kind (Obsidian telemetry tags). Unknown events read
@@ -16,6 +17,9 @@ const EVENT_TAG: Record<string, string> = {
   execution_terminal: "border-(--primary)/30 bg-(--primary)/10 text-(--primary)",
 };
 
+/** Stands in for a node the event does not name. */
+const UNKNOWN_NODE = "?";
+
 function tagFor(event: string): string {
   return EVENT_TAG[event] ?? "border-(--hairline)/50 bg-(--canvas-soft) text-(--mute)";
 }
@@ -25,7 +29,7 @@ function tagFor(event: string): string {
 export function RunConsole({ events }: { events: TraceEvent[] }) {
   const [openEvent, setOpenEvent] = useState<number | null>(null);
   if (events.length === 0) {
-    return <div className="px-4 py-2 text-xs text-(--mute)">No execution events yet.</div>;
+    return <div className="px-4 py-2 text-xs text-(--mute)">{t("No execution events yet.")}</div>;
   }
   return (
     <div className="max-h-56 overflow-y-auto px-4 py-2 font-code-sm text-code-sm leading-relaxed">
@@ -44,7 +48,7 @@ export function RunConsole({ events }: { events: TraceEvent[] }) {
           <span
             className={`shrink-0 rounded border px-1.5 py-0.5 font-label-caps text-label-caps font-bold uppercase ${tagFor(e.event)}`}
           >
-            {e.event.replace(/_/g, " ")}
+            {t(e.event.replace(/_/g, " "))}
           </span>
           <button
             type="button"
@@ -67,19 +71,26 @@ export function RunConsole({ events }: { events: TraceEvent[] }) {
 /** One-line human summary of a workflow execution event payload. */
 function renderEventSummary(event: string, data: unknown): string {
   const d = (data ?? {}) as Record<string, unknown>;
+  const node = String(d.nodeId ?? UNKNOWN_NODE);
   switch (event) {
     case "node_started":
-      return `node ${String(d.nodeId ?? "?")} started`;
+      return t("node {node} started", { node });
     case "node_completed":
-      return `node ${String(d.nodeId ?? "?")} completed${d.routedTo ? ` → ${String(d.routedTo)}` : ""}`;
+      return d.routedTo
+        ? t("node {node} completed → {to}", { node, to: String(d.routedTo) })
+        : t("node {node} completed", { node });
     case "node_failed":
-      return `node ${String(d.nodeId ?? "?")} failed${d.error ? `: ${String(d.error)}` : ""}`;
+      return d.error
+        ? t("node {node} failed: {error}", { node, error: String(d.error) })
+        : t("node {node} failed", { node });
     case "routing":
-      return `routed to ${String(d.to ?? "?")}`;
+      return t("routed to {to}", { to: String(d.to ?? UNKNOWN_NODE) });
     case "execution_started":
-      return `execution started${d.triggeredBy ? ` (${String(d.triggeredBy)})` : ""}`;
+      return d.triggeredBy
+        ? t("execution started ({trigger})", { trigger: String(d.triggeredBy) })
+        : t("execution started");
     case "execution_terminal":
-      return `execution ${String(d.status ?? "terminated")}`;
+      return t("execution {status}", { status: t(String(d.status ?? "terminated")) });
     default:
       return event;
   }

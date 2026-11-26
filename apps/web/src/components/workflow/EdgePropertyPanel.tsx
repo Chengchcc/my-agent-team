@@ -138,10 +138,12 @@ export function EdgePropertyPanel({
       </div>
 
       <div className="mt-3 flex-1 space-y-1 overflow-auto">
-        <Label className="text-xs text-(--mute)">when (condition, empty = unconditional)</Label>
+        <Label className="text-xs text-(--mute)">
+          {t("when (condition, empty = unconditional)")}
+        </Label>
         <div className="space-y-2 rounded-md border border-(--hairline) bg-(--canvas)/50 p-2">
           <div className="flex items-center gap-1">
-            <span className="text-xs text-(--mute)">When</span>
+            <span className="text-xs text-(--mute)">{t("When")}</span>
             <Select value={combine} onValueChange={(v) => setCombine((v ?? "and") as "and" | "or")}>
               <SelectTrigger className="h-7 w-16 border-(--hairline) bg-(--canvas) text-[10px]">
                 <SelectValue />
@@ -151,7 +153,7 @@ export function EdgePropertyPanel({
                 <SelectItem value="or">or</SelectItem>
               </SelectContent>
             </Select>
-            <span className="text-xs text-(--mute)">satisfied</span>
+            <span className="text-xs text-(--mute)">{t("satisfied")}</span>
           </div>
           {conditions.map((c, i) => (
             <div key={i} className="space-y-1 rounded-md border border-(--hairline) p-2">
@@ -183,7 +185,7 @@ export function EdgePropertyPanel({
                 }}
               >
                 <SelectTrigger className="h-7 w-full border-(--hairline) bg-(--canvas) font-mono text-xs">
-                  <SelectValue placeholder="Output variable" />
+                  <SelectValue placeholder={t("Output variable")} />
                 </SelectTrigger>
                 <SelectContent>
                   {definition.nodes
@@ -202,7 +204,7 @@ export function EdgePropertyPanel({
               {c.op !== "exists" && (
                 <Input
                   className="h-7 border-(--hairline) bg-(--canvas) font-mono text-xs"
-                  placeholder="Constant value"
+                  placeholder={t("Constant value")}
                   value={c.right}
                   onChange={(e) => {
                     const next = [...conditions];
@@ -261,10 +263,10 @@ export function EdgePropertyPanel({
               );
             }}
           >
-            Apply condition
+            {t("Apply condition")}
           </Button>
         </div>
-        <Label className="mt-2 text-xs text-(--mute)">Or edit JSONLogic directly</Label>
+        <Label className="mt-2 text-xs text-(--mute)">{t("Or edit JSONLogic directly")}</Label>
         <Textarea
           className="min-h-24 border-(--hairline) bg-(--canvas) font-mono text-xs"
           value={when}
@@ -284,7 +286,7 @@ export function EdgePropertyPanel({
             }
           }}
         >
-          Apply JSONLogic
+          {t("Apply JSONLogic")}
         </Button>
       </div>
     </div>

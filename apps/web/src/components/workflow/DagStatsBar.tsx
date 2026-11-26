@@ -2,6 +2,7 @@
 
 import { Maximize, ZoomIn, ZoomOut } from "lucide-react";
 import { useState } from "react";
+import { t } from "@/lib/i18n";
 
 type ZoomApi = {
   zoomIn?: () => void;
@@ -38,7 +39,7 @@ export function DagStatsBar({
           type="button"
           onClick={() => zoom?.zoomOut?.()}
           className="rounded p-1 text-(--mute) hover:bg-(--panel2) hover:text-(--ink)"
-          aria-label="Zoom out"
+          aria-label={t("Zoom out")}
         >
           <ZoomOut size={14} />
         </button>
@@ -46,7 +47,7 @@ export function DagStatsBar({
           type="button"
           onClick={() => zoom?.zoomIn?.()}
           className="rounded p-1 text-(--mute) hover:bg-(--panel2) hover:text-(--ink)"
-          aria-label="Zoom in"
+          aria-label={t("Zoom in")}
         >
           <ZoomIn size={14} />
         </button>
@@ -57,7 +58,7 @@ export function DagStatsBar({
             setLevel(100);
           }}
           className="rounded p-1 text-(--mute) hover:bg-(--panel2) hover:text-(--ink)"
-          aria-label="Fit view"
+          aria-label={t("Fit view")}
         >
           <Maximize size={14} />
         </button>
@@ -76,7 +77,7 @@ export function DagStatsBar({
             <span
               className={`size-1.5 rounded-full ${streaming ? "bg-(--ok) animate-pulse" : "bg-(--faint)"}`}
             />
-            {streaming ? "Following live" : "Paused"}
+            {streaming ? t("Following live") : t("Paused")}
           </button>
         )}
       </div>
@@ -84,15 +85,15 @@ export function DagStatsBar({
       {/* DAG stats */}
       <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-kicker text-(--mute)">
         <span>
-          DAG Nodes: <span className="text-(--ink-strong)">{nodeCount}</span>
+          {t("DAG Nodes")}: <span className="text-(--ink-strong)">{nodeCount}</span>
         </span>
         <span>
-          Acyclic Depth: <span className="text-(--ink-strong)">{depth}</span>
+          {t("Acyclic Depth")}: <span className="text-(--ink-strong)">{depth}</span>
         </span>
         <span className="flex items-center gap-1">
-          Deterministic{" "}
+          {t("Deterministic")}{" "}
           <span className={validated ? "text-(--ok)" : "text-(--err)"}>
-            {validated ? "Validated" : "Not validated"}
+            {validated ? t("Validated") : t("Not validated")}
           </span>
         </span>
       </div>

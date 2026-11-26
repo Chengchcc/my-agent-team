@@ -2,6 +2,7 @@
 
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Bot, Code2, Flag, type LucideIcon, Play, UserRound } from "lucide-react";
+import { t as translate } from "@/lib/i18n";
 
 const typeIcon: Record<string, LucideIcon> = {
   start: Play,
@@ -84,7 +85,7 @@ export function WorkflowNodeCard({ data, selected }: NodeProps) {
             e.stopPropagation();
             onDelete();
           }}
-          title="Delete node"
+          title={translate("Delete node")}
           className="absolute -right-2 -top-2 z-10 flex size-5 items-center justify-center rounded-full border border-(--hairline) bg-(--canvas) text-[10px] text-(--err) opacity-0 transition-opacity hover:border-(--err) hover:bg-(--panel2) [.react-flow__node:hover_&]:opacity-100"
         >
           ✕
