@@ -37,6 +37,11 @@ describe("classifyAuthorization", () => {
       ruleId: null,
       refId: "r1",
     });
+    expect(classifyAuthorization("result:coder")).toEqual({
+      source: "result",
+      ruleId: null,
+      refId: "coder",
+    });
     expect(classifyAuthorization("handback:r9").refId).toBe("r9");
   });
 
@@ -108,6 +113,7 @@ describe("deriveLedgerRows", () => {
       owner: 2,
       human: 1,
       dispatch: 1,
+      result: 0,
       handback: 0,
       unrecorded: 1,
     });

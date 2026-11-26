@@ -141,7 +141,9 @@ export default function RequirementDetailPage() {
         <div className="flex items-center gap-2">
           <Badge variant={requirementStatusTone(status)}>{requirementStatusLabel(status)}</Badge>
           <Badge variant="secondary">
-            {t("{n} Agent", { n: parts.ids.length })}
+            {parts.ids.length === 1
+              ? t("{n} Agent", { n: 1 })
+              : t("{n} Agents", { n: parts.ids.length })}
             <span className="text-(--faint)">
               {" "}
               · {parts.fronts.length} {t("PA")} · {parts.workers.length} {t("Worker")}

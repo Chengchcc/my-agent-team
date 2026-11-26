@@ -2,6 +2,7 @@
 
 import { MessageCircle, Plus } from "lucide-react";
 import Link from "next/link";
+import type { MouseEvent } from "react";
 import { useMemo, useState } from "react";
 import { type AskPaRequest, AskPaSheet } from "@/components/AskPaSheet";
 import { GlobalSearch } from "@/components/GlobalSearch";
@@ -18,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { WikiReaderSheet } from "@/components/wiki/WikiReaderSheet";
 import { useAgentList } from "@/features/agents/hooks";
 import type { GraphEdge, GraphNode } from "@/features/wiki/catalog";
 import { mostLinked, outDegree, spaceOf } from "@/features/wiki/catalog";
@@ -105,18 +107,21 @@ function WikiEntry({
   related,
   withoutSources,
   maintainer,
+  onOpen,
 }: {
   row: EntryRow;
   summary: string;
   related: number;
   withoutSources: boolean;
   maintainer: string;
+  onOpen: (event: MouseEvent, path: string) => void;
 }) {
   return (
     <article className="border-b border-(--hairline) py-[21px]" data-wiki-path={row.path}>
       <h3 className="m-0 mb-2 flex flex-wrap items-center gap-3">
         <Link
           href={wikiPageHref(row.path)}
+          onClick={(event) => onOpen(event, row.path)}
           className="text-left text-[19px] leading-[1.6] font-[450] text-(--primary) wrap-anywhere hover:text-(--primary-deep)"
         >
           {row.title}
@@ -140,7 +145,16 @@ export default function WikiPage() {
   const [term, setTerm] = useState("");
   const [category, setCategory] = useState("all");
   const [ask, setAsk] = useState<AskPaRequest | null>(null);
+  const [readingPath, setReadingPath] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState<"closed" | "open">("closed");
+
+  function openInReader(event: MouseEvent, targetPath: string): void {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    setReadingPath(targetPath);
+  }
 
   const pages = useWikiPages();
   const graph = useWikiGraph();
@@ -329,7 +343,7 @@ export default function WikiPage() {
                 className="min-w-0 flex-1 basis-64 rounded-xl px-4 py-[13px] text-sm"
               />
               <Button variant="secondary" onClick={() => setGlobalSearch("open")}>
-                {t("Global search · Ctrl+K")}
+                {t("Global search · ⌘K")}
               </Button>
             </div>
 
@@ -377,6 +391,7 @@ export default function WikiPage() {
                         related={outbound.get(row.path) ?? 0}
                         withoutSources={unsourced.has(row.path)}
                         maintainer={maintainer(row.maintainedBy)}
+                        onOpen={openInReader}
                       />
                     ))}
                   </section>
@@ -409,6 +424,7 @@ export default function WikiPage() {
                     <Link
                       key={node.path}
                       href={wikiPageHref(node.path)}
+                      onClick={(event) => openInReader(event, node.path)}
                       className="my-[13px] block text-left text-[13px] leading-[1.8] text-(--primary) wrap-anywhere hover:text-(--primary-deep)"
                     >
                       {node.title}
@@ -478,6 +494,7 @@ export default function WikiPage() {
                           <Link
                             key={row.path}
                             href={wikiPageHref(row.path)}
+                            onClick={(event) => openInReader(event, row.path)}
                             className="my-3 block text-left text-xs text-(--primary) wrap-anywhere hover:text-(--primary-deep)"
                           >
                             {row.path.slice(space.length + 1)}
@@ -526,6 +543,7 @@ export default function WikiPage() {
                     <TableCell className="max-w-[240px] truncate">
                       <Link
                         href={wikiPageHref(finding.path)}
+                        onClick={(event) => openInReader(event, finding.path)}
                         className="text-(--primary) hover:text-(--primary-deep)"
                       >
                         {titleByPath.get(finding.path) ?? finding.path}
@@ -553,6 +571,15 @@ export default function WikiPage() {
       </PageBody>
 
       {globalSearch === "open" && <GlobalSearch open onClose={() => setGlobalSearch("closed")} />}
+      <WikiReaderSheet
+        path={readingPath}
+        onClose={() => setReadingPath(null)}
+        onNavigate={setReadingPath}
+        onAskPa={(request) => {
+          setReadingPath(null);
+          setAsk(request);
+        }}
+      />
       <AskPaSheet request={ask} onClose={() => setAsk(null)} />
     </Page>
   );

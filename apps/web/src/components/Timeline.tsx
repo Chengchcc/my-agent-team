@@ -5,6 +5,7 @@ import { FileTextIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useAgentList } from "@/features/agents/hooks";
 import type { ArtifactMeta } from "@/lib/api";
 import type { UiItem } from "@/lib/conversation-reducer";
 import {
@@ -211,6 +212,18 @@ export function Timeline({
 }: TimelineProps) {
   const segments = useMemo(() => groupTurns(messages), [messages]);
   const anchors = useMemo(() => extractAnchors(segments), [segments]);
+  const { data: agents } = useAgentList();
+  const agentNameById = useMemo(
+    () => new Map((agents ?? []).map((a) => [a.id, a.name] as const)),
+    [agents],
+  );
+  const resolveSenderName = useCallback(
+    (sender: MessageItem["sender"]): string => {
+      const id = sender.agentId ?? sender.memberId;
+      return sender.displayName ?? agentNameById.get(id) ?? id;
+    },
+    [agentNameById],
+  );
   const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -336,6 +349,7 @@ export function Timeline({
                   <ReasoningTrace
                     segment={seg}
                     defaultOpen={false}
+                    senderName={resolveSenderName(seg.sender)}
                     showSender={
                       firstIdx >= 0 ? senderGroupBounds(messages, firstIdx).showSender : false
                     }
@@ -435,7 +449,7 @@ export function Timeline({
                     {splitAnchorText(extractText(m.content), Boolean(m.anchor)).text && (
                       <MessageBubble
                         align={isSelf ? "right" : "left"}
-                        name={isSelf ? undefined : (m.sender.displayName ?? m.sender.memberId)}
+                        name={isSelf ? undefined : resolveSenderName(m.sender)}
                         agentId={m.sender.agentId}
                         createdAt={m.content.createdAt}
                         content={splitAnchorText(extractText(m.content), Boolean(m.anchor)).text}
@@ -526,7 +540,7 @@ export function Timeline({
                 {showBubble ? (
                   <MessageBubble
                     align="left"
-                    name={t.sender.displayName ?? t.sender.memberId}
+                    name={resolveSenderName(t.sender)}
                     agentId={t.sender.agentId}
                     content={t.text}
                     isStreaming={!t.error}

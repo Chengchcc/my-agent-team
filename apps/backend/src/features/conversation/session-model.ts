@@ -313,6 +313,15 @@ function groupLedgerMessages(ledger: readonly SessionModelLedgerRow[]): Map<stri
   return out;
 }
 
+function isAnchorMeta(v: unknown): v is { url: string; anchor: unknown } {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as { url?: unknown }).url === "string" &&
+    "anchor" in v
+  );
+}
+
 /** MessageRevision (a ledger row) to Message: same field names, only the id field is renamed. */
 function revisionToMessage(revision: ReturnType<typeof deserializeLedgerContent>): Message {
   if (!("messageId" in revision)) return { role: "system", text: "" };
@@ -326,6 +335,16 @@ function revisionToMessage(revision: ReturnType<typeof deserializeLedgerContent>
     ...(revision.conversationId !== undefined ? { conversationId: revision.conversationId } : {}),
     ...(revision.visibility !== undefined ? { visibility: revision.visibility } : {}),
     ...(revision.error !== undefined ? { error: revision.error } : {}),
+    ...(isAnchorMeta(revision.anchor) ? { anchor: revision.anchor } : {}),
+    ...(revision.floorFor !== undefined && revision.floorFor !== null
+      ? { floorFor: revision.floorFor }
+      : {}),
+    ...(revision.dispatchTo !== undefined && revision.dispatchTo !== null
+      ? { dispatchTo: revision.dispatchTo }
+      : {}),
+    ...(revision.authorAgentId !== undefined && revision.authorAgentId !== null
+      ? { authorAgentId: revision.authorAgentId }
+      : {}),
     updatedAt: revision.updatedAt,
   };
 }

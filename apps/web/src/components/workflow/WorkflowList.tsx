@@ -24,6 +24,7 @@ import { t } from "@/lib/i18n";
 import { executionStatus } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { RunWorkflowDialog } from "./RunWorkflowDialog";
+import { WorkflowMiniDag } from "./WorkflowMiniDag";
 import { WorkflowNewSheet } from "./WorkflowNewSheet";
 
 /** The new-workflow sheet stays mounted while closing, so it can finish its exit and hand focus
@@ -154,8 +155,9 @@ function WorkflowCardView({
             ) : (
               <p className="my-2 text-xs text-(--mute)">{description}</p>
             )}
+            <WorkflowMiniDag preview={card.preview} />
           </Link>
-          <Caption>{shape}</Caption>
+          <Caption className="mt-2.5">{shape}</Caption>
           {card.facts !== null && !card.facts.valid && (
             <p role="alert" className="mt-2 text-xs text-(--err)">
               {t("This definition does not parse. Open the editor to see why.")}

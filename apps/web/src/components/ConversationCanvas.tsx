@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,12 +11,14 @@ import { Button } from "@/components/ui/button";
 import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
 import { useAgentList } from "@/features/agents/hooks";
 import { useConversationTitle } from "@/features/conversations/hooks";
+import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { useConversation } from "@/hooks/useConversation";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { SenderRef } from "@/lib/conversation-reducer";
 import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
+import type { SkillCommand } from "@/lib/slash-commands";
 import { StatusPill } from "./patterns";
 import { RosterList } from "./RosterList";
 import { RunDiagnostics } from "./RunDiagnostics";
@@ -107,12 +110,20 @@ export function ConversationCanvas({
 
   const primaryAgent = agent;
   const primaryAgentId = agentMemberId(primaryAgent);
-  const agentName = agentDisplayName(primaryAgent);
 
   const { data: agents } = useAgentList();
   const member = agents?.find((a) => a.id === primaryAgentId);
+  const agentName = member?.name ?? agentDisplayName(primaryAgent);
+  const resolvedAgent: SenderRef | null =
+    primaryAgent === null ? null : { ...primaryAgent, displayName: agentName };
   const primaryHarness = member?.harness;
   const mark = roleKindOf({ name: agentName, role: member?.role });
+
+  const skillsQuery = useQuery({
+    ...agentSkillCommandsQuery(primaryAgentId ?? ""),
+    enabled: Boolean(primaryAgentId),
+  });
+  const skills: readonly SkillCommand[] = skillsQuery.data ?? [];
 
   const { data: titleRow } = useConversationTitle(conversationId);
   const title = titleRow ? conversationDisplayName(titleRow) : agentName;
@@ -191,7 +202,7 @@ export function ConversationCanvas({
         </section>
         <section className="rounded-[15px] border border-white/6 bg-(--panel) p-5">
           <h2 className="mb-3 text-sm font-[550] text-(--ink)">{t("Members")}</h2>
-          <RosterList agent={agent} />
+          <RosterList agent={resolvedAgent} />
           <RunDiagnostics conversationId={conversationId} agentId={primaryAgentId} />
           <UsagePanel conversationId={conversationId} />
         </section>
@@ -286,6 +297,7 @@ export function ConversationCanvas({
         conversationId={conversationId}
         conversation={conversation}
         anchorSeq={anchorSeq}
+        skills={skills}
         emptyTitle={
           primaryAgent ? (
             <p className="mb-2 text-sm text-(--mute)">
@@ -309,7 +321,7 @@ export function ConversationCanvas({
             role="dialog"
             aria-label={t("Members")}
           >
-            <RosterList agent={agent} onClose={() => setRosterOpen("")} />
+            <RosterList agent={resolvedAgent} onClose={() => setRosterOpen("")} />
             <RunDiagnostics conversationId={conversationId} agentId={primaryAgentId} />
             <UsagePanel conversationId={conversationId} />
           </aside>

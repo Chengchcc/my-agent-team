@@ -14,4 +14,8 @@ export interface MessageRevision {
   error?: MessageError;
   /** Transient run status indicator (retrying/compacting). Not persisted to ledger. */
   runStatus?: "running" | "retrying" | "compacting" | "waiting";
+  anchor?: unknown;
+  floorFor?: { agentId: string; agentName: string };
+  dispatchTo?: { conversationId: string };
+  authorAgentId?: string;
 }

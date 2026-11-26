@@ -4,13 +4,14 @@ import { type EditorGraph, toEditorGraph, type WorkflowNode } from "@chengchencc
 import { ArrowLeft, Code2, Pencil, Play } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Note, PanelCell, PanelRow, PanelTable } from "@/components/ops/kit";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SubTabs } from "@/components/ui/polish";
 import { definitionFacts } from "@/features/workflow/definition-facts";
+import { clearWorkflowDraft, readWorkflowDraft } from "@/features/workflow/draft-storage";
 import { useWorkflowExecutions } from "@/features/workflow/hooks";
 import {
   runBlockReason,
@@ -21,7 +22,7 @@ import {
   workflowName,
 } from "@/features/workflow/list-facts";
 import { type OverviewTab, overviewTabOf } from "@/features/workflow/overview-tab";
-import { definitionOf } from "@/features/workflow/proposal-draft";
+import { definitionOf, sameDefinition } from "@/features/workflow/proposal-draft";
 import type { WorkflowDefinitionRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { formatNextRun, nextCronRun } from "./cron-next";
@@ -70,9 +71,23 @@ export function WorkflowOverview({ workflowId, raw, row, initialTab }: WorkflowO
   const [tab, setTab] = useState<OverviewTab>(initialTab);
   const [runSheet, setRunSheet] = useState<"closed" | "open">("closed");
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [localDraftAt, setLocalDraftAt] = useState<number | null>(null);
   const executionsQuery = useWorkflowExecutions(workflowId);
   const executions = executionsQuery.data?.executions ?? [];
-  const definition = definitionOf(raw);
+  const definition = useMemo(() => definitionOf(raw), [raw]);
+
+  useEffect(() => {
+    if (definition === null) {
+      setLocalDraftAt(null);
+      return;
+    }
+    const stored = readWorkflowDraft(workflowId);
+    if (stored !== null && !sameDefinition(stored.definition, definition)) {
+      setLocalDraftAt(stored.updatedAt);
+    } else {
+      setLocalDraftAt(null);
+    }
+  }, [workflowId, definition]);
   const facts = definitionFacts(raw);
   const card = workflowCard(row, raw, executions);
   const block = runBlockReason(card);
@@ -155,6 +170,34 @@ export function WorkflowOverview({ workflowId, raw, row, initialTab }: WorkflowO
           active={tab}
           onChange={(key) => setTab(overviewTabOf(key))}
         />
+
+        {localDraftAt !== null && (
+          <div
+            role="status"
+            className={`${ALERT_CLASS} flex flex-wrap items-center gap-3 border-(--warn)/25 bg-(--warn)/8 text-(--warn)`}
+          >
+            <span className="min-w-0 flex-1">
+              {t(
+                "You have an unsaved local draft in this browser. This overview still shows the saved definition.",
+              )}
+            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button size="xs" onClick={() => router.push(editHref)}>
+                {t("Resume editing")}
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  clearWorkflowDraft(workflowId);
+                  setLocalDraftAt(null);
+                }}
+              >
+                {t("Discard draft")}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {tab === "overview" && (
           <div className="space-y-5">

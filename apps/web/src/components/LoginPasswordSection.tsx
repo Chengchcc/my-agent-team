@@ -64,11 +64,13 @@ export function LoginPasswordSection() {
           )
         }
         hint={
-          data?.configured === true
-            ? t("A password set here is stored as a hash and is the one that logs in.")
-            : t(
-                "Until you set one, the password generated at first start (gateway-secrets.json, or the dev .env) is the one that logs in.",
-              )
+          isLoading
+            ? t("Checking password status…")
+            : data?.configured === true
+              ? t("A password set here is stored as a hash and is the one that logs in.")
+              : t(
+                  "Until you set one, the password generated at first start (gateway-secrets.json, or the dev .env) is the one that logs in.",
+                )
         }
       >
         <div>

@@ -31,7 +31,7 @@ export function TokenAreaChart({ data, range }: { data: TelemetrySummary; range:
           {t("Token activity")} · {range}
         </span>
         <span className="font-mono text-[10px] text-(--mute)">
-          {fmtTokens(tokens)} {t("tokens")} / {data.runs} {t("runs")}
+          {fmtTokens(tokens)} {t("tokens")} / {data.runs} {data.runs === 1 ? t("run") : t("runs")}
         </span>
       </div>
       <div className="h-[170px] w-full">

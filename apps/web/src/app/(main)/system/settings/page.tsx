@@ -64,6 +64,7 @@ function InterfaceLanguageSection() {
         </Label>
         <Select
           value={locale}
+          items={localeOptions}
           onValueChange={(value) => {
             if (typeof value !== "string" || value === locale) return;
             chooseLocale(value);

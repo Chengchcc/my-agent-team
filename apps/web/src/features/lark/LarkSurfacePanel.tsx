@@ -328,7 +328,15 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
 
       <div className="space-y-1.5">
         <Label>Who may use it</Label>
-        <Select value={accessMode} onValueChange={(v) => setAccessMode(v as typeof accessMode)}>
+        <Select
+          value={accessMode}
+          items={[
+            { value: "everyone", label: "Everyone in the tenant" },
+            { value: "selected", label: "Only the members I list" },
+            { value: "nobody", label: "Nobody (paused for access)" },
+          ]}
+          onValueChange={(v) => setAccessMode(v as typeof accessMode)}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -354,7 +362,15 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
 
       <div className="space-y-1.5">
         <Label>Groups</Label>
-        <Select value={groupPolicy} onValueChange={(v) => setGroupPolicy(v as typeof groupPolicy)}>
+        <Select
+          value={groupPolicy}
+          items={[
+            { value: "disabled", label: "Direct messages only" },
+            { value: "open", label: "Any group the bot is in" },
+            { value: "allowlist", label: "Only groups I list" },
+          ]}
+          onValueChange={(v) => setGroupPolicy(v as typeof groupPolicy)}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -428,6 +444,12 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
                 </span>
                 <Select
                   value={chatPolicy[chatId] ?? "inherit"}
+                  items={[
+                    { value: "inherit", label: "Inherit default" },
+                    { value: "open", label: "Open" },
+                    { value: "allowlist", label: "Allowlist" },
+                    { value: "disabled", label: "Disabled" },
+                  ]}
                   onValueChange={(v) =>
                     setChatPolicy((prev) => ({
                       ...prev,
@@ -447,6 +469,11 @@ export function LarkSurfacePanel({ agentId }: { agentId: string }) {
                 </Select>
                 <Select
                   value={chatMention[chatId] ?? "inherit"}
+                  items={[
+                    { value: "inherit", label: "Inherit @ rule" },
+                    { value: "required", label: "Require @" },
+                    { value: "optional", label: "No @ needed" },
+                  ]}
                   onValueChange={(v) =>
                     setChatMention((prev) => ({
                       ...prev,

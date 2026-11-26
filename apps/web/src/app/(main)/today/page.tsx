@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useAgentList } from "@/features/agents/hooks";
 import { useAllConversations } from "@/features/conversations/hooks";
+import { isWorkConversation } from "@/features/conversations/overview";
 import { SavedSection } from "@/features/conversations/SavedSection";
 import {
   useCancelReminder,
@@ -338,7 +339,9 @@ export default function TodayPage() {
   );
   const firstPaMember = pas.at(0);
   const firstPa = firstPaMember === undefined ? "PA" : firstPaMember.name;
-  const roots = conversations.filter((room) => room.parentConversationId === null).length;
+  const roots = conversations.filter(
+    (room) => isWorkConversation(room) && room.parentConversationId === null,
+  ).length;
   const dash = "—";
   let kicker: string | undefined;
   if (dayIndex !== null) {

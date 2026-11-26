@@ -34,6 +34,11 @@ import { proposalKeys } from "@/features/proposals/queries";
 import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { workflowRequest } from "@/features/workflow/draft";
 import {
+  clearWorkflowDraft,
+  readWorkflowDraft,
+  writeWorkflowDraft,
+} from "@/features/workflow/draft-storage";
+import {
   choosePane,
   type EditorPane,
   type OpenSides,
@@ -226,6 +231,8 @@ export function AgenticWorkflowEditor({
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [settled, setSettled] = useState<{ id: string; decision: Settlement } | null>(null);
+  const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
+  const draftHydratedRef = useRef(false);
   const qc = useQueryClient();
   const definitionRef = useRef<WorkflowDefinition | null>(initial);
   definitionRef.current = definition;
@@ -295,6 +302,8 @@ export function AgenticWorkflowEditor({
       await api.saveWorkflowDefinition(workflowId, { ...definition });
       written = definition;
       setSaved(definition);
+      clearWorkflowDraft(workflowId);
+      setRestoredDraftAt(null);
       setValidation({ ok: true });
       toast.success(t("Workflow saved"));
     } catch (err) {
@@ -339,9 +348,42 @@ export function AgenticWorkflowEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
-  // Warn before losing unsaved edits (reload/tab close).
+  // Hydrate an unsaved local draft for this workflow on mount.
   useEffect(() => {
-    if (!dirty) {
+    draftHydratedRef.current = true;
+    const base = savedRef.current;
+    if (base === null) {
+      return;
+    }
+    const stored = readWorkflowDraft(workflowId);
+    if (stored === null) {
+      return;
+    }
+    if (sameDefinition(stored.definition, base)) {
+      clearWorkflowDraft(workflowId);
+      return;
+    }
+    setDefinition(stored.definition);
+    definitionRef.current = stored.definition;
+    setRestoredDraftAt(stored.updatedAt);
+  }, [workflowId]);
+
+  // Persist unsaved edits locally so returning to the overview or refreshing never loses work.
+  useEffect(() => {
+    if (!draftHydratedRef.current) {
+      return;
+    }
+    if (dirty && definition !== null) {
+      writeWorkflowDraft(workflowId, definition);
+    } else {
+      clearWorkflowDraft(workflowId);
+      setRestoredDraftAt(null);
+    }
+  }, [workflowId, definition, dirty]);
+
+  // Warn before losing unapplied DSL editor text on reload/tab close (applied edits persist locally).
+  useEffect(() => {
+    if (dslPending !== "edited") {
       return;
     }
     function onBeforeUnload(event: BeforeUnloadEvent) {
@@ -349,7 +391,7 @@ export function AgenticWorkflowEditor({
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
+  }, [dslPending]);
 
   const graph = useMemo(() => {
     if (definition === null) {
@@ -539,14 +581,27 @@ export function AgenticWorkflowEditor({
     }
   }
 
+  function discardLocalDraft(): void {
+    if (saved === null) {
+      return;
+    }
+    clearWorkflowDraft(workflowId);
+    setDefinition(saved);
+    definitionRef.current = saved;
+    setPast([]);
+    setFuture([]);
+    setRestoredDraftAt(null);
+    toast.success(t("Local draft discarded"));
+  }
+
   function guardLeave(event: MouseEvent): void {
-    if (!dirty) {
+    if (dslPending !== "edited") {
       return;
     }
     event.preventDefault();
     const options = {
       title: t("Discard unsaved changes?"),
-      description: t("You have unsaved modifications. Leaving will lose them."),
+      description: t("You have unapplied DSL edits. Leaving will lose the unapplied text."),
       confirmText: t("Leave"),
       cancelText: t("Stay"),
       destructive: true,
@@ -774,6 +829,22 @@ export function AgenticWorkflowEditor({
           {saving === "busy" ? t("Saving…") : t("Save")}
         </Button>
       </header>
+
+      {restoredDraftAt !== null && dirty && (
+        <div
+          role="status"
+          className="flex shrink-0 flex-wrap items-center gap-3 border-b border-(--warn)/25 bg-(--warn)/8 px-4 py-1.5 text-xs text-(--warn)"
+        >
+          <span className="min-w-0 flex-1">
+            {t(
+              "Restored your unsaved local draft. Save writes it; Discard returns to the saved definition.",
+            )}
+          </span>
+          <Button size="xs" variant="outline" onClick={discardLocalDraft}>
+            {t("Discard draft")}
+          </Button>
+        </div>
+      )}
 
       {validation && (
         <div

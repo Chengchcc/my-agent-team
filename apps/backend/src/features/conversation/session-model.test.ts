@@ -413,6 +413,38 @@ describe("ledger turns (ADR 0040: a message that belongs to no Run still happene
     expect(turns[0]?.seq).toBe(7);
   });
 
+  test("a dispatcher's ledger-only note preserves authorAgentId, dispatchTo, floorFor, and anchor", () => {
+    const turns = buildTurns({
+      ledger: [
+        {
+          seq: 8,
+          conversationId: "conv-fork",
+          content: JSON.stringify({
+            messageId: "msg:dispatch",
+            role: "user",
+            state: "done",
+            text: "→ 已派给 Coder：「fix」",
+            updatedAt: 1,
+            authorAgentId: "default",
+            dispatchTo: { conversationId: "child-room-1" },
+            floorFor: { agentId: "coder", agentName: "Coder" },
+            anchor: { url: "artifacts://doc.md", anchor: { line: 1 } },
+          }),
+          agentRunId: null,
+          messageIndex: 0,
+        },
+      ],
+      queue: [],
+      runs: [],
+      pendingActions: [],
+    });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.input?.authorAgentId).toBe("default");
+    expect(turns[0]?.input?.dispatchTo).toEqual({ conversationId: "child-room-1" });
+    expect(turns[0]?.input?.floorFor).toEqual({ agentId: "coder", agentName: "Coder" });
+    expect(turns[0]?.input?.anchor).toEqual({ url: "artifacts://doc.md", anchor: { line: 1 } });
+  });
+
   test("undone rows and run error bubbles stay out", () => {
     const turns = buildTurns({
       ledger: [

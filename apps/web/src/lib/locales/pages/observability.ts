@@ -45,6 +45,7 @@ export const observabilityZh: Record<string, string> = {
   "Cancel failed": "取消失败",
   "Token activity": "Token 活动",
   tokens: "个 token",
+  run: "次运行",
   runs: "次运行",
   "No usage in this window.": "这个时间窗内没有用量。",
   "60 minutes ago": "60 分钟前",

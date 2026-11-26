@@ -109,7 +109,11 @@ export function MemberCard({
         </div>
         <div className="min-w-0">
           <dt className={metaLabel}>{t("Work context")}</dt>
-          <dd className={metaValue}>{t("{n} conversations", { n: conversations })}</dd>
+          <dd className={metaValue}>
+            {conversations === 1
+              ? t("{n} conversation", { n: 1 })
+              : t("{n} conversations", { n: conversations })}
+          </dd>
         </div>
       </dl>
 

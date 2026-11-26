@@ -40,6 +40,7 @@ import {
 import {
   ALL,
   conversationOverview,
+  isWorkConversation,
   type OverviewConversation,
   type PaLike,
   SOURCE_FILTERS,
@@ -348,7 +349,7 @@ export default function ChatOverviewPage() {
   const search = useConversationSearch(ledgerQuery, ledgerQuery !== "");
   const hits = search.data === undefined ? [] : (search.data.results ?? []);
   const agents = agentsQuery.data ?? [];
-  const conversations = listQuery.data ?? [];
+  const conversations = (listQuery.data ?? []).filter(isWorkConversation);
   const projects = projectsQuery.data === undefined ? [] : projectsQuery.data.projects;
   const awaiting = attention.data === undefined ? [] : attention.data.awaitingYou;
 
@@ -413,21 +414,32 @@ export default function ChatOverviewPage() {
     body = (
       <>
         <div className="flex flex-wrap gap-3">
-          {overviewAll.chips.map((chip) => (
-            <div
-              key={chip.pa.id}
-              className="flex items-center gap-2.5 rounded-[11px] border border-(--hairline) p-3"
-            >
-              <RoleAvatar kind={roleKindOf(chip.pa)} name={chip.pa.name} />
-              <div>
-                <strong className="block text-xs font-[550] text-(--ink)">{chip.pa.name}</strong>
-                <small className="mt-1 block text-[10px] text-(--mute)">
-                  {chip.botName ?? t("No Lark bot enabled")} ·{" "}
-                  {t("{n} work sessions", { n: chip.conversations })}
-                </small>
+          {overviewAll.chips.map((chip) => {
+            const dispatched = chip.conversations - chip.roots;
+            const sessionLabel =
+              chip.roots === 1
+                ? t("{n} work session", { n: 1 })
+                : t("{n} work sessions", { n: chip.roots });
+            const roleDetail =
+              chip.pa.role === "worker"
+                ? t("Worker · direct room")
+                : (chip.botName ?? t("No Lark bot enabled"));
+            return (
+              <div
+                key={chip.pa.id}
+                className="flex items-center gap-2.5 rounded-[11px] border border-(--hairline) p-3"
+              >
+                <RoleAvatar kind={roleKindOf(chip.pa)} name={chip.pa.name} />
+                <div>
+                  <strong className="block text-xs font-[550] text-(--ink)">{chip.pa.name}</strong>
+                  <small className="mt-1 block text-[10px] text-(--mute)">
+                    {roleDetail} · {sessionLabel}
+                    {dispatched > 0 ? ` · ${t("{n} dispatched", { n: dispatched })}` : ""}
+                  </small>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div
           role="group"
@@ -473,15 +485,25 @@ export default function ChatOverviewPage() {
           </div>
         </div>
         <p className="text-[11px] leading-[1.8] text-(--mute)">
-          {t(
-            "{total} conversations: {chats} started in a chat, {forks} forks, {dispatched} dispatched rooms. Counted by conversation, not by work item.",
-            {
-              total: counts.total,
-              chats: counts.bySource.user,
-              forks: counts.bySource.fork,
-              dispatched: counts.bySource.dispatch,
-            },
-          )}
+          {counts.roots === 1
+            ? t("{n} work session", { n: 1 })
+            : t("{n} work sessions", { n: counts.roots })}
+          {" · "}
+          {counts.bySource.dispatch === 1
+            ? t("{n} dispatched room", { n: 1 })
+            : t("{n} dispatched rooms", { n: counts.bySource.dispatch })}
+          {" ("}
+          {counts.total === 1
+            ? t("{n} conversation total", { n: 1 })
+            : t("{n} conversations total", { n: counts.total })}
+          {": "}
+          {t("{n} started in a chat", { n: counts.bySource.user })}
+          {", "}
+          {counts.bySource.fork === 1
+            ? t("{n} fork", { n: 1 })
+            : t("{n} forks", { n: counts.bySource.fork })}
+          {") · "}
+          {t("Counted by conversation, not by work item.")}
         </p>
         {overview.groups.length === 0 ? (
           <div className="rounded-xl border border-dashed border-(--hairline) p-6 text-[11px] leading-[1.9] text-(--mute)">

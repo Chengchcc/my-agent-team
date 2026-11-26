@@ -12,6 +12,8 @@ interface WikiMarkdownProps {
   markdown: string;
   /** The table of contents of this same markdown: its line numbers give headings their ids. */
   toc?: readonly TocHeading[];
+  /** Optional handler to open internal wiki links inside a side sheet instead of navigating away. */
+  onWikiNavigate?: (path: string) => void;
   className?: string;
 }
 
@@ -35,9 +37,27 @@ function headingId(toc: readonly TocHeading[], node: { position?: { start: { lin
   return id;
 }
 
+function wikiPathFromHref(href: string): string | null {
+  if (!href.startsWith("/wiki/page?")) return null;
+  try {
+    const parsed = new URL(href, "http://wiki.local");
+    return parsed.searchParams.get("path");
+  } catch {
+    return null;
+  }
+}
+
 /** A link that stays inside the console where it can: a source footnote, a page anchor, a wiki
  *  page. Only a real external address opens a new tab. */
-function WikiLink({ href, children }: { href?: string; children?: ReactNode }) {
+function WikiLink({
+  href,
+  children,
+  onWikiNavigate,
+}: {
+  href?: string;
+  children?: ReactNode;
+  onWikiNavigate?: (path: string) => void;
+}) {
   if (href === undefined) return <span>{children}</span>;
   if (href.startsWith("#wiki-source-")) {
     return (
@@ -56,8 +76,29 @@ function WikiLink({ href, children }: { href?: string; children?: ReactNode }) {
       </a>
     );
   }
+  const targetWikiPath = onWikiNavigate ? wikiPathFromHref(href) : null;
   return (
-    <Link href={href} className={LINK_CLASS}>
+    <Link
+      href={href}
+      className={LINK_CLASS}
+      onClick={
+        targetWikiPath !== null && onWikiNavigate
+          ? (event) => {
+              if (
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey ||
+                event.button !== 0
+              ) {
+                return;
+              }
+              event.preventDefault();
+              onWikiNavigate(targetWikiPath);
+            }
+          : undefined
+      }
+    >
       {children}
     </Link>
   );
@@ -69,7 +110,7 @@ interface HeadingNode {
 
 /** A page body for people: 16px, generous leading, headings that carry the anchors of the table
  *  of contents. Raw HTML in the markdown is shown as text, never rendered. */
-export function WikiMarkdown({ markdown, toc = [], className }: WikiMarkdownProps) {
+export function WikiMarkdown({ markdown, toc = [], onWikiNavigate, className }: WikiMarkdownProps) {
   const components = useMemo<Components>(() => {
     const heading =
       (tag: HeadingTag) =>
@@ -99,7 +140,11 @@ export function WikiMarkdown({ markdown, toc = [], className }: WikiMarkdownProp
       strong: ({ children }) => (
         <strong className="font-semibold text-(--ink-strong)">{children}</strong>
       ),
-      a: ({ href, children }) => <WikiLink href={href}>{children}</WikiLink>,
+      a: ({ href, children }) => (
+        <WikiLink href={href} onWikiNavigate={onWikiNavigate}>
+          {children}
+        </WikiLink>
+      ),
       ul: ({ children }) => (
         <ul className="my-0 mb-6 list-disc pl-6 marker:text-(--mute)">{children}</ul>
       ),
@@ -159,7 +204,7 @@ export function WikiMarkdown({ markdown, toc = [], className }: WikiMarkdownProp
         </span>
       ),
     };
-  }, [toc]);
+  }, [toc, onWikiNavigate]);
 
   return (
     <div className={cn("min-w-0 text-[16px] leading-[1.9] text-(--ink) wrap-anywhere", className)}>

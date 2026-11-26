@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useAgentList, useUpdateAgent } from "@/features/agents/hooks";
 import { agentDetailQuery } from "@/features/agents/queries";
 import { useAllConversations } from "@/features/conversations/hooks";
+import { isWorkConversation } from "@/features/conversations/overview";
 import { useHarnessList } from "@/features/models/hooks";
 import type { AgentRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
@@ -156,7 +157,7 @@ export function TeamScreen({ view = { kind: "list" } }: TeamScreenProps) {
 
   const detailAgent = detailId === null ? undefined : agents.find((row) => row.id === detailId);
   const conversationCounts = new Map<string, number>();
-  for (const row of conversations ?? []) {
+  for (const row of (conversations ?? []).filter(isWorkConversation)) {
     const owner = row.agentId;
     if (owner === null || owner === undefined) continue;
     conversationCounts.set(owner, (conversationCounts.get(owner) ?? 0) + 1);
@@ -284,7 +285,11 @@ export function TeamScreen({ view = { kind: "list" } }: TeamScreenProps) {
                   >
                     {t(section.title)}
                   </h2>
-                  <Badge variant="secondary">{t("{n} members", { n: members.length })}</Badge>
+                  <Badge variant="secondary">
+                    {members.length === 1
+                      ? t("{n} member", { n: 1 })
+                      : t("{n} members", { n: members.length })}
+                  </Badge>
                 </div>
                 <p className="mt-1.5 mb-4 max-w-3xl text-xs/relaxed  text-(--body)">
                   {t(section.explanation)}

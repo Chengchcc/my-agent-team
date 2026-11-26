@@ -36,7 +36,9 @@ export const dynamic = "force-dynamic";
 type LedgerTab = "all" | LedgerSource;
 type ProactiveEventRow = ApiReturn<typeof api.listProactiveEvents>["events"][number];
 
-const TABS: readonly LedgerTab[] = ["all", "owner", "human", "dispatch"];
+const PRIMARY_TABS: readonly LedgerTab[] = ["all", "owner", "human", "dispatch"];
+const EXTRA_TABS: readonly LedgerSource[] = ["result", "handback", "unrecorded"];
+const ALL_TABS: readonly LedgerTab[] = [...PRIMARY_TABS, ...EXTRA_TABS];
 
 /** The pill of a source is neutral: the ledger states where authority came
  *  from, it does not grade it. Only the two exceptional states are coloured. */
@@ -44,6 +46,7 @@ const SOURCE_TONE: Record<LedgerSource, FactTone> = {
   owner: "muted",
   human: "muted",
   dispatch: "muted",
+  result: "muted",
   handback: "err",
   unrecorded: "warn",
 };
@@ -55,7 +58,7 @@ function inTab(row: LedgerRow, tab: LedgerTab): boolean {
 
 /** A tab key from the tab bar; anything unrecognised reads as "all". */
 function asTab(key: string): LedgerTab {
-  const found = TABS.find((candidate) => candidate === key);
+  const found = ALL_TABS.find((candidate) => candidate === key);
   if (found === undefined) return "all";
   return found;
 }
@@ -74,6 +77,10 @@ function basisWords(step: { readonly basis: string }): string {
   if (classified.source === "dispatch") {
     const parent = classified.refId === null ? "" : classified.refId;
     return t("Dispatched by run {id}", { id: parent });
+  }
+  if (classified.source === "result") {
+    const worker = classified.refId === null ? "" : classified.refId;
+    return t("Worker result from {id}", { id: worker });
   }
   if (classified.source === "handback") {
     const refused = classified.refId === null ? "" : classified.refId;
@@ -288,7 +295,11 @@ export default function AuthorityPage() {
     return found?.name ?? agentId;
   };
 
-  const tabs = TABS.map((key) => {
+  const visibleTabs: LedgerTab[] = [
+    ...PRIMARY_TABS,
+    ...EXTRA_TABS.filter((key) => counts[key] > 0 || tab === key),
+  ];
+  const tabs = visibleTabs.map((key) => {
     const count = key === "all" ? rows.length : counts[key];
     const built = { key, label: t(key), count };
     return built;

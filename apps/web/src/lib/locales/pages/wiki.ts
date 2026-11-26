@@ -23,7 +23,7 @@ export const wikiZh: Record<string, string> = {
   // Topic index
   "Search concepts, topics or text…": "搜索概念、主题或正文…",
   "Search the wiki": "搜索知识库",
-  "Global search · Ctrl+K": "全局搜索 · Ctrl+K",
+  "Global search · ⌘K": "全局搜索 · ⌘K",
   "Topic filter": "知识主题筛选",
   "All topics": "全部主题",
   Personal: "个人",
@@ -80,6 +80,8 @@ export const wikiZh: Record<string, string> = {
     "没有发现：每个页面都有出处，也都有页面引用它。",
 
   // Reading view
+  "Wiki · read only": "知识库 · 只读",
+  "Open full page": "打开完整页面",
   "Maintained by {name} · updated {day}": "维护：{name} · 更新于 {day}",
   "Ask the PA about this page": "围绕这篇提问给 PA",
   Sources: "出处",

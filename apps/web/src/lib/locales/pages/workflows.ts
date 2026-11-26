@@ -177,6 +177,15 @@ export const workflowsZh: Record<string, string> = {
   "This file is not a workflow definition, so there is nothing to edit here.":
     "这个文件不是流程定义，这里没有可编辑的内容。",
   "You have unsaved modifications. Leaving will lose them.": "你有未保存的修改，离开会丢失它们。",
+  "You have unapplied DSL edits. Leaving will lose the unapplied text.":
+    "你有尚未应用到画布的 DSL 文本修改，离开会丢失这部分未应用的文本。",
+  "Restored your unsaved local draft. Save writes it; Discard returns to the saved definition.":
+    "已恢复你在本浏览器中的未保存草稿。点保存才会写入；放弃草稿可回到已保存的定义。",
+  "You have an unsaved local draft in this browser. This overview still shows the saved definition.":
+    "你在本浏览器中有一份未保存的草稿。本概览页显示的仍是已保存的定义。",
+  "Resume editing": "继续编辑",
+  "Discard draft": "放弃草稿",
+  "Local draft discarded": "已放弃本地草稿",
   "PA proposal waiting": "有 PA 提案待查看",
   "Load the proposal": "载入提案",
   "The PA's pending proposal says what is already saved. There is nothing to load.":

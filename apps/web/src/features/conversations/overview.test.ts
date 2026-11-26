@@ -180,11 +180,13 @@ describe("conversationOverview · filters", () => {
 describe("conversationOverview · chips and summary", () => {
   test("the chip row lists every member with a conversation, by name, with its count and bot", () => {
     const { chips } = conversationOverview({ ...INPUT, filters: { ...NO_FILTERS, pa: "pa-two" } });
-    expect(chips.map((chip) => [chip.pa.id, chip.conversations, chip.botName])).toEqual([
-      ["coder", 1, null],
-      ["pa-one", 4, "Dev Bot"],
-      ["pa-two", 1, null],
-    ]);
+    expect(chips.map((chip) => [chip.pa.id, chip.conversations, chip.roots, chip.botName])).toEqual(
+      [
+        ["coder", 1, 0, null],
+        ["pa-one", 4, 2, "Dev Bot"],
+        ["pa-two", 1, 1, null],
+      ],
+    );
   });
 
   test("the summary counts every conversation, whatever the filters", () => {

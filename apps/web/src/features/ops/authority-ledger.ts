@@ -5,14 +5,15 @@
  *  record of what already happened, read off `agent_run.authorization` and
  *  `parent_run_id`. */
 
-/** Where a run's authority came from, in the three words the ledger filters by.
+/** Where a run's authority came from.
  *  - `owner`: allowed by configuration the workspace owner set up — a standing
  *    rule, the assessment gate, or the system clock.
  *  - `human`: a person typed or spoke.
  *  - `dispatch`: a front agent dispatched it.
- *  `handback` and `unrecorded` are real states too; they have no filter of
- *  their own and show under "all". */
-export type LedgerSource = "owner" | "human" | "dispatch" | "handback" | "unrecorded";
+ *  - `result`: a worker finished and returned a result that woke its dispatcher.
+ *  - `handback`: a worker returned dispatched work to its dispatcher.
+ *  - `unrecorded`: predates the authorization column or carries an unknown basis. */
+export type LedgerSource = "owner" | "human" | "dispatch" | "result" | "handback" | "unrecorded";
 
 /** The fields of an agent run the ledger reads (a subset of the list row). */
 export interface LedgerRun {
@@ -58,6 +59,7 @@ export interface LedgerRow {
 }
 
 const DISPATCH = "dispatch:";
+const RESULT = "result:";
 const HANDBACK = "handback:";
 const AMBIENT = "ambient:";
 /** The backend's wake guard refuses a chain past a few hops (ADR 0060 D3); a
@@ -83,6 +85,9 @@ export function classifyAuthorization(authorization: string | null): {
   }
   if (authorization.startsWith(DISPATCH)) {
     return { source: "dispatch", ruleId: null, refId: authorization.slice(DISPATCH.length) };
+  }
+  if (authorization.startsWith(RESULT)) {
+    return { source: "result", ruleId: null, refId: authorization.slice(RESULT.length) };
   }
   if (authorization.startsWith(HANDBACK)) {
     return { source: "handback", ruleId: null, refId: authorization.slice(HANDBACK.length) };
@@ -162,6 +167,7 @@ export function countLedgerSources(rows: readonly LedgerRow[]): Record<LedgerSou
     owner: 0,
     human: 0,
     dispatch: 0,
+    result: 0,
     handback: 0,
     unrecorded: 0,
   };

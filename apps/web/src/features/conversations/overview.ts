@@ -2,6 +2,14 @@
  *  that already exist. A conversation's only source fact is `origin` (user, fork, dispatch):
  *  whether it came from a Lark chat or a group is not recorded, so nothing here guesses it. */
 
+/** Origins that belong to automated engine internals (not user work sessions). */
+const INTERNAL_ORIGINS = new Set(["loop", "cron", "workflow"]);
+
+/** Whether a conversation belongs in user-facing work-session surfaces (NavRail, Today, Chat, Team). */
+export function isWorkConversation(row: { origin?: string | null }): boolean {
+  return !row.origin || !INTERNAL_ORIGINS.has(row.origin);
+}
+
 export interface ConversationLike {
   conversationId: string;
   /** The room that dispatched this one; absent for a root conversation. */
@@ -68,6 +76,8 @@ export interface PaGroup {
 export interface PaChip {
   pa: PaLike;
   conversations: number;
+  /** Root (non-dispatched) work sessions owned by this member. */
+  roots: number;
   /** The Lark bot's configured name, or null when no bot is enabled. */
   botName: string | null;
 }
@@ -177,15 +187,24 @@ export function conversationOverview(input: {
     .sort((a, b) => (paName(a.paId) || "\uffff").localeCompare(paName(b.paId) || "\uffff"));
 
   const owned = new Map<string | null, number>();
+  const ownedRoots = new Map<string | null, number>();
   for (const row of rows) {
     const seen = owned.get(row.paId) ?? 0;
     owned.set(row.paId, seen + 1);
+    if ((row.parentConversationId ?? null) === null) {
+      ownedRoots.set(row.paId, (ownedRoots.get(row.paId) ?? 0) + 1);
+    }
   }
   const chips: PaChip[] = [];
   for (const [paId, count] of owned) {
     const pa = paId === null ? undefined : paById.get(paId);
     if (pa === undefined) continue;
-    chips.push({ pa, conversations: count, botName: botNameOf(pa) });
+    chips.push({
+      pa,
+      conversations: count,
+      roots: ownedRoots.get(paId) ?? 0,
+      botName: botNameOf(pa),
+    });
   }
   chips.sort((a, b) => a.pa.name.localeCompare(b.pa.name));
 

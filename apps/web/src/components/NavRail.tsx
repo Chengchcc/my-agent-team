@@ -24,6 +24,7 @@ import {
   Trash2Icon,
   UsersIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -76,6 +77,7 @@ import {
   useCreateConversation,
   useDeleteConversation,
 } from "@/features/conversations/hooks";
+import { isWorkConversation } from "@/features/conversations/overview";
 import { useCurrentUser } from "@/features/identity/hooks";
 import { useProjects } from "@/features/requirements/hooks";
 import { waitingGatesQuery } from "@/features/workflow/queries";
@@ -94,9 +96,7 @@ function NavContent() {
   const { data: agents } = useAgentList() as { data?: AgentRow[] };
   const { data: conversations, isLoading: conversationsLoading } = useAllConversations();
   // Loop/Cron conversations belong in Work, not Chat — exclude them from the rail.
-  const chatConversations = (conversations ?? []).filter(
-    (c) => "origin" in c && c.origin !== "loop" && c.origin !== "cron" && c.origin !== "workflow",
-  );
+  const chatConversations = (conversations ?? []).filter(isWorkConversation);
   const deleteConversation = useDeleteConversation();
   // ADR 0076: a conversation may be BOUND to a project — then its dispatch
   // guard, its brief and its terminal all use that project. Optional on
@@ -192,10 +192,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname === "/today"}
                 tooltip={t("Today")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/today");
-                }}
+                render={<Link href="/today" onClick={closeMobile} />}
               >
                 <RefreshCwIcon />
                 <span className="truncate">{t("Today")}</span>
@@ -205,10 +202,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/chat")}
                 tooltip={t("Work sessions")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/chat");
-                }}
+                render={<Link href="/chat" onClick={closeMobile} />}
               >
                 <MessageSquareIcon />
                 <span className="truncate">{t("Work sessions")}</span>
@@ -226,10 +220,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/requirements")}
                 tooltip={t("Requirements")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/requirements");
-                }}
+                render={<Link href="/requirements" onClick={closeMobile} />}
               >
                 <FolderKanbanIcon />
                 <span className="truncate">{t("Requirements")}</span>
@@ -239,10 +230,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/workflows")}
                 tooltip={t("Workflows")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/workflows");
-                }}
+                render={<Link href="/workflows" onClick={closeMobile} />}
               >
                 <NetworkIcon />
                 <span className="truncate">{t("Workflows")}</span>
@@ -261,10 +249,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/artifacts")}
                 tooltip={t("Artifacts")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/artifacts");
-                }}
+                render={<Link href="/artifacts" onClick={closeMobile} />}
               >
                 <ArchiveIcon />
                 <span className="truncate">{t("Artifacts")}</span>
@@ -274,10 +259,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/coding")}
                 tooltip={t("Coding")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/coding");
-                }}
+                render={<Link href="/coding" onClick={closeMobile} />}
               >
                 <TerminalIcon />
                 <span className="truncate">{t("Coding")}</span>
@@ -310,7 +292,7 @@ function NavContent() {
           ) : chatConversations.length === 0 ? (
             <p className="text-xs text-muted-foreground px-2">{t("No conversations yet")}</p>
           ) : (
-            <div ref={chatScrollRef} className="max-h-[min(44vh,600px)] overflow-y-auto">
+            <div ref={chatScrollRef} className="max-h-[216px] overflow-y-auto">
               <div
                 style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}
               >
@@ -339,11 +321,15 @@ function NavContent() {
                         <SidebarMenuButton
                           isActive={pathname === `/chat/${conv.conversationId}`}
                           tooltip={isChild ? `Team · ${title}` : title}
-                          onClick={() => {
-                            closeMobile();
-                            markRead(conv.conversationId, conv.lastSeq ?? 0);
-                            router.push(`/chat/${conv.conversationId}`);
-                          }}
+                          render={
+                            <Link
+                              href={`/chat/${conv.conversationId}`}
+                              onClick={() => {
+                                closeMobile();
+                                markRead(conv.conversationId, conv.lastSeq ?? 0);
+                              }}
+                            />
+                          }
                           className={isChild ? "pl-6" : undefined}
                         >
                           {isChild ? (
@@ -365,6 +351,7 @@ function NavContent() {
                               aria-label={`Team rooms (${item.childCount})`}
                               aria-expanded={expanded.has(conv.conversationId)}
                               onClick={(e) => {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 setExpanded((prev) => {
                                   const next = new Set(prev);
@@ -465,10 +452,7 @@ function NavContent() {
                     !["skills", "mcp", "projects"].some((r) => pathname.startsWith(`/team/${r}`)))
                 }
                 tooltip={t("Members")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/team");
-                }}
+                render={<Link href="/team" onClick={closeMobile} />}
               >
                 <BotIcon />
                 <span className="truncate">{t("Members")}</span>
@@ -478,10 +462,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/team/projects")}
                 tooltip={t("Projects")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/team/projects");
-                }}
+                render={<Link href="/team/projects" onClick={closeMobile} />}
               >
                 <FolderKanbanIcon />
                 <span className="truncate">{t("Projects")}</span>
@@ -500,10 +481,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/wiki")}
                 tooltip={t("Wiki")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/wiki");
-                }}
+                render={<Link href="/wiki" onClick={closeMobile} />}
               >
                 <BookOpenIcon />
                 <span className="truncate">{t("Wiki")}</span>
@@ -513,10 +491,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/team/skills")}
                 tooltip={t("Skills")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/team/skills");
-                }}
+                render={<Link href="/team/skills" onClick={closeMobile} />}
               >
                 <Package />
                 <span className="truncate">{t("Skills")}</span>
@@ -526,10 +501,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/team/mcp")}
                 tooltip="MCP"
-                onClick={() => {
-                  closeMobile();
-                  router.push("/team/mcp");
-                }}
+                render={<Link href="/team/mcp" onClick={closeMobile} />}
               >
                 <PlugIcon />
                 <span className="truncate">{t("MCP")}</span>
@@ -552,10 +524,7 @@ function NavContent() {
                     !["settings", "authority"].some((r) => pathname.startsWith(`/system/${r}`)))
                 }
                 tooltip={t("Observability")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/system");
-                }}
+                render={<Link href="/system" onClick={closeMobile} />}
               >
                 <ActivityIcon />
                 <span className="truncate">{t("Observability")}</span>
@@ -565,10 +534,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/system/authority")}
                 tooltip={t("Authority")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/system/authority");
-                }}
+                render={<Link href="/system/authority" onClick={closeMobile} />}
               >
                 <ScaleIcon />
                 <span className="truncate">{t("Authority")}</span>
@@ -578,10 +544,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/system/settings")}
                 tooltip={t("Settings")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/system/settings");
-                }}
+                render={<Link href="/system/settings" onClick={closeMobile} />}
               >
                 <SettingsIcon />
                 <span className="truncate">{t("Settings")}</span>
@@ -591,10 +554,7 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={pathname.startsWith("/channels")}
                 tooltip={t("Channels")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/channels");
-                }}
+                render={<Link href="/channels" onClick={closeMobile} />}
               >
                 <RadioIcon />
                 <span className="truncate">{t("Channels")}</span>

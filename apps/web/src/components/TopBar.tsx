@@ -1,12 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight, Bell, Search } from "lucide-react";
+import { ArrowLeftRight, Bell, Search, Settings } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAgentList } from "@/features/agents/hooks";
-import { useCurrentUser } from "@/features/identity/hooks";
 import { backendPingQuery, surfacesQuery } from "@/features/ops/queries";
 import { pendingActionsQuery } from "@/features/runs/queries";
 import { waitingGatesQuery } from "@/features/workflow/queries";
@@ -112,12 +111,10 @@ function LarkChip() {
 
 export function TopBar({ onSearch }: { onSearch: () => void }) {
   const router = useRouter();
-  const { data: user } = useCurrentUser();
   const { data: agents } = useAgentList() as { data?: AgentRow[] };
   const { data: waitingGates } = useQuery(waitingGatesQuery());
   const { data: pendingActions } = useQuery(pendingActionsQuery());
   const waitingOnYou = (waitingGates ?? 0) + (pendingActions?.length ?? 0);
-  const initials = (user?.userId ?? "ua").slice(0, 2).toUpperCase();
 
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-3 border-b border-(--hairline) bg-(--canvas)/80 px-3 backdrop-blur">
@@ -134,7 +131,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
           aria-label={t("Search")}
         >
           <Search className="size-3.5" />
-          <span className="text-xs">Search</span>
+          <span className="text-xs">{t("Search")}</span>
           <kbd className="ml-auto rounded-sm border border-(--hairline) px-1 font-mono text-[10px]">
             ⌘K
           </kbd>
@@ -154,14 +151,14 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
           )}
         </button>
 
-        <button
-          type="button"
-          onClick={() => router.push("/system/settings")}
-          className="flex size-7 items-center justify-center rounded-full border border-(--primary) font-mono text-[10px] font-semibold text-(--primary)"
+        <Link
+          href="/system/settings"
+          className="flex size-7 items-center justify-center rounded-full border border-(--hairline) text-(--mute) transition-colors hover:border-(--primary) hover:text-(--primary)"
           aria-label="Account settings"
+          title={t("Settings")}
         >
-          {initials}
-        </button>
+          <Settings className="size-3.5" />
+        </Link>
       </div>
     </header>
   );

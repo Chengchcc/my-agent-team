@@ -34,6 +34,7 @@ export const settingsZh: Record<string, string> = {
   "Interface language": "界面语言",
   "The choice saves at once and reloads the page.": "选择后立即保存并重新加载页面。",
   "Login password": "登录密码",
+  "Checking password status…": "正在检查密码状态……",
   "set here": "在此设置",
   "launcher default": "启动器默认值",
   "A password set here is stored as a hash and is the one that logs in.":

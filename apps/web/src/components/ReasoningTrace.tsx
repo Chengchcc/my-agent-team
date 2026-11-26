@@ -24,11 +24,13 @@ export function ReasoningTrace({
   defaultOpen = false,
   showSender = false,
   isLast = false,
+  senderName,
 }: {
   segment: Extract<TurnSegment, { kind: "turn" }>;
   defaultOpen?: boolean;
   showSender?: boolean;
   isLast?: boolean;
+  senderName?: string;
 }) {
   const [openTrace, setOpenTrace] = useState(defaultOpen);
   const { rounds, conclusion, sender } = segment;
@@ -40,7 +42,7 @@ export function ReasoningTrace({
     if (Array.isArray(blocks)) collectToolResults(blocks, resultMap);
   }
 
-  const name = sender.displayName ?? sender.memberId;
+  const name = senderName ?? sender.displayName ?? sender.memberId;
 
   // Render one round: a collapsed thinking trace (if any), the round's
   // narrative text as a bubble (deduped — .text equals the text block), then

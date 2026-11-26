@@ -331,7 +331,9 @@ export default function RequirementsPage() {
                           </TableCell>
                           <TableCell>
                             <span className="text-[11px] font-medium text-(--ink)">
-                              {t("{n} Agent", { n: parts.ids.length })}
+                              {parts.ids.length === 1
+                                ? t("{n} Agent", { n: 1 })
+                                : t("{n} Agents", { n: parts.ids.length })}
                             </span>
                             <small className="block text-[10px] text-(--faint)">
                               {t("{pa} PA · {workers} Worker", {

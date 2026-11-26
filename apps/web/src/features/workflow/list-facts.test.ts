@@ -95,6 +95,11 @@ describe("workflowCard", () => {
     ]);
     expect(card.facts?.nodeCount).toBe(3);
     expect(card.facts?.edgeCount).toBe(2);
+    expect(card.preview?.nodes).toHaveLength(3);
+    expect(card.preview?.edges).toEqual([
+      { from: "start", to: "check", rework: false },
+      { from: "check", to: "done", rework: false },
+    ]);
     expect(card.executionCount).toBe(2);
     expect(card.lastRun?.executionId).toBe("new");
     expect(card.lastRun?.durationSec).toBe(20);
@@ -106,6 +111,7 @@ describe("workflowCard", () => {
       execOf("e", "running", { createdAt: 1 }),
     ]);
     expect(card.facts).toBeNull();
+    expect(card.preview).toBeNull();
     expect(card.running).toBeTruthy();
   });
 });

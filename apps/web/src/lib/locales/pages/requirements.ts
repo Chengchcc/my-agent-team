@@ -28,6 +28,7 @@ export const requirementsZh: Record<string, string> = {
   "Not linked": "未关联",
   "Not recorded": "未记录",
   "{n} Agent": "{n} 个成员",
+  "{n} Agents": "{n} 个成员",
   "{pa} PA · {workers} Worker": "{pa} PA · {workers} Worker",
   "No conversation": "没有关联会话",
   "{n} run(s)": "{n} 次运行",

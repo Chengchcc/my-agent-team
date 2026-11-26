@@ -70,7 +70,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   },
   {
     id: "system",
-    title: "Advanced",
+    title: "System info",
     description: "What the backend reports about itself. Nothing here can be changed.",
     folded: true,
     fields: [

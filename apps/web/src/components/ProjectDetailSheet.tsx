@@ -10,6 +10,7 @@ import { ResourceDetailSheet } from "@/components/ui/resource-detail-sheet";
 import { Text } from "@/components/ui/text";
 import { useProjectWorktrees } from "@/features/projects/hooks";
 import type { AgentRow, ProjectRow } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 export function ProjectDetailSheet({
   project,
@@ -40,26 +41,31 @@ export function ProjectDetailSheet({
       title={project.name}
       subtitle={project.repoUrl ?? undefined}
       tabs={[
-        { key: "overview", label: "Overview" },
-        { key: "worktrees", label: "Worktrees" },
-        { key: "agents", label: "Agents" },
+        { key: "overview", label: t("Overview") },
+        { key: "worktrees", label: t("Worktrees") },
+        { key: "agents", label: t("Agents") },
       ]}
       tab={tab}
       onTabChange={(key) => setTab(key as "overview" | "worktrees" | "agents")}
       breadcrumb={[
         { label: project.name },
-        { label: tab === "worktrees" ? "Worktrees" : tab === "agents" ? "Agents" : "Overview" },
+        {
+          label:
+            tab === "worktrees" ? t("Worktrees") : tab === "agents" ? t("Agents") : t("Overview"),
+        },
       ]}
       footer={
         <>
           <Text as="p" className="mr-auto text-xs text-(--mute)">
-            {usedBy.length} attached agent{usedBy.length > 1 ? "s" : ""}
+            {t(usedBy.length === 1 ? "{n} attached agent" : "{n} attached agents", {
+              n: usedBy.length,
+            })}
           </Text>
           <Button variant="outline" size="sm" onClick={onEdit}>
-            Edit
+            {t("Edit")}
           </Button>
           <Button variant="outline" size="sm" onClick={onClose}>
-            Close
+            {t("Close")}
           </Button>
         </>
       }
@@ -67,13 +73,16 @@ export function ProjectDetailSheet({
       {tab === "overview" && (
         <div className="space-y-4">
           <Text as="p" className="text-sm text-(--mute)">
-            {project.repoUrl ?? "No repository configured"}
+            {project.repoUrl ?? t("No repository configured")}
           </Text>
           <dl className="divide-y divide-(--hairline) rounded-md border border-(--hairline) bg-(--canvas-soft) px-3 py-1">
-            <DetailRow label="Repository" value={project.repoUrl ?? "—"} />
-            <DetailRow label="Default branch" value={project.defaultBranch ?? "—"} />
-            <DetailRow label="Created" value={new Date(project.createdAt).toLocaleDateString()} />
-            <DetailRow label="Attached" value={`${usedBy.length} agents`} />
+            <DetailRow label={t("Repository")} value={project.repoUrl ?? "—"} />
+            <DetailRow label={t("Default branch")} value={project.defaultBranch ?? "—"} />
+            <DetailRow
+              label={t("Created")}
+              value={new Date(project.createdAt).toLocaleDateString()}
+            />
+            <DetailRow label={t("Attached agents")} value={String(usedBy.length)} />
           </dl>
         </div>
       )}
@@ -94,17 +103,19 @@ export function ProjectDetailSheet({
         <div className="space-y-3">
           {isLoading ? (
             <Text as="p" className="text-sm text-(--mute)">
-              Loading worktrees…
+              {t("Loading worktrees…")}
             </Text>
           ) : wtErr ? (
             <Text as="p" className="text-sm text-(--err)">
-              {String(wtErr instanceof Error ? wtErr.message : "failed to load worktrees")}
+              {String(wtErr instanceof Error ? wtErr.message : t("Failed to load worktrees"))}
             </Text>
           ) : worktrees.length === 0 ? (
             <EmptyState
               icon={FolderGit2}
-              title="No attached agents"
-              description="Attach the project on an agent's detail page (Projects tab) to materialize a worktree."
+              title={t("No attached agents")}
+              description={t(
+                "Attach the project on an agent's detail page (Projects tab) to materialize a worktree.",
+              )}
             />
           ) : (
             worktrees.map((w) => (

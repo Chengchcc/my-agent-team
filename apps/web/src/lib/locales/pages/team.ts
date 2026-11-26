@@ -23,6 +23,7 @@ export const teamZh: Record<string, string> = {
     "与人对话的成员。每位 PA 保留独立的身份、Workspace 与会话，按需发现 Worker。",
   "Found by capability, within the scope of the work it is given. Several PAs can use the same worker; there is no fixed team membership.":
     "按能力被发现，在所交付工作的范围内执行。多个 PA 可以使用同一个 Worker；没有固定的团队成员关系。",
+  "{n} member": "{n} 位成员",
   "{n} members": "{n} 位成员",
   "No member of this type yet.": "还没有这一类型的成员。",
   "Member not found": "找不到该成员",
@@ -42,6 +43,7 @@ export const teamZh: Record<string, string> = {
   "Harness · configured": "Harness · 本地配置",
   "Member workspace": "成员 Workspace",
   "Work context": "工作上下文",
+  "{n} conversation": "{n} 个会话",
   "{n} conversations": "{n} 个会话",
   "Capability entries {n}": "能力声明 {n}",
   "Skill packs {n}": "技能包 {n}",
@@ -217,4 +219,41 @@ export const teamZh: Record<string, string> = {
   "Paths writes are allowed in": "允许写入的路径",
   "Commands denied": "禁止的命令",
   "Knowledge packs": "知识包",
+
+  // Project detail & worktrees
+  Repository: "仓库",
+  "Open in Coding": "在工作台打开",
+  "Each attached member works in its own worktree branched from the default branch.":
+    "每位关联成员都在基于默认分支切出的独立工作副本中工作。",
+  "Failed to load project data": "加载项目数据失败",
+  "No attached agents": "尚未关联成员",
+  "Attach the project on an agent's detail page (Projects tab) to materialize a worktree.":
+    "在成员详情页的「项目」标签中关联该项目，即可生成工作副本。",
+  "Loading worktrees…": "正在加载工作副本……",
+  "Failed to load worktrees": "加载工作副本失败",
+  "{n} attached agent": "已关联 {n} 位成员",
+  "{n} attached agents": "已关联 {n} 位成员",
+  "Worktree not materialized — attach to materialize": "工作副本尚未生成——关联成员后自动创建",
+  "ahead {n}": "领先 {n}",
+  "behind {n}": "落后 {n}",
+  "Has changes": "有变更",
+  Push: "推送",
+  "Nothing ahead of the base branch": "没有领先于基准分支的提交",
+  FF: "快进",
+  "Fast-forward": "快进合并",
+  Merge: "合并",
+  Diff: "差异",
+  "Hide diff": "收起差异",
+  "Open worktree in Coding": "在工作台打开工作副本",
+  "Merge {branch} into the base branch?": "将 {branch} 合并到基准分支？",
+  "Merge {branch} into the base branch and push to origin?":
+    "将 {branch} 合并到基准分支并推送到远端？",
+  "Fast-forward {branch} into the base branch?": "将 {branch} 快进到基准分支？",
+  "Fast-forward {branch} into the base branch and push to origin?":
+    "将 {branch} 快进到基准分支并推送到远端？",
+  Merged: "已合并",
+  "Fast-forwarded": "已快进合并",
+  "Failed to merge": "合并失败",
+  "Failed to fast-forward": "快进合并失败",
+  "Showing first {shown} of {total} lines": "显示前 {shown} / {total} 行",
 };

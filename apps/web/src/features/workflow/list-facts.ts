@@ -1,6 +1,27 @@
+import { toEditorGraph, type WorkflowNode } from "@chengchenccc/workflow";
 import type { WorkflowDefinitionRow } from "@/lib/api";
 import { type DefinitionFacts, definitionFacts } from "./definition-facts";
+import { definitionOf } from "./proposal-draft";
 import type { WorkflowExec } from "./queries";
+
+export interface WorkflowMiniNode {
+  id: string;
+  label: string;
+  type: WorkflowNode["type"];
+  layer: number;
+}
+
+export interface WorkflowMiniEdge {
+  from: string;
+  to: string;
+  rework: boolean;
+}
+
+/** Compact serializable DAG snapshot for list card thumbnails (zero extra fetches). */
+export interface WorkflowMiniGraph {
+  nodes: WorkflowMiniNode[];
+  edges: WorkflowMiniEdge[];
+}
 
 /** A run as the cards and the rows state it. */
 export interface RunFact {
@@ -18,6 +39,8 @@ export interface WorkflowCard {
   row: WorkflowDefinitionRow;
   /** What the definition says; null when it could not be read. */
   facts: DefinitionFacts | null;
+  /** Lightweight DAG structure for card preview; null when unreadable. */
+  preview: WorkflowMiniGraph | null;
   executionCount: number;
   lastRun: RunFact | null;
   /** An execution is going: the server refuses to start a second one. */
@@ -49,6 +72,37 @@ export function isRunning(executions: ReadonlyArray<{ status: string }>): boolea
   return going.length > 0;
 }
 
+/** Builds a lightweight, serializable DAG snapshot for list card previews. */
+export function miniGraphOf(definition: unknown): WorkflowMiniGraph | null {
+  const parsed = definitionOf(definition);
+  if (parsed === null || parsed.nodes.length === 0) {
+    return null;
+  }
+  try {
+    const graph = toEditorGraph(parsed);
+    const reworkPairs = new Set(
+      parsed.edges
+        .filter((edge) => edge.kind === "rework")
+        .map((edge) => `${edge.from}->${edge.to}`),
+    );
+    return {
+      nodes: graph.nodes.map((node) => ({
+        id: node.id,
+        label: node.label,
+        type: node.type,
+        layer: node.layer,
+      })),
+      edges: graph.edges.map((edge) => ({
+        from: edge.from,
+        to: edge.to,
+        rework: reworkPairs.has(`${edge.from}->${edge.to}`),
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Reads one workflow together. A definition that could not be read is a null fact, never a
  *  guess; the server lists runs newest first, so the first one is the last run. */
 export function workflowCard(
@@ -61,6 +115,7 @@ export function workflowCard(
   return {
     row,
     facts: definition === null ? null : definitionFacts(definition),
+    preview: definition === null ? null : miniGraphOf(definition),
     executionCount: executions.length,
     lastRun,
     running: isRunning(executions),

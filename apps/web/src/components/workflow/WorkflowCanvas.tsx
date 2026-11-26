@@ -211,7 +211,7 @@ export function WorkflowCanvas({
   upstreamArtifacts?: Array<{ url: string; from: string; content?: string }>;
 }) {
   const [rf, setRf] = useState<{
-    fitView: (opts?: { padding?: number }) => void;
+    fitView: (opts?: { padding?: number; maxZoom?: number }) => void;
     zoomIn?: () => void;
     zoomOut?: () => void;
     setZoom?: (z: number) => void;
@@ -288,6 +288,17 @@ export function WorkflowCanvas({
     upstreamArtifacts,
   ]);
 
+  // In read-only previews, custom node cards measure asynchronously after mount;
+  // re-fitting once settled keeps trailing nodes from clipping against the right edge.
+  const nodeCount = graph.nodes.length;
+  useEffect(() => {
+    if (interactive || !rf || nodeCount === 0) return;
+    const frame = requestAnimationFrame(() => {
+      rf.fitView({ padding: 0.2, maxZoom: 1 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [interactive, rf, nodeCount]);
+
   function autoLayout() {
     const b = buildGraph(
       graph,
@@ -349,6 +360,7 @@ export function WorkflowCanvas({
         nodesConnectable={interactive}
         elementsSelectable={interactive}
         fitView
+        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
         onNodeClick={onSelect ? (_, node) => onSelect(node.id) : undefined}
         onConnect={
           onConnect
