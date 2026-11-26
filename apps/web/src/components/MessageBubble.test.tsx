@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageBubble } from "./MessageBubble";
 
-describe("MessageBubble error pill", () => {
+describe("MessageBubble", () => {
   test("renders the error pill with the error text when state is error", () => {
     const html = renderToStaticMarkup(
       <MessageBubble
@@ -25,23 +25,24 @@ describe("MessageBubble error pill", () => {
     expect(html).not.toContain("message-error");
   });
 
-  test("the person's message is a right-aligned bubble with their mark on the right", () => {
+  test("renders the user message as a left-aligned surface card without a 1:1 avatar", () => {
     const html = renderToStaticMarkup(<MessageBubble align="right" content="hello" state="done" />);
     expect(html).toContain('data-align="right"');
-    expect(html).toContain("rounded-br-[3px]");
-    expect(html.indexOf("hello")).toBeLessThan(html.lastIndexOf("role-avatar"));
+    expect(html).toContain("items-start");
+    expect(html).toContain("hello");
+    expect(html).not.toContain("role-avatar");
   });
 
-  test("an agent message shows its mark and name only on the first of a group", () => {
-    const first = renderToStaticMarkup(
+  test("renders agent replies full-width without avatars and shows sender name only when showSender is set", () => {
+    const withLabel = renderToStaticMarkup(
       <MessageBubble align="left" name="Personal Agent" content="a" showSender />,
     );
-    const next = renderToStaticMarkup(
+    const plain = renderToStaticMarkup(
       <MessageBubble align="left" name="Personal Agent" content="b" />,
     );
-    expect(first).toContain("Personal Agent");
-    expect(first).toContain("role-avatar");
-    expect(next).not.toContain("Personal Agent");
-    expect(next).not.toContain("role-avatar");
+    expect(withLabel).toContain("Personal Agent");
+    expect(withLabel).not.toContain("role-avatar");
+    expect(plain).not.toContain("Personal Agent");
+    expect(plain).not.toContain("role-avatar");
   });
 });

@@ -212,6 +212,18 @@ export function Timeline({
 }: TimelineProps) {
   const segments = useMemo(() => groupTurns(messages), [messages]);
   const anchors = useMemo(() => extractAnchors(segments), [segments]);
+  // In 1:1 sessions (single agent), hide repetitive agent name headers on every
+  // turn for Antigravity-level reading density; only show lightweight sender
+  // labels when multiple distinct agents speak in the same conversation.
+  const hasMultipleAgents = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of messages) {
+      if (item.kind === "message" && item.sender.kind === "agent") {
+        ids.add(item.sender.agentId ?? item.sender.memberId);
+      }
+    }
+    return ids.size > 1;
+  }, [messages]);
   const { data: agents } = useAgentList();
   const agentNameById = useMemo(
     () => new Map((agents ?? []).map((a) => [a.id, a.name] as const)),
@@ -344,15 +356,18 @@ export function Timeline({
               // branch below - attaching the tree there made it invisible in
               // the live page (found by product test, 2026-11-18).
               const turnRunId = (first && runIdOf(first)) ?? (last ? runIdOf(last) : null);
+              const firstBounds =
+                firstIdx >= 0
+                  ? senderGroupBounds(messages, firstIdx)
+                  : { showSender: false, isFirst: true, isLast: false };
               return (
                 <div key={seg.id}>
                   <ReasoningTrace
                     segment={seg}
                     defaultOpen={false}
                     senderName={resolveSenderName(seg.sender)}
-                    showSender={
-                      firstIdx >= 0 ? senderGroupBounds(messages, firstIdx).showSender : false
-                    }
+                    showSender={hasMultipleAgents && firstBounds.showSender}
+                    isFirst={firstBounds.isFirst}
                     isLast={lastIdx >= 0 ? senderGroupBounds(messages, lastIdx).isLast : false}
                   />
                   {turnRunId ? (
@@ -457,7 +472,7 @@ export function Timeline({
                         runStatus={m.content.runStatus}
                         state={m.content.state}
                         error={m.content.error?.message}
-                        showSender={bounds.showSender}
+                        showSender={!isSelf && hasMultipleAgents && bounds.showSender}
                         isFirst={bounds.isFirst}
                         isLast={bounds.isLast}
                       />
@@ -500,18 +515,62 @@ export function Timeline({
           {transients?.map((t) => {
             const tools = t.tools ?? [];
             const text = t.text.trim();
-            const showBubble = text || t.error;
+            const showBubble = Boolean(text || t.error);
+            const hasLiveThinking =
+              Boolean(t.thinking.trim()) ||
+              Boolean(t.ordered?.some((b) => b.type === "thinking" && b.text.trim().length > 0));
+            const hasLiveTrace = tools.length > 0 || hasLiveThinking;
             return (
-              <div key={`transient-${t.runId}`} className="group relative">
-                {t.approval && (
-                  <TimelineApprovalCard
-                    runId={t.runId}
-                    approval={t.approval}
-                    onResolveApproval={onResolveApproval}
+              <div key={`transient-${t.runId}`} className="group relative mt-4">
+                {showBubble && (
+                  <MessageBubble
+                    align="left"
+                    name={resolveSenderName(t.sender)}
+                    agentId={t.sender.agentId}
+                    content={t.text}
+                    isStreaming={!t.error}
+                    state={t.error ? "error" : undefined}
+                    error={t.error}
+                    showSender={hasMultipleAgents}
+                    isFirst={false}
                   />
                 )}
+                {hasLiveTrace && (
+                  <TimelineTransientTrace
+                    msgCount={showBubble ? 1 : 0}
+                    thinking={t.thinking}
+                    tools={tools}
+                    ordered={t.ordered}
+                  />
+                )}
+                {!showBubble && !hasLiveTrace && !t.approval && !t.ask && (
+                  <div
+                    data-testid="thinking-placeholder"
+                    className="flex items-center gap-1.5 px-1 py-2"
+                    role="status"
+                  >
+                    <span className="sr-only">Agent is thinking</span>
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        className="size-1.5 rounded-full bg-(--mute) animate-bounce"
+                        style={{ animationDelay: `${i * 150}ms` }}
+                      />
+                    ))}
+                  </div>
+                )}
+                {/* Blocking human-in-the-loop cards stay unfolded and prominent */}
+                {t.approval && (
+                  <div className="mt-2">
+                    <TimelineApprovalCard
+                      runId={t.runId}
+                      approval={t.approval}
+                      onResolveApproval={onResolveApproval}
+                    />
+                  </div>
+                )}
                 {t.ask && (
-                  <div className="p-1">
+                  <div className="mt-2 p-1">
                     {t.ask.response ? (
                       // Answered (here or on another surface): offering the inputs again would
                       // invite an answer the backend can only refuse.
@@ -527,40 +586,6 @@ export function Timeline({
                         }
                       />
                     )}
-                  </div>
-                )}
-                {tools.length > 0 && (
-                  <TimelineTransientTrace
-                    msgCount={showBubble ? 1 : 0}
-                    thinking={t.thinking}
-                    tools={tools}
-                    ordered={t.ordered}
-                  />
-                )}
-                {showBubble ? (
-                  <MessageBubble
-                    align="left"
-                    name={resolveSenderName(t.sender)}
-                    agentId={t.sender.agentId}
-                    content={t.text}
-                    isStreaming={!t.error}
-                    state={t.error ? "error" : undefined}
-                    error={t.error}
-                  />
-                ) : (
-                  <div
-                    data-testid="thinking-placeholder"
-                    className="flex items-center gap-1.5 px-1 py-2"
-                    role="status"
-                  >
-                    <span className="sr-only">Agent is thinking</span>
-                    {[0, 1, 2].map((i) => (
-                      <span
-                        key={i}
-                        className="size-1.5 rounded-full bg-(--mute) animate-bounce"
-                        style={{ animationDelay: `${i * 150}ms` }}
-                      />
-                    ))}
                   </div>
                 )}
               </div>

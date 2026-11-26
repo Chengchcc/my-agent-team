@@ -1,6 +1,6 @@
 import { type ReactNode, useContext } from "react";
 import { ConversationDensityContext } from "@/components/conversation-density";
-import { RoleAvatar, type RoleKind } from "@/components/ui/role-avatar";
+import type { RoleKind } from "@/components/ui/role-avatar";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { StreamingCursor } from "./StreamingCursor";
@@ -14,35 +14,31 @@ function fmtTime(ts: number | undefined): string {
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-// The prototype runs two scales of the same conversation: its page (12px body, 34px marks,
-// a neutral bubble) and its editor panel (11px body, 30px marks, a mint-tinted bubble).
-const BUBBLE = {
-  page: "rounded-[13px] rounded-br-[3px] border border-white/[0.06] bg-white/[0.02] px-[18px] py-3.5",
+// Antigravity-style flow: no 1:1 avatar columns eating horizontal width.
+// User turns are left-aligned low-contrast surface cards so the eye scans down
+// a single axis; agent turns flow full-width as clean editorial Markdown.
+const USER_CARD = {
+  page: "w-full rounded-xl border border-(--hairline) bg-(--canvas-soft)/85 px-4 py-3 text-(--ink-strong)",
   panel:
-    "rounded-xl rounded-br-[3px] border border-[rgba(180,241,209,0.08)] bg-[rgba(180,241,209,0.05)] px-3.5 py-2.5",
+    "w-full rounded-lg border border-(--primary)/20 bg-(--primary)/[0.06] px-3 py-2 text-(--ink-strong)",
 };
-const BODY = { page: "text-xs/relaxed", panel: "text-[11px]/relaxed" };
-const MARK = { page: "size-[34px]", panel: "size-[30px]" };
-const MARK_SIZE = { page: "default", panel: "sm" } as const;
+const BODY = { page: "text-[13px]/relaxed", panel: "text-[11px]/relaxed" };
 const GAP_FIRST = { page: "mt-5", panel: "mt-4" };
 const GAP = { page: "mt-1.5", panel: "mt-1" };
-const REACH = { page: "max-w-[85%]", panel: "max-w-[90%]" };
-const NAME = { page: "mb-2 text-[11px]", panel: "mb-1.5 text-[10px]" };
+const NAME = { page: "mb-1.5 text-[11px] font-medium", panel: "mb-1 text-[10px] font-medium" };
 
-/** One message row. The person's side is right-aligned with a bubble and their mark on the
- *  right; the agent's side has its mark on the left, a name line above the first message of a
- *  run, and the body as plain text — no bubble. Messages from the same sender in a row form a
- *  group: only its first row carries the mark and the name, its last row the time. */
+/** One message row. Both sides stay on the same left reading axis without
+ *  1:1 avatar gutters — preserving 65–72ch line width even when the right
+ *  inspector preview pane is open. Multi-agent rooms pass `showSender` to
+ *  render a lightweight sender label above the agent's reply. */
 export function MessageShell({
   align,
   name,
-  agentId,
   createdAt,
   isStreaming,
   showSender,
   isFirst,
   isLast,
-  role,
   children,
 }: {
   align: "left" | "right";
@@ -50,21 +46,16 @@ export function MessageShell({
   agentId?: string;
   createdAt?: number;
   isStreaming?: boolean;
-  /** The group's first message: it carries the sender's mark and name. */
+  /** Render a lightweight sender label above the agent's reply (multi-agent rooms). */
   showSender?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
-  /** Which mark the agent side shows; a front (a PA) by default. */
+  /** Retained for caller compatibility. */
   role?: RoleKind;
   children: ReactNode;
 }) {
   const density = useContext(ConversationDensityContext);
   const isSelf = align === "right";
-  const mark: RoleKind = isSelf ? "user" : (role ?? "pa");
-  let markName = "PA";
-  if (isSelf) markName = t("You");
-  if (!isSelf && agentId) markName = agentId;
-  if (name) markName = name;
 
   return (
     <div
@@ -72,45 +63,29 @@ export function MessageShell({
       data-align={align}
       data-density={density}
       className={cn(
-        "flex gap-3",
-        isSelf ? "justify-end" : "justify-start",
+        "flex w-full min-w-0 flex-col items-start",
         isFirst ? GAP_FIRST[density] : GAP[density],
       )}
     >
-      {!isSelf &&
-        (showSender ? (
-          <RoleAvatar kind={mark} name={markName} size={MARK_SIZE[density]} />
-        ) : (
-          <span className={cn("shrink-0", MARK[density])} aria-hidden />
-        ))}
+      {!isSelf && showSender && name && (
+        <div className={cn("text-(--primary)", NAME[density])}>{name}</div>
+      )}
       <div
         className={cn(
-          "flex min-w-0 flex-col",
-          REACH[density],
-          isSelf ? "items-end" : "items-start",
+          "min-w-0 w-full",
+          BODY[density],
+          isSelf && USER_CARD[density],
+          isStreaming && !isSelf && "border-l-2 border-(--primary)/40 pl-3",
         )}
       >
-        {!isSelf && showSender && name && (
-          <div className={cn("text-(--primary)", NAME[density])}>{name}</div>
-        )}
-        <div
-          className={cn(
-            "min-w-0",
-            BODY[density],
-            isSelf && BUBBLE[density],
-            isStreaming && !isSelf && "border-l-2 border-(--primary)/40 pl-3",
-          )}
-        >
-          {children}
-        </div>
-        {/* Trailing timestamp — only the last message of a sender's group */}
-        {isLast && createdAt && (
-          <span className="mt-1 font-code-sm text-code-sm text-(--faint) tabular-nums">
-            {fmtTime(createdAt)}
-          </span>
-        )}
+        {children}
       </div>
-      {isSelf && <RoleAvatar kind="user" name={markName} size={MARK_SIZE[density]} />}
+      {/* Trailing timestamp — only the last message of a sender's group */}
+      {isLast && createdAt && (
+        <span className="mt-1 font-code-sm text-code-sm text-(--faint) tabular-nums">
+          {fmtTime(createdAt)}
+        </span>
+      )}
     </div>
   );
 }

@@ -421,6 +421,15 @@ export const zhOwn: Record<string, string> = {
   "Recent work sessions": "最近工作会话",
   "No active goals yet.": "当前没有推进中的目标。",
   "View all": "查看全部",
+  // Antigravity canvas: collapsed thinking/tooling drawer + live running status bar
+  "View thinking & tool steps": "查看思考与工具执行",
+  "View tool steps": "查看工具执行",
+  "View thinking": "查看思考过程",
+  "{n} steps": "{n} 步",
+  "{n} failed": "{n} 失败",
+  "Running {tool} (step {n})…": "正在执行 {tool}（第 {n} 步）…",
+  "Completed {n} steps, thinking…": "已完成 {n} 步，思考中…",
+  "Thinking…": "思考中…",
 };
 
 /** One wording per key is enforced by `pages/index.test.ts`; nothing here overrides anything.

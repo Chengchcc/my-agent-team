@@ -34,7 +34,7 @@ export function ToolStep({
     status === "error" ? "bg-(--err)" : status === "done" ? "bg-(--ok)" : "bg-(--primary)";
 
   return (
-    <div className="overflow-hidden rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
+    <div className="relative overflow-hidden rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
       {/* Header: icon + name + status + folds */}
       <div className="flex items-center gap-2 px-3 py-1.5">
         <Icon size={14} className="shrink-0 text-(--primary)" />
