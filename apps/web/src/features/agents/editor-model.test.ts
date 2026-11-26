@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { AgentFormValues } from "@/components/agent-form-types";
 import {
   type AgentFormSource,
@@ -13,6 +13,7 @@ import {
   suggestionFromProposal,
   withSuggestion,
 } from "@/features/agents/editor-model";
+import { setLocale } from "@/lib/i18n";
 
 const ymlProposal = {
   id: "p1",
@@ -55,6 +56,11 @@ function form(overrides: Partial<AgentFormValues> = {}): AgentFormValues {
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  // The card's labels are translated; these tests state the English wording.
+  setLocale("en");
+});
 
 describe("agentChangesOf", () => {
   test("reads the agent.yml shape and names only what the payload carries", () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setLocale } from "@/lib/i18n";
 import { humanizeWorkflowError } from "./humanize-error";
 
@@ -7,6 +7,10 @@ const failed = [{ nodeId: "build", status: "failed" }];
 /** Wrapping the sentences in `t()` must not change a word of the English. */
 describe("humanizeWorkflowError", () => {
   beforeEach(() => {
+    setLocale("en");
+  });
+  afterEach(() => {
+    // The locale is module state shared by every test file in this process: leave it as it was found.
     setLocale("en");
   });
 

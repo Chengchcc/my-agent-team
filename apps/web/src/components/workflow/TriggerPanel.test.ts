@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setLocale } from "@/lib/i18n";
 import { formatNextRun } from "./cron-next";
 import { describeCron } from "./TriggerPanel";
@@ -7,6 +7,10 @@ import { describeCron } from "./TriggerPanel";
  *  dictionary, Chinese comes from the workflow dictionary. */
 describe("schedule wording", () => {
   beforeEach(() => {
+    setLocale("en");
+  });
+  afterEach(() => {
+    // The locale is module state shared by every test file in this process: leave it as it was found.
     setLocale("en");
   });
 
