@@ -1,137 +1,165 @@
+<div align="center">
+
 # my-agent-team
 
-**One conversation, four coding agents.**
+**Run a self-hosted AI engineering team — one Super Assistant, specialist coding agents across 4 harnesses (`oma` · Claude Code · `pi` · `omp`), a git-backed Wiki, and real-time Web + Lark sync.**
 
-![Bun](https://img.shields.io/badge/runtime-Bun-14151a?style=flat-square&logo=bun)
-![TypeScript](https://img.shields.io/badge/language-TypeScript-3178c6?style=flat-square&logo=typescript)
-![Next.js](https://img.shields.io/badge/framework-Next.js-000000?style=flat-square&logo=nextdotjs)
-![Tailwind CSS](https://img.shields.io/badge/UI-Tailwind_CSS-38BDF8?style=flat-square&logo=tailwindcss)
-![SQLite](https://img.shields.io/badge/database-SQLite-003B57?style=flat-square&logo=sqlite)
-![Drizzle ORM](https://img.shields.io/badge/ORM-Drizzle-2962FF?style=flat-square)
-![Elysia](https://img.shields.io/badge/http-Elysia-2C2C2C?style=flat-square)
+**English** · [简体中文](README.zh-CN.md)
+
+[![Bun](https://img.shields.io/badge/runtime-Bun-14151a?style=flat-square&logo=bun)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/language-TypeScript-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
+[![Next.js](https://img.shields.io/badge/web-Next.js_15-000000?style=flat-square&logo=nextdotjs)](https://nextjs.org)
+[![SQLite](https://img.shields.io/badge/storage-SQLite-003B57?style=flat-square&logo=sqlite)](https://www.sqlite.org)
 [![npm version (rc)](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent/rc?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
+[Why my-agent-team](#-why-my-agent-team) · [Quick Start](#-quick-start) · [Screenshots](#-screenshots) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
+
+</div>
 
 ---
 
-my-agent-team 是一个**团队级 Agent 运行时**：每个 Agent 一个工作区，身份、技能、MCP 与记忆都是工作区里的文件；oma / claude / pi / omp 四个 harness 任选，各自用原生 session 续接上下文；对话在 Web 控制台与飞书之间实时同步，所有端渲染的是账本里的同一份事实。
+Most coding agents live in an isolated terminal tab. **my-agent-team** turns them into a coordinated, self-hosted team on a single Bun + SQLite stack:
 
-## 📸 截图
+- Talk to a **Personal Assistant (PA)** from Web or Lark/Feishu.
+- The PA tracks goals as **Requirements**, dispatches specialist workers (Coder, Researcher, Reviewer) into isolated git workspaces, and compiles long-term knowledge into a **git-backed Wiki**.
+- Mix **`oma`**, **Claude Code**, **`pi`**, and **`omp`** on the same team over one Agent Client Protocol (ACP) rail — with fail-closed approvals, sandboxed workflows, and zero external database infrastructure.
 
-| Today | Team / Agents |
+## ✨ Why my-agent-team
+
+| Capability | What you get |
 |---|---|
-| <img src="docs/screenshots/today.png" width="280" alt="Today inbox"> | <img src="docs/screenshots/team.png" width="280" alt="Team agents"> |
+| **Super Assistant + Specialist Team** | Clean separation of roles: the PA triages, plans, dispatches, and coordinates — it has no direct code-write or shell access. Workers operate in isolated project copies, push only to `agent/<runId>` branches (never `main`/`master`), and pass a **Delivery Gate** that marks output *unverified* until a second agent checks it. |
+| **One ACP Rail, Four Coding Harnesses** | Assign **`oma`** (built-in CLI/TUI runtime), **Claude Code**, **`pi`**, or **`omp`** per agent. Each harness keeps its own native session continuity behind one unified ACP child-process boundary — swap engines without changing your console, Lark bot, or approval flow. |
+| **Workspace-as-Config & Git Wiki** | Every agent's identity (`SOUL.md`, `USER.md`), skills, MCP servers, and memory are plain files in its workspace. Durable knowledge lives in a product-level git-backed **Wiki** (`raw/` references + compiled topic pages), rather than decaying inside chat history. |
+| **One Ledger, Every Surface in Sync** | Web Console, Lark/Feishu IM bot, Oma TUI, and in-browser **Coding** worktree terminals all project the same SQLite conversation ledger. Start a task in Lark on mobile, approve a tool call or inspect artifacts in Web, and jump into the agent's worktree terminal in one click. |
+| **Fail-Closed Approvals & Guardrails** | Per-agent tool policies (`ask` / `auto` / `deny`), path & command fences (`deny_write_paths`, `allow_write_paths`, `deny_commands`), and persistent HITL prompts (`pending_action`) that deny on timeout. |
+| **Declarative Agentic Workflows** | Visual DAG orchestrator with `agent`, `script` (bubblewrap-sandboxed), and `human` nodes, JSON-Logic conditional routing, cron triggers, and typed `artifacts://` passed between stages. |
+| **Zero-Infra Self-Hosting** | Single Bun + SQLite runtime. No Docker Compose sprawl, no Postgres, no Redis. |
 
-| MCP Servers | System (Observability) |
-|---|---|
-| <img src="docs/screenshots/mcp.png" width="280" alt="MCP catalog"> | <img src="docs/screenshots/system.png" width="280" alt="System telemetry overview"> |
+## 🔄 How a Task Flows
 
-| Workflow Orchestrator | Chat Run Console | Oma TUI — real session |
+1. **Ask your Personal Assistant** in the Web console or a Lark/Feishu chat.
+2. **Track & Dispatch** — The PA records non-trivial goals as a **Requirement** and dispatches specialist workers with scoped briefs.
+3. **Execute Safely** — Workers run on `oma`, `claude`, `pi`, or `omp` inside isolated project copies; high-risk actions pause on fail-closed approval cards.
+4. **Verify & Deliver** — Workers push commits only to `agent/<runId>` branches and emit `artifacts://`; a second agent reviews the diff before the **Delivery Gate** clears. Humans decide whether to merge.
+5. **Compound Knowledge** — Decisions, lessons, and project notes are committed into the shared **Git Wiki** with source references.
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/chat.png" alt="Chat Run Console" width="100%" />
+      <br /><sub><b>Chat Console</b> — streaming runs, context telemetry, workspace config</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/workflow-execution.png" alt="Workflow DAG Orchestrator" width="100%" />
+      <br /><sub><b>Agentic Workflow DAG</b> — agent, sandboxed script, and human-in-the-loop nodes</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/team.png" alt="Team and Agents" width="100%" />
+      <br /><sub><b>Team Matrix</b> — Personal Assistant front desk + dispatched specialist workers</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/oma-tui-real.png" alt="Oma TUI" width="100%" />
+      <br /><sub><b>Oma TUI</b> — standalone interactive terminal with progressive skills & tool cards</sub>
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary>More screenshots (Today Inbox, System Telemetry, MCP Catalog, Oma TUI Tools & Mermaid)</summary>
+
+<br />
+
+| Today Inbox | System Telemetry | MCP Catalog |
 |---|---|---|
-| <img src="docs/screenshots/workflow-execution.png" width="280" alt="Live DAG orchestrator"> | <img src="docs/screenshots/chat.png" width="280" alt="Chat run console"> | <img src="docs/screenshots/oma-tui-real.png" width="280" alt="Oma TUI real session"> |
+| <img src="docs/screenshots/today.png" width="280" alt="Today inbox" /> | <img src="docs/screenshots/system.png" width="280" alt="System telemetry" /> | <img src="docs/screenshots/mcp.png" width="280" alt="MCP catalog" /> |
 
-| Oma TUI — tools | Oma TUI — mermaid |
+| Oma TUI — Tool Calls | Oma TUI — Mermaid Rendering |
 |---|---|
-| <img src="docs/screenshots/oma-tui-tools.png" width="280" alt="Oma TUI tools"> | <img src="docs/screenshots/oma-tui-mermaid.png" width="280" alt="Oma TUI mermaid"> |
+| <img src="docs/screenshots/oma-tui-tools.png" width="380" alt="Oma TUI tools" /> | <img src="docs/screenshots/oma-tui-mermaid.png" width="380" alt="Oma TUI mermaid" /> |
 
-## 📦 安装（预编译产物）
+</details>
 
-不想跑源码，就装一个能用的（oma + backend + web 一起下发）：
+## 🚀 Quick Start
+
+### Option 1: Prebuilt CLI + Gateway (Fastest)
+
+Install `oma` together with the prebuilt backend + web gateway bundle (requires `tar` and `zstd`; Bun is installed automatically if missing):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
-oma gateway up        # 前台；-d 放后台，健康后才返回
+oma gateway up        # foreground; use `oma gateway up -d` for background
 ```
 
-脚本会按需装 Bun、装 `@chengchenccc/oh-my-agent`，并把 gateway 产物下到 `~/.oma/gateway/`；它不替你启动服务。`OMA_VERSION=rc` 走 npm 的 `rc` 通道：带 `oma gateway` 命令的版本还没发到 `latest`。登录地址与口令由 `oma gateway up` 打印；也可 `oma gateway status` 再查，口令落在 `~/.oma/gateway-secrets.json`（0600）。改口令：Web 设置页 Settings → Login password（立即生效），或 `oma gateway passwd`；两者都在时设置页的哈希优先。
+> `OMA_VERSION=rc` pulls the npm `rc` channel while `oma gateway` is in release candidate. The installer downloads the bundle to `~/.oma/gateway/` and never auto-starts services.
 
-常用命令：
+Open `http://127.0.0.1:3001/login` and sign in with the password printed by `oma gateway up` (stored with `0600` permissions in `~/.oma/gateway-secrets.json`). You can change it in **Settings → Login password** or via `oma gateway passwd`.
 
-| 命令 | 做什么 |
+**Common commands:**
+
+| Command | Action |
 |---|---|
-| `oma gateway up` / `up -d` | 起 backend + web（前台 / 后台） |
-| `oma gateway status` | 版本、进程、健康、登录口令 |
-| `oma gateway down` | 停掉后台那个 |
-| `oma update` | CLI 与产物一起升级（`--check` 只看；按 latest/rc 取高者，不下行降级） |
+| `oma gateway up` / `up -d` | Start backend + web (foreground / background, returns once healthy) |
+| `oma gateway status` | Show installed version, process health, and login password |
+| `oma gateway down` | Stop background gateway |
+| `oma update` | Upgrade CLI and gateway bundle together (`--check` to inspect only) |
+| `oma -p "Summarize docs/architecture/README.md in 3 bullets"` | Run a one-shot CLI prompt with `oma` |
 
-`oma gateway up` / `fetch` 都接受 `--version <版本>` 指定产物版本。
+Manual install: `bun add -g @chengchenccc/oh-my-agent@rc && oma gateway fetch && oma gateway up` (`fetch` is required because Bun skips dependency postinstall scripts by default). Code (`~/.oma/gateway/`) and state (`~/.oma/gateway-data/`) are stored separately so upgrades preserve your data.
 
-手动装也行：`bun add -g @chengchenccc/oh-my-agent@rc` → `oma gateway fetch` → `oma gateway up`（`fetch` 不能省：Bun 默认不跑依赖的 postinstall）。系统依赖是 `bun`、`tar`、`zstd`；代码与数据分开落盘，升级不动 `~/.oma/gateway-data/`。
+### Option 2: Run from Source
 
-成功判据与源码方式相同：打开 `http://127.0.0.1:3001/login`，用打印出的口令登录。
+**1. Prerequisites**
+- **Bun `>= 1.3.14`** (`package.json` pins `1.3.14`; CI & releases run `1.4.4`)
+- **System tools**: `ripgrep`, `bubblewrap`, and `openssl` (used by `scripts/predev.sh` to generate local secrets)
+- **Anthropic API key**: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (for other providers, see below)
 
-**可复制示例**
-
-```bash
-# 一次性问答（print 模式）
-oma -p "用三句话总结 docs/architecture/README.md"
-
-# 看已装版本、进程与登录口令
-oma gateway status
-```
-
-**文档**：[项目 Wiki](docs/README.md) · [架构总览](docs/architecture/system-overview.md) · [开发指南](docs/guides/development.md) · [贡献指引](CONTRIBUTING.md)
-
-## 🚀 Getting Started
-
-### 从源码跑（四步）
-
-**1. 前置条件**
-
-- **Bun 1.3.14 或更新**：最低线是 `package.json` 里 `packageManager` 锁的 `bun@1.3.14`；CI 与发布实际跑 `1.4.4`。
-- **系统依赖**：`ripgrep`、`bubblewrap`（CI 装的就是这两个），以及 `openssl`（`scripts/predev.sh` 用它生成开发密钥，缺了会直接退出）。
-- **Anthropic 凭据**：`ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`，二选一。源码启动器只认这一家，缺了 `scripts/dev.sh` 会 `exit 1`。
-
-判据：`bun --version` 输出不低于 1.3.14。
-
-**2. 安装依赖**
+**2. Install dependencies**
 
 ```bash
 bun install
 ```
 
-判据：退出码 0，`node_modules/` 已生成。
-
-**3. 设置 Anthropic 凭据并启动**
+**3. Start backend + web**
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # 或 export ANTHROPIC_AUTH_TOKEN=...
+export ANTHROPIC_API_KEY=sk-ant-...   # or ANTHROPIC_AUTH_TOKEN=...
 bun run dev
 ```
 
-`bun run dev` 先跑 `predev`（`scripts/predev.sh`：从 `.env.example` 生成 `apps/backend` 与 `apps/web` 的 `.env`，自动生成 `BACKEND_AUTH_TOKEN`、`SESSION_SECRET`、`MOCK_PASSWORD`，补齐 drizzle 迁移与 Monaco 资产），再跑 `dev`（`scripts/dev.sh`：校验 Anthropic 凭据、清掉 3000/3001 上的残留进程、并行起 backend 与 web）。`BACKEND_AUTH_TOKEN` 是环境变量 schema 里唯一必填项，这一步会替你生成。
+`bun run dev` automatically runs `scripts/predev.sh` (generates `.env` files with random `BACKEND_AUTH_TOKEN`, `SESSION_SECRET`, and `MOCK_PASSWORD`, runs Drizzle migrations, and prepares Monaco assets) and then `scripts/dev.sh` (starts backend on `:3000` and web on `:3001`).
 
-判据：终端打印登录地址与两个 PID（见第 4 步）。
+**4. Verify**
+- Backend health: `curl -s http://127.0.0.1:3000/health` → `{"status":"ok"}`
+- Web console: open `http://localhost:3001/login` with `MOCK_PASSWORD` from `apps/web/.env`
 
-**4. 成功判据**
+<details>
+<summary>Using OpenAI, DeepSeek, Groq, OpenRouter, or custom providers (and password / dev DB reset)</summary>
 
-| 检查 | 期望 |
-|---|---|
-| 终端输出 | 打印 `Login at http://localhost:3001/login` 与 backend/web 两个 PID |
-| Backend | `curl -s http://127.0.0.1:3000/health` 返回 `{"status":"ok"}` |
-| Web 控制台 | `http://localhost:3001` 可打开，登录页是 `http://localhost:3001/login` |
-| 登录口令 | `apps/web` 下由 `predev` 生成的 `.env` 里的 `MOCK_PASSWORD=` |
+<br />
 
-`predev` 首跑会把模板值 `admin` 换成随机值；后端只在**全新数据目录的第一次启动**采纳它，之后改 env 不再生效。忘了就跑 `bash scripts/reset-login-password.sh`，再重启 backend。
-
-**换别的 provider**
-
-`bun run dev` 的 Anthropic 检查是启动脚本的门槛，不是后端运行时的要求：只设 `OPENAI_API_KEY` 之类的 key，`scripts/dev.sh` 仍会 `exit 1`。没有 Anthropic key 时，用两个终端绕开启动器：
+`scripts/dev.sh` checks for an Anthropic key, but the backend runtime supports any configured provider. To run without an Anthropic key, start backend and web in two terminals:
 
 ```bash
-bun run predev       # 生成 .env 与密钥（只需一次）
+bun run predev       # generate .env & secrets once
 
-# 终端 1
+# Terminal 1
 export OPENAI_API_KEY=sk-...
 bun run dev:backend  # http://127.0.0.1:3000
 
-# 终端 2
+# Terminal 2
 bun run dev:web      # http://localhost:3001
 ```
 
-判据与第 4 步相同。各家 key 的对应关系：
+Supported built-in provider environment variables:
 
-| Provider | 环境变量 |
+| Provider | Environment Variable |
 |---|---|
 | Anthropic | `ANTHROPIC_API_KEY` |
 | OpenAI | `OPENAI_API_KEY` |
@@ -139,108 +167,119 @@ bun run dev:web      # http://localhost:3001
 | Groq | `GROQ_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` |
 
-设了哪家的 key，哪家的 builtin provider 就可用；自定义 provider 与模型覆盖写在 `~/.oma/models.yml`（gateway 场景的额外限制见「安全模型」）。
+Custom providers and model overrides are configured in `~/.oma/models.yml` (see [Security Model](#-security-model) for gateway path isolation).
 
-## ✨ 本周新增
+- **Reset login password**: `MOCK_PASSWORD` is only adopted on the first boot of a fresh data directory. Run `bash scripts/reset-login-password.sh` and restart the backend to reset it.
+- **Dev database upgrades**: migrations target fresh-boot paths. If a schema change breaks an old local dev DB, delete `apps/backend/.backend-data/` and restart.
 
-- **项目副本与回写** — worker 在自己的项目副本里工作；`project_push` 把改动推到从 runId 派生的 `agent/<runId>` 分支，拒绝推 `master`/`main`，人看 compare 链接决定合不合（`apps/backend/src/features/project/push.ts`）。
-- **交付门** — 改动没有第二个成员核对时，后端会在交付消息里追加一行「未经核验」（`apps/backend/src/features/agent-run/delivery-gate.ts`）。
-- **直连工人** — 新建会话可以绑定某个 worker 并以 `direct: true` 直连；默认仍走前台，worker 不直接接人的消息（`apps/backend/src/features/conversation/http.ts`）。
-- **提案在需求页里处理** — agent 的配置/项目提案不再有独立页面，在 `/requirements` 的 Proposals 视图里看"会改什么"，点 Adopt **即应用**（`apps/backend/src/features/proposal/apply.ts`）。
-- **知识只有一个面** — 知识包已下线，wiki 是唯一的读、写、检索入口（`docs/adr/0078-one-knowledge-surface.md`）。
-- **工具策略** — 每个 agent 可配 `deny_write_paths` / `allow_write_paths` / `deny_commands`，注入子进程后由 bash 执行；写逃逸与越界 git（读写别的仓库）都会被拒（`apps/backend/src/features/agent/agent-config.ts`、`apps/oh-my-agent/src/core/tools/bash.ts`）。
-- **团队卡片与项目采纳** — 团队成员卡片带项目（最多展示 3 个）；项目提案（repo + 持有人）由人在 Proposals 页一键 adopt（`apps/web/src/app/(main)/team/page.tsx`、`apps/backend/src/features/proposal/http.ts`）。
-- **子会话标题** — 派单子会话的标题取 `verb · object`，不再是 `<dispatch>` XML 信封（`apps/backend/src/features/conversation/title.ts`）。
+</details>
 
-## 🏗 架构
+## 🏗 Architecture
 
+```mermaid
+flowchart TB
+    subgraph Surfaces["Surfaces"]
+        WEB["Web Console (Next.js 15)"]
+        LARK["Lark / Feishu Bot"]
+        TUI["Oma TUI & Coding Terminals"]
+    end
+
+    subgraph Backend["Product Backend (Elysia + SQLite)"]
+        LEDGER["Conversation Ledger · Agent Context · Requirements · Wiki"]
+        CTRL["Run Dispatcher · Workflow Engine · Artifacts · Approvals"]
+    end
+
+    subgraph ACP["ACP Child-Process Boundary (One Rail, Four Harnesses)"]
+        OMA["oma (built-in runtime)"]
+        CLAUDE["Claude Code"]
+        PI["pi"]
+        OMP["omp"]
+    end
+
+    PROTO["Shared Protocols: Message · ChatModel · Tool · ContentBlock · Workflow DSL"]
+
+    WEB -->|HTTP / SSE / WS| LEDGER
+    LARK -->|HTTP / SSE| LEDGER
+    TUI -->|RPC / PTY| CTRL
+    LEDGER <--> CTRL
+    CTRL -->|spawn per Run via ACP| OMA
+    CTRL -->|spawn per Run via ACP| CLAUDE
+    CTRL -->|spawn per Run via ACP| PI
+    CTRL -->|spawn per Run via ACP| OMP
+    OMA --- PROTO
+    CLAUDE --- PROTO
+    PI --- PROTO
+    OMP --- PROTO
 ```
-Surfaces    Web 控制台 · 飞书卡片 · oma TUI
-                 │ HTTP / SSE
-Backend     Product Backend — 产品事实 + 执行控制面
-            conversation_ledger · Agent Run · Workflow · Artifact · 审批
-                 │ spawn（ACP）
-Adapter     一个 ACP 客户端驱动四个 harness：oma · claude · pi · omp
-                 │
-Runtime     oma agent loop — 模型 + 工具循环、插件、压缩、todo、权限
-            claude / pi / omp 用自己的原生 loop，经同一 ACP 轨接入
-                 │
-Protocols   Message · ChatModel · Tool · ContentBlock · Workflow DSL
-```
 
-**不变量**
+**Engineering Invariants**
+- **Single source of truth**: the backend owns `conversation_ledger`; Web, Lark, and TUI are pure projections of the same canonical facts.
+- **Atomic terminal commits**: every Run settles into one `BackendRunOutcome` and commits History + Context in a single SQLite transaction. Streaming output never pollutes canonical facts.
+- **One-shot isolated processes**: each Run spawns one child process over ACP; cross-run context continuity uses each harness's native session reference without long-lived daemon drift.
+- **Fail-closed HITL**: approvals and user questions persist in `pending_action`; timeouts default to deny.
+- **Frozen workflow routing**: conditional edges evaluate at node completion and freeze into `CompletionRecord.routedTo` (join semantics = `any-of`).
+- **Config as files**: agent definitions live in workspace files and freeze once per Run.
 
-- Backend 是唯一事实源；Web、飞书、TUI 只渲染同一份 `conversation_ledger`。
-- `BackendRunOutcome` 是 Run 的唯一终态；终态提交在一个事务里写入 History + Context。
-- 审批与提问停在 `pending_action`，超时按拒绝处理（fail-closed）。
-- Workflow 的路由在节点完成时冻结进 `CompletionRecord.routedTo`，之后不再重算；join 语义是 any-of。
-- Agent 配置就是工作区里的文件，每个 Run 冻结一次；切 harness 靠各自的原生 session 续接。
-- 四个 harness 是同一 ACP 轨上的四个入口，不是四条执行路径。
+## 🔐 Security Model
 
-## ✨ 功能要点
+`my-agent-team` is built for a **single-operator, local/self-hosted** threat model. Web login, the BFF, and the backend share one operator identity — there is **no multi-tenant isolation**. Do not expose this stack directly to the public internet as a multi-user service.
 
-1. **四个 harness，切后端不丢上下文** — oma / claude / pi / omp 在同一 ACP 轨上运行，各自续接原生 session；配置按 Run 冻结。
-2. **工作区即配置** — 身份（`SOUL.md` / `USER.md`）、技能、MCP、知识库都是 Agent 工作区里的文件，后端负责桥接，人可以直接改。
-3. **Web 与飞书双端同步** — 同一条对话两边实时可见；Run 卡片流式投影、停止按钮、话题即会话、待回答消息各自成卡。
-4. **权限与人在环** — `ask` 把写文件/跑命令隔在审批卡后面，`auto` 由分类器判断高风险动作，`deny` 直接拒绝；问题与回答持久化在 `pending_action`，超时默认拒绝。
-5. **Agentic Workflow** — 声明式节点图（agent / script / human + 条件边 + cron），script 节点在进程沙箱里跑，产物经 Artifact 在节点间流转。
+Concrete security boundaries enforced by the runtime:
 
-## 🔐 安全模型（单操作员）
+- **Localhost by default**: services bind to `127.0.0.1` only.
+- **Worker repo isolation**: workers operate in isolated project copies and `project_push` only pushes to `agent/<runId>` branches (pushing `main`/`master` is rejected); per-agent `deny_write_paths`, `allow_write_paths`, and `deny_commands` block path escape and cross-repo git writes.
+- **Sandboxed workflow scripts**: disabled by default (`WORKFLOW_SCRIPTS_ENABLED=1` required); when enabled, scripts run inside `bwrap` / `sandbox-exec` with no network access, an isolated PID namespace, and no read access to `dataDir` or `.env`.
+- **Lark sender allowlist**: inbound Lark messages are restricted to `agent.lark.allowed_senders` `open_id`s; bot-authored messages are dropped.
+- **Server-side secret masking**: provider keys and MCP headers stay on the backend and are masked on every HTTP read.
+- **Provider config isolation**: spawned agent subprocesses read model config strictly from `$OMA_HOME/models.yml` rather than agent-writable workspaces, preventing a Run from hijacking the next Run's provider `baseUrl` or API key.
 
-本项目按**单操作员、系统本地部署**的威胁模型设计：web 登录、BFF 与 backend 共享 token 的所有会话是**同一个操作员**，没有多租户隔离。请勿把它当作多用户服务暴露到公网——不同登录用户可互相读写会话、Run、Agent 配置并代答 HITL 审批。
+## 📦 Repository Structure
 
-由此推论的产品边界：
-
-- MCP 服务器 CRUD 与工具调用、Provider key 配置等“管理员面”是操作员能力，不加第二用户体系；
-- workflow script 节点默认禁用（`WORKFLOW_SCRIPTS_ENABLED=1` 显式开启），开启后脚本在 bwrap/sandbox-exec 下运行（无网络、不可读 dataDir/.env、独立 PID namespace）；
-- Lark 入站消息受 `agent.lark.allowed_senders` open_id 白名单约束，bot 发送者一律丢弃；
-- 全部 secret（provider key、MCP headers）只存于服务端，HTTP 读取侧一律脱敏；
-- 服务默认只绑 `127.0.0.1`，不做局域网暴露。
-- 产品里的 agent 子进程只读 `$OMA_HOME/models.yml`：工作区与 `~/.oma` 都是 agent 的可写区，读它们等于允许一次 Run 劫持下一次的 provider baseUrl 与 key。
-
-## 📦 仓库结构与文档
-
-```
+```text
 apps/
-  backend/       Product Backend — HTTP/SSE、账本、Agent Context、Agent Run、Workflow、Artifact、Product Tools MCP
-  oh-my-agent/   Oma CLI — print/json/tui/acp 模式，被 backend 按 Run spawn
-  web/           Web 控制台 — Next.js 15 + shadcn/ui + React Query
-  lark-bot/      飞书 Bot 适配器
+  backend/       Elysia backend — HTTP/SSE, ledger, runs, workflows, wiki, artifacts, product MCP tools
+  oh-my-agent/   Oma CLI & runtime — print / json / tui / acp modes, agent loop, plugins, compaction
+  web/           Next.js 15 console — Today, Chat, Requirements, Team, Workflows, Coding, Wiki, Channels
+  lark-bot/      Lark / Feishu IM bot adapter
 
 packages/
-  message/        协议层：Message 类型、ChatModel、Tool、stream-utils
-  adapter-mcp/    MCP client adapter — 外部 MCP server 接入
-  workflow/       Agentic Workflow DSL 纯域层（节点图、JSON-Logic、computeNext）
-  sandbox/        进程沙箱 — workflow script 节点 / oma eval 工具
-  ai/             多 API Provider：注册表 + createProvider + BUILTIN_CATALOG + models.yml
-  source-fetch/   git/zip 源物化基座
-  tui/            终端 UI 工具箱（editor / markdown / mermaid）
-  api-contract/   跨进程类型契约（SSE 事件、Eden Treaty）
-  config/         配置加载
-  test-helpers/   测试工具（echoModel）
+  message/       Core protocol: Message, ChatModel, Tool, ContentBlock, stream utilities
+  ai/            Multi-provider model registry & protocol adapters (Anthropic, OpenAI, DeepSeek, etc.)
+  workflow/      Pure Agentic Workflow DSL: node graph, JSON-Logic routing, computeNext engine
+  sandbox/       Process sandbox for workflow script nodes and oma eval tool
+  adapter-mcp/   External MCP client mount
+  ahp-client/    WebSocket transport & state mirror for Agent Host Protocol surfaces
+  api-contract/  Cross-process type contracts (SSE events, Eden Treaty)
+  embedding/     Local embedding support
+  source-fetch/  Git / archive source materializer
+  tui/           Terminal UI toolkit (editor, markdown, mermaid)
+  config/        Configuration loader
+  test-helpers/  Deterministic test doubles (echoModel)
 ```
 
-| 入口 | 内容 |
-|---|---|
-| [项目 Wiki](docs/README.md) | 现状（`architecture/`）、决策（`adr/`）、指南（`guides/`）、路线（`roadmap.md`） |
-| [架构总览](docs/architecture/system-overview.md) | 分层、执行链、关键不变量 |
-| [开发指南](docs/guides/development.md) | 本地开发、测试、提交前门禁 |
-| [贡献指引](CONTRIBUTING.md) | 提交规范与 PR 流程 |
-
-开发命令：
+**Development commands:**
 
 ```bash
-bun run format      # Biome 格式化
-bun run lint        # Biome + ESLint
-bun run typecheck   # tsc --noEmit（全仓）
-bun run test        # 全仓测试
-bun run build       # 全仓构建（turbo）
-bun run audit       # 契约 / 工作区 / 文档 / UI 四道快门禁
-bun run audit:coverage  # oma 运行时语义文件的覆盖率底线
+bun run format          # Biome format
+bun run lint            # Biome + ESLint
+bun run typecheck       # tsc --noEmit across all workspaces
+bun run test            # Full test suite (turbo)
+bun run build           # Full build (turbo)
+bun run audit           # Fast contract / workspace / docs / UI gates
+bun run audit:coverage  # Coverage floors for oma runtime & backend semantics
+bun run quality:mutate  # On-demand mutation testing probe
 ```
 
-> **数据库升级策略**：迁移只保证 fresh-boot 路径。改动 schema 后若旧开发库启动异常，直接删掉 `apps/backend/.backend-data/` 重启即可；不存在 in-place 升级路径，旧库兼容问题不修。
+## 📚 Documentation
+
+| Document | Contents |
+|---|---|
+| [Project Wiki](docs/README.md) | Current-state architecture, ADRs, guides, and roadmap |
+| [System Overview](docs/architecture/system-overview.md) | Execution pipeline, ownership boundaries, and invariants |
+| [Design Philosophy](docs/architecture/design-philosophy.md) | 8 architectural principles behind the codebase |
+| [Development Guide](docs/guides/development.md) | Local development workflow, testing, and pre-commit gates |
+| [Contributing](CONTRIBUTING.md) | Contribution & pre-commit checklist |
 
 ## 📄 License
 
-仓库当前未附带 `LICENSE` 文件。
+Licensed under the [MIT License](LICENSE).

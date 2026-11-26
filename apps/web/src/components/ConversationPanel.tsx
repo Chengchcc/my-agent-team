@@ -24,6 +24,7 @@ import { extractText } from "@/lib/timeline";
 import type { TodoItem, TransientBubble } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 import { Composer, type RecommendedSkill } from "./Composer";
+import { useChatInspector } from "./chat-inspector-context";
 import { type ConversationDensity, ConversationDensityContext } from "./conversation-density";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
@@ -77,6 +78,7 @@ export function ConversationPanel({
   density = "page",
 }: ConversationPanelProps) {
   const router = useRouter();
+  const inspector = useChatInspector();
   const {
     state,
     busy,
@@ -323,109 +325,124 @@ export function ConversationPanel({
         </div>
       )}
 
-      <div className="flex-1 flex min-h-0 relative">
-        {/* Main scroll area */}
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-w-0 overflow-y-auto">
-          <div className="mx-auto max-w-[min(760px,100%)] w-full p-6 pb-40">
-            {items.length === 0 && streamConn !== "open" ? (
-              // The subscription is the history. Until its first snapshot
-              // arrives "start the conversation" is a claim about a room we
-              // have not read yet — the console said it for ten seconds on a
-              // room with 400 messages (audit 2026-11-24).
-              <p className="px-1 py-8 text-sm text-(--mute)">{t("Loading…")}</p>
-            ) : items.length === 0 ? (
-              <div className="flex flex-col items-start justify-center py-24">
-                {emptyTitle}
-                <p className="text-sm text-(--mute) mb-1">
-                  {t("Send a message to start the conversation")}
-                </p>
-                <p className="text-[11px] text-(--faint)">
-                  {t("Ctrl+Enter to send · Shift+Enter for newline")}
-                </p>
-              </div>
-            ) : (
-              <div className="py-4">
-                {continuation && !continuation.live ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/chat/${continuation.control.conversationId}`)}
-                    className="mb-3 rounded-md border border-(--hairline) px-3 py-2 text-xs text-(--mute) hover:text-(--fg) hover:border-(--fg)"
-                  >
-                    This conversation continued in a new one — open it →
-                  </button>
-                ) : null}
-                <Timeline
-                  messages={items}
-                  conversationId={conversationId}
-                  scrollContainerRef={scrollRef}
-                  transients={transientBubbles}
-                  onResolveApproval={resolveApproval}
-                  onMarkUndone={markUndone}
-                  onResolveAsk={(runId, callId, answer) => {
-                    void api.resolveProductAsk({
-                      runId,
-                      callId,
-                      answer: answer as {
-                        answers: Array<{ id: string; selectedValues: string[]; freeText?: string }>;
-                      },
-                    });
-                  }}
-                  artifactsByRunId={artifactsByRunId}
-                  onPreviewArtifact={setPreviewArtifact}
-                  onDownloadArtifact={handleDownloadArtifact}
-                />
+      <div className="flex min-h-0 flex-1">
+        {/* Left column: timeline canvas + composer live together as one cohesive chat surface */}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Main scroll area */}
+          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-w-0 overflow-y-auto">
+            <div className="mx-auto max-w-[min(760px,100%)] w-full p-6 pb-28">
+              {items.length === 0 && streamConn !== "open" ? (
+                // The subscription is the history. Until its first snapshot
+                // arrives "start the conversation" is a claim about a room we
+                // have not read yet — the console said it for ten seconds on a
+                // room with 400 messages (audit 2026-11-24).
+                <p className="px-1 py-8 text-sm text-(--mute)">{t("Loading…")}</p>
+              ) : items.length === 0 ? (
+                <div className="flex flex-col items-start justify-center py-24">
+                  {emptyTitle}
+                  <p className="text-sm text-(--mute) mb-1">
+                    {t("Send a message to start the conversation")}
+                  </p>
+                  <p className="text-[11px] text-(--faint)">
+                    {t("Ctrl+Enter to send · Shift+Enter for newline")}
+                  </p>
+                </div>
+              ) : (
+                <div className="py-4">
+                  {continuation && !continuation.live ? (
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/chat/${continuation.control.conversationId}`)}
+                      className="mb-3 rounded-md border border-(--hairline) px-3 py-2 text-xs text-(--mute) hover:text-(--fg) hover:border-(--fg)"
+                    >
+                      This conversation continued in a new one — open it →
+                    </button>
+                  ) : null}
+                  <Timeline
+                    messages={items}
+                    conversationId={conversationId}
+                    scrollContainerRef={scrollRef}
+                    transients={transientBubbles}
+                    onResolveApproval={resolveApproval}
+                    onMarkUndone={markUndone}
+                    onResolveAsk={(runId, callId, answer) => {
+                      void api.resolveProductAsk({
+                        runId,
+                        callId,
+                        answer: answer as {
+                          answers: Array<{
+                            id: string;
+                            selectedValues: string[];
+                            freeText?: string;
+                          }>;
+                        },
+                      });
+                    }}
+                    artifactsByRunId={artifactsByRunId}
+                    onPreviewArtifact={(art) => {
+                      if (inspector) {
+                        inspector.openArtifact(art);
+                        return;
+                      }
+                      setPreviewArtifact(art);
+                    }}
+                    onDownloadArtifact={handleDownloadArtifact}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Scroll-to-bottom — positioned inside the left chat column above the composer */}
+          {scrolledUp && (
+            <Button
+              onClick={scrollToBottom}
+              className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 bg-(--canvas) border border-(--hairline) rounded-full p-2 hover:border-(--primary) transition-colors"
+              title={t("Back to bottom")}
+            >
+              <ArrowDown size={14} className="text-(--body)" />
+            </Button>
+          )}
+
+          {/* Composer — anchored strictly to the left chat column */}
+          <div className="shrink-0 border-t border-(--hairline)">
+            {streamConn !== "open" && (
+              <div className="flex items-center gap-2 px-6 pt-2">
+                <Badge
+                  variant={streamConn === "closed" ? "destructive" : "secondary"}
+                  className="ml-auto text-[10px] h-4 px-1.5"
+                >
+                  {connectionBadgeLabel(streamConn)}
+                </Badge>
               </div>
             )}
+            <Composer
+              conversationId={conversationId}
+              onSend={send}
+              onSlashCommand={handleSlashCommand}
+              disabled={false}
+              placeholder={busy ? t("Steer the agent...") : t("Send a message...")}
+              isBusy={busy}
+              onStop={currentRunId ? stopRun : undefined}
+              skills={skills}
+              recommendedSkill={recommendedSkill}
+              showSkillChips={showSkillChips}
+              draft={draft}
+            />
           </div>
         </div>
 
-        {/* Scroll-to-bottom — outside scroll container so it stays fixed */}
-        {scrolledUp && (
-          <Button
-            onClick={scrollToBottom}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-(--canvas) border border-(--hairline) rounded-full p-2 hover:border-(--primary) transition-colors"
-            title={t("Back to bottom")}
-          >
-            <ArrowDown size={14} className="text-(--body)" />
-          </Button>
-        )}
-
+        {/* Right column: full-height context or Antigravity-style artifact/requirement preview */}
         {aside}
       </div>
 
-      <ArtifactPreviewSheet
-        artifact={previewArtifact}
-        onClose={() => setPreviewArtifact(null)}
-        conversationId={conversationId}
-      />
-
-      {/* Composer */}
-      <div className="shrink-0 border-t border-(--hairline)">
-        <div className="flex items-center gap-2 px-6 pt-3">
-          {/* Connection status */}
-          {streamConn !== "open" && (
-            <Badge
-              variant={streamConn === "closed" ? "destructive" : "secondary"}
-              className="ml-auto text-[10px] h-4 px-1.5"
-            >
-              {connectionBadgeLabel(streamConn)}
-            </Badge>
-          )}
-        </div>
-        <Composer
+      {!inspector && (
+        <ArtifactPreviewSheet
+          artifact={previewArtifact}
+          onClose={() => setPreviewArtifact(null)}
           conversationId={conversationId}
-          onSend={send}
-          onSlashCommand={handleSlashCommand}
-          disabled={false}
-          placeholder={busy ? t("Steer the agent...") : t("Send a message...")}
-          isBusy={busy}
-          onStop={currentRunId ? stopRun : undefined}
-          skills={skills}
-          recommendedSkill={recommendedSkill}
-          showSkillChips={showSkillChips}
-          draft={draft}
         />
-      </div>
+      )}
     </ConversationDensityContext>
   );
 }

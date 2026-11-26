@@ -1,7 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, MessageSquareText, Plus, Search } from "lucide-react";
+import {
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  MessageSquareText,
+  Plus,
+  Search,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, Suspense, useEffect, useState } from "react";
@@ -42,6 +49,7 @@ import {
 import {
   ALL,
   conversationOverview,
+  foldDispatchedUnderRoots,
   isWorkConversation,
   type OverviewConversation,
   type PaLike,
@@ -90,35 +98,51 @@ function NeedPill({ known, count }: { known: boolean; count: number }) {
 function ConversationCard({
   conversation,
   pa,
+  agentsById,
+  dispatched,
   needKnown,
   now,
 }: {
   conversation: OverviewConversation;
   /** The member whose group the conversation sits in; undefined when it is not in the registry. */
   pa: PaLike | undefined;
+  agentsById: ReadonlyMap<string, AgentRow>;
+  /** Worker sub-sessions dispatched from this PA root session (folded underneath). */
+  dispatched: readonly OverviewConversation[];
   needKnown: boolean;
   now: number | null;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const owner = (conversation.agentId ? agentsById.get(conversation.agentId) : undefined) ?? pa;
   const title = conversationDisplayName(conversation);
   const href = roomHref(conversation.conversationId);
   const created = now === null ? "—" : new Date(conversation.createdAt).toLocaleString();
   const ago = now === null ? "—" : fmtAgo(conversation.lastActivityAt ?? null, now);
+  const workerNames = [
+    ...new Set(
+      dispatched
+        .map((c) => (c.agentId ? agentsById.get(c.agentId)?.name : undefined))
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ];
+  const childNeed = dispatched.reduce((sum, item) => sum + item.needYou, 0);
+
   return (
     <article className={CARD}>
       <div className="flex items-center gap-3.5">
         <RoleAvatar
-          kind={pa === undefined ? "pa" : roleKindOf(pa)}
-          name={pa === undefined ? "?" : pa.name}
+          kind={owner === undefined ? "pa" : roleKindOf(owner)}
+          name={owner === undefined ? "?" : owner.name}
         />
         <div className="min-w-0 flex-1">
-          <strong className="block text-[17px] leading-[1.7] font-[550] text-(--ink)">
+          <strong className="block truncate text-[17px] leading-[1.7] font-[550] text-(--ink)">
             <Link href={href} className="transition-colors hover:text-(--primary)">
               {title}
             </Link>
           </strong>
           <p className="mt-1.5 text-[11px] leading-[1.8] text-(--mute)">
             {sourceWord(conversation.origin)} ·{" "}
-            {pa === undefined ? t("a member that is no longer registered") : pa.name}
+            {owner === undefined ? t("a member that is no longer registered") : owner.name}
             {conversation.projectName !== null && <> · {conversation.projectName}</>}
           </p>
         </div>
@@ -143,11 +167,70 @@ function ConversationCard({
           </Badge>
         )}
       </div>
-      <div className="mt-[17px] border-t border-(--hairline) pt-[15px]">
+      <div className="mt-[17px] flex flex-wrap items-center justify-between gap-2 border-t border-(--hairline) pt-[15px]">
         <small suppressHydrationWarning className="text-[10px] leading-[1.8] text-(--mute)">
           {t("Created {created} · last activity {ago}", { created, ago })}
         </small>
+        {dispatched.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-(--hairline) bg-white/3 px-2.5 py-1 text-[11px] text-(--mute) transition-colors hover:border-(--primary)/40 hover:text-(--ink)"
+          >
+            {expanded ? (
+              <ChevronDown className="size-3.5 shrink-0" />
+            ) : (
+              <ChevronRight className="size-3.5 shrink-0" />
+            )}
+            <span>
+              {t("{n} worker sub-sessions", { n: dispatched.length })}
+              {workerNames.length > 0 ? ` · ${workerNames.join(", ")}` : ""}
+            </span>
+            {needKnown && childNeed > 0 && (
+              <Badge variant="wait" className="ml-1 text-[9px]">
+                {childNeed}
+              </Badge>
+            )}
+          </button>
+        )}
       </div>
+      {dispatched.length > 0 && expanded && (
+        <ul className="mt-3 space-y-1.5 border-t border-(--hairline)/70 pt-3">
+          {dispatched.map((child) => {
+            const worker = child.agentId ? agentsById.get(child.agentId) : undefined;
+            const childTitle = conversationDisplayName(child);
+            const childAgo = now === null ? "—" : fmtAgo(child.lastActivityAt ?? null, now);
+            return (
+              <li key={child.conversationId}>
+                <Link
+                  href={roomHref(child.conversationId)}
+                  className="flex items-center gap-2.5 rounded-lg border border-(--hairline)/80 bg-(--canvas)/60 px-3 py-2 transition-colors hover:border-(--primary)/40 hover:bg-(--panel2)/50"
+                >
+                  <RoleAvatar kind="worker" name={worker?.name ?? "?"} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 text-xs font-medium text-(--ink)">
+                        {worker?.name ?? t("Worker")}
+                      </span>
+                      <span className="truncate text-xs text-(--mute)">{childTitle}</span>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-(--faint)" suppressHydrationWarning>
+                      {t("Dispatched room")} · {childAgo}
+                      {child.projectName ? ` · ${child.projectName}` : ""}
+                    </p>
+                  </div>
+                  {needKnown && child.needYou > 0 && (
+                    <Badge variant="wait">
+                      {t("{n} need your decision", { n: child.needYou })}
+                    </Badge>
+                  )}
+                  <ArrowUpRight className="size-3.5 shrink-0 text-(--faint)" />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </article>
   );
 }
@@ -582,28 +665,38 @@ function ChatOverviewView() {
           overview.groups.map((group) => {
             const paOfGroup =
               group.paId === null ? undefined : agents.find((agent) => agent.id === group.paId);
+            const agentsById = new Map(agents.map((a) => [a.id, a] as const));
+            const folded = foldDispatchedUnderRoots(group.conversations);
+            const dispatchedCount = folded.reduce((sum, entry) => sum + entry.dispatched.length, 0);
             const need = group.conversations.reduce((sum, item) => sum + item.needYou, 0);
             return (
               <section key={group.paId ?? "none"} className="space-y-[15px]">
                 <div className="flex items-center justify-between gap-3">
-                  <h2 className="flex items-center gap-[9px] text-sm font-[550] text-(--ink)">
+                  <h2 className="flex flex-wrap items-center gap-[9px] text-sm font-[550] text-(--ink)">
                     <RoleAvatar
                       kind={paOfGroup === undefined ? "pa" : roleKindOf(paOfGroup)}
                       name={paOfGroup === undefined ? "?" : paOfGroup.name}
                       size="sm"
                     />
                     {paOfGroup === undefined ? t("No member") : paOfGroup.name}
-                    <span className={TINY_COUNT}>{group.conversations.length}</span>
+                    <span className={TINY_COUNT}>{folded.length}</span>
+                    {dispatchedCount > 0 && (
+                      <span className="text-[11px] font-normal text-(--mute)">
+                        · {t("{n} worker sub-sessions folded", { n: dispatchedCount })}
+                      </span>
+                    )}
                   </h2>
                   {needKnown && need > 0 && (
                     <Badge variant="wait">{t("{n} need your decision", { n: need })}</Badge>
                   )}
                 </div>
-                {group.conversations.map((conversation) => (
+                {folded.map(({ root, dispatched }) => (
                   <ConversationCard
-                    key={conversation.conversationId}
-                    conversation={conversation}
+                    key={root.conversationId}
+                    conversation={root}
                     pa={paOfGroup}
+                    agentsById={agentsById}
+                    dispatched={dispatched}
                     needKnown={needKnown}
                     now={now}
                   />

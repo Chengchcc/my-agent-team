@@ -7,6 +7,7 @@ import type { ArtifactMeta } from "@/lib/api";
 import { ArtifactCard } from "./ArtifactCard";
 import { downloadArtifact } from "./ArtifactPreview";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
+import { useChatInspector } from "./chat-inspector-context";
 
 function synthesizeArtifact(url: string): ArtifactMeta {
   const rest = url.startsWith("artifacts://") ? url.slice("artifacts://".length) : url;
@@ -21,7 +22,16 @@ function synthesizeArtifact(url: string): ArtifactMeta {
  *  gallery, and always opens the in-app preview sheet rather than a broken link. */
 export function ArtifactMarkdownCard({ url }: { url: string }) {
   const { data: artifact } = useArtifactMeta(url);
+  const inspector = useChatInspector();
   const [preview, setPreview] = useState<ArtifactMeta | null>(null);
+
+  const handlePreview = (target: ArtifactMeta) => {
+    if (inspector) {
+      inspector.openArtifact(target);
+      return;
+    }
+    setPreview(target);
+  };
 
   if (!artifact) {
     const fallback = synthesizeArtifact(url);
@@ -30,21 +40,21 @@ export function ArtifactMarkdownCard({ url }: { url: string }) {
         <button
           type="button"
           title={url}
-          onClick={() => setPreview(fallback)}
+          onClick={() => handlePreview(fallback)}
           className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--hairline) bg-(--canvas-soft) px-2 py-0.5 text-xs font-medium text-(--primary-deep) transition-colors hover:border-(--primary)/40 hover:text-(--primary)"
         >
           <FileText className="size-3 shrink-0" aria-hidden />
           <span className="truncate">{fallback.filename || url}</span>
         </button>
-        <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} />
+        {!inspector && <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} />}
       </>
     );
   }
 
   return (
     <>
-      <ArtifactCard artifact={artifact} onPreview={setPreview} onDownload={downloadArtifact} />
-      <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} />
+      <ArtifactCard artifact={artifact} onPreview={handlePreview} onDownload={downloadArtifact} />
+      {!inspector && <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} />}
     </>
   );
 }

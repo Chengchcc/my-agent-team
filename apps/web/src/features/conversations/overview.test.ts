@@ -4,6 +4,7 @@ import {
   botNameOf,
   type ConversationLike,
   conversationOverview,
+  foldDispatchedUnderRoots,
   isWorkConversation,
   type OverviewFilters,
   type PaLike,
@@ -202,6 +203,18 @@ describe("conversationOverview · chips and summary", () => {
     expect(
       botNameOf({ id: "x", name: "X", lark: { enabled: true, botDisplayName: "" } }),
     ).toBeNull();
+  });
+
+  test("foldDispatchedUnderRoots nests worker sub-sessions under their parent PA root session", () => {
+    const { groups } = conversationOverview({ ...INPUT, filters: NO_FILTERS });
+    const paOne = groups.find((g) => g.paId === "pa-one")!;
+    const folded = foldDispatchedUnderRoots(paOne.conversations);
+    expect(folded.map((entry) => entry.root.conversationId)).toEqual(["readme", "fork"]);
+    expect(folded[0]!.dispatched.map((c) => c.conversationId)).toEqual([
+      "review-room",
+      "coder-room",
+    ]);
+    expect(folded[1]!.dispatched).toEqual([]);
   });
 
   test("isWorkConversation hides ephemeral editor and ask sessions from main work lists", () => {

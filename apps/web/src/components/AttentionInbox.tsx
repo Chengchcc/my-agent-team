@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, FileText, type LucideIcon, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Clock3, FileText, type LucideIcon, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
@@ -507,51 +507,67 @@ export function AttentionInbox({
   }
 
   const scopeRequest = scope === null ? null : approvalRequest(scope.row.payload);
+  const allClear =
+    zones.needs.length === 0 && zones.working.length === 0 && zones.results.length === 0;
 
   return (
-    <div>
-      <Zone
-        title={t("Needs your decision")}
-        count={zones.needs.length}
-        owner={t("Owner · you")}
-        empty={t(
-          "Nothing is waiting for your decision. What the PA handles routinely stays in the progress zone; it is never dressed up as a to-do for you.",
-        )}
-      >
-        {zones.needs.map(needCard)}
-      </Zone>
-      <Zone
-        title={t("The PA is working on")}
-        count={zones.working.length}
-        owner={t("Owner · PA")}
-        empty={t(
-          "No answer of yours is being applied right now. A run that never asked you something does not appear here.",
-        )}
-      >
-        {zones.working.map((row) => (
-          <WorkingCard
-            key={row.actionId}
-            row={row}
-            agents={agents}
-            memberOf={memberOf}
-            roomTitle={roomTitle}
-            onCorrect={(answered) => {
-              setCorrectFor(answered.actionId);
-              setCorrection("");
-            }}
-          />
-        ))}
-      </Zone>
-      <Zone
-        title={t("New results")}
-        count={zones.results.length}
-        owner={t("Unread results · kept apart from acceptance")}
-        empty={t(
-          "Every new result has been looked at. Looking does not accept a delivery for you.",
-        )}
-      >
-        {zones.results.map(resultCard)}
-      </Zone>
+    <div id="attention-inbox">
+      {allClear ? (
+        <section className="mb-5 flex items-center gap-3 rounded-xl border border-(--primary)/20 bg-(--panel) px-4 py-3.5">
+          <CheckCircle2 className="size-4 shrink-0 text-(--primary)" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-(--ink)">{t("All clear right now")}</p>
+            <p className="mt-0.5 text-[11px] text-(--mute)">
+              {t("No pending approvals, active follow-ups, or unread deliveries waiting for you.")}
+            </p>
+          </div>
+        </section>
+      ) : (
+        <>
+          {zones.needs.length > 0 && (
+            <Zone
+              title={t("Needs your decision")}
+              count={zones.needs.length}
+              owner={t("Owner · you")}
+              empty=""
+            >
+              {zones.needs.map(needCard)}
+            </Zone>
+          )}
+          {zones.working.length > 0 && (
+            <Zone
+              title={t("The PA is working on")}
+              count={zones.working.length}
+              owner={t("Owner · PA")}
+              empty=""
+            >
+              {zones.working.map((row) => (
+                <WorkingCard
+                  key={row.actionId}
+                  row={row}
+                  agents={agents}
+                  memberOf={memberOf}
+                  roomTitle={roomTitle}
+                  onCorrect={(answered) => {
+                    setCorrectFor(answered.actionId);
+                    setCorrection("");
+                  }}
+                />
+              ))}
+            </Zone>
+          )}
+          {zones.results.length > 0 && (
+            <Zone
+              title={t("New results")}
+              count={zones.results.length}
+              owner={t("Unread results · kept apart from acceptance")}
+              empty=""
+            >
+              {zones.results.map(resultCard)}
+            </Zone>
+          )}
+        </>
+      )}
       {state === "loading" && (
         <p className="text-[11px] text-(--mute)">{t("Reading what waits for you…")}</p>
       )}

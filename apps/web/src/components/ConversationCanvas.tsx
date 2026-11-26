@@ -16,10 +16,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArtifactDetailDialog } from "@/components/ArtifactDetail";
+import { ChatSidePreviewPane } from "@/components/ChatSidePreviewPane";
 import { ConversationPanel } from "@/components/ConversationPanel";
+import {
+  ChatInspectorContext,
+  type ChatInspectorTarget,
+} from "@/components/chat-inspector-context";
 import { fmtBytes } from "@/components/ops/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -159,9 +163,33 @@ export function ConversationCanvas({
   );
   const sessionExecutions = workflowsQuery.data?.executions ?? [];
 
-  const [previewArtifact, setPreviewArtifact] = useState<ArtifactMeta | null>(null);
+  const [inspectorTarget, setInspectorTarget] = useState<ChatInspectorTarget | null>(null);
   const [asideVisible, setAsideVisible] = useState(true);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  const openArtifact = useCallback((artifact: ArtifactMeta) => {
+    setInspectorTarget({ kind: "artifact", artifact });
+    setAsideVisible(true);
+  }, []);
+
+  const openRequirement = useCallback((requirementId: string) => {
+    setInspectorTarget({ kind: "requirement", requirementId });
+    setAsideVisible(true);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setInspectorTarget(null);
+  }, []);
+
+  const inspectorController = useMemo(
+    () => ({
+      active: inspectorTarget,
+      openArtifact,
+      openRequirement,
+      closePreview,
+    }),
+    [inspectorTarget, openArtifact, openRequirement, closePreview],
+  );
 
   const [exporting, setExporting] = useState(false);
   const handleExport = useCallback(async () => {
@@ -242,13 +270,14 @@ export function ConversationCanvas({
                   className="rounded-lg border border-(--hairline) bg-(--canvas-soft)/60 p-2.5"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <Link
-                      href={`/requirements/${encodeURIComponent(req.requirementId)}`}
-                      className="min-w-0 flex-1 truncate text-xs font-medium text-(--ink) hover:text-(--primary)"
+                    <button
+                      type="button"
+                      onClick={() => openRequirement(req.requirementId)}
+                      className="min-w-0 flex-1 truncate text-left text-xs font-medium text-(--ink) hover:text-(--primary)"
                       title={req.title}
                     >
                       {req.title}
-                    </Link>
+                    </button>
                     {isCurrent && <Badge variant="default">{t("Current goal")}</Badge>}
                   </div>
                   <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-(--mute)">
@@ -292,7 +321,7 @@ export function ConversationCanvas({
               <li key={art.url}>
                 <button
                   type="button"
-                  onClick={() => setPreviewArtifact(art)}
+                  onClick={() => openArtifact(art)}
                   className="flex w-full items-center gap-2 rounded-lg border border-(--hairline) bg-(--canvas-soft)/50 px-2.5 py-2 text-left transition-colors hover:border-(--primary)/40"
                 >
                   <FileText className="size-3.5 shrink-0 text-(--mute)" />
@@ -395,10 +424,27 @@ export function ConversationCanvas({
     <>
       {asideVisible && (
         <aside
-          aria-label={t("Session context")}
-          className="hidden w-[308px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-(--hairline) p-4 md:flex"
+          aria-label={inspectorTarget ? t("Preview") : t("Session context")}
+          className={
+            inspectorTarget
+              ? "hidden w-[440px] shrink-0 flex-col overflow-hidden border-l border-(--hairline) bg-(--canvas) md:flex xl:w-[540px]"
+              : "hidden w-[308px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-(--hairline) bg-(--canvas) p-4 md:flex"
+          }
         >
-          {contextPanels}
+          {inspectorTarget ? (
+            <ChatSidePreviewPane
+              target={inspectorTarget}
+              onBack={closePreview}
+              onClose={() => {
+                setInspectorTarget(null);
+                setAsideVisible(false);
+              }}
+              onOpenArtifact={openArtifact}
+              onOpenRequirement={openRequirement}
+            />
+          ) : (
+            contextPanels
+          )}
         </aside>
       )}
     </>
@@ -530,49 +576,69 @@ export function ConversationCanvas({
         </div>
       </div>
 
-      <ConversationPanel
-        conversationId={conversationId}
-        conversation={conversation}
-        anchorSeq={anchorSeq}
-        skills={skills}
-        emptyTitle={
-          primaryAgent ? (
-            <p className="mb-1 text-base font-medium text-(--ink-strong)">{agentName}</p>
-          ) : null
-        }
-        aside={contextAside}
-      />
+      <ChatInspectorContext.Provider value={inspectorController}>
+        <ConversationPanel
+          conversationId={conversationId}
+          conversation={conversation}
+          anchorSeq={anchorSeq}
+          skills={skills}
+          emptyTitle={
+            primaryAgent ? (
+              <p className="mb-1 text-base font-medium text-(--ink-strong)">{agentName}</p>
+            ) : null
+          }
+          aside={contextAside}
+        />
+      </ChatInspectorContext.Provider>
 
-      {/* Mobile Session Context drawer */}
-      {mobileDrawerOpen && (
+      {/* Mobile Session Context / Preview drawer */}
+      {(mobileDrawerOpen || inspectorTarget !== null) && (
         <>
           <div
             className="fixed inset-0 z-40 bg-black/40 md:hidden"
-            onClick={() => setMobileDrawerOpen(false)}
+            onClick={() => {
+              setMobileDrawerOpen(false);
+              setInspectorTarget(null);
+            }}
           />
           <aside
             id="session-context-drawer"
-            className="fixed inset-y-0 right-0 z-50 w-80 overflow-y-auto border-l border-(--hairline) bg-(--canvas) p-4 shadow-lg md:hidden"
+            className="fixed inset-y-0 right-0 z-50 flex w-[90vw] max-w-md flex-col overflow-hidden border-l border-(--hairline) bg-(--canvas) shadow-lg md:hidden"
             role="dialog"
-            aria-label={t("Session context")}
+            aria-label={inspectorTarget ? t("Preview") : t("Session context")}
           >
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-xs font-[550] text-(--ink-strong)">{t("Session context")}</span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t("Close")}
-                onClick={() => setMobileDrawerOpen(false)}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-            {contextPanels}
+            {inspectorTarget ? (
+              <ChatSidePreviewPane
+                target={inspectorTarget}
+                onBack={closePreview}
+                onClose={() => {
+                  setInspectorTarget(null);
+                  setMobileDrawerOpen(false);
+                }}
+                onOpenArtifact={openArtifact}
+                onOpenRequirement={openRequirement}
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-xs font-[550] text-(--ink-strong)">
+                    {t("Session context")}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("Close")}
+                    onClick={() => setMobileDrawerOpen(false)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+                {contextPanels}
+              </div>
+            )}
           </aside>
         </>
       )}
-
-      <ArtifactDetailDialog artifact={previewArtifact} onClose={() => setPreviewArtifact(null)} />
     </div>
   );
 }

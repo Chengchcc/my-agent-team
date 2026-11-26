@@ -406,6 +406,21 @@ export const zhOwn: Record<string, string> = {
   "Save message": "收藏消息",
   "Remove bookmark": "取消收藏",
   "Bookmark failed": "收藏失败",
+  // Antigravity right-side preview, folded chat tree, and Today UX redesign
+  "Could not load this artifact.": "无法加载该产物内容。",
+  "{n} runs": "{n} 次运行",
+  "{n} worker sub-sessions": "{n} 个 Worker 子会话",
+  "{n} worker sub-sessions folded": "已折叠 {n} 个 Worker 子会话",
+  "All clear right now": "当前全部已清零",
+  "No pending approvals, active follow-ups, or unread deliveries waiting for you.":
+    "当前没有待你审批的动作、进行中的跟进或未读新结果。",
+  "Pending decisions, active goals, and recent work sessions at a glance.":
+    "一屏掌握待你确认的事项、推进中的目标与最近工作会话。",
+  "Active goals": "推进中的目标",
+  "Unread results": "未读新结果",
+  "Recent work sessions": "最近工作会话",
+  "No active goals yet.": "当前没有推进中的目标。",
+  "View all": "查看全部",
 };
 
 /** One wording per key is enforced by `pages/index.test.ts`; nothing here overrides anything.

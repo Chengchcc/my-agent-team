@@ -77,6 +77,49 @@ export interface PaGroup {
   conversations: OverviewConversation[];
 }
 
+export interface FoldedRootSession {
+  /** The PA's root session (or standalone room when its parent is absent from the list). */
+  root: OverviewConversation;
+  /** Worker dispatched sub-sessions rooted under this session, newest activity first. */
+  dispatched: OverviewConversation[];
+}
+
+/** Nests Worker dispatched sub-sessions underneath their parent PA root session within a group,
+ *  so the PA's own work sessions stay distinct from the Worker runs it dispatched. */
+export function foldDispatchedUnderRoots(
+  conversations: readonly OverviewConversation[],
+): FoldedRootSession[] {
+  const byId = new Map(conversations.map((row) => [row.conversationId, row] as const));
+
+  function topAncestorInGroup(row: OverviewConversation, depth = 0): OverviewConversation {
+    const parentId = row.parentConversationId ?? null;
+    if (parentId === null || depth >= MAX_CHAIN) return row;
+    const parent = byId.get(parentId);
+    if (parent === undefined) return row;
+    return topAncestorInGroup(parent, depth + 1);
+  }
+
+  const roots: OverviewConversation[] = [];
+  const childrenByRoot = new Map<string, OverviewConversation[]>();
+  for (const row of conversations) {
+    const top = topAncestorInGroup(row);
+    if (top.conversationId === row.conversationId) {
+      roots.push(row);
+    } else {
+      const bucket = childrenByRoot.get(top.conversationId);
+      if (bucket === undefined) childrenByRoot.set(top.conversationId, [row]);
+      else bucket.push(row);
+    }
+  }
+
+  return roots.map((root) => ({
+    root,
+    dispatched: (childrenByRoot.get(root.conversationId) ?? []).sort(
+      (a, b) => activityStamp(b) - activityStamp(a),
+    ),
+  }));
+}
+
 export interface PaChip {
   pa: PaLike;
   conversations: number;

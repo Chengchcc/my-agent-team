@@ -18,6 +18,7 @@ import { requirementStatusLabel, requirementStatusTone } from "@/features/requir
 import { useRequirement } from "@/features/requirements/hooks";
 import { isRequirementDetail } from "@/features/requirements/queries";
 import { t } from "@/lib/i18n";
+import { useChatInspector } from "./chat-inspector-context";
 
 /** Inline requirement chip inside chat Markdown (ADR 0082 D8): resolves the real
  *  requirement title and derived status, opens a quick read-only preview on click,
@@ -29,6 +30,7 @@ export function RequirementMarkdownChip({
   requirementId: string;
   fallback?: ReactNode;
 }) {
+  const inspector = useChatInspector();
   const [open, setOpen] = useState(false);
   const { data } = useRequirement(requirementId);
   const detail = isRequirementDetail(data) ? data : null;
@@ -47,7 +49,13 @@ export function RequirementMarkdownChip({
       <button
         type="button"
         title={req ? `${req.title} (${requirementId})` : requirementId}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          if (inspector) {
+            inspector.openRequirement(requirementId);
+            return;
+          }
+          setOpen(true);
+        }}
         className="mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-full border border-(--primary)/25 bg-(--primary)/8 px-2.5 py-0.5 align-baseline text-xs font-medium text-(--primary) transition-colors hover:border-(--primary)/50 hover:bg-(--primary)/14"
       >
         <Target className="size-3 shrink-0" aria-hidden />
@@ -59,69 +67,73 @@ export function RequirementMarkdownChip({
         )}
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <p className="font-mono text-[10px] uppercase tracking-[0.8px] text-(--faint)">
-                {t("Requirement")}
-              </p>
-              {status && (
-                <Badge variant={requirementStatusTone(status)}>
-                  {requirementStatusLabel(status)}
-                </Badge>
-              )}
-            </div>
-            <DialogTitle className="text-base text-(--ink-strong)">
-              {req?.title ?? `${t("Requirement")} · ${shortEntityId(requirementId)}`}
-            </DialogTitle>
-            <DialogDescription className="text-[11px]" title={requirementId}>
-              {req?.createdByAgentId ? t("Tracked requirement") : shortEntityId(requirementId)}
-            </DialogDescription>
-          </DialogHeader>
-          {req ? (
-            <div className="space-y-3 text-xs leading-relaxed text-(--ink)">
-              <div>
-                <p className="mb-1 text-[10px] uppercase tracking-[0.8px] text-(--faint)">
-                  {t("Goal")}
+      {!inspector && (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <p className="font-mono text-[10px] uppercase tracking-[0.8px] text-(--faint)">
+                  {t("Requirement")}
                 </p>
-                <p className="whitespace-pre-wrap">{req.goal}</p>
+                {status && (
+                  <Badge variant={requirementStatusTone(status)}>
+                    {requirementStatusLabel(status)}
+                  </Badge>
+                )}
               </div>
-              {req.expectedDeliverables && (
+              <DialogTitle className="text-base text-(--ink-strong)">
+                {req?.title ?? `${t("Requirement")} · ${shortEntityId(requirementId)}`}
+              </DialogTitle>
+              <DialogDescription className="text-[11px]" title={requirementId}>
+                {req?.createdByAgentId ? t("Tracked requirement") : shortEntityId(requirementId)}
+              </DialogDescription>
+            </DialogHeader>
+            {req ? (
+              <div className="space-y-3 text-xs leading-relaxed text-(--ink)">
                 <div>
                   <p className="mb-1 text-[10px] uppercase tracking-[0.8px] text-(--faint)">
-                    {t("Expected deliverables")}
+                    {t("Goal")}
                   </p>
-                  <p className="whitespace-pre-wrap text-(--body)">{req.expectedDeliverables}</p>
+                  <p className="whitespace-pre-wrap">{req.goal}</p>
                 </div>
-              )}
-              {req.acceptanceCriteria && (
-                <div>
-                  <p className="mb-1 text-[10px] uppercase tracking-[0.8px] text-(--faint)">
-                    {t("Acceptance criteria")}
-                  </p>
-                  <p className="whitespace-pre-wrap text-(--body)">{req.acceptanceCriteria}</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs text-(--mute)">{t("Loading…")}</p>
-          )}
-          <DialogFooter className="gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href={`/artifacts?requirement=${encodeURIComponent(requirementId)}`} />}
-            >
-              <FolderOpen className="size-3.5" /> {t("Artifacts")}
-            </Button>
-            <Button size="sm" nativeButton={false} render={<Link href={href} />}>
-              {t("Open full page")} <ArrowUpRight className="size-3.5" />
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                {req.expectedDeliverables && (
+                  <div>
+                    <p className="mb-1 text-[10px] uppercase tracking-[0.8px] text-(--faint)">
+                      {t("Expected deliverables")}
+                    </p>
+                    <p className="whitespace-pre-wrap text-(--body)">{req.expectedDeliverables}</p>
+                  </div>
+                )}
+                {req.acceptanceCriteria && (
+                  <div>
+                    <p className="mb-1 text-[10px] uppercase tracking-[0.8px] text-(--faint)">
+                      {t("Acceptance criteria")}
+                    </p>
+                    <p className="whitespace-pre-wrap text-(--body)">{req.acceptanceCriteria}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-(--mute)">{t("Loading…")}</p>
+            )}
+            <DialogFooter className="gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <Link href={`/artifacts?requirement=${encodeURIComponent(requirementId)}`} />
+                }
+              >
+                <FolderOpen className="size-3.5" /> {t("Artifacts")}
+              </Button>
+              <Button size="sm" nativeButton={false} render={<Link href={href} />}>
+                {t("Open full page")} <ArrowUpRight className="size-3.5" />
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }
