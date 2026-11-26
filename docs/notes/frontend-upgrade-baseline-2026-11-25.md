@@ -108,7 +108,8 @@ Skill 与 MCP 没有管理类产品工具。内置技能包里有 `project_manag
 | 整站基础 | 完成 | 主题与版式整站替换、导航分组、会话密度、共享 PA 会话（`PaSession`、`AskPaSheet`）、页面词典合并与一致性检查、Channels 页面 |
 | 第一波页面 | 完成 | 成员（列表、详情、编辑）、需求（列表、目标页、建议收件箱）、Wiki（索引、阅读、问 PA）、可观测 |
 | 第二波页面 | 完成 | Workflow（列表、只读概览、编辑器）、Coding、成果空间、Authority、Settings、Skills、MCP、Today、会话总览；真机验证结果见 ADR 0081 |
-| 未做 | — | 运行详情页 `/system/runs/:id` |
+| 收尾 | 完成 | 运行详情页 `/system/runs/:id` |
+| 未做 | — | 流程编辑器内部几处英文与旧写法（`ExecutionTraceView`、`RunConsole`、`NodePropertyPanel` 等） |
 
 ### 两个波次里查出来、留给后端或产品的缺口
 

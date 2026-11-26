@@ -10,6 +10,7 @@ import { pageZh } from "./index";
 import { mcpZh } from "./mcp";
 import { observabilityZh } from "./observability";
 import { requirementsZh } from "./requirements";
+import { runsZh } from "./runs";
 import { settingsZh } from "./settings";
 import { skillsZh } from "./skills";
 import { teamZh } from "./team";
@@ -24,6 +25,7 @@ const PAGE_DICTIONARIES: Record<string, Record<string, string>> = {
   "channels.ts": channelsZh,
   "observability.ts": observabilityZh,
   "requirements.ts": requirementsZh,
+  "runs.ts": runsZh,
   "settings.ts": settingsZh,
   "team.ts": teamZh,
   "wiki.ts": wikiZh,

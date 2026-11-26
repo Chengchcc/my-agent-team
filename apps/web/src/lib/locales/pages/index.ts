@@ -6,6 +6,7 @@ import { codingZh } from "./coding";
 import { mcpZh } from "./mcp";
 import { observabilityZh } from "./observability";
 import { requirementsZh } from "./requirements";
+import { runsZh } from "./runs";
 import { settingsZh } from "./settings";
 import { skillsZh } from "./skills";
 import { teamZh } from "./team";
@@ -19,6 +20,7 @@ export const pageZh: Record<string, string> = {
   ...channelsZh,
   ...observabilityZh,
   ...requirementsZh,
+  ...runsZh,
   ...teamZh,
   ...wikiZh,
   ...mcpZh,

@@ -20,7 +20,7 @@ import { t } from "@/lib/i18n";
 import { executionStatus } from "@/lib/status";
 import { fmtUsage } from "./format";
 
-type RunEvent = { seq: number; type: string; data: Record<string, unknown>; ts: number };
+export type RunEvent = { seq: number; type: string; data: Record<string, unknown>; ts: number };
 
 /** The fields of a run the dialog reads (a subset of the list row). */
 export interface RunFacts {
@@ -41,7 +41,7 @@ export interface RunFacts {
 const MAX_EVENTS = 60;
 const CANCELLABLE = ["running", "waiting", "commit_failed"];
 
-function Fact({ name, children }: { name: string; children: ReactNode }) {
+export function Fact({ name, children }: { name: string; children: ReactNode }) {
   return (
     <div className="border-b border-(--hairline) py-2 last:border-b-0">
       <dt className="mb-0.5 text-[10px] text-(--faint)">{name}</dt>
@@ -51,7 +51,7 @@ function Fact({ name, children }: { name: string; children: ReactNode }) {
 }
 
 /** One event as one line: when it happened in the run, and what it named. */
-function eventLine(event: RunEvent, startTs: number): string {
+export function eventLine(event: RunEvent, startTs: number): string {
   const named = [event.data.toolName, event.data.name, event.data.callId].find(
     (value) => typeof value === "string",
   );
