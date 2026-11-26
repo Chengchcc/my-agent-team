@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { type ApplyDeps, applyProposal, ProposalNotApplicable } from "./apply.js";
+import { type ApplyDeps, applyProposal, ProposalNotApplicable, reviewedPayload } from "./apply.js";
 import { isProposalKind } from "./domain.js";
 import type { ProposalService } from "./service.js";
 
@@ -22,26 +22,30 @@ export function proposalRoutes(service: ProposalService, apply?: ApplyDeps) {
       return { proposal: service.pending(params.kind, params.targetId) };
     })
     .post("/api/proposal-decisions/:id", async ({ body, params, set }) => {
-      const decision = (body as { decision?: unknown } | undefined)?.decision;
+      const input = (body ?? {}) as { decision?: unknown; payload?: unknown };
+      const decision = input.decision;
       if (decision !== "adopted" && decision !== "discarded") {
         set.status = 400;
         return { error: "decision must be adopted or discarded" };
       }
-      // "adopted" must MEAN applied: resolve first, then apply, and roll the
-      // decision back if the application fails (measured 2026-11-23: the
-      // endpoint answered ok while the config was untouched).
+      // "adopted" must MEAN applied: apply first, and leave the row pending when the
+      // application fails (measured 2026-11-23: the endpoint answered ok while the
+      // config was untouched).
       const pending = service.pendingById(params.id);
       if (pending === null) {
         // A page that adopts after another one already did: the row is not pending any more.
         set.status = 409;
         return { error: "this proposal is no longer pending" };
       }
+      // A page that let the human review the suggestion in a form sends what they saved:
+      // that is what gets applied, and what the row records from then on.
+      const applied = reviewedPayload(pending.kind, pending.payload, input.payload);
       if (decision === "adopted" && apply !== undefined) {
         try {
           await applyProposal({
             kind: pending.kind,
             targetId: pending.targetId,
-            payload: pending.payload,
+            payload: applied,
             deps: apply,
           });
         } catch (err) {
@@ -49,7 +53,8 @@ export function proposalRoutes(service: ProposalService, apply?: ApplyDeps) {
           return { error: err instanceof Error ? err.message : String(err) };
         }
       }
-      if (!service.resolve(params.id, decision)) {
+      const recorded = decision === "adopted" ? applied : undefined;
+      if (!service.resolve(params.id, decision, recorded)) {
         set.status = 409;
         return { error: "this proposal is no longer pending" };
       }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { AgentDetail } from "../_components/agent-detail";
+import { TeamScreen } from "../_components/team-screen";
 
+/** `/team/<id>`: the registry with this member's detail open. */
 export default function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>();
-  return <AgentDetail agentId={agentId} />;
+  return <TeamScreen view={{ kind: "detail", agentId }} />;
 }

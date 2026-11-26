@@ -1,14 +1,16 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useState } from "react";
+import { type ChangeEvent, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { type PackKind, searchPackFiles } from "./pack-file-utils";
+import { t } from "@/lib/i18n";
+import { type PackKind, searchPackFiles, visibleHits } from "./pack-file-utils";
 
 type PackSearchHit = { path: string; line: number; snippet: string };
+type Hits = { status: "idle" } | { status: "open"; hits: PackSearchHit[] };
 
-/** Debounced full-text search over one pack's files (skill or knowledge).
- *  Clicking a hit opens the file in the pack drawer's viewer. */
+/** Search over one pack's files; Enter runs it. A hit opens the file in the reader. Hits inside
+ *  hidden segments are never listed. */
 export function PackFileSearch({
   packId,
   onOpen,
@@ -19,57 +21,63 @@ export function PackFileSearch({
   kind?: PackKind;
 }) {
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<PackSearchHit[]>([]);
-  const [open, setOpen] = useState(false);
+  const [hits, setHits] = useState<Hits>({ status: "idle" });
 
-  const search = async (query: string) => {
-    if (!query.trim()) {
-      setHits([]);
+  async function search(query: string): Promise<void> {
+    if (query.trim() === "") {
+      setHits({ status: "idle" });
       return;
     }
     try {
       const data = await searchPackFiles(kind, packId, query.trim());
-      setHits((data.results ?? []).slice(0, 20));
-      setOpen(true);
+      setHits({ status: "open", hits: visibleHits(data.results).slice(0, 20) });
     } catch {
-      setHits([]);
+      setHits({ status: "open", hits: [] });
     }
-  };
+  }
+
+  function onKey(event: React.KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void search(q);
+    }
+    if (event.key === "Escape") setHits({ status: "idle" });
+  }
+
+  function onChange(event: ChangeEvent<HTMLInputElement>): void {
+    setQ(event.target.value);
+  }
 
   return (
     <div className="relative">
-      <div className="relative">
-        <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-(--mute)" />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void search(q);
-            }
-            if (e.key === "Escape") setOpen(false);
-          }}
-          placeholder="Search pack files…"
-          className="mb-2 h-7 pl-7 text-xs"
-        />
-      </div>
-      {open && hits.length > 0 && (
-        <div className="absolute top-full left-0 z-20 mb-1 max-h-64 w-full overflow-y-auto rounded-md border border-(--hairline) bg-(--canvas) p-1 shadow-lg">
-          {hits.map((h, i) => (
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-(--mute)" />
+      <Input
+        value={q}
+        onChange={onChange}
+        onKeyDown={onKey}
+        placeholder={t("Search pack files")}
+        aria-label={t("Search pack files")}
+        className="h-8 pl-8 text-xs"
+      />
+      {hits.status === "open" && (
+        <div className="absolute top-full inset-x-0  z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-white/11 bg-(--panel) p-1">
+          {hits.hits.length === 0 && (
+            <p className="px-2 py-1 text-xs text-(--mute)">{t("No matching file")}</p>
+          )}
+          {hits.hits.map((hit) => (
             <button
-              key={`${h.path}-${h.line}-${i}`}
+              key={`${hit.path}:${hit.line}`}
               type="button"
-              className="flex w-full flex-col items-start rounded px-2 py-1 text-left text-xs hover:bg-(--canvas-soft)"
+              className="flex w-full flex-col items-start rounded-md px-2 py-1 text-left hover:bg-white/4"
               onClick={() => {
-                onOpen(h.path);
-                setOpen(false);
+                onOpen(hit.path);
+                setHits({ status: "idle" });
               }}
             >
               <span className="truncate font-mono text-[10px] text-(--mute)">
-                {h.path}:{h.line}
+                {hit.path}:{hit.line}
               </span>
-              <span className="line-clamp-1 text-(--body)">{h.snippet}</span>
+              <span className="line-clamp-1 text-xs text-(--body)">{hit.snippet}</span>
             </button>
           ))}
         </div>

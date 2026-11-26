@@ -5,6 +5,7 @@ import { useAgentWorkspaceEntries } from "@/features/agents/hooks";
 import { useMcpCatalog } from "@/features/mcp/hooks";
 import { useModelList } from "@/features/models/hooks";
 import { useAgentRunDetail, useAgentRuns, useSystemMetrics } from "@/features/ops/hooks";
+import { t } from "@/lib/i18n";
 
 /* ── Run Diagnostics rail (Obsidian chat run-console) ──
  * Live-run "Run Diagnostics" panel from the design mockup. Composes REAL
@@ -92,8 +93,8 @@ export function RunDiagnostics({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] tracking-kicker uppercase text-(--mute) font-semibold">
-          Run Diagnostics
+        <span className="text-[10px] tracking-kicker uppercase text-(--faint) font-normal">
+          {t("Run Diagnostics")}
         </span>
         {pid && <span className="font-mono text-[9px] text-(--faint)">PID {pid}</span>}
       </div>

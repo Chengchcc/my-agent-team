@@ -15,6 +15,8 @@ export interface ProposalPort {
    *  adopt a project the assistant proposed but no page was open for. */
   listPending(kind?: string): ProposalRow[];
   /** True when this call is what moved the row out of pending — a second attempt is false, and
-   *  the route answers 409 rather than pretending the decision landed twice. */
-  resolve(id: string, status: string, resolvedAt: number): boolean;
+   *  the route answers 409 rather than pretending the decision landed twice. `payload` is what was
+   *  actually applied when the human reviewed the proposal first; it replaces what the tool sent,
+   *  so the row records the decision that was made and not an earlier draft of it. */
+  resolve(id: string, status: string, resolvedAt: number, payload?: string): boolean;
 }

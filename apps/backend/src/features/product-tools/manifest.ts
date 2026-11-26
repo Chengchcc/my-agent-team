@@ -262,16 +262,17 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
     },
     {
       name: "project_propose",
-      description: "Propose a project (name + repo) and who should hold it; a human adopts.",
+      description:
+        "Propose a project (name + repo) and who should hold it, or with project_id a change to an existing project; a human adopts.",
       inputSchema: {
         type: "object",
         properties: {
+          project_id: { type: "string" },
           name: { type: "string" },
           repo_url: { type: "string" },
           default_branch: { type: "string" },
           attach_to: { type: "array", items: { type: "string" } },
         },
-        required: ["name", "repo_url"],
       },
       entrypoint,
     },

@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { t as translate } from "@/lib/i18n";
 
 const TYPES = ["string", "number", "boolean", "artifact"] as const;
 
@@ -42,7 +43,9 @@ export function OutputFieldsEditor({
 
   return (
     <div className="space-y-2">
-      {fields.length === 0 && <p className="text-xs text-(--faint)">No output fields</p>}
+      {fields.length === 0 && (
+        <p className="text-xs text-(--faint)">{translate("No output fields")}</p>
+      )}
       {fields.map((f, i) => (
         <div key={i} className="flex items-center gap-1">
           <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-(--info)">
@@ -63,18 +66,20 @@ export function OutputFieldsEditor({
               ))}
             </SelectContent>
           </Select>
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
+            className="shrink-0 text-(--err) hover:text-(--err)"
             onClick={() => remove(i)}
-            className="shrink-0 text-[10px] text-(--err) hover:underline"
           >
-            Delete
-          </button>
+            {translate("Delete")}
+          </Button>
         </div>
       ))}
       <div className="flex gap-1">
         <Input
           className="h-7 flex-1 border-(--hairline) bg-(--canvas) text-xs"
-          placeholder="Field name"
+          placeholder={translate("Field name")}
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           onKeyDown={(e) => {

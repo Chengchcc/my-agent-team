@@ -55,7 +55,9 @@ export function useConfirm() {
             {options.cancelText ?? "Cancel"}
           </AlertDialogCancel>
           <AlertDialogAction
-            className={options.destructive ? "bg-red-600 text-white hover:bg-red-500" : undefined}
+            className={
+              options.destructive ? "bg-(--err) text-(--canvas) hover:bg-(--err)/80" : undefined
+            }
             onClick={() => close(true)}
           >
             {options.confirmText ?? "Delete"}

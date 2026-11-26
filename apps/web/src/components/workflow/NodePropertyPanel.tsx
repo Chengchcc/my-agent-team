@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import "@/lib/monaco-loader";
 import { HumanFormEditor } from "./HumanFormEditor";
 import { InputPanel } from "./InputPanel";
@@ -24,7 +25,7 @@ import { OutputFieldsEditor } from "./OutputFieldsEditor";
 
 const MonacoCodeEditor = dynamic(() => import("@monaco-editor/react").then((m) => m.default), {
   ssr: false,
-  loading: () => <div className="p-2 text-xs text-(--mute)">Loading editor…</div>,
+  loading: () => <div className="p-2 text-xs text-(--mute)">{t("Loading editor…")}</div>,
 });
 
 type Def = WorkflowDefinition;
@@ -71,10 +72,10 @@ export function NodePropertyPanel({
 }) {
   const node = useMemo(() => definition.nodes.find((n) => n.id === nodeId), [definition, nodeId]);
   const [agents, setAgents] = useState<Array<{ id: string; name?: string }>>([]);
-  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState<"open" | "closed">("closed");
   const [debugInput, setDebugInput] = useState("");
   const [debugResult, setDebugResult] = useState<string | null>(null);
-  const [debugBusy, setDebugBusy] = useState(false);
+  const [debugBusy, setDebugBusy] = useState<"busy" | "idle">("idle");
   useEffect(() => {
     api
       .listAgents()
@@ -93,25 +94,27 @@ export function NodePropertyPanel({
         <Input
           className="min-w-0 flex-1 border-(--hairline) bg-(--canvas) font-mono text-xs text-(--info)"
           value={nodeId}
-          placeholder="Node id"
+          placeholder={t("Node id")}
           onChange={(e) => onChange(renameNode(definition, nodeId, e.target.value))}
         />
         <Badge variant="outline" className="shrink-0 border-(--hairline) text-[10px] text-(--mute)">
-          {TYPE_LABEL[node.type] ?? node.type}
+          {t(TYPE_LABEL[node.type] ?? node.type)}
         </Badge>
         <button
           className="shrink-0 rounded-md border border-(--info)/40 bg-(--info)/10 px-2 py-1 text-[10px] text-(--info) hover:bg-(--info)/20"
-          onClick={() => setDebugOpen(true)}
+          onClick={() => setDebugOpen("open")}
         >
-          Debug
+          {t("Debug")}
         </button>
       </div>
       <div className="mb-4 space-y-1">
-        <Label className="text-xs text-(--mute)">name</Label>
+        <Label className="text-xs text-(--mute)">
+          {t("name")} <span className="ml-1.5 font-mono text-[10px] text-(--faint)">name</span>
+        </Label>
         <Input
           className="border-(--hairline) bg-(--canvas) text-xs"
           value={(node as { label?: string }).label ?? ""}
-          placeholder="Node label (shown on canvas)"
+          placeholder={t("Node label (shown on canvas)")}
           onChange={(e) => set({ label: e.target.value })}
         />
       </div>
@@ -125,10 +128,12 @@ export function NodePropertyPanel({
       {node.type === "agent" && (
         <>
           <div className="space-y-1">
-            <Label className="text-xs text-(--mute)">Agent (select from system)</Label>
+            <Label className="text-xs text-(--mute)">{t("Agent (select from system)")}</Label>
             <Select value={node.agentId ?? ""} onValueChange={(v) => set({ agentId: v })}>
               <SelectTrigger className="h-8 w-full border-(--hairline) bg-(--canvas) font-mono text-xs">
-                <SelectValue placeholder="Select agent, or leave blank to inline model+prompt" />
+                <SelectValue
+                  placeholder={t("Select agent, or leave blank to inline model+prompt")}
+                />
               </SelectTrigger>
               <SelectContent>
                 {agents.map((a) => (
@@ -140,7 +145,10 @@ export function NodePropertyPanel({
             </Select>
           </div>
           <div className="mt-3 space-y-1">
-            <Label className="text-xs text-(--mute)">model</Label>
+            <Label className="text-xs text-(--mute)">
+              {t("model")}{" "}
+              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">model</span>
+            </Label>
             <Input
               className="border-(--hairline) bg-(--canvas) font-mono text-xs"
               value={node.model ?? ""}
@@ -149,7 +157,10 @@ export function NodePropertyPanel({
             />
           </div>
           <div className="mt-3 space-y-1">
-            <Label className="text-xs text-(--mute)">prompt</Label>
+            <Label className="text-xs text-(--mute)">
+              {t("prompt")}{" "}
+              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">prompt</span>
+            </Label>
             <Textarea
               className="min-h-24 border-(--hairline) bg-(--canvas) font-mono text-xs"
               value={node.prompt ?? ""}
@@ -158,7 +169,7 @@ export function NodePropertyPanel({
           </div>
           <div className="mt-3 space-y-1">
             <Label className="text-xs text-(--mute)">
-              Output fields (usable in edge conditions)
+              {t("Output fields (usable in edge conditions)")}
             </Label>
             <OutputFieldsEditor
               output={(node as { output?: InputHint }).output}
@@ -171,7 +182,9 @@ export function NodePropertyPanel({
       {node.type === "script" && (
         <>
           <div className="space-y-1">
-            <Label className="text-xs text-(--mute)">code</Label>
+            <Label className="text-xs text-(--mute)">
+              {t("code")} <span className="ml-1.5 font-mono text-[10px] text-(--faint)">code</span>
+            </Label>
             <div className="overflow-hidden rounded-md border border-(--hairline)">
               <MonacoCodeEditor
                 height="300px"
@@ -200,7 +213,10 @@ export function NodePropertyPanel({
             </div>
           </div>
           <div className="mt-3 space-y-1">
-            <Label className="text-xs text-(--mute)">timeoutMs</Label>
+            <Label className="text-xs text-(--mute)">
+              {t("timeoutMs")}{" "}
+              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">timeoutMs</span>
+            </Label>
             <Input
               type="number"
               className="border-(--hairline) bg-(--canvas) font-mono text-xs"
@@ -216,7 +232,10 @@ export function NodePropertyPanel({
       {node.type === "human" && (
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label className="text-xs text-(--mute)">question</Label>
+            <Label className="text-xs text-(--mute)">
+              {t("question")}{" "}
+              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">question</span>
+            </Label>
             <Textarea
               className="min-h-24 border-(--hairline) bg-(--canvas) font-mono text-xs"
               value={node.question ?? ""}
@@ -232,7 +251,10 @@ export function NodePropertyPanel({
 
       {node.type === "end" && (
         <div className="space-y-1">
-          <Label className="text-xs text-(--mute)">status</Label>
+          <Label className="text-xs text-(--mute)">
+            {t("status")}{" "}
+            <span className="ml-1.5 font-mono text-[10px] text-(--faint)">status</span>
+          </Label>
           <Input
             className="border-(--hairline) bg-(--canvas) font-mono text-xs"
             value={node.status ?? ""}
@@ -243,7 +265,9 @@ export function NodePropertyPanel({
 
       {node.retry !== undefined && (
         <div className="mt-3 space-y-1">
-          <Label className="text-xs text-(--mute)">retry</Label>
+          <Label className="text-xs text-(--mute)">
+            {t("retry")} <span className="ml-1.5 font-mono text-[10px] text-(--faint)">retry</span>
+          </Label>
           <Input
             type="number"
             className="border-(--hairline) bg-(--canvas) font-mono text-xs"
@@ -252,13 +276,20 @@ export function NodePropertyPanel({
           />
         </div>
       )}
-      <Dialog open={debugOpen} onOpenChange={setDebugOpen}>
+      <Dialog
+        open={debugOpen === "open"}
+        onOpenChange={(next) => setDebugOpen(next ? "open" : "closed")}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">Debug node {nodeId}</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">
+              {t("Debug node {nodeId}", { nodeId })}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Label className="text-xs text-(--mute)">input (JSON, as input for this node)</Label>
+            <Label className="text-xs text-(--mute)">
+              {t("input (JSON, as input for this node)")}
+            </Label>
             <Textarea
               className="min-h-24 border-(--hairline) bg-(--canvas) font-mono text-xs"
               value={debugInput}
@@ -267,9 +298,9 @@ export function NodePropertyPanel({
             />
             <Button
               className="w-full"
-              disabled={debugBusy}
+              disabled={debugBusy === "busy"}
               onClick={async () => {
-                setDebugBusy(true);
+                setDebugBusy("busy");
                 setDebugResult(null);
                 try {
                   const input = debugInput.trim() ? JSON.parse(debugInput) : {};
@@ -282,13 +313,17 @@ export function NodePropertyPanel({
                     .join("\n");
                   setDebugResult(`exit=${res?.exit}\n${steps}`);
                 } catch (err) {
-                  setDebugResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+                  setDebugResult(
+                    t("Error: {message}", {
+                      message: err instanceof Error ? err.message : String(err),
+                    }),
+                  );
                 } finally {
-                  setDebugBusy(false);
+                  setDebugBusy("idle");
                 }
               }}
             >
-              {debugBusy ? "Running…" : "Run this node"}
+              {debugBusy === "busy" ? t("Running…") : t("Run this node")}
             </Button>
             {debugResult && (
               <pre className="max-h-48 overflow-auto rounded bg-(--canvas)/60 p-2 text-[10px] text-(--mute)">

@@ -112,6 +112,12 @@ let dispatchCalls: Array<{
 }> = [];
 /** ADR 0076: proposals a run filed (kind=project_creation). */
 let proposedProjects: Array<{ name: string; repoUrl: string; attachTo?: readonly string[] }> = [];
+/** Changes to registered projects a run proposed (kind=project_update). */
+let proposedProjectChanges: Array<{
+  projectId: string;
+  changes: { name?: string; repoUrl?: string; defaultBranch?: string };
+  proposedBy: string;
+}> = [];
 
 /** ADR 0074 S4: the wiki hits the deployment offers to a dispatch brief. */
 let wikiRecallHits: Array<{ path: string; title: string }> = [];
@@ -214,6 +220,10 @@ beforeEach(async () => {
       proposedProjects.push(input);
       return { proposalId: `prop-${proposedProjects.length}` };
     },
+    proposeProjectUpdate: (input) => {
+      proposedProjectChanges.push(input);
+      return { proposalId: `change-${proposedProjectChanges.length}` };
+    },
     dispatch: (input) => {
       dispatchCalls.push(input);
       // A busy worker queues the input and has no run id yet — the shape that
@@ -264,6 +274,7 @@ beforeEach(async () => {
   dispatchCalls = [];
   wikiRecallHits = [];
   proposedProjects = [];
+  proposedProjectChanges = [];
   recallHits = [];
   handbackCalls = [];
   pickQueries = [];
@@ -1783,5 +1794,36 @@ describe("ADR 0076: a project the registry lacks is PROPOSED, never created", ()
         args: { name: "only-name" },
       }),
     ).rejects.toThrow(/repo_url/);
+  });
+});
+
+describe("project_propose with project_id proposes a change to a registered project", () => {
+  test("the change is filed against the project, with only the fields it names", async () => {
+    const runId = await createRun("point the repo at its new address");
+    const result = await service.call({
+      identity: identity(runId),
+      callId: "change-1",
+      idempotencyKey: `${runId}:change-1`,
+      tool: "project_propose",
+      args: { project_id: "proj-1", repo_url: "https://x/z.git" },
+    });
+    const payload = JSON.parse(result.content) as { state?: string; note?: string };
+    expect(payload.state).toBe("proposed");
+    expect(payload.note).toContain("nothing has changed");
+    expect(proposedProjectChanges[0]?.projectId).toBe("proj-1");
+    expect(proposedProjectChanges[0]?.changes).toEqual({ repoUrl: "https://x/z.git" });
+  });
+
+  test("a change that names no field is refused", async () => {
+    const runId = await createRun("x");
+    await expect(
+      service.call({
+        identity: identity(runId),
+        callId: "change-2",
+        idempotencyKey: `${runId}:change-2`,
+        tool: "project_propose",
+        args: { project_id: "proj-1" },
+      }),
+    ).rejects.toThrow(/at least one of name/);
   });
 });

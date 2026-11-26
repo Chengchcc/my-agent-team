@@ -2,7 +2,13 @@
  *  definition rewrite: it proposes one, and the target page adopts it as an unsaved edit the human
  *  commits. The row is what makes the tool's own answer true — the page can be opened later and the
  *  proposal is still there to review. */
-export type ProposalKind = "agent_config" | "workflow_definition" | "project_creation";
+/** `project_creation` and `project_update` differ in one thing: the first registers a project the
+ *  registry lacks, the second changes the metadata of one that is already registered. */
+export type ProposalKind =
+  | "agent_config"
+  | "workflow_definition"
+  | "project_creation"
+  | "project_update";
 export type ProposalStatus = "pending" | "adopted" | "discarded";
 
 export interface PendingProposal {
@@ -30,6 +36,7 @@ const KINDS = [
   "agent_config",
   "workflow_definition",
   "project_creation",
+  "project_update",
 ] as const satisfies readonly ProposalKind[];
 
 /** A kind that came off the wire. Only the tools write proposals, so an unknown one is a bug or a

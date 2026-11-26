@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import { AskQuestionCard } from "./AskQuestionCard";
 import { DagStatsBar } from "./DagStatsBar";
 import { humanizeWorkflowError } from "./humanize-error";
@@ -93,7 +94,7 @@ export function ExecutionTraceView({
   const router = useRouter();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [index, setIndex] = useState(Math.max(0, events.length - 1));
-  const followTail = useRef(true);
+  const followTail = useRef<"following" | "scrubbed">("following");
   const [liveEvents, setLiveEvents] = useState<TraceEvent[]>(events);
   useEffect(() => setLiveEvents(events), [events]);
   // Auto-scroll the pending ask card into view when a human gate opens, so
@@ -101,10 +102,10 @@ export function ExecutionTraceView({
   const askCardRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (pendingHuman && execution.status === "waiting_human") {
-      const t = setTimeout(() => {
+      const timer = setTimeout(() => {
         askCardRef.current?.scrollIntoView({ block: "nearest" });
       }, 150);
-      return () => clearTimeout(t);
+      return () => clearTimeout(timer);
     }
   }, [pendingHuman, execution.status]);
   // Keyboard stepping: ←/→ move the timeline cursor.
@@ -120,7 +121,7 @@ export function ExecutionTraceView({
           Math.max(0, liveEvents.length - 1),
         ),
       );
-      followTail.current = false;
+      followTail.current = "scrubbed";
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -128,7 +129,7 @@ export function ExecutionTraceView({
 
   // Live tail: while following (not scrubbed back), track the newest event.
   useEffect(() => {
-    if (followTail.current) setIndex(Math.max(0, liveEvents.length - 1));
+    if (followTail.current === "following") setIndex(Math.max(0, liveEvents.length - 1));
   }, [liveEvents]);
   // Live tail: poll the persisted trace while the run is in flight. The events it returns are the
   // same rows the stream replayed, so the scrubber and the console read one list either way; the
@@ -143,7 +144,8 @@ export function ExecutionTraceView({
       if (!trace || stopped) return;
       setLiveEvents(trace.events);
       const moved = trace.execution?.status !== execution.status;
-      const gate = (trace.pendingHuman ?? null) !== (pendingHuman ?? null);
+      const before = trace.pendingHuman ?? null;
+      const gate = before !== (pendingHuman ?? null);
       if (moved || gate) router.refresh();
     };
     const timer = setInterval(tick, 1500);
@@ -167,12 +169,12 @@ export function ExecutionTraceView({
     [graph],
   );
   const [zoomApi, setZoomApi] = useState<Parameters<typeof DagStatsBar>[0]["zoom"] | null>(null);
-  const [followLive, setFollowLive] = useState(true);
+  const [followLive, setFollowLive] = useState<"following" | "paused">("following");
   // Stream toggle drives the same live subscription; when paused, the console
   // stops appending (the replay index stays put).
   // A finished execution has nothing left to follow: the badge said "stream
   // active" in green over a failure (audit 2026-11-24).
-  const streamEnabled = followLive && !terminal;
+  const streamEnabled = followLive === "following" && !terminal;
 
   const nodeStatus = useMemo(() => {
     const done = new Set<string>();
@@ -247,7 +249,7 @@ export function ExecutionTraceView({
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink href="/workflows">Workflows</BreadcrumbLink>
+              <BreadcrumbLink href="/workflows">{t("Workflows")}</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
@@ -258,7 +260,7 @@ export function ExecutionTraceView({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink href={`/workflows/${execution.workflowId}/executions`}>
-                Executions
+                {t("Executions")}
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -274,8 +276,8 @@ export function ExecutionTraceView({
               size="sm"
               onClick={async () => {
                 const ok = await confirm({
-                  title: "Cancel this execution?",
-                  confirmText: "Cancel",
+                  title: t("Cancel this execution?"),
+                  confirmText: t("Cancel"),
                   destructive: true,
                 });
                 if (!ok) return;
@@ -283,7 +285,7 @@ export function ExecutionTraceView({
                 router.refresh();
               }}
             >
-              Cancel execution
+              {t("Cancel execution")}
             </Button>
           )}
           {execution.triggeredBy?.startsWith("cron:") && (
@@ -291,7 +293,7 @@ export function ExecutionTraceView({
               ⏰ {execution.triggeredBy.slice(5)}
             </span>
           )}
-          <span className="font-mono text-[10px] text-(--mute)">{execution.status}</span>
+          <span className="font-mono text-[10px] text-(--mute)">{t(execution.status)}</span>
         </span>
       </div>
       {execution.status === "failure" &&
@@ -300,7 +302,9 @@ export function ExecutionTraceView({
           const h = humanizeWorkflowError(execution.error, nodeRuns);
           return (
             <div className="shrink-0 space-y-0.5 border-b border-(--err)/20 bg-(--err)/10 px-4 py-2 text-xs text-(--err)">
-              <div className="font-semibold">Execution failed: {h?.title}</div>
+              <div className="font-semibold">
+                {t("Execution failed: {title}", { title: h?.title ?? "" })}
+              </div>
               {h?.detail && <div className="text-(--mute)">{h.detail}</div>}
             </div>
           );
@@ -313,7 +317,9 @@ export function ExecutionTraceView({
             depth={dagDepth}
             validated={graph.nodes.length > 0}
             streaming={streamEnabled}
-            onToggleStream={() => setFollowLive((v) => !v)}
+            onToggleStream={() =>
+              setFollowLive((v) => (v === "following" ? "paused" : "following"))
+            }
             zoom={zoomApi ?? undefined}
           />
           <div className="min-h-0 flex-1">
@@ -342,23 +348,23 @@ export function ExecutionTraceView({
           <div className="shrink-0 border-t border-(--hairline)">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-(--hairline)/60 px-4 py-1.5 font-code-sm text-code-sm text-(--mute)">
               <span>
-                Run ID{" "}
+                {t("Run ID")}{" "}
                 <span className="text-(--ink-strong)">{execution.executionId.slice(0, 12)}</span>
               </span>
               <span>
-                Duration{" "}
+                {t("Duration")}{" "}
                 <span suppressHydrationWarning className="text-(--ink-strong)">
                   {terminal
                     ? fmtDuration(execution.createdAt, endMs)
                     : fmtDuration(execution.createdAt, Date.now())}
                 </span>{" "}
-                <span className="text-(--faint)">({terminal ? "Terminal" : "Active"})</span>
+                <span className="text-(--faint)">({terminal ? t("Ended") : t("Active")})</span>
               </span>
               <span>
-                Status <span className="text-(--primary)">{execution.status}</span>
+                {t("Status")} <span className="text-(--primary)">{t(execution.status)}</span>
               </span>
               <span>
-                Events <span className="text-(--ink-strong)">{liveEvents.length}</span>
+                {t("Events")} <span className="text-(--ink-strong)">{liveEvents.length}</span>
               </span>
             </div>
             {pendingHuman && execution.status === "waiting_human" && (
@@ -367,16 +373,21 @@ export function ExecutionTraceView({
                   <div className="space-y-2">
                     <div className="text-xs">
                       <span className="font-semibold">
-                        Node “{budgetGate.nodeId}” used up its rework budget
+                        {t("Node “{node}” used up its rework budget", {
+                          node: budgetGate.nodeId,
+                        })}
                       </span>{" "}
                       <span className="text-(--mute)">
-                        ({Math.max(0, budgetGate.attempt - 1)} of {budgetGate.maxAttempts}{" "}
-                        attempt(s) used; sent back by “{budgetGate.from}”)
+                        {t("({used} of {max} attempt(s) used; sent back by “{from}”)", {
+                          used: Math.max(0, budgetGate.attempt - 1),
+                          max: budgetGate.maxAttempts,
+                          from: budgetGate.from,
+                        })}
                       </span>
                     </div>
                     {budgetGate.reason && (
                       <div className="rounded bg-(--canvas)/60 p-2 text-[11px] text-(--mute)">
-                        Last verdict: {budgetGate.reason}
+                        {t("Last verdict: {reason}", { reason: budgetGate.reason })}
                       </div>
                     )}
                     <div className="flex gap-2">
@@ -390,16 +401,16 @@ export function ExecutionTraceView({
                           router.refresh();
                         }}
                       >
-                        Grant one more attempt
+                        {t("Grant one more attempt")}
                       </Button>
                       <Button
                         size="sm"
                         variant="destructive"
                         onClick={async () => {
                           const ok = await confirm({
-                            title: "Reject the extra attempt?",
-                            description: "The execution ends as a failure.",
-                            confirmText: "Reject",
+                            title: t("Reject the extra attempt?"),
+                            description: t("The execution ends as a failure."),
+                            confirmText: t("Reject"),
                             destructive: true,
                           });
                           if (!ok) return;
@@ -410,13 +421,13 @@ export function ExecutionTraceView({
                           router.refresh();
                         }}
                       >
-                        Reject and fail the run
+                        {t("Reject and fail the run")}
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <AskQuestionCard
-                    title={pendingHuman.question ?? "A few questions"}
+                    title={pendingHuman.question ?? t("A few questions")}
                     input={{
                       questions:
                         (
@@ -446,7 +457,7 @@ export function ExecutionTraceView({
             upstreamArtifacts.length > 0 && (
               <div className="border-b p-3 text-xs">
                 <div className="mb-1 font-semibold">
-                  Outputs of this run ({upstreamArtifacts.length})
+                  {t("Outputs of this run ({count})", { count: upstreamArtifacts.length })}
                 </div>
                 {upstreamArtifacts.map((a) => (
                   <details key={a.url} className="border-b py-1 last:border-b-0">
@@ -462,7 +473,7 @@ export function ExecutionTraceView({
                       </pre>
                     ) : (
                       <div className="mt-1 text-[10px] text-(--faint)">
-                        Binary artifact, no preview
+                        {t("Binary artifact, no preview")}
                       </div>
                     )}
                   </details>
@@ -471,7 +482,7 @@ export function ExecutionTraceView({
             )}
           {graph.nodes.filter((n) => n.type === "agent").length > 0 && (
             <div className="border-b p-3 text-xs">
-              <div className="mb-1 font-semibold">Agent conversations</div>
+              <div className="mb-1 font-semibold">{t("Agent conversations")}</div>
               {graph.nodes
                 .filter((n) => n.type === "agent" && nodeRuns.some((r) => r.nodeId === n.id))
                 .map((n) => (
@@ -481,14 +492,14 @@ export function ExecutionTraceView({
                     className="flex items-center justify-between border-b py-1 text-(--info) hover:text-(--primary)"
                   >
                     <span>{n.label}</span>
-                    <span>View →</span>
+                    <span>{t("View")} →</span>
                   </Link>
                 ))}
               {graph.nodes.filter(
                 (n) => n.type === "agent" && !nodeRuns.some((r) => r.nodeId === n.id),
               ).length > 0 && (
                 <p className="pt-1 text-[10px] text-(--faint)">
-                  Some agent nodes never ran (not reachable) — no conversation.
+                  {t("Some agent nodes never ran (not reachable) — no conversation.")}
                 </p>
               )}
             </div>
@@ -496,18 +507,18 @@ export function ExecutionTraceView({
           <div className="p-3 text-xs">
             <Collapsible>
               <CollapsibleTrigger className="flex w-full items-center justify-between text-(--mute) hover:text-(--ink)">
-                <span className="font-semibold">Debug</span>
-                <span className="text-[10px]">Expand</span>
+                <span className="font-semibold">{t("Debug")}</span>
+                <span className="text-[10px]">{t("Expand")}</span>
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-3 pt-2">
                 <div>
-                  <div className="mb-1 font-semibold">Store snapshot</div>
+                  <div className="mb-1 font-semibold">{t("Store snapshot")}</div>
                   <pre className="max-h-[20vh] overflow-auto text-[10px]">
                     {JSON.stringify(snapshot, null, 2)}
                   </pre>
                 </div>
                 <div>
-                  <div className="mb-1 font-semibold">Node runs</div>
+                  <div className="mb-1 font-semibold">{t("Node runs")}</div>
                   {(() => {
                     // One row per attempt (ADR 0042): number them, or a rework
                     // reads as the same node listed twice.
@@ -520,13 +531,16 @@ export function ExecutionTraceView({
                           <span>
                             {r.nodeId}
                             {attempt > 1 && (
-                              <span className="text-(--faint)"> · attempt {attempt}</span>
+                              <span className="text-(--faint)">
+                                {" · "}
+                                {t("attempt {n}", { n: attempt })}
+                              </span>
                             )}
                           </span>
                           <span
                             className={r.status === "superseded" ? "text-(--faint)" : undefined}
                           >
-                            {r.status}
+                            {t(r.status)}
                           </span>
                         </div>
                       );

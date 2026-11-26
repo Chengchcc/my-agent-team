@@ -13,6 +13,7 @@ import { connectAhpChat } from "@/lib/ahp";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
 import { activeTurnFromState, continuationControl, itemsFromChatState } from "@/lib/chat-state";
+import type { ConvState } from "@/lib/conversation-reducer";
 import { initialState, isBusy, reducer } from "@/lib/conversation-reducer";
 import {
   clearTransientApproval,
@@ -21,11 +22,33 @@ import {
   type RunTodoMap,
   type TransientMap,
 } from "@/lib/transient-reducer";
+/** One live conversation as a surface drives it: the chat page, a side sheet, any embedded
+ *  view. Named here so a consumer types against the contract, not the hook's internals. */
+export interface ConversationController {
+  state: ConvState;
+  busy: boolean;
+  send: (
+    text: string,
+    model?: ChatModelOverride,
+    attachments?: readonly { type: "image"; mediaType: string; base64: string }[],
+  ) => void;
+  /** The run the chat state reports as live; `/stop` targets only this, never message state. */
+  activeRunId: string | null;
+  transients: TransientMap;
+  transientTools: LiveToolMap;
+  runTodos: RunTodoMap;
+  resolveApproval: (
+    runId: string,
+    callId: string,
+    decision: "allow" | "allow_always" | "deny" | "deny_always",
+  ) => Promise<void>;
+  markUndone: (undoneSeqs: readonly number[]) => void;
+}
 
 export function useConversation(
   conversationId: string,
   preFetchedSnapshot?: ConversationSnapshot | null,
-) {
+): ConversationController {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   /** Transient streaming output per active run (one bubble per run in the
    *  Timeline). Never persisted; each entry is replaced by the canonical

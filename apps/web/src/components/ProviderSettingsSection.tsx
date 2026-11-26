@@ -2,8 +2,9 @@
 
 import { KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { CustomProviderKeys } from "@/components/CustomProviderKeys";
-import { MonoLabel, StatusPill } from "@/components/patterns";
+import { badgeVariantOfTone, type FactTone } from "@/components/ops/kit";
+import { SettingsField } from "@/components/SettingsField";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,10 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useClearProvider, useProviders, useSetProvider } from "@/features/providers/hooks";
+import { t } from "@/lib/i18n";
 
-/** Provider key management in the Agent OS card language: a status row per
- *  provider, and a dialog for the one you are setting (the form used to expand
- *  under the list, which pushed the section around as you clicked). */
+/** Provider key management: a status row per provider, and a dialog for the
+ *  one you are setting. Saving writes a key the browser never reads back. */
 export function ProviderSettingsSection() {
   const { data, isLoading } = useProviders();
   const setProvider = useSetProvider();
@@ -30,90 +31,91 @@ export function ProviderSettingsSection() {
   const [baseUrl, setBaseUrl] = useState("");
   const current = providers.find((p) => p.id === selected);
   const configuredCount = providers.filter((p) => p.configured).length;
+  const aside = (
+    <Badge variant={badgeVariantOfTone(configuredCount > 0 ? "ok" : "muted")} className="font-mono">
+      {t("{set} of {total} configured", { set: configuredCount, total: providers.length })}
+    </Badge>
+  );
 
-  async function save() {
-    if (!selected) return;
-    await setProvider.mutateAsync({
-      id: selected,
-      body: { apiKey: apiKey.trim() || undefined, baseUrl: baseUrl.trim() || undefined },
-    });
+  function close(): void {
     setApiKey("");
     setBaseUrl("");
     setSelected("");
   }
 
+  async function save(): Promise<void> {
+    if (selected === "") return;
+    await setProvider.mutateAsync({
+      id: selected,
+      body: { apiKey: apiKey.trim() || undefined, baseUrl: baseUrl.trim() || undefined },
+    });
+    close();
+  }
+
   return (
-    <section className="rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
-      <div className="flex items-center justify-between border-b border-(--hairline) px-4 py-3">
-        <div className="flex items-center gap-2">
-          <KeyRound className="size-4 text-(--primary)" />
-          <MonoLabel>Provider keys</MonoLabel>
-        </div>
-        <StatusPill tone={configuredCount > 0 ? "success" : "idle"}>
-          {configuredCount}/{providers.length} configured
-        </StatusPill>
-      </div>
-      <div className="p-4">
-        {isLoading ? (
-          <p className="text-xs text-(--mute)">Loading providers…</p>
-        ) : providers.length === 0 ? (
-          <p className="text-xs text-(--mute)">No known providers.</p>
-        ) : (
-          <div className="divide-y divide-(--hairline)">
-            {providers.map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-3 py-2.5">
+    <>
+      <SettingsField
+        title={t("Provider keys")}
+        aside={isLoading ? undefined : aside}
+        hint={t(
+          "A key is stored on the server and handed to agent runs; nothing is sent back to the browser after saving. A key being set says nothing about whether the provider answers.",
+        )}
+      >
+        {isLoading && <p className="text-xs text-(--mute)">{t("Loading providers…")}</p>}
+        {!isLoading && providers.length === 0 && (
+          <p className="text-xs text-(--mute)">{t("No known providers.")}</p>
+        )}
+        <div className="divide-y divide-(--hairline)">
+          {providers.map((p) => {
+            const tone: FactTone = p.configured ? "ok" : "muted";
+            return (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-(--ink-strong)">{p.name}</span>
-                    <StatusPill tone={p.configured ? "success" : "idle"}>
-                      {p.configured ? "configured" : "not configured"}
-                    </StatusPill>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <KeyRound className="size-3.5 text-(--primary)" />
+                    <span className="text-xs font-[550] text-(--ink-strong)">{p.name}</span>
+                    <Badge variant={badgeVariantOfTone(tone)} className="font-mono">
+                      {p.configured ? t("configured") : t("not configured")}
+                    </Badge>
                   </div>
                   <p className="mt-0.5 font-mono text-[10px] text-(--mute)">{p.apiKeyEnv}</p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelected(p.id);
-                    setApiKey("");
-                    setBaseUrl("");
-                  }}
-                >
-                  {p.configured ? "Update" : "Set"}
+                <Button size="sm" variant="outline" onClick={() => setSelected(p.id)}>
+                  {p.configured ? t("Update") : t("Set")}
                 </Button>
               </div>
-            ))}
-          </div>
-        )}
-        <CustomProviderKeys />
-      </div>
+            );
+          })}
+        </div>
+      </SettingsField>
 
       <Dialog
         open={selected !== ""}
         onOpenChange={(open) => {
-          if (!open) setSelected("");
+          if (!open) close();
         }}
       >
         <DialogContent className="sm:max-w-md">
           {current && (
             <>
               <DialogHeader>
-                <DialogTitle>{current.name} API key</DialogTitle>
+                <DialogTitle>{t("{name} API key", { name: current.name })}</DialogTitle>
                 <DialogDescription>
-                  Stored on the server and handed to agent runs; nothing is sent to the browser
-                  after saving.
+                  {t(
+                    "Stored on the server and handed to agent runs; nothing is sent to the browser after saving.",
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <div>
-                  <Label className="text-[10px] uppercase tracking-kicker text-(--mute)">
+                  <Label htmlFor="provider-key" className="font-mono text-[10px] text-(--mute)">
                     {current.apiKeyEnv}
                   </Label>
                   <Input
+                    id="provider-key"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={`${current.apiKeyEnv} value`}
+                    placeholder={t("{name} value", { name: current.apiKeyEnv })}
                     type="password"
                     autoComplete="off"
                     className="mt-1"
@@ -121,13 +123,14 @@ export function ProviderSettingsSection() {
                 </div>
                 {current.apiKeyEnv === "ANTHROPIC_API_KEY" && (
                   <div>
-                    <Label className="text-[10px] uppercase tracking-kicker text-(--mute)">
-                      Base URL
+                    <Label htmlFor="provider-base-url" className="text-[10px] text-(--mute)">
+                      {t("Base URL")}
                     </Label>
                     <Input
+                      id="provider-base-url"
                       value={baseUrl}
                       onChange={(e) => setBaseUrl(e.target.value)}
-                      placeholder="Optional proxy base URL"
+                      placeholder={t("Optional proxy base URL")}
                       autoComplete="off"
                       className="mt-1"
                     />
@@ -142,24 +145,24 @@ export function ProviderSettingsSection() {
                     className="text-(--err)"
                     onClick={() => {
                       void clearProvider.mutateAsync(current.id);
-                      setSelected("");
+                      close();
                     }}
                   >
                     <Trash2 className="size-3" />
-                    Clear
+                    {t("Clear")}
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setSelected("")}>
-                  Cancel
+                <Button size="sm" variant="ghost" onClick={close}>
+                  {t("Cancel")}
                 </Button>
                 <Button size="sm" onClick={() => void save()} disabled={setProvider.isPending}>
-                  Save
+                  {t("Save")}
                 </Button>
               </DialogFooter>
             </>
           )}
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   );
 }

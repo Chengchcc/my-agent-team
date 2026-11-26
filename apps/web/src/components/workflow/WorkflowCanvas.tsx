@@ -18,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import type { AskQuestionInput } from "@chengchenccc/message";
 import type { EditorGraph } from "@chengchenccc/workflow";
 import { useEffect, useRef, useState } from "react";
+import { t } from "@/lib/i18n";
 import { WorkflowNodeCard } from "./workflow-node";
 
 export type NodeStatus = "done" | "active" | "idle" | "failed";
@@ -71,8 +72,8 @@ function formToQuestions(
         question: label,
         header: question,
         options: [
-          { value: "yes", label: "Yes" },
-          { value: "no", label: "No" },
+          { value: "yes", label: t("Yes") },
+          { value: "no", label: t("No") },
         ],
         validation: { required: f.required !== false },
       });
@@ -218,12 +219,12 @@ export function WorkflowCanvas({
     screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number };
   } | null>(null);
   const [connectSource, setConnectSource] = useState<string | null>(null);
-  const [minimapOpen, setMinimapOpen] = useState(true);
-  const [hintDismissed, setHintDismissed] = useState(true);
+  const [minimapOpen, setMinimapOpen] = useState<"open" | "closed">("open");
+  const [hintDismissed, setHintDismissed] = useState<"dismissed" | "shown">("dismissed");
   useEffect(() => {
-    if (localStorage.getItem("wf-hint-dismissed") !== "1") setHintDismissed(false);
+    if (localStorage.getItem("wf-hint-dismissed") !== "1") setHintDismissed("shown");
   }, []);
-  const connectedRef = useRef(false);
+  const connectedRef = useRef<"connected" | "idle">("idle");
   const nodeTypes = { default: WorkflowNodeCard };
 
   const [nodes, setNodes] = useState<Node[]>(
@@ -319,8 +320,8 @@ export function WorkflowCanvas({
     const source = connectSource;
     setConnectSource(null);
     if (!source) return;
-    if (connectedRef.current) {
-      connectedRef.current = false;
+    if (connectedRef.current === "connected") {
+      connectedRef.current = "idle";
       return;
     } // dropped onto a node
     const x = "clientX" in event ? event.clientX : 0;
@@ -352,7 +353,7 @@ export function WorkflowCanvas({
         onConnect={
           onConnect
             ? (c) => {
-                connectedRef.current = true;
+                connectedRef.current = "connected";
                 onConnect(c.source!, c.target!);
               }
             : undefined
@@ -373,32 +374,26 @@ export function WorkflowCanvas({
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={interactive ? ["Delete", "Backspace"] : null}
         onInit={(instance) => {
-          const rf = instance as unknown as {
-            zoomIn: () => void;
-            zoomOut: () => void;
-            fitView: (o?: { padding?: number }) => void;
-            setZoom: (z: number) => void;
-            getZoom: () => number;
-          };
-          setRf(instance as never);
+          setRf(instance);
+          // The handle keeps the name `setZoom`; React Flow 12 calls this helper `zoomTo`.
           onReady?.({
-            zoomIn: () => rf.zoomIn(),
-            zoomOut: () => rf.zoomOut(),
-            fitView: (opts) => rf.fitView(opts),
-            setZoom: (z) => rf.setZoom(z),
-            getZoom: () => rf.getZoom(),
+            zoomIn: () => instance.zoomIn(),
+            zoomOut: () => instance.zoomOut(),
+            fitView: (opts) => instance.fitView(opts),
+            setZoom: (z) => instance.zoomTo(z),
+            getZoom: () => instance.getZoom(),
           });
         }}
       >
         <Background variant={BackgroundVariant.Lines} gap={24} size={1} color="var(--wf-grid)" />
-        {interactive && minimapOpen && (
+        {interactive && minimapOpen === "open" && (
           <MiniMap
             pannable
             zoomable
             bgColor="rgba(11,14,20,0.92)"
             maskColor="rgba(11,14,20,0.75)"
             nodeColor={(n: Node) => {
-              const t = (n.data as unknown as { type?: string }).type;
+              const kind = typeof n.data.type === "string" ? n.data.type : "";
               return (
                 {
                   start: "var(--wf-color-start)",
@@ -406,7 +401,7 @@ export function WorkflowCanvas({
                   agent: "var(--wf-color-agent)",
                   script: "var(--wf-color-script)",
                   human: "var(--wf-color-human)",
-                }[t ?? ""] ?? "var(--hairline)"
+                }[kind] ?? "var(--hairline)"
               );
             }}
             style={{
@@ -430,27 +425,28 @@ export function WorkflowCanvas({
       </ReactFlow>
       {interactive && (
         <button
-          onClick={() => setMinimapOpen((v) => !v)}
-          title={minimapOpen ? "Hide minimap" : "Show minimap"}
+          onClick={() => setMinimapOpen((v) => (v === "open" ? "closed" : "open"))}
+          title={minimapOpen === "open" ? t("Hide minimap") : t("Show minimap")}
           className="absolute bottom-16 right-4 z-10 flex h-7 items-center gap-1 rounded-md border border-(--hairline) bg-(--panel)/90 px-2 text-[10px] text-(--mute) hover:text-(--info)"
         >
-          {minimapOpen ? "Hide minimap" : "Minimap"}
+          {minimapOpen === "open" ? t("Hide minimap") : t("Minimap")}
         </button>
       )}
-      {interactive && !hintDismissed && (
+      {interactive && hintDismissed === "shown" && (
         <div className="absolute left-4 top-4 z-10 flex items-start gap-2 rounded-md border border-(--hairline) bg-(--panel)/90 px-3 py-2 text-[11px] text-(--mute) backdrop-blur">
           <span className="inline-block size-1.5 translate-y-1 rounded-full bg-(--primary)" />
           <span>
-            Drag a line from the bottom of a node onto empty canvas to pick a downstream node type;
-            click a node to edit, press Delete to remove
+            {t(
+              "Drag a line from the bottom of a node onto empty canvas to pick a downstream node type; click a node to edit, press Delete to remove",
+            )}
           </span>
           <button
             onClick={() => {
-              setHintDismissed(true);
+              setHintDismissed("dismissed");
               localStorage.setItem("wf-hint-dismissed", "1");
             }}
             className="shrink-0 rounded p-0.5 text-(--mute) hover:text-(--ink)"
-            title="Close hint"
+            title={t("Close hint")}
           >
             <svg
               width="10"
@@ -468,7 +464,7 @@ export function WorkflowCanvas({
       {interactive && (
         <button
           onClick={autoLayout}
-          title="Auto layout"
+          title={t("Auto layout")}
           className="absolute right-4 top-4 z-10 flex h-7 items-center gap-1.5 rounded-md border border-(--hairline) bg-(--panel)/90 px-2.5 text-[11px] text-(--mute) hover:border-(--info)/50 hover:text-(--info)"
         >
           <svg
@@ -485,7 +481,7 @@ export function WorkflowCanvas({
             <path d="M21 7v4h-4" />
             <path d="M3 17v-4h4" />
           </svg>
-          <span>Auto layout</span>
+          <span>{t("Auto layout")}</span>
         </button>
       )}
     </div>

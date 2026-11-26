@@ -115,7 +115,6 @@ export function ReasoningTrace({
               <MessageBubble
                 align="left"
                 name={name}
-                kind="agent"
                 content={narrative}
                 showSender={isGroupFirst}
                 isFirst={isGroupFirst}
@@ -142,7 +141,6 @@ export function ReasoningTrace({
         <MessageBubble
           align="left"
           name={name}
-          kind="agent"
           content={
             extractText(conclusion.content) ||
             (typeof conclusion.content === "string" ? conclusion.content : "")

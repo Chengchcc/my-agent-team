@@ -46,7 +46,7 @@ export function sqliteProposalAdapter(db: Database): ProposalPort {
       );
     },
 
-    resolve(id, status, resolvedAt) {
+    resolve(id, status, resolvedAt, payload) {
       // Read first, then write: SQLite here is one writer in one process, and the read is what
       // answers "was this still pending" — bun-sqlite's run() reports no affected rows.
       const pending = d
@@ -55,7 +55,9 @@ export function sqliteProposalAdapter(db: Database): ProposalPort {
         .where(and(eq(schema.proposal.id, id), eq(schema.proposal.status, "pending")))
         .get();
       if (!pending) return false;
-      d.update(schema.proposal).set({ status, resolvedAt }).where(eq(schema.proposal.id, id)).run();
+      const resolved = { status, resolvedAt };
+      const applied = payload === undefined ? resolved : { ...resolved, payload };
+      d.update(schema.proposal).set(applied).where(eq(schema.proposal.id, id)).run();
       return true;
     },
   };

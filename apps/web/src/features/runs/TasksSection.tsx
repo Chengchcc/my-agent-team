@@ -2,79 +2,95 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { MonoLabel, StatusPill } from "@/components/patterns";
-import { api, type TaskCard } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import type { TaskCard } from "@/lib/api";
+import { t } from "@/lib/i18n";
+import { tasksQuery } from "./queries";
 
-/** Raft #3: the input queue's semantics, made visible. Statuses derive from
- *  the run state machine (tasks.ts) — this panel reads, it never decides. */
+/** Raft #3: the input queue's semantics, made visible. Statuses derive from the run state
+ *  machine (tasks.ts) — this panel reads, it never decides. */
 
-const TONE: Record<TaskCard["status"], Parameters<typeof StatusPill>[0]["tone"]> = {
-  todo: "idle",
-  in_progress: "running",
-  in_review: "waiting",
-  done: "success",
-  closed: "idle",
-};
-
-/** The boards a person triages: what is about to run, what is running, what
- *  is parked on a human. done/closed collapse into a count. */
 const OPEN: readonly TaskCard["status"][] = ["todo", "in_progress", "in_review"];
 
+const STATUS_WORD: Record<TaskCard["status"], string> = {
+  todo: "to do",
+  in_progress: "in progress",
+  in_review: "in review",
+  done: "done",
+  closed: "closed",
+};
+
+const STATUS_VARIANT: Record<TaskCard["status"], "secondary" | "default" | "wait"> = {
+  todo: "secondary",
+  in_progress: "default",
+  in_review: "wait",
+  done: "default",
+  closed: "secondary",
+};
+
 export function TasksSection() {
-  const { data } = useQuery({
-    queryKey: ["tasks"],
-    queryFn: () => api.listTasks(120),
-    staleTime: 15_000,
-  });
+  const { data } = useQuery(tasksQuery());
   const tasks = data?.tasks ?? [];
-  const open = tasks.filter((t) => OPEN.includes(t.status));
-  const doneCount = tasks.length - open.length;
-  if (open.length === 0 && doneCount === 0) return null;
+  const open = tasks.filter((task) => OPEN.includes(task.status));
+  const settled = tasks.length - open.length;
+  if (tasks.length === 0) return null;
   return (
-    <section className="rounded-lg border border-(--hairline) bg-(--panel) p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <MonoLabel>Tasks</MonoLabel>
-        <span className="flex items-center gap-2 text-[10px] text-(--mute)">
-          {doneCount > 0 && <span>{doneCount} settled</span>}
-          <StatusPill tone="waiting">{open.length}</StatusPill>
-        </span>
+    <section className="rounded-2xl border border-white/6 bg-(--panel)">
+      <div className="flex items-center justify-between px-5 pt-4 pb-3">
+        <h2 className="flex items-center gap-[9px] text-sm font-[550] text-(--ink)">
+          {t("Tasks")}
+          <Badge variant={open.length > 0 ? "wait" : "secondary"} className="font-mono">
+            {open.length}
+          </Badge>
+        </h2>
+        {settled > 0 && (
+          <span className="text-[10px] text-(--mute)">{t("{n} settled", { n: settled })}</span>
+        )}
       </div>
       {open.length === 0 ? (
-        <p className="text-xs text-(--mute)">Nothing open.</p>
+        <p className="px-5 pb-4 text-xs text-(--mute)">{t("Nothing open.")}</p>
       ) : (
-        <div className="space-y-1.5">
-          {open.map((t) => (
-            <div
-              key={t.inputId}
-              className="flex items-center justify-between gap-2 rounded-sm border border-(--hairline) px-3 py-2"
+        <ul>
+          {open.map((task) => (
+            <li
+              key={task.inputId}
+              className="flex items-center justify-between gap-3 border-b border-(--hairline) px-5 py-2.5 last:border-b-0"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs text-(--ink)">{t.text || "(no text)"}</p>
+                <p className="truncate text-xs text-(--ink)">{task.text || t("(no text)")}</p>
                 <p className="flex items-center gap-1 text-[10px] text-(--mute)">
-                  {t.conversationId ? (
-                    <Link href={`/chat/${t.conversationId}`} className="hover:underline">
-                      {t.conversationTitle || t.conversationId}
-                    </Link>
+                  {task.conversationId === null ? (
+                    <span>{t("unassigned")}</span>
                   ) : (
-                    <span>unassigned</span>
+                    <Link
+                      href={`/chat/${encodeURIComponent(task.conversationId)}`}
+                      className="hover:underline"
+                    >
+                      {task.conversationTitle || task.conversationId}
+                    </Link>
                   )}
-                  {t.owner && <span>· {t.ownerName ?? t.owner}</span>}
+                  {task.owner !== null && <span>· {task.ownerName || task.owner}</span>}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                {t.runId && t.status === "in_review" && t.conversationId && (
-                  <Link
-                    href={`/chat/${t.conversationId}`}
-                    className="rounded-full bg-(--primary-soft) px-2 py-0.5 text-[10px] font-semibold text-(--on-primary)"
-                  >
-                    Answer
-                  </Link>
-                )}
-                <StatusPill tone={TONE[t.status]}>{t.status.replace("_", " ")}</StatusPill>
+                {task.runId !== null &&
+                  task.status === "in_review" &&
+                  task.conversationId !== null && (
+                    <Link
+                      href={`/chat/${encodeURIComponent(task.conversationId)}`}
+                      className={buttonVariants({ size: "sm" })}
+                    >
+                      {t("Answer")}
+                    </Link>
+                  )}
+                <Badge variant={STATUS_VARIANT[task.status]} className="font-mono">
+                  {t(STATUS_WORD[task.status])}
+                </Badge>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </section>
   );

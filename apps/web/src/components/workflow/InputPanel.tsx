@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { t as translate } from "@/lib/i18n";
 
 const TYPES = ["string", "number", "boolean", "artifact"] as const;
 
@@ -45,12 +46,12 @@ export function InputPanel({
     <div className="space-y-3 p-3">
       <div className="space-y-1">
         <Label className="text-xs text-(--mute)">
-          Workflow input parameters (fillable at run time)
+          {translate("Workflow input parameters (fillable at run time)")}
         </Label>
         <div className="flex gap-1">
           <Input
             className="h-8 flex-1 border-(--hairline) bg-(--canvas) font-mono text-xs"
-            placeholder="Parameter name"
+            placeholder={translate("Parameter name")}
             value={key}
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => {
@@ -74,7 +75,9 @@ export function InputPanel({
           </Button>
         </div>
       </div>
-      {input.length === 0 && <p className="text-xs text-(--mute)">No input parameters.</p>}
+      {input.length === 0 && (
+        <p className="text-xs text-(--mute)">{translate("No input parameters.")}</p>
+      )}
       {input.length > 0 && (
         <div className="space-y-1">
           {input.map((f, i) => (
@@ -84,9 +87,14 @@ export function InputPanel({
             >
               <span className="min-w-0 flex-1 truncate font-mono">{f.key}</span>
               <span className="text-(--mute)">{f.type}</span>
-              <button onClick={() => remove(i)} className="shrink-0 text-(--err) hover:underline">
-                Delete
-              </button>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="shrink-0 text-(--err) hover:text-(--err)"
+                onClick={() => remove(i)}
+              >
+                {translate("Delete")}
+              </Button>
             </div>
           ))}
         </div>

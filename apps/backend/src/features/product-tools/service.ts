@@ -230,6 +230,13 @@ export interface ProductToolsServiceDeps {
     attachTo?: readonly string[];
     proposedBy: string;
   }) => { proposalId: string };
+  /** Metadata changes to a project that is already registered. The human reviews them in a
+   *  form; adopting the proposal is what applies them. */
+  proposeProjectUpdate?: (input: {
+    projectId: string;
+    changes: { name?: string; repoUrl?: string; defaultBranch?: string };
+    proposedBy: string;
+  }) => { proposalId: string };
   /** ADR 0074: the project registry, so the front desk can classify which
    *  project a request is about instead of guessing. Absent = no projects. */
   /** ADR 0080: record the risk the dispatcher declared on the worker's run. */
@@ -1013,26 +1020,74 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     return { content: JSON.stringify({ state: "pushed", ...result }) };
   }
 
-  /** ADR 0076: propose a project. Never creates it — the human adopts. */
+  /** ADR 0076: propose a project, or a change to one that is already registered. Never writes
+   *  the registry: the human reviews the suggestion in a form and adopts it there. */
   function projectPropose(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
+    const projectId = textArg(args.project_id);
+    if (projectId !== "") return proposeProjectChange(run, projectId, args);
+    return proposeNewProject(run, args);
+  }
+
+  function textArg(value: unknown): string {
+    if (typeof value !== "string") return "";
+    return value.trim();
+  }
+
+  function stringsArg(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === "string" && item !== "");
+  }
+
+  function proposeProjectChange(
+    run: AgentRun,
+    projectId: string,
+    args: Record<string, unknown>,
+  ): ProductToolCallResult {
+    if (!deps.proposeProjectUpdate) {
+      throw new ProductToolRejectedError("project change proposals are not available here");
+    }
+    const changes: { name?: string; repoUrl?: string; defaultBranch?: string } = {};
+    const name = textArg(args.name);
+    const repoUrl = textArg(args.repo_url);
+    const defaultBranch = textArg(args.default_branch);
+    if (name !== "") changes.name = name;
+    if (repoUrl !== "") changes.repoUrl = repoUrl;
+    if (defaultBranch !== "") changes.defaultBranch = defaultBranch;
+    if (Object.keys(changes).length === 0) {
+      throw new ProductToolRejectedError(
+        "project_propose with project_id needs at least one of name, repo_url or default_branch",
+      );
+    }
+    const proposal = deps.proposeProjectUpdate({
+      projectId,
+      changes,
+      proposedBy: run.agentId,
+    });
+    return {
+      content: JSON.stringify({
+        proposalId: proposal.proposalId,
+        state: "proposed",
+        note: "A human reviews it in the project form; nothing has changed yet.",
+      }),
+    };
+  }
+
+  function proposeNewProject(run: AgentRun, args: Record<string, unknown>): ProductToolCallResult {
     if (!deps.proposeProject) {
       throw new ProductToolRejectedError("project proposals are not available here");
     }
-    const name = typeof args.name === "string" ? args.name.trim() : "";
-    const repoUrl = typeof args.repo_url === "string" ? args.repo_url.trim() : "";
+    const name = textArg(args.name);
+    const repoUrl = textArg(args.repo_url);
     if (name === "" || repoUrl === "") {
       throw new ProductToolRejectedError("project_propose needs name and repo_url");
     }
-    const attachTo = Array.isArray(args.attach_to)
-      ? args.attach_to.filter((item): item is string => typeof item === "string" && item !== "")
-      : [];
+    const defaultBranch = textArg(args.default_branch);
+    const attachTo = stringsArg(args.attach_to);
     const proposal = deps.proposeProject({
       name,
       repoUrl,
-      ...(typeof args.default_branch === "string" && args.default_branch.trim() !== ""
-        ? { defaultBranch: args.default_branch.trim() }
-        : {}),
-      ...(attachTo.length > 0 ? { attachTo } : {}),
+      defaultBranch: defaultBranch === "" ? undefined : defaultBranch,
+      attachTo: attachTo.length === 0 ? undefined : attachTo,
       proposedBy: run.agentId,
     });
     return {

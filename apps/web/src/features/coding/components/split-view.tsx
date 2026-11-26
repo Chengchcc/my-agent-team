@@ -72,7 +72,7 @@ export function SplitView({
           {i > 0 && (
             <div
               onPointerDown={(e) => startDrag(e, i - 1)}
-              className="w-1 shrink-0 cursor-col-resize bg-zinc-800 hover:bg-zinc-500"
+              className="w-1 shrink-0 cursor-col-resize bg-(--hairline) hover:bg-(--mute)"
             />
           )}
           <div className="min-h-0 min-w-0 flex-1">

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { executionStatus, statusClasses } from "@/lib/status";
 
 export interface AgentRunRow {
   runId: string;
@@ -14,18 +15,6 @@ export interface AgentRunRow {
   usage: { inputTokens?: number; outputTokens?: number } | null;
   error?: string | null;
 }
-
-// 400-family colors stay readable on both light and dark surfaces; badges
-// get a border so status is never communicated by color alone.
-const STATUS_STYLES: Record<string, string> = {
-  running: "bg-blue-500/10 text-blue-400 border-blue-500/30",
-  waiting: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-  commit_failed: "bg-orange-500/10 text-orange-400 border-orange-500/30",
-  completed: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-  failed: "bg-red-500/10 text-red-400 border-red-500/30",
-  aborted: "bg-zinc-500/10 text-zinc-400 border-zinc-500/30",
-  timeout: "bg-zinc-500/10 text-zinc-400 border-zinc-500/30",
-};
 
 function tokens(r: AgentRunRow): string {
   return r.usage ? `${(r.usage.inputTokens ?? 0) + (r.usage.outputTokens ?? 0)} tok` : "—";
@@ -61,7 +50,9 @@ export function AgentRunsTable({
               <Link href={`/system/runs/${r.runId}`} className="font-mono text-xs underline">
                 {r.runId.slice(0, 12)}
               </Link>
-              <Badge className={STATUS_STYLES[r.status] ?? ""}>{r.status}</Badge>
+              <Badge className={statusClasses(executionStatus(r.status).tone)}>
+                {executionStatus(r.status).shape} {executionStatus(r.status).label}
+              </Badge>
             </div>
             <p className="mt-1.5 text-sm text-(--ink) truncate">{r.model}</p>
             <p className="text-xs text-(--mute)">
@@ -113,7 +104,9 @@ export function AgentRunsTable({
                   </Link>
                 </td>
                 <td className="p-2">
-                  <Badge className={STATUS_STYLES[r.status] ?? ""}>{r.status}</Badge>
+                  <Badge className={statusClasses(executionStatus(r.status).tone)}>
+                    {executionStatus(r.status).shape} {executionStatus(r.status).label}
+                  </Badge>
                 </td>
                 <td className="p-2">{r.agentId}</td>
                 <td className="p-2 max-w-0 truncate" title={r.model}>

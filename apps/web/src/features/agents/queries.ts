@@ -43,3 +43,19 @@ export function agentWorkspaceEntriesQuery(id: string, path: string) {
       api.listWorkspaceEntries(id, path) as Promise<{ path: string; entries: WorkspaceEntry[] }>,
   });
 }
+
+/** The newest pending `agent_config` proposal for a member form: addressed to the member's id,
+ *  or to the reserved draft id while a new member is being created. Reading it decides nothing;
+ *  polled like the other proposal readers, so a suggestion the PA files while the form is open
+ *  shows up beside it. */
+export function agentSuggestionQuery(targetId: string) {
+  return queryOptions({
+    queryKey: agentKeys.suggestion(targetId),
+    queryFn: async () => {
+      const found = await api.getPendingProposal("agent_config", targetId).catch(() => null);
+      if (found === null) return null;
+      return found.proposal;
+    },
+    refetchInterval: 2000,
+  });
+}

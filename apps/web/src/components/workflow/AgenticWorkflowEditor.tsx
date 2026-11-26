@@ -6,39 +6,55 @@ import {
   toEditorGraph,
   type WorkflowDefinition,
   type WorkflowNode,
+  WorkflowParseError,
 } from "@chengchenccc/workflow";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Redo2, Undo2, Wand2 } from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+  type ComponentType,
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
+import { type ComposerDraft, PaSession } from "@/components/PaSession";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useAgentList } from "@/features/agents/hooks";
+import { describeProposal } from "@/features/proposals/describe";
+import { proposalKeys } from "@/features/proposals/queries";
+import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
+import { workflowRequest } from "@/features/workflow/draft";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  choosePane,
+  type EditorPane,
+  type OpenSides,
+  type SidePanel,
+  toggleSide,
+  visiblePanes,
+} from "@/features/workflow/editor-layout";
+import { useEditorWidth } from "@/features/workflow/hooks";
+import {
+  definitionOf,
+  type ProposalNotice,
+  proposalNotice,
+  proposalStep,
+  type Settlement,
+  sameDefinition,
+  settlementOf,
+} from "@/features/workflow/proposal-draft";
+import { workflowProposalQuery } from "@/features/workflow/queries";
 import { api } from "@/lib/api";
-import { ChatPanel } from "./ChatPanel";
-
-const DslEditorPanel = dynamic(() => import("./DslEditorPanel").then((m) => m.DslEditorPanel), {
-  ssr: false,
-  loading: () => <div className="p-4 text-xs text-(--mute)">Loading editor…</div>,
-}) as React.ComponentType<{
-  workflowId: string;
-  definition: WorkflowDefinition;
-  onChange: (next: WorkflowDefinition) => void;
-}>;
-
+import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { DagStatsBar } from "./DagStatsBar";
 import { EdgePropertyPanel } from "./EdgePropertyPanel";
 import { NodeMenuPopover } from "./NodeMenuPopover";
@@ -47,7 +63,36 @@ import { NodePropertyPanel } from "./NodePropertyPanel";
 import { TriggerPanel } from "./TriggerPanel";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 
-type InspectorTab = "attrs" | "palette" | "triggers" | "input";
+interface DslEditorProps {
+  definition: WorkflowDefinition;
+  onChange: (next: WorkflowDefinition) => void;
+  onPendingChange: (pending: boolean) => void;
+}
+
+// Monaco cannot be rendered on the server; the panel is loaded in the browser only.
+const DslEditorPanel = dynamic(() => import("./DslEditorPanel").then((m) => m.DslEditorPanel), {
+  ssr: false,
+  loading: () => <div className="p-4 text-xs text-(--mute)">{t("Loading editor…")}</div>,
+}) as ComponentType<DslEditorProps>;
+
+type InspectorTab = "attrs" | "palette" | "triggers";
+const INSPECTOR_TABS: ReadonlyArray<readonly [InspectorTab, string]> = [
+  ["attrs", "Properties"],
+  ["palette", "Nodes"],
+  ["triggers", "Triggers"],
+];
+
+/** What the canvas can do for the zoom toolbar. */
+interface CanvasZoom {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fitView: (opts?: { padding?: number }) => void;
+  setZoom: (z: number) => void;
+  getZoom: () => number;
+}
+
+/** The PA's conversation about one workflow is `workflow:chat:<id>`: the same id on every visit,
+ *  so it continues. */
 
 function formToQuestions(
   form: Record<string, unknown> | undefined,
@@ -90,30 +135,68 @@ function formToQuestions(
       });
     }
   }
-  if (questions.length === 0 && question)
+  if (questions.length === 0 && question) {
     questions.push({ id: "answer", kind: "text", question, multiline: true });
+  }
   return { questions };
 }
 
 function makeNodeId(base: string): string {
-  return `${base}-${Math.random().toString(36).slice(2, 7)}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+  return `${base}-${suffix}`;
 }
 
 function addNode(def: WorkflowDefinition, node: WorkflowNode) {
-  return { ...def, nodes: [...def.nodes, node] };
+  const next = { ...def, nodes: [...def.nodes, node] };
+  return next;
 }
+
 function addEdge(def: WorkflowDefinition, from: string, to: string) {
-  if (def.edges.some((e) => e.from === from && e.to === to)) return def;
+  const exists = def.edges.some((e) => e.from === from && e.to === to);
+  if (exists) {
+    return def;
+  }
   return { ...def, edges: [...def.edges, { from, to }] };
 }
+
 function deleteNode(def: WorkflowDefinition, id: string) {
-  return {
+  const next = {
     ...def,
     nodes: def.nodes.filter((n) => n.id !== id),
     edges: def.edges.filter((e) => e.from !== id && e.to !== id),
   };
+  return next;
 }
 
+/** One segment of a segmented control: the one place a native button is the right element. */
+function Segment({
+  label,
+  pressed,
+  onClick,
+}: {
+  label: string;
+  pressed: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={cn(
+        "rounded-[4px] px-2.5 py-[5px] font-mono text-[10px] whitespace-nowrap transition-colors",
+        pressed ? "bg-white/[0.043] text-(--ink)" : "text-(--faint) hover:text-(--ink)",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** The workflow editor. The canvas is the main area; the node inspector and the PA conversation
+ *  are side panels beside it, and a panel that is not shown is not mounted. Saving is the only
+ *  write: a PA proposal arrives as an unsaved draft, a schedule is switched on inside the
+ *  definition and saved with it, and a run is started elsewhere. */
 export function AgenticWorkflowEditor({
   workflowId,
   initial,
@@ -122,15 +205,42 @@ export function AgenticWorkflowEditor({
   initial: WorkflowDefinition | null;
 }) {
   const router = useRouter();
+  const width = useEditorWidth();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const [saved, setSaved] = useState<WorkflowDefinition | null>(initial);
   const [definition, setDefinition] = useState<WorkflowDefinition | null>(initial);
   const [past, setPast] = useState<WorkflowDefinition[]>([]);
   const [future, setFuture] = useState<WorkflowDefinition[]>([]);
   const [mode, setMode] = useState<"canvas" | "dsl">("canvas");
+  const [dslPending, setDslPending] = useState<"clean" | "edited">("clean");
+  // As in the prototype: the node inspector starts closed, the PA session open.
+  const [sides, setSides] = useState<OpenSides>({ node: false, pa: true });
+  const [pane, setPane] = useState<EditorPane>("canvas");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("attrs");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeEdgeIndex, setActiveEdgeIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState<"idle" | "busy">("idle");
+  const [validation, setValidation] = useState<{ ok: boolean; errors?: string[] } | null>(null);
+  const [menu, setMenu] = useState<{ sourceId: string; x: number; y: number } | null>(null);
+  const [zoom, setZoom] = useState<CanvasZoom | null>(null);
+  const [draft, setDraft] = useState<ComposerDraft | null>(null);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [settled, setSettled] = useState<{ id: string; decision: Settlement } | null>(null);
+  const qc = useQueryClient();
   const definitionRef = useRef<WorkflowDefinition | null>(initial);
   definitionRef.current = definition;
 
-  // Central setter that records history for undo/redo (except for explicit
-  // `commit: false` calls like initial hydration).
+  const dirty = useMemo(() => {
+    if (saved === null) {
+      return false;
+    }
+    if (definition === null) {
+      return false;
+    }
+    return !sameDefinition(definition, saved);
+  }, [definition, saved]);
+
+  // Central setter that records history for undo/redo.
   const setDefinitionTracked = useCallback(
     (
       next: WorkflowDefinition | ((prev: WorkflowDefinition | null) => WorkflowDefinition | null),
@@ -141,7 +251,6 @@ export function AgenticWorkflowEditor({
         setDefinition(resolved);
         return;
       }
-      setLastEditedAt(Date.now());
       setPast((p) => [...p.slice(-49), prev]);
       setFuture([]);
       setDefinition(resolved);
@@ -156,10 +265,9 @@ export function AgenticWorkflowEditor({
       const prevState = p[p.length - 1]!;
       const cur = definitionRef.current;
       setFuture((f) => (cur ? [...f, cur] : f));
-      setPast((pp) => pp.slice(0, -1));
       setDefinition(prevState);
       definitionRef.current = prevState;
-      return p;
+      return p.slice(0, -1);
     });
   }, []);
   const redo = useCallback(() => {
@@ -168,426 +276,624 @@ export function AgenticWorkflowEditor({
       const nextState = f[f.length - 1]!;
       const cur = definitionRef.current;
       setPast((p) => (cur ? [...p, cur] : p));
-      setFuture((ff) => ff.slice(0, -1));
       setDefinition(nextState);
       definitionRef.current = nextState;
-      return f;
+      return f.slice(0, -1);
     });
   }, []);
 
+  async function save(): Promise<void> {
+    if (definition === null) {
+      return;
+    }
+    if (saving === "busy") {
+      return;
+    }
+    setSaving("busy");
+    let written: WorkflowDefinition | null = null;
+    try {
+      await api.saveWorkflowDefinition(workflowId, { ...definition });
+      written = definition;
+      setSaved(definition);
+      setValidation({ ok: true });
+      toast.success(t("Workflow saved"));
+    } catch (err) {
+      toast.error(t("Save failed"), {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setSaving("idle");
+    }
+    // The proposal's row is settled only now that the definition is saved: a failed save leaves
+    // it pending and the draft as it was.
+    if (written !== null) {
+      await settleProposal(written);
+    }
+  }
+
+  // The latest save, for the keyboard shortcut.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
+    function onKey(event: KeyboardEvent) {
+      const command = event.metaKey || event.ctrlKey;
+      if (!command) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+          return;
+        }
+        undo();
+      }
+      if (key === "s") {
+        event.preventDefault();
+        void saveRef.current();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
-  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("attrs");
-  const [inspectorW, setInspectorW] = useState(288);
-  const [chatW, setChatW] = useState(320);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeEdgeIndex, setActiveEdgeIndex] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [lastEditedAt, setLastEditedAt] = useState<number | null>(null);
-  const dirty = lastEditedAt !== null && (savedAt === null || savedAt < lastEditedAt);
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
-  const savingRef = useRef(saving);
-  savingRef.current = saving;
-  const { confirm, dialog: confirmDialog } = useConfirm();
+
   // Warn before losing unsaved edits (reload/tab close).
   useEffect(() => {
-    if (!dirty) return;
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      e.preventDefault();
+    if (!dirty) {
+      return;
+    }
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  const [menu, setMenu] = useState<{ sourceId: string; x: number; y: number } | null>(null);
-  const [validation, setValidation] = useState<{ ok: boolean; errors?: string[] } | null>(null);
-
-  const graph = useMemo(() => (definition ? toEditorGraph(definition) : null), [definition]);
+  const graph = useMemo(() => {
+    if (definition === null) {
+      return null;
+    }
+    try {
+      return toEditorGraph(definition);
+    } catch {
+      return null;
+    }
+  }, [definition]);
   const humanForms = useMemo(() => {
     const map: Record<string, AskQuestionInput> = {};
-    if (!definition) return map;
+    if (definition === null) {
+      return map;
+    }
     for (const n of definition.nodes) {
-      if (n.type === "human") {
-        const q = (n as { question?: string }).question;
-        const form = (n as { form?: Record<string, unknown> }).form;
-        if (form || q) map[n.id] = formToQuestions(form, q);
+      if (n.type !== "human") {
+        continue;
+      }
+      if (n.form !== undefined || n.question !== undefined) {
+        map[n.id] = formToQuestions(n.form, n.question);
       }
     }
     return map;
   }, [definition]);
   const meta = definition?.meta;
+  const panes = visiblePanes(width, sides, pane);
 
-  function validate() {
-    if (!definition) return;
+  // The PA's pending proposal, read every two seconds while the editor is open. It is handled
+  // once per row: one that says what is saved is left alone, one that differs loads as an
+  // unsaved draft only over a clean draft, and nothing here writes.
+  const proposalQuery = useQuery(workflowProposalQuery(workflowId, saved !== null));
+  const proposal = proposalQuery.data?.proposal ?? null;
+  const seenRef = useRef<string | null>(null);
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
+  const cleanRef = useRef<boolean | null>(null);
+  cleanRef.current = !dirty;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new proposal row is the only trigger
+  useEffect(() => {
+    const step = proposalStep({
+      proposal,
+      seenId: seenRef.current,
+      saved: savedRef.current,
+      clean: cleanRef.current === true,
+    });
+    if (step.kind === "ignore") {
+      return;
+    }
+    seenRef.current = step.kind === "load" ? step.id : (proposal?.id ?? null);
+    if (step.kind === "load") {
+      setDefinitionTracked(step.draft);
+      setLoadedId(step.id);
+    }
+  }, [proposal]);
+
+  const settledId = settled === null ? null : settled.id;
+  const notice: ProposalNotice = proposalNotice({ proposal, saved, loadedId, dirty, settledId });
+  const proposalLines =
+    proposal === null
+      ? []
+      : describeProposal("workflow_definition", proposal.payload, {
+          agentNameOf: (id: string) => id,
+        });
+
+  function loadProposal(): void {
+    if (proposal === null) {
+      return;
+    }
+    const next = definitionOf(proposal.payload);
+    if (next === null) {
+      return;
+    }
+    setDefinitionTracked(next);
+    setLoadedId(proposal.id);
+    seenRef.current = proposal.id;
+  }
+
+  /** Says on its row what the save did with the proposal the editor had loaded: adopted when what
+   *  was saved is that proposal, the one decision the server records for a workflow; discarded
+   *  when the person changed the graph first. A proposal that was never loaded is not touched.
+   *  The save is already done, so a refused or failed call changes nothing here but the toast. */
+  async function settleProposal(written: WorkflowDefinition): Promise<void> {
+    if (proposal === null || loadedId !== proposal.id) {
+      return;
+    }
+    const settlement = settlementOf(written, proposal);
+    if (settlement === null) {
+      return;
+    }
+    try {
+      await api.resolveProposal(proposal.id, settlement);
+      setSettled({ id: proposal.id, decision: settlement });
+      void proposalQuery.refetch();
+      void qc.invalidateQueries({ queryKey: proposalKeys.pending });
+    } catch {
+      toast.warning(t("Saved. The PA's suggestion could not be recorded."));
+    }
+  }
+
+  // The PA panel: the first personal agent answers; the skill that designs workflows leads the
+  // draft when this PA has it.
+  const { data: agents } = useAgentList();
+  const firstPa = (agents ?? []).find((agent) => agent.role !== "worker");
+  const paId = firstPa === undefined ? "default" : firstPa.id;
+  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
+  const skill = (skillsQuery.data ?? []).find((entry) => entry.command.includes("workflow"));
+
+  function offerDraft(): void {
+    const count = (draft?.n ?? 0) + 1;
+    const skillCommand = skill === undefined ? "" : skill.command;
+    const described = meta?.description ?? "";
+    let goal = described;
+    if (described === "") {
+      goal = meta?.name ?? workflowId;
+    }
+    const text = workflowRequest(workflowId, goal, skillCommand);
+    setDraft({ text, n: count });
+  }
+
+  function openSide(side: SidePanel): void {
+    if (width === "wide") {
+      setSides((current) => ({ ...current, [side]: true }));
+      return;
+    }
+    if (width === "mid") {
+      setSides({ node: side === "node", pa: side === "pa" });
+      return;
+    }
+    setPane(side);
+    setSides((current) => choosePane(current, side));
+  }
+
+  function switchPane(next: EditorPane): void {
+    setPane(next);
+    setSides((current) => choosePane(current, next));
+  }
+
+  /** The side-panel switches: three segments below 1024px, a toggle per panel above. */
+  function switchPanel(target: SidePanel): void {
+    if (width === "narrow") {
+      switchPane(target);
+      return;
+    }
+    setSides((current) => toggleSide(width, current, target));
+  }
+
+  function selectNode(id: string): void {
+    setActiveId(id);
+    setActiveEdgeIndex(null);
+    setInspectorTab("attrs");
+    if (width !== "narrow") {
+      openSide("node");
+    }
+  }
+
+  function selectEdge(index: number): void {
+    setActiveEdgeIndex(index);
+    setActiveId(null);
+    setInspectorTab("attrs");
+    if (width !== "narrow") {
+      openSide("node");
+    }
+  }
+
+  function addFromPalette(node: WorkflowNode): void {
+    if (definition === null) {
+      return;
+    }
+    const id = makeNodeId(node.type);
+    setDefinitionTracked(addNode(definition, { ...node, id }));
+    selectNode(id);
+  }
+
+  function validate(): void {
+    if (definition === null) {
+      return;
+    }
     try {
       parseWorkflow(definition);
       setValidation({ ok: true });
     } catch (err) {
-      const issues = (err as { issues?: string[] }).issues ?? [(err as Error).message];
+      const fallback = err instanceof Error ? err.message : String(err);
+      const issues = err instanceof WorkflowParseError ? err.issues : [fallback];
       setValidation({ ok: false, errors: issues });
     }
   }
 
-  async function save() {
-    if (!definition) return;
-    setSaving(true);
-    try {
-      await api.saveWorkflowDefinition(
-        workflowId,
-        definition as unknown as Record<string, unknown>,
+  function guardLeave(event: MouseEvent): void {
+    if (!dirty) {
+      return;
+    }
+    event.preventDefault();
+    const options = {
+      title: t("Discard unsaved changes?"),
+      description: t("You have unsaved modifications. Leaving will lose them."),
+      confirmText: t("Leave"),
+      cancelText: t("Stay"),
+      destructive: true,
+    };
+    void confirm(options).then((ok) => {
+      if (ok) {
+        router.push(`/workflows/${workflowId}`);
+      }
+    });
+  }
+
+  let canvasArea: ReactNode = (
+    <p className="p-6 text-sm text-(--mute)">
+      {t("This file is not a workflow definition, so there is nothing to edit here.")}
+    </p>
+  );
+  if (graph !== null) {
+    canvasArea = (
+      <div className="flex h-full min-h-0 flex-col">
+        <DagStatsBar
+          nodeCount={graph.nodes.length}
+          depth={graph.nodes.reduce((m, n) => Math.max(m, n.layer), 0) + 1}
+          validated={validation?.ok === true}
+          streaming={false}
+          zoom={zoom ?? undefined}
+        />
+        <div className="min-h-0 flex-1">
+          {menu && (
+            <div className="fixed z-50" style={{ left: menu.x, top: menu.y }}>
+              <NodeMenuPopover
+                onPick={(node) => {
+                  if (definition === null) {
+                    return;
+                  }
+                  const id = makeNodeId(node.type);
+                  setDefinitionTracked(
+                    addNode(addEdge(definition, menu.sourceId, id), { ...node, id }),
+                  );
+                  selectNode(id);
+                }}
+                onClose={() => setMenu(null)}
+              />
+            </div>
+          )}
+          <WorkflowCanvas
+            graph={graph}
+            interactive
+            onSelect={selectNode}
+            onConnect={(from, to) => {
+              if (definition !== null) {
+                setDefinitionTracked(addEdge(definition, from, to));
+              }
+            }}
+            onNodeDelete={(id) => {
+              if (definition !== null) {
+                setDefinitionTracked(deleteNode(definition, id));
+              }
+            }}
+            onEdgeSelect={selectEdge}
+            onNodeMenuRequested={(sourceId, position) =>
+              setMenu({ sourceId, x: position.x, y: position.y })
+            }
+            onReady={setZoom}
+            humanForms={humanForms}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  let inspector: ReactNode = (
+    <p className="p-4 text-xs text-(--mute)">
+      {t("Select a node or an edge to edit it, or open Nodes to add one.")}
+    </p>
+  );
+  if (definition !== null) {
+    if (inspectorTab === "triggers") {
+      inspector = <TriggerPanel definition={definition} onChange={setDefinitionTracked} />;
+    } else if (inspectorTab === "palette") {
+      inspector = <NodePanel onAdd={addFromPalette} />;
+    } else if (activeEdgeIndex !== null) {
+      inspector = (
+        <EdgePropertyPanel
+          edgeIndex={activeEdgeIndex}
+          definition={definition}
+          onChange={setDefinitionTracked}
+          onDelete={(next) => {
+            setDefinitionTracked(next);
+            setActiveEdgeIndex(null);
+          }}
+        />
       );
-      setSavedAt(Date.now());
-    } catch (err) {
-      toast.error(`Save failed: ${(err as Error).message}`);
-    } finally {
-      setSaving(false);
+    } else if (activeId !== null) {
+      inspector = (
+        <NodePropertyPanel
+          workflowId={workflowId}
+          nodeId={activeId}
+          definition={definition}
+          onChange={setDefinitionTracked}
+        />
+      );
     }
   }
 
-  // A proposed definition is a durable row (ADR 0040), so this page reads it: a proposal that
-  // arrived while the editor was closed is still adoptable. The guard is the old one - never over
-  // a local unsaved edit - and adopting marks the row.
-  useEffect(() => {
-    let stopped = false;
-    let adopted = "";
-    const tick = async () => {
-      const result = await api
-        .getPendingProposal("workflow_definition", workflowId)
-        .catch(() => null);
-      const proposal = result?.proposal;
-      if (stopped || !proposal || proposal.id === adopted) return;
-      if (dirtyRef.current || savingRef.current) return;
-      adopted = proposal.id;
-      const proposed = proposal.payload;
-      if (proposed && typeof proposed === "object") {
-        const draftDef = proposed as WorkflowDefinition;
-        setDefinition(draftDef);
-        definitionRef.current = draftDef;
-        setLastEditedAt(Date.now());
-        setSavedAt(null);
-      }
-      await api.resolveProposal(proposal.id, "adopted").catch(() => {
-        /* a page that got there first is not a failure */
-      });
-    };
-    const timer = setInterval(tick, 2000);
-    void tick();
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [workflowId]);
+  const canSave = dirty && definition !== null && saving === "idle" && dslPending === "clean";
+  const sideWidth = width === "wide" ? "" : "w-[320px]";
+  const proposalHidden = notice === "aside" && !panes.pa;
+  const settledDecision = settled === null ? "discarded" : settled.decision;
+
+  const proposalPanel =
+    notice === "none" ? null : (
+      <div
+        role="status"
+        className="max-h-[45%] shrink-0 space-y-2 overflow-y-auto border-b border-(--hairline) px-4 py-3 text-[11px]"
+      >
+        {notice === "saved" && (
+          <p className="text-(--primary)">
+            {t("The PA's pending proposal says what is already saved. There is nothing to load.")}
+          </p>
+        )}
+        {notice === "in-draft" && (
+          <p className="text-(--warn)">
+            {t(
+              "A proposal from the PA is on the canvas as an unsaved draft. Save keeps it; Undo brings the saved definition back.",
+            )}
+          </p>
+        )}
+        {notice === "aside" && (
+          <div className="space-y-2">
+            <p className="text-(--warn)">
+              {dirty
+                ? t(
+                    "A proposal from the PA is waiting. Your unsaved edits come first; loading it replaces them, and Undo brings them back.",
+                  )
+                : t("A proposal from the PA is waiting. It is not on the canvas yet.")}
+            </p>
+            <Button size="xs" variant="outline" onClick={loadProposal}>
+              {t("Load the proposal")}
+            </Button>
+          </div>
+        )}
+        {notice === "settled" && (
+          <p className="text-(--primary)">
+            {settledDecision === "adopted"
+              ? t("The proposal was recorded as adopted: the saved definition is that proposal.")
+              : t("The proposal was recorded as discarded: the saved definition differs from it.")}
+          </p>
+        )}
+        <ul className="space-y-0.5 font-mono text-[10px] text-(--faint)">
+          {proposalLines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <p className="text-[10px] text-(--faint)">
+          {t(
+            "Saving settles a proposal that is on the canvas: adopted when what you saved is that proposal, discarded when you changed it first. One that was never loaded stays pending until it is discarded from the Proposals inbox.",
+          )}
+        </p>
+      </div>
+    );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-(--canvas) text-(--ink)">
-      {/* Header */}
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-(--hairline) px-4">
-        <Breadcrumb className="min-w-0">
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink
-                href="/workflows"
-                onClick={(e) => {
-                  if (!dirty) return;
-                  e.preventDefault();
-                  void confirm({
-                    title: "Discard unsaved changes?",
-                    description: "You have unsaved modifications. Leaving will lose them.",
-                    confirmText: "Leave",
-                    cancelText: "Stay",
-                    destructive: true,
-                  }).then((ok) => {
-                    if (ok) router.push("/workflows");
-                  });
-                }}
-              >
-                Workflows
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="truncate">
-                {meta?.name ?? workflowId}
-                {meta?.status && (
-                  <span className="ml-1.5 rounded-full border border-(--hairline) px-2 py-0.5 text-[10px] text-(--mute)">
-                    {meta.status}
-                  </span>
-                )}
-              </BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="ml-auto flex items-center gap-2">
-          {savedAt && (
-            <span className="font-mono text-[10px] text-(--primary)">
-              saved {new Date(savedAt).toLocaleTimeString()}
-            </span>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger className="rounded-md border border-(--hairline) px-2.5 py-1 text-xs text-(--mute) hover:text-(--ink)">
-              •••
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuItem onClick={() => router.push(`/workflows/${workflowId}/executions`)}>
-                Executions
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={past.length === 0} onClick={undo}>
-                ↩ Undo
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={future.length === 0} onClick={redo}>
-                ↪ Redo
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <div className="flex overflow-hidden rounded-md border border-(--hairline)">
-            <button
-              onClick={() => setMode("canvas")}
-              className={`px-2.5 py-1 text-xs ${mode === "canvas" ? "bg-(--panel2) text-(--ink)" : "text-(--mute)"}`}
-            >
-              Canvas
-            </button>
-            <button
-              onClick={() => setMode("dsl")}
-              className={`px-2.5 py-1 text-xs ${mode === "dsl" ? "bg-(--panel2) text-(--ink)" : "text-(--mute)"}`}
-            >
-              DSL
-            </button>
-          </div>
-          <Button variant="outline" size="sm" onClick={validate}>
-            Validate
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-(--hairline) px-4">
+        <Link
+          href={`/workflows/${workflowId}`}
+          onClick={guardLeave}
+          className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-(--mute) hover:text-(--primary)"
+        >
+          <ArrowLeft className="size-3.5" />
+          {t("Overview")}
+        </Link>
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[1.8px] text-(--faint)">
+          {workflowId} · {t("Editor")}
+        </span>
+        <span className="min-w-0 truncate text-sm font-[550] text-(--ink)">
+          {meta?.name ?? workflowId}
+        </span>
+        {meta?.status && <Badge variant="secondary">{meta.status}</Badge>}
+        <Badge variant={dirty ? "wait" : "secondary"}>
+          {dirty ? t("Unsaved changes") : t("Saved")}
+        </Badge>
+        {proposalHidden && (
+          <Button size="sm" variant="violet" onClick={() => openSide("pa")}>
+            {t("PA proposal waiting")}
           </Button>
-          <Button size="sm" onClick={save} disabled={saving || !definition}>
-            {saving ? "Saving…" : dirty ? "● ⌘S Save" : "⌘S Save"}
-          </Button>
+        )}
+        <span className="flex-1" />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("Undo")}
+          title={t("Undo")}
+          disabled={past.length === 0}
+          onClick={undo}
+        >
+          <Undo2 />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("Redo")}
+          title={t("Redo")}
+          disabled={future.length === 0}
+          onClick={redo}
+        >
+          <Redo2 />
+        </Button>
+        <div
+          role="group"
+          aria-label={t("Editor mode")}
+          className="flex overflow-hidden rounded-md border border-(--hairline)"
+        >
+          <Segment
+            label={t("Canvas")}
+            pressed={mode === "canvas"}
+            onClick={() => setMode("canvas")}
+          />
+          <Segment label={t("DSL")} pressed={mode === "dsl"} onClick={() => setMode("dsl")} />
         </div>
-      </div>
+        <Button size="sm" variant="outline" onClick={validate}>
+          {t("Validate")}
+        </Button>
+        <Button size="sm" disabled={!canSave} onClick={() => void save()}>
+          {saving === "busy" ? t("Saving…") : t("Save")}
+        </Button>
+      </header>
 
       {validation && (
         <div
-          className={`shrink-0 border-b px-4 py-1.5 text-xs ${
+          role="status"
+          className={cn(
+            "flex shrink-0 flex-wrap items-start gap-x-4 gap-y-1 border-b px-4 py-1.5 text-xs",
             validation.ok
               ? "border-(--primary)/30 bg-(--primary)/10 text-(--primary)"
-              : "border-(--err)/30 bg-(--err)/10 text-(--err)"
-          }`}
+              : "border-(--err)/30 bg-(--err)/10 text-(--err)",
+          )}
         >
-          {validation.ok ? "✓ Valid DSL" : `✗ Invalid: ${(validation.errors ?? []).join("; ")}`}
+          <span>{validation.ok ? t("Valid definition") : t("Invalid definition")}</span>
+          {!validation.ok && (
+            <span className="font-mono">{(validation.errors ?? []).join("; ")}</span>
+          )}
         </div>
       )}
 
-      {/* Editor (left) + Chat (right) */}
-      <div className="flex min-h-0 flex-1">
-        {mode === "dsl" ? (
-          <div className="min-w-0 flex-1 bg-(--canvas)">
-            {definition && (
-              <DslEditorPanel
-                workflowId={workflowId}
-                definition={definition}
-                onChange={setDefinitionTracked}
-              />
-            )}
-          </div>
-        ) : (
-          <div className="flex min-w-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1">
-                {menu && (
-                  <div className="fixed z-50" style={{ left: menu.x, top: menu.y }}>
-                    <NodeMenuPopover
-                      onPick={(node) => {
-                        if (!definition) return;
-                        const id = makeNodeId(node.type);
-                        setDefinitionTracked(
-                          addNode(addEdge(definition, menu.sourceId, id), { ...node, id }),
-                        );
-                      }}
-                      onClose={() => setMenu(null)}
-                    />
-                  </div>
-                )}
-                {graph && definition ? (
-                  <div className="flex h-full flex-col">
-                    <DagStatsBar
-                      nodeCount={graph.nodes.length}
-                      depth={graph.nodes.reduce((m, n) => Math.max(m, n.layer), 0) + 1}
-                      validated={!!validation?.ok}
-                      streaming={false}
-                    />
-                    <div className="min-h-0 flex-1">
-                      <WorkflowCanvas
-                        graph={graph}
-                        interactive
-                        onSelect={(id) => {
-                          setActiveId(id);
-                          setActiveEdgeIndex(null);
-                          setInspectorTab("attrs");
-                        }}
-                        onConnect={(from, to) =>
-                          setDefinitionTracked(addEdge(definition, from, to))
-                        }
-                        onNodeDelete={(id) => setDefinitionTracked(deleteNode(definition, id))}
-                        onEdgeSelect={(i) => {
-                          setActiveEdgeIndex(i);
-                          setActiveId(null);
-                          setInspectorTab("attrs");
-                        }}
-                        onNodeMenuRequested={(sourceId, pos) =>
-                          setMenu({ sourceId, x: pos.x, y: pos.y })
-                        }
-                        humanForms={humanForms}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-(--mute)">
-                    No workflow loaded.
-                  </div>
-                )}
-              </div>
-            </div>
-            …{/* Resize handle between canvas and inspector */}
-            <div
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                const startX = e.clientX;
-                const startW = inspectorW;
-                const move = (ev: React.PointerEvent) => {
-                  setInspectorW(Math.max(220, startW + ev.clientX - startX));
-                };
-                const up = () => {
-                  e.currentTarget.removeEventListener("pointermove", move as never);
-                  e.currentTarget.removeEventListener("pointerup", up as never);
-                };
-                e.currentTarget.addEventListener("pointermove", move as never);
-                e.currentTarget.addEventListener("pointerup", up as never);
-              }}
-              className="w-1.5 cursor-col-resize bg-(--hairline) transition-colors hover:bg-(--info)/50 touch-none"
+      <div className="flex h-9 shrink-0 items-center gap-3 border-b border-(--hairline) px-4">
+        <p className="min-w-0 flex-1 truncate text-[11px] text-(--mute)">
+          {t(
+            "Canvas ↔ node fields ↔ PA suggestions. A suggestion becomes an unsaved draft; Save is what writes.",
+          )}
+        </p>
+        <div
+          role="group"
+          aria-label={t("Editor panels")}
+          className="flex gap-[3px] rounded-[7px] border border-(--hairline) p-[3px]"
+        >
+          {width === "narrow" && (
+            <Segment
+              label={t("Canvas")}
+              pressed={pane === "canvas"}
+              onClick={() => switchPane("canvas")}
             />
-            {/* Inspector column */}
+          )}
+          <Segment
+            label={t("Node inspector")}
+            pressed={panes.node}
+            onClick={() => switchPanel("node")}
+          />
+          <Segment label={t("PA session")} pressed={panes.pa} onClick={() => switchPanel("pa")} />
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        {panes.canvas && (
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {mode === "dsl"
+              ? definition !== null && (
+                  <DslEditorPanel
+                    definition={definition}
+                    onChange={setDefinitionTracked}
+                    onPendingChange={(pending) => setDslPending(pending ? "edited" : "clean")}
+                  />
+                )
+              : canvasArea}
+          </main>
+        )}
+        {panes.node && (
+          <aside
+            aria-label={t("Node inspector")}
+            className={cn(
+              "flex min-h-0 shrink-0 flex-col border-l border-(--hairline) bg-(--panel)",
+              sideWidth === "" ? "w-[300px]" : sideWidth,
+            )}
+          >
             <div
-              className="flex shrink-0 flex-col border-l border-(--hairline) bg-(--panel)/70"
-              style={{ width: inspectorW, minWidth: inspectorW }}
+              role="tablist"
+              aria-label={t("Inspector")}
+              className="flex shrink-0 border-b border-(--hairline)"
             >
-              <div className="flex border-b border-(--hairline)">
-                {(
-                  [
-                    ["attrs", "Properties"],
-                    ["palette", "Nodes"],
-                    ["triggers", "Triggers"],
-                  ] as Array<[InspectorTab, string]>
-                ).map(([k, label]) => (
-                  <button
-                    key={k}
-                    className={`flex-1 py-2.5 text-xs transition-colors ${
-                      inspectorTab === k
-                        ? "border-b-2 border-(--primary) text-(--ink)"
-                        : "text-(--mute) hover:text-(--mute)"
-                    }`}
-                    onClick={() => setInspectorTab(k)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto">
-                {inspectorTab === "triggers" && definition ? (
-                  <TriggerPanel definition={definition} onChange={setDefinitionTracked} />
-                ) : inspectorTab === "palette" ? (
-                  <NodePanel
-                    onAdd={(node) => {
-                      if (!definition) return;
-                      const id = makeNodeId(node.type);
-                      setDefinitionTracked(addNode(definition, { ...node, id }));
-                      setActiveId(id);
-                      setActiveEdgeIndex(null);
-                      setInspectorTab("attrs");
-                    }}
-                  />
-                ) : activeEdgeIndex !== null && definition ? (
-                  <EdgePropertyPanel
-                    edgeIndex={activeEdgeIndex}
-                    definition={definition}
-                    onChange={setDefinitionTracked}
-                    onDelete={(def) => {
-                      setDefinitionTracked(def);
-                      setActiveEdgeIndex(null);
-                    }}
-                  />
-                ) : activeId && definition ? (
-                  <NodePropertyPanel
-                    workflowId={workflowId}
-                    nodeId={activeId}
-                    definition={definition}
-                    onChange={setDefinitionTracked}
-                  />
-                ) : (
-                  <div className="p-4 text-xs text-(--mute)">
-                    Click a node or edge to edit; switch to the Nodes tab add, or drag a control
-                    line to empty space; drag nodes to rearrange.
-                  </div>
-                )}
-              </div>
+              {INSPECTOR_TABS.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={inspectorTab === key}
+                  onClick={() => setInspectorTab(key)}
+                  className={cn(
+                    "flex-1 px-2 py-2.5 text-xs transition-colors",
+                    inspectorTab === key
+                      ? "border-b-2 border-(--primary) text-(--ink)"
+                      : "text-(--mute) hover:text-(--ink)",
+                  )}
+                >
+                  {t(label)}
+                </button>
+              ))}
             </div>
-            {/* Resize handle between inspector and chat */}
-            {definition && (
-              <div
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  const startX = e.clientX;
-                  const startW = chatW;
-                  const move = (ev: React.PointerEvent) => {
-                    setChatW(Math.max(260, startW - ev.clientX + startX));
-                  };
-                  const up = () => {
-                    e.currentTarget.removeEventListener("pointermove", move as never);
-                    e.currentTarget.removeEventListener("pointerup", up as never);
-                  };
-                  e.currentTarget.addEventListener("pointermove", move as never);
-                  e.currentTarget.addEventListener("pointerup", up as never);
-                }}
-                className="w-1.5 cursor-col-resize bg-(--hairline) transition-colors hover:bg-(--info)/50 touch-none"
-              />
+            <div className="min-h-0 flex-1 overflow-auto">{inspector}</div>
+          </aside>
+        )}
+        {panes.pa && (
+          <aside
+            aria-label={t("PA session")}
+            className={cn(
+              "flex min-h-0 shrink-0 flex-col border-l border-(--hairline) bg-(--panel)",
+              sideWidth === "" ? "w-[340px]" : sideWidth,
             )}
-            {/* Chat (right, always visible) */}
-            {definition && (
-              <div
-                className="flex shrink-0 flex-col border-l border-(--hairline) bg-(--panel)/70"
-                style={{ width: chatW, minWidth: chatW }}
-              >
-                <ChatPanel
-                  conversationId={`workflow:chat:${workflowId}`}
-                  title="Chat"
-                  contextBlock={[
-                    "<workflow-context>",
-                    `<workflowId>${workflowId}</workflowId>`,
-                    `<goal>${meta?.description ?? meta?.name ?? ""}</goal>`,
-                    "</workflow-context>",
-                  ]
-                    .filter(Boolean)
-                    .join("\n")}
-                  placeholder="Ask the agent to edit the workflow…"
-                  suggestions={[
-                    "Add a script node that greps for TODO comments",
-                    "Insert a human gate before the final report",
-                    "Make the report agent scan only src/, skip docs/",
-                    "Add an edge from detect to a new failure end node",
-                  ]}
-                />
-              </div>
-            )}
-          </div>
+          >
+            <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-(--hairline) px-4">
+              <span className="truncate text-[11px] font-[550] text-(--ink)">
+                {t("PA")} · {t("session")}
+              </span>
+              <Button variant="ghost" size="sm" onClick={offerDraft}>
+                <Wand2 />
+                {t("Draft a request")}
+              </Button>
+            </div>
+            <PaSession
+              conversationId={`workflow:chat:${workflowId}`}
+              paId={paId}
+              createOrigin="workflow"
+              draft={draft ?? undefined}
+              emptyTitle={t("Ask the PA to change this workflow")}
+            >
+              {proposalPanel}
+            </PaSession>
+          </aside>
         )}
       </div>
       {confirmDialog}

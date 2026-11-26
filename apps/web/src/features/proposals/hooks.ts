@@ -1,29 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { PendingProposalRow } from "@/lib/api";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
+import { pendingProposalsQuery, proposalKeys } from "./queries";
 
-export const proposalKeys = {
-  pending: ["proposals", "pending"] as const,
-};
-
-export interface PendingProposal {
-  id: string;
-  kind: string;
-  targetId: string;
-  payload: unknown;
-  createdAt: number;
-}
+export { proposalKeys } from "./queries";
+/** A proposal waiting for a decision, as the inbox lists it. */
+export type PendingProposal = PendingProposalRow;
 
 export function usePendingProposals() {
-  return useQuery({
-    queryKey: proposalKeys.pending,
-    queryFn: () => api.listPendingProposals(),
-  });
+  return useQuery(pendingProposalsQuery());
 }
 
-/** Adopting APPLIES (ADR 0040): the deployment runs the applier and only then
- *  resolves the row, so one click is one decision — no second page, no
- *  "adopted" that changed nothing (the previous inbox could do exactly that). */
+/** Adopting APPLIES (ADR 0040): the deployment runs the applier and only then resolves the row,
+ *  so one click is one decision. Agent and workflow proposals are not adopted from here: the
+ *  server refuses the second and the first is reviewed in the agent's editor. */
 export function useAdoptProposal() {
   const qc = useQueryClient();
   return useMutation({
@@ -32,11 +24,11 @@ export function useAdoptProposal() {
       void qc.invalidateQueries({ queryKey: proposalKeys.pending });
       void qc.invalidateQueries({ queryKey: ["agents"] });
       void qc.invalidateQueries({ queryKey: ["projects"] });
-      toast.success("Adopted and applied.");
+      toast.success(t("Adopted and applied."));
     },
     onError: (err) => {
-      toast.error("Could not adopt", {
-        description: err instanceof Error ? err.message : "Unknown error",
+      toast.error(t("Could not adopt"), {
+        description: err instanceof Error ? err.message : t("Unknown error"),
       });
     },
   });
@@ -48,7 +40,12 @@ export function useDiscardProposal() {
     mutationFn: (proposalId: string) => api.resolveProposal(proposalId, "discarded"),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: proposalKeys.pending });
-      toast.success("Discarded.");
+      toast.success(t("Discarded."));
+    },
+    onError: (err) => {
+      toast.error(t("Could not discard"), {
+        description: err instanceof Error ? err.message : t("Unknown error"),
+      });
     },
   });
 }

@@ -1,15 +1,16 @@
 "use client";
 
-import { ExternalLink, X } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { AssignToAgentSelect } from "@/components/AssignToAgentSelect";
-import { Text } from "@/components/ui/text";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
 import type { AgentRow } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
-/** Actionable "Agents" tab shared by the skill / knowledge / MCP detail
- *  sheets: assign from the unassigned pool, click an agent to open its
- *  detail page, and remove it from this resource. Replaces the old
- *  read-only name list that could not be operated on. */
+/** The members a resource is assigned to, with assign and remove. The project editor mounts it
+ *  for skill packs; its props are that contract. */
 export function PackAgentsTab({
   agents,
   usedBy,
@@ -25,37 +26,39 @@ export function PackAgentsTab({
 }) {
   const router = useRouter();
 
+  function openMember(agentId: string): void {
+    router.push(`/team/${agentId}`);
+  }
+
+  function remove(agentId: string): void {
+    onRemove(agentId);
+  }
+
   return (
     <div className="space-y-3">
       <AssignToAgentSelect agents={agents} assigned={isAssigned} onAssign={onAssign} />
       {usedBy.length === 0 ? (
-        <Text as="p" className="text-sm text-(--mute)">
-          Not assigned to any agent yet.
-        </Text>
+        <p className="text-xs text-(--mute)">{t("Not assigned to any member yet.")}</p>
       ) : (
         usedBy.map((agent) => (
           <div
             key={agent.id}
-            className="flex items-center justify-between gap-2 rounded-md border border-(--hairline) px-3 py-2"
+            className="flex items-center justify-between gap-2 rounded-lg border border-white/6 bg-(--panel) px-3 py-2"
           >
-            <button
-              type="button"
-              onClick={() => router.push(`/team/${agent.id}`)}
-              className="flex min-w-0 items-center gap-1.5 text-left text-sm text-(--ink) hover:text-(--primary)"
-            >
-              <span className="truncate">{agent.name}</span>
-              <ExternalLink className="size-3 shrink-0 text-(--faint)" />
-            </button>
+            <Button variant="ghost" size="sm" className="pl-0" onClick={() => openMember(agent.id)}>
+              <RoleAvatar kind={roleKindOf(agent)} name={agent.name} size="sm" />
+              <span className="truncate text-(--ink)">{agent.name}</span>
+            </Button>
             <div className="flex shrink-0 items-center gap-2">
-              <span className="rounded bg-(--ok)/12 px-1.5 py-0.5 text-xs text-(--ok)">Active</span>
-              <button
-                type="button"
-                aria-label={`Remove ${agent.name}`}
-                onClick={() => onRemove(agent.id)}
-                className="rounded p-1 text-(--mute) hover:bg-(--canvas-soft) hover:text-(--err)"
+              <Badge variant="default">{t("Assigned")}</Badge>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t("Remove {name}", { name: agent.name })}
+                onClick={() => remove(agent.id)}
               >
-                <X className="size-3.5" />
-              </button>
+                <XIcon />
+              </Button>
             </div>
           </div>
         ))

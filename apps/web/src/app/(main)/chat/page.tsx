@@ -1,315 +1,596 @@
 "use client";
 
-import { ChevronRight, MessageSquareIcon, Search, Send } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowUpRight, MessageSquareText, Plus, Search } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
+import { fmtAgo } from "@/components/ops/format";
+import { Note } from "@/components/ops/kit";
 import { Page, PageBody, PageHeader } from "@/components/page";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
 import {
   useConversationSearch,
-  useConversationTitle,
   useCreateConversation,
   useRecentConversations,
 } from "@/features/conversations/hooks";
+import {
+  ALL,
+  conversationOverview,
+  type OverviewConversation,
+  type PaLike,
+  SOURCE_FILTERS,
+  SOURCE_WORD,
+} from "@/features/conversations/overview";
 import { useProjectList } from "@/features/projects/hooks";
-import { type AgentRow, getForkSourceId } from "@/lib/api";
+import { attentionQuery } from "@/features/runs/queries";
+import type { AgentRow, ProjectRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
-function relativeTime(ts: number | null | undefined): string {
-  if (!ts) return "";
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+const TINY_COUNT = "rounded bg-white/5 px-1.5 py-px font-mono text-[10px] text-(--faint)";
+const CHIP_ON =
+  "border-[#9bddbc60] bg-[#7be4b714] text-(--primary) hover:bg-[#7be4b714] hover:text-(--primary)";
+const CARD =
+  "rounded-2xl border border-(--hairline) bg-[radial-gradient(ellipse_at_100%_0,#83c7ee12,transparent_50%),linear-gradient(135deg,#212d34,#182126)] p-[23px]";
+
+/** The "no project" choice of the new-conversation form. */
+const NO_PROJECT = "none";
+
+function sourceWord(origin: string): string {
+  const word = SOURCE_WORD[origin];
+  if (word === undefined) return origin;
+  return t(word);
 }
 
-/** Lazy "forked from X" marker - fetches source conversation title on demand. */
-function ForkSourceMarker({ sourceId, createdAt }: { sourceId: string; createdAt: number }) {
-  const { data: sourceConv } = useConversationTitle(sourceId);
-  const sourceTitle = sourceConv ? conversationDisplayName(sourceConv) : "Original conversation";
+function roomHref(conversationId: string): string {
+  return `/chat/${encodeURIComponent(conversationId)}`;
+}
+
+/** How many of a conversation's items wait for the person. Said only once the attention list has
+ *  been read: an unread list would make every room look free. */
+function NeedPill({ known, count }: { known: boolean; count: number }) {
+  if (!known) return null;
+  if (count > 0) {
+    return <Badge variant="wait">{t("{n} need your decision", { n: count })}</Badge>;
+  }
+  return <Badge variant="secondary">{t("nothing waiting on you")}</Badge>;
+}
+
+function ConversationCard({
+  conversation,
+  pa,
+  needKnown,
+  now,
+}: {
+  conversation: OverviewConversation;
+  /** The member whose group the conversation sits in; undefined when it is not in the registry. */
+  pa: PaLike | undefined;
+  needKnown: boolean;
+  now: number;
+}) {
+  const title = conversationDisplayName(conversation);
+  const href = roomHref(conversation.conversationId);
+  const created = new Date(conversation.createdAt).toLocaleString();
+  const ago = fmtAgo(conversation.lastActivityAt ?? null, now);
   return (
-    <p className="text-[10px] text-(--mute) flex items-center gap-1">
-      <span>↳</span>
-      <span className="truncate">forked from {sourceTitle}</span>
-      {relativeTime(createdAt) && <span>· {relativeTime(createdAt)}</span>}
-    </p>
+    <article className={CARD}>
+      <div className="flex items-center gap-3.5">
+        <RoleAvatar
+          kind={pa === undefined ? "pa" : roleKindOf(pa)}
+          name={pa === undefined ? "?" : pa.name}
+        />
+        <div className="min-w-0 flex-1">
+          <strong className="block text-[17px] leading-[1.7] font-[550] text-(--ink)">
+            <Link href={href} className="transition-colors hover:text-(--primary)">
+              {title}
+            </Link>
+          </strong>
+          <p className="mt-1.5 text-[11px] leading-[1.8] text-(--mute)">
+            {sourceWord(conversation.origin)} ·{" "}
+            {pa === undefined ? t("a member that is no longer registered") : pa.name}
+            {conversation.projectName !== null && <> · {conversation.projectName}</>}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label={t("Open {title}", { title })}
+          render={<Link href={href} />}
+        >
+          <ArrowUpRight className="size-3.5" />
+        </Button>
+      </div>
+      <div className="mt-[17px] flex flex-wrap gap-[7px]">
+        <Badge variant="secondary">{sourceWord(conversation.origin)}</Badge>
+        {conversation.projectName !== null && (
+          <Badge variant="secondary">{conversation.projectName}</Badge>
+        )}
+        <NeedPill known={needKnown} count={conversation.needYou} />
+        {conversation.parentTitle !== null && (
+          <Badge variant="secondary">
+            {t("dispatched from {title}", { title: conversation.parentTitle })}
+          </Badge>
+        )}
+      </div>
+      <div className="mt-[17px] border-t border-(--hairline) pt-[15px]">
+        <small className="text-[10px] leading-[1.8] text-(--mute)">
+          {t("Created {created} · last activity {ago}", { created, ago })}
+        </small>
+      </div>
+    </article>
+  );
+}
+
+/** One conversation with one PA. Opening this dialog creates nothing; Create does. A first
+ *  message is optional and, when given, is sent as soon as the conversation opens. */
+function NewConversationDialog({
+  agents,
+  projects,
+  open,
+  onClose,
+}: {
+  agents: AgentRow[];
+  projects: ProjectRow[];
+  open: boolean;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const create = useCreateConversation();
+  const [paId, setPaId] = useState("");
+  const [project, setProject] = useState(NO_PROJECT);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setPaId("");
+      setProject(NO_PROJECT);
+      setMessage("");
+    }
+  }, [open]);
+
+  // ADR 0049/0050: people talk to PAs; workers are reached through a dispatch.
+  const fronts = agents.filter(
+    (agent) => agent.role !== "worker" && agent.archivedAt === null && agent.enabled !== false,
+  );
+  let selected = fronts.find((agent) => agent.id === paId);
+  if (selected === undefined) selected = fronts.at(0);
+  const attached = selected === undefined ? [] : (selected.projects ?? []);
+  const projectOptions = projects.filter((row) => attached.includes(row.projectId));
+
+  function start() {
+    if (selected === undefined || create.isPending) return;
+    const body: { agentId: string; projectId?: string } = { agentId: selected.id };
+    if (project !== NO_PROJECT) body.projectId = project;
+    create.mutate(body, {
+      onSuccess: (conversation) => {
+        let href = roomHref(conversation.conversationId);
+        const first = message.trim();
+        if (first !== "") href += `?initial=${encodeURIComponent(first)}`;
+        onClose();
+        router.push(href);
+      },
+      onError: (err) =>
+        toast.error(t("The conversation was not created"), {
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    });
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("New conversation")}</DialogTitle>
+          <DialogDescription>
+            {t(
+              "Opens a conversation with one PA. A first message is optional; when given, it is sent as soon as the conversation opens.",
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {fronts.length === 0 ? (
+          <p role="status" className="text-xs text-(--mute)">
+            {t("There is no PA to talk to yet. Create one on the team page first.")}
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-col gap-2">
+              <Label
+                htmlFor="new-conversation-pa"
+                className="text-[11px] font-normal text-(--mute)"
+              >
+                {t("PA")}
+              </Label>
+              <Select
+                value={selected === undefined ? "" : selected.id}
+                onValueChange={(value) => {
+                  setPaId(value ?? "");
+                  setProject(NO_PROJECT);
+                }}
+              >
+                <SelectTrigger id="new-conversation-pa" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {fronts.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label
+                htmlFor="new-conversation-project"
+                className="text-[11px] font-normal text-(--mute)"
+              >
+                {t("Project (optional)")}
+              </Label>
+              <Select value={project} onValueChange={(value) => setProject(value ?? NO_PROJECT)}>
+                <SelectTrigger id="new-conversation-project" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROJECT}>{t("No project")}</SelectItem>
+                  {projectOptions.map((row) => (
+                    <SelectItem key={row.projectId} value={row.projectId}>
+                      {row.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Note>
+                {projectOptions.length === 0
+                  ? t("This PA is attached to no project, so its runs start in its own workspace.")
+                  : t(
+                      "Only the projects this PA is attached to. Runs then start in that project's worktree.",
+                    )}
+              </Note>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label
+                htmlFor="new-conversation-message"
+                className="text-[11px] font-normal text-(--mute)"
+              >
+                {t("First message (optional)")}
+              </Label>
+              <Textarea
+                id="new-conversation-message"
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder={t("What do you want to work on?")}
+                rows={4}
+              />
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("Cancel")}
+          </Button>
+          <Button disabled={selected === undefined || create.isPending} onClick={start}>
+            {message.trim() === "" ? t("Create") : t("Create and send")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FilterChip({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      aria-pressed={on}
+      className={cn("text-(--mute)", on && CHIP_ON)}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
   );
 }
 
 export default function ChatOverviewPage() {
-  const router = useRouter();
-  const { data, isLoading } = useRecentConversations();
-  const createConv = useCreateConversation();
-  const [input, setInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const { data: agents } = useAgentList() as { data?: AgentRow[] };
-  // ADR 0049/0050: humans talk to fronts only — workers are backend resources
-  // the product dispatches to; a worker-owned conversation is refused (400).
-  const frontAgents = agents?.filter((a) => a.role !== "worker") ?? agents;
-  const { data: projects } = useProjectList();
-  const [agentId, setAgentId] = useState("default");
-  const [projectId, setProjectId] = useState("");
-  const selectedAgent = agents?.find((a) => a.id === agentId);
-
-  // The initial "default" may not exist (renamed/deleted/fresh install) or
-  // may be disabled — the select would visually show another option while
-  // the state still points at a dead agent. Reset to the first usable one.
-  useEffect(() => {
-    if (!frontAgents || frontAgents.length === 0) return;
-    const cur = frontAgents.find((a) => a.id === agentId);
-    if (cur && cur.enabled !== false) return;
-    const usable = frontAgents.filter((a) => a.enabled !== false);
-    setAgentId((usable[0] ?? frontAgents[0]!)?.id ?? "default");
-  }, [frontAgents, agentId]);
+  const listQuery = useRecentConversations();
+  const agentsQuery = useAgentList();
+  const projectsQuery = useProjectList();
+  const attention = useQuery(attentionQuery());
+  const [pa, setPa] = useState(ALL);
+  const [source, setSource] = useState<(typeof SOURCE_FILTERS)[number]>("all");
+  const [query, setQuery] = useState("");
+  const [ledgerQuery, setLedgerQuery] = useState("");
+  const [newOpen, setNewOpen] = useState<"closed" | "open">("closed");
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(searchQuery), 300);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
+    const timer = setTimeout(() => setLedgerQuery(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-  const { data: searchResults } = useConversationSearch(debouncedQuery, !!debouncedQuery);
+  const search = useConversationSearch(ledgerQuery, ledgerQuery !== "");
+  const hits = search.data === undefined ? [] : (search.data.results ?? []);
+  const agents = agentsQuery.data ?? [];
+  const conversations = listQuery.data ?? [];
+  const projects = projectsQuery.data === undefined ? [] : projectsQuery.data.projects;
+  const awaiting = attention.data === undefined ? [] : attention.data.awaitingYou;
 
-  function handleCreate() {
-    if (!input.trim()) return;
-    createConv.mutate(
-      {
-        ...(projectId ? { projectId } : {}),
-        agentId,
-      },
-      {
-        onSuccess: (conv) => {
-          router.push(`/chat/${conv.conversationId}?initial=${encodeURIComponent(input)}`);
-        },
-        onError: (err) => {
-          toast.error("Failed to create conversation", {
-            description: err instanceof Error ? err.message : "Unknown error",
-          });
-        },
-      },
+  const overviewAll = conversationOverview({
+    conversations,
+    pas: agents,
+    projects,
+    awaiting,
+    filters: { pa: ALL, source: "all", query: "" },
+  });
+  // A filter that names a member with no conversation left falls back to every member.
+  const paKnown = overviewAll.chips.some((chip) => chip.pa.id === pa);
+  const overview = conversationOverview({
+    conversations,
+    pas: agents,
+    projects,
+    awaiting,
+    filters: { pa: paKnown ? pa : ALL, source, query },
+  });
+  const activePa = paKnown ? pa : ALL;
+  const clearFilters = () => {
+    setPa(ALL);
+    setSource("all");
+    setQuery("");
+  };
+  const openNew = () => setNewOpen("open");
+  const now = Date.now();
+  const needKnown = attention.isSuccess;
+  const { counts } = overviewAll;
+  const hasFilters = activePa !== ALL || source !== "all" || query.trim() !== "";
+
+  let body: ReactNode;
+  if (listQuery.isPending) {
+    body = <p className="text-sm text-(--mute)">{t("Loading conversations…")}</p>;
+  } else if (listQuery.isError) {
+    body = (
+      <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-(--err)">
+        <span>{t("Could not load the conversations.")}</span>
+        <Button size="sm" variant="outline" onClick={() => void listQuery.refetch()}>
+          {t("Retry")}
+        </Button>
+      </div>
     );
-  }
-
-  const conversations = [...(data ?? [])]
-    .filter((c) => !("origin" in c && c.origin === "workflow"))
-    .sort((a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt));
-
-  // Chat overview is redundant with the sidebar conversation list: open the
-  // most recent conversation directly (single chat entry point). A fresh
-  // install with no conversations keeps a minimal empty-state below.
-  const firstConversationId = conversations[0]?.conversationId;
-  // Avoid flashing the New Chat form before the redirect to the latest
-  // conversation lands.
-  if (isLoading || firstConversationId) {
-    return (
-      <Page>
-        <PageHeader breadcrumb={[{ label: "Chat" }]} title="Chat" />
-        <PageBody size="reading">
-          <p className="mb-3 text-xs text-(--mute)">{t("Loading conversations…")}</p>
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse h-16 bg-(--canvas-soft) rounded-lg" />
-            ))}
+  } else if (conversations.length === 0) {
+    body = (
+      <div className="py-6">
+        <MessageSquareText className="mb-3 size-6 text-(--mute)" aria-hidden />
+        <p className="text-sm text-(--ink)">{t("No conversations yet")}</p>
+        <p className="mt-1 text-xs text-(--mute)">
+          {t("Start one with a PA. It is listed here, under that PA.")}
+        </p>
+        <Button className="mt-4" onClick={openNew}>
+          <Plus />
+          {t("New conversation")}
+        </Button>
+        <div className="mt-6">
+          <OnboardingChecklist />
+        </div>
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <div className="flex flex-wrap gap-3">
+          {overviewAll.chips.map((chip) => (
+            <div
+              key={chip.pa.id}
+              className="flex items-center gap-2.5 rounded-[11px] border border-(--hairline) p-3"
+            >
+              <RoleAvatar kind={roleKindOf(chip.pa)} name={chip.pa.name} />
+              <div>
+                <strong className="block text-xs font-[550] text-(--ink)">{chip.pa.name}</strong>
+                <small className="mt-1 block text-[10px] text-(--mute)">
+                  {chip.botName ?? t("No Lark bot enabled")} ·{" "}
+                  {t("{n} work sessions", { n: chip.conversations })}
+                </small>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div
+          role="group"
+          aria-label={t("Filter by PA")}
+          className="flex flex-wrap items-center gap-2"
+        >
+          <FilterChip on={activePa === ALL} onClick={() => setPa(ALL)}>
+            {t("All PAs")}
+          </FilterChip>
+          {overviewAll.chips.map((chip) => (
+            <FilterChip
+              key={chip.pa.id}
+              on={activePa === chip.pa.id}
+              onClick={() => setPa(chip.pa.id)}
+            >
+              {chip.pa.name}
+            </FilterChip>
+          ))}
+        </div>
+        <div
+          role="search"
+          aria-label={t("Search and source filter")}
+          className="flex flex-wrap items-center gap-2"
+        >
+          {SOURCE_FILTERS.map((key) => (
+            <FilterChip key={key} on={source === key} onClick={() => setSource(key)}>
+              {key === ALL ? t("All sources") : t(SOURCE_WORD[key] ?? key)}
+            </FilterChip>
+          ))}
+          <div className="relative min-w-[190px] flex-1">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--mute)"
+            />
+            <Input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("Search a conversation, a PA or a project")}
+              aria-label={t("Search a conversation, a PA or a project")}
+              className="pl-9"
+            />
           </div>
-        </PageBody>
-      </Page>
+        </div>
+        <p className="text-[11px] leading-[1.8] text-(--mute)">
+          {t(
+            "{total} conversations: {chats} started in a chat, {forks} forks, {dispatched} dispatched rooms. Counted by conversation, not by work item.",
+            {
+              total: counts.total,
+              chats: counts.bySource.user,
+              forks: counts.bySource.fork,
+              dispatched: counts.bySource.dispatch,
+            },
+          )}
+        </p>
+        {overview.groups.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-(--hairline) p-6 text-[11px] leading-[1.9] text-(--mute)">
+            {t("No conversation matches these filters.")}{" "}
+            {hasFilters && (
+              <Button variant="link" className="min-h-0 p-0 align-baseline" onClick={clearFilters}>
+                {t("Clear filters")}
+              </Button>
+            )}
+          </div>
+        ) : (
+          overview.groups.map((group) => {
+            const paOfGroup =
+              group.paId === null ? undefined : agents.find((agent) => agent.id === group.paId);
+            const need = group.conversations.reduce((sum, item) => sum + item.needYou, 0);
+            return (
+              <section key={group.paId ?? "none"} className="space-y-[15px]">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="flex items-center gap-[9px] text-sm font-[550] text-(--ink)">
+                    <RoleAvatar
+                      kind={paOfGroup === undefined ? "pa" : roleKindOf(paOfGroup)}
+                      name={paOfGroup === undefined ? "?" : paOfGroup.name}
+                      size="sm"
+                    />
+                    {paOfGroup === undefined ? t("No member") : paOfGroup.name}
+                    <span className={TINY_COUNT}>{group.conversations.length}</span>
+                  </h2>
+                  {needKnown && need > 0 && (
+                    <Badge variant="wait">{t("{n} need your decision", { n: need })}</Badge>
+                  )}
+                </div>
+                {group.conversations.map((conversation) => (
+                  <ConversationCard
+                    key={conversation.conversationId}
+                    conversation={conversation}
+                    pa={paOfGroup}
+                    needKnown={needKnown}
+                    now={now}
+                  />
+                ))}
+              </section>
+            );
+          })
+        )}
+        {ledgerQuery !== "" && (
+          <section className="space-y-2">
+            <h2 className="flex items-center gap-[9px] text-sm font-[550] text-(--ink)">
+              {t("Messages that contain “{query}”", { query: ledgerQuery })}
+            </h2>
+            {search.isPending && (
+              <p className="text-xs text-(--mute)">{t("Searching messages…")}</p>
+            )}
+            {search.isError && (
+              <p role="alert" className="text-xs text-(--err)">
+                {t("The messages could not be searched.")}
+              </p>
+            )}
+            {search.isSuccess && hits.length === 0 && (
+              <p className="text-xs text-(--mute)">{t("No message contains this text.")}</p>
+            )}
+            <ul className="space-y-1">
+              {hits.map((hit) => (
+                <li key={`${hit.conversationId}-${hit.seq}`}>
+                  <Link
+                    href={`${roomHref(hit.conversationId)}?at=${hit.seq}`}
+                    className="block rounded-lg border border-(--hairline) bg-(--canvas-soft)/40 p-3 transition-colors hover:border-(--primary)"
+                  >
+                    <p className="mb-1 font-mono text-[10px] text-(--mute)">
+                      {hit.conversationId.slice(0, 8)}
+                    </p>
+                    <p className="line-clamp-2 text-xs text-(--ink)">{hit.snippet}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </>
     );
   }
 
   return (
     <Page>
       <PageHeader
-        breadcrumb={[{ label: "Chat" }]}
-        title="Chat"
-        description="Start a conversation or open a recent one."
-      />
-      <PageBody size="reading" className="space-y-6">
-        {/* New chat composer: hairline border, focus ring only. */}
-        <div className="rounded-lg border border-(--hairline) bg-(--canvas) p-4 focus-within:border-(--primary) transition-colors">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex items-center justify-center size-7 rounded-full bg-(--primary) text-(--canvas)">
-              <Send size={13} />
-            </div>
-            <span className="text-sm font-semibold text-(--ink-strong)">New Chat</span>
-            <select
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              onBlur={() => {
-                const next = agents?.find((a) => a.id === agentId);
-                if (projectId && next && !next.projects?.includes(projectId)) {
-                  setProjectId("");
-                }
-              }}
-              className="ml-auto text-xs border border-(--hairline) rounded-md bg-transparent px-2 py-1 text-(--ink-strong)"
-              aria-label="Agent"
-            >
-              {(frontAgents ?? []).map((a) => (
-                <option key={a.id} value={a.id} disabled={a.enabled === false}>
-                  {a.name}
-                  {a.enabled === false ? " (disabled)" : ""}
-                </option>
-              ))}
-            </select>
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="text-xs border border-(--hairline) rounded-md bg-transparent px-2 py-1 text-(--ink-strong)"
-              aria-label="Project (optional worktree)"
-            >
-              <option value="">No project</option>
-              {(projects?.projects ?? [])
-                .filter((p) => selectedAgent?.projects?.includes(p.projectId))
-                .map((p) => (
-                  <option key={p.projectId} value={p.projectId}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleCreate();
-              }
-            }}
-            placeholder="What do you want to work on?"
-            className="min-h-24 resize-none border-0 bg-transparent text-sm text-(--ink-strong) placeholder:text-(--mute) focus-visible:ring-0"
-          />
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-[10px] text-(--mute)">
-              Enter to send · Shift+Enter for newline
-            </span>
-            <Button
-              size="sm"
-              onClick={handleCreate}
-              disabled={!input.trim() || createConv.isPending}
-              className="min-w-20"
-            >
-              <Send size={14} />
-              Start
-            </Button>
-          </div>
-        </div>
-
-        {/* Filter conversations (ledger search results live in Cmd+K). */}
-        <div>
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-(--mute) pointer-events-none"
-            />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter conversations…"
-              className="pl-9"
-            />
-          </div>
-          {searchResults?.results?.length ? (
-            <div className="mt-2 space-y-0.5">
-              {searchResults.results.map((r) => (
-                <button
-                  key={`${r.conversationId}-${r.seq}`}
-                  type="button"
-                  onClick={() => router.push(`/chat/${r.conversationId}`)}
-                  className="w-full text-left border border-(--hairline) rounded-lg
-                             hover:border-(--primary) transition-colors duration-200
-                             bg-[var(--canvas-soft)/40] cursor-pointer p-3"
-                >
-                  <p className="text-xs text-(--mute) mb-1">{r.conversationId.slice(0, 8)}</p>
-                  <p className="text-sm text-(--ink) line-clamp-2">{r.snippet}</p>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Recent conversations */}
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-(--mute)">
-            {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-
-        {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={`sk-${i}`} className="animate-pulse h-16 bg-(--canvas-soft) rounded-lg" />
-            ))}
-          </div>
-        ) : conversations.length === 0 ? (
-          <div className="py-12">
-            <MessageSquareIcon size={28} className="text-(--mute) mx-auto mb-4" />
-            <p className="mb-4 text-sm text-(--mute)">No conversations yet</p>
-            <OnboardingChecklist />
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {conversations.map((conv) => (
-              <div
-                key={conv.conversationId}
-                role="button"
-                tabIndex={0}
-                onClick={() => router.push(`/chat/${conv.conversationId}`)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    router.push(`/chat/${conv.conversationId}`);
-                  }
-                }}
-                className="w-full text-left border border-(--hairline) rounded-lg
-                           hover:border-(--primary) transition-colors duration-200
-                           bg-[var(--canvas-soft)/40] active:bg-(--canvas-soft)
-                           cursor-pointer p-3 flex items-center justify-between"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-(--ink) truncate">
-                    {conversationDisplayName(conv)}
-                  </p>
-                  {conv.lastMessagePreview && (
-                    <p className="text-xs text-(--mute) truncate mt-0.5">
-                      {conv.lastMessagePreview}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
-                    <div className="flex -space-x-1.5">
-                      <span
-                        className="inline-flex items-center justify-center size-5  rounded-full
-                                   border border-(--canvas) bg-(--canvas-soft)
-                                   text-[9px] font-medium text-(--mute)"
-                        title={conv.agentId ?? "agent"}
-                      >
-                        {(conv.agentId ?? "a").charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-(--mute)">
-                      {new Date(conv.createdAt).toLocaleString()}
-                      {relativeTime(conv.lastActivityAt) && (
-                        <span className="ml-1">· {relativeTime(conv.lastActivityAt)}</span>
-                      )}
-                    </p>
-                    {(() => {
-                      const fid = getForkSourceId(conv);
-                      if (!fid) return null;
-                      return <ForkSourceMarker sourceId={fid} createdAt={conv.createdAt} />;
-                    })()}
-                  </div>
-                </div>
-                <ChevronRight size={14} className="text-(--hairline) shrink-0 ml-3" />
-              </div>
-            ))}
-          </div>
+        kicker={t("Work sessions · every PA")}
+        title={t("Work sessions")}
+        description={t(
+          "Every conversation with a PA, grouped by the PA that owns it. A dispatched room sits with the PA that dispatched it. Starting work does not require a project room.",
         )}
+        actions={
+          <Button variant="outline" onClick={openNew}>
+            <Plus />
+            {t("New conversation")}
+          </Button>
+        }
+      />
+      <PageBody className="space-y-5">
+        <Note className="max-w-3xl text-[11px] leading-[1.8] text-(--mute)">
+          {t(
+            "A conversation does not record whether it came from a Lark chat or a Lark group. Its only source fact is how it began: started in a chat, forked, or dispatched by a PA.",
+          )}
+        </Note>
+        {body}
+        <NewConversationDialog
+          agents={agents}
+          projects={projects}
+          open={newOpen === "open"}
+          onClose={() => setNewOpen("closed")}
+        />
       </PageBody>
     </Page>
   );

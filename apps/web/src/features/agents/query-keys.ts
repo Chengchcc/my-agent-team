@@ -7,4 +7,6 @@ export const agentKeys = {
   identity: (id: string) => [...agentKeys.all, "identity", id] as const,
   memory: (id: string) => [...agentKeys.all, "memory", id] as const,
   workspace: (id: string, path: string) => [...agentKeys.all, "workspace", id, path] as const,
+  /** The pending suggestion for one member form. */
+  suggestion: (targetId: string) => [...agentKeys.all, "suggestion", targetId] as const,
 };

@@ -4,4 +4,5 @@ export const projectKeys = {
   detail: (id: string) => ["project", id] as const,
   worktrees: (id: string) => ["project-worktrees", id] as const,
   worktreeDiff: (id: string, agentId: string) => ["project-worktree-diff", id, agentId] as const,
+  suggestion: (id: string) => ["project-suggestion", id] as const,
 };

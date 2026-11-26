@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { conversationDisplayName } from "./conversation-title";
 import { registerLocale, setLocale, t } from "./i18n";
 
@@ -52,4 +52,9 @@ describe("conversationDisplayName", () => {
       "New conversation",
     );
   });
+});
+
+// The locale is module state shared by every test file in this process: leave it as it was found.
+afterEach(() => {
+  setLocale("en");
 });

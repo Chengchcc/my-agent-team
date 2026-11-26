@@ -1,279 +1,379 @@
 "use client";
 
-import { ArrowUpRight, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import {
+  badgeVariantOfTone,
+  type FactTone,
+  Note,
+  PanelCell,
+  PanelRow,
+  PanelTable,
+  StatusBadge,
+} from "@/components/ops/kit";
+import { QueryState } from "@/components/ops/QueryState";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { KpiTile, MonoLabel, StatusPill, type StatusTone } from "@/components/patterns";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { SubTabs } from "@/components/ui/polish";
 import { useAgentList } from "@/features/agents/hooks";
+import { useAllConversations } from "@/features/conversations/hooks";
+import {
+  classifyAuthorization,
+  countLedgerSources,
+  deriveLedgerRows,
+  type LedgerRow,
+  type LedgerSource,
+} from "@/features/ops/authority-ledger";
 import { useAgentRuns } from "@/features/ops/hooks";
 import { useProactiveEvents } from "@/features/proactive/hooks";
+import type { ApiReturn, api } from "@/lib/api";
+import { t } from "@/lib/i18n";
+import { executionStatus } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
-// Row shapes come from the queries themselves — one source, no hand-copied DTO.
-type RunRow = NonNullable<ReturnType<typeof useAgentRuns>["data"]>["runs"][number];
-type EventRow = NonNullable<ReturnType<typeof useProactiveEvents>["data"]>["events"][number];
+type LedgerTab = "all" | LedgerSource;
+type ProactiveEventRow = ApiReturn<typeof api.listProactiveEvents>["events"][number];
 
-type AuthorityKind =
-  | "human"
-  | "rule"
-  | "assessment"
-  | "dispatch"
-  | "handback"
-  | "system"
-  | "unknown";
+const TABS: readonly LedgerTab[] = ["all", "owner", "human", "dispatch"];
 
-/** ADR 0047's five channels, read off the frozen `authorization` value. The
- *  kind is what the eye needs; the detail is the id behind it. */
-function classify(authorization: string | null): {
-  kind: AuthorityKind;
-  detail: string;
-  tone: StatusTone;
-} {
-  if (authorization === null || authorization === "")
-    return { kind: "unknown", detail: "—", tone: "idle" };
-  if (authorization === "user") return { kind: "human", detail: "human", tone: "success" };
-  if (authorization === "system") return { kind: "system", detail: "system", tone: "idle" };
-  if (authorization === "ambient:assessment")
-    return { kind: "assessment", detail: "assessment", tone: "waiting" };
-  if (authorization.startsWith("ambient:"))
-    return { kind: "rule", detail: authorization.slice("ambient:".length), tone: "waiting" };
-  if (authorization.startsWith("dispatch:"))
-    return { kind: "dispatch", detail: authorization.slice("dispatch:".length), tone: "running" };
-  // ADR 0052: a worker returned work it cannot own.
-  if (authorization.startsWith("handback:"))
-    return { kind: "handback", detail: authorization.slice("handback:".length), tone: "error" };
-  return { kind: "unknown", detail: authorization, tone: "idle" };
-}
-
-const KIND_LABEL: Record<AuthorityKind, string> = {
-  human: "human",
-  rule: "rule",
-  assessment: "assessment",
-  dispatch: "dispatch",
-  handback: "handback",
-  system: "system",
-  unknown: "unknown",
+/** The pill of a source is neutral: the ledger states where authority came
+ *  from, it does not grade it. Only the two exceptional states are coloured. */
+const SOURCE_TONE: Record<LedgerSource, FactTone> = {
+  owner: "muted",
+  human: "muted",
+  dispatch: "muted",
+  handback: "err",
+  unrecorded: "warn",
 };
 
-/** ADR 0051: walk `parentRunId` up until it runs out. One hop is stored per
- *  run; the root is what "who originally wanted this" means. */
-function originOf(
-  run: RunRow,
-  byId: Map<string, RunRow>,
-): { root: RunRow | null; depth: number; missing: boolean } {
-  let current: RunRow = run;
-  let depth = 0;
-  while (current.parentRunId !== null && current.parentRunId !== undefined && depth < 16) {
-    const parent: RunRow | undefined = byId.get(current.parentRunId);
-    if (parent === undefined) return { root: null, depth, missing: true };
-    current = parent;
-    depth += 1;
-  }
-  return { root: current, depth, missing: false };
+function inTab(row: LedgerRow, tab: LedgerTab): boolean {
+  const shown = tab === "all" || row.source === tab;
+  return shown;
 }
 
-function stamp(ts: number): string {
-  return new Date(ts).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/** A tab key from the tab bar; anything unrecognised reads as "all". */
+function asTab(key: string): LedgerTab {
+  const found = TABS.find((candidate) => candidate === key);
+  if (found === undefined) return "all";
+  return found;
+}
+
+/** Why a row's conversation link is off. The two causes read differently. */
+function missingConversationNote(listRead: boolean): string {
+  if (listRead) return t("This conversation is no longer listed.");
+  return t("The conversation list could not be read.");
+}
+
+/** The basis as stored, in words. An empty basis is never guessed at. */
+function basisWords(step: { readonly basis: string }): string {
+  if (step.basis === "") return t("Unrecorded: this run has no stored basis.");
+  const classified = classifyAuthorization(step.basis);
+  if (classified.source === "human") return t("A person asked for it.");
+  if (classified.source === "dispatch") {
+    const parent = classified.refId === null ? "" : classified.refId;
+    return t("Dispatched by run {id}", { id: parent });
+  }
+  if (classified.source === "handback") {
+    const refused = classified.refId === null ? "" : classified.refId;
+    return t("Work handed back from run {id}", { id: refused });
+  }
+  if (classified.source === "unrecorded") {
+    return t("Basis not recognised: {basis}", { basis: step.basis });
+  }
+  if (classified.ruleId === null) return t("Started by the system.");
+  if (classified.ruleId === "assessment") return t("Accepted by the assessment gate.");
+  return t('Under the standing rule "{rule}"', { rule: classified.ruleId });
+}
+
+function stepRole(index: number, row: LedgerRow): string {
+  if (index === 0) return t("this run");
+  const isRoot = index === row.chain.length - 1 && !row.chainBroken;
+  if (isRoot) return t("root");
+  return t("parent");
+}
+
+/** Run → parent run → root, one numbered line per run, each with the basis it
+ *  was started under. */
+function ChainSteps({
+  row,
+  agentName,
+}: {
+  row: LedgerRow;
+  agentName: (agentId: string) => string;
+}) {
+  return (
+    <details className="mt-3 rounded-[10px] border border-[#96cfeb29] bg-[#81b7ef08] px-[17px] py-3.5 text-xs/relaxed text-(--mute)">
+      <summary className="cursor-pointer text-[13px] text-(--ink)">
+        {t("Source chain")}
+        <span className="ml-2 font-mono text-[10px] text-(--faint)">{row.runId.slice(0, 8)}</span>
+      </summary>
+      <ol className="mt-3 space-y-1 bg-[#172126] px-5 py-[15px] font-mono text-[11px]/8">
+        {row.chain.map((step, index) => (
+          <li key={step.runId} className="flex gap-3">
+            <span className="shrink-0 text-(--primary)">{String(index + 1).padStart(2, "0")}</span>
+            <span className="min-w-0 wrap-anywhere">
+              <Link
+                href={`/system/runs/${step.runId}`}
+                className="text-(--ink-strong) hover:text-(--primary)"
+              >
+                {agentName(step.agentId)}
+              </Link>
+              <span className="text-(--faint)">
+                {" · "}
+                {stepRole(index, row)}
+              </span>
+              <span className="block">{basisWords(step)}</span>
+            </span>
+          </li>
+        ))}
+        {row.chainBroken && (
+          <li className="flex gap-3 text-(--warn)">
+            <span className="shrink-0">…</span>
+            <span>{t("parent not loaded")}</span>
+          </li>
+        )}
+      </ol>
+    </details>
+  );
+}
+
+function LedgerList({
+  rows,
+  tab,
+  agentName,
+  conversations,
+  conversationsKnown,
+}: {
+  rows: readonly LedgerRow[];
+  tab: LedgerTab;
+  agentName: (agentId: string) => string;
+  conversations: readonly { conversationId: string }[];
+  conversationsKnown: boolean;
+}) {
+  const shown = rows.filter((row) => inTab(row, tab));
+  if (shown.length === 0) {
+    return (
+      <p className="px-4 py-8 text-center text-xs text-(--mute)">
+        {t("No run under this source in the loaded window.")}
+      </p>
+    );
+  }
+  return (
+    <PanelTable
+      label={t("Authority ledger")}
+      columns={[t("Source type"), t("Record"), t("Context")]}
+    >
+      {shown.map((row) => {
+        const exists = conversations.some((c) => c.conversationId === row.conversationId);
+        return (
+          <PanelRow key={row.runId}>
+            <PanelCell label={t("Source type")}>
+              <Badge variant={badgeVariantOfTone(SOURCE_TONE[row.source])} className="font-mono">
+                {t(row.source)}
+              </Badge>
+            </PanelCell>
+            <PanelCell label={t("Record")}>
+              <Link
+                href={`/system/runs/${row.runId}`}
+                className="text-xs font-[550] text-(--ink-strong) hover:text-(--primary)"
+              >
+                {agentName(row.agentId)}
+              </Link>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <StatusBadge look={executionStatus(row.status)} />
+                <small className="font-mono text-[10px] text-(--mute)">
+                  {new Date(row.createdAt).toLocaleString()}
+                </small>
+              </div>
+              <p className="mt-1.5 text-xs/relaxed text-(--body)">{basisWords(row)}</p>
+              <ChainSteps row={row} agentName={agentName} />
+            </PanelCell>
+            <PanelCell label={t("Context")}>
+              {exists && (
+                <Link
+                  href={`/chat/${row.conversationId}`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  {t("Open conversation")}
+                </Link>
+              )}
+              {!exists && (
+                <>
+                  <Button size="sm" variant="outline" disabled>
+                    {t("Conversation not available")}
+                  </Button>
+                  <Note className="mt-1.5">{missingConversationNote(conversationsKnown)}</Note>
+                </>
+              )}
+            </PanelCell>
+          </PanelRow>
+        );
+      })}
+    </PanelTable>
+  );
+}
+
+function outcomeOf(event: ProactiveEventRow): { word: string; tone: FactTone } {
+  if (event.outcome === "recorded") return { word: t("would have acted"), tone: "warn" };
+  if (event.outcome === "triggered") return { word: t("started a run"), tone: "ok" };
+  if (event.outcome === "error") return { word: t("failed to assess"), tone: "err" };
+  const other: { word: string; tone: FactTone } = { word: event.outcome, tone: "muted" };
+  return other;
+}
+
+/** The ambient ledger: what a rule or the assessment gate would have done,
+ *  did, or failed to judge. A record like the one above, with no action. */
+function WouldHaveActed({
+  events,
+  agentName,
+}: {
+  events: readonly ProactiveEventRow[];
+  agentName: (agentId: string) => string;
+}) {
+  return (
+    <PanelTable
+      label={t("Would have acted")}
+      columns={[t("When"), t("Outcome"), t("Message"), t("Rule"), t("Conversation")]}
+    >
+      {events.map((event) => {
+        const outcome = outcomeOf(event);
+        return (
+          <PanelRow key={event.id}>
+            <PanelCell label={t("When")} className="font-mono text-[10px] whitespace-nowrap">
+              {new Date(event.ts).toLocaleString()}
+            </PanelCell>
+            <PanelCell label={t("Outcome")}>
+              <Badge variant={badgeVariantOfTone(outcome.tone)} className="font-mono">
+                {outcome.word}
+              </Badge>
+            </PanelCell>
+            <PanelCell label={t("Message")}>
+              <p className="line-clamp-2 text-xs text-(--ink)">{event.snippet}</p>
+              <Note className="mt-1">{agentName(event.agentId)}</Note>
+            </PanelCell>
+            <PanelCell label={t("Rule")} className="font-mono text-[10px]">
+              {event.ruleId === "" ? event.mode : event.ruleId}
+            </PanelCell>
+            <PanelCell label={t("Conversation")} className="font-mono text-[10px]">
+              <Link
+                href={`/chat/${event.conversationId}`}
+                className="text-(--primary-deep) hover:text-(--primary)"
+              >
+                {event.conversationId.slice(0, 8)}
+              </Link>
+            </PanelCell>
+          </PanelRow>
+        );
+      })}
+    </PanelTable>
+  );
 }
 
 export default function AuthorityPage() {
+  const [tab, setTab] = useState<LedgerTab>("all");
   const { data: agents } = useAgentList();
   const runsQuery = useAgentRuns({ limit: 200 });
   const eventsQuery = useProactiveEvents({ limit: 50 });
+  const conversationsQuery = useAllConversations();
 
-  const runs: RunRow[] = useMemo(() => runsQuery.data?.runs ?? [], [runsQuery.data]);
-  const events: EventRow[] = eventsQuery.data?.events ?? [];
-  const nameOf = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const a of agents ?? []) map.set(a.id, a.name);
-    return (id: string) => map.get(id) ?? id;
-  }, [agents]);
+  const rows = useMemo(() => deriveLedgerRows(runsQuery.data?.runs ?? []), [runsQuery.data]);
+  const counts = useMemo(() => countLedgerSources(rows), [rows]);
+  const events = eventsQuery.data?.events ?? [];
+  const conversations = conversationsQuery.data ?? [];
 
-  const counts = useMemo(() => {
-    const out: Record<AuthorityKind, number> = {
-      human: 0,
-      rule: 0,
-      assessment: 0,
-      dispatch: 0,
-      handback: 0,
-      system: 0,
-      unknown: 0,
-    };
-    for (const run of runs) out[classify(run.authorization).kind] += 1;
-    return out;
-  }, [runs]);
+  const agentName = (agentId: string): string => {
+    const found = agents?.find((member) => member.id === agentId);
+    return found?.name ?? agentId;
+  };
 
-  const byId = useMemo(() => new Map(runs.map((r) => [r.runId, r])), [runs]);
-  const wouldHaveActed = events.filter((e) => e.outcome === "recorded");
-  const failures = events.filter((e) => e.outcome === "error");
+  const tabs = TABS.map((key) => {
+    const count = key === "all" ? rows.length : counts[key];
+    const built = { key, label: t(key), count };
+    return built;
+  });
+  const recorded = events.filter((event) => event.outcome === "recorded").length;
 
   return (
     <Page>
       <PageHeader
-        breadcrumb={[{ label: "System", href: "/system" }, { label: "Authority" }]}
-        title="Authority"
-        pill={<StatusPill tone="idle">read-only</StatusPill>}
+        kicker={t("Authority ledger")}
+        title={t("Authority")}
+        description={t(
+          "Authority needs a source, not a rubber stamp. Each run's record says whether a person asked for it, the workspace owner's configuration allowed it, or another run dispatched it.",
+        )}
+        actions={
+          <Link href="/system" className={buttonVariants({ variant: "outline", size: "sm" })}>
+            {t("Observability")}
+          </Link>
+        }
       />
-      <PageBody>
-        <p className="max-w-3xl text-xs/relaxed  text-(--mute)">
-          Every run answers one question:{" "}
-          <span className="text-(--ink-strong)">who allowed it</span>. Five channels can create work
-          — a human, a standing rule, the semantic assessment, a front agent dispatching, or the
-          system clock. Workers never see a human directly, so this page is where that delegation is
-          checked: what fired, what was only recorded, and which run originally wanted the work.
-        </p>
+      <PageBody className="space-y-5">
+        <section className="rounded-2xl border border-[#92dfcc30] bg-[radial-gradient(ellipse_at_85%_0,#82d8c620,transparent_60%),#172126] px-7 py-6">
+          <p className="text-[10px] tracking-[1.8px] uppercase text-(--faint)">
+            {t("Read-only evidence")}
+          </p>
+          <h2 className="mt-2 text-[22px] font-[550] tracking-[-0.5px] text-(--ink-strong)">
+            {t("This is a record, not an authorization control plane.")}
+          </h2>
+          <p className="mt-2 max-w-[690px] text-xs/relaxed text-(--mute)">
+            {t(
+              "It takes no approvals, grants nothing and changes no permission. Expand a source chain to read its basis; a link opens only a conversation that still exists.",
+            )}
+          </p>
+        </section>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiTile label="Human" value={counts.human} detail="typed or spoke" />
-          <KpiTile label="Rule" value={counts.rule} detail="standing instruction" />
-          <KpiTile label="Assessment" value={counts.assessment} detail="model decided" />
-          <KpiTile
-            label="Dispatched"
-            value={counts.dispatch}
-            detail={`${runs.filter((r) => r.parentRunId !== null && r.parentRunId !== undefined).length} with a parent`}
-          />
-          {/* Only when they exist: a run older than the authorization column
-              (pre-0047) has no basis, and workflow runs are `system`. Showing
-              a 0 tile for either would be noise; hiding them would make the
-              counts quietly not add up. */}
-          {counts.handback > 0 && (
-            <KpiTile label="Handed back" value={counts.handback} detail="worker refused" />
+        <SubTabs items={tabs} active={tab} onChange={(key) => setTab(asTab(key))} />
+
+        <QueryState
+          query={runsQuery}
+          empty={(data) => data.runs.length === 0}
+          emptyTitle={t("No runs yet")}
+          emptyDescription={t(
+            "Runs appear here after the first message to an agent or the first workflow start.",
           )}
-          {counts.system > 0 && <KpiTile label="System" value={counts.system} detail="clock" />}
-          {counts.unknown > 0 && (
-            <KpiTile
-              label="Unrecorded"
-              value={counts.unknown}
-              detail="predates the authority column"
+        >
+          {() => (
+            <LedgerList
+              rows={rows}
+              tab={tab}
+              agentName={agentName}
+              conversations={conversations}
+              conversationsKnown={conversationsQuery.data !== undefined}
             />
           )}
-        </div>
+        </QueryState>
 
-        <section className="rounded-lg border border-(--hairline) bg-(--panel)">
-          <div className="flex items-center justify-between gap-3 border-b border-(--hairline) px-4 py-2.5">
-            <MonoLabel>Authorized runs</MonoLabel>
-            <span className="font-mono text-[10px] text-(--faint)">last {runs.length}</span>
-          </div>
-          {runsQuery.isLoading ? (
-            <p className="px-4 py-6 text-xs text-(--mute)">Loading…</p>
-          ) : runs.length === 0 ? (
-            <p className="px-4 py-6 text-xs text-(--mute)">No runs yet.</p>
-          ) : (
-            <div className="divide-y divide-(--hairline)">
-              {runs.map((run) => {
-                const authority = classify(run.authorization);
-                const origin = originOf(run, byId);
-                return (
-                  <Link
-                    key={run.runId}
-                    href={`/system/runs/${run.runId}`}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 transition-colors hover:bg-(--panel2)"
-                  >
-                    <span className="w-28 shrink-0 font-mono text-[10px] text-(--faint)">
-                      {stamp(run.createdAt)}
-                    </span>
-                    <StatusPill tone={authority.tone} className="shrink-0">
-                      {KIND_LABEL[authority.kind]}
-                    </StatusPill>
-                    <span
-                      className="min-w-0 shrink-0 truncate font-mono text-[10px] text-(--mute)"
-                      title={authority.detail}
-                    >
-                      {authority.detail}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-xs text-(--ink-strong)">
-                      {nameOf(run.agentId)}
-                    </span>
-                    <span className="font-mono text-[10px] text-(--mute)">
-                      {origin.depth > 0 ? (
-                        <>
-                          ←{" "}
-                          {origin.root ? KIND_LABEL[classify(origin.root.authorization).kind] : "…"}{" "}
-                          <span className="text-(--faint)">({origin.depth})</span>
-                        </>
-                      ) : (
-                        <span className="text-(--faint)">origin</span>
-                      )}
-                    </span>
-                    <span className="shrink-0 font-mono text-[10px] text-(--mute)">
-                      {run.status}
-                    </span>
-                    <ArrowUpRight className="size-3 shrink-0 text-(--faint)" />
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-lg border border-(--hairline) bg-(--panel)">
-          <div className="flex items-center justify-between gap-3 border-b border-(--hairline) px-4 py-2.5">
-            <MonoLabel>Would have acted</MonoLabel>
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-[550] text-(--ink-strong)">{t("Would have acted")}</h2>
             <span className="font-mono text-[10px] text-(--faint)">
-              {wouldHaveActed.length} recorded
-              {failures.length > 0 ? ` · ${failures.length} failed` : ""}
+              {t("{count} recorded · {total} events", { count: recorded, total: events.length })}
             </span>
           </div>
-          {eventsQuery.isLoading ? (
-            <p className="px-4 py-6 text-xs text-(--mute)">Loading…</p>
-          ) : events.length === 0 ? (
-            <p className="px-4 py-6 text-xs text-(--mute)">
-              Nothing yet. Rules in `record` mode and assessment in `observe` write here — the dry
-              run before anything is allowed to act.
-            </p>
-          ) : (
-            <div className="divide-y divide-(--hairline)">
-              {events.map((event) => (
-                <div key={event.id} className="flex items-start gap-3 px-4 py-2">
-                  <span className="w-28 shrink-0 font-mono text-[10px] text-(--faint)">
-                    {stamp(event.ts)}
-                  </span>
-                  <StatusPill
-                    tone={
-                      event.outcome === "triggered"
-                        ? "running"
-                        : event.outcome === "error"
-                          ? "error"
-                          : "waiting"
-                    }
-                    className="mt-0.5 shrink-0"
-                  >
-                    {event.mode === "assessment" ? "assessment" : event.mode}
-                  </StatusPill>
-                  <span className="w-10 shrink-0 font-mono text-[10px] text-(--mute)">
-                    {event.outcome === "recorded" ? "would" : event.outcome}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs text-(--ink)">{event.snippet || "—"}</div>
-                    <div className="mt-0.5 font-mono text-[10px] text-(--faint)">
-                      {nameOf(event.agentId)} · {event.ruleId}
-                    </div>
-                  </div>
-                  <Link
-                    href={`/chat/${event.conversationId}`}
-                    className="shrink-0 font-mono text-[10px] text-(--primary) hover:underline"
-                  >
-                    room
-                  </Link>
-                </div>
-              ))}
-            </div>
-          )}
+          <Note>
+            {t(
+              "Rules in record mode and the assessment gate in observe mode write here. Nothing in this table ran, and nothing here can be approved from this page.",
+            )}
+          </Note>
+          <QueryState
+            query={eventsQuery}
+            empty={(data) => data.events.length === 0}
+            emptyTitle={t("Nothing recorded yet")}
+            emptyDescription={t(
+              "A rule in record mode or the assessment gate in observe mode writes the first row.",
+            )}
+          >
+            {(data) => <WouldHaveActed events={data.events} agentName={agentName} />}
+          </QueryState>
         </section>
 
-        <p className="flex items-start gap-2 text-[10px] leading-relaxed text-(--faint)">
-          <ShieldCheck className="mt-px size-3 shrink-0" />A run marked `dispatch` always names its
-          parent, and a run with a parent is always a dispatch — so walking up never dead-ends in
-          nothing. A worker run can be `dispatch`, `rule`, `assessment` or `system`, but never
-          `human`.
-        </p>
+        <Note>
+          {t(
+            "A run older than the authorization record reads as unrecorded; nothing is filled in for it. The list holds the last 200 runs, so a parent outside that window ends its chain.",
+          )}
+        </Note>
       </PageBody>
     </Page>
   );

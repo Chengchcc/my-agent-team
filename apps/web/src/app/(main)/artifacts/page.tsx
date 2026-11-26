@@ -1,121 +1,84 @@
 "use client";
 
-import { FileText, FolderOpen, HardDrive, Search, Trash2, Upload } from "lucide-react";
-import Link from "next/link";
+import { FolderOpen, LayoutGrid, List, Search, Upload } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArtifactPreview } from "@/components/ArtifactPreview";
-import { CopyButton } from "@/components/ops/CopyButton";
+import { ArtifactDetailDialog } from "@/components/ArtifactDetail";
+import { ArtifactGalleryCard, type GalleryLayout } from "@/components/ArtifactGalleryCard";
+import { fmtBytes } from "@/components/ops/format";
+import { Note } from "@/components/ops/kit";
+import { QueryState } from "@/components/ops/QueryState";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { KpiTile, MonoLabel, StatusPill } from "@/components/patterns";
 import { Button } from "@/components/ui/button";
-import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { InfoBanner } from "@/components/ui/polish";
-import { useArtifacts, useDeleteArtifact, useUploadArtifact } from "@/features/artifacts/hooks";
-import { api } from "@/lib/api";
+import { SubTabs } from "@/components/ui/polish";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useAgentList } from "@/features/agents/hooks";
+import {
+  type ArtifactFilter,
+  countArtifactKinds,
+  filterArtifacts,
+} from "@/features/artifacts/artifact-view";
+import { useArtifacts, useUploadArtifact } from "@/features/artifacts/hooks";
+import type { ArtifactMeta } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function fmtSize(n: number): string {
-  if (n < 1024) return `${n}B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}K`;
-  return `${(n / 1024 / 1024).toFixed(1)}M`;
+const TABS: readonly ArtifactFilter[] = ["all", "document", "change", "visual", "other"];
+
+const TAB_LABEL: Record<ArtifactFilter, string> = {
+  all: "All",
+  document: "Documents",
+  change: "Changes",
+  visual: "Visual",
+  other: "Other",
+};
+
+const GRID_CLASS = "grid grid-cols-1 gap-[18px] sm:grid-cols-2 xl:grid-cols-3";
+const LIST_CLASS = "flex flex-col gap-2.5";
+
+type UploadState = "closed" | "open";
+
+function asFilter(key: string): ArtifactFilter {
+  const found = TABS.find((candidate) => candidate === key);
+  if (found === undefined) return "all";
+  return found;
 }
 
-export default function ArtifactsPage() {
-  // `useSearchParams` needs a Suspense boundary above it or `next build`
-  // refuses to prerender the route (#65: a chat's Artifacts link preselects
-  // the produced-files folder).
-  return (
-    <Suspense fallback={null}>
-      <ArtifactsView />
-    </Suspense>
-  );
-}
-
-function ArtifactsView() {
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [preview, setPreview] = useState<{
-    url: string;
-    content: string;
-    encoding: string;
-    mimeType: string;
-  } | null>(null);
+/** The registry's upload: a folder, a file, one request. It is the only thing
+ *  on this page that writes. */
+function UploadDialog({ state, onDone }: { state: UploadState; onDone: () => void }) {
+  const uploadArtifact = useUploadArtifact();
   const [folder, setFolder] = useState("");
   const [filename, setFilename] = useState("");
   const [content, setContent] = useState("");
   const [encoding, setEncoding] = useState<"utf8" | "base64">("utf8");
-  const { confirm, dialog: confirmDialog } = useConfirm();
-  const { data: artifactsData, isLoading: loading } = useArtifacts();
-  const artifacts = artifactsData?.artifacts ?? [];
-  const uploadArtifact = useUploadArtifact();
-  const deleteArtifact = useDeleteArtifact();
-  const uploading = uploadArtifact.isPending;
-  const [query, setQuery] = useState("");
-  const [sortBy, setSortBy] = useState<"date" | "size" | "name">("date");
-  // A chat's "Artifacts" link carries the produced-files folder (#65 option C:
-  // tool images live here, tied to their conversation, no ledger change).
-  const requestedFolder = useSearchParams().get("folder");
-  const [folderFilter, setFolderFilter] = useState(requestedFolder ?? "all");
+  const ready = folder.trim() !== "" && filename.trim() !== "" && content !== "";
+  const url =
+    folder.trim() === "" || filename.trim() === ""
+      ? ""
+      : `artifacts://${folder.trim()}/${filename.trim()}`;
 
-  const folders = useMemo(
-    () =>
-      [
-        ...new Set([
-          ...artifacts.map((a) => a.url.split("/")[1] ?? ""),
-          ...(requestedFolder ? [requestedFolder] : []),
-        ]),
-      ]
-        .filter(Boolean)
-        .sort(),
-    [artifacts, requestedFolder],
-  );
-  const totalBytes = artifacts.reduce((sum, a) => sum + a.size, 0);
-  const visible = artifacts
-    .filter((a) => {
-      if (folderFilter !== "all" && !a.url.startsWith(`artifacts://${folderFilter}/`)) return false;
-      if (query && !a.url.toLowerCase().includes(query.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === "size") return b.size - a.size;
-      if (sortBy === "name") return a.url.localeCompare(b.url);
-      return b.updatedAt - a.updatedAt;
-    });
-
-  async function openPreview(url: string) {
-    try {
-      const r = await api.downloadArtifact(url);
-      setPreview({ url, content: r.content, encoding: r.encoding, mimeType: r.mimeType });
-    } catch {
-      toast.error(`Download failed: ${url}`);
-    }
-  }
-
-  async function remove(url: string) {
-    const ok = await confirm({
-      title: `Delete ${url}?`,
-      description: "This cannot be undone.",
-      confirmText: "Delete",
-      destructive: true,
-    });
-    if (!ok) return;
-    await deleteArtifact.mutateAsync(url);
-  }
-
-  function pickFile(file: File | undefined) {
-    if (!file) return;
+  function pickFile(file: File | undefined): void {
+    if (file === undefined) return;
     const reader = new FileReader();
     reader.onload = () => {
       const raw = String(reader.result ?? "");
@@ -127,11 +90,8 @@ function ArtifactsView() {
     reader.readAsDataURL(file);
   }
 
-  async function upload() {
-    if (!folder.trim() || !filename.trim() || !content) {
-      toast.error("Please enter folder / filename and choose or type content");
-      return;
-    }
+  async function upload(): Promise<void> {
+    if (!ready) return;
     try {
       await uploadArtifact.mutateAsync({
         folder: folder.trim(),
@@ -143,243 +103,267 @@ function ArtifactsView() {
       setFilename("");
       setContent("");
       setEncoding("utf8");
-      setUploadOpen(false);
-    } catch (err) {
-      toast.error(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      onDone();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      toast.error(t("Upload failed: {reason}", { reason }));
     }
   }
 
-  const urlPreview =
-    folder.trim() && filename.trim() ? `artifacts://${folder.trim()}/${filename.trim()}` : "";
+  return (
+    <Dialog
+      open={state === "open"}
+      onOpenChange={(next) => {
+        if (!next) onDone();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("Upload artifact")}</DialogTitle>
+          <DialogDescription>
+            {t("Pick a file and name a folder. The file is stored under the address shown below.")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="artifact-folder" className="text-[11px] text-(--mute)">
+              {t("Folder")}
+            </Label>
+            <Input
+              id="artifact-folder"
+              className="font-mono"
+              value={folder}
+              onChange={(e) => setFolder(e.target.value)}
+              placeholder="report/2026"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="artifact-file" className="text-[11px] text-(--mute)">
+              {t("File")}
+            </Label>
+            <label
+              htmlFor="artifact-file"
+              className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-(--hairline) bg-[#14191b] px-3 text-xs text-(--body) hover:bg-(--panel2)"
+            >
+              <Upload className="size-3.5" />
+              <span className="truncate">{filename === "" ? t("Choose a file") : filename}</span>
+            </label>
+            <Input
+              id="artifact-file"
+              type="file"
+              className="hidden"
+              onChange={(e) => pickFile(e.target.files?.[0])}
+            />
+          </div>
+          {url !== "" && (
+            <p className="font-mono text-[10px] text-(--mute)">
+              {t("Address")}: <span className="text-(--body)">{url}</span>
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            className="w-full"
+            size="sm"
+            disabled={!ready || uploadArtifact.isPending}
+            onClick={() => void upload()}
+          >
+            {uploadArtifact.isPending ? t("Uploading…") : t("Upload")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ArtifactsView() {
+  const [kind, setKind] = useState<ArtifactFilter>("all");
+  const [query, setQuery] = useState("");
+  const [layout, setLayout] = useState<GalleryLayout>("grid");
+  const [selected, setSelected] = useState<ArtifactMeta | null>(null);
+  const [upload, setUpload] = useState<UploadState>("closed");
+  // A chat's "Artifacts" link carries the produced-files folder (#65 option C:
+  // tool images live here, tied to their conversation, no ledger change).
+  const requestedFolder = useSearchParams().get("folder");
+  const [folder, setFolder] = useState(requestedFolder ?? "all");
+  const artifactsQuery = useArtifacts();
+  const { data: agents } = useAgentList();
+
+  const artifacts = artifactsQuery.data?.artifacts ?? [];
+  const folders = useMemo(() => {
+    const known = new Set<string>();
+    for (const artifact of artifacts) {
+      if (artifact.folder !== "") known.add(artifact.folder);
+    }
+    if (requestedFolder !== null) known.add(requestedFolder);
+    const sorted = [...known].sort();
+    return sorted;
+  }, [artifacts, requestedFolder]);
+
+  const scoped = folder === "all" ? artifacts : artifacts.filter((a) => a.folder === folder);
+  const counts = countArtifactKinds(scoped);
+  const visible = filterArtifacts(scoped, kind, query);
+  const totalBytes = scoped.reduce((sum, artifact) => sum + artifact.size, 0);
+
+  function memberName(artifact: ArtifactMeta): string | null {
+    const agentId = artifact.source?.agentId;
+    if (agentId === undefined) return null;
+    const found = agents?.find((member) => member.id === agentId);
+    if (found === undefined) return agentId;
+    return found.name;
+  }
+
+  function clearFilter(): void {
+    setKind("all");
+    setQuery("");
+  }
+
+  const tabs = TABS.map((key) => {
+    const item = { key, label: t(TAB_LABEL[key]), count: counts[key] };
+    return item;
+  });
 
   return (
     <Page>
       <PageHeader
-        breadcrumb="Work / Artifacts registry"
-        title="Artifacts"
-        pill={
-          artifacts.length > 0 ? (
-            <StatusPill tone="success">{artifacts.length} stored</StatusPill>
-          ) : undefined
-        }
+        kicker={t("Evidence gallery")}
+        title={t("Artifacts")}
+        description={t(
+          "Every result keeps where it came from. From the delivery summary to a fixed revision, “done” becomes something you can look at.",
+        )}
         actions={
-          <Button
-            size="sm"
-            className="bg-(--primary-soft) text-(--on-primary) hover:bg-(--primary)"
-            onClick={() => setUploadOpen(true)}
-          >
-            <Upload className="mr-1 size-3.5" />
-            Upload
+          <Button size="sm" onClick={() => setUpload("open")}>
+            <Upload className="size-3.5" />
+            {t("Upload")}
           </Button>
         }
       />
-      <PageBody size="wide" className="space-y-4">
-        <InfoBanner
-          id="ib:artifacts-help"
-          title="How this page works"
-          body="Artifacts are files agents produce during runs, addressable by artifacts:// URLs. Upload one here or let an agent write it; preview, copy its URL, or delete it from this registry."
-        />
+      <PageBody className="space-y-5">
+        <SubTabs items={tabs} active={kind} onChange={(key) => setKind(asFilter(key))} />
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <KpiTile
-            label={t("Total stored")}
-            value={artifacts.length}
-            icon={FileText}
-            detail="artifacts"
-          />
-          <KpiTile
-            label={t("Storage")}
-            value={fmtSize(totalBytes)}
-            icon={HardDrive}
-            detail={t("across buckets")}
-          />
-          <KpiTile
-            label={t("Buckets")}
-            value={folders.length}
-            icon={FolderOpen}
-            detail={folders.slice(0, 2).join(" · ") || t("root files count as no bucket")}
-          />
-        </div>
-
-        <div className="flex flex-col justify-between gap-2 rounded-lg border border-(--hairline) bg-(--panel) px-4 py-2.5 md:flex-row md:items-center">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <MonoLabel className="mr-1">Bucket:</MonoLabel>
-            {["all", ...folders].map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFolderFilter(f)}
-                className={`rounded px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                  folderFilter === f
-                    ? "bg-(--panel2) font-medium text-(--primary)"
-                    : "bg-(--canvas-soft) text-(--mute) hover:text-(--ink)"
-                }`}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <Note>
+            {t("{count} files · {size} · each file keeps the member and the run that produced it", {
+              count: scoped.length,
+              size: fmtBytes(totalBytes),
+            })}
+          </Note>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {folders.length > 0 && (
+              <Select
+                value={folder}
+                onValueChange={(value) => {
+                  if (typeof value === "string") setFolder(value);
+                }}
               >
-                {f}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as "date" | "size" | "name")}
-              className="rounded border border-(--hairline) bg-(--canvas-soft) px-2 py-1 font-mono text-[11px] text-(--mute)"
-              aria-label={t("Sort artifacts")}
-            >
-              <option value="date">Sort: newest</option>
-              <option value="size">Sort: size</option>
-              <option value="name">Sort: name</option>
-            </select>
-            <div className="flex items-center gap-2 rounded-sm border border-(--hairline) bg-(--canvas-soft) px-2 py-1 md:w-64">
-              <Search className="size-3.5 text-(--faint)" />
-              <input
+                <SelectTrigger className="w-44 font-mono text-[11px]" aria-label={t("Folder")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("All folders")}</SelectItem>
+                  {folders.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <div className="relative sm:w-72">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--faint)" />
+              <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="filter by url…"
-                className="w-full bg-transparent font-mono text-[11px] text-(--ink) placeholder:text-(--faint) focus:outline-none"
-                aria-label={t("Filter artifacts by url")}
+                placeholder={t("Filter by file name or address")}
+                aria-label={t("Filter by file name or address")}
+                className="h-10 pl-9 font-mono text-xs"
               />
+            </div>
+            <div
+              role="group"
+              aria-label={t("Layout")}
+              className="flex gap-[3px] rounded-[7px] border border-(--hairline) p-[3px]"
+            >
+              {(["grid", "list"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={layout === option}
+                  aria-label={option === "grid" ? t("Grid view") : t("List view")}
+                  onClick={() => setLayout(option)}
+                  className={cn(
+                    "flex min-h-7 items-center rounded-[4px] px-2 text-(--faint) transition-colors",
+                    layout === option && "bg-white/[0.043] text-(--ink)",
+                  )}
+                >
+                  {option === "grid" ? (
+                    <LayoutGrid className="size-3.5" />
+                  ) : (
+                    <List className="size-3.5" />
+                  )}
+                </button>
+              ))}
             </div>
           </div>
         </div>
 
-        <div>
-          <MonoLabel className="text-(--faint)">Stored artifacts ({visible.length})</MonoLabel>
-          {loading ? (
-            <div className="mt-3 text-xs text-(--mute)">Loading…</div>
-          ) : artifacts.length === 0 ? (
-            <div className="mt-3 text-xs text-(--mute)">
-              No artifacts yet. Artifacts are produced by workflow runs —{" "}
-              <Link href="/workflows" className="text-(--primary) hover:underline">
-                run a workflow
-              </Link>{" "}
-              to create one.
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="mt-3 text-xs text-(--mute)">{t("No artifacts match the filters.")}</div>
-          ) : (
-            <div className="mt-3 space-y-2">
-              {visible.map((a) => {
-                const segments = a.url.split("/");
-                const filename = segments[segments.length - 1] ?? a.url;
-                const bucket = segments[1] ?? "";
-                const ext = filename.includes(".") ? filename.split(".").pop() : "bin";
-                return (
-                  <div
-                    key={a.url}
-                    className="flex items-center gap-3 rounded-lg border border-(--hairline) bg-(--panel) px-3 py-2.5 transition-colors hover:bg-(--canvas-soft)"
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded bg-(--primary)/10 text-(--primary)">
-                      <FileText className="size-4.5" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-(--ink)">
-                          {filename}
-                        </span>
-                        <span className="shrink-0 rounded bg-(--canvas-soft) px-1.5 py-0.5 font-mono text-[10px] uppercase text-(--primary)">
-                          {ext}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-(--mute)">
-                        <span className="truncate">{a.url}</span>
-                        <span className="shrink-0">· {bucket || "root"}</span>
-                        <span className="shrink-0">· {a.mimeType}</span>
-                        <span className="shrink-0 tabular-nums">· {fmtSize(a.size)}</span>
-                        {a.source?.runId && (
-                          <span className="shrink-0 text-(--accent-violet)">
-                            · run {a.source.runId.slice(0, 8)}
-                          </span>
-                        )}
-                        {a.source?.agentId && (
-                          <span className="shrink-0">· {a.source.agentId}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Button variant="outline" size="sm" onClick={() => openPreview(a.url)}>
-                        Preview
-                      </Button>
-                      <CopyButton text={a.url} label="artifact URL" />
-                      <button
-                        className="rounded p-1.5 text-(--err) transition-colors hover:bg-(--err)/10"
-                        aria-label={`Delete ${a.url}`}
-                        onClick={() => remove(a.url)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        <QueryState
+          query={artifactsQuery}
+          empty={(data) => data.artifacts.length === 0}
+          emptyTitle={t("No artifacts yet")}
+          emptyDescription={t(
+            "Artifacts are the files an agent writes during a run, or the ones you upload here. Opening this page produces none.",
           )}
-          <p className="pt-1 text-right font-mono text-[10px] text-(--faint)">
-            showing {visible.length} of {artifacts.length}
-          </p>
-        </div>
+          emptyIcon={FolderOpen}
+        >
+          {() => (
+            <>
+              {visible.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-(--hairline) px-10 py-[45px] text-center text-xs text-(--mute)">
+                  {t("No file matches this filter.")}
+                  <div className="mt-1">
+                    <Button variant="link" size="sm" onClick={clearFilter}>
+                      {t("Clear filter")}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className={layout === "grid" ? GRID_CLASS : LIST_CLASS}>
+                  {visible.map((artifact) => (
+                    <ArtifactGalleryCard
+                      key={artifact.url}
+                      artifact={artifact}
+                      layout={layout}
+                      memberName={memberName(artifact)}
+                      onOpen={setSelected}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </QueryState>
+
+        <Note>
+          {t(
+            "A card's preview is the file's own content, read when the card comes into view. The product keeps no check or revision for a stored file, so there is nothing to accept here.",
+          )}
+        </Note>
       </PageBody>
 
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">{t("Upload artifact")}</DialogTitle>
-            <DialogDescription className="text-xs">
-              Pick a file and choose a bucket folder. The full URL is shown below.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex flex-col gap-1">
-              <Label className="text-[11px] text-(--mute)">folder</Label>
-              <Input
-                className="h-8"
-                value={folder}
-                onChange={(e) => setFolder(e.target.value)}
-                placeholder="report/2026"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label className="text-[11px] text-(--mute)">file</Label>
-              <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-(--hairline) bg-(--panel) px-3 text-xs text-(--body) hover:bg-(--panel2)">
-                <Upload className="size-3.5" />
-                <span className="truncate">{filename || "Choose a file"}</span>
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => pickFile(e.target.files?.[0])}
-                />
-              </label>
-            </div>
-            {urlPreview && (
-              <div className="text-[10px] text-(--mute)">
-                URL: <span className="font-mono text-(--info)">{urlPreview}</span>
-              </div>
-            )}
-            <Button className="w-full" size="sm" onClick={() => void upload()} disabled={uploading}>
-              {uploading ? "Uploading…" : "Upload"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreview(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="truncate font-mono text-[12px] text-(--info)">
-              {preview?.url}
-            </DialogTitle>
-          </DialogHeader>
-          {preview && (
-            <ArtifactPreview
-              mimeType={preview.mimeType}
-              content={preview.content}
-              encoding={preview.encoding === "base64" ? "base64" : "utf8"}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {confirmDialog}
+      <ArtifactDetailDialog artifact={selected} onClose={() => setSelected(null)} />
+      <UploadDialog state={upload} onDone={() => setUpload("closed")} />
     </Page>
+  );
+}
+
+export default function ArtifactsPage() {
+  // `useSearchParams` needs a Suspense boundary above it or `next build`
+  // refuses to prerender the route (#65: a chat's Artifacts link preselects
+  // the produced-files folder).
+  return (
+    <Suspense fallback={null}>
+      <ArtifactsView />
+    </Suspense>
   );
 }

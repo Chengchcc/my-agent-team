@@ -4,18 +4,21 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
+// Look of the design prototype's `.pill`: a 10px label in a 5px-radius chip; the variant is the
+// state it names (live/done = mint, wait = amber, fail = danger, neutral = muted).
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex w-fit shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-sm border px-2 py-[5px] text-[10px] leading-[1.3] whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
-        secondary: "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
+        default: "border-[rgba(180,241,209,0.09)] bg-[rgba(180,241,209,0.047)] text-(--primary)",
+        secondary: "border-white/[0.035] bg-white/[0.016] text-(--mute)",
         destructive:
-          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
-        outline: "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
-        ghost: "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
-        link: "text-primary underline-offset-4 hover:underline",
+          "border-[rgba(239,164,158,0.106)] bg-[rgba(239,164,158,0.043)] text-(--err) focus-visible:ring-destructive/20",
+        wait: "border-[rgba(237,196,140,0.11)] bg-[rgba(237,196,140,0.047)] text-(--warn)",
+        outline: "border-(--hairline) text-(--ink)",
+        ghost: "text-(--mute) hover:bg-white/[0.047] hover:text-(--ink)",
+        link: "text-(--primary) underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {

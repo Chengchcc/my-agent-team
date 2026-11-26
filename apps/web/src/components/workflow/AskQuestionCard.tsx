@@ -6,6 +6,7 @@ import { MessageCircle, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MonoLabel, StatusPill } from "@/components/patterns";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 type Items = React.ComponentProps<typeof Questionnaire.Root>["items"];
 
@@ -50,7 +51,7 @@ export function AskQuestionCard({
   // Drafts are saved beside the ledger, never in it: what you typed is not a
   // fact until you submit it.
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!draftId) return;
     let alive = true;
@@ -75,8 +76,8 @@ export function AskQuestionCard({
   const saveDraft = useCallback(
     (next: Record<string, string>) => {
       if (!draftId) return;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(() => {
         void api
           .saveAskDraft({
             runId: draftId.runId,
@@ -99,7 +100,9 @@ export function AskQuestionCard({
     [saveDraft],
   );
   const hasChat = input.questions.some((q) => q.allowChat);
-  const heading = title ?? input.questions[0]?.header ?? "A few questions";
+  const [firstQuestion] = input.questions;
+  const header = title ?? firstQuestion?.header;
+  const heading = header ?? t("A few questions");
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -140,11 +143,13 @@ export function AskQuestionCard({
             className="flex items-center gap-1.5 rounded-sm border border-(--hairline) px-2 py-0.5 font-mono text-[10px] text-(--mute) transition-colors hover:border-(--accent-violet) hover:text-(--accent-violet)"
           >
             <MessageCircle className="size-3" />
-            Chat about this
+            {t("Chat about this")}
           </button>
         ) : (
           <StatusPill tone="waiting">
-            {input.questions.length} question{input.questions.length > 1 ? "s" : ""}
+            {input.questions.length > 1
+              ? t("{count} questions", { count: input.questions.length })
+              : t("{count} question", { count: input.questions.length })}
           </StatusPill>
         )}
       </div>
@@ -219,7 +224,7 @@ export function AskQuestionCard({
                         <span className="size-2 rounded-full bg-(--primary) opacity-0 transition-opacity peer-checked:opacity-100" />
                       </span>
                       <Questionnaire.ChoiceLabel className="text-sm text-(--mute)">
-                        Other
+                        {t("Other")}
                       </Questionnaire.ChoiceLabel>
                     </Questionnaire.Choice>
                   )}
@@ -228,7 +233,7 @@ export function AskQuestionCard({
                   <input
                     name={`${q.id}__other`}
                     className="mt-1 h-8 w-full rounded-md border border-(--hairline) bg-(--canvas-soft) px-3 text-sm text-(--ink) placeholder:text-(--faint)"
-                    placeholder="Type your own…"
+                    placeholder={t("Type your own…")}
                     type="text"
                     {...(draftId
                       ? {
@@ -247,16 +252,16 @@ export function AskQuestionCard({
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-(--hairline) pt-3">
           <Questionnaire.Previous className="rounded-sm border border-(--hairline) px-3 py-1.5 font-mono text-[10px] uppercase tracking-kicker text-(--mute) transition-colors hover:border-(--faint) hover:text-(--ink)">
-            Previous
+            {t("Previous")}
           </Questionnaire.Previous>
           <Questionnaire.Skip className="rounded-sm border border-(--hairline) px-3 py-1.5 font-mono text-[10px] uppercase tracking-kicker text-(--mute) transition-colors hover:border-(--faint) hover:text-(--ink)">
-            Skip
+            {t("Skip")}
           </Questionnaire.Skip>
           <Questionnaire.Next className="rounded-sm border border-(--hairline) px-3 py-1.5 font-mono text-[10px] uppercase tracking-kicker text-(--mute) transition-colors hover:border-(--faint) hover:text-(--ink)">
-            Next
+            {t("Next")}
           </Questionnaire.Next>
           <Questionnaire.Submit className="rounded-sm bg-(--primary-soft) px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-kicker text-(--on-primary) transition-colors hover:bg-(--primary)">
-            Submit
+            {t("Submit")}
           </Questionnaire.Submit>
         </div>
       </Questionnaire.Root>

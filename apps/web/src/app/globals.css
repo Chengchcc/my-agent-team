@@ -1,11 +1,15 @@
 @import "tailwindcss";
 
-/* ── VoltAgent Terminal-Native Dark ── */
-/* Single dark-canvas surface + electric-green accent. Hairline borders, no shadows. */
+/* ── oh-my-agent — charcoal ground, mint accent ── */
+/* Palette and tokens follow the design prototype. Hairline borders, no shadows. */
 
 @theme inline {
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-display:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   --font-serif: Charter, Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
@@ -30,7 +34,7 @@
   --color-accent: var(--primary-soft);
   --color-accent-foreground: var(--canvas);
 
-  --color-destructive: #f87171;
+  --color-destructive: var(--err);
   --color-destructive-foreground: var(--ink);
 
   --color-foreground-strong: var(--ink-strong);
@@ -53,11 +57,11 @@
   --tracking-kicker: var(--tracking-kicker);
   --text-h1: 1.625rem;
   --text-h1--line-height: 2rem;
-  --radius-sm: 4px;
-  --radius-md: 6px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
   --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-2xl: 8px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
 
   --animate-fade-in: fade-in 0.6s ease-out both;
   --animate-slide-up: slide-up 0.5s ease-out both;
@@ -65,22 +69,25 @@
   --animate-block-in: block-in 220ms ease-out-expo both;
 }
 
-/* ── Raw color tokens (Obsidian Control Matrix DESIGN.md authority) ── */
+/* ── Raw color tokens ── */
+/* The oh-my-agent palette, taken from the design prototype: a neutral charcoal ground, one
+ *  accent (mint) and two secondary accents (violet, amber). Lines are translucent white. The
+ *  legacy aliases keep the names the existing components consume. */
 :root {
   /* ── Design tokens (named-only, no bare hex/px) ── */
-  --canvas: #0f131c; /* surface — obsidian ground */
-  --panel: #181c24; /* surface-container-low — cards/sidebar */
-  --panel2: #262a33; /* surface-container-high — hover/active */
-  --ink: #e4e9f4; /* on-surface, lifted for >=15:1 contrast gate */
-  --mute: #bcc9cd; /* on-surface-variant */
-  --faint: #869397; /* outline */
-  --hairline: #3d494c; /* outline-variant */
-  --ok: #4edea3; /* tertiary — emerald */
-  --warn: #f59e0b; /* amber (prose spec; frontmatter has no amber) */
-  --err: #ffb4ab; /* error */
-  --info: #60a5fa; /* blue (screen-level spec) */
+  --canvas: #101214; /* ground */
+  --panel: #181b1e; /* cards, sidebar */
+  --panel2: #202428; /* raised — hover/active */
+  --ink: #eff1ee; /* on-surface (≈16:1 on the ground) */
+  --mute: #a1a7a9; /* on-surface-variant */
+  --faint: #727b7e; /* outline, least text */
+  --hairline: #ffffff18; /* hairline */
+  --ok: #b4f1d1; /* mint */
+  --warn: #edc48c; /* amber */
+  --err: #efa49e; /* danger */
+  --info: #b8a5ed; /* violet */
   --text-cap: 0.6875rem; /* 11px */
-  --tracking-kicker: 0.08em; /* label-caps tracking */
+  --tracking-kicker: 0.18em; /* label-caps tracking, as the prototype sets it */
   --text-body: 0.8125rem; /* 13px */
   --text-emph: 0.9375rem; /* 15px */
   --text-h2: 1.25rem; /* 20px */
@@ -89,28 +96,28 @@
   --radius-btn: 6px;
 
   /* legacy aliases: the existing components consume these names */
-  --canvas-soft: #1c2028; /* surface-container — popover/muted */
-  --primary: #4cd7f6; /* electric cyan */
-  --primary-soft: #06b6d4; /* primary-container — accent fills */
-  --primary-deep: #00687a; /* inverse-primary */
-  --on-primary: #003640;
-  --ink-strong: #f8fafc;
-  --body: #bcc9cd;
-  --hairline-soft: #869397;
-  --canvas-text-soft: #e4e9f4;
+  --canvas-soft: #181b1e; /* popover/muted */
+  --primary: #b4f1d1; /* mint — the accent */
+  --primary-soft: #203b30; /* mint-dark — accent fills only, never text */
+  --primary-deep: #8ce4cc; /* links: a dimmer mint that still reads on the ground */
+  --on-primary: #101214;
+  --ink-strong: #f7f9f6;
+  --body: #c9cfcc;
+  --hairline-soft: #ffffff24;
+  --canvas-text-soft: #eff1ee;
 
-  /* secondary/tertiary accents (new language roles) */
-  --accent-violet: #d0bcff;
-  --accent-violet-soft: #571bc1; /* secondary-container */
-  --on-accent-violet: #3c0091;
-  --ok-soft: #1bbd85; /* tertiary-container */
+  /* secondary accents (new language roles) */
+  --accent-violet: #b8a5ed;
+  --accent-violet-soft: #2b2340; /* secondary-container */
+  --on-accent-violet: #17131f;
+  --ok-soft: #203b30; /* tertiary-container */
 
-  /* shadcn Chart colors — obsidian telemetry series */
-  --chart-1: #4cd7f6; /* cyan */
-  --chart-2: #a78bfa; /* violet */
-  --chart-3: #4edea3; /* emerald */
-  --chart-4: #fb923c; /* orange */
-  --chart-5: #f87171; /* red */
+  /* shadcn Chart colors — mint, violet, amber and danger from the same palette */
+  --chart-1: #b4f1d1; /* mint */
+  --chart-2: #b8a5ed; /* violet */
+  --chart-3: #8ce4cc; /* dim mint */
+  --chart-4: #edc48c; /* amber */
+  --chart-5: #efa49e; /* danger */
 }
 
 /* ── Base layer ── */
@@ -121,9 +128,10 @@
 
   body {
     background-color: var(--canvas);
-    background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-    background-size: 24px 24px;
     color: var(--ink);
+    /* The prototype's ground: flat, 14px/1.6. No texture behind the panels. */
+    font-size: 14px;
+    line-height: 1.6;
     font-feature-settings:
       "kern" 1,
       "liga" 1;

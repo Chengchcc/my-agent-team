@@ -1,21 +1,23 @@
-import { parseEnv } from "@chengchenccc/config";
-import type { WorkflowDefinition } from "@chengchenccc/workflow";
-import { AgenticWorkflowEditor } from "@/components/workflow/AgenticWorkflowEditor";
-import { createServerClient, unwrap } from "@/lib/client";
+import { WorkflowDetail } from "../_components/workflow-detail";
 
 export const dynamic = "force-dynamic";
 
+/** `/workflows/<id>` is the saved overview. With `edit=1` the editor opens on it. A `tab` value
+ *  names the overview's tab. */
 export default async function AgenticWorkflowDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workflowId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { workflowId } = await params;
-  const env = parseEnv(process.env);
-  const client = createServerClient(env.BACKEND_URL, env.BACKEND_AUTH_TOKEN);
-  const row = await unwrap(client.api["workflow-definitions"]({ workflowId }).get()).catch(
-    () => null,
+  const query = await searchParams;
+  return (
+    <WorkflowDetail
+      workflowId={workflowId}
+      edit={query.edit === "1"}
+      tab={typeof query.tab === "string" ? query.tab : undefined}
+    />
   );
-  const definition = (row as { definition?: WorkflowDefinition } | null)?.definition ?? null;
-  return <AgenticWorkflowEditor workflowId={workflowId} initial={definition} />;
 }

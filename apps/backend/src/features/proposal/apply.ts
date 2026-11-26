@@ -21,6 +21,10 @@ export interface ApplyDeps {
     defaultBranch?: string;
     attachTo: readonly string[];
   }) => Promise<string>;
+  /** Change the metadata of a registered project. Throws on validation, or when it is gone. */
+  updateProject?: (projectId: string, patch: ProjectPatch) => Promise<void>;
+  /** The definition a workflow id holds now, or null when it has none. */
+  readWorkflowDefinition?: (workflowId: string) => Promise<unknown>;
 }
 
 export class ProposalNotApplicable extends Error {}
@@ -91,10 +95,91 @@ export async function applyProposal(input: {
     });
     return;
   }
-  // workflow_definition: applying it means rewriting a graph the human should
-  // see as a draft first. Until that path exists in the deployment, the honest
-  // answer is "not adoptable here" — not a green checkmark.
-  throw new ProposalNotApplicable(
-    `${input.kind} cannot be adopted here; open its own page and save it there`,
-  );
+  if (input.kind === "project_update") {
+    if (!input.deps.updateProject) {
+      throw new ProposalNotApplicable("project changes cannot be applied here");
+    }
+    await input.deps.updateProject(input.targetId, projectPatchFrom(payload));
+    return;
+  }
+  // workflow_definition: a graph is written by the workflow editor's own save, through the
+  // route that validates it — never rewritten behind this one. "Adopted" is then a statement
+  // about what is saved, and it holds only when the saved definition IS the proposal. A graph
+  // the person changed before saving is not this proposal; its row is discarded, not adopted.
+  if (!input.deps.readWorkflowDefinition) {
+    throw new ProposalNotApplicable("workflow changes cannot be recorded here");
+  }
+  const saved = await input.deps.readWorkflowDefinition(input.targetId);
+  if (saved === null || !sameJson(saved, payload)) {
+    throw new ProposalNotApplicable(
+      "the saved definition is not this proposal; save it in the workflow editor first, or discard the proposal",
+    );
+  }
+}
+
+/** Whether two JSON values are the same document, whatever the key order. */
+export function sameJson(a: unknown, b: unknown): boolean {
+  return stableJson(a) === stableJson(b);
+}
+
+function stableJson(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([x], [y]) =>
+      x < y ? -1 : x > y ? 1 : 0,
+    );
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** The metadata a project proposal can change. */
+export interface ProjectPatch {
+  name?: string;
+  repoUrl?: string | null;
+  defaultBranch?: string | null;
+}
+
+/** The changes a `project_update` payload names. A field it does not name is left alone; an
+ *  empty repository or branch means "clear it". */
+export function projectPatchFrom(payload: Record<string, unknown>): ProjectPatch {
+  const patch: ProjectPatch = {};
+  if (typeof payload.name === "string") patch.name = payload.name;
+  if (typeof payload.repoUrl === "string") {
+    patch.repoUrl = payload.repoUrl === "" ? null : payload.repoUrl;
+  }
+  if (typeof payload.defaultBranch === "string") {
+    patch.defaultBranch = payload.defaultBranch === "" ? null : payload.defaultBranch;
+  }
+  return patch;
+}
+
+const PROJECT_STRING_FIELDS = ["name", "repoUrl", "defaultBranch"] as const;
+
+/** What an adoption applies: the stored payload, or — for a project — the values the human
+ *  reviewed in a form before saving. Only the fields the kind can carry come from the override,
+ *  and never the target. */
+export function reviewedPayload(kind: ProposalKind, stored: unknown, override: unknown): unknown {
+  const isProject = kind === "project_creation" || kind === "project_update";
+  if (override === undefined || !isProject) return stored;
+  const base = objectOf(stored);
+  const extra = objectOf(override);
+  const out: Record<string, unknown> = { ...base };
+  for (const key of PROJECT_STRING_FIELDS) {
+    if (typeof extra[key] === "string") out[key] = extra[key];
+  }
+  if (Array.isArray(extra.attachTo)) out.attachTo = stringsOf(extra.attachTo);
+  return out;
+}
+
+function objectOf(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return {};
+  return value as Record<string, unknown>;
+}
+
+function stringsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item !== "");
 }

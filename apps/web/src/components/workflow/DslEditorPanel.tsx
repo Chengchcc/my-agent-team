@@ -1,89 +1,97 @@
 "use client";
 
 import { parseWorkflow, type WorkflowDefinition } from "@chengchenccc/workflow";
-import "@/lib/monaco-loader";
 import Editor from "@monaco-editor/react";
-
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { t } from "@/lib/i18n";
+import "@/lib/monaco-loader";
+
+/** Whether the text differs from what the canvas holds. */
+type Pending = "clean" | "edited";
 
 export function DslEditorPanel({
-  workflowId,
   definition,
   onChange,
+  onPendingChange,
 }: {
-  workflowId: string;
-  definition: unknown;
-  onChange: (def: WorkflowDefinition) => void;
+  /** The definition the canvas holds. The text follows it while it has no edit of its own. */
+  definition: WorkflowDefinition;
+  /** Puts the edited definition on the canvas, as an unsaved change. */
+  onChange: (next: WorkflowDefinition) => void;
+  /** The text started or stopped differing from the canvas. A differing text is not what Save
+   *  would write, so the editor keeps Save closed until it is applied. */
+  onPendingChange?: (pending: boolean) => void;
 }) {
-  const [text, setText] = useState<string>(definition ? JSON.stringify(definition, null, 2) : "");
-  const [dirty, setDirty] = useState(false);
+  const serialized = JSON.stringify(definition, null, 2);
+  const [text, setText] = useState(serialized);
+  const [pending, setPending] = useState<Pending>("clean");
   const [message, setMessage] = useState<string | null>(null);
-  // Sync the editor text when the shared definition changes and the local
-  // editor is not dirty (canvas/inspector edits must not be silently rolled
-  // back by a stale text snapshot on Save).
-  const serialized = definition ? JSON.stringify(definition, null, 2) : "";
-  if (!dirty && text !== serialized) setText(serialized);
-
-  function parse(): WorkflowDefinition | null {
-    try {
-      const parsed = JSON.parse(text);
-      const validated = parseWorkflow(parsed);
-      return validated;
-    } catch (err) {
-      setMessage(`Invalid DSL: ${(err as Error).message}`);
-      return null;
-    }
+  // The text follows the canvas while it has no edit of its own, so an edit made on the canvas is
+  // not rolled back by a stale text.
+  if (pending === "clean" && text !== serialized) {
+    setText(serialized);
   }
 
-  function apply() {
-    const parsed = parse();
-    if (parsed) setDirty(false);
-    if (parsed) {
-      onChange(parsed);
-      setMessage("Applied to canvas.");
-    }
+  function markPending(state: Pending): void {
+    setPending(state);
+    onPendingChange?.(state === "edited");
   }
 
-  async function save() {
-    const parsed = parse();
-    if (!parsed) return;
+  function edit(next: string): void {
+    setText(next);
+    const state: Pending = next === serialized ? "clean" : "edited";
+    markPending(state);
+  }
+
+  /** Parses the text and puts it on the canvas. Writes nothing: Save, in the toolbar, is the only
+   *  thing that reaches the server. */
+  function apply(): void {
     try {
-      await api.saveWorkflowDefinition(workflowId, parsed as unknown as Record<string, unknown>);
+      const parsed = parseWorkflow(JSON.parse(text));
       onChange(parsed);
-      setMessage("Saved.");
+      markPending("clean");
+      setMessage(t("Applied to the canvas. Save writes it."));
     } catch (err) {
-      setMessage(`Save failed: ${(err as Error).message}`);
+      const reason = err instanceof Error ? err.message : String(err);
+      setMessage(`${t("Invalid DSL")}: ${reason}`);
     }
   }
 
   return (
-    <div className="flex h-full flex-col p-4">
-      <div className="mb-2 text-sm font-semibold">Workflow DSL</div>
-      <Editor
-        height="60vh"
-        loading={
-          <div className="flex h-60 items-center justify-center text-xs text-(--mute)">
-            Loading editor…
-          </div>
-        }
-        defaultLanguage="json"
-        value={text}
-        onChange={(v) => {
-          setText(v ?? "");
-          setDirty((v ?? "") !== serialized);
-        }}
-        options={{ minimap: { enabled: false }, fontSize: 12 }}
-      />
-      <div className="mt-2 flex gap-2">
-        <button className="rounded bg-slate-800 px-3 py-1 text-white" onClick={apply}>
-          Apply
-        </button>
-        <button className="rounded border px-3 py-1" onClick={save}>
-          Save
-        </button>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-(--hairline) px-4 py-2.5">
+        <p className="text-sm font-[550] text-(--ink-strong)">{t("Workflow DSL")}</p>
+        <p className="text-[10px] text-(--faint)">
+          {t(
+            "Apply puts the text on the canvas as an unsaved change. Save, in the toolbar, is what writes it.",
+          )}
+        </p>
       </div>
-      {message && <div className="mt-2 text-xs text-muted-foreground">{message}</div>}
+      <div className="flex min-h-0 flex-1 flex-col p-2">
+        <Editor
+          height="100%"
+          loading={
+            <div className="flex h-60 items-center justify-center text-xs text-(--mute)">
+              {t("Loading editor…")}
+            </div>
+          }
+          defaultLanguage="json"
+          value={text}
+          onChange={(next) => edit(next ?? "")}
+          options={{ minimap: { enabled: false }, fontSize: 12 }}
+        />
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-(--hairline) px-4 py-2">
+        <Button size="sm" variant="outline" disabled={pending === "clean"} onClick={apply}>
+          {t("Apply to canvas")}
+        </Button>
+        {message && (
+          <span role="status" className="min-w-0 wrap-break-word text-xs text-(--mute)">
+            {message}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

@@ -16,7 +16,9 @@ import {
   Package,
   PlugIcon,
   PlusIcon,
+  RadioIcon,
   RefreshCwIcon,
+  ScaleIcon,
   SettingsIcon,
   TerminalIcon,
   Trash2Icon,
@@ -201,15 +203,23 @@ function NavContent() {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname.startsWith("/coding")}
-                tooltip={t("Coding")}
+                isActive={pathname.startsWith("/chat")}
+                tooltip={t("Work sessions")}
                 onClick={() => {
                   closeMobile();
-                  router.push("/coding");
+                  router.push("/chat");
                 }}
               >
-                <TerminalIcon />
-                <span className="truncate">{t("Coding")}</span>
+                <MessageSquareIcon />
+                <span className="truncate">{t("Work sessions")}</span>
+                {roots.length > 0 && (
+                  <span
+                    data-testid="work-sessions-count"
+                    className="ml-auto rounded-[4px] bg-white/2 px-1.5 font-mono text-[10px] text-(--faint)"
+                  >
+                    {roots.length}
+                  </span>
+                )}
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -239,7 +249,7 @@ function NavContent() {
                 {(waitingGates ?? 0) > 0 && (
                   <span
                     data-testid="waiting-gates-badge"
-                    className="ml-auto flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[9px] font-semibold text-black"
+                    className="ml-auto flex size-4 shrink-0 items-center justify-center rounded-full bg-(--warn) text-[9px] font-semibold text-(--canvas)"
                     title={`${waitingGates ?? 0} workflow${(waitingGates ?? 0) > 1 ? "s" : ""} waiting for your decision`}
                   >
                     {waitingGates ?? 0}
@@ -260,14 +270,26 @@ function NavContent() {
                 <span className="truncate">{t("Artifacts")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/coding")}
+                tooltip={t("Coding")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/coding");
+                }}
+              >
+                <TerminalIcon />
+                <span className="truncate">{t("Coding")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
-
       {/* Chat */}
       <SidebarGroup>
         <SidebarGroupLabel>
-          {t("Chat")}
+          {t("Recent conversations")}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -277,7 +299,7 @@ function NavContent() {
               setNewOpen(true);
             }}
             className="ml-auto text-primary hover:text-primary/80"
-            aria-label="New conversation"
+            aria-label={t("New conversation")}
           >
             <PlusIcon />
           </Button>
@@ -430,9 +452,9 @@ function NavContent() {
         </SidebarGroupContent>
       </SidebarGroup>
 
-      {/* Team */}
+      {/* Team & Projects */}
       <SidebarGroup>
-        <SidebarGroupLabel>{t("Team")}</SidebarGroupLabel>
+        <SidebarGroupLabel>{t("Team & Projects")}</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -442,19 +464,51 @@ function NavContent() {
                   (pathname.startsWith("/team/") &&
                     !["skills", "mcp", "projects"].some((r) => pathname.startsWith(`/team/${r}`)))
                 }
-                tooltip={t("Agents")}
+                tooltip={t("Members")}
                 onClick={() => {
                   closeMobile();
                   router.push("/team");
                 }}
               >
                 <BotIcon />
-                <span className="truncate">{t("Agents")}</span>
+                <span className="truncate">{t("Members")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <div className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-(--mute)">
-              {t("Capabilities")}
-            </div>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/team/projects")}
+                tooltip={t("Projects")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/team/projects");
+                }}
+              >
+                <FolderKanbanIcon />
+                <span className="truncate">{t("Projects")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      {/* Capabilities */}
+      <SidebarGroup>
+        <SidebarGroupLabel>{t("Capabilities")}</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/wiki")}
+                tooltip={t("Wiki")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/wiki");
+                }}
+              >
+                <BookOpenIcon />
+                <span className="truncate">{t("Wiki")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={pathname.startsWith("/team/skills")}
@@ -481,32 +535,6 @@ function NavContent() {
                 <span className="truncate">{t("MCP")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/wiki")}
-                tooltip={t("Wiki")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/wiki");
-                }}
-              >
-                <BookOpenIcon />
-                <span className="truncate">{t("Wiki")}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname.startsWith("/team/projects")}
-                tooltip={t("Projects")}
-                onClick={() => {
-                  closeMobile();
-                  router.push("/team/projects");
-                }}
-              >
-                <FolderKanbanIcon />
-                <span className="truncate">{t("Projects")}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
@@ -520,16 +548,30 @@ function NavContent() {
               <SidebarMenuButton
                 isActive={
                   pathname === "/system" ||
-                  (pathname.startsWith("/system") && !pathname.startsWith("/system/settings"))
+                  (pathname.startsWith("/system") &&
+                    !["settings", "authority"].some((r) => pathname.startsWith(`/system/${r}`)))
                 }
-                tooltip={t("System")}
+                tooltip={t("Observability")}
                 onClick={() => {
                   closeMobile();
                   router.push("/system");
                 }}
               >
                 <ActivityIcon />
-                <span className="truncate">{t("System")}</span>
+                <span className="truncate">{t("Observability")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/system/authority")}
+                tooltip={t("Authority")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/system/authority");
+                }}
+              >
+                <ScaleIcon />
+                <span className="truncate">{t("Authority")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -543,6 +585,19 @@ function NavContent() {
               >
                 <SettingsIcon />
                 <span className="truncate">{t("Settings")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname.startsWith("/channels")}
+                tooltip={t("Channels")}
+                onClick={() => {
+                  closeMobile();
+                  router.push("/channels");
+                }}
+              >
+                <RadioIcon />
+                <span className="truncate">{t("Channels")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -692,7 +747,7 @@ export function NavRail() {
       <SidebarHeader>
         <div className="flex items-center justify-between gap-2 px-2 py-1">
           <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            Agent OS
+            oh-my-agent
           </span>
           <SidebarTrigger className="hidden md:flex" />
         </div>

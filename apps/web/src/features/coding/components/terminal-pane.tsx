@@ -10,6 +10,34 @@ import { Button } from "@/components/ui/button";
 import { api, type CodingTerminalRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
+type PaneConnection = "connecting" | "live" | "dropped";
+
+/** The pane's status word and colour: the oma state while it is an oma pane, then whether its
+ *  process is alive, then the socket. Presentation only; it reads what the registry reports. */
+function paneStatus(
+  terminal: { agentState?: string; exitCode: number | null },
+  exited: boolean,
+  conn: PaneConnection,
+): { cls: string; text: string } {
+  const state = terminal.agentState;
+  if (typeof state === "string" && state !== "") {
+    if (state === "working") {
+      return { cls: "animate-pulse text-(--primary)", text: `oma ${t(state)}` };
+    }
+    if (state === "idle") return { cls: "text-(--primary-deep)", text: `oma ${t(state)}` };
+    return { cls: "text-(--warn)", text: `oma ${t(state)}` };
+  }
+  if (exited) {
+    return {
+      cls: "text-(--mute)",
+      text: t("process exited ({code})", { code: terminal.exitCode ?? 0 }),
+    };
+  }
+  if (conn === "live") return { cls: "text-(--primary)", text: t("live") };
+  const waiting = conn === "connecting" ? t("connecting…") : t("reconnecting…");
+  return { cls: "text-(--warn)", text: waiting };
+}
+
 /** One PTY pane: xterm.js ↔ one-time-ticket WebSocket ↔ backend registry.
  *  Closing this component (or the tab, or the browser) is a DETACH — the
  *  process keeps running in the backend and the buffer replays on return.
@@ -26,9 +54,10 @@ export function TerminalPane({
   const [exitedCode, setExitedCode] = useState<number | null>(
     terminal.status === "exited" ? terminal.exitCode : null,
   );
-  const [closing, setClosing] = useState(false);
+  const [closing, setClosing] = useState<"idle" | "closing">("idle");
 
   const exited = exitedCode !== null;
+  const status = paneStatus(terminal, exited, conn);
 
   useEffect(() => {
     const el = holder.current;
@@ -129,45 +158,21 @@ export function TerminalPane({
   }, [terminal.terminalId]);
 
   async function close() {
-    setClosing(true);
+    setClosing("closing");
     try {
       onClosed(terminal.terminalId);
     } finally {
-      setClosing(false);
+      setClosing("idle");
     }
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#0d1117]">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-xs text-zinc-400">
-        <span className="font-mono">
+      <div className="flex items-center gap-2 border-b border-(--hairline) px-3 py-1.5 text-xs text-(--mute)">
+        <span className="font-mono text-(--body)">
           {terminal.title} · {terminal.cwd.split("/").pop()}
         </span>
-        <span
-          className={
-            terminal.agentState === "blocked"
-              ? "text-amber-500"
-              : terminal.agentState === "working"
-                ? "animate-pulse text-emerald-500"
-                : terminal.agentState === "idle"
-                  ? "text-emerald-700"
-                  : exited
-                    ? "text-zinc-500"
-                    : conn === "live"
-                      ? "text-emerald-500"
-                      : "text-amber-500"
-          }
-        >
-          {terminal.agentState
-            ? `oma ${terminal.agentState}`
-            : exited
-              ? `process exited (${terminal.exitCode ?? 0})`
-              : conn === "live"
-                ? "live"
-                : conn === "connecting"
-                  ? "connecting…"
-                  : "reconnecting…"}
-        </span>
+        <span className={status.cls}>{status.text}</span>
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
@@ -204,8 +209,8 @@ export function TerminalPane({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs text-red-400 hover:text-red-300"
-            disabled={closing}
+            className="h-7 px-2 text-xs text-(--err) hover:text-(--err)/80"
+            disabled={closing === "closing"}
             title={t("Close terminal (kills the process)")}
             onClick={() => void close()}
           >

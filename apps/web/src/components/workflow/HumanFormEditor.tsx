@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { t } from "@/lib/i18n";
 
 type Field = {
   type?: "string" | "textarea" | "number" | "enum" | "boolean";
@@ -54,9 +55,9 @@ export function HumanFormEditor({
 
   return (
     <div className="space-y-2">
-      <Label className="text-xs text-(--mute)">Form fields</Label>
+      <Label className="text-xs text-(--mute)">{t("Form fields")}</Label>
       {fields.length === 0 && (
-        <p className="text-xs text-(--faint)">No fields (question text only)</p>
+        <p className="text-xs text-(--faint)">{t("No fields (question text only)")}</p>
       )}
       {fields.map(([key, f]) => (
         <div key={key} className="space-y-1 rounded-md border border-(--hairline) p-2">
@@ -64,12 +65,14 @@ export function HumanFormEditor({
             <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-(--info)">
               {key}
             </span>
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
+              className="shrink-0 text-(--err) hover:text-(--err)"
               onClick={() => removeField(key)}
-              className="shrink-0 text-[10px] text-(--err) hover:underline"
             >
-              Delete
-            </button>
+              {t("Delete")}
+            </Button>
           </div>
           <Select
             value={f.type ?? "string"}
@@ -87,14 +90,14 @@ export function HumanFormEditor({
           </Select>
           <Input
             className="h-7 border-(--hairline) bg-(--canvas) text-xs"
-            placeholder="Display label"
+            placeholder={t("Display label")}
             value={f.label ?? ""}
             onChange={(e) => setField(key, { label: e.target.value })}
           />
           {f.type === "enum" && (
             <Input
               className="h-7 border-(--hairline) bg-(--canvas) text-xs"
-              placeholder="Options, comma-separated: a,b,c"
+              placeholder={t("Options, comma-separated: a,b,c")}
               value={(f.options ?? []).join(",")}
               onChange={(e) =>
                 setField(key, {
@@ -111,7 +114,7 @@ export function HumanFormEditor({
       <div className="flex gap-1">
         <Input
           className="h-8 flex-1 border-(--hairline) bg-(--canvas) text-xs"
-          placeholder="New field name"
+          placeholder={t("New field name")}
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           onKeyDown={(e) => {

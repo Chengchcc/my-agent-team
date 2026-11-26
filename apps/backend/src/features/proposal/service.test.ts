@@ -22,11 +22,12 @@ function memoryPort(): ProposalPort & { rows: ProposalRow[] } {
           .find((r) => r.kind === kind && r.targetId === targetId && r.status === "pending") ?? null
       );
     },
-    resolve(id, status, resolvedAt) {
+    resolve(id, status, resolvedAt, payload) {
       const row = rows.find((r) => r.id === id && r.status === "pending");
       if (!row) return false;
       row.status = status;
       row.resolvedAt = resolvedAt;
+      if (payload !== undefined) row.payload = payload;
       return true;
     },
   };
@@ -61,6 +62,14 @@ describe("proposals", () => {
     expect(service.pending("agent_config", "agent-1")).toBeNull();
     // A second click — or a second page — is not a second decision.
     expect(service.resolve(made.id, "discarded")).toBe(false);
+  });
+
+  test("the values an adoption applied replace what the tool sent", () => {
+    const port = memoryPort();
+    const service = serviceOf(port);
+    const made = service.propose("project_update", "p1", { name: "tool" });
+    expect(service.resolve(made.id, "adopted", { name: "human" })).toBe(true);
+    expect(port.rows[0]?.payload).toBe(JSON.stringify({ name: "human" }));
   });
 
   test("a row whose kind nobody recognises is dropped, not guessed at", () => {
