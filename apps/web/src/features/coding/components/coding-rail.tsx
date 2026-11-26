@@ -232,6 +232,7 @@ function ProjectWorktreeRows({
 
   const attached = new Set(worktrees.map((wt) => wt.agentId));
   const attachable = agents.filter((a) => a.enabled !== false && !attached.has(a.id));
+  const agentNameById = new Map(agents.map((a) => [a.id, a.name] as const));
 
   return (
     <div>
@@ -244,11 +245,13 @@ function ProjectWorktreeRows({
       {worktrees.map((wt) => {
         const dot = dotFor(terminals, project.projectId, wt.agentId);
         const active = selected?.projectId === project.projectId && selected.agentId === wt.agentId;
+        const memberName = agentNameById.get(wt.agentId) ?? wt.agentId;
         return (
           <Button
             key={wt.agentId}
             variant="ghost"
             onClick={() => open(wt.agentId)}
+            title={`${memberName} (${wt.agentId})`}
             className={`h-auto w-full justify-start gap-2 rounded-md px-3 py-1.5 text-left text-xs font-normal hover:bg-(--panel2) ${
               active ? "bg-(--panel2)" : ""
             }`}
@@ -257,7 +260,7 @@ function ProjectWorktreeRows({
               {dot.mark}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-(--ink)">{wt.agentId}</span>
+              <span className="block truncate text-(--ink)">{memberName}</span>
               <span className="block truncate text-[10px] text-(--mute)">
                 {project.name} · {wt.worktreeReady ? wt.branch : t("not ready")}
                 {wt.ahead > 0 ? ` ↑${wt.ahead}` : ""}
@@ -269,16 +272,18 @@ function ProjectWorktreeRows({
       {/* Task worktrees (the task axis): slug-scoped checkouts beside the
           agent's main worktree. */}
       {taskWorktrees.map((tw) => {
+        const memberName = agentNameById.get(tw.agentId) ?? tw.agentId;
         return (
           <div key={`${tw.agentId}:${tw.slug}`} className="group flex items-center">
             <Button
               variant="ghost"
               onClick={() => open(tw.agentId, tw.path, tw.slug)}
+              title={`${tw.slug} · ${memberName} (${tw.agentId})`}
               className="h-auto min-w-0 flex-1 justify-start gap-2 rounded-md py-1 pr-1 pl-6 text-left text-[11px] font-normal hover:bg-(--panel2)"
             >
               <span className="text-(--faint)">↳</span>
               <span className="min-w-0 flex-1 truncate text-(--ink)">{tw.slug}</span>
-              <span className="truncate text-[10px] text-(--mute)">{tw.agentId}</span>
+              <span className="truncate text-[10px] text-(--mute)">{memberName}</span>
             </Button>
             <Tooltip>
               <TooltipTrigger

@@ -2,6 +2,7 @@
 
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Bot, Code2, Flag, type LucideIcon, Play, UserRound } from "lucide-react";
+import { useAgentList } from "@/features/agents/hooks";
 import { t as translate } from "@/lib/i18n";
 
 const typeIcon: Record<string, LucideIcon> = {
@@ -40,14 +41,33 @@ const STATUS_STYLE: Record<string, { className: string; label: string }> = {
 /** Blueprint node card (Obsidian Live DAG anatomy): numbered title row with a
  *  high-contrast status pill, icon + label + subtitle, and a footer meta row. */
 export function WorkflowNodeCard({ data, selected }: NodeProps) {
+  const { data: agents } = useAgentList();
   const t = (data as { type?: string }).type ?? "script";
   const status = (data as { status?: string }).status as string | undefined;
   const summaryProp = (data as { summary?: string }).summary;
-  const metaProp = (data as { meta?: string }).meta;
+  const rawMetaProp = (data as { meta?: string }).meta;
+  const rawLabel = String(data.label);
   const seq = (data as { seq?: number }).seq;
   const onDelete = (data as { onDelete?: () => void }).onDelete;
   const band = typeColor[t] ?? "var(--wf-info)";
   const pill = status ? STATUS_STYLE[status] : undefined;
+
+  let displayLabel = rawLabel;
+  let metaProp = rawMetaProp;
+  if (t === "agent" && agents && agents.length > 0) {
+    const rawAgentId = rawMetaProp?.startsWith("@")
+      ? rawMetaProp.slice(1)
+      : rawLabel.startsWith("Agent: ")
+        ? rawLabel.slice("Agent: ".length)
+        : null;
+    if (rawAgentId) {
+      const matched = agents.find((a) => a.id === rawAgentId);
+      if (matched) {
+        if (rawLabel === `Agent: ${rawAgentId}`) displayLabel = matched.name;
+        if (rawMetaProp === `@${rawAgentId}`) metaProp = `@${matched.name}`;
+      }
+    }
+  }
 
   return (
     <div
@@ -114,7 +134,7 @@ export function WorkflowNodeCard({ data, selected }: NodeProps) {
             const Icon = typeIcon[t] ?? Bot;
             return <Icon className="size-4 shrink-0" style={{ color: band }} />;
           })()}
-          <span className="truncate font-display text-sm font-semibold">{String(data.label)}</span>
+          <span className="truncate font-display text-sm font-semibold">{displayLabel}</span>
         </div>
         {/* Subtitle */}
         <div className="mt-0.5 truncate font-mono text-[11px] text-(--mute)">

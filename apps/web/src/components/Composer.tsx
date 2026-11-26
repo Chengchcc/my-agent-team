@@ -424,12 +424,10 @@ export function Composer({
   }, []);
 
   const extraSkillChips = useMemo(() => {
-    if (!showSkillChips) return [];
-    const list = skills ?? [];
-    const filtered = recommendedSkill
-      ? list.filter((s) => s.command !== recommendedSkill.command)
-      : list;
-    return filtered.slice(0, recommendedSkill ? 2 : 4);
+    // When a dedicated domain skill is already pinned (e.g. /member_manage in Member editor),
+    // keep the strip focused on that skill; all other skills stay 1-click away in the `/` button.
+    if (!showSkillChips || recommendedSkill) return [];
+    return (skills ?? []).slice(0, 4);
   }, [showSkillChips, skills, recommendedSkill]);
 
   const showSkillStrip = recommendedSkill !== undefined || extraSkillChips.length > 0;

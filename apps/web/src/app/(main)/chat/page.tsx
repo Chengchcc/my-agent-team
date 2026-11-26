@@ -97,12 +97,12 @@ function ConversationCard({
   /** The member whose group the conversation sits in; undefined when it is not in the registry. */
   pa: PaLike | undefined;
   needKnown: boolean;
-  now: number;
+  now: number | null;
 }) {
   const title = conversationDisplayName(conversation);
   const href = roomHref(conversation.conversationId);
-  const created = new Date(conversation.createdAt).toLocaleString();
-  const ago = fmtAgo(conversation.lastActivityAt ?? null, now);
+  const created = now === null ? "—" : new Date(conversation.createdAt).toLocaleString();
+  const ago = now === null ? "—" : fmtAgo(conversation.lastActivityAt ?? null, now);
   return (
     <article className={CARD}>
       <div className="flex items-center gap-3.5">
@@ -144,7 +144,7 @@ function ConversationCard({
         )}
       </div>
       <div className="mt-[17px] border-t border-(--hairline) pt-[15px]">
-        <small className="text-[10px] leading-[1.8] text-(--mute)">
+        <small suppressHydrationWarning className="text-[10px] leading-[1.8] text-(--mute)">
           {t("Created {created} · last activity {ago}", { created, ago })}
         </small>
       </div>
@@ -437,7 +437,10 @@ function ChatOverviewView() {
   }
   const conversationById = new Map(conversations.map((c) => [c.conversationId, c] as const));
   const openNew = () => setNewOpen("open");
-  const now = Date.now();
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    setNow(Date.now());
+  }, []);
   const needKnown = attention.isSuccess;
   const { counts } = overviewAll;
   const hasFilters = activePa !== ALL || source !== "all" || query.trim() !== "";

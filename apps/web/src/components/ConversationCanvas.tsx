@@ -534,9 +534,7 @@ export function ConversationCanvas({
         skills={skills}
         emptyTitle={
           primaryAgent ? (
-            <p className="mb-2 text-sm text-(--mute)">
-              {t("Send a message to start the conversation")}
-            </p>
+            <p className="mb-1 text-base font-medium text-(--ink-strong)">{agentName}</p>
           ) : null
         }
         aside={contextAside}

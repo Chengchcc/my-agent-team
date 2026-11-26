@@ -91,7 +91,11 @@ function SelectField({
         <FormItem>
           <FormLabel className={overlineClass}>{label}</FormLabel>
           <FormControl>
-            <Select value={field.value} onValueChange={(next) => field.onChange(next ?? "")}>
+            <Select
+              items={options.map((option) => ({ value: option.value, label: t(option.label) }))}
+              value={field.value}
+              onValueChange={(next) => field.onChange(next ?? "")}
+            >
               <SelectTrigger className={fieldClass}>
                 <SelectValue placeholder={placeholder} />
               </SelectTrigger>

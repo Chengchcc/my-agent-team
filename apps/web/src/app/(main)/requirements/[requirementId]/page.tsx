@@ -188,7 +188,7 @@ export default function RequirementDetailPage() {
         </div>
       </div>
       <PageHeader
-        kicker={`Requirement · ${r.requirementId}`}
+        kicker={project ? `${t("Requirement")} · ${project.name}` : t("Requirement")}
         title={r.title}
         description={`${projectLabel} · ${t("Owner")}: ${ownerLabel}`}
         actions={
