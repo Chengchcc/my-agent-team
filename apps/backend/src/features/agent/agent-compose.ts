@@ -28,7 +28,12 @@ export function createAgentSvc(
     /** Writes a lark-cli profile. Injectable because the real one edits the
      *  operator's `~/.lark-cli/config.json`: a test that exercises this path
      *  must not rewrite the machine's live credentials. */
-    profileInit?: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
+    profileInit?: (
+      profileRef: string,
+      appId: string,
+      appSecret: string,
+      brand?: "feishu" | "lark",
+    ) => Promise<void>;
   },
 ): AgentService {
   const agentPort = sqliteAgentAdapter(db);

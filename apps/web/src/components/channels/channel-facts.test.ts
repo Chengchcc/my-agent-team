@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildLarkBotPayload,
+  buildLarkScopeApplyUrl,
   type ChannelConfig,
   type ChannelSurface,
   channelActions,
   configurationLook,
   connectionLook,
   hasApp,
+  parseAllowedSenders,
   runningLook,
 } from "./channel-facts";
 
@@ -86,5 +89,72 @@ describe("configuration and actions", () => {
       channelActions(OFF, surface("not_connected", { canStartSetup: false })).canSetUp,
     ).toBeFalsy();
     expect(channelActions(disabled, null).canSetUp).toBeFalsy();
+  });
+});
+
+describe("lark-bot setup payload helpers", () => {
+  test("buildLarkScopeApplyUrl selects feishu vs lark host and omits empty appId", () => {
+    expect(buildLarkScopeApplyUrl("  ", "feishu")).toBeNull();
+    expect(buildLarkScopeApplyUrl("cli_123", "feishu")).toContain(
+      "https://open.feishu.cn/page/scope-apply?clientID=cli_123&scopes=",
+    );
+    expect(buildLarkScopeApplyUrl("cli_456", "lark")).toContain(
+      "https://open.larksuite.com/page/scope-apply?clientID=cli_456&scopes=",
+    );
+  });
+
+  test("parseAllowedSenders preserves explicit wildcard vs deny-all semantics", () => {
+    expect(parseAllowedSenders("everyone", "ou_1")).toEqual(["*"]);
+    expect(parseAllowedSenders("nobody", "ou_1")).toEqual([]);
+    expect(parseAllowedSenders("selected", "ou_1, ou_2\nou_3")).toEqual(["ou_1", "ou_2", "ou_3"]);
+  });
+
+  test("buildLarkBotPayload attaches credentials and brand only when enabled with appId+appSecret", () => {
+    const direct = buildLarkBotPayload({
+      enabled: true,
+      brand: "lark",
+      appId: " cli_abc ",
+      appSecret: " sec_xyz ",
+      botDisplayName: " Research Bot ",
+      webUrl: " https://ops.example.com ",
+      accessMode: "selected",
+      sendersText: "ou_1",
+      groupPolicy: "allowlist",
+      requireMention: true,
+      respondToMentionAll: false,
+    });
+    expect(direct).toEqual({
+      enabled: true,
+      brand: "lark",
+      appId: "cli_abc",
+      appSecret: "sec_xyz",
+      botDisplayName: "Research Bot",
+      webUrl: "https://ops.example.com",
+      allowedSenders: ["ou_1"],
+      groupPolicy: "allowlist",
+      requireMention: true,
+      respondToMentionAll: false,
+    });
+
+    const qr = buildLarkBotPayload({
+      enabled: false,
+      brand: "feishu",
+      appId: "cli_ignored",
+      appSecret: "sec_ignored",
+      botDisplayName: "",
+      webUrl: "",
+      accessMode: "everyone",
+      sendersText: "",
+      groupPolicy: "disabled",
+      requireMention: true,
+      respondToMentionAll: false,
+    });
+    expect(qr).toEqual({
+      enabled: false,
+      allowedSenders: ["*"],
+      groupPolicy: "disabled",
+      requireMention: true,
+      respondToMentionAll: false,
+    });
   });
 });

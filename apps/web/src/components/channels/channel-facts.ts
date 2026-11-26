@@ -98,3 +98,74 @@ export function channelActions(
     canSetUp: allowed && !online,
   };
 }
+
+// ─── Add-bot form helpers (mirroring apps/backend/src/features/lark-bot/setup-guidance.ts) ───
+
+export type LarkBrand = "feishu" | "lark";
+export type LarkAccessMode = "everyone" | "selected" | "nobody";
+export type LarkGroupPolicy = "disabled" | "open" | "allowlist";
+
+export const LARK_REQUIRED_EVENTS = [
+  "im.message.receive_v1",
+  "card.action.trigger",
+  "drive.notice.comment_add_v1",
+] as const;
+
+export const LARK_REQUIRED_SCOPES = [
+  "docs:doc",
+  "docs:document.comment:read",
+  "docs:document.comment:create",
+  "docs:document.subscription",
+  "docs:document.subscription:read",
+  "docs:event:subscribe",
+  "drive:drive",
+  "drive:file",
+] as const;
+
+/** One-click Feishu/Lark console URL that requests the scopes `apps/lark-bot` needs. */
+export function buildLarkScopeApplyUrl(appId: string, brand: LarkBrand): string | null {
+  const id = appId.trim();
+  if (!id) return null;
+  const host = brand === "lark" ? "https://open.larksuite.com" : "https://open.feishu.cn";
+  return `${host}/page/scope-apply?clientID=${encodeURIComponent(id)}&scopes=${encodeURIComponent(LARK_REQUIRED_SCOPES.join(","))}`;
+}
+
+/** Convert UI DM access selection into the `agent.yml` `lark.allowed_senders` list. */
+export function parseAllowedSenders(accessMode: LarkAccessMode, sendersText: string): string[] {
+  if (accessMode === "everyone") return ["*"];
+  if (accessMode === "nobody") return [];
+  return sendersText
+    .split(/[\s,]+/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+/** Assemble the exact `lark` body consumed by POST /api/agents and PATCH /api/agents/:id. */
+export function buildLarkBotPayload(input: {
+  enabled: boolean;
+  brand: LarkBrand;
+  appId?: string;
+  appSecret?: string;
+  botDisplayName: string;
+  webUrl: string;
+  accessMode: LarkAccessMode;
+  sendersText: string;
+  groupPolicy: LarkGroupPolicy;
+  requireMention: boolean;
+  respondToMentionAll: boolean;
+}) {
+  const appId = input.appId?.trim();
+  const appSecret = input.appSecret?.trim();
+  const botDisplayName = input.botDisplayName.trim();
+  const webUrl = input.webUrl.trim();
+  return {
+    enabled: input.enabled,
+    ...(input.enabled && appId && appSecret ? { brand: input.brand, appId, appSecret } : {}),
+    ...(botDisplayName ? { botDisplayName } : {}),
+    ...(webUrl ? { webUrl } : {}),
+    allowedSenders: parseAllowedSenders(input.accessMode, input.sendersText),
+    groupPolicy: input.groupPolicy,
+    requireMention: input.requireMention,
+    respondToMentionAll: input.respondToMentionAll,
+  };
+}

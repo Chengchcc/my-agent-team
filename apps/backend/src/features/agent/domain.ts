@@ -60,6 +60,7 @@ export interface CreateAgentInput {
   mcpServers?: Array<{ serverId: string; enabled: boolean }>;
   lark?: {
     enabled: boolean;
+    brand?: "feishu" | "lark";
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;
@@ -112,6 +113,7 @@ export interface UpdateAgentInput {
   projects?: string[];
   lark?: {
     enabled?: boolean;
+    brand?: "feishu" | "lark";
     appId?: string;
     appSecret?: string;
     botDisplayName?: string;

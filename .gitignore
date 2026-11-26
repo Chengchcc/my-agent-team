@@ -10,6 +10,9 @@ coverage/
 .env.*
 !.env.example
 .backend-data/
+# lark-bot local fallback stateRoot (`./.data` in apps/lark-bot/src/args.ts):
+# holds runtime bindings.sqlite and pid lock files — never commit.
+.data/
 apps/web/tsconfig.tsbuildinfo
 .claude/skills
 .agents

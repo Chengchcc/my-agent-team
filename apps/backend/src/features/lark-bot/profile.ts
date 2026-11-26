@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+export type LarkBrand = "feishu" | "lark";
+
 function sanitizeLarkCliError(stderr: string, secrets: string[]): string {
   let out = stderr.trim();
   // Exact value replacement (catches raw secret echo, not just key=value patterns)
@@ -14,6 +16,25 @@ function sanitizeLarkCliError(stderr: string, secrets: string[]): string {
     .slice(0, 500);
 }
 
+/** Build the argv passed to `lark-cli` for non-interactive profile init. */
+export function buildLarkProfileInitArgs(
+  profileRef: string,
+  appId: string,
+  brand: LarkBrand = "feishu",
+): string[] {
+  return [
+    "config",
+    "init",
+    "--name",
+    profileRef,
+    "--app-id",
+    appId,
+    "--app-secret-stdin",
+    "--brand",
+    brand,
+  ];
+}
+
 /**
  * Initialize a per-agent lark-cli profile.
  * appSecret is passed via stdin (never via argv) to avoid secret exposure.
@@ -23,25 +44,12 @@ export async function larkProfileInit(
   profileRef: string,
   appId: string,
   appSecret: string,
+  brand: LarkBrand = "feishu",
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      "lark-cli",
-      [
-        "config",
-        "init",
-        "--name",
-        profileRef,
-        "--app-id",
-        appId,
-        "--app-secret-stdin",
-        "--brand",
-        "feishu",
-      ],
-      {
-        stdio: ["pipe", "ignore", "pipe"],
-      },
-    );
+    const child = spawn("lark-cli", buildLarkProfileInitArgs(profileRef, appId, brand), {
+      stdio: ["pipe", "ignore", "pipe"],
+    });
 
     let stderr = "";
     child.stderr?.on("data", (d: Buffer) => {

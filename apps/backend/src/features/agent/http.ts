@@ -235,6 +235,7 @@ export function agentRoutes(
           lark: t.Optional(
             t.Object({
               enabled: t.Boolean(),
+              brand: t.Optional(t.Union([t.Literal("feishu"), t.Literal("lark")])),
               appId: t.Optional(t.String({ minLength: 1 })),
               appSecret: t.Optional(t.String({ minLength: 1 })),
               botDisplayName: t.Optional(t.String()),
@@ -358,6 +359,7 @@ export function agentRoutes(
           lark: t.Optional(
             t.Object({
               enabled: t.Optional(t.Boolean()),
+              brand: t.Optional(t.Union([t.Literal("feishu"), t.Literal("lark")])),
               appId: t.Optional(t.String({ minLength: 1 })),
               appSecret: t.Optional(t.String({ minLength: 1 })),
               botDisplayName: t.Optional(t.String()),

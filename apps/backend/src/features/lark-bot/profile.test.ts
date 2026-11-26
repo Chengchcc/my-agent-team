@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { buildLarkProfileInitArgs } from "./profile.js";
 
 // The sanitize function is private — test the behavior via the exported function's
 // error message format. For unit testing, verify the pattern directly.
@@ -58,5 +59,35 @@ describe("profile error sanitization", () => {
     const result = sanitizeLarkCliError(stderr, ["cli_secret123", "mysecret"]);
     expect(result).not.toContain("cli_secret123");
     expect(result).toContain("[redacted]");
+  });
+});
+
+describe("buildLarkProfileInitArgs", () => {
+  test("defaults to feishu brand and never puts secrets in argv", () => {
+    expect(buildLarkProfileInitArgs("agent:pa-1", "cli_abc")).toEqual([
+      "config",
+      "init",
+      "--name",
+      "agent:pa-1",
+      "--app-id",
+      "cli_abc",
+      "--app-secret-stdin",
+      "--brand",
+      "feishu",
+    ]);
+  });
+
+  test("forwards lark brand for international Lark Suite apps", () => {
+    expect(buildLarkProfileInitArgs("agent:pa-2", "cli_intl", "lark")).toEqual([
+      "config",
+      "init",
+      "--name",
+      "agent:pa-2",
+      "--app-id",
+      "cli_intl",
+      "--app-secret-stdin",
+      "--brand",
+      "lark",
+    ]);
   });
 });

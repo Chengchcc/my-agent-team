@@ -3,7 +3,12 @@ import type { AgentService } from "./service.js";
 
 export interface LarkLifecycleDeps {
   service: AgentService;
-  profileInit: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
+  profileInit: (
+    profileRef: string,
+    appId: string,
+    appSecret: string,
+    brand?: "feishu" | "lark",
+  ) => Promise<void>;
   ensureBot: (
     agentId: string,
     botDisplayName?: string | null,
@@ -31,7 +36,12 @@ export function withLarkLifecycle(deps: LarkLifecycleDeps): AgentService {
         input.lark.appSecret
       ) {
         try {
-          await profileInit(row.config.lark.profile_ref, input.lark.appId, input.lark.appSecret);
+          await profileInit(
+            row.config.lark.profile_ref,
+            input.lark.appId,
+            input.lark.appSecret,
+            input.lark.brand,
+          );
           await ensureBot(row.id, input.lark.botDisplayName, row.config.lark.profile_ref);
         } catch (err) {
           console.error(
@@ -56,6 +66,7 @@ export function withLarkLifecycle(deps: LarkLifecycleDeps): AgentService {
                 row.config.lark.profile_ref,
                 input.lark.appId,
                 input.lark.appSecret,
+                input.lark.brand,
               );
             } catch (err) {
               console.error(

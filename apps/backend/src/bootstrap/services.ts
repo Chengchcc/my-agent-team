@@ -19,14 +19,24 @@ export interface BackendServices {
   larkBotRegistry: LarkBotRegistry;
   /** Test seam: the real profile writer edits `~/.lark-cli/config.json`.
    *  Absent = the real one (production). */
-  larkProfileInit?: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
+  larkProfileInit?: (
+    profileRef: string,
+    appId: string,
+    appSecret: string,
+    brand?: "feishu" | "lark",
+  ) => Promise<void>;
 }
 
 export function createBackendServices(
   config?: BackendConfig,
   opts?: {
     larkBotRegistry?: LarkBotRegistry;
-    larkProfileInit?: (profileRef: string, appId: string, appSecret: string) => Promise<void>;
+    larkProfileInit?: (
+      profileRef: string,
+      appId: string,
+      appSecret: string,
+      brand?: "feishu" | "lark",
+    ) => Promise<void>;
   },
 ): BackendServices {
   const cfg = config ?? loadConfig();
