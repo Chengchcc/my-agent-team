@@ -3,13 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, MessageSquareText, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { type ReactNode, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
 import { fmtAgo } from "@/components/ops/format";
 import { Note } from "@/components/ops/kit";
 import { Page, PageBody, PageHeader } from "@/components/page";
+import { ActiveFilterBar, type ActiveFilterChip } from "@/components/ui/active-filter-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { entityLabelText } from "@/components/ui/entity-link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
@@ -46,7 +48,10 @@ import {
   SOURCE_FILTERS,
   SOURCE_WORD,
 } from "@/features/conversations/overview";
+import { filteredConversationsQuery } from "@/features/conversations/queries";
 import { useProjectList } from "@/features/projects/hooks";
+import { useRequirement } from "@/features/requirements/hooks";
+import { isRequirementDetail } from "@/features/requirements/queries";
 import { attentionQuery } from "@/features/runs/queries";
 import type { AgentRow, ProjectRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
@@ -232,6 +237,7 @@ function NewConversationDialog({
                 {t("PA")}
               </Label>
               <Select
+                items={fronts.map((agent) => ({ value: agent.id, label: agent.name }))}
                 value={selected === undefined ? "" : selected.id}
                 onValueChange={(value) => {
                   setPaId(value ?? "");
@@ -257,7 +263,14 @@ function NewConversationDialog({
               >
                 {t("Project (optional)")}
               </Label>
-              <Select value={project} onValueChange={(value) => setProject(value ?? NO_PROJECT)}>
+              <Select
+                items={[
+                  { value: NO_PROJECT, label: t("No project") },
+                  ...projectOptions.map((row) => ({ value: row.projectId, label: row.name })),
+                ]}
+                value={project}
+                onValueChange={(value) => setProject(value ?? NO_PROJECT)}
+              >
                 <SelectTrigger id="new-conversation-project" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -330,12 +343,27 @@ function FilterChip({
   );
 }
 
-export default function ChatOverviewPage() {
-  const listQuery = useRecentConversations();
+function ChatOverviewView() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlRequirementId = searchParams.get("requirement") ?? undefined;
+  const urlProjectId = searchParams.get("project") ?? undefined;
+  const urlAgentId = searchParams.get("agent") ?? undefined;
+
+  const recentQuery = useRecentConversations();
+  const filteredQuery = useQuery({
+    ...filteredConversationsQuery({
+      ...(urlRequirementId ? { requirementId: urlRequirementId } : {}),
+      ...(urlProjectId ? { projectId: urlProjectId } : {}),
+    }),
+    enabled: Boolean(urlRequirementId || urlProjectId),
+  });
+  const listQuery = urlRequirementId || urlProjectId ? filteredQuery : recentQuery;
+  const reqDetail = useRequirement(urlRequirementId ?? "");
   const agentsQuery = useAgentList();
   const projectsQuery = useProjectList();
   const attention = useQuery(attentionQuery());
-  const [pa, setPa] = useState(ALL);
+  const [pa, setPa] = useState(urlAgentId ?? ALL);
   const [source, setSource] = useState<(typeof SOURCE_FILTERS)[number]>("all");
   const [query, setQuery] = useState("");
   const [ledgerQuery, setLedgerQuery] = useState("");
@@ -374,7 +402,40 @@ export default function ChatOverviewPage() {
     setPa(ALL);
     setSource("all");
     setQuery("");
+    if (urlRequirementId || urlProjectId || urlAgentId) {
+      router.replace("/chat");
+    }
   };
+  const dropChatParam = (key: string) => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete(key);
+    const qs = next.toString();
+    router.replace(qs ? `/chat?${qs}` : "/chat");
+  };
+  const urlChips: ActiveFilterChip[] = [];
+  if (urlRequirementId) {
+    const reqTitle = isRequirementDetail(reqDetail.data)
+      ? reqDetail.data.requirement.title
+      : undefined;
+    urlChips.push({
+      key: "requirement",
+      category: t("Requirement"),
+      value: entityLabelText("requirement", urlRequirementId, reqTitle),
+      href: `/requirements/${encodeURIComponent(urlRequirementId)}`,
+      onRemove: () => dropChatParam("requirement"),
+    });
+  }
+  if (urlProjectId) {
+    const projName = projects.find((p) => p.projectId === urlProjectId)?.name;
+    urlChips.push({
+      key: "project",
+      category: t("Project"),
+      value: entityLabelText("project", urlProjectId, projName),
+      href: `/team/projects/${encodeURIComponent(urlProjectId)}`,
+      onRemove: () => dropChatParam("project"),
+    });
+  }
+  const conversationById = new Map(conversations.map((c) => [c.conversationId, c] as const));
   const openNew = () => setNewOpen("open");
   const now = Date.now();
   const needKnown = attention.isSuccess;
@@ -565,19 +626,25 @@ export default function ChatOverviewPage() {
               <p className="text-xs text-(--mute)">{t("No message contains this text.")}</p>
             )}
             <ul className="space-y-1">
-              {hits.map((hit) => (
-                <li key={`${hit.conversationId}-${hit.seq}`}>
-                  <Link
-                    href={`${roomHref(hit.conversationId)}?at=${hit.seq}`}
-                    className="block rounded-lg border border-(--hairline) bg-(--canvas-soft)/40 p-3 transition-colors hover:border-(--primary)"
-                  >
-                    <p className="mb-1 font-mono text-[10px] text-(--mute)">
-                      {hit.conversationId.slice(0, 8)}
-                    </p>
-                    <p className="line-clamp-2 text-xs text-(--ink)">{hit.snippet}</p>
-                  </Link>
-                </li>
-              ))}
+              {hits.map((hit) => {
+                const matched = conversationById.get(hit.conversationId);
+                const hitLabel = matched
+                  ? conversationDisplayName(matched)
+                  : entityLabelText("conversation", hit.conversationId);
+                return (
+                  <li key={`${hit.conversationId}-${hit.seq}`}>
+                    <Link
+                      href={`${roomHref(hit.conversationId)}?at=${hit.seq}`}
+                      className="block rounded-lg border border-(--hairline) bg-(--canvas-soft)/40 p-3 transition-colors hover:border-(--primary)"
+                    >
+                      <p className="mb-1 truncate text-[11px] font-medium text-(--mute)">
+                        {hitLabel}
+                      </p>
+                      <p className="line-clamp-2 text-xs text-(--ink)">{hit.snippet}</p>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
@@ -601,6 +668,7 @@ export default function ChatOverviewPage() {
         }
       />
       <PageBody className="space-y-5">
+        <ActiveFilterBar chips={urlChips} onClearAll={clearFilters} />
         <Note className="max-w-3xl text-[11px] leading-[1.8] text-(--mute)">
           {t(
             "A conversation does not record whether it came from a Lark chat or a Lark group. Its only source fact is how it began: started in a chat, forked, or dispatched by a PA.",
@@ -615,5 +683,13 @@ export default function ChatOverviewPage() {
         />
       </PageBody>
     </Page>
+  );
+}
+
+export default function ChatOverviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChatOverviewView />
+    </Suspense>
   );
 }

@@ -28,10 +28,8 @@ import { type ComposerDraft, PaSession } from "@/components/PaSession";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { useAgentList } from "@/features/agents/hooks";
 import { describeProposal } from "@/features/proposals/describe";
 import { proposalKeys } from "@/features/proposals/queries";
-import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { workflowRequest } from "@/features/workflow/draft";
 import {
   clearWorkflowDraft,
@@ -493,23 +491,14 @@ export function AgenticWorkflowEditor({
     }
   }
 
-  // The PA panel: the first personal agent answers; the skill that designs workflows leads the
-  // draft when this PA has it.
-  const { data: agents } = useAgentList();
-  const firstPa = (agents ?? []).find((agent) => agent.role !== "worker");
-  const paId = firstPa === undefined ? "default" : firstPa.id;
-  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
-  const skill = (skillsQuery.data ?? []).find((entry) => entry.command.includes("workflow"));
-
   function offerDraft(): void {
     const count = (draft?.n ?? 0) + 1;
-    const skillCommand = skill === undefined ? "" : skill.command;
     const described = meta?.description ?? "";
     let goal = described;
     if (described === "") {
       goal = meta?.name ?? workflowId;
     }
-    const text = workflowRequest(workflowId, goal, skillCommand);
+    const text = workflowRequest(workflowId, goal, "");
     setDraft({ text, n: count });
   }
 
@@ -943,23 +932,25 @@ export function AgenticWorkflowEditor({
             aria-label={t("PA session")}
             className={cn(
               "flex min-h-0 shrink-0 flex-col border-l border-(--hairline) bg-(--panel)",
-              sideWidth === "" ? "w-[340px]" : sideWidth,
+              sideWidth === "" ? "w-[360px]" : sideWidth,
             )}
           >
-            <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-(--hairline) px-4">
-              <span className="truncate text-[11px] font-[550] text-(--ink)">
-                {t("PA")} · {t("session")}
-              </span>
-              <Button variant="ghost" size="sm" onClick={offerDraft}>
-                <Wand2 />
-                {t("Draft a request")}
-              </Button>
-            </div>
             <PaSession
-              conversationId={`workflow:chat:${workflowId}`}
-              paId={paId}
-              createOrigin="workflow"
+              origin="editor:workflow"
+              sessionKey={`workflow-editor:${workflowId}`}
+              skillSpec={{
+                fallbackCommand: "/workflow_design",
+                matchKeyword: "workflow",
+                fallbackDescription: t("Modify this workflow"),
+                contextLine: `${t("Workflow")}: ${meta?.name ?? workflowId} (${workflowId})`,
+              }}
               draft={draft ?? undefined}
+              headerAction={
+                <Button type="button" variant="ghost" size="sm" onClick={offerDraft}>
+                  <Wand2 className="size-3.5" />
+                  {t("Draft a request")}
+                </Button>
+              }
               emptyTitle={t("Ask the PA to change this workflow")}
             >
               {proposalPanel}

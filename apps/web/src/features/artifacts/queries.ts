@@ -1,11 +1,22 @@
 import { queryOptions } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { type ArtifactListFilter, api } from "@/lib/api";
 import { artifactKeys } from "./query-keys";
 
-export function artifactsQuery() {
+export function artifactsQuery(filter?: ArtifactListFilter) {
+  const hasFilter =
+    filter !== undefined &&
+    Object.values(filter).some((v) => typeof v === "string" && v.length > 0);
   return queryOptions({
-    queryKey: artifactKeys.all,
-    queryFn: () => api.listArtifacts(),
+    queryKey: hasFilter ? ([...artifactKeys.all, "filtered", filter] as const) : artifactKeys.all,
+    queryFn: () => api.listArtifacts(hasFilter ? filter : undefined),
+  });
+}
+
+export function artifactMetaQuery(url: string) {
+  return queryOptions({
+    queryKey: [...artifactKeys.all, "meta", url] as const,
+    queryFn: () => api.getArtifactMeta(url),
+    staleTime: 60_000,
   });
 }
 

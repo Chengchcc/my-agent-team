@@ -7,6 +7,7 @@ import { RotateCwIcon, SparklesIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { EntityLink } from "@/components/ui/entity-link";
 import { api, type CodingTerminalRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
@@ -168,11 +169,29 @@ export function TerminalPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#0d1117]">
-      <div className="flex items-center gap-2 border-b border-(--hairline) px-3 py-1.5 text-xs text-(--mute)">
+      <div className="flex flex-wrap items-center gap-2 border-b border-(--hairline) px-3 py-1.5 text-xs text-(--mute)">
         <span className="font-mono text-(--body)">
           {terminal.title} · {terminal.cwd.split("/").pop()}
         </span>
         <span className={status.cls}>{status.text}</span>
+        {terminal.requirementId && (
+          <EntityLink
+            kind="requirement"
+            id={terminal.requirementId}
+            label={terminal.labels?.requirementTitle}
+            href={`/requirements/${encodeURIComponent(terminal.requirementId)}`}
+            variant="pill"
+          />
+        )}
+        {terminal.conversationId && (
+          <EntityLink
+            kind="conversation"
+            id={terminal.conversationId}
+            label={terminal.labels?.conversationTitle}
+            href={`/chat/${encodeURIComponent(terminal.conversationId)}`}
+            variant="pill"
+          />
+        )}
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"

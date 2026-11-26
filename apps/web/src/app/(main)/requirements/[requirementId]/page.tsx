@@ -1,18 +1,31 @@
 "use client";
 
-import { ArrowLeft, ArrowUpRight, PackageOpen } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  FolderOpen,
+  MessageSquare,
+  PackageOpen,
+  Terminal,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ArtifactDetailDialog } from "@/components/ArtifactDetail";
+import { ArtifactGalleryCard } from "@/components/ArtifactGalleryCard";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { EntityLink } from "@/components/ui/entity-link";
 import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAgentList } from "@/features/agents/hooks";
+import { useArtifacts } from "@/features/artifacts/hooks";
+import { useAllConversations } from "@/features/conversations/hooks";
 import { useProjectList } from "@/features/projects/hooks";
 import {
   type GraphMember,
@@ -22,6 +35,9 @@ import {
 } from "@/features/requirements/graph";
 import { useRequirement, useRunRecords, useUpdateRequirement } from "@/features/requirements/hooks";
 import { isRequirementDetail } from "@/features/requirements/queries";
+import { filteredWorkflowExecutionsQuery } from "@/features/workflow/queries";
+import type { ArtifactMeta } from "@/lib/api";
+import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
 import { executionStatus, statusClasses } from "@/lib/status";
 import { AgentGraph, dispatchLabel } from "../_components/agent-graph";
@@ -59,6 +75,15 @@ export default function RequirementDetailPage() {
     [agentsData],
   );
   const { data: projectsData } = useProjectList();
+  const { data: conversationsData } = useAllConversations();
+  const artifactsQuery = useArtifacts({ requirementId: id }, { enabled: id !== "" });
+  const workflowExecsQuery = useQuery({
+    ...filteredWorkflowExecutionsQuery({ requirementId: id }),
+    enabled: id !== "",
+  });
+  const linkedArtifacts = artifactsQuery.data?.artifacts ?? [];
+  const linkedExecutions = workflowExecsQuery.data?.executions ?? [];
+  const [selectedArtifact, setSelectedArtifact] = useState<ArtifactMeta | null>(null);
   const runIds = useMemo(
     () => (isRequirementDetail(detail) ? detail.runs : []).map((run) => run.runId),
     [detail],
@@ -84,6 +109,13 @@ export default function RequirementDetailPage() {
   const runs = detail.runs;
   const parts = participatingAgents(r.createdByAgentId, runs, members);
   const memberById = new Map(members.map((member) => [member.id, member] as const));
+  const conversationById = new Map(
+    (conversationsData ?? []).map((conv) => [conv.conversationId, conv] as const),
+  );
+  const convLabelOf = (convId: string): string | undefined => {
+    const found = conversationById.get(convId);
+    return found ? conversationDisplayName(found) : undefined;
+  };
   const projects = projectsData?.projects ?? [];
   const project =
     r.projectId === null ? undefined : projects.find((p) => p.projectId === r.projectId);
@@ -128,6 +160,10 @@ export default function RequirementDetailPage() {
   const workbenchBase = "/coding?locate=1&agent=";
   const workbenchProject =
     project === undefined ? "" : `&project=${encodeURIComponent(project.projectId)}`;
+  const reqParam = `&requirement=${encodeURIComponent(r.requirementId)}`;
+  const artifactsFilterHref = `/artifacts?requirement=${encodeURIComponent(r.requirementId)}`;
+  const chatsFilterHref = `/chat?requirement=${encodeURIComponent(r.requirementId)}`;
+  const codingFilterHref = `/coding?locate=1&requirement=${encodeURIComponent(r.requirementId)}${workbenchProject}`;
 
   return (
     <Page>
@@ -156,9 +192,35 @@ export default function RequirementDetailPage() {
         title={r.title}
         description={`${projectLabel} · ${t("Owner")}: ${ownerLabel}`}
         actions={
-          <Button onClick={() => setSheet("open")}>
-            <ArrowUpRight /> {t("Edit goal")}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href={chatsFilterHref} />}
+            >
+              <MessageSquare className="size-3.5" /> {t("Conversations")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href={artifactsFilterHref} />}
+            >
+              <FolderOpen className="size-3.5" /> {t("Artifacts")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href={codingFilterHref} />}
+            >
+              <Terminal className="size-3.5" /> {t("Coding")}
+            </Button>
+            <Button size="sm" onClick={() => setSheet("open")}>
+              <ArrowUpRight /> {t("Edit goal")}
+            </Button>
+          </div>
         }
       />
       <PageBody>
@@ -183,6 +245,7 @@ export default function RequirementDetailPage() {
             </TabsTrigger>
             <TabsTrigger value="artifacts" className="text-[11px]">
               {t("Artifacts")}
+              <span className="font-mono text-[10px] text-(--faint)">{linkedArtifacts.length}</span>
             </TabsTrigger>
           </TabsList>
 
@@ -206,12 +269,12 @@ export default function RequirementDetailPage() {
                       {r.originConversationId === null ? (
                         t("No conversation is linked. Saving a goal does not run anything.")
                       ) : (
-                        <Link
-                          href={`/chat/${r.originConversationId}`}
-                          className="inline-flex items-center gap-1 font-mono text-(--primary-deep) hover:underline"
-                        >
-                          {r.originConversationId} <ArrowUpRight className="size-3" />
-                        </Link>
+                        <EntityLink
+                          kind="conversation"
+                          id={r.originConversationId}
+                          label={convLabelOf(r.originConversationId)}
+                          href={`/chat/${encodeURIComponent(r.originConversationId)}`}
+                        />
                       )}
                     </dd>
                   </div>
@@ -325,12 +388,13 @@ export default function RequirementDetailPage() {
                       className="min-w-0 rounded-xl border border-(--hairline) bg-(--panel) p-4"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <Link
+                        <EntityLink
+                          kind="run"
+                          id={run.runId}
+                          label={worker?.name ?? t("Run")}
+                          showSecondaryId
                           href={runHref}
-                          className="inline-flex items-center gap-1 font-mono text-xs text-(--ink) hover:text-(--primary)"
-                        >
-                          {run.runId} <ArrowUpRight className="size-3" />
-                        </Link>
+                        />
                         <span
                           className={`rounded-full border px-1.5 py-0.5 font-mono text-[10px] ${statusClasses(look.tone)}`}
                         >
@@ -380,19 +444,19 @@ export default function RequirementDetailPage() {
                             {conversationId === null ? (
                               <span className="text-(--faint)">{NOT_SET}</span>
                             ) : (
-                              <Link
-                                href={`/chat/${conversationId}`}
-                                className="font-mono text-(--primary-deep) hover:underline"
-                              >
-                                {conversationId}
-                              </Link>
+                              <EntityLink
+                                kind="conversation"
+                                id={conversationId}
+                                label={convLabelOf(conversationId)}
+                                href={`/chat/${encodeURIComponent(conversationId)}`}
+                              />
                             )}
                           </dd>
                         </div>
                       </dl>
                       {run.agentId !== null && (
                         <Link
-                          href={`${workbenchBase}${encodeURIComponent(run.agentId)}${workbenchProject}`}
+                          href={`${workbenchBase}${encodeURIComponent(run.agentId)}${workbenchProject}${reqParam}${conversationId ? `&conversation=${encodeURIComponent(conversationId)}` : ""}`}
                           className="mt-3 inline-flex items-center gap-1 text-[10px] text-(--primary-deep) hover:underline"
                         >
                           {t(
@@ -443,17 +507,77 @@ export default function RequirementDetailPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="artifacts">
-            <EmptyState
-              icon={PackageOpen}
-              title={t("Not available")}
-              description={t(
-                "Artifacts are not linked to a goal: the product keeps no such relation, so none can be listed here. Artifacts are on the Artifacts page.",
-              )}
-            />
+          <TabsContent value="artifacts" className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-(--mute)">
+                {t("{n} linked artifact(s)", { n: linkedArtifacts.length })}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href={artifactsFilterHref} />}
+              >
+                <FolderOpen className="size-3.5" /> {t("Open in Artifacts")}
+              </Button>
+            </div>
+            {artifactsQuery.isLoading ? (
+              <p className="text-xs text-(--mute)">{t("Loading…")}</p>
+            ) : linkedArtifacts.length === 0 ? (
+              <EmptyState
+                icon={PackageOpen}
+                title={t("No artifacts linked yet")}
+                description={t(
+                  "Files produced by runs or workflow executions under this goal appear here automatically.",
+                )}
+              />
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {linkedArtifacts.map((artifact) => {
+                  const aid = artifact.source?.agentId;
+                  const mName =
+                    artifact.labels?.agentName ?? (aid ? (memberById.get(aid)?.name ?? aid) : null);
+                  return (
+                    <ArtifactGalleryCard
+                      key={artifact.url}
+                      artifact={artifact}
+                      layout="grid"
+                      memberName={mName}
+                      onOpen={setSelectedArtifact}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            {linkedExecutions.length > 0 && (
+              <section className="space-y-2 border-t border-(--hairline) pt-4">
+                <h3 className="text-xs font-[550] text-(--ink-strong)">
+                  {t("Linked workflow executions")}
+                </h3>
+                <div className="space-y-1.5">
+                  {linkedExecutions.map((exec) => (
+                    <div
+                      key={exec.executionId}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-(--hairline) bg-(--panel) px-3 py-2 text-xs"
+                    >
+                      <EntityLink
+                        kind="execution"
+                        id={exec.executionId}
+                        label={exec.labels?.workflowName ?? exec.workflowId}
+                        showSecondaryId
+                        href={`/workflows/${encodeURIComponent(exec.workflowId)}/executions/${encodeURIComponent(exec.executionId)}`}
+                      />
+                      <Badge variant="secondary">{t(executionStatus(exec.status).label)}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </TabsContent>
         </Tabs>
       </PageBody>
+
+      <ArtifactDetailDialog artifact={selectedArtifact} onClose={() => setSelectedArtifact(null)} />
 
       {sheet !== "closed" && (
         <RequirementSheet

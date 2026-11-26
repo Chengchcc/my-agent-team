@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import {
+  type ArtifactListFilter,
   type ArtifactMeta,
   type ArtifactRef,
   type ArtifactUploadInput,
@@ -126,7 +127,10 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
         return null;
       }
     },
-    async list(folder) {
+    async list(filter) {
+      const parsedFilter: ArtifactListFilter =
+        typeof filter === "string" ? { folder: filter } : (filter ?? {});
+      const folder = parsedFilter.folder;
       // Reject BEFORE any filesystem access: a folder resolving outside the
       // root must never reach existsSync/walk (M13 — the old guard only
       // existence-checked in-root paths, letting escaped dirs be walked).
@@ -149,13 +153,29 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
             // Reporting a hard-coded "utf8" described binary artifacts wrong,
             // and the recorded hash is what a consumer verifies against.
             const sidecar = readSidecar(full);
+            const source = sidecar.source ?? undefined;
+            if (parsedFilter.requirementId && source?.requirementId !== parsedFilter.requirementId)
+              continue;
+            if (
+              parsedFilter.conversationId &&
+              source?.conversationId !== parsedFilter.conversationId
+            )
+              continue;
+            if (
+              parsedFilter.workflowExecutionId &&
+              source?.workflowExecutionId !== parsedFilter.workflowExecutionId
+            )
+              continue;
+            if (parsedFilter.agentId && source?.agentId !== parsedFilter.agentId) continue;
+            if (parsedFilter.projectId && source?.projectId !== parsedFilter.projectId) continue;
+            if (parsedFilter.runId && source?.runId !== parsedFilter.runId) continue;
             out.push({
               ...toMeta(
                 { folder: f, filename: fn },
                 st.size,
                 sidecar.encoding === "base64" ? "base64" : "utf8",
                 st.mtimeMs,
-                sidecar.source ?? undefined,
+                source,
               ),
               ...(sidecar.sha256 ? { sha256: sidecar.sha256 } : {}),
             });
@@ -164,6 +184,23 @@ export function createArtifactFsAdapter(root: string): ArtifactPort {
       };
       walk(base, folder ?? "");
       return out;
+    },
+    async getMeta(url) {
+      const ref = parseArtifactUrl(url);
+      const p = safePath(ref.folder, ref.filename);
+      if (!existsSyncSafe(p)) return null;
+      const st = statSync(p);
+      const sidecar = readSidecar(p);
+      return {
+        ...toMeta(
+          ref,
+          st.size,
+          sidecar.encoding === "base64" ? "base64" : "utf8",
+          st.mtimeMs,
+          sidecar.source ?? undefined,
+        ),
+        ...(sidecar.sha256 ? { sha256: sidecar.sha256 } : {}),
+      };
     },
     async delete(url) {
       const ref = parseArtifactUrl(url);

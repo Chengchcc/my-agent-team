@@ -4,6 +4,7 @@ import {
   botNameOf,
   type ConversationLike,
   conversationOverview,
+  isWorkConversation,
   type OverviewFilters,
   type PaLike,
 } from "./overview";
@@ -201,5 +202,17 @@ describe("conversationOverview · chips and summary", () => {
     expect(
       botNameOf({ id: "x", name: "X", lark: { enabled: true, botDisplayName: "" } }),
     ).toBeNull();
+  });
+
+  test("isWorkConversation hides ephemeral editor and ask sessions from main work lists", () => {
+    expect(isWorkConversation({ origin: "user" })).toBe(true);
+    expect(isWorkConversation({ origin: "fork" })).toBe(true);
+    expect(isWorkConversation({ origin: "dispatch" })).toBe(true);
+    expect(isWorkConversation({ origin: "editor:member" })).toBe(false);
+    expect(isWorkConversation({ origin: "editor:project" })).toBe(false);
+    expect(isWorkConversation({ origin: "editor:workflow" })).toBe(false);
+    expect(isWorkConversation({ origin: "editor:requirement" })).toBe(false);
+    expect(isWorkConversation({ origin: "ask" })).toBe(false);
+    expect(isWorkConversation({ origin: "workflow" })).toBe(false);
   });
 });

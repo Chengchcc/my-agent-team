@@ -17,7 +17,11 @@ import {
   type WorkflowNode,
 } from "@chengchenccc/workflow";
 import { HttpError } from "../../infra/errors.js";
-import type { WorkflowExecutionRow, WorkflowNodeRunRow } from "./domain.js";
+import type {
+  WorkflowExecutionFilter,
+  WorkflowExecutionRow,
+  WorkflowNodeRunRow,
+} from "./domain.js";
 import type { WorkflowExecutionPort } from "./ports.js";
 
 export interface AgentRunnerDeps {
@@ -80,6 +84,9 @@ export interface WorkflowExecutionService {
       definition: WorkflowDefinition;
       input: Record<string, unknown>;
       triggeredBy?: string;
+      requirementId?: string | null;
+      conversationId?: string | null;
+      projectId?: string | null;
     },
   ): Promise<WorkflowExecutionRow>;
   startExecution(input: {
@@ -87,6 +94,9 @@ export interface WorkflowExecutionService {
     definition: WorkflowDefinition;
     input: Record<string, unknown>;
     triggeredBy?: string;
+    requirementId?: string | null;
+    conversationId?: string | null;
+    projectId?: string | null;
   }): Promise<WorkflowExecutionRow>;
   resolveHumanTask(
     executionId: string,
@@ -102,7 +112,7 @@ export interface WorkflowExecutionService {
   ): Promise<Array<{ executionId: string; ok: boolean; error?: string }>>;
   getExecution(executionId: string): Promise<WorkflowExecutionRow | null>;
   listNodeRuns(executionId: string): Promise<WorkflowNodeRunRow[]>;
-  listExecutions(workflowId?: string): Promise<WorkflowExecutionRow[]>;
+  listExecutions(filter?: string | WorkflowExecutionFilter): Promise<WorkflowExecutionRow[]>;
   deleteExecution(executionId: string): Promise<boolean>;
   cancelExecution(executionId: string): Promise<WorkflowExecutionRow | null>;
   listExecutionEvents(
@@ -422,7 +432,8 @@ export function createWorkflowExecutionService(
           origin: "workflow",
           createdAt: Date.now(),
         };
-        if (node.repo !== undefined) conversation.projectId = node.repo;
+        const projectId = node.repo ?? execution.projectId ?? undefined;
+        if (projectId !== undefined) conversation.projectId = projectId;
         deps.convPort.createConversation(conversation);
       } catch {
         /* concurrent */
@@ -838,6 +849,9 @@ export function createWorkflowExecutionService(
         store: {},
         status: "running",
         triggeredBy: input.triggeredBy ?? "manual",
+        requirementId: input.requirementId ?? null,
+        conversationId: input.conversationId ?? null,
+        projectId: input.projectId ?? null,
       });
       emit(executionId, "execution_started", {});
       await runWithCatch(executionId, () => drive(row));
@@ -866,6 +880,9 @@ export function createWorkflowExecutionService(
         store: {},
         status: "running",
         triggeredBy: input.triggeredBy ?? "manual",
+        requirementId: input.requirementId ?? null,
+        conversationId: input.conversationId ?? null,
+        projectId: input.projectId ?? null,
       });
       emit(executionId, "execution_started", {});
       void runWithCatch(executionId, () => drive(row));
@@ -983,8 +1000,8 @@ export function createWorkflowExecutionService(
     async listNodeRuns(id) {
       return deps.port.listNodeRuns(id);
     },
-    async listExecutions(workflowId) {
-      return deps.port.listExecutions(workflowId);
+    async listExecutions(filter) {
+      return deps.port.listExecutions(filter);
     },
     async deleteExecution(executionId: string) {
       return deps.port.deleteExecution(executionId);

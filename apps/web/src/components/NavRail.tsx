@@ -581,7 +581,19 @@ function NavContent() {
                 "Talk to the front desk, or pick a team member for a direct line (bypasses routing).",
               )}
             </p>
-            <Select value={newAgent} onValueChange={(v) => setNewAgent(v ?? "")}>
+            <Select
+              items={[
+                { value: "front", label: t("Front desk") },
+                ...(agents ?? [])
+                  .filter((a) => a.enabled !== false && a.id !== "default")
+                  .map((a) => ({
+                    value: a.id,
+                    label: a.role === "worker" ? `${a.name} ${t("(direct line)")}` : a.name,
+                  })),
+              ]}
+              value={newAgent}
+              onValueChange={(v) => setNewAgent(v ?? "")}
+            >
               <SelectTrigger>
                 <SelectValue placeholder={t("Front desk")} />
               </SelectTrigger>
@@ -599,7 +611,14 @@ function NavContent() {
             <p className="text-xs text-muted-foreground">
               {t("Bind it to a project so the room's work happens in that project's copy.")}
             </p>
-            <Select value={newProject} onValueChange={(v) => setNewProject(v ?? "")}>
+            <Select
+              items={projects.map((project) => ({
+                value: project.projectId,
+                label: project.name,
+              }))}
+              value={newProject}
+              onValueChange={(v) => setNewProject(v ?? "")}
+            >
               <SelectTrigger>
                 <SelectValue placeholder={t("No project")} />
               </SelectTrigger>

@@ -1,6 +1,7 @@
 import type {
   AppendNodeRunInput,
   CreateWorkflowExecutionInput,
+  WorkflowExecutionFilter,
   WorkflowExecutionRow,
   WorkflowNodeRunRow,
   WorkflowPendingHumanRow,
@@ -39,7 +40,7 @@ export interface WorkflowExecutionPort {
     executionId: string,
   ): Promise<Array<{ seq: number; executionId: string; event: string; data: unknown; ts: number }>>;
   listRunningExecutions(): Promise<WorkflowExecutionRow[]>;
-  listExecutions(workflowId?: string): Promise<WorkflowExecutionRow[]>;
+  listExecutions(filter?: string | WorkflowExecutionFilter): Promise<WorkflowExecutionRow[]>;
   deleteExecution(executionId: string): Promise<boolean>;
   listWaitingHumanExecutions(): Promise<WorkflowExecutionRow[]>;
 }

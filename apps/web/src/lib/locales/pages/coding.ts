@@ -45,4 +45,5 @@ export const codingZh: Record<string, string> = {
   live: "在线",
   "connecting…": "连接中……",
   "reconnecting…": "重新连接中……",
+  "This context": "当前上下文",
 };

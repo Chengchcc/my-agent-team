@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { EntityLink } from "@/components/ui/entity-link";
 import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
 import { useAgentList } from "@/features/agents/hooks";
 import {
@@ -157,6 +158,9 @@ function ArtifactSidebar({ artifact }: { artifact: ArtifactMeta }) {
   if (member !== undefined) memberName = member.name;
   const nameClass = "text-(--primary-deep) hover:text-(--primary)";
 
+  const labels = artifact.labels;
+  const resolvedMemberName = labels?.agentName ?? (member !== undefined ? member.name : memberName);
+
   return (
     <aside className="border-t border-(--hairline) px-5 py-6 md:border-l md:border-t-0">
       <h4 className="mb-[18px] text-[10px] uppercase tracking-[1px] text-(--faint)">
@@ -172,11 +176,11 @@ function ArtifactSidebar({ artifact }: { artifact: ArtifactMeta }) {
               href={`/team/${agentId}`}
               className={cn("block truncate text-[11px] font-[550]", nameClass)}
             >
-              {memberName}
+              {resolvedMemberName}
             </Link>
           ) : (
             <span className="block truncate text-[11px] font-[550] text-(--mute)">
-              {memberName}
+              {resolvedMemberName}
             </span>
           )}
           <small className="block truncate font-mono text-[10px] text-(--faint)">
@@ -184,20 +188,59 @@ function ArtifactSidebar({ artifact }: { artifact: ArtifactMeta }) {
           </small>
         </div>
       </div>
-      <SideRow name={t("Run")}>
-        {source?.runId !== undefined ? (
-          <Link href={`/system/runs/${source.runId}`} className={nameClass}>
-            {source.runId}
-          </Link>
+      <SideRow name={t("Requirement")}>
+        {source?.requirementId !== undefined ? (
+          <EntityLink
+            kind="requirement"
+            id={source.requirementId}
+            label={labels?.requirementTitle}
+            href={`/requirements/${encodeURIComponent(source.requirementId)}`}
+          />
         ) : (
           <span className="text-(--mute)">{t("Not recorded")}</span>
         )}
       </SideRow>
       <SideRow name={t("Conversation")}>
         {source?.conversationId !== undefined ? (
-          <Link href={`/chat/${source.conversationId}`} className={nameClass}>
-            {source.conversationId}
-          </Link>
+          <EntityLink
+            kind="conversation"
+            id={source.conversationId}
+            label={labels?.conversationTitle}
+            href={`/chat/${encodeURIComponent(source.conversationId)}`}
+          />
+        ) : (
+          <span className="text-(--mute)">{t("Not recorded")}</span>
+        )}
+      </SideRow>
+      {source?.projectId !== undefined && (
+        <SideRow name={t("Project")}>
+          <EntityLink
+            kind="project"
+            id={source.projectId}
+            label={labels?.projectName}
+            href={`/team/projects/${encodeURIComponent(source.projectId)}`}
+          />
+        </SideRow>
+      )}
+      {source?.workflowExecutionId !== undefined && (
+        <SideRow name={t("Workflow")}>
+          <EntityLink
+            kind="execution"
+            id={source.workflowExecutionId}
+            label={labels?.workflowName}
+            showSecondaryId
+          />
+        </SideRow>
+      )}
+      <SideRow name={t("Run")}>
+        {source?.runId !== undefined ? (
+          <EntityLink
+            kind="run"
+            id={source.runId}
+            label={agentId !== undefined ? resolvedMemberName : undefined}
+            showSecondaryId
+            href={`/system/runs/${encodeURIComponent(source.runId)}`}
+          />
         ) : (
           <span className="text-(--mute)">{t("Not recorded")}</span>
         )}

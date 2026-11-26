@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { type ComposerDraft, PaPickerBar, PaSession, usePaPicker } from "@/components/PaSession";
+import { PaSession, useDefaultPa } from "@/components/PaSession";
 import { ProjectFields } from "@/components/ProjectFields";
 import { ProposalCard, type ProposalField } from "@/components/ProposalCard";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,6 @@ import {
 import { useProjectForm } from "@/features/projects/project-form";
 import { projectSuggestionQuery } from "@/features/projects/queries";
 import { projectKeys } from "@/features/projects/query-keys";
-import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { api, type ProjectRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
@@ -55,12 +54,7 @@ export function ProjectEditorSheet({
   const values = form.watch();
   const openedAt = useRef(Date.now());
 
-  // Which PA to ask, and its conversation: the shared picker every editor beside a PA uses.
-  const picker = usePaPicker();
-  const paId = picker.activePa?.id ?? "";
-  // The skills this PA can load: the draft names the project skill.
-  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
-  const projectSkill = (skillsQuery.data ?? []).find((skill) => skill.command.includes("project"));
+  const defaultPa = useDefaultPa();
 
   // The PA's suggestion, polled like the other proposal consumers.
   const proposalQuery = useQuery(projectSuggestionQuery(project, openedAt.current));
@@ -142,14 +136,6 @@ export function ProjectEditorSheet({
     onSaved();
   }
 
-  // A draft the person can edit before sending: it names the skill and the project.
-  const [draft, setDraft] = useState<ComposerDraft>({ text: "", n: 0 });
-  function offerDraft(): void {
-    const target = project === null ? t("a new project") : `${project.name} (${project.projectId})`;
-    const lead = projectSkill === undefined ? "" : `${projectSkill.command}\n`;
-    setDraft({ text: `${lead}${t("Project")}: ${target}\n`, n: draft.n + 1 });
-  }
-
   const fields: ProposalField[] = [];
   if (suggestion !== null) {
     const proposed = withSuggestion(suggestion.baseline, suggestion);
@@ -162,28 +148,42 @@ export function ProjectEditorSheet({
     }
   }
 
+  const targetContext =
+    project === null
+      ? `${t("Project")}: ${t("a new project")}`
+      : `${t("Project")}: ${project.name} (${project.projectId})`;
+
   const aside = (
-    <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      <PaPickerBar picker={picker} onDraft={offerDraft} draftLabel={t("Draft a request")} />
-      <PaSession
-        conversationId={picker.conversationId}
-        paId={paId}
-        draft={draft.n === 0 ? undefined : draft}
-      >
-        {suggestion !== null && (
-          <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-(--hairline) p-3">
-            <ProposalCard
-              author={picker.activePa?.name ?? t("PA")}
-              fields={fields}
-              stale={stale}
-              applied={suggestionApplied}
-              onApply={applySuggestion}
-              onDiscard={() => void discardSuggestion()}
-            />
-          </div>
-        )}
-      </PaSession>
-    </div>
+    <PaSession
+      origin="editor:project"
+      projectId={project?.projectId}
+      sessionKey={project?.projectId ?? "new"}
+      skillSpec={{
+        fallbackCommand: "/project_manage",
+        matchKeyword: "project",
+        fallbackDescription:
+          project === null ? t("Create a new project") : t("Update this project"),
+        contextLine: targetContext,
+      }}
+      emptyTitle={
+        project === null
+          ? t("Describe the project to register")
+          : t("Ask the PA to adjust this project")
+      }
+    >
+      {suggestion !== null && (
+        <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-(--hairline) p-3">
+          <ProposalCard
+            author={defaultPa?.name ?? t("PA")}
+            fields={fields}
+            stale={stale}
+            applied={suggestionApplied}
+            onApply={applySuggestion}
+            onDiscard={() => void discardSuggestion()}
+          />
+        </div>
+      )}
+    </PaSession>
   );
 
   let saveLabel = t("Create project");

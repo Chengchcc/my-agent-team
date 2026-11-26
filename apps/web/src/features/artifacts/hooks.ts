@@ -1,10 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { artifactContentQuery, artifactsQuery } from "./queries";
+import { type ArtifactListFilter, api } from "@/lib/api";
+import { artifactContentQuery, artifactMetaQuery, artifactsQuery } from "./queries";
 import { artifactKeys } from "./query-keys";
 
-export function useArtifacts() {
-  return useQuery(artifactsQuery());
+export function useArtifacts(filter?: ArtifactListFilter, options?: { enabled?: boolean }) {
+  return useQuery({
+    ...artifactsQuery(filter),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useArtifactMeta(url: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    ...artifactMetaQuery(url),
+    enabled: (options?.enabled ?? true) && url.startsWith("artifacts://"),
+  });
 }
 
 /** One artifact's bytes, as a preview or the detail view reads them. A gallery

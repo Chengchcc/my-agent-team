@@ -25,4 +25,21 @@ export const channelsZh: Record<string, string> = {
   "No personal agent yet.": "还没有个人助理。",
   "Could not load the team.": "读取团队成员失败。",
   "Open the team page": "打开团队成员页",
+  // Add Lark bot wizard (ADR 0082 D6)
+  "Add Lark bot": "新增飞书机器人",
+  "Pair Lark bot for {name}": "为 {name} 配对飞书机器人",
+  "Each Lark bot belongs to one PA. Pick an unconfigured PA or create a new one, then complete authorization right here.":
+    "每个飞书机器人绑定一位 PA。选择尚未配置的 PA，或新建一位 PA 后在此直接完成授权。",
+  "Choose another PA": "更换 PA",
+  "Binding mode": "绑定方式",
+  "Bind to existing PA": "绑定已有 PA",
+  "Create new PA & bind": "新建 PA 并绑定",
+  "Every existing PA already has a Lark app configured.": "所有现有 PA 均已配置飞书应用。",
+  "Personal agent (PA)": "个人助理（PA）",
+  "Continue to Lark authorization": "下一步：飞书授权",
+  "PA name": "PA 名称",
+  "e.g. Research Assistant": "例如：研究助理",
+  "Creating the PA creates its workspace only; the bot stays off until you complete Lark authorization in the next step.":
+    "创建 PA 只建立其工作区；机器人保持关闭，直到你在下一步完成飞书授权。",
+  "Create PA & continue to authorization": "创建 PA 并进入授权",
 };

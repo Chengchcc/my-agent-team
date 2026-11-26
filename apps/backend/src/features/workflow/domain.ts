@@ -1,4 +1,5 @@
 import type { WorkflowDefinition } from "@chengchenccc/workflow";
+import type { EntityLabels } from "../../infra/entity-labels.js";
 
 export type WorkflowExecutionStatus =
   | "running"
@@ -26,8 +27,21 @@ export interface WorkflowExecutionRow {
   status: WorkflowExecutionStatus;
   exit?: string;
   error?: string;
+  /** ADR 0082 D2: optional causal linkage back to requirement/conversation/project. */
+  requirementId?: string | null;
+  conversationId?: string | null;
+  projectId?: string | null;
+  /** ADR 0082 D5: optional human-readable display names attached at the read boundary. */
+  labels?: EntityLabels;
   createdAt: number;
   terminalAt?: number;
+}
+
+export interface WorkflowExecutionFilter {
+  workflowId?: string;
+  requirementId?: string;
+  conversationId?: string;
+  projectId?: string;
 }
 
 export interface WorkflowNodeRunRow {
@@ -62,6 +76,9 @@ export interface CreateWorkflowExecutionInput {
   store: Record<string, unknown>;
   status?: WorkflowExecutionStatus;
   triggeredBy?: string | null;
+  requirementId?: string | null;
+  conversationId?: string | null;
+  projectId?: string | null;
   createdAt?: number;
 }
 

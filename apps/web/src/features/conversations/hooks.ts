@@ -98,6 +98,7 @@ export function useConversationSearch(q: string, enabled: boolean) {
 export function useConversationInputs(conversationId: string) {
   return useQuery({
     ...conversationInputsQuery(conversationId),
+    enabled: conversationId !== "",
     refetchInterval: (query: { state: { data?: { inputs?: unknown[] } } }) =>
       query.state.data?.inputs?.length ? 2000 : false,
   });

@@ -20,6 +20,18 @@ export function recentConversationsQuery() {
   });
 }
 
+/** ADR 0082: conversations scoped by linked requirement, project, or agent. */
+export function filteredConversationsQuery(filter: {
+  agentId?: string;
+  requirementId?: string;
+  projectId?: string;
+}) {
+  return queryOptions({
+    queryKey: conversationKeys.filtered(filter),
+    queryFn: ({ signal }) => api.listConversations(filter, signal),
+  });
+}
+
 export function conversationDetailQuery(id: string) {
   return queryOptions({
     queryKey: conversationKeys.detail(id),

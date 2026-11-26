@@ -1,3 +1,4 @@
+import type { EntityLabels } from "../../infra/entity-labels.js";
 import { HttpError } from "../../infra/errors.js";
 /** Artifact domain model: single-file artifacts addressed by
  *  `artifacts://<folder>/<filename>` URLs, stored under backend dataDir. */
@@ -7,14 +8,33 @@ export interface ArtifactRef {
   filename: string;
 }
 
+export interface ArtifactSource {
+  runId?: string;
+  conversationId?: string;
+  requirementId?: string;
+  workflowExecutionId?: string;
+  agentId?: string;
+  projectId?: string;
+}
+
+export interface ArtifactListFilter {
+  folder?: string;
+  requirementId?: string;
+  conversationId?: string;
+  workflowExecutionId?: string;
+  agentId?: string;
+  projectId?: string;
+  runId?: string;
+}
+
 export interface ArtifactUploadInput {
   folder: string;
   filename: string;
   content: string;
   /** utf8 = text; base64 = binary. Default utf8. */
   encoding?: "utf8" | "base64";
-  /** Optional run provenance (audit only; download is globally available). */
-  source?: { runId?: string; conversationId?: string; agentId?: string };
+  /** Optional run/requirement/conversation/workflow provenance (ADR 0082 D1). */
+  source?: ArtifactSource;
 }
 
 export interface ArtifactMeta {
@@ -29,7 +49,9 @@ export interface ArtifactMeta {
    *  uploaded before the ledger existed — "nothing recorded" is a different
    *  fact from "mismatch", so it stays optional. */
   sha256?: string;
-  source?: ArtifactUploadInput["source"];
+  source?: ArtifactSource;
+  /** Human-readable display names for the provenance links (ADR 0082 D5). */
+  labels?: EntityLabels;
 }
 
 /** Re-reading an artifact and comparing it with its ledger entry. `expected`

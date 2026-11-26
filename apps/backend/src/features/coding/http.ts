@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { ConflictError, NotFoundError, ValidationError } from "../../infra/domain-errors.js";
+import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
 import { readAgentStatusFor } from "./agent-status.js";
 import type { TaskWorktree } from "./task-worktrees.js";
@@ -52,6 +53,10 @@ export interface CodingRoutesDeps {
     slug: string,
     force: boolean,
   ) => Promise<{ path: string }>;
+  /** ADR 0082 D5: optional batch label resolver for terminal DTOs. */
+  labelResolver?: EntityLabelResolver;
+  /** ADR 0082 D3: resolve current requirement for a conversation when spawning a terminal. */
+  requirementOfConversation?: (conversationId: string) => string | null;
 }
 
 interface WsIn {
@@ -85,15 +90,53 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           : null;
 
   return new Elysia()
-    .get("/api/coding/terminals", () => ({
-      terminals: registry.list().map((t) => ({
-        ...t,
-        // Structured pane state (P2): only a live oma pane carries one.
-        ...(t.kind === "oma" && t.status === "running"
-          ? { agentState: readAgentStatusFor(t.cwd)?.state }
-          : {}),
-      })),
-    }))
+    .get(
+      "/api/coding/terminals",
+      ({ query }) => {
+        const list = registry.list().filter((item) => {
+          if (query.conversationId && item.conversationId !== query.conversationId) return false;
+          if (query.requirementId && item.requirementId !== query.requirementId) return false;
+          if (query.projectId && item.projectId !== query.projectId) return false;
+          if (query.agentId && item.agentId !== query.agentId) return false;
+          return true;
+        });
+        const maps = deps.labelResolver?.resolveBatch({
+          agentIds: list.map((item) => item.agentId),
+          projectIds: list.map((item) => item.projectId),
+          conversationIds: list.map((item) => item.conversationId),
+          requirementIds: list.map((item) => item.requirementId),
+        });
+        return {
+          terminals: list.map((item) => {
+            const labels = deps.labelResolver?.labelsFor(
+              {
+                agentId: item.agentId,
+                projectId: item.projectId,
+                conversationId: item.conversationId,
+                requirementId: item.requirementId,
+              },
+              maps,
+            );
+            return {
+              ...item,
+              ...(labels ? { labels } : {}),
+              // Structured pane state (P2): only a live oma pane carries one.
+              ...(item.kind === "oma" && item.status === "running"
+                ? { agentState: readAgentStatusFor(item.cwd)?.state }
+                : {}),
+            };
+          }),
+        };
+      },
+      {
+        query: t.Object({
+          conversationId: t.Optional(t.String()),
+          requirementId: t.Optional(t.String()),
+          projectId: t.Optional(t.String()),
+          agentId: t.Optional(t.String()),
+        }),
+      },
+    )
     .post(
       "/api/coding/terminals",
       async ({ body, set }) => {
@@ -103,17 +146,34 @@ export function codingRoutes(deps: CodingRoutesDeps) {
             body.agentId,
             body.worktreePath,
           );
+          const inferredRequirementId =
+            body.requirementId ??
+            (body.conversationId
+              ? (deps.requirementOfConversation?.(body.conversationId) ?? null)
+              : null);
           const terminal = registry.spawn({
             projectId: body.projectId ?? null,
             agentId: body.agentId,
+            workspaceId: body.workspaceId ?? null,
+            conversationId: body.conversationId ?? null,
+            requirementId: inferredRequirementId,
             cwd: target.cwd,
             title: body.title ?? "bash",
             command: target.shell,
             cols: body.cols,
             rows: body.rows,
           });
+          const labels = deps.labelResolver?.labelsFor({
+            agentId: terminal.agentId,
+            projectId: terminal.projectId,
+            conversationId: terminal.conversationId,
+            requirementId: terminal.requirementId,
+          });
           set.status = 201;
-          return { terminal, omaLaunch: target.omaLaunch };
+          return {
+            terminal: { ...terminal, ...(labels ? { labels } : {}) },
+            omaLaunch: target.omaLaunch,
+          };
         } catch (err) {
           const mapped = mapDomainError(err);
           if (mapped) return mapped;
@@ -125,6 +185,9 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           // Absent = a terminal in the agent's own workspace (ADR 0073).
           projectId: t.Optional(t.String({ minLength: 1 })),
           agentId: t.String({ minLength: 1 }),
+          workspaceId: t.Optional(t.String({ minLength: 1 })),
+          conversationId: t.Optional(t.String({ minLength: 1 })),
+          requirementId: t.Optional(t.String({ minLength: 1 })),
           title: t.Optional(t.String({ minLength: 1 })),
           worktreePath: t.Optional(t.String({ minLength: 1 })),
           cols: t.Optional(t.Integer({ minimum: 2, maximum: 500 })),

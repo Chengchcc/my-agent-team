@@ -9,6 +9,7 @@
 | 0079 | ui-language-is-a-skin(界面语言是皮肤：英文是源，中文是词典) | **Implemented**（zh 词典 + 操作员菜单切换；源码仍零 CJK，翻译只在 lib/locales） |
 | 0080 | risk-rides-the-dispatch(不可逆的工作带风险字段，批准权属于人) | **Implemented**（`agent_run.risk` + dispatch 声明；请求创建时带 `payload.risk` 且 owner 强制为 user；`answerRefusal` 拒绝代理回答） |
 | 0081 | web-cutover-to-oma-design(Web 一次切到 oh-my-agent 设计：共享会话内容、建议不等于保存、不留灰度开关) | **Accepted**（基础层已实现：主题整站替换、导航分组、`ConversationPanel` 与密度、`ResourceEditorSheet`、`ProposalCard`、`project_update` 提议与审阅值保存、项目编辑样例；各页面按波次推进，真机验证见正文） |
+| 0082 | cross-surface-linkage-human-labels-and-channels(跨工作面关联索引、全站名称优先展示与 Channels 新增 Lark 入口) | **Accepted**（2026-11-26 确认实施：`artifact` 与 `coding_terminal` 新表、`workflow_execution` 归属列、五大工作面 URL 深链筛选、读模型带名与 `<EntityLink />`、`/channels` 守住 ADR 0068 新增向导、会话上下文侧栏重做与 Markdown 实体预览） |
 | # | 标题 | 状态 |
 |---|---|---|
 | 0001 | loop-prune-is-post-processing | **Obsolete**（Loop 已删，2026-08-28） |

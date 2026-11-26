@@ -23,7 +23,7 @@ import { connectionStatus } from "@/lib/status";
 import { extractText } from "@/lib/timeline";
 import type { TodoItem, TransientBubble } from "@/lib/transient-reducer";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
-import { Composer } from "./Composer";
+import { Composer, type RecommendedSkill } from "./Composer";
 import { type ConversationDensity, ConversationDensityContext } from "./conversation-density";
 import { Timeline } from "./Timeline";
 import { TodoPanel } from "./TodoPanel";
@@ -43,6 +43,10 @@ export interface ConversationPanelProps {
   emptyTitle?: ReactNode;
   /** Skills the conversation's agent can load, offered in the `/` picker. */
   skills?: readonly SkillCommand[];
+  /** Domain skill pinned in the composer bar by default (e.g. /member_manage). */
+  recommendedSkill?: RecommendedSkill;
+  /** Show clickable skill slash-command chips in the composer by default. */
+  showSkillChips?: boolean;
   /** A draft put into the composer while it is empty, for the person to edit and send. */
   draft?: string;
   /** Whether showing this conversation counts as the person having seen it. The chat page says
@@ -65,6 +69,8 @@ export function ConversationPanel({
   anchorSeq,
   emptyTitle,
   skills,
+  recommendedSkill,
+  showSkillChips,
   draft,
   marksSeen = true,
   aside,
@@ -415,6 +421,8 @@ export function ConversationPanel({
           isBusy={busy}
           onStop={currentRunId ? stopRun : undefined}
           skills={skills}
+          recommendedSkill={recommendedSkill}
+          showSkillChips={showSkillChips}
           draft={draft}
         />
       </div>

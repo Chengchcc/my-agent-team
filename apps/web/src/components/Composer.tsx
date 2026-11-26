@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, CornerDownLeft } from "lucide-react";
+import { ArrowUp, CornerDownLeft, Slash, Sparkles } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConversationDensityContext } from "@/components/conversation-density";
@@ -29,8 +29,22 @@ interface PickerItem {
   skill: boolean;
 }
 
+/** A domain skill highlighted directly in the composer so users immediately see
+ *  which slash command creates or edits the resource in view. */
+export interface RecommendedSkill {
+  /** Canonical slash command, e.g. "/member_manage". */
+  command: string;
+  /** Short description shown beside the chip. */
+  description?: string;
+  /** False when the active PA does not have this skill pack installed and ready. */
+  available?: boolean;
+  /** Optional target context line prepended below the command when auto-attached on send. */
+  contextLine?: string;
+}
+
 interface ComposerProps {
-  conversationId: string;
+  /** Empty string when a lazy session has not been created on the backend yet. */
+  conversationId?: string;
   onSend: (
     message: string,
     model?: ChatModelOverride,
@@ -44,11 +58,15 @@ interface ComposerProps {
   onStop?: () => void;
   /** Skills offered in the `/` picker after the commands; completing one only names it. */
   skills?: readonly SkillCommand[];
+  /** Primary domain skill pinned by default in the composer header strip. */
+  recommendedSkill?: RecommendedSkill;
+  /** Show clickable skill slash-command chips directly in the composer by default. */
+  showSkillChips?: boolean;
   /** A draft put into the input while it is empty, for the person to edit and send. */
   draft?: string;
 }
 export function Composer({
-  conversationId,
+  conversationId = "",
   onSend,
   onSlashCommand,
   disabled,
@@ -56,11 +74,14 @@ export function Composer({
   isBusy,
   onStop,
   skills,
+  recommendedSkill,
+  showSkillChips = false,
   draft,
 }: ComposerProps) {
+  const modelStorageKey = `oma.chat.model:${conversationId || "draft"}`;
   const [model, setModel] = useState<ChatModelOverride | null>(() => {
     try {
-      const raw = localStorage.getItem(`oma.chat.model:${conversationId}`);
+      const raw = localStorage.getItem(modelStorageKey);
       return raw ? (JSON.parse(raw) as ChatModelOverride) : null;
     } catch {
       return null;
@@ -70,17 +91,25 @@ export function Composer({
     (m: ChatModelOverride | null) => {
       setModel(m);
       try {
-        if (m) localStorage.setItem(`oma.chat.model:${conversationId}`, JSON.stringify(m));
-        else localStorage.removeItem(`oma.chat.model:${conversationId}`);
+        if (m) localStorage.setItem(modelStorageKey, JSON.stringify(m));
+        else localStorage.removeItem(modelStorageKey);
       } catch {
         /* storage unavailable — selection stays per-mount */
       }
     },
-    [conversationId],
+    [modelStorageKey],
   );
   const [value, setValue] = useState("");
   const [showSlash, setShowSlash] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
+  const recCommand = recommendedSkill?.command;
+  const recAvailable = recommendedSkill?.available;
+  const [pinSkill, setPinSkill] = useState<boolean>(
+    () => recCommand !== undefined && recAvailable !== false,
+  );
+  useEffect(() => {
+    setPinSkill(recCommand !== undefined && recAvailable !== false);
+  }, [recCommand, recAvailable]);
   // @artifact autocomplete: typing "@" as the last char opens the artifact
   // picker; selecting inserts the artifacts:// URL (the agent downloads the
   // content itself via its artifact_download tool).
@@ -130,18 +159,29 @@ export function Composer({
 
   const filteredSlash = useMemo(() => {
     const q = value.trim().toLowerCase();
-    // Commands run here; a skill is only named in the message. One list, in that order.
-    const items: PickerItem[] = slashCommands.map((c) => ({
-      command: c.command,
-      description: c.description,
-      argsHint: c.argsHint,
-      skill: false,
+    // Commands run here; a skill is only named in the message.
+    const skillItems: PickerItem[] = (skills ?? []).map((skill) => ({
+      command: skill.command,
+      description: skill.description,
+      skill: true,
     }));
-    for (const skill of skills ?? []) {
-      items.push({ command: skill.command, description: skill.description, skill: true });
-    }
+    const cmdItems: PickerItem[] =
+      conversationId !== ""
+        ? slashCommands.map((c) => ({
+            command: c.command,
+            description: c.description,
+            argsHint: c.argsHint,
+            skill: false,
+          }))
+        : [];
+    // In form/ask contexts (recommendedSkill or showSkillChips), surface skills first.
+    const items =
+      recommendedSkill || showSkillChips
+        ? [...skillItems, ...cmdItems]
+        : [...cmdItems, ...skillItems];
+    if (!q.startsWith("/")) return items;
     return items.filter((item) => item.command.startsWith(q));
-  }, [value, skills]);
+  }, [value, skills, conversationId, recommendedSkill, showSkillChips]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional - must reset when filter narrows options
   useEffect(() => {
@@ -237,15 +277,34 @@ export function Composer({
       }
       return;
     }
-    onSend(trimmed, model ?? undefined, attachments);
+    const outgoing =
+      pinSkill && recommendedSkill && recommendedSkill.available !== false
+        ? [recommendedSkill.command, recommendedSkill.contextLine, trimmed]
+            .filter((part): part is string => Boolean(part && part.trim() !== ""))
+            .join("\n")
+        : trimmed;
+    onSend(outgoing, model ?? undefined, attachments);
     setValue("");
     setAttachments([]);
     // Give the backend a beat to persist the queued input, then show it.
-    setTimeout(() => void inputsQuery.refetch(), 400);
+    if (conversationId !== "") {
+      setTimeout(() => void inputsQuery.refetch(), 400);
+    }
     if (textareaRef.current) {
       textareaRef.current.style.height = `${COMPOSER_MIN_H}px`;
     }
-  }, [value, disabled, onSend, onSlashCommand, model, attachments, inputsQuery]);
+  }, [
+    value,
+    disabled,
+    onSend,
+    onSlashCommand,
+    model,
+    attachments,
+    inputsQuery,
+    conversationId,
+    pinSkill,
+    recommendedSkill,
+  ]);
 
   const navigateSlash = useCallback(
     (dir: -1 | 1) => {
@@ -349,9 +408,35 @@ export function Composer({
   // An editor sheet embeds this at the prototype's tighter scale (see conversation-density).
   const tight = useContext(ConversationDensityContext) === "panel";
 
+  const insertSlashCommand = useCallback((command: string) => {
+    setValue((prev) => {
+      const trimmed = prev.trimStart();
+      if (trimmed.startsWith(`${command} `) || trimmed.startsWith(`${command}\n`)) return prev;
+      return prev === "" ? `${command} ` : `${command}\n${prev}`;
+    });
+    setShowSlash(false);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }, 0);
+  }, []);
+
+  const extraSkillChips = useMemo(() => {
+    if (!showSkillChips) return [];
+    const list = skills ?? [];
+    const filtered = recommendedSkill
+      ? list.filter((s) => s.command !== recommendedSkill.command)
+      : list;
+    return filtered.slice(0, recommendedSkill ? 2 : 4);
+  }, [showSkillChips, skills, recommendedSkill]);
+
+  const showSkillStrip = recommendedSkill !== undefined || extraSkillChips.length > 0;
+
   return (
     <div className={cn("pt-2", tight ? "px-4 pb-4" : "px-6 pb-5")}>
-      {inputsQuery.data && (
+      {conversationId !== "" && inputsQuery.data && (
         <ComposerInputQueue
           inputs={inputsQuery.data.inputs}
           busy={steerMut.isPending || editMut.isPending || cancelMut.isPending}
@@ -392,9 +477,63 @@ export function Composer({
           onDrop={handleDrop}
           className={cn(
             "rounded-[13px] border border-(--hairline) bg-[#1b1f22] transition-colors focus-within:border-(--primary)/60",
-            tight ? "px-3.5 pt-3" : "px-4 pt-3.5",
+            tight ? "px-3.5 pt-2.5" : "px-4 pt-3",
           )}
         >
+          {showSkillStrip && (
+            <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-(--hairline)/70 pb-2">
+              {recommendedSkill && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recommendedSkill.available === false) return;
+                    setPinSkill((prev) => !prev);
+                  }}
+                  title={
+                    recommendedSkill.available === false
+                      ? t("This skill is not installed on the current PA")
+                      : pinSkill
+                        ? t("Auto-attached on send — click to send without this skill")
+                        : t("Click to re-enable this skill command on send")
+                  }
+                  className={cn(
+                    "inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+                    recommendedSkill.available === false
+                      ? "cursor-default border-(--warn)/35 bg-(--warn)/10 text-(--warn)"
+                      : pinSkill
+                        ? "border-(--primary)/45 bg-(--primary)/12 text-(--primary) hover:bg-(--primary)/18"
+                        : "border-(--hairline) bg-transparent text-(--mute) hover:border-(--hairline-soft) hover:text-(--ink)",
+                  )}
+                >
+                  <Sparkles className="size-3 shrink-0" />
+                  <span className="font-mono font-medium">{recommendedSkill.command}</span>
+                  {recommendedSkill.available === false ? (
+                    <span className="text-[10px] opacity-85">{t("Not installed")}</span>
+                  ) : (
+                    <span className="text-[10px] opacity-80">
+                      {pinSkill ? t("Auto-attached") : t("Off")}
+                    </span>
+                  )}
+                </button>
+              )}
+              {recommendedSkill?.description && (
+                <span className="min-w-0 truncate text-[10px] text-(--mute)">
+                  {recommendedSkill.description}
+                </span>
+              )}
+              {extraSkillChips.map((skill) => (
+                <button
+                  key={skill.command}
+                  type="button"
+                  onClick={() => insertSlashCommand(skill.command)}
+                  title={skill.description}
+                  className="inline-flex items-center gap-1 rounded-md border border-(--hairline) bg-white/3 px-1.5 py-0.5 font-mono text-[10px] text-(--mute) transition-colors hover:border-(--primary)/40 hover:text-(--ink)"
+                >
+                  {skill.command}
+                </button>
+              ))}
+            </div>
+          )}
           <Textarea
             ref={textareaRef}
             value={value}
@@ -412,7 +551,26 @@ export function Composer({
             style={{ minHeight: `${COMPOSER_MIN_H}px`, maxHeight: `${COMPOSER_MAX_H}px` }}
           />
           <div className="mt-1.5 flex items-center justify-between gap-2.5 pb-3">
-            <ModelPicker value={model} onChange={pickModel} />
+            <div className="flex items-center gap-1.5">
+              <ModelPicker value={model} onChange={pickModel} />
+              {(filteredSlash.length > 0 || (skills?.length ?? 0) > 0) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowSlash((prev) => !prev)}
+                  title={t("Commands and skills")}
+                  aria-label={t("Commands and skills")}
+                  className={cn(
+                    "h-7 gap-1 px-2 font-mono text-[11px] text-(--mute) hover:text-(--ink)",
+                    showSlash && "bg-white/6 text-(--ink)",
+                  )}
+                >
+                  <Slash className="size-3" />
+                  <span className="hidden sm:inline">{t("Commands")}</span>
+                </Button>
+              )}
+            </div>
             {isBusy && onStop ? (
               <Button
                 onClick={onStop}

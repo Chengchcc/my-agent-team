@@ -78,14 +78,15 @@ import {
   artifactRoutes,
   createArtifactFsAdapter,
   createArtifactService,
+  createSqliteArtifactIndexAdapter,
 } from "../features/artifact/index.js";
 import { authRoutes, createPasswordService, MIN_PASSWORD_LENGTH } from "../features/auth/index.js";
 import {
   type CodingTarget,
   codingRoutes,
+  createSqliteCodingTerminalStore,
   createTerminalRegistry,
 } from "../features/coding/index.js";
-import { loadPersistedTerminals, savePersistedTerminals } from "../features/coding/persist.js";
 import { listTaskWorktrees, validateWorktreePath } from "../features/coding/task-worktrees.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import {
@@ -205,6 +206,7 @@ import {
 import { createWorkspaceService } from "../features/workspace/service.js";
 import { startAllowlistProxy } from "../infra/allowlist-proxy.js";
 import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
+import { createEntityLabelResolver } from "../infra/entity-labels.js";
 import { ulid } from "../infra/ids.js";
 import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
 import { sseUrlEndpoint } from "../infra/sse-url.js";
@@ -812,10 +814,23 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     },
   });
 
+  // ADR 0082 D5: shared batch label resolver (agents, conversations, requirements, projects, workflows).
+  const entityLabels = createEntityLabelResolver(db, {
+    workflowDir: join(config.dataDir, "workflows"),
+  });
+
   // Artifact storage (shared across agents, workspaces, workflows).
+  // ADR 0082 D1: bytes stay on disk; SQLite indexes metadata + cross-entity provenance.
   const artifactService = createArtifactService(
-    createArtifactFsAdapter(join(config.dataDir, "artifacts")),
+    createSqliteArtifactIndexAdapter({
+      inner: createArtifactFsAdapter(join(config.dataDir, "artifacts")),
+      db,
+      labelResolver: entityLabels,
+    }),
   );
+  void artifactService.backfill().catch((err: unknown) => {
+    console.error("[artifacts] index backfill failed:", err instanceof Error ? err.message : err);
+  });
 
   // Product Tools (History) - assembled unconditionally so the MCP endpoint
   // and the execution manifest are consistent; the MCP server only listens
@@ -2940,15 +2955,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     return { path, mainPath: target.cwd };
   };
 
-  // Boot restore (P2): the membership snapshot survives restarts; entries
-  // whose agent/project vanished are skipped (and pruned on next persist).
-  // Fire-and-forget — a slow first-time mirror clone must not block boot.
+  // Boot restore (P2 + ADR 0082 D3): persisted in SQLite `coding_terminal`
+  // (one-time import from legacy `terminals.json` if table is empty).
   const codingStateFile = join(config.dataDir, "coding", "terminals.json");
+  const codingTerminalStore = createSqliteCodingTerminalStore(db);
+  codingTerminalStore.importLegacyJsonIfEmpty(codingStateFile);
   const codingRegistry = createTerminalRegistry({
-    persist: (snapshot) => savePersistedTerminals(codingStateFile, snapshot),
+    persist: (snapshot) => codingTerminalStore.saveAll(snapshot),
   });
   void (async () => {
-    for (const entry of loadPersistedTerminals(codingStateFile)) {
+    for (const entry of codingTerminalStore.loadAll()) {
       try {
         const target = await resolveCodingTarget(entry.projectId, entry.agentId);
         const cwd = existsSync(entry.cwd) ? entry.cwd : target.cwd;
@@ -2956,6 +2972,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           terminalId: entry.terminalId,
           projectId: entry.projectId,
           agentId: entry.agentId,
+          workspaceId: entry.workspaceId ?? null,
+          conversationId: entry.conversationId ?? null,
+          requirementId: entry.requirementId ?? null,
           cwd,
           title: entry.title,
           kind: entry.kind,
@@ -3133,6 +3152,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     setTriggerToken: async (workflowId, token) => {
       settingsSvc.set(`workflow.trigger.${workflowId}`, token);
     },
+    labelResolver: entityLabels,
     resyncTriggers: () => workflowTriggerScheduler.sync(),
   });
 
@@ -3290,6 +3310,21 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           return undefined;
         }
       },
+      {
+        conversationIdsForRequirement: (requirementId: string) => {
+          const rows = db
+            .query(
+              `SELECT conversation_id FROM conversation_requirement WHERE requirement_id = ?
+               UNION
+               SELECT conversation_id FROM conversation WHERE current_requirement_id = ?
+               UNION
+               SELECT origin_conversation_id AS conversation_id FROM requirement WHERE requirement_id = ? AND origin_conversation_id IS NOT NULL`,
+            )
+            .all(requirementId, requirementId, requirementId) as Array<{ conversation_id: string }>;
+          return rows.map((r) => r.conversation_id);
+        },
+        labelResolver: entityLabels,
+      },
     ),
     reminders: reminderRoutes(reminderSvc),
     ops: opsRoutes(opsSvc),
@@ -3355,9 +3390,30 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       createTaskWorktree: createCodingTaskWorktree,
       removeTaskWorktree: removeCodingTaskWorktree,
       wsBase: browserWsBase,
+      labelResolver: entityLabels,
+      requirementOfConversation: (conversationId: string) => {
+        const row = db
+          .query(
+            "SELECT current_requirement_id FROM conversation WHERE conversation_id = ? LIMIT 1",
+          )
+          .get(conversationId) as { current_requirement_id: string | null } | null;
+        return row?.current_requirement_id ?? null;
+      },
     }),
     ahp: ahpHost.routes,
-    requirements: requirementRoutes(requirementSvc),
+    requirements: requirementRoutes(requirementSvc, {
+      requirementIdsForConversation: (conversationId: string) => {
+        const rows = db
+          .query(
+            `SELECT requirement_id FROM conversation_requirement WHERE conversation_id = ?
+             UNION
+             SELECT current_requirement_id AS requirement_id FROM conversation WHERE conversation_id = ? AND current_requirement_id IS NOT NULL`,
+          )
+          .all(conversationId, conversationId) as Array<{ requirement_id: string }>;
+        return rows.map((r) => r.requirement_id);
+      },
+      labelResolver: entityLabels,
+    }),
     wiki: wikiRoutes(wikiSvc),
     projects: projectRoutes(projectSvc, worktreeOps),
     skillPacks: skillPackRoutes(skillPackSvc, config.dataDir),

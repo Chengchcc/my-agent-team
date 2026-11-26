@@ -340,6 +340,51 @@ export const zhOwn: Record<string, string> = {
   "Failed to delete project": "删除项目失败",
   "Cannot delete: the project still has requirements": "无法删除：这个项目还有需求",
   'Delete project "{name}"?': "删除项目「{name}」？",
+  // Shared filter bar & entity labels (ADR 0082)
+  "Active filters": "已激活的筛选",
+  "Filtered by": "当前筛选",
+  "Remove filter {name}": "移除{name}筛选",
+  Artifact: "产物",
+  // Unified isolated PA session & Composer skill strip
+  "Dedicated session": "独立会话",
+  "Start a fresh session": "开启全新会话",
+  "Ask the PA to help here": "在这里直接请 PA 协助",
+  "Starts an isolated session on your first message with {command} ready to guide creation or edits.":
+    "发送首条消息时自动创建独立会话，并默认携带 {command} 指导新建或修改。",
+  "Starts an isolated session on your first message without mixing into your main chat history.":
+    "发送首条消息时自动创建独立会话，不会混入你的主聊天记录。",
+  "Auto-attached": "自动附带",
+  "Not installed": "未装配",
+  "This skill is not installed on the current PA": "当前 PA 尚未装配此技能",
+  "Auto-attached on send — click to send without this skill": "发送时自动附带此技能 — 点击可关闭",
+  "Click to re-enable this skill command on send": "点击重新开启自动附带此技能",
+  Commands: "命令",
+  "Create a new member": "新建团队成员",
+  "Update this member": "修改当前成员配置",
+  "Describe the member you want to create": "描述你想新建的成员",
+  "Ask the PA to adjust this member": "让 PA 帮你调整这位成员",
+  "Create a new project": "登记新项目",
+  "Update this project": "修改当前项目信息",
+  "Describe the project to register": "描述要登记的项目",
+  "Ask the PA to adjust this project": "让 PA 帮你调整这个项目",
+  "Design a new workflow": "设计新工作流",
+  "Modify this workflow": "修改当前工作流",
+  "Track a new goal": "追踪新目标",
+  "Update or refine this goal": "补充或调整当前目标",
+  "The request sits in the input for you to edit and send. Opening this panel sends nothing and starts a dedicated session only when you send.":
+    "请求已填入输入框供你编辑，打开面板不会发送任何内容，仅在发送时创建独立会话。",
+  // Global header, network & onboarding
+  "Waiting for you: {n}": "待你处理：{n} 项",
+  "Network restored": "网络已恢复",
+  "Connection lost. Some features may be unavailable.": "网络连接已断开，部分功能暂不可用。",
+  "Create an agent": "创建一位成员",
+  "Give it a persona, model, and workspace.": "配置它的角色、模型和工作区。",
+  "Configure a model": "配置模型提供商",
+  "Add a provider key so the agent can actually run.": "填入 API Key 后成员才能开始运行。",
+  "Install a skill pack": "安装技能包",
+  "Bundled skills the agent can use.": "为成员提供可加载的能力技能。",
+  "Start a chat": "发起第一次对话",
+  "Pick an agent and send the first message.": "选择一位 PA 并发送首条消息。",
 };
 
 /** One wording per key is enforced by `pages/index.test.ts`; nothing here overrides anything.

@@ -167,4 +167,9 @@ export const requirementsZh: Record<string, string> = {
   running: "运行中",
   "commit failed": "提交失败",
   "Requirement · Goals & proposals": "需求 · 目标与提案",
+  "{n} linked artifact(s)": "共 {n} 个关联产物",
+  "No artifacts linked yet": "暂未关联产物",
+  "Files produced by runs or workflow executions under this goal appear here automatically.":
+    "该目标名下的运行或流程执行产出的文件会自动汇总在这里。",
+  "Linked workflow executions": "关联的流程执行",
 };

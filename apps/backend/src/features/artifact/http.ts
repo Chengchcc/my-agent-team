@@ -7,11 +7,43 @@ export function artifactRoutes(service: ArtifactService) {
     .get(
       "/",
       async ({ query }) => {
-        const folder = query.folder ? String(query.folder) : undefined;
-        return { artifacts: await service.list(folder) };
+        const filter = {
+          ...(query.folder ? { folder: String(query.folder) } : {}),
+          ...(query.requirementId ? { requirementId: String(query.requirementId) } : {}),
+          ...(query.conversationId ? { conversationId: String(query.conversationId) } : {}),
+          ...(query.workflowExecutionId
+            ? { workflowExecutionId: String(query.workflowExecutionId) }
+            : {}),
+          ...(query.agentId ? { agentId: String(query.agentId) } : {}),
+          ...(query.projectId ? { projectId: String(query.projectId) } : {}),
+          ...(query.runId ? { runId: String(query.runId) } : {}),
+        };
+        return {
+          artifacts: await service.list(Object.keys(filter).length > 0 ? filter : undefined),
+        };
       },
       {
-        query: t.Object({ folder: t.Optional(t.String()) }),
+        query: t.Object({
+          folder: t.Optional(t.String()),
+          requirementId: t.Optional(t.String()),
+          conversationId: t.Optional(t.String()),
+          workflowExecutionId: t.Optional(t.String()),
+          agentId: t.Optional(t.String()),
+          projectId: t.Optional(t.String()),
+          runId: t.Optional(t.String()),
+        }),
+      },
+    )
+    .get(
+      // Must precede "/:url" — that route would swallow "meta" as an id.
+      "/meta",
+      async ({ query }) => {
+        const meta = await service.getMeta(query.url);
+        if (!meta) throw new HttpError(`artifact not found: ${query.url}`, 404);
+        return { artifact: meta };
+      },
+      {
+        query: t.Object({ url: t.String({ minLength: 1 }) }),
       },
     )
     .get(
@@ -68,7 +100,10 @@ export function artifactRoutes(service: ArtifactService) {
             t.Object({
               runId: t.Optional(t.String()),
               conversationId: t.Optional(t.String()),
+              requirementId: t.Optional(t.String()),
+              workflowExecutionId: t.Optional(t.String()),
               agentId: t.Optional(t.String()),
+              projectId: t.Optional(t.String()),
             }),
           ),
         }),

@@ -48,4 +48,14 @@ describe("Markdown renderer", () => {
     expect(html("Hello world")).toContain("<p");
     expect(html("Hello world")).toContain("Hello world");
   });
+
+  it("keeps internal console routes in-app without target=_blank while external links open new tab", () => {
+    const internal = html("[Go to chat](/chat/conv-1)");
+    expect(internal).toContain('href="/chat/conv-1"');
+    expect(internal).not.toContain('target="_blank"');
+
+    const external = html("[Docs](https://example.com)");
+    expect(external).toContain('href="https://example.com"');
+    expect(external).toContain('target="_blank"');
+  });
 });

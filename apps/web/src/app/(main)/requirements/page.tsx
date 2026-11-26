@@ -3,12 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Target } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { type ReactNode, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { type ReactNode, Suspense, useMemo, useState } from "react";
 import { Page, PageBody, PageHeader } from "@/components/page";
+import { ActiveFilterBar, type ActiveFilterChip } from "@/components/ui/active-filter-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { entityLabelText } from "@/components/ui/entity-link";
 import { Input } from "@/components/ui/input";
 import { RoleAvatar, roleKindOf } from "@/components/ui/role-avatar";
 import {
@@ -58,8 +60,13 @@ const SHEET_REFRESH_MS = 8000;
 /** ADR 0074: the "requirements by goal" view. One row per tracked item; the status a person reads
  *  is DERIVED (execution, request and acceptance records), so nobody's summary edit can mark work
  *  finished here. The agents column counts agents, once each, not runs. */
-export default function RequirementsPage() {
+function RequirementsView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlProjectId = searchParams.get("project") ?? undefined;
+  const urlConversationId = searchParams.get("conversation") ?? undefined;
+  const urlStatus = searchParams.get("status") ?? undefined;
+
   const [sheet, setSheet] = useState<{
     phase: SheetPhase;
     requirement: Parameters<typeof RequirementSheet>[0]["requirement"];
@@ -69,11 +76,15 @@ export default function RequirementsPage() {
   // While the new-goal sheet is open the list is read again from time to time: the goal appears
   // when the PA tracks it, not before.
   const list = useQuery({
-    ...requirementsQuery(),
+    ...requirementsQuery(urlConversationId ? { conversationId: urlConversationId } : undefined),
     refetchInterval: sheetOpen ? SHEET_REFRESH_MS : false,
   });
   const pending = usePendingProposals();
-  const [filter, setFilter] = useState<RequirementFilter>({ ...NO_FILTER });
+  const [filter, setFilter] = useState<RequirementFilter>({
+    ...NO_FILTER,
+    projectId: urlProjectId ?? FILTER_ALL,
+    status: urlStatus ?? FILTER_ALL,
+  });
 
   const rows = useMemo(() => list.data?.requirements ?? [], [list.data]);
   const ids = useMemo(() => rows.map((row) => row.requirementId), [rows]);
@@ -120,6 +131,41 @@ export default function RequirementsPage() {
   const pendingCount = pending.data?.proposals.length ?? 0;
   const shown = filterRequirements(rows, filter, { statusOf, projectNameOf, memberNameOf });
 
+  function dropUrlParam(key: string): void {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete(key);
+    const qs = next.toString();
+    router.replace(qs ? `/requirements?${qs}` : "/requirements");
+  }
+
+  const activeChips: ActiveFilterChip[] = [];
+  if (urlConversationId) {
+    const conv = conversationById.get(urlConversationId);
+    activeChips.push({
+      key: "conversation",
+      category: t("Conversation"),
+      value: entityLabelText(
+        "conversation",
+        urlConversationId,
+        conv ? conversationDisplayName(conv) : undefined,
+      ),
+      href: `/chat/${encodeURIComponent(urlConversationId)}`,
+      onRemove: () => dropUrlParam("conversation"),
+    });
+  }
+  if (urlProjectId && filter.projectId === urlProjectId) {
+    activeChips.push({
+      key: "project",
+      category: t("Project"),
+      value: entityLabelText("project", urlProjectId, projectNameById.get(urlProjectId)),
+      href: `/team/projects/${encodeURIComponent(urlProjectId)}`,
+      onRemove: () => {
+        setFilter((prev) => ({ ...prev, projectId: FILTER_ALL }));
+        dropUrlParam("project");
+      },
+    });
+  }
+
   function openSheet(requirement: typeof sheet.requirement): void {
     setSheet({ phase: "open", requirement });
   }
@@ -142,6 +188,13 @@ export default function RequirementsPage() {
         }
       />
       <PageBody className="space-y-5">
+        <ActiveFilterBar
+          chips={activeChips}
+          onClearAll={() => {
+            setFilter({ ...NO_FILTER });
+            router.replace("/requirements");
+          }}
+        />
         <section className="rounded-2xl border border-(--hairline) bg-(--panel) p-6 ">
           <div className="flex flex-wrap items-center justify-between gap-5">
             <div className="min-w-0 max-w-[610px]">
@@ -304,10 +357,10 @@ export default function RequirementsPage() {
                           className="cursor-pointer"
                           onClick={() => router.push(goalHref)}
                         >
-                          <TableCell className="max-w-[300px]">
+                          <TableCell className="max-w-[300px]" title={row.requirementId}>
                             <RowLink href={goalHref}>{row.title}</RowLink>
-                            <span className="block truncate font-mono text-[10px] text-(--faint)">
-                              {row.requirementId}
+                            <span className="block truncate text-[11px] text-(--mute)">
+                              {row.goal}
                             </span>
                           </TableCell>
                           <TableCell className="text-[11px] text-(--body)">
@@ -409,5 +462,13 @@ function RowLink({ href, children }: { href: string; children: ReactNode }) {
     >
       {children}
     </Link>
+  );
+}
+
+export default function RequirementsPage() {
+  return (
+    <Suspense fallback={null}>
+      <RequirementsView />
+    </Suspense>
   );
 }

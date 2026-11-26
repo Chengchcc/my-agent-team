@@ -1,9 +1,9 @@
 "use client";
 
 import { parseWorkflow, type WorkflowDefinition } from "@chengchenccc/workflow";
-import { useQuery } from "@tanstack/react-query";
+import { Wand2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { type ComposerDraft, PaPickerBar, PaSession, usePaPicker } from "@/components/PaSession";
+import { type ComposerDraft, PaSession } from "@/components/PaSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +16,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import {
   blankWorkflow,
   copyWorkflowDefinition,
@@ -83,11 +82,6 @@ export function WorkflowNewSheet({
   const [phase, setPhase] = useState<"idle" | "creating">("idle");
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
-  const picker = usePaPicker();
-  const paId = picker.activePa?.id ?? "";
-  // The skill that designs workflows, when this PA has it: the draft starts with its command.
-  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
-  const skill = (skillsQuery.data ?? []).find((entry) => entry.command.includes("workflow"));
 
   const id = slugifyWorkflowId(fields.name);
   const taken = templates.some((template) => template.workflowId === id);
@@ -103,8 +97,7 @@ export function WorkflowNewSheet({
 
   function offerDraft(): void {
     const count = (draft?.n ?? 0) + 1;
-    const skillCommand = skill === undefined ? "" : skill.command;
-    const text = newWorkflowRequest(fields.name.trim(), fields.description, skillCommand);
+    const text = newWorkflowRequest(fields.name.trim(), fields.description, "");
     setDraft({ text, n: count });
   }
 
@@ -125,20 +118,31 @@ export function WorkflowNewSheet({
   }
 
   const aside = (
-    <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      <PaPickerBar
-        picker={picker}
-        onDraft={offerDraft}
-        draftLabel={t("Draft a request")}
-        draftDisabled={fields.name.trim() === ""}
-      />
-      <PaSession
-        conversationId={picker.conversationId}
-        paId={paId}
-        draft={draft ?? undefined}
-        emptyTitle={t("Describe the workflow; the PA advises")}
-      />
-    </div>
+    <PaSession
+      origin="editor:workflow"
+      sessionKey="new-workflow"
+      skillSpec={{
+        fallbackCommand: "/workflow_design",
+        matchKeyword: "workflow",
+        fallbackDescription: t("Design a new workflow"),
+        contextLine: fields.name.trim() ? `${t("Workflow")}: ${fields.name.trim()}` : undefined,
+      }}
+      draft={draft ?? undefined}
+      headerAction={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={fields.name.trim() === ""}
+          onClick={offerDraft}
+          title={t("Puts a request into the input, for you to edit and send")}
+        >
+          <Wand2 className="size-3.5" />
+          {t("Draft a request")}
+        </Button>
+      }
+      emptyTitle={t("Describe the workflow; the PA advises")}
+    />
   );
 
   const templateItems = [

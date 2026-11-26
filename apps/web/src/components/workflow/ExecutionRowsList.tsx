@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Note, PanelCell, PanelRow, PanelTable, StatusBadge } from "@/components/ops/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { EntityLink } from "@/components/ui/entity-link";
 import { useWorkflowExecutions } from "@/features/workflow/hooks";
 import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/duration";
@@ -90,13 +91,36 @@ export function ExecutionRowsList({ workflowId }: { workflowId: string }) {
           return (
             <PanelRow key={execution.executionId}>
               <PanelCell label={t("Run")}>
-                <Link
+                <EntityLink
+                  kind="execution"
+                  id={execution.executionId}
+                  label={execution.labels?.workflowName ?? workflowId}
+                  showSecondaryId
                   href={`/workflows/${workflowId}/executions/${execution.executionId}`}
-                  className="font-mono text-(--ink-strong) hover:text-(--primary)"
-                >
-                  {execution.executionId}
-                </Link>
+                />
                 <Note className="mt-0.5">{new Date(execution.createdAt).toLocaleString()}</Note>
+                {(execution.requirementId || execution.conversationId) && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {execution.requirementId && (
+                      <EntityLink
+                        kind="requirement"
+                        id={execution.requirementId}
+                        label={execution.labels?.requirementTitle}
+                        href={`/requirements/${encodeURIComponent(execution.requirementId)}`}
+                        variant="pill"
+                      />
+                    )}
+                    {execution.conversationId && (
+                      <EntityLink
+                        kind="conversation"
+                        id={execution.conversationId}
+                        label={execution.labels?.conversationTitle}
+                        href={`/chat/${encodeURIComponent(execution.conversationId)}`}
+                        variant="pill"
+                      />
+                    )}
+                  </div>
+                )}
               </PanelCell>
               <PanelCell label={t("Status")}>
                 <StatusBadge look={executionStatus(execution.status)} />

@@ -58,4 +58,20 @@ export const chatZh: Record<string, string> = {
   "What do you want to work on?": "你想做什么？",
   "Create and send": "创建并发送",
   "The conversation was not created": "会话没有创建成功",
+  // Session context sidebar & header (ADR 0082 D7/D8)
+  "All work sessions": "所有工作会话",
+  "Hide context panel": "收起上下文侧栏",
+  "Show context panel": "展开上下文侧栏",
+  Context: "上下文",
+  "Session context": "本会话上下文",
+  "Linked goals": "关联需求",
+  "No goal linked to this conversation yet.": "此会话暂未关联需求。",
+  "Current goal": "当前目标",
+  "View in Requirements": "在需求页查看",
+  "Session artifacts": "本会话产物",
+  "Files produced in this session appear here for quick preview.":
+    "本会话产出的文件会列在这里，点按即可预览。",
+  "Open in Artifacts": "在产物页打开",
+  "Workbench & flows": "工作台与流程",
+  "Session details & diagnostics": "会话详情与诊断",
 };

@@ -1,10 +1,12 @@
 "use client";
 
 import { useQueries } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import { AddLarkChannelSheet } from "@/components/channels/AddLarkChannelSheet";
 import {
   type ChannelConfig,
   type ChannelSurface,
@@ -151,6 +153,7 @@ function ChannelRow({
  *  running process and the connection are four facts from four sources; the
  *  product reports no deployment state, so that column says so. */
 export default function ChannelsPage() {
+  const [addOpen, setAddOpen] = useState(false);
   const agentsQuery = useAgentList();
   const agents = (agentsQuery.data ?? []).filter((a) => a.role !== "worker" && !a.archivedAt);
   const surfaces = useQueries({ queries: agents.map((a) => larkSurfaceQuery(a.id)) });
@@ -211,6 +214,12 @@ export default function ChannelsPage() {
         breadcrumb={[{ label: "System" }, { label: "Channels" }]}
         title={t("Channels")}
         subtitle={t("One row per PA and its Lark bot.")}
+        actions={
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="size-3.5" />
+            {t("Add Lark bot")}
+          </Button>
+        }
       />
       <PageBody>
         <p className="mb-4 max-w-3xl text-xs/relaxed  text-(--mute)">
@@ -220,6 +229,7 @@ export default function ChannelsPage() {
         </p>
         {body}
       </PageBody>
+      <AddLarkChannelSheet open={addOpen} onClose={() => setAddOpen(false)} agents={agents} />
     </Page>
   );
 }

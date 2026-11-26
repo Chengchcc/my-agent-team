@@ -28,8 +28,10 @@ export const NO_PROJECT = "none";
 
 /** What a locate link named, to prefill the form with. */
 export interface TerminalPrefill {
-  agentId: string;
+  agentId?: string;
   projectId?: string;
+  conversationId?: string;
+  requirementId?: string;
 }
 
 /** The line under the member select: who can be chosen for this scope, and why nobody can. */
@@ -76,7 +78,7 @@ export function NewTerminalDialog({
     setProject(
       prefill !== null && prefill.projectId !== undefined ? prefill.projectId : NO_PROJECT,
     );
-    setAgentId(prefill === null ? "" : prefill.agentId);
+    setAgentId(prefill?.agentId ?? "");
   }, [open, prefill]);
 
   const members = agents.filter((agent) => agent.archivedAt === null && agent.enabled !== false);
@@ -92,11 +94,19 @@ export function NewTerminalDialog({
 
   function create() {
     if (selected === undefined || spawn.isPending) return;
-    const body: { agentId: string; title: string; projectId?: string } = {
+    const body: {
+      agentId: string;
+      title: string;
+      projectId?: string;
+      conversationId?: string;
+      requirementId?: string;
+    } = {
       agentId: selected.id,
       title: title.trim() === "" ? "bash" : title.trim(),
     };
     if (project !== NO_PROJECT) body.projectId = project;
+    if (prefill?.conversationId) body.conversationId = prefill.conversationId;
+    if (prefill?.requirementId) body.requirementId = prefill.requirementId;
     spawn.mutate(body, {
       onSuccess: (result) => {
         onCreated(result.terminal.terminalId);
@@ -138,7 +148,14 @@ export function NewTerminalDialog({
             <Label htmlFor="new-terminal-project" className="text-[11px] font-normal text-(--mute)">
               {t("Project")}
             </Label>
-            <Select value={project} onValueChange={(value) => setProject(value ?? NO_PROJECT)}>
+            <Select
+              items={[
+                { value: NO_PROJECT, label: t("Member's own workspace") },
+                ...projects.map((row) => ({ value: row.projectId, label: row.name })),
+              ]}
+              value={project}
+              onValueChange={(value) => setProject(value ?? NO_PROJECT)}
+            >
               <SelectTrigger id="new-terminal-project" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -157,6 +174,7 @@ export function NewTerminalDialog({
               {t("Member")}
             </Label>
             <Select
+              items={options.map((agent) => ({ value: agent.id, label: agent.name }))}
               value={selected === undefined ? "" : selected.id}
               onValueChange={(value) => setAgentId(value ?? "")}
             >

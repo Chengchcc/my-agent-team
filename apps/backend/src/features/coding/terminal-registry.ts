@@ -31,6 +31,10 @@ export interface TerminalInfo {
    *  worktree) — the directory a room's worker runs in. */
   readonly projectId: string | null;
   readonly agentId: string;
+  /** ADR 0082 D3: optional linkage back to workspace / conversation / requirement. */
+  readonly workspaceId: string | null;
+  readonly conversationId: string | null;
+  readonly requirementId: string | null;
   readonly cwd: string;
   /** Display hint — set at spawn, renamed by launch-oma. */
   title: string;
@@ -46,6 +50,9 @@ export interface PersistedTerminal {
   terminalId: string;
   projectId: string | null;
   agentId: string;
+  workspaceId?: string | null;
+  conversationId?: string | null;
+  requirementId?: string | null;
   cwd: string;
   title: string;
   kind: TerminalKind;
@@ -67,6 +74,9 @@ interface Slot {
 export interface SpawnInput {
   projectId: string | null;
   agentId: string;
+  workspaceId?: string | null;
+  conversationId?: string | null;
+  requirementId?: string | null;
   cwd: string;
   title?: string;
   kind?: TerminalKind;
@@ -140,6 +150,9 @@ export function createTerminalRegistry(
       terminalId: s.info.terminalId,
       projectId: s.info.projectId,
       agentId: s.info.agentId,
+      workspaceId: s.info.workspaceId,
+      conversationId: s.info.conversationId,
+      requirementId: s.info.requirementId,
       cwd: s.info.cwd,
       title: s.info.title,
       kind: s.info.kind,
@@ -195,6 +208,9 @@ export function createTerminalRegistry(
       terminalId: input.terminalId ?? idGen(),
       projectId: input.projectId,
       agentId: input.agentId,
+      workspaceId: input.workspaceId ?? null,
+      conversationId: input.conversationId ?? null,
+      requirementId: input.requirementId ?? null,
       cwd: input.cwd,
       title: input.title ?? "bash",
       kind: input.kind ?? "shell",

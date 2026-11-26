@@ -1,11 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useRef, useState } from "react";
 import { toast } from "sonner";
-import { type ComposerDraft, PaPickerBar, PaSession, usePaPicker } from "@/components/PaSession";
+import { type ComposerDraft, PaSession } from "@/components/PaSession";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +30,6 @@ import {
 } from "@/features/requirements/goal-fields";
 import { useRequirements, useUpdateRequirement } from "@/features/requirements/hooks";
 import type { RequirementListRow, RequirementRecord } from "@/features/requirements/queries";
-import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { t } from "@/lib/i18n";
 
 const NO_PROJECT = "none";
@@ -73,15 +71,8 @@ export function RequirementSheet({
   const [saveState, setSaveState] = useState<"idle" | "saving">("idle");
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
   const update = useUpdateRequirement(requirement?.requirementId ?? "");
-  const picker = usePaPicker();
   const { data: projectsData } = useProjectList();
   const projects = projectsData?.projects ?? [];
-
-  // The skill that guides tracking, when this PA has it: the draft starts with its command.
-  const paId = picker.activePa?.id ?? "";
-  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
-  const lead =
-    skillsQuery.data?.find((skill) => skill.command.includes("requirement"))?.command ?? "";
 
   const change = editing ? changedFields(requirement, fields) : {};
   const dirty = editing ? Object.keys(change).length > 0 : !briefIsEmpty(brief);
@@ -116,13 +107,12 @@ export function RequirementSheet({
   function offerDraft(): void {
     const count = (draft?.n ?? 0) + 1;
     if (editing) {
-      const head = lead === "" ? "" : `${lead}\n`;
-      const text = `${head}${t("Requirement")}: ${requirement.title} (${requirement.requirementId})\n${t("My correction")}: `;
+      const text = `${t("Requirement")}: ${requirement.title} (${requirement.requirementId})\n${t("My correction")}: `;
       setDraft({ text, n: count });
       return;
     }
     const briefProject = brief.projectId === NO_PROJECT ? "" : brief.projectId;
-    setDraft({ text: briefMessage(brief, projectNameOf(briefProject), lead), n: count });
+    setDraft({ text: briefMessage(brief, projectNameOf(briefProject), ""), n: count });
   }
 
   async function save(): Promise<void> {
@@ -140,23 +130,37 @@ export function RequirementSheet({
   }
 
   const draftLabel = editing ? t("Draft a correction") : t("Put brief into the conversation");
+  const sessionProjectId =
+    requirement?.projectId ?? (brief.projectId !== NO_PROJECT ? brief.projectId : undefined);
   const aside = (
-    <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      <PaPickerBar
-        picker={picker}
-        onDraft={offerDraft}
-        draftLabel={draftLabel}
-        draftDisabled={!editing && briefIsEmpty(brief)}
-      />
-      <PaSession
-        conversationId={picker.conversationId}
-        paId={paId}
-        draft={draft ?? undefined}
-        emptyTitle={
-          editing ? t("Ask the PA about this goal") : t("State the goal; the PA tracks it")
-        }
-      />
-    </div>
+    <PaSession
+      origin="editor:requirement"
+      projectId={sessionProjectId}
+      sessionKey={requirement?.requirementId ?? "new-requirement"}
+      skillSpec={{
+        fallbackCommand: "/requirement_memory",
+        matchKeyword: "requirement",
+        fallbackDescription: editing ? t("Update or refine this goal") : t("Track a new goal"),
+        contextLine: editing
+          ? `${t("Requirement")}: ${requirement.title} (${requirement.requirementId})`
+          : undefined,
+      }}
+      draft={draft ?? undefined}
+      headerAction={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!editing && briefIsEmpty(brief)}
+          onClick={offerDraft}
+          title={t("Puts a request into the input, for you to edit and send")}
+        >
+          <Wand2 className="size-3.5" />
+          {draftLabel}
+        </Button>
+      }
+      emptyTitle={editing ? t("Ask the PA about this goal") : t("State the goal; the PA tracks it")}
+    />
   );
 
   function renderFooter(requestClose: () => void): ReactNode {
@@ -341,11 +345,7 @@ export function RequirementSheet({
                 </SelectContent>
               </Select>
             </Field>
-            <Button
-              className="w-full"
-              disabled={briefIsEmpty(brief) || picker.conversationId === null}
-              onClick={offerDraft}
-            >
+            <Button className="w-full" disabled={briefIsEmpty(brief)} onClick={offerDraft}>
               {t("Put brief into the conversation")}
               <ArrowRight />
             </Button>

@@ -1,8 +1,8 @@
 "use client";
 
 import { FolderOpen, LayoutGrid, List, Search, Upload } from "lucide-react";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArtifactDetailDialog } from "@/components/ArtifactDetail";
 import { ArtifactGalleryCard, type GalleryLayout } from "@/components/ArtifactGalleryCard";
@@ -10,6 +10,7 @@ import { fmtBytes } from "@/components/ops/format";
 import { Note } from "@/components/ops/kit";
 import { QueryState } from "@/components/ops/QueryState";
 import { Page, PageBody, PageHeader } from "@/components/page";
+import { ActiveFilterBar, type ActiveFilterChip } from "@/components/ui/active-filter-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { entityLabelText } from "@/components/ui/entity-link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SubTabs } from "@/components/ui/polish";
@@ -36,7 +38,12 @@ import {
   filterArtifacts,
 } from "@/features/artifacts/artifact-view";
 import { useArtifacts, useUploadArtifact } from "@/features/artifacts/hooks";
+import { useAllConversations } from "@/features/conversations/hooks";
+import { useProjectList } from "@/features/projects/hooks";
+import { useRequirement } from "@/features/requirements/hooks";
+import { isRequirementDetail } from "@/features/requirements/queries";
 import type { ArtifactMeta } from "@/lib/api";
+import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -177,17 +184,34 @@ function UploadDialog({ state, onDone }: { state: UploadState; onDone: () => voi
 }
 
 function ArtifactsView() {
-  const [kind, setKind] = useState<ArtifactFilter>("all");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedFolder = searchParams.get("folder");
+  const requirementId = searchParams.get("requirement") ?? undefined;
+  const conversationId = searchParams.get("conversation") ?? undefined;
+  const workflowExecutionId = searchParams.get("execution") ?? undefined;
+  const projectId = searchParams.get("project") ?? undefined;
+  const agentId = searchParams.get("agent") ?? undefined;
+  const requestedKind = searchParams.get("kind");
+
+  const [kind, setKind] = useState<ArtifactFilter>(requestedKind ? asFilter(requestedKind) : "all");
   const [query, setQuery] = useState("");
   const [layout, setLayout] = useState<GalleryLayout>("grid");
   const [selected, setSelected] = useState<ArtifactMeta | null>(null);
   const [upload, setUpload] = useState<UploadState>("closed");
-  // A chat's "Artifacts" link carries the produced-files folder (#65 option C:
-  // tool images live here, tied to their conversation, no ledger change).
-  const requestedFolder = useSearchParams().get("folder");
   const [folder, setFolder] = useState(requestedFolder ?? "all");
-  const artifactsQuery = useArtifacts();
+
+  const artifactsQuery = useArtifacts({
+    requirementId,
+    conversationId,
+    workflowExecutionId,
+    projectId,
+    agentId,
+  });
   const { data: agents } = useAgentList();
+  const { data: projectsData } = useProjectList();
+  const { data: conversations } = useAllConversations();
+  const reqDetail = useRequirement(requirementId ?? "");
 
   const artifacts = artifactsQuery.data?.artifacts ?? [];
   const folders = useMemo(() => {
@@ -205,18 +229,119 @@ function ArtifactsView() {
   const visible = filterArtifacts(scoped, kind, query);
   const totalBytes = scoped.reduce((sum, artifact) => sum + artifact.size, 0);
 
+  const dropParam = useCallback(
+    (key: string): void => {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete(key);
+      const qs = next.toString();
+      router.replace(qs ? `/artifacts?${qs}` : "/artifacts");
+    },
+    [router, searchParams],
+  );
+
+  function clearAllUrlFilters(): void {
+    setFolder("all");
+    setKind("all");
+    setQuery("");
+    router.replace("/artifacts");
+  }
+
+  const filterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (requirementId) {
+      const title =
+        (isRequirementDetail(reqDetail.data) ? reqDetail.data.requirement.title : undefined) ??
+        artifacts.find((a) => a.source?.requirementId === requirementId)?.labels?.requirementTitle;
+      chips.push({
+        key: "requirement",
+        category: t("Requirement"),
+        value: entityLabelText("requirement", requirementId, title),
+        href: `/requirements/${encodeURIComponent(requirementId)}`,
+        onRemove: () => dropParam("requirement"),
+      });
+    }
+    if (conversationId) {
+      const conv = conversations?.find((c) => c.conversationId === conversationId);
+      const label =
+        artifacts.find((a) => a.source?.conversationId === conversationId)?.labels
+          ?.conversationTitle ?? (conv ? conversationDisplayName(conv) : undefined);
+      chips.push({
+        key: "conversation",
+        category: t("Conversation"),
+        value: entityLabelText("conversation", conversationId, label),
+        href: `/chat/${encodeURIComponent(conversationId)}`,
+        onRemove: () => dropParam("conversation"),
+      });
+    }
+    if (workflowExecutionId) {
+      const wfName = artifacts.find((a) => a.source?.workflowExecutionId === workflowExecutionId)
+        ?.labels?.workflowName;
+      chips.push({
+        key: "execution",
+        category: t("Workflow"),
+        value: entityLabelText("execution", workflowExecutionId, wfName),
+        onRemove: () => dropParam("execution"),
+      });
+    }
+    if (projectId) {
+      const projectName = projectsData?.projects.find((p) => p.projectId === projectId)?.name;
+      chips.push({
+        key: "project",
+        category: t("Project"),
+        value: entityLabelText("project", projectId, projectName),
+        href: `/team/projects/${encodeURIComponent(projectId)}`,
+        onRemove: () => dropParam("project"),
+      });
+    }
+    if (agentId) {
+      const name = agents?.find((a) => a.id === agentId)?.name;
+      chips.push({
+        key: "agent",
+        category: t("Agent"),
+        value: entityLabelText("agent", agentId, name),
+        href: `/team/${encodeURIComponent(agentId)}`,
+        onRemove: () => dropParam("agent"),
+      });
+    }
+    return chips;
+  }, [
+    requirementId,
+    conversationId,
+    workflowExecutionId,
+    projectId,
+    agentId,
+    reqDetail.data,
+    artifacts,
+    conversations,
+    projectsData,
+    agents,
+    dropParam,
+  ]);
+
   function memberName(artifact: ArtifactMeta): string | null {
-    const agentId = artifact.source?.agentId;
-    if (agentId === undefined) return null;
-    const found = agents?.find((member) => member.id === agentId);
-    if (found === undefined) return agentId;
+    if (artifact.labels?.agentName) return artifact.labels.agentName;
+    const aid = artifact.source?.agentId;
+    if (aid === undefined) return null;
+    const found = agents?.find((member) => member.id === aid);
+    if (found === undefined) return aid;
     return found.name;
   }
 
   function clearFilter(): void {
     setKind("all");
     setQuery("");
+    if (filterChips.length > 0 || folder !== "all") {
+      clearAllUrlFilters();
+    }
   }
+
+  const folderItems = useMemo(
+    () => [
+      { value: "all", label: t("All folders") },
+      ...folders.map((name) => ({ value: name, label: name })),
+    ],
+    [folders],
+  );
 
   const tabs = TABS.map((key) => {
     const item = { key, label: t(TAB_LABEL[key]), count: counts[key] };
@@ -239,6 +364,7 @@ function ArtifactsView() {
         }
       />
       <PageBody className="space-y-5">
+        <ActiveFilterBar chips={filterChips} onClearAll={clearAllUrlFilters} />
         <SubTabs items={tabs} active={kind} onChange={(key) => setKind(asFilter(key))} />
 
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
@@ -251,6 +377,7 @@ function ArtifactsView() {
           <div className="flex flex-wrap items-center gap-2.5">
             {folders.length > 0 && (
               <Select
+                items={folderItems}
                 value={folder}
                 onValueChange={(value) => {
                   if (typeof value === "string") setFolder(value);

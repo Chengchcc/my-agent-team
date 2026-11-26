@@ -3,12 +3,18 @@
 import { Columns2Icon, PlusIcon } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/page";
+import { ActiveFilterBar, type ActiveFilterChip } from "@/components/ui/active-filter-bar";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { entityLabelText } from "@/components/ui/entity-link";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentList } from "@/features/agents/hooks";
+import { useAllConversations } from "@/features/conversations/hooks";
 import { useProjectList } from "@/features/projects/hooks";
+import { useRequirement } from "@/features/requirements/hooks";
+import { isRequirementDetail } from "@/features/requirements/queries";
 import type { CodingTerminalRow, ProjectRow } from "@/lib/api";
+import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useCloseTerminal, useCodingTerminals, useSpawnTerminal } from "../hooks";
@@ -22,8 +28,10 @@ import { TerminalPane } from "./terminal-pane";
  *  Read once: the page keeps the address in step with the focused pane, which would otherwise
  *  erase the request before the lists have loaded. */
 interface Entry {
-  agentId: string;
+  agentId: string | null;
   projectId: string | null;
+  conversationId: string | null;
+  requirementId: string | null;
   /** `?locate=1`: only focus a view that exists; never start one. */
   locate: boolean;
 }
@@ -39,12 +47,18 @@ function readLanding(): Landing {
   const params = new URLSearchParams(window.location.search);
   const tabHint = params.get("t");
   const agentId = params.get("agent");
-  if (agentId === null) return { entry: null, tabHint };
   const project = params.get("project");
+  const conversationId = params.get("conversation");
+  const requirementId = params.get("requirement");
+  if (agentId === null && project === null && conversationId === null && requirementId === null) {
+    return { entry: null, tabHint };
+  }
   const entry: Entry = {
     agentId,
-    projectId: project === null ? null : project,
-    locate: params.get("locate") === "1",
+    projectId: project,
+    conversationId,
+    requirementId,
+    locate: params.get("locate") === "1" || agentId === null,
   };
   return { entry, tabHint };
 }
@@ -63,13 +77,13 @@ function scopeName(projectId: string | null, registry: LocateRegistry): string {
 /** Why a locate found nothing, in the person's words. */
 function missText(miss: LocateMiss, entry: Entry, registry: LocateRegistry): string {
   if (miss.reason === "unknown-agent") {
-    return t("No member with the id {id} is registered.", { id: entry.agentId });
+    return t("No member with the id {id} is registered.", { id: entry.agentId ?? "" });
   }
   if (miss.reason === "unknown-project") {
     return t("No project with the id {id} is registered.", { id: entry.projectId ?? "" });
   }
-  const agent = registry.agents.find((row) => row.id === entry.agentId);
-  const name = agent === undefined ? entry.agentId : agent.name;
+  const agent = entry.agentId ? registry.agents.find((row) => row.id === entry.agentId) : undefined;
+  const name = agent === undefined ? (entry.agentId ?? t("This context")) : agent.name;
   if (miss.elsewhere.length === 0) return t("{name} has no terminal yet.", { name });
   const places = [...new Set(miss.elsewhere.map((row) => scopeName(row.projectId, registry)))];
   return t("{name} has no terminal in {scope}. It has {n} elsewhere: {places}.", {
@@ -84,12 +98,32 @@ export function CodingPage() {
   const terminalsQuery = useCodingTerminals();
   const agentsQuery = useAgentList();
   const projectsQuery = useProjectList();
-  const terminals = terminalsQuery.data === undefined ? [] : terminalsQuery.data.terminals;
+  const conversationsQuery = useAllConversations();
+  const [landing] = useState(readLanding);
+  const [contextFilter, setContextFilter] = useState<{
+    conversationId: string | null;
+    requirementId: string | null;
+    projectId: string | null;
+  }>(() => ({
+    conversationId: landing.entry?.conversationId ?? null,
+    requirementId: landing.entry?.requirementId ?? null,
+    projectId: landing.entry?.projectId ?? null,
+  }));
+  const reqDetail = useRequirement(contextFilter.requirementId ?? "");
+  const allTerminals = terminalsQuery.data === undefined ? [] : terminalsQuery.data.terminals;
+  const terminals = allTerminals.filter((item) => {
+    if (contextFilter.conversationId && item.conversationId !== contextFilter.conversationId) {
+      return false;
+    }
+    if (contextFilter.requirementId && item.requirementId !== contextFilter.requirementId) {
+      return false;
+    }
+    return true;
+  });
   const agents = agentsQuery.data ?? [];
   const projects: ProjectRow[] =
     projectsQuery.data === undefined ? [] : projectsQuery.data.projects;
   const registry: LocateRegistry = { agents, projects };
-  const [landing] = useState(readLanding);
   const entry = landing.entry;
   const [selected, setSelected] = useState<CodingSelection | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -128,6 +162,28 @@ export function CodingPage() {
     if (entry === null) return;
     if (entry.locate) {
       if (!listReady || !registryReady) return;
+      // Prefer exact match on conversationId or requirementId when present (ADR 0082 D3).
+      const directMatch =
+        entry.conversationId || entry.requirementId
+          ? terminalsRef.current.find(
+              (row) =>
+                (entry.conversationId ? row.conversationId === entry.conversationId : true) &&
+                (entry.requirementId ? row.requirementId === entry.requirementId : true),
+            )
+          : undefined;
+      if (directMatch !== undefined) {
+        setSelected({
+          agentId: directMatch.agentId,
+          ...(directMatch.projectId !== null ? { projectId: directMatch.projectId } : {}),
+        });
+        setActiveId(directMatch.terminalId);
+        setMiss(null);
+        return;
+      }
+      if (entry.agentId === null) {
+        setMiss({ reason: "no-terminal", elsewhere: [] });
+        return;
+      }
       const target = { agentId: entry.agentId, projectId: entry.projectId ?? undefined };
       const result = resolveLocate(terminalsRef.current, target, registryRef.current);
       if (result.ok) {
@@ -139,9 +195,15 @@ export function CodingPage() {
       }
       return;
     }
-    if (!listReady) return;
+    if (!listReady || entry.agentId === null) return;
     const selection: CodingSelection = { agentId: entry.agentId };
-    const body: { agentId: string; title: string; projectId?: string } = {
+    const body: {
+      agentId: string;
+      title: string;
+      projectId?: string;
+      conversationId?: string;
+      requirementId?: string;
+    } = {
       agentId: entry.agentId,
       title: "bash",
     };
@@ -149,6 +211,8 @@ export function CodingPage() {
       selection.projectId = entry.projectId;
       body.projectId = entry.projectId;
     }
+    if (entry.conversationId !== null) body.conversationId = entry.conversationId;
+    if (entry.requirementId !== null) body.requirementId = entry.requirementId;
     setSelected(selection);
     const exists = terminalsRef.current.some(
       (row) => row.agentId === entry.agentId && (row.projectId ?? null) === entry.projectId,
@@ -277,8 +341,10 @@ export function CodingPage() {
           <Button
             onClick={() =>
               openNew({
-                agentId: entry.agentId,
+                agentId: entry.agentId ?? undefined,
                 projectId: entry.projectId === null ? undefined : entry.projectId,
+                conversationId: entry.conversationId ?? undefined,
+                requirementId: entry.requirementId ?? undefined,
               })
             }
           >
@@ -369,12 +435,87 @@ export function CodingPage() {
           "A clear work site for code work. Each member's console keeps its own context, and a view keeps running when you leave this page.",
         )}
         actions={
-          <Button onClick={() => openNew(null)}>
+          <Button
+            onClick={() =>
+              openNew(
+                contextFilter.conversationId ||
+                  contextFilter.requirementId ||
+                  contextFilter.projectId
+                  ? {
+                      projectId: contextFilter.projectId ?? undefined,
+                      conversationId: contextFilter.conversationId ?? undefined,
+                      requirementId: contextFilter.requirementId ?? undefined,
+                    }
+                  : null,
+              )
+            }
+          >
             <PlusIcon />
             {t("New terminal")}
           </Button>
         }
       />
+      {(contextFilter.conversationId || contextFilter.requirementId) && (
+        <div className="mb-3 px-4 sm:px-6 lg:px-8">
+          <ActiveFilterBar
+            chips={[
+              ...(contextFilter.requirementId
+                ? [
+                    {
+                      key: "requirement",
+                      category: t("Requirement"),
+                      value: entityLabelText(
+                        "requirement",
+                        contextFilter.requirementId,
+                        isRequirementDetail(reqDetail.data)
+                          ? reqDetail.data.requirement.title
+                          : allTerminals.find(
+                              (x) => x.requirementId === contextFilter.requirementId,
+                            )?.labels?.requirementTitle,
+                      ),
+                      href: `/requirements/${encodeURIComponent(contextFilter.requirementId)}`,
+                      onRemove: () => {
+                        setContextFilter((prev) => ({ ...prev, requirementId: null }));
+                        setMiss(null);
+                      },
+                    } satisfies ActiveFilterChip,
+                  ]
+                : []),
+              ...(contextFilter.conversationId
+                ? [
+                    {
+                      key: "conversation",
+                      category: t("Conversation"),
+                      value: entityLabelText(
+                        "conversation",
+                        contextFilter.conversationId,
+                        (() => {
+                          const found = conversationsQuery.data?.find(
+                            (c) => c.conversationId === contextFilter.conversationId,
+                          );
+                          return found
+                            ? conversationDisplayName(found)
+                            : allTerminals.find(
+                                (x) => x.conversationId === contextFilter.conversationId,
+                              )?.labels?.conversationTitle;
+                        })(),
+                      ),
+                      href: `/chat/${encodeURIComponent(contextFilter.conversationId)}`,
+                      onRemove: () => {
+                        setContextFilter((prev) => ({ ...prev, conversationId: null }));
+                        setMiss(null);
+                      },
+                    } satisfies ActiveFilterChip,
+                  ]
+                : []),
+            ]}
+            onClearAll={() => {
+              setContextFilter({ conversationId: null, requirementId: null, projectId: null });
+              setMiss(null);
+            }}
+          />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2.5 px-4 sm:px-6 lg:px-8">
         <span className="text-xs leading-[1.8] text-(--mute)">
           {t("{open} open views · {running} running", { open: terminals.length, running })}

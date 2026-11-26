@@ -6,6 +6,12 @@ export const workflowKeys = {
   list: () => ["workflow-definitions"] as const,
   detail: (id: string) => ["workflow-definitions", id] as const,
   executions: (id: string) => ["workflow-executions", id] as const,
+  executionsFiltered: (filter: {
+    workflowId?: string;
+    requirementId?: string;
+    conversationId?: string;
+    projectId?: string;
+  }) => ["workflow-executions", "filtered", filter] as const,
   proposal: (id: string) => ["workflow-definitions", id, "proposal"] as const,
 };
 
@@ -40,6 +46,19 @@ export function workflowExecutionsQuery(workflowId: string) {
   return queryOptions({
     queryKey: workflowKeys.executions(workflowId),
     queryFn: () => api.listWorkflowExecutions(workflowId),
+  });
+}
+
+/** ADR 0082: workflow executions filtered by linked requirement, conversation, or project. */
+export function filteredWorkflowExecutionsQuery(filter: {
+  workflowId?: string;
+  requirementId?: string;
+  conversationId?: string;
+  projectId?: string;
+}) {
+  return queryOptions({
+    queryKey: workflowKeys.executionsFiltered(filter),
+    queryFn: () => api.listWorkflowExecutions(filter),
   });
 }
 

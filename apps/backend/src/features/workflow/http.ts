@@ -11,7 +11,9 @@ import {
 import { join } from "node:path";
 import { parseWorkflow } from "@chengchenccc/workflow";
 import { Elysia, t } from "elysia";
+import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { HttpError } from "../../infra/errors.js";
+import type { WorkflowExecutionRow } from "./domain.js";
 import { dryRunWorkflow } from "./dry-run.js";
 import type { WorkflowExecutionService } from "./service.js";
 
@@ -60,10 +62,38 @@ export function workflowRoutes(deps: {
    *  deps = the token routes are off (tests without a store). */
   getTriggerToken?: (workflowId: string) => Promise<string | undefined>;
   setTriggerToken?: (workflowId: string, token: string) => Promise<void>;
+  /** ADR 0082 D5: optional batch label resolver for execution DTOs. */
+  labelResolver?: EntityLabelResolver;
   /** Emits a "changed" event on workflow writes (SSE live refresh). */
 }) {
   const svc = deps.workflowExecutionService;
   const dir = deps.workflowDir;
+
+  function enrichExecutions(rows: WorkflowExecutionRow[]): WorkflowExecutionRow[] {
+    if (!deps.labelResolver || rows.length === 0) return rows;
+    const maps = deps.labelResolver.resolveBatch({
+      workflowIds: rows.map((r) => r.workflowId),
+      requirementIds: rows.map((r) => r.requirementId),
+      conversationIds: rows.map((r) => r.conversationId),
+      projectIds: rows.map((r) => r.projectId),
+    });
+    return rows.map((r) => {
+      const labels = deps.labelResolver!.labelsFor(
+        {
+          workflowId: r.workflowId,
+          requirementId: r.requirementId,
+          conversationId: r.conversationId,
+          projectId: r.projectId,
+        },
+        maps,
+      );
+      return labels ? { ...r, labels } : r;
+    });
+  }
+
+  function enrichExecution(row: WorkflowExecutionRow): WorkflowExecutionRow {
+    return enrichExecutions([row])[0] ?? row;
+  }
 
   // The id is a bare filename stem (same contract as mcp.ts safePath).
   // Elysia decodes %2F inside path params, so "../" survives routing —
@@ -269,6 +299,9 @@ export function workflowRoutes(deps: {
           workflowId,
           definition,
           input,
+          requirementId: body.requirementId ?? null,
+          conversationId: body.conversationId ?? null,
+          projectId: body.projectId ?? null,
         });
       },
       {
@@ -279,17 +312,33 @@ export function workflowRoutes(deps: {
           }),
           input: t.Optional(t.Record(t.String(), t.Unknown())),
           artifacts: t.Optional(t.Array(t.String())),
+          requirementId: t.Optional(t.String({ minLength: 1 })),
+          conversationId: t.Optional(t.String({ minLength: 1 })),
+          projectId: t.Optional(t.String({ minLength: 1 })),
         }),
       },
     )
     .get(
       "/api/workflow-executions",
       async ({ query }) => {
-        const executions = await svc.listExecutions(query.workflowId ?? undefined);
-        return { executions };
+        const filter = {
+          ...(query.workflowId ? { workflowId: query.workflowId } : {}),
+          ...(query.requirementId ? { requirementId: query.requirementId } : {}),
+          ...(query.conversationId ? { conversationId: query.conversationId } : {}),
+          ...(query.projectId ? { projectId: query.projectId } : {}),
+        };
+        const executions = await svc.listExecutions(
+          Object.keys(filter).length > 0 ? filter : undefined,
+        );
+        return { executions: enrichExecutions(executions) };
       },
       {
-        query: t.Object({ workflowId: t.Optional(t.String()) }),
+        query: t.Object({
+          workflowId: t.Optional(t.String()),
+          requirementId: t.Optional(t.String()),
+          conversationId: t.Optional(t.String()),
+          projectId: t.Optional(t.String()),
+        }),
       },
     )
     .get("/api/workflow-executions/:executionId/trace", async ({ params }) => {
@@ -302,12 +351,12 @@ export function workflowRoutes(deps: {
         const waiting = nodeRuns.find((r) => r.status === "waiting_human");
         if (waiting) pendingHuman = await svc.getPendingHuman(params.executionId, waiting.nodeId);
       }
-      return { execution: row, events, nodeRuns, pendingHuman };
+      return { execution: enrichExecution(row), events, nodeRuns, pendingHuman };
     })
     .post("/api/workflow-executions/:executionId/cancel", async ({ params: { executionId } }) => {
       const row = await svc.cancelExecution(executionId);
       if (!row) throw new HttpError("Execution not found", 404);
-      return row;
+      return enrichExecution(row);
     })
     .delete("/api/workflow-executions/:executionId", async ({ params }) => {
       const ok = await svc.deleteExecution(params.executionId);
@@ -316,7 +365,7 @@ export function workflowRoutes(deps: {
     .get("/api/workflow-executions/:executionId", async ({ params }) => {
       const row = await svc.getExecution(params.executionId);
       if (!row) throw new HttpError("Execution not found", 404);
-      return row;
+      return enrichExecution(row);
     })
 
     .post(

@@ -2,12 +2,16 @@
  *  that already exist. A conversation's only source fact is `origin` (user, fork, dispatch):
  *  whether it came from a Lark chat or a group is not recorded, so nothing here guesses it. */
 
-/** Origins that belong to automated engine internals (not user work sessions). */
-const INTERNAL_ORIGINS = new Set(["loop", "cron", "workflow"]);
+/** Origins that belong to automated engine internals or ephemeral form/ask side-sheets
+ *  (not standalone user work sessions in /chat, NavRail, or Today). */
+const INTERNAL_ORIGINS = new Set(["loop", "cron", "workflow", "ask"]);
 
 /** Whether a conversation belongs in user-facing work-session surfaces (NavRail, Today, Chat, Team). */
 export function isWorkConversation(row: { origin?: string | null }): boolean {
-  return !row.origin || !INTERNAL_ORIGINS.has(row.origin);
+  if (!row.origin) return true;
+  if (INTERNAL_ORIGINS.has(row.origin)) return false;
+  if (row.origin.startsWith("editor:")) return false;
+  return true;
 }
 
 export interface ConversationLike {

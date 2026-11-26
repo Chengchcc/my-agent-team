@@ -193,19 +193,37 @@ export const project = sqliteTable(
 );
 
 // ─── workflow_execution (Agentic Workflow) ──────────────────────────
-export const workflowExecution = sqliteTable("workflow_execution", {
-  executionId: text("execution_id").notNull().primaryKey(),
-  workflowId: text("workflow_id").notNull(),
-  triggeredBy: text("triggered_by"), // manual | cron:<expr>
-  definition: text("definition").notNull(), // JSON: WorkflowDefinition snapshot
-  input: text("input").notNull(), // JSON: trigger input vars
-  store: text("store").notNull().default("{}"),
-  status: text().notNull().default("running"), // running | waiting_human | success | failure | custom
-  exit: text(),
-  error: text(),
-  createdAt: integer("created_at", { mode: "number" }).notNull(),
-  terminalAt: integer("terminal_at", { mode: "number" }),
-});
+export const workflowExecution = sqliteTable(
+  "workflow_execution",
+  {
+    executionId: text("execution_id").notNull().primaryKey(),
+    workflowId: text("workflow_id").notNull(),
+    triggeredBy: text("triggered_by"), // manual | cron:<expr>
+    definition: text("definition").notNull(), // JSON: WorkflowDefinition snapshot
+    input: text("input").notNull(), // JSON: trigger input vars
+    store: text("store").notNull().default("{}"),
+    status: text().notNull().default("running"), // running | waiting_human | success | failure | custom
+    exit: text(),
+    error: text(),
+    /** ADR 0082 D2: optional causal linkage back to the requirement, conversation, or project. */
+    requirementId: text("requirement_id").references(() => requirement.requirementId, {
+      onDelete: "set null",
+    }),
+    conversationId: text("conversation_id").references(() => conversation.conversationId, {
+      onDelete: "set null",
+    }),
+    projectId: text("project_id").references(() => project.projectId, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    terminalAt: integer("terminal_at", { mode: "number" }),
+  },
+  (table) => [
+    index("idx_workflow_execution_requirement").on(table.requirementId, table.createdAt),
+    index("idx_workflow_execution_conversation").on(table.conversationId, table.createdAt),
+    index("idx_workflow_execution_project").on(table.projectId, table.createdAt),
+  ],
+);
 
 export const workflowNodeRun = sqliteTable(
   "workflow_node_run",
@@ -792,4 +810,72 @@ export const proactiveEvent = sqliteTable(
     snippet: text().notNull(),
   },
   (table) => [index("idx_proactive_event_agent").on(table.agentId, table.ts)],
+);
+
+/** ADR 0082 D1: Artifact metadata & cross-entity provenance index. File bytes
+ *  remain on disk; SQLite is the query/filter source of truth. */
+export const artifact = sqliteTable(
+  "artifact",
+  {
+    url: text("url").primaryKey(),
+    folder: text("folder").notNull(),
+    filename: text("filename").notNull(),
+    size: integer("size", { mode: "number" }).notNull(),
+    mimeType: text("mime_type").notNull(),
+    encoding: text("encoding").notNull(), // utf8 | base64
+    sha256: text("sha256"),
+    runId: text("run_id").references(() => agentRun.runId, { onDelete: "set null" }),
+    conversationId: text("conversation_id").references(() => conversation.conversationId, {
+      onDelete: "set null",
+    }),
+    requirementId: text("requirement_id").references(() => requirement.requirementId, {
+      onDelete: "set null",
+    }),
+    workflowExecutionId: text("workflow_execution_id").references(
+      () => workflowExecution.executionId,
+      { onDelete: "set null" },
+    ),
+    agentId: text("agent_id"),
+    projectId: text("project_id").references(() => project.projectId, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_artifact_folder").on(table.folder, table.updatedAt),
+    index("idx_artifact_requirement").on(table.requirementId, table.updatedAt),
+    index("idx_artifact_conversation").on(table.conversationId, table.updatedAt),
+    index("idx_artifact_execution").on(table.workflowExecutionId, table.updatedAt),
+    index("idx_artifact_run").on(table.runId),
+  ],
+);
+
+/** ADR 0082 D3: Persisted Coding terminal layout & linkage (replaces
+ *  `terminals.json`). Live PTYs remain process-owned (ADR 0073). */
+export const codingTerminal = sqliteTable(
+  "coding_terminal",
+  {
+    terminalId: text("terminal_id").primaryKey(),
+    projectId: text("project_id").references(() => project.projectId, { onDelete: "set null" }),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id").references(() => workspace.workspaceId, {
+      onDelete: "set null",
+    }),
+    conversationId: text("conversation_id").references(() => conversation.conversationId, {
+      onDelete: "set null",
+    }),
+    requirementId: text("requirement_id").references(() => requirement.requirementId, {
+      onDelete: "set null",
+    }),
+    cwd: text("cwd").notNull(),
+    title: text("title").notNull(),
+    kind: text("kind").notNull().default("shell"), // shell | oma
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_coding_terminal_conversation").on(table.conversationId),
+    index("idx_coding_terminal_requirement").on(table.requirementId),
+    index("idx_coding_terminal_project").on(table.projectId),
+    index("idx_coding_terminal_agent").on(table.agentId),
+  ],
 );

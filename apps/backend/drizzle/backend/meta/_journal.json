@@ -498,6 +498,13 @@
       "when": 1795528385999,
       "tag": "0070_yellow_betty_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1795679448779,
+      "tag": "0071_freezing_roxanne_simpson",
+      "breakpoints": true
     }
   ]
 }

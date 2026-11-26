@@ -1,6 +1,7 @@
 import { HttpError } from "../../infra/errors.js";
 import {
   type ArtifactContent,
+  type ArtifactListFilter,
   type ArtifactMeta,
   type ArtifactRef,
   type ArtifactUploadInput,
@@ -14,10 +15,12 @@ import type { ArtifactPort } from "./ports.js";
 export interface ArtifactService {
   upload(input: ArtifactUploadInput): Promise<ArtifactMeta>;
   download(url: string): Promise<ArtifactContent>;
-  list(folder?: string): Promise<ArtifactMeta[]>;
+  list(filter?: string | ArtifactListFilter): Promise<ArtifactMeta[]>;
+  getMeta(url: string): Promise<ArtifactMeta | null>;
   delete(url: string): Promise<boolean>;
   exists(url: string): Promise<boolean>;
   verify(url: string): Promise<ArtifactVerification | null>;
+  backfill(): Promise<number>;
   /** Delete artifacts older than `days`, sidecars included. 0 (or less) keeps
    *  everything: these are the user's own files, so age alone never deletes. */
   purgeOlderThan(days: number): Promise<number>;
@@ -41,8 +44,14 @@ export function createArtifactService(port: ArtifactPort): ArtifactService {
         size: rec.size,
       };
     },
-    async list(folder) {
-      return port.list(folder);
+    async list(filter) {
+      return port.list(filter);
+    },
+    async getMeta(url) {
+      parseArtifactUrl(url);
+      if (port.getMeta) return port.getMeta(url);
+      const all = await port.list();
+      return all.find((a) => a.url === url) ?? null;
     },
     async delete(url) {
       return port.delete(url);
@@ -52,6 +61,9 @@ export function createArtifactService(port: ArtifactPort): ArtifactService {
     },
     async verify(url) {
       return port.verify(url);
+    },
+    async backfill() {
+      return (await port.backfill?.()) ?? 0;
     },
     async purgeOlderThan(days) {
       if (!(days > 0)) return 0;

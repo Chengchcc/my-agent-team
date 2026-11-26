@@ -2,6 +2,7 @@
 
 import { Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
+import { t } from "@/lib/i18n";
 
 /** Top banner shown when browser network goes offline / comes back. */
 export function NetworkStatus() {
@@ -44,12 +45,12 @@ export function NetworkStatus() {
       {isOnline ? (
         <>
           <Wifi className="size-4 " />
-          <span>Network restored</span>
+          <span>{t("Network restored")}</span>
         </>
       ) : (
         <>
           <WifiOff className="size-4 " />
-          <span>Connection lost. Some features may be unavailable.</span>
+          <span>{t("Connection lost. Some features may be unavailable.")}</span>
         </>
       )}
     </div>

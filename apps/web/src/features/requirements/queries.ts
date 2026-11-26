@@ -25,15 +25,24 @@ export type RequirementRequestFact = RequirementDetail["requests"][number];
 
 export const requirementKeys = {
   all: ["requirements"] as const,
+  byConversation: (conversationId: string) =>
+    ["requirements", "by-conversation", conversationId] as const,
   detail: (id: string) => ["requirements", id] as const,
 };
 
 /** Every tracked goal, finished and cancelled ones included. The list has a status filter, and
  *  the endpoint hides two of the statuses unless it is asked for the closed ones. */
-export function requirementsQuery() {
+export function requirementsQuery(filter?: { conversationId?: string }) {
+  const conversationId = filter?.conversationId;
+  const queryKey: readonly string[] = conversationId
+    ? requirementKeys.byConversation(conversationId)
+    : requirementKeys.all;
   return queryOptions({
-    queryKey: requirementKeys.all,
-    queryFn: () => unwrap(client.api.requirements.get({ query: { closed: "1" } })),
+    queryKey,
+    queryFn: () =>
+      conversationId
+        ? api.listRequirements({ closed: "1", conversationId })
+        : unwrap(client.api.requirements.get({ query: { closed: "1" } })),
   });
 }
 

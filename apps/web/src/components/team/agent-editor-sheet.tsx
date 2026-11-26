@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AgentForm } from "@/components/AgentForm";
 import type { AgentFormValues } from "@/components/agent-form-types";
-import { type ComposerDraft, PaPickerBar, PaSession, usePaPicker } from "@/components/PaSession";
+import { PaSession, useDefaultPa } from "@/components/PaSession";
 import { ProposalCard, type ProposalField } from "@/components/ProposalCard";
 import { Button } from "@/components/ui/button";
 import { ResourceEditorSheet } from "@/components/ui/resource-editor-sheet";
@@ -23,7 +23,6 @@ import {
 } from "@/features/agents/editor-model";
 import { agentSuggestionQuery } from "@/features/agents/queries";
 import { agentKeys } from "@/features/agents/query-keys";
-import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { type AgentRow, api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
@@ -61,12 +60,7 @@ export function AgentEditorSheet({
   const values = form.watch();
   const nameValue = values.name.trim();
 
-  // Which PA to ask, and its conversation: the shared picker every editor beside a PA uses.
-  const picker = usePaPicker();
-  const paId = picker.activePa?.id ?? "";
-  // The skills this PA can load: the draft names the member skill.
-  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
-  const memberSkill = (skillsQuery.data ?? []).find((skill) => skill.command.includes("member"));
+  const defaultPa = useDefaultPa();
 
   // The PA's suggestion. Reading it decides nothing: it is shown, and the form's save says what
   // happened to it. The target is the member's id, or the reserved draft id for a new member.
@@ -142,39 +136,43 @@ export function AgentEditorSheet({
     onSaved(saved.id, createdWithLark ? "lark" : "detail");
   }
 
-  // A draft the person can edit before sending: it names the skill and the member.
-  const [draft, setDraft] = useState<ComposerDraft>({ text: "", n: 0 });
-  function offerDraft(): void {
-    const lead = memberSkill === undefined ? "" : `${memberSkill.command}\n`;
-    const target = agent === null ? t("a new member") : `${agent.name} (${agent.id})`;
-    setDraft({ text: `${lead}${t("Member")}: ${target}\n`, n: draft.n + 1 });
-  }
-
   const fields: ProposalField[] = [];
   if (suggestion !== null) fields.push(...suggestionFields(values, suggestion, agent));
 
+  const targetContext =
+    agent === null
+      ? `${t("Member")}: ${t("a new member")}`
+      : `${t("Member")}: ${agent.name} (${agent.id})`;
+
   const aside = (
-    <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      <PaPickerBar picker={picker} onDraft={offerDraft} draftLabel={t("Draft a request")} />
-      <PaSession
-        conversationId={picker.conversationId}
-        paId={paId}
-        draft={draft.n === 0 ? undefined : draft}
-      >
-        {suggestion !== null && (
-          <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-(--hairline) p-3">
-            <ProposalCard
-              author={picker.activePa?.name ?? t("PA")}
-              fields={fields}
-              stale={stale}
-              applied={applied}
-              onApply={applySuggestion}
-              onDiscard={() => void discardSuggestion()}
-            />
-          </div>
-        )}
-      </PaSession>
-    </div>
+    <PaSession
+      origin="editor:member"
+      sessionKey={agent?.id ?? "new"}
+      skillSpec={{
+        fallbackCommand: "/member_manage",
+        matchKeyword: "member",
+        fallbackDescription: agent === null ? t("Create a new member") : t("Update this member"),
+        contextLine: targetContext,
+      }}
+      emptyTitle={
+        agent === null
+          ? t("Describe the member you want to create")
+          : t("Ask the PA to adjust this member")
+      }
+    >
+      {suggestion !== null && (
+        <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-(--hairline) p-3">
+          <ProposalCard
+            author={defaultPa?.name ?? t("PA")}
+            fields={fields}
+            stale={stale}
+            applied={applied}
+            onApply={applySuggestion}
+            onDiscard={() => void discardSuggestion()}
+          />
+        </div>
+      )}
+    </PaSession>
   );
 
   const saveLabel = agent === null ? t("Create member") : t("Save changes");

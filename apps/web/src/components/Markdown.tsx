@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -7,6 +8,9 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { remarkArtifactUrls } from "@/lib/remark-artifact-url";
 import { ArtifactMarkdownCard } from "./ArtifactMarkdownCard";
+import { RequirementMarkdownChip } from "./RequirementMarkdownChip";
+
+const REQUIREMENT_HREF_RE = /^\/requirements\/([^/?#]+)$/;
 
 interface MarkdownProps {
   text: string;
@@ -36,10 +40,32 @@ function buildComponents(tone: "default" | "muted"): Components {
     ),
     em: ({ children }) => <em className="italic">{children}</em>,
     del: ({ children }) => <del className="text-(--mute) line-through">{children}</del>,
-    a: ({ href, children }) =>
-      href?.startsWith("artifacts://") ? (
-        <ArtifactMarkdownCard url={href} />
-      ) : (
+    a: ({ href, children }) => {
+      if (href?.startsWith("artifacts://")) {
+        return <ArtifactMarkdownCard url={href} />;
+      }
+      if (href) {
+        const reqMatch = REQUIREMENT_HREF_RE.exec(href);
+        if (reqMatch?.[1]) {
+          return (
+            <RequirementMarkdownChip
+              requirementId={decodeURIComponent(reqMatch[1])}
+              fallback={children}
+            />
+          );
+        }
+        if (href.startsWith("/") && !href.startsWith("//")) {
+          return (
+            <Link
+              href={href}
+              className="text-(--primary-deep) underline underline-offset-2 hover:text-(--primary)"
+            >
+              {children}
+            </Link>
+          );
+        }
+      }
+      return (
         <a
           href={href}
           target="_blank"
@@ -48,7 +74,8 @@ function buildComponents(tone: "default" | "muted"): Components {
         >
           {children}
         </a>
-      ),
+      );
+    },
 
     h1: ({ children }) => (
       <h1 className="font-sans text-xl font-semibold text-(--ink-strong) mt-4 mb-2 first:mt-0">

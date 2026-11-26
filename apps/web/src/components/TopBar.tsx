@@ -1,28 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight, Bell, Search, Settings } from "lucide-react";
+import { Bell, Search, Settings } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { useAgentList } from "@/features/agents/hooks";
-import { backendPingQuery, surfacesQuery } from "@/features/ops/queries";
-import { pendingActionsQuery } from "@/features/runs/queries";
-import { waitingGatesQuery } from "@/features/workflow/queries";
-import type { AgentRow } from "@/lib/api";
+import { backendPingQuery } from "@/features/ops/queries";
+import { attentionQuery } from "@/features/runs/queries";
 import { t } from "@/lib/i18n";
-
-/** Runtime chip labels for known harnesses; unknown harnesses fall back. */
-const CHIP_LABEL: Record<string, string> = {
-  oma: "oma native",
-  claude: "claude cli",
-  pi: "pi cli",
-  omp: "omp cli",
-};
-
-function chipLabel(harness: string) {
-  return CHIP_LABEL[harness] ?? `${harness.toLowerCase()} cli`;
-}
 
 function OnlinePill() {
   const ping = useQuery(backendPingQuery());
@@ -56,72 +41,18 @@ function OnlinePill() {
   );
 }
 
-function RuntimeChips({ agents }: { agents?: AgentRow[] }) {
-  const enabled = (agents ?? []).filter((a) => a.enabled !== false);
-  const kinds = [...new Set(enabled.map((a) => a.harness).filter(Boolean))];
-  if (kinds.length === 0) return null;
-  return (
-    <span className="hidden items-center gap-1 lg:flex">
-      {kinds.slice(0, 4).map((harness) => (
-        <span
-          key={harness}
-          className="rounded-sm border border-(--hairline) px-1.5 py-0.5 font-mono text-[10px] text-(--mute)"
-        >
-          {chipLabel(harness)}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-/** User-facing Lark state. The producer emits running | degraded | error (plus
- *  configured when nothing was ever started), so the old `status === "healthy"`
- *  comparison was never true and the chip printed the raw vocabulary. */
-function larkChipState(statuses: string[]): { label: string; tone: string } {
-  if (statuses.includes("error"))
-    return { label: t("connection failed"), tone: "var(--destructive)" };
-  if (statuses.includes("degraded"))
-    return { label: t("needs attention"), tone: "var(--destructive)" };
-  if (statuses.includes("running")) return { label: t("online"), tone: "var(--accent-violet)" };
-  return { label: t("not connected"), tone: "var(--muted-foreground)" };
-}
-
-function LarkChip() {
-  const { data: surfaces } = useQuery(surfacesQuery());
-  const larks = (surfaces ?? []).filter((s) => s.surface.toLowerCase().includes("lark"));
-  if (larks.length === 0) return null;
-  const { label, tone } = larkChipState(larks.map((s) => s.status));
-  // One surface = one place to fix it; several = the ops page that lists them.
-  const href = larks.length === 1 ? `/team/${larks[0]?.agentId}?tab=lark` : "/system";
-  return (
-    <Link
-      href={href}
-      className="hidden items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] md:flex"
-      style={{
-        borderColor: `color-mix(in srgb, ${tone} 30%, transparent)`,
-        color: tone,
-      }}
-      title={`Lark: ${label}`}
-    >
-      <ArrowLeftRight className="size-3" />
-      Lark: {label}
-    </Link>
-  );
-}
-
+/** Global chrome: backend reachability, command search, attention inbox count (same truth
+ *  source as /today), and settings shortcut. Per-PA Lark channels belong in /channels and
+ *  per-agent runtime health belongs in /system — never flattened into a singular global badge. */
 export function TopBar({ onSearch }: { onSearch: () => void }) {
   const router = useRouter();
-  const { data: agents } = useAgentList() as { data?: AgentRow[] };
-  const { data: waitingGates } = useQuery(waitingGatesQuery());
-  const { data: pendingActions } = useQuery(pendingActionsQuery());
-  const waitingOnYou = (waitingGates ?? 0) + (pendingActions?.length ?? 0);
+  const { data: attention } = useQuery(attentionQuery());
+  const waitingOnYou = attention?.awaitingYou.length ?? 0;
 
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-3 border-b border-(--hairline) bg-(--canvas)/80 px-3 backdrop-blur">
       <SidebarTrigger className="md:hidden" />
       <OnlinePill />
-      <RuntimeChips agents={agents} />
-      <LarkChip />
 
       <div className="ml-auto flex items-center gap-2">
         <button
@@ -141,7 +72,8 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
           type="button"
           onClick={() => router.push("/today")}
           className="relative flex size-7 items-center justify-center rounded-sm text-(--mute) transition-colors hover:bg-(--panel2) hover:text-(--ink)"
-          aria-label={`Notifications: ${waitingOnYou} waiting for you`}
+          aria-label={t("Waiting for you: {n}", { n: waitingOnYou })}
+          title={t("Waiting for you: {n}", { n: waitingOnYou })}
         >
           <Bell className="size-4" />
           {waitingOnYou > 0 && (
@@ -154,7 +86,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
         <Link
           href="/system/settings"
           className="flex size-7 items-center justify-center rounded-full border border-(--hairline) text-(--mute) transition-colors hover:border-(--primary) hover:text-(--primary)"
-          aria-label="Account settings"
+          aria-label={t("Settings")}
           title={t("Settings")}
         >
           <Settings className="size-3.5" />

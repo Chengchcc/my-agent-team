@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { describeAnchor, isArtifactAnchor } from "../artifact/anchor.js";
 import { parseArtifactUrl } from "../artifact/domain.js";
 import { renderRevision } from "./export-markdown.js";
@@ -18,14 +19,41 @@ export function conversationRoutes(
   /** ADR 0049: role lookup for the creation guard (front desk invariant).
    * Absent = any agent may own a conversation (today's behaviour). */
   agentRoleOf?: (id: string) => Promise<"front" | "worker" | undefined>,
+  /** ADR 0082: optional linkage filters & batch label resolver. */
+  linkage?: {
+    conversationIdsForRequirement?: (requirementId: string) => string[];
+    labelResolver?: EntityLabelResolver;
+  },
 ) {
   return (
     new Elysia()
-      .get("/api/conversations", ({ query: { agentId } }) => {
-        const conversations = agentId
+      .get("/api/conversations", ({ query: { agentId, requirementId, projectId } }) => {
+        let conversations = agentId
           ? svc.port.listConversationsByAgent(agentId)
           : svc.port.listConversations();
-        return conversations;
+        if (projectId) {
+          conversations = conversations.filter((c) => c.projectId === projectId);
+        }
+        if (requirementId && linkage?.conversationIdsForRequirement) {
+          const allowed = new Set(linkage.conversationIdsForRequirement(requirementId));
+          conversations = conversations.filter((c) => allowed.has(c.conversationId));
+        }
+        if (!linkage?.labelResolver || conversations.length === 0) return conversations;
+        const maps = linkage.labelResolver.resolveBatch({
+          agentIds: conversations.map((c) => c.agentId),
+          projectIds: conversations.map((c) => c.projectId),
+          requirementIds: conversations.map(
+            (c) => (c as { currentRequirementId?: string | null }).currentRequirementId,
+          ),
+        });
+        return conversations.map((c) => {
+          const reqId = (c as { currentRequirementId?: string | null }).currentRequirementId;
+          const labels = linkage.labelResolver!.labelsFor(
+            { agentId: c.agentId, projectId: c.projectId, requirementId: reqId },
+            maps,
+          );
+          return labels ? { ...c, labels } : c;
+        });
       })
       .post(
         "/api/conversations",
@@ -101,6 +129,13 @@ export function conversationRoutes(
       .get("/api/conversations/:id", ({ params: { id } }) => {
         const conv = svc.port.getConversation(id);
         if (!conv) return Response.json({ error: "Not found" }, { status: 404 });
+        const currentRequirementId =
+          (conv as { currentRequirementId?: string | null }).currentRequirementId ?? null;
+        const labels = linkage?.labelResolver?.labelsFor({
+          agentId: conv.agentId,
+          projectId: conv.projectId,
+          requirementId: currentRequirementId,
+        });
         return {
           conversationId: conv.conversationId,
           agentId: conv.agentId,
@@ -110,6 +145,7 @@ export function conversationRoutes(
           createdAt: conv.createdAt,
           forkSource: conv.forkSource,
           projectId: conv.projectId,
+          currentRequirementId,
           forkFromSeq: conv.forkFromSeq,
           // ADR 0070: a child room names the room that dispatched into it, so
           // its page can offer the way back.
@@ -117,6 +153,7 @@ export function conversationRoutes(
           lastActivityAt: svc.port.getLastActivityAt?.(id) ?? null,
           lastMessagePreview: svc.port.getLastMessagePreview?.(id) ?? null,
           lastSeq: svc.port.getLastSeq?.(id) ?? null,
+          ...(labels ? { labels } : {}),
         };
       })
       .post(

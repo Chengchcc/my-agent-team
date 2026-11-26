@@ -205,13 +205,23 @@ export const api = {
     unwrap(client.api.reminders({ id }).snooze.post({ fireAt })),
   cancelReminder: (id: string) => unwrap(client.api.reminders({ id }).delete()),
   // Conversations
-  listConversations: (agentId?: string, signal?: AbortSignal) =>
-    unwrap(
+  listConversations: (
+    filter?: string | { agentId?: string; requirementId?: string; projectId?: string },
+    signal?: AbortSignal,
+  ) => {
+    const query =
+      typeof filter === "string"
+        ? { agentId: filter }
+        : filter && Object.keys(filter).length > 0
+          ? filter
+          : undefined;
+    return unwrap(
       client.api.conversations.get({
-        query: agentId ? { agentId } : undefined,
+        ...(query ? { query } : {}),
         ...(signal ? { fetch: { signal } } : {}),
       }),
-    ),
+    );
+  },
   createConversation: (body: {
     conversationId?: string;
     projectId?: string;
@@ -285,8 +295,9 @@ export const api = {
   wikiLint: () => unwrap(client.api.wiki.lint.get()),
   graphWiki: () => unwrap(client.api.wiki.graph.get()),
   wikiBacklinks: (path: string) => unwrap(client.api.wiki.backlinks.get({ query: { path } })),
-  /** ADR 0074: tracked work items (requirements). */
-  listRequirements: () => unwrap(client.api.requirements.get()),
+  /** ADR 0074 + ADR 0082: tracked work items (requirements). */
+  listRequirements: (filter?: { closed?: "1"; projectId?: string; conversationId?: string }) =>
+    unwrap(client.api.requirements.get(filter ? { query: filter } : undefined)),
   getRequirement: (id: string) => unwrap(client.api.requirements({ id }).get()),
   updateRequirement: (id: string, body: Record<string, unknown>) =>
     unwrap(client.api.requirements({ id }).patch(body)),
@@ -695,14 +706,31 @@ export const api = {
   ) => unwrap(client.api["workflow-definitions"]({ workflowId })["dry-run"].post(body)),
   deleteWorkflowDefinition: (workflowId: string) =>
     unwrap(client.api["workflow-definitions"]({ workflowId }).delete()),
-  listWorkflowExecutions: (workflowId?: string) =>
-    unwrap(
-      client.api["workflow-executions"].get({ query: workflowId ? { workflowId } : undefined }),
-    ),
+  listWorkflowExecutions: (
+    filter?:
+      | string
+      | {
+          workflowId?: string;
+          requirementId?: string;
+          conversationId?: string;
+          projectId?: string;
+        },
+  ) => {
+    const query =
+      typeof filter === "string"
+        ? { workflowId: filter }
+        : filter && Object.keys(filter).length > 0
+          ? filter
+          : undefined;
+    return unwrap(client.api["workflow-executions"].get(query ? { query } : undefined));
+  },
   startWorkflowExecution: (body: {
     workflowRef: { repo?: string; path: string };
     input?: Record<string, unknown>;
     artifacts?: string[];
+    requirementId?: string;
+    conversationId?: string;
+    projectId?: string;
   }) => unwrap(client.api["workflow-executions"].post(body)),
   /** Every still-pending proposal (ADR 0040 inbox), optionally of one kind. */
   listPendingProposals: (kind?: ProposalKindName) =>
@@ -745,11 +773,42 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => r.json()),
-  listArtifacts: async (folder?: string) => {
-    const qs = folder ? `?folder=${encodeURIComponent(folder)}` : "";
-    const r = await fetch(`/api/bff/api/artifacts${qs}`);
+  listArtifacts: async (
+    filter?:
+      | string
+      | {
+          folder?: string;
+          requirementId?: string;
+          conversationId?: string;
+          workflowExecutionId?: string;
+          agentId?: string;
+          projectId?: string;
+          runId?: string;
+        },
+  ) => {
+    const params = new URLSearchParams();
+    if (typeof filter === "string") {
+      if (filter) params.set("folder", filter);
+    } else if (filter) {
+      if (filter.folder) params.set("folder", filter.folder);
+      if (filter.requirementId) params.set("requirementId", filter.requirementId);
+      if (filter.conversationId) params.set("conversationId", filter.conversationId);
+      if (filter.workflowExecutionId) params.set("workflowExecutionId", filter.workflowExecutionId);
+      if (filter.agentId) params.set("agentId", filter.agentId);
+      if (filter.projectId) params.set("projectId", filter.projectId);
+      if (filter.runId) params.set("runId", filter.runId);
+    }
+    const qs = params.toString();
+    const r = await fetch(`/api/bff/api/artifacts${qs ? `?${qs}` : ""}`);
     if (!r.ok) throw new Error(`list artifacts failed: ${r.status}`);
     return (await r.json()) as { artifacts: ArtifactMeta[] };
+  },
+  getArtifactMeta: async (url: string) => {
+    const r = await fetch(`/api/bff/api/artifacts/meta?url=${encodeURIComponent(url)}`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`get artifact meta failed: ${r.status}`);
+    const body = (await r.json()) as { artifact: ArtifactMeta };
+    return body.artifact;
   },
   uploadArtifact: async (body: {
     folder: string;
@@ -789,6 +848,24 @@ export const api = {
   },
 };
 
+export type EntityLabels = {
+  agentName?: string;
+  conversationTitle?: string;
+  requirementTitle?: string;
+  projectName?: string;
+  workflowName?: string;
+};
+
+export type ArtifactListFilter = {
+  folder?: string;
+  requirementId?: string;
+  conversationId?: string;
+  workflowExecutionId?: string;
+  agentId?: string;
+  projectId?: string;
+  runId?: string;
+};
+
 export type ArtifactMeta = {
   url: string;
   folder: string;
@@ -797,5 +874,13 @@ export type ArtifactMeta = {
   mimeType: string;
   encoding: "utf8" | "base64";
   updatedAt: number;
-  source?: { runId?: string; conversationId?: string; agentId?: string };
+  source?: {
+    runId?: string;
+    conversationId?: string;
+    requirementId?: string;
+    workflowExecutionId?: string;
+    agentId?: string;
+    projectId?: string;
+  };
+  labels?: EntityLabels;
 };

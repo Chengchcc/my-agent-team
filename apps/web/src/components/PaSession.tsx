@@ -1,26 +1,22 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Wand2 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Composer, type RecommendedSkill } from "@/components/Composer";
 import { ConversationPanel } from "@/components/ConversationPanel";
+import { ConversationDensityContext } from "@/components/conversation-density";
+import type { ChatModelOverride } from "@/components/ModelPicker";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { RoleAvatar } from "@/components/ui/role-avatar";
 import { useAgentList } from "@/features/agents/hooks";
-import { useAllConversations, useCreateConversation } from "@/features/conversations/hooks";
 import { agentSkillCommandsQuery } from "@/features/skill-packs/queries";
 import { useConversation } from "@/hooks/useConversation";
-import { type AgentRow, api, type ConversationSnapshot } from "@/lib/api";
-import { conversationDisplayName } from "@/lib/conversation-title";
+import { type AgentRow, api } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import type { SkillCommand } from "@/lib/slash-commands";
+import { findCommand, type SkillCommand } from "@/lib/slash-commands";
 
 /** A draft put into the composer; `n` says it is a new one, so the same text can be offered twice. */
 export interface ComposerDraft {
@@ -28,224 +24,248 @@ export interface ComposerDraft {
   n: number;
 }
 
-/** The conversation a PA panel opens on by default: the PA's own most recent one. A worker's
- *  child conversation (workflow origin) is never the place to talk to the PA. */
-function latestConversationOf(rows: readonly ConversationSnapshot[], paId: string): string | null {
-  const own = rows.filter((row) => row.agentId === paId && row.origin !== "workflow");
-  const byActivity = [...own].sort((a, b) => activityAt(b) - activityAt(a));
-  const newest = byActivity[0];
-  if (newest === undefined) return null;
-  return newest.conversationId;
+/** Describes the domain skill that creates or modifies the resource beside this session. */
+export interface DomainSkillSpec {
+  /** Canonical slash command shown even before/without skill pack resolution, e.g. "/member_manage". */
+  fallbackCommand: string;
+  /** Substring matched against the PA's installed skill commands, e.g. "member". */
+  matchKeyword: string;
+  /** Short human-readable description shown beside the command badge. */
+  fallbackDescription?: string;
+  /** Optional target context line attached below the command on send (e.g. "Member: Coder (coder)"). */
+  contextLine?: string;
 }
 
-function activityAt(row: ConversationSnapshot): number {
-  const at = row.lastActivityAt;
-  if (at === undefined || at === null) return 0;
-  return at;
-}
-
-export interface PaPicker {
-  personalAgents: AgentRow[];
-  activePa: AgentRow | undefined;
-  setPaId: (id: string) => void;
-  conversationId: string | null;
-  conversationRow: ConversationSnapshot | undefined;
-  startSession: () => void;
-  starting: boolean;
-}
-
-/** Which PA to talk to, and which of its conversations to show: the one the person started for
- *  this PA, else its newest. */
-export function usePaPicker(): PaPicker {
-  const { data: agents } = useAgentList();
-  const personalAgents = useMemo(
-    () => (agents ?? []).filter((agent) => agent.role !== "worker"),
-    [agents],
+/** Resolves the default PA for embedded form/ask sessions without asking the user to pick one. */
+export function resolveDefaultPa(agents: readonly AgentRow[] | undefined): AgentRow | undefined {
+  const pas = (agents ?? []).filter((a) => a.role !== "worker" && a.archivedAt === null);
+  const enabled = pas.filter((a) => a.enabled !== false);
+  return (
+    enabled.find((a) => a.id === "default") ??
+    enabled[0] ??
+    pas.find((a) => a.id === "default") ??
+    pas[0]
   );
-  const [paId, setPaId] = useState<string | null>(null);
-  const chosen = personalAgents.find((agent) => agent.id === paId);
-  const activePa = chosen ?? personalAgents[0];
+}
 
-  const { data: conversations } = useAllConversations();
-  const [started, setStarted] = useState<{ paId: string; conversationId: string } | null>(null);
-  const rows = conversations ?? [];
-  const activePaId = activePa?.id ?? "";
-  const newestId = useMemo(() => latestConversationOf(rows, activePaId), [rows, activePaId]);
-  const own = started !== null && started.paId === activePaId;
-  const conversationId = own && started !== null ? started.conversationId : newestId;
-  const conversationRow = rows.find((row) => row.conversationId === conversationId);
-  const create = useCreateConversation();
-
-  function startSession(): void {
-    if (activePa === undefined) return;
-    const id = activePa.id;
-    create.mutate(
-      { agentId: id },
-      {
-        onSuccess: (made) => setStarted({ paId: id, conversationId: made.conversationId }),
-        onError: (err) =>
-          toast.error(t("Could not start a conversation"), {
-            description: err instanceof Error ? err.message : String(err),
-          }),
-      },
-    );
+/** Resolves the composer's pinned slash-command chip against the active PA's installed skills. */
+export function resolveRecommendedSkill(
+  skills: readonly SkillCommand[],
+  skillsLoaded: boolean,
+  spec: DomainSkillSpec | undefined,
+): RecommendedSkill | undefined {
+  if (spec === undefined) return undefined;
+  const hit =
+    skills.find((s) => s.command === spec.fallbackCommand) ??
+    skills.find((s) => s.command.toLowerCase().includes(spec.matchKeyword.toLowerCase()));
+  if (hit) {
+    return {
+      command: hit.command,
+      description: spec.fallbackDescription ?? hit.description,
+      available: true,
+      contextLine: spec.contextLine,
+    };
   }
-
   return {
-    personalAgents,
-    activePa,
-    setPaId,
-    conversationId,
-    conversationRow,
-    startSession,
-    starting: create.isPending,
+    command: spec.fallbackCommand,
+    description: spec.fallbackDescription,
+    available: !skillsLoaded,
+    contextLine: spec.contextLine,
   };
 }
 
-/** The bar above a picked PA session: which PA, which conversation, and the two ways to put a
- *  request into the composer. */
-export function PaPickerBar({
-  picker,
-  onDraft,
-  draftLabel,
-  draftDisabled,
-}: {
-  picker: PaPicker;
-  /** Puts a request about the resource into the composer, for the person to edit and send. */
-  onDraft: () => void;
-  draftLabel: string;
-  /** There is nothing to put into the composer yet. */
-  draftDisabled?: boolean;
-}) {
-  const { personalAgents, activePa, conversationRow } = picker;
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-(--hairline) px-4 py-2">
-      <Select
-        value={activePa?.id ?? ""}
-        items={personalAgents.map((agent) => ({ value: agent.id, label: agent.name }))}
-        onValueChange={(next) => picker.setPaId(next ?? "")}
-        disabled={personalAgents.length === 0}
-      >
-        <SelectTrigger size="sm" className="min-w-36 max-w-56" aria-label={t("PA")}>
-          <SelectValue placeholder={t("No PA")} />
-        </SelectTrigger>
-        <SelectContent>
-          {personalAgents.map((agent) => (
-            <SelectItem key={agent.id} value={agent.id}>
-              {agent.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <span className="min-w-0 flex-1 truncate text-xs text-(--mute)">
-        {conversationRow
-          ? `${t("In")} ${conversationDisplayName(conversationRow)}`
-          : t("No conversation with this PA yet")}
-      </span>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={activePa === undefined || picker.starting}
-        onClick={picker.startSession}
-      >
-        <Plus /> {t("New session")}
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={picker.conversationId === null || draftDisabled === true}
-        title={t("Puts a request into the input, for you to edit and send")}
-        onClick={onDraft}
-      >
-        <Wand2 /> {draftLabel}
-      </Button>
-    </div>
-  );
+/** Returns the default active PA without rendering any session or agent picker. */
+export function useDefaultPa(): AgentRow | undefined {
+  const { data: agents } = useAgentList();
+  return useMemo(() => resolveDefaultPa(agents), [agents]);
 }
 
-type SessionState = "starting" | "ready" | "failed";
+interface PendingFirstSend {
+  text: string;
+  model?: ChatModelOverride;
+  attachments?: readonly { type: "image"; mediaType: string; base64: string }[];
+}
 
 export interface PaSessionProps {
-  conversationId: string | null;
-  /** Who answers. It names the skills the composer offers. */
-  paId: string;
-  /** Create the conversation first (it is idempotent). A resource-bound session is addressed by a
-   *  stable id that exists only after the first visit. */
-  createOrigin?: string;
+  /** Conversation provenance tag written on lazy creation (e.g. "editor:member", "ask"). */
+  origin: string;
+  /** Optional project bound to the lazily created conversation. */
+  projectId?: string;
+  /** Domain skill highlighted & auto-attached in the shared Composer by default. */
+  skillSpec?: DomainSkillSpec;
+  /** Optional prefilled draft put into the Composer while empty. */
   draft?: ComposerDraft;
+  /** Optional action rendered on the right of the compact PA header bar (e.g. form brief button). */
+  headerAction?: ReactNode;
+  /** Heading shown in the empty state before the first message is sent. */
   emptyTitle?: ReactNode;
-  /** Shown above the messages: a suggestion card, a notice. */
+  /** Shown above the messages: e.g. ProposalCard or status notice. */
   children?: ReactNode;
+  /** When this key changes (e.g. opening another resource), resets to a fresh lazy session. */
+  sessionKey?: string;
 }
 
-/** The shared conversation panel, bound to one PA session. It mounts the panel only once the
- *  conversation exists, because the panel subscribes as it mounts. */
+/** Unified, isolated PA session embedded beside forms and Ask-PA sheets.
+ *
+ *  Design invariants:
+ *  - Every open starts a fresh, isolated session — never mixes into the user's main chat history.
+ *  - Lazy creation: the backend conversation is created only when the user sends the first message,
+ *    preventing zero-message zombie sessions when someone opens and closes a form.
+ *  - Zero PA/session picker clutter: auto-routes to the default enabled PA and displays its identity
+ *    read-only alongside the shared Composer's default-visible slash command bar. */
 export function PaSession({
-  conversationId,
-  paId,
-  createOrigin,
+  origin,
+  projectId,
+  skillSpec,
   draft,
+  headerAction,
   emptyTitle,
   children,
+  sessionKey,
 }: PaSessionProps) {
-  const [state, setState] = useState<SessionState>(
-    createOrigin === undefined ? "ready" : "starting",
+  const defaultPa = useDefaultPa();
+  const paId = defaultPa?.id ?? "";
+  const skillsQuery = useQuery({ ...agentSkillCommandsQuery(paId), enabled: paId !== "" });
+  const skills: readonly SkillCommand[] = skillsQuery.data ?? [];
+  const recommendedSkill = useMemo(
+    () => resolveRecommendedSkill(skills, skillsQuery.isSuccess, skillSpec),
+    [skills, skillsQuery.isSuccess, skillSpec],
   );
 
-  useEffect(() => {
-    if (createOrigin === undefined || conversationId === null) return;
-    let stopped = false;
-    let failed = false;
-    api
-      .createConversation({ conversationId, agentId: paId, origin: createOrigin })
-      .catch(() => {
-        failed = true;
-      })
-      .finally(() => {
-        if (stopped) return;
-        setState(failed ? "failed" : "ready");
-      });
-    return () => {
-      stopped = true;
-    };
-  }, [conversationId, paId, createOrigin]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [pendingSend, setPendingSend] = useState<PendingFirstSend | null>(null);
 
-  if (conversationId === null) {
+  // Switching to a different resource (e.g. another workflow) resets cleanly to a fresh lazy session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset trigger on sessionKey
+  useEffect(() => {
+    setConversationId(null);
+    setPendingSend(null);
+    setStarting(false);
+  }, [sessionKey]);
+
+  const handleLazySend = useCallback(
+    async (
+      text: string,
+      model?: ChatModelOverride,
+      attachments?: readonly { type: "image"; mediaType: string; base64: string }[],
+    ) => {
+      if (!paId || starting) return;
+      setStarting(true);
+      try {
+        const created = await api.createConversation({
+          agentId: paId,
+          origin,
+          ...(projectId ? { projectId } : {}),
+        });
+        setPendingSend({ text, model, attachments });
+        setConversationId(created.conversationId);
+      } catch (err) {
+        toast.error(t("Could not start a conversation"), {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setStarting(false);
+      }
+    },
+    [paId, origin, projectId, starting],
+  );
+
+  const handleLazySlash = useCallback(
+    (input: string) => {
+      // Client-only commands (/clear, /stop, etc.) do nothing before a session exists;
+      // skill commands (e.g. /member_manage ...) lazily create the session and send.
+      if (findCommand(input)) return;
+      void handleLazySend(input);
+    },
+    [handleLazySend],
+  );
+
+  const resetSession = useCallback(() => {
+    setConversationId(null);
+    setPendingSend(null);
+  }, []);
+
+  if (!defaultPa) {
     return (
       <div className="flex flex-1 flex-col items-start gap-3 p-6">
         <p className="text-sm text-(--mute)">
-          {paId === ""
-            ? t("No PA to ask yet. Create a personal agent first.")
-            : t("Start a session with this PA to ask about it.")}
+          {t("No PA to ask yet. Create a personal agent first.")}
         </p>
       </div>
     );
   }
-  if (state === "failed") {
-    return (
-      <div className="p-6">
-        <p role="alert" className="text-sm text-(--warn)">
-          {t("Not available: the PA session could not be started.")}
-        </p>
-      </div>
-    );
-  }
-  if (state === "starting") {
-    return (
-      <div className="p-6">
-        <p className="text-xs text-(--mute)">{t("Opening the PA session…")}</p>
-      </div>
-    );
-  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-(--hairline) px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <RoleAvatar kind="pa" name={defaultPa.name} size="sm" />
+          <span className="truncate text-xs font-medium text-(--ink)">{defaultPa.name}</span>
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            {t("Dedicated session")}
+          </Badge>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {headerAction}
+          {conversationId !== null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={resetSession}
+              title={t("Start a fresh session")}
+              aria-label={t("Start a fresh session")}
+            >
+              <RotateCcw className="size-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
       {children}
-      <MountedConversation
-        conversationId={conversationId}
-        paId={paId}
-        draft={draft}
-        emptyTitle={emptyTitle}
-      />
+
+      {conversationId === null ? (
+        <ConversationDensityContext.Provider value="panel">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+              <p className="text-sm font-medium text-(--ink)">
+                {emptyTitle ?? t("Ask the PA to help here")}
+              </p>
+              <p className="mt-1.5 max-w-sm text-[11px] leading-relaxed text-(--mute)">
+                {recommendedSkill
+                  ? t(
+                      "Starts an isolated session on your first message with {command} ready to guide creation or edits.",
+                      { command: recommendedSkill.command },
+                    )
+                  : t(
+                      "Starts an isolated session on your first message without mixing into your main chat history.",
+                    )}
+              </p>
+            </div>
+            <Composer
+              conversationId=""
+              onSend={(msg, model, attachments) => void handleLazySend(msg, model, attachments)}
+              onSlashCommand={handleLazySlash}
+              disabled={starting}
+              skills={skills}
+              recommendedSkill={recommendedSkill}
+              showSkillChips
+              draft={draft === undefined ? undefined : draft.text}
+            />
+          </div>
+        </ConversationDensityContext.Provider>
+      ) : (
+        <MountedConversation
+          conversationId={conversationId}
+          paId={paId}
+          draft={draft}
+          emptyTitle={emptyTitle}
+          skillSpec={skillSpec}
+          pendingSend={pendingSend}
+          onConsumedPending={() => setPendingSend(null)}
+        />
+      )}
     </div>
   );
 }
@@ -255,27 +275,47 @@ interface MountedConversationProps {
   paId: string;
   draft: ComposerDraft | undefined;
   emptyTitle?: ReactNode;
+  skillSpec?: DomainSkillSpec;
+  pendingSend: PendingFirstSend | null;
+  onConsumedPending: () => void;
 }
 
-/** Owns the live subscription, so it exists only while there is a conversation to show. */
+/** Owns the live subscription once the lazy session has been created on first message. */
 function MountedConversation({
   conversationId,
   paId,
   draft,
   emptyTitle,
+  skillSpec,
+  pendingSend,
+  onConsumedPending,
 }: MountedConversationProps) {
   const conversation = useConversation(conversationId);
-  // The skills on offer are the ones the agent who actually answers can load. A stable
-  // conversation (a workflow's) keeps the agent it was created with, which is not always the
-  // PA picked in the bar above it.
+  const sentForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingSend) return;
+    if (sentForRef.current === conversationId) return;
+    sentForRef.current = conversationId;
+    conversation.send(pendingSend.text, pendingSend.model, pendingSend.attachments);
+    onConsumedPending();
+  }, [conversationId, pendingSend, conversation, onConsumedPending]);
+
   const agentId = conversation.state.agent?.agentId ?? paId;
   const skillsQuery = useQuery({ ...agentSkillCommandsQuery(agentId), enabled: agentId !== "" });
   const skills: readonly SkillCommand[] = skillsQuery.data ?? [];
+  const recommendedSkill = useMemo(
+    () => resolveRecommendedSkill(skills, skillsQuery.isSuccess, skillSpec),
+    [skills, skillsQuery.isSuccess, skillSpec],
+  );
+
   return (
     <ConversationPanel
       conversationId={conversationId}
       conversation={conversation}
       skills={skills}
+      recommendedSkill={recommendedSkill}
+      showSkillChips
       draft={draft === undefined ? undefined : draft.text}
       marksSeen={false}
       density="panel"

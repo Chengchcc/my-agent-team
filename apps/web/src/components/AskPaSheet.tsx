@@ -1,8 +1,8 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Wand2, X } from "lucide-react";
 import { useState } from "react";
-import { type ComposerDraft, PaPickerBar, PaSession, usePaPicker } from "@/components/PaSession";
+import { type ComposerDraft, PaSession } from "@/components/PaSession";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { t } from "@/lib/i18n";
@@ -15,10 +15,10 @@ export interface AskPaRequest {
   draft: string;
 }
 
-/** A PA conversation in a side sheet with a request already in the input. Shared by the pages
- *  that hand a question to the PA (the wiki, skill packs, MCP connections). Reading the page
- *  never sends anything: the request is a draft the person edits and sends, and opening the
- *  conversation here does not mark it read. */
+/** An isolated PA conversation in a side sheet with a request already in the input. Shared by the
+ *  pages that hand a question to the PA (the wiki, skill packs, MCP connections, settings). Every
+ *  open starts a fresh lazy-created session — nothing is created until the first message is sent,
+ *  and it never mixes into the user's main chat history. */
 export function AskPaSheet({
   request,
   onClose,
@@ -27,13 +27,13 @@ export function AskPaSheet({
   request: AskPaRequest | null;
   onClose: () => void;
 }) {
-  const picker = usePaPicker();
-
-  // The request is cleared as soon as the sheet closes; keep the last one for the exit.
+  // The request is cleared as soon as the sheet closes; keep the last one for the exit transition.
   const [lastRequest, setLastRequest] = useState<AskPaRequest | null>(null);
+  const [openCount, setOpenCount] = useState(0);
   const [draft, setDraft] = useState<ComposerDraft>({ text: "", n: 0 });
   if (request !== null && request !== lastRequest) {
     setLastRequest(request);
+    setOpenCount((c) => c + 1);
     setDraft({ text: request.draft, n: draft.n + 1 });
   }
   const shown = request ?? lastRequest;
@@ -68,23 +68,37 @@ export function AskPaSheet({
               </SheetDescription>
             )}
           </div>
-          <Button variant="ghost" size="icon-sm" aria-label={t("Close")} onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("Close")}
+            title={t("Close")}
+            onClick={onClose}
+          >
             <X />
           </Button>
         </header>
-        <PaPickerBar
-          picker={picker}
-          onDraft={offerDraft}
-          draftLabel={t("Put the request in the input")}
-        />
         <PaSession
-          conversationId={picker.conversationId}
-          paId={picker.activePa?.id ?? ""}
+          origin="ask"
+          sessionKey={`ask-${openCount}`}
           draft={draft.n === 0 ? undefined : draft}
+          headerAction={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={offerDraft}
+              title={t("Puts a request into the input, for you to edit and send")}
+            >
+              <Wand2 className="size-3.5" />
+              {t("Put the request in the input")}
+            </Button>
+          }
+          emptyTitle={shown?.title ?? t("Ask the PA")}
         />
         <p className="shrink-0 border-t border-(--hairline) px-6 py-2 text-[10px] text-(--faint)">
           {t(
-            "The request sits in the input for you to edit and send. Opening this panel sends nothing and does not mark the conversation read.",
+            "The request sits in the input for you to edit and send. Opening this panel sends nothing and starts a dedicated session only when you send.",
           )}
         </p>
       </SheetContent>

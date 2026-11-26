@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
   workflowExecution,
@@ -10,6 +10,7 @@ import {
 import type {
   AppendNodeRunInput,
   CreateWorkflowExecutionInput,
+  WorkflowExecutionFilter,
   WorkflowExecutionRow,
   WorkflowNodeRunRow,
   WorkflowPendingHumanRow,
@@ -27,6 +28,9 @@ function toExec(r: typeof workflowExecution.$inferSelect): WorkflowExecutionRow 
     status: r.status as WorkflowExecutionRow["status"],
     exit: r.exit ?? undefined,
     error: r.error ?? undefined,
+    requirementId: r.requirementId ?? null,
+    conversationId: r.conversationId ?? null,
+    projectId: r.projectId ?? null,
     createdAt: r.createdAt,
     terminalAt: r.terminalAt ?? undefined,
   };
@@ -77,6 +81,9 @@ export function sqliteWorkflowExecutionAdapter(db: Database): WorkflowExecutionP
           input: JSON.stringify(input.input),
           store: JSON.stringify(input.store),
           status: input.status ?? "running",
+          requirementId: input.requirementId ?? null,
+          conversationId: input.conversationId ?? null,
+          projectId: input.projectId ?? null,
           createdAt: input.createdAt ?? Date.now(),
         })
         .returning();
@@ -248,19 +255,25 @@ export function sqliteWorkflowExecutionAdapter(db: Database): WorkflowExecutionP
         ts: r.ts,
       }));
     },
-    async listExecutions(workflowId?: string) {
-      if (workflowId) {
-        const rows = await d
-          .select()
-          .from(workflowExecution)
-          .where(eq(workflowExecution.workflowId, workflowId))
-          .orderBy(desc(workflowExecution.createdAt));
-        return rows.map(toExec);
-      }
-      const rows = await d
-        .select()
-        .from(workflowExecution)
-        .orderBy(desc(workflowExecution.createdAt));
+    async listExecutions(filter?: string | WorkflowExecutionFilter) {
+      const parsed: WorkflowExecutionFilter =
+        typeof filter === "string" ? { workflowId: filter } : (filter ?? {});
+      const conds: SQL[] = [];
+      if (parsed.workflowId) conds.push(eq(workflowExecution.workflowId, parsed.workflowId));
+      if (parsed.requirementId)
+        conds.push(eq(workflowExecution.requirementId, parsed.requirementId));
+      if (parsed.conversationId)
+        conds.push(eq(workflowExecution.conversationId, parsed.conversationId));
+      if (parsed.projectId) conds.push(eq(workflowExecution.projectId, parsed.projectId));
+
+      const rows =
+        conds.length > 0
+          ? await d
+              .select()
+              .from(workflowExecution)
+              .where(and(...conds))
+              .orderBy(desc(workflowExecution.createdAt))
+          : await d.select().from(workflowExecution).orderBy(desc(workflowExecution.createdAt));
       return rows.map(toExec);
     },
     async deleteExecution(executionId: string) {
