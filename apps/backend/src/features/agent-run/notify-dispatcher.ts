@@ -22,6 +22,11 @@ export interface NotifyDispatcherInput {
   readonly runId: string;
   readonly text: string;
   readonly wake: boolean;
+  /** False for mid-run `report` notices so they never mark `result_notified_at`
+   *  or collide with the terminal notice's idempotency key. Default true. */
+  readonly terminal?: boolean;
+  /** Explicit idempotency key for steer/result deduplication. */
+  readonly idempotencyKey?: string;
 }
 
 export type NotifyDelivered = "steer" | "queued" | "ledger";
@@ -42,6 +47,7 @@ export interface NotifyDispatcherDeps {
     message: Message;
     authorization: string;
     parentRunId: string;
+    idempotencyKey: string;
     defaultModel: AgentRun["modelRef"];
     configRevision: number;
   }): Promise<{ inputId: string; queued: boolean; acquired: boolean }>;
@@ -86,69 +92,78 @@ export function createNotifyDispatcher(
       cursor = await deps.getRun(cursor.parentRunId);
     }
     const authorization = `result:${input.fromAgentId}`;
+    const isTerminal = input.terminal !== false;
+    // ADR 0070: a dispatched worker runs in its own child conversation, while
+    // its dispatcher lives in `parent.conversationId`. Always deliver notices
+    // into the dispatcher's room so failed runs, mid-run reports, and recovery
+    // re-deliveries actually reach the parent agent.
+    const targetConversationId = parent.conversationId || input.conversationId;
+    const idemKey =
+      input.idempotencyKey ??
+      (isTerminal ? `terminal:${input.runId}` : `report:${input.runId}:${Date.now()}`);
     if (depth >= MAX_WAKE_DEPTH) {
       // Too deep to keep waking the CHAIN: the parent is a worker at the
       // limit, and waking it starts another automatic layer. But suppressing
       // the notice entirely would leave a human-actionable fact invisible, so
       // it goes to the human's proxy instead - one hop, and bounded because
       // that run is authorized `result:` (its own terminal never notifies).
-      const frontDesk = await deps.getFrontDeskAgent(input.conversationId);
+      const frontDesk = await deps.getFrontDeskAgent(targetConversationId);
       const target = frontDesk !== null && frontDesk !== parent.agentId ? frontDesk : null;
       await deps.postMessage({
-        conversationId: input.conversationId,
+        conversationId: targetConversationId,
         senderMemberId: input.fromAgentId,
         addressedTo: target === null ? [] : [target],
         content: `（自动协作链已到上限（深度 ${MAX_WAKE_DEPTH}），下面这条不再继续自动派发，需要人处理）\n${input.text}`,
         authorization,
         parentRunId: input.runId,
       });
-      // Marked either way: the mark means "handled by a rail", not "a human
-      // read it". Without this, a degenerate no-front-desk room would re-post
-      // the same ledger line on every restart.
-      await deps.markNotified?.(input.runId);
+      // Marked only for terminal notices: mid-run reports must not suppress
+      // terminal recovery.
+      if (isTerminal) await deps.markNotified?.(input.runId);
       return { delivered: target === null ? "ledger" : "queued" };
     }
     if (input.wake) {
       const active = await deps.getActiveRun(parent.branchId);
       if (active) {
         const message: Message = { role: "user", text: input.text };
-        const enqueued = await deps.enqueueSteer({
-          conversationId: input.conversationId,
-          agentId: parent.agentId,
-          branchId: parent.branchId,
-          message,
-          authorization,
-          parentRunId: input.runId,
-          defaultModel: parent.modelRef,
-          configRevision: parent.configRevision,
-        });
-        if (enqueued.queued && !enqueued.acquired) {
-          try {
+        try {
+          const enqueued = await deps.enqueueSteer({
+            conversationId: targetConversationId,
+            agentId: parent.agentId,
+            branchId: parent.branchId,
+            message,
+            authorization,
+            parentRunId: input.runId,
+            idempotencyKey: idemKey,
+            defaultModel: parent.modelRef,
+            configRevision: parent.configRevision,
+          });
+          if (enqueued.queued && !enqueued.acquired) {
             // keepIfIdle is deliberately NOT set: a failed steer must cancel
             // the pending row (steer inputs are excluded from promotion, so a
             // survivor would sit in the composer queue forever). The fallback
             // below posts a proper queued input instead.
             await deps.injectSteer(parent.branchId, { inputId: enqueued.inputId, message });
-            await deps.markNotified?.(input.runId);
+            if (isTerminal) await deps.markNotified?.(input.runId);
             return { delivered: "steer" };
-          } catch {
-            // The live handle is gone (settled between the read and the
-            // steer): fall through to the queued rail below.
           }
+        } catch {
+          // Live handle gone or steer enqueue conflicted: fall through to the
+          // durable queued rail below instead of dropping the notice.
         }
       }
     }
     await deps.postMessage({
-      conversationId: input.conversationId,
+      conversationId: targetConversationId,
       senderMemberId: input.fromAgentId,
       addressedTo: input.wake ? [parent.agentId] : [],
       content: input.text,
       authorization,
       parentRunId: input.runId,
     });
-    // Only a wake counts as "the dispatcher was told": a ledger-only note is
-    // not a delivery, so the mark stays absent and recovery still re-delivers.
-    if (input.wake) await deps.markNotified?.(input.runId);
+    // Only a terminal wake counts as "the dispatcher was told": a ledger-only
+    // note or a mid-run report must never mark result_notified_at.
+    if (input.wake && isTerminal) await deps.markNotified?.(input.runId);
     return { delivered: input.wake ? "queued" : "ledger" };
   };
 }

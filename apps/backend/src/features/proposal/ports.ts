@@ -11,6 +11,8 @@ export interface ProposalPort {
     createdAt: number;
   }): void;
   latestPending(kind: string, targetId: string): ProposalRow | null;
+  /** Direct PK lookup for a single still-pending proposal (never bounded by listPending). */
+  getPendingById?(id: string): ProposalRow | null;
   /** Every still-pending proposal, newest first. The inbox that lets a person
    *  adopt a project the assistant proposed but no page was open for. */
   listPending(kind?: string): ProposalRow[];

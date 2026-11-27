@@ -68,6 +68,8 @@ export interface AcpTransport {
   readonly stream: ReturnType<typeof acp.ndJsonStream>;
   readonly exit: Promise<number | null>;
   kill(): void;
+  /** Immediate SIGKILL escalation (used when stop/dispose grace expires). */
+  forceKill?(): void;
 }
 
 export type AcpSpawn = (command: {
@@ -78,11 +80,28 @@ export type AcpSpawn = (command: {
 
 export function createNodeSpawn(graceMs: number): AcpSpawn {
   return ({ argv, cwd, env }) => {
+    const canDetach = process.platform !== "win32";
     const child = spawn(argv[0]!, [...argv.slice(1)], {
       cwd,
       env: buildAcpSpawnEnv(process.env, env),
       stdio: ["pipe", "pipe", "inherit"],
+      detached: canDetach,
     });
+    const signalTree = (sig: NodeJS.Signals) => {
+      if (canDetach && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, sig);
+          return;
+        } catch {
+          /* process group already gone; fall through to direct signal */
+        }
+      }
+      try {
+        child.kill(sig);
+      } catch {
+        /* already exited */
+      }
+    };
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const clearKillTimer = () => {
       if (killTimer !== undefined) {
@@ -115,13 +134,17 @@ export function createNodeSpawn(graceMs: number): AcpSpawn {
       ),
       exit,
       kill() {
-        child.kill("SIGTERM");
+        signalTree("SIGTERM");
         clearKillTimer();
         killTimer = setTimeout(() => {
           killTimer = undefined;
-          child.kill("SIGKILL");
+          signalTree("SIGKILL");
         }, graceMs);
         killTimer.unref?.();
+      },
+      forceKill() {
+        clearKillTimer();
+        signalTree("SIGKILL");
       },
     };
   };

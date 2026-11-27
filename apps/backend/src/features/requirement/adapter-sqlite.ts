@@ -106,13 +106,15 @@ export function sqliteRequirementAdapter(db: Database): RequirementPort {
       return updated ? toRow(updated) : null;
     },
     list(includeClosed) {
-      const rows = d
-        .select()
-        .from(schema.requirement)
-        .orderBy(desc(schema.requirement.updatedAt))
-        .all();
-      const all = rows.map(toRow);
-      return includeClosed ? all : all.filter((r) => r.status === "open");
+      const rows = includeClosed
+        ? d.select().from(schema.requirement).orderBy(desc(schema.requirement.updatedAt)).all()
+        : d
+            .select()
+            .from(schema.requirement)
+            .where(eq(schema.requirement.status, "open"))
+            .orderBy(desc(schema.requirement.updatedAt))
+            .all();
+      return rows.map(toRow);
     },
     listOpenByConversation(conversationId, limit) {
       return d
@@ -152,28 +154,29 @@ export function sqliteRequirementAdapter(db: Database): RequirementPort {
         }));
     },
     requestsOf(id: string): RequirementRequestFact[] {
-      // Pending actions hang off runs; a requirement's requests are its runs'.
-      const runs = this.runsOf(id);
-      if (runs.length === 0) return [];
-      const out: RequirementRequestFact[] = [];
-      for (const run of runs) {
-        const rows = d
-          .select()
-          .from(schema.pendingAction)
-          .where(eq(schema.pendingAction.runId, run.runId))
-          .all();
-        for (const row of rows) {
-          out.push({
-            actionId: row.actionId,
-            runId: row.runId,
-            kind: row.kind,
-            status: row.status,
-            head: headOf(row.payload),
-            owner: row.owner,
-          });
-        }
-      }
-      return out;
+      // Single JOIN replaces the double scan + N+1 pending_action queries.
+      return d
+        .select({
+          actionId: schema.pendingAction.actionId,
+          runId: schema.pendingAction.runId,
+          kind: schema.pendingAction.kind,
+          status: schema.pendingAction.status,
+          payload: schema.pendingAction.payload,
+          owner: schema.pendingAction.owner,
+        })
+        .from(schema.pendingAction)
+        .innerJoin(schema.agentRun, eq(schema.pendingAction.runId, schema.agentRun.runId))
+        .where(eq(schema.agentRun.requirementId, id))
+        .orderBy(desc(schema.agentRun.createdAt))
+        .all()
+        .map((row) => ({
+          actionId: row.actionId,
+          runId: row.runId,
+          kind: row.kind,
+          status: row.status,
+          head: headOf(row.payload),
+          owner: row.owner,
+        }));
     },
   };
 }

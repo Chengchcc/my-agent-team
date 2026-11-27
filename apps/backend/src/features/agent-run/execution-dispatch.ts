@@ -248,11 +248,15 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     // and a 24h ask would otherwise be killed at 30 minutes (the whole point
     // of a chat ask is that the person may answer hours later). Each time the
     // cap elapses we re-check; the ask's own deadline still bounds the wait.
+    let settled = false;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     const armWatchdog = (): void => {
+      if (settled) return;
       watchdog = setTimeout(() => {
         void (async () => {
+          if (settled) return;
           const pending = await runPort.listPendingActions(runId).catch(() => []);
+          if (settled) return;
           if (pending.some((a) => a.status === "pending")) {
             debugLog("agent-run", `watchdog deferred runId=${runId} (waiting for human)`);
             armWatchdog();
@@ -273,13 +277,16 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       const forwardingSince = Date.now();
       silenceTimer = setInterval(
         () => {
+          if (settled) return;
           // An in-flight tool call is progress the event stream cannot show:
           // the ACP transport carries tool starts/turns but no liveness tick.
           if (liveEvents.hasOpenToolCall(runId)) return;
           const last = liveEvents.lastEventAt(runId) ?? forwardingSince;
           if (Date.now() - last < silenceWindowMs) return;
           void (async () => {
+            if (settled) return;
             const pending = await runPort.listPendingActions(runId).catch(() => []);
+            if (settled) return;
             if (pending.some((a) => a.status === "pending")) return;
             debugLog(
               "agent-run",
@@ -293,6 +300,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     }
 
     const outcome = segment.outcome.finally(() => {
+      settled = true;
       if (watchdog) clearTimeout(watchdog);
       if (silenceTimer) clearInterval(silenceTimer);
     });
@@ -476,14 +484,18 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
       try {
         await dispatchInner(runId);
       } catch (error) {
-        // Any failure BEFORE the child accepted (model catalog, Context
-        // projection, workspace resolution, child spawn, execute acceptance)
-        // leaves the Run active with NO live child - a zombie. Terminal it:
-        // Run failed, bound input cancelled, branch released, subscribers
-        // closed. A running Run is never a retry queue; if automatic retry is
-        // ever wanted it must be a NEW Run or an explicit retry state.
+        // If a post-spawn step (markInputAccepted, settleOutcome) threw while a
+        // child segment was already live, stop it so it never becomes an orphan
+        // holding the branch forever.
+        const live = liveRuns.get(runId);
+        if (live) {
+          await live.segment.stop().catch(() => {});
+          liveRuns.delete(runId);
+        }
+        // Any failure leaves the Run active with NO live child - a zombie.
+        // Terminal it: Run failed, bound input cancelled, branch released.
         const run = await runPort.getRun(runId);
-        if (run && isActiveStatus(run.status) && !liveRuns.has(runId)) {
+        if (run && isActiveStatus(run.status)) {
           const detail = error instanceof Error ? error.message : String(error);
           // Same live-failure record as settleOutcome's terminal branch:
           // pre-child failures (spawn, catalog, projection) leave no
@@ -498,6 +510,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
           await runPort
             .finalizeRun(runId, { status: "failed", error: detail })
             .catch((e) => console.error(`[agent-run] finalize failed for ${runId}:`, e));
+          await runPort.cancelPendingActionsForRun(runId).catch(() => {});
           await runPort.cancelRunInput(runId).catch(() => {});
         }
         throw error;
@@ -505,6 +518,8 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         inflight.delete(runId);
         inflightPromises.delete(runId);
         liveRuns.delete(runId);
+        resumeInbox.delete(runId);
+        deps.onRunTerminated?.(runId);
         // Every terminal path (outcome, preflight failure, crash) funnels
         // here: the run's product-tools bearer dies with the run.
         deps.productToolsTokenRegistry.revoke(runId);

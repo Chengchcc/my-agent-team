@@ -127,43 +127,24 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
      *  (crash gap), and surface commit_failed runs for retryTerminalCommit.
      *  Called once at boot. */
     async recover() {
-      const delivering = await runPort.listDeliveringInputs();
-      for (const claimed of delivering) {
-        await dispatchFn(claimed.runId).catch((err) => {
-          console.error(`[agent-run] recover dispatch failed for ${claimed.runId}:`, err);
-        });
-      }
-      // Crash gap: pending input with run_id IS NULL on an idle branch. Each
-      // branch promotes its oldest input into a fresh Run from the input's
-      // OWN snapshot (FIFO); acquireNextRun no-ops on busy branches.
-      const idleBranches = await runPort.listIdleBranchesWithPendingInputs();
-      for (const branchId of idleBranches) {
-        const promoted = await runPort.acquireNextRun(branchId);
-        if (!promoted) continue;
-        await dispatchFn(promoted.runId).catch((err) => {
-          console.error(`[agent-run] recover promote dispatch failed for ${promoted.runId}:`, err);
-        });
-      }
-      // ADR 0060 D6: a terminal dispatched run whose notice was never marked
-      // was possibly lost between the commit and the delivery. Re-deliver; the
-      // rails are idempotent per runId, so a duplicate costs a second notice,
-      // never a second run.
-      const unnotified = await runPort.listUnnotifiedDispatchedTerminalRuns(50);
-      for (const run of unnotified) {
-        deps.onRunResultUndelivered?.(run);
-      }
+      // Phase 1: settle all durable DB state BEFORE kicking off child runs so
+      // startup is fast and never deadlocks behind a 24h HITL run or blocks
+      // Lark bot pull-up (P1-7).
+      const toDispatch = new Set<string>();
+
       const failed = await runPort.listCommitFailedRuns();
       for (const run of failed) {
         await this.retryTerminalCommit(run.runId).catch((err) => {
           console.error(`[agent-run] recover commit retry failed for ${run.runId}:`, err);
         });
       }
+
       // Restart orphans: a run whose input was DELIVERED (child accepted)
       // has no live child after a restart — EXCEPT one parked on HITL
       // (ADR 0038): its pending actions keep the answer path alive, and
       // answering re-dispatches it. Everything else cannot be resumed
-      // (one-shot child architecture): terminal it, cancel nothing
-      // (already delivered), release the branch, promote the next input.
+      // (one-shot child architecture): terminal it, release the branch,
+      // promote the next input.
       const orphans = await runPort.listActiveRunsWithDeliveredInputs();
       for (const orphan of orphans) {
         if (liveRuns.has(orphan.runId)) continue;
@@ -194,9 +175,36 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
           .cancelPendingActionsForRun(orphan.runId)
           .catch((err) => console.error(`[agent-run] recover orphan cancel failed:`, err));
         const promoted = await runPort.acquireNextRun(orphan.branchId);
-        if (!promoted) continue;
-        await dispatchFn(promoted.runId).catch((err) => {
-          console.error(`[agent-run] recover orphan promote failed for ${promoted.runId}:`, err);
+        if (promoted) toDispatch.add(promoted.runId);
+      }
+
+      const delivering = await runPort.listDeliveringInputs();
+      for (const claimed of delivering) {
+        toDispatch.add(claimed.runId);
+      }
+
+      // Crash gap: pending input with run_id IS NULL on an idle branch. Each
+      // branch promotes its oldest input into a fresh Run from the input's
+      // OWN snapshot (FIFO); acquireNextRun no-ops on busy branches.
+      const idleBranches = await runPort.listIdleBranchesWithPendingInputs();
+      for (const branchId of idleBranches) {
+        const promoted = await runPort.acquireNextRun(branchId);
+        if (promoted) toDispatch.add(promoted.runId);
+      }
+
+      // ADR 0060 D6: a terminal dispatched run whose notice was never marked
+      // was possibly lost between the commit and the delivery. Re-deliver; the
+      // rails are idempotent per runId, so a duplicate costs a second notice,
+      // never a second run.
+      const unnotified = await runPort.listUnnotifiedDispatchedTerminalRuns(50);
+      for (const run of unnotified) {
+        deps.onRunResultUndelivered?.(run);
+      }
+
+      // Phase 2: fire recovered dispatches asynchronously without blocking boot.
+      for (const runId of toDispatch) {
+        void dispatchFn(runId).catch((err) => {
+          console.error(`[agent-run] recover dispatch failed for ${runId}:`, err);
         });
       }
     },
@@ -210,16 +218,23 @@ export function createExecutionService(ctx: ExecutionServiceCtx): AgentRunExecut
       if (outcome.status !== "completed") {
         // Non-completed terminal: finalize (idempotent) and release.
         await runPort.finalizeRun(runId, outcome).catch(() => {});
-        return;
+      } else {
+        const { seqs } = await runPort.commitCompletedRun({
+          runId,
+          outcome,
+          messages: outcome.messages ?? [],
+        });
+        deps.onRunCommitted?.(runId, finalAnswerMessage(outcome.messages), seqs);
+        liveRuns.delete(runId);
+        liveEvents.forgetRun(runId);
       }
-      const { seqs } = await runPort.commitCompletedRun({
-        runId,
-        outcome,
-        messages: outcome.messages ?? [],
-      });
-      deps.onRunCommitted?.(runId, finalAnswerMessage(outcome.messages), seqs);
-      liveRuns.delete(runId);
-      liveEvents.forgetRun(runId);
+      // Release any input that queued behind this commit_failed run.
+      const next = await runPort.acquireNextRun(run.branchId);
+      if (next) {
+        void dispatchFn(next.runId).catch((err) => {
+          console.error(`[agent-run] post-retry chain dispatch failed for ${next.runId}:`, err);
+        });
+      }
     },
 
     async resolveApproval(runId, callId, decision) {

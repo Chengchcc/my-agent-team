@@ -70,8 +70,16 @@ export function createBudgetGate(deps: BudgetGateDeps): BudgetGate {
     const costs = await deps.modelCosts;
     let spent = 0;
     for (const g of groups) {
-      const ref = JSON.parse(g.model_ref) as { backendKind: string; modelId: string };
-      const c = costs.get(`${ref.backendKind}/${resolveModelAlias(ref.modelId)}`);
+      const ref = JSON.parse(g.model_ref) as {
+        backendKind: string;
+        modelId: string;
+        harnessModel?: string;
+      };
+      // ADR 0040: model_ref carries backendKind="acp" + harnessModel="<provider>/<model>";
+      // look up by bare resolved model id first, falling back to legacy prefixed keys.
+      const bareKey = resolveModelAlias(ref.harnessModel || ref.modelId);
+      const c =
+        costs.get(bareKey) ?? costs.get(`${ref.backendKind}/${resolveModelAlias(ref.modelId)}`);
       spent += c
         ? (g.inputTokens * c.input +
             g.outputTokens * c.output +

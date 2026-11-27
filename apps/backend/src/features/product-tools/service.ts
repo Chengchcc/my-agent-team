@@ -393,6 +393,7 @@ export interface ProductToolsServiceDeps {
     fromAgentId: string;
     conversationId: string;
     runId: string;
+    callId?: string;
     purpose: "progress" | "attention" | "answer";
     text: string;
     /** ADR 0060 D1: the recorded check result. Absent = no evidence, which
@@ -452,6 +453,13 @@ export interface ProductToolsService {
   /** Resolve a pending ask (web submitted answers). Idempotent no-op if none.
    *  Returns true when a live ask actually resolved. */
   resolveAsk(runId: string, callId: string, answer: AskQuestionResult): boolean;
+  /** Durable async variant of resolveAsk (ADR 0038): resolves the live ask
+   *  when present AND awaits durable pending_action consumption, returning true
+   *  when either a live resolver or a parked durable ask row was resolved. */
+  resolveAskDurable(runId: string, callId: string, answer: AskQuestionResult): Promise<boolean>;
+  /** Cancel all in-memory parked ask waiters/timers belonging to `runId` when
+   *  the run exits or aborts so 24h timers and promises never leak. */
+  cancelAsksForRun(runId: string): void;
   /** ADR 0074 S2: record a possible text-answer mismatch (observation only). */
   observeOrphanTextAnswer(conversationId: string): Promise<void>;
   /** The still-open free-text ask for this conversation, if any (roadmap:
@@ -736,7 +744,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
   }
 
   async function reminderCancel(
-    _run: AgentRun,
+    run: AgentRun,
     input: ProductToolCallInput,
   ): Promise<ProductToolCallResult> {
     if (!deps.reminder) {
@@ -744,6 +752,15 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     }
     const id = typeof input.args.id === "string" ? input.args.id.trim() : "";
     if (!id) throw new ProductToolRejectedError("reminder_cancel requires id");
+    // Scope cancellation to reminders created by this agent so one agent cannot
+    // delete another agent's scheduled reminders.
+    const owned = deps.reminder.listByAgent(run.agentId).some((r) => r.id === id);
+    if (!owned) {
+      return {
+        content: `Reminder ${id} not found for agent ${run.agentId} or already fired.`,
+        isError: true,
+      };
+    }
     const ok = deps.reminder.cancel(id);
     return {
       content: ok ? `Reminder ${id} cancelled.` : `Reminder ${id} not found or already fired.`,
@@ -1444,16 +1461,17 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       payload: { questions: parsed.questions },
     });
     let answer: AskQuestionResult | null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       answer = await Promise.race([
         promise,
-        new Promise<null>(
-          (r) =>
-            setTimeout(() => r(null), askTimeoutMs).unref?.() ??
-            setTimeout(() => r(null), askTimeoutMs),
-        ),
+        new Promise<null>((r) => {
+          timer = setTimeout(() => r(null), askTimeoutMs);
+          timer.unref?.();
+        }),
       ]);
     } finally {
+      if (timer !== undefined) clearTimeout(timer);
       pendingAsks.delete(key);
     }
     if (!answer) {
@@ -1719,6 +1737,7 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       fromAgentId: run.agentId,
       conversationId: run.conversationId,
       runId: run.runId,
+      callId: input.callId,
       purpose,
       text,
       ...(verification === undefined ? {} : { verification }),
@@ -1765,7 +1784,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           `idempotencyKey ${input.idempotencyKey} does not match ${run.runId}:${input.callId}`,
         );
       }
-      if (!isActiveStatus(run.status) || run.status !== "running") {
+      // Allow both "running" and "waiting": when a model emits a parallel tool
+      // batch where one call parks the run on ask_question (status -> waiting),
+      // sibling tool calls in the same turn must still succeed.
+      if (!isActiveStatus(run.status) || (run.status !== "running" && run.status !== "waiting")) {
         throw new ProductToolRejectedError(`run ${run.runId} is ${run.status}, not active`);
       }
       const manifest = run.productTools ?? [];
@@ -1866,6 +1888,37 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       return Boolean(resolve);
     },
 
+    async resolveAskDurable(runId, callId, answer) {
+      const key = pendingActionId(runId, callId);
+      const resolve = pendingAsks.get(key);
+      if (resolve) resolve(answer);
+      const existing = await runPort.getPendingAction(key).catch(() => null);
+      if (!resolve && existing?.status !== "pending") {
+        return false;
+      }
+      try {
+        await runPort.consumePendingAction(
+          key,
+          { actionId: key, response: { answered: true, answer } },
+          `${key}:resolved`,
+        );
+        deps.onRunWoke?.(runId);
+        deps.onAskAnswered?.({ runId, callId });
+        return true;
+      } catch {
+        return Boolean(resolve);
+      }
+    },
+
+    cancelAsksForRun(runId) {
+      const prefix = `${runId}:`;
+      for (const [key, resolve] of [...pendingAsks.entries()]) {
+        if (!key.startsWith(prefix)) continue;
+        pendingAsks.delete(key);
+        resolve(null);
+      }
+    },
+
     /** ADR 0074 S2 observation: a free-text reply arrived with NOTHING
      *  pending. If this conversation answered an ask within the window, the
      *  reply probably belonged to it — the matching gap ADR 0074 keeps honest
@@ -1893,13 +1946,14 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
     },
 
     async pendingTextAskForConversation(conversationId) {
-      for (const key of pendingAsks.keys()) {
-        const sep = key.indexOf(":");
-        const runId = key.slice(0, sep);
-        const callId = key.slice(sep + 1);
-        const run = await runPort.getRun(runId).catch(() => null);
-        if (!run || run.conversationId !== conversationId) continue;
-        const records = await runPort.listPendingActions(runId).catch(() => []);
+      // Query durable active runs for this conversation (not only in-memory
+      // pendingAsks) so a parked HITL ask still receives free-text replies
+      // after a backend restart (ADR 0038 / P1-12).
+      const activeRuns = await runPort
+        .listActiveRunsForConversations([conversationId])
+        .catch(() => []);
+      for (const run of activeRuns) {
+        const records = await runPort.listPendingActions(run.runId).catch(() => []);
         for (const record of records) {
           if (record.status !== "pending" || record.kind !== "ask") continue;
           const questions = record.payload.questions;
@@ -1913,7 +1967,14 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
             (first.kind === "select" && "allowOther" in first && first.allowOther === true);
           if (!answerableByText) continue;
           if (!("id" in first) || typeof first.id !== "string") continue;
-          return { runId, callId, questionId: first.id };
+          const sep = record.actionId.indexOf(":");
+          const callId =
+            typeof record.payload.callId === "string"
+              ? record.payload.callId
+              : sep >= 0
+                ? record.actionId.slice(sep + 1)
+                : record.actionId;
+          return { runId: run.runId, callId, questionId: first.id };
         }
       }
       return null;

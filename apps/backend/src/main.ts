@@ -28,6 +28,10 @@ const server = createServer(config, app);
 
 // ─── Start ────────────────────────────────────────────────────
 
+// Settle durable DB state (commit_failed retries, orphan finalization,
+// crash-gap promotions) BEFORE accepting HTTP traffic; dispatches run
+// asynchronously so a parked HITL run never blocks startup or Lark bots.
+await installed.prepare();
 server.start();
 await installed.start();
 

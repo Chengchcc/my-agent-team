@@ -453,7 +453,14 @@ export class AcpBackend implements AgentBackend<"acp"> {
     }
     entry.run.held.clear();
     entry.transport.kill();
-    await withTimeout(entry.transport.exit, this.abortGraceMs);
+    const exited = await Promise.race([
+      entry.transport.exit.then(() => true),
+      new Promise<boolean>((r) => setTimeout(() => r(false), this.abortGraceMs)),
+    ]);
+    if (!exited) {
+      entry.transport.forceKill?.();
+      await withTimeout(entry.transport.exit, 200);
+    }
     entry.run.settle({ status: "aborted", error: "stopped by product backend" });
   }
 
@@ -470,7 +477,14 @@ export class AcpBackend implements AgentBackend<"acp"> {
     }
     await Promise.allSettled(
       entries.map(async ({ run, transport }) => {
-        await withTimeout(transport.exit, this.abortGraceMs);
+        const exited = await Promise.race([
+          transport.exit.then(() => true),
+          new Promise<boolean>((r) => setTimeout(() => r(false), this.abortGraceMs)),
+        ]);
+        if (!exited) {
+          transport.forceKill?.();
+          await withTimeout(transport.exit, 200);
+        }
         run.settle({ status: "aborted", error: "backend disposed" });
       }),
     );
@@ -533,7 +547,6 @@ export class AcpBackend implements AgentBackend<"acp"> {
               if (live) {
                 live.ctx = ctx as never;
                 live.steering = declaresSteering(init);
-                live.resolveReady();
               }
             }
             const mcpProvider = this.acpMcpProvider;
@@ -623,6 +636,10 @@ export class AcpBackend implements AgentBackend<"acp"> {
               run.sessionId = created.sessionId;
               await this.onSessionBound?.(input.run.runId, created.sessionId);
             }
+            // Only signal ready AFTER both initialize AND session bind have
+            // assigned `run.sessionId`, so concurrent steer() never sees
+            // sessionId === undefined and misreports "unsupported".
+            this.active.get(input.run.runId)?.resolveReady();
             // A run that names a model sets it on the session before prompting.
             // Only an option the harness declared can be set, and the response
             // says whether it took: a harness that ignored the request would

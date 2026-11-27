@@ -1,3 +1,5 @@
+import { resolve as pathResolve } from "node:path";
+
 /** Why an agent may NOT answer a parked request. One place, so the product
  *  tool's shape checks and the deployment's ownership checks cannot drift.
  *
@@ -74,8 +76,21 @@ export function beyondFrozenScope(
     }
   }
   const path = payloadPath(payload);
-  if (path !== null && policy.allow.length > 0 && !policy.allow.some((p) => path.startsWith(p))) {
-    return `the path ${JSON.stringify(path)} is outside the write paths this run was authorised for`;
+  if (path !== null) {
+    const normalized = pathResolve(path);
+    const matchesRule = (rule: string): boolean => {
+      const resolvedRule = pathResolve(rule);
+      const prefix =
+        rule.endsWith("/") && !resolvedRule.endsWith("/") ? `${resolvedRule}/` : resolvedRule;
+      return normalized === resolvedRule || normalized.startsWith(prefix);
+    };
+    const deniedRule = policy.deny.find(matchesRule);
+    if (deniedRule !== undefined) {
+      return `the path ${JSON.stringify(path)} matches denied rule ${JSON.stringify(deniedRule)}`;
+    }
+    if (policy.allow.length > 0 && !policy.allow.some(matchesRule)) {
+      return `the path ${JSON.stringify(path)} is outside the write paths this run was authorised for`;
+    }
   }
   return undefined;
 }

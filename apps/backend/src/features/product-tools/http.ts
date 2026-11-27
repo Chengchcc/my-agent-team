@@ -7,9 +7,13 @@ import type { ProductToolsService } from "./service.js";
 export function productToolsRoutes(svc: ProductToolsService) {
   return new Elysia().post(
     "/api/product-tools/ask/resolve",
-    ({ body }) => {
+    async ({ body, set }) => {
       const { runId, callId, answer } = body;
-      svc.resolveAsk(runId, callId, answer);
+      const ok = await svc.resolveAskDurable(runId, callId, answer);
+      if (!ok) {
+        set.status = 409;
+        return { ok: false, error: "ask is not pending or already resolved" };
+      }
       return { ok: true };
     },
     {

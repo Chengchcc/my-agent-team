@@ -437,7 +437,7 @@ export function conversationRoutes(
         async ({ params: { id }, body }) => {
           return await svc.undoMessages({ conversationId: id, ...body });
         },
-        { body: t.Object({ count: t.Optional(t.Number()) }) },
+        { body: t.Object({ count: t.Optional(t.Integer({ minimum: 1 })) }) },
       )
       .post(
         "/api/conversations/:id/replay",

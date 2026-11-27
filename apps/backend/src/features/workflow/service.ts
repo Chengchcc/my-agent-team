@@ -348,6 +348,7 @@ export function createWorkflowExecutionService(
       try {
         return await run(node, lastError);
       } catch (err) {
+        if (err instanceof WorkflowCancelledError) throw err;
         lastError = err;
         if (attempt === maxRetries) throw err;
         // Active retry: wait with exponential backoff before re-running.
@@ -441,7 +442,11 @@ export function createWorkflowExecutionService(
     }
 
     const defaultModel = inline
-      ? { backendKind: "oma", modelId: node.model ?? "" }
+      ? {
+          backendKind: "acp",
+          modelId: "acp/oma",
+          ...(node.model ? { harnessModel: node.model } : {}),
+        }
       : await deps.resolveDefaultModel(agentId);
 
     // Reconnect: if this node already has a persisted agent runId, poll that
@@ -534,73 +539,83 @@ export function createWorkflowExecutionService(
       });
     }
 
-    const inputErrors = node.inputSchema ? validateBySchema(ready.input, node.inputSchema) : [];
-    if (inputErrors.length > 0)
-      throw new Error(`node ${node.id} input invalid: ${inputErrors.join("; ")}`);
-    await validateArtifactFields(
-      inputHintToRecord(node.input),
-      ready.input,
-      `node ${node.id} input`,
-    );
-
-    let output: Record<string, unknown>;
-    if (node.type === "start") {
-      output = { ...execution.input };
-      // Workflow-level required input artifacts must exist before running.
-      await validateArtifactFields(
-        inputHintToRecord(execution.definition.input),
-        execution.input,
-        `workflow ${execution.executionId} input`,
-      );
-    } else if (node.type === "human") {
-      const question = (ready.input.question as string | undefined) ?? node.question;
-      const form = (ready.input.form as Record<string, unknown> | undefined) ?? node.form;
-      const questions = formToAskQuestions(form, question);
-      await deps.port.createPendingHuman({
-        executionId: execution.executionId,
-        nodeId: node.id,
-        question,
-        form: { questions },
-        status: "pending",
-        createdAt: Date.now(),
+    const markNodeFailed = async (err: unknown): Promise<never> => {
+      const msg = err instanceof Error ? err.message : String(err);
+      await deps.port.updateNodeRun(execution.executionId, node.id, {
+        status: "failed",
+        error: msg,
+        terminalAt: Date.now(),
       });
-      await deps.port.updateExecution(execution.executionId, { status: "waiting_human" });
-      emit(execution.executionId, "human_task_requested", { nodeId: node.id, question, questions });
-      return null;
-    } else {
-      try {
+      emit(execution.executionId, "node_failed", { nodeId: node.id, error: msg });
+      throw err;
+    };
+
+    try {
+      const inputErrors = node.inputSchema ? validateBySchema(ready.input, node.inputSchema) : [];
+      if (inputErrors.length > 0)
+        throw new Error(`node ${node.id} input invalid: ${inputErrors.join("; ")}`);
+      await validateArtifactFields(
+        inputHintToRecord(node.input),
+        ready.input,
+        `node ${node.id} input`,
+      );
+
+      let output: Record<string, unknown>;
+      if (node.type === "start") {
+        output = { ...execution.input };
+        // Workflow-level required input artifacts must exist before running.
+        await validateArtifactFields(
+          inputHintToRecord(execution.definition.input),
+          execution.input,
+          `workflow ${execution.executionId} input`,
+        );
+      } else if (node.type === "human") {
+        const question = (ready.input.question as string | undefined) ?? node.question;
+        const form = (ready.input.form as Record<string, unknown> | undefined) ?? node.form;
+        const questions = formToAskQuestions(form, question);
+        await deps.port.createPendingHuman({
+          executionId: execution.executionId,
+          nodeId: node.id,
+          question,
+          form: { questions },
+          status: "pending",
+          createdAt: Date.now(),
+        });
+        await deps.port.updateExecution(execution.executionId, { status: "waiting_human" });
+        emit(execution.executionId, "human_task_requested", {
+          nodeId: node.id,
+          question,
+          questions,
+        });
+        return null;
+      } else {
         output =
           node.type === "agent"
             ? ((
                 await runNodeWithRetry(node, async (n, lastError) => {
                   const r = await runAgentNode(n, ready, execution, lastError);
-                  const output = r.output ?? {};
-                  const errs = node.outputSchema ? validateBySchema(output, node.outputSchema) : [];
+                  const out = r.output ?? {};
+                  const errs = node.outputSchema ? validateBySchema(out, node.outputSchema) : [];
                   if (errs.length > 0)
                     throw new Error(`node ${node.id} output invalid: ${errs.join("; ")}`);
                   return r;
                 })
               ).output ?? {})
             : await runWorkflowNode(node, ready, execution);
-      } catch (err) {
-        await deps.port.updateNodeRun(execution.executionId, node.id, {
-          status: "failed",
-          error: (err as Error).message,
-          terminalAt: Date.now(),
-        });
-        emit(execution.executionId, "node_failed", {
-          nodeId: node.id,
-          error: (err as Error).message,
-        });
-        throw err;
       }
-    }
 
-    const outputErrors = node.outputSchema ? validateBySchema(output, node.outputSchema) : [];
-    if (outputErrors.length > 0)
-      throw new Error(`node ${node.id} output invalid: ${outputErrors.join("; ")}`);
-    await validateArtifactFields(inputHintToRecord(node.output), output, `node ${node.id} output`);
-    return { output };
+      const outputErrors = node.outputSchema ? validateBySchema(output, node.outputSchema) : [];
+      if (outputErrors.length > 0)
+        throw new Error(`node ${node.id} output invalid: ${outputErrors.join("; ")}`);
+      await validateArtifactFields(
+        inputHintToRecord(node.output),
+        output,
+        `node ${node.id} output`,
+      );
+      return { output };
+    } catch (err) {
+      return await markNodeFailed(err);
+    }
   }
 
   function recordCompletion(
@@ -824,6 +839,8 @@ export function createWorkflowExecutionService(
     }
   }
 
+  const startingWorkflows = new Set<string>();
+
   async function runWithCatch(executionId: string, execute: () => Promise<void>): Promise<void> {
     try {
       await execute();
@@ -836,6 +853,11 @@ export function createWorkflowExecutionService(
         terminalAt: Date.now(),
       });
       emit(executionId, "execution_terminal", { exit: "failure", error: (err as Error).message });
+    } finally {
+      // Release per-execution memory once the execution is no longer driving
+      // (terminal or parked waiting_human; resume rebuilds completions from DB).
+      completions.delete(executionId);
+      cancelled.delete(executionId);
     }
   }
 
@@ -858,34 +880,44 @@ export function createWorkflowExecutionService(
       return (await deps.port.getExecution(executionId))!;
     },
     async startExecution(input) {
-      // Single-flight by DB truth, not memory: a manual trigger must not open a
-      // second concurrent execution of the same workflow (measured live: two
-      // solvers raced the same issue because the manual path bypassed the
-      // scheduler's in-memory set). Cron fires get the same answer here.
-      const active = (await deps.port.listExecutions(input.workflowId)).find(
-        (e) => e.status === "running",
-      );
-      if (active) {
+      // Single-flight guard across async DB check + insert so concurrent triggers
+      // cannot slip past the read-then-insert gap.
+      if (startingWorkflows.has(input.workflowId)) {
         throw new HttpError(
-          `workflow ${input.workflowId} already has a running execution (${active.executionId}); wait, or cancel it first`,
+          `workflow ${input.workflowId} is already starting an execution; wait, or cancel it first`,
           409,
         );
       }
-      const executionId = deps.idGen();
-      const row = await deps.port.createExecution({
-        executionId,
-        workflowId: input.workflowId,
-        definition: input.definition,
-        input: input.input,
-        store: {},
-        status: "running",
-        triggeredBy: input.triggeredBy ?? "manual",
-        requirementId: input.requirementId ?? null,
-        conversationId: input.conversationId ?? null,
-        projectId: input.projectId ?? null,
-      });
-      emit(executionId, "execution_started", {});
-      void runWithCatch(executionId, () => drive(row));
+      startingWorkflows.add(input.workflowId);
+      let row: WorkflowExecutionRow;
+      try {
+        const active = (await deps.port.listExecutions(input.workflowId)).find(
+          (e) => e.status === "running",
+        );
+        if (active) {
+          throw new HttpError(
+            `workflow ${input.workflowId} already has a running execution (${active.executionId}); wait, or cancel it first`,
+            409,
+          );
+        }
+        const executionId = deps.idGen();
+        row = await deps.port.createExecution({
+          executionId,
+          workflowId: input.workflowId,
+          definition: input.definition,
+          input: input.input,
+          store: {},
+          status: "running",
+          triggeredBy: input.triggeredBy ?? "manual",
+          requirementId: input.requirementId ?? null,
+          conversationId: input.conversationId ?? null,
+          projectId: input.projectId ?? null,
+        });
+      } finally {
+        startingWorkflows.delete(input.workflowId);
+      }
+      emit(row.executionId, "execution_started", {});
+      void runWithCatch(row.executionId, () => drive(row));
       return row;
     },
     async resolveHumanTasks(
@@ -1004,6 +1036,8 @@ export function createWorkflowExecutionService(
       return deps.port.listExecutions(filter);
     },
     async deleteExecution(executionId: string) {
+      completions.delete(executionId);
+      cancelled.delete(executionId);
       return deps.port.deleteExecution(executionId);
     },
     async cancelExecution(executionId: string) {
@@ -1040,38 +1074,42 @@ export function createWorkflowExecutionService(
       const expired: string[] = [];
       for (const execution of await deps.port.listWaitingHumanExecutions()) {
         if (execution.status !== "waiting_human") continue;
-        const waiting = (await deps.port.listNodeRuns(execution.executionId))
-          .filter((r) => r.status === "waiting_human")
-          .at(-1);
-        if (!waiting) continue;
-        // A rework budget gate parks under a synthetic id (`<node>#budget`)
-        // that no DSL node answers to — it declares no timeout, so it is
-        // skipped rather than treated as an unknown node.
-        const node = execution.definition.nodes.find((n) => n.id === waiting.nodeId);
-        if (node?.type !== "human" || !node.timeoutMs) continue;
-        const pending = await deps.port.getPendingHuman(execution.executionId, waiting.nodeId);
-        if (!pending) continue;
-        if (pending.status !== "pending") continue;
-        if (now - pending.createdAt < node.timeoutMs) continue;
+        // Inspect ALL waiting_human nodes (not just `.at(-1)`): parallel human
+        // gates can sit open at the same time with different timeouts.
+        const waitingNodes = (await deps.port.listNodeRuns(execution.executionId)).filter(
+          (r) => r.status === "waiting_human",
+        );
+        for (const waiting of waitingNodes) {
+          // A rework budget gate parks under a synthetic id (`<node>#budget`)
+          // that no DSL node answers to — it declares no timeout, so it is
+          // skipped rather than treated as an unknown node.
+          const node = execution.definition.nodes.find((n) => n.id === waiting.nodeId);
+          if (node?.type !== "human" || !node.timeoutMs) continue;
+          const pending = await deps.port.getPendingHuman(execution.executionId, waiting.nodeId);
+          if (!pending) continue;
+          if (pending.status !== "pending") continue;
+          if (now - pending.createdAt < node.timeoutMs) continue;
 
-        if (!(await deps.port.markPendingHumanResolved(execution.executionId, waiting.nodeId))) {
-          continue; // an answer claimed it first; that path owns the outcome
+          if (!(await deps.port.markPendingHumanResolved(execution.executionId, waiting.nodeId))) {
+            continue; // an answer claimed it first; that path owns the outcome
+          }
+          const error = `human task "${waiting.nodeId}" timed out after ${node.timeoutMs}ms`;
+          await deps.port.updateNodeRun(execution.executionId, waiting.nodeId, {
+            status: "failed",
+            error,
+            terminalAt: now,
+          });
+          await deps.port.updateExecution(execution.executionId, {
+            status: "failure",
+            exit: "failure",
+            error,
+            terminalAt: now,
+          });
+          emit(execution.executionId, "node_failed", { nodeId: waiting.nodeId, error });
+          emit(execution.executionId, "execution_terminal", { exit: "failure", error });
+          expired.push(execution.executionId);
+          break;
         }
-        const error = `human task "${waiting.nodeId}" timed out after ${node.timeoutMs}ms`;
-        await deps.port.updateNodeRun(execution.executionId, waiting.nodeId, {
-          status: "failed",
-          error,
-          terminalAt: now,
-        });
-        await deps.port.updateExecution(execution.executionId, {
-          status: "failure",
-          exit: "failure",
-          error,
-          terminalAt: now,
-        });
-        emit(execution.executionId, "node_failed", { nodeId: waiting.nodeId, error });
-        emit(execution.executionId, "execution_terminal", { exit: "failure", error });
-        expired.push(execution.executionId);
       }
       return expired;
     },

@@ -245,6 +245,7 @@ export interface InstalledFeatures {
   productTools: ReturnType<typeof createProductToolsService>;
   workflowExecutionService: ReturnType<typeof createWorkflowExecutionService>;
 
+  prepare(): Promise<void>;
   start(): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -599,9 +600,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       } catch {
         /* a missing history never blocks a run */
       }
+      const basePrompt = systemPrompt ?? "";
       const withInterrupted = interruptedBlock
-        ? `${systemPrompt}\n\n${interruptedBlock}`
-        : systemPrompt;
+        ? basePrompt
+          ? `${basePrompt}\n\n${interruptedBlock}`
+          : interruptedBlock
+        : basePrompt;
       // ADR 0076 H4, the fourth read point: the room's project is told to the
       // front desk itself. The guard, the brief and the terminal already read
       // it; the model did not, and asked "which project is this README in?"
@@ -613,7 +617,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         roomProject === null
           ? ""
           : `\n\nThis room is about the project "${roomProject.name}". A request here is about that project unless the person says otherwise — do not ask which project.`;
-      const withRoom = `${withInterrupted}${roomLine}`;
+      const withRoom = `${withInterrupted}${roomLine}`.trim();
       const result: {
         systemPrompt?: string;
         skillRoots?: readonly string[];
@@ -818,7 +822,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         void productTools.observeOrphanTextAnswer(conversationId);
         return false;
       }
-      return productTools.resolveAsk(ask.runId, ask.callId, {
+      return await productTools.resolveAskDurable(ask.runId, ask.callId, {
         answers: [{ id: ask.questionId, selectedValues: [], freeText: text }],
       });
     },
@@ -903,9 +907,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         branchId: input.branchId,
         mode: "steer",
         message: input.message,
-        inputIdempotencyKey: `result:${input.parentRunId}`,
-        runIdempotencyKey: `result:${input.parentRunId}`,
-        deliveryIdempotencyKey: `result:${input.parentRunId}`,
+        inputIdempotencyKey: input.idempotencyKey,
+        runIdempotencyKey: input.idempotencyKey,
+        deliveryIdempotencyKey: input.idempotencyKey,
         defaultModel: input.defaultModel,
         configRevision: input.configRevision,
         expectedRevision: steerBranch?.revision ?? input.configRevision,
@@ -1125,13 +1129,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         if (answer === undefined) {
           return { ok: false as const, error: "an ask needs answer" };
         }
-        const woke = productTools.resolveAsk(
+        const woke = await productTools.resolveAskDurable(
           runId,
           callId,
           answer as Parameters<typeof productTools.resolveAsk>[2],
         );
         if (!woke) {
-          return { ok: false as const, error: `ask ${callId} has no live resolver` };
+          return { ok: false as const, error: `ask ${callId} is not pending or already resolved` };
         }
       }
       await agentRunPort.markActionAnswered?.(actionId, `agent:${agentId}`, evidence);
@@ -1531,11 +1535,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           .join("; "),
       };
     },
-    // ADR 0052 handback: the worker's own run is the parent; the dispatcher
-    // is woken with the reason, in the same room, under its own authority.
+    // ADR 0052 + ADR 0070 handback: resolve the parent run's conversation so a
+    // worker running in a child room wakes its dispatcher in the PARENT room.
     handback: async ({ fromAgentId, toAgentId, conversationId, runId, reason, suggestion }) => {
+      const currentRun = await agentRunPort.getRun(runId).catch(() => null);
+      const parentRun = currentRun?.parentRunId
+        ? await agentRunPort.getRun(currentRun.parentRunId).catch(() => null)
+        : null;
+      const targetConversationId = parentRun?.conversationId ?? conversationId;
       const posted = await conv.convSvc.postMessage({
-        conversationId,
+        conversationId: targetConversationId,
         senderMemberId: fromAgentId,
         addressedTo: [toAgentId],
         content: frameHandbackInput(fromAgentId, reason, suggestion),
@@ -1547,12 +1556,23 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       return { runId: first?.runId ?? "", queued: first?.queued ?? false };
     },
     // ADR 0059 D6: report goes upward through the same closure the terminal
-    // state uses; progress never wakes, attention/answer do.
-    notifyParent: async ({ fromAgentId, conversationId, runId, purpose, text, verification }) =>
+    // state uses; progress never wakes, attention/answer do. Never mark
+    // result_notified_at on mid-run reports (`terminal: false`).
+    notifyParent: async ({
+      fromAgentId,
+      conversationId,
+      runId,
+      callId,
+      purpose,
+      text,
+      verification,
+    }) =>
       notifyDispatcher({
         fromAgentId,
         conversationId,
         runId,
+        terminal: false,
+        idempotencyKey: `report:${runId}:${callId ?? Date.now()}`,
         text: frameReportInput(fromAgentId, purpose, text, verification),
         wake: purpose !== "progress",
       }),
@@ -1593,12 +1613,14 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         return { saved: false, reason: (error as Error).message };
       }
     },
-    // ADR 0059 D6: the two control verbs. Both resolve the worker's LIVE run
-    // first and reject when there is none - queuing a "steer" for an idle
-    // worker would silently become a task, which is dispatch's job.
+    // ADR 0059 D6 + ADR 0070: query active runs across BOTH the dispatcher's
+    // room and its spawned worker child conversations.
     steerWorker: async ({ fromAgentId, conversationId, toAgentId, runId, callId, message }) => {
+      const childIds =
+        conv.convPort.listChildConversations?.(conversationId).map((c) => c.conversationId) ?? [];
+      const scopeIds = [conversationId, ...childIds];
       const active = (
-        await agentRunPort.listActiveRunsForConversations([conversationId]).catch(() => [])
+        await agentRunPort.listActiveRunsForConversations(scopeIds).catch(() => [])
       ).find((candidate) => candidate.agentId === toAgentId);
       if (!active) {
         return {
@@ -1611,7 +1633,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // the run's config revision (which is a constant today).
       const steerBranch = await contextPort.getBranch(active.branchId).catch(() => null);
       const enqueued = await agentRunPort.enqueueAndAcquire({
-        conversationId,
+        conversationId: active.conversationId,
         agentId: toAgentId,
         branchId: active.branchId,
         mode: "steer",
@@ -1642,8 +1664,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       }
     },
     cancelWorker: async ({ fromAgentId, conversationId, toAgentId, reason }) => {
+      const childIds =
+        conv.convPort.listChildConversations?.(conversationId).map((c) => c.conversationId) ?? [];
+      const scopeIds = [conversationId, ...childIds];
       const active = (
-        await agentRunPort.listActiveRunsForConversations([conversationId]).catch(() => [])
+        await agentRunPort.listActiveRunsForConversations(scopeIds).catch(() => [])
       ).find((candidate) => candidate.agentId === toAgentId);
       if (!active) {
         return { ok: false, error: `${toAgentId} has no running task in this conversation` };
@@ -2270,7 +2295,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       { input: number; output: number; cacheRead: number; cacheWrite: number }
     >();
     for (const m of (await codingAgentCatalog.list()).models) {
-      map.set(`oma/${resolveModelAlias(m.id)}`, m.cost);
+      map.set(resolveModelAlias(m.id), m.cost);
     }
     return map;
   })().catch((err) => {
@@ -2486,6 +2511,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       );
     },
     onRunFailed,
+    onRunTerminated: (runId) => productTools.cancelAsksForRun(runId),
     persistRunEvent: (runId, event) => {
       services.opsStore.appendRunEvent(
         runId,
@@ -2519,8 +2545,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   };
 
   dispatchRun.fn = (runId: string) => agentRunExecution.dispatch(runId);
-  injectSteer.fn = (branchId: string, input: { inputId: string; message: Message }) =>
-    agentRunExecution.injectSteer(branchId, input);
+  injectSteer.fn = (
+    branchId: string,
+    input: { inputId: string; message: Message },
+    opts?: { keepIfIdle?: boolean },
+  ) => agentRunExecution.injectSteer(branchId, input, opts);
   isLive.fn = (runId: string) => agentRunExecution.isLive(runId);
   isInflight.fn = (runId: string) => agentRunExecution.isInflight(runId);
   abortStaleRun.fn = (runId: string) => agentRunExecution.abortStaleRun(runId);
@@ -2997,7 +3026,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const codingRegistry = createTerminalRegistry({
     persist: (snapshot) => codingTerminalStore.saveAll(snapshot),
   });
-  void (async () => {
+  const restoreCodingTerminals = async (): Promise<void> => {
     for (const entry of codingTerminalStore.loadAll()) {
       try {
         const target = await resolveCodingTarget(entry.projectId, entry.agentId);
@@ -3021,7 +3050,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Prune skipped entries (agent/project gone) so they stop retrying
     // every boot even when nothing else mutates membership afterwards.
     codingRegistry.sync();
-  })();
+  };
 
   // Removal is symmetric with creation, with two server-side guards:
   // a live terminal would have its cwd yanked away, and uncommitted
@@ -3437,6 +3466,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // usage.costUsd — so degrade to "no catalog" and keep booting.
       modelCosts: modelCostsSnapshot,
       budgetGate,
+      labelResolver: entityLabels,
     }),
     coding: codingRoutes({
       registry: codingRegistry,
@@ -3595,21 +3625,27 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   // backend, which would be circular inside a product execution.
   let smokeCron: { stop(): unknown } | undefined;
 
+  let prepared = false;
+  async function prepare(): Promise<void> {
+    if (prepared) return;
+    prepared = true;
+    // Settle durable run/workflow state BEFORE accepting HTTP traffic (P1-7).
+    // `recover()` settles DB rows synchronously and fires recovered dispatches
+    // asynchronously, so boot never deadlocks behind a 24h HITL run.
+    await agentRunExecution.recover();
+    await workflowExecutionService.recover();
+  }
+
   async function start(): Promise<void> {
+    await prepare();
     await workflowTriggerScheduler.sync();
+    // Restore persisted coding terminals only when the server actually starts
+    // (not during installFeatures in unit tests).
+    void restoreCodingTerminals();
     // Reminder catch-up: anything due while the process was down fires now.
     void reminderSvc.fireDue().catch((err: unknown) => {
       console.error("[reminder] boot catch-up failed:", err instanceof Error ? err.message : err);
     });
-    // Agent-run recovery first: redeliver delivering inputs, promote crash
-    // gaps, retry commit_failed commits, terminalize restart orphans — old
-    // state is settled BEFORE workflow recovery re-drives executions that
-    // will dispatch fresh Runs onto those same branches.
-    // ORDER (#43): agent-run recovery settles every orphan/parked run to a
-    // stable status FIRST; workflow re-drive consumes only stable states, so
-    // it must never observe a run mid-recovery and misjudge it as timed out.
-    await agentRunExecution.recover();
-    await workflowExecutionService.recover();
     // Boot-time bot pull-up: a lark-enabled agent's bot used to start only
     // when its config was re-saved, so a backend restart silently dropped
     // every bot until someone touched the agent. Runs after listen (main
@@ -3651,21 +3687,26 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   }
 
   async function dispose(): Promise<void> {
-    // Order matters: stop producing Runs first, then kill every Coding
-    // Agent child and drain in-flight dispatches (the DB must not close
-    // mid-finalize), THEN close surfaces that children may still call
-    // (Product Tools MCP) and finally Lark/setup.
+    // Order matters (P1-18):
+    // 1. Stop all new-work producers (cron, timers, workflow trigger scheduler)
+    //    and drain async background writers (proactive).
+    // 2. Kill every running agent child & drain in-flight dispatches + PTYs.
+    // 3. Close local MCP servers and sandbox allowlist proxy.
+    // 4. Dispose Lark supervisor & setup manager.
     smokeCron?.stop();
     clearInterval(reminderInterval);
     clearInterval(humanTimeoutInterval);
     clearInterval(artifactRetentionInterval);
+    await workflowTriggerScheduler.dispose();
+    await proactiveSvc.drain();
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
-    await workflowTriggerScheduler.dispose();
-    await larkBotRegistry.dispose();
-    setupManager?.dispose();
     await productToolsMcp?.close();
     await workflowMcp?.close();
+    await agentConfigMcp?.close();
+    await sandboxProxy?.close();
+    await larkBotRegistry.dispose();
+    setupManager?.dispose();
   }
 
   // Seed the default agent AFTER the whole wiring (the catalog const and
@@ -3837,6 +3878,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     agentRunExecution,
     productTools,
     workflowExecutionService,
+    prepare,
     start,
     dispose,
   };

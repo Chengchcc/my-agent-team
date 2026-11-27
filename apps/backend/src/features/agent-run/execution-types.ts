@@ -149,6 +149,10 @@ export interface AgentRunExecutionDeps {
     agentId: string;
     error: string;
   }) => void;
+  /** Called in dispatchFn's finally when a run exits (completed, failed,
+   *  aborted, or preflight error) so auxiliary run-scoped resources (such as
+   *  parked in-memory ask timers/resolvers) are released immediately. */
+  readonly onRunTerminated?: (runId: string) => void;
   /** Durable telemetry sink for normalized run events (tool calls, status,
    *  workflow steps). Wired to the RuntimeOps event store; failures are
    *  swallowed — telemetry never affects the run. */

@@ -152,8 +152,11 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
           );
         }
 
-        // 4. CAS the branch revision
-        const casResult = d
+        // 4. CAS the branch revision. When the branch is confirmed idle inside
+        //    this transaction (no active run), a stale expectedRevision from a
+        //    concurrent commit must not strand the input queued with nobody to
+        //    promote it — re-read the live revision and bump it cleanly.
+        let casResult = d
           .update(schema.agentContextBranch)
           .set({ revision: command.expectedRevision + 1 })
           .where(
@@ -166,7 +169,27 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
           .get();
 
         if (!casResult) {
-          // CAS failed: branch was modified concurrently
+          const liveBranch = d
+            .select()
+            .from(schema.agentContextBranch)
+            .where(eq(schema.agentContextBranch.branchId, command.branchId))
+            .get();
+          if (liveBranch) {
+            casResult = d
+              .update(schema.agentContextBranch)
+              .set({ revision: liveBranch.revision + 1 })
+              .where(
+                and(
+                  eq(schema.agentContextBranch.branchId, command.branchId),
+                  eq(schema.agentContextBranch.revision, liveBranch.revision),
+                ),
+              )
+              .returning()
+              .get();
+          }
+        }
+
+        if (!casResult) {
           return {
             acquired: false,
             queued: true,

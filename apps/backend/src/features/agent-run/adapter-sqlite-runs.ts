@@ -6,7 +6,21 @@ import {
   normalizeCanonicalMessages,
   serializeMessageRevision,
 } from "@chengchenccc/message";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, not, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
+  lt,
+  not,
+  or,
+  sql,
+} from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import type { IdGenerator } from "../agent-context/ports.js";
@@ -137,6 +151,72 @@ export function createRunMethods(
           .from(schema.agentContextTree)
           .where(eq(schema.agentContextTree.treeId, branch.treeId))
           .get();
+        // P1-10: backfill any non-internal ledger messages that arrived after
+        // branch.ledgerCursor (e.g. queued while the previous Run was active)
+        // and were not yet referenced in agent_context_entry.
+        let leafEntryId = branch.leafEntryId;
+        let ledgerCursor = branch.ledgerCursor;
+        if (tree) {
+          const pendingLedger = d
+            .select()
+            .from(schema.conversationLedger)
+            .where(
+              and(
+                eq(schema.conversationLedger.conversationId, tree.conversationId),
+                gt(schema.conversationLedger.seq, branch.ledgerCursor),
+                eq(schema.conversationLedger.undone, 0),
+              ),
+            )
+            .orderBy(schema.conversationLedger.seq)
+            .all();
+          const eligible = pendingLedger.filter((e) => {
+            if (e.kind !== "message") return false;
+            try {
+              const message = JSON.parse(e.content) as { visibility?: string };
+              if (message.visibility === "internal") return false;
+            } catch {
+              return false;
+            }
+            return true;
+          });
+          for (const entry of eligible.slice(-20)) {
+            const existingRef = d
+              .select({ entryId: schema.agentContextEntry.entryId })
+              .from(schema.agentContextEntry)
+              .where(
+                and(
+                  eq(schema.agentContextEntry.treeId, branch.treeId),
+                  eq(schema.agentContextEntry.type, "ledger_message"),
+                  eq(schema.agentContextEntry.ledgerSeq, entry.seq),
+                ),
+              )
+              .get();
+            if (existingRef) continue;
+            const entryId = deps.idGen.ulid();
+            d.insert(schema.agentContextEntry)
+              .values({
+                entryId,
+                treeId: branch.treeId,
+                parentId: leafEntryId,
+                type: "ledger_message",
+                payload: "{}",
+                ledgerSeq: entry.seq,
+                createdAt: now,
+              })
+              .run();
+            leafEntryId = entryId;
+          }
+          if (pendingLedger.length > 0) {
+            ledgerCursor = Math.max(ledgerCursor, pendingLedger[pendingLedger.length - 1]!.seq);
+          }
+          if (leafEntryId !== branch.leafEntryId || ledgerCursor !== branch.ledgerCursor) {
+            d.update(schema.agentContextBranch)
+              .set({ leafEntryId, ledgerCursor })
+              .where(eq(schema.agentContextBranch.branchId, branchId))
+              .run();
+          }
+        }
+
         const snapshot = parseInput(input).configSnapshot;
         const runId = deps.idGen.ulid();
         const conv = tree
@@ -392,11 +472,43 @@ export function createRunMethods(
         // and the commit retry re-reads the branch. A replay that appended
         // no refs skips the CAS (the first attempt already advanced it).
         if (appendedRefs > 0 && lastSeq !== null) {
+          // P1-10: do not leap ledgerCursor past an unreferenced queued user
+          // message that arrived while this run was active. If any message row
+          // between branch.ledgerCursor and lastSeq lacks a context ref, hold
+          // ledgerCursor so acquireNextRun ingests it into the next run's context.
+          const intervening = d
+            .select({ seq: schema.conversationLedger.seq })
+            .from(schema.conversationLedger)
+            .where(
+              and(
+                eq(schema.conversationLedger.conversationId, run.conversationId),
+                eq(schema.conversationLedger.kind, "message"),
+                eq(schema.conversationLedger.undone, 0),
+                gt(schema.conversationLedger.seq, branch.ledgerCursor),
+                lt(schema.conversationLedger.seq, lastSeq),
+              ),
+            )
+            .all();
+          const hasUnreferencedGap = intervening.some(
+            (row) =>
+              !d
+                .select({ entryId: schema.agentContextEntry.entryId })
+                .from(schema.agentContextEntry)
+                .where(
+                  and(
+                    eq(schema.agentContextEntry.treeId, branch.treeId),
+                    eq(schema.agentContextEntry.type, "ledger_message"),
+                    eq(schema.agentContextEntry.ledgerSeq, row.seq),
+                  ),
+                )
+                .get(),
+          );
+          const nextCursor = hasUnreferencedGap ? branch.ledgerCursor : lastSeq;
           const cas = d
             .update(schema.agentContextBranch)
             .set({
               leafEntryId: parentId,
-              ledgerCursor: lastSeq,
+              ledgerCursor: nextCursor,
               revision: branch.revision + 1,
             })
             .where(

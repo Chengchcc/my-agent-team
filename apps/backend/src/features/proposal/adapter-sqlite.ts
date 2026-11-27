@@ -15,6 +15,16 @@ export function sqliteProposalAdapter(db: Database): ProposalPort {
         .run();
     },
 
+    getPendingById(id: string): ProposalRow | null {
+      return (
+        d
+          .select()
+          .from(schema.proposal)
+          .where(and(eq(schema.proposal.id, id), eq(schema.proposal.status, "pending")))
+          .get() ?? null
+      );
+    },
+
     listPending(kind?: string): ProposalRow[] {
       const where =
         kind === undefined

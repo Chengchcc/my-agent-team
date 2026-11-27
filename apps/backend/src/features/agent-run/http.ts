@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { Elysia, t } from "elysia";
+import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { type AgentRunExecutionService, ApprovalNotApplicableError } from "./execution.js";
 import type { BackendRunOutcome } from "./protocol/index.js";
 import type { AgentRunService } from "./service.js";
@@ -112,6 +113,8 @@ export function agentRunRoutes(input: {
     actionId: string;
     response: unknown;
   }) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** ADR 0082 D5: optional batch label resolver for run DTOs. */
+  labelResolver?: EntityLabelResolver;
 }) {
   const { db, agentRunService, agentRunExecution, modelCosts } = input;
 
@@ -164,8 +167,14 @@ export function agentRunRoutes(input: {
       t.outputTokens += g.outputTokens;
       t.cacheReadTokens += g.cacheReadTokens;
       t.cacheWriteTokens += g.cacheWriteTokens;
-      const ref = JSON.parse(g.model_ref) as { backendKind: string; modelId: string };
-      const c = costs.get(`${ref.backendKind}/${resolveModelAlias(ref.modelId)}`);
+      const ref = JSON.parse(g.model_ref) as {
+        backendKind: string;
+        modelId: string;
+        harnessModel?: string;
+      };
+      const bareKey = resolveModelAlias(ref.harnessModel || ref.modelId);
+      const c =
+        costs.get(bareKey) ?? costs.get(`${ref.backendKind}/${resolveModelAlias(ref.modelId)}`);
       t.costUsd += c
         ? (g.inputTokens * c.input +
             g.outputTokens * c.output +
@@ -226,11 +235,24 @@ export function agentRunRoutes(input: {
             requirement_id: string | null;
             requirement_title: string | null;
           }>;
+          const labelMaps = input.labelResolver?.resolveBatch({
+            agentIds: rows.map((r) => r.agent_id),
+            conversationIds: rows.map((r) => r.conversation_id),
+            requirementIds: rows.map((r) => r.requirement_id),
+          });
           return {
             runs: rows.map((r) => {
               const outcome = r.terminal_result
                 ? (JSON.parse(r.terminal_result) as BackendRunOutcome)
                 : null;
+              const labels = input.labelResolver?.labelsFor(
+                {
+                  agentId: r.agent_id,
+                  conversationId: r.conversation_id,
+                  requirementId: r.requirement_id,
+                },
+                labelMaps,
+              );
               return {
                 runId: r.run_id,
                 conversationId: r.conversation_id,
@@ -250,6 +272,7 @@ export function agentRunRoutes(input: {
                 // (audit 2026-11-24).
                 requirementId: r.requirement_id,
                 requirementTitle: r.requirement_title,
+                ...(labels ? { labels } : {}),
               };
             }),
           };
@@ -634,6 +657,11 @@ export function agentRunRoutes(input: {
         const inputs = (await agentRunService.listInputs(run.branchId)).filter(
           (i) => i.runId === runId,
         );
+        const labels = input.labelResolver?.labelsFor({
+          agentId: run.agentId,
+          conversationId: run.conversationId,
+          requirementId: run.requirementId,
+        });
         return {
           run: {
             runId: run.runId,
@@ -647,6 +675,8 @@ export function agentRunRoutes(input: {
             configRevision: run.configRevision,
             authorization: run.authorization,
             parentRunId: run.parentRunId,
+            requirementId: run.requirementId,
+            ...(labels ? { labels } : {}),
             createdAt: run.createdAt,
             terminalAt: run.terminalAt,
             terminalResult: run.terminalResult,

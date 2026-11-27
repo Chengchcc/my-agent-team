@@ -41,21 +41,12 @@ export function createProposalService(deps: {
     },
 
     pendingById(id) {
-      const row = deps.port.listPending().find((r) => r.id === id);
+      const row =
+        deps.port.getPendingById !== undefined
+          ? deps.port.getPendingById(id)
+          : (deps.port.listPending().find((r) => r.id === id) ?? null);
       if (!row) return null;
-      return {
-        id: row.id,
-        kind: isProposalKind(row.kind) ? row.kind : "agent_config",
-        targetId: row.targetId,
-        payload: ((): unknown => {
-          try {
-            return JSON.parse(row.payload);
-          } catch {
-            return null;
-          }
-        })(),
-        createdAt: row.createdAt,
-      };
+      return toProposal(row);
     },
 
     pendingAll(kind) {

@@ -34,6 +34,7 @@ export function createReminderService(deps: {
   deliver: ReminderDeliver;
 }): ReminderService {
   const now = deps.now ?? (() => Date.now());
+  let firing = false;
   return {
     create(input) {
       if (!input.text.trim()) throw new ReminderValidationError("reminder text is required");
@@ -71,37 +72,43 @@ export function createReminderService(deps: {
       return deps.port.cancel(id);
     },
     async fireDue(limit = 20) {
-      const due = deps.port.due(now(), limit);
-      let fired = 0;
-      for (const r of due) {
-        try {
-          await deps.deliver({
-            conversationId: r.conversationId,
-            text: r.text,
-            author: r.createdBy,
-          });
-        } catch (err) {
-          console.error(
-            `[reminder] delivery failed for ${r.id} (conversation ${r.conversationId}); marking fired anyway:`,
-            err instanceof Error ? err.message : err,
-          );
-        }
-        if (r.recurrence !== null) {
-          // Recurring: deliver, then schedule the next occurrence - the row
-          // stays pending forever (cancel is the only exit). An expression
-          // that stopped resolving (clock past its range) retires instead.
-          const next = nextCronRun(r.recurrence, new Date(now()));
-          if (next !== null) {
-            deps.port.reschedule(r.id, next.getTime());
+      if (firing) return 0;
+      firing = true;
+      try {
+        const due = deps.port.due(now(), limit);
+        let fired = 0;
+        for (const r of due) {
+          try {
+            await deps.deliver({
+              conversationId: r.conversationId,
+              text: r.text,
+              author: r.createdBy,
+            });
+          } catch (err) {
+            console.error(
+              `[reminder] delivery failed for ${r.id} (conversation ${r.conversationId}); marking fired anyway:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+          if (r.recurrence !== null) {
+            // Recurring: deliver, then schedule the next occurrence - the row
+            // stays pending forever (cancel is the only exit). An expression
+            // that stopped resolving (clock past its range) retires instead.
+            const next = nextCronRun(r.recurrence, new Date(now()));
+            if (next !== null) {
+              deps.port.reschedule(r.id, next.getTime());
+            } else {
+              deps.port.markFired(r.id, now());
+            }
           } else {
             deps.port.markFired(r.id, now());
           }
-        } else {
-          deps.port.markFired(r.id, now());
+          fired += 1;
         }
-        fired += 1;
+        return fired;
+      } finally {
+        firing = false;
       }
-      return fired;
     },
   };
 }

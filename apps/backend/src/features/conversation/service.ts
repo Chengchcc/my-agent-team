@@ -365,6 +365,17 @@ class ConversationServiceImpl implements ConversationService {
       mode = "normal";
     } else if (active && this.#isInflight(active.runId)) {
       mode = "follow_up";
+    } else if (active && active.status === "waiting") {
+      // ADR 0038 / P1-12: a waiting run with an open pending_action is parked
+      // on HITL (possibly across a restart without a live child) — never kill
+      // it as stale; queue this message behind it instead.
+      const pending = await this.#agentRuns.listPendingActions(active.runId).catch(() => []);
+      if (pending.some((a) => a.status === "pending")) {
+        mode = "normal";
+      } else {
+        await this.#abortStaleRun(active.runId);
+        mode = "normal";
+      }
     } else {
       if (active) await this.#abortStaleRun(active.runId);
       mode = "normal";
@@ -771,10 +782,9 @@ class ConversationServiceImpl implements ConversationService {
     );
     const entries = await this.#contextService.listEntriesToLeaf(branch.branchId);
     const messages = entries.filter((e): e is LedgerMessageEntry => e.type === "ledger_message");
-    // Fold a previous summary in rather than dropping it, and start after the
-    // point it already covers: a second /compact must never re-summarise (and
-    // thus re-bill) the region the first one replaced.
-    const previous = entries.find((e): e is ProductSummaryEntry => e.type === "summary");
+    // Fold the LATEST previous summary in rather than the oldest: a third
+    // /compact must pick up where the second left off, never re-summarising.
+    const previous = entries.findLast((e): e is ProductSummaryEntry => e.type === "summary");
     const firstUncovered = previous
       ? messages.findIndex((e) => e.entryId === previous.coversThroughEntryId) + 1
       : 0;
@@ -845,6 +855,9 @@ class ConversationServiceImpl implements ConversationService {
     count?: number;
   }): Promise<{ undoneSeqs: number[] }> {
     const count = input.count ?? 1;
+    if (!Number.isInteger(count) || count < 1) {
+      throw new DomainError("undo count must be a positive integer", 400);
+    }
     const entries = this.port
       .getLedgerEntries(input.conversationId)
       .filter((e) => e.kind === "message" && !e.undone);

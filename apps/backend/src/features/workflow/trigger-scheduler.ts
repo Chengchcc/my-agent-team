@@ -37,6 +37,7 @@ export function createWorkflowTriggerScheduler(
   // restarts to register one new workflow. Debounced dir watch instead.
   let watcher: FSWatcher | undefined;
   let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
 
   function loadDefinitions(): WorkflowDefinition[] {
     // Per-file isolation: one malformed/unparsable definition must not kill
@@ -102,12 +103,26 @@ export function createWorkflowTriggerScheduler(
 
   const api = {
     async sync() {
+      if (disposed) return;
       for (const hs of handles.values()) for (const h of hs) h.stop();
       handles.clear();
-      watcher ??= watch(deps.workflowDir, () => {
-        clearTimeout(reloadTimer);
-        reloadTimer = setTimeout(() => void api.sync(), 300);
-      });
+      if (!watcher) {
+        watcher = watch(deps.workflowDir, () => {
+          if (disposed) return;
+          clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => {
+            if (!disposed) void api.sync();
+          }, 300);
+        });
+        watcher.on("error", (err) => {
+          console.error(
+            "[trigger-scheduler] watcher error:",
+            err instanceof Error ? err.message : String(err),
+          );
+          watcher?.close();
+          watcher = undefined;
+        });
+      }
       // M5: handles are keyed by definition id — a second file with the
       // same id would overwrite the first handle list and orphan its
       // Bun.cron timers forever (one more leaked set on every sync).
@@ -140,6 +155,7 @@ export function createWorkflowTriggerScheduler(
       }
     },
     async dispose() {
+      disposed = true;
       clearTimeout(reloadTimer);
       watcher?.close();
       watcher = undefined;
