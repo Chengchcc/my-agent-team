@@ -1,7 +1,7 @@
 import {
-  applyBackgroundToLine,
   Container,
   Input,
+  renderModalFrame,
   SelectList,
   type SelectListTheme,
   truncateToWidth,
@@ -16,22 +16,19 @@ type SettingKey = keyof ProjectSettings;
  *  away — a `string` row would happily store a typo and show it back while the
  *  runtime kept using the default. */
 type SettingRow =
-  | { key: SettingKey; label: string; kind: "boolean" | "number" | "string" }
-  | { key: SettingKey; label: string; kind: "enum"; options: readonly string[] };
-
-const OVERLAY_BG = (s: string): string => `${tuiTheme.bgOverlay}${s}\u001b[0m`;
-
-function overlayLines(lines: readonly string[], width: number): string[] {
-  const innerWidth = Math.max(1, width - 2);
-  return lines.map((line) => {
-    const content = truncateToWidth(line, innerWidth, "", true);
-    return `${tuiTheme.accent}\u2502\u001b[0m${applyBackgroundToLine(content, innerWidth, OVERLAY_BG)}${tuiTheme.accent}\u2502\u001b[0m`;
-  });
-}
+  | { key: SettingKey; label: string; hint?: string; kind: "boolean" | "number" | "string" }
+  | {
+      key: SettingKey;
+      label: string;
+      hint?: string;
+      kind: "enum";
+      options: readonly string[];
+    };
 
 const THEME: SelectListTheme = {
   selectedPrefix: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
   selectedText: (s) => `\u001b[1m${s}\u001b[0m`,
+  selectedBg: (s) => `${tuiTheme.bgPanel}${s}\u001b[0m`,
   description: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
   scrollInfo: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
   noMatch: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
@@ -40,42 +37,121 @@ const THEME: SelectListTheme = {
 /** Exported for the test that pins discoverability: a knob the runtime honors
  *  but /settings cannot reach is a knob nobody finds. */
 export const SETTING_ROWS: SettingRow[] = [
-  { key: "maxSteps", label: "maxSteps", kind: "number" },
-  { key: "modelTimeoutMs", label: "modelTimeoutMs", kind: "number" },
-  { key: "mcpTimeoutMs", label: "mcpTimeoutMs", kind: "number" },
-  { key: "askTimeoutMs", label: "askTimeoutMs (HITL ask auto-answer, 0=off)", kind: "number" },
-  { key: "bashTimeoutMs", label: "bashTimeoutMs", kind: "number" },
-  { key: "maxToolTimeoutMs", label: "maxToolTimeoutMs", kind: "number" },
-  { key: "bashSandbox", label: "bashSandbox (OS sandbox: bwrap/Seatbelt)", kind: "boolean" },
+  { key: "maxSteps", label: "maxSteps", hint: "Max agent tool turns per run", kind: "number" },
+  {
+    key: "modelTimeoutMs",
+    label: "modelTimeoutMs",
+    hint: "Model stream timeout in milliseconds",
+    kind: "number",
+  },
+  {
+    key: "mcpTimeoutMs",
+    label: "mcpTimeoutMs",
+    hint: "MCP tool call timeout in milliseconds",
+    kind: "number",
+  },
+  {
+    key: "askTimeoutMs",
+    label: "askTimeoutMs",
+    hint: "HITL ask auto-answer timeout in ms (0 = off)",
+    kind: "number",
+  },
+  {
+    key: "bashTimeoutMs",
+    label: "bashTimeoutMs",
+    hint: "Default bash command timeout in milliseconds",
+    kind: "number",
+  },
+  {
+    key: "maxToolTimeoutMs",
+    label: "maxToolTimeoutMs",
+    hint: "Upper bound on any tool timeout in ms",
+    kind: "number",
+  },
+  {
+    key: "bashSandbox",
+    label: "bashSandbox",
+    hint: "OS-level bash sandbox (bwrap / Seatbelt)",
+    kind: "boolean",
+  },
   {
     key: "browserLocalNetwork",
-    label: "browserLocalNetwork (allow localhost/LAN browser targets)",
+    label: "browserLocalNetwork",
+    hint: "Allow localhost / LAN browser targets",
     kind: "boolean",
   },
   {
     key: "editFreshness",
-    label: "editFreshness (require = edit/write need a read fingerprint)",
+    label: "editFreshness",
+    hint: "require = edit/write must match a recent read fingerprint",
     kind: "string",
   },
-  { key: "memoryExtract", label: "memoryExtract", kind: "boolean" },
-  { key: "memoryModel", label: "memoryModel", kind: "string" },
+  {
+    key: "memoryExtract",
+    label: "memoryExtract",
+    hint: "Extract durable facts to .oma/memory after runs",
+    kind: "boolean",
+  },
+  {
+    key: "memoryModel",
+    label: "memoryModel",
+    hint: "Override model for background memory extraction",
+    kind: "string",
+  },
   {
     key: "memoryMinToolCalls",
-    label: "memoryMinToolCalls (min tool calls per run)",
+    label: "memoryMinToolCalls",
+    hint: "Minimum tool calls before memory extraction runs",
     kind: "number",
   },
-  { key: "permissionClassifierModel", label: "permissionClassifierModel", kind: "string" },
-  { key: "titleEnabled", label: "titleEnabled", kind: "boolean" },
-  { key: "disableWeb", label: "disableWeb", kind: "boolean" },
-  { key: "enableClaude", label: "enableClaude", kind: "boolean" },
-  { key: "enableCodex", label: "enableCodex", kind: "boolean" },
-  { key: "enableAgents", label: "enableAgents", kind: "boolean" },
-  { key: "planModel", label: "planModel (model to plan with)", kind: "string" },
+  {
+    key: "permissionClassifierModel",
+    label: "permissionClassifierModel",
+    hint: "Model used by permissionMode=auto classifier",
+    kind: "string",
+  },
+  {
+    key: "titleEnabled",
+    label: "titleEnabled",
+    hint: "Auto-generate concise session titles",
+    kind: "boolean",
+  },
+  {
+    key: "disableWeb",
+    label: "disableWeb",
+    hint: "Disable web_search / web_fetch",
+    kind: "boolean",
+  },
+  {
+    key: "enableClaude",
+    label: "enableClaude",
+    hint: "Load Claude Code compatibility artifacts",
+    kind: "boolean",
+  },
+  {
+    key: "enableCodex",
+    label: "enableCodex",
+    hint: "Load Codex compatibility artifacts",
+    kind: "boolean",
+  },
+  {
+    key: "enableAgents",
+    label: "enableAgents",
+    hint: "Enable subagent delegation (task / hub)",
+    kind: "boolean",
+  },
+  {
+    key: "planModel",
+    label: "planModel",
+    hint: "Dedicated model for /plan investigation turns",
+    kind: "string",
+  },
   // This is the only way into the build loop (a queue and a fresh session per
   // item), so it has to be visible here: nothing else names it.
   {
     key: "loopAction",
-    label: "loopAction (between iterations; ralph = build loop)",
+    label: "loopAction",
+    hint: "Action between /loop iterations (ralph = build loop)",
     kind: "enum",
     options: ["prompt", "compact", "reset", "ralph"],
   },
@@ -89,9 +165,23 @@ function rowValue(settings: ProjectSettings, key: SettingKey): string {
   return String(v);
 }
 
-/** Modal settings editor (omp SettingsSelector-container-inspired but lean):
- *  a SelectList of rows; Enter toggles booleans or opens a text Input for
- *  numeric/string values; Esc closes. Changes are held in a local copy. */
+function styledValue(settings: ProjectSettings, row: SettingRow): string {
+  const val = rowValue(settings, row.key);
+  if (row.kind === "boolean") {
+    return val === "on"
+      ? `${tuiTheme.success}● on\u001b[0m`
+      : val === "off"
+        ? `${tuiTheme.dim}○ off\u001b[0m`
+        : `${tuiTheme.dim}(unset)\u001b[0m`;
+  }
+  if (val === "(unset)") return `${tuiTheme.dim}(unset)\u001b[0m`;
+  return `${tuiTheme.info}${val}\u001b[0m`;
+}
+
+/** Modal settings editor (omp SettingsSelector-container-inspired):
+ *  a ModalFrame-wrapped SelectList of rows; Enter toggles booleans, cycles
+ *  enums, or opens an inline text Input; cursor position is preserved across
+ *  every edit; Esc saves and closes. */
 export class SettingsOverlay extends Container {
   private readonly settings: ProjectSettings;
   private list!: SelectList;
@@ -104,7 +194,7 @@ export class SettingsOverlay extends Container {
   ) {
     super();
     this.settings = { ...settings };
-    this.rebuild();
+    this.rebuild(0);
   }
 
   getSettings(): ProjectSettings {
@@ -119,17 +209,19 @@ export class SettingsOverlay extends Container {
     return {
       value: row.key,
       label: row.label,
-      description: `${row.kind} · ${this.displayValue(row.key)}`,
+      description: `${styledValue(this.settings, row)} ${tuiTheme.dim}· ${row.kind}\u001b[0m`,
     };
   }
 
-  private rebuild(): void {
+  private rebuild(preserveIndex?: number): void {
+    const prevIndex = preserveIndex ?? this.list?.getSelectedIndex() ?? 0;
     this.list = new SelectList(
       SETTING_ROWS.map((row) => this.itemFor(row)),
       12,
       THEME,
-      { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 24 },
+      { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: 28 },
     );
+    this.list.setSelectedIndex(prevIndex);
     this.list.onSelect = (item) => {
       const row = SETTING_ROWS.find((r) => r.key === item.value);
       if (row) this.handleSelect(row);
@@ -177,13 +269,19 @@ export class SettingsOverlay extends Container {
   private commitEdit(row: SettingRow, raw: string): void {
     let value: unknown = raw.trim();
     if (row.kind === "number") {
-      const parsed = Number(raw.trim());
-      if (!Number.isFinite(parsed)) {
-        this.editing = null;
-        this.invalidate();
-        return;
+      if (raw.trim() === "") {
+        value = undefined;
+      } else {
+        const parsed = Number(raw.trim());
+        if (!Number.isFinite(parsed)) {
+          this.editing = null;
+          this.invalidate();
+          return;
+        }
+        value = parsed;
       }
-      value = parsed;
+    } else if (value === "") {
+      value = undefined;
     }
     Reflect.set(this.settings, row.key, value);
     this.editing = null;
@@ -199,13 +297,33 @@ export class SettingsOverlay extends Container {
   }
 
   override render(width: number): string[] {
+    const innerWidth = Math.max(1, width - 4);
     const lines: string[] = [];
-    lines.push("  settings — enter to edit, esc to close");
     if (this.editing) {
-      lines.push(`  edit ${this.editing.row.label} (${this.editing.row.kind}):`);
-      lines.push(...this.editing.input.render(Math.max(1, width - 4)));
+      lines.push(
+        `${tuiTheme.accent}Edit ${this.editing.row.label}\u001b[0m ${tuiTheme.dim}(${this.editing.row.kind})\u001b[0m`,
+      );
+      lines.push(...this.editing.input.render(innerWidth));
+      lines.push("---");
     }
-    lines.push(...this.list.render(Math.max(1, width - 2)));
-    return overlayLines(lines, width);
+    lines.push(...this.list.render(innerWidth));
+    const selected = this.list.getSelectedItem();
+    const activeRow = selected ? SETTING_ROWS.find((r) => r.key === selected.value) : undefined;
+    if (activeRow?.hint) {
+      lines.push("---");
+      const extra = activeRow.kind === "enum" ? ` [${activeRow.options.join(" | ")}]` : "";
+      lines.push(
+        `${tuiTheme.dim}${truncateToWidth(`${activeRow.hint}${extra}`, innerWidth)}\u001b[0m`,
+      );
+    }
+    return renderModalFrame({
+      title: "Project Settings",
+      titleRight: `${this.list.getSelectedIndex() + 1}/${SETTING_ROWS.length}`,
+      footer: this.editing
+        ? "Enter save · Esc cancel edit"
+        : "Enter edit/toggle · ↑/↓ move · PgUp/PgDn scroll · Esc close",
+      lines,
+      width,
+    });
   }
 }

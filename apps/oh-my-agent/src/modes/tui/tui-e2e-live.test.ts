@@ -107,7 +107,7 @@ describe("tui e2e live/scrollback/fork", () => {
       expect(screen(vt)).toContain("recall me please");
       // ctrl+r opens the search overlay; typing filters; enter inserts.
       vt.sendInput("\x12"); // ctrl+r
-      await waitForText(vt, "history search", 2_000);
+      await waitForText(vt, "History Search", 2_000);
       vt.sendInput("recall");
       await vt.waitForRender();
       expect(screen(vt)).toContain("recall me please");
@@ -139,7 +139,7 @@ describe("tui e2e live/scrollback/fork", () => {
 
       // /fork opens the picker listing the session's user messages.
       await typeAndSubmit(vt, "/fork");
-      await waitForText(vt, "fork from message", 5_000);
+      await waitForText(vt, "Fork From Message", 5_000);
       expect(screen(vt)).toContain("first turn");
       // Enter picks #1: the session switches to the fork.
       vt.sendInput("\r");
@@ -287,7 +287,7 @@ describe("tui e2e live/scrollback/fork", () => {
       vt.sendInput("\x10");
       await vt.waitForRender();
       const overlay = screen(vt);
-      expect(overlay).toContain("pick model");
+      expect(overlay).toContain("Select Model");
       expect(overlay).toContain("fake/echo");
       // Rows carry the pi-browser meta: context window + cost.
       expect(overlay).toContain("ctx 200k");
@@ -333,7 +333,7 @@ describe("tui e2e live/scrollback/fork", () => {
       vt.sendInput("\x1b");
       await vt.waitForRender();
       const overlay = screen(vt);
-      expect(overlay).toContain("fork from branch node");
+      expect(overlay).toContain("Branch Tree");
       expect(overlay).toContain("user");
       expect(overlay).toContain("assistant");
 
@@ -446,6 +446,8 @@ describe("tui e2e live/scrollback/fork", () => {
         "second-turn-history",
         "third-turn-history",
         "fourth-turn-history",
+        "fifth-turn-history",
+        "sixth-turn-history",
       ];
       for (const prompt of prompts) {
         await typeAndSubmit(vt, prompt);
@@ -482,22 +484,22 @@ describe("tui e2e live/scrollback/fork", () => {
       // Single idle esc only arms — no overlay.
       vt.sendInput("\x1b");
       await waitForText(vt, "press esc again for branch tree", 2_000);
-      expect(screen(vt)).not.toContain("fork from branch node");
+      expect(screen(vt)).not.toContain("Branch Tree");
 
       // Second esc within the window summons the tree.
       vt.sendInput("\x1b");
-      await waitForText(vt, "fork from branch node", 2_000);
+      await waitForText(vt, "Branch Tree", 2_000);
 
       // Esc while the overlay is open closes it (fork cancelled), and the
       // same esc must NOT re-summon the tree.
       vt.sendInput("\x1b");
       await waitForText(vt, "fork cancelled", 2_000);
-      expect(screen(vt)).not.toContain("fork from branch node");
+      expect(screen(vt)).not.toContain("Branch Tree");
 
       // A stray extra esc re-arms but still does not reopen the tree.
       vt.sendInput("\x1b");
       await waitForText(vt, "press esc again for branch tree", 2_000);
-      expect(screen(vt)).not.toContain("fork from branch node");
+      expect(screen(vt)).not.toContain("Branch Tree");
 
       await quitTui(vt);
       expect(await sessionDone).toBe(0);

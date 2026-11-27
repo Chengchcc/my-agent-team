@@ -1,6 +1,8 @@
 import { getKeybindings } from "../keybindings.ts";
+import { matchesKey } from "../keys.ts";
+import { tuiTheme } from "../theme.ts";
 import type { Component } from "../tui.ts";
-import { truncateToWidth, visibleWidth } from "../utils.ts";
+import { applyBackgroundToLine, truncateToWidth, visibleWidth } from "../utils.ts";
 
 const DEFAULT_PRIMARY_COLUMN_WIDTH = 32;
 const PRIMARY_COLUMN_GAP = 2;
@@ -19,6 +21,8 @@ export interface SelectItem {
 export interface SelectListTheme {
   selectedPrefix: (text: string) => string;
   selectedText: (text: string) => string;
+  /** Optional full-row background tint for the selected item. */
+  selectedBg?: (line: string) => string;
   description: (text: string) => string;
   scrollInfo: (text: string) => string;
   noMatch: (text: string) => string;
@@ -36,6 +40,10 @@ export interface SelectListLayoutOptions {
   minPrimaryColumnWidth?: number;
   maxPrimaryColumnWidth?: number;
   truncatePrimary?: (context: SelectListTruncatePrimaryContext) => string;
+  /** Custom empty-list placeholder (default: "  No matches"). */
+  emptyMessage?: string;
+  /** Show a 1-column right-edge scrollbar when list overflows maxVisible (default: true). */
+  showScrollbar?: boolean;
 }
 
 export class SelectList implements Component {
@@ -76,14 +84,23 @@ export class SelectList implements Component {
   }
 
   setFilter(filter: string): void {
-    this.filteredItems = this.items.filter((item) =>
-      item.value.toLowerCase().startsWith(filter.toLowerCase()),
+    const needle = filter.toLowerCase();
+    this.filteredItems = this.items.filter(
+      (item) =>
+        item.value.toLowerCase().startsWith(needle) || item.label.toLowerCase().includes(needle),
     );
-    // Reset selection when filter changes
     this.selectedIndex = 0;
   }
 
+  getSelectedIndex(): number {
+    return this.selectedIndex;
+  }
+
   setSelectedIndex(index: number): void {
+    if (this.filteredItems.length === 0) {
+      this.selectedIndex = 0;
+      return;
+    }
     this.selectedIndex = Math.max(0, Math.min(index, this.filteredItems.length - 1));
   }
 
@@ -94,25 +111,36 @@ export class SelectList implements Component {
   render(width: number): string[] {
     const lines: string[] = [];
 
-    // If no items match filter, show message
     if (this.filteredItems.length === 0) {
-      lines.push(this.theme.noMatch("  No matching commands"));
+      const emptyMsg = this.layout.emptyMessage ?? "  No matches";
+      lines.push(this.theme.noMatch(truncateToWidth(emptyMsg, Math.max(1, width), "…")));
       return lines;
     }
 
     const primaryColumnWidth = this.getPrimaryColumnWidth();
-
-    // Calculate visible range with scrolling
+    const total = this.filteredItems.length;
     const startIndex = Math.max(
       0,
-      Math.min(
-        this.selectedIndex - Math.floor(this.maxVisible / 2),
-        this.filteredItems.length - this.maxVisible,
-      ),
+      Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), total - this.maxVisible),
     );
-    const endIndex = Math.min(startIndex + this.maxVisible, this.filteredItems.length);
+    const endIndex = Math.min(startIndex + this.maxVisible, total);
+    const visibleCount = endIndex - startIndex;
+    const hasScroll = startIndex > 0 || endIndex < total;
+    const drawScrollbar = hasScroll && this.layout.showScrollbar !== false && width >= 12;
+    const rowWidth = drawScrollbar ? width - 2 : width;
 
-    // Render visible items
+    // Scrollbar thumb geometry (1-col right rail: ┃ thumb on │ track).
+    const thumbSize = drawScrollbar
+      ? Math.max(1, Math.round((visibleCount / total) * visibleCount))
+      : 0;
+    const maxStart = Math.max(1, total - visibleCount);
+    const thumbStart = drawScrollbar
+      ? Math.min(
+          visibleCount - thumbSize,
+          Math.round((startIndex / maxStart) * (visibleCount - thumbSize)),
+        )
+      : 0;
+
     for (let i = startIndex; i < endIndex; i++) {
       const item = this.filteredItems[i];
       if (!item) continue;
@@ -121,16 +149,31 @@ export class SelectList implements Component {
       const descriptionSingleLine = item.description
         ? normalizeToSingleLine(item.description)
         : undefined;
-      lines.push(
-        this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth),
+      let row = this.renderItem(
+        item,
+        isSelected,
+        rowWidth,
+        descriptionSingleLine,
+        primaryColumnWidth,
       );
+      if (isSelected && this.theme.selectedBg) {
+        row = applyBackgroundToLine(row, rowWidth, this.theme.selectedBg);
+      }
+      if (drawScrollbar) {
+        const rel = i - startIndex;
+        const padNeeded = Math.max(0, rowWidth - visibleWidth(row));
+        const glyph =
+          rel >= thumbStart && rel < thumbStart + thumbSize
+            ? `${tuiTheme.accent}┃\x1b[0m`
+            : `${tuiTheme.faint}│\x1b[0m`;
+        row = `${row}${" ".repeat(padNeeded)} ${glyph}`;
+      }
+      lines.push(row);
     }
 
-    // Add scroll indicators if needed
-    if (startIndex > 0 || endIndex < this.filteredItems.length) {
-      const scrollText = `  (${this.selectedIndex + 1}/${this.filteredItems.length})`;
-      // Truncate if too long for terminal
-      lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, width - 2, "")));
+    if (hasScroll) {
+      const scrollText = `  (${this.selectedIndex + 1}/${total})`;
+      lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, Math.max(1, width - 2), "…")));
     }
 
     return lines;
@@ -138,34 +181,45 @@ export class SelectList implements Component {
 
   handleInput(keyData: string): void {
     const kb = getKeybindings();
-    // Up arrow - wrap to bottom when at top
+    const total = this.filteredItems.length;
     if (kb.matches(keyData, "tui.select.up")) {
-      this.selectedIndex =
-        this.selectedIndex === 0 ? this.filteredItems.length - 1 : this.selectedIndex - 1;
+      if (total === 0) return;
+      this.selectedIndex = this.selectedIndex === 0 ? total - 1 : this.selectedIndex - 1;
       this.notifySelectionChange();
-    }
-    // Down arrow - wrap to top when at bottom
-    else if (kb.matches(keyData, "tui.select.down")) {
-      this.selectedIndex =
-        this.selectedIndex === this.filteredItems.length - 1 ? 0 : this.selectedIndex + 1;
+    } else if (kb.matches(keyData, "tui.select.down")) {
+      if (total === 0) return;
+      this.selectedIndex = this.selectedIndex === total - 1 ? 0 : this.selectedIndex + 1;
       this.notifySelectionChange();
-    }
-    // Enter
-    else if (kb.matches(keyData, "tui.select.confirm")) {
+    } else if (kb.matches(keyData, "tui.select.pageUp")) {
+      if (total === 0) return;
+      this.selectedIndex = Math.max(0, this.selectedIndex - Math.max(1, this.maxVisible - 1));
+      this.notifySelectionChange();
+    } else if (kb.matches(keyData, "tui.select.pageDown")) {
+      if (total === 0) return;
+      this.selectedIndex = Math.min(
+        total - 1,
+        this.selectedIndex + Math.max(1, this.maxVisible - 1),
+      );
+      this.notifySelectionChange();
+    } else if (matchesKey(keyData, "home")) {
+      if (total === 0) return;
+      this.selectedIndex = 0;
+      this.notifySelectionChange();
+    } else if (matchesKey(keyData, "end")) {
+      if (total === 0) return;
+      this.selectedIndex = total - 1;
+      this.notifySelectionChange();
+    } else if (kb.matches(keyData, "tui.select.confirm")) {
       const selectedItem = this.filteredItems[this.selectedIndex];
       if (selectedItem && this.onSelect) {
         this.onSelect(selectedItem);
       }
-    }
-    // Delete
-    else if (kb.matches(keyData, "tui.select.delete")) {
+    } else if (kb.matches(keyData, "tui.select.delete")) {
       const selectedItem = this.filteredItems[this.selectedIndex];
       if (selectedItem && this.onDelete) {
         this.onDelete(selectedItem);
       }
-    }
-    // Escape or Ctrl+C
-    else if (kb.matches(keyData, "tui.select.cancel")) {
+    } else if (kb.matches(keyData, "tui.select.cancel")) {
       if (this.onCancel) {
         this.onCancel();
       }
@@ -179,10 +233,11 @@ export class SelectList implements Component {
     descriptionSingleLine: string | undefined,
     primaryColumnWidth: number,
   ): string {
-    const prefix = isSelected ? "→ " : "  ";
-    const prefixWidth = visibleWidth(prefix);
+    const rawPrefix = isSelected ? "▸ " : "  ";
+    const prefix = isSelected ? this.theme.selectedPrefix(rawPrefix) : rawPrefix;
+    const prefixWidth = 2;
 
-    if (descriptionSingleLine && width > 40) {
+    if (descriptionSingleLine && width > 36) {
       const effectivePrimaryColumnWidth = Math.max(
         1,
         Math.min(primaryColumnWidth, width - prefixWidth - 4),
@@ -197,26 +252,23 @@ export class SelectList implements Component {
       const truncatedValueWidth = visibleWidth(truncatedValue);
       const spacing = " ".repeat(Math.max(1, effectivePrimaryColumnWidth - truncatedValueWidth));
       const descriptionStart = prefixWidth + truncatedValueWidth + spacing.length;
-      const remainingWidth = width - descriptionStart - 2; // -2 for safety
+      const remainingWidth = width - descriptionStart - 1;
 
       if (remainingWidth > MIN_DESCRIPTION_WIDTH) {
-        const truncatedDesc = truncateToWidth(descriptionSingleLine, remainingWidth, "");
+        const truncatedDesc = truncateToWidth(descriptionSingleLine, remainingWidth, "…");
         if (isSelected) {
-          return this.theme.selectedText(`${prefix}${truncatedValue}${spacing}${truncatedDesc}`);
+          return `${prefix}${this.theme.selectedText(truncatedValue)}${spacing}${this.theme.description(truncatedDesc)}`;
         }
-
-        const descText = this.theme.description(spacing + truncatedDesc);
-        return prefix + truncatedValue + descText;
+        return `${prefix}${truncatedValue}${this.theme.description(spacing + truncatedDesc)}`;
       }
     }
 
-    const maxWidth = width - prefixWidth - 2;
+    const maxWidth = Math.max(1, width - prefixWidth - 1);
     const truncatedValue = this.truncatePrimary(item, isSelected, maxWidth, maxWidth);
     if (isSelected) {
-      return this.theme.selectedText(`${prefix}${truncatedValue}`);
+      return `${prefix}${this.theme.selectedText(truncatedValue)}`;
     }
-
-    return prefix + truncatedValue;
+    return `${prefix}${truncatedValue}`;
   }
 
   private getPrimaryColumnWidth(): number {
@@ -259,9 +311,9 @@ export class SelectList implements Component {
           item,
           isSelected,
         })
-      : truncateToWidth(displayValue, maxWidth, "");
+      : truncateToWidth(displayValue, maxWidth, "…");
 
-    return truncateToWidth(truncatedValue, maxWidth, "");
+    return truncateToWidth(truncatedValue, maxWidth, "…");
   }
 
   private getDisplayValue(item: SelectItem): string {

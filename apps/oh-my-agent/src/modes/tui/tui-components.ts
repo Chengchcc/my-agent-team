@@ -7,74 +7,133 @@ import {
   type NativeScrollbackLiveRegion,
   type NativeScrollbackReplay,
   type RenderStablePrefix,
+  renderModalFrame,
+  type SelectItem,
   SelectList,
+  type SelectListLayoutOptions,
   type SelectListTheme,
   type TerminalFrameProvider,
   type Text,
+  tuiTheme,
 } from "@chengchenccc/tui";
-import { overlayLines } from "./tui-format.js";
+
+export interface PickerOverlayOptions {
+  title?: string;
+  titleRight?: string;
+  footer?: string;
+}
 
 export class PickerOverlay extends Container {
+  private readonly titleText?: Text;
+  private readonly modalOpts: PickerOverlayOptions;
+
   constructor(
-    title: Text,
+    title: Text | string,
     private readonly list: SelectList,
+    opts: PickerOverlayOptions = {},
   ) {
     super();
-    this.addChild(title);
+    if (typeof title === "string") {
+      this.modalOpts = { title, ...opts };
+    } else {
+      this.titleText = title;
+      this.modalOpts = opts;
+    }
     this.addChild(list);
   }
 
   handleInput(data: string): void {
     this.list.handleInput(data);
   }
+
   override render(width: number): string[] {
-    return overlayLines(super.render(Math.max(1, width - 2)), width);
+    const innerWidth = Math.max(1, width - 4);
+    const titleStr = this.modalOpts.title ?? this.titleText?.render(innerWidth)[0]?.trim();
+    const listLines = this.list.render(innerWidth);
+    return renderModalFrame({
+      ...(titleStr ? { title: titleStr } : {}),
+      ...(this.modalOpts.titleRight ? { titleRight: this.modalOpts.titleRight } : {}),
+      ...(this.modalOpts.footer ? { footer: this.modalOpts.footer } : {}),
+      lines: listLines,
+      width,
+    });
   }
 }
 
-/** Overlay for ctrl+r history search (pi's HistorySearchComponent, lazy
- *  form): a query input plus a SelectList rebuilt per keystroke. Navigation
- *  keys go to the list; everything else edits the query. */
-export class HistorySearchOverlay extends Container {
-  private readonly listSlot: Container = new Container();
-  private readonly query: Input;
+export interface FilterablePickerOptions {
+  title: string;
+  placeholder?: string;
+  footer?: string;
+  maxVisible?: number;
+  emptyMessage?: string;
+  layout?: SelectListLayoutOptions;
+  theme: SelectListTheme;
+  items: readonly SelectItem[];
+  onSelect: (item: SelectItem) => void;
+  onCancel: () => void;
+  onDelete?: (item: SelectItem) => boolean | string | undefined;
+}
+
+/** Unified terminal-native filterable modal picker: ModalFrame + live filter
+ *  Input + SelectList with scrollbar, PgUp/PgDn/Home/End, and optional Ctrl+D
+ *  delete. Used by /resume, /model (Ctrl+P), and Ctrl+R history search. */
+export class FilterablePickerOverlay extends Container {
+  private readonly query = new Input();
   private list: SelectList;
-  private readonly entries: readonly string[];
-  private readonly theme: SelectListTheme;
+  private allItems: SelectItem[];
+  private statusNote = "";
+  private readonly opts: FilterablePickerOptions;
 
-  private readonly selectCb: (value: string) => void;
-  private readonly cancelCb: () => void;
-
-  constructor(
-    title: Text,
-    entries: readonly string[],
-    theme: SelectListTheme,
-    onSelect: (value: string) => void,
-    onCancel: () => void,
-  ) {
+  constructor(opts: FilterablePickerOptions) {
     super();
-    this.entries = entries;
-    this.theme = theme;
-    this.selectCb = onSelect;
-    this.cancelCb = onCancel;
-    this.query = new Input();
+    this.opts = opts;
+    this.allItems = [...opts.items];
     this.list = this.buildList();
-    this.addChild(title);
-    this.addChild(this.query);
-    this.addChild(this.listSlot);
-    this.listSlot.addChild(this.list);
+  }
+
+  setItems(items: readonly SelectItem[]): void {
+    this.allItems = [...items];
+    this.list = this.buildList();
+  }
+
+  setStatusNote(note: string): void {
+    this.statusNote = note;
+  }
+
+  private filteredItems(): SelectItem[] {
+    const needle = this.query.getValue().trim().toLowerCase();
+    if (!needle) return this.allItems;
+    return this.allItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(needle) ||
+        item.value.toLowerCase().includes(needle) ||
+        (item.description?.toLowerCase().includes(needle) ?? false),
+    );
   }
 
   private buildList(): SelectList {
-    const needle = this.query.getValue().trim().toLowerCase();
-    const matches = this.entries.filter((e) => e.toLowerCase().includes(needle)).slice(0, 100);
-    const items = matches.map((value) => ({
-      value,
-      label: value.length > 48 ? `${value.slice(0, 48)}...` : value,
-    }));
-    const list = new SelectList(items, 10, this.theme);
-    list.onSelect = (item) => this.selectCb(item.value);
-    list.onCancel = () => this.cancelCb();
+    const matches = this.filteredItems().slice(0, 200);
+    const list = new SelectList(matches, this.opts.maxVisible ?? 10, this.opts.theme, {
+      emptyMessage: this.opts.emptyMessage ?? "  No matches",
+      ...this.opts.layout,
+    });
+    list.onSelect = (item) => this.opts.onSelect(item);
+    list.onCancel = () => this.opts.onCancel();
+    if (this.opts.onDelete) {
+      const del = this.opts.onDelete;
+      list.onDelete = (item) => {
+        const idx = this.list.getSelectedIndex();
+        const res = del(item);
+        if (typeof res === "string") {
+          this.statusNote = res;
+        } else if (res === true) {
+          this.statusNote = "";
+          this.allItems = this.allItems.filter((x) => x.value !== item.value);
+          this.list = this.buildList();
+          this.list.setSelectedIndex(idx);
+        }
+      };
+    }
     return list;
   }
 
@@ -84,22 +143,72 @@ export class HistorySearchOverlay extends Container {
       matchesKey(data, "down") ||
       matchesKey(data, "pageUp") ||
       matchesKey(data, "pageDown") ||
-      matchesKey(data, "enter");
+      matchesKey(data, "enter") ||
+      (this.opts.onDelete !== undefined && matchesKey(data, "ctrl+d"));
     if (navigates) {
       this.list.handleInput(data);
       return;
     }
     if (matchesKey(data, "escape")) {
-      this.list.onCancel?.();
+      this.opts.onCancel();
       return;
     }
+    this.statusNote = "";
     this.query.handleInput(data);
-    this.listSlot.clear();
     this.list = this.buildList();
-    this.listSlot.addChild(this.list);
   }
+
   override render(width: number): string[] {
-    return overlayLines(super.render(Math.max(1, width - 2)), width);
+    const innerWidth = Math.max(1, width - 4);
+    const filtered = this.filteredItems();
+    const countLabel =
+      this.query.getValue().trim().length > 0
+        ? `${filtered.length}/${this.allItems.length}`
+        : `${this.allItems.length}`;
+    const filterValue = this.query.getValue();
+    const queryLine = filterValue
+      ? `${tuiTheme.accent}› \u001b[0m${this.query.render(Math.max(1, innerWidth - 2))[0] ?? ""}`
+      : `${tuiTheme.accent}› \u001b[0m${tuiTheme.dim}${this.opts.placeholder ?? "Type to filter…"}\u001b[0m`;
+    const bodyLines: string[] = [queryLine, "---"];
+    if (this.statusNote) {
+      bodyLines.push(`${tuiTheme.warning}${this.statusNote}\u001b[0m`);
+    }
+    bodyLines.push(...this.list.render(innerWidth));
+    return renderModalFrame({
+      title: this.opts.title,
+      titleRight: countLabel,
+      footer: this.opts.footer ?? "Enter select · ↑/↓ move · Esc close",
+      lines: bodyLines,
+      width,
+    });
+  }
+}
+
+/** Overlay for ctrl+r history search: delegates to FilterablePickerOverlay. */
+export class HistorySearchOverlay extends FilterablePickerOverlay {
+  constructor(
+    title: Text | string,
+    entries: readonly string[],
+    theme: SelectListTheme,
+    onSelect: (value: string) => void,
+    onCancel: () => void,
+  ) {
+    const titleStr = typeof title === "string" ? title : "History Search";
+    super({
+      title: titleStr,
+      placeholder: "Filter prompt history…",
+      footer: "Enter insert · ↑/↓ move · PgUp/PgDn scroll · Esc close",
+      emptyMessage: "  No matching history entries",
+      maxVisible: 10,
+      theme,
+      layout: { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 72 },
+      items: entries.map((value) => ({
+        value,
+        label: value.replace(/\r?\n/g, " ↵ "),
+      })),
+      onSelect: (item) => onSelect(item.value),
+      onCancel,
+    });
   }
 }
 
@@ -162,7 +271,7 @@ export class OmaTranscriptContainer
 
   /** Total rows currently in the live (not-yet-committed) tail. */
   liveRowCount(width: number): number {
-    this.ensureFullRender(width);
+    this.lastWidth = width;
     let rows = 0;
     for (
       let i = Math.min(this.committedRows, this.children.length);
@@ -174,9 +283,14 @@ export class OmaTranscriptContainer
     return rows;
   }
 
-  /** Render only the live tail, keeping the most recent `maxRows`. */
+  /** Render only the live tail, keeping the most recent `maxRows`.
+   *  Never forces a full-history `super.render(width)`: committed rows are
+   *  already in terminal scrollback and never read from `lastLines` here. */
   renderViewport(width: number, maxRows: number): string[] {
-    this.ensureFullRender(width);
+    if (this.lastWidth !== width) {
+      this.lastWidth = width;
+      this.lastLines = [];
+    }
     const live: string[] = [];
     for (
       let i = Math.min(this.committedRows, this.children.length);
@@ -188,14 +302,6 @@ export class OmaTranscriptContainer
     }
     if (live.length > maxRows) return live.slice(live.length - maxRows);
     return live;
-  }
-
-  /** Populate the cached full-render baseline on first paint or a width change. */
-  private ensureFullRender(width: number): void {
-    if (this.lastWidth !== width || this.lastLines.length === 0) {
-      this.lastLines = super.render(width);
-      this.lastWidth = width;
-    }
   }
 
   /** Offer the next uncommitted prefix as one history batch (omp peek).
@@ -294,7 +400,7 @@ export class OmaTranscriptContainer
     // scrollback) and only compose children at/after the seam, making each
     // frame O(live tail) instead of O(history). A width change forces a full
     // re-layout of the prefix too.
-    if (this.lastWidth !== width || this.children.length === 0) {
+    if (this.lastWidth !== width || this.lastLines.length === 0 || this.children.length === 0) {
       const all = super.render(width);
       this.lastLines = all;
       this.lastWidth = width;
@@ -321,6 +427,3 @@ export class OmaTranscriptContainer
     return this.lastLines;
   }
 }
-
-/** Production TuiIo over the real terminal. The optional terminal override
- *  is the test seam: e2e tests inject a VirtualTerminal (xterm headless). */

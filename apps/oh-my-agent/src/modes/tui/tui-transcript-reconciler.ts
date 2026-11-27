@@ -12,13 +12,27 @@ export interface ReconcileResult {
   didReset: boolean;
 }
 
+interface GroupEntry {
+  children: Component[];
+  lines: readonly string[];
+}
+
+function linesEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 /** Incrementally reconciles transcript children with the current view state.
  *  Items are matched by `runIndex:itemIndex` because the view-state objects
  *  are rebuilt every turn; keying by object identity would force a full reset
  *  (and a scrollback clear) on every render. */
 export class TuiTranscriptReconciler {
   private readonly orderKeys: string[] = [];
-  private readonly groups = new Map<string, Component[]>();
+  private readonly groups = new Map<string, GroupEntry>();
   private lastShowThinking = false;
   private lastShowToolDetail = false;
   /** Item keys of the previous reconcile (FULL list, including items that
@@ -75,41 +89,57 @@ export class TuiTranscriptReconciler {
         // scrollback honest — the last streaming frame must not freeze there.
         // An empty group means "transparent"; a later non-empty render
         // re-appends it (ctrl+o expands a settled box again).
-        if (existing && existing.length > 0) {
-          this.emptyGroup(transcript, key, existing);
+        if (existing && existing.children.length > 0) {
+          this.emptyGroup(transcript, key, existing.children);
         }
         continue;
       }
-      let startRow: number;
-      if (existing && existing.length > 0) {
-        startRow = transcript.children.indexOf(existing[0]!);
+
+      if (existing && existing.children.length > 0 && transcript.children.length > 0) {
+        // Fast path: settled (or unchanged streaming) groups keep their exact
+        // Text children in place — zero indexOf, zero splice, zero allocations.
+        // Previously updateGroup rebuilt every historical group on every 50ms
+        // streaming frame, making reconcile O(N^2) in session length.
+        if (linesEqual(existing.lines, lines)) {
+          if (liveStartRow === -1 && item.streaming) {
+            const idx = transcript.children.indexOf(existing.children[0]!);
+            if (idx !== -1) liveStartRow = idx;
+          }
+          continue;
+        }
+        const startRow = transcript.children.indexOf(existing.children[0]!);
         if (startRow === -1) {
-          startRow = transcript.children.length;
+          const appendedRow = transcript.children.length;
           if (transcript.children.length > 0) transcript.addChild(new Spacer(1));
           const fresh = lines.map((line) => new Text(line, 0, 0));
           for (const child of fresh) transcript.addChild(child);
-          this.groups.set(key, fresh);
+          this.groups.set(key, { children: fresh, lines });
+          if (liveStartRow === -1 && item.streaming) liveStartRow = appendedRow;
         } else {
-          this.updateGroup(transcript, key, existing, lines);
+          this.updateGroup(transcript, key, startRow, existing.children.length, lines);
+          if (liveStartRow === -1 && item.streaming) liveStartRow = startRow;
         }
       } else {
-        startRow = transcript.children.length;
+        const startRow = transcript.children.length;
         if (transcript.children.length > 0) transcript.addChild(new Spacer(1));
         const fresh = lines.map((line) => new Text(line, 0, 0));
         for (const child of fresh) transcript.addChild(child);
-        this.groups.set(key, fresh);
-        this.orderKeys.push(key);
+        this.groups.set(key, { children: fresh, lines });
+        if (!existing) this.orderKeys.push(key);
+        if (liveStartRow === -1 && item.streaming) liveStartRow = startRow;
       }
-      if (liveStartRow === -1 && item.streaming) liveStartRow = startRow;
     }
 
     // Snapshot for the next reconcile's removal check (full item list).
     this.lastKeys = keys;
 
     // Drop stale groups that are no longer in the item list (compaction).
-    if (this.orderKeys.some((key) => !keys.includes(key))) {
-      this.reset(transcript);
-      didReset = true;
+    if (this.orderKeys.length > 0) {
+      const keySet = new Set(keys);
+      if (this.orderKeys.some((key) => !keySet.has(key))) {
+        this.reset(transcript);
+        didReset = true;
+      }
     }
 
     const totalRows = transcript.children.length;
@@ -136,31 +166,21 @@ export class TuiTranscriptReconciler {
     oldChildren: readonly Component[],
   ): void {
     const start = transcript.children.indexOf(oldChildren[0]!);
-    if (start === -1) {
-      this.groups.set(key, []);
-      return;
+    if (start !== -1) {
+      transcript.children.splice(start, oldChildren.length);
     }
-    for (let i = 0; i < oldChildren.length; i++) {
-      transcript.children.splice(start, 1);
-    }
-    this.groups.set(key, []);
+    this.groups.set(key, { children: [], lines: [] });
   }
 
   private updateGroup(
     transcript: OmaTranscriptContainer,
     key: string,
-    oldChildren: Component[],
-    lines: string[],
+    start: number,
+    oldCount: number,
+    lines: readonly string[],
   ): void {
-    const start = transcript.children.indexOf(oldChildren[0]!);
-    if (start === -1) return;
-    for (let i = 0; i < oldChildren.length; i++) {
-      transcript.children.splice(start, 1);
-    }
     const fresh = lines.map((line) => new Text(line, 0, 0));
-    for (let i = 0; i < fresh.length; i++) {
-      transcript.children.splice(start + i, 0, fresh[i]!);
-    }
-    this.groups.set(key, fresh);
+    transcript.children.splice(start, oldCount, ...fresh);
+    this.groups.set(key, { children: fresh, lines });
   }
 }

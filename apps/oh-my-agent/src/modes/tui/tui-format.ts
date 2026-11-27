@@ -1,10 +1,5 @@
 import type { DefaultTextStyle, EditorTheme, MarkdownTheme } from "@chengchenccc/tui";
-import {
-  applyBackgroundToLine,
-  SHIMMER_TIER_OPEN,
-  truncateToWidth,
-  tuiTheme,
-} from "@chengchenccc/tui";
+import { renderModalFrame, SHIMMER_TIER_OPEN, tuiTheme } from "@chengchenccc/tui";
 
 export const MAX_TOOL_ARGS = 200;
 export const MAX_TOOL_DETAIL = 8_000;
@@ -183,6 +178,7 @@ export const EDITOR_THEME: EditorTheme = {
   selectList: {
     selectedPrefix: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
     selectedText: (s) => `\u001b[1m${s}\u001b[0m`,
+    selectedBg: (s) => `${tuiTheme.bgPanel}${s}\u001b[0m`,
     description: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
     scrollInfo: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
     noMatch: (s) => `${tuiTheme.dim}${s}\u001b[0m`,
@@ -347,11 +343,9 @@ export const MARKDOWN_THEME: MarkdownTheme = {
   underline: (s) => `\u001b[4m${s}\u001b[0m`,
 };
 
-/** User bubble: markdown text on a deep-blue background tint with cyan
- *  text (pi's UserMessageComponent look). */
+/** User message style: clean foreground tint without heavy multi-row panel box. */
 export const USER_TEXT_STYLE: DefaultTextStyle = {
   color: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
-  bgColor: (s) => `${tuiTheme.bgPanel}${s}\u001b[0m`,
 };
 
 /** Compact token count for the header: 12k / 200k. */
@@ -385,15 +379,10 @@ export function formatModelMeta(
 
 export const OVERLAY_BG = (s: string): string => `${tuiTheme.bgOverlay}${s}\u001b[0m`;
 
-/** Pad + frame overlay lines so they cover the underlying transcript
- *  (a plain Container's unshaped whitespace lets the base text bleed
- *  through). */
+/** Pad + frame overlay lines with complete rounded borders so they cleanly
+ *  separate from the underlying transcript. */
 export function overlayLines(lines: readonly string[], width: number): string[] {
-  const innerWidth = Math.max(1, width - 2);
-  return lines.map((line) => {
-    const content = truncateToWidth(line, innerWidth, "", true);
-    return `${tuiTheme.accent}\u2502\u001b[0m${applyBackgroundToLine(content, innerWidth, OVERLAY_BG)}${tuiTheme.accent}\u2502\u001b[0m`;
-  });
+  return renderModalFrame({ lines, width });
 }
 
 /** Overlay root for the session picker: renders title + list and routes
@@ -672,5 +661,5 @@ export const WELCOME_TIPS: readonly string[] = [
   "Tip: /mcp test <name> checks a configured MCP server",
   "Tip: /resume lists saved sessions; /session shows the current id",
   "Tip: /workflow runs a script with subagents",
-  "Tip: /exit twice quits; /help lists all commands",
+  "Tip: /exit quits immediately; Ctrl+C×2 quits; /help lists all commands",
 ];

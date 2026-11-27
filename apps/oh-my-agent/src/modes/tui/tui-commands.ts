@@ -185,21 +185,33 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
   }> = [
     {
       name: "help",
-      description: "list slash commands",
+      description: "list slash commands and shortcuts",
       group: "general",
       live: true,
       run: () => {
-        const groups: Array<[string, string[]]> = [];
+        const groups: Array<[string, Array<{ cmd: string; desc: string }>]> = [];
         for (const c of ctx.commandsWithSkills ?? []) {
           const aliases = c.aliases?.length ? `|${c.aliases.join("|")}` : "";
-          const entry = `/${c.name}${aliases}${c.argumentHint ? ` ${c.argumentHint}` : ""} — ${c.description}`;
+          const cmd = `/${c.name}${aliases}${c.argumentHint ? ` ${c.argumentHint}` : ""}`;
           const found = groups.find(([name]) => name === c.group);
-          if (found) found[1].push(entry);
-          else groups.push([c.group, [entry]]);
+          if (found) found[1].push({ cmd, desc: c.description });
+          else groups.push([c.group, [{ cmd, desc: c.description }]]);
         }
-        ctx.pushStatus(
-          groups.flatMap(([group, entries]) => [`[${group}]`, ...entries.map((e) => `  ${e}`)]),
-        );
+        const lines: string[] = [];
+        for (const [group, entries] of groups) {
+          if (lines.length > 0) lines.push("");
+          lines.push(`[${group}]`);
+          const colW = Math.min(34, Math.max(14, ...entries.map((e) => e.cmd.length)));
+          for (const { cmd, desc } of entries) {
+            const pad = cmd.length < colW ? " ".repeat(colW - cmd.length) : "";
+            lines.push(`  ${cmd}${pad}  ${desc}`);
+          }
+        }
+        lines.push("");
+        lines.push("SHORTCUTS");
+        lines.push("  Ctrl+P model · Ctrl+R history · Ctrl+O tools · Ctrl+T thinking");
+        lines.push("  Esc abort (idle Esc×2 branch tree) · Ctrl+C×2 quit · !cmd shell");
+        ctx.pushStatus(lines.join("\n"));
       },
     },
     {
@@ -231,22 +243,17 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
     },
     {
       name: "exit",
-      description: "quit the session (twice to confirm)",
+      description: "quit the session",
       group: "general",
       live: true,
       run: () => {
-        if (ctx.exitArmed) {
-          ctx.quitting = true;
-          // INTERRUPT, not just flag: the main loop is awaiting
-          // runtime.run(), so without a stop a long model call, a stuck
-          // tool or a bg sleep keeps the process (and raw mode) alive
-          // until the Run settles on its own. Idempotent — same call the
-          // busy ctrl-c / empty-submit paths make.
-          void ctx.liveRuntime?.stop();
-          return;
-        }
-        ctx.exitArmed = true;
-        ctx.pushStatus("type /exit again to quit");
+        ctx.quitting = true;
+        // INTERRUPT, not just flag: the main loop is awaiting
+        // runtime.run(), so without a stop a long model call, a stuck
+        // tool or a bg sleep keeps the process (and raw mode) alive
+        // until the Run settles on its own. Idempotent — same call the
+        // busy ctrl-c / empty-submit paths make.
+        void ctx.liveRuntime?.stop();
       },
     },
     {
@@ -255,13 +262,8 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       group: "general",
       live: true,
       run: () => {
-        if (ctx.exitArmed) {
-          ctx.quitting = true;
-          void ctx.liveRuntime?.stop();
-          return;
-        }
-        ctx.exitArmed = true;
-        ctx.pushStatus("type /quit again to quit");
+        ctx.quitting = true;
+        void ctx.liveRuntime?.stop();
       },
     },
     ...buildSessionCommands(ctx),

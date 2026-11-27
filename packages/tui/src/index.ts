@@ -33,6 +33,10 @@ export {
   type MarkdownTheme,
 } from "./components/markdown.ts";
 export {
+  type ModalFrameOptions,
+  renderModalFrame,
+} from "./components/modal-frame.ts";
+export {
   CachedOutputBlock,
   type OutputBlockOptions,
   type OutputBlockSection,
@@ -50,6 +54,9 @@ export {
 export { Spacer } from "./components/spacer.ts";
 export {
   chip,
+  type FlexStatusSegment,
+  renderFlexStatusBar,
+  renderMeter,
   renderStatusBar,
   renderToolHeader,
   type StatusSegment,
@@ -115,8 +122,14 @@ export {
   textSizingEnabled,
   textSizingSupported,
 } from "./text-sizing.ts";
-// Theme tokens (default: omp obsidian dark)
-export { obsidianDarkTheme, type TuiTheme, tuiTheme } from "./theme.ts";
+// Theme tokens (default: omp obsidian dark; NO_COLOR falls back to plainTheme)
+export {
+  obsidianDarkTheme,
+  plainTheme,
+  resolveTheme,
+  type TuiTheme,
+  tuiTheme,
+} from "./theme.ts";
 export {
   type Component,
   Container,

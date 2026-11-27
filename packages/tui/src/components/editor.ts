@@ -242,6 +242,12 @@ export interface EditorTheme {
   borderColor: (str: string) => string;
   /** Optional custom top border (omp composer: the status line is the top border). */
   topBorder?: (width: number) => string;
+  /** Optional custom bottom border (e.g. subtle keycap hints embedded in the rule). */
+  bottomBorder?: (width: number) => string;
+  /** Optional prompt gutter rendered before each visible editor line (e.g. `❯ ` / `· `). */
+  promptPrefix?: (visualLineIndex: number) => string;
+  /** Optional placeholder rendered after the cursor when the editor is empty. */
+  placeholder?: () => string;
   selectList: SelectListTheme;
 }
 
@@ -501,7 +507,9 @@ export class Editor implements Component, Focusable {
   render(width: number): string[] {
     const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
     const paddingX = Math.min(this.paddingX, maxPadding);
-    const contentWidth = Math.max(1, width - paddingX * 2);
+    const samplePrefix = this.theme.promptPrefix ? this.theme.promptPrefix(0) : "";
+    const prefixWidth = samplePrefix ? visibleWidth(samplePrefix) : 0;
+    const contentWidth = Math.max(1, width - paddingX * 2 - prefixWidth);
 
     // Layout width: with padding the cursor can overflow into it,
     // without padding we reserve 1 column for the cursor.
@@ -559,12 +567,15 @@ export class Editor implements Component, Focusable {
     }
 
     // Render each visible layout line
-    // Emit hardware cursor marker when focused so TUI can position the
-    // hardware cursor for IME candidate-window placement even while
-    // autocomplete (e.g. slash-command menu) is visible.
     const emitCursorMarker = this.focused;
+    const showPlaceholder =
+      this.isEditorEmpty() && !this.autocompleteState && this.theme.placeholder !== undefined;
 
-    for (const layoutLine of visibleLines) {
+    for (let idx = 0; idx < visibleLines.length; idx++) {
+      const layoutLine = visibleLines[idx]!;
+      const gutter = this.theme.promptPrefix
+        ? this.theme.promptPrefix(this.scrollOffset + idx)
+        : "";
       let displayText = layoutLine.text;
       let lineVisibleWidth = visibleWidth(layoutLine.text);
       let cursorInPadding = false;
@@ -573,37 +584,36 @@ export class Editor implements Component, Focusable {
       if (layoutLine.hasCursor && layoutLine.cursorPos !== undefined) {
         const before = displayText.slice(0, layoutLine.cursorPos);
         const after = displayText.slice(layoutLine.cursorPos);
-
-        // Hardware cursor marker (zero-width, emitted before fake cursor for IME positioning)
         const marker = emitCursorMarker ? CURSOR_MARKER : "";
 
         if (after.length > 0) {
-          // Cursor is on a character (grapheme) - replace it with highlighted version
-          // Get the first grapheme from 'after'
           const afterGraphemes = [...this.segment(after, "grapheme")];
           const firstGrapheme = afterGraphemes[0]?.segment || "";
           const restAfter = after.slice(firstGrapheme.length);
           const cursor = `\x1b[7m${firstGrapheme}\x1b[0m`;
           displayText = before + marker + cursor + restAfter;
-          // lineVisibleWidth stays the same - we're replacing, not adding
         } else {
-          // Cursor is at the end - add highlighted space
           const cursor = "\x1b[7m \x1b[0m";
           displayText = before + marker + cursor;
           lineVisibleWidth = lineVisibleWidth + 1;
-          // If cursor overflows content width into the padding, flag it
+          if (showPlaceholder && this.theme.placeholder) {
+            const phText = this.theme.placeholder();
+            const avail = Math.max(0, contentWidth - lineVisibleWidth);
+            if (phText && avail > 1) {
+              const fitted = truncateToWidth(phText, avail, "…");
+              displayText += fitted;
+              lineVisibleWidth += visibleWidth(fitted);
+            }
+          }
           if (lineVisibleWidth > contentWidth && paddingX > 0) {
             cursorInPadding = true;
           }
         }
       }
 
-      // Calculate padding based on actual visible width
       const padding = " ".repeat(Math.max(0, contentWidth - lineVisibleWidth));
       const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
-
-      // Render the line (no side borders, just horizontal lines above and below)
-      result.push(`${leftPadding}${displayText}${padding}${lineRightPadding}`);
+      result.push(`${leftPadding}${gutter}${displayText}${padding}${lineRightPadding}`);
     }
 
     // Render bottom border (with scroll indicator if more content below)
@@ -613,15 +623,17 @@ export class Editor implements Component, Focusable {
       const remaining = width - visibleWidth(indicator);
       result.push(this.borderColor(indicator + "─".repeat(Math.max(0, remaining))));
     } else {
-      result.push(horizontal.repeat(width));
+      const customBottom = this.theme.bottomBorder?.(width);
+      result.push(customBottom !== undefined ? customBottom : horizontal.repeat(width));
     }
 
     // Add autocomplete list if active
+    const acWidth = Math.max(1, width - paddingX * 2);
     if (this.autocompleteState && this.autocompleteList) {
-      const autocompleteResult = this.autocompleteList.render(contentWidth);
+      const autocompleteResult = this.autocompleteList.render(acWidth);
       for (const line of autocompleteResult) {
         const lineWidth = visibleWidth(line);
-        const linePadding = " ".repeat(Math.max(0, contentWidth - lineWidth));
+        const linePadding = " ".repeat(Math.max(0, acWidth - lineWidth));
         result.push(`${leftPadding}${line}${linePadding}${rightPadding}`);
       }
     }

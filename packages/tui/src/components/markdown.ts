@@ -215,6 +215,13 @@ export class Markdown implements Component {
   // the grown tail, turning O(N^2) reveal cost into O(N) for typical markdown.
   private streamPrefixText?: string;
   private streamPrefixTokens?: Token[];
+  // Streaming render cache: final wrapped & padded content lines for the
+  // settled tokens of `streamPrefixTokens` (excluding its last token whose
+  // spacing can depend on the first tail token). Turns O(N^2) streaming
+  // markdown rendering/wrapping into O(tail) per delta.
+  private streamRenderedCount = 0;
+  private streamRenderedWidth?: number;
+  private streamRenderedLines: string[] = [];
 
   constructor(
     text: string,
@@ -239,6 +246,9 @@ export class Markdown implements Component {
     if (!(text.length > this.text.length && text.startsWith(this.text))) {
       this.streamPrefixText = undefined;
       this.streamPrefixTokens = undefined;
+      this.streamRenderedCount = 0;
+      this.streamRenderedLines = [];
+      this.streamRenderedWidth = undefined;
     }
     this.text = text;
     this.invalidate();
@@ -248,6 +258,51 @@ export class Markdown implements Component {
     this.cachedText = undefined;
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
+  }
+
+  private renderAndPadTokenSlice(
+    tokens: readonly Token[],
+    from: number,
+    to: number,
+    width: number,
+    contentWidth: number,
+  ): string[] {
+    const renderedLines: string[] = [];
+    for (let i = from; i < to; i++) {
+      const token = tokens[i]!;
+      const nextToken = tokens[i + 1];
+      const tokenLines = this.renderToken(token, contentWidth, nextToken?.type);
+      for (const tokenLine of tokenLines) {
+        renderedLines.push(tokenLine);
+      }
+    }
+
+    const leftMargin = " ".repeat(this.paddingX);
+    const rightMargin = " ".repeat(this.paddingX);
+    const bgFn = this.defaultTextStyle?.bgColor;
+    const out: string[] = [];
+
+    for (const line of renderedLines) {
+      if (isImageLine(line)) {
+        out.push(line);
+        continue;
+      }
+      for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
+        if (isImageLine(wrappedLine)) {
+          out.push(wrappedLine);
+          continue;
+        }
+        const lineWithMargins = leftMargin + wrappedLine + rightMargin;
+        if (bgFn) {
+          out.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
+        } else {
+          const visibleLen = visibleWidth(lineWithMargins);
+          const paddingNeeded = Math.max(0, width - visibleLen);
+          out.push(lineWithMargins + " ".repeat(paddingNeeded));
+        }
+      }
+    }
+    return out;
   }
 
   render(width: number): string[] {
@@ -262,7 +317,6 @@ export class Markdown implements Component {
     // Don't render anything if there's no actual text
     if (!this.text || this.text.trim() === "") {
       const result: string[] = [];
-      // Update cache
       this.cachedText = this.text;
       this.cachedWidth = width;
       this.cachedLines = result;
@@ -277,55 +331,42 @@ export class Markdown implements Component {
     const tokens = this.lexTokens(normalizedText);
     trimPartialClosingFences(tokens);
 
-    // Convert tokens to styled terminal output
-    const renderedLines: string[] = [];
+    // Reuse rendered+wrapped lines for all frozen prefix tokens whose nextToken
+    // is also frozen (0..frozenCount-1). Only newly frozen + tail tokens render.
+    const stableLimit =
+      this.streamPrefixTokens && this.streamPrefixTokens.length > 1
+        ? this.streamPrefixTokens.length - 1
+        : 0;
 
-    for (let i = 0; i < tokens.length; i++) {
-      const token = tokens[i];
-      const nextToken = tokens[i + 1];
-      const tokenLines = this.renderToken(token, contentWidth, nextToken?.type);
-      for (const tokenLine of tokenLines) {
-        renderedLines.push(tokenLine);
-      }
+    if (this.streamRenderedWidth !== width || stableLimit < this.streamRenderedCount) {
+      this.streamRenderedCount = 0;
+      this.streamRenderedLines = [];
+      this.streamRenderedWidth = width;
+    }
+    if (stableLimit > this.streamRenderedCount) {
+      const newlyFrozen = this.renderAndPadTokenSlice(
+        tokens,
+        this.streamRenderedCount,
+        stableLimit,
+        width,
+        contentWidth,
+      );
+      for (const l of newlyFrozen) this.streamRenderedLines.push(l);
+      this.streamRenderedCount = stableLimit;
     }
 
-    // Wrap lines (NO padding, NO background yet)
-    const wrappedLines: string[] = [];
-    for (const line of renderedLines) {
-      if (isImageLine(line)) {
-        wrappedLines.push(line);
-      } else {
-        for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
-          wrappedLines.push(wrappedLine);
-        }
-      }
-    }
-
-    // Add margins and background to each wrapped line
-    const leftMargin = " ".repeat(this.paddingX);
-    const rightMargin = " ".repeat(this.paddingX);
-    const bgFn = this.defaultTextStyle?.bgColor;
-    const contentLines: string[] = [];
-
-    for (const line of wrappedLines) {
-      if (isImageLine(line)) {
-        contentLines.push(line);
-        continue;
-      }
-
-      const lineWithMargins = leftMargin + line + rightMargin;
-
-      if (bgFn) {
-        contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
-      } else {
-        // No background - just pad to width
-        const visibleLen = visibleWidth(lineWithMargins);
-        const paddingNeeded = Math.max(0, width - visibleLen);
-        contentLines.push(lineWithMargins + " ".repeat(paddingNeeded));
-      }
-    }
+    const tailLines = this.renderAndPadTokenSlice(
+      tokens,
+      this.streamRenderedCount,
+      tokens.length,
+      width,
+      contentWidth,
+    );
+    const contentLines =
+      this.streamRenderedLines.length > 0 ? this.streamRenderedLines.concat(tailLines) : tailLines;
 
     // Add top/bottom padding (empty lines)
+    const bgFn = this.defaultTextStyle?.bgColor;
     const emptyLine = " ".repeat(width);
     const emptyLines: string[] = [];
     for (let i = 0; i < this.paddingY; i++) {

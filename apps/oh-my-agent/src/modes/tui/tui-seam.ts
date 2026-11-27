@@ -41,6 +41,26 @@ export interface TuiModeOptions {
 /** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */
 export type TuiCommand = "toggleThinking" | "toggleToolDetail" | "abort" | "pickModel" | "forkTree";
 
+export type ApprovalVerdict = "allow" | "allow_always" | "deny" | "deny_always";
+
+export interface ApprovalPromptRequest {
+  toolName: string;
+  reason?: string;
+  callId?: string;
+  input?: unknown;
+  source?: "tool" | "permission" | "classifier";
+  sandboxed?: boolean;
+  /** True for tool permission prompts that support session-level allow/deny always. */
+  allowAlways?: boolean;
+}
+
+export interface ContextUsageInfo {
+  estimatedTokens: number;
+  limit: number;
+  pct: number;
+  usageSummary?: string;
+}
+
 /** One turn driver's status-bar indicator. `text` is the composed label (the
  *  driver owns its own wording); undefined clears the segment. One channel for
  *  every driver, so adding a fourth is a row in the render order rather than a
@@ -102,9 +122,9 @@ export interface TuiIo {
   pickModel?(
     models: ReadonlyArray<{ id: string; label: string; description?: string }>,
   ): Promise<string | null>;
-  /** Interactive approval confirm (HITL); resolves "allow"/"deny", null on
-   *  cancel (treated as deny — fail-closed). Absent = deny. */
-  confirmApproval?(req: { toolName: string; reason?: string }): Promise<"allow" | "deny" | null>;
+  /** Interactive approval confirm (HITL); resolves "allow"/"allow_always"/"deny"/"deny_always",
+   *  null on cancel (treated as deny — fail-closed). Absent = deny. */
+  confirmApproval?(req: ApprovalPromptRequest): Promise<ApprovalVerdict | null>;
   /** Interactive ask_question form (HITL); resolves answers or null on
    *  cancel/unsupported question kind (fail-closed).
    *  `opts.timeoutMs` (omp ask.timeout): when a question sits untouched this
@@ -125,9 +145,15 @@ export interface TuiIo {
   /** Interactive settings editor; resolves the updated settings or null on
    *  cancel. Absent = caller falls back to text status. */
   editSettings?(settings: ProjectSettings): Promise<ProjectSettings | null>;
-  /** Update the fixed header's model/session line. `context` is sticky:
-   *  once set it stays until the next value arrives. */
-  setHeader?(info: { model?: string; sessionId?: string; title?: string; context?: string }): void;
+  /** Update the fixed header's model/session line. `context` / `contextInfo`
+   *  are sticky: once set they stay until the next value arrives. */
+  setHeader?(info: {
+    model?: string;
+    sessionId?: string;
+    title?: string;
+    context?: string;
+    contextInfo?: ContextUsageInfo;
+  }): void;
   /** M-bash: interactive pty console overlay (TUI only). Resolves when
    *  the command exits or the user kills it (Esc). */
   runPtyConsole?(

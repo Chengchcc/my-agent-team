@@ -1,19 +1,12 @@
 /** TUI color tokens. Every SGR color decision in the TUI routes through
- *  `tuiTheme`, so a future theme feature swaps this one object instead of
- *  hunting escape codes across renderers.
+ *  `tuiTheme`, so a theme swap or `NO_COLOR` mode changes this one object
+ *  instead of hunting escape codes across renderers.
  *
  *  The default theme ports omp's "obsidian dark" palette (oh-my-pi
  *  theme/defaults/obsidian.json): warm-black neutrals, a violet accent, jade
- *  success, crimson error. Values are 24-bit-color SGR strings; terminals
- *  without truecolor degrade per their own palette. Attributes (bold,
- *  italic, underline, strike) are NOT themed — a theme recolors, it does not
- *  restyle structure.
- *
- *  Ten color tokens, each a ROLE a renderer can name without knowing the
- *  palette: one brand accent, three verdict colors, one informational, two
- *  text tiers, three surfaces. Anything finer (a second orange, a separate
- *  heading tint) was tried and collapsed — tokens nobody can name from the
- *  sitting surface are taxonomy, not theme. */
+ *  success, crimson error. When `NO_COLOR` is set (https://no-color.org/),
+ *  `resolveTheme()` degrades to `plainTheme` (zero ANSI color sequences,
+ *  preserving structural glyphs and bold/dim/reverse attributes). */
 
 export interface TuiTheme {
   /** Brand accent: block titles, spinner + sweep band, selected markers,
@@ -41,13 +34,10 @@ export interface TuiTheme {
   readonly bgChipOk: string;
 }
 
-/** "#rrggbb" → 24-bit foreground SGR. Module-private: themes are declared as
- *  hex constants and materialized once; call sites never build SGR strings. */
 function fg(hex: string): string {
   return `\u001b[38;2;${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5), 16)};${parseInt(hex.slice(5, 7), 16)}m`;
 }
 
-/** "#rrggbb" → 24-bit background SGR. */
 function bg(hex: string): string {
   return `\u001b[48;2;${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5), 16)};${parseInt(hex.slice(5, 7), 16)}m`;
 }
@@ -78,6 +68,29 @@ export const obsidianDarkTheme: TuiTheme = {
   bgChipOk: bg("#20362b"),
 };
 
-/** The active theme. Single swap point for the future theme feature
- *  (settings key → assign another TuiTheme here, re-render). */
-export const tuiTheme: TuiTheme = obsidianDarkTheme;
+/** NO_COLOR fallback: no SGR color codes, relying on structural glyphs and
+ *  standard terminal dim/bold/reverse attributes. */
+export const plainTheme: TuiTheme = {
+  accent: "",
+  info: "",
+  success: "",
+  error: "",
+  warning: "",
+  dim: "\u001b[2m",
+  faint: "\u001b[2m",
+  bgPanel: "",
+  bgOverlay: "",
+  bgChipOk: "",
+};
+
+/** Resolve the active theme from environment (`NO_COLOR` per no-color.org). */
+export function resolveTheme(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): TuiTheme {
+  const noColor = env.NO_COLOR;
+  if (noColor !== undefined && noColor !== "") return plainTheme;
+  return obsidianDarkTheme;
+}
+
+/** The active theme. */
+export const tuiTheme: TuiTheme = resolveTheme();

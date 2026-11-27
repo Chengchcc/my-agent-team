@@ -4,16 +4,19 @@ import {
   type Component,
   type Container,
   type DefaultTextStyle,
+  type FlexStatusSegment,
   type Loader,
   Markdown,
   type OutputBlockSection,
-  renderStatusBar,
+  renderFlexStatusBar,
+  renderMeter,
   renderToolHeader,
   Spacer,
   Text,
   type TUI,
   truncateToWidth,
   tuiTheme,
+  visibleWidth,
   wrapTextWithAnsi,
 } from "@chengchenccc/tui";
 import { defaultRegistry } from "../../core/coordination/registry.js";
@@ -21,6 +24,8 @@ import type { OmaTranscriptContainer } from "./tui-components.js";
 import {
   cleanHeaderTitle,
   contextColor,
+  formatDurationMs,
+  formatTokens,
   formatWorkspace,
   gitStatusCached,
   MARKDOWN_THEME,
@@ -32,9 +37,8 @@ import {
   styleBashLine,
   summarizeResult,
   summarizeToolArgs,
-  USER_TEXT_STYLE,
 } from "./tui-format.js";
-import type { DriverKind } from "./tui-seam.js";
+import type { ContextUsageInfo, DriverKind } from "./tui-seam.js";
 import {
   renderAskTool,
   renderHubTool,
@@ -43,6 +47,64 @@ import {
 } from "./tui-tool-render.js";
 import { TuiTranscriptReconciler } from "./tui-transcript-reconciler.js";
 import type { TranscriptItem, TuiViewState } from "./view-state.js";
+
+/** Split text safely on CRLF / CR / LF so a stray carriage return inside a
+ *  status or error message can never overwrite column 0 of the terminal. */
+function splitSafeLines(text: string): string[] {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+}
+
+function isEmptyOkResult(result: Readonly<Record<string, unknown>>): boolean {
+  const keys = Object.keys(result);
+  if (keys.length === 0) return true;
+  if (keys.length === 1 && keys[0] === "isError" && result.isError === false) return true;
+  if (
+    keys.every(
+      (k) =>
+        (k === "isError" && result.isError === false) ||
+        (k === "ok" && result.ok === true) ||
+        (k === "content" && typeof result.content === "string" && result.content.trim() === ""),
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Line-numbered, width-aware unified diff snippet for edit tool calls. */
+function renderEditDiffLines(
+  input: Readonly<Record<string, unknown>>,
+  maxLines: number,
+  maxWidth: number,
+): string[] {
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  const oldLines = str(input.old_string) ? str(input.old_string).split("\n") : [];
+  const newLines = str(input.new_string) ? str(input.new_string).split("\n") : [];
+  const totalDigits = String(Math.max(oldLines.length, newLines.length, 1)).length;
+  const contentBudget = Math.max(16, maxWidth - totalDigits - 4);
+  const out: string[] = [];
+
+  const shownOld = oldLines.slice(0, maxLines);
+  for (let i = 0; i < shownOld.length; i++) {
+    const ln = String(i + 1).padStart(totalDigits, " ");
+    const text = truncateToWidth(shownOld[i] ?? "", contentBudget);
+    out.push(`${tuiTheme.dim}${ln}\u001b[0m ${tuiTheme.error}- ${text}\u001b[0m`);
+  }
+  if (oldLines.length > maxLines) {
+    out.push(`${tuiTheme.dim}  … (${oldLines.length - maxLines} more removed lines)\u001b[0m`);
+  }
+
+  const shownNew = newLines.slice(0, maxLines);
+  for (let i = 0; i < shownNew.length; i++) {
+    const ln = String(i + 1).padStart(totalDigits, " ");
+    const text = truncateToWidth(shownNew[i] ?? "", contentBudget);
+    out.push(`${tuiTheme.dim}${ln}\u001b[0m ${tuiTheme.success}+ ${text}\u001b[0m`);
+  }
+  if (newLines.length > maxLines) {
+    out.push(`${tuiTheme.dim}  … (${newLines.length - maxLines} more added lines)\u001b[0m`);
+  }
+  return out;
+}
 
 /** Renders transcript items to display lines, memoizing markdown/tool blocks.
  *  Extracted from tui-io.ts to keep the io assembly file under 500 lines. */
@@ -92,7 +154,7 @@ export class TuiItemRenderer {
         if (item.pending) {
           return [`${tuiTheme.dim}  » ${item.text.replace(/\r?\n/g, " ↵ ")}\u001b[0m`];
         }
-        return this.markdownLines(item, 1, 1, USER_TEXT_STYLE);
+        return this.renderUserMessage(item.text);
       case "assistant": {
         const lines: string[] = [];
         if (item.thinking) lines.push(...this.renderThinking(item.thinking, state.showThinking));
@@ -104,14 +166,51 @@ export class TuiItemRenderer {
       case "tool":
         return this.renderTool(item, state.showToolDetail);
       case "status":
-        // Streaming status lines (live subagent activity) carry the light
-        // sweep; settled ones render static dim.
-        return item.streaming
-          ? [`  [${shimmerText(item.text)}]`]
-          : [`${tuiTheme.dim}  [${item.text}]\u001b[0m`];
+        return this.renderStatus(item.text, item.streaming);
       case "error":
-        return [`${tuiTheme.error}  error: ${item.text}\u001b[0m`];
+        return this.renderError(item.text);
     }
+  }
+
+  /** Compact terminal-native user prompt: bold `❯ ` gutter without wasting
+   *  3 rows on a heavy dark panel box. */
+  private renderUserMessage(text: string): string[] {
+    const cols = Math.max(20, this.tui.terminal.columns);
+    const wrapped = wrapTextWithAnsi(text.replace(/\r\n/g, "\n").replace(/\r/g, "\n"), cols - 4);
+    return wrapped.map((line, idx) =>
+      idx === 0
+        ? ` ${tuiTheme.accent}\u001b[1m❯\u001b[0m \u001b[1m${line}\u001b[0m`
+        : `   \u001b[1m${line}\u001b[0m`,
+    );
+  }
+
+  private renderStatus(text: string, streaming: boolean): string[] {
+    const rawLines = splitSafeLines(text);
+    if (streaming) {
+      return rawLines.map((line) => `  · ${shimmerText(line)}`);
+    }
+    if (rawLines.length === 1) {
+      return [`${tuiTheme.dim}  · ${rawLines[0] ?? ""}\u001b[0m`];
+    }
+    return rawLines.map((line) => {
+      if (!line.trim()) return "";
+      if (line.startsWith("[") && line.endsWith("]")) {
+        return `  ${tuiTheme.accent}\u001b[1m${line}\u001b[0m`;
+      }
+      if (line === "SHORTCUTS") {
+        return `  ${tuiTheme.accent}\u001b[1m${line}\u001b[0m`;
+      }
+      return `${tuiTheme.dim}  ${line}\u001b[0m`;
+    });
+  }
+
+  private renderError(text: string): string[] {
+    const rawLines = splitSafeLines(text);
+    return rawLines.map((line, idx) =>
+      idx === 0
+        ? `${tuiTheme.error}  ✘ error: ${line}\u001b[0m`
+        : `${tuiTheme.error}    ${line}\u001b[0m`,
+    );
   }
 
   private markdownLines(
@@ -184,13 +283,30 @@ export class TuiItemRenderer {
     const wallMs =
       item.durationMs ??
       (item.streaming && item.startedAt !== undefined ? Date.now() - item.startedAt : undefined);
-    const wall = wallMs === undefined ? "—" : `${(wallMs / 1000).toFixed(2)}s`;
-    const timeoutMs = item.timeoutMs;
-    const timeout = timeoutMs === undefined ? "—" : `${(timeoutMs / 1000).toFixed(0)}s`;
+    const wallLabel = wallMs !== undefined ? formatDurationMs(wallMs) : "";
+    const cols = Math.max(24, this.tui.terminal.columns);
+
+    if (!expanded) {
+      return this.renderToolCompact(item, {
+        toolName,
+        failed,
+        running,
+        mark,
+        titleColor,
+        wallLabel,
+        cols,
+      });
+    }
+
+    const metaParts: string[] = [];
+    if (wallLabel) metaParts.push(wallLabel);
+    if (running && item.timeoutMs !== undefined) {
+      metaParts.push(`timeout ${Math.round(item.timeoutMs / 1000)}s`);
+    }
     const header = renderToolHeader({
       icon: mark,
       title: toolName,
-      meta: [`${tuiTheme.dim}⟦Wall: ${wall} | Timeout: ${timeout}⟧\u001b[0m`],
+      ...(metaParts.length > 0 ? { meta: metaParts } : {}),
       titleColor,
     });
 
@@ -198,49 +314,27 @@ export class TuiItemRenderer {
 
     if (item.input !== undefined) {
       const lines: string[] = [];
-      if (expanded) {
-        for (const line of prettyJson(item.input).split("\n")) {
-          lines.push(`${tuiTheme.dim}${line}\u001b[0m`);
-        }
-      } else if (toolName === "bash" && typeof item.input.command === "string") {
-        // omp formatBashCommandLines: dim `$ ` prefix, then the command with
-        // per-segment highlighting (strings/keywords/flags/comments).
-        const command = item.input.command as string;
-        const cmdLines = command.split("\n");
-        lines.push(
-          `${tuiTheme.dim}└ \u001b[0m${tuiTheme.dim}$ \u001b[0m${styleBashLine(cmdLines[0] ?? "")}`,
-        );
-        for (const extra of cmdLines.slice(1)) {
-          lines.push(`${tuiTheme.dim}  \u001b[0m${styleBashLine(extra)}`);
-        }
-      } else {
-        lines.push(`${tuiTheme.dim}└ ${summarizeToolArgs(toolName, item.input)}\u001b[0m`);
+      for (const line of prettyJson(item.input).split("\n")) {
+        lines.push(`${tuiTheme.dim}${line}\u001b[0m`);
       }
-      sections.push({ lines });
+      sections.push({ label: "Input", lines });
     }
 
     if (toolName === "edit" && item.input !== undefined) {
-      const str = (v: unknown): string => (typeof v === "string" ? v : "");
-      const lines: string[] = [];
-      for (const line of str(item.input.old_string).split("\n").slice(0, MAX_DIFF_LINES)) {
-        lines.push(`${tuiTheme.error}- ${line.slice(0, 90)}\u001b[0m`);
-      }
-      for (const line of str(item.input.new_string).split("\n").slice(0, MAX_DIFF_LINES)) {
-        lines.push(`${tuiTheme.success}+ ${line.slice(0, 90)}\u001b[0m`);
-      }
-      sections.push({ lines });
+      const diffLines = renderEditDiffLines(item.input, MAX_DIFF_LINES * 2, cols - 6);
+      if (diffLines.length > 0) sections.push({ label: "Diff", lines: diffLines });
     }
 
     if (item.output && item.streaming) {
       const tail = item.output.slice(-600);
       const lines: string[] = [];
-      for (const line of tail.split("\n").slice(-4)) {
+      for (const line of tail.split("\n").slice(-6)) {
         if (line.trim()) lines.push(`${tuiTheme.dim}${line}\u001b[0m`);
       }
-      sections.push({ lines });
+      if (lines.length > 0) sections.push({ lines });
     }
 
-    if (item.result !== undefined) {
+    if (item.result !== undefined && !isEmptyOkResult(item.result)) {
       const content = typeof item.result.content === "string" ? item.result.content : null;
       const resultColor = failed ? tuiTheme.error : tuiTheme.dim;
       const lines: string[] = [];
@@ -251,17 +345,17 @@ export class TuiItemRenderer {
           try {
             textContent = prettyJson(JSON.parse(textContent));
           } catch {
-            // non-JSON that merely starts with a bracket: keep raw text
+            // keep raw text
           }
         }
         const outputLines = textContent
           .split("\n")
           .filter((line) => !(!failed && /\[exit: \d+\]/.test(line)));
-        const maxOut = expanded ? 12 : 4;
+        const maxOut = 16;
         const display = outputLines.slice(0, maxOut);
         const isCodeResult = toolName === "read" || toolName === "write";
         for (const line of display) {
-          const truncated = truncateToWidth(line, this.tui.terminal.columns - 6);
+          const truncated = truncateToWidth(line, cols - 6);
           lines.push(
             isCodeResult && !failed
               ? MARKDOWN_THEME.codeBlock(truncated)
@@ -269,17 +363,13 @@ export class TuiItemRenderer {
           );
         }
         if (outputLines.length > maxOut) {
-          lines.push(
-            `${tuiTheme.dim}… ${outputLines.length - maxOut} more lines · (ctrl+o)\u001b[0m`,
-          );
-        } else if (!expanded) {
-          lines.push(`${tuiTheme.dim}· (ctrl+o)\u001b[0m`);
+          lines.push(`${tuiTheme.dim}… ${outputLines.length - maxOut} more lines\u001b[0m`);
         }
       } else {
         const summary = summarizeResult(item.result);
         if (summary) lines.push(`${resultColor}${summary}\u001b[0m`);
       }
-      if (content !== null || Object.keys(item.result).length > 0) {
+      if (lines.length > 0) {
         sections.push({ label: "Output", lines });
       }
     }
@@ -294,10 +384,135 @@ export class TuiItemRenderer {
         header,
         state,
         sections,
-        width: this.tui.terminal.columns,
+        width: cols,
         bg: (line: string) => `${tuiTheme.bgPanel}${line}\u001b[0m`,
       }),
     ];
+  }
+
+  /** Lightweight Gutter/Tree collapsed tool view: 1 header line + slim `│`
+   *  body rows (no full-width heavy box per tool call). Preserves verdict
+   *  color token (`warning` / `error` / `success`) on row 0. */
+  private renderToolCompact(
+    item: TranscriptItem,
+    opts: {
+      toolName: string;
+      failed: boolean;
+      running: boolean;
+      mark: string;
+      titleColor: string;
+      wallLabel: string;
+      cols: number;
+    },
+  ): string[] {
+    const { toolName, failed, running, mark, titleColor, wallLabel, cols } = opts;
+    const gutter = `${tuiTheme.faint}  │ \u001b[0m`;
+    const bodyWidth = Math.max(16, cols - 5);
+
+    // Format primary inline summary right next to tool name
+    let argInline = "";
+    const extraInputLines: string[] = [];
+    if (item.input !== undefined) {
+      if (toolName === "bash" && typeof item.input.command === "string") {
+        const cmdLines = item.input.command.split("\n");
+        argInline = `${tuiTheme.dim}$ \u001b[0m${styleBashLine(cmdLines[0] ?? "")}`;
+        for (const extra of cmdLines.slice(1, 3)) {
+          extraInputLines.push(`  ${styleBashLine(truncateToWidth(extra, bodyWidth - 2))}`);
+        }
+        if (cmdLines.length > 3) {
+          extraInputLines.push(`${tuiTheme.dim}  … +${cmdLines.length - 3} lines\u001b[0m`);
+        }
+      } else {
+        const summary = summarizeToolArgs(toolName, item.input);
+        if (summary) argInline = `${tuiTheme.dim}${summary}\u001b[0m`;
+      }
+    }
+
+    const rightMetaParts: string[] = [];
+    if (wallLabel) rightMetaParts.push(wallLabel);
+    if (running && item.timeoutMs !== undefined) {
+      rightMetaParts.push(`≤${Math.round(item.timeoutMs / 1000)}s`);
+    }
+    const rightMeta =
+      rightMetaParts.length > 0 ? `${tuiTheme.dim}${rightMetaParts.join(" · ")}\u001b[0m` : "";
+    const rightMetaW = visibleWidth(rightMeta);
+
+    const headLead = ` ${titleColor}${mark} \u001b[1m${toolName}\u001b[22m\u001b[0m`;
+    const leadW = visibleWidth(headLead);
+    const argBudget = Math.max(0, cols - leadW - (rightMetaW > 0 ? rightMetaW + 2 : 0) - 2);
+    const clippedArg =
+      argInline && argBudget > 4 ? ` ${truncateToWidth(argInline, argBudget)}` : "";
+    const leftHead = `${headLead}${clippedArg}`;
+    const gap = Math.max(1, cols - visibleWidth(leftHead) - rightMetaW - 1);
+    const headerLine =
+      rightMetaW > 0 && visibleWidth(leftHead) + 1 + rightMetaW < cols
+        ? `${leftHead}${" ".repeat(gap)}${rightMeta}`
+        : truncateToWidth(leftHead, cols);
+
+    const rows: string[] = [headerLine];
+    for (const extra of extraInputLines) {
+      rows.push(`${gutter}${extra}`);
+    }
+
+    if (toolName === "edit" && item.input !== undefined) {
+      for (const diffLine of renderEditDiffLines(item.input, MAX_DIFF_LINES, bodyWidth)) {
+        rows.push(`${gutter}${diffLine}`);
+      }
+    }
+
+    if (item.output && running) {
+      const tail = item.output.slice(-600);
+      for (const line of tail.split("\n").slice(-4)) {
+        if (line.trim()) {
+          rows.push(`${gutter}${tuiTheme.dim}${truncateToWidth(line, bodyWidth)}\u001b[0m`);
+        }
+      }
+    }
+
+    if (item.result !== undefined && !isEmptyOkResult(item.result)) {
+      const content = typeof item.result.content === "string" ? item.result.content : null;
+      const resultColor = failed ? tuiTheme.error : tuiTheme.dim;
+      if (content !== null) {
+        let textContent = content.trimEnd();
+        const trimmed = textContent.trimStart();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+          try {
+            textContent = prettyJson(JSON.parse(textContent));
+          } catch {
+            // keep raw text
+          }
+        }
+        const outputLines = textContent
+          .split("\n")
+          .filter((line) => !(!failed && /\[exit: \d+\]/.test(line)))
+          .filter((line, _idx, arr) => !(arr.length === 1 && line.trim() === ""));
+        const maxOut = 4;
+        const display = outputLines.slice(0, maxOut);
+        const isCodeResult = toolName === "read" || toolName === "write";
+        for (const line of display) {
+          const truncated = truncateToWidth(line, bodyWidth);
+          rows.push(
+            `${gutter}${
+              isCodeResult && !failed
+                ? MARKDOWN_THEME.codeBlock(truncated)
+                : `${resultColor}${truncated}\u001b[0m`
+            }`,
+          );
+        }
+        if (outputLines.length > maxOut) {
+          rows.push(
+            `${tuiTheme.faint}  ╰ \u001b[0m${tuiTheme.dim}… ${outputLines.length - maxOut} more lines (ctrl+o)\u001b[0m`,
+          );
+        }
+      } else {
+        const summary = summarizeResult(item.result);
+        if (summary) {
+          rows.push(`${gutter}${resultColor}${truncateToWidth(summary, bodyWidth)}\u001b[0m`);
+        }
+      }
+    }
+
+    return rows;
   }
 }
 
@@ -310,10 +525,12 @@ export class TuiRenderShell {
   private headerSession = "";
   private headerTitle = "";
   private headerContext = "";
+  private headerContextInfo?: ContextUsageInfo;
   private busy = false;
   private loader: Loader | null = null;
   private busySeconds = 0;
   private currentState: TuiViewState | null = null;
+  private lastStatusKey = "";
   get viewState(): TuiViewState | null {
     return this.currentState;
   }
@@ -327,9 +544,18 @@ export class TuiRenderShell {
     if ((this.driverStatus.get(kind) ?? "") === next) return;
     if (next === "") this.driverStatus.delete(kind);
     else this.driverStatus.set(kind, next);
-    this.addStatusBar();
+    this.addStatusBar(true);
     this.tui.requestRender();
   }
+
+  /** Mode-semantic accent color for the composer prompt and top border. */
+  activeModeAccent(): string {
+    if (this.driverStatus.has("plan")) return tuiTheme.info;
+    if (this.driverStatus.has("goal")) return tuiTheme.warning;
+    if (this.driverStatus.has("loop")) return tuiTheme.success;
+    return tuiTheme.accent;
+  }
+
   /** Undelivered steers (omp pending-messages): surfaced in the busy
    *  loader as the "enter sends now" affordance. */
   private queuedCount = 0;
@@ -385,6 +611,10 @@ export class TuiRenderShell {
     this.busy = busy;
     this.loader = loader;
     this.busySeconds = busySeconds;
+    if (!busy) {
+      void refreshGitStatus(this.workspaceRoot);
+      this.addStatusBar(true);
+    }
   }
 
   /** Whether the loader is ticking — i.e. a repaint clock exists. Chrome
@@ -407,15 +637,32 @@ export class TuiRenderShell {
     this.currentState = state;
   }
 
-  setHeader(model: string, session: string, title: string, context?: string): void {
+  setHeader(
+    model: string,
+    session: string,
+    title: string,
+    context?: string,
+    contextInfo?: ContextUsageInfo,
+  ): void {
+    const prevModel = this.headerModel;
     this.headerModel = model;
     this.headerSession = session;
     this.headerTitle = title;
     if (context !== undefined) this.headerContext = context;
-    this.renderHeader();
+    if (contextInfo !== undefined) this.headerContextInfo = contextInfo;
+    const coldModelResolved =
+      !prevModel && Boolean(model) && (!this.currentState || this.currentState.runs.length === 0);
+    if (coldModelResolved && this.lastPrintedSession === this.headerSession) {
+      this.appendHeaderCard(this.transcript);
+    } else {
+      this.renderHeader();
+    }
+    void refreshGitStatus(this.workspaceRoot);
     if (!this.busy) {
       this.statusContainer.clear();
-      this.renderIdleFooter();
+      this.addStatusBar(true);
+    } else {
+      this.addStatusBar(true);
     }
     this.tui.requestRender();
   }
@@ -436,15 +683,8 @@ export class TuiRenderShell {
    *  there. Split out of renderHeader() so a reconcile reset can re-emit the
    *  SAME bytes without touching the session-change gate. */
   private appendHeaderCard(into: OmaTranscriptContainer): void {
-    this.removeHeaderCard(into);
-    const banner = [
-      `${tuiTheme.accent}  ██████╗ ███╗   ███╗ █████╗ \u001b[0m`,
-      `${tuiTheme.accent} ██╔═══██╗████╗ ████║██╔══██╗\u001b[0m`,
-      `${tuiTheme.accent} ██║   ██║██╔████╔██║███████║\u001b[0m`,
-      `${tuiTheme.accent} ██║   ██║██║╚██╔╝██║██╔══██║\u001b[0m`,
-      `${tuiTheme.accent} ╚██████╔╝██║ ╚═╝ ██║██║  ██║\u001b[0m`,
-      `${tuiTheme.accent}  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝\u001b[0m`,
-    ];
+    const insertAt = this.removeHeaderCard(into);
+    const cols = Math.max(24, this.tui.terminal.columns);
     const infoLines: string[] = [];
     infoLines.push(`\u001b[1m  ${this.headerInfo}\u001b[0m`);
     const hTitle = cleanHeaderTitle(this.headerTitle);
@@ -464,15 +704,29 @@ export class TuiRenderShell {
     if (this.headerContext)
       infoLines.push(`${tuiTheme.dim}  context:\u001b[0m ${this.headerContext}`);
 
+    // Hide the 31-col ASCII banner on narrow (< 72 cols) terminals so the
+    // metadata lines remain fully readable without clipping.
     const combined: string[] = [];
-    const rows = Math.max(banner.length, infoLines.length);
-    for (let i = 0; i < rows; i++) {
-      const left = banner[i] ?? "";
-      const right = infoLines[i] ?? "";
-      combined.push(`${left}${left ? "   " : ""}${right}`);
+    if (cols >= 72) {
+      const banner = [
+        `${tuiTheme.accent}  ██████╗ ███╗   ███╗ █████╗ \u001b[0m`,
+        `${tuiTheme.accent} ██╔═══██╗████╗ ████║██╔══██╗\u001b[0m`,
+        `${tuiTheme.accent} ██║   ██║██╔████╔██║███████║\u001b[0m`,
+        `${tuiTheme.accent} ██║   ██║██║╚██╔╝██║██╔══██║\u001b[0m`,
+        `${tuiTheme.accent} ╚██████╔╝██║ ╚═╝ ██║██║  ██║\u001b[0m`,
+        `${tuiTheme.accent}  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝\u001b[0m`,
+      ];
+      const rows = Math.max(banner.length, infoLines.length);
+      for (let i = 0; i < rows; i++) {
+        const left = banner[i] ?? "";
+        const right = infoLines[i] ?? "";
+        combined.push(`${left}${left ? "   " : ""}${right}`);
+      }
+    } else {
+      combined.push(...infoLines);
     }
     const headerCard = new Card(
-      combined.map((line) => new Text(truncateToWidth(line, this.tui.terminal.columns - 2), 0, 0)),
+      combined.map((line) => new Text(truncateToWidth(line, cols - 2), 0, 0)),
       {
         paddingX: 0,
         paddingY: 0,
@@ -480,24 +734,27 @@ export class TuiRenderShell {
       },
     );
     const fresh: Component[] = [];
-    for (const line of headerCard.render(this.tui.terminal.columns)) {
-      const child = new Text(truncateToWidth(line, this.tui.terminal.columns), 0, 0);
-      into.addChild(child);
-      fresh.push(child);
+    for (const line of headerCard.render(cols)) {
+      fresh.push(new Text(truncateToWidth(line, cols), 0, 0));
+    }
+    if (insertAt !== -1 && insertAt <= into.children.length) {
+      into.children.splice(insertAt, 0, ...fresh);
+    } else {
+      for (const child of fresh) into.addChild(child);
     }
     this.headerChildren = fresh;
   }
 
-  /** Drop the previous card. A container wipe has already taken it, and the
-   *  index probe then just finds nothing. */
-  private removeHeaderCard(from: OmaTranscriptContainer): void {
+  /** Drop the previous card and return its former start index (-1 if absent). */
+  private removeHeaderCard(from: OmaTranscriptContainer): number {
     const children = this.headerChildren;
     this.headerChildren = [];
     const first = children[0];
-    if (!first) return;
+    if (!first) return -1;
     const start = from.children.indexOf(first);
-    if (start === -1) return;
-    for (let i = 0; i < children.length; i++) from.children.splice(start, 1);
+    if (start === -1) return -1;
+    from.children.splice(start, children.length);
+    return start;
   }
 
   currentActivitySummary(): string | undefined {
@@ -521,14 +778,8 @@ export class TuiRenderShell {
               : "";
           return summary.trim() ? `${name} · ${summary}` : name;
         }
-        // Streaming assistant/thinking text is NEVER mirrored into the loader:
-        // the transcript already renders it, and a content-identical loader
-        // line reads as a duplicated message (omp keeps its working loader
-        // static for the same reason).
       }
     }
-    // Fallback: a busy run with a tool item (even if the streaming flag is
-    // lost) should never read as a bare "working…".
     for (let r = this.currentState.runs.length - 1; r >= 0; r--) {
       const run = this.currentState.runs[r]!;
       for (let i = run.items.length - 1; i >= 0; i--) {
@@ -543,9 +794,6 @@ export class TuiRenderShell {
     if (!this.busy || !this.loader) return;
     const summary = this.currentActivitySummary();
     const seconds = this.busySeconds > 0 ? ` · ${this.busySeconds}s` : "";
-    // CC-style rotating gerunds while the model composes (no tool intent):
-    // the word advances every ~3 busy seconds, derived from busySeconds so
-    // no extra timer is needed.
     const label =
       summary ??
       `${
@@ -554,46 +802,88 @@ export class TuiRenderShell {
         ]
       }…`;
     const queued = this.queuedCount > 0 ? ` · ${this.queuedCount} queued — enter sends now` : "";
-    // Long-running tool: tell the user what is going on and where the
-    // interactive path lives — a command waiting on a password otherwise
-    // looks like a freeze (and the wrong answer is trying to type at it).
     const long =
       this.busySeconds >= 30 ? " · long-running — esc aborts; prompts need pty:true" : "";
     this.loader.setMessage(`${label}${seconds}${queued}${long} (esc to abort)`);
   }
 
-  addStatusBar(): void {
-    // Cached read + background refresh: never a sync spawn on the Enter path.
+  /** Responsive two-column status bar rendered directly at the live terminal
+   *  width so critical indicators (mode, model, ctx%) survive 60–80 cols. */
+  renderStatusBarLine(width: number): string {
     const git = gitStatusCached(this.workspaceRoot);
-    void refreshGitStatus(this.workspaceRoot);
-    const segs: Array<{
-      text: string;
-      chip?: boolean;
-      fg?: string;
-      bg?: string;
-    }> = [];
-    if (this.headerModel) {
-      segs.push({ text: this.headerModel, chip: true, bg: tuiTheme.bgPanel });
-    }
-    // The status line shares its row with model/git/job segments — give the
-    // path a tighter budget than the header's.
-    segs.push({ text: formatWorkspace(this.workspaceRoot, 32), fg: tuiTheme.info });
-    // M-bash/M-eval: surface running background jobs (bash bg_N / eval eval_N).
     const runningBg = defaultRegistry.countRunningJobs();
-    if (runningBg > 0) {
-      segs.push({ text: `⏵ ${runningBg} bg`, chip: true, bg: tuiTheme.bgChipOk });
-    }
+    const left: FlexStatusSegment[] = [];
+    const right: FlexStatusSegment[] = [];
+
     for (const kind of ["plan", "goal", "loop"] as const) {
       const text = this.driverStatus.get(kind);
-      if (text) segs.push({ text, chip: true, bg: tuiTheme.bgPanel });
+      if (text) {
+        const fg =
+          kind === "plan" ? tuiTheme.info : kind === "goal" ? tuiTheme.warning : tuiTheme.success;
+        left.push({ text, chip: true, bg: tuiTheme.bgOverlay, fg, priority: 1 });
+      }
     }
-    if (git) segs.push({ text: renderGitSegment(git) });
-    if (this.headerSession) segs.push({ text: this.headerSession.slice(0, 8), fg: tuiTheme.dim });
-    if (this.headerContext)
-      segs.push({ text: this.headerContext, fg: contextColor(this.headerContext) });
-    if (segs.length > 0) {
-      this.statusLineText = renderStatusBar(segs);
+    if (this.headerModel) {
+      left.push({
+        text: this.headerModel,
+        chip: true,
+        bg: tuiTheme.bgOverlay,
+        fg: tuiTheme.accent,
+        priority: 2,
+      });
     }
+    if (runningBg > 0) {
+      left.push({
+        text: `⏵ ${runningBg} bg`,
+        chip: true,
+        bg: tuiTheme.bgChipOk,
+        fg: tuiTheme.success,
+        priority: 3,
+      });
+    }
+    left.push({
+      text: formatWorkspace(this.workspaceRoot, width < 80 ? 18 : 28),
+      fg: tuiTheme.info,
+      priority: 5,
+    });
+    if (git) {
+      left.push({ text: renderGitSegment(git), priority: 6 });
+    }
+
+    if (this.headerContextInfo && this.headerContextInfo.limit > 0) {
+      right.push({ text: renderMeter(this.headerContextInfo.pct, 6), priority: 2 });
+      right.push({
+        text: `${formatTokens(this.headerContextInfo.estimatedTokens)}/${formatTokens(this.headerContextInfo.limit)}`,
+        fg: tuiTheme.dim,
+        priority: 4,
+      });
+    } else if (this.headerContext) {
+      right.push({
+        text: this.headerContext,
+        fg: contextColor(this.headerContext),
+        priority: 2,
+      });
+    }
+    if (this.headerSession) {
+      right.push({ text: this.headerSession.slice(0, 8), fg: tuiTheme.dim, priority: 7 });
+    }
+
+    return renderFlexStatusBar({ left, right, width });
+  }
+
+  addStatusBar(force = false): void {
+    const git = gitStatusCached(this.workspaceRoot);
+    const runningBg = defaultRegistry.countRunningJobs();
+    const drivers = [
+      this.driverStatus.get("plan") ?? "",
+      this.driverStatus.get("goal") ?? "",
+      this.driverStatus.get("loop") ?? "",
+    ].join("|");
+    const width = Math.max(40, this.tui.terminal.columns);
+    const key = `${width}|${this.headerModel}|${this.headerSession}|${this.headerContext}|${this.headerContextInfo?.pct ?? ""}|${git}|${runningBg}|${drivers}`;
+    if (!force && key === this.lastStatusKey) return;
+    this.lastStatusKey = key;
+    this.statusLineText = this.renderStatusBarLine(width);
   }
 
   /** Background job settlement (M-bash/M-eval): append a visible block
@@ -614,12 +904,6 @@ export class TuiRenderShell {
   }
 
   render(state: TuiViewState): void {
-    // Coalescing: the runtime emits one event per streamed delta and AWAITS
-    // the handler, so per-delta render cost sits directly on the model-stream
-    // critical path (an O(n) markdown re-render per delta turned a 0.6s
-    // stream into a 6-7s one — the "stall then dump" symptom). While a run
-    // is live, remember the latest state and do the expensive work at most
-    // once per interval; the scheduled fire renders the newest state.
     this.latestState = state;
     const now = Date.now();
     if (this.busy && now - this.lastRenderWorkAt < TuiRenderShell.RENDER_COALESCE_MS) {
@@ -668,20 +952,16 @@ export class TuiRenderShell {
     );
     this.lastLiveStartRow = result.liveStartRow;
     this.lastTotalRows = result.totalRows;
-    // First-open welcome tip: lives in the BODY (below the header card,
-    // with breathing room) instead of the header card — the header is
-    // otherwise flush against the composer on a fresh start.
     if (!this.welcomeTipShown && this.welcomeTip) {
       this.welcomeTipShown = true;
       this.transcript.addChild(new Spacer(1));
       this.transcript.addChild(new Text(`${tuiTheme.warning}  ${this.welcomeTip}\u001b[0m`, 0, 0));
       this.transcript.addChild(new Spacer(1));
     }
-    this.renderIdleFooter();
+    // Memoized: only rebuilds when inputs actually changed (zero git spawn /
+    // zero string churn on 50ms streaming chunks).
+    this.addStatusBar();
     this.tui.requestRender(result.didReset);
-    // Cooldown from COMPLETION: a single render can cost 100ms+ on a long
-    // markdown tail, so a window measured from the start would already be
-    // expired when the next delta arrives — no coalescing.
     this.lastRenderWorkAt = Date.now();
   }
 }

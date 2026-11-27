@@ -109,6 +109,18 @@ async function savedModelIsAvailable(
   }
 }
 
+/** Resolve the first available catalog model on cold boot so the header card
+ *  and status bar display the active model immediately before the first turn. */
+async function resolveDefaultModelId(modelRuntime: ModelRuntime): Promise<string | undefined> {
+  try {
+    const catalog = await modelRuntime.getCatalog();
+    const first = catalog.models.find((m) => m.available !== false) ?? catalog.models[0];
+    return first ? `${first.providerId}/${first.modelId}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The full interactive session loop, driver-agnostic. */
 export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<number> {
   // Kick the async git refresh immediately (fire-and-forget: boot stays
@@ -527,6 +539,18 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   io.setSlashCommands?.(slashCommands);
   registerIoHandlers(ctx);
 
+  // Resolve the catalog default model asynchronously after synchronous IO
+  // wiring (slash commands + key handlers) so cold boot shows the active model
+  // in both header card and status bar without delaying input readiness.
+  if (!modelId) {
+    void resolveDefaultModelId(opts.modelRuntime).then((resolved) => {
+      if (!modelId && resolved) {
+        modelId = resolved;
+        io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
+      }
+    });
+  }
+
   io.onLiveCommand?.((text) => {
     void runCommandText(text).then(() => io.render(state));
   });
@@ -704,17 +728,25 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
                 ) => io.runPtyConsole!(command, cwd, env, signal),
               }
             : {}),
-          // HITL: interactive approval overlay; absent picker or cancel = deny.
+          // HITL: docked approval panel; absent picker or cancel = deny (fail-closed).
           approvalHandler: async (req) => {
             writeAgentStatus(opts.workspaceRoot, "blocked", session.sessionId);
             try {
               const verdict = await io.confirmApproval?.({
                 toolName: req.toolName,
+                allowAlways: true,
+                ...(req.callId ? { callId: req.callId } : {}),
+                ...(req.input !== undefined ? { input: req.input } : {}),
+                ...(req.source ? { source: req.source } : {}),
+                ...(req.sandboxed !== undefined ? { sandboxed: req.sandboxed } : {}),
                 ...(req.reason ? { reason: req.reason } : {}),
               });
-              return verdict === "allow"
-                ? { decision: "allow" }
-                : { decision: "deny", reason: "user denied" };
+              if (verdict === "allow") return { decision: "allow" };
+              if (verdict === "allow_always") return { decision: "allow_always" };
+              if (verdict === "deny_always") {
+                return { decision: "deny_always", reason: "user denied always" };
+              }
+              return { decision: "deny", reason: "user denied" };
             } finally {
               writeAgentStatus(opts.workspaceRoot, "working", session.sessionId);
             }
@@ -898,20 +930,27 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     // AutoLearn-style indicator: the run's background memory-learn pass
     // shows on the transcript without blocking the editor (the promise
-    // resolves even after close()).
+    // resolves even after close()). When nothing new is learned, clear the
+    // transient indicator silently instead of leaving noise in the transcript.
     const learning = runtime.memoryLearning();
     if (learning) {
       pushStatus("memory: learning…");
       io.render(state);
       void learning.then((res) => {
-        pushStatus(
-          res.freshFacts > 0
-            ? `memory: learned ${res.freshFacts} fact${res.freshFacts === 1 ? "" : "s"}`
-            : res.ran
-              ? "memory: nothing new to learn"
-              : "memory: skipped",
-          "memory: ",
-        );
+        if (res.freshFacts > 0) {
+          pushStatus(
+            `memory: learned ${res.freshFacts} fact${res.freshFacts === 1 ? "" : "s"}`,
+            "memory: ",
+          );
+        } else {
+          for (let i = state.runs.length - 1; i >= 0; i--) {
+            const first = state.runs[i]!.items[0];
+            if (first?.kind === "status" && first.text.startsWith("memory: ")) {
+              state.runs.splice(i, 1);
+              break;
+            }
+          }
+        }
         io.render(state);
       });
     }
@@ -934,14 +973,29 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         usage && usage.limit > 0
           ? Math.min(100, Math.round((usage.estimatedTokens / usage.limit) * 100))
           : 0;
-      const context = [ctx, ...(usageParts.length > 0 ? [usageParts.join(" ")] : [])]
+      const usageSummary = usageParts.join(" ");
+      const context = [
+        ctx,
+        ...(usage && usage.limit > 0 ? [`${pct}%`] : []),
+        ...(usageSummary ? [usageSummary] : []),
+      ]
         .filter(Boolean)
         .join(" · ");
       io.setHeader?.({
         model: modelId,
         sessionId: session.sessionId,
         title: sessionTitle,
-        context: pct > 0 ? `${context} · ${pct}%` : context,
+        context,
+        ...(usage && usage.limit > 0
+          ? {
+              contextInfo: {
+                estimatedTokens: usage.estimatedTokens,
+                limit: usage.limit,
+                pct,
+                ...(usageSummary ? { usageSummary } : {}),
+              },
+            }
+          : {}),
       });
     }
     await runtime.close().catch(() => {});

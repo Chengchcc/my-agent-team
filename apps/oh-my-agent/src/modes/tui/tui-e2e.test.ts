@@ -165,7 +165,7 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
     }
   }, 30_000);
 
-  test("double /exit interrupts a live Run instead of waiting it out", async () => {
+  test("single /exit interrupts a live Run instead of waiting it out", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-e2e-exitint-"));
     const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-exitint-sess-"));
     process.env.OMA_SESSION_DIR = sessDir;
@@ -185,7 +185,6 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       await typeAndSubmit(vt, "run the long thing");
       await waitForText(vt, "bash", 5_000);
 
-      await typeAndSubmit(vt, "/exit");
       await typeAndSubmit(vt, "/exit");
 
       // Bounded exit: far below the 25s sleep. Genuine wait against real
@@ -494,7 +493,7 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       await typeAndSubmit(vt, "/resume");
       await vt.waitForRender();
       const overlay = screen(vt);
-      expect(overlay).toContain("resume session");
+      expect(overlay).toContain("Resume Session");
       // The time column carries the full stamp AND the relative age: the old
       // 6..8 column clamp truncated it to "09-20" and showed neither, which
       // made the newest-first order unreadable.
@@ -867,9 +866,9 @@ describe("loader content policy (omp parity)", () => {
       expect(panel).toContain("the first");
       expect(panel).toContain("Enter select");
       expect(panel).toContain("Esc cancel");
-      // DOCKED: it replaces the editor (its status bar is gone) and its closing
-      // border is the bottom row of the viewport.
-      expect(panel).not.toContain("fake/echo");
+      // DOCKED: it replaces the editor (its composer & hint bar are gone) and
+      // its closing border is the bottom row of the viewport.
+      expect(panel).not.toContain("Ctrl+P model");
       const lastContent = vt
         .getViewport()
         .filter((line) => line.trim() !== "")
@@ -1177,11 +1176,11 @@ describe("loader content policy (omp parity)", () => {
 
       await typeAndSubmit(vt, "ask me");
       await waitForText(vt, "Pick one", 5_000);
-      expect(screen(vt)).not.toContain("fake/echo");
+      expect(screen(vt)).not.toContain("Ctrl+P model");
       vt.sendInput("\x03"); // ctrl+c aborts the run
       await vt.waitForRender();
       // The editor is back: the panel did not survive the run it belonged to.
-      await waitForText(vt, "fake/echo", 5_000);
+      await waitForText(vt, "Ctrl+P model", 5_000);
       expect(screen(vt)).not.toContain("Esc cancel");
 
       await quitTui(vt);

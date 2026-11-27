@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "./session-file.js";
 
@@ -37,7 +37,24 @@ export function appendInputHistory(existing: readonly string[], prompt: string):
   return next.length > CAP ? next.slice(0, CAP) : next;
 }
 
-export function saveInputHistory(entries: readonly string[]): void {
-  mkdirSync(agentDir(), { recursive: true });
-  writeFileSync(historyPath(), JSON.stringify(entries), "utf8");
+/** Best-effort atomic save: a read-only $HOME (CI, container, sandbox) must
+ *  never crash the interactive TUI on the first Enter press. Returns true when
+ *  persisted, false when degraded to in-memory history. */
+export function saveInputHistory(entries: readonly string[]): boolean {
+  const dir = agentDir();
+  const target = historyPath();
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(tmp, JSON.stringify(entries), "utf8");
+    renameSync(tmp, target);
+    return true;
+  } catch {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // ignore cleanup failure on read-only fs
+    }
+    return false;
+  }
 }

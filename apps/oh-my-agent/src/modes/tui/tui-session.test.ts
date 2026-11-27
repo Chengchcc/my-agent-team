@@ -683,12 +683,13 @@ describe("tui session (headless, fake provider)", () => {
     }
   }, 20_000);
 
-  test("/exit requires a second confirmation", async () => {
+  test("/exit quits immediately on first invocation", async () => {
     const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-exit-"));
     process.env.OMA_SESSION_DIR = sessionDir;
     try {
-      // First /exit only arms the confirm; the session keeps running.
-      const io = scriptedIo(["/exit", "/session", "/exit", "/exit"]);
+      // Single /exit quits cleanly without a second prompt; /session after it
+      // must never run.
+      const io = scriptedIo(["/exit", "/session"]);
       const code = await runTuiSession(
         { modelRuntime: testModelRuntime(), workspaceRoot: sessionDir },
         io,
@@ -698,9 +699,7 @@ describe("tui session (headless, fake provider)", () => {
         .at(-1)!
         .runs.flatMap((r) => r.items.filter((i) => i.kind === "status"))
         .map((i) => i.text);
-      expect(statuses.some((t) => t.includes("type /exit again to quit"))).toBe(true);
-      // /session still worked after the first /exit -> not exited yet.
-      expect(statuses.some((t) => t.includes("session:"))).toBe(true);
+      expect(statuses.some((t) => t.includes("session:"))).toBe(false);
     } finally {
       delete process.env.OMA_SESSION_DIR;
       rmSync(sessionDir, { recursive: true, force: true });
