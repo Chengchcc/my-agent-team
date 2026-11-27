@@ -5,6 +5,7 @@ description: >
   conversation using remind_me, reminder_list, and reminder_cancel. Use when the
   user asks to be reminded later, wants a periodic check-in or maintenance loop,
   or wants to view or stop scheduled reminders.
+roles: front
 user_invocable: true
 ---
 

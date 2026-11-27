@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { directoryFingerprint } from "@chengchenccc/source-fetch";
+import { builtinRolePath, materializeBuiltinRoleViews, SKILL_ROLES } from "./builtin-roles.js";
 import { BUILTIN_PACK_ID } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
 
@@ -70,6 +71,7 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
     copyDir(builtinSkillsDir, staging);
     rmSync(builtinTarget, { recursive: true, force: true });
     renameSync(staging, builtinTarget);
+    materializeBuiltinRoleViews(builtinTarget, dataDir);
     return true;
   };
 
@@ -98,6 +100,13 @@ export async function seedSkillPacks(deps: SeedSkillPacksDeps): Promise<void> {
           });
         }
       }
+    } else if (
+      existsSync(builtinTarget) &&
+      SKILL_ROLES.some((role) => !existsSync(builtinRolePath(dataDir, role)))
+    ) {
+      // Upgrading an existing installation that already has `builtin/` but no
+      // role-filtered views yet.
+      materializeBuiltinRoleViews(builtinTarget, dataDir);
     }
     // A `ready` row with no ref still cannot be validated; backfill it once the
     // files are there.

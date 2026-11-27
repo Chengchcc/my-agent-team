@@ -78,18 +78,20 @@ Resource editors (Members, Projects, Workflows) embed a live PA side-panel next 
 
 **Propose ≠ Save**: agents never silently overwrite live team config, project bindings, or workflow DAGs. Every mutation returns a field-by-field **Proposal Card** (`Adopt to form` → review → explicit `Save`).
 
-| Slash Skill | Product MCP Tools | What you can do in chat |
-|---|---|---|
-| `/member_manage` | `team_list`, `agent_read`, `agent_write`, `agent_create` | Inspect the team roster and propose adding or updating a member's harness, model, role, or write-path policy. |
-| `/project_manage` | `project_list`, `project_detail`, `project_propose`, `project_attach`, `project_push` | Register/edit Git projects, bind repos to workers (with human approval), and deliver `agent/<runId>` branches. |
-| `/workflow_design` | `workflow_read`, `workflow_write` | Generate and schema-validate `*.workflow.json` DAGs (`parseWorkflow`), surfaced in the editor as an unsaved proposal. |
-| `/requirement_memory` | `requirement_track`, `requirement_query` | Create, update, and recall durable **Requirements** (goals, constraints, acceptance criteria) across conversations. |
-| `/wiki_manage` | `wiki_query`, `wiki_read`, `wiki_create`, `wiki_patch`, `wiki_lint`, `wiki_source_add` | Search, ingest source citations, safely CAS-patch pages, and run health checks across the shared Git Wiki. |
-| `/reminder_manage` | `remind_me`, `reminder_list`, `reminder_cancel` | Schedule, inspect, or cancel one-shot and recurring UTC cron reminders in the current conversation. |
-| `/agent_doctor` | Workspace memory + conversation ledger inspection | Have one agent diagnose another teammate's context drift against canonical ledger facts and propose targeted fixes without mutating its memory. |
-| `/agent_fanout` | `task` (batch fan-out up to 64 items / 8 concurrent), `workflow_run` | Run parallel subagent audits, migrations, multi-source research, and fix-until-pass orchestration scripts inside a sandboxed VM. |
+| Slash Skill | Role | Product MCP Tools | What you can do in chat |
+|---|---|---|---|
+| `/member_manage` | PA | `team_list`, `agent_read`, `agent_write`, `agent_create` | Inspect the team roster and propose adding or updating a member's harness, model, role, or write-path policy. |
+| `/project_manage` | PA | `project_list`, `project_detail`, `project_propose`, `project_attach` | Register/edit Git projects and bind repos to workers (with human approval). |
+| `/requirement_memory` | PA | `requirement_track`, `requirement_query` | Create, update, and recall durable **Requirements** (goals, constraints, acceptance criteria) across conversations. |
+| `/team_dispatch` | PA | `dispatch`, `steer_worker`, `cancel_worker`, `answer_worker_request`, `ask_question`, `todo_write`, `artifact_*`, `history_*` | Decompose multi-step plans, dispatch or steer/cancel live workers, answer worker blockers with evidence, and inspect artifacts. |
+| `/wiki_manage` | PA | `wiki_query`, `wiki_read`, `wiki_create`, `wiki_patch`, `wiki_lint`, `wiki_source_add` | Search, ingest source citations, safely CAS-patch pages, and run health checks across the shared Git Wiki. |
+| `/reminder_manage` | PA | `remind_me`, `reminder_list`, `reminder_cancel` | Schedule, inspect, or cancel one-shot and recurring UTC cron reminders in the current conversation. |
+| `/workflow_design` | PA & Worker | `workflow_read`, `workflow_write` | Generate and schema-validate `*.workflow.json` DAGs (`parseWorkflow`), surfaced in the editor as an unsaved proposal. |
+| `/worker_delivery` | Worker | `report`, `handback`, `project_push`, `artifact_upload`, `todo_write` | Report progress/blockers with verification status, hand back out-of-scope tasks, and deliver `agent/<runId>` branches + typed artifacts. |
+| `/agent_doctor` | Worker | Workspace memory + conversation ledger inspection | Diagnose another teammate's context drift against canonical ledger facts and propose targeted fixes without mutating its memory. |
+| `/agent_fanout` | Worker | `task` (batch fan-out up to 64 items / 8 concurrent), `workflow_run` | Run parallel subagent audits, migrations, multi-source research, and fix-until-pass orchestration scripts inside a sandboxed VM. |
 
-> Skills load progressively in two stages (lightweight index in prompt → full `SKILL.md` via `skill_load` on demand, with `${SKILL_DIR}` path resolution), and you can mount external MCP servers or install custom skill packs from Git/ZIP per agent.
+> Builtin skills are **role-scoped** (`roles: front` vs `roles: worker` in `SKILL.md` frontmatter) so the PA only sees control-plane skills it can actually execute while workers see execution and delivery skills across all four harnesses (`oma`, Claude Code, `pi`, `omp`). Skills load progressively in two stages (`skill_load` + `${SKILL_DIR}`), and you can mount external MCP servers or install custom skill packs from Git/ZIP per agent.
 
 ## ✨ Why CrewDesk
 

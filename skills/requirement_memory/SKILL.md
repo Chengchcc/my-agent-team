@@ -5,6 +5,7 @@ description: >
   following and recall instead of re-asking. Use before dispatching multi-turn
   work, when resuming in a new conversation, or when you notice the same goal
   being restated.
+roles: front
 user_invocable: true
 ---
 

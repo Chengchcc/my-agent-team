@@ -220,6 +220,15 @@ test("fresh boot: default agent carries a real model + the onCreate chain ran", 
   // workflow-editor chat and the workflow_design skill.
   const workspace = `${dir}/agents/default`;
   expect(existsSync(`${workspace}/.oma/skills`)).toBe(true);
+  // Role-scoped builtin skills: PA (`default`) gets the front view while
+  // workers (`coder`) get the worker view — across all harnesses via symlink.
+  const { readlinkSync } = await import("node:fs");
+  expect(readlinkSync(`${workspace}/.oma/skills/builtin`)).toBe(
+    `${dir}/skill-packs/.builtin-by-role/front`,
+  );
+  expect(readlinkSync(`${dir}/agents/coder/.oma/skills/builtin`)).toBe(
+    `${dir}/skill-packs/.builtin-by-role/worker`,
+  );
   const mcp = JSON.parse(readFileSync(`${workspace}/.mcp.json`, "utf8")) as {
     mcpServers: Record<string, unknown>;
   };

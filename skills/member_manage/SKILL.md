@@ -5,6 +5,7 @@ description: >
   agent-config tools. Use when someone asks who is on the team, which member
   fits a job, to add a member, or to change a member's model, role, projects or
   allowed paths.
+roles: front
 user_invocable: true
 ---
 

@@ -184,9 +184,11 @@ import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/inde
 import { settingsRoutes } from "../features/settings/index.js";
 import type { SkillPackRow } from "../features/skill-pack/index.js";
 import {
+  BUILTIN_PACK_ID,
   checkUpstream,
   createSkillPackService as createSkillPackServiceFn,
   installPath,
+  resolveBuiltinSkillsDirForRole,
   runInstall,
   runSync,
   seedSkillPacks,
@@ -553,13 +555,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const systemPrompt = buildAgentSystemPrompt(identity.soul, identity.user, {
         role: agentRow?.config.role ?? null,
       });
+      const agentRole = agentRow?.config.role === "worker" ? "worker" : "front";
+      const builtinRoleDir = resolveBuiltinSkillsDirForRole(
+        config.dataDir,
+        config.builtinSkillsDir,
+        agentRole,
+      );
       const packs = await skillPackPort.listForAgent(agentId);
       const packRoots = packs
         .filter((p) => p.status === "ready")
-        .map((p) => installPath(config.dataDir, p.id));
-      // The builtin skills (capability docs: workflow authoring, loop
-      // workflow) are ALWAYS available - assigned packs add on top.
-      const skillRoots = [config.builtinSkillsDir, ...packRoots];
+        .map((p) =>
+          p.id === BUILTIN_PACK_ID ? builtinRoleDir : installPath(config.dataDir, p.id),
+        );
+      // Role-scoped builtin skills are ALWAYS available - assigned packs add on top.
+      const skillRoots = [builtinRoleDir, ...packRoots.filter((r) => r !== builtinRoleDir)];
       // ADR 0063 D2: what the LAST turn started and never finished. Derived
       // from telemetry (a started row with no end), never replayed - the
       // model decides whether re-running is safe.
@@ -2828,6 +2837,12 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         }
       }
       const packs = await skillPackPort.listForAgent(agentId);
+      const agentRole = agent.config.role === "worker" ? "worker" : "front";
+      const builtinRoleDir = resolveBuiltinSkillsDirForRole(
+        config.dataDir,
+        config.builtinSkillsDir,
+        agentRole,
+      );
       // ADR 0077: an agent no longer owns project checkouts. The checkout is
       // the requirement's (`<dataDir>/workspaces/<requirementId>/<projectId>`),
       // created when a dispatch needs it; `projects` on the agent stays what it
@@ -2839,7 +2854,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         kind: agent.config.runtime_config.harness,
         skillPacks: packs
           .filter((p) => p.status === "ready")
-          .map((p) => ({ id: p.id, source: installPath(config.dataDir, p.id) })),
+          .map((p) => ({
+            id: p.id,
+            source: p.id === BUILTIN_PACK_ID ? builtinRoleDir : installPath(config.dataDir, p.id),
+          })),
         mcpServers: await bridgeMcpServers(agentId),
         productTools: productToolsManifest(),
       });

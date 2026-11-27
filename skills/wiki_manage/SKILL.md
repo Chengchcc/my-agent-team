@@ -5,6 +5,7 @@ description: >
   product tools. Use when looking up settled knowledge, capturing durable
   decisions/lessons/concepts from a conversation or provided text, updating an
   existing wiki page safely with CAS revisions, or running wiki health checks.
+roles: front
 user_invocable: true
 ---
 

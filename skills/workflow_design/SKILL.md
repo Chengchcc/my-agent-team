@@ -5,6 +5,7 @@ description: >
   (start/end/agent/script/human), JSONLogic edge conditions, meta, and
   input/output schemas. Not for oma subagent fan-out orchestration (see
   agent_fanout).
+roles: [front, worker]
 user_invocable: true
 ---
 

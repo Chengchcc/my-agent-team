@@ -4,6 +4,7 @@ description: >
   Read, create-toward, bind and hand back projects through the product tools.
   Use when someone asks what a project holds, to give a member access to a
   repo, to start a project the team does not have yet, or to deliver a branch.
+roles: front
 user_invocable: true
 ---
 

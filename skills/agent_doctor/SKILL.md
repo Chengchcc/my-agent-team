@@ -6,6 +6,7 @@ description: >
   context has drifted into, and propose concrete corrections. Use when
   a teammate agent repeats the same mistake, answers from stale
   assumptions, or needs a reset recommendation.
+roles: worker
 user_invocable: true
 ---
 

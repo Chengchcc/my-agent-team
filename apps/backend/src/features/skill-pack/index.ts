@@ -1,5 +1,14 @@
 export { sqliteSkillPackAdapter } from "./adapter-sqlite.js";
 export {
+  builtinRolePath,
+  materializeBuiltinRoleViews,
+  parseSkillRoles,
+  resolveBuiltinSkillsDirForRole,
+  SKILL_ROLES,
+  type SkillRole,
+  skillAppliesToRole,
+} from "./builtin-roles.js";
+export {
   type AgentSkillPackRow,
   applyInstallTransition,
   BUILTIN_PACK_ID,

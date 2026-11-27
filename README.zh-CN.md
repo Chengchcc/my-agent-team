@@ -78,18 +78,20 @@ flowchart LR
 
 **提议 ≠ 保存**：Agent 永远不会偷偷覆盖你的团队配置、项目绑定或工作流定义。所有修改都会渲染为逐字段对比的 **Proposal 卡片**（点击「填入表单」→ 人工审阅 → 显式「保存」才落盘）。
 
-| 斜杠技能 | 背后调用的 Product MCP 工具 | 在会话里能直接做什么 |
-|---|---|---|
-| `/member_manage` | `team_list`、`agent_read`、`agent_write`、`agent_create` | 查看团队花名册与能力，提议新增成员或修改某个成员的引擎、模型、角色与路径权限。 |
-| `/project_manage` | `project_list`、`project_detail`、`project_propose`、`project_attach`、`project_push` | 注册或修改 Git 项目、经人工批准给 Worker 绑定仓库，并把开发分支安全推回 `agent/<runId>`。 |
-| `/workflow_design` | `workflow_read`、`workflow_write` | 生成并经 `parseWorkflow` 强校验 `*.workflow.json` 节点图，以未保存提案形式直接送进可视化编辑器。 |
-| `/requirement_memory` | `requirement_track`、`requirement_query` | 跨会话持续记录、更新与召回**事项（Requirement）**的目标、约束与验收标准。 |
-| `/wiki_manage` | `wiki_query`、`wiki_read`、`wiki_create`、`wiki_patch`、`wiki_lint`、`wiki_source_add` | 检索、按来源引用沉淀、带 CAS 版本号安全更新并巡检共享 Git Wiki。 |
-| `/reminder_manage` | `remind_me`、`reminder_list`、`reminder_cancel` | 在当前会话中创建、查看或取消一次性提醒与 UTC cron 周期巡检。 |
-| `/agent_doctor` | 工作区记忆 + 对话账本对照检查 | 让一个 Agent 给“跑偏/失忆”的队友做体检，对比账本事实指出记忆漂移并提出具体修复建议（不擅自篡改对方记忆）。 |
-| `/agent_fanout` | `task`（单批最多 64 项 / 8 并发）、`workflow_run` | 发起大规模子 Agent 并行扇出（批量审计、迁移、多源调研）或在沙箱 VM 中跑修到通过的编排脚本。 |
+| 斜杠技能 | 适用角色 | 背后调用的 Product MCP 工具 | 在会话里能直接做什么 |
+|---|---|---|---|
+| `/member_manage` | PA | `team_list`、`agent_read`、`agent_write`、`agent_create` | 查看团队花名册与能力，提议新增成员或修改某个成员的引擎、模型、角色与路径权限。 |
+| `/project_manage` | PA | `project_list`、`project_detail`、`project_propose`、`project_attach` | 注册或修改 Git 项目，经人工批准给 Worker 绑定或解绑代码仓库。 |
+| `/requirement_memory` | PA | `requirement_track`、`requirement_query` | 跨会话持续记录、更新与召回**事项（Requirement）**的目标、约束与验收标准。 |
+| `/team_dispatch` | PA | `dispatch`、`steer_worker`、`cancel_worker`、`answer_worker_request`、`ask_question`、`todo_write`、`artifact_*`、`history_*` | 拆解多步计划、派发与中途纠偏/中止运行中的 Worker、凭证据回答 Worker 阻塞问题并查看产物。 |
+| `/wiki_manage` | PA | `wiki_query`、`wiki_read`、`wiki_create`、`wiki_patch`、`wiki_lint`、`wiki_source_add` | 检索、按来源引用沉淀、带 CAS 版本号安全更新并巡检共享 Git Wiki。 |
+| `/reminder_manage` | PA | `remind_me`、`reminder_list`、`reminder_cancel` | 在当前会话中创建、查看或取消一次性提醒与 UTC cron 周期巡检。 |
+| `/workflow_design` | PA & Worker | `workflow_read`、`workflow_write` | 生成并经 `parseWorkflow` 强校验 `*.workflow.json` 节点图，以未保存提案形式直接送进可视化编辑器。 |
+| `/worker_delivery` | Worker | `report`、`handback`、`project_push`、`artifact_upload`、`todo_write` | 按四态核验标准汇报进展/阻塞、退回越界任务、安全推回 `agent/<runId>` 分支与交付产物。 |
+| `/agent_doctor` | Worker | 工作区记忆 + 对话账本对照检查 | 给“跑偏/失忆”的队友做体检，对比账本事实指出记忆漂移并提出具体修复建议（不擅自篡改对方记忆）。 |
+| `/agent_fanout` | Worker | `task`（单批最多 64 项 / 8 并发）、`workflow_run` | 发起大规模子 Agent 并行扇出（批量审计、迁移、多源调研）或在沙箱 VM 中跑修到通过的编排脚本。 |
 
-> 内置技能采用两段式渐进加载（提示词只带轻量索引，按需调用 `skill_load` 加载正文并解析 `${SKILL_DIR}`），同时支持按 Agent 挂载外部 MCP Server 与 Git/ZIP 自定义技能包。
+> 内置技能按角色自动分流（`SKILL.md` frontmatter 声明 `roles: front | worker`）：PA 只加载自己有权执行的控制面技能，Worker 只加载执行与交付技能，且在 `oma`、Claude Code、`pi`、`omp` 四个引擎上一致生效。技能采用两段式渐进加载（`skill_load` + `${SKILL_DIR}`），同时支持按 Agent 挂载外部 MCP Server 与 Git/ZIP 自定义技能包。
 
 ## ✨ 核心能力
 
