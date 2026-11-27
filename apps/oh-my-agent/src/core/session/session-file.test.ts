@@ -343,6 +343,26 @@ describe("listSessions order (resume picker)", () => {
       );
     }
     expect(listSessions().map((s) => s.id)).toEqual(["new", "mid", "old"]);
+    // listAllSessions must also sort newest-first when OMA_SESSION_DIR is set.
+    expect(listAllSessions().map((s) => s.id)).toEqual(["new", "mid", "old"]);
+  });
+
+  test("listSessions(workspaceRoot) excludes sessions from other workspaces", () => {
+    const now = Date.now();
+    const myWs = "/tmp/ws-current";
+    const otherWs = "/tmp/ws-foreign";
+    appendSessionMessages("local-new", myWs, [{ role: "user", text: "mine newest" }], dir);
+    appendSessionMessages("foreign-1", otherWs, [{ role: "user", text: "from elsewhere" }], dir);
+    appendSessionMessages("local-old", `${myWs}/`, [{ role: "user", text: "mine older" }], dir);
+    utimesSync(join(dir, "local-old.jsonl"), new Date(now - 60_000), new Date(now - 60_000));
+    utimesSync(join(dir, "foreign-1.jsonl"), new Date(now - 30_000), new Date(now - 30_000));
+    utimesSync(join(dir, "local-new.jsonl"), new Date(now - 1_000), new Date(now - 1_000));
+
+    const scoped = listSessions(myWs);
+    expect(scoped.map((s) => s.id)).toEqual(["local-new", "local-old"]);
+    expect(scoped.every((s) => s.dir === dir)).toBe(true);
+    // listAllSessions still returns all workspaces, newest-first.
+    expect(listAllSessions().map((s) => s.id)).toEqual(["local-new", "foreign-1", "local-old"]);
   });
 });
 

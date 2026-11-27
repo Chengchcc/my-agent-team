@@ -44,6 +44,7 @@ import {
   loadSessionGoalState,
   loadSessionPlanState,
   readSessionTitle,
+  sessionDirFor,
 } from "../../core/session/session-file.js";
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
 import { loadProjectSettings } from "../../core/settings/project-settings.js";
@@ -117,7 +118,8 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   // ever blocks the Enter path). The cold-boot header card may miss the
   // git line; the status bar shows it as soon as the cache lands.
   void refreshGitStatus(opts.workspaceRoot);
-  let session = resolveSession(opts.sessionId);
+  const workspaceSessionDir = process.env.OMA_SESSION_DIR ?? sessionDirFor(opts.workspaceRoot);
+  let session = resolveSession(opts.sessionId, workspaceSessionDir);
   const state = initialViewState();
   hydrateTranscript(state, session.messages);
   // Live-chrome seed: todo is SESSION-scoped (.oma/todo/<id>.json);
@@ -131,7 +133,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     modelId = saved && (await savedModelIsAvailable(opts.modelRuntime, saved)) ? saved : undefined;
   }
   let liveRuntime: OmaRuntime | null = null;
-  let sessionTitle: string | undefined;
+  let sessionTitle: string | undefined = readSessionTitle(session.sessionId, session.dir);
   let quitting = false;
   let exitArmed = false;
   /** Estimated context tokens after the last run: drives the picker's
@@ -639,7 +641,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     pushStatus,
     listModels: () => listModels(ctx),
     listModelRows: () => listModelRows(ctx),
-    listSessions,
+    listSessions: () => listSessions(opts.workspaceRoot),
     pickModelInteractive: () => pickModelInteractive(ctx),
     forkTreeInteractive: () => forkTreeInteractive(ctx),
   };

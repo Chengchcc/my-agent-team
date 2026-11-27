@@ -4,11 +4,12 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   agentDir,
   assertSafeSessionId,
@@ -133,7 +134,28 @@ export interface SessionSummary {
   readonly summary?: string;
   readonly preview: string;
   readonly workspace?: string;
+  /** Exact directory containing `<id>.jsonl` (used by resume/delete so
+   *  OMA_SESSION_DIR, symlinks, and path-slug collisions always target the
+   *  real file on disk). */
+  readonly dir?: string;
   readonly forkOf?: string;
+}
+
+function canonicalWorkspacePath(path: string): string {
+  const resolved = resolve(path);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+export function sameWorkspacePath(a: string, b: string): boolean {
+  return canonicalWorkspacePath(a) === canonicalWorkspacePath(b);
+}
+
+function compareSessionsNewestFirst(a: SessionSummary, b: SessionSummary): number {
+  return b.modifiedAt - a.modifiedAt || b.id.localeCompare(a.id);
 }
 
 interface SessionFileEvent {
@@ -201,8 +223,9 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
       title?: string;
       summary?: string;
       workspace?: string;
+      dir: string;
       forkOf?: string;
-    } = { id, modifiedAt: mtimeMs, preview };
+    } = { id, modifiedAt: mtimeMs, preview, dir };
     if (title !== undefined) summary.title = title;
     if (summaryText !== undefined) summary.summary = summaryText;
     if (workspace !== undefined) summary.workspace = workspace;
@@ -213,14 +236,31 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
   return summaries;
 }
 
-/** Session files of the current workspace, newest first. */
-export function listSessions(): SessionSummary[] {
-  return scanSessionDir(sessionDir()).sort((a, b) => b.modifiedAt - a.modifiedAt);
+/** Session files of the current workspace, newest first.
+ *  When `workspaceRoot` is passed, scans its session dir (or `OMA_SESSION_DIR`)
+ *  and excludes sessions whose recorded header `cwd` belongs to a different
+ *  workspace (guards against shared `OMA_SESSION_DIR` and `sessionDirFor`
+ *  slug collisions like `/a/b-c` vs `/a/b/c`). */
+export function listSessions(workspaceRoot?: string): SessionSummary[] {
+  const targetDir =
+    workspaceRoot !== undefined
+      ? (process.env.OMA_SESSION_DIR ?? sessionDirFor(workspaceRoot))
+      : sessionDir();
+  const scanned = scanSessionDir(targetDir);
+  const filtered =
+    workspaceRoot !== undefined
+      ? scanned.filter(
+          (s) => s.workspace === undefined || sameWorkspacePath(s.workspace, workspaceRoot),
+        )
+      : scanned;
+  return filtered.sort(compareSessionsNewestFirst);
 }
 
 /** Session files across every workspace, newest first. */
 export function listAllSessions(): SessionSummary[] {
-  if (process.env.OMA_SESSION_DIR) return scanSessionDir(process.env.OMA_SESSION_DIR);
+  if (process.env.OMA_SESSION_DIR) {
+    return scanSessionDir(process.env.OMA_SESSION_DIR).sort(compareSessionsNewestFirst);
+  }
   const root = sessionsRoot();
   if (!existsSync(root)) return [];
   const summaries: SessionSummary[] = [];
@@ -228,7 +268,7 @@ export function listAllSessions(): SessionSummary[] {
     if (!entry.startsWith("--")) continue;
     summaries.push(...scanSessionDir(join(root, entry)));
   }
-  return summaries.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  return summaries.sort(compareSessionsNewestFirst);
 }
 
 /** The session's current display title (last `title` event), if any. */

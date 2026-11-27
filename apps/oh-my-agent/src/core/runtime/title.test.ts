@@ -38,6 +38,21 @@ describe("title", () => {
     expect(normalizeGeneratedTitle("<title>Fix login</title>")).toBe("Fix login");
     expect(normalizeGeneratedTitle('"Fix login"')).toBe("Fix login");
     expect(normalizeGeneratedTitle("「登录修复」")).toBe("登录修复");
+    expect(normalizeGeneratedTitle("**修复登录按钮**")).toBe("修复登录按钮");
+    expect(normalizeGeneratedTitle("`Fix login`")).toBe("Fix login");
+    expect(normalizeGeneratedTitle("# Fix login")).toBe("Fix login");
+  });
+
+  test("buildTitleContext keeps user prompt across many empty tool-calling assistant turns and caps huge text", () => {
+    const msgs = [
+      { role: "user" as const, text: "帮我审计 apps/web 的测试覆盖率" },
+      ...Array.from({ length: 15 }, () => ({ role: "assistant" as const, text: "" })),
+      { role: "assistant" as const, text: `审计结论：${"很长的报告内容".repeat(2000)}` },
+    ];
+    const ctx = buildTitleContext(msgs);
+    expect(ctx).toContain("帮我审计 apps/web 的测试覆盖率");
+    expect(ctx).toContain("审计结论：");
+    expect(ctx.length).toBeLessThanOrEqual(2_500);
   });
 
   test("normalizeGeneratedTitle reads the tag out of a combined title+summary reply", () => {

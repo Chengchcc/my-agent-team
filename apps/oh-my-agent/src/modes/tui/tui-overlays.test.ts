@@ -64,4 +64,14 @@ describe("deletePickedSession", () => {
     expect(existsSync(path)).toBe(true);
     expect(sessionDir()).toBe(dir);
   });
+
+  test("prefers row.dir over sessionDirFor(row.workspace) when OMA_SESSION_DIR is active", () => {
+    const path = seed("shared-dir-row", dir);
+    const outcome = deletePickedSession(
+      [{ id: "shared-dir-row", workspace: "/tmp/nonexistent-workspace-path", dir }],
+      "shared-dir-row",
+    );
+    expect(outcome.deleted).toBe(true);
+    expect(existsSync(path)).toBe(false);
+  });
 });

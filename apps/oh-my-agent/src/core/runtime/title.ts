@@ -57,7 +57,8 @@ Answer with only these two tags, nothing before or after:
 If there is no concrete task (greeting, small talk, acknowledgment), output exactly:
 <title>none</title>
 <summary>none</summary>
-Capitalize only the first word and proper names.
+Match the user's language (Chinese for Chinese requests, English for English requests).
+Capitalize only the first word and proper names in English.
 
 Examples:
 User: the login button is broken on mobile, can you fix?
@@ -77,6 +78,8 @@ User: hey
 const MAX_TITLE_CHARS = 80;
 const MAX_TITLE_WORDS = 12;
 const MAX_SUMMARY_CHARS = 240;
+const MAX_MESSAGE_EXCERPT_CHARS = 500;
+const MAX_TITLE_CONTEXT_CHARS = 2_400;
 const NO_TITLE_SENTINELS = new Set(["none", "（无）", "无"]);
 const TITLE_TAG = /<title>([\s\S]*?)<\/title>/i;
 const SUMMARY_TAG = /<summary>([\s\S]*?)<\/summary>/i;
@@ -85,6 +88,9 @@ function stripTitleDecoration(raw: string): string {
   return raw
     .replace(/^<title>/i, "")
     .replace(/<\/title>$/i, "")
+    .replace(/^#+\s*/, "")
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, "$1")
+    .replace(/^`(.+?)`$/, "$1")
     .replace(/^["'「『]|["'」』]$/g, "")
     .replace(/[.!?。！？]$/, "")
     .trim();
@@ -122,13 +128,48 @@ export function normalizeGeneratedSummary(raw: string): string | null {
 
 // ── Context builder ───────────────────────────────────────────────────────
 
+function clipExcerpt(text: string, maxChars: number): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxChars) return compact;
+  return `${compact.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
 export function buildTitleContext(msgs: Message[], maxTurns = 4): string {
-  return msgs
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .slice(-maxTurns * 2)
-    .map((m) => `${m.role === "user" ? "用户" : "助手"}: ${extractText(m)}`)
-    .filter((line) => line.length > 3)
-    .join("\n");
+  // Keep only non-empty conversational turns so 20+ empty-text tool-calling
+  // assistant turns never crowd out the user's original task prompt.
+  const conversational: Array<{ role: "user" | "assistant"; text: string }> = [];
+  for (const m of msgs) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    const text = clipExcerpt(extractText(m), MAX_MESSAGE_EXCERPT_CHARS);
+    if (!text) continue;
+    conversational.push({ role: m.role, text });
+  }
+  if (conversational.length === 0) return "";
+
+  // Slice from the last `maxTurns` user turns so recent substantive prompts win
+  // over earlier greetings while preserving the user prompt across tool loops.
+  const userIndices: number[] = [];
+  for (let i = 0; i < conversational.length; i++) {
+    if (conversational[i]!.role === "user") userIndices.push(i);
+  }
+  const startIdx =
+    userIndices.length > maxTurns
+      ? userIndices[userIndices.length - maxTurns]!
+      : Math.max(0, conversational.length - maxTurns * 2);
+
+  const lines: string[] = [];
+  let totalChars = 0;
+  for (const item of conversational.slice(startIdx)) {
+    const line = `${item.role === "user" ? "用户" : "助手"}: ${item.text}`;
+    if (totalChars + line.length > MAX_TITLE_CONTEXT_CHARS && lines.length > 0) {
+      const remaining = MAX_TITLE_CONTEXT_CHARS - totalChars;
+      if (remaining > 40) lines.push(clipExcerpt(line, remaining));
+      break;
+    }
+    lines.push(line);
+    totalChars += line.length + 1;
+  }
+  return lines.join("\n");
 }
 
 // ── Title generation (uses runEphemeralTurn) ──────────────────────────────
@@ -153,7 +194,7 @@ export async function generateTitleAndSummary(
     if (!ephemeral) return { title: null, summary: null };
     const raw = await ephemeral(
       `${TITLE_SYSTEM_PROMPT}\n\n<conversation>\n${context}\n</conversation>`,
-      { signal: rt.signal },
+      { signal: rt.signal, standalone: true },
     );
     return {
       title: normalizeGeneratedTitle(raw),

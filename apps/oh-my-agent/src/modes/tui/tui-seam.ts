@@ -113,6 +113,7 @@ export interface TuiIo {
       preview: string;
       modifiedAt: number;
       workspace?: string;
+      dir?: string;
       forkOf?: string;
     }>,
     currentSessionId?: string,

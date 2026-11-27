@@ -12,6 +12,9 @@ import { deleteSession, sessionDirFor } from "../../core/session/session-file.js
 export interface SessionPickRow {
   readonly id: string;
   readonly workspace?: string;
+  /** Exact directory the session file was scanned from (takes precedence over
+   *  re-deriving from `workspace` so OMA_SESSION_DIR / symlinked paths work). */
+  readonly dir?: string;
 }
 
 /** Delete the picked session's file. The picker owns the list bookkeeping
@@ -33,7 +36,7 @@ export function deletePickedSession(
   }
   const row = rows.find((r) => r.id === id);
   if (!row) return { deleted: false };
-  const dir = row.workspace ? sessionDirFor(row.workspace) : undefined;
+  const dir = row.dir ?? (row.workspace ? sessionDirFor(row.workspace) : undefined);
   if (!deleteSession(id, dir)) {
     return { deleted: false, message: `delete failed — ${id.slice(0, 8)}` };
   }

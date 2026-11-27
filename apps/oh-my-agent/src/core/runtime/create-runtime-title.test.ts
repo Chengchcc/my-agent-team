@@ -15,8 +15,13 @@ afterAll(cleanup);
  *  surfaces the result as `outcome.title`. Mutation-proven gap (2026-09-10):
  *  flipping `titleEnabled` off changed nothing in the suite — title.ts was
  *  unit-tested but nothing exercised the runtime path or the knob. */
-function titleAwareProvider(titles: string[]): { provider: Provider; seen: string[] } {
+function titleAwareProvider(titles: string[]): {
+  provider: Provider;
+  seen: string[];
+  titleCalls: Array<{ messageCount: number; toolCount: number }>;
+} {
   const seen: string[] = [];
+  const titleCalls: Array<{ messageCount: number; toolCount: number }> = [];
   const model: Model = {
     id: "echo",
     name: "Fake Echo",
@@ -32,7 +37,11 @@ function titleAwareProvider(titles: string[]): { provider: Provider; seen: strin
     id: "fake",
     name: "Fake",
     getModels: () => [model],
-    async *stream(_model: Model, messages: readonly Message[]): AsyncIterable<AIMessageChunk> {
+    async *stream(
+      _model: Model,
+      messages: readonly Message[],
+      opts?: { tools?: readonly unknown[] },
+    ): AsyncIterable<AIMessageChunk> {
       // Three distinct callers share this stream: the loop, the title
       // generator, and the post-run memory extractor (fire-and-forget).
       const prompt = messages.map((m) => m.text ?? "").join("\n");
@@ -42,20 +51,29 @@ function titleAwareProvider(titles: string[]): { provider: Provider; seen: strin
           ? "memory"
           : "loop";
       seen.push(kind);
+      if (kind === "title") {
+        titleCalls.push({ messageCount: messages.length, toolCount: opts?.tools?.length ?? 0 });
+      }
       yield { delta: { type: "text", text: kind === "title" ? titles.shift()! : "done" } };
       yield { usage: { input: 5, output: 2, cacheRead: 0, cacheCreate: 0 } };
       yield { stopReason: "end_turn" };
     },
   };
-  return { provider, seen };
+  return { provider, seen, titleCalls };
 }
 
 async function runWithTitle(
   runId: string,
   knobs: RuntimeKnobs | undefined,
   titleReply: string,
-): Promise<{ status: string; title?: string; summary?: string; calls: string[] }> {
-  const { provider, seen } = titleAwareProvider([titleReply]);
+): Promise<{
+  status: string;
+  title?: string;
+  summary?: string;
+  calls: string[];
+  titleCalls: Array<{ messageCount: number; toolCount: number }>;
+}> {
+  const { provider, seen, titleCalls } = titleAwareProvider([titleReply]);
   const modelRuntime = createModelRuntime();
   modelRuntime.registerProvider(provider);
   const rt = await createOmaRuntime({
@@ -76,6 +94,7 @@ async function runWithTitle(
       // The memory pass is fire-and-forget and races the assertion; it is not
       // what this file tests.
       calls: seen.filter((c) => c !== "memory"),
+      titleCalls,
     };
   } finally {
     await rt.close();
@@ -89,6 +108,9 @@ describe("auto-title is a runtime dependency (knob + outcome.title)", () => {
     expect(res.title).toBe("Fix login flow");
     // Exactly one extra model call, distinguishable from the loop's turn.
     expect(res.calls).toEqual(["loop", "title"]);
+    // Title runs standalone: single user prompt, zero mounted tools (prevents
+    // tool-call hijacking and context overflow on long runs).
+    expect(res.titleCalls).toEqual([{ messageCount: 1, toolCount: 0 }]);
   }, 20_000);
 
   test("title and summary ride the SAME call (outcome.summary)", async () => {

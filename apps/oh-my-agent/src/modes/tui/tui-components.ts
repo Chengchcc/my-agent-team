@@ -123,14 +123,17 @@ export class FilterablePickerOverlay extends Container {
       const del = this.opts.onDelete;
       list.onDelete = (item) => {
         const idx = this.list.getSelectedIndex();
+        this.statusNote = "";
         const res = del(item);
         if (typeof res === "string") {
           this.statusNote = res;
         } else if (res === true) {
-          this.statusNote = "";
           this.allItems = this.allItems.filter((x) => x.value !== item.value);
           this.list = this.buildList();
           this.list.setSelectedIndex(idx);
+          if (!this.statusNote && this.allItems.length === 0) {
+            this.statusNote = "No sessions left — Esc to close";
+          }
         }
       };
     }
@@ -138,6 +141,15 @@ export class FilterablePickerOverlay extends Container {
   }
 
   handleInput(data: string): void {
+    const deleteWhenFilterEmpty =
+      this.opts.onDelete !== undefined &&
+      this.query.getValue().length === 0 &&
+      matchesKey(data, "delete");
+    if (deleteWhenFilterEmpty) {
+      const selected = this.list.getSelectedItem();
+      if (selected) this.list.onDelete?.(selected);
+      return;
+    }
     const navigates =
       matchesKey(data, "up") ||
       matchesKey(data, "down") ||

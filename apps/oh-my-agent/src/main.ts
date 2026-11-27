@@ -12,7 +12,7 @@ import { omaVersion } from "./version.js";
  *  (missing files degrade to a fresh session downstream). */
 function resolveSessionArg(args: CliArgs): string | undefined {
   if (args.session) return args.session;
-  if (args.continueLast) return listSessions()[0]?.id;
+  if (args.continueLast) return listSessions(process.cwd())[0]?.id;
   return undefined;
 }
 

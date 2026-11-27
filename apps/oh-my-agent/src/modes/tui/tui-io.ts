@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskQuestionResult } from "@chengchenccc/message";
 import {
@@ -28,6 +28,7 @@ import {
   saveInputHistory,
 } from "../../core/session/input-history.js";
 import type { ProjectSettings } from "../../core/settings/project-settings.js";
+import { todoFilePath } from "../../core/tools/todo-store.js";
 import { ApprovalPanel } from "./approval-panel.js";
 import { AskPanel } from "./ask-panel.js";
 import { runBashPtyConsole } from "./pty-console.js";
@@ -531,13 +532,15 @@ export function createTerminalIo(
       const rows = [...sessions];
       const build = (): Array<{ value: string; label: string; description: string }> =>
         rows.map((s) => {
-          const { label, description } = sessionRow(s);
+          const { label, description } = sessionRow(s, undefined, {
+            currentWorkspace: workspaceRoot,
+          });
           return { value: s.id, label, description };
         });
       const overlayBox = new FilterablePickerOverlay({
         title: "Resume Session",
         placeholder: "Filter by title, summary, or date…",
-        footer: "Enter open · Ctrl+D delete · ↑/↓ move · PgUp/PgDn scroll · Esc close",
+        footer: "Enter open · Ctrl+D/Del delete · ↑/↓ move · PgUp/PgDn scroll · Esc close",
         emptyMessage: "  No sessions match",
         maxVisible: 10,
         theme: EDITOR_THEME.selectList,
@@ -552,15 +555,25 @@ export function createTerminalIo(
           resolve(null);
         },
         onDelete: (item) => {
+          const targetRow = rows.find((s) => s.id === item.value);
           const outcome = deletePickedSession(rows, item.value, currentSessionId);
           if (!outcome.deleted) {
             return outcome.message ?? "cannot delete session";
           }
+          try {
+            rmSync(todoFilePath(targetRow?.workspace ?? workspaceRoot, item.value), {
+              force: true,
+            });
+          } catch {
+            /* best effort */
+          }
           const index = rows.findIndex((s) => s.id === item.value);
           if (index !== -1) rows.splice(index, 1);
-          if (rows.length === 0) {
-            overlayBox.setStatusNote("No sessions left — Esc to close");
-          }
+          overlayBox.setStatusNote(
+            rows.length === 0
+              ? "No sessions left — Esc to close"
+              : `Deleted session ${item.value.slice(0, 8)}`,
+          );
           tui.requestRender();
           return true;
         },

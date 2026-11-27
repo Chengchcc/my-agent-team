@@ -56,7 +56,9 @@ export function buildSlashSystem(ctx: TuiSessionContext, commands: CommandDef[])
             value: s.id,
             label: s.id,
             // Same row description as the picker/listing (title — summary).
-            description: sessionRow(s).description,
+            description: sessionRow(s, undefined, {
+              currentWorkspace: ctx.opts.workspaceRoot,
+            }).description,
           }));
     }
     return command;

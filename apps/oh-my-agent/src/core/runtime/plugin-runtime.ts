@@ -29,8 +29,14 @@ export interface PluginRuntime {
    *  plugins don't need to manually construct messages or know the model
    *  ref. One call: `const text = await rt.runEphemeralTurn(prompt);` */
   /** Set by the loop (not by external code). Optional on the interface
-   *  so run-runtime/tests don't need a stub. */
-  readonly runEphemeralTurn?: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<string>;
+   *  so run-runtime/tests don't need a stub.
+   *  When `standalone` is true, sends ONLY the prompt without replaying the
+   *  full session branch, coding system prompt, or tool schemas (prevents
+   *  tool-call hijacking and context overflow in title/summary side calls). */
+  readonly runEphemeralTurn?: (
+    prompt: string,
+    opts?: { signal?: AbortSignal; standalone?: boolean },
+  ) => Promise<string>;
 
   /** Session store (read-only for plugins): branch history, todo state. */
   readonly store: SessionStore;

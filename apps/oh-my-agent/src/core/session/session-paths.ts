@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 /** Oma agent root: ~/.oma by default, overridable with OMA_CODING_AGENT_DIR. */
 export function agentDir(): string {
@@ -13,7 +13,8 @@ export function sessionsRoot(): string {
 
 /** Session directory for a specific workspace root (per-cwd dir). */
 export function sessionDirFor(workspaceRoot: string): string {
-  const safePath = `--${workspaceRoot.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  const normalized = resolve(workspaceRoot);
+  const safePath = `--${normalized.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
   return join(sessionsRoot(), safePath);
 }
 

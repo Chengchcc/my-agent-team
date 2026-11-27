@@ -85,20 +85,31 @@ export async function prepareLoopStart(
     ...mutable.rt,
     signal: mutable.controller.signal,
     runEphemeralTurn: async (promptText, ephemeralOpts) => {
-      const branch = await readBranchMessages(opts.store, opts.sessionId);
-      const ephemeralMessages: Message[] = [
-        ...((codingInput.run.systemPrompt ?? "")
-          ? [{ role: "system" as const, text: codingInput.run.systemPrompt ?? "" }]
-          : []),
-        ...branch,
-        { role: "user" as const, text: promptText },
-      ];
+      const callerSignal = ephemeralOpts?.signal ?? mutable.controller?.signal;
+      let ephemeralMessages: Message[];
+      let tools: readonly PluginTool[] | undefined;
+      if (ephemeralOpts?.standalone) {
+        // Standalone side-channel turn (e.g. auto-title): do NOT replay the
+        // giant branch history, coding system prompt, or 20+ tool schemas —
+        // those fight the formatting prompt, cause models to emit tool_use
+        // instead of text, and risk context overflow on long runs.
+        ephemeralMessages = [{ role: "user" as const, text: promptText }];
+        tools = undefined;
+      } else {
+        const branch = await readBranchMessages(opts.store, opts.sessionId);
+        ephemeralMessages = [
+          ...((codingInput.run.systemPrompt ?? "")
+            ? [{ role: "system" as const, text: codingInput.run.systemPrompt ?? "" }]
+            : []),
+          ...branch,
+          { role: "user" as const, text: promptText },
+        ];
+        tools = [...toolMapRef.current.values()];
+      }
+      const timeoutSignal = AbortSignal.timeout(20_000);
+      const signal = callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal;
       let text = "";
-      for await (const chunk of opts.modelStream(
-        ephemeralMessages,
-        ephemeralOpts?.signal ?? mutable.controller?.signal,
-        [...toolMapRef.current.values()],
-      )) {
+      for await (const chunk of opts.modelStream(ephemeralMessages, signal, tools)) {
         if (chunk.delta?.type === "text") text += chunk.delta.text;
       }
       return text;

@@ -36,7 +36,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         // "all" = cross-workspace listing (pi's session selector "all"
         // scope); any other arg is an id/prefix within this workspace.
         const all = args === "all";
-        const sessions = all ? listAllSessions() : listSessions();
+        const sessions = all ? listAllSessions() : listSessions(ctx.opts.workspaceRoot);
         if (sessions.length === 0) {
           ctx.pushStatus(all ? "no sessions in any workspace" : "no saved sessions");
           return;
@@ -44,13 +44,15 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         if (!args || all) {
           // Interactive overlay when the ctx.io supports it; text list otherwise.
           if (ctx.io.pickSession) {
-            const picked = await ctx.io.pickSession(sessions.slice(0, 20), ctx.session.sessionId);
+            const picked = await ctx.io.pickSession(sessions.slice(0, 100), ctx.session.sessionId);
             if (!picked) {
               ctx.pushStatus("resume cancelled");
               return;
             }
             const summary = sessions.find((s) => s.id === picked);
-            const dir = all && summary?.workspace ? sessionDirFor(summary.workspace) : undefined;
+            const dir =
+              summary?.dir ??
+              (all && summary?.workspace ? sessionDirFor(summary.workspace) : undefined);
             ctx.session = resolveSession(picked, dir);
             ctx.sessionTitle = summary?.title;
             ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
@@ -67,10 +69,12 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
             return;
           }
           ctx.pushStatus(
-            sessions.slice(0, 20).map((s) => {
+            sessions.slice(0, 50).map((s) => {
               // Same row shape as the picker: the id stays in the text listing
               // because this fallback is where /resume <prefix> is typed from.
-              const { label, description } = sessionRow(s);
+              const { label, description } = sessionRow(s, undefined, {
+                currentWorkspace: ctx.opts.workspaceRoot,
+              });
               return `${label}  ${s.id}  ${description}`;
             }),
           );
@@ -85,7 +89,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
           ctx.pushStatus(matches.map((s) => `${s.id}  ${s.title ?? s.preview}`));
           return;
         }
-        ctx.session = resolveSession(matches[0]!.id, undefined);
+        ctx.session = resolveSession(matches[0]!.id, matches[0]!.dir);
         ctx.sessionTitle = matches[0]!.title;
         ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
@@ -110,7 +114,9 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         // fresh session it asked for; without it a loop switch would end the
         // loop that requested it.
         const keepLoop = args.trim() === "--keep-loop";
-        ctx.session = resolveSession();
+        const workspaceSessionDir =
+          process.env.OMA_SESSION_DIR ?? sessionDirFor(ctx.opts.workspaceRoot);
+        ctx.session = resolveSession(undefined, workspaceSessionDir);
         ctx.sessionTitle = undefined;
         // Todo is session-scoped: a fresh session starts with an empty
         // list — the previous session's items must not leak into the
@@ -258,37 +264,49 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
     },
     {
       name: "rename",
-      description: "rename a ctx.session's title",
-      argumentHint: "<ctx.session> <title>",
+      description: "rename a session's title",
+      argumentHint: "<session> <title>",
       group: "session",
       run: (args) => {
         const space = args.indexOf(" ");
         if (space <= 0) {
-          ctx.pushStatus("usage: /rename <ctx.session-id> <title>");
+          ctx.pushStatus("usage: /rename <session-id> <title>");
           return;
         }
         const id = args.slice(0, space).trim();
         const title = args.slice(space + 1).trim();
         if (!title) {
-          ctx.pushStatus("usage: /rename <ctx.session-id> <title>");
+          ctx.pushStatus("usage: /rename <session-id> <title>");
           return;
         }
-        if (!renameSession(id, title)) ctx.pushStatus(`no ctx.session: ${id}`);
-        else ctx.pushStatus(`renamed ${id} → ${title}`);
+        const dir = process.env.OMA_SESSION_DIR ?? sessionDirFor(ctx.opts.workspaceRoot);
+        if (!renameSession(id, title, dir)) ctx.pushStatus(`no session: ${id}`);
+        else {
+          if (id === ctx.session.sessionId) {
+            ctx.sessionTitle = title;
+            ctx.io.setHeader?.({ model: ctx.modelId, sessionId: ctx.session.sessionId, title });
+          }
+          ctx.pushStatus(`renamed ${id} → ${title}`);
+        }
       },
     },
     {
       name: "delete",
-      description: "delete a ctx.session file",
+      description: "delete a session file",
       argumentHint: "<session>",
       group: "session",
       run: (args) => {
         if (!args) {
-          ctx.pushStatus("usage: /delete <ctx.session-id>");
+          ctx.pushStatus("usage: /delete <session-id>");
           return;
         }
-        if (!deleteSession(args)) {
-          ctx.pushStatus(`no ctx.session: ${args}`);
+        if (args === ctx.session.sessionId) {
+          ctx.pushStatus("cannot delete the active session");
+          return;
+        }
+        const dir = process.env.OMA_SESSION_DIR ?? sessionDirFor(ctx.opts.workspaceRoot);
+        if (!deleteSession(args, dir)) {
+          ctx.pushStatus(`no session: ${args}`);
         } else {
           // The session's scoped todo file dies with it.
           try {
@@ -296,7 +314,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
           } catch {
             /* best effort */
           }
-          ctx.pushStatus(`deleted ctx.session: ${args}`);
+          ctx.pushStatus(`deleted session: ${args}`);
         }
       },
     },

@@ -1,5 +1,6 @@
 import type { DefaultTextStyle, EditorTheme, MarkdownTheme } from "@chengchenccc/tui";
 import { renderModalFrame, SHIMMER_TIER_OPEN, tuiTheme } from "@chengchenccc/tui";
+import { sameWorkspacePath } from "../../core/session/session-file.js";
 
 export const MAX_TOOL_ARGS = 200;
 export const MAX_TOOL_DETAIL = 8_000;
@@ -288,6 +289,7 @@ export interface SessionRowInput {
 export function sessionRow(
   session: SessionRowInput,
   now: number = Date.now(),
+  opts?: { currentWorkspace?: string },
 ): { label: string; description: string } {
   const base = session.title ?? (session.preview || session.id.slice(0, 8));
   // A summary without a title stands alone (the preview is a weaker signal
@@ -298,7 +300,10 @@ export function sessionRow(
       : session.summary
     : base;
   const fork = session.forkOf ? ` \u2442 ${session.forkOf.slice(0, 8)}` : "";
-  const workspace = session.workspace ? ` [${session.workspace}]` : "";
+  const showWorkspace =
+    session.workspace &&
+    (!opts?.currentWorkspace || !sameWorkspacePath(session.workspace, opts.currentWorkspace));
+  const workspace = showWorkspace ? ` [${session.workspace}]` : "";
   return {
     label: `${sessionStamp(session.modifiedAt, now)} · ${relativeAge(session.modifiedAt, now)}`,
     description: `${description}${fork}${workspace}`,

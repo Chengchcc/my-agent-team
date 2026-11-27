@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VirtualTerminal } from "@chengchenccc/tui";
@@ -521,6 +530,74 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
     } finally {
       delete process.env.OMA_SESSION_DIR;
       rmSync(dir, { recursive: true, force: true });
+      rmSync(sessDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+  test("/resume scopes to current workspace, sorts newest-first, and Ctrl+D deletes on disk", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-e2e-resume-del-"));
+    const foreignDir = mkdtempSync(join(tmpdir(), "oma-e2e-resume-foreign-"));
+    const sessDir = mkdtempSync(join(tmpdir(), "oma-e2e-resume-del-sess-"));
+    process.env.OMA_SESSION_DIR = sessDir;
+    const now = Date.now();
+    const seedFile = (id: string, cwd: string, title: string, minutesAgo: number): string => {
+      const p = join(sessDir, `${id}.jsonl`);
+      writeFileSync(
+        p,
+        [
+          JSON.stringify({ type: "session", version: 3, id, cwd }),
+          JSON.stringify({ type: "message", id: "m1", message: { role: "user", text: title } }),
+          JSON.stringify({ type: "title", title }),
+        ].join("\n"),
+      );
+      const t = new Date(now - minutesAgo * 60_000);
+      utimesSync(p, t, t);
+      return p;
+    };
+    const oldPath = seedFile("11111111-1111-1111-1111-111111111111", dir, "Older local task", 90);
+    const newPath = seedFile("22222222-2222-2222-2222-222222222222", dir, "Newest local task", 5);
+    const foreignPath = seedFile(
+      "33333333-3333-3333-3333-333333333333",
+      foreignDir,
+      "Foreign dir task",
+      1,
+    );
+    try {
+      const vt = new VirtualTerminal(110, 30);
+      const io = createTerminalIo(vt, dir);
+      const sessionDone = runTuiSession(
+        { modelRuntime: fakeModelRuntime(), workspaceRoot: dir },
+        io,
+      );
+
+      await typeAndSubmit(vt, "/resume");
+      await vt.waitForRender();
+      const picker = screen(vt);
+      expect(picker).toContain("Newest local task");
+      expect(picker).toContain("Older local task");
+      // Foreign-workspace session must NOT leak into default /resume.
+      expect(picker).not.toContain("Foreign dir task");
+      // Newest must appear BEFORE older (reverse chronological).
+      expect(picker.indexOf("Newest local task")).toBeLessThan(picker.indexOf("Older local task"));
+
+      // Ctrl+D deletes the highlighted (newest) session on disk and updates the picker.
+      vt.sendInput("\x04");
+      await vt.waitForRender();
+      expect(existsSync(newPath)).toBe(false);
+      expect(existsSync(oldPath)).toBe(true);
+      expect(existsSync(foreignPath)).toBe(true);
+      const afterDelete = screen(vt);
+      expect(afterDelete).not.toContain("Newest local task");
+      expect(afterDelete).toContain("Older local task");
+
+      // Esc closes picker cleanly.
+      vt.sendInput("\x1b");
+      await vt.waitForRender();
+      await quitTui(vt);
+      expect(await sessionDone).toBe(0);
+    } finally {
+      delete process.env.OMA_SESSION_DIR;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(foreignDir, { recursive: true, force: true });
       rmSync(sessDir, { recursive: true, force: true });
     }
   }, 30_000);
