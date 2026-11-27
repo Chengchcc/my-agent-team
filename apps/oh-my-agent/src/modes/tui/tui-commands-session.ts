@@ -187,6 +187,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
             },
           ];
           ctx.state.runs.length = 0;
+          ctx.refreshSessionContext?.();
           ctx.pushStatus(`compacted: ${summary.slice(0, 160)}${summary.length > 160 ? "…" : ""}`);
           ctx.io.render(ctx.state);
         } catch (err) {
@@ -247,6 +248,7 @@ export function buildSessionCommands(ctx: TuiSessionContext): CommandDef[] {
         ctx.sessionTitle = undefined;
         ctx.state.todoItems = readTodoFile(ctx.opts.workspaceRoot, ctx.session.sessionId);
         hydrateTranscript(ctx.state, ctx.session.messages);
+        ctx.reloadSessionDrivers?.();
         ctx.io.setHeader?.({ model: ctx.modelId, sessionId: ctx.session.sessionId });
         ctx.pushStatus(
           `forked ${parentId.slice(0, 8)} @ msg ${ordinal} -> ${newId.slice(0, 8)} ` +

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createModelRuntime } from "@chengchenccc/ai";
 import { type Component, Container, TUI, VirtualTerminal, visibleWidth } from "@chengchenccc/tui";
 import { saveInputHistory } from "../../core/session/input-history.js";
+import { appendSessionMessages } from "../../core/session/session-file.js";
 import { ApprovalPanel } from "./approval-panel.js";
 import { SettingsOverlay } from "./settings-overlay.js";
 import { FilterablePickerOverlay, OmaTranscriptContainer } from "./tui-components.js";
@@ -498,6 +499,111 @@ describe("TUI performance invariants", () => {
       else process.env.OMA_TITLE_ENABLED = savedTitle;
       if (savedMem === undefined) delete process.env.OMA_MEMORY_EXTRACT;
       else process.env.OMA_MEMORY_EXTRACT = savedMem;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resuming an existing session immediately populates context usage and /new clears it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-tui-resume-ctx-"));
+    const savedSess = process.env.OMA_SESSION_DIR;
+    process.env.OMA_SESSION_DIR = dir;
+    const seedId = "resumectx-0001";
+    appendSessionMessages(
+      seedId,
+      dir,
+      [
+        { role: "user", text: "first prompt" },
+        {
+          role: "assistant",
+          text: "first answer",
+          usage: {
+            inputTokens: 18_000,
+            outputTokens: 1_000,
+            cacheReadTokens: 6_000,
+            cacheWriteTokens: 0,
+          },
+        } as unknown as { role: "assistant"; text: string },
+        { role: "user", text: "second prompt" },
+        {
+          role: "assistant",
+          text: "second answer",
+          usage: {
+            inputTokens: 20_000,
+            outputTokens: 2_000,
+            cacheReadTokens: 10_000,
+            cacheWriteTokens: 0,
+          },
+        } as unknown as { role: "assistant"; text: string },
+      ],
+      dir,
+    );
+    try {
+      const modelRuntime = createModelRuntime();
+      modelRuntime.registerProvider({
+        id: "probe",
+        name: "Probe",
+        getModels: () => [
+          {
+            id: "m",
+            name: "M",
+            provider: "probe",
+            api: "anthropic-messages",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200_000,
+            maxTokens: 8192,
+          },
+        ],
+        async *stream() {
+          yield { delta: { type: "text", text: "ok" } };
+          yield { stopReason: "end_turn" };
+        },
+      });
+
+      const headers: Array<{ context?: string; contextInfo?: ContextUsageInfo | null }> = [];
+      let waitCalls = 0;
+      const io: TuiIo = {
+        render() {},
+        async waitForInput() {
+          waitCalls++;
+          // Allow boot catalog microtask to resolve before asserting boot state
+          if (waitCalls === 1) {
+            await new Promise((r) => setTimeout(r, 15));
+            return "/new";
+          }
+          if (waitCalls === 2) return `/resume ${seedId}`;
+          return "/exit";
+        },
+        setHeader(h) {
+          headers.push({ context: h.context, contextInfo: h.contextInfo });
+        },
+        close() {},
+      };
+
+      const code = await runTuiSession({ modelRuntime, workspaceRoot: dir, sessionId: seedId }, io);
+      expect(code).toBe(0);
+
+      // On boot (--resume), BEFORE any turn executes, context usage is already populated:
+      // last anchor = 20k + 10k + 2k = 32k (16% of 200k), cumulative = ↑54k ↓3k.
+      const bootHydrated = headers.find((h) => h.contextInfo && h.contextInfo.limit === 200_000);
+      expect(bootHydrated?.contextInfo?.estimatedTokens).toBe(32_000);
+      expect(bootHydrated?.contextInfo?.pct).toBe(16);
+      expect(bootHydrated?.contextInfo?.usageSummary).toBe("↑54k ↓3k");
+
+      // After /new, contextInfo is explicitly cleared (null)
+      const clearedIdx = headers.findIndex((h) => h.contextInfo === null);
+      expect(clearedIdx).toBeGreaterThan(-1);
+
+      // After /resume <seedId>, context usage is immediately hydrated again!
+      const rehydrated = headers
+        .slice(clearedIdx + 1)
+        .find((h) => h.contextInfo && h.contextInfo.limit === 200_000);
+      expect(rehydrated?.contextInfo?.estimatedTokens).toBe(32_000);
+      expect(rehydrated?.contextInfo?.usageSummary).toBe("↑54k ↓3k");
+    } finally {
+      if (savedSess === undefined) delete process.env.OMA_SESSION_DIR;
+      else process.env.OMA_SESSION_DIR = savedSess;
       rmSync(dir, { recursive: true, force: true });
     }
   });

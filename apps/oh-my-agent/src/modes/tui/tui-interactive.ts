@@ -50,11 +50,13 @@ export async function pickModelInteractive(ctx: TuiSessionContext): Promise<void
   if (!picked) return;
   ctx.modelId = picked;
   saveProjectModel(ctx.opts.workspaceRoot, ctx.modelId);
+  const matched = rows.find((r) => r.id === picked);
   ctx.io.setHeader?.({
     model: ctx.modelId,
     sessionId: ctx.session.sessionId,
     title: ctx.sessionTitle,
   });
+  ctx.refreshSessionContext?.(matched?.contextWindow);
   ctx.pushStatus(`model: ${ctx.modelId}`);
   ctx.io.render(ctx.state);
 }

@@ -146,6 +146,9 @@ export interface TuiSessionContext {
    *  carrying one session's goal into another would leak accounting and
    *  continuation across conversations. */
   reloadSessionDrivers?: (opts?: { keepLoop?: boolean }) => void;
+  /** Recompute and publish status-bar context usage from the active session's
+   *  messages and model window (called on /resume, /compact, /model switch). */
+  refreshSessionContext?: (modelWindow?: number) => void;
   /** Refresh every driver status segment after a transition. Commands that
    *  mutate goal/loop/plan state call this so the bar never shows a stale
    *  state (the session loop refreshes on its own after each turn). */
@@ -821,6 +824,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           sessionId: ctx.session.sessionId,
           title: ctx.sessionTitle,
         });
+        ctx.refreshSessionContext?.(row.contextWindow);
         ctx.pushStatus(`model: ${ctx.modelId} · ctx ${formatTokens(row.contextWindow)}`);
       },
     },

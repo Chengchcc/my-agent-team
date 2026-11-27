@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ModelRuntime } from "@chengchenccc/ai";
-import type { AskQuestionInput } from "@chengchenccc/message";
+import type { AskQuestionInput, Message } from "@chengchenccc/message";
 import { ProcessTerminal } from "@chengchenccc/tui";
 import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
@@ -20,6 +20,7 @@ import {
   planTitle,
 } from "../../core/plans/index.js";
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
+import { estimateMessageTokens } from "../../core/runtime/context-estimate.js";
 import type { BackendRunInput, BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
@@ -106,18 +107,6 @@ async function savedModelIsAvailable(
     );
   } catch {
     return false;
-  }
-}
-
-/** Resolve the first available catalog model on cold boot so the header card
- *  and status bar display the active model immediately before the first turn. */
-async function resolveDefaultModelId(modelRuntime: ModelRuntime): Promise<string | undefined> {
-  try {
-    const catalog = await modelRuntime.getCatalog();
-    const first = catalog.models.find((m) => m.available !== false) ?? catalog.models[0];
-    return first ? `${first.providerId}/${first.modelId}` : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -215,16 +204,81 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     base64: string;
   }> = [];
 
-  /** Goal replay: a session that ended with a live goal restores it as PAUSED
-   *  — resuming must never silently re-enter an autonomous loop; the user
-   *  continues with /goal resume. Run once at boot and again after every
-   *  session switch (all three drivers are session-scoped and in-memory). */
-  function reloadSessionDrivers(opts: { keepLoop?: boolean } = {}): void {
+  /** Recompute context footprint + cumulative session spend directly from
+   *  `session.messages` so `--resume`, `/resume`, `/fork`, `/compact`, and
+   *  `/model` show accurate context usage on the status bar immediately
+   *  without waiting for a new model call. Clears stale metrics on `/new`. */
+  function hydrateSessionContext(modelWindow?: number): void {
+    if (modelWindow !== undefined && modelWindow > 0) currentModelLimit = modelWindow;
+    const hadPriorContext =
+      lastContextTokens !== undefined ||
+      sessionUsage.inputTokens > 0 ||
+      sessionUsage.outputTokens > 0 ||
+      sessionUsage.cacheReadTokens > 0 ||
+      sessionUsage.cacheWriteTokens > 0;
     sessionUsage.inputTokens = 0;
     sessionUsage.outputTokens = 0;
     sessionUsage.cacheReadTokens = 0;
     sessionUsage.cacheWriteTokens = 0;
     lastContextTokens = undefined;
+
+    const msgs = session.messages;
+    if (msgs.length === 0) {
+      if (hadPriorContext) {
+        io.setHeader?.({
+          model: modelId,
+          sessionId: session.sessionId,
+          title: sessionTitle,
+          context: "",
+          contextInfo: null,
+        });
+      }
+      return;
+    }
+
+    let anchorIdx = -1;
+    let anchorTokens = 0;
+    for (let i = 0; i < msgs.length; i++) {
+      const u = (
+        msgs[i] as {
+          usage?: {
+            inputTokens?: number;
+            outputTokens?: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+          };
+        }
+      ).usage;
+      if (!u) continue;
+      const inp = u.inputTokens ?? 0;
+      const out = u.outputTokens ?? 0;
+      const cr = u.cacheReadTokens ?? 0;
+      const cw = u.cacheWriteTokens ?? 0;
+      sessionUsage.inputTokens += inp;
+      sessionUsage.outputTokens += out;
+      sessionUsage.cacheReadTokens += cr;
+      sessionUsage.cacheWriteTokens += cw;
+      const total = inp + out + cr + cw;
+      if (total > 0) {
+        anchorIdx = i;
+        anchorTokens = total;
+      }
+    }
+
+    let estimated = anchorIdx !== -1 ? anchorTokens : 0;
+    const startIdx = anchorIdx !== -1 ? anchorIdx + 1 : 0;
+    for (let i = startIdx; i < msgs.length; i++) {
+      estimated += estimateMessageTokens(msgs[i] as unknown as Message);
+    }
+    publishContextStatus(estimated, currentModelLimit);
+  }
+
+  /** Goal replay: a session that ended with a live goal restores it as PAUSED
+   *  — resuming must never silently re-enter an autonomous loop; the user
+   *  continues with /goal resume. Run once at boot and again after every
+   *  session switch (all three drivers are session-scoped and in-memory). */
+  function reloadSessionDrivers(opts: { keepLoop?: boolean } = {}): void {
+    hydrateSessionContext();
     const restored = loadSessionGoalState(session.sessionId, session.dir);
     if (restored) {
       const isLive = restored.goal.status === "active" || restored.goal.status === "budget-limited";
@@ -544,6 +598,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     goals: goalRuntime,
     loops: loopRuntime,
     reloadSessionDrivers,
+    refreshSessionContext: hydrateSessionContext,
     refreshDriverStatus,
     plans: {
       state: () => planRuntime.state,
@@ -595,17 +650,30 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   io.setSlashCommands?.(slashCommands);
   registerIoHandlers(ctx);
 
-  // Resolve the catalog default model asynchronously after synchronous IO
-  // wiring (slash commands + key handlers) so cold boot shows the active model
-  // in both header card and status bar without delaying input readiness.
-  if (!modelId) {
-    void resolveDefaultModelId(opts.modelRuntime).then((resolved) => {
-      if (!modelId && resolved) {
-        modelId = resolved;
+  // Resolve the catalog default model & context window asynchronously after
+  // synchronous IO wiring (slash commands + key handlers) so cold boot AND
+  // `--resume` show the active model and context usage meter immediately
+  // without delaying input readiness.
+  void opts.modelRuntime
+    .getCatalog()
+    .then((catalog) => {
+      if (!modelId) {
+        const first = catalog.models.find((m) => m.available !== false) ?? catalog.models[0];
+        if (first) modelId = `${first.providerId}/${first.modelId}`;
+      }
+      const entry = modelId
+        ? catalog.models.find((m) => `${m.providerId}/${m.modelId}` === modelId)
+        : undefined;
+      if (entry && entry.contextWindow > 0) currentModelLimit = entry.contextWindow;
+      if (session.messages.length > 0) {
+        hydrateSessionContext(currentModelLimit);
+      } else if (modelId) {
         io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
       }
+    })
+    .catch(() => {
+      // catalog unavailable; model/limit resolve on first turn
     });
-  }
 
   io.onLiveCommand?.((text) => {
     void runCommandText(text).then(() => io.render(state));

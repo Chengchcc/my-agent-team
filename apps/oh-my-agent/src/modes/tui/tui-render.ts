@@ -643,14 +643,15 @@ export class TuiRenderShell {
     session: string,
     title: string,
     context?: string,
-    contextInfo?: ContextUsageInfo,
+    contextInfo?: ContextUsageInfo | null,
   ): void {
     const prevModel = this.headerModel;
     this.headerModel = model;
     this.headerSession = session;
     this.headerTitle = title;
     if (context !== undefined) this.headerContext = context;
-    if (contextInfo !== undefined) this.headerContextInfo = contextInfo;
+    if (contextInfo === null) this.headerContextInfo = undefined;
+    else if (contextInfo !== undefined) this.headerContextInfo = contextInfo;
     const coldModelResolved =
       !prevModel && Boolean(model) && (!this.currentState || this.currentState.runs.length === 0);
     if (coldModelResolved && this.lastPrintedSession === this.headerSession) {

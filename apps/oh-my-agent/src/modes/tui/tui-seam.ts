@@ -146,13 +146,14 @@ export interface TuiIo {
    *  cancel. Absent = caller falls back to text status. */
   editSettings?(settings: ProjectSettings): Promise<ProjectSettings | null>;
   /** Update the fixed header's model/session line. `context` / `contextInfo`
-   *  are sticky: once set they stay until the next value arrives. */
+   *  are sticky: once set they stay until the next value arrives (pass `null`
+   *  for `contextInfo` to explicitly clear it on `/new`). */
   setHeader?(info: {
     model?: string;
     sessionId?: string;
     title?: string;
     context?: string;
-    contextInfo?: ContextUsageInfo;
+    contextInfo?: ContextUsageInfo | null;
   }): void;
   /** M-bash: interactive pty console overlay (TUI only). Resolves when
    *  the command exits or the user kills it (Esc). */
