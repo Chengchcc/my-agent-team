@@ -15,7 +15,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![CI](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml)
 
-[PA + Worker 协作模型](#-pa--worker-团队协作模型) · [核心能力](#-核心能力) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [架构设计](#-架构设计) · [安全模型](#-安全模型) · [文档入口](#-文档入口)
+[PA + Worker 协作模型](#-pa--worker-团队协作模型) · [Skills + MCP 操控](#-用对话操控整个工作台skills--product-mcp) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [架构设计](#-架构设计) · [安全模型](#-安全模型) · [文档入口](#-文档入口)
 
 <br />
 
@@ -69,6 +69,27 @@ flowchart LR
 3. **遇阻升级与 Fail-Closed 审批**：Worker 缺上下文时先向 PA 提问，PA 依据 Brief/Wiki 回答或升级成待决卡片交给你；高风险写文件/命令动作停在审批卡上，超时默认拒绝。
 4. **二号成员交付门**：开发 Worker 只把改动推到 `agent/<runId>` 并上传带类型的 `artifacts://`。若未经第二位成员（如评审 Worker）独立跑测与复核，后端会自动在交付消息中标注**「未经核验」**；最终由你决定是否合并。
 5. **知识复利入库**：过程中的架构决策、根因分析与踩坑记录按来源引用写入共享 **Git Wiki**，不再随聊天沉底。
+
+## 🎛 用对话操控整个工作台（Skills + Product MCP）
+
+在 CrewDesk 里，会话不只是用来写代码——**你可以直接通过对话操控整个控制台的功能**。
+
+成员、项目、工作流等编辑页都内置了侧边 PA 会话面板。输入 `/` 即可点名调用 `skills/` 目录下的内置 **Skill**，PA 经由后端按次注入的三个 **Product MCP** 服务（`product-tools`、`agent-config`、`workflow`，每次 Run 独立临时 token，结束即吊销）读取真实状态并生成改动建议。
+
+**提议 ≠ 保存**：Agent 永远不会偷偷覆盖你的团队配置、项目绑定或工作流定义。所有修改都会渲染为逐字段对比的 **Proposal 卡片**（点击「填入表单」→ 人工审阅 → 显式「保存」才落盘）。
+
+| 斜杠技能 | 背后调用的 Product MCP 工具 | 在会话里能直接做什么 |
+|---|---|---|
+| `/member_manage` | `team_list`、`agent_read`、`agent_write`、`agent_create` | 查看团队花名册与能力，提议新增成员或修改某个成员的引擎、模型、角色与路径权限。 |
+| `/project_manage` | `project_list`、`project_detail`、`project_propose`、`project_attach`、`project_push` | 注册或修改 Git 项目、经人工批准给 Worker 绑定仓库，并把开发分支安全推回 `agent/<runId>`。 |
+| `/workflow_design` | `workflow_read`、`workflow_write` | 生成并经 `parseWorkflow` 强校验 `*.workflow.json` 节点图，以未保存提案形式直接送进可视化编辑器。 |
+| `/requirement_memory` | `requirement_track`、`requirement_query` | 跨会话持续记录、更新与召回**事项（Requirement）**的目标、约束与验收标准。 |
+| `/wiki_manage` | `wiki_query`、`wiki_read`、`wiki_create`、`wiki_patch`、`wiki_lint`、`wiki_source_add` | 检索、按来源引用沉淀、带 CAS 版本号安全更新并巡检共享 Git Wiki。 |
+| `/reminder_manage` | `remind_me`、`reminder_list`、`reminder_cancel` | 在当前会话中创建、查看或取消一次性提醒与 UTC cron 周期巡检。 |
+| `/agent_doctor` | 工作区记忆 + 对话账本对照检查 | 让一个 Agent 给“跑偏/失忆”的队友做体检，对比账本事实指出记忆漂移并提出具体修复建议（不擅自篡改对方记忆）。 |
+| `/agent_fanout` | `task`（单批最多 64 项 / 8 并发）、`workflow_run` | 发起大规模子 Agent 并行扇出（批量审计、迁移、多源调研）或在沙箱 VM 中跑修到通过的编排脚本。 |
+
+> 内置技能采用两段式渐进加载（提示词只带轻量索引，按需调用 `skill_load` 加载正文并解析 `${SKILL_DIR}`），同时支持按 Agent 挂载外部 MCP Server 与 Git/ZIP 自定义技能包。
 
 ## ✨ 核心能力
 

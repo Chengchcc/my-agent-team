@@ -50,4 +50,13 @@ dist-gateway/
 
 # npm pack output
 *.tgz
-scripts/front-desk-decisions.report.json
+
+# Local agent skill lockfile (paired with .agents/)
+skills-lock.json
+
+# Local evaluation run reports
+scripts/*.report.json
+
+# Local lark-cli credentials/config (must never be committed)
+.lark-cli/
+.local/

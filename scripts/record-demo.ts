@@ -1190,6 +1190,7 @@ async function main() {
 
     mkdirSync(join(DEMO_HOME, ".config"), { recursive: true });
     mkdirSync(join(DEMO_HOME, ".cache"), { recursive: true });
+    mkdirSync(join(DEMO_HOME, ".local", "share"), { recursive: true });
     mkdirSync(join(DEMO_HOME, "chrome-profile"), { recursive: true });
 
     const launched = await puppeteer.launch({
@@ -1200,7 +1201,7 @@ async function main() {
         HOME: DEMO_HOME,
         XDG_CONFIG_HOME: join(DEMO_HOME, ".config"),
         XDG_CACHE_HOME: join(DEMO_HOME, ".cache"),
-        XDG_DATA_HOME: "/root/.local/share",
+        XDG_DATA_HOME: join(DEMO_HOME, ".local", "share"),
       },
       args: [
         "--no-sandbox",

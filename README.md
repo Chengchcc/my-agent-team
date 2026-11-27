@@ -15,7 +15,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![CI](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml)
 
-[PA + Worker Model](#-the-pa--worker-team-model) · [Why CrewDesk](#-why-crewdesk) · [Screenshots](#-screenshots) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
+[PA + Worker Model](#-the-pa--worker-team-model) · [Skills + MCP](#-operate-the-console-via-chat-skills--product-mcp) · [Screenshots](#-screenshots) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
 
 <br />
 
@@ -69,6 +69,27 @@ flowchart LR
 3. **Escalation & Fail-Closed Approvals** — If a worker hits a missing detail, the PA answers from the brief/Wiki or escalates to you as a persistent decision card; high-risk shell/file actions pause on **fail-closed** approval cards (timeout = deny).
 4. **Two-Agent Delivery Gate** — The Coder pushes only to `agent/<runId>` and emits typed `artifacts://`. Until a second worker (e.g., **Reviewer**) independently verifies the diff and tests, the backend automatically stamps the delivery **Unverified**. You decide whether to merge.
 5. **Knowledge Compounds in Git** — Decisions, root causes, and architectural lessons are committed to the shared **Git Wiki** with source citations — instead of evaporating inside chat logs.
+
+## 🎛 Operate the Console via Chat (Skills + Product MCP)
+
+In CrewDesk, conversation isn't only for coding tasks — **you operate the control plane itself through chat**.
+
+Resource editors (Members, Projects, Workflows) embed a live PA side-panel next to the form. Type `/` to invoke progressive **Skills** from `skills/`, backed by three per-Run **Product MCP** servers (`product-tools`, `agent-config`, `workflow`) authenticated with single-Run bearer tokens that are revoked on settle.
+
+**Propose ≠ Save**: agents never silently overwrite live team config, project bindings, or workflow DAGs. Every mutation returns a field-by-field **Proposal Card** (`Adopt to form` → review → explicit `Save`).
+
+| Slash Skill | Product MCP Tools | What you can do in chat |
+|---|---|---|
+| `/member_manage` | `team_list`, `agent_read`, `agent_write`, `agent_create` | Inspect the team roster and propose adding or updating a member's harness, model, role, or write-path policy. |
+| `/project_manage` | `project_list`, `project_detail`, `project_propose`, `project_attach`, `project_push` | Register/edit Git projects, bind repos to workers (with human approval), and deliver `agent/<runId>` branches. |
+| `/workflow_design` | `workflow_read`, `workflow_write` | Generate and schema-validate `*.workflow.json` DAGs (`parseWorkflow`), surfaced in the editor as an unsaved proposal. |
+| `/requirement_memory` | `requirement_track`, `requirement_query` | Create, update, and recall durable **Requirements** (goals, constraints, acceptance criteria) across conversations. |
+| `/wiki_manage` | `wiki_query`, `wiki_read`, `wiki_create`, `wiki_patch`, `wiki_lint`, `wiki_source_add` | Search, ingest source citations, safely CAS-patch pages, and run health checks across the shared Git Wiki. |
+| `/reminder_manage` | `remind_me`, `reminder_list`, `reminder_cancel` | Schedule, inspect, or cancel one-shot and recurring UTC cron reminders in the current conversation. |
+| `/agent_doctor` | Workspace memory + conversation ledger inspection | Have one agent diagnose another teammate's context drift against canonical ledger facts and propose targeted fixes without mutating its memory. |
+| `/agent_fanout` | `task` (batch fan-out up to 64 items / 8 concurrent), `workflow_run` | Run parallel subagent audits, migrations, multi-source research, and fix-until-pass orchestration scripts inside a sandboxed VM. |
+
+> Skills load progressively in two stages (lightweight index in prompt → full `SKILL.md` via `skill_load` on demand, with `${SKILL_DIR}` path resolution), and you can mount external MCP servers or install custom skill packs from Git/ZIP per agent.
 
 ## ✨ Why CrewDesk
 
