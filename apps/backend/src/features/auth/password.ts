@@ -1,6 +1,6 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { PASSWORD_RESET_MARKER } from "@chengchenccc/config";
+import { PASSWORD_RESET_MARKER } from "@chengchenccc/config/node";
 import { ValidationError } from "../../infra/domain-errors.js";
 import type { SettingsService } from "../settings/index.js";
 

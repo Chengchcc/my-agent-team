@@ -28,6 +28,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./node": {
+      "types": "./src/node.ts",
+      "default": "./src/node.ts"
+    },
     "./package.json": "./package.json"
   }
 }

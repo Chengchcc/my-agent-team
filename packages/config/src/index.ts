@@ -1,19 +1,7 @@
-export type { AgentState, AgentStatusFile } from "./agent-status.js";
-export {
-  agentStatusPath,
-  DEFAULT_AGENT_STATUS_STALE_MS,
-  readAgentStatus,
-  writeAgentStatus,
-} from "./agent-status.js";
+/** Edge-safe public entrypoint (pure Zod env schema).
+ *  Node/Bun filesystem primitives (`agent-status`, `gateway-secrets`,
+ *  `skill-index`) live under `@chengchenccc/config/node` so Next.js Edge
+ *  middleware (`apps/web/src/middleware.ts`) never pulls `node:fs` into the
+ *  webpack bundle. */
 export type { Env } from "./env.js";
 export { envSchema, parseEnv } from "./env.js";
-export type { GatewaySecretsRecord } from "./gateway-secrets.js";
-export {
-  GatewaySecretsError,
-  gatewaySecretsPath,
-  PASSWORD_RESET_MARKER,
-  readGatewaySecrets,
-  updateGatewaySecrets,
-} from "./gateway-secrets.js";
-export type { SkillIndexEntry } from "./skill-index.js";
-export { buildSkillIndex } from "./skill-index.js";

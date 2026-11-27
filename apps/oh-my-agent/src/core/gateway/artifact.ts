@@ -6,7 +6,7 @@ import {
   GatewaySecretsError,
   readGatewaySecrets,
   updateGatewaySecrets,
-} from "@chengchenccc/config";
+} from "@chengchenccc/config/node";
 import { omaVersion as readPackageVersion } from "../../version.js";
 import { type GatewayManifest, readGatewayManifest } from "./manifest.js";
 

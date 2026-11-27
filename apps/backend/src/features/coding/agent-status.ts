@@ -1,4 +1,4 @@
-import { type AgentState, readAgentStatus } from "@chengchenccc/config";
+import { type AgentState, readAgentStatus } from "@chengchenccc/config/node";
 
 export type CodingAgentState = AgentState;
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PASSWORD_RESET_MARKER } from "@chengchenccc/config";
+import { PASSWORD_RESET_MARKER } from "@chengchenccc/config/node";
 import type { AIMessageChunk, Message, Tool } from "@chengchenccc/message";
 import { AskPanel } from "../../modes/tui/ask-panel.js";
 import { omaVersion } from "../../version.js";

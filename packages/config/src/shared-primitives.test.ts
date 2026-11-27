@@ -9,7 +9,7 @@ import {
   readGatewaySecrets,
   updateGatewaySecrets,
   writeAgentStatus,
-} from "./index.js";
+} from "./node.js";
 
 const dirs: string[] = [];
 function makeTmp(prefix: string): string {

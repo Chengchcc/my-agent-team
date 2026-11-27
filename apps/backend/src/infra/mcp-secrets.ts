@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { gatewaySecretsPath, updateGatewaySecrets } from "@chengchenccc/config";
+import { gatewaySecretsPath, updateGatewaySecrets } from "@chengchenccc/config/node";
 
 /** Where the deployment's secrets live. Shared with `apps/oh-my-agent` via
  *  `@chengchenccc/config` so both processes use the same path, lockfile, and
