@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PluginHooks, PluginTool } from "../runtime/plugin.js";
 
@@ -42,7 +42,8 @@ export async function loadPluginCode(root: string, entry: string): Promise<Plugi
   // (symlink or ../) would execute code the approval never saw. Fail closed.
   try {
     const rootReal = realpathSync(root);
-    if (!realpathSync(file).startsWith(rootReal)) {
+    const fileReal = realpathSync(file);
+    if (fileReal !== rootReal && !fileReal.startsWith(`${rootReal}${sep}`)) {
       return { ok: false, warnings: [], error: `${entry}: entry escapes plugin root` };
     }
   } catch (err) {

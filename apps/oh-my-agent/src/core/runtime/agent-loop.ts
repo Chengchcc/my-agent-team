@@ -83,6 +83,7 @@ export function createOmaSession(opts: OmaSessionOptions): OmaSession {
     "assistant",
     "tool_result",
     "system_reminder",
+    "job_result",
   ]);
 
   function persist(entries: readonly Record<string, unknown>[]): Promise<unknown> {

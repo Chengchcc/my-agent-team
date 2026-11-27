@@ -93,6 +93,7 @@ export interface AssembledPluginRuntime {
 export async function assemblePluginRuntime(
   workspaceRoot: string,
   mode: OmaMode,
+  opts?: { permissionMode?: "ask" | "auto" | "deny" | "yolo" },
 ): Promise<AssembledPluginRuntime> {
   const resolved = resolvePluginComponents(workspaceRoot, mode);
   const warnings = [...resolved.warnings];
@@ -107,6 +108,11 @@ export async function assemblePluginRuntime(
         "workspace .mcp.json untrusted: servers not mounted; run /mcp trust to approve this file",
       );
     }
+  }
+  // Under permissionMode === "deny", never call dynamic import() on plugin code
+  // modules (top-level module code runs during import before any runtime gate).
+  if (opts?.permissionMode === "deny") {
+    return { plugins: [], mcpServers: resolved.mcpServers, warnings };
   }
   const plugins: Plugin[] = [];
   for (const entry of resolved.codeEntries) {

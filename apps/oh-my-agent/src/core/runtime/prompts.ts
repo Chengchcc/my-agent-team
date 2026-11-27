@@ -36,17 +36,23 @@ export function buildSystemPrompt(input: {
  *  prompt (omp memories.summaryInjectionTokenLimit, ~4 chars/token). */
 const MEMORY_INJECTION_CHARS = 5000;
 
-/** Workspace memory block for prompt injection: the consolidated summary
- *  plus the tail of explicit lessons (learn tool). Absent when the agent
- *  has never written memories. */
+/** Workspace memory block for prompt injection: the consolidated summary,
+ *  backend-owned product memories (`product.md`), plus the tail of explicit
+ *  lessons (`learned.md`). Absent when the agent has never written memories. */
 export function readMemorySummary(cwd: string): string | undefined {
   const memDir = join(cwd, ".oma", "memory");
   let summary = "";
+  let product = "";
   let learned = "";
   try {
     summary = readFileSync(join(memDir, "memory_summary.md"), "utf-8").trim();
   } catch {
     /* no summary yet */
+  }
+  try {
+    product = readFileSync(join(memDir, "product.md"), "utf-8").trim();
+  } catch {
+    /* no product memories yet */
   }
   try {
     const lines = readFileSync(join(memDir, "learned.md"), "utf-8")
@@ -56,7 +62,11 @@ export function readMemorySummary(cwd: string): string | undefined {
   } catch {
     /* no lessons yet */
   }
-  const merged = [summary, learned ? `## Learned lessons\n${learned}` : ""]
+  const merged = [
+    summary,
+    product ? `## Product memories\n${product}` : "",
+    learned ? `## Learned lessons\n${learned}` : "",
+  ]
     .filter(Boolean)
     .join("\n\n")
     .trim();

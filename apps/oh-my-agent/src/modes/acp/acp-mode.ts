@@ -280,13 +280,14 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const resume = session.resumeDecisions;
     session.resumeDecisions = null;
     const loaded = withoutOrphanToolResults(loadSessionMessages(session.sessionId, sessionDir));
-    // The shared seeding rule (answeredPrefixLength, same as seedTranscript on
-    // the TUI side): a trailing unanswered user run is not history. ADR 0038
-    // re-delivers a resumed run's input, and a dead child may have persisted
-    // it already — the live prompt takes the dropped turn's place. The trim
-    // runs on the RAW records (before MessageSchema.parse) so the loader's
-    // synthetic marker on the compaction fold is still visible to it.
-    const seeded = loaded.slice(0, answeredPrefixLength(loaded));
+    // ADR 0038 parked-turn completion: when resuming a run that died parked on
+    // HITL, the trailing user message in `loaded` IS the prompt that the parked
+    // assistant(tool_use) answered. Keep it in place so the branch order stays
+    // strictly [..., user(P1), assistant(tool_use), tool(tool_result), meta]
+    // instead of stripping P1 and re-appending it between tool_use and tool_result.
+    const parkedTurn = resume ? loadLastParkedTurn(session.sessionId, sessionDir) : null;
+    const resumingParked = Boolean(resume && parkedTurn?.interrupted);
+    const seeded = resumingParked ? loaded : loaded.slice(0, answeredPrefixLength(loaded));
     const transcript: { productEntryId: string; message: Message }[] = [];
     for (const [i, message] of seeded.entries()) {
       try {
@@ -298,12 +299,8 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         log(`[acp] skipping malformed session line ${i}`);
       }
     }
-    // ADR 0038 parked-turn completion: the interrupted assistant(tool_use)
-    // becomes part of this run's transcript; its calls settle from the
-    // replayed decisions instead of re-running the turn.
-    const parkedTurn = resume ? loadLastParkedTurn(session.sessionId, sessionDir) : null;
     let resumedAssistant: Message | null = null;
-    if (resume && parkedTurn?.interrupted) {
+    if (resumingParked && parkedTurn) {
       try {
         const parkedMessage = MessageSchema.parse(parkedTurn.message) as Message;
         transcript.push({
@@ -325,7 +322,9 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
 
     const cwdSkills = scanWorkspaceSkillRoots(session.cwd);
     const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
-    const pluginRt = await assemblePluginRuntime(session.cwd, "rpc");
+    const pluginRt = await assemblePluginRuntime(session.cwd, "rpc", {
+      permissionMode: session.permissionMode,
+    });
     for (const warning of pluginRt.warnings) log(`[acp] plugin: ${warning}`);
     // MCP-over-ACP servers ride the plugin seam: tools fetched over
     // mcp/message, executed over mcp/message, adapted with the same
@@ -383,6 +382,10 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       // The client-declared policy (see readPermissionMode): a client that
       // declared "auto" runs its own classifier; one that declared nothing is
       // asked, because it IS the human surface.
+      // Product ACP runs delegate long-term memory ownership to the backend:
+      // disable oma's built-in post-run autonomous memory extraction so child
+      // processes never concurrently overwrite MEMORY.md / memory_summary.md.
+      autonomousMemory: false,
       permissionMode: session.permissionMode,
       todoScope: session.sessionId,
       excludeMcpServerNames: acpDeclared,

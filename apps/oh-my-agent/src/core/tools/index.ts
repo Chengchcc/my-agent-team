@@ -9,7 +9,13 @@ export {
   parseFingerprint,
 } from "./file-fingerprint.js";
 export type { FileFreshness } from "./file-tools.js";
-export { createEditTool, createReadTool, createWriteTool } from "./file-tools.js";
+export {
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+  pathPolicyRefusal,
+  planModeRefusal,
+} from "./file-tools.js";
 export { createGlobTool } from "./glob.js";
 export { createGrepTool } from "./grep.js";
 export { createLsTool, createTreeTool } from "./ls-tree.js";

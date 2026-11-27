@@ -1,5 +1,15 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { fetchGitSourceSync } from "@chengchenccc/source-fetch";
 import { agentDir } from "../session/session-file.js";
 
@@ -319,15 +329,53 @@ export function removeMarketplace(workspaceRoot: string, name: string): boolean 
   return removed;
 }
 
+function isPathWithin(candidate: string, base: string, requireStrictChild = false): boolean {
+  const baseResolved = existsSync(base) ? realpathSync(base) : resolve(base);
+  const targetResolved = existsSync(candidate) ? realpathSync(candidate) : resolve(candidate);
+  if (targetResolved === baseResolved) return !requireStrictChild;
+  return targetResolved.startsWith(`${baseResolved}${sep}`);
+}
+
+/** Reject any symlink inside `root` whose target escapes `allowedRoot` before copying. */
+function hasEscapingSymlink(root: string, allowedRoot: string): boolean {
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      const full = join(dir, name);
+      const st = lstatSync(full);
+      if (st.isSymbolicLink()) {
+        try {
+          if (!isPathWithin(realpathSync(full), allowedRoot)) return true;
+        } catch {
+          return true;
+        }
+      } else if (st.isDirectory()) {
+        stack.push(full);
+      }
+    }
+  }
+  return false;
+}
+
 export function listInstalledPlugins(workspaceRoot: string): InstalledPlugin[] {
   const user = readRegistry(userRegistryPath());
   const project = readRegistry(projectRegistryPath(workspaceRoot));
   const byName = new Map<string, InstalledPlugin>();
-  for (const p of [...user.plugins, ...project.plugins]) {
-    if (p.scope === "user") byName.set(p.name, p);
+  // Pin scope strictly by registry file origin: a repo-controlled
+  // `<workspace>/.oma/plugins.json` entry can NEVER claim `scope: "user"` to
+  // bypass project-scope trust checks or the ACP/product ban.
+  for (const p of user.plugins) {
+    byName.set(p.name, { ...p, scope: "user" });
   }
   for (const p of project.plugins) {
-    if (p.scope === "project") byName.set(p.name, p);
+    byName.set(p.name, { ...p, scope: "project" });
   }
   return Array.from(byName.values()).map((p) => {
     const manifest = loadPluginManifest(p.root);
@@ -371,7 +419,10 @@ export function installPlugin(
   // resolve() cannot reset above the marketplace root.
   const relPath = entry.path.replace(/^\/+/, "");
   const sourceRoot = resolve(marketplace.root, relPath);
-  if (!sourceRoot.startsWith(resolve(marketplace.root))) {
+  if (
+    !isPathWithin(sourceRoot, marketplace.root) ||
+    hasEscapingSymlink(sourceRoot, marketplace.root)
+  ) {
     return { ok: false, error: `unsafe plugin path: ${entry.path}` };
   }
   const pluginManifest = loadPluginManifest(sourceRoot);
@@ -380,7 +431,7 @@ export function installPlugin(
   const pluginsBase =
     scope === "user" ? join(agentDir(), "plugins") : join(workspaceRoot, ".oma", "plugins");
   const installRoot = join(pluginsBase, pluginName);
-  if (!resolve(installRoot).startsWith(resolve(pluginsBase))) {
+  if (!isPathWithin(installRoot, pluginsBase, true)) {
     return { ok: false, error: `unsafe plugin name: ${pluginName}` };
   }
 
@@ -411,11 +462,15 @@ export function uninstallPlugin(workspaceRoot: string, name: string): boolean {
   ] as const) {
     const registry = readRegistry(path);
     const before = registry.plugins.length;
-    const removedPlugin = registry.plugins.find((p) => p.name === name && p.scope === scope);
-    registry.plugins = registry.plugins.filter((p) => !(p.name === name && p.scope === scope));
+    const removedPlugin = registry.plugins.find((p) => p.name === name);
+    registry.plugins = registry.plugins.filter((p) => p.name !== name);
     if (registry.plugins.length !== before) {
       writeRegistry(path, registry);
-      if (removedPlugin) rmSync(removedPlugin.root, { recursive: true, force: true });
+      const pluginsBase =
+        scope === "user" ? join(agentDir(), "plugins") : join(workspaceRoot, ".oma", "plugins");
+      if (removedPlugin && isPathWithin(removedPlugin.root, pluginsBase, true)) {
+        rmSync(removedPlugin.root, { recursive: true, force: true });
+      }
       removed = true;
     }
   }

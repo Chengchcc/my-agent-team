@@ -452,19 +452,24 @@ test("resume decisions settle the parked tool call instead of re-asking the mode
       expect((await client.prompt("run the probe")).stopReason).toBe("end_turn");
       mode.stop();
     }
-    // The resume branch's documented order is [history, prompt, tool_results,
-    // meta]: the settled results land AFTER the re-delivered prompt, so the
-    // prompt is no longer the call's last message.
+    // P0-9: exact ordering must be user("run the probe") -> assistant(tool_use) -> tool(tool_result),
+    // with ZERO duplicate "run the probe" user message (illegal order causes HTTP 400 on Anthropic/OpenAI).
     const promptCall = modelCalls.find((call) =>
       call.some((m) => m.role === "user" && m.text === "run the probe"),
     );
     expect(promptCall).toBeDefined();
-    expect(promptCall!.some((m) => JSON.stringify(m.blocks ?? []).includes("call-parked-1"))).toBe(
-      true,
+    const userPromptIndices = promptCall!
+      .map((m, i) => (m.role === "user" && m.text === "run the probe" ? i : -1))
+      .filter((i) => i >= 0);
+    expect(userPromptIndices).toHaveLength(1);
+    const toolUseIdx = promptCall!.findIndex(
+      (m) => m.role === "assistant" && JSON.stringify(m.blocks ?? []).includes("call-parked-1"),
     );
-    // The ask decision's response IS the tool result: the parked call settled
-    // from the submitted decision, not from an error or a re-ask.
-    expect(promptCall!.some((m) => (m.text ?? "").includes("42"))).toBe(true);
+    const toolResultIdx = promptCall!.findIndex(
+      (m) => m.role === "tool" && (m.text ?? "").includes("42"),
+    );
+    expect(toolUseIdx).toBeGreaterThan(userPromptIndices[0]!);
+    expect(toolResultIdx).toBeGreaterThan(toolUseIdx);
   } finally {
     if (prevSessionDir === undefined) delete process.env.OMA_SESSION_DIR;
     else process.env.OMA_SESSION_DIR = prevSessionDir;

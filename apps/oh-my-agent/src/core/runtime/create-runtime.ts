@@ -60,9 +60,12 @@ export interface CreateOmaRuntimeOptions {
   vectorMemory?: boolean;
   /** Standalone modes only (print/json/tui via shared.ts): mount the local
    *  memory surface — the learn tool (learned.md + managed-skill minting)
-   *  and manage_skill. The product RPC path leaves this unset: its memory
+   *  and manage_skill. The product ACP path leaves this unset: its memory
    *  semantics are the backend's, and the surface stays frozen. */
   localMemory?: boolean;
+  /** Post-run autonomous memory extraction (default true for standalone; set
+   *  false in ACP/product runs so backend owns long-term memory without races). */
+  autonomousMemory?: boolean;
   /** Nesting depth of this Run inside a delegation tree. Subagents are built
    *  with createOmaSession directly today (no memory pass), but if one ever
    *  routes through createOmaRuntime the pass must stay with the owner:
@@ -379,9 +382,14 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
               0,
             );
             const minToolCalls = rt.knobs.memoryMinToolCalls ?? DEFAULT_MEMORY_MIN_TOOL_CALLS;
-            // Memory belongs to the owner Run: a nested (delegated) Run never
-            // writes the workspace's long-term memory, however substantive.
-            if ((options.agentDepth ?? 0) === 0 && toolCalls >= minToolCalls) {
+            // Memory belongs to the owner Run: a nested (delegated) Run or a
+            // product ACP Run with `autonomousMemory: false` never writes the
+            // workspace's long-term memory files behind the backend's back.
+            if (
+              options.autonomousMemory !== false &&
+              (options.agentDepth ?? 0) === 0 &&
+              toolCalls >= minToolCalls
+            ) {
               const branch = await rt.store.readBranch(options.runId);
               const compactions: string[] = [];
               for (const entry of branch) {

@@ -1,5 +1,6 @@
+import { join } from "node:path";
 import type { Tool } from "@chengchenccc/message";
-import { runInSandbox } from "@chengchenccc/sandbox";
+import { runInSandbox, type SandboxInput } from "@chengchenccc/sandbox";
 import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
 import { readStringField } from "./presentation.js";
 
@@ -28,10 +29,14 @@ export function createEvalTool(opts: {
   timeoutMs?: number;
   /** Background-job registry (default: the process-wide one). */
   registry?: CoordinationRegistry;
+  /** OS-level isolation forwarded to `@chengchenccc/sandbox` (noNetwork / denyReadDirs). */
+  isolation?: SandboxInput["isolation"];
 }): Tool {
   const scope = opts.scope;
   const registry = opts.registry ?? defaultRegistry;
   const defaultTimeoutMs = opts.timeoutMs ?? 30_000;
+  const safeScope = scope.replace(/[^A-Za-z0-9._-]/g, "_") || "default";
+  const persistentEvalDir = join(opts.workspaceRoot, ".oma", "eval", safeScope);
 
   return {
     name: "eval",
@@ -92,12 +97,17 @@ export function createEvalTool(opts: {
         return { content: "eval requires non-empty code", isError: true };
       }
 
-      // pi semantics: timeout 0 disables the deadline entirely (long
-      // parses/compiles). Otherwise model-controlled values stay clamped —
-      // an unbounded timeout parks a sandbox slot indefinitely.
+      // pi semantics: timeout 0 disables the deadline for foreground cells (still
+      // bounded by the tool wrapper backstop). Background (`async: true`) cells
+      // ALWAYS enforce a finite ceiling so they can never become immortal zombies.
+      const isAsync = (input as { async?: boolean }).async === true;
       const requested = Number(timeout);
       const clampedTimeout =
-        requested === 0 ? 0 : Math.min(Math.max(requested || 30_000, 1_000), 600_000);
+        requested === 0 && !isAsync
+          ? 0
+          : requested === 0 && isAsync
+            ? MAX_EVAL_TIMEOUT_MS
+            : Math.min(Math.max(requested || 30_000, 1_000), MAX_EVAL_TIMEOUT_MS);
 
       const runCell = async (
         runnerSignal?: AbortSignal,
@@ -107,7 +117,8 @@ export function createEvalTool(opts: {
             code,
             input: ctxInput ?? {},
             timeoutMs: clampedTimeout,
-            keepCwd: keepWorkspace,
+            ...(keepWorkspace ? { cwd: persistentEvalDir, keepCwd: true } : { keepCwd: false }),
+            ...(opts.isolation ? { isolation: opts.isolation } : {}),
             signal: runnerSignal,
           });
           const parts: string[] = [];

@@ -2,34 +2,66 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
-import type { Browser, Page } from "puppeteer-core";
+import type { Browser, HTTPRequest, Page } from "puppeteer-core";
 import {
   assertSafeUrlDeep,
   isMetadataHost,
   parseHttpUrl,
   resolveHostAddresses,
 } from "./url-guard.js";
+import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
-/** browser: open, reuse, close, and script headless Chromium tabs
- *  (oh-my-pi browser.md surface, ponytail cut): ONE shared headless browser
- *  per process, named tabs, and a `run` action executing JS against a
- *  `tab` helper API.
+/** browser: open, reuse, close, and drive headless Chromium tabs via
+ *  DECLARATIVE steps only (no host-process `AsyncFunction` / `eval`).
  *
- *  ponytail: in-process execution — no Bun worker isolation, no stealth
- *  patches, no relay/cmux/ARIA bundle. A synchronously-spinning `run` code
- *  block cannot be interrupted; the tool timeout closes the page, which is
- *  the escape hatch. Upgrade path: port omp's tab-worker when that bites. */
-
-/** Async-function constructor for `run` bodies (same trust level as the
- *  eval tool: the model writes the code; it runs with process access). */
-const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
-  ...args: string[]
-) => (...args: unknown[]) => Promise<unknown>;
+ *  Security invariants:
+ *  - Model JavaScript ONLY runs inside the Chromium page sandbox (`op: "evaluate"`),
+ *    never in the host Bun process (`process.env`, FS, `Bun.spawn` unreachable).
+ *  - Every navigation, redirect hop, and subresource request on every tab is
+ *    interrogated via Puppeteer request interception (`checkNavigationAllowed`).
+ *  - Tab names are restricted to `[a-zA-Z0-9_-]{1,64}` and screenshot output
+ *    paths are verified through `WorkspaceSandbox.validateNew`. */
 
 interface TabEntry {
   readonly name: string;
   readonly page: Page;
+  readonly allowLocalNetwork: boolean;
 }
+
+export type BrowserStep =
+  | {
+      op: "goto";
+      url: string;
+      waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
+    }
+  | { op: "title" }
+  | { op: "url" }
+  | { op: "observe" }
+  | { op: "extract" }
+  | { op: "screenshot"; fullPage?: boolean; silent?: boolean }
+  | { op: "click"; selector: string }
+  | { op: "type"; selector: string; text: string }
+  | { op: "fill"; selector: string; value: string }
+  | { op: "press"; key: string }
+  | { op: "scroll"; deltaX?: number; deltaY?: number }
+  | { op: "select"; selector: string; values: string[] }
+  | { op: "scrollIntoView"; selector: string }
+  | {
+      op: "waitForSelector";
+      selector: string;
+      timeout?: number;
+      visible?: boolean;
+      hidden?: boolean;
+    }
+  | {
+      op: "waitForNavigation";
+      waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
+      timeout?: number;
+    }
+  | { op: "wait"; ms: number }
+  | { op: "evaluate"; expression: string };
+
+const SAFE_TAB_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /** Process-global tab registry (the bash/eval bg-job pattern): the TUI
  *  shares tabs across Runs in one process; the backend runs one Run per
@@ -45,6 +77,7 @@ const DEFAULT_TIMEOUT_S = 30;
 /** observe/extract output caps: the model, not the page, is the sink. */
 const MAX_OBSERVE_BYTES = 12_000;
 const MAX_EXTRACT_CHARS = 20_000;
+const MAX_STEPS_PER_CALL = 50;
 
 /** Puppeteer cache layouts, newest version first. Chromium's cache directory
  *  name (and the binary inside it) is platform-specific. */
@@ -85,8 +118,6 @@ function chromeCacheCandidates(cacheDir: string): string[] {
   return out;
 }
 
-/** System-browser fallbacks: the well-known install locations for the
- *  platforms whose package managers do not guarantee a `which`-able name. */
 const SYSTEM_BROWSER_CANDIDATES = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -94,8 +125,7 @@ const SYSTEM_BROWSER_CANDIDATES = [
 ];
 
 /** Resolve the Chromium executable: PUPPETEER_EXECUTABLE_PATH, then the
- *  puppeteer cache for this platform, then a system browser. Throws when
- *  nothing is installed — callers surface that as a tool error. */
+ *  puppeteer cache for this platform, then a system browser. */
 export function resolveChromeExecutable(): string {
   const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH;
   if (fromEnv) return fromEnv;
@@ -115,6 +145,21 @@ export function resolveChromeExecutable(): string {
   throw new Error("no Chromium found — set PUPPETEER_EXECUTABLE_PATH or install Chrome/Chromium");
 }
 
+function chromeLaunchArgs(): string[] {
+  const args = ["--disable-blink-features=AutomationControlled"];
+  // Keep Chromium's OS sandbox ON when possible; Linux containers running as
+  // root without userns require --no-sandbox (or explicit env opt-in).
+  const needsNoSandbox =
+    process.env.OMA_BROWSER_NO_SANDBOX === "1" ||
+    (process.platform === "linux" &&
+      typeof process.getuid === "function" &&
+      process.getuid() === 0);
+  if (needsNoSandbox) {
+    args.unshift("--no-sandbox", "--disable-setuid-sandbox");
+  }
+  return args;
+}
+
 async function getSharedBrowser(): Promise<Browser> {
   if (sharedBrowser?.connected) return sharedBrowser;
   if (launching) return launching;
@@ -123,11 +168,7 @@ async function getSharedBrowser(): Promise<Browser> {
     const browser = await puppeteer.launch({
       executablePath: resolveChromeExecutable(),
       headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled",
-      ],
+      args: chromeLaunchArgs(),
       defaultViewport: DEFAULT_VIEWPORT,
       protocolTimeout: 60_000,
     });
@@ -141,17 +182,6 @@ async function getSharedBrowser(): Promise<Browser> {
   }
 }
 
-/** Launchability probe (bounded): the executable EXISTING says nothing on
- *  boxes whose cached Chrome for Testing cannot start (seen on macOS/arm64).
- *  Integration tests gate on this instead of file existence, so a broken
- *  environment skips with signal rather than failing red — and a vacuous
- *  pass cannot hide behind a launch that never worked.
- *
- *  The probe launches its OWN browser and ALWAYS closes it: it must not touch
- *  the shared singleton, because a probe that times out leaves the shared
- *  launch promise in flight and the browser it eventually spawns would live
- *  for the rest of the process (test runs leaked one headless Chrome per
- *  invocation). */
 export async function canLaunchChromium(boundMs = 8_000): Promise<boolean> {
   let browser: Browser | undefined;
   let timer: Timer | undefined;
@@ -161,11 +191,7 @@ export async function canLaunchChromium(boundMs = 8_000): Promise<boolean> {
       puppeteer.launch({
         executablePath: resolveChromeExecutable(),
         headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-blink-features=AutomationControlled",
-        ],
+        args: chromeLaunchArgs(),
         defaultViewport: DEFAULT_VIEWPORT,
         protocolTimeout: 60_000,
       }),
@@ -183,17 +209,10 @@ export async function canLaunchChromium(boundMs = 8_000): Promise<boolean> {
     return false;
   } finally {
     clearTimeout(timer);
-    // AWAIT the close: a fire-and-forget close races the test process exit and
-    // the browser survives as an orphan (one leaked headless Chrome per run).
     await browser?.close().catch(() => {});
   }
 }
 
-/** Close the tool-owned shared browser and drain the tab registry.
- *  Production calls this indirectly (releasing the LAST tab closes it); the
- *  explicit entry point exists for test teardown, where a mid-test failure
- *  would otherwise leave a headless Chrome running for the rest of the
- *  process. */
 export async function closeSharedBrowserForTests(): Promise<void> {
   for (const name of [...tabs.keys()]) await releaseTab(name);
   const browser = sharedBrowser;
@@ -201,8 +220,6 @@ export async function closeSharedBrowserForTests(): Promise<void> {
   await browser?.close().catch(() => {});
 }
 
-/** Release one tab; when the last tab goes, the tool-owned headless browser
- *  closes with it. */
 async function releaseTab(name: string): Promise<string> {
   const entry = tabs.get(name);
   if (!entry) return `No tab named "${name}".`;
@@ -216,109 +233,35 @@ async function releaseTab(name: string): Promise<string> {
   return `Closed tab "${name}".`;
 }
 
-/** The per-tab helper API handed to `run` code. */
-function createTabApi(name: string, page: Page, screenshotDir: string) {
-  return {
-    name,
-    url: () => page.url(),
-    title: () => page.title(),
-    goto: (
-      url: string,
-      opts?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2" },
-    ) => page.goto(url, { waitUntil: opts?.waitUntil ?? "load", timeout: 30_000 }),
-    /** Accessibility-tree snapshot of the whole page (JSON, capped). */
-    observe: async () => {
-      const snap = await page.accessibility.snapshot();
-      const text = JSON.stringify(snap, null, 1) ?? "";
-      return text.length > MAX_OBSERVE_BYTES
-        ? `${text.slice(0, MAX_OBSERVE_BYTES)}\n…(truncated — narrow with tab.evaluate)`
-        : text;
-    },
-    /** Screenshot: saved under <workspace>/.oma/screenshots; returns the path
-     *  (the run wrapper turns it into a vision image block unless silent). */
-    screenshot: async (opts?: { fullPage?: boolean; silent?: boolean }) => {
-      mkdirSync(screenshotDir, { recursive: true });
-      const dest = join(screenshotDir, `${name}-${Date.now()}.png`);
-      await page.screenshot({ fullPage: opts?.fullPage ?? false, path: dest });
-      return dest;
-    },
-    /** Raw HTML: capped. Prefer tab.evaluate for targeted reads. */
-    extract: async () => {
-      const html = await page.content();
-      return html.length > MAX_EXTRACT_CHARS
-        ? `${html.slice(0, MAX_EXTRACT_CHARS)}\n…(truncated)`
-        : html;
-    },
-    click: (selector: string) => page.click(selector),
-    type: (selector: string, text: string) => page.type(selector, text),
-    fill: (selector: string, value: string) =>
-      page.evaluate(
-        (sel, val) => {
-          const el = document.querySelector<HTMLInputElement>(sel);
-          if (!el) throw new Error(`no element matches ${sel}`);
-          el.value = val;
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-        },
-        selector,
-        value,
-      ),
-    press: (key: string) => page.keyboard.press(key as Parameters<Page["keyboard"]["press"]>[0]),
-    scroll: (deltaX: number, deltaY: number) =>
-      page.evaluate((dx, dy) => window.scrollBy(dx, dy), deltaX, deltaY),
-    select: (selector: string, ...values: string[]) => page.select(selector, ...values),
-    scrollIntoView: (selector: string) =>
-      page.evaluate((sel) => {
-        document.querySelector(sel)?.scrollIntoView();
-      }, selector),
-    waitForSelector: (
-      selector: string,
-      opts?: { timeout?: number; visible?: boolean; hidden?: boolean },
-    ) =>
-      page.waitForSelector(selector, {
-        timeout: opts?.timeout ?? 15_000,
-        ...(opts?.visible !== undefined ? { visible: opts.visible } : {}),
-        ...(opts?.hidden !== undefined ? { hidden: opts.hidden } : {}),
-      }),
-    waitForNavigation: (opts?: {
-      waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
-      timeout?: number;
-    }) =>
-      page.waitForNavigation({
-        waitUntil: opts?.waitUntil ?? "load",
-        timeout: opts?.timeout ?? 30_000,
-      }),
-    evaluate: (fn: (...args: unknown[]) => unknown, ...args: unknown[]) =>
-      page.evaluate(fn, ...args),
-  };
+/** Install all-hop request interception on a Puppeteer page so 302 redirects,
+ *  subresource fetches, and script-initiated navigations cannot bypass the
+ *  egress/metadata policy. */
+async function installRequestGuard(page: Page, allowLocalNetwork: boolean): Promise<void> {
+  await page.setRequestInterception(true);
+  page.on("request", (req: HTTPRequest) => {
+    void (async () => {
+      try {
+        const url = req.url();
+        const refused = await checkNavigationAllowed(url, allowLocalNetwork);
+        if (refused) {
+          await req.abort("blockedbyclient").catch(() => {});
+          return;
+        }
+        await req.continue().catch(() => {});
+      } catch {
+        await req.abort("failed").catch(() => {});
+      }
+    })();
+  });
 }
 
-/** Navigation policy for action=open. Two settings, one scheme rule.
- *
- *  Default (local OFF): the same egress rule web_fetch enforces — the target
- *  must pass the url guard, which blocks loopback, RFC1918, link-local and the
- *  carrier-grade NAT range. That means a local dev server cannot be driven
- *  through this tool unless the workspace opts in.
- *
- *  Local ON (`.oma/settings.json` `browserLocalNetwork`, standalone only): a
- *  developer inspecting the app they are building needs http://localhost:3000,
- *  so the loopback/RFC1918 refusal is lifted — but ONLY that part. Cloud
- *  metadata keeps being refused (`isMetadataHost`), for the hostname AS WRITTEN
- *  and for the addresses it resolves to: 169.254.169.254, the CGNAT range and
- *  DNS names pointing into them are where instance credentials live, and a
- *  dev-server allowance must not become a credential-stealing primitive.
- *
- *  Both settings keep the scheme rule: http(s) only, so `file:///etc/passwd`
- *  is refused rather than rendered (a browser `file:` read would step outside
- *  the workspace sandbox the file tools enforce). `data:`/`about:` stay allowed
- *  because that is how this tool is exercised offline (its own tests) — NOT
- *  because they are inert: a data: document runs script and can fetch
- *  subresources, so that exemption is not a security boundary.
- *
- *  Scope: this hardens direct navigation only. `action=run` executes model JS
- *  with process access (see the header note) and a page can fetch subresources
- *  itself, so it is a deterministic barrier, not containment. A read_write Run
- *  has bash anyway.
- *
+/** Validate tab name against path-traversal characters before using it in
+ *  screenshot file names (`<workspace>/.oma/screenshots/<name>-<ts>.png`). */
+export function isValidTabName(name: string): boolean {
+  return SAFE_TAB_NAME.test(name);
+}
+
+/** Navigation policy for action=open, goto, redirects, and subresources.
  *  Returns an error string when the URL must not be opened. */
 export async function checkNavigationAllowed(
   url: string,
@@ -339,11 +282,6 @@ export async function checkNavigationAllowed(
       if (isMetadataHost(parsed.hostname)) {
         return `Error: refused to open ${url}: cloud metadata endpoints are never reachable`;
       }
-      // The hostname check above only sees literals and metadata NAMES. A DNS
-      // name that RESOLVES into 169.254/16 or 100.64/10 (nip.io-style, or a
-      // record the prompt-injector controls) is the same credential-stealing
-      // primitive as typing the address, so the local opt-in resolves too.
-      // Not TOCTOU-proof — Chromium re-resolves — same ceiling as web_fetch.
       const isLiteralIp =
         parsed.hostname.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname);
       if (!isLiteralIp) {
@@ -361,12 +299,126 @@ export async function checkNavigationAllowed(
   return null;
 }
 
+async function executeBrowserStep(
+  step: BrowserStep,
+  ctx: {
+    name: string;
+    page: Page;
+    allowLocalNetwork: boolean;
+    workspaceRoot: string;
+    screenshotDir: string;
+    deadlineMs: number;
+    images: Array<{ mediaType: "image/png"; base64: string }>;
+  },
+): Promise<unknown> {
+  const { name, page, allowLocalNetwork, workspaceRoot, screenshotDir, deadlineMs, images } = ctx;
+  switch (step.op) {
+    case "goto": {
+      const refused = await checkNavigationAllowed(step.url, allowLocalNetwork);
+      if (refused) throw new Error(refused);
+      await page.goto(step.url, {
+        waitUntil: step.waitUntil ?? "load",
+        timeout: Math.min(30_000, deadlineMs),
+      });
+      return { url: page.url(), title: await page.title().catch(() => "") };
+    }
+    case "title":
+      return await page.title();
+    case "url":
+      return page.url();
+    case "observe": {
+      const snap = await page.accessibility.snapshot();
+      const text = JSON.stringify(snap, null, 1) ?? "";
+      return text.length > MAX_OBSERVE_BYTES
+        ? `${text.slice(0, MAX_OBSERVE_BYTES)}\n…(truncated — narrow with evaluate)`
+        : text;
+    }
+    case "extract": {
+      const html = await page.content();
+      return html.length > MAX_EXTRACT_CHARS
+        ? `${html.slice(0, MAX_EXTRACT_CHARS)}\n…(truncated)`
+        : html;
+    }
+    case "screenshot": {
+      mkdirSync(screenshotDir, { recursive: true });
+      const rawDest = join(screenshotDir, `${name}-${Date.now()}.png`);
+      const dest = new WorkspaceSandbox(workspaceRoot).validateNew(rawDest);
+      await page.screenshot({ fullPage: step.fullPage ?? false, path: dest });
+      if (!step.silent) {
+        images.push({
+          mediaType: "image/png",
+          base64: readFileSync(dest).toString("base64"),
+        });
+      }
+      return dest;
+    }
+    case "click":
+      await page.click(step.selector);
+      return { clicked: step.selector };
+    case "type":
+      await page.type(step.selector, step.text);
+      return { typed: step.selector };
+    case "fill":
+      await page.evaluate(
+        (sel, val) => {
+          const el = document.querySelector<HTMLInputElement>(sel);
+          if (!el) throw new Error(`no element matches ${sel}`);
+          el.value = val;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        },
+        step.selector,
+        step.value,
+      );
+      return { filled: step.selector };
+    case "press":
+      await page.keyboard.press(step.key as Parameters<Page["keyboard"]["press"]>[0]);
+      return { pressed: step.key };
+    case "scroll":
+      await page.evaluate((dx, dy) => window.scrollBy(dx, dy), step.deltaX ?? 0, step.deltaY ?? 0);
+      return { scrolled: [step.deltaX ?? 0, step.deltaY ?? 0] };
+    case "select":
+      return await page.select(step.selector, ...(step.values ?? []));
+    case "scrollIntoView":
+      await page.evaluate((sel) => {
+        document.querySelector(sel)?.scrollIntoView();
+      }, step.selector);
+      return { scrolledIntoView: step.selector };
+    case "waitForSelector":
+      await page.waitForSelector(step.selector, {
+        timeout: Math.min(step.timeout ?? 15_000, deadlineMs),
+        ...(step.visible !== undefined ? { visible: step.visible } : {}),
+        ...(step.hidden !== undefined ? { hidden: step.hidden } : {}),
+      });
+      return { found: step.selector };
+    case "waitForNavigation":
+      await page.waitForNavigation({
+        waitUntil: step.waitUntil ?? "load",
+        timeout: Math.min(step.timeout ?? 30_000, deadlineMs),
+      });
+      return { url: page.url() };
+    case "wait": {
+      const ms = Math.max(0, Number(step.ms) || 0);
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, ms);
+        t.unref?.();
+      });
+      return { waitedMs: ms };
+    }
+    case "evaluate": {
+      // Runs strictly inside the Chromium page sandbox — NEVER in the host Bun process.
+      const expr = String(step.expression ?? "");
+      if (!expr.trim()) throw new Error("evaluate step requires non-empty expression");
+      return await page.evaluate(expr);
+    }
+    default:
+      throw new Error(`unknown browser step op: ${String((step as { op?: unknown }).op)}`);
+  }
+}
+
 export function createBrowserTool(opts: {
   workspaceRoot: string;
   /** Opt-in: allow loopback/RFC1918 targets so a local dev server can be
-   *  inspected. Off by default; cloud metadata stays refused either way.
-   *  Standalone knob (`.oma/settings.json` `browserLocalNetwork`) — a product
-   *  RPC run only honors it through the frozen run snapshot (deps.settings). */
+   *  inspected. Off by default; cloud metadata stays refused either way. */
   allowLocalNetwork?: boolean;
 }): Tool {
   const screenshotDir = join(opts.workspaceRoot, ".oma", "screenshots");
@@ -374,21 +426,77 @@ export function createBrowserTool(opts: {
   return {
     name: "browser",
     description:
-      "Drive a real headless Chromium. action=open opens/reuses a named tab " +
-      "(url, viewport); action=run executes async JS with `tab` in scope " +
-      "(goto/observe/screenshot/click/type/fill/press/scroll/waitForSelector/" +
-      "waitForNavigation/evaluate/extract/select); action=close releases tabs " +
-      "(all: true releases every tab). Use for pages needing JS, interaction, " +
-      "or screenshots — web_fetch for static reads. http(s) only: file: URLs are " +
-      "refused, and localhost/private-network targets unless the workspace has " +
-      "enabled local access.",
+      "Drive a real headless Chromium tab safely via declarative steps. " +
+      "action=open opens/reuses a named tab (url, viewport); " +
+      "action=run executes a declarative `steps` array (goto, title, url, observe, extract, " +
+      "screenshot, click, type, fill, press, scroll, select, scrollIntoView, waitForSelector, " +
+      "waitForNavigation, wait, evaluate — where `evaluate` runs strictly inside the browser page); " +
+      "action=close releases tabs (all: true releases every tab). " +
+      "All navigations, redirects, and subresources obey the http(s) + metadata egress policy.",
     inputSchema: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["open", "close", "run"], description: "Dispatch." },
-        name: { type: "string", description: 'Tab id (default "main"); reused across calls.' },
+        name: {
+          type: "string",
+          description: 'Tab id ([a-zA-Z0-9_-]{1,64}, default "main"); reused across calls.',
+        },
         url: { type: "string", description: "open: navigate after the tab is ready." },
-        code: { type: "string", description: "run: async function body; `tab` API in scope." },
+        steps: {
+          type: "array",
+          description:
+            "run: ordered declarative steps (e.g. [{op:'title'}, {op:'click', selector:'#b'}, {op:'screenshot'}]).",
+          items: {
+            type: "object",
+            properties: {
+              op: {
+                type: "string",
+                enum: [
+                  "goto",
+                  "title",
+                  "url",
+                  "observe",
+                  "extract",
+                  "screenshot",
+                  "click",
+                  "type",
+                  "fill",
+                  "press",
+                  "scroll",
+                  "select",
+                  "scrollIntoView",
+                  "waitForSelector",
+                  "waitForNavigation",
+                  "wait",
+                  "evaluate",
+                ],
+              },
+              url: { type: "string" },
+              selector: { type: "string" },
+              text: { type: "string" },
+              value: { type: "string" },
+              values: { type: "array", items: { type: "string" } },
+              key: { type: "string" },
+              deltaX: { type: "number" },
+              deltaY: { type: "number" },
+              ms: { type: "number" },
+              expression: {
+                type: "string",
+                description: "evaluate: JS expression evaluated inside the browser page context.",
+              },
+              fullPage: { type: "boolean" },
+              silent: { type: "boolean" },
+              timeout: { type: "number" },
+              visible: { type: "boolean" },
+              hidden: { type: "boolean" },
+              waitUntil: {
+                type: "string",
+                enum: ["load", "domcontentloaded", "networkidle0", "networkidle2"],
+              },
+            },
+            required: ["op"],
+          },
+        },
         viewport: {
           type: "object",
           properties: { width: { type: "number" }, height: { type: "number" } },
@@ -408,12 +516,21 @@ export function createBrowserTool(opts: {
         name?: string;
         url?: string;
         code?: string;
+        steps?: BrowserStep[];
         viewport?: { width?: number; height?: number };
         all?: boolean;
         timeout?: number;
       };
       const action = args.action;
       const name = args.name ?? "main";
+      if (action !== "close" || !args.all) {
+        if (!isValidTabName(name)) {
+          return {
+            content: `Error: invalid tab name "${name}" (allowed: [a-zA-Z0-9_-]{1,64})`,
+            isError: true,
+          };
+        }
+      }
       const timeoutS = Math.min(
         MAX_TIMEOUT_S,
         Math.max(MIN_TIMEOUT_S, args.timeout ?? DEFAULT_TIMEOUT_S),
@@ -429,7 +546,9 @@ export function createBrowserTool(opts: {
           const browser = await getSharedBrowser();
           let entry = tabs.get(name);
           if (!entry) {
-            entry = { name, page: await browser.newPage() };
+            const page = await browser.newPage();
+            await installRequestGuard(page, allowLocalNetwork);
+            entry = { name, page, allowLocalNetwork };
             tabs.set(name, entry);
           }
           if (args.viewport?.width && args.viewport?.height) {
@@ -463,9 +582,25 @@ export function createBrowserTool(opts: {
       }
 
       if (action === "run") {
-        const code = args.code;
-        if (typeof code !== "string" || code.trim() === "") {
-          return { content: "Error: code is required for action 'run'", isError: true };
+        if (typeof args.code === "string" && !Array.isArray(args.steps)) {
+          return {
+            content:
+              "Error: raw host `code` execution is disabled for security. Pass declarative `steps` (e.g. [{ op: 'evaluate', expression: '...' }, { op: 'screenshot' }]).",
+            isError: true,
+          };
+        }
+        const steps = args.steps;
+        if (!Array.isArray(steps) || steps.length === 0) {
+          return {
+            content: "Error: non-empty `steps` array is required for action 'run'",
+            isError: true,
+          };
+        }
+        if (steps.length > MAX_STEPS_PER_CALL) {
+          return {
+            content: `Error: too many steps (${steps.length} > max ${MAX_STEPS_PER_CALL})`,
+            isError: true,
+          };
         }
         const entry = tabs.get(name);
         if (!entry) {
@@ -476,54 +611,44 @@ export function createBrowserTool(opts: {
         }
         const { page } = entry;
         const images: Array<{ mediaType: "image/png"; base64: string }> = [];
-        const outputs: string[] = [];
-        const plainTab = createTabApi(name, page, screenshotDir);
-        // Screenshot wrapper: pushes a vision image block unless silent.
-        const tab = {
-          ...plainTab,
-          screenshot: async (o?: { fullPage?: boolean; silent?: boolean }) => {
-            const dest = await plainTab.screenshot(o);
-            if (!o?.silent) {
-              images.push({
-                mediaType: "image/png",
-                base64: readFileSync(dest).toString("base64"),
-              });
-            }
-            return dest;
-          },
-        };
-        const fn = new AsyncFunction("page", "tab", "browser", "assert", "wait", code);
         const started = Date.now();
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          const returnValue = await Promise.race([
-            fn(
-              page,
-              tab,
-              page.browser(),
-              (cond: unknown, msg?: string) => {
-                if (!cond) throw new Error(msg ?? "assertion failed");
-              },
-              (ms: number) => new Promise((r) => setTimeout(r, ms)),
-            ),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error(`run timed out after ${timeoutS}s`)), deadlineMs),
-            ),
+          const results = await Promise.race([
+            (async () => {
+              const out: unknown[] = [];
+              for (const step of steps) {
+                if (signal?.aborted) throw new Error("aborted");
+                out.push(
+                  await executeBrowserStep(step, {
+                    name,
+                    page,
+                    allowLocalNetwork: entry.allowLocalNetwork,
+                    workspaceRoot: opts.workspaceRoot,
+                    screenshotDir,
+                    deadlineMs,
+                    images,
+                  }),
+                );
+              }
+              return out;
+            })(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error(`run timed out after ${timeoutS}s`)),
+                deadlineMs,
+              );
+              timer.unref?.();
+            }),
           ]);
           if (signal?.aborted) {
             await releaseTab(name);
             return { content: "Error: aborted", isError: true };
           }
-          if (returnValue !== undefined) {
-            outputs.push(
-              typeof returnValue === "string"
-                ? returnValue
-                : (JSON.stringify(returnValue, null, 2) ?? String(returnValue)),
-            );
-          }
-          if (outputs.length === 0) outputs.push(`Ran code on tab "${name}".`);
           const elapsed = `${Date.now() - started}ms`;
+          const summary = JSON.stringify(results.length === 1 ? results[0] : results, null, 2);
           const content =
-            `${outputs.join("\n\n")}\n(${elapsed}` +
+            `${summary}\n(${elapsed}` +
             `${images.length ? `, ${images.length} screenshot(s)` : ""})`;
           if (images.length > 0) {
             return {
@@ -536,8 +661,6 @@ export function createBrowserTool(opts: {
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (/timed out/.test(message)) {
-            // Closing the page is the only way to unblock a wedged
-            // evaluation; the next call starts clean.
             await releaseTab(name);
             return {
               content: `Error: ${message} — tab "${name}" was killed; open it again.`,
@@ -545,6 +668,8 @@ export function createBrowserTool(opts: {
             };
           }
           return { content: `Error: ${message}`, isError: true };
+        } finally {
+          if (timer) clearTimeout(timer);
         }
       }
 

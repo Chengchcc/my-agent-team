@@ -57,8 +57,11 @@ import {
   createWriteTool,
   MAX_BASH_TIMEOUT_MS,
   MAX_EVAL_TIMEOUT_MS,
+  pathPolicyRefusal,
+  planModeRefusal,
   type WebFetchPort,
   type WebSearchPort,
+  WorkspaceSandbox,
 } from "../tools/index.js";
 import {
   type McpMountReport,
@@ -408,6 +411,17 @@ async function buildNativeToolStage(
           scope,
           registry,
           ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
+          ...(bashSandbox
+            ? {
+                isolation: {
+                  noNetwork: true,
+                  denyReadDirs: (process.env.OMA_DENY_WRITE_PATHS ?? "")
+                    .split(",")
+                    .map((p) => p.trim())
+                    .filter(Boolean),
+                },
+              }
+            : {}),
         }),
       ),
     );
@@ -629,6 +643,7 @@ const HIGH_RISK_NATIVE_TOOLS: Record<string, true> = {
   eval: true,
   write: true,
   edit: true,
+  workflow_run: true,
   // learn/manage_skill write files; the skill branch writes OUTSIDE the
   // workspace (<agentDir>/managed-skills), so the workspace-sandbox
   // exemption cannot cover them (omp marks both approval="write").
@@ -692,6 +707,7 @@ function createRunPermissionGates(
     (toolName === "bash" ||
       toolName === "browser" ||
       toolName === "eval" ||
+      toolName === "workflow_run" ||
       toolName === "manage_skill" ||
       // learn is workspace-only EXCEPT its skill branch (writes agentDir):
       // gate exactly that (omp's args.skill ? "write" : "read").
@@ -792,7 +808,11 @@ function createRunPermissionGates(
     const human = await requestApproval(deps.approvalHandler, escalation, approvalDeadlineMs);
     // The same two remembered answers the ask gate honours: one human reply
     // covers the rest of the run for this tool, in either direction.
-    if (human.decision === "allow_always") alwaysAllowed.add(toolName);
+    if (human.decision === "allow_always") {
+      alwaysAllowed.add(toolName);
+      return undefined;
+    }
+    if (human.decision === "allow") return undefined;
     if (human.decision === "deny_always") {
       alwaysDenied.add(toolName);
       return {
@@ -800,13 +820,11 @@ function createRunPermissionGates(
         reason: `${toolName}: denied for this run by the user`,
       };
     }
-    if (human.decision === "deny") {
-      return {
-        block: true,
-        reason: `${toolName}: blocked by classifier — ${verdict.reason} (human denied)`,
-      };
-    }
-    return undefined;
+    // Fail-closed: any non-allow decision (including "deny" or unexpected values) blocks.
+    return {
+      block: true,
+      reason: `${toolName}: blocked by classifier — ${verdict.reason} (human denied)`,
+    };
   };
   /** Session permission gate factory: the main session AND every workflow
    *  subagent share one policy (critical guard, classifier, one
@@ -855,7 +873,14 @@ function createRunPermissionGates(
       }
       // Consent is INJECTED policy (spawner-declared env), so it is applied
       // here where the decoded set lives, not in the name predicate.
-      if (!isAskGatedName(toolName) || isConsentedProductTool(toolName)) return undefined;
+      // Plugin code tools route through this SAME gate so deny_always /
+      // allow_always and fail-closed semantics stay single-sourced.
+      if (
+        (!isAskGatedName(toolName) && !pluginCodeToolNames.has(toolName)) ||
+        isConsentedProductTool(toolName)
+      ) {
+        return undefined;
+      }
       if (deps.permissionMode === "deny") {
         return { block: true, reason: `${toolName}: blocked by permissionMode=deny` };
       }
@@ -909,13 +934,11 @@ function createRunPermissionGates(
           }`,
         };
       }
-      if (verdict.decision === "deny") {
-        return {
-          block: true,
-          reason: `${toolName}: denied — ${verdict.reason ?? "user denied"}`,
-        };
+      if (verdict.decision === "allow") return undefined;
+      if (verdict.decision === "allow_always") {
+        alwaysAllowed.add(toolName);
+        return undefined;
       }
-      if (verdict.decision === "allow_always") alwaysAllowed.add(toolName);
       if (verdict.decision === "deny_always") {
         alwaysDenied.add(toolName);
         return {
@@ -923,7 +946,11 @@ function createRunPermissionGates(
           reason: `${toolName}: denied for this run by the user`,
         };
       }
-      return undefined;
+      // Fail-closed: deny (and any unrecognized decision) blocks execution.
+      return {
+        block: true,
+        reason: `${toolName}: denied — ${verdict.reason ?? "user denied"}`,
+      };
     };
   const permissionGate =
     deps.permissionMode === undefined ? undefined : makeSessionPermissionGate([]);
@@ -988,7 +1015,8 @@ function createDelegationStack(
     maxTotal: 64,
   });
   // Script runs: one batchId shared by every agent() the script spawns.
-  // The vm evaluator has no fs/network; the executor enforces caps/budget.
+  // Executed in an isolated subprocess (no host memory/env); aborting the
+  // script cancels all spawned subagents and always emits batch completion.
   const runScript = async ({
     script,
     args,
@@ -998,6 +1026,7 @@ function createDelegationStack(
   }): Promise<{ ok: boolean; totalTokens: number; value: unknown }> => {
     const batchId = `script-${crypto.randomUUID()}`;
     const results: SubagentResult[] = [];
+    const scriptController = new AbortController();
     emit({
       type: "delegation_batch_started",
       batchId,
@@ -1005,24 +1034,55 @@ function createDelegationStack(
       source: "workflow",
       agentCount: 0,
     });
-    const { value } = await evaluateOrchestrationScript({
-      script,
-      args,
-      primitives: {
-        agent: async (prompt, opts) => {
-          const result = await delegationExecutor.runSubagent({
-            batchId,
-            agentId: randomUUID(),
-            prompt,
-            ...(opts?.schema ? { schema: opts.schema } : {}),
-            ...(opts?.label ? { label: opts.label } : {}),
-          });
-          results.push(result);
-          return result;
+    let value: unknown;
+    let failed = false;
+    try {
+      const evaluated = await evaluateOrchestrationScript({
+        script,
+        args,
+        signal: scriptController.signal,
+        primitives: {
+          agent: async (prompt, opts) => {
+            const result = await delegationExecutor.runSubagent(
+              {
+                batchId,
+                agentId: randomUUID(),
+                prompt,
+                ...(opts?.schema ? { schema: opts.schema } : {}),
+                ...(opts?.label ? { label: opts.label } : {}),
+              },
+              scriptController.signal,
+            );
+            results.push(result);
+            return result;
+          },
+          pipeline: (items, fn) => Promise.all(items.map(fn)),
         },
-        pipeline: (items, fn) => Promise.all(items.map(fn)),
-      },
-    });
+      });
+      value = evaluated.value;
+    } catch (err) {
+      failed = true;
+      scriptController.abort();
+      throw err;
+    } finally {
+      const totalTokens = results.reduce(
+        (acc, r) =>
+          acc +
+          (r.usage?.inputTokens ?? 0) +
+          (r.usage?.outputTokens ?? 0) +
+          (r.usage?.cacheReadTokens ?? 0) +
+          (r.usage?.cacheWriteTokens ?? 0),
+        0,
+      );
+      const ok = !failed && results.every((r) => r.ok);
+      emit({
+        type: "delegation_batch_completed",
+        batchId,
+        ok,
+        agentCount: results.length,
+        totalTokens,
+      });
+    }
     const totalTokens = results.reduce(
       (acc, r) =>
         acc +
@@ -1033,13 +1093,6 @@ function createDelegationStack(
       0,
     );
     const ok = results.every((r) => r.ok);
-    emit({
-      type: "delegation_batch_completed",
-      batchId,
-      ok,
-      agentCount: results.length,
-      totalTokens,
-    });
     return { ok, totalTokens, value };
   };
   const delegationTools = createDelegationTools({
@@ -1076,9 +1129,16 @@ function createDelegationStack(
       if (deps.workspaceAccess !== "read_write") {
         throw new Error("workflow scripts cannot be saved in a read_only workspace");
       }
+      const targetPath = new WorkspaceSandbox(deps.workspaceRoot).validateNew(
+        join(".oma", "workflow", `${name}.js`),
+      );
+      const planBlocked = planModeRefusal(deps.planMode, targetPath);
+      if (planBlocked) throw new Error(planBlocked);
+      const policyBlocked = pathPolicyRefusal(targetPath);
+      if (policyBlocked) throw new Error(policyBlocked);
       const dir = join(deps.workspaceRoot, ".oma/workflow");
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, `${name}.js`), content);
+      writeFileSync(targetPath, content);
     },
     readScript: async (name) => {
       if (!isValidWorkflowName(name)) return null;
@@ -1131,12 +1191,15 @@ function createDelegationStack(
     runScript,
     plugins: [
       { name: "delegation-tools", tools: delegationTools },
-      { name: "orchestrate-tool", tools: orchestrateTools },
+      // workflow_run executes scripts & saves files — omitted on read_only runs.
+      ...(deps.workspaceAccess === "read_write"
+        ? [{ name: "orchestrate-tool", tools: orchestrateTools }]
+        : []),
       { name: "hub-tool", tools: hubTools },
     ],
     // ADR 0059: what the loop needs to hold a turn open over background work.
     backgroundSupervision: {
-      countRunning: () => registry.countRunningJobs(),
+      countRunning: () => registry.countRunningJobs(scope),
       waitInterruptible: async (o: {
         totalMs: number;
         sliceMs?: number;
@@ -1279,7 +1342,6 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
     if (deps.permissionMode !== "deny") {
       // Native wins on tool-name conflicts (spec conflict matrix).
       const nativeNames = new Set(plugins.flatMap((p) => (p.tools ?? []).map((t) => t.name)));
-      const askGate = deps.permissionMode === "ask";
       for (const cp of deps.codePlugins) {
         // A shadowed plugin tool is dropped, not merged (spec conflict
         // matrix). Say so: an operator debugging a missing tool otherwise gets
@@ -1294,45 +1356,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
           .map((t) => {
             pluginCodeToolNames.add(t.name);
             return t;
-          })
-          .map((t) =>
-            // A plugin tool the session gate already questions (see
-            // isAskGatedName) must not be asked a second time.
-            askGate && !isAskGatedName(t.name)
-              ? {
-                  ...t,
-                  async execute(
-                    args: Readonly<Record<string, unknown>>,
-                    signal?: AbortSignal,
-                    options?: Parameters<PluginTool["execute"]>[2],
-                  ) {
-                    if (!deps.approvalHandler) {
-                      return {
-                        error: `${t.name}: approval required but no pipeline configured`,
-                        isError: true,
-                      };
-                    }
-                    const verdict = await requestApproval(
-                      deps.approvalHandler,
-                      {
-                        callId: options?.callId ?? "",
-                        toolName: t.name,
-                        input: args,
-                        source: "permission",
-                      },
-                      approvalDeadlineMs,
-                    );
-                    if (verdict.decision === "deny") {
-                      return {
-                        error: `${t.name}: denied — ${verdict.reason ?? "user denied"}`,
-                        isError: true,
-                      };
-                    }
-                    return t.execute(args, signal, options);
-                  },
-                }
-              : t,
-          );
+          });
         plugins.push({
           name: cp.name,
           ...(cp.hooks ? { hooks: cp.hooks } : {}),

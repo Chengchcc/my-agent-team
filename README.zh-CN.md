@@ -13,6 +13,7 @@
 [![npm version (rc)](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent/rc?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![CI](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml)
 
 [核心能力](#-核心能力) · [快速开始](#-快速开始) · [界面预览](#-界面预览) · [架构设计](#-架构设计) · [安全模型](#-安全模型) · [文档入口](#-文档入口)
 
@@ -145,7 +146,7 @@ bun run dev
 
 **4. 验证运行成功**
 - Backend 健康检查：`curl -s http://127.0.0.1:3000/health` 返回 `{"status":"ok"}`
-- Web 控制台：打开 `http://localhost:3001/login`，登录口令见 `apps/web/.env` 中的 `MOCK_PASSWORD`
+- Web 控制台：打开 `http://localhost:3001/login`，登录口令见 `apps/web` 目录下自动生成的 `.env` 中的 `MOCK_PASSWORD`
 
 <details>
 <summary>切换 OpenAI / DeepSeek / Groq / OpenRouter 等模型厂商，以及重置口令与本地库</summary>

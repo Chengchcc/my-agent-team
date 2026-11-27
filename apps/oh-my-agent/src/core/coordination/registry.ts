@@ -82,7 +82,7 @@ export interface CoordinationRegistry {
     shouldWake?: () => boolean;
   }): Promise<{ settled: EntryRow[]; timedOut: boolean; woke: "steer" | null }>;
   stopEntry(id: string): { ok: boolean; error?: string };
-  countRunningJobs(): number;
+  countRunningJobs(scope?: string): number;
   /** Delivery suppression (omp acknowledgeDeliveries): mark settled ids
    * whose results a TOOL RESULT already carried to the model, so the
    * surface settlement injection skips them (no duplicate turn). */
@@ -197,9 +197,11 @@ export function createCoordinationRegistry(
     return [...entries.values()].filter((e) => e.scope === scope).map(row);
   }
 
-  function countRunningJobs(): number {
+  function countRunningJobs(scope?: string): number {
     let n = 0;
-    for (const e of entries.values()) if (e.status === "running") n++;
+    for (const e of entries.values()) {
+      if (e.status === "running" && (scope === undefined || e.scope === scope)) n++;
+    }
     return n;
   }
 
@@ -219,12 +221,20 @@ export function createCoordinationRegistry(
       return { settled, timedOut: false };
     }
     const deadline = opts.timeoutMs > 0 ? Date.now() + opts.timeoutMs : null;
+    let timerId: ReturnType<typeof setTimeout> | undefined;
     const timer: Promise<"timeout"> = deadline
-      ? new Promise((resolve) => setTimeout(() => resolve("timeout"), deadline - Date.now()))
+      ? new Promise((resolve) => {
+          timerId = setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now()));
+          timerId.unref?.();
+        })
       : new Promise(() => {});
     // pi hub wait semantics: the FIRST settle resolves the wait; the result
     // is a snapshot split into settled vs still-running rows.
-    await Promise.race([Promise.race(running.map((e) => e.settle!)), timer]);
+    try {
+      await Promise.race([Promise.race(running.map((e) => e.settle!)), timer]);
+    } finally {
+      if (timerId !== undefined) clearTimeout(timerId);
+    }
     const settled = watched.filter((e) => e.status !== "running").map(row);
     return { settled, timedOut: settled.length === 0 };
   }
@@ -239,15 +249,24 @@ export function createCoordinationRegistry(
     const slice =
       opts.sliceMs !== undefined && opts.sliceMs > 0 ? opts.sliceMs : DEFAULT_WAIT_SLICE_MS;
     const deadline = opts.totalMs > 0 ? Date.now() + opts.totalMs : null;
+    // Scope-wide holds (no explicit ids) only deliver unacknowledged results so
+    // previously reported jobs from earlier turns are never re-injected.
+    const filterUnacked = !opts.ids;
     for (;;) {
       if (opts.shouldWake?.() === true) return { settled: [], timedOut: false, woke: "steer" };
       const watched = [...entries.values()].filter(
         (e) => e.scope === opts.scope && (!opts.ids || opts.ids.includes(e.id)),
       );
       if (watched.length === 0) return { settled: [], timedOut: false, woke: null };
-      const settled = watched.filter((e) => e.status !== "running").map(row);
+      const settled = watched
+        .filter((e) => e.status !== "running" && (!filterUnacked || !isDeliveryAcknowledged(e.id)))
+        .map(row);
       const running = watched.filter((e) => e.status === "running" && e.settle);
-      if (running.length === 0) return { settled, timedOut: false, woke: null };
+      // Return as soon as ANY unacknowledged job settles (even while sibling jobs
+      // keep running) — avoids 100ms busy-spinning on partial settlement.
+      if (settled.length > 0 || running.length === 0) {
+        return { settled, timedOut: false, woke: null };
+      }
       const remaining = deadline === null ? slice : deadline - Date.now();
       if (remaining <= 0) {
         return { settled, timedOut: settled.length === 0, woke: null };
@@ -259,9 +278,22 @@ export function createCoordinationRegistry(
       while (Date.now() < until) {
         if (opts.shouldWake?.() === true) return { settled: [], timedOut: false, woke: "steer" };
         const settleRace = Promise.race(running.map((e) => e.settle!));
-        await Promise.race([settleRace, new Promise((r) => setTimeout(r, WAKE_POLL_MS))]);
-        const anySettled = watched.some((e) => e.status !== "running");
-        if (anySettled) break;
+        let pollTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            settleRace,
+            new Promise((r) => {
+              pollTimer = setTimeout(r, WAKE_POLL_MS);
+              pollTimer.unref?.();
+            }),
+          ]);
+        } finally {
+          if (pollTimer !== undefined) clearTimeout(pollTimer);
+        }
+        const anyNewlySettled = watched.some(
+          (e) => e.status !== "running" && (!filterUnacked || !isDeliveryAcknowledged(e.id)),
+        );
+        if (anyNewlySettled) break;
       }
     }
   }

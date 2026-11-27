@@ -17,6 +17,9 @@ process.env.OMA_EMBEDDINGS = "off";
 if (!process.env.OMA_TEST_KEEP_HOME) {
   const isolatedHome = mkdtempSync(join(tmpdir(), "oma-test-home-"));
   process.env.HOME = isolatedHome;
+  if (!process.env.OMA_CODING_AGENT_DIR) {
+    process.env.OMA_CODING_AGENT_DIR = join(isolatedHome, ".oma");
+  }
   process.on("exit", () => {
     try {
       rmSync(isolatedHome, { recursive: true, force: true });

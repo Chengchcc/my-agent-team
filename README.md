@@ -13,6 +13,7 @@
 [![npm version (rc)](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent/rc?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![CI](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml)
 
 [Why my-agent-team](#-why-my-agent-team) · [Quick Start](#-quick-start) · [Screenshots](#-screenshots) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
 
@@ -145,7 +146,7 @@ bun run dev
 
 **4. Verify**
 - Backend health: `curl -s http://127.0.0.1:3000/health` → `{"status":"ok"}`
-- Web console: open `http://localhost:3001/login` with `MOCK_PASSWORD` from `apps/web/.env`
+- Web console: open `http://localhost:3001/login` with `MOCK_PASSWORD` from the generated `.env` inside `apps/web`
 
 <details>
 <summary>Using OpenAI, DeepSeek, Groq, OpenRouter, or custom providers (and password / dev DB reset)</summary>

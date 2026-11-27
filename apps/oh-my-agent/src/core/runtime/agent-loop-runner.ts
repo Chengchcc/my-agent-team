@@ -175,18 +175,20 @@ async function prepareLoopStart(
       message: item.message,
       createdAt: Date.now(),
     }));
+    const historyMessages = (codingInput.history ?? []).map((item) => item.message);
+    const hasTrailingParkedInHistory = trailingUnpairedToolCalls(historyMessages).length > 0;
     const promptEntry = {
       type: "message",
-      // The seed's copy of the input shares this productEntryId (rpc-mode
-      // assigns session:<i>), so the store's productEntryId dedup drops
-      // the second append — no duplicated user message.
       productEntryId: codingInput.input.productEntryId ?? null,
       role: codingInput.input.message.role as "user" | "assistant" | "system",
       source: "prompt",
       message: codingInput.input.message,
       createdAt: Date.now(),
     };
-    await persist([...historyEntries, promptEntry]);
+    // When history already ends with a parked assistant(tool_use), NEVER insert
+    // promptEntry between assistant(tool_use) and its tool_results (doing so
+    // produces illegal assistant(tool_use) -> user -> tool_result ordering).
+    await persist(hasTrailingParkedInHistory ? historyEntries : [...historyEntries, promptEntry]);
     const parked = trailingUnpairedToolCalls(await readBranchMessages(opts.store, opts.sessionId));
     if (parked.length > 0) {
       await resumeParkedCalls(ctx, parked, codingInput.resume.decisions);
@@ -271,9 +273,11 @@ async function resumeParkedCalls(
       results.push({ id: call.id, result: d.response, isError: false, terminate: false });
       continue;
     }
-    if (d?.kind === "approval" && (d.response as { decision?: unknown }).decision === "allow") {
+    const decision = (d?.response as { decision?: unknown } | undefined)?.decision;
+    if (d?.kind === "approval" && (decision === "allow" || decision === "allow_always")) {
       const [executed] = await executeTools(callCtx(), [call]);
-      results.push(executed!);
+      if (!executed || ctx.mutable.controller?.signal.aborted) return;
+      results.push(executed);
       continue;
     }
     const reason = d
@@ -323,6 +327,9 @@ async function injectJobResults(
  *  forever (the wall-clock cap still applies on top). Returns true when the
  *  loop should keep going. */
 const MAX_BACKGROUND_PARKS = 8;
+/** Finite per-park window so MAX_BACKGROUND_PARKS actually bounds waiting and
+ *  triggers cancelAll() instead of parking indefinitely when totalMs === 0. */
+const BACKGROUND_PARK_MS = 10_000;
 
 async function holdForBackground(
   ctx: LoopRunnerContext,
@@ -330,14 +337,16 @@ async function holdForBackground(
 ): Promise<boolean> {
   const bg = ctx.opts.background;
   if (bg === undefined) return false;
+  const isAborted = (): boolean => ctx.mutable.controller?.signal.aborted === true;
   for (let parks = 0; parks < MAX_BACKGROUND_PARKS && bg.countRunning() > 0; parks++) {
-    // Checked per park: an abort between parks must end the hold, and the
-    // loop's own boundary check then terminates the turn.
-    if (ctx.mutable.controller?.signal.aborted === true) return false;
+    // Checked per park AND inside shouldWake: an abort mid-park must wake
+    // waitInterruptible immediately instead of hanging until the job exits.
+    if (isAborted()) return false;
     const res = await bg.waitInterruptible({
-      totalMs: 0,
-      shouldWake: () => ctx.mutable.steerQueue.length > 0,
+      totalMs: BACKGROUND_PARK_MS,
+      shouldWake: () => ctx.mutable.steerQueue.length > 0 || isAborted(),
     });
+    if (isAborted()) return false;
     if (res.woke === "steer") {
       stepState.naturalStop = false;
       return true;

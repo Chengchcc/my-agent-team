@@ -92,14 +92,22 @@ try {
 
 function bwrapArgv(
   base: readonly string[],
+  dir: string,
   isolation: SandboxInput["isolation"],
   selfBinDir: string,
 ): string[] {
   const args = [
     "bwrap",
-    "--dev-bind",
+    // Read-only host root + isolated /dev and /tmp; ONLY the script's own working
+    // directory is bind-mounted writable (never `--dev-bind / /`).
+    "--ro-bind",
     "/",
     "/",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+    "--die-with-parent",
     // Fresh PID namespace + procfs: the script cannot see, signal, or
     // enumerate host processes (the backend included).
     "--unshare-pid",
@@ -112,6 +120,9 @@ function bwrapArgv(
   // lives under the home — re-expose its bin dir read-only so PATH lookup
   // and exec keep working.
   args.push("--tmpfs", "/root", "--tmpfs", "/home", "--ro-bind", selfBinDir, selfBinDir);
+  // Mount the sandbox working directory writable AFTER `/tmp` / `/home` overlays
+  // so temp dirs under `/tmp` remain visible and writable.
+  args.push("--bind", dir, dir);
   for (const d of isolation?.denyReadDirs ?? []) {
     if (!existsSync(d)) continue;
     // Directory: empty tmpfs shadows content (reads AND writes). File
@@ -123,13 +134,17 @@ function bwrapArgv(
   return args;
 }
 
+function escapeSeatbeltString(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
 function sandboxExecArgv(
   base: readonly string[],
   dir: string,
   isolation: SandboxInput["isolation"],
 ): string[] {
   const denies = (isolation?.denyReadDirs ?? [])
-    .map((d) => `(deny file-read-data (subpath "${d}"))`)
+    .map((d) => `(deny file-read-data (subpath "${escapeSeatbeltString(d)}"))`)
     .join("");
   const net = isolation?.noNetwork ? "(deny network*)" : "";
   const profilePath = join(dir, "__sandbox_profile.sb");
@@ -203,7 +218,7 @@ export function buildWrappedArgv(
   let argv = [...baseArgv];
   if (isolationRequested) {
     if (onLinux && hasBwrap) {
-      argv = bwrapArgv(argv, isolation, dirname(process.execPath));
+      argv = bwrapArgv(argv, dir, isolation, dirname(process.execPath));
     } else if (onMacos && hasSandboxExec) {
       argv = sandboxExecArgv(argv, dir, isolation);
     } else {
@@ -216,6 +231,9 @@ export function buildWrappedArgv(
 }
 
 export async function runInSandbox(input: SandboxInput): Promise<SandboxResult> {
+  if (input.signal?.aborted) {
+    return { output: null, stdout: "", stderr: "aborted", exitCode: 130, timedOut: false };
+  }
   // pi semantics: 0 disables the deadline entirely (a cell may legitimately
   // run long); undefined keeps the historical 30s default.
   const timeoutMs = input.timeoutMs === 0 ? 0 : (input.timeoutMs ?? 30_000);
@@ -288,6 +306,14 @@ export async function runInSandbox(input: SandboxInput): Promise<SandboxResult> 
       }
     };
     let escalation: Timer | undefined;
+    let abortEscalation: Timer | undefined;
+    const onAbort = () => {
+      killTree("SIGTERM");
+      abortEscalation = setTimeout(() => killTree("SIGKILL"), 2_000);
+      abortEscalation.unref?.();
+    };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (input.signal?.aborted) onAbort();
     const timer = hasDeadline
       ? setTimeout(() => {
           timedOut = true;
@@ -300,6 +326,8 @@ export async function runInSandbox(input: SandboxInput): Promise<SandboxResult> 
     const exitCode = await exited;
     clearTimeout(timer);
     clearTimeout(escalation);
+    clearTimeout(abortEscalation);
+    input.signal?.removeEventListener("abort", onAbort);
     const [stdout, stderr] = await Promise.all([
       cappedText(proc.stdout as ReadableStream<Uint8Array>),
       cappedText(proc.stderr as ReadableStream<Uint8Array>),

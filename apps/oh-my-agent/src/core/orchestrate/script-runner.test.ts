@@ -62,7 +62,7 @@ describe("evaluateOrchestrationScript", () => {
         script: "while (true) {}",
         args: undefined,
         primitives: primitives as never,
-        timeoutMs: 50,
+        timeoutMs: 150,
       }),
     ).rejects.toThrow(/timed out|Script execution timed out/);
   });
@@ -73,8 +73,45 @@ describe("evaluateOrchestrationScript", () => {
         script: "await new Promise(() => {});",
         args: undefined,
         primitives: primitives as never,
-        timeoutMs: 50,
+        timeoutMs: 150,
       }),
     ).rejects.toThrow(/timed out/);
+  });
+
+  test("microtask infinite loop is killed cleanly by timeout without freezing host (P0-1)", async () => {
+    await expect(
+      evaluateOrchestrationScript({
+        script: "await Promise.resolve(); while (true) {}",
+        args: undefined,
+        primitives: primitives as never,
+        timeoutMs: 150,
+      }),
+    ).rejects.toThrow(/timed out/);
+  });
+
+  test("isolated subprocess does not expose host process.env secrets (P0-1)", async () => {
+    const saved = process.env.OMA_HOST_SECRET_CANARY;
+    process.env.OMA_HOST_SECRET_CANARY = "super-secret-value";
+    try {
+      const result = await evaluateOrchestrationScript({
+        script: `
+          let leaked = null;
+          try {
+            const p = agent.constructor.constructor("return process")();
+            leaked = p?.env?.OMA_HOST_SECRET_CANARY ?? null;
+          } catch {
+            leaked = "blocked";
+          }
+          return leaked;
+        `,
+        args: undefined,
+        primitives: primitives as never,
+        timeoutMs: 2_000,
+      });
+      expect(result.value).not.toBe("super-secret-value");
+    } finally {
+      if (saved === undefined) delete process.env.OMA_HOST_SECRET_CANARY;
+      else process.env.OMA_HOST_SECRET_CANARY = saved;
+    }
   });
 });

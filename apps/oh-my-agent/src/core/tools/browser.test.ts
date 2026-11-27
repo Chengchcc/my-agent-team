@@ -93,6 +93,8 @@ describe("browser tool refuses URLs its sibling web_fetch refuses", () => {
     }
     for (const url of [
       "http://169.254.169.254/latest/meta-data/",
+      "http://[::ffff:169.254.169.254]/latest/meta-data/",
+      "http://[::ffff:100.100.100.200]/latest/meta-data/",
       "http://metadata.google.internal/computeMetadata/v1/",
       "http://100.100.100.200/latest/meta-data/",
     ]) {
@@ -161,20 +163,41 @@ describe("browser tool refuses URLs its sibling web_fetch refuses", () => {
 });
 
 describe("browser tool", () => {
-  test("run requires an open tab; unknown action rejected", async () => {
+  test("run requires an open tab; unknown action, raw code, and traversal tab names rejected (P0-3)", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });
-    const missing = await tool.execute({ action: "run", name: "nope", code: "return 1" });
+    const missing = await tool.execute({
+      action: "run",
+      name: "nope",
+      steps: [{ op: "title" }],
+    });
     expect(missing.isError).toBe(true);
     expect(missing.content).toContain("not open");
+
+    const rawCode = await tool.execute({
+      action: "run",
+      name: "nope",
+      code: "return process.env",
+    });
+    expect(rawCode.isError).toBe(true);
+    expect(rawCode.content).toContain("disabled for security");
+
+    const traversal = await tool.execute({
+      action: "open",
+      name: "../../../../tmp/pwn",
+      url: "data:text/html,<p>x</p>",
+    });
+    expect(traversal.isError).toBe(true);
+    expect(traversal.content).toContain("invalid tab name");
+
     const bad = await tool.execute({ action: "fly" });
     expect(bad.isError).toBe(true);
-    const noCode = await tool.execute({ action: "run", name: "nope" });
-    expect(noCode.isError).toBe(true);
+    const noSteps = await tool.execute({ action: "run", name: "nope" });
+    expect(noSteps.isError).toBe(true);
   });
 });
 
 (CAN_LAUNCH ? describe : describe.skip)("browser tool (requires a launchable chromium)", () => {
-  test("open/run/close against a data: URL (real chromium, no network)", async () => {
+  test("open/run declarative steps/close against a data: URL (real chromium, no network)", async () => {
     const tool = createBrowserTool({ workspaceRoot: tmp });
     const open = await tool.execute({
       action: "open",
@@ -187,13 +210,12 @@ describe("browser tool", () => {
     const run = await tool.execute({
       action: "run",
       name: "t",
-      code: `
-          const title = await tab.title();
-          const text = await tab.evaluate(() => document.querySelector("#h")?.textContent);
-          await tab.click("#b");
-          await tab.screenshot({});
-          return { title, text };
-        `,
+      steps: [
+        { op: "title" },
+        { op: "evaluate", expression: 'document.querySelector("#h")?.textContent' },
+        { op: "click", selector: "#b" },
+        { op: "screenshot" },
+      ],
     });
     expect(run.isError).not.toBe(true);
     const withImages = run as { content: string; images?: Array<{ base64: string }> };
@@ -204,6 +226,15 @@ describe("browser tool", () => {
     const dir = join(tmp, ".oma", "screenshots");
     expect(existsSync(dir)).toBe(true);
     expect(readdirSync(dir).some((f) => f.startsWith("t-"))).toBe(true);
+
+    // goto step enforces URL guard too (blocks file://)
+    const blockedGoto = await tool.execute({
+      action: "run",
+      name: "t",
+      steps: [{ op: "goto", url: "file:///etc/passwd" }],
+    });
+    expect(blockedGoto.isError).toBe(true);
+    expect(blockedGoto.content).toContain("Blocked protocol");
 
     const close = await tool.execute({ action: "close", name: "t" });
     expect(close.content).toContain('Closed tab "t"');
@@ -226,13 +257,17 @@ describe("browser tool", () => {
       action: "run",
       name: "stuck",
       timeout: 1,
-      code: "await wait(30_000);",
+      steps: [{ op: "wait", ms: 30_000 }],
     });
     expect(stuck.isError).toBe(true);
     expect(stuck.content).toContain("timed out");
     expect(stuck.content).toContain("killed");
     // The tab is gone from the registry (release ran).
-    const gone = await tool.execute({ action: "run", name: "stuck", code: "return 1" });
+    const gone = await tool.execute({
+      action: "run",
+      name: "stuck",
+      steps: [{ op: "title" }],
+    });
     expect(gone.content).toContain("not open");
   }, 30_000);
 });
