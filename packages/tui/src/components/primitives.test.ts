@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CombinedAutocompleteProvider } from "../autocomplete.js";
 import { plainTheme, resolveTheme, tuiTheme } from "../theme.js";
 import { visibleWidth } from "../utils.js";
 import { Markdown, type MarkdownTheme } from "./markdown.js";
@@ -194,5 +198,39 @@ describe("Markdown streaming prefix render cache", () => {
     const fresh = new Markdown(acc, 1, 0, mdTheme);
     const freshLines = fresh.render(60);
     expect(streamedLines).toEqual(freshLines);
+  });
+});
+
+describe("CombinedAutocompleteProvider @ file picker", () => {
+  test("works without fdPath, supports empty @ and fuzzy nested matching via cached index", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-at-picker-"));
+    try {
+      mkdirSync(join(dir, "src", "modes"), { recursive: true });
+      mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+      writeFileSync(join(dir, "README.md"), "# hi");
+      writeFileSync(join(dir, "src", "modes", "tui-io.ts"), "export {};");
+      writeFileSync(join(dir, "node_modules", "pkg", "index.js"), "");
+
+      const provider = new CombinedAutocompleteProvider([], dir);
+      const ac = new AbortController();
+
+      // Bare "@" lists workspace entries immediately (skipping node_modules)
+      const bare = await provider.getSuggestions(["@"], 0, 1, { signal: ac.signal });
+      expect(bare).not.toBeNull();
+      expect(bare!.items.some((i) => i.value === "@README.md")).toBe(true);
+      expect(bare!.items.some((i) => i.value.includes("node_modules"))).toBe(false);
+
+      // Fuzzy nested query finds src/modes/tui-io.ts
+      const fuzzy = await provider.getSuggestions(["check @tuiio"], 0, 12, { signal: ac.signal });
+      expect(fuzzy).not.toBeNull();
+      expect(fuzzy!.items[0]?.value).toBe("@src/modes/tui-io.ts");
+
+      // Slash-scoped query
+      const scoped = await provider.getSuggestions(["@src/modes/"], 0, 11, { signal: ac.signal });
+      expect(scoped).not.toBeNull();
+      expect(scoped!.items.some((i) => i.value === "@src/modes/tui-io.ts")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

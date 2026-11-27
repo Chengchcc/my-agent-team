@@ -208,7 +208,7 @@ export function createTerminalIo(
       return `${tuiTheme.faint}${leftRule}\u001b[0m${tuiTheme.dim}${hints}\u001b[0m${tuiTheme.faint}${rightRule}\u001b[0m`;
     },
   };
-  const editor = new Editor(tui, editorTheme);
+  const editor = new Editor(tui, editorTheme, { autocompleteMaxVisible: 8 });
 
   // DOCKED HITL slot (AskPanel and ApprovalPanel). Takes over the editor slot
   // at the bottom of the frame and owns keyboard focus until settled/dismissed.

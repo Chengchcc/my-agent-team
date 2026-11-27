@@ -1,8 +1,163 @@
 import { spawn } from "child_process";
-import { readdirSync, statSync } from "fs";
+import { type Dirent, readdirSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
-import { fuzzyFilter } from "./fuzzy.ts";
+import { fuzzyFilter, fuzzyMatch } from "./fuzzy.ts";
+
+const FILE_INDEX_TTL_MS = 10_000;
+const FILE_INDEX_MAX_ENTRIES = 12_000;
+const WALK_MAX_DEPTH = 10;
+const IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  ".next",
+  ".turbo",
+  "coverage",
+  ".cache",
+  "build",
+  "target",
+  ".venv",
+  "__pycache__",
+  ".oma",
+]);
+
+interface IndexedEntry {
+  path: string;
+  isDirectory: boolean;
+  depth: number;
+  lowerName: string;
+  lowerPath: string;
+}
+
+/** Build indexed entries (files + unique parent directories) from relative
+ *  file paths returned by `git ls-files`. */
+function indexFromRelativePaths(filePaths: readonly string[]): IndexedEntry[] {
+  const dirs = new Set<string>();
+  const out: IndexedEntry[] = [];
+  for (const raw of filePaths) {
+    if (out.length >= FILE_INDEX_MAX_ENTRIES) break;
+    const p = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!p || p === ".git" || p.startsWith(".git/") || p.includes("/.git/")) continue;
+    const parts = p.split("/");
+    let cur = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      cur = cur ? `${cur}/${parts[i]}` : parts[i]!;
+      if (!dirs.has(cur)) {
+        dirs.add(cur);
+        const dirName = parts[i]!;
+        out.push({
+          path: `${cur}/`,
+          isDirectory: true,
+          depth: i,
+          lowerName: dirName.toLowerCase(),
+          lowerPath: cur.toLowerCase(),
+        });
+      }
+    }
+    const name = parts[parts.length - 1] ?? p;
+    out.push({
+      path: p,
+      isDirectory: false,
+      depth: parts.length - 1,
+      lowerName: name.toLowerCase(),
+      lowerPath: p.toLowerCase(),
+    });
+  }
+  return out;
+}
+
+/** Fast git-aware workspace indexer (~8ms on a 1.5k-file monorepo, respects
+ *  .gitignore natively). Returns null if baseDir is not a git repo or git fails. */
+function listWithGit(baseDir: string, signal?: AbortSignal): Promise<IndexedEntry[] | null> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve(null);
+      return;
+    }
+    let settled = false;
+    const finish = (val: IndexedEntry[] | null): void => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      resolve(val);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(
+        "git",
+        ["-C", baseDir, "ls-files", "--cached", "--others", "--exclude-standard"],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+    } catch {
+      finish(null);
+      return;
+    }
+    const onAbort = (): void => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      finish(null);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    let stdout = "";
+    child.stdout?.setEncoding("utf-8");
+    child.stdout?.on("data", (chunk: string) => {
+      if (stdout.length < 4 * 1024 * 1024) stdout += chunk;
+    });
+    child.on("error", () => finish(null));
+    child.on("close", (code) => {
+      if (signal?.aborted || code !== 0) {
+        finish(null);
+        return;
+      }
+      const lines = stdout.split("\n").filter(Boolean);
+      finish(indexFromRelativePaths(lines));
+    });
+  });
+}
+
+/** Fast bounded BFS fallback when `baseDir` is not a git repo. */
+function walkDirectoryFast(baseDir: string): IndexedEntry[] {
+  const out: IndexedEntry[] = [];
+  const queue: Array<{ dir: string; rel: string; depth: number }> = [
+    { dir: baseDir, rel: "", depth: 0 },
+  ];
+  let head = 0;
+  while (head < queue.length && out.length < FILE_INDEX_MAX_ENTRIES) {
+    const { dir, rel, depth } = queue[head++]!;
+    if (depth > WALK_MAX_DEPTH) continue;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (out.length >= FILE_INDEX_MAX_ENTRIES) break;
+      const name = entry.name;
+      if (IGNORED_DIRS.has(name)) continue;
+      const relPath = rel ? `${rel}/${name}` : name;
+      let isDir = entry.isDirectory();
+      if (!isDir && entry.isSymbolicLink()) {
+        try {
+          isDir = statSync(join(dir, name)).isDirectory();
+        } catch {
+          isDir = false;
+        }
+      }
+      out.push({
+        path: isDir ? `${relPath}/` : relPath,
+        isDirectory: isDir,
+        depth,
+        lowerName: name.toLowerCase(),
+        lowerPath: relPath.toLowerCase(),
+      });
+      if (isDir && depth < WALK_MAX_DEPTH) {
+        queue.push({ dir: join(dir, name), rel: relPath, depth: depth + 1 });
+      }
+    }
+  }
+  return out;
+}
 
 const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
 
@@ -298,6 +453,8 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
   private commands: (SlashCommand | AutocompleteItem)[];
   private basePath: string;
   private fdPath: string | null;
+  private fileIndexCache: { root: string; entries: IndexedEntry[]; at: number } | null = null;
+  private fileIndexInflight: Promise<IndexedEntry[]> | null = null;
 
   constructor(
     commands: (SlashCommand | AutocompleteItem)[] = [],
@@ -307,6 +464,44 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
     this.commands = commands;
     this.basePath = basePath;
     this.fdPath = fdPath;
+    // Pre-warm the workspace file index asynchronously in the background so
+    // the very first `@` keystroke renders suggestions instantaneously.
+    if (!fdPath && basePath) {
+      this.warmFileIndex();
+    }
+  }
+
+  /** Pre-warm the cached workspace file index (non-blocking). */
+  warmFileIndex(): void {
+    if (this.fileIndexCache && Date.now() - this.fileIndexCache.at < FILE_INDEX_TTL_MS) return;
+    void this.loadFileIndex(this.basePath);
+  }
+
+  private async loadFileIndex(root: string, signal?: AbortSignal): Promise<IndexedEntry[]> {
+    if (
+      this.fileIndexCache &&
+      this.fileIndexCache.root === root &&
+      Date.now() - this.fileIndexCache.at < FILE_INDEX_TTL_MS
+    ) {
+      return this.fileIndexCache.entries;
+    }
+    if (root === this.basePath && this.fileIndexInflight) {
+      return this.fileIndexInflight;
+    }
+    const task = (async () => {
+      const gitEntries = await listWithGit(root, signal);
+      if (signal?.aborted) return [];
+      const entries = gitEntries ?? walkDirectoryFast(root);
+      this.fileIndexCache = { root, entries, at: Date.now() };
+      return entries;
+    })();
+    if (root === this.basePath) {
+      this.fileIndexInflight = task.finally(() => {
+        if (this.fileIndexInflight === task) this.fileIndexInflight = null;
+      });
+      return this.fileIndexInflight;
+    }
+    return task;
   }
 
   async getSuggestions(
@@ -752,62 +947,146 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
     return score;
   }
 
-  // Fuzzy file search using fd (fast, respects .gitignore)
+  // Fuzzy file search: uses explicit `fdPath` when provided, otherwise uses
+  // the built-in cached git/BFS workspace index (instant in-memory filtering
+  // without requiring `fd` to be installed or spawning per keystroke).
   private async getFuzzyFileSuggestions(
     query: string,
     options: { isQuotedPrefix: boolean; signal: AbortSignal },
   ): Promise<AutocompleteItem[]> {
-    if (!this.fdPath || options.signal.aborted) {
+    if (options.signal.aborted) {
       return [];
     }
 
+    // Paths explicitly anchored outside workspace (`@~/...` or `@/...`) fall
+    // back to direct directory listing so home/absolute references work too.
+    if (query.startsWith("~") || query.startsWith("/")) {
+      const prefix = options.isQuotedPrefix ? `@"${query}` : `@${query}`;
+      return this.getFileSuggestions(prefix);
+    }
+
     try {
-      const scopedQuery = this.resolveScopedFuzzyQuery(query);
-      const fdBaseDir = scopedQuery?.baseDir ?? this.basePath;
-      const fdQuery = scopedQuery?.query ?? query;
-      const entries = await walkDirectoryWithFd(
-        fdBaseDir,
-        this.fdPath,
-        fdQuery,
-        100,
-        options.signal,
-      );
-      if (options.signal.aborted) {
-        return [];
+      if (this.fdPath) {
+        const scopedQuery = this.resolveScopedFuzzyQuery(query);
+        const fdBaseDir = scopedQuery?.baseDir ?? this.basePath;
+        const fdQuery = scopedQuery?.query ?? query;
+        const entries = await walkDirectoryWithFd(
+          fdBaseDir,
+          this.fdPath,
+          fdQuery,
+          100,
+          options.signal,
+        );
+        if (options.signal.aborted) return [];
+
+        const scoredEntries = entries
+          .map((entry) => ({
+            ...entry,
+            score: fdQuery ? this.scoreEntry(entry.path, fdQuery, entry.isDirectory) : 1,
+          }))
+          .filter((entry) => entry.score > 0);
+
+        scoredEntries.sort((a, b) => b.score - a.score);
+        const topEntries = scoredEntries.slice(0, 20);
+        return topEntries.map(({ path: entryPath, isDirectory }) => {
+          const pathWithoutSlash = isDirectory ? entryPath.slice(0, -1) : entryPath;
+          const displayPath = scopedQuery
+            ? this.scopedPathForDisplay(scopedQuery.displayBase, pathWithoutSlash)
+            : pathWithoutSlash;
+          const entryName = basename(pathWithoutSlash);
+          const completionPath = isDirectory ? `${displayPath}/` : displayPath;
+          const value = buildCompletionValue(completionPath, {
+            isDirectory,
+            isAtPrefix: true,
+            isQuotedPrefix: options.isQuotedPrefix,
+          });
+          return { value, label: entryName + (isDirectory ? "/" : ""), description: displayPath };
+        });
       }
 
-      const scoredEntries = entries
-        .map((entry) => ({
-          ...entry,
-          score: fdQuery ? this.scoreEntry(entry.path, fdQuery, entry.isDirectory) : 1,
-        }))
-        .filter((entry) => entry.score > 0);
+      const indexed = await this.loadFileIndex(this.basePath, options.signal);
+      if (options.signal.aborted || indexed.length === 0) return [];
 
-      scoredEntries.sort((a, b) => b.score - a.score);
-      const topEntries = scoredEntries.slice(0, 20);
+      const normQuery = toDisplayPath(query).replace(/^\.\//, "");
+      if (!normQuery) {
+        // Empty `@`: show shallowest directories & files first for instant browsing.
+        const shallow = [...indexed]
+          .sort((a, b) => {
+            if (a.depth !== b.depth) return a.depth - b.depth;
+            if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+            return a.lowerPath.localeCompare(b.lowerPath);
+          })
+          .slice(0, 20);
+        return shallow.map((entry) => {
+          const pathWithoutSlash = entry.isDirectory ? entry.path.slice(0, -1) : entry.path;
+          const entryName = basename(pathWithoutSlash);
+          const value = buildCompletionValue(entry.path, {
+            isDirectory: entry.isDirectory,
+            isAtPrefix: true,
+            isQuotedPrefix: options.isQuotedPrefix,
+          });
+          return {
+            value,
+            label: entryName + (entry.isDirectory ? "/" : ""),
+            description: pathWithoutSlash,
+          };
+        });
+      }
 
-      const suggestions: AutocompleteItem[] = [];
-      for (const { path: entryPath, isDirectory } of topEntries) {
-        const pathWithoutSlash = isDirectory ? entryPath.slice(0, -1) : entryPath;
-        const displayPath = scopedQuery
-          ? this.scopedPathForDisplay(scopedQuery.displayBase, pathWithoutSlash)
-          : pathWithoutSlash;
+      const lowerQuery = normQuery.toLowerCase();
+      const hasSlash = lowerQuery.includes("/");
+      const scored: Array<{ entry: IndexedEntry; rank: number }> = [];
+
+      for (const entry of indexed) {
+        let rank: number | null = null;
+        if (!hasSlash) {
+          if (entry.lowerName === lowerQuery) rank = -1000;
+          else if (entry.lowerName.startsWith(lowerQuery)) rank = -500 + entry.depth * 2;
+          else if (entry.lowerName.includes(lowerQuery)) rank = -200 + entry.depth * 2;
+          else if (entry.lowerPath.includes(lowerQuery)) rank = -100 + entry.depth * 2;
+          else {
+            const fmName = fuzzyMatch(lowerQuery, entry.lowerName);
+            if (fmName.matches) {
+              rank = fmName.score + entry.depth;
+            } else {
+              const fmPath = fuzzyMatch(lowerQuery, entry.lowerPath);
+              if (fmPath.matches) rank = fmPath.score + 50 + entry.depth;
+            }
+          }
+        } else {
+          if (entry.lowerPath.startsWith(lowerQuery)) rank = -500 + entry.depth;
+          else if (entry.lowerPath.includes(lowerQuery)) rank = -200 + entry.depth;
+          else {
+            const fm = fuzzyMatch(lowerQuery, entry.lowerPath);
+            if (fm.matches) rank = fm.score + entry.depth;
+          }
+        }
+        if (rank !== null) {
+          if (entry.isDirectory) rank -= 5;
+          scored.push({ entry, rank });
+        }
+      }
+
+      scored.sort(
+        (a, b) =>
+          a.rank - b.rank ||
+          a.entry.lowerName.length - b.entry.lowerName.length ||
+          a.entry.lowerPath.localeCompare(b.entry.lowerPath),
+      );
+      return scored.slice(0, 20).map(({ entry }) => {
+        const pathWithoutSlash = entry.isDirectory ? entry.path.slice(0, -1) : entry.path;
         const entryName = basename(pathWithoutSlash);
-        const completionPath = isDirectory ? `${displayPath}/` : displayPath;
-        const value = buildCompletionValue(completionPath, {
-          isDirectory,
+        const value = buildCompletionValue(entry.path, {
+          isDirectory: entry.isDirectory,
           isAtPrefix: true,
           isQuotedPrefix: options.isQuotedPrefix,
         });
-
-        suggestions.push({
+        return {
           value,
-          label: entryName + (isDirectory ? "/" : ""),
-          description: displayPath,
-        });
-      }
-
-      return suggestions;
+          label: entryName + (entry.isDirectory ? "/" : ""),
+          description: pathWithoutSlash,
+        };
+      });
     } catch {
       return [];
     }

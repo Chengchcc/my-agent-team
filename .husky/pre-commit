@@ -1,3 +1,37 @@
-npx biome format --write .
-npx biome check --fix --unsafe .
-git add -u
+#!/usr/bin/env sh
+set -eu
+
+# Format and check ONLY staged files. Never run `git add -u` or repo-wide `.`,
+# which would sweep unstaged edits from other concurrent agents into the commit.
+exec bun -e '
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+
+const splitNull = (buf: Buffer): string[] =>
+  buf.toString("utf8").split("\0").filter(Boolean);
+
+const staged = splitNull(
+  execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"]),
+).filter((f) => existsSync(f));
+
+if (staged.length === 0) process.exit(0);
+
+const unstaged = new Set(
+  splitNull(execFileSync("git", ["diff", "--name-only", "-z"])),
+);
+
+const full = staged.filter((f) => !unstaged.has(f));
+const partial = staged.filter((f) => unstaged.has(f));
+
+if (full.length > 0) {
+  execFileSync("bunx", ["biome", "check", "--write", "--no-errors-on-unmatched", ...full], {
+    stdio: "inherit",
+  });
+  execFileSync("git", ["add", "--", ...full], { stdio: "inherit" });
+}
+if (partial.length > 0) {
+  execFileSync("bunx", ["biome", "check", "--no-errors-on-unmatched", ...partial], {
+    stdio: "inherit",
+  });
+}
+'
