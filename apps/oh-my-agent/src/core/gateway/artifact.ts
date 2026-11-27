@@ -107,13 +107,26 @@ async function withStallTimeout<T>(work: Promise<T>, ms: number, onStall: () => 
 }
 
 async function download(url: string, dest: string, stallMs: number): Promise<void> {
+  const controller = new AbortController();
+  const makeStallError = () =>
+    new GatewayArtifactError(
+      `download stalled for ${Math.round(stallMs / 1000)}s at ${url} — check the connection, then retry`,
+    );
+  // Guard only the initial connect/headers with the abort timer — do NOT use
+  // AbortSignal.timeout(stallMs) across the whole transfer, because a legitimate
+  // slow-but-moving download would be aborted at stallMs total elapsed time and
+  // race with withStallTimeout() below.
+  const connectTimer = setTimeout(() => controller.abort(makeStallError()), stallMs);
   let res: Response;
   try {
-    res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(stallMs) });
+    res = await fetch(url, { redirect: "follow", signal: controller.signal });
   } catch (err: unknown) {
+    if (err instanceof GatewayArtifactError) throw err;
     throw new GatewayArtifactError(
       `cannot reach ${url}: ${err instanceof Error ? err.message : err}`,
     );
+  } finally {
+    clearTimeout(connectTimer);
   }
   if (!res.ok) throw new GatewayArtifactError(`${url} -> HTTP ${res.status}`);
   if (!res.body) throw new GatewayArtifactError(`${url} returned no body`);
@@ -124,14 +137,11 @@ async function download(url: string, dest: string, stallMs: number): Promise<voi
   const reader = res.body.getReader();
   try {
     for (;;) {
-      const { done, value } = await withStallTimeout(
-        reader.read(),
-        stallMs,
-        () =>
-          new GatewayArtifactError(
-            `download stalled for ${Math.round(stallMs / 1000)}s at ${url} — check the connection, then retry`,
-          ),
-      );
+      const { done, value } = await withStallTimeout(reader.read(), stallMs, () => {
+        const err = makeStallError();
+        controller.abort(err);
+        return err;
+      });
       if (done) break;
       writer.write(value);
     }

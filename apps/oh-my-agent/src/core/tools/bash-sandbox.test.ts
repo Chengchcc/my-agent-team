@@ -216,23 +216,38 @@ describe("headless bash never shares the TUI terminal", () => {
     // Regression (2026-09-03): proc.kill() alone (SIGTERM) killed bwrap but
     // orphaned the inner `sleep` because --die-with-parent only fires when
     // bwrap's PARENT dies. SIGKILL-first kills the namespace leader, and the
-    // kernel reaps the command. Wait on p.exited (not a fixed sleep), then
-    // probe the inner pid.
+    // kernel reaps the command. Because BwrapBashSandbox uses --unshare-pid,
+    // `$$` inside the sandbox is always 1/2 (colliding with host init/kthreadd),
+    // so locate the real host PID of the inner command via a unique argv0 marker.
     const ws = mkdtempSync(join(tmpdir(), "bwrap-kill-"));
     const sb = new BwrapBashSandbox(ws);
-    const pidFile = join(ws, "inner.pid");
-    const p = sb.spawn(`echo $$ > inner.pid; exec sleep 300`, { cwd: ws });
-    await new Promise((r) => setTimeout(r, 300));
-    const innerPid = Number.parseInt(readFileSync(pidFile, "utf8"), 10);
-    expect(Number.isFinite(innerPid)).toBe(true);
-    const alive = () => {
-      try {
-        execSync(`ps -p ${innerPid} >/dev/null 2>&1`);
-        return true;
-      } catch {
-        return false;
+    const readyFile = join(ws, "ready");
+    const marker = `bwrap-kill-${crypto.randomUUID().slice(0, 8)}`;
+    const p = sb.spawn(`touch ready; exec -a ${marker} sleep 300`, { cwd: ws });
+    for (let i = 0; i < 40 && !existsSync(readyFile); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(existsSync(readyFile)).toBe(true);
+    const findHostInnerPids = (): number[] => {
+      const out = execSync("ps -eo pid=,args=", { encoding: "utf8" });
+      const pids: number[] = [];
+      for (const line of out.split("\n")) {
+        const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+        if (!m) continue;
+        const pid = Number.parseInt(m[1] ?? "", 10);
+        const args = m[2] ?? "";
+        // Match the exec'd inner sleep (argv0 = marker), not the bwrap wrapper.
+        if (args.startsWith(marker) && pid > 2) pids.push(pid);
       }
+      return pids;
     };
+    let innerPids = findHostInnerPids();
+    for (let i = 0; i < 20 && innerPids.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      innerPids = findHostInnerPids();
+    }
+    expect(innerPids.length).toBeGreaterThan(0);
+    const alive = () => findHostInnerPids().length > 0;
     expect(alive()).toBe(true);
     p.kill();
     await p.exited;
