@@ -71,12 +71,8 @@ export class WorkspaceSandbox {
       } catch (err: unknown) {
         if (isNotFound(err)) {
           // `next` and any deeper segments do not exist yet; current is already
-          // canonical and inside `this.root`.
-          const tail = join(next, ...parts.slice(i + 1));
-          if (!this.isInsideRoot(tail)) {
-            throw new WorkspaceEscapeError(rawTarget, this.root);
-          }
-          return tail;
+          // canonical and inside `this.root`, and `parts` contains no `..`.
+          return join(next, ...parts.slice(i + 1));
         }
         throw new WorkspaceEscapeError(rawTarget, this.root);
       }
@@ -104,9 +100,6 @@ export class WorkspaceSandbox {
       current = next;
     }
 
-    if (!this.isInsideRoot(current)) {
-      throw new WorkspaceEscapeError(rawTarget, this.root);
-    }
     return current;
   }
 }

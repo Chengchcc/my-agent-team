@@ -97,4 +97,48 @@ describe("WorkspaceSandbox", () => {
       }
     }
   });
+
+  test("handles dangling symlinks, relative symlink chains, loops, and ENOTDIR", () => {
+    const sandbox = new WorkspaceSandbox(tmpRoot);
+    const links = [
+      join(tmpRoot, "rel-dangling-in"),
+      join(tmpRoot, "rel-dangling-out"),
+      join(tmpRoot, "dir-alias"),
+      join(tmpRoot, "loop-a"),
+      join(tmpRoot, "loop-b"),
+    ];
+    try {
+      // Relative dangling symlink staying inside root resolves to canonical target
+      symlinkSync("./subdir/not-yet.txt", links[0]!);
+      expect(sandbox.validateNew("rel-dangling-in")).toBe(
+        join(sandbox.root, "subdir", "not-yet.txt"),
+      );
+
+      // Relative dangling symlink escaping root is refused
+      symlinkSync("../../outside-dangling.txt", links[1]!);
+      expect(() => sandbox.validateNew("rel-dangling-out")).toThrow(WorkspaceEscapeError);
+
+      // In-workspace directory symlink resolves nested children to canonical realpath
+      symlinkSync("subdir", links[2]!);
+      expect(sandbox.validate("dir-alias/nested.txt")).toBe(
+        join(sandbox.root, "subdir", "nested.txt"),
+      );
+
+      // Symlink cycle exceeds MAX_SYMLINK_HOPS and fails closed
+      symlinkSync("loop-b", links[3]!);
+      symlinkSync("loop-a", links[4]!);
+      expect(() => sandbox.validateNew("loop-a")).toThrow(WorkspaceEscapeError);
+
+      // Traversing through a regular file triggers ENOTDIR -> fails closed
+      expect(() => sandbox.validateNew("inside.txt/child")).toThrow(WorkspaceEscapeError);
+    } finally {
+      for (const l of links) {
+        try {
+          rmSync(l, { force: true });
+        } catch {
+          /* */
+        }
+      }
+    }
+  });
 });
