@@ -1,86 +1,86 @@
 ---
-title: 跨进程契约规则
-description: 在 backend、web、lark-bot 之间加字段或调接口前必读：契约真源地图、禁止写法与可执行门禁所在
-tags: [conventions, rules]
+title: E2E Contract Rules
+description: Single-source-of-truth rules for cross-process contracts (HTTP, AHP, React Query, env vars, shared schemas) and automated CI audit gates
+tags: [conventions, rules, contracts]
 ---
 
-# 跨进程契约规则
+# E2E Contract Rules
 
-本页是跨进程与跨包契约（HTTP、SSE、react-query、环境变量、跨进程消息、模板变量）的动手前决策表与自检。它是[设计哲学](./design-philosophy.md)里「统一本体，不复制语义」在传输层上的可执行版：在 backend、web、lark-bot 之间加字段、调接口、消费 SSE、加查询、读环境变量之前，先过这张表。
+This document enforces [Design Philosophy](./design-philosophy.md) ("unify ontology; never duplicate semantics") across process boundaries (`backend`, `web`, `lark-bot`, `oh-my-agent`). Whenever a contract is written twice across processes, TypeScript stops seeing drift and `as` casts cement silent bugs. Every cross-process boundary has **one** authoritative definition; all consumers derive from it.
 
-## 范围
+## Authoritative files
 
-覆盖：触发器决策表、真源地图、自检、加新契约时的自问，以及可执行门禁在哪。
+- `scripts/audit-contracts.ts` — Automated CI gate (`bun run audit:contracts`)
+- `scripts/audit-workspace.ts` — Monorepo workspace, `tsconfig.json` references, and `AGENTS.md` dependency graph gate (`bun run audit:workspace`)
+- `scripts/audit-ui.ts` — Web UI conventions and zero-CJK-outside-locales gate (`bun run audit:ui`)
+- `scripts/audit-docs.ts` — Active-zone link, frontmatter, vocabulary, and code-path gate (`bun run audit:docs`)
+- `apps/backend/src/app.ts` — Exports Elysia `App` type (HTTP single source of truth)
+- `packages/api-contract/src/index.ts` — Shared cross-process Zod schemas (`lark.ts`, `sse.ts`, `artifact.ts`, `workflow.ts`)
+- `packages/ahp-client/src/index.ts` — WebSocket transport and AHP URI helpers
+- `packages/config/src/env.ts` — Shared `envSchema` and `parseEnv()`
+- `apps/web/src/lib/client.ts` — Eden Treaty `client` and `createServerClient()`
 
-不覆盖：backend 内部的 DB 类型链（见 [DB 类型链规则](./db-typesafe-rules.md)）。
+## Pre-Change Decision Table
 
-## 一句话根因
-
-跨进程的契约一旦两端各写一份，编译器就看不见两边的关系：改一边另一边静默错位，`tsc` 不报错，`as` 把窟窿焊死。解法是每类契约只有一个真源，两端都从它推导。
-
-## 动手前的决策表
-
-| 当你要…… | 先停，去这里取真源 | 禁止 |
+| When you need to... | Source of truth | Forbidden |
 |---|---|---|
-| 在 web 用一个后端返回的字段 | 改 backend 的返回类型，让它经 `App` 流过来 | 在 web 手写或扩一个 interface 接住它 |
-| 调一个后端接口 | `client.api.*`（treaty，类型来自 `@chengchenccc/api-contract`） | `apiFetch<T>`、裸 `fetch` 加断言 |
-| 消费一条实时更新 | 走 AHP：`/api/ahp/ws-ticket` 取票 → `/ws/ahp`，协议类型来自 `@microsoft/agent-host-protocol` | 自己开一条 SSE/WebSocket，或在组件里手写端点模板串（旧的 `SSEEventMap` / `typedSource` / `openSSE` / `sseEndpoints` 已随 SSE 线路删除） |
-| 加一个 `useQuery` / `useMutation` | `features/<x>/queries.ts` 里写 `queryOptions(params)`，组件只调 hook | 组件内联 `queryKey:` / `queryFn:` |
-| 读一个环境变量 | 共享 `envSchema` 加 `parseEnv()` | 各进程裸读 `process.env` |
-| 跨进程传一个结构 | 提一个共享 zod schema，两端 import 后 parse | 一端写 interface，另一端 `as {...}` |
-| 加一个状态值或枚举值 | 改共享单源（`as const` 或 `z.enum`），两端 import | 新文件重抄联合类型 |
-| 读写一个 DB 的 JSON 列 | 定义 zod 双向 codec | `JSON.parse(row.x) as T` |
-| 渲染一个模板 | 给变量一个固定类型，键与模板变量同源 | `Record<string, unknown>` 加字符串约定 |
+| Read a new backend field in Web | Update the backend service/route return type so it flows through `App` | Hand-writing or extending an `interface` in `apps/web` |
+| Call a backend HTTP endpoint | `client.api.*` via Eden Treaty (`apps/web/src/lib/client.ts`) | `apiFetch<T>`, raw `fetch` with `as` casts |
+| Subscribe to live updates | AHP over `/ws/ahp` (`POST /api/ahp/ws-ticket` → `@microsoft/agent-host-protocol` types) | `new EventSource`, ad-hoc WebSockets, custom SSE event maps |
+| Add a React Query hook | `queryOptions(params)` inside `apps/web/src/features/<x>/queries.ts` | Inline `queryFn:` inside `apps/web/src/app` or `apps/web/src/components` |
+| Read an environment variable | `packages/config/src/env.ts` (`envSchema` + `parseEnv()`) | Direct `process.env.*` reads outside whitelisted bridges |
+| Pass structured data across processes | Export a shared Zod schema (e.g. `@chengchenccc/api-contract`) and parse on both ends | Parallel interfaces + `as { ... }` casts |
+| Add a status or enum value | Mutate the shared `as const` tuple or `z.enum(...)` | Copy-pasting union literals in another package |
+| Read/write a DB JSON column | Bidirectional `drizzle-zod` transform in `schema.ts` | `JSON.parse(row.x) as T` in feature code |
+| Enforce UI language or dialogs in Web | English source strings in `t(...)` + `lib/locales/`; `useConfirm()` + `@/components/ui/*` | Hardcoded CJK outside `lib/locales/`, `window.confirm`, `window.alert` |
 
-## 真源地图
+## Contract Truth Map
 
-| 契约 | 真源 | 消费方式 |
+| Contract | Authoritative source | How consumers read it |
 |---|---|---|
-| HTTP 请求与响应 | 后端 Elysia 的 `App` 类型，从 `apps/backend/src/app.ts` 导出、经 `@chengchenccc/api-contract` re-export | treaty 推导 |
-| 实时更新载荷 | AHP 协议类型（`@microsoft/agent-host-protocol` 的 chat 状态与动作） | 自造一套事件 map（旧的 `sse.ts` 注册表已删） |
-| react-query 的 key 与参数 | `queryOptions(params)`，`params` 是唯一来源 | 组件调 hook |
-| 环境变量 | `packages/config/src/env.ts` 的 `envSchema` | `parseEnv()`，一处解析 |
-| 跨进程消息 | 共享 zod schema | 两端 import 并 parse |
-| 枚举与状态 | 共享 `as const` 或 `z.enum` | 两端 import |
-| oma 的 JSONL 协议 | `apps/oh-my-agent` 生成的 canonical fixture | `apps/oh-my-agent` 的测试消费 fixture |
+| HTTP routes & payloads | `App` exported by `apps/backend/src/app.ts` | Eden Treaty (`treaty<App>`) in `apps/web/src/lib/client.ts` |
+| Live conversation/run state | `@microsoft/agent-host-protocol` + `_meta` extensions (`apps/backend/src/features/ahp/state-source.ts`) | `@chengchenccc/ahp-client` + upstream `chatReducer` |
+| React Query keys & fetchers | `apps/web/src/features/*/queries.ts` | Components invoke exported hooks only |
+| Environment variables | `packages/config/src/env.ts` (`envSchema`) | `parseEnv()` |
+| Cross-process DTOs (Lark, todos, budget gates) | `packages/api-contract/src/index.ts` | Imported and `.parse()`d at boundaries |
+| Oma ACP extension events | `apps/oh-my-agent/src/protocol/mapping.ts` + `apps/backend/src/features/agent-run/acp/event-mapping.ts` | Parity locked by `apps/oh-my-agent/src/protocol/mapping.test.ts` |
+| Cross-package imports | Package barrels (`packages/<name>/src/index.ts`) | ESLint `consistent-type-imports` + no deep imports |
 
-## 写完自检
+## Automated CI Gates (`bun run audit`)
 
-**可执行版在 `scripts/audit-contracts.ts`**，它跑在 CI 的第二环（`bun run audit:contracts`）。下面这些是人工检查用的宽松版本，与门禁不完全一致：
+All four audit scripts run fast in CI and locally via `bun run audit`:
 
-```bash
-# 组件不得手抄类型或直连 fetch —— 当前 0 命中
-grep -rn "apiFetch<\|as AgentRow" apps/web/src
+### 1. `scripts/audit-contracts.ts`
+- **Zero-tolerance rules:**
+  - `new EventSource` anywhere in `apps/web/src` (0 allowed; live updates use AHP).
+  - `apiFetch<` or `as AgentRow` in `apps/web/src`.
+  - Inline `queryFn:` in `apps/web/src/app` or `apps/web/src/components` (note: `queryKey:` is allowed for `invalidateQueries`).
+  - `apps/backend/src/bootstrap/features.ts` must normalize the product-tools SSE URL via `sseUrlEndpoint(config.productToolsMcpUrl)` and pass `bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN"`.
+  - One-way runtime boundary: `apps/oh-my-agent/src/core/runtime/` must never import `modes/`, `core/gateway/`, or `core/update/`.
+- **Tracked debt baselines (must not grow):**
+  - Bare `as {` / `as Record<` casts in `apps/lark-bot/src` (allowlisted only in `ingest.ts`, `bootstrap.ts`, `bindings-sqlite.ts`).
+  - Direct `process.env.` reads outside `ENV_BRIDGE` (6 backend bridge files; **0** allowed in `apps/web/src` and `apps/lark-bot/src`).
 
-# 组件不得内联 queryFn —— 当前 0 命中（只查 queryFn，不查 queryKey）
-grep -rn "queryFn:" apps/web/src/app apps/web/src/components
+### 2. `scripts/audit-workspace.ts`
+- `W1`: Root `package.json` `workspaces` globs must cover every `apps/*` and `packages/*` directory containing a `package.json`, with no empty or redundant globs.
+- `W2`: Root `tsconfig.json` project `references` must match TypeScript projects on disk bidirectionally.
+- `W3`: `AGENTS.md`'s package dependency graph must name every workspace member.
 
-# SSE 只许在 typedSource 里 new EventSource —— 当前 0 命中
-grep -rn "new EventSource" apps/web/src
+### 3. `scripts/audit-ui.ts`
+- Zero-tolerance for `window.confirm(` and `window.alert(` in `apps/web/src`.
+- Zero-tolerance for CJK characters (`[\u4e00-\u9fff]`) anywhere in `apps/web/src` outside `apps/web/src/lib/locales/` (ADR 0079).
 
-# 环境变量只许经 parseEnv —— 有白名单，见门禁脚本
-grep -rn "process\.env\." apps/backend/src apps/web/src apps/lark-bot/src | grep -v "\.test\.ts"
+### 4. `scripts/audit-docs.ts`
+- Verifies `CLAUDE.md` symlinks to `AGENTS.md`, `AGENTS.md` table/plugin counts and `Important Files` paths, relative links across `docs/architecture/`, `docs/guides/`, `docs/adr/`, and app docs, YAML frontmatter (`title` + `description`) on every `docs/architecture/**/*.md`, repo-rooted code paths (`apps/...`, `packages/...`), forbidden deleted-concept phrases, balanced code fences, and zero orphan pages.
 
-# 跨进程不得裸断言 —— lark-bot 侧有存量基线
-grep -rn "as {\|as Record<" apps/lark-bot/src
-```
+## Checklist When Adding a New Contract
 
-门禁里三处零容忍是 `queryFn:`、`new EventSource`、`.mcp.json` 三条断言；带存量基线的有两处：lark-bot 的四条裸断言（`ingest`、`bootstrap`、`bindings-sqlite`、`render`），以及环境变量的三条桥（backend 的 `config.ts`、`infra/oma-command.ts`、测试 harness）——那些地方本来就要读原始 env，属于合法出口。
+1. Which existing domain entity owns this contract?
+2. Which package holds the single source of truth so all consumers derive types rather than copying them?
+3. If someone modifies one side six months from now, will `bun run typecheck` or `bun run audit` fail loudly? If not, the contract is not yet converged.
 
-**别用宽 grep 当门禁。** `queryKey:` 与 `client.api.` 在外层组件里大量出现（`invalidateQueries` 的 key、SSR 页面里的 treaty 调用），宽 grep 会永远红灯，然后被人关掉。
+## See also
 
-门禁通过时会打印一行摘要，说明哪些检查是零容忍、哪些还在基线里。
-
-## 加新契约时的自问
-
-1. 它属于哪个已有的领域对象？
-2. 它的真源应该放在哪个包？两端怎么从真源推导，而不是各写一份？
-3. 半年后如果有人只改其中一端，编译器会拦住他吗？拦不住就是还没收敛好。
-
-## 不变量
-
-1. HTTP 的类型真源是后端的 `App` 类型，前端不手抄。
-2. 全仓已经没有 `new EventSource`（那条线路已删）；实时更新只走 AHP。
-3. 组件的查询钩子是唯一入口，组件内不内联 `queryFn`。
-4. 环境变量一处解析，桥接位置在门禁里白名单登记。
-5. 跨进程结构两端共享一个 zod schema。
+- [Design Philosophy](./design-philosophy.md) — Core ontology and boundary principles
+- [DB Type-Safe Rules](./db-typesafe-rules.md) — Single-source rules inside `apps/backend` (SQLite → HTTP)
+- [AHP Surface Contract](./ahp-surface-contract.md) — WebSocket live-state protocol and `_meta` extensions

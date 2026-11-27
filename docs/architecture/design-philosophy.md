@@ -1,185 +1,94 @@
 ---
-title: 设计哲学
-description: 动手写代码、做评审或写文档前必读：判断改动会不会把系统推向不必要复杂度的八条原则、检查与红旗信号
+title: Design Philosophy
+description: Core architectural judgment criteria for CrewDesk — 8 principles, pre-implementation checks, concrete anti-patterns, red flags, and decision order
 tags: [conventions, rules]
 ---
 
-# 设计哲学
+# Design Philosophy
 
-本页是写代码、评审、写文档前的架构判断准则。它不是实现方案，也不针对某个模块，而是回答「这个改动会不会把系统推向不必要的复杂度」。
+> **Language:** **English (canonical)** · [简体中文](./design-philosophy.zh-CN.md)
 
-## 范围
+This document defines the architectural decision criteria for writing code, reviewing PRs, and updating specs in CrewDesk. Its single thesis is:
 
-覆盖：八条核心原则、动手前的三组检查、正反例、红旗信号、允许与不允许的复杂度、文档与评审准则、决策顺序。
+> **Keep the domain mental model small and stable. Implementation mechanisms may be sophisticated, but they must never leak upward into domain concepts.**
 
-不覆盖：任何模块的现状（各模块见对应功能页）；跨进程契约规则与 DB 类型链规则另有两份专门文档。
+Complex systems do not become clearer by inventing more nouns. Before introducing any new type, table, event, or abstraction, answer: *Which existing domain object owns this fact? Is the new noun business vocabulary or leaked plumbing? Will the next engineer (or coding agent) have to learn an extra layer just to trace a user action?*
 
-## 一句话立场
+## The 8 Principles
 
-让领域心智保持简单稳定，实现机制可以复杂但不能上浮。
+1. **Unify semantics before choosing mechanisms.** Start from what a fact means in the shared world of humans and agents, not from tables, queues, streams, or projections.
+   - *Wrong:* Define `LedgerMessage` for storage, `RunStreamMessage` for transport, and `UiMessage` for rendering.
+   - *Right:* `Message` is the single domain entity; storage rows, AHP envelopes, UI render state, and Lark delivery records wrap or reference it.
+2. **One semantic object, one ontology.** If two types answer the same "who said what when", share completion/failure/waiting states, collapse into one row in UI, and differ only by module location, they must share one canonical type.
+3. **Hide mechanisms beneath business flow.** Append-only logs, projections, delivery ledgers, and retry queues belong in the implementation layer. The primary narrative is *"Run produces Message → Conversation stores Message → Surface renders Message"*, not *"RunEvent enters telemetry → projection writes LedgerEntry → watcher parses JSON"*.
+4. **Hard boundaries, few concepts.** Keep domain nouns minimal and stable (`Agent`, `Conversation`, `Message`, `Agent Run`, `Requirement`, `Project`, `Workflow`, `Artifact`, `Wiki`, `Proposal`). Mechanism nouns (`Ledger`, `Projection`, `Queue`, `Delivery`, `Lock`, `Cache`, `Index`) stay scoped to implementation internals.
+5. **Names are architecture.** Naming a mechanism as a domain entity permanently bends future code around the wrong abstraction. Prefer *Message in conversation storage* and *message delivery state* over `LedgerMessage` and `LarkMessage`.
+6. **Projections are an implementation technique, not the storyline.** If a newcomer must understand projection mechanics before understanding what a user sees on screen, the mechanism has leaked upward.
+7. **Control loops require a unified internal model.** Under the Good Regulator Theorem, an agent control system fails when Backend, Child Process, Web, and Lark hold drifting models of a message or run state (one layer considers a turn done while another stays stuck waiting, or duplicates a reply).
+8. **Do not mistake module boundaries for domain boundaries.** Conway's Law reproduces itself inside a monorepo as `backend/*`, `web/*`, and `lark-bot/*` inventing three parallel schemas for one entity. Always ask: *Is this a domain boundary or merely a package boundary?*
 
-复杂系统不会因为概念变多而变清楚。一个健康的改法应该能回答：这个问题属于哪个已有的领域对象？它真的需要新概念吗？新概念是业务语言，还是实现细节漏了出来？下一个接手的人会不会因此多学一层东西？
+## Pre-Implementation Checklist
 
-如果一个设计让系统多出几个相似但不完全相同的名词，那是概念债，不是抽象升级。
+Run three checks before writing code:
 
-## 核心原则
+- **Concept check:** Did I introduce a new noun? Could an existing domain object express it? Does it exist solely because data crossed a process, table, or surface boundary? If yes, do not add it.
+- **Semantic check:** What owns its identity, lifecycle, and terminal state? Is it user-visible, model-visible, auditable, or deliverable? If all answers match an existing entity, reuse that entity.
+- **Mechanism check:** Did storage or wire names leak into business APIs? Does a surface inspect internal Run telemetry events to deduce user-visible state? Is delivery or UI render state mixed into canonical message content? If yes, push the mechanism back down.
 
-### 先统一语义，再选择机制
+## Concrete Contrast Examples
 
-不要从表、日志、队列、stream、projection 出发设计系统。先问这个事实在用户和 Agent 的共同世界里叫什么、现有领域对象能不能表达它。
+| Area | Anti-pattern | CrewDesk pattern |
+|---|---|---|
+| **Message flow** | `RunEventMessage → LedgerMessage → UiMessage → LarkMessage` (4 drifting schemas) | One canonical `Message` (`@chengchenccc/message`); each layer attaches only its outer envelope (storage seq, AHP `_meta`, Lark `message_delivery` row). |
+| **Streaming output** | Every delta chunk creates a message; each surface manages ad-hoc drafts. | Ephemeral deltas stream over `/ws/ahp`; canonical `Message` commits once atomically at `BackendRunOutcome` and folds onto the same turn. |
+| **Audit vs user facts** | Surfaces consume raw `agent_run_event` telemetry to reconstruct chat history. | `agent_run.terminal_result`, `agent_run_event`, and `product_tool_call` serve audit/debugging; `conversation_ledger` is the sole chat truth. |
+| **Delivery state** | Creating a `LarkMessage` domain type to track Feishu send retries. | `Message` stays content-only; `apps/lark-bot` tracks delivery state in its local `message_delivery` table keyed by `(conversation_id, message_id, lark_chat_id)`. |
+| **HITL waiting state** | Keeping approval prompts only in ephemeral memory streams (lost on refresh/restart). | Durable `pending_action` rows persist before surfacing (ADR 0038/0039) and drive both `/ws/ahp` cards and `GET /api/attention`. |
+| **Agent config edits** | Letting agent MCP tools directly overwrite `agent.yml`, `project`, or `*.workflow.json`. | MCP tools emit durable `proposal` rows; humans review diffs in `ProposalCard` and explicitly adopt/save (ADR 0081). |
 
-机制只能服务领域对象，不能替代它。
+## Red Flags
 
-```text
-反例：写进 ledger 就定义 LedgerMessage，进 Web 就定义 UiMessage。
-正例：Message 是领域对象；ledger、事件流、Web 只是保存、记录、渲染 Message 的不同场景。
-```
+Stop and redesign if a PR exhibits any of these signals:
 
-### 同一语义对象只能有一个本体
+- Introduces 3+ near-synonymous nouns in a single change.
+- Requires cross-referencing 2–3 unrelated tables or streams to deduce one user-visible state.
+- Forces Web or Lark to branch on private harness/run internal event names.
+- Generates IDs for the same logical message using different rules in different layers.
+- Encodes terminal state only via side-channel events rather than on the entity itself.
+- Puts storage/transport prefixes (`LedgerXxx`, `StreamXxx`, `UiXxx`) on domain types.
+- Fixing one message bug requires patching 3–4 duplicate parsers across packages.
 
-判断标准是四个问题：它们描述的是不是同一个「谁在什么时候说了什么」？共享同一套完成、失败、等待状态吗？在界面上应该折叠成同一条吗？只是所在模块不同才名字不同吗？
+## Allowed vs Disallowed Complexity
 
-四个都是「是」，就该共用一个本体。
+- **Allowed (behind hard boundaries):** append-only ledgers for replay, telemetry whitelists for diagnostics, surface-local delivery tables for at-least-once retries, read-model indexes (`artifact`, `EntityLabelResolver`), caches, and per-worktree mutexes — *provided none of them redefine core domain entities*.
+- **Disallowed:** per-store message models, per-surface lifecycle definitions, multiple layers deciding when a turn ends, duplicate normalizers/parsers per package, or documentation that explains storage plumbing before user/domain semantics.
 
-### 实现机制不能上浮成业务心智
+## Decision Order
 
-append-only log、事件审计、projection、投递记录、重试队列都是必要的机制，但它们待实现层。
-
-主叙述应该是「Run 产生 Message、会话保存 Message、端渲染 Message」，而不是「RunEvent 进入执行事实流，再由 projection 写 LedgerEntry，再由 watcher 解释 content JSON」。后一条链路可以写在实现说明里，但它不该是每个开发者入门的门槛。
-
-### 边界要硬，概念要少
-
-业务边界少而稳定：Conversation、Run、Message、Agent、Tool、Project。
-
-机制边界可以多，但要低调：Ledger、事件流、Projection、Delivery、Stream、Cache、Index。业务边界回答「这是什么」，机制边界回答「它怎么被保存、观察、恢复或投递」。
-
-### 名字就是架构
-
-名字决定后来人怎么理解系统。把实现机制命名成领域对象，之后所有代码都会围着它建模。
-
-```text
-反例：LedgerMessage、RunStreamMessage、UiMessageContent
-正例：Message in conversation storage、message delivery state、message render state
-```
-
-### Projection 是实现方式，不是主线
-
-投影是从一种事实记录生成另一种读模型的手段。如果开发者必须理解投影才能理解用户看到的消息，说明机制已经上浮。
-
-主线写成「Run 把 Message 交给 Conversation」，实现可以是「追加事件 → 投影 → 落存储 → 通知端」，但那是实现层的细节。
-
-### 控制环需要统一内模
-
-Agent 系统是一个控制系统：读状态、采取行动、观察反馈、继续行动。控制论里的 Good Regulator Theorem 说，好的调节器必须包含或能访问它所调节系统的模型。
-
-所以 Agent、Run、Conversation、端、子进程不能各持一套会漂移的 message 模型。各持一套的后果是控制环碎掉：这层认为完成了，那层还在等;这层认为是一条消息，那层发成了多条。
-
-### 警惕模块边界变成领域边界
-
-Conway 定律讲组织结构与系统结构的对应。代码里同样会出现「模块结构复制成领域结构」。
+Always design top-down in this exact sequence — never bottom-up from tables, endpoints, or UI widgets:
 
 ```text
-backend 有 backend message
-web 有 ui message
-lark 有 lark message
+1. What is the domain object?
+2. What are its invariants?
+3. Where does its lifecycle terminate?
+4. Who reads it?
+5. Who is allowed to write it?
+6. Which storage mechanism persists it?
+7. Which surfaces deliver or render it?
+8. Which implementation details must remain hidden?
 ```
 
-这未必代表领域真有这么多 message，可能只是每个模块按自己方便复制了一份。每次设计都要反问：这是领域边界，还是模块边界？
-
-## 动手前的检查
-
-### 概念检查
-
-引入了一个新名词吗？它能不能用已有领域对象表达？它是业务语言还是实现机制？会不会造成两个相似概念？它是不是只因为存储位置、模块位置、端的位置不同而存在？
-
-只是因为「它在另一个地方出现」的名词，不要引入。
-
-### 语义检查
-
-这个对象的身份是什么？生命周期谁负责？终态在哪里表达？用户能看见吗？模型需要再读它吗？它需要被恢复、审计或投递吗？
-
-这些答案如果和某个已有对象一致，就不要另起一个。
-
-### 机制检查
-
-有没有把存储的名字写进业务 API？有没有让端去消费内部事件？有没有让投影变成开发者必须理解的入口？有没有把投递状态混进消息内容？
-
-有，就是机制在上浮。
-
-## 正反例
-
-**消息显示。** 反例是 `RunEventMessage → LedgerMessage → ConversationMessageRevision → UiMessage → LarkMessage` 这条链，同一条消息在每层被重新定义，身份和状态容易漂移。正例是本体只有一个 Message，各层挂不同的外壳（运行事件包装、会话存储包装、UI 渲染状态、飞书投递状态）。
-
-**流式输出。** 反例：每个 seq 都当成一条新消息，端各自维护一套 assistant 草稿。正例：`message.id` 表示同一条逻辑消息，revision 表示内容变化，端按 id 折叠。
-
-**调试与用户事实分开。** 反例：因为执行事实流里有 message 事件，端就直接消费执行事实流。正例：`agent_run.terminal_result`、`product_tool_call` 这类执行事实用于审计、重放、排障；Conversation 的消息用于展示。
-
-**投递状态不是一个新本体。** 反例：飞书需要记录发送状态，于是定义 LarkMessage。正例：Message 是内容本体，投递状态是端自己的记录（飞书侧的 binding 表就是这么做的），它引用 message id。
-
-**需要用户操作的审批状态。** 当前实现走的是 Run 级事件流加审批端点，Run 全程保持 `running`，账本里没有等待审批的条目。这是已知的取舍：切换设备或刷新页面后，待审批状态会从实时流里消失。要做到「切端可见」，需要把等待状态落到 Conversation 可见层，那是目标状态而不是现状（见 [Run 输出与实时更新](./runs/output-and-live-updates.md)）。
-
-## 红旗信号
-
-出现下面任何一条，停下来重新审视：
-
-- 一个 PR 里新增三个以上相似名词。
-- 一个用户可见状态需要跨两三处推断才能得到。
-- 端需要知道 Run 内部的 event 类型。
-- 同一条消息的 id 在不同层用不同规则生成。
-- 终态不在 Message 上表达，靠旁路事件推断。
-- 解释主流程时先讲存储、后讲业务。
-- 新类型名里带存储或传输的名字，例如 `LedgerXxx`、`StreamXxx`。
-- 修一个消息 bug 要同时改四个不同的 message parser。
-
-这些说明概念债在扩散，不能拿「系统本来就复杂」当解释。
-
-## 允许复杂的地方
-
-为了审计可以有执行事实流；为了重放，会话可以用只追加存储；为了多端投递，端可以有自己的投递记录；为了性能可以有读模型、缓存、索引。
-
-前提只有一条：它们不重新定义核心领域对象。
-
-## 不允许复杂的地方
-
-每个 store 都有自己的 message 类型；每个端都有自己的消息生命周期；每个模块都能决定一条消息是否结束；每层都自己 parse 内容；必须先讲清内部机制才能讲用户行为；接手的人必须先搞懂几个相似概念的历史原因。
-
-这些复杂度不会让系统更强，只会更脆。
-
-## 写文档与评审时的用法
-
-写架构文档：先业务对象后实现机制、先不变量后流程、先主心智后例外;不把存储名字放进主标题（除非那篇就是存储实现说明）;不把机制图当领域图;不用多个相似名词解释同一件事;新概念必须说明为什么已有概念表达不了。
-
-评审时除了找 bug，也找概念债：有没有新增同义模型？有没有让机制进业务 API？有没有把用户可见状态藏在内部事件里？有没有把投递、渲染状态混进消息本体？终态统一了吗？每层是不是各有一份 parser 或 normalizer？
-
-这类问题即使测试全绿，也应该作为架构风险点提出来。
-
-## 决策顺序
+## Three-Line Summary
 
 ```text
-1. 领域对象是什么？
-2. 不变量是什么？
-3. 生命周期在哪里结束？
-4. 谁需要读它？
-5. 谁可以写它？
-6. 哪些机制保存它？
-7. 哪些端投递它？
-8. 哪些细节必须藏起来？
+Unify ontology; never duplicate semantics.
+Expose domain; hide mechanism.
+Keep boundaries hard and concepts few.
 ```
 
-不要倒过来从数据库表、流事件、endpoint 或 UI 组件开始。
+## See also
 
-## 最后三句
-
-```text
-统一本体，不复制语义。
-暴露业务，隐藏机制。
-边界要硬，概念要少。
-```
-
-违反这三句的设计，哪怕能跑，也是架构债。
-
-## 相关页
-
-- [依赖注入](./foundations/dependency-injection.md) — 这套哲学在协作关系上的投影
-- [标识符体系](./foundations/identifiers.md) — 实体主键与 runId 的唯一执行身份
-- [跨进程契约规则](./e2e-contract-rules.md) — 类型在进程边界上的防裂化规则
+- [E2E Contract Rules](./e2e-contract-rules.md) — Mechanical enforcement of single-ontology across processes
+- [DB Type-Safe Rules](./db-typesafe-rules.md) — Mechanical enforcement of single-ontology from SQLite to HTTP
+- [System Overview](./system-overview.md) — How these principles shape CrewDesk's runtime layers
+- [Operations & Gateway](./operations-and-gateway.md) — Composition-root DI and startup/shutdown boundaries

@@ -18,7 +18,6 @@ Next.js 控制台，后端面向人的入口：把后端的 HTTP/SSE API 包装�
 
 ## 相关文档
 
-- [Web 端](../../docs/architecture/surfaces/web.md)
-- [端总览](../../docs/architecture/surfaces/overview.md)
-- [Web 消息端到端](../../docs/architecture/flows/e2e-web-message.md)
+- [Web Surface](../../docs/architecture/web-surface.md)
+- [AHP Surface Contract](../../docs/architecture/ahp-surface-contract.md)
 - [AGENTS.md](./AGENTS.md) — 本 app 的命令、目录结构与编码约定

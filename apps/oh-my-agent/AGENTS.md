@@ -110,9 +110,9 @@ src/
 ## Related docs
 
 - [docs/README.md](../../docs/README.md) — repo wiki front door
-- [docs/architecture/runtime/oma.md](../../docs/architecture/runtime/oma.md) — the oma runtime wiki
-- [docs/architecture/plugins/oma-plugins.md](../../docs/architecture/plugins/oma-plugins.md) — plugin system
-- [docs/architecture/backend/overview.md](../../docs/architecture/backend/overview.md)
+- [docs/architecture/oma-runtime.md](../../docs/architecture/oma-runtime.md) — the oma runtime spec
+- [docs/architecture/skills-and-plugins.md](../../docs/architecture/skills-and-plugins.md) — skills & plugin trust matrix
+- [docs/architecture/system-overview.md](../../docs/architecture/system-overview.md) — system & backend overview
 
 ## Review checklist
 

@@ -30,7 +30,7 @@ tags: [product, roadmap, notes]
 
 ## 明确不碰的
 
-- **Raft Apps / Login with Raft / marketplace**：OAuth + agent 身份授权 + 审核流是平台生意，与单用户部署差两个数量级。LAN/hosted 的五项安全清单（见 [安全与债务清单](../architecture/security/debt.md)）做完再说。
+- **Raft Apps / Login with Raft / marketplace**：OAuth + agent 身份授权 + 审核流是平台生意，与单用户部署差两个数量级。LAN/hosted 的五项安全清单（见 [安全与债务清单](../architecture/security-model.md)）做完再说。
 - **Joint channels（跨 server）**：单后端单库，没有对应问题。
 - **消息不可编辑删除**：他们的「消息是可靠记录」哲学与我们的 undo/soft-delete 对话事实模型（`undone` 列、分叉）冲突，不换。
 - **Raft Computer（本地执行器）**：backend 直接 spawn + `/coding` 裸 PTY 已覆盖「agent 在我机器上干活」，worktree 白名单管得更严。

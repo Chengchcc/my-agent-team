@@ -5,7 +5,7 @@ description: 解释技能系统怎么用——`skill_load` 怎么取正文、每
 
 # 关于技能系统
 
-这份技能只讲怎么用技能。技能系统的实现详表（索引与正文两段式、技能根的顺序、frontmatter 开关）在 `docs/architecture/plugins/progressive-skill.md`。
+这份技能只讲怎么用技能。技能系统的实现详表（索引与正文两段式、技能根的顺序、frontmatter 开关）在 `docs/architecture/skills-and-plugins.md`。
 
 ## 什么是技能
 

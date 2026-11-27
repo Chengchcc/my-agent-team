@@ -126,5 +126,5 @@ lark:
 ## 关联
 
 - [ADR 0019: CLI Session 双轨真理](./0019-cli-session-dual-truth.md)
-- [Gate 0 协议核实](../architecture/execution/backend-kinds-gate0.md)
+- [Gate 0 协议核实](../architecture/backend-kinds-gate0.md)
 - [设计哲学](../architecture/design-philosophy.md) — 单点真理 + 显式边界(资源一份，桥接分发)

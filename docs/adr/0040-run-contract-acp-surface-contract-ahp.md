@@ -26,7 +26,7 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 | 人工输入 | 另一张表，解决后不留痕 | `request_permission` 一次往返 | 输入请求是片段，解决后落 `InputRequestResponsePart` |
 | 顺序 | 对话内 `seq` | 子进程内部 | channel 内 `serverSeq` |
 
-后果是实证的：ACP 轨的 `buildOutcomeMessages` 只产出 assistant 文本，于是四次 `todo_write` 在账本里一行都没留下（`product_tool_call` 有记录、日志有 `tool_end error=false`，账本零行），而 [conversation/history](../architecture/conversation/history.md) 声明工具消息应进 History。
+后果是实证的：ACP 轨的 `buildOutcomeMessages` 只产出 assistant 文本，于是四次 `todo_write` 在账本里一行都没留下（`product_tool_call` 有记录、日志有 `tool_end error=false`，账本零行），而 [conversation/history](../architecture/conversation-and-context.md) 声明工具消息应进 History。
 
 （2026-09-29 S0 首刀已修：映射改为按到达顺序记产出片段，同一次 run 的四次工具调用现在提交九行账本，向量见 `apps/backend/src/features/agent-run/acp/event-mapping.test.ts` 的「durable tool facts」。）
 
@@ -58,9 +58,9 @@ AHP（Agent Host Protocol）是同一道边界上的标准方言：微软维护�
 
 4. **权威关系不变。** 账本加 Run 状态是唯一权威；宿主只有两条边——只读投影、命令进控制面，禁止直写账本；终态提交是唯一写路径。这与 [system-overview](../architecture/system-overview.md) 的不变量 3、4、5 一致，Run 仍是唯一执行身份。
 
-6. **产品事实借 `_meta` 过到端上，不另开产品频道。** 协议为内存里的宿主会话设计，我们有的持久事实它没有位置放。开一条产品频道或者给协议加字段，等于让端同时读两条线再把它们对齐；`_meta` 是上游给宿主事实留的扩展点，也正好是端已经会解析的地方。约定如下，当前字段表与含义见 [AHP host](../architecture/surfaces/ahp.md)：`messageId`（账本行身份，端据此去重）、`seq`（账本坐标，寻址用）、`undone`（撤销标记）、`productRequest` 与 `productResponse`（审批与询问的载荷和答复）、`todos`（活跃轮次的 todo）、`newConversationId` 与 `requestedByRunId`（续接）。顺序不借 `_meta` 过：顺序由宿主定，端按状态里的次序铺，协议里的 `Turn` 没有每轮坐标，端也无从重排。
+6. **产品事实借 `_meta` 过到端上，不另开产品频道。** 协议为内存里的宿主会话设计，我们有的持久事实它没有位置放。开一条产品频道或者给协议加字段，等于让端同时读两条线再把它们对齐；`_meta` 是上游给宿主事实留的扩展点，也正好是端已经会解析的地方。约定如下，当前字段表与含义见 [AHP host](../architecture/ahp-surface-contract.md)：`messageId`（账本行身份，端据此去重）、`seq`（账本坐标，寻址用）、`undone`（撤销标记）、`productRequest` 与 `productResponse`（审批与询问的载荷和答复）、`todos`（活跃轮次的 todo）、`newConversationId` 与 `requestedByRunId`（续接）。顺序不借 `_meta` 过：顺序由宿主定，端按状态里的次序铺，协议里的 `Turn` 没有每轮坐标，端也无从重排。
 
-   落地进度（2026-09-29，`feat/ahp2acp`）：`messageId` 自 `be15ae54`、`seq` 自 `a204bfbf`、`undone` 自 `204e941e`、`productRequest` 与 `productResponse` 自 `5fef88be`、`todos` 自 `3d383bb6`、续接两个键自 `e99810b2`。写这一条时对表发现两个洞：动作那条边没有一处派发 `chat/inputRequested`，审批与询问卡片要等一次重新订阅才出现；`todos` 同样只在快照里。两者都记在 [AHP host](../architecture/surfaces/ahp.md) 的已知缺口里，前者按 HITL 控制面的优先级先修。
+   落地进度（2026-09-29，`feat/ahp2acp`）：`messageId` 自 `be15ae54`、`seq` 自 `a204bfbf`、`undone` 自 `204e941e`、`productRequest` 与 `productResponse` 自 `5fef88be`、`todos` 自 `3d383bb6`、续接两个键自 `e99810b2`。写这一条时对表发现两个洞：动作那条边没有一处派发 `chat/inputRequested`，审批与询问卡片要等一次重新订阅才出现；`todos` 同样只在快照里。两者都记在 [AHP host](../architecture/ahp-surface-contract.md) 的已知缺口里，前者按 HITL 控制面的优先级先修。
 
 5. **替换而非并列。** 未完成替换前，不新增依赖旧方言的功能；每条标准轨的删除项与期限写在本 ADR 的删除清单里。
 
@@ -217,5 +217,5 @@ Web 的 run 流只剩三处消费者，都在 `apps/web/src/hooks/useConversatio
 - [ADR 0039 审批请求是产品的一等契约](./0039-approval-request-is-a-product-contract.md)：运行轴（ACP）的目标与相位。
 - [ADR 0038 HITL 与重启恢复](./0038-hitl-run-resume-after-restart.md)：审批与问答作为产品契约。
 - [系统总览](../architecture/system-overview.md)：唯一执行链与不变量。
-- [Conversation History](../architecture/conversation/history.md)：账本的现状与已知缺口。
-- [Run 输出与实时更新](../architecture/runs/output-and-live-updates.md)：运行侧事件的现状。
+- [Conversation History](../architecture/conversation-and-context.md)：账本的现状与已知缺口。
+- [Run 输出与实时更新](../architecture/agent-run-execution.md)：运行侧事件的现状。

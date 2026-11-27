@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-/** Bash launch strategy (docs/architecture/security/bash-sandbox.md).
+/** Bash launch strategy (docs/architecture/security-model.md).
  * A sandbox wraps the actual spawn so the OS enforces filesystem + network
  * boundaries on the running process and its children. Null = current
  * unconstrained behavior; Bwrap (Linux) / Seatbelt (macOS) = OS confinement. */

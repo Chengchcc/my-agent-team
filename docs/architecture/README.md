@@ -1,147 +1,115 @@
 ---
-title: 架构现状索引
-description: 现状区入口：先按任务从路由表找到该读的页，再看页面清单；这里也写着改文档的规矩
-tags: [conventions, rules]
+title: Architecture Index
+description: Entry point for CrewDesk's current-state architecture docs — task-based reading router, flat subsystem map, canonical glossary, global invariants, and wiki rules
+tags: [index, overview, conventions]
 ---
 
-# 架构
+# Architecture
 
-现状区。本目录每一页都描述代码**此刻**的样子，页内的每一条事实都能落到具体文件上；改了代码不改页，页就是错的。
+> **Language:** **English (canonical)** · [简体中文入口](./README.zh-CN.md) (Chinese mirrors available for [Index](./README.zh-CN.md), [System Overview](./system-overview.zh-CN.md), and [Design Philosophy](./design-philosophy.zh-CN.md); all deep subsystem specs are English single-source).
 
-## 范围
+This directory is the **current-state** technical specification of CrewDesk (`my-agent-team`). Every page documents what the code does **today**, anchored to verified repository paths, concrete schemas, defaults, and invariants. CI enforces link integrity, frontmatter presence, vocabulary hygiene, and code-path existence via `bun run audit:docs` (`scripts/audit-docs.ts`).
 
-覆盖：系统全貌与所有权划分、数据与历史、执行链（Run 与四个 Agent Backend）、自研 runtime、Workflow 编排、各端消息路径、安全边界与已知欠债、以及三条写代码前必读的规则（设计哲学、跨进程契约、DB 类型链）。
+- **Future work / unbuilt features** live in [`../roadmap.md`](../roadmap.md).
+- **Historical rationale & superseded decisions** live in [`../adr/README.md`](../adr/README.md).
+- **Local setup & day-to-day commands** live in [`../guides/development.md`](../guides/development.md).
 
-不覆盖：还没做的事在 [`../roadmap.md`](../roadmap.md)；每个决策的来龙去脉在 [`../adr/`](../adr/README.md)；安装、运行与排障在仓库根 [`README.md`](../../README.md) 和 [`../guides/`](../guides/)。历史设计推演（spec/plan/retro）已经删除，git 记录里还有。
+## Task-Based Router
 
-## 按任务找页
+Find the exact pages to read before editing a subsystem:
 
-| 要做的事 | 按顺序读 |
+| If you are changing... | Read in order |
 |---|---|
-| 看懂整体 | [系统总览](./system-overview.md) → [Workflow](./workflow.md) → [事实与投影](./foundations/facts-and-projections.md) → [Product Backend](./backend/overview.md) |
-| 改消息与历史 | [事实与投影](./foundations/facts-and-projections.md) → [Conversation History](./conversation/history.md) → [Agent Context](./agents/context.md) → [数据模型](./backend/data-model.md) |
-| 改执行链或后端适配 | [Agent Backend](./execution/agent-backend.md) → [Agent Context](./agents/context.md) → [Product Backend](./backend/overview.md) → [Oma Runtime](./runtime/oma.md) |
-| 改环境规则或主动触发 | [环境规则](./backend/ambient-rules.md) → [飞书](./surfaces/lark.md) → [Product Backend 总览](./backend/overview.md) |
-| 改派单/多 agent 房间 | [房间内派单](./backend/room-dispatch.md) → [Agent Context](./agents/context.md) → [Product Backend 总览](./backend/overview.md) |
-| 改实时更新与终态提交 | [Run 输出与实时更新](./runs/output-and-live-updates.md) → [Conversation History](./conversation/history.md) → [Agent Context](./agents/context.md) → [Web 消息端到端](./flows/e2e-web-message.md) |
-| 改工具、MCP 或插件 | [Agent Backend](./execution/agent-backend.md) → [Oma Tools](./runtime/oma-tools.md) → [Oma 插件与 HITL](./plugins/oma-plugins.md) |
-| 改模型与 provider | [模型与 Provider](./runtime/models.md) → [Oma Runtime](./runtime/oma.md) |
-| 改 Workflow 或 Project | [Agentic Workflow](./workflow.md) → [数据模型](./backend/data-model.md) → [Project 与 Worktree](./agents/projects-and-worktrees.md) |
-| 改端与后端的契约 | [AHP host](./surfaces/ahp.md) → [端总览](./surfaces/overview.md) → [Run 输出与实时更新](./runs/output-and-live-updates.md) |
-| 改 Web 端 | [Web 消息端到端](./flows/e2e-web-message.md) → [Web 端](./surfaces/web.md) → [端总览](./surfaces/overview.md) |
-| 改飞书端 | [飞书](./surfaces/lark.md) → [飞书接入向导](./surfaces/lark-setup.md) → [飞书消息端到端](./flows/e2e-lark-message.md) → [Conversation History](./conversation/history.md) |
-| 改自研 runtime | [Oma Runtime](./runtime/oma.md) → [Oma 插件与 HITL](./plugins/oma-plugins.md) → [Compaction](./runtime/compaction.md) → [Oma Tools](./runtime/oma-tools.md) |
-| 查安全边界与欠债 | [安全模型](./security/overview.md) → [oma 内核防线](./security/oma-kernel.md) → [bash 沙箱](./security/bash-sandbox.md) → [安全与债务清单](./security/debt.md) |
-| 线上出问题 | [排障指南](./operations/troubleshooting.md) |
-| 要把它跑起来 | [开发环境](../guides/development.md) → [排障指南](./operations/troubleshooting.md) |
-| 改启动器、打包或升级 | [启动器与升级](./operations/gateway.md) → [排障指南](./operations/troubleshooting.md) |
-| 动笔写代码前 | [设计哲学](./design-philosophy.md) → [跨进程契约规则](./e2e-contract-rules.md) → [DB 类型链规则](./db-typesafe-rules.md) → [依赖注入](./foundations/dependency-injection.md) |
+| Understanding the system end to end | [System Overview](./system-overview.md) → [Data Model](./data-model.md) → [Agent Run Execution](./agent-run-execution.md) → [Team Coordination](./team-coordination.md) |
+| Architectural rules before any PR | [Design Philosophy](./design-philosophy.md) → [E2E Contract Rules](./e2e-contract-rules.md) → [DB Type-Safe Rules](./db-typesafe-rules.md) |
+| SQLite tables, columns, or migrations | [DB Type-Safe Rules](./db-typesafe-rules.md) → [Data Model](./data-model.md) |
+| Messages, ledger, context branches, or sessions | [Conversation & Context](./conversation-and-context.md) → [Agent Run Execution](./agent-run-execution.md) → [Data Model](./data-model.md) |
+| Run lifecycle, queue, HITL, or crash recovery | [Agent Run Execution](./agent-run-execution.md) → [ACP Backend Contract](./acp-backend-contract.md) → [Data Model](./data-model.md) |
+| ACP harnesses (`oma`, `claude`, `pi`, `omp`) | [ACP Backend Contract](./acp-backend-contract.md) → [Workspaces & Projects](./workspaces-and-projects.md) → [Oma Runtime](./oma-runtime.md) |
+| PA + Worker dispatch, product MCP, or proposals | [Team Coordination](./team-coordination.md) → [Agent Run Execution](./agent-run-execution.md) → [Proactive & Knowledge](./proactive-and-knowledge.md) |
+| Ambient rules, requirements, wiki, recall, or reminders | [Proactive & Knowledge](./proactive-and-knowledge.md) → [Data Model](./data-model.md) → [Team Coordination](./team-coordination.md) |
+| Agent workspaces, MCP catalog, worktrees, or Coding PTY | [Workspaces & Projects](./workspaces-and-projects.md) → [Security Model](./security-model.md) → [Web Surface](./web-surface.md) |
+| Declarative workflows, triggers, or `artifacts://` | [Workflow Engine](./workflow.md) → [Data Model](./data-model.md) → [Workspaces & Projects](./workspaces-and-projects.md) |
+| Skills, skill packs, Oma plugins, or permission gates | [Skills & Plugins](./skills-and-plugins.md) → [Oma Runtime](./oma-runtime.md) → [Security Model](./security-model.md) |
+| `oma` CLI, agent loop, tools, delegation, or TUI | [Oma Runtime](./oma-runtime.md) → [Skills & Plugins](./skills-and-plugins.md) → [Compaction](./compaction.md) |
+| LLM providers, `models.yml`, or model catalogs | [Models & Providers](./models-and-providers.md) → [ACP Backend Contract](./acp-backend-contract.md) → [Oma Runtime](./oma-runtime.md) |
+| Context compaction or tool-result pruning | [Compaction](./compaction.md) → [Conversation & Context](./conversation-and-context.md) → [Oma Runtime](./oma-runtime.md) |
+| AHP WebSocket contract or cross-surface linkage | [AHP Surface Contract](./ahp-surface-contract.md) → [E2E Contract Rules](./e2e-contract-rules.md) |
+| Web console (`apps/web`), BFF, i18n, or Chat UI | [Web Surface](./web-surface.md) → [AHP Surface Contract](./ahp-surface-contract.md) → [E2E Contract Rules](./e2e-contract-rules.md) |
+| Lark/Feishu bot (`apps/lark-bot`), cards, or setup | [Lark Surface](./lark-surface.md) → [AHP Surface Contract](./ahp-surface-contract.md) → [Proactive & Knowledge](./proactive-and-knowledge.md) |
+| Auth, path jail, SSRF, bash sandbox, or open debt | [Security Model](./security-model.md) → [Workspaces & Projects](./workspaces-and-projects.md) |
+| DI bootstrap, `oma gateway`, systemd, or incidents | [Operations & Gateway](./operations-and-gateway.md) → [Security Model](./security-model.md) |
 
-## 页面清单
+## Document Map
 
-现状与基础
+### Entry & Architectural Rules
+- [System Overview](./system-overview.md) ([中文](./system-overview.zh-CN.md)) — PA + Worker topology, ownership boundaries, single execution pipeline, failure principles
+- [Design Philosophy](./design-philosophy.md) ([中文](./design-philosophy.zh-CN.md)) — 8 principles, concept/semantic/mechanism checks, red flags, decision order
+- [E2E Contract Rules](./e2e-contract-rules.md) — Cross-process single-source type rules and automated CI gates (`audit:contracts`, `audit:workspace`, `audit:ui`)
+- [DB Type-Safe Rules](./db-typesafe-rules.md) — `schema.ts` → `$inferSelect`/`$inferInsert` → `drizzle-zod` → service → HTTP chain and Drizzle migration rules
 
-- [系统总览](./system-overview.md)
-- [事实与投影](./foundations/facts-and-projections.md)
-- [标识符体系](./foundations/identifiers.md)
-- [生命周期总览](./foundations/lifecycle-overview.md)
-- [依赖注入](./foundations/dependency-injection.md)
+### Backend Control Plane & Coordination
+- [Data Model](./data-model.md) — All 32 `backend.db` SQLite tables, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
+- [Conversation & Context](./conversation-and-context.md) — `conversation_ledger`, multi-member routing, child rooms, `AgentContext` trees/branches, projection, `cli_session_ref`
+- [Agent Run Execution](./agent-run-execution.md) — `enqueueAndAcquire`, 9-stage dispatch machine, watchdogs, durable HITL (`pending_action`), terminal commit, crash recovery
+- [ACP Backend Contract](./acp-backend-contract.md) — Single `acp` backend boundary, 4 harnesses (`oma`/`claude`/`pi`/`omp`), stdio JSON-RPC lifecycle, event mapping, `HeldPermission`
+- [Team Coordination](./team-coordination.md) — PA + Worker boundaries, Product Tools MCP (32+3+2 tools), dispatch facets & pool recall, duplex loop, request ownership, delivery gate, proposals
+- [Proactive & Knowledge](./proactive-and-knowledge.md) — Ambient rules & semantic assessment, reminders, requirements, Git-backed Wiki, unified recall & cross-process memory, attention debt
 
-数据与历史
+### Workspaces, Workflows & Extensibility
+- [Workspaces & Projects](./workspaces-and-projects.md) — Agent workspace layout, Workspace Bridge, encrypted MCP file catalog, Git mirrors & worktrees, safe `project_push`, Coding PTY terminals
+- [Workflow Engine](./workflow.md) — Pure DSL (`packages/workflow`), 5 node types, 13-op JSON-Logic, parallel waves, rework & `#budget` gates, cron/webhook triggers, `artifacts://`
+- [Skills & Plugins](./skills-and-plugins.md) — Role-scoped builtin skills, Skill Pack install/sync state machine, progressive skill discovery, Oma plugin trust matrix, HITL permission modes
 
-- [Product Backend 总览](./backend/overview.md)
-- [环境规则](./backend/ambient-rules.md)
-- [房间内派单](./backend/room-dispatch.md)
-- [Conversation History](./conversation/history.md)
-- [Agent Context](./agents/context.md)
-- [Agent 工作区与多后端](./agents/workspace-and-backends.md)
-- [Run 输出与实时更新](./runs/output-and-live-updates.md)
+### Oma Runtime & Models
+- [Oma Runtime](./oma-runtime.md) — `apps/oh-my-agent` 4 modes (`print`/`json`/`acp`/`tui`), `createOmaSession()`, native tools, delegation fan-out, autonomous memory, TUI layering, goals/loops/plans
+- [Models & Providers](./models-and-providers.md) — `@chengchenccc/ai` 3 wire protocols, `BUILTIN_CATALOG` vs `$OMA_HOME/models.yml`, credential resolution, aliases, live catalog probing
+- [Compaction](./compaction.md) — `oma` 4-trigger compaction, CJK-aware cut points, 6-section + deterministic state blocks, opt-in tool pruning, backend `/compact`
 
-执行链
+### Surfaces
+- [AHP Surface Contract](./ahp-surface-contract.md) — `@chengchenccc/ahp-client` WS transport, ticket auth, `ahp-chat:/` snapshot & action streams, `_meta` extensions, `EntityLabelResolver`
+- [Web Surface](./web-surface.md) — Next.js 15 console, BFF proxy & `maw_session`, Eden Treaty, navigation IA, English-source i18n skin, split inspector, PTY terminal, E2E message flow
+- [Lark Surface](./lark-surface.md) — `@larksuite/channel` inbound & doc comments, 3-layer access gate, 10 local SQLite tables, CardKit streaming run cards, systemd supervision, E2E flow
 
-- [Agent Backend](./execution/agent-backend.md)
-- [Oma Runtime](./runtime/oma.md)
-- [Oma Tools](./runtime/oma-tools.md)
-- [模型与 Provider](./runtime/models.md)
-- [Compaction](./runtime/compaction.md)
-- [Oma 插件与 HITL](./plugins/oma-plugins.md)
-- [渐进式技能插件](./plugins/progressive-skill.md)
-- [技能包管理](./plugins/skill-pack.md)
+### Security, Operations & Archives
+- [Security Model](./security-model.md) — Single-operator threat model, auth, path jail, URL guard, OS sandboxes (`bwrap`/`sandbox-exec`), allowlist proxy, open security debt register
+- [Operations & Gateway](./operations-and-gateway.md) — Backend DI composition root, `oma gateway` packaging/lifecycle/upgrade, systemd units, `OMA_DEBUG=1`, troubleshooting runbook
+- [Backend Kinds Gate 0 Snapshot](./backend-kinds-gate0.md) — Point-in-time (2026-08-12/13) CLI protocol measurement archive (not a current contract)
 
-编排与项目
+## Canonical Glossary
 
-- [Agentic Workflow](./workflow.md)
-- [Project 与 Worktree](./agents/projects-and-worktrees.md)
+Terms across the codebase follow these definitions:
 
-端与流程
-
-- [AHP host](./surfaces/ahp.md)
-- [端总览](./surfaces/overview.md)
-- [Web 端](./surfaces/web.md)
-- [飞书](./surfaces/lark.md)
-- [飞书接入向导](./surfaces/lark-setup.md)
-- [Web 消息端到端](./flows/e2e-web-message.md)
-- [飞书消息端到端](./flows/e2e-lark-message.md)
-
-安全与运维
-
-- [安全模型](./security/overview.md)
-- [oma 内核防线](./security/oma-kernel.md)
-- [bash 沙箱](./security/bash-sandbox.md)
-- [安全与债务清单](./security/debt.md)
-- [启动器与升级](./operations/gateway.md)
-- [排障指南](./operations/troubleshooting.md)
-
-规则
-
-- [设计哲学](./design-philosophy.md)
-- [跨进程契约规则](./e2e-contract-rules.md)
-- [DB 类型链规则](./db-typesafe-rules.md)
-
-## 核心概念
-
-术语以这张表为准。同一个词在别处写法不同，按这里理解。
-
-| 词 | 定义 |
+| Term | Definition |
 |---|---|
-| Agent | 一个可被指派工作的成员：身份、记忆、技能、默认模型都在它的工作区文件里 |
-| Conversation | 一段对话，可以有一个或多个成员 agent（[ADR 0041](../adr/0041-conversation-membership-and-response-routing.md)）；`conversation.agent_id` 只是无成员行时的兼容兜底 |
-| Message | 对话轮次的领域对象，人和 Agent 都产生 Message |
-| Conversation History | 一场对话里共同发生的事实，存在账本里 |
-| Agent Context | 某个 Agent 实际消费和保留的语义历史 |
-| Context Branch | Agent Context 里一条可 fork、可回滚的历史路径 |
-| Agent Run | Context Branch 上一次持久的产品级执行，是唯一的执行身份 |
-| Agent Backend | 执行 Agent Run 的引擎边界，有 oma / claude / pi / omp 四个实现 |
-| Workspace Bridge | 把技能、MCP、产品工具幂等写进 Agent 工作区文件的后端机制 |
-| Product Tool | 由 Product Backend 执行的产品能力（History 读写、todo、审批等），以 MCP server + 每次 Run 独立 token 的形式提供 |
-| Workflow | 声明式节点图编排：agent / script / human 节点加 JSON-Logic 边，可被 cron 触发 |
-| Artifact | 带类型的产物，用 `artifacts://` 引用，能在节点之间和对话里传递 |
-| Oma | 本仓库自研的 CLI 执行引擎，有 print / json / acp 三种一次性模式和 TUI 交互终端 |
-| Coding | Web 里的 worktree 终端页：每个 Project 下若干终端面板，面板可以跑 shell，也可以把 oma 拉起来交互 |
+| **Agent** | A team member whose identity (`SOUL.md`/`USER.md`), config (`agent.yml`), skills, and memory live as files in its workspace; `role` is `"front"` (PA) or `"worker"`. |
+| **PA (Front Desk)** | Human-facing agent (`role !== "worker"`) that manages attention, tracks requirements, dispatches workers, and maintains the Git Wiki. Physically stripped of code/shell tools (`FRONT_DESK_DISABLED_TOOLS`). |
+| **Worker** | Specialist agent (`role === "worker"`) executing in isolated child conversations and requirement/project worktrees across any of the 4 ACP harnesses. |
+| **Conversation** | A room backed by `conversation_ledger` with `1..N` members (`conversation_member`). Root rooms face humans; child rooms (`parent_conversation_id`) hold dispatched worker runs. |
+| **Message** | Canonical domain turn object (`@chengchenccc/message`) shared across ledger, context projection, AHP, and surfaces. |
+| **Agent Context** | Per-`(conversation, agent)` append-only tree (`agent_context_tree`/`entry`/`branch`) referencing ledger messages and product summaries. |
+| **Agent Run** | Unique product execution identity (`agent_run`) pinned to a context branch; every Run spawns one ephemeral ACP child process. |
+| **ACP Harness** | One of four CLI engines (`oma`, `claude`, `pi`, `omp`) registered in `ACP_AGENTS` and driven by the single `acp` backend client. |
+| **Product Tool** | Backend-owned capability exposed over MCP (`product-tools`, `agent-config`, `workflow`) with a per-run bearer token revoked at settlement. |
+| **Requirement** | Stable work goal (`requirement`) tracked across conversations and runs; owns project checkouts (`workspace`, `requirement_workspace`). |
+| **Proposal** | Unapplied change (`proposal`) emitted by agent MCP tools (`agent_config`, `workflow_definition`, `project_creation`, `project_update`) requiring explicit human adoption. |
+| **Wiki** | Product-level Git-backed Markdown knowledge base (`<dataDir>/wiki`) with 5 spaces, CAS revisions, and source provenance; replaced legacy knowledge packs (ADR 0078). |
+| **Workflow** | Declarative DAG (`*.workflow.json`, `packages/workflow`) of `start`/`end`/`agent`/`script`/`human` nodes with JSON-Logic routing, parallel waves, rework budgets, and cron/webhook triggers. |
+| **Artifact** | Typed file stored on disk under `<dataDir>/artifacts` and indexed in SQLite (`artifact`), addressed via `artifacts://<folder>/<filename>`. |
+| **AHP** | Agent Host Protocol over `/ws/ahp`: the single live state-mirror transport between Product Backend and surfaces (Web, Lark). |
+| **Oma** | In-repo CLI and agent runtime (`apps/oh-my-agent`) supporting `print`, `json`, `acp`, and `tui` modes. |
 
-## 稳定约束
+## Global Invariants
 
-这几条改了就要连带改好几页，动之前先想清楚。
+1. **Backend is the single source of truth.** Web, Lark, and Coding terminals render backend facts (`conversation_ledger`, `agent_run`, `pending_action`, `requirement`, `wiki`); surfaces hold only local delivery/UI state.
+2. **One Run = one ephemeral ACP child.** There are no long-lived cross-run agent daemons; multi-turn continuity relies on opaque `cli_session_ref` / `native_session_ref` tokens resumed by each harness.
+3. **Single active Run per context branch.** Enforced by both `enqueueAndAcquire` and partial unique index `idx_agent_run_active_branch`.
+4. **Streaming is transient; terminal commit is atomic.** Deltas never enter `conversation_ledger`; `commitCompletedRun` commits ledger rows, context entries, branch CAS, and run status in one SQLite transaction keyed by `(agent_run_id, message_index)`.
+5. **Fail-closed HITL and hard role isolation.** Approvals and asks persist in `pending_action` before surfacing and time out to deny; front-desk tools are stripped in code; `project_push` only targets `agent/<runId>`; proposals never auto-apply.
+6. **Subprocess internals stay private.** Product Backend depends only on the 5-method `AgentBackend` contract, never on `oma`'s internal loop, compaction, or todo files.
 
-```text
-Conversation History 存共享事实，Agent Context 存单个 Agent 的实际历史。
-Agent Run 是唯一的执行身份。
-每一次 Agent Run 都由 Agent Backend 起一个一次性子进程。
-Agent 的配置、技能、记忆都在工作区文件里，不在数据库里。
-```
+## Editing Rules for This Directory
 
-- 没有跨 Run 的会话、resume 或常驻进程。上下文续接靠各后端自己的原生 session，产品只存一个引用。
-- 流式输出不写进 Conversation History，也不写进 Agent Context。
-- Agent 的最终 Message 与 Context 引用在同一个事务里提交，用 `agent_run_id` 标记这一次提交。
-- Product Tool 的权限和事实都归 Product Backend。
-- oma 子进程内部的 loop、retry、compaction、todo、技能加载是它自己的实现，产品侧不依赖。
-
-## 写这一区页面的规矩
-
-一页只讲一件事，标题直接说这件事是什么。开头一句话交代这页是哪个东西的权威描述，然后给范围（覆盖什么、不覆盖什么）和相关实现文件，正文按事实分小节，不按重要性排比。
-
-只写代码此刻的样子。迁移过程、旧包名、临时兼容路径不进正文，它们属于 ADR 和 git。
-
-已删除的概念不留页面，也不在正文里当反例反复提。`span`、`attempt`、`session 持久化`、`daemon`、`checkpointer`、`Pet`、`Recap`、`Loop`、`CronJob` 这些在代码里已经没有了（多成员对话曾经删掉又回来了，见 ADR 0041，所以不在这一列），页面一并删掉；要知道它们为什么消失，去 [`../adr/`](../adr/README.md) 查。
-
-同一条事实只写一遍。别的地方需要，链接过来。
+- **State facts as of `HEAD` only.** Put rationale and migration history in `docs/adr/`, future plans in `docs/roadmap.md`.
+- **Single source of truth.** State each subsystem's contracts once on its owning page; link everywhere else. Keep Chinese mirrors strictly limited to the three entry pages (`README.zh-CN.md`, `system-overview.zh-CN.md`, `design-philosophy.zh-CN.md`).
+- **Anchor to real code.** Every page starts with YAML frontmatter (`title`, `description`, `tags`) and an `## Authoritative files` list. Run `bun run audit:docs` before committing.

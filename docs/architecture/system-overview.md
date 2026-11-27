@@ -1,134 +1,129 @@
 ---
-title: 系统总览
-description: 一次 Agent Run 从输入到终态提交的权威链路：执行链阶段、四方所有权划分、容器视图与失败原则
-tags: [runtime, backend]
+title: System Overview
+description: End-to-end architecture of CrewDesk — PA + Worker team topology, process container map, ownership boundaries, the single Agent Run execution pipeline, failure rules, and global invariants
+tags: [overview, runtime, backend]
 ---
 
-# 系统总览
+# System Overview
 
-本页是一次 Agent Run 从输入到终态提交的权威描述：谁拥有什么事实、执行链上有哪些阶段、每次执行各自负责什么。
+> **Language:** **English (canonical)** · [简体中文](./system-overview.zh-CN.md)
 
-## 范围
+CrewDesk (`my-agent-team`) is a single-node, Bun + SQLite control plane that coordinates a team of AI coding agents across four CLI harnesses (`oma`, `claude`, `pi`, `omp`) behind one Agent Client Protocol (ACP) rail and exposes one synchronized truth to Web, Lark/Feishu, and workspace PTY terminals.
 
-覆盖：唯一执行链与它的阶段、四方（Product / 子进程 / Adapter / Workflow）的所有权划分、容器视图、稳定概念、主流程、失败原则。
+## Authoritative files
 
-不覆盖：各个 id 的归属与生成规则（见 [标识符体系](./foundations/identifiers.md)）、历史与上下文的数据语义（见 [事实与投影](./foundations/facts-and-projections.md)、[Agent Context](./agents/context.md)）、各后端的 spawn 细节（见 [Agent Backend](./execution/agent-backend.md)）、Workflow 节点语义（见 [Agentic Workflow](./workflow.md)）。
+- `apps/backend/src/main.ts` — Process startup order and graceful `SIGTERM`/`SIGINT` drain
+- `apps/backend/src/bootstrap/services.ts` — Process-level singletons (`backend.db`, settings, MCP client manager, ops store, Lark supervisor)
+- `apps/backend/src/bootstrap/features.ts` — Composition root assembling all 22 feature routers, ACP backend, Product MCP servers, and background loops
+- `apps/backend/src/app.ts` — Elysia HTTP/WS router assembly, global `authGuard`, and global `onError` JSON contract
+- `apps/backend/src/features/agent-run/execution-dispatch.ts` — 9-stage Run dispatch state machine
+- `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — Atomic `enqueueAndAcquire` transaction
+- `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — Atomic terminal commit, `failCommit`, and `acquireNextRun`
+- `apps/backend/src/features/agent-run/execution-service.ts` — `recover()`, `steer`, `resolveApproval`, `stop`, and `dispose`
+- `apps/backend/src/features/agent-run/acp/acp-backend.ts` — Single ACP client driving all four harnesses
+- `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — Per-Run `oma` runtime assembly
 
-## 实现文件
-
-- `apps/backend/src/features/agent-run/execution-dispatch.ts` — 派单阶段机：预检 → 认领输入 → 解析工作区 → 产品工具清单 → 投影 → 执行 → 结算 → 晋升下一个
-- `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — 入队与取 Run（一个事务）
-- `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` — 终态提交、失败提交、下一 Run 晋升
-- `apps/backend/src/features/agent-run/execution-service.ts` — steer、恢复、提交重试、审批、停止
-- `apps/backend/src/features/agent-context/projection.ts` — 分支投影
-- `apps/backend/src/features/product-tools/{manifest,mcp,run-token-registry}.ts` — 产品工具 MCP 与每次 Run 的 token
-- `apps/backend/src/bootstrap/features.ts` — 组装点：后端注册表与 execution 依赖
-- `apps/backend/src/features/agent-run/protocol/{backend,run}.ts` — 执行协议与终态契约（原 agent-contract，已吸收进 backend）
-- `apps/backend/src/features/agent-run/acp/` — ACP 客户端（唯一后端面：spawn harness、事件映射、审批挂起）
-- `apps/oh-my-agent/src/core/runtime/create-runtime.ts` — 每次 Run 的 Oma Runtime 装配
-
-## 容器视图
+## Container & Process Topology
 
 ```text
-Web (Next.js, :3001) ─┐
-                      ├─ HTTP/SSE ─→ Product Backend (Elysia, :3000)
-Lark bot ─────────────┘                    │
-                                           │ 每个 Run spawn 一个子进程
-                                           ├─→ oma     (stdin/stdout JSONL RPC)
-                                           ├─→ claude  (stream-json)
-                                           ├─→ pi      (json)
-                                           └─→ omp     (json)
-                                           │
-                                           └─ SQLite backend.db（产品事实 + 执行控制面）
+Web Console (Next.js 15, :3001) ──HTTP BFF + /ws/ahp + /ws/coding──┐
+Lark Bot (per-PA process, SDK WS) ──HTTP + /ws/ahp─────────────────┼─→ Product Backend (Elysia, :3000)
+Oma TUI / CLI (standalone or PTY) ─────────────────────────────────┘      │
+                                                                          ├── SQLite backend.db (32 tables)
+                                                                          ├── Filesystem: workspaces/, projects/*.git,
+                                                                          │               artifacts/, wiki/ (Git), skill-packs/,
+                                                                          │               workflows/, mcp-servers.json
+                                                                          └── 1 ephemeral ACP child per Agent Run:
+                                                                                ├─ oma     (oma --mode acp)
+                                                                                ├─ claude  (claude-agent-acp)
+                                                                                ├─ pi      (pi-acp)
+                                                                                └─ omp     (omp acp)
 ```
 
-Web 不直连后端数据，走 BFF 代理并带上服务端 token（见 [Web 端](./surfaces/web.md)）。
+- **Web** never talks to the backend with browser credentials; `/api/bff/[...path]` validates the `maw_session` cookie and injects `x-auth-token` server-side. Real-time updates travel over `/ws/ahp` and `/ws/coding/:id` using 60-second single-use tickets; there are no SSE routes left in the backend.
+- **Lark bots** run one process per PA agent (supervised by `DevLarkBotRegistry` in dev or `systemd` template `my-agent-team-lark-bot@<agent>` in production), speak directly to Feishu OpenAPI for streaming CardKit cards, and subscribe to backend state over `/ws/ahp`.
+- **Standalone `oma`** runs independently (`print`, `json`, `tui` modes) with no backend dependency; inside CrewDesk it is invoked via `oma --mode acp` like any other harness.
 
-## 谁拥有什么
+## PA + Worker Team Model
 
-| 事实 | 归属 |
-|---|---|
-| 对话、账本、Agent Context | Product Backend |
-| Agent Run 与输入队列、产品工具调用账 | Product Backend |
-| Project、技能包、知识库、设置 | Product Backend |
-| Workflow execution 与节点运行 | Product Backend |
-| Artifact 文件 | Product Backend 的文件系统 |
-| 子进程的 transcript、工具循环、重试、compaction | 子进程自己 |
-| 原生 session | 子进程自己；产品只存一个引用 |
+CrewDesk enforces a hard code-level split between two agent roles (ADRs 0049, 0072, 0074):
 
-产品只依赖 `AgentBackend` 协议，不读子进程的 transcript，也不依赖它内部的 todo、compact、重试策略。
+| Role | Responsibility | Code-enforced boundary |
+|---|---|---|
+| **Operator (Human)** | Owns configuration, approves irreversible/out-of-scope actions, merges branches, accepts requirements. | Agent config/project/workflow edits land as `proposal` rows ("suggest ≠ save"). |
+| **PA / Front Desk** (`role !== "worker"`) | Owns human attention, clarifies intent, creates/tracks Requirements, dispatches workers into child rooms, answers evidence-backed worker questions, maintains the shared Git Wiki. | `FRONT_DESK_DISABLED_TOOLS` strips all 14 execution/file/web/delegation tools (`bash`, `eval`, `read`, `write`, `edit`, `ls`, `grep`, `glob`, `tree`, `web_search`, `web_fetch`, `browser`, `read_image`, `task`). Cannot bypass dispatch. |
+| **Worker** (`role === "worker"`) | Executes code, research, and review inside isolated child conversations (`parent_conversation_id`) and requirement git worktrees (`req/<requirementId>`). | Cannot enable Lark (`agentConfigSchema` rejects `worker` + `lark.enabled`). Human messages to a worker in a room reroute to the front desk unless `directToWorker: true`. `project_push` only pushes `agent/<runId>` (never `main`/`master`). Unverified edits trigger a second-member delivery gate warning. |
 
-后端的种类注册表是 `oma` / `claude_code` / `pi` / `omp`。注册表是部分的：未知种类在预检阶段返回 422，走不到 spawn。
+## Ownership Boundaries
 
-## 唯一执行链
+| Fact / Capability | Owner | Notes |
+|---|---|---|
+| Conversations, ledger, `AgentContext` trees & branches | Product Backend (`backend.db`) | Shared truth across all surfaces |
+| Agent Runs, input queue, `pending_action`, telemetry, tool idempotency | Product Backend (`backend.db`) | Execution control plane |
+| Requirements, Proposals, Reminders, Proactive ledger, Artifact/Terminal indexes | Product Backend (`backend.db`) | Cross-surface linkage (ADR 0082) |
+| Workflow definitions, executions, node runs, human tasks | Product Backend (`workflows/`, `backend.db`) | Pure domain in `packages/workflow` |
+| Shared Wiki & Artifact bytes | Product Backend (filesystem) | `<dataDir>/wiki` (Git), `<dataDir>/artifacts` |
+| Agent identity, config, skills, MCP catalog | Filesystem (reconciled by Backend) | `agent.yml`, `SOUL.md`, `USER.md`, `mcp-servers.json` |
+| Child transcript, tool loop, retries, compaction, native session | Harness child process | Product stores only opaque `cli_session_ref` / `native_session_ref` |
+| Surface bindings, delivery dedup, card state, UI drafts | Each Surface | Lark keeps 10 local SQLite tables; Web keeps React Query + AHP mirror |
+
+## Package Dependency Graph
+
+All workspace packages live under `@chengchenccc/`:
+
+- **Leaves (zero workspace deps):** `message`, `config`, `tui`, `sandbox`, `source-fetch`, `workflow`, `api-contract`, `embedding`
+- **Runtime & protocol support:** `ai` (3 LLM wire protocols + catalog), `adapter-mcp` (external MCP client), `ahp-client` (WebSocket AHP transport), `test-helpers` (`echoModel()`)
+- **Apps:** `backend` (consumes all libraries), `oh-my-agent` (`oma` CLI + runtime), `web` (Next.js 15), `lark-bot` (Feishu adapter)
+
+Cross-package imports must go through package barrels (`index.ts`). Enforced by `bun run audit:workspace` and ESLint.
+
+## The Single Execution Pipeline
+
+Every agent turn — whether triggered by Web, Lark, a PA `dispatch`, a `workflow` agent node, an ambient rule, or a `reminder` — runs through the same pipeline:
 
 ```text
-输入（人 / Workflow 节点 / cron 触发的 Workflow）
-→ Conversation History 落账
-→ 触发判定与模式路由（未点名的观察消息可被环境规则升格，见 [环境规则](./backend/ambient-rules.md)）
-→ 取 Run（一个事务：入队、活跃 Run 守卫、分支 CAS、Context 引用、建 Run）
-→ 派单（预检模型 → 认领输入 → 解析工作区 → 写产品工具清单 → 投影历史）
-→ Agent Backend spawn 一个子进程
-→ transient 事件流 fan-out 到订阅者
-→ 终态 BackendRunOutcome
-→ 原子提交（账本 + Context 引用 + 分支 CAS + Run CAS）
-→ 晋升下一个排队的输入
+Input (Human / Dispatch / Workflow / Ambient Rule / Reminder)
+  1. Persist canonical MessageRevision to conversation_ledger
+  2. Route targets (conversation_member count + ADR 0049 front-desk reroute + ADR 0046 ambient seam)
+  3. enqueueAndAcquire (single SQLite txn: queue row + active-run guard + branch CAS + 20-entry sync + agent_run row)
+  4. 9-stage dispatch machine (execution-dispatch.ts):
+       load_run → budget_gate → model_preflight → claim_input
+       → resolve_workspace → set_product_tools → context_projection
+       → backend_execute → settle_outcome → acquire_next
+  5. AcpBackend spawns 1 ephemeral harness child over stdio JSON-RPC
+  6. Live events fan out to AhpChatWriter (/ws/ahp), telemetry whitelist, and durable pending_action
+  7. Child settles to single BackendRunOutcome (completed | failed | aborted | timeout)
+  8. Atomic commitCompletedRun txn (ledger + context entries + branch CAS + run status CAS)
+  9. Promote next queued input on branch (acquireNextRun) and notify parent dispatcher if dispatched
 ```
 
-派单阶段的具名阶段是：`load_run`、`model_preflight`、`claim_input`、`resolve_workspace`、`set_product_tools`、`context_projection`、`backend_execute`、`settle_outcome`、`acquire_next`。它们会带 `OMA_DEBUG=1` 输出到 stderr，用于排查卡在哪一步。
+Set `OMA_DEBUG=1` to log each named dispatch stage to stderr.
 
-## 一次 Run 的主流程
+## Failure Principles
 
-**入队。** 人类消息先落账本，随后创建 Run。两者不在同一个事务里，所以「消息在、Run 没建起来」是一种真实存在的中断。
-
-**取 Run** 是一个 immediate transaction，里面有：插队列行、活跃 Run 守卫、无活 Run 的 steer 取消、作用域校验、分支 revision CAS、读游标之后未 undone 的账本行、可见性过滤、取最后 20 条、追加 Context 引用、推进游标与叶子、建 `agent_run` 行、把输入置为 `delivering`。
-
-**执行。** 预检按 `model_ref.backendKind` 查注册表；spawn 之前用数据库真相源重写工作区桥接文件；同一个 worktree 上的 Run 经 workspace lock 串行；spawn 槽位按 `maxConcurrent` FIFO。输入只有被适配器接收后才 CAS 成 `delivered`。
-
-**steer 只对 oma 有效。** 没有活句柄时显式失败并取消输入，绝不重放或降级。CLI 类后端显式 steer 会在产品层改写成 `normal`。
-
-**终态。** completed 走一次事务提交；failed / aborted / timeout 则广播状态、落一条用户可见的错误消息、写终态。
-
-**取消。** `POST /api/agent-runs/:runId/cancel`，已终态返回 `already_terminal`；活跃的才 `stop()`——有活子进程就 abort，僵尸则直接终态化并晋升下一个。
-
-**超时。** 每个 Run 有墙钟上限，默认 30 分钟，到点让 backend `stop()`，Run 落 aborted。
-
-**重启恢复。** `AgentRunExecutionService.recover()` 处理四类：`delivering` 输入按原 runId 重投、崩溃缺口把空闲分支上的 pending 输入晋升成新 Run、`commit_failed` 逐个重试提交（只用已存的 outcome，不重跑后端）、已投递但没有活子进程的孤儿置 aborted 并晋升下一个。启动时由 `bootstrap/features.ts` 的 `start()` 调起（先于 Workflow 的 `recover()`：老状态先结算，Workflow 重驱时才不会撞上被占用的分支）。
-
-**收尾。** dispatch 的 finally 统一清 live 句柄、吊销产品工具 token、关闭订阅者；进程退出时先杀所有子进程再排空在飞的 dispatch。
-
-## 稳定概念
-
-| 概念 | 说明 |
+| Failure Point | System Behavior |
 |---|---|
-| Agent Run | 唯一的执行身份，对应一个子进程 |
-| BackendRunOutcome | 唯一的终态依据，completed / failed / aborted / timeout |
-| Conversation History | 共享的对话事实，账本 |
-| Agent Context | 某个 Agent 消费与保留的语义历史，存引用 |
-| Context Branch | 可 fork 的历史路径，Run 都挂在某个分支上 |
-| Workspace | Run 的工作目录：agent 工作区，或绑定了 Project 时的 worktree |
-| Product Tool | 由产品执行的能力，经 MCP 暴露、带每次 Run 独立的 token |
+| Pre-acceptance failure (budget, model preflight, workspace, spawn, handshake) | Run settles `failed`, bound queue input is `cancelled`, error message committed (`run:<runId>:error`), subscribers notified. |
+| Child exits before producing an outcome | Synthesizes `failed` outcome from exit code + stderr tail (unless `isBackendShuttingDown()`, which settles `aborted`). |
+| Wire protocol violation or command timeout | Run settles `failed` and child is killed (`SIGTERM` → 3s → `SIGKILL`). |
+| Silence watchdog (90s default) or wall-clock cap (30m default) | Exempt while a tool call is open or a `pending_action` is waiting; otherwise calls `backend.stop(runId)` → `aborted`. |
+| Terminal commit DB failure | `failCommit` marks Run `commit_failed` with stored `terminal_result`; branch stays occupied until `recover()` retries the commit without re-running the child. |
+| Live observer / WebSocket fan-out error | Swallowed; never affects Run execution or settlement. |
+| Backend crash or restart mid-run | Boot `recover()` re-dispatches `delivering` inputs, promotes idle pending queues, retries `commit_failed`, re-delivers unnotified worker results, preserves `waiting` runs with open `pending_action`s (ADR 0038), and aborts orphaned live runs. |
 
-**没有的东西**：跨 Run 的常驻进程、产品侧的会话或 checkpointer。运行侧确实在续接——载体是分支上的 `cli_session_ref`（带上后端种类前缀），由各后端用自己的原生 session 机制加载，产品只存引用、只转发，从不解析。见 [Agent Context](./agents/context.md) 与 [ADR 0019](./../adr/0019-cli-session-dual-truth.md)。
+## Global Invariants
 
-## 失败原则
+1. **Human message persistence precedes Run acquisition.** They are separate transactions; a message may exist in the ledger without a Run if enqueue fails.
+2. **One active Run per branch** (`running | waiting | commit_failed`), enforced in both SQLite (`idx_agent_run_active_branch`) and `enqueueAndAcquire`.
+3. **Terminal `BackendRunOutcome` is the sole authority.** Live events are strictly observational; streaming deltas never enter `conversation_ledger`.
+4. **Per-run config snapshot is immutable.** Model ref, system prompt, skill roots, permission mode, tool policy, authorization basis, parent run, and risk flags are frozen at enqueue/acquire time.
+5. **Product tool tokens are ephemeral and env-only.** Minted per Run, delivered only via spawn env (`PRODUCT_TOOLS_RUN_TOKEN`), validated by SHA-256 hash in memory, and revoked in `dispatch`'s `finally` block.
+6. **Workspace locks serialize shared checkouts.** Runs on a shared requirement worktree (`shared !== false`) hold the per-root lock until settlement; isolated workspaces (`shared: false`) release it after workspace preparation.
 
-| 失败点 | 结果 |
-|---|---|
-| 接收前的失败（模型预检、投影、工作区、spawn、适配器接收） | Run 落 failed，输入取消，订阅关闭 |
-| 子进程在给结果前崩溃 | 用退出码与 stderr 尾部合成 failed 结果 |
-| stdout 协议损坏 | `failProtocol`，Run failed |
-| 终态提交失败 | Run 落 `commit_failed`，分支继续被占用 |
-| 实时推送失败 | 不影响 Run：订阅者异常与流关闭都被吞掉 |
-| 节点/工具内部错误 | 子进程自己处理，通过 outcome 或事件表达 |
+## See also
 
-## 不变量
-
-1. Run 是唯一的执行身份，每个 Run 对应一个一次性子进程。
-2. 同一个分支同时只有一个活跃 Run。
-3. 终态 outcome 是唯一权威，它之前的一切都只是 transient。
-4. 流式输出永不进产品事实。
-5. 人类消息先落账本再创建 Run；终态提交才把 Agent 消息与 Context 引用写进产品事实。
-6. 输入被适配器接受后才算投递成功。
-7. 子进程的内部机制（重试、compaction、todo、技能加载）不被产品依赖。
-8. 产品工具权限归产品，每次 Run 一个 token，只在 spawn env 里传递，终态必吊销。
+- [Data Model](./data-model.md) — All 32 SQLite tables and transaction boundaries
+- [Agent Run Execution](./agent-run-execution.md) — Detailed dispatch stages, HITL parking, and recovery
+- [ACP Backend Contract](./acp-backend-contract.md) — The 5-method `AgentBackend` protocol and 4 harnesses
+- [Team Coordination](./team-coordination.md) — PA + Worker boundaries, Product MCP, and dispatch lifecycle
+- [Operations & Gateway](./operations-and-gateway.md) — DI bootstrap, `oma gateway`, and troubleshooting

@@ -142,8 +142,9 @@ Cross-file entry points to read before touching web:
 
 - [docs/README.md](../../docs/README.md) — repo wiki front door
 - [docs/architecture/system-overview.md](../../docs/architecture/system-overview.md)
+- [docs/architecture/web-surface.md](../../docs/architecture/web-surface.md)
 - [docs/architecture/e2e-contract-rules.md](../../docs/architecture/e2e-contract-rules.md)
-- [docs/architecture/foundations/dependency-injection.md](../../docs/architecture/foundations/dependency-injection.md)
+- [docs/architecture/operations-and-gateway.md](../../docs/architecture/operations-and-gateway.md)
 
 ## Review checklist before claiming done
 

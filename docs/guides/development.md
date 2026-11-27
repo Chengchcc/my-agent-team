@@ -6,7 +6,7 @@
 
 覆盖：首次准备、`bun run dev` 背后的动作、各个脚本入口、门禁命令、小内存机器上的注意事项。
 
-不覆盖：装一个能用的发行版（见仓库根 [`README.md`](../../README.md)）、架构（见 [`../architecture/`](../architecture/README.md)）、出问题怎么查（见 [`./troubleshooting.md`](../architecture/operations/troubleshooting.md)）。
+不覆盖：装一个能用的发行版（见仓库根 [`README.md`](../../README.md)）、架构（见 [`../architecture/`](../architecture/README.md)）、出问题怎么查（见 [运维与排障](../architecture/operations-and-gateway.md)）。
 
 ## 实现文件
 
@@ -98,7 +98,7 @@ bash scripts/reset-login-password.sh      # 忘了：清掉哈希，重置成 .e
 bash scripts/reset-login-password.sh 'new-password-1234'   # 或者指定一个新值
 ```
 
-重置脚本会删掉库里的哈希并把选定的值写回 `.env`，重启后端生效。走 `oma gateway` 装的那套用 `oma gateway passwd`（gateway 在跑就直接推给后端，没跑就清哈希）。原理见 [安全模型](../architecture/security/overview.md)。
+重置脚本会删掉库里的哈希并把选定的值写回 `.env`，重启后端生效。走 `oma gateway` 装的那套用 `oma gateway passwd`（gateway 在跑就直接推给后端，没跑就清哈希）。原理见 [Security Model](../architecture/security-model.md)。
 
 ## 提交规范
 
@@ -112,9 +112,9 @@ husky 的 pre-commit 会先 `biome format` 再 `git add -u`，把已跟踪文件
 
 ## 相关页
 
-- [排障指南](../architecture/operations/troubleshooting.md) — 起不来、连不上、跑不动时按层查
-- [Product Backend 总览](../architecture/backend/overview.md) — 后端启动时装了什么
-- [依赖注入](../architecture/foundations/dependency-injection.md) — 组装点和注入手法
+- [Operations & Gateway](../architecture/operations-and-gateway.md) — DI 组合根、`oma gateway` 与分层排障
+- [System Overview](../architecture/system-overview.md) — 后端所有权与唯一执行链
+- [Agent Run Execution](../architecture/agent-run-execution.md) — Run 派单与重启恢复
 
 ## 生产运行（systemd）
 

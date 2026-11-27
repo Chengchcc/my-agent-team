@@ -37,5 +37,5 @@ Gate 0 实测（docs/architecture/execution/backend-kinds-gate0.md）：
 
 ## 关联
 
-- [Gate 0 协议核实](../architecture/execution/backend-kinds-gate0.md)
+- [Gate 0 协议核实](../architecture/backend-kinds-gate0.md)
 - [设计哲学](../architecture/design-philosophy.md) — 双轨是协议面事实，不是设计偏好

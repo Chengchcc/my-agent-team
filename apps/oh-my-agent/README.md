@@ -82,5 +82,5 @@ src/
 
 ## 相关文档
 
-- [架构 Wiki — Oma](../../docs/architecture/runtime/oma.md)
-- [Agent Backend 协议](../../docs/architecture/execution/agent-backend.md)
+- [Oma Runtime](../../docs/architecture/oma-runtime.md)
+- [ACP Backend Contract](../../docs/architecture/acp-backend-contract.md)

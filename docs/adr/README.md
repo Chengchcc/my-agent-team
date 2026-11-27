@@ -69,7 +69,7 @@
 - `docs/architecture/design-philosophy.md` — 8 条架构原则
 - `docs/architecture/e2e-contract-rules.md` — 跨进程类型契约规则
 - `docs/architecture/db-typesafe-rules.md` — DB 类型链规则
-- `docs/architecture/execution/backend-kinds-gate0.md` — 多 backend 协议实测记录(决策见 §7)
+- `docs/architecture/backend-kinds-gate0.md` — 多 backend 协议实测记录(历史归档)
 | 0040 | run-contract-acp-surface-contract-ahp(运行契约归 ACP、surface 契约归 AHP；两条自研方言下线，删除清单即验收条件) | **Accepted**（S0 首刀已落地：ACP 轨的工具事实进账本，验收向量绿；规范模型其余部分与 S1 至 S3、R1 至 R3 待做。工作分支 feat/ahp2acp） |
 | 0041 | conversation-membership-and-response-routing(会话成员 1..N、响应路由由成员数派生；部分取代 0021) | **Proposed**（初稿 2026-10-03；实现未开始——迁移/路由/Web/Lark 四步待排） |
 | 0042 | workflow-rework-as-new-attempts(返工 = 新的尝试，不是环：rework 边 + 预算，图仍无环) | **Implemented**（2026-10-10 落地：P1 至 P5 全部实现并各带测试；rework 与预算门的 grant/reject 已真机验证，见 #79） |

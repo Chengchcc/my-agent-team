@@ -13,7 +13,7 @@
 
 ## 相关文档
 
-- [Product Backend 总览](../../docs/architecture/backend/overview.md)
-- [Conversation History](../../docs/architecture/conversation/history.md) · [Agent Context](../../docs/architecture/agents/context.md)
-- [Run 输出与实时更新](../../docs/architecture/runs/output-and-live-updates.md)
+- [System Overview](../../docs/architecture/system-overview.md)
+- [Conversation & Context](../../docs/architecture/conversation-and-context.md) · [Data Model](../../docs/architecture/data-model.md)
+- [Agent Run Execution](../../docs/architecture/agent-run-execution.md) · [Team Coordination](../../docs/architecture/team-coordination.md)
 - [AGENTS.md](./AGENTS.md) — 本 app 的命令、目录结构与编码约定

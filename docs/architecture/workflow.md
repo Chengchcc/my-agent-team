@@ -1,188 +1,88 @@
 ---
-title: Agentic Workflow
-description: 工作流 DSL 与校验规则、JSON-Logic 子集、路由与合并语义、backend 执行路径、cron 触发与事件流
-tags: [workflow, backend]
+title: Workflow Engine
+description: Declarative Agentic Workflow DSL (packages/workflow), 5 node types, 13-op JSON-Logic, parallel waves, rework attempts & #budget gates, sandboxed script runner, cron/webhook triggers, and artifacts://
+tags: [workflow, artifacts, backend, sandbox]
 ---
 
-# Agentic Workflow
-
-Workflow 是本仓库的编排层：一份 `*.workflow.json` 定义一张节点图，引擎按图推进，执行记录落在数据库里。编排身份是 workflow execution，不是 Agent Run——agent 节点派发的是普通 Agent Run。
-
-## 范围
-
-覆盖：DSL 与校验规则、JSON-Logic 子集、路由与合并语义、backend 执行路径（drive / agent / script / human / retry / cancel / recover）、执行事件的落库与读取、cron 触发、Artifact 引用、agent 侧的定义读写面。
-
-不覆盖：Web 编辑器与画布交互（见 [Web 端](./surfaces/web.md)）、Agent Run 自身的生命周期（见 [Product Backend 总览](./backend/overview.md)、[Run 输出与实时更新](./runs/output-and-live-updates.md)）、oma 子进程内部那套 `core/orchestrate/` 脚本工具（它与本 DSL 无关，见文末「两条独立路径」）。
-
-## 实现文件
-
-- `packages/workflow/src/types.ts` — DSL 领域类型：五类节点、IO 提示、schema、retry、triggers
-- `packages/workflow/src/parse.ts` — `parseWorkflow` 校验：单 start、id 正则、各类型必填、边端点、可达性、未知算子、输出字段引用、拓扑环
-- `packages/workflow/src/json-logic.ts` — JSON-Logic 子集求值器与算子白名单（13 个）
-- `packages/workflow/src/graph.ts` — `CompletionRecord.routedTo` 冻结、`routeOutgoing`、`mergeInputs`、`topoSort`
-- `packages/workflow/src/engine.ts` — `computeNext`：纯函数步进（首个 start、any-of join、首个 ready end 即终态、idle 检测）
-- `packages/workflow/src/schema.ts` — JSON-Schema 子集校验器，节点输入输出用它
-- `packages/workflow/src/editor/{graph-model,layout}.ts` — 分层布局，Web 画布消费
-- `apps/backend/src/features/workflow/service.ts` — drive 循环、节点执行、重试、取消、恢复、human 原子 claim
-- `apps/backend/src/features/workflow/node-runners.ts` — script 节点 runner：`WORKFLOW_SCRIPTS_ENABLED` 门 + 进程沙箱
-- `apps/backend/src/features/workflow/adapter-sqlite.ts` — 四张表的 drizzle 适配器
-- `apps/backend/src/features/workflow/{trigger-scheduler,definition-events,dry-run,mcp,http}.ts`
-- `apps/backend/src/features/artifact/{domain,service,adapter-fs,http}.ts` — `artifacts://` 引用与文件存储
-- `apps/backend/src/bootstrap/features.ts` — 组装：MCP server、节点 runner、服务、触发同步、showcase 播种
-
-## DSL
-
-`WorkflowDefinition = { version: 1, id, meta?, input?, triggers?, nodes, edges }`，`version !== 1` 直接拒绝（`parse.ts`）。
-
-节点 id 限 `^[a-zA-Z0-9_-]+$`，类型只认 `start` / `end` / `agent` / `script` / `human`（`parse.ts:24-31`）。各类型的必填项：
-
-- `end` 必须给 `status`。
-- `agent` 必须有 `agentId`，或者 `model` 与 `prompt` 都给（`parse.ts:121-122`）；可选 `repo`（必须是该 agent 已挂载的 project id，装配时校验，未挂载就带明确错误让节点失败）。
-- `script` 必须有 `code`；`runtime` 只被解析，沙箱实际恒为 bun；`timeoutMs` 可选。
-- `human` 有 `question` / `form` / `timeoutMs`。
-
-输入提示 `input` 是 `InputField[]` 数组（不是对象），`type` 限 `string | number | boolean | artifact`（`types.ts:6-11`）；`output` 同理。`inputSchema` / `outputSchema` 是 JSON-Schema 子集，支持 `type`、`properties`、`required`、`additionalProperties`、`items`、`enum`、`minimum`、`maximum`、`minLength`、`maxLength`、`minItems`、`maxItems`，没有 `$ref`、`oneOf`、`pattern`（`types.ts:38-52`）。
-
-`retry` 可以是数字，也可以是 `{maxAttempts, intervalMs, backoff}`。`triggers` 目前只有一种：`{type: "cron", cron: <五段表达式>, enabled?}`，DSL 是触发器的唯一真相源。
-
-`parseWorkflow` 会拒绝这些：重复 id、start 不是恰好一个、边的端点不存在、从 start 不可达的节点、`when` 里出现白名单外的 JSON-Logic 算子、`node.output.<field>` 引用了不存在的输出字段、以及拓扑环。
-
-边除 `{ from, to, when? }` 外还有 `kind?: "forward" | "rework"` 与 `budget?: { maxAttempts, onExhausted }`（ADR 0042）。返工边**指向上游**（目标是源的祖先），必须带预算；`forwardEdges()` 是唯一的前向遍历入口，`topoSort`／路由／可达性／编辑器布局都只走它，因此返工边不会把 DAG 变成环，也不会自己「路由」出去。
-
-## JSON-Logic 子集
-
-白名单 13 个算子：`var`、`==`、`!=`、`>`、`>=`、`<`、`<=`、`in`、`and`、`or`、`not`、`if`、`!!`（`json-logic.ts:9-23`）。
-
-未知单键对象在 parse 期就报错。这一步是必须的：如果放过去，它会落进「普通对象当数据」的分支并恒为真，把审批门变成无条件放行（`parse.ts` 的 collectUnknownOps）。
-
-几个语义细节：`==` / `!=` 是 `JSON.stringify` 深比较，键顺序敏感；`if` 只接受严格三元；`var` 支持 `"a.b"` 和 `["a.b", default]` 两种写法。
-
-求值域只有来源节点的 output 和 store（`graph.ts:66-72`）——想跨节点取值，先写进 store。
-
-## 路由、join 与合并
-
-**路由在完成瞬间冻结。** `routeOutgoing` 在节点完成时算出目标，写进 `CompletionRecord.routedTo`；引擎之后只读它，永不重算（`graph.ts:4-11,85-108`、`engine.ts:22-23`）。
-
-**`nextNode` 覆盖条件路由**：source 节点的 output 里带 `nextNode: string` 时，该值必须是这个节点某条出边的目标，否则抛 `WorkflowRouteError`（`graph.ts:20-24,97-104`）。实现上任何节点类型都能用它。
-
-**join 是 any-of**：任一上游 routed 到本节点，本节点即可运行，互斥分支汇合时互不等待（`engine.ts:39-45`）。AND-join 没有实现——DSL 里也没有表达它的标记（`packages/workflow/README.md` 也写明是 any-of）。
-
-**首个 end 即终态**：ready 集合里出现 end 就立即返回终态，取定义序的第一个（`engine.ts:48-52`）。
-
-**合并顺序**：`mergeInputs` 依次合并 trigger、store、以及所有已完成节点的 output，按完成顺序、晚完成者胜出，返回每个 key 的来源；`nextNode` 与 `__proto__` / `constructor` / `prototype` 被排除在数据面之外（`graph.ts:116-143`）。human 答案走 HTTP 进来时同样过滤这四个 key（`service.ts:689-699`）。
-
-**没有 ready 也没有终态**就是 `idle`，壳层抛 `stuck: no ready nodes and no terminal`（`engine.ts:53`、`service.ts:582`）。
-
-## 返工：新的尝试
-
-「跑 → 验收 → 不过则打回重跑，最多 N 轮」由返工边表达，执行侧不引入环，被重新进入的是**执行**而不是图（ADR 0042）：
-
-- 一次执行里同一个 `nodeId` **一行一次尝试**：`workflow_node_run` 主键是自增 `seq`，`build` 的第二次尝试是新行；补丁（`updateNodeRun`）永远只落在该节点的**最新一行**上，否则第二次尝试会改写第一次的结果。
-- 源节点完成且返工边的 `when` 成立时，**目标连同其全部下游**被标成 `superseded`——旧行留作历史，重新执行时追加新行。`superseded` 也是唯一的返工状态：驱动循环每轮从行历史里推导「谁欠一次重跑」，所以进程在判定与重跑之间重启也能自己续上，没有内存态。
-- 下一次尝试的输入带 `attempt` 与 `rework: { from, reason }`（reason 取源节点输出的 `reason`/`feedback`/`error`/`message`/`summary`，否则取整段输出并截断）；被替换掉的旧输出不进合并输入，重试读不到自己正在替换的那个判定。
-- 预算按目标的**已有行数**判：`attempt > maxAttempts`（加上人类放行的次数）即耗尽。`onExhausted: "fail"` 让执行以明确错误结束（错误里带轮数与最后一次判定）；`"human"` 落一个预算门——它有自己的行与 pending 任务，id 是 `<node>#budget`（既不与 human 节点自己的 pending 撞主键，也不计入目标的尝试数），答案 `{ decision: "grant" }` 追加一轮、`"reject"` 结束执行。
-
-## 执行路径
-
-四张表：`workflow_execution`、`workflow_node_run`、`workflow_pending_human`、`workflow_execution_event`。
-
-状态机：execution 是 `running | waiting_human | success | failure | custom`；node_run 是 `running | waiting_human | completed | failed`；pending_human 是 `pending | resolved`。终态映射 `exitStatus()`：`failure → failure`，`success → success`，其余落 `custom`（`service.ts:118-122`）。
-
-`startExecution` 先按数据库做单飞（同一个 workflow 已有 `running` 的 execution 就抛 409），再起一个异步 drive 并立刻返回行；`runToCompletion` 是给它 await 的同步版本，主要给测试用。`triggeredBy` 默认 `manual`，cron 触发时是 `cron:<expr>`。
-
-`drive` 从数据库里已有的 node_run 重建 completions 起步，循环「`computeNext` → 顺序执行 ready → 记录完成」，最后回读 execution 的 store（`service.ts:561-610`）。同一批 ready 里的节点**并发执行**（波次并行），结果按 ready 顺序串行落库；下一波要等这一波全部结束（屏障，见 ADR 0045 的边界一节）。
-
-**agent 节点**：conversation id 是 `workflow:<executionId>:<nodeId>`（origin 为 workflow），内联 agent 走 `default` 成员加 `modelOverride`。node_run 里已经存了 `runId` 就重连轮询而不重复触发；重试时先清 runId 再起新 run。轮询上限 600 秒，每秒一次。判据只有 status：`completed` 才算成功并取输出，`failed|aborted|timeout` 直接让节点失败，`commit_failed` 与 `waiting` 继续轮询（前者等终态提交结算，后者按 HITL 暂停节点时钟）。
-
-**repo 感知**：节点写了 `repo` 时，会话以 `projectId: node.repo` 创建——绑定的就是这一步，dispatch 据会话的项目把 run 解析到该 agent 在那个项目里的 worktree（`run-workspace.ts`），服务里不固定任何 workspace。校验在装配前：`repo` 必须是该 agent 已挂载的 project id（`runtime_config.projects`），不匹配就带项目名与挂载方式的错误让节点失败；内联 agent（没有 `agentId`）不允许带 `repo`，因为默认成员并不拥有那个项目。
-
-**输出抽取**：取最后一条 assistant 文本，剥掉代码围栏后取第一个 JSON 对象；解析不出而节点又声明了 output 提示就报错。prompt 里会注入 outputSchema 与「只回 JSON」的约束。
-
-**schema 重试**在 workflow service 里，不在 run harness：`runNodeWithRetry` 按 `retry` 算次数与间隔，失败时把上一次的错误塞回 prompt 再发一轮（`service.ts:307-328,502-517`）。重试耗尽即节点 failed，execution 落 failure。
-
-**script 节点**走 `deps.nodeRunners.script.run`，runner 先查 `WORKFLOW_SCRIPTS_ENABLED`——没开的话每个 script 节点必失败。执行本身在 `runInSandbox` 里：默认超时 60 秒（不是 spec 里写的 30 秒），隔离参数 `noNetwork` 加 `denyReadDirs`（默认拒 `dataDir` 与 cwd 下的 `.env`）。脚本拿到的 ctx 就是合并后的 input 本身，没有 store、没有 log、没有宿主对象——契约里那个带 store/log 的 `ScriptContext` 已删除（它从来没有运行时对应物，照它写脚本会崩）。
-
-**human 节点**：读 ready input 里的 `question`/`form` 覆盖 DSL 的静态声明，把表单映射成 ask_question 的形状，写 pending_human、把 execution 置 `waiting_human`、发 `human_task_requested`，然后 drive 暂停（节点不完成）。
-
-**human 恢复**：`resolveHumanTask` 要求 execution 处于 `waiting_human`、pending 存在且未 resolved，过滤控制面 key 后重新路由，再用条件 UPDATE（`status='pending'`）原子 claim；claim 失败说明另一路已经抢到，返回 409。胜者写 node_run completed、execution 回到 `running`、异步续 drive。批量接口逐条返回 ok/error，不整体失败。
-
-**human 超时**：节点声明了 `timeoutMs` 时，后台 30 秒扫描一次（`bootstrap/features.ts` 的 `humanTimeoutInterval`，停机期间过期的任务在启动后第一个 tick 结算）——超过时限的 pending human 被**同一个原子 claim**拿下，node_run 落 `failed`（错误带毫秒数）、execution 落 `failure`（exit `failure`），并广播 `node_failed` 与 `execution_terminal`；迟到的回答因为 claim 已被取走而拿到 409。时钟是 pending 行的 `createdAt`（没有新列）。预算门的 id 是 `<node>#budget`，不对应任何 DSL 节点、也没有 `timeoutMs`，因此不会被扫到。
-
-**取消**只对 `running` 与 `waiting_human` 生效，而且两条路径的 exit 不一样：`waiting_human` 取消立即终态化，exit 是 `aborted`；`running` 取消只置内存标记，由 drive 或轮询循环观察到后抛 `WorkflowCancelledError`，最终 exit 是 `failure`。
-
-**失败**：节点异常先写 node_run failed 加 error、发 `node_failed`，再往外抛；`runWithCatch` 把 execution 落 failure。节点失败不参与图路由，没有 per-node 的失败边。
-
-**恢复**：启动时 `sync()` 触发同步后 `recover()` 重驱所有 `running` execution；`waiting_human` 的不重驱，等用户 resolve。
-
-## 事件
-
-事件类型：`execution_started`、`node_started`、`node_agent_started`、`node_agent_completed`、`script_log`、`node_completed`、`node_failed`、`human_task_requested`、`store_write`、`rework_requested`、`budget_exhausted`、`execution_terminal`。每次 emit 同时进内存总线并 fire-and-forget 落库，落库失败不阻塞 drive。
-
-`store_write` 有调用方（`service.ts` 的节点执行路径），但 store 在实践里恒为空：脚本沙箱只把 `ctx.input` 传进去，`ctx.store` 收下不使用，所以没有东西可写。
-
-执行页的实时尾随走轮询：`GET /api/workflow-executions/:id/trace` 一次给出 execution、事件、节点运行与正在等的人工门，运行期间页面按 1.5 秒拉一次，事件列表与拖动回看读的是同一份。原先那条 SSE 端点（先订阅、再重放持久历史、最后直播）连同内存里的事件总线一起删掉了；脚本日志现在走落库那条路，所以不再依赖总线。
-
-## 触发
-
-调度器从 `<dataDir>/workflows/` 读 `*.workflow.json`，逐文件 `parseWorkflow`。单个文件坏掉只跳过加日志，不影响别的文件，也不影响启动。
-
-`sync()` 先停掉所有旧句柄再重建，同一 `definition.id` 的第二个文件会被跳过（否则旧句柄泄漏）；坏 cron 表达式只跳过那一条 trigger。
-
-fire 时每次都重新读定义并按 id 查找，所以改文件不需要重新注册即可生效。`enabled: false` 不注册。同一个 workflow 的并发 tick 直接丢弃（per-workflow single-flight）；**熔断**：最近 3 次 execution 全是 failure 时跳过本次 fire，一次成功即自愈。fire 内部任何异常都被吞掉并记日志——未捕获的 rejection 会杀掉整个 backend 进程。
-
-启动时若 workflows 目录为空，会从 `<resources>/workflow-showcase` 拷入示例定义。
-
-定义只从这一个目录读：`POST /api/workflow-executions` 的 `workflowRef.repo` 是历史遗留的必填字段，现在可选且被忽略（要按 ref 去 clone 仓库，得先有 git loader —— 那是明确不做的，见 [`../roadmap.md`](../roadmap.md)）。定义文件不存在时接口返回 404 并带上路径，不再是读文件失败冒出的 500。
-
-## Artifact
-
-地址形如 `artifacts://<folder>/<filename>`，存在 backend dataDir 下的文件系统里，元数据带 size、mimeType、encoding、updatedAt 与来源（runId / conversationId / agentId）。
-
-路径安全是两层的：`parseArtifactUrl` 只接受 `^artifacts://([^?]+)$`，`splitPath` 拒绝绝对路径、盘符、`..`、`.` 和通配符；fs 适配器再做 `resolve()` 加分隔符的前缀校验（挡掉 `../artifacts-evil` 这种同名前缀绕过），`list(folder)` 在**任何 fs 访问之前**先拒越界目录。
-
-落盘时写一个 `<file>.meta.json`，记录 encoding、来源、更新时间与 **sha256 内容账本**。哈希的是**真正落盘的字节**（base64 上传哈希解码后的内容，不是 base64 文本本身）。读与列表都优先用它：encoding 按记录走（此前列表硬编码 `utf8`，二进制产物会被描述错），hash 随列表带出，因此「这份文件还是当初那一份吗」有据可查。
-
-REST 是 `GET /api/artifacts`（可按 folder 过滤）、`GET /download?url=`、`GET /verify?url=`、`GET /:url`、`POST /`、`DELETE /remove?url=`、`DELETE /:url`（删除幂等，恒返回 `{ok:true}`；内容文件与 sidecar 一起删，否则会留下看不见的垃圾并让同名重传继承旧账本）。
-
-`/verify` 重读文件并与账本比对，返回 `{ok, expected, actual}`；文件不存在是 404，而**没有账本不等于通过**——那时 `expected` 缺失、`ok` 为 false，不会被读成「完好」。这条路由必须排在 `/:url` 之前，否则 `verify` 会被当成一个 artifact id 吞掉。
-
-**保留期是 opt-in**：`ARTIFACT_RETENTION_DAYS`（缺省或 0 = 永久保留）大于 0 时，启动扫一次、之后每 24 小时扫一次，删掉 `updatedAt` 早于窗口的产物（内容 + sidecar 一起）。产物是用户自己的文件，仅凭时间删除永远不该是默认行为。
-
-MCP 侧由 product-tools server 暴露 `artifact_upload` 与 `artifact_download`。`artifact_download` 在预授权清单里，`artifact_upload` 故意不在——它能写后端存储，要过权限门。
-
-聊天里的引用是纯文本机制：composer 打 `@` 插入 `artifacts://` URL；markdown 渲染时 remark 插件把 `artifacts://` 转成链接，再由 `a` 渲染器换成 artifact 卡片。
-
-**节点边界的校验比想象的松**：只对 `input`/`output` 提示里标了 `type: "artifact"` 的 key，且**值本身已经是 `artifacts://` 开头的字符串**时才查存在性；其它前缀或非字符串一律跳过。检查发生在 start 节点、节点 input、节点 output 三处。
-
-## agent 侧的定义读写面
-
-定义文件在 `<dataDir>/workflows/*.workflow.json`，**在 agent workspace 之外**，所以文件工具够不着（会报 `path escapes workspace`）。
-
-Agent 想读写定义只有一条路：内置的 workflow MCP server（SSE，绑 127.0.0.1）。它默认启用，只有 server 起来了才会往 workspace 的 `.mcp.json` 里注入 `workflow` 条目。
-
-`workflow_read` 直接返回文件原文。`workflow_write` 先跑 `parseWorkflow`（非法即返错），但**不写文件**——它发出一个 definition `changed` 事件把定义推给编辑器，并在返回值里说明没有保存。未知工具名返回错误，不静默成功。
-
-编辑器订阅 definition SSE：收到 `trigger="mcp"` 的提案时把它当未保存草稿（标 dirty、清 savedAt），收到 `trigger="save"` 才重新拉取并清 dirty；本地 dirty 时一律不覆盖用户的改动。真正的落盘只有 HTTP PUT 一条路。
-
-## 两条独立路径
-
-oma 子进程里还有一套自己的脚本编排（`apps/oh-my-agent/src/core/orchestrate/`，`workflow_run` 工具、`.oma/workflow` 持久化），TUI 的 `/workflow` 用的是它。那是 Run 级、子进程内部的能力，与本文的 DSL **无关**，两边不要互相引用。
-
-## 不变量
-
-1. 引擎是纯函数，不做 I/O、不看时钟。路由在节点完成瞬间冻结，之后任何 store 写入都翻不动它。
-2. join 默认 any-of（一条上游路由到就开跑）；节点声明 `join: "all"` 时要求上游**全部 completed**。all-join 放在互斥分支上永不触发——未走的分支永不完成，这是语义不是缺陷（[ADR 0045](../adr/0045-parallel-waves-and-all-join.md)）。
-3. script 节点只经进程沙箱执行，而且是 opt-in（`WORKFLOW_SCRIPTS_ENABLED`）；沙箱是进程边界不是 fs jail，宿主对象刻意不进沙箱。
-4. agent 节点的输出必须过 `outputSchema`，失败时带着错误反馈重试，重试耗尽即节点失败、execution 落 failure。
-5. 节点失败逐节点记录并广播，execution 以 failure 终态；不伪造 output。
-6. human 的完成是原子 claim，条件 UPDATE 决定唯一赢家，输家 409。
-7. 定义落盘前必须过 `parseWorkflow`——PUT 与 MCP write 在同一条信任边界上。
-8. 返工必须有预算，且返工边只指向上游；引擎只从前向边算路由、join、拓扑序与布局。
-9. 无人值守的 agent 节点必须指向 `permissionMode: yolo` 的 agent（agent 配置里的那个字段，不是工作区的 `.oma/settings.json`——后者管的是 bash 沙箱，不是权限闸门）。节点会话叫 `workflow:<executionId>:<nodeId>`，它不出现在会话列表里：没有哪个 surface 能看到它。于是「问人」这个兜底在这里等于死锁——分类器一旦不可用（`classifier unavailable: model call aborted` 实测过），`auto` 会退化成问人，而没有人会来答。引擎因此兜底：agent 节点派发时把 run 的权限模式钉成 `yolo`（不禁用闸门，但 bash 仍走 OS 沙箱），作者配的 `ask`/`auto` 不会把节点停死。
-
-## 已知缺口
-
-- dry-run（`dry-run.ts`）只跑前向：它不推演返工，所以一次「会被打回」的干跑只展示第一遍。
-- ~~agent 节点停摆~~（2026-10-16 已修）：原先节点轮询到 `waiting` 会把节点时钟暂停，而节点会话没有 surface 可答，于是退化成无限期停摆（夜里那条报告工作流连挂多日）。现在派发就把 run 的权限模式钉成 `yolo`（不禁用闸门，bash 仍走 OS 沙箱），取消 execution 时也会 `stop` 掉节点在飞的 run 并等它结算——见上面的不变量 9。
-
-详细清单见 [`../roadmap.md`](../roadmap.md)。
+# Workflow Engine
+
+CrewDesk's Agentic Workflow system has two cleanly separated layers: **`packages/workflow`** (pure domain DSL, validator, JSON-Logic evaluator, DAG engine, rework planner) and **`apps/backend/src/features/workflow`** (persistent execution engine, node runners, cron/webhook triggers, HTTP API, MCP server), paired with **`apps/backend/src/features/artifact`** for typed `artifacts://` handoffs between nodes and rooms.
+
+## Authoritative files
+
+- `packages/workflow/src/types.ts` & `parse.ts` — `WorkflowDefinition` (`version: 1`) and `parseWorkflow()` validator
+- `packages/workflow/src/json-logic.ts` — 13-operator `evalJsonLogic()` subset
+- `packages/workflow/src/schema.ts` — JSON Schema validation subset (`validateBySchema`)
+- `packages/workflow/src/graph.ts` & `engine.ts` — `routeOutgoing()`, `mergeInputs()`, `computeNext()`
+- `packages/workflow/src/rework.ts` — `planRework()`, `deriveRework()`, synthetic `${nodeId}#budget` gates
+- `apps/backend/src/features/workflow/service.ts` — Persistent execution driver, parallel waves, retries, cancel, boot `recover()`
+- `apps/backend/src/features/workflow/node-runners.ts` — `agent`, `script`, and `human` node executors
+- `apps/backend/src/features/workflow/trigger-scheduler.ts` — `fs.watch` + `Bun.cron` scheduler with 3-failure circuit breaker
+- `apps/backend/src/features/workflow/http.ts` & `mcp.ts` — REST/webhook endpoints and `workflow_{read,write}` MCP server
+- `apps/backend/src/features/artifact/domain.ts` & `adapter-fs.ts` & `adapter-sqlite-index.ts` & `http.ts` — `artifacts://` disk storage, SHA-256 verification, and SQLite provenance index
+
+## Pure DSL & Parse-Time Invariants (`packages/workflow`)
+
+Workflow definitions live on disk as `<dataDir>/workflows/<id>.workflow.json` (`WORKFLOW_ID_RE = /^[A-Za-z0-9._-]+$/`; empty directories auto-seed showcase templates from `apps/backend/src/features/workflow/showcase/`).
+
+### 5 Node Types
+| Type | Key Fields | Rules |
+|---|---|---|
+| `start` | `id` | Exactly 1 per workflow; entry point. |
+| `end` | `id`, `status` (non-empty string) | Terminal exit label (`success`, `failure`, or custom). |
+| `agent` | `agentId?`, `model?`, `prompt?`, `repo?` | Must supply `agentId` OR both `model` + `prompt`. |
+| `script` | `code`, `runtime?: "bun"`, `timeoutMs?` | Non-empty JS/TS code; executed inside `@chengchenccc/sandbox`. |
+| `human` | `question?`, `form?: Record<string, FormField>`, `timeoutMs?` | Form field types: `string \| textarea \| number \| enum \| date \| boolean`. |
+
+Common node fields: `id` (`/^[a-zA-Z0-9_-]+$/`), `input?`, `output?`, `inputSchema?`, `outputSchema?`, `retry?: number | { maxAttempts?, intervalMs?, backoff? }`, `join?: "any" | "all"` (default `"any"`).
+
+### Static Validation (`parseWorkflow`)
+- `version === 1`, unique node IDs, all edge endpoints exist, every non-start node reachable from `start` over `forwardEdges`.
+- **Forward edges must be acyclic** (`topoSort` throws `GraphCycleError`).
+- **Rework edges (`kind: "rework"`):** must point strictly upstream (`descendantsOf(def, edge.to).has(edge.from)`) and must declare `budget: { maxAttempts >= 1, onExhausted: "fail" | "human" }`. Forward edges must not declare `budget`.
+- **JSON-Logic whitelist (`OPS`, 13 operators):** `var`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `and`, `or`, `not`, `if` (strictly 3-arg), `!!`. Unknown operators fail at parse time (preventing fail-open plain-object truthiness). `<nodeId>.output.<field>` references are checked against declared `output` hints / human `form` keys.
+
+## Routing, Parallel Waves & Rework Attempts (ADRs 0042, 0045)
+
+- **Frozen routing (`routeOutgoing`):** outgoing forward edges evaluate once at node completion and freeze into `workflow_node_run.routed_to` (never recomputed). Supports `output.nextNode` override (validated against forward edges). Human answers (`{ answers: [...] }`) flatten to `output[id]` at route time only.
+- **Input merge (`mergeInputs`):** merges `trigger` → `store` → live `completions` in `order` (later wins) while stripping `nextNode`, `__proto__`, `constructor`, and `prototype`.
+- **Join semantics & parallel waves (`computeNext` + `drive()`):**
+  - A node is ready when any incoming edge routed to it AND (`join !== "all"` OR every incoming edge's `from` is completed).
+  - If any ready node is `end`, returns `{ kind: "terminal", exit }`.
+  - `drive()` executes all ready nodes in a wave concurrently via `Promise.allSettled`, then applies results deterministically in wave order. Sibling completions still persist even if one node fails or parks on a human gate.
+- **Rework as new attempts (`rework.ts`):**
+  - When a `kind: "rework"` edge fires, `edge.to` and all of its forward descendants are marked `superseded` in `workflow_node_run` and new rows execute with `{ attempt, rework: { from, reason } }` (`reason` clipped to `2000 chars`).
+  - `deriveRework()` reconstructs pending rework purely from persisted `workflow_node_run` rows (crash-safe).
+  - If `attempt > maxAttempts + granted` and `onExhausted === "human"`, parks a synthetic human budget gate at node id `${nodeId}#budget` expecting `{ decision: "grant" | "reject" }`; `"grant"` adds `+1` budget and resumes, `"reject"` fails the execution.
+
+## Backend Execution & Node Runners (`features/workflow/`)
+
+- **Single-flight:** `startExecution()` rejects (`409`) if any `status === "running"` execution exists for the same `workflowId`. Definitions are snapshotted into `workflow_execution.definition` at start time.
+- **Retries (`runNodeWithRetry`):** backoff delay `intervalMs * backoff ** attempt`. For `agent` nodes, `outputSchema` validation failures trigger retries with a cleared `runId` and the error appended to the prompt.
+- **`agent` runner (`runAgentNode`):**
+  - Creates a hidden conversation `workflow:<executionId>:<nodeId>` (`origin: "workflow"`). Repo-aware nodes (`node.repo`) verify the agent is attached to that project.
+  - Posts with `permissionMode: "yolo"` and `authorization: "system"`. Reuses persisted `nodeRun.runId` on crash recovery.
+  - Polls every `1s` up to `agentNodeTimeoutMs` (default `10 min`); clock pauses while `agent_run.status === "waiting"`. Parses first `{...}` JSON object from assistant text (stripping fences).
+- **`script` runner (`node-runners.ts`):**
+  - **Disabled by default.** Requires `WORKFLOW_SCRIPTS_ENABLED=1` (or `true`). When disabled, script nodes throw and `GET /api/workflow-definitions` marks `scriptNodesBlocked: true`.
+  - Executes via `@chengchenccc/sandbox` (`timeoutMs` default `60_000`, `isolation: { noNetwork: true, denyReadDirs }` defaulting to `[dataDir, resolve(cwd, ".env"), ...WORKFLOW_SANDBOX_DENY_READ]`). Host `store` is not exposed inside the sandbox.
+- **`human` runner & expiry:** persists `workflow_pending_human` (replacing prior row on rework). A 30s background timer (`expireHumanTimeouts`) atomically fails expired non-`#budget` human tasks.
+- **Boot recovery (`recover()`):** runs **after** `agentRunExecution.recover()` and resumes all DB `status === "running"` executions.
+
+## Triggers (Cron & Webhooks)
+
+- **Cron scheduler (`trigger-scheduler.ts`):** watches `<dataDir>/workflows` (`fs.watch`, 300ms debounce), registers `Bun.cron` schedules for enabled cron triggers, skips duplicate `def.id`s, enforces in-memory + DB single-flight, and trips a **circuit breaker after `3` consecutive failed executions** (`TRIGGER_CONSECUTIVE_FAILURE_LIMIT = 3`, cleared by a successful manual run).
+- **Webhooks (`POST /api/workflow-triggers/:workflowId`):** exempt from global `BACKEND_AUTH_TOKEN`, authenticated via constant-time `safeTokenEqual` against per-workflow `x-trigger-token` (rotated via `POST /api/workflow-definitions/:workflowId/trigger-token`, stored in sealed `settings` under `workflow.trigger_token.<id>`).
+
+## Artifacts (`features/artifact/`)
+
+- **URI scheme:** `artifacts://<folder>/<filename>` (rejects absolute paths, Windows drives, `.` / `..`, `*`, or `< 2` segments).
+- **Storage + index:** raw decoded bytes (`utf8 | base64`) write to `<dataDir>/artifacts/<folder>/<filename>` with sidecar `.meta.json` (`{ encoding, source, updatedAt, sha256 }`). Metadata and cross-surface FKs (`run_id`, `conversation_id`, `requirement_id`, `workflow_execution_id`, `project_id`, `agent_id`) persist in SQLite `artifact` (ADR 0082).
+- **Provenance freeze (`enrichSource`):** transitively fills missing FKs at write time from `agent_run → workflow_node_run → workflow_execution → conversation → requirement`. Boot runs `artifactService.backfill()`.
+- **Integrity & retention:** `GET /api/artifacts/verify?url=` recomputes SHA-256 against `.meta.json` (fails if sidecar missing). `ARTIFACT_RETENTION_DAYS > 0` sweeps old artifacts at boot and every 24h (default `0` = keep forever).
+
+## See also
+
+- [Data Model](./data-model.md) — `workflow_*` and `artifact` table schemas
+- [Security Model](./security-model.md) — `@chengchenccc/sandbox` isolation and open human-form/JSON-Logic debt
+- [Team Coordination](./team-coordination.md) — `workflow_write` proposal flow ("suggest ≠ save")
