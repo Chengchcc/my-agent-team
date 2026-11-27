@@ -94,6 +94,10 @@ export function createApp(token: string, features: FeatureSet) {
         set.status = error.status;
         return { error: error.message };
       }
+      if (error instanceof URIError) {
+        set.status = 400;
+        return { error: "Malformed URI" };
+      }
       if (code === "NOT_FOUND") return { error: "Not found" };
       // A malformed request body is the sender's mistake, not ours. Without
       // this every body-validation failure across the whole API fell through

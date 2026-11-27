@@ -254,7 +254,7 @@ export function createRunMethods(
         const run = d.select().from(schema.agentRun).where(eq(schema.agentRun.runId, runId)).get()!;
         return parseRun(run);
       });
-      return txn();
+      return txn.immediate();
     },
 
     async finalizeRun(runId, outcome: BackendRunOutcome): Promise<AgentRun> {
@@ -312,283 +312,295 @@ export function createRunMethods(
         throw new Error(`commitCompletedRun requires a completed outcome, got ${outcome.status}`);
       }
       const now = Date.now();
-      return db.transaction(() => {
-        const run = d.select().from(schema.agentRun).where(eq(schema.agentRun.runId, runId)).get();
-        if (!run) throw new Error(`Agent Run not found: ${runId}`);
-
-        // Idempotent replay: already completed -> return, never rewrite.
-        if (run.status === "completed") return { run: parseRun(run), seqs: [] };
-
-        // Only a running, waiting or commit_failed run may be committed.
-        // `waiting` matters: a durable ask parks the run there, and if the
-        // child then exits (ask timed out on the child side, or the model
-        // gave up), the outcome must still settle — otherwise the run is an
-        // unsettled zombie holding the branch forever (observed 2026-09-25).
-        if (
-          run.status !== "running" &&
-          run.status !== "waiting" &&
-          run.status !== "commit_failed"
-        ) {
-          throw new AgentRunConflictError(runId);
-        }
-
-        // Branch ownership: the branch must belong to the run's conversation
-        // + agent member.
-        const branch = d
-          .select()
-          .from(schema.agentContextBranch)
-          .where(eq(schema.agentContextBranch.branchId, run.branchId))
-          .get();
-        if (!branch) throw new Error(`Branch not found: ${run.branchId}`);
-        const tree = d
-          .select()
-          .from(schema.agentContextTree)
-          .where(eq(schema.agentContextTree.treeId, branch.treeId))
-          .get();
-        if (!tree || tree.conversationId !== run.conversationId) {
-          throw new AgentRunConflictError(runId);
-        }
-
-        // Boundary enforcement (ADR 0017): the Run's output must be a
-        // canonical message sequence — assistant never carries tool_result.
-        // normalizeCanonicalMessages is the single normalization point for
-        // any oma type; a completed run with no messages commits
-        // nothing to the ledger.
-        const canonical = normalizeCanonicalMessages(messages ?? []);
-
-        // Commit each canonical message as its own ledger row, keyed by
-        // (agent_run_id, message_index). The pair is the COMMIT IDENTITY:
-        // concurrent commits (parallel retries, restart, second instance)
-        // can never write a message twice — the second writer reuses the
-        // first seq. The whole batch is one atomic transaction with one
-        // branch revision bump; a crash mid-batch either left no CAS (replay
-        // appends the missing refs and CASes) or completed the CAS (replay
-        // finds every ref and skips).
-        let parentId = branch.leafEntryId;
-        const seqs: number[] = [];
-        let lastSeq: number | null = null;
-        // Assistant ordinals run in REVERSE: the final assistant message is
-        // `run:<runId>:assistant:0` — the web's transient bubble waits for
-        // exactly that id to be replaced by the canonical final answer.
-        const assistantCount = canonical.filter((m) => m.role === "assistant").length;
-        let assistantSeen = 0;
-        let appendedRefs = 0;
-        for (let index = 0; index < canonical.length; index++) {
-          const message = canonical[index]!;
-          // The canonical assistant Message MUST satisfy the MessageRevision
-          // contract (messageId/state/updatedAt) that every surface parser
-          // (Web reducer, Lark watcher) enforces. The raw output message is
-          // stamped with the terminal fields here — the single place a Run's
-          // messages are written. messageId derives from the runId (Product
-          // Run identity), NOT from the agent output.
-          const messageId =
-            message.role === "assistant"
-              ? assistantMessageId(runId, assistantCount - 1 - assistantSeen++)
-              : `run:${runId}:tool:${index}`;
-          const revision = MessageRevisionSchema.parse({
-            messageId,
-            role: message.role,
-            state: "done",
-            text: message.text ?? undefined,
-            blocks: message.blocks,
-            tools: message.tools,
-            conversationId: run.conversationId,
-            visibility: message.visibility ?? "conversation",
-            updatedAt: now,
-          }) as MessageRevision;
-          const inserted = d
-            .insert(schema.conversationLedger)
-            .values({
-              conversationId: run.conversationId,
-              kind: "message",
-              content: serializeMessageRevision(revision),
-              ts: now,
-              agentRunId: runId,
-              messageIndex: index,
-            })
-            // ON CONFLICT DO NOTHING (no target): the identity is the
-            // partial UNIQUE index on (agent_run_id, message_index), which
-            // SQLite cannot use as an UPSERT target - a conflicting insert
-            // is simply a no-op and the seq below is re-read.
-            .onConflictDoNothing()
-            .returning({ seq: schema.conversationLedger.seq })
+      return db
+        .transaction(() => {
+          const run = d
+            .select()
+            .from(schema.agentRun)
+            .where(eq(schema.agentRun.runId, runId))
             .get();
-          const seq =
-            inserted?.seq ??
-            d
+          if (!run) throw new Error(`Agent Run not found: ${runId}`);
+
+          // Idempotent replay: already completed -> return, never rewrite.
+          if (run.status === "completed") return { run: parseRun(run), seqs: [] };
+
+          // Only a running, waiting or commit_failed run may be committed.
+          // `waiting` matters: a durable ask parks the run there, and if the
+          // child then exits (ask timed out on the child side, or the model
+          // gave up), the outcome must still settle — otherwise the run is an
+          // unsettled zombie holding the branch forever (observed 2026-09-25).
+          if (
+            run.status !== "running" &&
+            run.status !== "waiting" &&
+            run.status !== "commit_failed"
+          ) {
+            throw new AgentRunConflictError(runId);
+          }
+
+          // Branch ownership: the branch must belong to the run's conversation
+          // + agent member.
+          const branch = d
+            .select()
+            .from(schema.agentContextBranch)
+            .where(eq(schema.agentContextBranch.branchId, run.branchId))
+            .get();
+          if (!branch) throw new Error(`Branch not found: ${run.branchId}`);
+          const tree = d
+            .select()
+            .from(schema.agentContextTree)
+            .where(eq(schema.agentContextTree.treeId, branch.treeId))
+            .get();
+          if (!tree || tree.conversationId !== run.conversationId) {
+            throw new AgentRunConflictError(runId);
+          }
+
+          // Boundary enforcement (ADR 0017): the Run's output must be a
+          // canonical message sequence — assistant never carries tool_result.
+          // normalizeCanonicalMessages is the single normalization point for
+          // any oma type; a completed run with no messages commits
+          // nothing to the ledger.
+          const canonical = normalizeCanonicalMessages(messages ?? []);
+
+          // Commit each canonical message as its own ledger row, keyed by
+          // (agent_run_id, message_index). The pair is the COMMIT IDENTITY:
+          // concurrent commits (parallel retries, restart, second instance)
+          // can never write a message twice — the second writer reuses the
+          // first seq. The whole batch is one atomic transaction with one
+          // branch revision bump; a crash mid-batch either left no CAS (replay
+          // appends the missing refs and CASes) or completed the CAS (replay
+          // finds every ref and skips).
+          let parentId = branch.leafEntryId;
+          const seqs: number[] = [];
+          let lastSeq: number | null = null;
+          // Assistant ordinals run in REVERSE: the final assistant message is
+          // `run:<runId>:assistant:0` — the web's transient bubble waits for
+          // exactly that id to be replaced by the canonical final answer.
+          const assistantCount = canonical.filter((m) => m.role === "assistant").length;
+          let assistantSeen = 0;
+          let appendedRefs = 0;
+          for (let index = 0; index < canonical.length; index++) {
+            const message = canonical[index]!;
+            // The canonical assistant Message MUST satisfy the MessageRevision
+            // contract (messageId/state/updatedAt) that every surface parser
+            // (Web reducer, Lark watcher) enforces. The raw output message is
+            // stamped with the terminal fields here — the single place a Run's
+            // messages are written. messageId derives from the runId (Product
+            // Run identity), NOT from the agent output.
+            const messageId =
+              message.role === "assistant"
+                ? assistantMessageId(runId, assistantCount - 1 - assistantSeen++)
+                : `run:${runId}:tool:${index}`;
+            const revision = MessageRevisionSchema.parse({
+              messageId,
+              role: message.role,
+              state: "done",
+              text: message.text ?? undefined,
+              blocks: message.blocks,
+              tools: message.tools,
+              conversationId: run.conversationId,
+              visibility: message.visibility ?? "conversation",
+              updatedAt: now,
+            }) as MessageRevision;
+            const inserted = d
+              .insert(schema.conversationLedger)
+              .values({
+                conversationId: run.conversationId,
+                kind: "message",
+                content: serializeMessageRevision(revision),
+                ts: now,
+                agentRunId: runId,
+                messageIndex: index,
+              })
+              // ON CONFLICT DO NOTHING (no target): the identity is the
+              // partial UNIQUE index on (agent_run_id, message_index), which
+              // SQLite cannot use as an UPSERT target - a conflicting insert
+              // is simply a no-op and the seq below is re-read.
+              .onConflictDoNothing()
+              .returning({ seq: schema.conversationLedger.seq })
+              .get();
+            const seq =
+              inserted?.seq ??
+              d
+                .select({ seq: schema.conversationLedger.seq })
+                .from(schema.conversationLedger)
+                .where(
+                  and(
+                    eq(schema.conversationLedger.agentRunId, runId),
+                    eq(schema.conversationLedger.messageIndex, index),
+                  ),
+                )
+                .get()?.seq;
+            if (!seq) throw new Error("ledger insert returned no seq");
+            seqs.push(seq);
+            lastSeq = seq;
+
+            // Context ref is deduped by (treeId, ledgerSeq): a crash between
+            // the ledger insert and the ref append leaves no duplicate ref on
+            // retry. The ref chain continues from the previous committed
+            // message's ref (or the branch leaf on a fresh commit).
+            const existingRef = d
+              .select()
+              .from(schema.agentContextEntry)
+              .where(
+                and(
+                  eq(schema.agentContextEntry.treeId, branch.treeId),
+                  eq(schema.agentContextEntry.type, "ledger_message"),
+                  eq(schema.agentContextEntry.ledgerSeq, seq),
+                ),
+              )
+              .get();
+            if (existingRef) {
+              parentId = existingRef.entryId;
+            } else {
+              const entryId = deps.idGen.ulid();
+              d.insert(schema.agentContextEntry)
+                .values({
+                  entryId,
+                  treeId: branch.treeId,
+                  parentId,
+                  type: "ledger_message",
+                  payload: "{}",
+                  ledgerSeq: seq,
+                  createdAt: now,
+                })
+                .run();
+              parentId = entryId;
+              appendedRefs++;
+            }
+          }
+
+          // CAS the branch revision ONCE for the whole batch: a concurrent
+          // history_retain (late MCP call, timeout recovery, cross-process
+          // retry) must not clobber or be clobbered by this commit's
+          // leaf/revision update. On conflict the WHOLE transaction rolls back
+          // and the commit retry re-reads the branch. A replay that appended
+          // no refs skips the CAS (the first attempt already advanced it).
+          if (appendedRefs > 0 && lastSeq !== null) {
+            // P1-10: do not leap ledgerCursor past an unreferenced queued user
+            // message that arrived while this run was active. If any message row
+            // between branch.ledgerCursor and lastSeq lacks a context ref, hold
+            // ledgerCursor so acquireNextRun ingests it into the next run's context.
+            const intervening = d
               .select({ seq: schema.conversationLedger.seq })
               .from(schema.conversationLedger)
               .where(
                 and(
-                  eq(schema.conversationLedger.agentRunId, runId),
-                  eq(schema.conversationLedger.messageIndex, index),
+                  eq(schema.conversationLedger.conversationId, run.conversationId),
+                  eq(schema.conversationLedger.kind, "message"),
+                  eq(schema.conversationLedger.undone, 0),
+                  gt(schema.conversationLedger.seq, branch.ledgerCursor),
+                  lt(schema.conversationLedger.seq, lastSeq),
                 ),
               )
-              .get()?.seq;
-          if (!seq) throw new Error("ledger insert returned no seq");
-          seqs.push(seq);
-          lastSeq = seq;
-
-          // Context ref is deduped by (treeId, ledgerSeq): a crash between
-          // the ledger insert and the ref append leaves no duplicate ref on
-          // retry. The ref chain continues from the previous committed
-          // message's ref (or the branch leaf on a fresh commit).
-          const existingRef = d
-            .select()
-            .from(schema.agentContextEntry)
-            .where(
-              and(
-                eq(schema.agentContextEntry.treeId, branch.treeId),
-                eq(schema.agentContextEntry.type, "ledger_message"),
-                eq(schema.agentContextEntry.ledgerSeq, seq),
-              ),
-            )
-            .get();
-          if (existingRef) {
-            parentId = existingRef.entryId;
-          } else {
-            const entryId = deps.idGen.ulid();
-            d.insert(schema.agentContextEntry)
-              .values({
-                entryId,
-                treeId: branch.treeId,
-                parentId,
-                type: "ledger_message",
-                payload: "{}",
-                ledgerSeq: seq,
-                createdAt: now,
+              .all();
+            const hasUnreferencedGap = intervening.some(
+              (row) =>
+                !d
+                  .select({ entryId: schema.agentContextEntry.entryId })
+                  .from(schema.agentContextEntry)
+                  .where(
+                    and(
+                      eq(schema.agentContextEntry.treeId, branch.treeId),
+                      eq(schema.agentContextEntry.type, "ledger_message"),
+                      eq(schema.agentContextEntry.ledgerSeq, row.seq),
+                    ),
+                  )
+                  .get(),
+            );
+            const nextCursor = hasUnreferencedGap ? branch.ledgerCursor : lastSeq;
+            const cas = d
+              .update(schema.agentContextBranch)
+              .set({
+                leafEntryId: parentId,
+                ledgerCursor: nextCursor,
+                revision: branch.revision + 1,
               })
-              .run();
-            parentId = entryId;
-            appendedRefs++;
+              .where(
+                and(
+                  eq(schema.agentContextBranch.branchId, run.branchId),
+                  eq(schema.agentContextBranch.revision, branch.revision),
+                ),
+              )
+              .returning({ branchId: schema.agentContextBranch.branchId })
+              .get();
+            if (!cas) {
+              throw new Error(`branch ${run.branchId} revision conflict during terminal commit`);
+            }
           }
-        }
 
-        // CAS the branch revision ONCE for the whole batch: a concurrent
-        // history_retain (late MCP call, timeout recovery, cross-process
-        // retry) must not clobber or be clobbered by this commit's
-        // leaf/revision update. On conflict the WHOLE transaction rolls back
-        // and the commit retry re-reads the branch. A replay that appended
-        // no refs skips the CAS (the first attempt already advanced it).
-        if (appendedRefs > 0 && lastSeq !== null) {
-          // P1-10: do not leap ledgerCursor past an unreferenced queued user
-          // message that arrived while this run was active. If any message row
-          // between branch.ledgerCursor and lastSeq lacks a context ref, hold
-          // ledgerCursor so acquireNextRun ingests it into the next run's context.
-          const intervening = d
-            .select({ seq: schema.conversationLedger.seq })
-            .from(schema.conversationLedger)
-            .where(
-              and(
-                eq(schema.conversationLedger.conversationId, run.conversationId),
-                eq(schema.conversationLedger.kind, "message"),
-                eq(schema.conversationLedger.undone, 0),
-                gt(schema.conversationLedger.seq, branch.ledgerCursor),
-                lt(schema.conversationLedger.seq, lastSeq),
-              ),
-            )
-            .all();
-          const hasUnreferencedGap = intervening.some(
-            (row) =>
-              !d
-                .select({ entryId: schema.agentContextEntry.entryId })
-                .from(schema.agentContextEntry)
-                .where(
-                  and(
-                    eq(schema.agentContextEntry.treeId, branch.treeId),
-                    eq(schema.agentContextEntry.type, "ledger_message"),
-                    eq(schema.agentContextEntry.ledgerSeq, row.seq),
-                  ),
-                )
-                .get(),
-          );
-          const nextCursor = hasUnreferencedGap ? branch.ledgerCursor : lastSeq;
-          const cas = d
-            .update(schema.agentContextBranch)
+          // Test-only fault injection point: a throw here must roll back the
+          // ledger inserts, the context refs, and the branch update together.
+          deps.commitTestHook?.();
+
+          // Mark the Run completed (CAS on the active statuses so a racing
+          // finalizer cannot double-transition).
+          const updated = d
+            .update(schema.agentRun)
             .set({
-              leafEntryId: parentId,
-              ledgerCursor: nextCursor,
-              revision: branch.revision + 1,
+              status: "completed",
+              terminalResult: JSON.stringify(outcome),
+              terminalAt: now,
             })
             .where(
               and(
-                eq(schema.agentContextBranch.branchId, run.branchId),
-                eq(schema.agentContextBranch.revision, branch.revision),
+                eq(schema.agentRun.runId, runId),
+                // `waiting` (a parked HITL ask) must settle too: the child can
+                // exit while parked, and refusing the transition strands the
+                // run as an unsettleable zombie (observed 2026-09-25).
+                inArray(schema.agentRun.status, ["running", "waiting", "commit_failed"]),
               ),
             )
-            .returning({ branchId: schema.agentContextBranch.branchId })
+            .returning()
             .get();
-          if (!cas) {
-            throw new Error(`branch ${run.branchId} revision conflict during terminal commit`);
-          }
-        }
-
-        // Test-only fault injection point: a throw here must roll back the
-        // ledger inserts, the context refs, and the branch update together.
-        deps.commitTestHook?.();
-
-        // Mark the Run completed (CAS on the active statuses so a racing
-        // finalizer cannot double-transition).
-        const updated = d
-          .update(schema.agentRun)
-          .set({
-            status: "completed",
-            terminalResult: JSON.stringify(outcome),
-            terminalAt: now,
-          })
-          .where(
-            and(
-              eq(schema.agentRun.runId, runId),
-              // `waiting` (a parked HITL ask) must settle too: the child can
-              // exit while parked, and refusing the transition strands the
-              // run as an unsettleable zombie (observed 2026-09-25).
-              inArray(schema.agentRun.status, ["running", "waiting", "commit_failed"]),
-            ),
-          )
-          .returning()
-          .get();
-        if (!updated) throw new AgentRunConflictError(runId);
-        return { run: parseRun(updated), seqs };
-      })();
+          if (!updated) throw new AgentRunConflictError(runId);
+          return { run: parseRun(updated), seqs };
+        })
+        .immediate();
     },
 
     async failCommit(runId, outcome: BackendRunOutcome): Promise<AgentRun> {
       // The Run transitions running -> commit_failed in ONE transaction: the
       // branch stays occupied while the terminal Product commit is
       // unrecoverable-yet (recoverable only via retryTerminalCommit).
-      return db.transaction(() => {
-        const row = d.select().from(schema.agentRun).where(eq(schema.agentRun.runId, runId)).get();
-        if (!row) throw new Error(`Agent Run not found: ${runId}`);
-        if (isTerminalStatus(row.status as AgentRun["status"])) {
-          const stored = row.terminalResult
-            ? (JSON.parse(row.terminalResult) as BackendRunOutcome)
-            : null;
-          if (stored && JSON.stringify(stored) === JSON.stringify(outcome)) {
-            return parseRun(row);
+      return db
+        .transaction(() => {
+          const row = d
+            .select()
+            .from(schema.agentRun)
+            .where(eq(schema.agentRun.runId, runId))
+            .get();
+          if (!row) throw new Error(`Agent Run not found: ${runId}`);
+          if (isTerminalStatus(row.status as AgentRun["status"])) {
+            const stored = row.terminalResult
+              ? (JSON.parse(row.terminalResult) as BackendRunOutcome)
+              : null;
+            if (stored && JSON.stringify(stored) === JSON.stringify(outcome)) {
+              return parseRun(row);
+            }
+            throw new AgentRunConflictError(runId);
           }
-          throw new AgentRunConflictError(runId);
-        }
-        const now = Date.now();
-        const updated = d
-          .update(schema.agentRun)
-          .set({
-            status: "commit_failed",
-            terminalResult: JSON.stringify(outcome),
-            terminalAt: now,
-          })
-          // Same as commitCompletedRun: a waiting run (parked HITL ask whose
-          // child exited) must be settleable, or it strands the branch.
-          .where(
-            and(
-              eq(schema.agentRun.runId, runId),
-              inArray(schema.agentRun.status, ["running", "waiting"]),
-            ),
-          )
-          .returning()
-          .get();
-        if (!updated) throw new AgentRunConflictError(runId);
-        return parseRun(updated);
-      })();
+          const now = Date.now();
+          const updated = d
+            .update(schema.agentRun)
+            .set({
+              status: "commit_failed",
+              terminalResult: JSON.stringify(outcome),
+              terminalAt: now,
+            })
+            // Same as commitCompletedRun: a waiting run (parked HITL ask whose
+            // child exited) must be settleable, or it strands the branch.
+            .where(
+              and(
+                eq(schema.agentRun.runId, runId),
+                inArray(schema.agentRun.status, ["running", "waiting"]),
+              ),
+            )
+            .returning()
+            .get();
+          if (!updated) throw new AgentRunConflictError(runId);
+          return parseRun(updated);
+        })
+        .immediate();
     },
 
     async setRunProductTools(runId, manifest) {

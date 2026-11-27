@@ -14,6 +14,8 @@ import { Elysia, t } from "elysia";
 import { safeTokenEqual } from "../../infra/auth.js";
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { HttpError } from "../../infra/errors.js";
+import { parseBoundedLimit, parseBoundedOffset } from "../../infra/http-utils.js";
+import { createTokenBucketLimiter, type TokenBucketLimiter } from "../../infra/rate-limit.js";
 import type { WorkflowExecutionRow } from "./domain.js";
 import { dryRunWorkflow } from "./dry-run.js";
 import type { WorkflowExecutionService } from "./service.js";
@@ -66,10 +68,14 @@ export function workflowRoutes(deps: {
   deleteTriggerToken?: (workflowId: string) => Promise<void>;
   /** ADR 0082 D5: optional batch label resolver for execution DTOs. */
   labelResolver?: EntityLabelResolver;
+  /** Optional injectable rate limiter for the public webhook trigger endpoint. */
+  triggerLimiter?: TokenBucketLimiter;
   /** Emits a "changed" event on workflow writes (SSE live refresh). */
 }) {
   const svc = deps.workflowExecutionService;
   const dir = deps.workflowDir;
+  const triggerLimiter =
+    deps.triggerLimiter ?? createTokenBucketLimiter({ capacity: 30, refillPerSec: 1 });
 
   function enrichExecutions(rows: WorkflowExecutionRow[]): WorkflowExecutionRow[] {
     if (!deps.labelResolver || rows.length === 0) return rows;
@@ -123,21 +129,29 @@ export function workflowRoutes(deps: {
       const files = readdirSync(dir).filter((f) => f.endsWith(".workflow.json"));
       const definitions: WorkflowDefinitionRow[] = files.map((f) => {
         const workflowId = f.replace(/\.workflow\.json$/, "");
-        let meta: Record<string, unknown>;
+        const filePath = join(dir, f);
+        const mtime = statSync(filePath).mtimeMs;
+        let rawJson: unknown;
+        let parseErr: unknown = null;
         try {
-          meta =
-            (JSON.parse(readFileSync(join(dir, f), "utf-8")) as { meta?: Record<string, unknown> })
-              .meta ?? {};
-        } catch {
-          meta = {};
+          rawJson = JSON.parse(readFileSync(filePath, "utf-8"));
+        } catch (err) {
+          parseErr = err;
         }
-        const mtime = statSync(join(dir, f)).mtimeMs;
+        const meta =
+          rawJson && typeof rawJson === "object" && "meta" in rawJson
+            ? (((rawJson as { meta?: Record<string, unknown> }).meta ?? {}) as Record<
+                string,
+                unknown
+              >)
+            : {};
         let triggers: WorkflowDefinitionRow["triggers"];
         let scriptNodesBlocked = false;
         let valid: boolean;
         let error: string | undefined;
         try {
-          const parsed = parseWorkflow(JSON.parse(readFileSync(join(dir, f), "utf-8")));
+          if (parseErr) throw parseErr;
+          const parsed = parseWorkflow(rawJson);
           valid = true;
           triggers = parsed.triggers as { type: "cron"; cron: string; enabled?: boolean }[];
           scriptNodesBlocked =
@@ -237,6 +251,12 @@ export function workflowRoutes(deps: {
         // holds this workflow's trigger token, not the backend token. GitHub,
         // n8n, curl - anything that can set one header.
         workflowFile(params.workflowId);
+        const rate = triggerLimiter.consume(params.workflowId);
+        if (!rate.allowed) {
+          set.status = 429;
+          set.headers["retry-after"] = String(rate.retryAfterSec);
+          return { error: "Too many webhook trigger requests" };
+        }
         if (!deps.getTriggerToken) {
           throw new HttpError("trigger tokens are not configured on this backend", 501);
         }
@@ -329,7 +349,13 @@ export function workflowRoutes(deps: {
         const executions = await svc.listExecutions(
           Object.keys(filter).length > 0 ? filter : undefined,
         );
-        return { executions: enrichExecutions(executions) };
+        const limit = parseBoundedLimit(query.limit, 100, 500);
+        const offset = parseBoundedOffset(query.offset);
+        const page =
+          query.limit !== undefined || query.offset !== undefined
+            ? executions.slice(offset, offset + limit)
+            : executions.slice(0, 500);
+        return { executions: enrichExecutions(page) };
       },
       {
         query: t.Object({
@@ -337,6 +363,8 @@ export function workflowRoutes(deps: {
           requirementId: t.Optional(t.String()),
           conversationId: t.Optional(t.String()),
           projectId: t.Optional(t.String()),
+          limit: t.Optional(t.String()),
+          offset: t.Optional(t.String()),
         }),
       },
     )

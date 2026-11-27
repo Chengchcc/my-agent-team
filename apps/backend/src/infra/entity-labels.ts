@@ -56,11 +56,29 @@ function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(", ");
 }
 
+const IN_CHUNK_SIZE = 500;
+
+function queryInChunks<T>(
+  db: Database,
+  ids: readonly string[],
+  buildSql: (qs: string) => string,
+): T[] {
+  if (ids.length === 0) return [];
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + IN_CHUNK_SIZE);
+    const qs = placeholders(chunk.length);
+    const rows = db.query(buildSql(qs)).all(...chunk) as T[];
+    out.push(...rows);
+  }
+  return out;
+}
+
 const WORKFLOW_ID_SAFE = /^[A-Za-z0-9._-]+$/;
 
 /** Shared batch entity-label lookup backed by SQLite + optional workflowDir.
- *  Performs at most one query per non-empty entity kind to avoid N+1 lookups
- *  in list endpoints (ADR 0082 D5). */
+ *  Performs at most one query per chunk of 500 IDs per non-empty entity kind
+ *  to avoid both N+1 lookups and SQLite's bind-parameter limit (ADR 0082 D5). */
 export function createEntityLabelResolver(
   db: Database,
   opts?: { workflowDir?: string },
@@ -87,58 +105,48 @@ export function createEntityLabelResolver(
     const workflows = new Map<string, string>();
 
     const agentIds = uniqueNonEmpty(input.agentIds);
-    if (agentIds.length > 0) {
-      const rows = db
-        .query(`SELECT id, config FROM agents WHERE id IN (${placeholders(agentIds.length)})`)
-        .all(...agentIds) as Array<{ id: string; config: string }>;
-      for (const row of rows) {
-        try {
-          const parsed = JSON.parse(row.config) as { name?: unknown };
-          if (typeof parsed.name === "string" && parsed.name.trim() !== "") {
-            agents.set(row.id, parsed.name);
-          }
-        } catch {
-          // ignore malformed config
+    for (const row of queryInChunks<{ id: string; config: string }>(
+      db,
+      agentIds,
+      (qs) => `SELECT id, config FROM agents WHERE id IN (${qs})`,
+    )) {
+      try {
+        const parsed = JSON.parse(row.config) as { name?: unknown };
+        if (typeof parsed.name === "string" && parsed.name.trim() !== "") {
+          agents.set(row.id, parsed.name);
         }
+      } catch {
+        // ignore malformed config
       }
     }
 
     const conversationIds = uniqueNonEmpty(input.conversationIds);
-    if (conversationIds.length > 0) {
-      const rows = db
-        .query(
-          `SELECT conversation_id, title FROM conversation WHERE conversation_id IN (${placeholders(conversationIds.length)})`,
-        )
-        .all(...conversationIds) as Array<{ conversation_id: string; title: string | null }>;
-      for (const row of rows) {
-        if (typeof row.title === "string" && row.title.trim() !== "") {
-          conversations.set(row.conversation_id, row.title);
-        }
+    for (const row of queryInChunks<{ conversation_id: string; title: string | null }>(
+      db,
+      conversationIds,
+      (qs) => `SELECT conversation_id, title FROM conversation WHERE conversation_id IN (${qs})`,
+    )) {
+      if (typeof row.title === "string" && row.title.trim() !== "") {
+        conversations.set(row.conversation_id, row.title);
       }
     }
 
     const requirementIds = uniqueNonEmpty(input.requirementIds);
-    if (requirementIds.length > 0) {
-      const rows = db
-        .query(
-          `SELECT requirement_id, title FROM requirement WHERE requirement_id IN (${placeholders(requirementIds.length)})`,
-        )
-        .all(...requirementIds) as Array<{ requirement_id: string; title: string }>;
-      for (const row of rows) {
-        if (row.title.trim() !== "") requirements.set(row.requirement_id, row.title);
-      }
+    for (const row of queryInChunks<{ requirement_id: string; title: string }>(
+      db,
+      requirementIds,
+      (qs) => `SELECT requirement_id, title FROM requirement WHERE requirement_id IN (${qs})`,
+    )) {
+      if (row.title.trim() !== "") requirements.set(row.requirement_id, row.title);
     }
 
     const projectIds = uniqueNonEmpty(input.projectIds);
-    if (projectIds.length > 0) {
-      const rows = db
-        .query(
-          `SELECT project_id, name FROM project WHERE project_id IN (${placeholders(projectIds.length)})`,
-        )
-        .all(...projectIds) as Array<{ project_id: string; name: string }>;
-      for (const row of rows) {
-        if (row.name.trim() !== "") projects.set(row.project_id, row.name);
-      }
+    for (const row of queryInChunks<{ project_id: string; name: string }>(
+      db,
+      projectIds,
+      (qs) => `SELECT project_id, name FROM project WHERE project_id IN (${qs})`,
+    )) {
+      if (row.name.trim() !== "") projects.set(row.project_id, row.name);
     }
 
     const workflowIds = uniqueNonEmpty(input.workflowIds);

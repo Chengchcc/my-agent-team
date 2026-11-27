@@ -35,6 +35,8 @@ export interface InstallSessionCtx {
   sourceUrl: string | null;
   versionRef: string | null;
   expectedRev?: string | null;
+  /** Raw zip upload bytes passed directly without base64 amplification. */
+  zipBuffer?: Buffer;
 }
 
 export function createSkillPackService(deps: SkillPackServiceDeps) {
@@ -92,12 +94,13 @@ export function createSkillPackService(deps: SkillPackServiceDeps) {
         now,
       });
 
-      // Encode buffer as base64 for the install session
+      // Pass the upload buffer directly to avoid 3.3x base64 RAM amplification.
       const ctx: InstallSessionCtx = {
         packId: id,
         sourceKind: "zip",
-        sourceUrl: input.buffer.toString("base64"),
+        sourceUrl: null,
         versionRef: null,
+        zipBuffer: input.buffer,
       };
       triggerInstall(id, ctx);
 

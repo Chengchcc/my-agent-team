@@ -226,19 +226,28 @@ export function createAhpChatWriter(deps: AhpChatWriterDeps): AhpChatWriter {
     },
 
     async foldCommittedTurn(runId, durationMs) {
-      // Read fresh rather than through the cache: the fold is the moment the rows exist, and a
-      // context cached before them would have nothing to fold.
-      const context = await deps.readRunTurnContext(runId);
-      if (!context) return;
-      const turn = await deps.projectedTurn(context.conversationId, runId);
-      if (!turn) return;
-      await send(
-        context.conversationId,
-        actions.commitTurn(runId, turn, durationMs, context.status),
-      );
-      actions.drop(runId);
-      contexts.delete(runId);
-      order.delete(runId);
+      // Wait for any in-flight live deltas for this run so they cannot race
+      // ahead of or land after the committed projection fold.
+      const prior = order.get(runId);
+      if (prior) await prior.catch(() => {});
+      try {
+        // Read fresh rather than through the cache: the fold is the moment the rows exist, and a
+        // context cached before them would have nothing to fold.
+        const context = await deps.readRunTurnContext(runId);
+        if (!context) return;
+        const turn = await deps.projectedTurn(context.conversationId, runId);
+        if (!turn) return;
+        await send(
+          context.conversationId,
+          actions.commitTurn(runId, turn, durationMs, context.status),
+        );
+      } finally {
+        // Always release per-run caches even when a run settled with 0 messages
+        // or its conversation was deleted concurrently.
+        actions.drop(runId);
+        contexts.delete(runId);
+        order.delete(runId);
+      }
     },
 
     async announceContinuity(input) {

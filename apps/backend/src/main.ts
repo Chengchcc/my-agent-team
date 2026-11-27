@@ -35,8 +35,6 @@ await installed.prepare();
 server.start();
 await installed.start();
 
-console.log(`[backend] listening on ${config.host}:${config.port}`);
-
 // ─── Graceful shutdown ────────────────────────────────────────
 
 let shuttingDown = false;

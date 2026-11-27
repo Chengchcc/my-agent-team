@@ -49,76 +49,84 @@ export function createActionMethods(
 
     async createPendingAction(runId, action) {
       const now = Date.now();
-      return db.transaction(() => {
-        const run = d.select().from(schema.agentRun).where(eq(schema.agentRun.runId, runId)).get();
-        // Multi-slot HITL: a run parks on its FIRST pending action and stays
-        // parked while siblings are open (concurrent tool batches can raise
-        // two approvals in one turn). Terminal/commit_failed still refuse:
-        // nothing can answer an action there.
-        if (!run) throw new Error(`Agent Run not found: ${runId}`);
-        if (run.status !== "running" && run.status !== "waiting") {
-          throw new Error(`Cannot create PendingAction: run ${runId} is ${run.status}, not active`);
-        }
+      return db
+        .transaction(() => {
+          const run = d
+            .select()
+            .from(schema.agentRun)
+            .where(eq(schema.agentRun.runId, runId))
+            .get();
+          // Multi-slot HITL: a run parks on its FIRST pending action and stays
+          // parked while siblings are open (concurrent tool batches can raise
+          // two approvals in one turn). Terminal/commit_failed still refuse:
+          // nothing can answer an action there.
+          if (!run) throw new Error(`Agent Run not found: ${runId}`);
+          if (run.status !== "running" && run.status !== "waiting") {
+            throw new Error(
+              `Cannot create PendingAction: run ${runId} is ${run.status}, not active`,
+            );
+          }
 
-        // ADR 0080: the risk the dispatcher declared rides the request itself,
-        // and an irreversible one belongs to the person from the moment it is
-        // created — the owner rule alone would hand it to the front desk.
-        const declared = run.risk ? (JSON.parse(run.risk) as { irreversible?: boolean }) : null;
-        const irreversible = declared?.irreversible === true;
-        // A request that visibly exceeds the run's frozen policy is the
-        // person's too: the dispatcher may answer inside the scope it
-        // authorised, not ones that would widen it.
-        const outOfScope = beyondFrozenScope(action.payload, {
-          toolPolicy: run.toolPolicy
-            ? (JSON.parse(run.toolPolicy) as {
-                deny: string[];
-                allow: string[];
-                denyCommands?: string[];
-              })
-            : null,
-        });
-        const marks = {
-          ...(irreversible ? { irreversible: true } : {}),
-          ...(outOfScope !== undefined ? { beyondScope: true, reason: outOfScope } : {}),
-        };
-        const payload =
-          Object.keys(marks).length > 0 ? { ...action.payload, risk: marks } : action.payload;
+          // ADR 0080: the risk the dispatcher declared rides the request itself,
+          // and an irreversible one belongs to the person from the moment it is
+          // created — the owner rule alone would hand it to the front desk.
+          const declared = run.risk ? (JSON.parse(run.risk) as { irreversible?: boolean }) : null;
+          const irreversible = declared?.irreversible === true;
+          // A request that visibly exceeds the run's frozen policy is the
+          // person's too: the dispatcher may answer inside the scope it
+          // authorised, not ones that would widen it.
+          const outOfScope = beyondFrozenScope(action.payload, {
+            toolPolicy: run.toolPolicy
+              ? (JSON.parse(run.toolPolicy) as {
+                  deny: string[];
+                  allow: string[];
+                  denyCommands?: string[];
+                })
+              : null,
+          });
+          const marks = {
+            ...(irreversible ? { irreversible: true } : {}),
+            ...(outOfScope !== undefined ? { beyondScope: true, reason: outOfScope } : {}),
+          };
+          const payload =
+            Object.keys(marks).length > 0 ? { ...action.payload, risk: marks } : action.payload;
 
-        // Insert PendingAction (idempotent: duplicate actionId will fail via PK)
-        d.insert(schema.pendingAction)
-          .values({
-            actionId: action.actionId,
-            runId,
-            kind: action.kind,
-            payload: JSON.stringify(payload),
-            status: "pending",
-            createdAt: now,
-            // ADR 0075: the dispatcher looks first. Persisted at creation so
-            // every surface (web inbox, cards, escalation) reads one fact.
-            owner:
-              irreversible || outOfScope !== undefined
-                ? "user"
-                : requestOwnerOf({
-                    authorization: run.authorization ?? null,
-                    ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
-                  }).owner,
-          })
-          .run();
+          // Insert PendingAction (idempotent: duplicate actionId will fail via PK)
+          d.insert(schema.pendingAction)
+            .values({
+              actionId: action.actionId,
+              runId,
+              kind: action.kind,
+              payload: JSON.stringify(payload),
+              status: "pending",
+              createdAt: now,
+              // ADR 0075: the dispatcher looks first. Persisted at creation so
+              // every surface (web inbox, cards, escalation) reads one fact.
+              owner:
+                irreversible || outOfScope !== undefined
+                  ? "user"
+                  : requestOwnerOf({
+                      authorization: run.authorization ?? null,
+                      ...(deps.roleOfAgent ? { roleOf: deps.roleOfAgent } : {}),
+                    }).owner,
+            })
+            .run();
 
-        // First action parks the run (running -> waiting). Already waiting =
-        // a sibling is open, no second CAS.
-        d.update(schema.agentRun)
-          .set({ status: "waiting" })
-          .where(and(eq(schema.agentRun.runId, runId), eq(schema.agentRun.status, "running")))
-          .run();
+          // First action parks the run (running -> waiting). Already waiting =
+          // a sibling is open, no second CAS.
+          d.update(schema.agentRun)
+            .set({ status: "waiting" })
+            .where(and(eq(schema.agentRun.runId, runId), eq(schema.agentRun.status, "running")))
+            .run();
 
-        const row = d
-          .select()
-          .from(schema.pendingAction)
-          .where(eq(schema.pendingAction.actionId, action.actionId))
-          .get()!;
-        return parsePendingAction(row);
-      })();
+          const row = d
+            .select()
+            .from(schema.pendingAction)
+            .where(eq(schema.pendingAction.actionId, action.actionId))
+            .get()!;
+          return parsePendingAction(row);
+        })
+        .immediate();
     },
 
     async correctActionResponse(actionId, response) {
@@ -148,113 +156,136 @@ export function createActionMethods(
     },
 
     async consumePendingAction(actionId, response: PendingActionResponse, responseIdempotencyKey) {
-      return db.transaction(() => {
-        const row = d
-          .select()
-          .from(schema.pendingAction)
-          .where(eq(schema.pendingAction.actionId, actionId))
-          .get();
-
-        if (!row) throw new Error(`PendingAction not found: ${actionId}`);
-
-        // Already resolved: same key = replay (return stored + fix run if needed),
-        // different key = conflict.
-        const hasSiblingPending = (): boolean =>
-          d
-            .select({ actionId: schema.pendingAction.actionId })
+      return db
+        .transaction(() => {
+          const row = d
+            .select()
             .from(schema.pendingAction)
+            .where(eq(schema.pendingAction.actionId, actionId))
+            .get();
+
+          if (!row) throw new Error(`PendingAction not found: ${actionId}`);
+
+          // Already resolved: same key = replay (return stored + fix run if needed),
+          // different key = conflict.
+          const hasSiblingPending = (): boolean =>
+            d
+              .select({ actionId: schema.pendingAction.actionId })
+              .from(schema.pendingAction)
+              .where(
+                and(
+                  eq(schema.pendingAction.runId, row.runId),
+                  eq(schema.pendingAction.status, "pending"),
+                  ne(schema.pendingAction.actionId, actionId),
+                ),
+              )
+              .all().length > 0;
+
+          if (row.status === "resolved") {
+            if (row.responseIdempotencyKey === responseIdempotencyKey) {
+              // Verify run state: if waiting (crash after resolve), fix it;
+              // if terminal, the data is corrupt and we must signal an error.
+              // A sibling still pending means the run is waiting on IT - the
+              // repair must never wake a run that parks for someone else.
+              const run = d
+                .select()
+                .from(schema.agentRun)
+                .where(eq(schema.agentRun.runId, row.runId))
+                .get();
+              if (!run) throw new Error(`Run ${row.runId} not found for resolved action`);
+              if (isTerminalStatus(run.status as AgentRun["status"])) {
+                throw new AgentRunConflictError(row.runId);
+              }
+              if (run.status === "waiting" && !hasSiblingPending()) {
+                d.update(schema.agentRun)
+                  .set({ status: "running" })
+                  .where(
+                    and(
+                      eq(schema.agentRun.runId, row.runId),
+                      eq(schema.agentRun.status, "waiting"),
+                    ),
+                  )
+                  .run();
+              }
+              return { action: parsePendingAction(row), runId: row.runId };
+            }
+            throw new PendingActionAlreadyConsumedError(actionId);
+          }
+          // Consume: CAS action pending -> resolved. Single transaction: the
+          // sibling check and the run wake below roll back with it if anything
+          // fails.
+          const now = Date.now();
+          const result = d
+            .update(schema.pendingAction)
+            .set({
+              status: "resolved",
+              response: JSON.stringify(response.response),
+              responseIdempotencyKey,
+              resolvedAt: now,
+              // ADR 0075: whoever consumed the row is the author, and everything
+              // that reaches consumePendingAction directly is a human surface.
+              // The agent path answers first and stamps itself AFTER (see
+              // markActionAnswered), which overwrites this. Without it the audit
+              // said "owner: user, by: null" for a human answer — the one fact
+              // the audit exists to state.
+              answeredBy: sql`coalesce(${schema.pendingAction.answeredBy}, 'user')`,
+            })
             .where(
               and(
-                eq(schema.pendingAction.runId, row.runId),
+                eq(schema.pendingAction.actionId, actionId),
                 eq(schema.pendingAction.status, "pending"),
-                ne(schema.pendingAction.actionId, actionId),
               ),
             )
-            .all().length > 0;
+            .returning()
+            .get();
 
-        if (row.status === "resolved") {
-          if (row.responseIdempotencyKey === responseIdempotencyKey) {
-            // Verify run state: if waiting (crash after resolve), fix it;
-            // if terminal, the data is corrupt and we must signal an error.
-            // A sibling still pending means the run is waiting on IT - the
-            // repair must never wake a run that parks for someone else.
-            const run = d
-              .select()
-              .from(schema.agentRun)
-              .where(eq(schema.agentRun.runId, row.runId))
-              .get();
-            if (!run) throw new Error(`Run ${row.runId} not found for resolved action`);
-            if (isTerminalStatus(run.status as AgentRun["status"])) {
-              throw new AgentRunConflictError(row.runId);
-            }
-            if (run.status === "waiting" && !hasSiblingPending()) {
-              d.update(schema.agentRun)
-                .set({ status: "running" })
-                .where(
-                  and(eq(schema.agentRun.runId, row.runId), eq(schema.agentRun.status, "waiting")),
-                )
-                .run();
-            }
-            return { action: parsePendingAction(row), runId: row.runId };
+          if (!result) {
+            throw new PendingActionAlreadyConsumedError(actionId);
           }
-          throw new PendingActionAlreadyConsumedError(actionId);
-        }
-        // Consume: CAS action pending -> resolved. Single transaction: the
-        // sibling check and the run wake below roll back with it if anything
-        // fails.
-        const now = Date.now();
-        const result = d
-          .update(schema.pendingAction)
-          .set({
-            status: "resolved",
-            response: JSON.stringify(response.response),
-            responseIdempotencyKey,
-            resolvedAt: now,
-            // ADR 0075: whoever consumed the row is the author, and everything
-            // that reaches consumePendingAction directly is a human surface.
-            // The agent path answers first and stamps itself AFTER (see
-            // markActionAnswered), which overwrites this. Without it the audit
-            // said "owner: user, by: null" for a human answer — the one fact
-            // the audit exists to state.
-            answeredBy: sql`coalesce(${schema.pendingAction.answeredBy}, 'user')`,
-          })
-          .where(
-            and(
-              eq(schema.pendingAction.actionId, actionId),
-              eq(schema.pendingAction.status, "pending"),
-            ),
-          )
-          .returning()
-          .get();
 
-        if (!result) {
-          throw new PendingActionAlreadyConsumedError(actionId);
-        }
-
-        // Last one out wakes the run: only when NO sibling is still pending
-        // does waiting -> running fire. A run already running (an earlier
-        // consume woke it) needs no touch - the decision is recorded above.
-        if (!hasSiblingPending()) {
-          d.update(schema.agentRun)
-            .set({ status: "running" })
-            .where(and(eq(schema.agentRun.runId, row.runId), eq(schema.agentRun.status, "waiting")))
+          // Clean up any unsent free-text draft for this resolved action.
+          const draftCallId = actionId.startsWith(`${row.runId}:`)
+            ? actionId.slice(row.runId.length + 1)
+            : actionId;
+          d.delete(schema.answerDraft)
+            .where(
+              and(
+                eq(schema.answerDraft.runId, row.runId),
+                eq(schema.answerDraft.callId, draftCallId),
+              ),
+            )
             .run();
-        }
 
-        return {
-          action: parsePendingAction(result),
-          runId: row.runId,
-        };
-      })();
+          // Last one out wakes the run: only when NO sibling is still pending
+          // does waiting -> running fire. A run already running (an earlier
+          // consume woke it) needs no touch - the decision is recorded above.
+          if (!hasSiblingPending()) {
+            d.update(schema.agentRun)
+              .set({ status: "running" })
+              .where(
+                and(eq(schema.agentRun.runId, row.runId), eq(schema.agentRun.status, "waiting")),
+              )
+              .run();
+          }
+
+          return {
+            action: parsePendingAction(result),
+            runId: row.runId,
+          };
+        })
+        .immediate();
     },
 
     async cancelPendingActionsForRun(runId) {
-      d.update(schema.pendingAction)
-        .set({ status: "cancelled", resolvedAt: Date.now() })
-        .where(
-          and(eq(schema.pendingAction.runId, runId), eq(schema.pendingAction.status, "pending")),
-        )
-        .run();
+      db.transaction(() => {
+        d.update(schema.pendingAction)
+          .set({ status: "cancelled", resolvedAt: Date.now() })
+          .where(
+            and(eq(schema.pendingAction.runId, runId), eq(schema.pendingAction.status, "pending")),
+          )
+          .run();
+        d.delete(schema.answerDraft).where(eq(schema.answerDraft.runId, runId)).run();
+      }).immediate();
     },
 
     async getPendingAction(actionId) {

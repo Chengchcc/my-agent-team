@@ -79,7 +79,7 @@ export function createSqliteCodingTerminalStore(db: Database): CodingTerminalSto
           })
           .run();
       }
-    })();
+    }).immediate();
   }
 
   function importLegacyJsonIfEmpty(file: string): number {

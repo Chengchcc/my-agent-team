@@ -142,91 +142,92 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     },
 
     async deleteConversation(conversationId: string): Promise<boolean> {
-      // Context entries form a self-referencing chain (parent_id → entry_id
-      // with the default RESTRICT action), so the FK cascade from
-      // conversation → agent_context_tree → agent_context_entry fails
-      // mid-chain once a linear context has 2+ entries. Delete the entries
-      // per-tree first (one DELETE per tree removes the whole chain in a
-      // single statement, which SQLite FK checks atomically), then the
-      // conversation — all inside one transaction.
-      const active = d
-        .select({ runId: schema.agentRun.runId })
-        .from(schema.agentRun)
-        .where(
-          and(
-            eq(schema.agentRun.conversationId, conversationId),
-            inArray(schema.agentRun.status, ["running", "waiting", "commit_failed"]),
-          ),
-        )
-        .get();
-      if (active) {
-        throw new ConflictError("Conversation has an active run; stop it before deleting.");
-      }
-      // ADR 0070: this room's dispatched child rooms go with it. SQLite added
-      // the self-reference by ALTER TABLE, which cannot carry ON DELETE
-      // cascade, so the order is explicit: children first (recursively), then
-      // this row.
-      for (const child of d
-        .select({ id: schema.conversation.conversationId })
-        .from(schema.conversation)
-        .where(eq(schema.conversation.parentConversationId, conversationId))
-        .all()) {
-        await this.deleteConversation(child.id);
-      }
-      return d.transaction((tx) => {
-        const trees = tx
-          .select({ treeId: schema.agentContextTree.treeId })
-          .from(schema.agentContextTree)
-          .where(eq(schema.agentContextTree.conversationId, conversationId))
-          .all();
-        for (const { treeId } of trees) {
-          // parent_id → entry_id is ON DELETE RESTRICT (drizzle default), so
-          // SQLite aborts the moment a deleted row still has a child — even
-          // inside a single DELETE covering the whole chain. Remove leaf rows
-          // first, repeatedly, until the chain is empty (one pass per depth).
-          const children = tx
-            .selectDistinct({ parentId: schema.agentContextEntry.parentId })
-            .from(schema.agentContextEntry)
-            .where(
-              and(
-                eq(schema.agentContextEntry.treeId, treeId),
-                isNotNull(schema.agentContextEntry.parentId),
-              ),
-            );
-          // drizzle types run() as void, so terminate the loop by checking
-          // whether any entry remains.
-          for (;;) {
-            tx.delete(schema.agentContextEntry)
+      // Collect the full subtree (root + all ADR 0070 dispatched descendants)
+      // and check active runs across EVERY room inside ONE IMMEDIATE transaction
+      // so a child room with an active run can never leave siblings half-deleted.
+      return db
+        .transaction(() => {
+          const exists = d
+            .select({ id: schema.conversation.conversationId })
+            .from(schema.conversation)
+            .where(eq(schema.conversation.conversationId, conversationId))
+            .get();
+          if (!exists) return false;
+
+          // BFS from root to gather descendants; delete in reverse order (leaves first).
+          const subtree: string[] = [conversationId];
+          for (let i = 0; i < subtree.length; i++) {
+            const parentId = subtree[i]!;
+            const kids = d
+              .select({ id: schema.conversation.conversationId })
+              .from(schema.conversation)
+              .where(eq(schema.conversation.parentConversationId, parentId))
+              .all();
+            for (const kid of kids) subtree.push(kid.id);
+          }
+
+          // Guard: reject if ANY room in the subtree has an active run.
+          for (let i = 0; i < subtree.length; i += 500) {
+            const chunk = subtree.slice(i, i + 500);
+            const active = d
+              .select({ runId: schema.agentRun.runId })
+              .from(schema.agentRun)
               .where(
                 and(
-                  eq(schema.agentContextEntry.treeId, treeId),
-                  notInArray(schema.agentContextEntry.entryId, children),
+                  inArray(schema.agentRun.conversationId, chunk),
+                  inArray(schema.agentRun.status, ["running", "waiting", "commit_failed"]),
                 ),
               )
-              .run();
-            const left = tx
-              .select({ id: schema.agentContextEntry.entryId })
-              .from(schema.agentContextEntry)
-              .where(eq(schema.agentContextEntry.treeId, treeId))
-              .limit(1)
               .get();
-            if (!left) break;
+            if (active) {
+              throw new ConflictError("Conversation has an active run; stop it before deleting.");
+            }
           }
-        }
-        // ADR 0077: the room's edges to its requirements go with it (the join
-        // rows reference the conversation and would otherwise refuse the
-        // delete). The requirements themselves stay: they are the work, and a
-        // room is only where it was discussed.
-        tx.delete(schema.conversationRequirement)
-          .where(eq(schema.conversationRequirement.conversationId, conversationId))
-          .run();
-        const deleted = tx
-          .delete(schema.conversation)
-          .where(eq(schema.conversation.conversationId, conversationId))
-          .returning()
-          .get();
-        return Boolean(deleted);
-      });
+
+          // Delete leaves first so parent_conversation_id FK never blocks.
+          for (let i = subtree.length - 1; i >= 0; i--) {
+            const cid = subtree[i]!;
+            const trees = d
+              .select({ treeId: schema.agentContextTree.treeId })
+              .from(schema.agentContextTree)
+              .where(eq(schema.agentContextTree.conversationId, cid))
+              .all();
+            for (const { treeId } of trees) {
+              const children = d
+                .selectDistinct({ parentId: schema.agentContextEntry.parentId })
+                .from(schema.agentContextEntry)
+                .where(
+                  and(
+                    eq(schema.agentContextEntry.treeId, treeId),
+                    isNotNull(schema.agentContextEntry.parentId),
+                  ),
+                );
+              for (;;) {
+                d.delete(schema.agentContextEntry)
+                  .where(
+                    and(
+                      eq(schema.agentContextEntry.treeId, treeId),
+                      notInArray(schema.agentContextEntry.entryId, children),
+                    ),
+                  )
+                  .run();
+                const left = d
+                  .select({ id: schema.agentContextEntry.entryId })
+                  .from(schema.agentContextEntry)
+                  .where(eq(schema.agentContextEntry.treeId, treeId))
+                  .limit(1)
+                  .get();
+                if (!left) break;
+              }
+            }
+            d.delete(schema.conversationRequirement)
+              .where(eq(schema.conversationRequirement.conversationId, cid))
+              .run();
+            d.delete(schema.conversation).where(eq(schema.conversation.conversationId, cid)).run();
+          }
+          return true;
+        })
+        .immediate();
     },
 
     listConversationsByAgent(agentId: string): ConversationSummary[] {
@@ -249,14 +250,23 @@ export function sqliteConversationAdapter(db: Database): ConversationPort {
     getLastSeq(conversationId: string): number | null {
       return lastSeq(conversationId);
     },
-    setSaved(seq: number, saved: boolean): boolean {
+    setSaved(seq: number, saved: boolean, conversationId?: string): boolean {
+      const cond = conversationId
+        ? and(
+            eq(schema.conversationLedger.seq, seq),
+            eq(schema.conversationLedger.conversationId, conversationId),
+          )
+        : eq(schema.conversationLedger.seq, seq);
       const rows = d
         .update(schema.conversationLedger)
         .set({ saved: saved ? 1 : 0 })
-        .where(eq(schema.conversationLedger.seq, seq))
+        .where(cond)
         .returning({ seq: schema.conversationLedger.seq })
         .all();
       return rows.length > 0;
+    },
+    runInTransaction<T>(fn: () => T): T {
+      return db.transaction(fn).immediate();
     },
     listSaved(): Array<{
       seq: number;

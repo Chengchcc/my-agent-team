@@ -199,13 +199,15 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
   function withPageLock<T>(path: string, task: () => Promise<T>): Promise<T> {
     const previous = chains.get(path) ?? Promise.resolve();
     const next = previous.then(task, task);
-    chains.set(
-      path,
-      next.then(
-        () => undefined,
-        () => undefined,
-      ),
+    const sentinel = next.then(
+      () => undefined,
+      () => undefined,
     );
+    chains.set(path, sentinel);
+    void sentinel.then(() => {
+      // Evict idle locks once no newer caller has chained behind us.
+      if (chains.get(path) === sentinel) chains.delete(path);
+    });
     return next;
   }
 

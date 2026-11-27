@@ -308,7 +308,7 @@ export function createEnqueueMethod(db: Database, deps: { idGen: IdGenerator }) 
         } satisfies AcquireAgentRunResult;
       });
 
-      return txn();
+      return txn.immediate();
     },
   };
 

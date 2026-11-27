@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { resolveModelAlias } from "@chengchenccc/ai";
 import { Elysia, t } from "elysia";
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
+import { parseBoundedLimit, parseBoundedOffset } from "../../infra/http-utils.js";
 import { type AgentRunExecutionService, ApprovalNotApplicableError } from "./execution.js";
 import type { BackendRunOutcome } from "./protocol/index.js";
 import type { AgentRunService } from "./service.js";
@@ -190,7 +191,8 @@ export function agentRunRoutes(input: {
       .get(
         "/api/agent-runs",
         ({ query }) => {
-          const limit = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 500);
+          const limit = parseBoundedLimit(query.limit, 50, 500);
+          const offset = parseBoundedOffset(query.offset);
           const where: string[] = [];
           const args: (string | number)[] = [];
           if (query.status) {
@@ -219,8 +221,8 @@ export function agentRunRoutes(input: {
                        LEFT JOIN requirement req ON req.requirement_id = ar.requirement_id
                        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
                        ORDER BY ar.created_at DESC
-                       LIMIT ?`;
-          const rows = db.query(sql).all(...args, limit) as Array<{
+                       LIMIT ? OFFSET ?`;
+          const rows = db.query(sql).all(...args, limit, offset) as Array<{
             run_id: string;
             conversation_id: string;
             agent_id: string;
@@ -293,6 +295,7 @@ export function agentRunRoutes(input: {
             conversationId: t.Optional(t.String()),
             parentRunId: t.Optional(t.String()),
             limit: t.Optional(t.String()),
+            offset: t.Optional(t.String()),
           }),
         },
       )
@@ -618,42 +621,50 @@ export function agentRunRoutes(input: {
         await agentRunExecution.stop(runId);
         return { ok: true, state: "abort_sent", runId };
       })
-      .post("/api/agent-runs/:runId/approval", async ({ params: { runId }, body, set }) => {
-        const run = await agentRunService.getRun(runId);
-        if (!run) {
-          set.status = 404;
-          return { error: "Run not found" };
-        }
-        const payload = body as { callId?: unknown; decision?: unknown } | undefined;
-        const isTerminal = TERMINAL_STATUSES.includes(run.status);
-        const isAllow = payload?.decision === "allow" || payload?.decision === "allow_always";
-        const isDeny = payload?.decision === "deny" || payload?.decision === "deny_always";
-        const hasValidDecision = typeof payload?.callId === "string" && (isAllow || isDeny);
-        if (isTerminal) {
-          set.status = 409;
-          return { error: `Run ${runId} is ${run.status}` };
-        }
-        if (!hasValidDecision) {
-          set.status = 400;
-          return {
-            error:
-              "body must be { callId: string, decision: 'allow' | 'allow_always' | 'deny' | 'deny_always' }",
-          };
-        }
-        try {
-          await agentRunExecution.resolveApproval(
-            runId,
-            payload.callId as string,
-            payload.decision as "allow" | "allow_always" | "deny" | "deny_always",
-          );
-        } catch (err) {
-          if (err instanceof ApprovalNotApplicableError) {
-            set.status = 409;
-            return { error: "This approval is no longer waiting for an answer" };
+      .post(
+        "/api/agent-runs/:runId/approval",
+        async ({ params: { runId }, body, set }) => {
+          const run = await agentRunService.getRun(runId);
+          if (!run) {
+            set.status = 404;
+            return { error: "Run not found" };
           }
-          throw err;
-        }
-        return { ok: true, runId, callId: payload.callId, decision: payload.decision };
-      })
+          const isTerminal = TERMINAL_STATUSES.includes(run.status);
+          const isAllow = body.decision === "allow" || body.decision === "allow_always";
+          const isDeny = body.decision === "deny" || body.decision === "deny_always";
+          const hasValidDecision = typeof body.callId === "string" && (isAllow || isDeny);
+          if (isTerminal) {
+            set.status = 409;
+            return { error: `Run ${runId} is ${run.status}` };
+          }
+          if (!hasValidDecision) {
+            set.status = 400;
+            return {
+              error:
+                "body must be { callId: string, decision: 'allow' | 'allow_always' | 'deny' | 'deny_always' }",
+            };
+          }
+          try {
+            await agentRunExecution.resolveApproval(
+              runId,
+              body.callId as string,
+              body.decision as "allow" | "allow_always" | "deny" | "deny_always",
+            );
+          } catch (err) {
+            if (err instanceof ApprovalNotApplicableError) {
+              set.status = 409;
+              return { error: "This approval is no longer waiting for an answer" };
+            }
+            throw err;
+          }
+          return { ok: true, runId, callId: body.callId, decision: body.decision };
+        },
+        {
+          body: t.Object({
+            callId: t.Optional(t.String()),
+            decision: t.Optional(t.String()),
+          }),
+        },
+      )
   );
 }

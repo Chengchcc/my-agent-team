@@ -75,8 +75,9 @@ describe("SkillPackService", () => {
     expect(row.sourceKind).toBe("zip");
     expect(installCalls).toHaveLength(1);
     expect(installCalls[0]!.ctx.sourceKind).toBe("zip");
-    // buffer should be base64 encoded
-    expect(installCalls[0]!.ctx.sourceUrl).toBe(buffer.toString("base64"));
+    // Buffer is passed directly to avoid 3.3x base64 RAM amplification.
+    expect(installCalls[0]!.ctx.zipBuffer).toEqual(buffer);
+    expect(installCalls[0]!.ctx.sourceUrl).toBeNull();
   });
 
   // ─── syncGit ───────────────────────────────────────────────────────

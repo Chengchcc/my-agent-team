@@ -26,95 +26,119 @@ export const agents = sqliteTable(
 );
 
 // ─── conversation ──────────────────────────────────────────────────
-export const conversation = sqliteTable("conversation", {
-  conversationId: text().primaryKey(),
-  /** 1:1 collapse (spec 2026-08-25): the conversation's agent. Nullable on
-   *  legacy rows that predate the member table removal. */
-  agentId: text("agent_id"),
-  hopCount: integer().notNull().default(0),
-  title: text(),
-  origin: text().notNull().default("user"),
-  createdAt: integer({ mode: "number" }).notNull(),
-  forkSource: text("fork_source"),
-  forkFromSeq: integer("fork_from_seq"),
-  /** ADR 0077: which requirement this room is currently advancing. The
-   *  pointer is what makes requirement/conversation M:N usable — a message
-   *  advances exactly one requirement, and switching is an explicit act. */
-  currentRequirementId: text("current_requirement_id").references(() => requirement.requirementId),
-  /** Project binding (ADR 0023): the room's project for dispatch guards and
-   *  briefs. ADR 0077: it no longer selects a workspace — the requirement does. */
-  projectId: text("project_id").references(() => project.projectId, {
-    onDelete: "restrict",
-  }),
-  /** ADR 0070: the room that dispatched into this one. A dispatch opens a
-   *  CHILD CONVERSATION for the worker instead of planting a run in the
-   *  front desk's room, so the worker's process has its own ledger and the
-   *  front desk's room keeps one summary line plus a link.
-   *  Null = a root room (the human's). */
-  parentConversationId: text("parent_conversation_id").references(
-    (): AnySQLiteColumn => conversation.conversationId,
-    { onDelete: "cascade" },
-  ),
-});
+export const conversation = sqliteTable(
+  "conversation",
+  {
+    conversationId: text().primaryKey(),
+    /** 1:1 collapse (spec 2026-08-25): the conversation's agent. Nullable on
+     *  legacy rows that predate the member table removal. */
+    agentId: text("agent_id"),
+    hopCount: integer().notNull().default(0),
+    title: text(),
+    origin: text().notNull().default("user"),
+    createdAt: integer({ mode: "number" }).notNull(),
+    forkSource: text("fork_source"),
+    forkFromSeq: integer("fork_from_seq"),
+    /** ADR 0077: which requirement this room is currently advancing. The
+     *  pointer is what makes requirement/conversation M:N usable — a message
+     *  advances exactly one requirement, and switching is an explicit act. */
+    currentRequirementId: text("current_requirement_id").references(
+      () => requirement.requirementId,
+    ),
+    /** Project binding (ADR 0023): the room's project for dispatch guards and
+     *  briefs. ADR 0077: it no longer selects a workspace — the requirement does. */
+    projectId: text("project_id").references(() => project.projectId, {
+      onDelete: "restrict",
+    }),
+    /** ADR 0070: the room that dispatched into this one. A dispatch opens a
+     *  CHILD CONVERSATION for the worker instead of planting a run in the
+     *  front desk's room, so the worker's process has its own ledger and the
+     *  front desk's room keeps one summary line plus a link.
+     *  Null = a root room (the human's). */
+    parentConversationId: text("parent_conversation_id").references(
+      (): AnySQLiteColumn => conversation.conversationId,
+      { onDelete: "cascade" },
+    ),
+  },
+  (table) => [
+    index("idx_conversation_parent").on(table.parentConversationId),
+    index("idx_conversation_project").on(table.projectId),
+    index("idx_conversation_current_req").on(table.currentRequirementId),
+    index("idx_conversation_agent").on(table.agentId, table.createdAt),
+  ],
+);
 
 /** ADR 0074: a REQUIREMENT (事项) — the stable work goal the PA identifies
  *  from conversation and maintains continuously. Not a copy of the dispatch
  *  brief: it can exist with no dispatch, survive rework and cross-member
  *  collaboration, and its status derives from execution/request/acceptance
  *  records rather than a summary edit. */
-export const requirement = sqliteTable("requirement", {
-  requirementId: text("requirement_id").primaryKey(),
-  /** ADR 0080: what the human accepted, as run references with their
-   *  verification verdicts (JSON string[]), and when. Null while open. */
-  acceptedEvidence: text("accepted_evidence"),
-  acceptedAt: integer("accepted_at", { mode: "number" }),
-  /** Short handle (the PA's summary; the user's own words stay on the origin
-   *  message — the two are deliberately not merged). */
-  title: text().notNull(),
-  /** What "done" is after, in one or two sentences. */
-  goal: text().notNull(),
-  background: text(),
-  constraints: text(),
-  expectedDeliverables: text("expected_deliverables"),
-  acceptanceCriteria: text("acceptance_criteria"),
-  /** Stored lifecycle: open | done | cancelled. Everything between
-   *  (in_progress / waiting_user / pending_acceptance) is DERIVED in the read
-   *  model from runs and pending requests — a summary edit can never mark
-   *  work finished. */
-  status: text().notNull().default("open"),
-  /** ADR 0074: which project the goal belongs to. The PA classifies it from
-   *  the request (or asks when two projects fit) — "which project is this
-   *  about" is the question that makes requirements navigable later. Null is
-   *  honest: some goals have no repository. */
-  projectId: text("project_id"),
-  /** Where the goal was first stated (the human's words live there). */
-  originConversationId: text("origin_conversation_id"),
-  originSeq: integer("origin_seq"),
-  createdByAgentId: text("created_by_agent_id"),
-  createdAt: integer({ mode: "number" }).notNull(),
-  updatedAt: integer({ mode: "number" }).notNull(),
-});
+export const requirement = sqliteTable(
+  "requirement",
+  {
+    requirementId: text("requirement_id").primaryKey(),
+    /** ADR 0080: what the human accepted, as run references with their
+     *  verification verdicts (JSON string[]), and when. Null while open. */
+    acceptedEvidence: text("accepted_evidence"),
+    acceptedAt: integer("accepted_at", { mode: "number" }),
+    /** Short handle (the PA's summary; the user's own words stay on the origin
+     *  message — the two are deliberately not merged). */
+    title: text().notNull(),
+    /** What "done" is after, in one or two sentences. */
+    goal: text().notNull(),
+    background: text(),
+    constraints: text(),
+    expectedDeliverables: text("expected_deliverables"),
+    acceptanceCriteria: text("acceptance_criteria"),
+    /** Stored lifecycle: open | done | cancelled. Everything between
+     *  (in_progress / waiting_user / pending_acceptance) is DERIVED in the read
+     *  model from runs and pending requests — a summary edit can never mark
+     *  work finished. */
+    status: text().notNull().default("open"),
+    /** ADR 0074: which project the goal belongs to. The PA classifies it from
+     *  the request (or asks when two projects fit) — "which project is this
+     *  about" is the question that makes requirements navigable later. Null is
+     *  honest: some goals have no repository. */
+    projectId: text("project_id"),
+    /** Where the goal was first stated (the human's words live there). */
+    originConversationId: text("origin_conversation_id"),
+    originSeq: integer("origin_seq"),
+    createdByAgentId: text("created_by_agent_id"),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_requirement_status_updated").on(table.status, table.updatedAt),
+    index("idx_requirement_origin_conv").on(table.originConversationId, table.status),
+  ],
+);
 
 // ─── workspace (ADR 0077): the material of a requirement ──────────
 /** A checkout a requirement works in: one project, one branch, never the
  *  default branch. Ownership is the REQUIREMENT's (M:N), not the agent's —
  *  that is what lets two requirements run at once without sharing a tree. */
-export const workspace = sqliteTable("workspace", {
-  workspaceId: text("workspace_id").primaryKey(),
-  projectId: text("project_id")
-    .notNull()
-    .references(() => project.projectId),
-  /** Absolute path on disk (a git worktree of the project mirror). */
-  path: text().notNull(),
-  /** The branch this checkout commits on (`req/<requirementId>/<project>`). */
-  branch: text().notNull(),
-  /** Commit the checkout started from (what a review diffs against). */
-  baseRef: text("base_ref").notNull(),
-  /** open | released. Released keeps the row: history outlives the directory. */
-  status: text().notNull().default("open"),
-  createdAt: integer({ mode: "number" }).notNull(),
-  updatedAt: integer({ mode: "number" }).notNull(),
-});
+export const workspace = sqliteTable(
+  "workspace",
+  {
+    workspaceId: text("workspace_id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.projectId),
+    /** Absolute path on disk (a git worktree of the project mirror). */
+    path: text().notNull(),
+    /** The branch this checkout commits on (`req/<requirementId>/<project>`). */
+    branch: text().notNull(),
+    /** Commit the checkout started from (what a review diffs against). */
+    baseRef: text("base_ref").notNull(),
+    /** open | released. Released keeps the row: history outlives the directory. */
+    status: text().notNull().default("open"),
+    createdAt: integer({ mode: "number" }).notNull(),
+    updatedAt: integer({ mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_workspace_project_status").on(table.projectId, table.status, table.updatedAt),
+  ],
+);
 
 export const requirementWorkspace = sqliteTable(
   "requirement_workspace",
@@ -127,7 +151,10 @@ export const requirementWorkspace = sqliteTable(
       .references(() => workspace.workspaceId),
     createdAt: integer({ mode: "number" }).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.requirementId, table.workspaceId] })],
+  (table) => [
+    primaryKey({ columns: [table.requirementId, table.workspaceId] }),
+    index("idx_req_workspace_workspace").on(table.workspaceId),
+  ],
 );
 
 export const conversationRequirement = sqliteTable(
@@ -141,7 +168,10 @@ export const conversationRequirement = sqliteTable(
       .references(() => requirement.requirementId),
     createdAt: integer({ mode: "number" }).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.conversationId, table.requirementId] })],
+  (table) => [
+    primaryKey({ columns: [table.conversationId, table.requirementId] }),
+    index("idx_conv_req_requirement").on(table.requirementId),
+  ],
 );
 
 // (member table removed — 1:1 collapse: participation is conversation.agent_id)
@@ -222,6 +252,10 @@ export const workflowExecution = sqliteTable(
     index("idx_workflow_execution_requirement").on(table.requirementId, table.createdAt),
     index("idx_workflow_execution_conversation").on(table.conversationId, table.createdAt),
     index("idx_workflow_execution_project").on(table.projectId, table.createdAt),
+    index("idx_workflow_execution_wf_status").on(table.workflowId, table.status),
+    uniqueIndex("idx_workflow_execution_single_flight")
+      .on(table.workflowId)
+      .where(sql`status = 'running'`),
   ],
 );
 
@@ -242,7 +276,11 @@ export const workflowNodeRun = sqliteTable(
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     terminalAt: integer("terminal_at", { mode: "number" }),
   },
-  (table) => [index("idx_workflow_node_run_exec").on(table.executionId, table.seq)],
+  (table) => [
+    index("idx_workflow_node_run_exec").on(table.executionId, table.seq),
+    index("idx_workflow_node_run_exec_status").on(table.executionId, table.status),
+    index("idx_workflow_node_run_run_id").on(table.runId),
+  ],
 );
 
 export const workflowExecutionEvent = sqliteTable(
@@ -256,7 +294,10 @@ export const workflowExecutionEvent = sqliteTable(
     data: text().notNull(), // JSON payload
     ts: integer({ mode: "number" }).notNull(),
   },
-  (table) => [index("idx_workflow_execution_event_exec").on(table.executionId, table.seq)],
+  (table) => [
+    index("idx_workflow_execution_event_exec").on(table.executionId, table.seq),
+    index("idx_workflow_execution_event_ts").on(table.ts),
+  ],
 );
 
 export const workflowPendingHuman = sqliteTable(
@@ -407,6 +448,7 @@ export const agentContextEntry = sqliteTable(
     primaryKey({ columns: [table.entryId] }),
     index("idx_context_entry_tree").on(table.treeId, table.parentId),
     index("idx_context_entry_leaf").on(table.treeId, table.entryId),
+    index("idx_context_entry_tree_seq").on(table.treeId, table.type, table.ledgerSeq),
   ],
 );
 
@@ -515,6 +557,14 @@ export const agentRun = sqliteTable(
       .on(table.branchId)
       .where(sql`status IN ('running', 'waiting', 'commit_failed')`),
     index("idx_agent_run_branch").on(table.branchId),
+    index("idx_agent_run_status_created").on(table.status, table.createdAt),
+    index("idx_agent_run_conv_created").on(table.conversationId, table.createdAt),
+    index("idx_agent_run_agent_created").on(table.agentId, table.createdAt),
+    index("idx_agent_run_parent").on(table.parentRunId),
+    index("idx_agent_run_requirement").on(table.requirementId, table.createdAt),
+    index("idx_agent_run_unnotified")
+      .on(table.status, table.resultNotifiedAt)
+      .where(sql`parent_run_id IS NOT NULL AND result_notified_at IS NULL`),
   ],
 );
 
@@ -533,7 +583,10 @@ export const agentRunEvent = sqliteTable(
     data: text().notNull(),
     ts: integer({ mode: "number" }).notNull(),
   },
-  (table) => [index("idx_agent_run_event_run").on(table.runId, table.seq)],
+  (table) => [
+    index("idx_agent_run_event_run").on(table.runId, table.seq),
+    index("idx_agent_run_event_ts").on(table.ts),
+  ],
 );
 
 // Branch Input Queue: durable normal/steer/follow_up inputs.
@@ -581,6 +634,8 @@ export const branchInputQueue = sqliteTable(
     uniqueIndex("idx_queue_input_idem").on(table.branchId, table.inputIdempotencyKey),
     // Stable queue ordering: branch + monotonic seq.
     index("idx_queue_order").on(table.branchId, table.seq),
+    index("idx_queue_status_branch_seq").on(table.status, table.branchId, table.seq),
+    index("idx_queue_run_id").on(table.runId),
   ],
 );
 
@@ -620,6 +675,7 @@ export const pendingAction = sqliteTable(
     primaryKey({ columns: [table.actionId] }),
     uniqueIndex("idx_pending_action_response_idem").on(table.responseIdempotencyKey),
     index("idx_pending_action_run").on(table.runId),
+    index("idx_pending_action_status_run").on(table.status, table.runId),
   ],
 );
 
@@ -683,6 +739,7 @@ export const productToolCall = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.runId, table.callId] }),
     index("idx_product_tool_call_run").on(table.runId),
+    index("idx_product_tool_call_created").on(table.createdAt),
   ],
 );
 
@@ -727,7 +784,10 @@ export const proposal = sqliteTable(
     createdAt: integer({ mode: "number" }).notNull(),
     resolvedAt: integer({ mode: "number" }),
   },
-  (table) => [index("idx_proposal_pending").on(table.kind, table.targetId, table.status)],
+  (table) => [
+    index("idx_proposal_pending").on(table.kind, table.targetId, table.status),
+    index("idx_proposal_status_created").on(table.status, table.createdAt),
+  ],
 );
 
 export const proposalSelectSchema = createSelectSchema(proposal, {

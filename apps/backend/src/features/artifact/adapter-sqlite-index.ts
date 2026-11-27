@@ -174,13 +174,16 @@ export function createSqliteArtifactIndexAdapter(deps: {
     const workflowIdByExec = new Map<string, string>();
     if (execIds.length > 0) {
       const unique = [...new Set(execIds)];
-      const qs = unique.map(() => "?").join(", ");
-      const execRows = db
-        .query(
-          `SELECT execution_id, workflow_id FROM workflow_execution WHERE execution_id IN (${qs})`,
-        )
-        .all(...unique) as Array<{ execution_id: string; workflow_id: string }>;
-      for (const er of execRows) workflowIdByExec.set(er.execution_id, er.workflow_id);
+      for (let i = 0; i < unique.length; i += 500) {
+        const chunk = unique.slice(i, i + 500);
+        const qs = chunk.map(() => "?").join(", ");
+        const execRows = db
+          .query(
+            `SELECT execution_id, workflow_id FROM workflow_execution WHERE execution_id IN (${qs})`,
+          )
+          .all(...chunk) as Array<{ execution_id: string; workflow_id: string }>;
+        for (const er of execRows) workflowIdByExec.set(er.execution_id, er.workflow_id);
+      }
     }
 
     const maps = labelResolver?.resolveBatch({

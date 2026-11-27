@@ -519,6 +519,13 @@
       "when": 1795852248779,
       "tag": "0073_wave3_retirements",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1795938648779,
+      "tag": "0074_wave4_indexes_and_constraints",
+      "breakpoints": true
     }
   ]
 }

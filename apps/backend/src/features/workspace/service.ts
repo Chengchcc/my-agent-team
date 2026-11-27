@@ -50,7 +50,12 @@ export interface ProjectWorkspaceRecord extends WorkspaceRecord {
 
 export function createWorkspaceService(deps: WorkspaceDeps) {
   const db = drizzle(deps.db, { schema, casing: "snake_case" });
-  return {
+  /** Per-(requirementId, projectId) single-flight guard so concurrent dispatches
+   *  for the same requirement+project do not double-materialize worktrees or
+   *  race insert duplicate workspace rows. */
+  const inFlight = new Map<string, Promise<WorkspaceRecord>>();
+
+  const svc = {
     getById(workspaceId: string): WorkspaceRecord | null {
       const row = db.select().from(workspace).where(eq(workspace.workspaceId, workspaceId)).get();
       return row ? toRecord(row) : null;
@@ -102,32 +107,59 @@ export function createWorkspaceService(deps: WorkspaceDeps) {
       requirementId: string;
       projectId: string;
     }): Promise<WorkspaceRecord> {
-      const existing = this.findForRequirement(input);
+      const existing = svc.findForRequirement(input);
       if (existing !== null) return existing;
-      const materialized = await deps.materialize(input);
-      if (materialized === null) {
-        throw new Error(
-          `cannot open a workspace for requirement ${input.requirementId}: the project ${input.projectId} slot is occupied`,
-        );
+
+      const key = `${input.requirementId}:${input.projectId}`;
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+
+      const work = (async (): Promise<WorkspaceRecord> => {
+        const rechecked = svc.findForRequirement(input);
+        if (rechecked !== null) return rechecked;
+        const materialized = await deps.materialize(input);
+        if (materialized === null) {
+          throw new Error(
+            `cannot open a workspace for requirement ${input.requirementId}: the project ${input.projectId} slot is occupied`,
+          );
+        }
+        return deps.db
+          .transaction(() => {
+            const insideTx = svc.findForRequirement(input);
+            if (insideTx !== null) return insideTx;
+            const workspaceId = deps.idGen();
+            const now = Date.now();
+            db.insert(workspace)
+              .values({
+                workspaceId,
+                projectId: input.projectId,
+                path: materialized.path,
+                branch: materialized.branch,
+                baseRef: materialized.baseRef,
+                status: "open",
+                createdAt: now,
+                updatedAt: now,
+              })
+              .run();
+            db.insert(requirementWorkspace)
+              .values({ requirementId: input.requirementId, workspaceId, createdAt: now })
+              .run();
+            return {
+              workspaceId,
+              projectId: input.projectId,
+              ...materialized,
+              status: "open" as const,
+            };
+          })
+          .immediate();
+      })();
+
+      inFlight.set(key, work);
+      try {
+        return await work;
+      } finally {
+        if (inFlight.get(key) === work) inFlight.delete(key);
       }
-      const workspaceId = deps.idGen();
-      const now = Date.now();
-      db.insert(workspace)
-        .values({
-          workspaceId,
-          projectId: input.projectId,
-          path: materialized.path,
-          branch: materialized.branch,
-          baseRef: materialized.baseRef,
-          status: "open",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      db.insert(requirementWorkspace)
-        .values({ requirementId: input.requirementId, workspaceId, createdAt: now })
-        .run();
-      return { workspaceId, projectId: input.projectId, ...materialized, status: "open" };
     },
 
     /** The room's current requirement, or null. */
@@ -143,20 +175,25 @@ export function createWorkspaceService(deps: WorkspaceDeps) {
     /** Point a room at a requirement and record the M:N edge. */
     attachConversation(input: { conversationId: string; requirementId: string }): void {
       const now = Date.now();
-      db.insert(conversationRequirement)
-        .values({
-          conversationId: input.conversationId,
-          requirementId: input.requirementId,
-          createdAt: now,
+      deps.db
+        .transaction(() => {
+          db.insert(conversationRequirement)
+            .values({
+              conversationId: input.conversationId,
+              requirementId: input.requirementId,
+              createdAt: now,
+            })
+            .onConflictDoNothing()
+            .run();
+          db.update(conversation)
+            .set({ currentRequirementId: input.requirementId })
+            .where(eq(conversation.conversationId, input.conversationId))
+            .run();
         })
-        .onConflictDoNothing()
-        .run();
-      db.update(conversation)
-        .set({ currentRequirementId: input.requirementId })
-        .where(eq(conversation.conversationId, input.conversationId))
-        .run();
+        .immediate();
     },
   };
+  return svc;
 }
 
 function toRecord(row: WorkspaceRow): WorkspaceRecord {

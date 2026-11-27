@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { DomainError } from "../../infra/domain-errors.js";
 import { buildSkillIndex } from "./skill-index.js";
 
 // ─── validation helpers ──────────────────────────────────────────────────────────
 
 export function assertSafeEntry(name: string): void {
   if (!name || name.startsWith("/") || name.includes("..") || name.includes("\\")) {
-    throw new Error(`Unsafe path entry: ${name}`);
+    throw new DomainError(`Unsafe path entry: ${name}`, 400);
   }
 }
 

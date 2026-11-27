@@ -74,7 +74,7 @@ describe("sqliteWorkflowExecutionAdapter", () => {
   test("a patch updates the node's latest attempt, never the earlier ones", async () => {
     await adapter.createExecution({
       executionId: "e-attempts",
-      workflowId: "wf",
+      workflowId: "wf-attempts",
       definition: def,
       input: {},
       store: {},
@@ -107,7 +107,7 @@ describe("sqliteWorkflowExecutionAdapter", () => {
   test("list running and waiting-human executions", async () => {
     await adapter.createExecution({
       executionId: "e2",
-      workflowId: "wf",
+      workflowId: "wf-wait",
       definition: def,
       input: {},
       store: {},

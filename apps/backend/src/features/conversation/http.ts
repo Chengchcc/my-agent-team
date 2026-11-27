@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
+import { parseBoundedLimit, parseBoundedOffset } from "../../infra/http-utils.js";
 import { describeAnchor, isArtifactAnchor } from "../artifact/anchor.js";
 import { parseArtifactUrl } from "../artifact/domain.js";
 import { renderRevision } from "./export-markdown.js";
@@ -21,34 +22,51 @@ export function conversationRoutes(
 ) {
   return (
     new Elysia()
-      .get("/api/conversations", ({ query: { agentId, requirementId, projectId } }) => {
-        let conversations = agentId
-          ? svc.port.listConversationsByAgent(agentId)
-          : svc.port.listConversations();
-        if (projectId) {
-          conversations = conversations.filter((c) => c.projectId === projectId);
-        }
-        if (requirementId && linkage?.conversationIdsForRequirement) {
-          const allowed = new Set(linkage.conversationIdsForRequirement(requirementId));
-          conversations = conversations.filter((c) => allowed.has(c.conversationId));
-        }
-        if (!linkage?.labelResolver || conversations.length === 0) return conversations;
-        const maps = linkage.labelResolver.resolveBatch({
-          agentIds: conversations.map((c) => c.agentId),
-          projectIds: conversations.map((c) => c.projectId),
-          requirementIds: conversations.map(
-            (c) => (c as { currentRequirementId?: string | null }).currentRequirementId,
-          ),
-        });
-        return conversations.map((c) => {
-          const reqId = (c as { currentRequirementId?: string | null }).currentRequirementId;
-          const labels = linkage.labelResolver!.labelsFor(
-            { agentId: c.agentId, projectId: c.projectId, requirementId: reqId },
-            maps,
-          );
-          return labels ? { ...c, labels } : c;
-        });
-      })
+      .get(
+        "/api/conversations",
+        ({ query: { agentId, requirementId, projectId, limit, offset } }) => {
+          let conversations = agentId
+            ? svc.port.listConversationsByAgent(agentId)
+            : svc.port.listConversations();
+          if (projectId) {
+            conversations = conversations.filter((c) => c.projectId === projectId);
+          }
+          if (requirementId && linkage?.conversationIdsForRequirement) {
+            const allowed = new Set(linkage.conversationIdsForRequirement(requirementId));
+            conversations = conversations.filter((c) => allowed.has(c.conversationId));
+          }
+          if (limit !== undefined || offset !== undefined) {
+            const lim = parseBoundedLimit(limit, 200, 500);
+            const off = parseBoundedOffset(offset);
+            conversations = conversations.slice(off, off + lim);
+          }
+          if (!linkage?.labelResolver || conversations.length === 0) return conversations;
+          const maps = linkage.labelResolver.resolveBatch({
+            agentIds: conversations.map((c) => c.agentId),
+            projectIds: conversations.map((c) => c.projectId),
+            requirementIds: conversations.map(
+              (c) => (c as { currentRequirementId?: string | null }).currentRequirementId,
+            ),
+          });
+          return conversations.map((c) => {
+            const reqId = (c as { currentRequirementId?: string | null }).currentRequirementId;
+            const labels = linkage.labelResolver!.labelsFor(
+              { agentId: c.agentId, projectId: c.projectId, requirementId: reqId },
+              maps,
+            );
+            return labels ? { ...c, labels } : c;
+          });
+        },
+        {
+          query: t.Object({
+            agentId: t.Optional(t.String()),
+            requirementId: t.Optional(t.String()),
+            projectId: t.Optional(t.String()),
+            limit: t.Optional(t.String()),
+            offset: t.Optional(t.String()),
+          }),
+        },
+      )
       .post(
         "/api/conversations",
         async ({ body, set }) => {
@@ -110,7 +128,7 @@ export function conversationRoutes(
       .get(
         "/api/conversations/search",
         ({ query }) => {
-          const results = svc.port.searchLedger(query.q, query.limit ? Number(query.limit) : 20);
+          const results = svc.port.searchLedger(query.q, parseBoundedLimit(query.limit, 20, 200));
           return { results };
         },
         {
@@ -182,12 +200,17 @@ export function conversationRoutes(
       )
       .post(
         "/api/conversations/:id/messages/:seq/saved",
-        ({ params: { id: _id, seq }, body, set }) => {
-          if (!svc.port.setSaved(Number(seq), body.saved)) {
+        ({ params: { id, seq }, body, set }) => {
+          const seqNum = Number(seq);
+          if (!Number.isInteger(seqNum) || seqNum < 1) {
+            set.status = 400;
+            return { error: "invalid message seq" };
+          }
+          if (!svc.port.setSaved(seqNum, body.saved, id)) {
             set.status = 404;
             return { error: "no such ledger row" };
           }
-          return { seq: Number(seq), saved: body.saved };
+          return { seq: seqNum, saved: body.saved };
         },
         {
           body: t.Object({ saved: t.Boolean() }),
@@ -251,16 +274,19 @@ export function conversationRoutes(
         const inputs = await svc.listPendingInputs(conversationId);
         return { inputs };
       })
-      .get("/api/conversations/:id/inputs/:inputId", async ({ params: { inputId } }) => {
-        const input = await svc.getInputState(inputId);
+      .get("/api/conversations/:id/inputs/:inputId", async ({ params: { id, inputId } }) => {
+        const input = await svc.getInputState(inputId, id);
         if (!input) return Response.json({ error: "Input not found" }, { status: 404 });
         return input;
       })
       .post(
         "/api/conversations/:id/inputs/:inputId/steer",
-        async ({ params: { inputId }, body }) => {
+        async ({ params: { id, inputId }, body }) => {
           try {
-            await svc.steerInput(inputId, body?.keepIfIdle ? { keepIfIdle: true } : undefined);
+            await svc.steerInput(inputId, {
+              conversationId: id,
+              ...(body?.keepIfIdle ? { keepIfIdle: true } : {}),
+            });
             return { ok: true };
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -277,18 +303,21 @@ export function conversationRoutes(
       )
       .patch(
         "/api/conversations/:id/inputs/:inputId",
-        async ({ params: { inputId }, body }) => {
-          const updated = await svc.updateInput(inputId, body.text);
+        async ({ params: { id, inputId }, body }) => {
+          const updated = await svc.updateInput(inputId, body.text, id);
           if (!updated)
             return Response.json({ error: "Input is no longer pending" }, { status: 409 });
           return { ok: true };
         },
         { body: t.Object({ text: t.String({ minLength: 1 }) }) },
       )
-      .post("/api/conversations/:id/inputs/:inputId/cancel", async ({ params: { inputId } }) => {
-        await svc.cancelInput(inputId);
-        return { ok: true };
-      })
+      .post(
+        "/api/conversations/:id/inputs/:inputId/cancel",
+        async ({ params: { id, inputId } }) => {
+          await svc.cancelInput(inputId, id);
+          return { ok: true };
+        },
+      )
       .post("/api/conversations/:id/clear", async ({ params: { id } }) => {
         await svc.clearConversation(id);
         return { ok: true };

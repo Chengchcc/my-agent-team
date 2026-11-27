@@ -70,8 +70,12 @@ export interface ConversationPort {
   getLastActivityAt?(conversationId: string): number | null;
   /** Max ledger seq (undone excluded); the unread anchor for the web. */
   getLastSeq?(conversationId: string): number | null;
-  /** Bookmark a ledger row (raft Saved). Returns false for a missing seq. */
-  setSaved(seq: number, saved: boolean): boolean;
+  /** Bookmark a ledger row (raft Saved). Returns false for a missing seq
+   *  (or when conversationId is given and the row belongs to another room). */
+  setSaved(seq: number, saved: boolean, conversationId?: string): boolean;
+  /** Execute a synchronous multi-step ledger/conversation write atomically
+   *  inside an IMMEDIATE SQLite transaction. Optional for in-memory test doubles. */
+  runInTransaction?<T>(fn: () => T): T;
   /** All bookmarked message rows, newest first, with conversation titles. */
   listSaved(): Array<{
     seq: number;

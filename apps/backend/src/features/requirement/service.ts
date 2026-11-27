@@ -1,3 +1,4 @@
+import { NotFoundError } from "../../infra/domain-errors.js";
 import type { RequirementPort } from "./adapter-sqlite.js";
 import {
   deriveRequirementStatus,
@@ -6,9 +7,10 @@ import {
   type RequirementView,
 } from "./domain.js";
 
-export class RequirementNotFoundError extends Error {
+export class RequirementNotFoundError extends NotFoundError {
   constructor(id: string) {
-    super(`requirement not found: ${id}`);
+    super("requirement", id);
+    this.name = "RequirementNotFoundError";
   }
 }
 

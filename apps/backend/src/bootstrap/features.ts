@@ -191,6 +191,7 @@ import { NotFoundError } from "../infra/domain-errors.js";
 import { createEntityLabelResolver } from "../infra/entity-labels.js";
 import { ulid } from "../infra/ids.js";
 import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
+import { createRetentionSweeper } from "../infra/retention.js";
 import { sseUrlEndpoint } from "../infra/sse-url.js";
 import type { BackendServices } from "./services.js";
 
@@ -274,9 +275,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           dataDir: config.dataDir,
           port: skillPackPort,
           zipBuffer:
-            ctx.sourceKind === "zip" && ctx.sourceUrl
+            ctx.zipBuffer ??
+            (ctx.sourceKind === "zip" && ctx.sourceUrl
               ? Buffer.from(ctx.sourceUrl, "base64")
-              : undefined,
+              : undefined),
         },
       ).catch((err: Error) => console.error(`[skill-pack] install failed for ${packId}:`, err));
     },
@@ -2934,6 +2936,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   };
   if (artifactRetentionDays > 0) sweepArtifacts();
   const artifactRetentionInterval = setInterval(sweepArtifacts, 24 * 60 * 60 * 1000);
+  const retentionSweeper = createRetentionSweeper(db);
 
   // One-time boot migration: legacy `workflow.trigger.<id>` keys did not match
   // `isSecretKey` and were stored in plaintext. Move them to
@@ -3348,6 +3351,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // (not during installFeatures in unit tests).
     void restoreCodingTerminals();
     // Reminder catch-up: anything due while the process was down fires now.
+    retentionSweeper.start();
     void reminderSvc.fireDue().catch((err: unknown) => {
       console.error("[reminder] boot catch-up failed:", err instanceof Error ? err.message : err);
     });
@@ -3401,6 +3405,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     clearInterval(reminderInterval);
     clearInterval(humanTimeoutInterval);
     clearInterval(artifactRetentionInterval);
+    retentionSweeper.stop();
     await workflowTriggerScheduler.dispose();
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS

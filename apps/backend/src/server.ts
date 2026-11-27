@@ -37,6 +37,7 @@ export function createServer(config: BackendConfig, app: ServeableApp) {
         port: config.port,
         hostname: config.host,
         idleTimeout: 0, // disable — SSE connections are long-lived
+        maxRequestBodySize: 16 * 1024 * 1024, // 16 MB cap against oversized body DoS
         fetch: app.fetch,
         // WebSocket routes (coding terminals) need BOTH pieces that
         // app.listen() would provide: the Bun-level dispatcher, and

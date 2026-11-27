@@ -196,12 +196,16 @@ export interface ConversationService {
   /** Input status for a surface holding a queued card (ADR 0037). */
   getInputState(
     inputId: string,
+    conversationId?: string,
   ): Promise<{ inputId: string; status: string; runId: string | null } | null>;
-  steerInput(inputId: string, opts?: { keepIfIdle?: boolean }): Promise<void>;
+  steerInput(
+    inputId: string,
+    opts?: { keepIfIdle?: boolean; conversationId?: string },
+  ): Promise<void>;
   /** CAS a pending input's message; false when no longer pending. */
-  updateInput(inputId: string, text: string): Promise<boolean>;
+  updateInput(inputId: string, text: string, conversationId?: string): Promise<boolean>;
   /** CAS a pending/delivering input to cancelled (idempotent). */
-  cancelInput(inputId: string): Promise<void>;
+  cancelInput(inputId: string, conversationId?: string): Promise<void>;
 }
 
 /** Is this sender an AGENT (as opposed to the human or the system)?
@@ -660,34 +664,40 @@ class ConversationServiceImpl implements ConversationService {
     fromSeq: number;
     title?: string;
   }): Promise<{ newConversationId: string }> {
-    const source = this.port.getConversation(input.conversationId);
-    if (!source) throw new Error(`Conversation not found: ${input.conversationId}`);
+    const run = <T>(fn: () => T): T =>
+      this.port.runInTransaction ? this.port.runInTransaction(fn) : fn();
+    const newId = run(() => {
+      const source = this.port.getConversation(input.conversationId);
+      if (!source) throw new NotFoundError("conversation", input.conversationId);
 
-    const newId = this.#idGen();
-    this.port.createConversation({
-      conversationId: newId,
-      agentId: source.agentId,
-      origin: "fork",
-      createdAt: Date.now(),
-      forkSource: input.conversationId,
-      forkFromSeq: input.fromSeq,
-    });
-    this.port.setConversationTitle(
-      newId,
-      input.title ?? `Fork of ${input.conversationId.slice(0, 8)}`,
-    );
-
-    const entries = this.port
-      .getLedgerEntries(input.conversationId)
-      .filter((e) => e.seq <= input.fromSeq && !e.undone);
-    for (const entry of entries) {
-      this.port.appendLedgerEntry({
-        conversationId: newId,
-        kind: entry.kind,
-        content: typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
-        ts: entry.ts,
+      const id = this.#idGen();
+      this.port.createConversation({
+        conversationId: id,
+        agentId: source.agentId,
+        origin: "fork",
+        createdAt: Date.now(),
+        forkSource: input.conversationId,
+        forkFromSeq: input.fromSeq,
       });
-    }
+      this.port.setConversationTitle(
+        id,
+        input.title ?? `Fork of ${input.conversationId.slice(0, 8)}`,
+      );
+
+      const entries = this.port
+        .getLedgerEntries(input.conversationId)
+        .filter((e) => e.seq <= input.fromSeq && !e.undone);
+      for (const entry of entries) {
+        this.port.appendLedgerEntry({
+          conversationId: id,
+          kind: entry.kind,
+          content:
+            typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content),
+          ts: entry.ts,
+        });
+      }
+      return id;
+    });
 
     return { newConversationId: newId };
   }
@@ -700,21 +710,29 @@ class ConversationServiceImpl implements ConversationService {
     if (!Number.isInteger(count) || count < 1) {
       throw new DomainError("undo count must be a positive integer", 400);
     }
-    const entries = this.port
-      .getLedgerEntries(input.conversationId)
-      .filter((e) => e.kind === "message" && !e.undone);
-    const toUndo = entries.slice(-count);
-    const undoneSeqs: number[] = [];
-    for (const entry of toUndo) {
-      this.port.markLedgerEntryUndone?.(input.conversationId, entry.seq);
-      undoneSeqs.push(entry.seq);
-    }
+    const run = <T>(fn: () => T): T =>
+      this.port.runInTransaction ? this.port.runInTransaction(fn) : fn();
+    const undoneSeqs = run(() => {
+      const entries = this.port
+        .getLedgerEntries(input.conversationId)
+        .filter((e) => e.kind === "message" && !e.undone);
+      const toUndo = entries.slice(-count);
+      const seqs: number[] = [];
+      for (const entry of toUndo) {
+        this.port.markLedgerEntryUndone?.(input.conversationId, entry.seq);
+        seqs.push(entry.seq);
+      }
+      if (seqs.length > 0) {
+        this.port.appendLedgerEntry({
+          conversationId: input.conversationId,
+          kind: "undo",
+          content: JSON.stringify({ undoneSeqs: seqs }),
+          ts: Date.now(),
+        });
+      }
+      return seqs;
+    });
     if (undoneSeqs.length > 0) {
-      await this.#appendEntry({
-        conversationId: input.conversationId,
-        kind: "undo",
-        content: { undoneSeqs },
-      });
       // Nothing in the projection stream states a removal, so the surface layer has to be told
       // (#57). A failure here must not fail the undo: the rows are already gone, and the next
       // re-subscribe states them correctly anyway.
@@ -758,30 +776,54 @@ class ConversationServiceImpl implements ConversationService {
       }));
   }
 
+  async #inputForConversation(inputId: string, conversationId?: string) {
+    if (conversationId) {
+      const list = await this.#agentRuns.listInputsForConversation(conversationId);
+      return list.find((i) => i.inputId === inputId) ?? null;
+    }
+    return this.#agentRuns.getInput(inputId);
+  }
+
   /** One input's own state, whatever it is (ADR 0037): the surface waiting on
    *  a queued message cannot judge by the PENDING LIST, because a promoted
    *  input leaves it (status delivering → delivered) exactly like a cancelled
    *  one. `runId` non-null is the promotion signal; `cancelled` is explicit. */
   async getInputState(
     inputId: string,
+    conversationId?: string,
   ): Promise<{ inputId: string; status: string; runId: string | null } | null> {
-    const input = await this.#agentRuns.getInput(inputId);
+    const input = await this.#inputForConversation(inputId, conversationId);
     if (!input) return null;
     return { inputId: input.inputId, status: input.status, runId: input.runId ?? null };
   }
 
-  async steerInput(inputId: string, opts?: { keepIfIdle?: boolean }): Promise<void> {
-    const input = await this.#agentRuns.getInput(inputId);
+  async steerInput(
+    inputId: string,
+    opts?: { keepIfIdle?: boolean; conversationId?: string },
+  ): Promise<void> {
+    const input = await this.#inputForConversation(inputId, opts?.conversationId);
     if (!input) throw new Error("Input not found");
     if (input.status !== "pending") throw new Error("Input is no longer pending");
-    await this.#injectSteer(input.branchId, { inputId, message: input.message }, opts);
+    await this.#injectSteer(
+      input.branchId,
+      { inputId, message: input.message },
+      opts?.keepIfIdle ? { keepIfIdle: true } : undefined,
+    );
   }
 
-  async updateInput(inputId: string, text: string): Promise<boolean> {
+  async updateInput(inputId: string, text: string, conversationId?: string): Promise<boolean> {
+    if (conversationId) {
+      const input = await this.#inputForConversation(inputId, conversationId);
+      if (!input) return false;
+    }
     return this.#agentRuns.updateInput(inputId, { role: "user", text });
   }
 
-  async cancelInput(inputId: string): Promise<void> {
+  async cancelInput(inputId: string, conversationId?: string): Promise<void> {
+    if (conversationId) {
+      const input = await this.#inputForConversation(inputId, conversationId);
+      if (!input) return;
+    }
     return this.#agentRuns.cancelInput(inputId);
   }
 }
