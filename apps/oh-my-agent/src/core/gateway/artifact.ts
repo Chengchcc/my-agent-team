@@ -245,12 +245,23 @@ export interface FetchResult {
   sha256?: string;
 }
 
+const SAFE_GATEWAY_VERSION = /^[0-9A-Za-z][0-9A-Za-z._-]*$/;
+
+/** Validate a gateway version string before joining it into any filesystem path
+ *  (blocks path traversal like `../../..` before `rm(dir, { recursive: true })`). */
+export function assertSafeGatewayVersion(version: string): string {
+  if (!SAFE_GATEWAY_VERSION.test(version) || version.includes("..")) {
+    throw new GatewayArtifactError(`invalid gateway version: ${version}`);
+  }
+  return version;
+}
+
 /** Download, verify and unpack one gateway version. Idempotent: a version that is
  *  already unpacked is reused (delete its directory to force a re-fetch). */
 export async function fetchGatewayArtifact(opts: FetchOptions = {}): Promise<FetchResult> {
   const env = opts.env ?? process.env;
   const paths = gatewayPaths(opts.home ?? omaHome(env));
-  const version = opts.version ?? omaVersion();
+  const version = assertSafeGatewayVersion(opts.version ?? omaVersion());
   const log = opts.log ?? (() => {});
   const dir = join(paths.versions, version);
   const manifestPath = join(dir, "gateway.json");
@@ -315,7 +326,8 @@ export function installedVersions(home: string = omaHome()): string[] {
 export function currentVersion(home: string = omaHome()): string | undefined {
   try {
     const value = readFileSync(gatewayPaths(home).current, "utf8").trim();
-    return value.length > 0 ? value : undefined;
+    if (value.length === 0) return undefined;
+    return assertSafeGatewayVersion(value);
   } catch {
     return undefined;
   }

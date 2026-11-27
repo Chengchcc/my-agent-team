@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 // bun test preload (bunfig.toml [test] preload): runs before every test
 // file loads. Keeps network-dependent runtime layers OFF so run-level tests
 // never pay model downloads or connect timeouts:
@@ -6,6 +10,21 @@
 // Vector-layer unit tests override these locally where they need to.
 process.env.OMA_VECTOR_MEMORY = "0";
 process.env.OMA_EMBEDDINGS = "off";
+
+// Isolate HOME for the test process so tests never pollute the real ~/.oma
+// (and stay green in read-only-$HOME sandboxes). Tests that explicitly inspect
+// a custom HOME override process.env.HOME locally as before.
+if (!process.env.OMA_TEST_KEEP_HOME) {
+  const isolatedHome = mkdtempSync(join(tmpdir(), "oma-test-home-"));
+  process.env.HOME = isolatedHome;
+  process.on("exit", () => {
+    try {
+      rmSync(isolatedHome, { recursive: true, force: true });
+    } catch {
+      /* best-effort cleanup */
+    }
+  });
+}
 
 // A developer shell that sourced apps/backend/.env exports the PRODUCT's
 // classifier pin (`OMA_PERMISSION_CLASSIFIER_MODEL=deepseek/deepseek-v4-pro`).

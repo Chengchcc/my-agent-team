@@ -1027,7 +1027,15 @@ async function seedDemoData(): Promise<{
 }
 
 // ── 4. Visual overlay helper for crisp demo recording ─────────────────
-async function injectDemoOverlay(page: any, caption: string) {
+interface EvalPage {
+  evaluate<T>(fn: (arg: T) => void, arg: T): Promise<unknown>;
+}
+
+interface ClosableBrowser {
+  close(): Promise<void>;
+}
+
+async function injectDemoOverlay(page: EvalPage, caption: string) {
   await page.evaluate((text: string) => {
     let style = document.getElementById("__demo_style");
     if (!style) {
@@ -1095,7 +1103,7 @@ async function injectDemoOverlay(page: any, caption: string) {
   }, caption);
 }
 
-async function moveCursorTo(page: any, x: number, y: number, click = false) {
+async function moveCursorTo(page: EvalPage, x: number, y: number, click = false) {
   await page.evaluate(
     ({ tx, ty, doClick }: { tx: number; ty: number; doClick: boolean }) => {
       const c = document.getElementById("__demo_cursor");
@@ -1129,7 +1137,7 @@ async function main() {
   }
 
   const mockServer = startMockAnthropic();
-  let browser: any = null;
+  let browser: ClosableBrowser | null = null;
 
   try {
     console.log("==> Starting isolated backend (:13000) and production web (:13001)...");
@@ -1184,7 +1192,7 @@ async function main() {
     mkdirSync(join(DEMO_HOME, ".cache"), { recursive: true });
     mkdirSync(join(DEMO_HOME, "chrome-profile"), { recursive: true });
 
-    browser = await puppeteer.launch({
+    const launched = await puppeteer.launch({
       executablePath: CHROME_BIN,
       userDataDir: join(DEMO_HOME, "chrome-profile"),
       env: {
@@ -1205,8 +1213,9 @@ async function main() {
         "--font-render-hinting=none",
       ],
     });
+    browser = launched;
 
-    const page = await browser.newPage();
+    const page = await launched.newPage();
     const BASE = `http://127.0.0.1:${WEB_PORT}`;
 
     // Force English UI locale cookie before first navigation

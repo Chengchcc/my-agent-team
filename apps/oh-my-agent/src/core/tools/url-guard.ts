@@ -1,10 +1,40 @@
 import { lookup } from "node:dns/promises";
 
-const BLOCKED_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "169.254.169.254"]);
+const BLOCKED_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "[::1]",
+  "[::]",
+  "169.254.169.254",
+]);
+
+/** Decode an IPv4 address embedded inside an IPv6 literal:
+ *  - IPv4-mapped (`::ffff:a.b.c.d` or WHATWG hex `::ffff:7f00:1`)
+ *  - SIIT (`::ffff:0:a.b.c.d` or hex `::ffff:0:7f00:1`)
+ *  - NAT64 (`64:ff9b::a.b.c.d` or hex `64:ff9b::7f00:1`)
+ *  Returns dotted IPv4 or null when not an embedded-IPv4 form. */
+function decodeEmbeddedIPv4(bareIpv6: string): string | null {
+  const lower = bareIpv6.toLowerCase();
+  const dotted = /^(?:::ffff:(?:0:)?|0:0:0:0:0:ffff:|64:ff9b::)(\d{1,3}(?:\.\d{1,3}){3})$/.exec(
+    lower,
+  );
+  if (dotted) return dotted[1]!;
+
+  const hex = /^(?:::ffff:(?:0:)?|0:0:0:0:0:ffff:|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(
+    lower,
+  );
+  if (hex) {
+    const hi = parseInt(hex[1]!, 16);
+    const lo = parseInt(hex[2]!, 16);
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
+  return null;
+}
 
 /** True when an IPv4 dotted string falls in a non-routable/sensitive range:
  *  loopback, private (RFC1918), this-network, link-local, CGNAT (100.64/10),
- *  benchmarking (198.18/15), and 0.0.0.0/8. */
+ *  benchmarking (198.18/15), 0.0.0.0/8, and multicast/reserved (224.0.0.0/3). */
 function isBlockedIPv4(ip: string): boolean {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
@@ -19,31 +49,28 @@ function isBlockedIPv4(ip: string): boolean {
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19))
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
   );
 }
 
 function isPrivateIP(hostname: string): boolean {
-  // Trailing-dot and case forms ("localhost.", "LOCALHOST") dodge set lookup.
+  // Trailing-dot and case forms ("localhost.", "LOCALHOST", "*.localhost") dodge set lookup.
   const host = hostname.toLowerCase().replace(/\.+$/, "");
-  if (BLOCKED_HOSTS.has(host) || host === "localhost") return true;
-  // IPv6 (WHATWG URL brackets it): loopback, ULA fc00::/7, link-local
-  // fe80::/10, and IPv4-mapped ::ffff:a.b.c.d whose v4 part may be blocked.
+  if (BLOCKED_HOSTS.has(host) || host === "localhost" || host.endsWith(".localhost")) return true;
+  // IPv6 (WHATWG URL brackets it): unspecified ::, loopback ::1, ULA fc00::/7,
+  // link-local fe80::/10, multicast ff00::/8, and embedded-IPv4 forms.
   const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
   if (bare.includes(":")) {
-    if (bare.includes("ffff:")) {
-      // WHATWG normalizes ::ffff:127.0.0.1 to ::ffff:7f00:1 — handle both
-      // dotted and hex hextet spellings of the embedded IPv4.
-      const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(bare);
-      if (dotted) return isBlockedIPv4(dotted[1]!);
-      const hex = /^::ffff:([0-9a-f]{0,4}):([0-9a-f]{1,4})$/i.exec(bare);
-      if (hex) {
-        const hi = parseInt(hex[1] || "0", 16);
-        const lo = parseInt(hex[2]!, 16);
-        return isBlockedIPv4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-      }
-    }
-    return bare === "::1" || /^f[cd]/.test(bare) || /^fe[89ab]/.test(bare);
+    const embedded = decodeEmbeddedIPv4(bare);
+    if (embedded) return isBlockedIPv4(embedded);
+    return (
+      bare === "::" ||
+      bare === "::1" ||
+      /^f[cd]/.test(bare) ||
+      /^fe[89ab]/.test(bare) ||
+      /^ff/.test(bare)
+    );
   }
   return isBlockedIPv4(host);
 }
@@ -98,9 +125,8 @@ export function isMetadataHost(hostname: string): boolean {
   if (host === "metadata" || host === "metadata.google.internal" || host === "instance-data") {
     return true;
   }
-  // IPv4-mapped IPv6 spellings of the same ranges.
-  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(host)?.[1];
-  const target = mapped ?? host;
+  // Handle dotted, WHATWG hex IPv4-mapped (::ffff:a9fe:a9fe), SIIT, and NAT64 forms.
+  const target = (host.includes(":") ? decodeEmbeddedIPv4(host) : null) ?? host;
   const parts = target.split(".").map(Number);
   if (parts.length === 4 && parts.every((n) => Number.isInteger(n))) {
     const [a, b] = [parts[0]!, parts[1]!];
@@ -142,6 +168,5 @@ export async function assertSafeUrlDeep(rawUrl: string): Promise<URL> {
 
 /** Max redirect count for fetch safety */
 export const MAX_REDIRECTS = 5;
-/** Max response bytes before cancellation */
 /** Fetch timeout in ms */
 export const FETCH_TIMEOUT_MS = 10_000;

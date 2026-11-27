@@ -76,10 +76,10 @@ const MAX_STDIN_BYTES = 16 * 1024 * 1024;
  *  stdin is a TTY or carries only whitespace. RPC mode NEVER calls this: its
  *  stdin is the JSONL command stream. */
 export async function readPipedStdin(
-  stream: ReadableStream<Uint8Array> = Bun.stdin.stream(),
+  stream?: ReadableStream<Uint8Array>,
 ): Promise<string | undefined> {
-  if (process.stdin.isTTY) return undefined;
-  const reader = stream.getReader();
+  if (!stream && process.stdin.isTTY) return undefined;
+  const reader = (stream ?? Bun.stdin.stream()).getReader();
   const decoder = new TextDecoder();
   let text = "";
   let bytes = 0;

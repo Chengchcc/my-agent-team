@@ -138,13 +138,33 @@ function policyPaths(raw: string | undefined): string[] {
     .filter((part) => part !== "");
 }
 
+/** Canonicalize a path whose leaf may not exist yet by running realpathSync
+ *  on the nearest existing ancestor. Keeps symlinked roots (e.g. macOS /tmp ->
+ *  /private/tmp) aligned with WorkspaceSandbox's canonicalized paths. */
+function canonicalizeMaybeMissing(p: string): string {
+  const abs = resolve(p);
+  let cur = abs;
+  const suffix: string[] = [];
+  for (;;) {
+    try {
+      const real = realpathSync(cur);
+      return suffix.length > 0 ? resolve(real, ...suffix.reverse()) : real;
+    } catch {
+      const parent = resolve(cur, "..");
+      if (parent === cur) return abs;
+      suffix.push(relative(parent, cur));
+      cur = parent;
+    }
+  }
+}
+
 function matchesPolicyPath(full: string, rule: string): boolean {
-  const resolved = resolve(rule);
+  const resolved = canonicalizeMaybeMissing(rule);
   if (rule.endsWith("/")) return full === resolved || full.startsWith(`${resolved}${sep}`);
   return full === resolved;
 }
 
-function pathPolicyRefusal(full: string): string | undefined {
+export function pathPolicyRefusal(full: string): string | undefined {
   const deny = policyPaths(process.env.OMA_DENY_WRITE_PATHS);
   for (const rule of deny) {
     if (matchesPolicyPath(full, rule)) {
@@ -169,7 +189,9 @@ function isProtectedPath(cwd: string, full: string): boolean {
   } catch {
     /* cwd vanished between validate and check; fall back to the raw path */
   }
-  const rel = relative(root, full).split(sep).join("/");
+  const rawRel = relative(root, full).split(sep).join("/");
+  const rel =
+    process.platform === "darwin" || process.platform === "win32" ? rawRel.toLowerCase() : rawRel;
   if (PROTECTED_FILES[rel] === true) return true;
   // Generic rule: `.oma/<name>.json` (direct child) is product-managed.
   return /^\.oma\/[^/]+\.json$/.test(rel);
@@ -185,9 +207,12 @@ export interface PlanModeGuard {
   planPath: string;
 }
 
-function planModeRefusal(guard: PlanModeGuard | undefined, full: string): string | undefined {
+export function planModeRefusal(
+  guard: PlanModeGuard | undefined,
+  full: string,
+): string | undefined {
   if (!guard) return undefined;
-  if (resolve(full) === resolve(guard.planPath)) return undefined;
+  if (canonicalizeMaybeMissing(full) === canonicalizeMaybeMissing(guard.planPath)) return undefined;
   return `Error: plan mode is active — the working tree is read-only. The only writable path is the plan document: ${guard.planPath}. Finish the plan there, then let the user review it.`;
 }
 

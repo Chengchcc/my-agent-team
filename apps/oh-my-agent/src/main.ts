@@ -136,6 +136,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     ...(args.model ? { model: args.model } : {}),
     sessionId: resolveSessionArg(args),
     permissionMode: resolvePermissionMode(args.permission, process.cwd()),
+    ...(args.readOnly ? { readOnly: true } : {}),
     ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
   };
   return args.mode === "json" ? runJsonMode(opts) : runPrintMode(opts);
