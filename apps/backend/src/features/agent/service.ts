@@ -1,10 +1,55 @@
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { BusyError, NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 import { buildAgentConfig, serializeAgentYaml } from "./agent-config.js";
 import type { AgentRow, CreateAgentInput, UpdateAgentInput } from "./domain.js";
 import type { AgentPort } from "./ports.js";
 import { ensureAgentWorkspace } from "./workspace.js";
+
+/** Resolve a workspace override strictly INSIDE one of `allowedRoots`,
+ *  checking the deepest existing ancestor via realpathSync so a symlink
+ *  inside an allowed root cannot smuggle reads/writes outside it. */
+function assertAllowedWorkspaceOverride(
+  overridePath: string,
+  allowedRoots: readonly string[] | undefined,
+): string {
+  const abs = resolve(overridePath);
+  const resolvedRoots = (allowedRoots ?? []).map((r) => {
+    const absRoot = resolve(r);
+    try {
+      return realpathSync(absRoot);
+    } catch {
+      return absRoot;
+    }
+  });
+  // Walk up to the deepest existing ancestor to defeat symlinks on existing prefixes.
+  let ancestor = abs;
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor);
+    if (parent === ancestor) break;
+    ancestor = parent;
+  }
+  let realAncestor: string;
+  try {
+    if (existsSync(abs) && lstatSync(abs).isSymbolicLink()) {
+      throw new ValidationError(`workspace override ${abs} must not be a symlink`);
+    }
+    realAncestor = existsSync(ancestor) ? realpathSync(ancestor) : ancestor;
+  } catch (err) {
+    if (err instanceof ValidationError) throw err;
+    throw new ValidationError(`workspace override ${abs} cannot be resolved`);
+  }
+  const tail = relative(ancestor, abs);
+  const effective = tail ? resolve(realAncestor, tail) : realAncestor;
+  const allowed = resolvedRoots.some((root) => effective.startsWith(`${root}${sep}`));
+  if (!allowed) {
+    throw new ValidationError(
+      `workspace override ${abs} is outside the allowed roots: ${allowedRoots?.join(", ") ?? "none"}`,
+    );
+  }
+  return effective;
+}
 
 export interface AgentService {
   create(input: CreateAgentInput): Promise<AgentRow>;
@@ -49,19 +94,9 @@ export function createAgentService(opts: {
       // otherwise fall back to the managed <dataDir>/agents/<id> location.
       const overridePath = input.workspacePath;
       const workspacePath = overridePath
-        ? await (async () => {
-            const abs = resolve(overridePath);
-            const allowed =
-              opts.allowedWorkspaceRoots?.some(
-                (root) => abs === root || abs.startsWith(`${root}${sep}`),
-              ) ?? false;
-            if (!allowed) {
-              throw new ValidationError(
-                `workspace override ${abs} is outside the allowed roots: ${opts.allowedWorkspaceRoots?.join(", ") ?? "none"}`,
-              );
-            }
-            return ensureAgentWorkspace(abs);
-          })()
+        ? await ensureAgentWorkspace(
+            assertAllowedWorkspaceOverride(overridePath, opts.allowedWorkspaceRoots),
+          )
         : await materializeWorkspace(id, input.template, input.id ? undefined : input.name);
 
       const config = buildAgentConfig({
@@ -72,6 +107,9 @@ export function createAgentService(opts: {
         enabled: input.enabled,
         reasoningEffort: input.reasoningEffort,
         permissionMode: input.permissionMode,
+        denyWritePaths: input.denyWritePaths,
+        allowWritePaths: input.allowWritePaths,
+        denyCommands: input.denyCommands,
         mcpServers: input.mcpServers,
         description: input.description,
         skills: input.skills,
@@ -161,20 +199,12 @@ export function createAgentService(opts: {
       // row points at it; the file write stays at the (new) source.
       let workspacePath = existing.workspacePath;
       if (input.workspacePath !== undefined && input.workspacePath !== existing.workspacePath) {
-        // Same allowed-roots gate the create path enforces — an update must
-        // not relocate an agent's workspace (and its viewer endpoints)
-        // to an arbitrary directory.
-        const abs = resolve(input.workspacePath);
-        const allowed =
-          opts.allowedWorkspaceRoots?.some(
-            (root) => abs === root || abs.startsWith(`${root}${sep}`),
-          ) ?? false;
-        if (!allowed) {
-          throw new ValidationError(
-            `workspace override ${abs} is outside the allowed roots: ${opts.allowedWorkspaceRoots?.join(", ") ?? "none"}`,
-          );
-        }
-        workspacePath = await ensureAgentWorkspace(abs);
+        // Same allowed-roots + realpath gate the create path enforces.
+        const safePath = assertAllowedWorkspaceOverride(
+          input.workspacePath,
+          opts.allowedWorkspaceRoots,
+        );
+        workspacePath = await ensureAgentWorkspace(safePath);
       }
       await writeFile(join(workspacePath, "agent.yml"), serializeAgentYaml(config), "utf-8");
 

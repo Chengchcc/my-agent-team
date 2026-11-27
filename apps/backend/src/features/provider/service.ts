@@ -75,7 +75,9 @@ export function createProviderService(settingsSvc: SettingsService): ProviderSer
     if (typeof stored !== "object" || stored === null) return {};
     const env: Record<string, string> = {};
     for (const [name, value] of Object.entries(stored)) {
-      if (typeof value === "string" && value.length > 0) env[name] = value;
+      if (isProviderKeyName(name) && typeof value === "string" && value.length > 0) {
+        env[name] = value;
+      }
     }
     return env;
   }

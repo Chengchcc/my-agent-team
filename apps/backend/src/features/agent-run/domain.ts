@@ -67,7 +67,12 @@ export interface AgentRun {
    *  dispatch. */
   readonly permissionMode: string | null;
   /** Frozen write-path policy injected into the child (allow-rules). */
-  readonly toolPolicy: { deny: string[]; allow: string[]; denyCommands?: string[] } | null;
+  readonly toolPolicy: {
+    deny: string[];
+    allow: string[];
+    denyCommands?: string[];
+    disabledTools?: string[];
+  } | null;
   /** JSON: latest task list snapshot (todo_write product tool). */
   readonly todoSnapshot: string | null;
   /** Optional workflow budget (tokens), frozen at Run creation. */
@@ -132,9 +137,13 @@ export interface BranchInput {
     readonly systemPrompt: string | null;
     readonly skillRoots: readonly string[] | null;
     readonly permissionMode: string | null;
-    /** Optional here: the queue row predates the column; a run's own row
-     *  always carries it. */
-    readonly toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] } | null;
+    /** Optional here: rows predating 0072 may have null; new queue rows carry it. */
+    readonly toolPolicy?: {
+      deny: string[];
+      allow: string[];
+      denyCommands?: string[];
+      disabledTools?: string[];
+    } | null;
     readonly workflowBudgetTokens: number | null;
     /** ADR 0047: rides the queue snapshot so a promoted run keeps its
      *  authorization basis. Optional: rows predating the column. */

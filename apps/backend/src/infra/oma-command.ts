@@ -66,10 +66,6 @@ export function resolveOmaCommand(
     ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
     ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
     OMA_HOME: process.env.OMA_HOME,
-    // H6: the oma child's CWD is the agent-writable workspace — never load
-    // a workspace-level models.yml from product runs (provider baseUrl
-    // hijack / API-key exfiltration). Standalone sessions are unaffected.
-    OMA_WORKSPACE_CATALOG: "0",
     // Test determinism knobs (fake provider) - forwarded so in-process
     // smokes get the same scripted child as the integration harness.
     OMA_FAKE_PROVIDER: process.env.OMA_FAKE_PROVIDER,
@@ -84,13 +80,15 @@ export function resolveOmaCommand(
     // permissionMode=auto classifier pin (CC-auto alignment); absent = the
     // child classifies with the run's own model.
     OMA_PERMISSION_CLASSIFIER_MODEL: config.omaPermissionClassifierModel,
-    // Titles are a product fact (conversation/title.ts): the child's own
-    // generator wrote them to its session file and returned them on the oma RPC
-    // rail, which is gone — under ACP nothing can read one, so paying a model
-    // call per completed turn buys nothing. Standalone oma (a human's TUI) is
-    // untouched: this env is only set on the product's spawn.
-    OMA_TITLE_ENABLED: "0",
     ...opts.env,
+    // Security invariants ALWAYS sit after opts.env so caller-supplied env can
+    // never weaken them:
+    // - H6: never load a workspace-level models.yml from product runs
+    //   (provider baseUrl hijack / API-key exfiltration).
+    OMA_WORKSPACE_CATALOG: "0",
+    // - Titles are a product fact (conversation/title.ts); standalone oma is
+    //   untouched since this env is only set on the product's spawn.
+    OMA_TITLE_ENABLED: "0",
   };
 
   const modeArgs = opts.mode === "acp" ? ["--mode", "acp"] : [];

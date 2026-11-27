@@ -11,9 +11,9 @@ const AGENTS_MD = [
   "本目录是此 Agent 的运行工作区(oma 的 cwd)。",
   "身份与人格见 SOUL.md;机器可读清单见 manifest.json。",
   "",
-  "## 知识库",
+  "## 知识库(Wiki)",
   "",
-  "需要本项目使用说明、领域知识或约定时,先读 knowledge/ 目录下相关文件再作答。",
+  "需要本项目使用说明、领域知识、约定或历史决策时,通过 product-tools MCP 的 wiki_query / wiki_read 查询 Wiki,不要凭记忆猜。",
   "",
   "## 产品账本(对话历史)",
   "",
@@ -53,7 +53,6 @@ export async function seedAgentWorkspace(dir: string): Promise<void> {
       if (await exists(path)) return;
       await writeFile(path, content, "utf-8");
     }),
-    mkdir(`${dir}/knowledge`, { recursive: true }),
     ...CONFIG_DIRS.map((d) => mkdir(`${dir}/${d}/skills`, { recursive: true })),
   ]);
 }

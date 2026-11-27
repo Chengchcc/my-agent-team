@@ -341,6 +341,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     const argv = this.commands[agentKey] ?? entry.argv;
     const env: Record<string, string | undefined> = {
       ...this.extraEnv,
+      ...(input.mcpEnv ?? {}),
       ...(input.productToolsToken ? { PRODUCT_TOOLS_RUN_TOKEN: input.productToolsToken } : {}),
       // The workspace .mcp.json carries ${PRODUCT_TOOLS_RUN_TOKEN}; the
       // child expands it only when the var is on the run's allowlist. The

@@ -53,7 +53,7 @@ function validateRepoRefs(
   if (defaultBranch) {
     const b = defaultBranch.trim();
     if (b.startsWith("-")) throw new ValidationError("defaultBranch must not start with '-'");
-    if (/[\s/\\]|\\.\\./.test(b)) {
+    if (/[\s/\\]|\.\./.test(b)) {
       throw new ValidationError("defaultBranch must not contain whitespace or path separators");
     }
   }
@@ -73,13 +73,15 @@ export function createProjectService(deps: ProjectServiceDeps) {
     }): ProjectRow {
       const name = input.name.trim();
       if (!name) throw new ValidationError("project name required");
-      validateRepoRefs(input.repoUrl, input.defaultBranch);
+      const repoUrl = input.repoUrl != null ? input.repoUrl.trim() : null;
+      const defaultBranch = input.defaultBranch != null ? input.defaultBranch.trim() || null : null;
+      validateRepoRefs(repoUrl, defaultBranch);
       try {
         return port.createProject({
           projectId: idGen(),
           name,
-          repoUrl: input.repoUrl ?? null,
-          defaultBranch: input.defaultBranch ?? null,
+          repoUrl,
+          defaultBranch,
           createdAt: now(),
         });
       } catch (err) {
@@ -116,12 +118,24 @@ export function createProjectService(deps: ProjectServiceDeps) {
       if (patch.name !== undefined && !patch.name.trim()) {
         throw new ValidationError("project name must not be empty");
       }
-      validateRepoRefs(patch.repoUrl, patch.defaultBranch);
+      const repoUrl =
+        patch.repoUrl === undefined
+          ? undefined
+          : patch.repoUrl === null
+            ? null
+            : patch.repoUrl.trim();
+      const defaultBranch =
+        patch.defaultBranch === undefined
+          ? undefined
+          : patch.defaultBranch === null
+            ? null
+            : patch.defaultBranch.trim() || null;
+      validateRepoRefs(repoUrl, defaultBranch);
       try {
         const p = port.updateProject(id, {
           name: patch.name?.trim() || undefined,
-          repoUrl: patch.repoUrl,
-          defaultBranch: patch.defaultBranch,
+          repoUrl,
+          defaultBranch,
           updatedAt: now(),
         });
         if (!p) throw new ProjectNotFoundError(id);

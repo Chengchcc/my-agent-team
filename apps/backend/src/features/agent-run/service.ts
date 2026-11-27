@@ -31,7 +31,12 @@ export interface AgentRunServiceDeps {
     systemPrompt?: string;
     skillRoots?: readonly string[];
     permissionMode?: string;
-    toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
+    toolPolicy?: {
+      deny: string[];
+      allow: string[];
+      denyCommands?: string[];
+      disabledTools?: string[];
+    };
   }>;
   /** Kill-switch gate: false → AgentDisabledError before any queue/branch
    *  mutation. Chat, cron and loop all funnel through this service. */
@@ -170,7 +175,9 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
       let systemPrompt = input.systemPrompt;
       let skillRoots = input.skillRoots;
       let permissionMode = input.permissionMode;
-      let toolPolicy: { deny: string[]; allow: string[]; denyCommands?: string[] } | undefined;
+      let toolPolicy:
+        | { deny: string[]; allow: string[]; denyCommands?: string[]; disabledTools?: string[] }
+        | undefined;
       if (
         (systemPrompt === undefined || skillRoots === undefined || permissionMode === undefined) &&
         deps.resolveRunConfig

@@ -101,8 +101,12 @@ export interface AgentRunExecutionDeps {
   /** H1: overwrite the run's workspace `.mcp.json` (+ product-tools
    *  manifest) from the DB source of truth immediately before spawn, so a
    *  run can never mount an agent-tampered config (forged product-tools
-   *  server / run-token exfiltration). Absent (tests) = skip. */
-  readonly rewriteWorkspaceBridge?: (agentId: string, root: string) => Promise<void>;
+   *  server / run-token exfiltration). May return extracted secret env vars
+   *  and their expandable names for spawn env injection. Absent (tests) = skip. */
+  readonly rewriteWorkspaceBridge?: (
+    agentId: string,
+    root: string,
+  ) => Promise<{ env: Record<string, string>; expandableVars: string[] } | undefined>;
   /** Called after a completed run's Product commit (History Message +
    *  Context ref) lands atomically. Fired on the original commit AND on
    *  retryTerminalCommit replay - consumers must be idempotent per

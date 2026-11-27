@@ -589,6 +589,9 @@ export const branchInputQueue = sqliteTable(
     systemPrompt: text("system_prompt"),
     skillRoots: text("skill_roots"), // JSON: readonly string[]
     permissionMode: text("permission_mode"),
+    /** JSON {deny,allow,denyCommands,disabledTools}: frozen tool policy
+     *  so queued inputs promoted by acquireNextRun keep the same boundaries. */
+    toolPolicy: text("write_path_policy"),
     /** Optional workflow budget (tokens), frozen at enqueue; the child
      *  gates workflow subagent spawns on it. */
     workflowBudgetTokens: integer("workflow_budget_tokens"),

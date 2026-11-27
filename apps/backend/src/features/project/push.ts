@@ -19,6 +19,9 @@ export interface ProjectPushInput {
   note?: string;
   /** Push credential. Absent = https remotes are refused (never a prompt). */
   token?: string;
+  /** Optional host allowlist permitted to receive `token` over HTTPS.
+   *  Defaults to github.com / gitlab.com / bitbucket.org. */
+  allowedHosts?: readonly string[];
   /** For the compare URL; defaults to the project's branch or "master". */
   defaultBranch?: string;
   /** Who produced the change (an agent's display name). It goes into the
@@ -44,16 +47,61 @@ function git(cwd: string, args: readonly string[]): { code: number; out: string;
   };
 }
 
-/** https remotes need the token; file/ssh remotes carry their own auth. */
-function pushUrl(repoUrl: string, token: string | undefined): string {
-  if (!repoUrl.startsWith("https://")) return repoUrl;
+/** Default hosts permitted to receive PROJECT_PUSH_TOKEN over HTTPS. */
+const DEFAULT_PUSH_TOKEN_HOSTS = ["github.com", "gitlab.com", "bitbucket.org"] as const;
+
+/** Build git push args for `repoUrl`: HTTPS remotes send the bearer via
+ *  `http.extraHeader` (never embedded in the URL) and only to allowlisted hosts. */
+function buildPushArgs(
+  repoUrl: string,
+  token: string | undefined,
+  branch: string,
+  allowedHosts?: readonly string[],
+): { args: string[]; secrets: string[] } {
+  if (!repoUrl.startsWith("https://")) {
+    return { args: ["push", "--", repoUrl, `HEAD:refs/heads/${branch}`], secrets: [] };
+  }
   if (token === undefined || token === "") {
     throw new ProjectPushRefused(
       "no push credential is configured (PROJECT_PUSH_TOKEN); ask the human to add one instead of pushing blind",
     );
   }
-  const rest = repoUrl.slice("https://".length);
-  return `https://x-access-token:${encodeURIComponent(token)}@${rest}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(repoUrl);
+  } catch {
+    throw new ProjectPushRefused(`invalid https repoUrl: ${repoUrl}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  const allowed =
+    allowedHosts && allowedHosts.length > 0
+      ? allowedHosts.map((h) => h.trim().toLowerCase()).filter((h) => h.length > 0)
+      : DEFAULT_PUSH_TOKEN_HOSTS;
+  if (!allowed.some((h) => host === h || host.endsWith(`.${h}`))) {
+    throw new ProjectPushRefused(
+      `refusing to send PROJECT_PUSH_TOKEN to non-allowlisted host "${host}" (allowed: ${allowed.join(", ")})`,
+    );
+  }
+  const basic = Buffer.from(`x-access-token:${token}`, "utf8").toString("base64");
+  return {
+    args: [
+      "-c",
+      `http.extraHeader=AUTHORIZATION: Basic ${basic}`,
+      "push",
+      "--",
+      repoUrl,
+      `HEAD:refs/heads/${branch}`,
+    ],
+    secrets: [token, encodeURIComponent(token), basic],
+  };
+}
+
+function redactSecrets(text: string, secrets: readonly string[]): string {
+  let out = text;
+  for (const s of secrets) {
+    if (s.length > 0) out = out.replaceAll(s, "***");
+  }
+  return out;
 }
 
 export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult {
@@ -125,13 +173,16 @@ export function pushProjectWorktree(input: ProjectPushInput): ProjectPushResult 
     throw new ProjectPushRefused("nothing to push: no commits ahead of the remote");
   }
 
-  const url = pushUrl(input.repoUrl, input.token);
-  const push = git(worktree, ["push", url, `HEAD:refs/heads/${branch}`]);
+  const { args: pushArgs, secrets } = buildPushArgs(
+    input.repoUrl,
+    input.token,
+    branch,
+    input.allowedHosts,
+  );
+  const push = git(worktree, pushArgs);
   if (push.code !== 0) {
     const said = `${push.out}${push.err}`.trim();
-    throw new ProjectPushRefused(
-      `git push failed: ${said.replaceAll(input.token ?? "\u0000", "***").slice(0, 300)}`,
-    );
+    throw new ProjectPushRefused(`git push failed: ${redactSecrets(said, secrets).slice(0, 300)}`);
   }
 
   // The compare URL is what the person clicks; derive it from either remote

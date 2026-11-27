@@ -1,17 +1,19 @@
 import { createServer, request as httpRequest } from "node:http";
 import { connect as netConnect } from "node:net";
+import { isMetadataHost } from "@chengchenccc/adapter-mcp";
 
 /** Is `host` allowed? Exact name or a subdomain of an allowlisted one.
  *
  *  Suffix matching must be on a LABEL boundary: "evilnpmjs.org" is not a
  *  subdomain of "npmjs.org", and a substring check would say it is. `*` allows
- *  everything (the setting's escape hatch, not the default). */
+ *  everything EXCEPT cloud metadata endpoints (always refused). */
 export function hostAllowed(host: string, allow: readonly string[]): boolean {
   const h = host
     .trim()
     .toLowerCase()
     .replace(/^\[|\]$/g, "")
     .replace(/\.$/, "");
+  if (h === "" || isMetadataHost(h)) return false;
   return allow.some((entry) => {
     const a = entry.trim().toLowerCase().replace(/\.$/, "");
     if (a === "") return false;
@@ -87,6 +89,10 @@ export async function startAllowlistProxy(
       return;
     }
     const port = separator > 0 ? Number(authority.slice(separator + 1)) : 443;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      socket.end("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+      return;
+    }
     const upstream = netConnect(port, host.replace(/^\[|\]$/g, ""), () => {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head.length > 0) upstream.write(head);

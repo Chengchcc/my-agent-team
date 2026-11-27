@@ -139,6 +139,75 @@ export function reconcileSkillLinks(
   }
 }
 
+export interface ExtractedMcpBridge {
+  readonly servers: McpServerEntry[];
+  readonly env: Record<string, string>;
+  readonly expandableVars: string[];
+}
+
+/** Replace plaintext user MCP `env` / `headers` values with `${MCP_SECRET_...}`
+ *  placeholders so `.mcp.json` on disk stays secret-free and values travel only
+ *  via the child's spawn env + `OMA_MCP_EXPANDABLE_VARS` allowlist. */
+export function extractMcpSecrets(servers: readonly McpServerEntry[]): ExtractedMcpBridge {
+  const env: Record<string, string> = {};
+  const expandableVars: string[] = [];
+  const used = new Set<string>();
+
+  const mintVar = (serverName: string, kind: "ENV" | "HDR", key: string): string => {
+    const base = `MCP_SECRET_${serverName}_${kind}_${key}`
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 64);
+    let candidate = base || "MCP_SECRET_VAL";
+    let i = 1;
+    while (used.has(candidate)) {
+      candidate = `${base}_${i++}`;
+    }
+    used.add(candidate);
+    expandableVars.push(candidate);
+    return candidate;
+  };
+
+  const isPlaceholder = (v: string): boolean => /^\$\{[A-Z0-9_]+\}$/.test(v.trim());
+
+  const sanitized = servers.map((s): McpServerEntry => {
+    let nextEnv = s.env;
+    if (s.env && Object.keys(s.env).length > 0) {
+      nextEnv = {};
+      for (const [k, v] of Object.entries(s.env)) {
+        if (v === "" || isPlaceholder(v)) {
+          nextEnv[k] = v;
+        } else {
+          const varName = mintVar(s.name, "ENV", k);
+          env[varName] = v;
+          nextEnv[k] = `\${${varName}}`;
+        }
+      }
+    }
+    let nextHeaders = s.headers;
+    if (s.headers && Object.keys(s.headers).length > 0) {
+      nextHeaders = {};
+      for (const [k, v] of Object.entries(s.headers)) {
+        if (v === "" || isPlaceholder(v)) {
+          nextHeaders[k] = v;
+        } else {
+          const varName = mintVar(s.name, "HDR", k);
+          env[varName] = v;
+          nextHeaders[k] = `\${${varName}}`;
+        }
+      }
+    }
+    return {
+      ...s,
+      ...(nextEnv !== undefined ? { env: nextEnv } : {}),
+      ...(nextHeaders !== undefined ? { headers: nextHeaders } : {}),
+    };
+  });
+
+  return { servers: sanitized, env, expandableVars };
+}
+
 /** Write (or remove when empty) the workspace-level `.mcp.json` (cwd) —
  *  the ONE config all three CLIs read natively (omp: cwd mcp.json/
  *  .mcp.json; pi: pi-mcp-adapter reads cwd .mcp.json; claude: passed via
@@ -160,7 +229,7 @@ export function writeMcpConfig(workspacePath: string, servers: readonly McpServe
     if (s.transport === "stdio" && s.command) entry.command = s.command;
     if (s.transport === "stdio" && s.args && s.args.length > 0) entry.args = s.args;
     if (s.env && Object.keys(s.env).length > 0) entry.env = s.env;
-    if (s.headers) entry.headers = s.headers;
+    if (s.headers && Object.keys(s.headers).length > 0) entry.headers = s.headers;
     if (s.timeoutMs) entry.timeoutMs = s.timeoutMs;
 
     // Per-kind env-name auth: pi and omp read the named var at connect
@@ -168,8 +237,8 @@ export function writeMcpConfig(workspacePath: string, servers: readonly McpServe
     if (s.bearerTokenEnv) {
       entry.bearerTokenEnv = s.bearerTokenEnv;
       entry.bearer_token_env_var = s.bearerTokenEnv;
-      if (!s.headers) {
-        entry.headers = { Authorization: "Bearer ${PRODUCT_TOOLS_RUN_TOKEN}" };
+      if (!s.headers || Object.keys(s.headers).length === 0) {
+        entry.headers = { Authorization: `Bearer \${${s.bearerTokenEnv}}` };
       }
     }
     mcpServers[s.name] = entry;

@@ -40,6 +40,9 @@ export interface BackendRunInput<K extends string = string> {
    *  product knowledge, and the workspace file cannot self-declare
    *  expansion (secret-exfil boundary). */
   readonly mcpExpandableVars?: readonly string[];
+  /** Per-run secret env values corresponding to placeholders in `.mcp.json`
+   *  (e.g. user MCP server env/headers). Delivered only via spawn env. */
+  readonly mcpEnv?: Readonly<Record<string, string>>;
   /** Fully-qualified MCP tool names (mcp__<server>__<tool>) exempt from
    *  the child's permission classifier — the product's own read
    *  surfaces. Absent = every mounted MCP tool is gated. */

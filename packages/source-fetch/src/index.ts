@@ -81,10 +81,13 @@ function cloneGitSource(opts: GitSourceOptions): FetchedSource {
   if (existsSync(target)) rmSync(target, { recursive: true, force: true });
   mkdirSync(path.resolve(opts.dataDir), { recursive: true });
   const pinnedRev = opts.ref && isCommitRef(opts.ref) ? opts.ref.toLowerCase() : null;
+  if (opts.ref?.startsWith("-")) {
+    throw new Error(`unsafe git ref (option injection): ${opts.ref}`);
+  }
   const url = assertSafeGitUrl(opts.url);
-  const args = ["clone", "--depth", "1"];
+  const args = ["-c", "core.symlinks=false", "clone", "--depth", "1"];
   if (opts.ref && !pinnedRev) args.push("--branch", opts.ref);
-  args.push(url, target);
+  args.push("--", url, target);
   const proc = Bun.spawnSync(["git", ...args], {
     cwd: opts.dataDir,
     stdio: ["ignore", "pipe", "pipe"],

@@ -17,9 +17,10 @@ export {
   type AgentService,
   createAgentService,
 } from "./service.js";
-export type { McpServerEntry } from "./workspace-bridge.js";
+export type { ExtractedMcpBridge, McpServerEntry } from "./workspace-bridge.js";
 export {
   bridgeWorktreeRoot,
+  extractMcpSecrets,
   PRODUCT_CONSENTED_MCP_TOOLS,
   PRODUCT_MCP_EXPANDABLE_VARS,
 } from "./workspace-bridge.js";

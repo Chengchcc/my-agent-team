@@ -74,7 +74,14 @@ export function createMcpClientManager(opts: McpClientManagerOptions = {}): McpC
           const serverUrl = await assertSafeMcpUrl(config.url!, {
             allowPrivate: opts.allowPrivateHosts ?? true,
           });
-          clientTransport = new SSEClientTransport(serverUrl);
+          // Disable automatic 3xx redirect following so an allowed remote host
+          // cannot redirect the backend into loopback/private/metadata space.
+          clientTransport = new SSEClientTransport(serverUrl, {
+            requestInit: { redirect: "error" },
+            eventSourceInit: {
+              fetch: (url, init) => fetch(url, { ...init, redirect: "error" }),
+            },
+          });
         }
 
         const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");

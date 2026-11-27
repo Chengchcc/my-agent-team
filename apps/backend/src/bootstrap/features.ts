@@ -26,6 +26,7 @@ import {
 import { FRONT_DESK_DISCIPLINE } from "../features/agent/prompt-front-desk.js";
 import {
   bridgeWorktreeRoot,
+  extractMcpSecrets,
   type McpServerEntry,
   reconcileAgentResources,
   writeMcpConfig,
@@ -1703,6 +1704,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     workflowMcp = await createWorkflowMcpServer({
       workflowDir: join(config.dataDir, "workflows"),
       proposals: proposalSvc,
+      tokenRegistry: productToolsTokenRegistry,
     });
     console.log(`[bootstrap] workflow MCP listening at ${workflowMcp.url}`);
   }
@@ -1732,6 +1734,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         return { id: row.id };
       },
       proposals: proposalSvc,
+      tokenRegistry: productToolsTokenRegistry,
     });
     console.log(`[bootstrap] agent-config MCP listening at ${agentConfigMcp.url}`);
   }
@@ -2387,10 +2390,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       ? `sse:${sseUrlEndpoint(config.productToolsMcpUrl)}`
       : "stdio:/nonexistent",
     // H1: the bridge is the only author of the workspace .mcp.json —
-    // re-written from source of truth immediately before every spawn.
+    // re-written from source of truth immediately before every spawn, with
+    // user MCP secrets extracted into spawn env placeholders.
     rewriteWorkspaceBridge: async (agentId, root) => {
-      writeMcpConfig(root, await bridgeMcpServers(agentId));
+      const prepared = await prepareMcpBridge(agentId);
+      writeMcpConfig(root, prepared.servers);
       writeProductToolsManifest(root, productToolsManifest());
+      return { env: prepared.env, expandableVars: prepared.expandableVars };
     },
     onRunCommitted,
     // ADR 0072/0076 delivery gate: a change is "verified" only when a DIFFERENT
@@ -2696,24 +2702,27 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   /** H1: the ONE builder of the workspace mcp server list — used by
    *  reconcileAgent (config changes) AND the per-dispatch rewrite
-   *  (rewriteWorkspaceBridge). Keeping a single author means an
-   *  agent-tampered .mcp.json is always overwritten from this source of
-   *  truth before the next spawn mounts it. */
-  async function bridgeMcpServers(agentId: string): Promise<McpServerEntry[]> {
+   *  (rewriteWorkspaceBridge). Extracts user MCP env/headers secrets into
+   *  `${MCP_SECRET_...}` placeholders so `.mcp.json` on disk stays secret-free
+   *  and secrets reach the child only via spawn env. */
+  async function prepareMcpBridge(agentId: string) {
     // Fail loudly on an unknown agent: the bridge is the single author of the
     // workspace .mcp.json, and an empty server list for a real agent would
     // silently strip its tools.
-    await agentSvc.getById(agentId);
-    return [
-      ...(await mcpSvc.listForAgent(agentId)).map((s) => ({
-        name: s.name,
-        transport: s.transport,
-        url: s.url,
-        command: s.command,
-        args: s.args ?? [],
-        env: s.env ?? {},
-        headers: s.headers ?? {},
-      })),
+    const agent = await agentSvc.getById(agentId);
+    const isWorker = agent.config.role === "worker";
+    const userServers: McpServerEntry[] = (await mcpSvc.listForAgent(agentId)).map((s) => ({
+      name: s.name,
+      transport: s.transport,
+      url: s.url,
+      command: s.command,
+      args: s.args ?? [],
+      env: s.env ?? {},
+      headers: s.headers ?? {},
+    }));
+    const extracted = extractMcpSecrets(userServers);
+    const servers: McpServerEntry[] = [
+      ...extracted.servers,
       // The product-tools server (ledger access, ADR 0020) merges into
       // the SAME workspace .mcp.json — one config, one writer. Gated by
       // the per-server enabled set (ENABLED_MCP_SERVERS).
@@ -2749,21 +2758,28 @@ export async function installFeatures(services: BackendServices): Promise<Instal
               // The Oma SSEClientTransport GETs this url as-is; the bare
               // base 404s, so point at the /sse endpoint directly.
               url: workflowMcp.url,
+              bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN",
             },
           ]
         : []),
-      // The agent-config server: lets the chat agent read/write an
-      // agent's config, so the edit page's chat can propose changes.
-      ...(agentConfigMcp
+      // The agent-config server: front-desk / operator-facing agents only —
+      // workers must not propose agent configuration changes.
+      ...(agentConfigMcp && !isWorker
         ? [
             {
               name: "agent-config",
               transport: "sse" as const,
               url: agentConfigMcp.url,
+              bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN",
             },
           ]
         : []),
     ];
+    return { servers, env: extracted.env, expandableVars: extracted.expandableVars };
+  }
+
+  async function bridgeMcpServers(agentId: string): Promise<McpServerEntry[]> {
+    return (await prepareMcpBridge(agentId)).servers;
   }
 
   /** The product-tools manifest (ADR 0003 decision 6) — single source for
@@ -3148,6 +3164,24 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   if (artifactRetentionDays > 0) sweepArtifacts();
   const artifactRetentionInterval = setInterval(sweepArtifacts, 24 * 60 * 60 * 1000);
 
+  // One-time boot migration: legacy `workflow.trigger.<id>` keys did not match
+  // `isSecretKey` and were stored in plaintext. Move them to
+  // `workflow.trigger_token.<id>` so `settingsSvc` AES-seals & masks them.
+  {
+    const legacyRows = db
+      .query("SELECT key FROM settings WHERE key LIKE 'workflow.trigger.%'")
+      .all() as Array<{ key: string }>;
+    for (const row of legacyRows) {
+      if (row.key.startsWith("workflow.trigger_token.")) continue;
+      const wfId = row.key.slice("workflow.trigger.".length);
+      const raw = settingsSvc.get<string>(row.key);
+      if (typeof raw === "string" && raw.length > 0) {
+        settingsSvc.set(`workflow.trigger_token.${wfId}`, raw);
+      }
+      settingsSvc.delete(row.key);
+    }
+  }
+
   const workflowApp = workflowRoutes({
     workflowExecutionService,
     loadWorkflow: async (ref) => {
@@ -3161,14 +3195,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       return await Bun.file(file).text();
     },
     workflowDir: join(config.dataDir, "workflows"),
-    // Trigger tokens live in the sealed settings KV, NOT in the workflows dir
-    // (definitions are agent-writable; a token the agent can read is a token
-    // anything on the box can read — same boundary as the path policy).
+    // Trigger tokens live in the sealed settings KV under a *_token.* key so
+    // sealDeep/maskDeep/settings-HTTP-guard all apply automatically.
     scriptsEnabled: config.workflowScriptsEnabled,
     getTriggerToken: async (workflowId) =>
-      settingsSvc.get<string>(`workflow.trigger.${workflowId}`),
+      settingsSvc.get<string>(`workflow.trigger_token.${workflowId}`),
     setTriggerToken: async (workflowId, token) => {
-      settingsSvc.set(`workflow.trigger.${workflowId}`, token);
+      settingsSvc.set(`workflow.trigger_token.${workflowId}`, token);
+    },
+    deleteTriggerToken: async (workflowId) => {
+      settingsSvc.delete(`workflow.trigger_token.${workflowId}`);
     },
     labelResolver: entityLabels,
     resyncTriggers: () => workflowTriggerScheduler.sync(),
@@ -3310,9 +3346,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       (id: string) => larkBotRegistry.statusOf(id),
       getSetupManager,
       (id: string) => projectSvc.exists(id),
-      // Skill/knowledge pack symlinks resolve into the data dir; the
-      // read-only workspace file view is allowed to follow them there.
-      [config.dataDir],
+      // Skill pack symlinks resolve into `<dataDir>/skill-packs`; narrow the
+      // read-only workspace viewer to ONLY that subdir so sibling secrets in
+      // `<dataDir>` (lark-bot/*.env, workflows/, other agents) stay unreachable.
+      [join(config.dataDir, "skill-packs")],
       larkSurfaceFactsOf,
       modelKnownForBackend,
     ),

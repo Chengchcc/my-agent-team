@@ -50,6 +50,15 @@ export function botEnvPathOf(dataDir: string, agentId: string): string {
   return join(dataDir, "lark-bot", `${safeAgentId(agentId)}.env`);
 }
 
+/** Reject control characters that could split a systemd EnvironmentFile line
+ *  and inject or override variables such as LARK_BOT_BUN. */
+function assertSafeEnvValue(name: string, value: string): string {
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error(`unsafe control character in systemd env ${name}`);
+  }
+  return value;
+}
+
 const defaultRunner: SystemctlRunner = (args) =>
   new Promise((resolve) => {
     execFile(args[0]!, args.slice(1), { timeout: 15_000 }, (error, stdout, stderr) => {
@@ -82,19 +91,25 @@ export class SystemdLarkBotRegistry implements LarkBotRegistry {
       writeFileSync(
         envPath,
         `${[
-          `LARK_BOT_AGENT_ID=${agentId}`,
-          `LARK_BOT_BACKEND_URL=${this.opts.backendUrl}`,
-          `LARK_BOT_STATE_ROOT=${this.opts.dataDir}`,
+          `LARK_BOT_AGENT_ID=${assertSafeEnvValue("LARK_BOT_AGENT_ID", safeAgentId(agentId))}`,
+          `LARK_BOT_BACKEND_URL=${assertSafeEnvValue("LARK_BOT_BACKEND_URL", this.opts.backendUrl)}`,
+          `LARK_BOT_STATE_ROOT=${assertSafeEnvValue("LARK_BOT_STATE_ROOT", this.opts.dataDir)}`,
           // The backend IS a bun process: its own executable is the one binary
           // we know exists on this host, and a unit's PATH does not include
           // ~/.bun/bin (status 127 otherwise).
-          `LARK_BOT_BUN=${this.opts.bunPath ?? process.execPath}`,
-          `LARK_BOT_ENTRY=${this.opts.entryPath}`,
-          ...(botDisplayName ? [`LARK_BOT_DISPLAY_NAME=${botDisplayName}`] : []),
-          ...(larkProfile ? [`LARK_BOT_PROFILE=${larkProfile}`] : []),
+          `LARK_BOT_BUN=${assertSafeEnvValue("LARK_BOT_BUN", this.opts.bunPath ?? process.execPath)}`,
+          `LARK_BOT_ENTRY=${assertSafeEnvValue("LARK_BOT_ENTRY", this.opts.entryPath)}`,
+          ...(botDisplayName
+            ? [
+                `LARK_BOT_DISPLAY_NAME=${assertSafeEnvValue("LARK_BOT_DISPLAY_NAME", botDisplayName)}`,
+              ]
+            : []),
+          ...(larkProfile
+            ? [`LARK_BOT_PROFILE=${assertSafeEnvValue("LARK_BOT_PROFILE", larkProfile)}`]
+            : []),
           // The bot insists on this even for reads; it is the same token the
           // backend itself uses, so the two can never drift.
-          `BACKEND_AUTH_TOKEN=${this.opts.backendAuthToken ?? ""}`,
+          `BACKEND_AUTH_TOKEN=${assertSafeEnvValue("BACKEND_AUTH_TOKEN", this.opts.backendAuthToken ?? "")}`,
         ].join("\n")}\n`,
         { mode: 0o600 },
       );

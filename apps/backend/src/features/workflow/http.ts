@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { parseWorkflow } from "@chengchenccc/workflow";
 import { Elysia, t } from "elysia";
+import { safeTokenEqual } from "../../infra/auth.js";
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { HttpError } from "../../infra/errors.js";
 import type { WorkflowExecutionRow } from "./domain.js";
@@ -62,6 +63,7 @@ export function workflowRoutes(deps: {
    *  deps = the token routes are off (tests without a store). */
   getTriggerToken?: (workflowId: string) => Promise<string | undefined>;
   setTriggerToken?: (workflowId: string, token: string) => Promise<void>;
+  deleteTriggerToken?: (workflowId: string) => Promise<void>;
   /** ADR 0082 D5: optional batch label resolver for execution DTOs. */
   labelResolver?: EntityLabelResolver;
   /** Emits a "changed" event on workflow writes (SSE live refresh). */
@@ -241,13 +243,9 @@ export function workflowRoutes(deps: {
         const stored = await deps.getTriggerToken(params.workflowId);
         const given =
           typeof headers["x-trigger-token"] === "string" ? headers["x-trigger-token"] : "";
-        // Same length + constant-time compare: no early exit on the first
-        // differing byte, and an absent token is indistinguishable from a wrong
-        // one so the response cannot be used to probe which ids have tokens.
-        const ok =
-          stored !== undefined &&
-          given.length === stored.length &&
-          timingSafeEqual(Buffer.from(given), Buffer.from(stored));
+        // Constant-time digest compare: safe for arbitrary UTF-8 headers and
+        // leaks neither token length nor whether this workflow has a token.
+        const ok = stored !== undefined && stored.length > 0 && safeTokenEqual(given, stored);
         if (!ok) {
           set.status = 401;
           return { error: "Unauthorized" };
@@ -272,6 +270,7 @@ export function workflowRoutes(deps: {
     .delete("/api/workflow-definitions/:workflowId", async ({ params }) => {
       const file = workflowFile(params.workflowId);
       rmSync(file, { force: true });
+      await deps.deleteTriggerToken?.(params.workflowId);
       void deps.resyncTriggers?.();
       return { ok: true };
     })

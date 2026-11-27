@@ -50,7 +50,6 @@ export function agentUpdateFromConfig(payload: Record<string, unknown>): Record<
   put("allowWritePaths", runtime.allow_write_paths);
   put("denyCommands", runtime.deny_commands);
   put("maxSteps", runtime.max_steps === 0 ? undefined : runtime.max_steps);
-  put("knowledgePacks", runtime.knowledge_packs);
   put("projects", runtime.projects);
   const servers = runtime.mcp_servers;
   if (Array.isArray(servers)) {

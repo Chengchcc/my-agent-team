@@ -1,5 +1,13 @@
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { Elysia, t } from "elysia";
 import type { SkillPackRow } from "./entities.js";
 import { installPath, posixSkillRoot } from "./entities.js";
@@ -160,8 +168,19 @@ export function skillPackRoutes(svc: SkillPackService, dataDir: string) {
             return { error: "Not found" };
           }
 
-          const full = resolve(posixSkillRoot(dataDir), basePath);
-          const s = statSync(full);
+          const rootDir = posixSkillRoot(dataDir);
+          const realRoot = existsSync(rootDir) ? realpathSync(rootDir) : resolve(rootDir);
+          const full = resolve(realRoot, basePath);
+          const realFull = realpathSync(full);
+          if (realFull !== realRoot && !realFull.startsWith(`${realRoot}${sep}`)) {
+            set.status = 403;
+            return { error: "Path escapes pack root" };
+          }
+          if (lstatSync(full).isSymbolicLink()) {
+            set.status = 403;
+            return { error: "Symlinks are not allowed" };
+          }
+          const s = statSync(realFull);
 
           if (s.isFile()) {
             const content = await ws.read(basePath);
@@ -174,7 +193,11 @@ export function skillPackRoutes(svc: SkillPackService, dataDir: string) {
             for (const name of names) {
               const entryPath = subpath ? `${subpath}/${name}` : name;
               try {
-                const entryStat = statSync(resolve(posixSkillRoot(dataDir), id, entryPath));
+                const entryFull = resolve(realRoot, id, entryPath);
+                if (lstatSync(entryFull).isSymbolicLink()) continue;
+                const entryReal = realpathSync(entryFull);
+                if (!entryReal.startsWith(`${realRoot}${sep}`)) continue;
+                const entryStat = statSync(entryReal);
                 entries.push({ name, type: entryStat.isDirectory() ? "dir" : "file" });
               } catch {
                 entries.push({ name, type: "file" });
@@ -202,11 +225,13 @@ export function skillPackRoutes(svc: SkillPackService, dataDir: string) {
       "/api/skill-packs/:id/search",
       ({ params: { id }, query: { q }, set }) => {
         assertSafeEntry(id);
-        const root = resolve(posixSkillRoot(dataDir), id);
+        const skillRoot = posixSkillRoot(dataDir);
+        const root = resolve(skillRoot, id);
         if (!existsSync(root)) {
           set.status = 404;
           return { error: "Pack not found" };
         }
+        const realRoot = realpathSync(root);
         const needle = q.toLowerCase();
         const results: Array<{ path: string; line: number; snippet: string }> = [];
         const walk = (dir: string, rel: string) => {
@@ -214,12 +239,15 @@ export function skillPackRoutes(svc: SkillPackService, dataDir: string) {
           for (const entry of readdirSync(dir, { withFileTypes: true })) {
             if (results.length >= 50) return;
             if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+            if (entry.isSymbolicLink()) continue;
             const full = join(dir, entry.name);
+            const realEntry = realpathSync(full);
+            if (!realEntry.startsWith(`${realRoot}${sep}`)) continue;
             const relPath = rel ? `${rel}/${entry.name}` : entry.name;
             if (entry.isDirectory()) {
-              walk(full, relPath);
-            } else if (entry.isFile() && statSync(full).size <= 512_000) {
-              const lines = readFileSync(full, "utf8").split("\n");
+              walk(realEntry, relPath);
+            } else if (entry.isFile() && statSync(realEntry).size <= 512_000) {
+              const lines = readFileSync(realEntry, "utf8").split("\n");
               for (let i = 0; i < lines.length && results.length < 50; i++) {
                 const line = lines[i] ?? "";
                 if (line.toLowerCase().includes(needle)) {

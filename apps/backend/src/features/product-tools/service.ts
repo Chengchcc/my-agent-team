@@ -872,8 +872,10 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       return { content: JSON.stringify(wiki.addSource(out)) };
     }
     const conversationId = typeof args.conversation_id === "string" ? args.conversation_id : "";
-    if (conversationId === "") {
-      throw new ProductToolRejectedError("conversation sources need conversation_id");
+    if (!/^[A-Za-z0-9_-]+$/.test(conversationId)) {
+      throw new ProductToolRejectedError(
+        "conversation sources need a valid conversation_id (alphanumeric, _, -)",
+      );
     }
     const out: {
       agentId: string;

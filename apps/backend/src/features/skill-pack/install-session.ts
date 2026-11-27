@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import { fetchGitSource, materializeZipSource } from "@chengchenccc/source-fetch";
+import {
+  fetchGitSource,
+  materializeZipSource,
+  validateExtractedEntries,
+} from "@chengchenccc/source-fetch";
 import type { SkillPackSource } from "./entities.js";
 import { posixSkillRoot } from "./entities.js";
 import type { SkillPackPort } from "./ports.js";
@@ -57,7 +61,7 @@ function git(
  *  accepts options after positionals, so a "-..." value would inject fetch
  *  options (e.g. --upload-pack). Bare refspec characters only. */
 function assertSafeRef(ref: string): string {
-  if (!/^[A-Za-z0-9._/-]+$/.test(ref)) {
+  if (ref.startsWith("-") || !/^[A-Za-z0-9._/-]+$/.test(ref)) {
     throw new Error(`unsafe git ref: ${ref}`);
   }
   return ref;
@@ -70,7 +74,10 @@ function assertSafeRef(ref: string): string {
  *  pack content) to an attacker transport. */
 async function fetchRemoteRev(source: InstallSource, packDir: string): Promise<string> {
   if (!source.sourceUrl) throw new Error("git sync requires a stored sourceUrl");
-  const fetchArgs = ["fetch", source.sourceUrl];
+  if (source.sourceUrl.startsWith("-")) {
+    throw new Error(`unsafe git sourceUrl: ${source.sourceUrl}`);
+  }
+  const fetchArgs = ["-c", "core.symlinks=false", "fetch", "--", source.sourceUrl];
   if (source.versionRef) fetchArgs.push(assertSafeRef(source.versionRef));
   const fetchResult = await git(fetchArgs, packDir);
   if (fetchResult.exitCode !== 0) throw new Error(`git fetch failed: ${fetchResult.stderr}`);
@@ -175,8 +182,12 @@ export async function runSync(source: InstallSource, deps: InstallSessionDeps): 
         `upstream moved during confirm: expected ${source.expectedRev}, got ${installedRef}`,
       );
     }
-    const resetResult = await git(["reset", "--hard", "FETCH_HEAD"], packDir);
+    const resetResult = await git(
+      ["-c", "core.symlinks=false", "reset", "--hard", "FETCH_HEAD"],
+      packDir,
+    );
     if (resetResult.exitCode !== 0) throw new Error(`git reset failed: ${resetResult.stderr}`);
+    validateExtractedEntries(packDir, packDir);
     if (!(await validatePackDir(cwd, source.packId))) {
       throw new Error("synced pack has no valid SKILL.md");
     }

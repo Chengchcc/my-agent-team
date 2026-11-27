@@ -76,7 +76,22 @@ export function codingRoutes(deps: CodingRoutesDeps) {
     createTaskWorktree,
     removeTaskWorktree,
   } = deps;
-  const unsubscribes = new WeakMap<object, () => void>();
+  // Per-socket state stored directly on `ws.data` (not a WeakMap keyed on
+  // Elysia's ephemeral wrapper object) so `message()` and `close()` always
+  // observe the authenticated state and unsubscribe handle cleanly.
+  interface CodingWsState {
+    authed: boolean;
+    unsubscribe?: () => void;
+  }
+  const stateOf = (ws: { data: unknown }): CodingWsState => {
+    const bag = ws.data as Record<string, unknown>;
+    let st = bag.__codingWsState as CodingWsState | undefined;
+    if (!st) {
+      st = { authed: false };
+      bag.__codingWsState = st;
+    }
+    return st;
+  };
   // 票据逻辑已抽到 infra/ws-ticket.ts，与 AHP 宿主共用一套（upgrade 时的鉴权方式）。
   const tickets = createWsTicketRegistry();
 
@@ -299,9 +314,11 @@ export function codingRoutes(deps: CodingRoutesDeps) {
     .post("/api/coding/ws-ticket", () => ({ ticket: tickets.mint(), wsBase }))
     .ws("/ws/coding/:id", {
       open(ws) {
+        const st = stateOf(ws);
         const id = ws.data.params.id;
         const ticket = ws.data.query.ticket;
         if (!ticket || !tickets.consume(ticket)) {
+          st.authed = false;
           ws.close(4001, "invalid ticket");
           return;
         }
@@ -311,10 +328,12 @@ export function codingRoutes(deps: CodingRoutesDeps) {
             ws.send(JSON.stringify({ t: "s", status: info.status, exitCode: info.exitCode })),
         });
         if (!attached) {
+          st.authed = false;
           ws.close(4404, "terminal not found");
           return;
         }
-        unsubscribes.set(ws, attached.unsubscribe);
+        st.authed = true;
+        st.unsubscribe = attached.unsubscribe;
         // Replay BEFORE any live output could interleave: attach() handed us
         // the snapshot atomically with the subscription.
         ws.send(JSON.stringify({ t: "o", d: attached.replay }));
@@ -324,6 +343,10 @@ export function codingRoutes(deps: CodingRoutesDeps) {
       // Elysia pre-parses JSON frames: `message` is already an object.
       // Strings (non-JSON or foreign clients) still parse manually.
       message(ws, raw) {
+        if (!stateOf(ws).authed) {
+          ws.close(4001, "unauthorized");
+          return;
+        }
         let msg: WsIn;
         if (typeof raw === "string") {
           try {
@@ -340,12 +363,17 @@ export function codingRoutes(deps: CodingRoutesDeps) {
         if (msg.t === "i" && typeof msg.d === "string") {
           registry.write(id, msg.d);
         } else if (msg.t === "r" && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
-          registry.resize(id, msg.cols as number, msg.rows as number);
+          const cols = Math.min(500, Math.max(2, msg.cols as number));
+          const rows = Math.min(300, Math.max(2, msg.rows as number));
+          registry.resize(id, cols, rows);
         }
       },
       close(ws) {
         // detach ONLY — the PTY keeps running (the whole point).
-        unsubscribes.get(ws)?.();
+        const st = stateOf(ws);
+        st.unsubscribe?.();
+        st.unsubscribe = undefined;
+        st.authed = false;
       },
     });
 }

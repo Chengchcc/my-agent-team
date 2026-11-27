@@ -13,7 +13,7 @@ export function settingsRoutes(svc: SettingsService) {
         // Provider credentials have a dedicated channel (PUT /api/providers/:id)
         // and secret-shaped keys must never be written raw through the generic
         // KV route (H5).
-        if (key.startsWith("provider.") || isSecretKey(key)) {
+        if (key === "providerEnv" || key.startsWith("provider.") || isSecretKey(key)) {
           throw new DomainError(`settings key "${key}" is not writable via this route`, 400);
         }
         svc.set(key, body.value);

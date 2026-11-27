@@ -215,7 +215,9 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
     deps.onRecall?.(runId, recalled.hits);
     // H1: the bridge is the ONLY author of workspace config files. Rewrite
     // from the DB source of truth right before spawn so an agent-tampered
-    // .mcp.json (forged product-tools server, run-token exfil) never
+    // .mcp.json (forged product-tools server, run-token exfil) never mounts.
+    const mcpBridge =
+      (await deps.rewriteWorkspaceBridge?.(run.agentId, workspace.root)) ?? undefined;
     const segment = await backend.execute(
       buildRunInput(
         run,
@@ -230,6 +232,7 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
         // turn child-side.
         resumeInbox.has(runId) ? { decisions: resumeInbox.get(runId)! } : undefined,
         recallBlock,
+        mcpBridge,
       ),
     );
     resumeInbox.delete(runId);

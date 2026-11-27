@@ -1,3 +1,4 @@
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -37,13 +38,22 @@ export async function purgeWorkspace(opts: {
   workspacePath: string;
 }): Promise<void> {
   const resolvedRoot = path.resolve(opts.workspaceRoot);
+  const realRoot = existsSync(resolvedRoot) ? realpathSync(resolvedRoot) : resolvedRoot;
   const wsPath = path.resolve(opts.workspacePath);
 
-  // Strictly inside the root: equality is the agents directory itself, which is
-  // never one agent's workspace.
+  // Strictly inside the lexical root first.
   if (wsPath === resolvedRoot || !wsPath.startsWith(resolvedRoot + path.sep)) {
     throw new Error(`path traversal rejected: ${opts.workspacePath}`);
   }
+  if (!existsSync(wsPath)) return;
+  if (lstatSync(wsPath).isSymbolicLink()) {
+    throw new Error(`path traversal rejected (symlink workspace): ${opts.workspacePath}`);
+  }
+  // Verify the real path (defeats symlinked intermediate directories).
+  const realTarget = realpathSync(wsPath);
+  if (realTarget === realRoot || !realTarget.startsWith(realRoot + path.sep)) {
+    throw new Error(`path traversal rejected: ${opts.workspacePath}`);
+  }
 
-  await rm(wsPath, { recursive: true, force: true });
+  await rm(realTarget, { recursive: true, force: true });
 }

@@ -490,8 +490,17 @@ export function createWikiService(deps: { store: WikiStore; now?: () => string }
         return { path };
       }
       const conversationId = input.conversationId ?? "unknown";
-      const from = input.fromSeq ?? 0;
-      const to = input.toSeq ?? 0;
+      if (!/^[A-Za-z0-9_-]+$/.test(conversationId)) {
+        throw new Error(`invalid conversationId for wiki source: ${conversationId}`);
+      }
+      const from =
+        typeof input.fromSeq === "number" && Number.isFinite(input.fromSeq) && input.fromSeq >= 0
+          ? Math.trunc(input.fromSeq)
+          : 0;
+      const to =
+        typeof input.toSeq === "number" && Number.isFinite(input.toSeq) && input.toSeq >= 0
+          ? Math.trunc(input.toSeq)
+          : 0;
       // By reference, deliberately: the ledger is the source of truth and a
       // copy would drift from it.
       const path = `raw/conversations/${conversationId}-${from}-${to}.md`;

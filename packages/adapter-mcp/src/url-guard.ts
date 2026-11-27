@@ -111,8 +111,11 @@ export async function assertSafeMcpUrl(rawUrl: string, opts: SafeMcpUrlOptions):
   try {
     answers = (await lookup(hostname, { all: true, verbatim: true })).map((a) => a.address);
   } catch {
-    // Unresolvable: the client will surface the real error.
-    return parsed;
+    // Fail closed: an unresolvable host must never bypass SSRF IP inspection.
+    throw new UnsafeMcpUrlError(`dns resolution failed: ${hostname}`);
+  }
+  if (answers.length === 0) {
+    throw new UnsafeMcpUrlError(`dns resolution returned no addresses: ${hostname}`);
   }
   for (const address of answers) {
     if (isMetadataHost(address)) throw new UnsafeMcpUrlError(`resolves to metadata: ${hostname}`);

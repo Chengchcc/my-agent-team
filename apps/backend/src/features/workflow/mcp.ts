@@ -7,7 +7,26 @@ import { parseWorkflow } from "@chengchenccc/workflow";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { RunTokenContext, RunTokenRegistry } from "../product-tools/run-token-registry.js";
 import type { ProposalKind } from "../proposal/domain.js";
+
+function isLoopbackHostHeader(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return true;
+  const host = hostHeader.trim().toLowerCase();
+  return (
+    /^127\.0\.0\.1(:\d+)?$/.test(host) ||
+    /^localhost(:\d+)?$/.test(host) ||
+    /^\[::1\](:\d+)?$/.test(host)
+  );
+}
+
+function authorizeBearer(req: IncomingMessage, registry: RunTokenRegistry): RunTokenContext | null {
+  const header = req.headers.authorization;
+  if (!header) return null;
+  const [scheme, value] = header.split(" ");
+  if (scheme !== "Bearer" || value === undefined) return null;
+  return registry.validate(value);
+}
 
 /** Workflow DSL MCP server: the ONLY way a Run reads or changes a workflow
  *  definition. Definitions live at `<workflowDir>/<id>.workflow.json` —
@@ -26,6 +45,9 @@ export interface WorkflowMcpServerOptions {
   readonly host?: string;
   /** 0 = ephemeral port. */
   readonly port?: number;
+  /** Per-run bearer registry; when provided, every SSE and POST /messages call
+   *  requires a live run token bound to the session (matching product-tools). */
+  readonly tokenRegistry?: RunTokenRegistry;
   /** Record the same proposal where the editor can read it later (ADR 0040): a proposal that
    *  arrives while the editor is closed used to be lost. */
   readonly proposals?: {
@@ -84,7 +106,7 @@ export function callWorkflowTool(
 export async function createWorkflowMcpServer(
   opts: WorkflowMcpServerOptions,
 ): Promise<WorkflowMcpServer> {
-  const { workflowDir, proposals } = opts;
+  const { workflowDir, proposals, tokenRegistry } = opts;
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
   mkdirSync(workflowDir, { recursive: true });
@@ -134,13 +156,31 @@ export async function createWorkflowMcpServer(
     return s;
   };
 
-  const sessions = new Map<string, { transport: SSEServerTransport; server: Server }>();
+  const sessions = new Map<
+    string,
+    { transport: SSEServerTransport; server: Server; authenticatedRunId: string | null }
+  >();
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (!isLoopbackHostHeader(req.headers.host)) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ code: "forbidden", message: "invalid Host header" }));
+      return;
+    }
+    const caller = tokenRegistry ? authorizeBearer(req, tokenRegistry) : null;
+    if (tokenRegistry && !caller) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ code: "unauthorized", message: "missing or invalid token" }));
+      return;
+    }
     const url = req.url ?? "";
     if (req.method === "GET" && url === "/sse") {
       const transport = new SSEServerTransport("/messages", res);
       const sessionServer = makeServer();
-      sessions.set(transport.sessionId, { transport, server: sessionServer });
+      sessions.set(transport.sessionId, {
+        transport,
+        server: sessionServer,
+        authenticatedRunId: caller?.runId ?? null,
+      });
       res.on("close", () => sessions.delete(transport.sessionId));
       await sessionServer.connect(transport).catch(() => undefined);
       return;
@@ -153,6 +193,13 @@ export async function createWorkflowMcpServer(
       if (!session) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ code: "invalid_request", message: "unknown session" }));
+        return;
+      }
+      if (tokenRegistry && caller && session.authenticatedRunId !== caller.runId) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({ code: "unauthorized", message: "token does not own this session" }),
+        );
         return;
       }
       await session.transport.handlePostMessage(req, res, undefined).catch(() => undefined);

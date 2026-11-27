@@ -6,7 +6,57 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { ACP_AGENTS } from "../agent-run/acp/registry.js";
+import type { RunTokenContext, RunTokenRegistry } from "../product-tools/run-token-registry.js";
 import type { ProposalKind } from "../proposal/domain.js";
+
+function isLoopbackHostHeader(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return true;
+  const host = hostHeader.trim().toLowerCase();
+  return (
+    /^127\.0\.0\.1(:\d+)?$/.test(host) ||
+    /^localhost(:\d+)?$/.test(host) ||
+    /^\[::1\](:\d+)?$/.test(host)
+  );
+}
+
+function authorizeBearer(req: IncomingMessage, registry: RunTokenRegistry): RunTokenContext | null {
+  const header = req.headers.authorization;
+  if (!header) return null;
+  const [scheme, value] = header.split(" ");
+  if (scheme !== "Bearer" || value === undefined) return null;
+  return registry.validate(value);
+}
+
+const FORBIDDEN_AGENT_POLICY_KEYS = [
+  "deny_write_paths",
+  "allow_write_paths",
+  "deny_commands",
+  "denyWritePaths",
+  "allowWritePaths",
+  "denyCommands",
+] as const;
+
+/** Validate agent-proposed config updates: an agent must never propose `yolo`
+ *  permission mode or modify security write/command policy boundaries. */
+function assertSafeAgentProposalConfig(config: Record<string, unknown>): void {
+  const runtime =
+    typeof config.runtime_config === "object" && config.runtime_config !== null
+      ? (config.runtime_config as Record<string, unknown>)
+      : null;
+  const perm =
+    config.permissionMode ??
+    config.permission_mode ??
+    runtime?.permission_mode ??
+    runtime?.permissionMode;
+  if (perm === "yolo") {
+    throw new Error('permissionMode "yolo" is admin-only and cannot be proposed by an agent');
+  }
+  for (const key of FORBIDDEN_AGENT_POLICY_KEYS) {
+    if (key in config || (runtime !== null && key in runtime)) {
+      throw new Error(`security policy field "${key}" cannot be modified via agent_write`);
+    }
+  }
+}
 
 /** Agent-config MCP server: lets a chat agent read/write/create agents
  *  through ordinary MCP tools. This is how the agent edit page's chat
@@ -89,6 +139,9 @@ export interface AgentConfigMcpServerOptions extends Omit<AgentConfigMcpDeps, "r
   readonly host?: string;
   /** 0 = ephemeral port. */
   readonly port?: number;
+  /** Per-run bearer registry; when provided, every SSE and POST /messages call
+   *  requires a live run token bound to the session. */
+  readonly tokenRegistry?: RunTokenRegistry;
   /** Test seam; defaults to the process-wide create budget. */
   readonly reserveCreate?: () => void;
 }
@@ -147,6 +200,7 @@ export async function callAgentConfigTool(
 ): Promise<string> {
   if (name === "agent_create") {
     const input = readAgentCreateInput(args);
+    deps.reserveCreate();
     // The operator's decision (2026-11-24): an agent never creates a member.
     // It proposes one and a person presses Create — the same shape as
     // agent_write, so the create page shows a filled form instead of a new row
@@ -172,6 +226,7 @@ export async function callAgentConfigTool(
     if (typeof args.config !== "object" || args.config === null) {
       throw new Error("config (object) required");
     }
+    assertSafeAgentProposalConfig(args.config as Record<string, unknown>);
     // The create page binds its chat to AGENT_DRAFT_ID: no agent row exists
     // yet, only the form that adopts this proposal.
     const isDraft = agentId === AGENT_DRAFT_ID;
@@ -203,7 +258,7 @@ export interface AgentConfigMcpServer {
 export async function createAgentConfigMcpServer(
   opts: AgentConfigMcpServerOptions,
 ): Promise<AgentConfigMcpServer> {
-  const { readConfig, agentExists, createAgent, proposals } = opts;
+  const { readConfig, agentExists, createAgent, proposals, tokenRegistry } = opts;
   const reserveCreate = opts.reserveCreate ?? createCreateBudget();
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
@@ -288,13 +343,31 @@ export async function createAgentConfigMcpServer(
     return s;
   };
 
-  const sessions = new Map<string, { transport: SSEServerTransport; server: Server }>();
+  const sessions = new Map<
+    string,
+    { transport: SSEServerTransport; server: Server; authenticatedRunId: string | null }
+  >();
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (!isLoopbackHostHeader(req.headers.host)) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ code: "forbidden", message: "invalid Host header" }));
+      return;
+    }
+    const caller = tokenRegistry ? authorizeBearer(req, tokenRegistry) : null;
+    if (tokenRegistry && !caller) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ code: "unauthorized", message: "missing or invalid token" }));
+      return;
+    }
     const url = req.url ?? "";
     if (req.method === "GET" && url === "/sse") {
       const transport = new SSEServerTransport("/messages", res);
       const sessionServer = makeServer();
-      sessions.set(transport.sessionId, { transport, server: sessionServer });
+      sessions.set(transport.sessionId, {
+        transport,
+        server: sessionServer,
+        authenticatedRunId: caller?.runId ?? null,
+      });
       res.on("close", () => sessions.delete(transport.sessionId));
       await sessionServer.connect(transport).catch(() => undefined);
       return;
@@ -307,6 +380,13 @@ export async function createAgentConfigMcpServer(
       if (!session) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ code: "invalid_request", message: "unknown session" }));
+        return;
+      }
+      if (tokenRegistry && caller && session.authenticatedRunId !== caller.runId) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({ code: "unauthorized", message: "token does not own this session" }),
+        );
         return;
       }
       await session.transport.handlePostMessage(req, res, undefined).catch(() => undefined);

@@ -191,6 +191,7 @@ export async function createTaskWorktree(
   }
   const target = project.defaultBranch ?? "HEAD";
   await Bun.$`git -C ${mirrorPath} worktree add -b ${branch} ${wt} ${target}`.quiet();
+  await excludeGeneratedFiles(wt);
   return wt;
 }
 

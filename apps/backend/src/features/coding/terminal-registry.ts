@@ -118,15 +118,26 @@ export interface TerminalRegistry {
 /** Ring buffer cap in characters (~1 MiB UTF-8 upper bound). */
 const DEFAULT_BUFFER_CAP = 400_000;
 
+/** Backend-only credentials that must never leak into interactive PTY shells. */
+const STRIPPED_PTY_ENV_KEYS = new Set([
+  "BACKEND_AUTH_TOKEN",
+  "PROJECT_PUSH_TOKEN",
+  "MOCK_PASSWORD",
+  "MCP_ENCRYPTION_KEY",
+  "LARK_APP_SECRET",
+  "LARK_ENCRYPT_KEY",
+  "LARK_VERIFICATION_TOKEN",
+]);
+
 function sanitizeEnv(
   extra: Readonly<Record<string, string | undefined>> | undefined,
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === "string") env[k] = v;
+    if (typeof v === "string" && !STRIPPED_PTY_ENV_KEYS.has(k)) env[k] = v;
   }
   for (const [k, v] of Object.entries(extra ?? {})) {
-    if (typeof v === "string") env[k] = v;
+    if (typeof v === "string" && !STRIPPED_PTY_ENV_KEYS.has(k)) env[k] = v;
   }
   return env;
 }

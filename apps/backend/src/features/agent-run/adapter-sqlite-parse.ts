@@ -67,6 +67,7 @@ export function parseInput(row: typeof schema.branchInputQueue.$inferSelect): Br
       systemPrompt: row.systemPrompt,
       skillRoots: row.skillRoots ? (JSON.parse(row.skillRoots) as string[]) : null,
       permissionMode: row.permissionMode,
+      toolPolicy: row.toolPolicy ? (JSON.parse(row.toolPolicy) as AgentRun["toolPolicy"]) : null,
       workflowBudgetTokens: row.workflowBudgetTokens,
       authorization: row.authorization ?? null,
       parentRunId: row.parentRunId ?? null,

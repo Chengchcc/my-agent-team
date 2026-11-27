@@ -111,6 +111,12 @@ export function buildRunInput(
    *  with the run's system prompt, so a continuation carries the same reading
    *  of "那个". Empty = nothing to recall. */
   recallBlock?: string,
+  /** Secret env values + expandable var names extracted from user MCP servers
+   *  when rewriting `.mcp.json` before spawn. */
+  mcpBridge?: {
+    readonly env?: Readonly<Record<string, string>>;
+    readonly expandableVars?: readonly string[];
+  },
 ): BackendRunInput {
   const bridge = !cliSessionRef && history.length > 0 ? renderHistoryBridge(history) : "";
   const inputText = input.message.text ?? "";
@@ -121,7 +127,12 @@ export function buildRunInput(
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
     /** Frozen write-path policy (allow-rules); the ACP child turns it into
      *  OMA_DENY_WRITE_PATHS / OMA_ALLOW_WRITE_PATHS. */
-    toolPolicy?: { deny: string[]; allow: string[]; denyCommands?: string[] };
+    toolPolicy?: {
+      deny: string[];
+      allow: string[];
+      denyCommands?: string[];
+      disabledTools?: string[];
+    };
     systemPrompt?: string;
     skillRoots?: readonly string[];
     cliSessionRef?: string;
@@ -173,7 +184,10 @@ export function buildRunInput(
     ...(run.workflow ? { workflow: run.workflow } : {}),
     workspace,
     productToolsToken,
-    mcpExpandableVars: PRODUCT_MCP_EXPANDABLE_VARS,
+    mcpExpandableVars: mcpBridge?.expandableVars?.length
+      ? [...PRODUCT_MCP_EXPANDABLE_VARS, ...mcpBridge.expandableVars]
+      : PRODUCT_MCP_EXPANDABLE_VARS,
+    ...(mcpBridge?.env && Object.keys(mcpBridge.env).length > 0 ? { mcpEnv: mcpBridge.env } : {}),
     consentedMcpTools: PRODUCT_CONSENTED_MCP_TOOLS,
     metadata: {
       conversationId: run.conversationId,

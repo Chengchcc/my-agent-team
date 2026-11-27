@@ -502,27 +502,53 @@ export function agentRoutes(
         const target = resolveInWorkspace(realRoot, rel);
         if (target === null)
           return Response.json({ error: "path escapes workspace" }, { status: 403 });
-        const entries = readdirSync(target, { withFileTypes: true })
+        if (!existsSync(target)) {
+          return Response.json({ error: "not found" }, { status: 404 });
+        }
+        const realTarget = realpathSyncSafe(target);
+        if (realTarget === null) {
+          return Response.json({ error: "path escapes workspace" }, { status: 403 });
+        }
+        const allowedRoots = [
+          realRoot,
+          ...(extraReadRoots ?? []).map((r) => realpathSyncSafe(r)),
+        ].filter((r): r is string => r !== null);
+        const contained = allowedRoots.some(
+          (r) => realTarget === r || realTarget.startsWith(`${r}${sep}`),
+        );
+        if (!contained) {
+          return Response.json({ error: "path escapes workspace" }, { status: 403 });
+        }
+        if (!statSync(realTarget).isDirectory()) {
+          return Response.json({ error: "not a directory" }, { status: 400 });
+        }
+        const entries = readdirSync(realTarget, { withFileTypes: true })
           .map((d) => {
-            // A symlink to a directory (skill/knowledge pack links) must
-            // present as "dir" so the tree expands it; stat() follows.
+            const childPath = pathJoin(realTarget, d.name);
+            // A symlink to a directory (skill pack links) must present as "dir"
+            // only if its resolved target stays inside allowedRoots.
             let kind: "dir" | "file" | "symlink" = d.isSymbolicLink()
               ? "symlink"
               : d.isDirectory()
                 ? "dir"
                 : "file";
+            let size: number | null = null;
             try {
               if (d.isSymbolicLink()) {
-                kind = statSync(pathJoin(target, d.name)).isDirectory() ? "dir" : "file";
+                const realChild = realpathSyncSafe(childPath);
+                const childAllowed =
+                  realChild !== null &&
+                  allowedRoots.some((r) => realChild === r || realChild.startsWith(`${r}${sep}`));
+                if (childAllowed && realChild !== null) {
+                  kind = statSync(realChild).isDirectory() ? "dir" : "file";
+                }
+              } else if (kind === "file" && d.isFile()) {
+                size = statSync(childPath).size;
               }
             } catch {
               /* broken link: keep "symlink" */
             }
-            return {
-              name: d.name,
-              kind,
-              size: kind === "file" && d.isFile() ? statSync(pathJoin(target, d.name)).size : null,
-            };
+            return { name: d.name, kind, size };
           })
           .sort((a, b) =>
             a.kind === b.kind
@@ -544,6 +570,16 @@ export function agentRoutes(
       async ({ params: { id }, query }) => {
         const rel = typeof query?.path === "string" ? query.path : "";
         if (!rel) return Response.json({ error: "path required" }, { status: 400 });
+        // `.mcp.json` is runtime plumbing (may carry MCP server config/headers)
+        // and is never exposed through the generic workspace file viewer.
+        if (
+          rel
+            .replace(/\\/g, "/")
+            .split("/")
+            .some((seg) => seg === ".mcp.json")
+        ) {
+          return Response.json({ error: "access denied" }, { status: 403 });
+        }
         let root: string;
         try {
           root = (await svc.getById(id)).workspacePath;
