@@ -88,6 +88,7 @@ export function createOmaFrameProvider({
     },
     beginHistoryReplay() {
       transcript.beginReplay();
+      shell.rewrapForResize?.();
     },
     beginHistoryFlush() {
       transcript.beginHistoryFlush();

@@ -185,6 +185,7 @@ export class TuiItemRenderer {
   }
 
   private renderStatus(text: string, streaming: boolean): string[] {
+    if (!text.trim()) return [];
     const rawLines = splitSafeLines(text);
     if (streaming) {
       return rawLines.map((line) => `  · ${shimmerText(line)}`);
@@ -940,19 +941,30 @@ export class TuiRenderShell {
     if (this.latestState) this.renderNow(this.latestState);
   }
 
+  /** Rebuild transcript children at the current terminal width before a
+   *  resize history replay. Without this, `beginHistoryReplay` replays lines
+   *  pre-wrapped at the OLD width, and the next streaming frame re-wraps
+   *  every settled item in-place behind `committedRows`, shifting the
+   *  scrollback frontier out of alignment. */
+  rewrapForResize(): void {
+    const state = this.currentState;
+    if (!state) return;
+    this.reconciler.reset(this.transcript);
+    const result = this.reconciler.reconcile(this.transcript, state.runs, state, (item) =>
+      this.itemRenderer.renderItem(item, state),
+    );
+    this.lastLiveStartRow = result.liveStartRow;
+    this.lastTotalRows = result.totalRows;
+    this.addStatusBar(true);
+  }
+
   private renderNow(state: TuiViewState): void {
     this.setCurrentState(state);
-    this.transcript.setDeferCommit(
-      state.runs.some(
-        (r) =>
-          r.running &&
-          r.items.some(
-            (i) =>
-              i.kind === "assistant" &&
-              (i.text.includes("```mermaid") || i.text.includes("~~~mermaid")),
-          ),
-      ),
-    );
+    // Streaming blocks (including mermaid) are already kept out of scrollback
+    // by `fitTailBoundary(..., liveStartRow)`; never freeze the entire settled
+    // prefix via `setDeferCommit(true)`, which previously prevented settled
+    // history from entering scrollback and dropped replay on resize.
+    this.transcript.setDeferCommit(false);
     if (this.busy) this.updateWorkingMessage();
     const result = this.reconciler.reconcile(this.transcript, state.runs, state, (item) =>
       this.itemRenderer.renderItem(item, state),

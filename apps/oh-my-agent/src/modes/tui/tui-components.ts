@@ -306,12 +306,15 @@ export class OmaTranscriptContainer
 
   /** Offer the next uncommitted prefix as one history batch (omp peek).
    *  Returns only the *new* rows (from the frontier), never the cumulative
-   *  prefix, so the terminal appends each packet exactly once. */
+   *  prefix, so the terminal appends each packet exactly once. Does NOT gate
+   *  on `lastWidth === width`: `renderOfferedHistory(width)` renders directly
+   *  via `renderRange(..., width)`, and gating on `lastWidth` dropped the
+   *  entire replay batch whenever `available === 0` (tall chrome on resize)
+   *  skipped `renderViewport()`. */
   peekFinalizedBatch(width: number): { id: number; end: number } | undefined {
     if (this.deferCommit) return undefined;
     if (this.offeredBatch !== undefined) return this.offeredBatch;
-    if (this.targetCommittedRows <= this.committedRows || this.lastWidth !== width)
-      return undefined;
+    if (width <= 0 || this.targetCommittedRows <= this.committedRows) return undefined;
     const end = this.targetCommittedRows;
     const batch = { id: this.nextBatchId++, end };
     this.offeredBatch = batch;
@@ -354,6 +357,9 @@ export class OmaTranscriptContainer
   fitTailBoundary(width: number, availableRows: number, liveStartChild?: number): number {
     const n = this.children.length;
     if (n === 0) return 0;
+    if (availableRows <= 0) {
+      return liveStartChild !== undefined ? Math.min(n, Math.max(0, liveStartChild)) : n;
+    }
     let boundary = n - 1;
     let used = this.children[n - 1]!.render(width).length;
     for (let i = n - 2; i >= 0; i--) {

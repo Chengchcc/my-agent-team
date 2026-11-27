@@ -1514,9 +1514,10 @@ export class TUI extends Container {
     if (destructiveReset) {
       buffer += "\x1b[H\x1b[2J";
       // Purge scrollback only when a rewrap actually misaligns the rows
-      // above (width change). A plain repaint reset (didReset from the
-      // reconciler) must keep the user's committed history.
-      if (widthChanged) buffer += "\x1b[3J";
+      // above (width change) AND the provider produced re-wrapped history
+      // rows to replay. Never wipe scrollback with CSI 3 J if nothing is
+      // being replayed back into it.
+      if (widthChanged && historyRows.length > 0) buffer += "\x1b[3J";
     }
     // Frame advance = history rows appended this frame. After those appends
     // the screen content that sits under new viewport slot i is the OLD

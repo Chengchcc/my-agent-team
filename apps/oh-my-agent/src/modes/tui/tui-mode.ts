@@ -1028,13 +1028,13 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             "memory: ",
           );
         } else {
-          for (let i = state.runs.length - 1; i >= 0; i--) {
-            const first = state.runs[i]!.items[0];
-            if (first?.kind === "status" && first.text.startsWith("memory: ")) {
-              state.runs.splice(i, 1);
-              break;
-            }
-          }
+          // Clear the transient "memory: learning…" row WITHOUT shrinking
+          // `state.runs`: splicing a run out trips `TuiTranscriptReconciler`'s
+          // `removed` heuristic and forces a full `transcript.clear()` +
+          // `requestRender(true)` screen reset after every turn. An empty
+          // status text renders `[]`, letting the reconciler drop only that
+          // one group in-place with `didReset = false`.
+          pushStatus("", "memory: ");
         }
         io.render(state);
       });

@@ -345,6 +345,80 @@ describe("TUI performance invariants", () => {
     expect(committedRenderCalls).toBe(0);
   });
 
+  test("scrollback survives mermaid streaming, tall-chrome resize (available=0), and empty status clearing", async () => {
+    const vt = new VirtualTerminal(80, 20);
+    const writes: string[] = [];
+    const origWrite = vt.write.bind(vt);
+    vt.write = (d: string) => {
+      writes.push(d);
+      origWrite(d);
+    };
+    const { createTerminalIo } = await import("./tui-io.js");
+    const io = createTerminalIo(vt, process.cwd());
+    try {
+      io.setHeader?.({ model: "fake/m", sessionId: "12345678", title: "" });
+      const state = initialViewState();
+      io.setBusy?.(true);
+      const items: TranscriptItem[] = [{ kind: "user", text: "audit web", streaming: false }];
+      for (let i = 1; i <= 15; i++) {
+        items.push({
+          kind: "tool",
+          text: "bash",
+          streaming: false,
+          input: { command: `ls step-${i}` },
+          result: { content: `out-${i}\nline2-${i}` },
+        });
+      }
+      items.push({
+        kind: "assistant",
+        text: "```mermaid\ngraph LR\nA-->B\n```\nstreaming...",
+        streaming: true,
+      });
+      state.runs.push({ running: true, items });
+      io.render(state);
+      await vt.waitForRender();
+      await new Promise((r) => setTimeout(r, 60));
+      // Settled tool steps before a streaming mermaid block must still enter scrollback.
+      expect(vt.getScrollBuffer().join("\n")).toContain("step-1");
+
+      // Resize while mermaid is streaming AND tall Todo chrome leaves available === 0!
+      state.todoItems = Array.from({ length: 6 }, (_, i) => ({
+        id: `t${i}`,
+        text: `task ${i}`,
+        status: i === 0 ? "in_progress" : "pending",
+      }));
+      vt.resize(84, 12);
+      await vt.waitForRender();
+      await new Promise((r) => setTimeout(r, 80));
+      expect(vt.getScrollBuffer().join("\n")).toContain("step-1");
+
+      // Clearing transient "memory: learning…" via empty text must NOT emit CSI 2J.
+      io.setBusy?.(false);
+      state.todoItems = [];
+      state.runs[0]!.running = false;
+      for (const it of state.runs[0]!.items) it.streaming = false;
+      state.runs.push({
+        running: false,
+        items: [{ kind: "status", text: "memory: learning…", streaming: false }],
+      });
+      io.render(state);
+      await vt.waitForRender();
+      await new Promise((r) => setTimeout(r, 60));
+      writes.length = 0;
+      state.runs[1] = {
+        running: false,
+        items: [{ kind: "status", text: "", streaming: false }],
+      };
+      io.render(state);
+      await vt.waitForRender();
+      await new Promise((r) => setTimeout(r, 60));
+      expect(writes.join("")).not.toContain("\x1b[2J");
+      expect(vt.getScrollBuffer().join("\n")).toContain("step-1");
+    } finally {
+      io.close();
+    }
+  });
+
   test("live & cumulative token usage grows across turns using real API usage anchor", async () => {
     const dir = mkdtempSync(join(tmpdir(), "oma-tui-usage-"));
     const savedSess = process.env.OMA_SESSION_DIR;

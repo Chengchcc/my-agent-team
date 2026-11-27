@@ -257,7 +257,7 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       );
 
       await typeAndSubmit(vt, "fail a tool");
-      await vt.waitForRender();
+      await waitForText(vt, "✘", 5_000);
       const rendered = screen(vt);
       // Error marker (pi's toolErrorBg equivalent) + the failing command.
       expect(rendered).toContain("✘");

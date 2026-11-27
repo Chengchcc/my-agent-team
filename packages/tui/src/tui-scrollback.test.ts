@@ -125,6 +125,32 @@ describe("TUI provider native scrollback", () => {
     expect(scroll).toContain("H0-0123");
   });
 
+  test("width change never purges scrollback with CSI 3 J when no replay rows are offered", async () => {
+    const vt = new VirtualTerminal(20, 5);
+    const tui = new TUI(vt);
+    let frame = 0;
+    tui.setFrameProvider({
+      renderFrame() {
+        frame++;
+        if (frame === 1)
+          return {
+            viewport: ["V0", "V1", "V2", "V3", "V4"],
+            history: { id: 1, rows: ["H0", "H1"] },
+          };
+        return { viewport: ["V0", "V1", "V2", "V3", "V4"] };
+      },
+      acknowledgeHistory() {},
+    });
+    tui.start();
+    while (frame < 2) await vt.waitForRender();
+    expect(vt.getScrollBuffer().some((l) => l.includes("H0"))).toBe(true);
+
+    // Resize where provider offers no history replay — existing scrollback must survive.
+    vt.resize(15, 5);
+    while (frame < 3) await vt.waitForRender();
+    expect(vt.getScrollBuffer().some((l) => l.includes("H0"))).toBe(true);
+  });
+
   test("stop() flushes the frame provider (not only root children)", async () => {
     const vt = new VirtualTerminal(20, 5);
     const tui = new TUI(vt);
